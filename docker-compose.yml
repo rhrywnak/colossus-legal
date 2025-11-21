@@ -1,0 +1,30 @@
+version: "3.9"
+
+services:
+  backend:
+    build: ./backend
+    container_name: colossus-legal-backend
+    environment:
+      RUST_LOG: info
+      NEO4J_URI: "bolt://10.10.100.50:7687"
+      NEO4J_USER: "neo4j"
+      NEO4J_PASSWORD: "Drwho2010$"
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./backend:/app
+      - ./uploads:/app/uploads
+      - ./extracted_text:/app/extracted_text
+      - ./exports:/app/exports
+
+  frontend:
+    build: ./frontend
+    container_name: colossus-legal-frontend
+    environment:
+      VITE_API_URL: "http://localhost:3000"
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+    depends_on:
+      - backend
