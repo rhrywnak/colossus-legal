@@ -20,6 +20,7 @@ struct StatusResponse {
     status: &'static str,
 }
 
+#[allow(dead_code)]
 async fn health_check() -> &'static str {
     "OK"
 }
@@ -86,12 +87,10 @@ async fn main() {
     // - /api/status
     // - everything from api::router()
     let app = Router::new()
-        .route("/health", get(health_check))
         .route("/api/status", get(api_status))
         .merge(api::router())
         .layer(cors)
         .with_state(state);
-
     tracing::info!("Starting colossus-legal backend on http://{}", addr);
 
     let listener = TcpListener::bind(addr)
