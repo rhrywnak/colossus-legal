@@ -3,29 +3,27 @@
 This file defines all high-level tasks for the Colossus-Legal project.  
 You + ChatGPT act as **Architects / PMs**, and Codex is the **implementing engineer**.
 
-Codex tasks should reference this file **and** `AGENTS.md` when generating code.
+Codex tasks should reference this file **and** `CODEX.md` when generating code.
 
 ---
 
 # Task Tracker – Post-Reset Baseline (Nov 2025)
 
-> NOTE: This tracker was originally written before the Git/WIP reset and Codex refactor.
-> The original tasks below are preserved as history. The **New Baseline Plan** reflects
-> the current reality after creating the WIP branch and rebuilding `main`.
+> This document was partially written before the major reset and stabilization.
+> The original tasks remain as history. This new baseline reflects the current
+> stable state of the repository.
 
-## New Baseline Plan
+## New Baseline Tasks
 
-- [x] Capture all Codex changes in WIP branch `wip/codex-refactor-2025-11`
-- [x] Reset `main` to clean history and rebuild backend to a compiling baseline
-- [ ] Define and document backend v1 surface (endpoints, data model)
-- [ ] Reintroduce first real API feature (e.g., Claims API v1) from WIP in a dedicated branch
-- [ ] Bootstrap frontend from WIP and reconnect it to the new backend surface
-- [ ] Review and tighten AGENTS.md / Codex workflow to prevent repo-wide refactors
+- [x] Create WIP snapshot (`wip/codex-refactor-2025-11`)
+- [x] Reset `main` to clean foundation
+- [x] Stabilize backend to minimal compiling baseline (/health ok)
+- [ ] Define initial Backend API surface (Claims v1)
+- [ ] Reintroduce Mongo/Neo4j/Repo logic in structured feature branches
+- [ ] Bootstrap frontend into stable, compiling shape
+- [ ] Rebuild end-to-end workflow in small steps
 
 ## Historical Tasks (Pre-Reset)
-
-<!-- existing content from old TASK_TRACKER stays below -->
-
 
 # Phase 0 — Wiring & Bring-Up (Smoke Test)
 
