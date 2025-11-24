@@ -10,7 +10,7 @@ services:
       NEO4J_USER: "neo4j"
       NEO4J_PASSWORD: "Drwho2010$"
     ports:
-      - "3000:3000"
+      - "3403:3403"
     volumes:
       - ./backend:/app
       - ./uploads:/app/uploads
@@ -23,7 +23,7 @@ services:
     environment:
       VITE_API_URL: "http://localhost:3000"
     ports:
-      - "5173:5173"
+      - "5473:5473"
     volumes:
       - ./frontend:/app
     depends_on:
