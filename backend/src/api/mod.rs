@@ -7,13 +7,13 @@ use axum::{
 
 use crate::state::AppState;
 
-/// Minimal API router for the backend.
+/// Minimal API router.
 ///
-/// For now, we keep this intentionally small: a single health
-/// check endpoint. All of the more complex Codex-generated routes
-/// are preserved in the WIP branch (`wip/codex-refactor-2025-11`)
-/// and can be reintroduced later in small, well-designed steps.
-pub fn create_router() -> Router<AppState> {
+/// We intentionally expose only a health check here. All of the
+/// original Codex-generated routes and logic are preserved in the
+/// `wip/codex-refactor-2025-11` branch and can be reintroduced later
+/// in small, well-structured feature branches.
+pub fn router() -> Router<AppState> {
     Router::new().route("/health", get(health_check))
 }
 
@@ -22,3 +22,4 @@ async fn health_check(
 ) -> (StatusCode, &'static str) {
     (StatusCode::OK, "OK")
 }
+
