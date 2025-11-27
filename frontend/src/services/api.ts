@@ -4,9 +4,10 @@ export type StatusResponse = {
     status: string;
 };
 
+export const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:3403";
+
 export async function getStatus(): Promise<StatusResponse> {
-    const baseUrl = import.meta.env.VITE_API_URL || "http://localhost:3403";
-    const response = await fetch(`${baseUrl}/api/status`);
+    const response = await fetch(`${API_BASE_URL}/api/status`);
 
     if (!response.ok) {
         throw new Error(`Status request failed with ${response.status}`);

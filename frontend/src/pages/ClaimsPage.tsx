@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Claim, getClaimsStub } from "../services/claims";
+import { Claim, getClaims } from "../services/claims";
 
 const ClaimsPage: React.FC = () => {
   const [claims, setClaims] = useState<Claim[]>([]);
@@ -11,7 +11,7 @@ const ClaimsPage: React.FC = () => {
 
     const loadClaims = async () => {
       try {
-        const data = await getClaimsStub();
+        const data = await getClaims();
         if (!active) return;
         setClaims(data);
         setError(null);
@@ -48,7 +48,7 @@ const ClaimsPage: React.FC = () => {
   return (
     <div>
       <h2>Claims</h2>
-      <p>Stubbed data shown while backend integration is in progress.</p>
+      <p>Showing claims from backend.</p>
       <ul style={{ paddingLeft: "1.25rem" }}>
         {claims.map((claim) => (
           <li key={claim.id} style={{ marginBottom: "0.5rem" }}>

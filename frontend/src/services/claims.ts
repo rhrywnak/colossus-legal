@@ -1,3 +1,5 @@
+import { API_BASE_URL } from "./api";
+
 export type Claim = {
   id: string;
   title: string;
@@ -19,6 +21,27 @@ const stubClaims: Claim[] = [
     status: "pending",
   },
 ];
+
+export async function getClaims(): Promise<Claim[]> {
+  const response = await fetch(`${API_BASE_URL}/claims`);
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch claims: ${response.status}`);
+  }
+
+  let data: unknown;
+  try {
+    data = await response.json();
+  } catch (error) {
+    throw new Error("Failed to parse claims response");
+  }
+
+  if (!Array.isArray(data)) {
+    throw new Error("Invalid claims response shape");
+  }
+
+  return data as Claim[];
+}
 
 export async function getClaimsStub(): Promise<Claim[]> {
   // Simulate async fetch; can be extended to throw for error-state testing.
