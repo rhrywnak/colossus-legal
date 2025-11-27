@@ -168,15 +168,17 @@ For full workflow details, see `docs/WORKFLOW.md`.
 
 ---
 
-### T2.2b — Claims UI L1 (Real API Integration + Basic Tests)  
-- **Status:** FUTURE  
-- **Layer:** L1  
-- **Persona:** FrontendAgent  
-- **Acceptance Criteria:**  
-  - ClaimsPage calls real backend `/claims`.  
-  - Shows loading, empty, success, and error states.  
-  - **Vitest tests exist for services and/or page.**  
+### T2.2b — Claims UI L1 (Real API Integration + Basic Tests)
+- **Status:** DONE (2025-11-27)
+- **Layer:** L1
+- **Persona:** FrontendAgent
+- **Acceptance Criteria:**
+  - ClaimsPage calls real backend `/claims`.
+  - Shows loading, empty, success, and error states.
+  - **Vitest tests exist for services and/or page.**
 - **Task Doc:** `docs/tasks/T2.2b_Claims_UI_L1.md`.
+- **Notes:** ClaimsPage now calls real `/claims`; loading/empty/success/error states verified; Vitest service
+  tests in `frontend/src/services/__tests__/claims.test.ts` pass; `npm run test` and `npm run build` pass.
 
 ---
 
