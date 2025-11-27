@@ -1,6 +1,6 @@
 import React from "react";
 import { Link, Route, Routes } from "react-router-dom";
-import Claims from "./pages/Claims";
+import ClaimsPage from "./pages/ClaimsPage";
 import Decisions from "./pages/Decisions";
 import Documents from "./pages/Documents";
 import Evidence from "./pages/Evidence";
@@ -46,7 +46,7 @@ const App: React.FC = () => {
       <main>
         <Routes>
           <Route path="/" element={<Home />} />
-          <Route path="/claims" element={<Claims />} />
+          <Route path="/claims" element={<ClaimsPage />} />
           <Route path="/documents" element={<Documents />} />
           <Route path="/evidence" element={<Evidence />} />
           <Route path="/people" element={<People />} />
