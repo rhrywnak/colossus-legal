@@ -45,6 +45,27 @@ Possible `status` values:
 
 ## 2. Claims API (v1 – planned)
 
+### Current endpoints (L1/L2 implemented)
+
+- `GET /claims`
+  - **Response 200:** `Claim[]` where each claim has `{ id, title, description?, status }`.
+- `GET /claims/{id}`
+  - **Response 200:** `Claim` if found.
+  - **Response 404:** `{ error: "not_found", message, details: {} }` if missing.
+- `POST /claims`
+  - **Request:** `{ title: string, description?: string, status: "open" | "closed" | "refuted" | "pending" }`
+  - **Response 201:** Created `Claim` with generated `id`.
+  - **Response 400:** `{ error: "validation_error", message, details: { field: "title" | "status" } }` for empty title or invalid status.
+- `PUT /claims/{id}`
+  - **Request:** Partial update `{ title?: string, description?: string, status?: "open" | "closed" | "refuted" | "pending" }`
+  - **Response 200:** Updated `Claim` if found.
+  - **Response 400:** `{ error: "validation_error", ... }` for invalid fields (empty title, bad status).
+  - **Response 404:** `{ error: "not_found", ... }` if the claim does not exist.
+
+### Error shape (implemented)
+
+Structured errors use JSON: `{ "error": "validation_error" | "not_found" | "internal_error", "message": "...", "details": {} | { field: "..." } }` with status codes 400/404/500 respectively.
+
 The Claims API is the first full domain surface we will build.
 
 ### 2.1 Data Shapes

@@ -47,3 +47,16 @@ Testing is incremental with the layers:
 - L0: tests optional (compile and wiring are the target).
 - L1: tests required for core data flows.
 - L2/L3: tests required for validation, analysis, and complex UX.
+
+### Claims end-to-end verification checklist (L1/L2 slice)
+
+1) Ensure Neo4j dev/test is running and configured via `backend/.env` (do not run tests against production data).
+2) Start backend: `cargo run --manifest-path backend/Cargo.toml`.
+3) Start frontend: `npm run dev` in `frontend/`.
+4) Visit `/claims` in the browser:
+   - Loading → empty state if no data.
+   - Success state shows Claim items from backend.
+   - Error state if backend is unreachable.
+5) Optional verification commands:
+   - Backend: `cargo test --tests --manifest-path backend/Cargo.toml` (uses test markers `source: "test"`, `test_run_id`).
+   - Frontend: `npm run test` and `npm run build`.

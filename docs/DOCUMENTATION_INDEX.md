@@ -39,6 +39,11 @@ These define how the system is structured and how components talk to each other.
 - **docs/DATA_MODEL.md**  
   Neo4j schema (nodes, relationships, properties) with example Cypher queries and subgraphs.
 
+**Phase 2 / Claims references**
+- Claims API/flow docs: `docs/API_DESIGN.md` (Claims endpoints, errors), `docs/ARCHITECTURE.md` (Claims v1 end-to-end).
+- Roadmap: `docs/PHASE_PLAN.md` (Phase 2 status and remaining tasks).
+- Tasks: `docs/tasks/T2.1a_Claims_API_L0.md`, `docs/tasks/T2.1b_Claims_API_L1.md`, `docs/tasks/T2.1c_Claims_API_L2_Validation.md`, `docs/tasks/T2.2a_Claims_UI_L0.md`, `docs/tasks/T2.2b_Claims_UI_L1.md`, `docs/tasks/T2.3_Claims_Integration.md` (if present).
+
 ---
 
 ## 3. Implementation & Tasks Layer

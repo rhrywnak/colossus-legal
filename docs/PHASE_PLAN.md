@@ -48,6 +48,8 @@ Exit Criteria:
 
 Focus: Implement real Claims API and UI.
 
+**Current status (slice integrated):** Claims v1 slice is usable end-to-end (backend Claims API L1–L2 + frontend Claims UI L1). Remaining Phase 2 items (e.g., T2.1d analysis endpoints, richer relationships/UX) are still FUTURE.
+
 ### Backend
 - Implement Claims repository with Neo4j queries.
 - Add:

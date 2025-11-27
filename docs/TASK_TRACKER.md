@@ -186,7 +186,7 @@ in `backend/tests/claims_validation.rs` cover invalid payloads, missing IDs, and
 ---
 
 ### T2.3 — Claims End-to-End Integration + Docs Update  
-- **Status:** PLANNED  
+- **Status:** DONE (2025-11-27)  
 - **Layer:** L1  
 - **Persona:** DocsAgent (verifying backend + frontend)  
 - **Acceptance Criteria:**  
@@ -194,7 +194,8 @@ in `backend/tests/claims_validation.rs` cover invalid payloads, missing IDs, and
   - TASK_TRACKER updated.  
   - PHASE_PLAN updated.  
   - No new warnings or build errors.  
-- **Task Doc:** `docs/tasks/T2.3_Claims_Integration.md` (or TBD).
+- **Task Doc:** `docs/tasks/T2.3_Claims_Integration.md` (or TBD).  
+- **Notes:** Claims v1 end-to-end (API L1–L2 + UI L1) verified and documented; PHASE_PLAN, ARCHITECTURE, API_DESIGN, DEV_ONBOARDING, and DOCUMENTATION_INDEX updated; verification checklist added.
 
 ---
 

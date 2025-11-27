@@ -180,6 +180,15 @@ This is a worked example that matches the architecture described above.
 
 This pattern (DTO → repository → handler → router) is the template for all future endpoints.
 
+### Claims v1 end-to-end (L1/L2)
+
+- **Data:** Claim nodes in Neo4j (id, title, description, status).
+- **Backend:** ClaimRepository queries/creates/updates nodes; Axum handlers (`/claims`, `/claims/{id}`, POST/PUT) validate input (non-empty title, allowed status) and map domain errors to structured JSON errors.
+- **DTOs:** `ClaimDto` mirrors the domain fields (id, title, description, status) for responses; create/update requests accept title/description/status.
+- **Errors:** Handlers return `{ "error": "validation_error" | "not_found" | "internal_error", "message": "...", "details": {}|{field:"..."} }` with 400/404/500 as applicable.
+- **Frontend:** `getClaims` in `frontend/src/services/claims.ts` calls the backend `/claims`; `ClaimsPage` renders loading, error, empty, and success states from that data.
+- **Flow:** Neo4j → ClaimRepository → Axum claims handlers → DTO JSON → frontend service → ClaimsPage UI.
+
 ---
 
 ## 3. Frontend Architecture (React / Vite / TypeScript)

@@ -1,0 +1,253 @@
+# Colossus-Legal — TASK_TRACKER_V2.md
+
+This is the **improved task tracker** for Colossus-Legal.
+
+It keeps the original Phase/Task structure (T0.x, T1.x, T2.x, …) and adds:
+
+- Status (DONE / IN_PROGRESS / PLANNED / FUTURE / BLOCKED)
+- Layer (L0–L3, when applicable)
+- Suggested Agent persona
+- Suggested branch name
+- Acceptance criteria (for active/future tasks)
+
+For full workflow details, see `docs/WORKFLOW.md`.
+
+---
+
+## Status Codes
+
+- `DONE` — Task complete.
+- `IN_PROGRESS` — Actively being implemented.
+- `PLANNED` — Approved and queued.
+- `FUTURE` — Not scheduled yet.
+- `BLOCKED` — Cannot proceed (dependency or external issue).
+
+---
+
+# Phase 0 — Wiring & Bring-Up (Smoke Test)
+
+> **Goal:** Ensure the project runs end-to-end before implementing features.
+
+### T0.1 — Add `/api/status` Endpoint (Backend)  
+- **Status:** DONE (2025-11-22)  
+- **Layer:** L0  
+- **Persona:** BackendAgent  
+- **Branch:** N/A (historical)  
+- **Summary:** Add GET `/api/status` returning `{ app, version, status }`.  
+- **Acceptance:** Backend responds 200 OK with correct JSON.
+
+### T0.2 — Frontend Status Panel  
+- **Status:** DONE (2025-11-22)  
+- **Layer:** L0  
+- **Persona:** FrontendAgent  
+- **Summary:** Frontend uses `/api/status` and displays backend health in UI.
+
+### T0.3 — Dev CORS between frontend and backend  
+- **Status:** DONE (2025-11-22)  
+
+---
+
+# Phase 1 — Foundations & Manual Workflow
+
+> **Goal:** Backend + Frontend minimal foundations (no real Neo4j yet).
+
+### T1.1 — Backend Skeleton  
+- **Status:** DONE  
+- **Layer:** L0  
+- **Persona:** BackendAgent  
+- **Summary:** Axum server with `/health` and logging.
+
+### T1.2 — Core Models & DTOs (Backend)  
+- **Status:** DONE (2025-11-22)  
+- **Layer:** L0/L1 (initial)  
+- **Persona:** BackendAgent  
+
+### T1.3 — Basic CRUD Endpoints (Stubbed)  
+- **Status:** DONE (2025-11-22)  
+- **Layer:** L0  
+- **Persona:** BackendAgent  
+
+### T1.4 — Frontend Skeleton Pages  
+- **Status:** DONE (2025-11-22)  
+- **Layer:** L0  
+- **Persona:** FrontendAgent  
+
+### T1.5 — Backend Dev Env Configuration (Runtime Readiness)  
+- **Status:** DONE  
+- **Layer:** L0  
+- **Persona:** BackendAgent + DocsAgent  
+- **Summary:**  
+  - Decide how backend env vars are configured in dev (dotenv vs shell exports).  
+  - Ensure `cargo run` works without env-var panics.  
+  - Document the process clearly in DEV_ONBOARDING.md.  
+- **Task Doc:** `docs/tasks/T1.5_Dev_Env_Config.md` (once placed there).
+  - **Notes:** Uses `backend/.env` loaded by `dotenvy`; copy `backend/.env.example`, set Neo4j credentials, and `cargo run` should start without env var panics.
+
+---
+
+# Phase 2 — Claims API v1 (Current Focus)
+
+> **Goal:** Build a real, layered Claims feature (API + UI), breadth-first.
+
+### T2.1a — Claims API L0 (Skeleton Routes + Stubs, Compile-Only)  
+- **Status:** DONE (2025-11-24, compile-level)  
+- **Layer:** L0  
+- **Persona:** BackendAgent  
+- **Suggested Branch:** `feature/T2.1a-claims-api-l0`  
+- **Acceptance Criteria:**  
+  - `GET /claims` exists and compiles. ✔  
+  - Returns stubbed `ClaimDto` list (or empty array). ✔  
+  - Does not touch Neo4j yet. ✔  
+  - Runtime execution (`cargo run` + `curl /claims`) is deferred to T1.5 (dev-env task).  
+- **Task Doc:** `docs/tasks/T2.1a_Claims_API_L0.md`.
+
+### T2.1b — Claims API L1 (Real Neo4j List, Happy Path)  
+- **Status:** PLANNED  
+- **Layer:** L1  
+- **Persona:** BackendAgent  
+- **Suggested Branch:** `feature/T2.1b-claims-api-l1` (or reuse feature/T2.1a-claims-api-l0).  
+- **Acceptance Criteria:**  
+  - `GET /claims` uses Neo4j to return `Claim` nodes.  
+  - Happy path works end-to-end (no stubs).  
+- **Task Doc:** `docs/tasks/T2.1b_Claims_API_L1.md`.
+
+### T2.1c — Claims API L2 (Validation & Errors)  
+- **Status:** FUTURE  
+- **Layer:** L2  
+- **Persona:** BackendAgent  
+- **Summary:**  
+  - Add validation for input payloads.  
+  - Return consistent error responses (400/404/500).  
+
+### T2.1d — Claims API L3 (Analysis)  
+- **Status:** FUTURE  
+- **Layer:** L3  
+- **Persona:** BackendAgent  
+- **Summary:**  
+  - Add analysis endpoints like `/analysis/refuted-claims`, `/analysis/paths/{claim_id}`.  
+
+---
+
+### T2.2a — Claims UI L0 (Skeleton Page + Stub Service)  
+- **Status:** PLANNED  
+- **Layer:** L0  
+- **Persona:** FrontendAgent  
+- **Suggested Branch:** `feature/T2.2a-claims-ui-l0`  
+- **Acceptance Criteria:**  
+  - `/claims` route exists in frontend.  
+  - ClaimsPage uses `getClaimsStub()` from `services/claims.ts`.  
+  - Loading/empty/error states are implemented.  
+- **Task Doc:** `docs/tasks/T2.2a_Claims_UI_L0.md`.
+
+### T2.2b — Claims UI L1 (Real API Integration)  
+- **Status:** FUTURE  
+- **Layer:** L1  
+- **Persona:** FrontendAgent  
+- **Summary:**  
+  - Wire ClaimsPage to real `GET /claims` endpoint.  
+  - Ensure error states still behave correctly.  
+
+### T2.2c — Claims UI L2+ (Validation/UX)  
+- **Status:** FUTURE  
+- **Layer:** L2/L3  
+- **Persona:** FrontendAgent  
+
+---
+
+### T2.3 — Claims End-to-End Integration + Docs Update  
+- **Status:** PLANNED  
+- **Layer:** L1 (initial)  
+- **Persona:** DocsAgent (with backend/frontend verification)  
+- **Acceptance Criteria:**  
+  - Backend + frontend integration verified manually (including Claims).  
+  - TASK_TRACKER_V2 updated with execution notes.  
+  - PHASE_PLAN.md updated to reflect progress of Phase 2.  
+  - No new warnings or build errors introduced.  
+- **Task Doc:** `docs/T2.3_Claims_Integration.md` or under `docs/tasks/`.
+
+---
+
+# Phase 3 — Core Graph (Documents/Evidence/People/Hearings/Decisions)
+
+> **Goal:** Expand core graph nodes with CRUD + minimal UI.
+
+These mirror the Claims layering pattern; all are FUTURE.
+
+### T3.1 — Document API + UI (L0–L1)  
+- **Status:** FUTURE  
+
+### T3.2 — Evidence API + UI (L0–L1)  
+- **Status:** FUTURE  
+
+### T3.3 — Person API + UI (L0–L1)  
+- **Status:** FUTURE  
+
+### T3.4 — Hearing API + UI (L0–L1)  
+- **Status:** FUTURE  
+
+### T3.5 — Decision API + UI (L0–L1)  
+- **Status:** FUTURE  
+
+---
+
+# Phase 4 — Relationship APIs & Basic Analysis
+
+> **Goal:** Connect the graph and enable baseline insights.
+
+### T4.1 — Relationship Endpoints (APPEARS_IN, RELIES_ON, ...)  
+- **Status:** FUTURE  
+
+### T4.2 — Analysis: Refuted Claims, Paths, Timeline  
+- **Status:** FUTURE  
+
+---
+
+# Phase 5 — Document Upload & Text Extraction
+
+> **Goal:** Get real data into the system.
+
+### T5.1 — File Upload Endpoint  
+- **Status:** FUTURE  
+
+### T5.2 — Text Extraction (PDF, DOCX, OCR)  
+- **Status:** FUTURE  
+
+### T5.3 — Upload UI  
+- **Status:** FUTURE  
+
+---
+
+# Phase 6 — AI Suggestion Pipeline
+
+> **Goal:** Add AI-assisted analysis and suggestions.
+
+### T6.1 — LLM Service Integration  
+- **Status:** FUTURE  
+
+### T6.2 — AI Suggestion Model & Graph Integration  
+- **Status:** FUTURE  
+
+---
+
+# Phase 7 — Reporting & Visualization
+
+> **Goal:** Make the system pleasant and powerful to use.
+
+### T7.1 — PDF/Doc Export  
+- **Status:** FUTURE  
+
+### T7.2 — Graph Views & Timelines  
+- **Status:** FUTURE  
+
+### T7.3 — UX Polish, Error Handling, Auto-Save  
+- **Status:** FUTURE  
+
+---
+
+# Notes
+
+- This V2 tracker is intended to replace the older TASK_TRACKER once you are satisfied.
+- For execution details per task, always consult the corresponding `docs/tasks/*.md` files.
+- All work must follow `docs/WORKFLOW.md` and `AGENTS.md`.
+
+# End of TASK_TRACKER_V2.md
