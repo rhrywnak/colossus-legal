@@ -130,15 +130,18 @@ For full workflow details, see `docs/WORKFLOW.md`.
 
 ---
 
-### T2.1c — Claims API L2 (Validation & Error Handling)  
-- **Status:** FUTURE  
-- **Layer:** L2  
-- **Persona:** BackendAgent  
-- **Acceptance Criteria:**  
-  - Invalid payloads return structured 400 errors.  
-  - Non-existent IDs return 404.  
-  - Tests cover success + error cases.  
+### T2.1c — Claims API L2 (Validation & Error Handling)
+- **Status:** DONE (2025-11-27)
+- **Layer:** L2
+- **Persona:** BackendAgent
+- **Acceptance Criteria:**
+  - Invalid payloads return structured 400 errors.
+  - Non-existent IDs return 404.
+  - Tests cover success + error cases.
 - **Task Doc:** `docs/tasks/T2.1c_Claims_API_L2_Validation.md`.
+- **Notes:** Added title/status validation and structured 400/404/500 responses for Claims; new integration tests
+in `backend/tests/claims_validation.rs` cover invalid payloads, missing IDs, and happy path; `cargo test` and
+`cargo check` pass.
 
 ---
 
@@ -249,8 +252,7 @@ All FUTURE.
 
 # Notes
 
-- This V2 tracker is intended to replace the older TASK_TRACKER once you approve it.
 - All tasks must follow AGENTS.md + WORKFLOW.md.
 - All L1+ tasks require tests.
 
-# End of TASK_TRACKER_V2.md
+# End of TASK_TRACKER.md

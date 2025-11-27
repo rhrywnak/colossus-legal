@@ -1,11 +1,12 @@
 use axum::{
     extract::State,
     http::StatusCode,
-    routing::get,
+    routing::{get, post, put},
     Router,
 };
 
 use crate::state::AppState;
+pub mod claims;
 
 /// Minimal API router.
 ///
@@ -14,7 +15,12 @@ use crate::state::AppState;
 /// `wip/codex-refactor-2025-11` branch and can be reintroduced later
 /// in small, well-structured feature branches.
 pub fn router() -> Router<AppState> {
-    Router::new().route("/health", get(health_check))
+    Router::new()
+        .route("/health", get(health_check))
+        .route("/claims", get(claims::list_claims))
+        .route("/claims/:id", get(claims::get_claim))
+        .route("/claims", post(claims::create_claim))
+        .route("/claims/:id", put(claims::update_claim))
 }
 
 async fn health_check(
@@ -22,4 +28,3 @@ async fn health_check(
 ) -> (StatusCode, &'static str) {
     (StatusCode::OK, "OK")
 }
-

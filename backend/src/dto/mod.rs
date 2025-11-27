@@ -5,7 +5,7 @@ pub mod evidence;
 pub mod hearing;
 pub mod person;
 
-pub use claim::{ClaimCreateRequest, ClaimUpdateRequest};
+pub use claim::{ClaimCreateRequest, ClaimDto, ClaimUpdateRequest};
 pub use decision::{DecisionCreateRequest, DecisionUpdateRequest};
 pub use document::{DocumentCreateRequest, DocumentUpdateRequest};
 pub use evidence::{EvidenceCreateRequest, EvidenceUpdateRequest};

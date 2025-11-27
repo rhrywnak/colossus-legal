@@ -6,4 +6,4 @@ pub mod models;
 pub mod neo4j;
 pub mod state;
 pub mod repositories;
-
+pub mod error;
