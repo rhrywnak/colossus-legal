@@ -11,4 +11,6 @@ pub struct Document {
     pub uploaded_at: Option<NaiveDate>,
     pub related_claim_id: Option<String>,
     pub source_url: Option<String>,
+    // REQUIRED for T3.1a
+    pub created_at: Option<String>,
 }
