@@ -153,14 +153,16 @@ This slice establishes the architectural pattern for the entire system.
 ---
 
 ### T3.2a — Document UI L0 (Skeleton)
-- **Status:** PLANNED  
+- **Status:** DONE (2025-12-03)  
 - **Layer:** L0  
 - **Persona:** FrontendAgent  
 - **Branch:** `feature/T3.2a-document-ui-l0`  
 - **Criteria:**  
-  - `/documents` route  
-  - Skeleton page  
-  - Stub service
+  - `/documents` route wired into navigation and router  
+  - `DocumentsPage` renders loading, error, empty, and success states  
+  - Stub service `frontend/src/services/documents.ts` with `getDocumentsStub()` and static data  
+  - Page uses stub data only (no real HTTP calls)  
+  - Frontend build (`npm run build`) passes
 
 ---
 
