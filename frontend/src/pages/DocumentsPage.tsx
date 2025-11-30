@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { DocumentItem, getDocumentsStub } from "../services/documents";
+import { DocumentItem, getDocuments } from "../services/documents";
 
 const DocumentsPage: React.FC = () => {
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
@@ -11,7 +11,7 @@ const DocumentsPage: React.FC = () => {
 
     const loadDocuments = async () => {
       try {
-        const data = await getDocumentsStub();
+        const data = await getDocuments();
         if (!active) return;
         setDocuments(data);
         setError(null);
@@ -48,7 +48,7 @@ const DocumentsPage: React.FC = () => {
   return (
     <div>
       <h2>Documents</h2>
-      <p>Showing stubbed documents list.</p>
+      <p>Showing documents from backend.</p>
       <ul style={{ paddingLeft: "1.25rem" }}>
         {documents.map((doc) => (
           <li key={doc.id} style={{ marginBottom: "0.75rem" }}>
