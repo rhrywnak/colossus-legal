@@ -4,8 +4,9 @@ use std::{
 };
 
 use axum::{body::to_bytes, extract::State, http::StatusCode, response::IntoResponse};
+use chrono::Utc;
 use colossus_legal_backend::{
-    api::claims::list_claims, config::AppConfig, dto::claim::ClaimDto, neo4j::create_neo4j_graph,
+    api::documents::list_documents, config::AppConfig, dto::DocumentDto, neo4j::create_neo4j_graph,
     state::AppState,
 };
 use neo4rs::{query, Graph};
@@ -21,7 +22,7 @@ fn unique_run_id() -> String {
         .duration_since(UNIX_EPOCH)
         .expect("system time")
         .as_nanos();
-    format!("t2-1b-{nanos}")
+    format!("t3-1b-{nanos}")
 }
 
 async fn setup_graph() -> TestResult<Graph> {
@@ -33,33 +34,34 @@ async fn setup_graph() -> TestResult<Graph> {
     Ok(graph)
 }
 
-async fn cleanup_claims(graph: &Graph) -> Result<(), neo4rs::Error> {
+async fn cleanup_documents(graph: &Graph) -> Result<(), neo4rs::Error> {
     let mut result = graph
         .execute(
-            query("MATCH (c:Claim {source: $source}) DETACH DELETE c").param("source", TEST_SOURCE),
+            query("MATCH (d:Document {source: $source}) DETACH DELETE d")
+                .param("source", TEST_SOURCE),
         )
         .await?;
     while result.next().await?.is_some() {}
     Ok(())
 }
 
-async fn insert_claim(
+async fn insert_document(
     graph: &Graph,
     run_id: &str,
     id: &str,
     title: &str,
-    description: Option<&str>,
-    status: &str,
+    doc_type: &str,
 ) -> Result<(), neo4rs::Error> {
+    let created_at = Utc::now().to_rfc3339();
     let mut result = graph
         .execute(
             query(
-                "CREATE (c:Claim {id: $id, title: $title, description: $description, status: $status, test_run_id: $run_id, source: $source})",
+                "CREATE (d:Document {id: $id, title: $title, doc_type: $doc_type, created_at: $created_at, test_run_id: $run_id, source: $source})",
             )
             .param("id", id)
             .param("title", title)
-            .param("description", description)
-            .param("status", status)
+            .param("doc_type", doc_type)
+            .param("created_at", created_at)
             .param("run_id", run_id)
             .param("source", TEST_SOURCE),
         )
@@ -70,70 +72,62 @@ async fn insert_claim(
 }
 
 #[tokio::test]
-async fn get_claims_returns_non_empty_when_data_exists() -> TestResult<()> {
+async fn get_documents_returns_non_empty_when_data_exists() -> TestResult<()> {
     let _guard = GRAPH_MUTEX.get_or_init(|| Mutex::new(())).lock().await;
 
     let graph = setup_graph().await?;
-    cleanup_claims(&graph).await?;
+    cleanup_documents(&graph).await?;
 
     let run_id = unique_run_id();
-    let claim_id = format!("claim-{run_id}");
-    insert_claim(
-        &graph,
-        &run_id,
-        &claim_id,
-        "Test Claim Title",
-        Some("Test claim description"),
-        "open",
-    )
-    .await?;
+    let doc_id = format!("doc-{run_id}");
+    insert_document(&graph, &run_id, &doc_id, "Test Document", "pdf").await?;
 
     let state = AppState {
         graph: graph.clone(),
     };
-    let response = list_claims(State(state)).await.into_response();
+    let response = list_documents(State(state)).await.into_response();
 
     assert_eq!(response.status(), StatusCode::OK);
     let body_bytes = to_bytes(response.into_body(), 1024 * 1024).await?;
-    let claims: Vec<ClaimDto> = serde_json::from_slice(&body_bytes)?;
+    let documents: Vec<DocumentDto> = serde_json::from_slice(&body_bytes)?;
 
     assert!(
-        !claims.is_empty(),
-        "Expected at least one claim in response"
+        !documents.is_empty(),
+        "Expected at least one document in response"
     );
 
-    let inserted = claims
+    let inserted = documents
         .iter()
-        .find(|c| c.id == claim_id)
-        .expect("inserted claim should be present");
+        .find(|d| d.id == doc_id)
+        .expect("inserted document should be present");
 
-    assert_eq!(inserted.title, "Test Claim Title");
-    assert_eq!(inserted.status, "open");
+    assert_eq!(inserted.title, "Test Document");
+    assert_eq!(inserted.doc_type, "pdf");
 
-    cleanup_claims(&graph).await?;
+    cleanup_documents(&graph).await?;
     Ok(())
 }
 
 #[tokio::test]
-async fn get_claims_returns_empty_when_no_data() -> TestResult<()> {
+async fn get_documents_returns_empty_when_no_data() -> TestResult<()> {
     let _guard = GRAPH_MUTEX.get_or_init(|| Mutex::new(())).lock().await;
 
     let graph = setup_graph().await?;
-    cleanup_claims(&graph).await?;
+    cleanup_documents(&graph).await?;
 
     let state = AppState {
         graph: graph.clone(),
     };
-    let response = list_claims(State(state)).await.into_response();
+    let response = list_documents(State(state)).await.into_response();
 
     assert_eq!(response.status(), StatusCode::OK);
     let body_bytes = to_bytes(response.into_body(), 1024 * 1024).await?;
-    let claims: Vec<ClaimDto> = serde_json::from_slice(&body_bytes)?;
+    let documents: Vec<DocumentDto> = serde_json::from_slice(&body_bytes)?;
     assert!(
-        claims.is_empty(),
-        "Expected empty claims list when graph has no Claim nodes"
+        documents.is_empty(),
+        "Expected empty documents list when no data"
     );
 
-    cleanup_claims(&graph).await?;
+    cleanup_documents(&graph).await?;
     Ok(())
 }

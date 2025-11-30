@@ -2,9 +2,9 @@ use axum::{extract::Path, extract::State, Json};
 use serde_json::json;
 
 use crate::{
-    error::AppError,
     dto::ClaimDto,
     dto::{ClaimCreateRequest, ClaimUpdateRequest},
+    error::AppError,
     models::claim::Claim,
     repositories::claim_repository::ClaimRepository,
     state::AppState,
@@ -41,16 +41,11 @@ fn to_dto(claim: Claim) -> ClaimDto {
     }
 }
 
-pub async fn list_claims(
-    State(state): State<AppState>,
-) -> Result<Json<Vec<ClaimDto>>, AppError> {
+pub async fn list_claims(State(state): State<AppState>) -> Result<Json<Vec<ClaimDto>>, AppError> {
     let repo = ClaimRepository::new(state.graph.clone());
-    let claims = repo
-        .list_claims()
-        .await
-        .map_err(|_| AppError::Internal {
-            message: "failed to list claims".to_string(),
-        })?;
+    let claims = repo.list_claims().await.map_err(|_| AppError::Internal {
+        message: "failed to list claims".to_string(),
+    })?;
 
     let dtos = claims.into_iter().map(to_dto).collect();
 

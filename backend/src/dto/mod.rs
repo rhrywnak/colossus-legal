@@ -7,6 +7,7 @@ pub mod person;
 
 pub use claim::{ClaimCreateRequest, ClaimDto, ClaimUpdateRequest};
 pub use decision::{DecisionCreateRequest, DecisionUpdateRequest};
+pub use document::DocumentDto;
 pub use document::{DocumentCreateRequest, DocumentUpdateRequest};
 pub use evidence::{EvidenceCreateRequest, EvidenceUpdateRequest};
 pub use hearing::{HearingCreateRequest, HearingUpdateRequest};

@@ -93,12 +93,7 @@ async fn main() {
         .with_state(state);
     tracing::info!("Starting colossus-legal backend on http://{}", addr);
 
-    let listener = TcpListener::bind(addr)
-        .await
-        .expect("Failed to bind port");
+    let listener = TcpListener::bind(addr).await.expect("Failed to bind port");
 
-    axum::serve(listener, app)
-        .await
-        .expect("Server error");
+    axum::serve(listener, app).await.expect("Server error");
 }
-

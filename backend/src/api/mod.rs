@@ -7,6 +7,7 @@ use axum::{
 
 use crate::state::AppState;
 pub mod claims;
+pub mod documents;
 
 /// Minimal API router.
 ///
@@ -21,10 +22,9 @@ pub fn router() -> Router<AppState> {
         .route("/claims/:id", get(claims::get_claim))
         .route("/claims", post(claims::create_claim))
         .route("/claims/:id", put(claims::update_claim))
+        .route("/documents", get(documents::list_documents))
 }
 
-async fn health_check(
-    State(_state): State<AppState>,
-) -> (StatusCode, &'static str) {
+async fn health_check(State(_state): State<AppState>) -> (StatusCode, &'static str) {
     (StatusCode::OK, "OK")
 }

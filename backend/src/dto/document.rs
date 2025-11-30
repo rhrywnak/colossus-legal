@@ -1,6 +1,27 @@
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 
+use crate::models::document::Document;
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct DocumentDto {
+    pub id: String,
+    pub title: String,
+    pub doc_type: String,
+    pub created_at: Option<String>,
+}
+
+impl From<Document> for DocumentDto {
+    fn from(doc: Document) -> Self {
+        Self {
+            id: doc.id,
+            title: doc.title,
+            doc_type: doc.doc_type.unwrap_or_default(),
+            created_at: doc.created_at,
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct DocumentCreateRequest {
     pub id: Option<String>,

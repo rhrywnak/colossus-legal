@@ -1,6 +1,6 @@
+use crate::config::AppConfig;
 use neo4rs::{Graph, Query};
 use tracing::info;
-use crate::config::AppConfig;
 
 //
 // Create the Graph connection from the environment config

@@ -56,10 +56,7 @@ impl ClaimRepository {
         Ok(claims)
     }
 
-    pub async fn get_claim_by_id(
-        &self,
-        id: &str,
-    ) -> Result<Claim, ClaimRepositoryError> {
+    pub async fn get_claim_by_id(&self, id: &str) -> Result<Claim, ClaimRepositoryError> {
         let mut result = self
             .graph
             .execute(query("MATCH (c:Claim {id: $id}) RETURN c").param("id", id))
