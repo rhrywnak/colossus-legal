@@ -1,247 +1,262 @@
 # Colossus-Legal — TASK TRACKER
 A structured task index for Codex, ChatGPT, and human contributors.
-This tracker defines all phases and tasks in order, with Layers (L0–L3), Personae, branch patterns, and acceptance criteria.
+This tracker defines all phases (0–9), tasks, layers (L0–L3), personae, branch patterns, statuses, and acceptance criteria.
 
 It supports:
-- Codex planning/execution prompts  
-- Branching workflow  
-- AGENTS.md persona/layer constraints  
-- Phase progression discipline (0 → 1 → 2 → 3)
+- Codex planning/execution prompts
+- Branching workflow
+- Persona-layer constraints (AGENTS.md)
+- Breadth-first layered development (WORKFLOW.md)
 
 ---
 
 # Phase 0 — Project Initialization
 
-> **Goal:** Establish minimum scaffolding, repo structure, high-level architecture docs, and baseline developer workflow.
+> **Goal:** Establish scaffolding, docs, workflow, and Codex safety rules.
 
 ### T0.1 — Repository Bootstrap
-- **Status:** DONE  
-- **Persona:** DocsAgent  
-- **Description:** Initialize repository, folders, README, docs directory.
-- **Acceptance Criteria:** GitHub repo live, basic README, empty backend/frontend dirs.
+- **Status:** DONE
+- **Persona:** DocsAgent
+- **Criteria:** Repo created; README + docs folder.
 
 ### T0.2 — Architecture & Workflow Docs
-- **Status:** DONE  
-- **Persona:** DocsAgent  
-- **Description:** Produce ARCHITECTURE.md, WORKFLOW.md, DEV_ONBOARDING.md, DATA_MODEL.md, API_DESIGN.md.
-- **Acceptance Criteria:** Docs created and usable by Codex; Phase 1 can start.
+- **Status:** DONE
+- **Persona:** DocsAgent
+- **Criteria:** ARCHITECTURE.md, WORKFLOW.md, API_DESIGN.md, DATA_MODEL.md present.
 
-### T0.3 — Codex Safety Bundle & Process
-- **Status:** DONE  
-- **Persona:** DocsAgent  
-- **Description:** Create CODEx-SESSION-RULES.md, CODEx-CHECKLIST.md, CODEx-PROMPT-TEMPLATE, session bootstrap procedure.
-- **Acceptance Criteria:** Safety bundle stored in `docs/`, referenced by agents, used by all sessions.
+### T0.3 — Codex Safety Bundle
+- **Status:** DONE
+- **Persona:** DocsAgent
+- **Criteria:** CODEx-SESSION-RULES.md, CODEx-CHECKLIST.md, CODEX-PROMPT-TEMPLATE.txt.
 
 ---
 
-# Phase 1 — Backend & Frontend Bootstrap
+# Phase 1 — Foundations (Backend + Frontend Bootstrap)
 
-> **Goal:** Operational Rust backend (Axum + Neo4j), React/Tailwind frontend skeleton, routing, initial DTOs.
+> **Goal:** Minimal working backend + minimal working frontend.
 
-### T1.1 — Backend Bootstrap (Rust + Axum)
-- **Status:** DONE  
-- **Persona:** BackendAgent  
-- **Criteria:** `/health` works; server boots; AppState; logging.
+### T1.1 — Backend Skeleton (Axum)
+- **Status:** DONE
+- **Layer:** L0
+- **Persona:** BackendAgent
+- **Criteria:** `/health` endpoint, logging, AppState.
 
 ### T1.2 — Neo4j Integration & Test Harness
-- **Status:** DONE  
-- **Persona:** BackendAgent  
-- **Criteria:** Driver setup; AppState includes Neo4j driver; minimal test harness touches DB.
+- **Status:** DONE
+- **Persona:** BackendAgent
+- **Criteria:** Neo4j driver + integration test harness.
 
-### T1.3 — Frontend Bootstrap (React + Vite)
-- **Status:** DONE  
-- **Persona:** FrontendAgent  
-- **Criteria:** SPA routing; dev server builds; basic layout.
+### T1.3 — Frontend Skeleton (React/Vite)
+- **Status:** DONE
+- **Persona:** FrontendAgent
+- **Criteria:** SPA routing, dev server works.
+
+### T1.5 — Backend Dev Env Configuration (Runtime Readiness & Test Isolation)
+- **Status:** DONE (2025-11-26)
+- **Layer:** L0
+- **Persona:** BackendAgent + DocsAgent
+- **Criteria:**
+  - `backend/.env` loading via dotenv.
+  - Test-marker system for Claims tests.
+  - DEV_ONBOARDING updated with backend setup details.
 
 ---
 
-# Phase 2 — Claims Slice (API + UI)  
-This slice establishes the architectural pattern for the entire system.
+# Phase 2 — Claims Slice (API + UI)
+
+> **Goal:** Fully realize Claims (API L0→L3, UI L0→L1). Establish slice pattern.
 
 ### T2.1a — Claims API L0 (Skeleton)
-- **Status:** DONE  
-- **Layer:** L0  
-- **Persona:** BackendAgent  
-- **Criteria:** `/claims` route stub; ClaimDto exists; compiles.
+- **Status:** DONE
+- **Layer:** L0
+- **Persona:** BackendAgent
 
-### T2.1b — Claims API L1 (Happy Path)
-- **Status:** DONE  
-- **Layer:** L1  
-- **Persona:** BackendAgent  
-- **Criteria:** List claims from DB; repo + handler; tests for empty/non-empty.
+### T2.1b — Claims API L1 (Real Neo4j List)
+- **Status:** DONE
+- **Layer:** L1
+- **Persona:** BackendAgent
 
 ### T2.1c — Claims API L2 (Validation)
-- **Status:** DONE  
-- **Layer:** L2  
-- **Persona:** BackendAgent  
-- **Criteria:** Create/update validation; 400/404; tests.
+- **Status:** DONE
+- **Layer:** L2
+- **Persona:** BackendAgent
 
 ### T2.1d — Claims API L3 (Analysis)
-- **Status:** DONE  
-- **Layer:** L3  
-- **Persona:** BackendAgent  
-- **Criteria:** Graph relationships; traversal queries; tests.
+- **Status:** DONE
+- **Layer:** L3
+- **Persona:** BackendAgent
 
 ---
 
 ### T2.2a — Claims UI L0 (Skeleton)
-- **Status:** DONE  
-- **Layer:** L0  
-- **Persona:** FrontendAgent  
-- **Criteria:** `/claims` route; stub service; basic list renders.
+- **Status:** DONE
+- **Layer:** L0
+- **Persona:** FrontendAgent
 
-### T2.2b — Claims UI L1 (Backend Integration)
-- **Status:** DONE  
-- **Layer:** L1  
-- **Persona:** FrontendAgent  
-- **Criteria:** Real backend fetch; error/loading states; manual testing.
+### T2.2b — Claims UI L1 (Integration + Tests)
+- **Status:** DONE
+- **Layer:** L1
+- **Persona:** FrontendAgent
+
+### T2.3 — Claims End-to-End Integration + Docs Update
+- **Status:** DONE (2025-11-27)
+- **Layer:** L1
+- **Persona:** DocsAgent
+- **Criteria:**
+  - E2E Claims flow verified.
+  - TASK_TRACKER, WORKFLOW, API_DESIGN, DATA_MODEL updated.
 
 ---
 
 # Phase 3 — Document Slice (API + UI)
 
-> **Goal:** Implement a full Document data slice, mirroring the Claims slice, with API, validation, analysis, UI, and integration.
-
----
+> **Goal:** Implement a full Document slice (API L0–L3, UI L0–L1, docs).
 
 ### T3.1a — Document API L0 (Skeleton)
-- **Status:** DONE (auto-satisfied by L1 start)
-- **Layer:** L0  
-- **Persona:** BackendAgent  
-- **Criteria:** `/documents` route compiles; DocumentDto exists; stub handler.
+- **Status:** DONE (2025-12-03)
+- **Layer:** L0
+- **Persona:** BackendAgent
 
-### T3.1b — Document API L1 (Happy Path + Neo4j List)
-- **Status:** DONE (2025-11-30)  
-- **Layer:** L1  
-- **Persona:** BackendAgent  
-- **Criteria:**  
-  - Document model + DocumentDto mapping  
-  - `DocumentRepository::list_documents` (Cypher)  
-  - GET /documents returns list  
-  - Integration tests empty/non-empty  
-  - cargo fmt/check/test pass  
-- **Branch:** `feature/T3.1b-document-api-l1`  
+### T3.1b — Document API L1 (Neo4j Happy Path)
+- **Status:** DONE (2025-12-03)
+- **Layer:** L1
+- **Persona:** BackendAgent
 
----
+### T3.1c — Document API L2 (Validation + 400/404)
+- **Status:** PLANNED
+- **Layer:** L2
+- **Persona:** BackendAgent
 
-### T3.1c — Document API L2 (Validation)
-- **Status:** PLANNED  
-- **Layer:** L2  
-- **Persona:** BackendAgent  
-- **Branch:** `feature/T3.1c-document-api-l2`  
-- **Criteria:**  
-  - Implement:  
-    - POST /documents  
-    - GET /documents/{id}  
-    - PUT/PATCH /documents/{id}  
-  - Request validation  
-  - Error handling (400/404)  
-  - Integration tests (valid + invalid)
-
----
-
-### T3.1d — Document API L3 (Analysis)
-- **Status:** PLANNED  
-- **Layer:** L3  
-- **Persona:** BackendAgent  
-- **Branch:** `feature/T3.1d-document-api-l3`  
-- **Criteria:**  
-  - Analysis endpoints  
-  - Graph traversal queries  
-  - Nontrivial integration tests
+### T3.1d — Document API L3 (Analysis Queries)
+- **Status:** PLANNED
+- **Layer:** L3
+- **Persona:** BackendAgent
 
 ---
 
 ### T3.2a — Document UI L0 (Skeleton)
-- **Status:** DONE (2025-12-03)  
-- **Layer:** L0  
-- **Persona:** FrontendAgent  
-- **Branch:** `feature/T3.2a-document-ui-l0`  
-- **Criteria:**  
-  - `/documents` route wired into navigation and router  
-  - `DocumentsPage` renders loading, error, empty, and success states  
-  - Stub service `frontend/src/services/documents.ts` with `getDocumentsStub()` and static data  
-  - Page uses stub data only (no real HTTP calls)  
-  - Frontend build (`npm run build`) passes
+- **Status:** DONE (2025-12-03)
+- **Layer:** L0
+- **Persona:** FrontendAgent
 
----
-
-### T3.2b — Document UI L1 (Integration)
-- **Status:** PLANNED  
-- **Layer:** L1  
-- **Persona:** FrontendAgent  
-- **Branch:** `feature/T3.2b-document-ui-l1`  
-- **Criteria:**  
-  - Connect to backend  
-  - Display real DocumentDto list  
-  - Loading/error states  
-
----
+### T3.2b — Document UI L1 (Real API Integration + Tests)
+- **Status:** DONE (2025-12-03)
+- **Layer:** L1
+- **Persona:** FrontendAgent
 
 ### T3.3 — Document Slice Integration + Docs
-- **Status:** PLANNED  
-- **Layer:** L1  
-- **Persona:** DocsAgent  
-- **Branch:** `feature/T3.3-document-integration-l1`  
-- **Criteria:**  
-  - Update DEV_ONBOARDING, WORKFLOW, API_DESIGN  
-  - End-to-end validation  
-  - TASK_TRACKER updated  
-  - Claims + Documents slice work verified together
+- **Status:** PLANNED
+- **Layer:** L1
+- **Persona:** DocsAgent
 
 ---
 
-# Phase 4 — Relationship APIs & Basic Analysis
+# Phase 4 — Core Graph Expansion (Evidence / Person / Hearing / Decision)
 
-### T4.1 — Relationship Endpoints (APPEARS_IN, RELIES_ON, PRESENTED_AT, ...)  
-- **Status:** FUTURE  
+> **Goal:** Add CRUD + minimal UI (L0–L1) for remaining graph nodes.
 
-### T4.2 — Basic Analysis (Refuted Claims, Paths, Timeline)  
-- **Status:** FUTURE  
+### T4.1 — Evidence API + UI  
+- **Status:** FUTURE
 
----
+### T4.2 — Person API + UI  
+- **Status:** FUTURE
 
-# Phase 5 — Document Upload & Text Extraction
+### T4.3 — Hearing API + UI  
+- **Status:** FUTURE
 
-All FUTURE tasks.
-
-### T5.1 — File Upload Endpoint  
-### T5.2 — PDF/DOCX/OCR Extraction Pipeline  
-### T5.3 — Upload UI  
+### T4.4 — Decision API + UI  
+- **Status:** FUTURE
 
 ---
 
-# Phase 6 — AI Suggestion Pipeline
+# Phase 5 — Relationship APIs (Graph Connections)
 
-### T6.1 — LLM Integration  
-### T6.2 — AI Suggestion Model  
+> **Goal:** Add relationship endpoints connecting graph elements.
 
-All FUTURE.
+### T5.1 — Relationship APIs L2  
+- **Status:** FUTURE
+
+### T5.2 — Relationship UI L1  
+- **Status:** FUTURE
 
 ---
 
-# Phase 7 — Reporting & Visualization
+# Phase 6 — Analysis Layer (Graph Queries)
 
-### T7.1 — PDF/Doc Export  
-### T7.2 — Graph Views & Timelines  
-### T7.3 — UX Polish  
+> **Goal:** Deep graph traversal & analysis queries.
+
+### T6.1 — Analysis API L3  
+- **Status:** FUTURE
+
+### T6.2 — Analysis UI L3  
+- **Status:** FUTURE
+
+---
+
+# Phase 7 — Document Upload & Extraction
+
+### T7.1 — File Upload Endpoint  
+- **Status:** FUTURE
+
+### T7.2 — Text Extraction (PDF/DOCX/OCR)  
+- **Status:** FUTURE
+
+### T7.3 — Upload UI  
+- **Status:** FUTURE
+
+---
+
+# Phase 8 — AI Suggestion Pipeline  
+*(AI ONLY — no reporting here)*
+
+> **Goal:** Introduce AI-driven insights, suggestions, and automated graph annotations.
+
+### T8.1 — LLM Integration  
+- **Status:** FUTURE
+
+### T8.2 — AI Suggestion Model  
+- **Status:** FUTURE
+
+### T8.3 — Graph Suggestion / Annotation Engine  
+- **Status:** FUTURE
+
+---
+
+# Phase 9 — Reporting & Visualization  
+*(UI-only — all reporting, exports, dashboards, graph views)*
+
+### T9.1 — Reporting & PDF/Doc Export  
+- **Status:** FUTURE
+
+### T9.2 — Graph Views & Timelines  
+- **Status:** FUTURE
+
+### T9.3 — Dashboards, UX Polish, Auto-Save  
+- **Status:** FUTURE
+
+---
+
+# Phase Summary
+
+| Phase | Status |
+|-------|--------|
+| Phase 0 | Complete |
+| Phase 1 | Complete |
+| Phase 2 | Complete |
+| Phase 3 | In Progress |
+| Phase 4 | Not Started |
+| Phase 5 | Not Started |
+| Phase 6 | Not Started |
+| Phase 7 | Not Started |
+| Phase 8 | Not Started |
+| Phase 9 | Not Started |
 
 ---
 
 # Notes
+- One Task ID → one branch → one persona → one layer.
+- Codex must follow AGENTS.md + WORKFLOW.md.
+- L1+ tasks require tests.
+- Keep `main` deployable at all times.
 
-| Phase | Status |
-|-------|--------|
-| Phase 0 | ✅ Complete |
-| Phase 1 | ✅ Complete |
-| Phase 2 | ✅ Complete |
-| Phase 3 | 🚧 In Progress |
-| Phase 4 | Not Started |
-
-
-- Each task corresponds to a feature branch.  
-- Codex planning prompts must obey persona/layer + allowed file lists.  
-- All tasks must follow AGENTS.md + WORKFLOW.md.
-- All L1+ tasks require tests.
-
-# End of TASK_TRACKER.md  
+# End of TASK_TRACKER.md
