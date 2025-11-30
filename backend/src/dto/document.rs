@@ -7,8 +7,8 @@ use crate::models::document::Document;
 pub struct DocumentDto {
     pub id: String,
     pub title: String,
-    pub doc_type: String,
-    pub created_at: Option<String>,
+    pub doc_type: String,           // e.g. "pdf", "motion", "ruling"
+    pub created_at: Option<String>, // ISO-8601 string or None
 }
 
 impl From<Document> for DocumentDto {
@@ -17,16 +17,15 @@ impl From<Document> for DocumentDto {
             id: doc.id,
             title: doc.title,
             doc_type: doc.doc_type.unwrap_or_default(),
-            created_at: doc.created_at,
+            created_at: doc.created_at.map(|dt| dt.to_string()),
         }
     }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct DocumentCreateRequest {
-    pub id: Option<String>,
     pub title: String,
-    pub doc_type: Option<String>,
+    pub doc_type: String,
     pub description: Option<String>,
     pub file_path: Option<String>,
     pub uploaded_at: Option<NaiveDate>,
