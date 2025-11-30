@@ -1,216 +1,191 @@
-# Colossus-Legal — TASK_TRACKER.md
+# Colossus-Legal — TASK TRACKER
+A structured task index for Codex, ChatGPT, and human contributors.
+This tracker defines all phases and tasks in order, with Layers (L0–L3), Personae, branch patterns, and acceptance criteria.
 
-This is the **improved task tracker** for Colossus-Legal.
-
-It keeps the original Phase/Task structure (T0.x, T1.x, T2.x, …) and adds:
-
-- Status (DONE / IN_PROGRESS / PLANNED / FUTURE / BLOCKED)
-- Layer (L0–L3, when applicable)
-- Suggested Agent persona
-- Suggested branch name
-- Acceptance criteria (for active/future tasks)
-- Integration-first test requirements (for L1+ tasks)
-
-For full workflow details, see `docs/WORKFLOW.md`.
+It supports:
+- Codex planning/execution prompts  
+- Branching workflow  
+- AGENTS.md persona/layer constraints  
+- Phase progression discipline (0 → 1 → 2 → 3)
 
 ---
 
-## Status Codes
+# Phase 0 — Project Initialization
 
-- `DONE` — Task complete.
-- `IN_PROGRESS` — Actively being implemented.
-- `PLANNED` — Approved and queued.
-- `FUTURE` — Not scheduled yet.
-- `BLOCKED` — Cannot proceed (dependency or external issue).
+> **Goal:** Establish minimum scaffolding, repo structure, high-level architecture docs, and baseline developer workflow.
+
+### T0.1 — Repository Bootstrap
+- **Status:** DONE  
+- **Persona:** DocsAgent  
+- **Description:** Initialize repository, folders, README, docs directory.
+- **Acceptance Criteria:** GitHub repo live, basic README, empty backend/frontend dirs.
+
+### T0.2 — Architecture & Workflow Docs
+- **Status:** DONE  
+- **Persona:** DocsAgent  
+- **Description:** Produce ARCHITECTURE.md, WORKFLOW.md, DEV_ONBOARDING.md, DATA_MODEL.md, API_DESIGN.md.
+- **Acceptance Criteria:** Docs created and usable by Codex; Phase 1 can start.
+
+### T0.3 — Codex Safety Bundle & Process
+- **Status:** DONE  
+- **Persona:** DocsAgent  
+- **Description:** Create CODEx-SESSION-RULES.md, CODEx-CHECKLIST.md, CODEx-PROMPT-TEMPLATE, session bootstrap procedure.
+- **Acceptance Criteria:** Safety bundle stored in `docs/`, referenced by agents, used by all sessions.
 
 ---
 
-# Phase 0 — Wiring & Bring-Up (Smoke Test)
+# Phase 1 — Backend & Frontend Bootstrap
 
-> **Goal:** Ensure the project runs end-to-end before implementing features.
+> **Goal:** Operational Rust backend (Axum + Neo4j), React/Tailwind frontend skeleton, routing, initial DTOs.
 
-### T0.1 — Add `/api/status` Endpoint (Backend)  
-- **Status:** DONE (2025-11-22)  
-- **Layer:** L0  
+### T1.1 — Backend Bootstrap (Rust + Axum)
+- **Status:** DONE  
 - **Persona:** BackendAgent  
-- **Summary:** Add GET `/api/status` returning `{ app, version, status }`.  
-- **Acceptance:** Backend responds 200 OK with correct JSON.
+- **Criteria:** `/health` works; server boots; AppState; logging.
 
-### T0.2 — Frontend Status Panel  
-- **Status:** DONE (2025-11-22)  
-- **Layer:** L0  
+### T1.2 — Neo4j Integration & Test Harness
+- **Status:** DONE  
+- **Persona:** BackendAgent  
+- **Criteria:** Driver setup; AppState includes Neo4j driver; minimal test harness touches DB.
+
+### T1.3 — Frontend Bootstrap (React + Vite)
+- **Status:** DONE  
 - **Persona:** FrontendAgent  
-- **Summary:** Frontend uses `/api/status` and displays backend health.
-
-### T0.3 — Dev CORS between frontend and backend  
-- **Status:** DONE (2025-11-22)
+- **Criteria:** SPA routing; dev server builds; basic layout.
 
 ---
 
-# Phase 1 — Foundations & Manual Workflow
+# Phase 2 — Claims Slice (API + UI)  
+This slice establishes the architectural pattern for the entire system.
 
-> **Goal:** Backend + Frontend minimal foundations (no real Neo4j yet).
-
-### T1.1 — Backend Skeleton  
+### T2.1a — Claims API L0 (Skeleton)
 - **Status:** DONE  
 - **Layer:** L0  
 - **Persona:** BackendAgent  
-- **Summary:** Axum server with `/health` and logging.
+- **Criteria:** `/claims` route stub; ClaimDto exists; compiles.
 
-### T1.2 — Core Models & DTOs (Backend)  
-- **Status:** DONE (2025-11-22)  
-- **Layer:** L0/L1  
-- **Persona:** BackendAgent  
-
-### T1.3 — Basic CRUD Endpoints (Stubbed)  
-- **Status:** DONE (2025-11-22)  
-- **Layer:** L0  
-- **Persona:** BackendAgent  
-
-### T1.4 — Frontend Skeleton Pages  
-- **Status:** DONE (2025-11-22)  
-- **Layer:** L0  
-- **Persona:** FrontendAgent  
-
-### T1.5 — Backend Dev Env Configuration (Runtime Readiness & Test Isolation)  
-- **Status:** DONE (2025-11-26)  
-- **Layer:** L0  
-- **Persona:** BackendAgent + DocsAgent  
-- **Summary:**  
-  - Implement dotenv-based backend env loading so `cargo run` works without env-var panics.
-  - Ensure Claims integration tests only insert/delete **test-marked** Claim nodes (do not delete all :Claim nodes).
-  - Document backend env setup and test behavior in DEV_ONBOARDING.md.
-- **Acceptance Criteria:**  
-  - With `backend/.env` configured (copied from `.env.example`), `cargo run --manifest-path backend/Cargo.toml` starts without missing-env panics.
-  - Claims integration tests in `backend/tests/claims_list.rs`:
-    - Use a marker (e.g. `source: "test"` or `test_run_id`) on created Claim nodes.
-    - Only delete nodes with that marker; other Claim data is untouched.
-  - `cargo test --tests --manifest-path backend/Cargo.toml` passes.
-  - `docs/DEV_ONBOARDING.md` includes a clear "Backend dev env setup" section.
-  - This T1.5 entry is updated to **DONE** with date once all above are satisfied.
-- **Task Doc:** `docs/tasks/T1.5_Dev_Env_Config.md`.
-
-
----
-
-# Phase 2 — Claims API v1 (Current Focus)
-
-> **Goal:** Build a real, layered Claims feature (API + UI), breadth-first.
-
----
-
-### T2.1a — Claims API L0 (Skeleton Routes + Stubs, Compile-Only)  
-- **Status:** DONE (2025-11-24, compile-level)  
-- **Layer:** L0  
-- **Persona:** BackendAgent  
-- **Suggested Branch:** `feature/T2.1a-claims-api-l0`  
-- **Acceptance Criteria:**  
-  - `GET /claims` exists and compiles. ✔  
-  - Returns stubbed `ClaimDto` list (or empty). ✔  
-  - No Neo4j logic added. ✔  
-  - Runtime verification deferred to T1.5.  
-- **Tests:** Optional for L0.  
-- **Task Doc:** `docs/tasks/T2.1a_Claims_API_L0.md`.
-
----
-
-### T2.1b — Claims API L1 (Real Neo4j List, Happy Path)  
-- **Status:** DONE (2025-11-26)  
+### T2.1b — Claims API L1 (Happy Path)
+- **Status:** DONE  
 - **Layer:** L1  
 - **Persona:** BackendAgent  
-- **Suggested Branch:** reuse `feature/T2.1a-claims-api-l0`  
-- **Acceptance Criteria:**  
-  - `GET /claims` uses Neo4j to return live data (no stubs).  
-  - Happy path works end-to-end.  
-  - **At least one backend integration test exists and passes:**
-    - Example test file: `backend/tests/claims_list.rs`.  
-    - Test with Claim nodes → non-empty JSON.  
-    - Test with no Claim nodes → empty JSON.  
-- **Task Doc:** `docs/tasks/T2.1b_Claims_API_L1.md`.
+- **Criteria:** List claims from DB; repo + handler; tests for empty/non-empty.
 
----
+### T2.1c — Claims API L2 (Validation)
+- **Status:** DONE  
+- **Layer:** L2  
+- **Persona:** BackendAgent  
+- **Criteria:** Create/update validation; 400/404; tests.
 
-### T2.1c — Claims API L2 (Validation & Error Handling)
-- **Status:** DONE (2025-11-27)
-- **Layer:** L2
-- **Persona:** BackendAgent
-- **Acceptance Criteria:**
-  - Invalid payloads return structured 400 errors.
-  - Non-existent IDs return 404.
-  - Tests cover success + error cases.
-- **Task Doc:** `docs/tasks/T2.1c_Claims_API_L2_Validation.md`.
-- **Notes:** Added title/status validation and structured 400/404/500 responses for Claims; new integration tests
-in `backend/tests/claims_validation.rs` cover invalid payloads, missing IDs, and happy path; `cargo test` and
-`cargo check` pass.
-
----
-
-### T2.1d — Claims API L3 (Analysis Endpoints)  
-- **Status:** FUTURE  
+### T2.1d — Claims API L3 (Analysis)
+- **Status:** DONE  
 - **Layer:** L3  
 - **Persona:** BackendAgent  
-- **Acceptance Criteria:**  
-  - Analysis endpoints (`/analysis/...`) implemented.  
-  - Graph traversal tests included.  
-- **Task Doc:** TBD.
+- **Criteria:** Graph relationships; traversal queries; tests.
 
 ---
 
-### T2.2a — Claims UI L0 (Skeleton Page + Stub Service)  
-- **Status:** DONE (2025-11-27)  
+### T2.2a — Claims UI L0 (Skeleton)
+- **Status:** DONE  
 - **Layer:** L0  
 - **Persona:** FrontendAgent  
-- **Suggested Branch:** `feature/T2.2a-claims-ui-l0`  
-- **Acceptance Criteria:**  
-  - `/claims` route exists in frontend.  
-  - ClaimsPage uses stub `getClaimsStub()`.  
-  - Loading, empty, and error states implemented.  
-  - (Optional) Basic test scaffold allowed.  
-- **Task Doc:** `docs/tasks/T2.2a_Claims_UI_L0.md`.
-- **Notes:** Claims UI L0 at /claims using stub `getClaimsStub()`; loading/error/empty/success states implemented; Vitest stub service test added in `frontend/src/services/__tests__/claims.test.ts`; `npm run test` and `npm run build` pass.
+- **Criteria:** `/claims` route; stub service; basic list renders.
 
----
-
-### T2.2b — Claims UI L1 (Real API Integration + Basic Tests)
-- **Status:** DONE (2025-11-27)
-- **Layer:** L1
-- **Persona:** FrontendAgent
-- **Acceptance Criteria:**
-  - ClaimsPage calls real backend `/claims`.
-  - Shows loading, empty, success, and error states.
-  - **Vitest tests exist for services and/or page.**
-- **Task Doc:** `docs/tasks/T2.2b_Claims_UI_L1.md`.
-- **Notes:** ClaimsPage now calls real `/claims`; loading/empty/success/error states verified; Vitest service
-  tests in `frontend/src/services/__tests__/claims.test.ts` pass; `npm run test` and `npm run build` pass.
-
----
-
-### T2.3 — Claims End-to-End Integration + Docs Update  
-- **Status:** DONE (2025-11-27)  
+### T2.2b — Claims UI L1 (Backend Integration)
+- **Status:** DONE  
 - **Layer:** L1  
-- **Persona:** DocsAgent (verifying backend + frontend)  
-- **Acceptance Criteria:**  
-  - Backend + frontend integrated.  
-  - TASK_TRACKER updated.  
-  - PHASE_PLAN updated.  
-  - No new warnings or build errors.  
-- **Task Doc:** `docs/tasks/T2.3_Claims_Integration.md` (or TBD).  
-- **Notes:** Claims v1 end-to-end (API L1–L2 + UI L1) verified and documented; PHASE_PLAN, ARCHITECTURE, API_DESIGN, DEV_ONBOARDING, and DOCUMENTATION_INDEX updated; verification checklist added.
+- **Persona:** FrontendAgent  
+- **Criteria:** Real backend fetch; error/loading states; manual testing.
 
 ---
 
-# Phase 3 — Core Graph (Documents/Evidence/People/Hearings/Decisions)
+# Phase 3 — Document Slice (API + UI)
 
-Mirrors Claims workflow (L0–L3).  
-All **FUTURE** until Claims v1 stabilizes.
+> **Goal:** Implement a full Document data slice, mirroring the Claims slice, with API, validation, analysis, UI, and integration.
 
-### T3.1 — Document API + UI  
-### T3.2 — Evidence API + UI  
-### T3.3 — Person API + UI  
-### T3.4 — Hearing API + UI  
-### T3.5 — Decision API + UI  
+---
 
-(All FUTURE.)
+### T3.1a — Document API L0 (Skeleton)
+- **Status:** DONE (auto-satisfied by L1 start)
+- **Layer:** L0  
+- **Persona:** BackendAgent  
+- **Criteria:** `/documents` route compiles; DocumentDto exists; stub handler.
+
+### T3.1b — Document API L1 (Happy Path + Neo4j List)
+- **Status:** DONE (2025-11-30)  
+- **Layer:** L1  
+- **Persona:** BackendAgent  
+- **Criteria:**  
+  - Document model + DocumentDto mapping  
+  - `DocumentRepository::list_documents` (Cypher)  
+  - GET /documents returns list  
+  - Integration tests empty/non-empty  
+  - cargo fmt/check/test pass  
+- **Branch:** `feature/T3.1b-document-api-l1`  
+
+---
+
+### T3.1c — Document API L2 (Validation)
+- **Status:** PLANNED  
+- **Layer:** L2  
+- **Persona:** BackendAgent  
+- **Branch:** `feature/T3.1c-document-api-l2`  
+- **Criteria:**  
+  - Implement:  
+    - POST /documents  
+    - GET /documents/{id}  
+    - PUT/PATCH /documents/{id}  
+  - Request validation  
+  - Error handling (400/404)  
+  - Integration tests (valid + invalid)
+
+---
+
+### T3.1d — Document API L3 (Analysis)
+- **Status:** PLANNED  
+- **Layer:** L3  
+- **Persona:** BackendAgent  
+- **Branch:** `feature/T3.1d-document-api-l3`  
+- **Criteria:**  
+  - Analysis endpoints  
+  - Graph traversal queries  
+  - Nontrivial integration tests
+
+---
+
+### T3.2a — Document UI L0 (Skeleton)
+- **Status:** PLANNED  
+- **Layer:** L0  
+- **Persona:** FrontendAgent  
+- **Branch:** `feature/T3.2a-document-ui-l0`  
+- **Criteria:**  
+  - `/documents` route  
+  - Skeleton page  
+  - Stub service
+
+---
+
+### T3.2b — Document UI L1 (Integration)
+- **Status:** PLANNED  
+- **Layer:** L1  
+- **Persona:** FrontendAgent  
+- **Branch:** `feature/T3.2b-document-ui-l1`  
+- **Criteria:**  
+  - Connect to backend  
+  - Display real DocumentDto list  
+  - Loading/error states  
+
+---
+
+### T3.3 — Document Slice Integration + Docs
+- **Status:** PLANNED  
+- **Layer:** L1  
+- **Persona:** DocsAgent  
+- **Branch:** `feature/T3.3-document-integration-l1`  
+- **Criteria:**  
+  - Update DEV_ONBOARDING, WORKFLOW, API_DESIGN  
+  - End-to-end validation  
+  - TASK_TRACKER updated  
+  - Claims + Documents slice work verified together
 
 ---
 
@@ -253,7 +228,18 @@ All FUTURE.
 
 # Notes
 
+| Phase | Status |
+|-------|--------|
+| Phase 0 | ✅ Complete |
+| Phase 1 | ✅ Complete |
+| Phase 2 | ✅ Complete |
+| Phase 3 | 🚧 In Progress |
+| Phase 4 | Not Started |
+
+
+- Each task corresponds to a feature branch.  
+- Codex planning prompts must obey persona/layer + allowed file lists.  
 - All tasks must follow AGENTS.md + WORKFLOW.md.
 - All L1+ tasks require tests.
 
-# End of TASK_TRACKER.md
+# End of TASK_TRACKER.md  
