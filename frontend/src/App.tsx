@@ -2,7 +2,7 @@ import React from "react";
 import { Link, Route, Routes } from "react-router-dom";
 import ClaimsPage from "./pages/ClaimsPage";
 import Decisions from "./pages/Decisions";
-import Documents from "./pages/Documents";
+import DocumentsPage from "./pages/DocumentsPage";
 import Evidence from "./pages/Evidence";
 import Hearings from "./pages/Hearings";
 import Home from "./pages/Home";
@@ -47,7 +47,7 @@ const App: React.FC = () => {
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/claims" element={<ClaimsPage />} />
-          <Route path="/documents" element={<Documents />} />
+          <Route path="/documents" element={<DocumentsPage />} />
           <Route path="/evidence" element={<Evidence />} />
           <Route path="/people" element={<People />} />
           <Route path="/hearings" element={<Hearings />} />
