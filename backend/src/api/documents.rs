@@ -1,23 +1,22 @@
-use axum::response::IntoResponse;
-use axum::Json;
+use axum::{extract::State, Json};
 
-use crate::dto::DocumentDto;
+use crate::{
+    dto::DocumentDto, error::AppError, repositories::document_repository::DocumentRepository,
+    state::AppState,
+};
 
-pub async fn list_documents() -> impl IntoResponse {
-    let documents = vec![
-        DocumentDto {
-            id: "doc-1".to_string(),
-            title: "Sample Document A".to_string(),
-            doc_type: "pdf".to_string(),
-            created_at: Some("2025-01-01T00:00:00Z".to_string()),
-        },
-        DocumentDto {
-            id: "doc-2".to_string(),
-            title: "Sample Document B".to_string(),
-            doc_type: "motion".to_string(),
-            created_at: None,
-        },
-    ];
+pub async fn list_documents(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<DocumentDto>>, AppError> {
+    let repo = DocumentRepository::new(state.graph.clone());
+    let documents = repo
+        .list_documents()
+        .await
+        .map_err(|_| AppError::Internal {
+            message: "failed to list documents".to_string(),
+        })?;
 
-    Json(documents)
+    let dtos = documents.into_iter().map(DocumentDto::from).collect();
+
+    Ok(Json(dtos))
 }

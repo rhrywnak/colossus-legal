@@ -26,8 +26,6 @@ pub fn router() -> Router<AppState> {
         .route("/documents", get(documents::list_documents))
 }
 
-async fn health_check(
-    State(_state): State<AppState>,
-) -> (StatusCode, &'static str) {
+async fn health_check(State(_state): State<AppState>) -> (StatusCode, &'static str) {
     (StatusCode::OK, "OK")
 }

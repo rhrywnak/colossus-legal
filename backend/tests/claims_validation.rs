@@ -39,10 +39,7 @@ async fn setup_graph() -> TestResult<Graph> {
 
 async fn cleanup_claim_by_id(graph: &Graph, id: &str) -> Result<(), neo4rs::Error> {
     let mut result = graph
-        .execute(
-            query("MATCH (c:Claim {id: $id}) DETACH DELETE c")
-                .param("id", id),
-        )
+        .execute(query("MATCH (c:Claim {id: $id}) DETACH DELETE c").param("id", id))
         .await?;
     while result.next().await?.is_some() {}
     Ok(())
@@ -216,12 +213,9 @@ async fn happy_path_create_and_get_claim() -> TestResult<()> {
     let body = to_bytes(response.into_body(), 1024 * 1024).await?;
     let created: ClaimDto = serde_json::from_slice(&body)?;
 
-    let get_response = get_claim(
-        State(state),
-        axum::extract::Path(created.id.clone()),
-    )
-    .await
-    .into_response();
+    let get_response = get_claim(State(state), axum::extract::Path(created.id.clone()))
+        .await
+        .into_response();
 
     assert_eq!(get_response.status(), StatusCode::OK);
     let get_body = to_bytes(get_response.into_body(), 1024 * 1024).await?;

@@ -8,9 +8,16 @@ use serde_json::json;
 
 #[derive(Debug)]
 pub enum AppError {
-    BadRequest { message: String, details: serde_json::Value },
-    NotFound { message: String },
-    Internal { message: String },
+    BadRequest {
+        message: String,
+        details: serde_json::Value,
+    },
+    NotFound {
+        message: String,
+    },
+    Internal {
+        message: String,
+    },
 }
 
 #[derive(Serialize)]
