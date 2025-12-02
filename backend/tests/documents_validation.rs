@@ -1,0 +1,282 @@
+use std::sync::OnceLock;
+
+use axum::{body::to_bytes, extract::State, http::StatusCode, response::IntoResponse};
+use chrono::Utc;
+use colossus_legal_backend::{
+    api::documents::{create_document, get_document, update_document},
+    config::AppConfig,
+    dto::document::{DocumentCreateRequest, DocumentDto, DocumentUpdateRequest},
+    neo4j::create_neo4j_graph,
+    state::AppState,
+};
+use neo4rs::{query, Graph};
+use serde_json::Value;
+use tokio::sync::Mutex;
+
+type TestResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
+static GRAPH_MUTEX: OnceLock<Mutex<()>> = OnceLock::new();
+
+async fn setup_graph() -> TestResult<Graph> {
+    dotenvy::dotenv().ok();
+    let config = AppConfig::from_env().map_err(|e| format!("config error: {e}"))?;
+    let graph = create_neo4j_graph(&config)
+        .await
+        .map_err(|e| format!("neo4j connect error: {e}"))?;
+    Ok(graph)
+}
+
+async fn cleanup_document_by_id(graph: &Graph, id: &str) -> Result<(), neo4rs::Error> {
+    let mut result = graph
+        .execute(query("MATCH (d:Document {id: $id}) DETACH DELETE d").param("id", id))
+        .await?;
+    while result.next().await?.is_some() {}
+    Ok(())
+}
+
+fn base_create_payload(title: &str, doc_type: &str) -> DocumentCreateRequest {
+    DocumentCreateRequest {
+        title: title.to_string(),
+        doc_type: doc_type.to_string(),
+        created_at: None,
+        description: None,
+        file_path: None,
+        uploaded_at: None,
+        related_claim_id: None,
+        source_url: None,
+    }
+}
+
+#[tokio::test]
+async fn create_document_rejects_empty_title() -> TestResult<()> {
+    let _guard = GRAPH_MUTEX.get_or_init(|| Mutex::new(())).lock().await;
+
+    let graph = setup_graph().await?;
+    let state = AppState {
+        graph: graph.clone(),
+    };
+
+    let payload = base_create_payload("", "pdf");
+
+    let response = create_document(State(state), axum::Json(payload))
+        .await
+        .into_response();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body = to_bytes(response.into_body(), 1024 * 1024).await?;
+    let json: Value = serde_json::from_slice(&body)?;
+    assert_eq!(json["error"], "validation_error");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn create_document_rejects_invalid_doc_type() -> TestResult<()> {
+    let _guard = GRAPH_MUTEX.get_or_init(|| Mutex::new(())).lock().await;
+
+    let graph = setup_graph().await?;
+    let state = AppState {
+        graph: graph.clone(),
+    };
+
+    let payload = base_create_payload("Valid Title", "invalid-type");
+
+    let response = create_document(State(state), axum::Json(payload))
+        .await
+        .into_response();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body = to_bytes(response.into_body(), 1024 * 1024).await?;
+    let json: Value = serde_json::from_slice(&body)?;
+    assert_eq!(json["error"], "validation_error");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn create_document_rejects_invalid_created_at() -> TestResult<()> {
+    let _guard = GRAPH_MUTEX.get_or_init(|| Mutex::new(())).lock().await;
+
+    let graph = setup_graph().await?;
+    let state = AppState {
+        graph: graph.clone(),
+    };
+
+    let mut payload = base_create_payload("Valid Title", "pdf");
+    payload.created_at = Some("not-a-date".to_string());
+
+    let response = create_document(State(state), axum::Json(payload))
+        .await
+        .into_response();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body = to_bytes(response.into_body(), 1024 * 1024).await?;
+    let json: Value = serde_json::from_slice(&body)?;
+    assert_eq!(json["error"], "validation_error");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn get_document_returns_404_when_missing() -> TestResult<()> {
+    let _guard = GRAPH_MUTEX.get_or_init(|| Mutex::new(())).lock().await;
+
+    let graph = setup_graph().await?;
+    let state = AppState {
+        graph: graph.clone(),
+    };
+
+    let response = get_document(State(state), axum::extract::Path("no-such".to_string()))
+        .await
+        .into_response();
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    let body = to_bytes(response.into_body(), 1024 * 1024).await?;
+    let json: Value = serde_json::from_slice(&body)?;
+    assert_eq!(json["error"], "not_found");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn update_document_rejects_invalid_doc_type() -> TestResult<()> {
+    let _guard = GRAPH_MUTEX.get_or_init(|| Mutex::new(())).lock().await;
+
+    let graph = setup_graph().await?;
+    let state = AppState {
+        graph: graph.clone(),
+    };
+
+    let payload = base_create_payload("Title", "pdf");
+    let created_response = create_document(State(state.clone()), axum::Json(payload))
+        .await
+        .into_response();
+    assert_eq!(created_response.status(), StatusCode::CREATED);
+    let body = to_bytes(created_response.into_body(), 1024 * 1024).await?;
+    let created: DocumentDto = serde_json::from_slice(&body)?;
+
+    let update_payload = DocumentUpdateRequest {
+        title: None,
+        doc_type: Some("bad-type".to_string()),
+        created_at: None,
+        description: None,
+        file_path: None,
+        uploaded_at: None,
+        related_claim_id: None,
+        source_url: None,
+    };
+
+    let response = update_document(
+        State(state.clone()),
+        axum::extract::Path(created.id.clone()),
+        axum::Json(update_payload),
+    )
+    .await
+    .into_response();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body = to_bytes(response.into_body(), 1024 * 1024).await?;
+    let json: Value = serde_json::from_slice(&body)?;
+    assert_eq!(json["error"], "validation_error");
+
+    cleanup_document_by_id(&graph, &created.id).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn update_document_returns_404_when_missing() -> TestResult<()> {
+    let _guard = GRAPH_MUTEX.get_or_init(|| Mutex::new(())).lock().await;
+
+    let graph = setup_graph().await?;
+    let state = AppState {
+        graph: graph.clone(),
+    };
+
+    let update_payload = DocumentUpdateRequest {
+        title: Some("New".to_string()),
+        doc_type: Some("pdf".to_string()),
+        created_at: None,
+        description: None,
+        file_path: None,
+        uploaded_at: None,
+        related_claim_id: None,
+        source_url: None,
+    };
+
+    let response = update_document(
+        State(state),
+        axum::extract::Path("missing-id".to_string()),
+        axum::Json(update_payload),
+    )
+    .await
+    .into_response();
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    let body = to_bytes(response.into_body(), 1024 * 1024).await?;
+    let json: Value = serde_json::from_slice(&body)?;
+    assert_eq!(json["error"], "not_found");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn happy_path_create_get_update_document() -> TestResult<()> {
+    let _guard = GRAPH_MUTEX.get_or_init(|| Mutex::new(())).lock().await;
+
+    let graph = setup_graph().await?;
+    let state = AppState {
+        graph: graph.clone(),
+    };
+
+    let mut payload = base_create_payload("Happy Title", "pdf");
+    payload.created_at = Some(Utc::now().to_rfc3339());
+
+    let create_response = create_document(State(state.clone()), axum::Json(payload))
+        .await
+        .into_response();
+
+    assert_eq!(create_response.status(), StatusCode::CREATED);
+    let body = to_bytes(create_response.into_body(), 1024 * 1024).await?;
+    let created: DocumentDto = serde_json::from_slice(&body)?;
+
+    let get_response = get_document(
+        State(state.clone()),
+        axum::extract::Path(created.id.clone()),
+    )
+    .await
+    .into_response();
+
+    assert_eq!(get_response.status(), StatusCode::OK);
+    let get_body = to_bytes(get_response.into_body(), 1024 * 1024).await?;
+    let fetched: DocumentDto = serde_json::from_slice(&get_body)?;
+    assert_eq!(fetched.id, created.id);
+    assert_eq!(fetched.title, "Happy Title");
+
+    let update_payload = DocumentUpdateRequest {
+        title: Some("Updated Title".to_string()),
+        doc_type: Some("motion".to_string()),
+        created_at: None,
+        description: None,
+        file_path: None,
+        uploaded_at: None,
+        related_claim_id: None,
+        source_url: None,
+    };
+
+    let update_response = update_document(
+        State(state),
+        axum::extract::Path(fetched.id.clone()),
+        axum::Json(update_payload),
+    )
+    .await
+    .into_response();
+
+    assert_eq!(update_response.status(), StatusCode::OK);
+    let update_body = to_bytes(update_response.into_body(), 1024 * 1024).await?;
+    let updated: DocumentDto = serde_json::from_slice(&update_body)?;
+    assert_eq!(updated.title, "Updated Title");
+    assert_eq!(updated.doc_type, "motion");
+
+    cleanup_document_by_id(&graph, &updated.id).await?;
+    Ok(())
+}
