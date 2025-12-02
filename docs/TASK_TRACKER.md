@@ -145,9 +145,10 @@ It supports:
 - **Persona:** FrontendAgent
 
 ### T3.3 — Document Slice Integration + Docs
-- **Status:** PLANNED
+- **Status:** DONE (2025-12-02)
 - **Layer:** L1
 - **Persona:** DocsAgent
+- **Notes:** Document slice integrated at L1. API L0–L1 + UI L0–L1 functional. Docs updated accordingly.
 
 ---
 
