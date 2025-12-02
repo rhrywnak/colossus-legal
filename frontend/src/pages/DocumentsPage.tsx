@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { DocumentItem, getDocuments } from "../services/documents";
 
 const DocumentsPage: React.FC = () => {
@@ -52,7 +53,10 @@ const DocumentsPage: React.FC = () => {
       <ul style={{ paddingLeft: "1.25rem" }}>
         {documents.map((doc) => (
           <li key={doc.id} style={{ marginBottom: "0.75rem" }}>
-            <strong>{doc.title}</strong> <em>({doc.docType})</em>
+            <strong>
+              <Link to={`/documents/${doc.id}`}>{doc.title}</Link>
+            </strong>{" "}
+            <em>({doc.docType})</em>
             {doc.createdAt ? (
               <div style={{ color: "#555", marginTop: "0.15rem" }}>
                 Created: {doc.createdAt}
