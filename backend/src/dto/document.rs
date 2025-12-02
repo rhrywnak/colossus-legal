@@ -26,6 +26,7 @@ impl From<Document> for DocumentDto {
 pub struct DocumentCreateRequest {
     pub title: String,
     pub doc_type: String,
+    pub created_at: Option<String>,
     pub description: Option<String>,
     pub file_path: Option<String>,
     pub uploaded_at: Option<NaiveDate>,
@@ -37,6 +38,7 @@ pub struct DocumentCreateRequest {
 pub struct DocumentUpdateRequest {
     pub title: Option<String>,
     pub doc_type: Option<String>,
+    pub created_at: Option<String>,
     pub description: Option<String>,
     pub file_path: Option<String>,
     pub uploaded_at: Option<NaiveDate>,

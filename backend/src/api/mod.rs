@@ -24,6 +24,9 @@ pub fn router() -> Router<AppState> {
         .route("/claims", post(claims::create_claim))
         .route("/claims/:id", put(claims::update_claim))
         .route("/documents", get(documents::list_documents))
+        .route("/documents", post(documents::create_document))
+        .route("/documents/:id", get(documents::get_document))
+        .route("/documents/:id", put(documents::update_document))
 }
 
 async fn health_check(State(_state): State<AppState>) -> (StatusCode, &'static str) {
