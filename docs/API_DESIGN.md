@@ -191,39 +191,50 @@ These steps are the pattern for all list endpoints going forward.
 
 ---
 
-## 3. Future Resource APIs
+## 3. Documents API (L1 implemented)
 
-These will mirror the Claims pattern:
-
-### 3.1 Documents
+### Implemented today
 
 - `GET /documents`
-- `GET /documents/{id}`
-- `POST /documents`
-- `PUT /documents/{id}`
-- `DELETE /documents/{id}`
+  - **Description:** List all documents (happy-path only).
+  - **Response 200:** `DocumentDto[]` where each item has `{ id, title, doc_type, created_at? }`.
+  - **Errors:** Standard `500 Internal Server Error` on unexpected failures; no validation or per-item 404/400 handling in L1 list.
 
-### 3.2 Evidence
+### Future work (not implemented yet)
+
+- `GET /documents/{id}` (planned; will return a single document or 404 when L2/L3 are added).
+- `POST /documents` (planned; create with validation).
+- `PUT /documents/{id}` (planned; update with validation).
+- `DELETE /documents/{id}` (planned; soft/hard delete decision pending).
+- Analysis endpoints (planned), e.g., `/documents/analysis/claim-links` once L3 work begins.
+
+---
+
+## 4. Future Resource APIs
+
+These will mirror the Claims pattern. Document CRUD/analysis is planned (see section above for future work); other resources are entirely FUTURE at this stage.
+
+### 4.1 Evidence
 
 - `GET /evidence`
 - `GET /evidence/{id}`
 - `POST /evidence`
 - …
 
-### 3.3 People
+### 4.2 People
 
 - `GET /people`
 - `GET /people/{id}`
 - `POST /people`
 - …
 
-### 3.4 Hearings
+### 4.3 Hearings
 
 - `GET /hearings`
 - `GET /hearings/{id}`
 - …
 
-### 3.5 Decisions
+### 4.4 Decisions
 
 - `GET /decisions`
 - `GET /decisions/{id}`
@@ -231,7 +242,7 @@ These will mirror the Claims pattern:
 
 ---
 
-## 4. Relationship & Analysis APIs (Later Phases)
+## 5. Relationship & Analysis APIs (Later Phases)
 
 Once core CRUD APIs exist, we add:
 
@@ -261,7 +272,7 @@ Examples:
 
 ---
 
-## 5. Error Handling
+## 6. Error Handling
 
 - Use structured JSON errors:
   - `400 Bad Request` – validation/input errors.
@@ -282,7 +293,7 @@ Example error response:
 
 ---
 
-## 6. Auth (Future)
+## 7. Auth (Future)
 
 For now, Colossus-Legal is a trusted local app (2–3 users, homelab).  
 Auth will be added later:

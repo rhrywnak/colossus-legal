@@ -60,3 +60,17 @@ Testing is incremental with the layers:
 5) Optional verification commands:
    - Backend: `cargo test --tests --manifest-path backend/Cargo.toml` (uses test markers `source: "test"`, `test_run_id`).
    - Frontend: `npm run test` and `npm run build`.
+
+### Document end-to-end verification checklist (L1 slice — GET /documents only)
+
+1) Ensure Neo4j dev/test is running and configured via `backend/.env` (do not run tests against production data).
+2) Start backend: `cargo run --manifest-path backend/Cargo.toml`.
+3) Start frontend: `npm run dev` in `frontend/`.
+4) Visit `/documents` in the browser and verify:
+   - Loading state renders while fetching.
+   - Empty state appears when no Document nodes exist.
+   - Success state shows Document items from `GET /documents` (L1 happy path).
+   - Error state renders if the backend is unreachable.
+5) Optional verification commands:
+   - Backend: `cargo test --tests --manifest-path backend/Cargo.toml` (integration tests cover the list endpoint).
+   - Frontend: `npm run test` and `npm run build`.

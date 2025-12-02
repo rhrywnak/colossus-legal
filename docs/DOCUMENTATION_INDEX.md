@@ -43,6 +43,7 @@ These define how the system is structured and how components talk to each other.
 - Claims API/flow docs: `docs/API_DESIGN.md` (Claims endpoints, errors), `docs/ARCHITECTURE.md` (Claims v1 end-to-end).
 - Roadmap: `docs/PHASE_PLAN.md` (Phase 2 status and remaining tasks).
 - Tasks: `docs/tasks/T2.1a_Claims_API_L0.md`, `docs/tasks/T2.1b_Claims_API_L1.md`, `docs/tasks/T2.1c_Claims_API_L2_Validation.md`, `docs/tasks/T2.2a_Claims_UI_L0.md`, `docs/tasks/T2.2b_Claims_UI_L1.md`, `docs/tasks/T2.3_Claims_Integration.md` (if present).
+- Document references: `docs/ARCHITECTURE.md` (Document v1 end-to-end, L1 list), `docs/API_DESIGN.md` (Document endpoints: GET /documents implemented, CRUD/analysis planned), `docs/DATA_MODEL.md` (Document node + relationships defined, marked FUTURE where not implemented), `docs/PHASE_PLAN.md` (Phase 3 Document slice status).
 
 ---
 
@@ -64,6 +65,9 @@ These files drive actual development tasks and Codex sessions.
 
 - **(Future)** `docs/tasks/T2.1c_*`, `T2.1d_*`, `T2.2b_*`  
   Higher-layer tasks for validation, relationships, analysis, and polish.
+
+- **docs/tasks/T3.3_Document_Integration.md**  
+  Document slice integration (L1) docs update and E2E verification; see `docs/TASK_TRACKER.md` Phase 3 entries for status.
 
 You can add more `docs/tasks/*.md` files for each new Task ID and Layer.
 

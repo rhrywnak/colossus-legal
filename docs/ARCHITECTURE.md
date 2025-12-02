@@ -189,6 +189,15 @@ This pattern (DTO → repository → handler → router) is the template for all
 - **Frontend:** `getClaims` in `frontend/src/services/claims.ts` calls the backend `/claims`; `ClaimsPage` renders loading, error, empty, and success states from that data.
 - **Flow:** Neo4j → ClaimRepository → Axum claims handlers → DTO JSON → frontend service → ClaimsPage UI.
 
+### Document v1 end-to-end (L1)
+
+- **Data:** `:Document` nodes in Neo4j with core properties (id, title, type, file_path?, timestamps).
+- **Backend:** `DocumentRepository::list_documents` queries Neo4j; Axum exposes `GET /documents` to return the list (happy-path only, no validation branch yet).
+- **DTOs:** Document DTO mirrors the domain fields returned by the list endpoint.
+- **Frontend:** `getDocuments()` service in `frontend/src/services/documents.ts` calls `GET /documents`; `DocumentsPage` renders loading, empty, error, and success states.
+- **Flow:** Neo4j → DocumentRepository → Axum documents handler (`GET /documents`) → DTO JSON → frontend service → DocumentsPage UI.
+- **Scope note:** No CRUD, detail view, validation, or analysis endpoints are implemented yet (Document L2/L3 remain FUTURE).
+
 ---
 
 ## 3. Frontend Architecture (React / Vite / TypeScript)

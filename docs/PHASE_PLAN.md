@@ -135,23 +135,26 @@ This is the pattern for every subsequent phase: create a branch, implement a thi
 Focus: Flesh out main domain entities.
 
 ### Backend
+- Document slice integrated at **L1** (API L0–L1 list in place; validation/CRUD/analysis remain FUTURE).
+- Evidence, Person, Hearing, Decision planned.
 - Add models/DTOs for:
-  - Document
   - Evidence
   - Person
   - Hearing
   - Decision
-- Add CRUD endpoints for each (mirroring Claims).
+- Add CRUD endpoints for each (mirroring Claims) in future layers.
 - Add repositories with Neo4j queries.
 
 ### Frontend
-- Simple screens for each domain:
+- Document UI integrated at **L1** (list page backed by GET /documents). No Document detail/CRUD/analysis UI yet.
+- Simple screens for remaining domains (Evidence, Person, Hearing, Decision) planned:
   - Table views
   - Detail views
   - Create/edit forms
 
 Exit Criteria:
-- All primary node types can be managed via UI.
+- Document slice usable at L1 (list). Higher layers (validation, CRUD, analysis) are FUTURE.
+- All primary node types can be managed via UI (FUTURE for non-Document nodes).
 - Neo4j graph visually reflects case structure.
 
 ---

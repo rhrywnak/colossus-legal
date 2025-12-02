@@ -37,6 +37,7 @@ Represents a source document (filing, transcript, exhibit, etc.).
 - `file_path: string?` (local path or storage key)
 - `created_at: datetime`
 - `ingested_at: datetime?`
+- **Implementation status (L1):** Read-only list via `GET /documents` uses `id`, `title`, `doc_type`, and optional timestamps. CRUD, validation, and relationships are FUTURE.
 
 ---
 
@@ -105,6 +106,7 @@ Represents a decision, ruling, or order.
 ## 2. Relationships
 
 All relationships are **directed** and have semantic meaning.
+Implementation note: these relationships are part of the defined schema but are not yet created by current Document endpoints (Document slice is read-only at L1).
 
 ### 2.1 APPEARS_IN
 
@@ -112,9 +114,15 @@ All relationships are **directed** and have semantic meaning.
 
 Meaning: the claim appears in, or is asserted within, the given document.
 
+### 2.2 MENTIONS
+
+**Pattern:** `(d:Document)-[:MENTIONS]->(c:Claim)`
+
+Meaning: the document explicitly mentions or references a claim. Planned for future layers; not yet created by the current API surface.
+
 ---
 
-### 2.2 RELIES_ON
+### 2.3 RELIES_ON
 
 **Pattern:** `(c:Claim)-[:RELIES_ON]->(e:Evidence)`
 
@@ -122,7 +130,7 @@ Meaning: the claim relies on the specified evidence.
 
 ---
 
-### 2.3 PRESENTED_AT
+### 2.4 PRESENTED_AT
 
 **Pattern:** `(e:Evidence)-[:PRESENTED_AT]->(h:Hearing)`
 
@@ -130,7 +138,7 @@ Meaning: the evidence was presented at a specific hearing.
 
 ---
 
-### 2.4 MADE_BY
+### 2.5 MADE_BY
 
 **Pattern:** `(c:Claim)-[:MADE_BY]->(p:Person)`
 
@@ -138,7 +146,7 @@ Meaning: the claim was made by a particular person (e.g., witness, party).
 
 ---
 
-### 2.5 DECIDES
+### 2.6 DECIDES
 
 **Pattern:** `(d:Decision)-[:DECIDES]->(c:Claim)`
 
@@ -146,7 +154,7 @@ Meaning: the decision resolves or addresses a specific claim.
 
 ---
 
-### 2.6 REFUTES
+### 2.7 REFUTES
 
 **Pattern:** `(d:Decision)-[:REFUTES]->(c:Claim)`
 
@@ -154,7 +162,7 @@ Meaning: the decision explicitly refutes (rejects) a claim.
 
 ---
 
-### 2.7 IGNORES
+### 2.8 IGNORES
 
 **Pattern:** `(d:Decision)-[:IGNORES]->(c:Claim)`
 
