@@ -2,6 +2,7 @@ import React from "react";
 import { Link, Route, Routes } from "react-router-dom";
 import ClaimsPage from "./pages/ClaimsPage";
 import Decisions from "./pages/Decisions";
+import DocumentDetailPage from "./pages/DocumentDetailPage";
 import DocumentsPage from "./pages/DocumentsPage";
 import Evidence from "./pages/Evidence";
 import Hearings from "./pages/Hearings";
@@ -48,6 +49,7 @@ const App: React.FC = () => {
           <Route path="/" element={<Home />} />
           <Route path="/claims" element={<ClaimsPage />} />
           <Route path="/documents" element={<DocumentsPage />} />
+          <Route path="/documents/:id" element={<DocumentDetailPage />} />
           <Route path="/evidence" element={<Evidence />} />
           <Route path="/people" element={<People />} />
           <Route path="/hearings" element={<Hearings />} />
