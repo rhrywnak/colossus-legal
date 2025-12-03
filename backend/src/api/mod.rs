@@ -23,6 +23,7 @@ pub fn router() -> Router<AppState> {
         .route("/claims/:id", get(claims::get_claim))
         .route("/claims", post(claims::create_claim))
         .route("/claims/:id", put(claims::update_claim))
+        .route("/documents/recent", get(documents::list_recent_documents))
         .route("/documents", get(documents::list_documents))
         .route("/documents", post(documents::create_document))
         .route("/documents/:id", get(documents::get_document))

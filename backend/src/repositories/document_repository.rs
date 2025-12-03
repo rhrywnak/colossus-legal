@@ -59,6 +59,34 @@ impl DocumentRepository {
         Ok(documents)
     }
 
+    pub async fn list_recent_documents(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<Document>, DocumentRepositoryError> {
+        let mut result = self
+            .graph
+            .execute(
+                query(
+                    "MATCH (d:Document)
+                     WHERE d.ingested_at IS NOT NULL
+                     RETURN d
+                     ORDER BY d.ingested_at DESC
+                     LIMIT $limit",
+                )
+                .param("limit", limit),
+            )
+            .await?;
+
+        let mut documents = Vec::new();
+        while let Some(row) = result.next().await? {
+            let node: Node = row.get("d")?;
+            let document = Document::try_from(node)?;
+            documents.push(document);
+        }
+
+        Ok(documents)
+    }
+
     pub async fn get_document_by_id(&self, id: &str) -> Result<Document, DocumentRepositoryError> {
         let mut result = self
             .graph

@@ -1,5 +1,9 @@
-use axum::{extract::Path, extract::State, Json};
+use axum::{
+    extract::{Path, Query, State},
+    Json,
+};
 use chrono::DateTime;
+use serde::Deserialize;
 use serde_json::json;
 
 use crate::{
@@ -49,6 +53,36 @@ pub async fn list_documents(
         .await
         .map_err(|_| AppError::Internal {
             message: "failed to list documents".to_string(),
+        })?;
+
+    let dtos = documents.into_iter().map(DocumentDto::from).collect();
+
+    Ok(Json(dtos))
+}
+
+#[derive(Deserialize)]
+pub struct RecentDocumentsQuery {
+    pub limit: Option<i64>,
+}
+
+pub async fn list_recent_documents(
+    State(state): State<AppState>,
+    Query(params): Query<RecentDocumentsQuery>,
+) -> Result<Json<Vec<DocumentDto>>, AppError> {
+    let limit = params.limit.unwrap_or(10);
+    if limit <= 0 {
+        return Err(AppError::BadRequest {
+            message: "limit must be positive".to_string(),
+            details: json!({ "field": "limit" }),
+        });
+    }
+
+    let repo = DocumentRepository::new(state.graph.clone());
+    let documents = repo
+        .list_recent_documents(limit)
+        .await
+        .map_err(|_| AppError::Internal {
+            message: "failed to list recent documents".to_string(),
         })?;
 
     let dtos = documents.into_iter().map(DocumentDto::from).collect();
