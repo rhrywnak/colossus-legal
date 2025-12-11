@@ -1,0 +1,27 @@
+# Colossus Legal - Document Processor Configuration
+# This file will be installed to ~/.config/colossus-legal/config.toml
+
+[ollama]
+url = "http://localhost:11434"
+model = "qwen2.5-16k"
+temperature = 0.1
+num_predict = 8000
+timeout_seconds = 600
+
+[directories]
+# All user data in Documents folder
+# IMPORTANT: Update these paths to match your username/system
+input_directory = "/home/roman/Documents/colossus-legal-data/input"
+output_directory = "/home/roman/Documents/colossus-legal-data/extracted"
+prompt_directory = "/home/roman/Documents/colossus-legal-data/prompts"
+
+[defaults]
+# Default prompt template (must exist in prompt_directory)
+prompt_template = "prompt_template.md"
+output_suffix = ".claims.json"
+
+[neo4j]
+# Neo4j connection (for future --commit feature)
+url = "bolt://10.10.100.50:7687"
+user = "neo4j"
+password = "Drwho2010$"

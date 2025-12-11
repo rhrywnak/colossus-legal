@@ -132,6 +132,11 @@ It supports:
 - **Layer:** L3
 - **Persona:** BackendAgent
 
+## T3.1e — Document Insight L3 (Recent Documents)
+- **Status:** DONE (2025-12-03)
+- **Layer:** L3
+- **Persona:** BackendAgent
+
 ---
 
 ### T3.2a — Document UI L0 (Skeleton)

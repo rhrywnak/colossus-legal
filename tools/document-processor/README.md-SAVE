@@ -1,0 +1,165 @@
+# Colossus Legal - Document Processor
+
+CLI tool for extracting legal claims from documents using local LLMs.
+
+## Features
+
+- Extract claims from legal documents (markdown format)
+- Uses local Ollama LLM (privacy-focused, no cloud)
+- Configurable prompts for different document types
+- JSON output for easy integration with Neo4j
+- Professional CLI design with XDG config standard
+
+## Installation
+```bash
+cd ~/Projects/colossus-legal/tools/document-processor
+./install.sh
+```
+
+This will:
+- Build and install the binary to `~/.cargo/bin/`
+- Create config at `~/.config/colossus-legal/config.toml`
+- Set up data directories in `~/Documents/colossus-legal-data/`
+- Install default prompt templates
+
+## Configuration
+
+After installation, edit the config:
+```bash
+nano ~/.config/colossus-legal/config.toml
+```
+
+Update paths to match your system.
+
+## Usage
+
+### Basic Usage
+```bash
+# Process a document (assumes file is in input directory)
+document-processor document.md
+
+# Process with custom output
+document-processor document.md -o my-output.json
+
+# Use custom prompt
+document-processor document.md -p affidavit_prompt.md
+```
+
+### Advanced Usage
+```bash
+# Use different config file
+document-processor document.md --config /path/to/config.toml
+
+# Or via environment variable
+COLOSSUS_CONFIG=/path/to/config.toml document-processor document.md
+
+# Override model
+document-processor document.md --model qwen2.5-7b
+
+# Override directories
+document-processor document.md --input-dir /other/input --output-dir /other/output
+```
+
+## Directory Structure
+```
+~/.cargo/bin/
+└── document-processor              # Binary
+
+~/.config/colossus-legal/
+└── config.toml                     # Configuration
+
+~/Documents/colossus-legal-data/
+├── input/                          # Source documents
+├── extracted/                      # Extracted claims (JSON)
+└── prompts/                        # Prompt templates
+    ├── prompt_template.md         # Default
+    ├── affidavit_prompt.md        # Custom for affidavits
+    └── motion_prompt.md           # Custom for motions
+```
+
+## Customizing Prompts
+
+Edit prompts in `~/Documents/colossus-legal-data/prompts/`:
+```bash
+nano ~/Documents/colossus-legal-data/prompts/prompt_template.md
+```
+
+Prompts use placeholders:
+- `{DOCUMENT_NAME}` - Filename without extension
+- `{DOCUMENT_TEXT}` - Full document content
+
+## Output Format
+
+Claims are saved as JSON:
+```json
+[
+  {
+    "id": "claim-income-001",
+    "quote": "has no income whatsoever",
+    "made_by": "defendant",
+    "page": 5,
+    "topic": "income",
+    "severity": 9,
+    "source_document": "motion_to_dismiss"
+  }
+]
+```
+
+## Requirements
+
+- Rust 1.70+
+- Ollama running locally (http://localhost:11434)
+- qwen2.5:14b or qwen2.5:16k model loaded
+
+## Configuration Hierarchy
+
+Config search order (highest priority first):
+
+1. `--config` flag
+2. `COLOSSUS_CONFIG` environment variable
+3. `~/.config/colossus-legal/config.toml` (user config)
+4. `/etc/colossus-legal/config.toml` (system config)
+
+## Troubleshooting
+
+### Config not found
+```bash
+# Create default config location
+mkdir -p ~/.config/colossus-legal
+cp config.toml ~/.config/colossus-legal/
+```
+
+### Ollama not running
+```bash
+# Start Ollama container
+docker start colossus-ollama
+
+# Check model is loaded
+docker exec colossus-ollama ollama list
+```
+
+### Directory doesn't exist
+
+Config file specifies directories that must exist. Create them:
+```bash
+mkdir -p ~/Documents/colossus-legal-data/{input,extracted,prompts}
+```
+
+## Development
+```bash
+# Build debug version
+cargo build
+
+# Run tests
+cargo test
+
+# Build release version
+cargo build --release
+
+# Run from source
+cargo run -- document.md
+```
+
+## License
+
+Part of the Colossus Legal project.

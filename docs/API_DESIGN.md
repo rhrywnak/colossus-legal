@@ -200,6 +200,10 @@ These steps are the pattern for all list endpoints going forward.
   - **Response 200:** `DocumentDto[]` where each item has `{ id, title, doc_type, created_at? }`.
   - **Errors:** Standard `500 Internal Server Error` on unexpected failures; no validation or per-item 404/400 handling in L1 list.
 
+   `GET /documents/recent`
+   - **Description:** Returns most recently ingested documents. Query param: limit
+   - **Response 200:** `DocumentDto[]`
+
 ### Future work (not implemented yet)
 
 - `GET /documents/{id}` (planned; will return a single document or 404 when L2/L3 are added).
