@@ -10,4 +10,4 @@ pub use decision::Decision;
 pub use document::{Document, DocumentConversionError, DocumentType};
 pub use evidence::Evidence;
 pub use hearing::Hearing;
-pub use person::Person;
+pub use person::{Person, PersonConversionError, PersonRole};
