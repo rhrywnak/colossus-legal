@@ -32,12 +32,22 @@ fn validate_status(status: &str) -> Result<(), AppError> {
     Ok(())
 }
 
+/// Bridge: Convert v2 Claim model to v1 ClaimDto for API backward compatibility.
+///
+/// The internal Claim model is v2 (with quote, category, source_document_id, etc.)
+/// but the API still returns the v1 DTO format until the frontend is updated.
+///
+/// Mapping:
+/// - title: Uses claim.title if present, otherwise falls back to category name
+/// - status: Converts ClaimStatus enum to lowercase string
 fn to_dto(claim: Claim) -> ClaimDto {
     ClaimDto {
         id: claim.id,
-        title: claim.title,
+        // v2→v1 bridge: Use title if present, otherwise use category as display name
+        title: claim.title.clone().unwrap_or_else(|| claim.category.to_string()),
         description: claim.description,
-        status: claim.status,
+        // v2→v1 bridge: Convert enum to string (e.g., ClaimStatus::Open → "open")
+        status: claim.status.to_string(),
     }
 }
 

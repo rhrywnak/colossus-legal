@@ -5,7 +5,7 @@ pub mod evidence;
 pub mod hearing;
 pub mod person;
 
-pub use claim::Claim;
+pub use claim::{Claim, ClaimCategory, ClaimConversionError, ClaimStatus, ClaimType};
 pub use decision::Decision;
 pub use document::Document;
 pub use evidence::Evidence;
