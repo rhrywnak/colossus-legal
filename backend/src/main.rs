@@ -9,7 +9,7 @@ use tracing_subscriber::EnvFilter;
 use colossus_legal_backend::{
     api,
     config::AppConfig,
-    neo4j::{check_neo4j, create_neo4j_graph},
+    neo4j::{check_neo4j, create_neo4j_graph, ensure_schema},
     state::AppState,
 };
 
@@ -53,6 +53,11 @@ async fn main() {
     check_neo4j(&graph)
         .await
         .expect("Neo4j connectivity check failed");
+
+    // Ensure Neo4j schema (constraints and indexes) exists
+    ensure_schema(&graph)
+        .await
+        .expect("Failed to ensure Neo4j schema");
 
     // Shared application state (global AppState)
     // If your AppState has more fields, add them here.
