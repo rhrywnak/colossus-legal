@@ -3,6 +3,7 @@ pub mod decision;
 pub mod document;
 pub mod evidence;
 pub mod hearing;
+pub mod import;
 pub mod person;
 
 pub use claim::Claim;
