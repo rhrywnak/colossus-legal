@@ -10,6 +10,7 @@ use crate::state::AppState;
 pub mod claims;
 pub mod documents;
 pub mod import;
+pub mod schema;
 
 /// Minimal API router.
 ///
@@ -29,6 +30,7 @@ pub fn router() -> Router<AppState> {
         .route("/documents/:id", get(documents::get_document))
         .route("/documents/:id", put(documents::update_document))
         .route("/import/validate", post(import::validate_import))
+        .route("/schema", get(schema::get_schema))
 }
 
 async fn health_check(State(_state): State<AppState>) -> (StatusCode, &'static str) {

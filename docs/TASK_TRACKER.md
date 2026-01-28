@@ -1,239 +1,175 @@
 # Colossus-Legal — TASK TRACKER
-A structured task index for Codex, ChatGPT, and human contributors.
-This tracker defines all phases (0–9), tasks, layers (L0–L3), personae, branch patterns, statuses, and acceptance criteria.
 
-It supports:
-- Codex planning/execution prompts
-- Branching workflow
-- Persona-layer constraints (AGENTS.md)
-- Breadth-first layered development (WORKFLOW.md)
+A structured task index for development.
 
 ---
 
-# Phase 0 — Project Initialization
+# Phase 0 — Project Initialization ✅ COMPLETE
 
-> **Goal:** Establish scaffolding, docs, workflow, and Codex safety rules.
-
-### T0.1 — Repository Bootstrap
-- **Status:** DONE
-- **Persona:** DocsAgent
-- **Criteria:** Repo created; README + docs folder.
-
-### T0.2 — Architecture & Workflow Docs
-- **Status:** DONE
-- **Persona:** DocsAgent
-- **Criteria:** ARCHITECTURE.md, WORKFLOW.md, API_DESIGN.md, DATA_MODEL.md present.
-
-### T0.3 — Codex Safety Bundle
-- **Status:** DONE
-- **Persona:** DocsAgent
-- **Criteria:** CODEx-SESSION-RULES.md, CODEx-CHECKLIST.md, CODEX-PROMPT-TEMPLATE.txt.
+### T0.1 — Repository Bootstrap — DONE
+### T0.2 — Architecture & Workflow Docs — DONE
+### T0.3 — Codex Safety Bundle — DONE
 
 ---
 
-# Phase 1 — Foundations (Backend + Frontend Bootstrap)
+# Phase 1 — Foundations ✅ COMPLETE
 
-> **Goal:** Minimal working backend + minimal working frontend.
-
-### T1.1 — Backend Skeleton (Axum)
-- **Status:** DONE
-- **Layer:** L0
-- **Persona:** BackendAgent
-- **Criteria:** `/health` endpoint, logging, AppState.
-
-### T1.2 — Neo4j Integration & Test Harness
-- **Status:** DONE
-- **Persona:** BackendAgent
-- **Criteria:** Neo4j driver + integration test harness.
-
-### T1.3 — Frontend Skeleton (React/Vite)
-- **Status:** DONE
-- **Persona:** FrontendAgent
-- **Criteria:** SPA routing, dev server works.
-
-### T1.5 — Backend Dev Env Configuration (Runtime Readiness & Test Isolation)
-- **Status:** DONE (2025-11-26)
-- **Layer:** L0
-- **Persona:** BackendAgent + DocsAgent
-- **Criteria:**
-  - `backend/.env` loading via dotenv.
-  - Test-marker system for Claims tests.
-  - DEV_ONBOARDING updated with backend setup details.
+### T1.1 — Backend Skeleton (Axum) — DONE
+### T1.2 — Neo4j Integration & Test Harness — DONE
+### T1.3 — Frontend Skeleton (React/Vite) — DONE
+### T1.5 — Backend Dev Env Configuration — DONE (2025-11-26)
 
 ---
 
-# Phase 2 — Claims Slice (API + UI)
+# Phase 2 — Claims Slice ✅ COMPLETE
 
-> **Goal:** Fully realize Claims (API L0→L3, UI L0→L1). Establish slice pattern.
-
-### T2.1a — Claims API L0 (Skeleton)
-- **Status:** DONE
-- **Layer:** L0
-- **Persona:** BackendAgent
-
-### T2.1b — Claims API L1 (Real Neo4j List)
-- **Status:** DONE
-- **Layer:** L1
-- **Persona:** BackendAgent
-
-### T2.1c — Claims API L2 (Validation)
-- **Status:** DONE
-- **Layer:** L2
-- **Persona:** BackendAgent
-
-### T2.1d — Claims API L3 (Analysis)
-- **Status:** DONE
-- **Layer:** L3
-- **Persona:** BackendAgent
+### T2.1a — Claims API L0 (Skeleton) — DONE
+### T2.1b — Claims API L1 (Neo4j) — DONE
+### T2.1c — Claims API L2 (Validation) — DONE
+### T2.1d — Claims API L3 (Analysis) — DONE
+### T2.2a — Claims UI L0 (Skeleton) — DONE
+### T2.2b — Claims UI L1 (Integration) — DONE
+### T2.3 — Claims E2E Integration — DONE (2025-11-27)
 
 ---
 
-### T2.2a — Claims UI L0 (Skeleton)
-- **Status:** DONE
-- **Layer:** L0
-- **Persona:** FrontendAgent
+# Phase 3 — Document Slice (In Progress)
 
-### T2.2b — Claims UI L1 (Integration + Tests)
-- **Status:** DONE
-- **Layer:** L1
-- **Persona:** FrontendAgent
-
-### T2.3 — Claims End-to-End Integration + Docs Update
-- **Status:** DONE (2025-11-27)
-- **Layer:** L1
-- **Persona:** DocsAgent
-- **Criteria:**
-  - E2E Claims flow verified.
-  - TASK_TRACKER, WORKFLOW, API_DESIGN, DATA_MODEL updated.
+### T3.1a — Document API L0 (Skeleton) — DONE (2025-12-03)
+### T3.1b — Document API L1 (Neo4j) — DONE (2025-12-03)
+### T3.1c — Document API L2 (Validation) — PLANNED
+### T3.1d — Document API L3 (Analysis) — PLANNED
+### T3.2a — Document UI L0 (Skeleton) — DONE (2025-12-03)
+### T3.2b — Document UI L1 (Integration) — DONE (2025-12-03)
+### T3.3 — Document Slice Integration — DONE (2025-12-02)
 
 ---
 
-# Phase 3 — Document Slice (API + UI)
+# Phase 4 — Core Graph Expansion — FUTURE
 
-> **Goal:** Implement a full Document slice (API L0–L3, UI L0–L1, docs).
-
-### T3.1a — Document API L0 (Skeleton)
-- **Status:** DONE (2025-12-03)
-- **Layer:** L0
-- **Persona:** BackendAgent
-
-### T3.1b — Document API L1 (Neo4j Happy Path)
-- **Status:** DONE (2025-12-03)
-- **Layer:** L1
-- **Persona:** BackendAgent
-
-### T3.1c — Document API L2 (Validation + 400/404)
-- **Status:** PLANNED
-- **Layer:** L2
-- **Persona:** BackendAgent
-
-### T3.1d — Document API L3 (Analysis Queries)
-- **Status:** PLANNED
-- **Layer:** L3
-- **Persona:** BackendAgent
+### T4.1 — Evidence API + UI — FUTURE
+### T4.2 — Person API + UI — FUTURE
+### T4.3 — Hearing API + UI — FUTURE
+### T4.4 — Decision API + UI — FUTURE
 
 ---
 
-### T3.2a — Document UI L0 (Skeleton)
-- **Status:** DONE (2025-12-03)
-- **Layer:** L0
-- **Persona:** FrontendAgent
+# Phase 5 — Schema v2 + Claims Import (Active)
 
-### T3.2b — Document UI L1 (Real API Integration + Tests)
-- **Status:** DONE (2025-12-03)
-- **Layer:** L1
-- **Persona:** FrontendAgent
+> **Goal:** Update models to v2 schema and implement claims import pipeline.
 
-### T3.3 — Document Slice Integration + Docs
-- **Status:** DONE (2025-12-02)
-- **Layer:** L1
-- **Persona:** DocsAgent
-- **Notes:** Document slice integrated at L1. API L0–L1 + UI L0–L1 functional. Docs updated accordingly.
+## Feature F5.1 — Schema v2 Migration ✅ COMPLETE
 
----
+**Branch:** `feature/P5-F5.1-schema-v2-migration` (merged to main 2025-12-20)
 
-# Phase 4 — Core Graph Expansion (Evidence / Person / Hearing / Decision)
+| Task | Description | Status | Date |
+|------|-------------|--------|------|
+| T5.1.1 | Clear Neo4j test data | DONE | 2025-12-20 |
+| T5.1.2 | Update Claim model to v2 schema | DONE | 2025-12-20 |
+| T5.1.3 | Update Document model to v2 schema | DONE | 2025-12-20 |
+| T5.1.4 | Add Person model with v2 fields | DONE | 2025-12-20 |
+| T5.1.5 | Add Evidence model with v2 fields | DONE | 2025-12-20 |
+| T5.1.6 | Create Neo4j constraints and indexes | DONE | 2025-12-20 |
 
-> **Goal:** Add CRUD + minimal UI (L0–L1) for remaining graph nodes.
-
-### T4.1 — Evidence API + UI  
-- **Status:** FUTURE
-
-### T4.2 — Person API + UI  
-- **Status:** FUTURE
-
-### T4.3 — Hearing API + UI  
-- **Status:** FUTURE
-
-### T4.4 — Decision API + UI  
-- **Status:** FUTURE
+**Deliverables:**
+- ClaimCategory enum (19 variants)
+- DocumentType enum (34 variants)
+- PersonRole enum (14 variants)
+- EvidenceKind enum (9 variants)
+- 5 unique constraints, 10 indexes in Neo4j
+- 20 unit tests passing
 
 ---
 
-# Phase 5 — Relationship APIs (Graph Connections)
+## Feature F5.2 — Import Validation Endpoint 🔄 IN PROGRESS
 
-> **Goal:** Add relationship endpoints connecting graph elements.
+**Branch:** `feature/P5-F5.2-import-validation` (to be created)
+**Dependency:** F5.1 ✅
 
-### T5.1 — Relationship APIs L2  
-- **Status:** FUTURE
+| Task | Description | Status | Layer |
+|------|-------------|--------|-------|
+| T5.2.1 | Create import DTOs | DONE | 2025-12-23 | L0 |
+| T5.2.2 | Implement JSON schema validation | DONE | 2025-12-23 | L1 |
+| T5.2.3 | Implement claim field validation | DONE | 2025-12-23 | L1 |
+| T5.2.4 | Implement duplicate detection | DONE | 2025-12-23 | L1 |
+| T5.2.5 | Create POST /api/import/validate endpoint | DONE | 2025-12-23 | L1 |
+| T5.2.6 | Integration tests | DONE | 2025-12-23 |
 
-### T5.2 — Relationship UI L1  
-- **Status:** FUTURE
-
----
-
-# Phase 6 — Analysis Layer (Graph Queries)
-
-> **Goal:** Deep graph traversal & analysis queries.
-
-### T6.1 — Analysis API L3  
-- **Status:** FUTURE
-
-### T6.2 — Analysis UI L3  
-- **Status:** FUTURE
-
----
-
-# Phase 7 — Document Upload & Extraction
-
-### T7.1 — File Upload Endpoint  
-- **Status:** FUTURE
-
-### T7.2 — Text Extraction (PDF/DOCX/OCR)  
-- **Status:** FUTURE
-
-### T7.3 — Upload UI  
-- **Status:** FUTURE
+**Exit Criteria:**
+- [x] Endpoint accepts JSON file upload
+- [x] Returns validation errors for invalid JSON
+- [x] Returns validation errors for missing required fields
+- [x] Returns validation errors for invalid enum values
+- [x] Detects duplicate claim IDs within file
+- [x] All tests pass
+- [x] Manual test with Awad claims JSON succeeds
 
 ---
 
-# Phase 8 — AI Suggestion Pipeline  
-*(AI ONLY — no reporting here)*
+## Feature F5.3 — Import Execution Endpoint — PLANNED
 
-> **Goal:** Introduce AI-driven insights, suggestions, and automated graph annotations.
+**Branch:** `feature/P5-F5.3-import-execution`
+**Dependency:** F5.2
 
-### T8.1 — LLM Integration  
-- **Status:** FUTURE
-
-### T8.2 — AI Suggestion Model  
-- **Status:** FUTURE
-
-### T8.3 — Graph Suggestion / Annotation Engine  
-- **Status:** FUTURE
+| Task | Description | Status |
+|------|-------------|--------|
+| T5.3.1 | Implement Case node creation | TODO |
+| T5.3.2 | Implement Document node creation | TODO |
+| T5.3.3 | Implement Person node creation (MERGE) | TODO |
+| T5.3.4 | Implement Claim node creation | TODO |
+| T5.3.5 | Implement Evidence node creation | TODO |
+| T5.3.6 | Implement relationship creation | TODO |
+| T5.3.7 | Create POST /api/import/execute endpoint | TODO |
+| T5.3.8 | Implement transaction rollback on error | TODO |
+| T5.3.9 | Write unit tests for node creation | TODO |
+| T5.3.10 | Write integration tests for import | TODO |
 
 ---
 
-# Phase 9 — Reporting & Visualization  
-*(UI-only — all reporting, exports, dashboards, graph views)*
+## Feature F5.4 — Update Existing API Endpoints — PLANNED
 
-### T9.1 — Reporting & PDF/Doc Export  
-- **Status:** FUTURE
+**Dependency:** F5.3
 
-### T9.2 — Graph Views & Timelines  
-- **Status:** FUTURE
+| Task | Description | Status |
+|------|-------------|--------|
+| T5.4.1 | Update ClaimRepository to v2 schema | TODO |
+| T5.4.2 | Update DocumentRepository to v2 schema | TODO |
+| T5.4.3 | Add PersonRepository | TODO |
+| T5.4.4 | Add EvidenceRepository | TODO |
+| T5.4.5 | Fix ignored integration tests | TODO |
 
-### T9.3 — Dashboards, UX Polish, Auto-Save  
-- **Status:** FUTURE
+---
+
+## Feature F5.5 — Frontend Import UI — PLANNED
+
+**Dependency:** F5.3
+
+| Task | Description | Status |
+|------|-------------|--------|
+| T5.5.1 | File upload component | TODO |
+| T5.5.2 | Validation results display | TODO |
+| T5.5.3 | Import preview page | TODO |
+| T5.5.4 | Import progress display | TODO |
+| T5.5.5 | Import report display | TODO |
+
+---
+
+# Phase 6-9 — FUTURE
+
+See original TASK_TRACKER for details on:
+- Phase 6: Analysis Layer
+- Phase 7: Document Upload & Extraction
+- Phase 8: AI Suggestion Pipeline
+- Phase 9: Reporting & Visualization
+
+---
+
+# Technical Debt
+
+### From F5.1 (ignored tests, need F5.4 to fix)
+- [ ] `tests/claims_list.rs` — 2 tests ignored (v1 test data)
+- [ ] `tests/claims_validation.rs` — 1 test ignored (ClaimRepository v1)
+- [ ] `tests/documents_list.rs` — 1 test ignored (invalid doc_type)
 
 ---
 
@@ -241,23 +177,21 @@ It supports:
 
 | Phase | Status |
 |-------|--------|
-| Phase 0 | Complete |
-| Phase 1 | Complete |
-| Phase 2 | Complete |
-| Phase 3 | In Progress |
-| Phase 4 | Not Started |
-| Phase 5 | Not Started |
-| Phase 6 | Not Started |
-| Phase 7 | Not Started |
-| Phase 8 | Not Started |
-| Phase 9 | Not Started |
+| Phase 0 | ✅ Complete |
+| Phase 1 | ✅ Complete |
+| Phase 2 | ✅ Complete |
+| Phase 3 | 🔄 In Progress (L2+ remaining) |
+| Phase 4 | ⏳ Future |
+| Phase 5 | 🔄 In Progress (F5.2 starting) |
+| Phase 6-9 | ⏳ Future |
 
 ---
 
 # Notes
-- One Task ID → one branch → one persona → one layer.
-- Codex must follow AGENTS.md + WORKFLOW.md.
-- L1+ tasks require tests.
-- Keep `main` deployable at all times.
+
+- One Task ID → one branch → one persona → one layer
+- F5.x uses feature branches per Feature set
+- L1+ tasks require tests
+- Keep `main` deployable at all times
 
 # End of TASK_TRACKER.md
