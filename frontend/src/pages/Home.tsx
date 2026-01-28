@@ -1,19 +1,21 @@
 import React, { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { getSchema, SchemaResponse } from "../services/schema";
 
 type CardData = {
   label: string;
   key: string;
   color: string;
+  route: string;
 };
 
 const CARDS: CardData[] = [
-  { label: "Documents", key: "Document", color: "#3b82f6" },
-  { label: "Evidence", key: "Evidence", color: "#10b981" },
-  { label: "Persons", key: "Person", color: "#8b5cf6" },
-  { label: "Allegations", key: "ComplaintAllegation", color: "#f59e0b" },
-  { label: "Harms", key: "Harm", color: "#ef4444" },
-  { label: "Legal Counts", key: "LegalCount", color: "#6366f1" },
+  { label: "Documents", key: "Document", color: "#3b82f6", route: "/documents" },
+  { label: "Evidence", key: "Evidence", color: "#10b981", route: "/evidence" },
+  { label: "Persons", key: "Person", color: "#8b5cf6", route: "/people" },
+  { label: "Allegations", key: "ComplaintAllegation", color: "#f59e0b", route: "/claims" },
+  { label: "Harms", key: "Harm", color: "#ef4444", route: "/claims" },
+  { label: "Legal Counts", key: "LegalCount", color: "#6366f1", route: "/claims" },
 ];
 
 const Home: React.FC = () => {
@@ -100,29 +102,43 @@ const Home: React.FC = () => {
         {CARDS.map((card) => {
           const count = schema.node_counts[card.key] ?? 0;
           return (
-            <div
+            <Link
               key={card.key}
-              style={{
-                padding: "1.25rem",
-                backgroundColor: "#fff",
-                border: "1px solid #e5e7eb",
-                borderRadius: "8px",
-                borderLeft: `4px solid ${card.color}`,
-              }}
+              to={card.route}
+              style={{ textDecoration: "none" }}
             >
               <div
                 style={{
-                  fontSize: "2rem",
-                  fontWeight: "bold",
-                  color: card.color,
+                  padding: "1.25rem",
+                  backgroundColor: "#fff",
+                  border: "1px solid #e5e7eb",
+                  borderRadius: "8px",
+                  borderLeft: `4px solid ${card.color}`,
+                  cursor: "pointer",
+                  transition: "box-shadow 0.2s ease",
                 }}
+                onMouseEnter={(e) =>
+                  (e.currentTarget.style.boxShadow =
+                    "0 4px 12px rgba(0,0,0,0.15)")
+                }
+                onMouseLeave={(e) =>
+                  (e.currentTarget.style.boxShadow = "none")
+                }
               >
-                {count}
+                <div
+                  style={{
+                    fontSize: "2rem",
+                    fontWeight: "bold",
+                    color: card.color,
+                  }}
+                >
+                  {count}
+                </div>
+                <div style={{ color: "#6b7280", marginTop: "0.25rem" }}>
+                  {card.label}
+                </div>
               </div>
-              <div style={{ color: "#6b7280", marginTop: "0.25rem" }}>
-                {card.label}
-              </div>
-            </div>
+            </Link>
           );
         })}
       </div>
