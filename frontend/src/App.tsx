@@ -6,6 +6,7 @@ import Decisions from "./pages/Decisions";
 import DocumentDetailPage from "./pages/DocumentDetailPage";
 import DocumentsPage from "./pages/DocumentsPage";
 import EvidencePage from "./pages/EvidencePage";
+import HarmsPage from "./pages/HarmsPage";
 import Hearings from "./pages/Hearings";
 import Home from "./pages/Home";
 import People from "./pages/People";
@@ -13,9 +14,9 @@ import People from "./pages/People";
 const navLinks = [
   { to: "/", label: "Home" },
   { to: "/allegations", label: "Allegations" },
-  { to: "/claims", label: "Claims" },
   { to: "/documents", label: "Documents" },
   { to: "/evidence", label: "Evidence" },
+  { to: "/damages", label: "Damages" },
   { to: "/people", label: "People" },
   { to: "/hearings", label: "Hearings" },
   { to: "/decisions", label: "Decisions" },
@@ -54,6 +55,7 @@ const App: React.FC = () => {
           <Route path="/documents" element={<DocumentsPage />} />
           <Route path="/documents/:id" element={<DocumentDetailPage />} />
           <Route path="/evidence" element={<EvidencePage />} />
+          <Route path="/damages" element={<HarmsPage />} />
           <Route path="/people" element={<People />} />
           <Route path="/hearings" element={<Hearings />} />
           <Route path="/decisions" element={<Decisions />} />

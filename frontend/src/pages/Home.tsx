@@ -14,7 +14,7 @@ const CARDS: CardData[] = [
   { label: "Evidence", key: "Evidence", color: "#10b981", route: "/evidence" },
   { label: "Persons", key: "Person", color: "#8b5cf6", route: "/people" },
   { label: "Allegations", key: "ComplaintAllegation", color: "#f59e0b", route: "/allegations" },
-  { label: "Harms", key: "Harm", color: "#ef4444", route: "/claims" },
+  { label: "Harms", key: "Harm", color: "#ef4444", route: "/damages" },
   { label: "Legal Counts", key: "LegalCount", color: "#6366f1", route: "/claims" },
 ];
 
