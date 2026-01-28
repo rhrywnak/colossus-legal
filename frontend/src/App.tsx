@@ -1,7 +1,7 @@
 import React from "react";
 import { Link, Route, Routes } from "react-router-dom";
 import AllegationsPage from "./pages/AllegationsPage";
-import ClaimsPage from "./pages/ClaimsPage";
+import MotionClaimsPage from "./pages/MotionClaimsPage";
 import Decisions from "./pages/Decisions";
 import DocumentDetailPage from "./pages/DocumentDetailPage";
 import DocumentsPage from "./pages/DocumentsPage";
@@ -14,6 +14,7 @@ import People from "./pages/People";
 const navLinks = [
   { to: "/", label: "Home" },
   { to: "/allegations", label: "Allegations" },
+  { to: "/claims", label: "Claims" },
   { to: "/documents", label: "Documents" },
   { to: "/evidence", label: "Evidence" },
   { to: "/damages", label: "Damages" },
@@ -51,7 +52,7 @@ const App: React.FC = () => {
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/allegations" element={<AllegationsPage />} />
-          <Route path="/claims" element={<ClaimsPage />} />
+          <Route path="/claims" element={<MotionClaimsPage />} />
           <Route path="/documents" element={<DocumentsPage />} />
           <Route path="/documents/:id" element={<DocumentDetailPage />} />
           <Route path="/evidence" element={<EvidencePage />} />
