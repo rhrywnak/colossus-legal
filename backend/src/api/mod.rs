@@ -39,6 +39,7 @@ pub fn router() -> Router<AppState> {
         .route("/allegations", get(allegations::list_allegations))
         .route("/evidence", get(evidence::list_evidence))
         .route("/harms", get(harms::list_harms))
+        .route("/motion-claims", get(claims::list_motion_claims))
 }
 
 async fn health_check(State(_state): State<AppState>) -> (StatusCode, &'static str) {

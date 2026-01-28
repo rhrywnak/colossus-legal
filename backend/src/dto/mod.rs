@@ -5,6 +5,7 @@ pub mod document;
 pub mod evidence;
 pub mod harm;
 pub mod hearing;
+pub mod motion_claim;
 pub mod person;
 pub mod schema;
 
@@ -17,4 +18,5 @@ pub use document::{DocumentCreateRequest, DocumentDto, DocumentUpdateRequest};
 pub use evidence::{EvidenceCreateRequest, EvidenceDto, EvidenceResponse, EvidenceUpdateRequest};
 pub use hearing::{HearingCreateRequest, HearingUpdateRequest};
 pub use person::{PersonCreateRequest, PersonDto, PersonUpdateRequest, PersonsResponse};
+pub use motion_claim::{MotionClaimDto, MotionClaimsResponse};
 pub use schema::SchemaResponse;

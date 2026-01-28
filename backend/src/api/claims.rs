@@ -1,12 +1,13 @@
-use axum::{extract::Path, extract::State, Json};
+use axum::{extract::Path, extract::State, http::StatusCode, Json};
 use serde_json::json;
 
 use crate::{
     dto::ClaimDto,
-    dto::{ClaimCreateRequest, ClaimUpdateRequest},
+    dto::{ClaimCreateRequest, ClaimUpdateRequest, MotionClaimsResponse},
     error::AppError,
     models::claim::Claim,
     repositories::claim_repository::ClaimRepository,
+    repositories::MotionClaimRepository,
     state::AppState,
 };
 
@@ -133,4 +134,19 @@ pub async fn update_claim(
         })?;
 
     Ok(Json(to_dto(updated)))
+}
+
+/// List all MotionClaim nodes with their relationships
+/// (PROVES -> Allegation, RELIES_ON -> Evidence, APPEARS_IN -> Document)
+pub async fn list_motion_claims(
+    State(state): State<AppState>,
+) -> Result<Json<MotionClaimsResponse>, StatusCode> {
+    let repo = MotionClaimRepository::new(state.graph.clone());
+    match repo.list_motion_claims().await {
+        Ok(response) => Ok(Json(response)),
+        Err(e) => {
+            tracing::error!("Failed to fetch motion claims: {:?}", e);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    }
 }
