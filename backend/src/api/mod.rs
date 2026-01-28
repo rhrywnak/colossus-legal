@@ -12,6 +12,8 @@ pub mod claims;
 pub mod contradictions;
 pub mod documents;
 pub mod evidence;
+pub mod evidence_chain;
+pub mod graph;
 pub mod harms;
 pub mod import;
 pub mod persons;
@@ -38,10 +40,15 @@ pub fn router() -> Router<AppState> {
         .route("/schema", get(schema::get_schema))
         .route("/persons", get(persons::list_persons))
         .route("/allegations", get(allegations::list_allegations))
+        .route(
+            "/allegations/:id/evidence-chain",
+            get(evidence_chain::get_evidence_chain),
+        )
         .route("/evidence", get(evidence::list_evidence))
         .route("/harms", get(harms::list_harms))
         .route("/motion-claims", get(claims::list_motion_claims))
         .route("/contradictions", get(contradictions::list_contradictions))
+        .route("/graph/legal-proof", get(graph::get_legal_proof_graph))
 }
 
 async fn health_check(State(_state): State<AppState>) -> (StatusCode, &'static str) {

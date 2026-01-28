@@ -21,155 +21,243 @@ A structured task index for development.
 
 ---
 
-# Phase 2 — Claims Slice ✅ COMPLETE
+# Phase 2 — Query Layer ✅ COMPLETE (2026-01-29)
 
-### T2.1a — Claims API L0 (Skeleton) — DONE
-### T2.1b — Claims API L1 (Neo4j) — DONE
-### T2.1c — Claims API L2 (Validation) — DONE
-### T2.1d — Claims API L3 (Analysis) — DONE
-### T2.2a — Claims UI L0 (Skeleton) — DONE
-### T2.2b — Claims UI L1 (Integration) — DONE
-### T2.3 — Claims E2E Integration — DONE (2025-11-27)
+> **Goal:** Expose Neo4j database to end users (Marie Awad, Charles Penzien) through REST API and React UI.
+
+## Feature F2.1 — Schema Discovery ✅ COMPLETE
+
+| Task | Description | Status | Date |
+|------|-------------|--------|------|
+| T2.1.1 | GET /schema endpoint | DONE | 2026-01-29 |
+| T2.1.2 | Dashboard UI with entity counts | DONE | 2026-01-29 |
+| T2.1.3 | Clickable dashboard cards | DONE | 2026-01-29 |
+
+## Feature F2.2 — Persons API + UI ✅ COMPLETE
+
+| Task | Description | Status | Date |
+|------|-------------|--------|------|
+| T2.2.1 | GET /persons endpoint | DONE | 2026-01-29 |
+| T2.2.2 | People page with role badges | DONE | 2026-01-29 |
+
+## Feature F2.3 — Allegations API + UI ✅ COMPLETE
+
+| Task | Description | Status | Date |
+|------|-------------|--------|------|
+| T2.3.1 | GET /allegations endpoint | DONE | 2026-01-29 |
+| T2.3.2 | Allegations page with status badges | DONE | 2026-01-29 |
+| T2.3.3 | Fix duplicate rows (legal_counts array) | DONE | 2026-01-29 |
+
+## Feature F2.4 — Evidence API + UI ✅ COMPLETE
+
+| Task | Description | Status | Date |
+|------|-------------|--------|------|
+| T2.4.1 | GET /evidence endpoint | DONE | 2026-01-29 |
+| T2.4.2 | Evidence page with CRITICAL highlighting | DONE | 2026-01-29 |
+| T2.4.3 | Source document links | DONE | 2026-01-29 |
+
+## Feature F2.5 — Harms/Damages API + UI ✅ COMPLETE
+
+| Task | Description | Status | Date |
+|------|-------------|--------|------|
+| T2.5.1 | GET /harms endpoint | DONE | 2026-01-29 |
+| T2.5.2 | Damages page with totals | DONE | 2026-01-29 |
+| T2.5.3 | Route /damages (user-friendly URL) | DONE | 2026-01-29 |
+
+**Phase 2 Deliverables:**
+- 5 backend endpoints
+- 5 frontend pages (Dashboard, People, Allegations, Evidence, Damages)
+- All 18 allegations PROVEN
+- $40,258.61 in quantifiable damages displayed
 
 ---
 
-# Phase 3 — Document Slice (In Progress)
+# Phase 2.5 — Extended Query Layer ✅ COMPLETE (2026-01-29)
+
+> **Goal:** Add MotionClaims and Contradictions to complete evidence chain visibility.
+
+## Feature F2.6 — MotionClaims API + UI ✅ COMPLETE
+
+| Task | Description | Status | Date |
+|------|-------------|--------|------|
+| T2.6.1 | GET /motion-claims endpoint | DONE | 2026-01-29 |
+| T2.6.2 | Claims page with category badges | DONE | 2026-01-29 |
+| T2.6.3 | Linked allegations and evidence | DONE | 2026-01-29 |
+
+## Feature F2.7 — Contradictions API + UI ✅ COMPLETE
+
+| Task | Description | Status | Date |
+|------|-------------|--------|------|
+| T2.7.1 | GET /contradictions endpoint | DONE | 2026-01-29 |
+| T2.7.2 | Side-by-side comparison page | DONE | 2026-01-29 |
+
+**Phase 2.5 Deliverables:**
+- 2 backend endpoints
+- 2 frontend pages (Claims, Contradictions)
+- 26 motion claims displayed
+- Contradiction comparison view
+
+---
+
+# Phase 2.6 — Graph Visualization 🔄 IN PROGRESS
+
+> **Goal:** Visual evidence chains using React + dagre for hierarchical display.
+
+## Feature F2.8 — Graph Visualization — PLANNED
+
+**Branch:** `feature/graph-visualization` (created)
+
+| Task | Description | Status |
+|------|-------------|--------|
+| T2.8.1 | Design graph data endpoint | TODO |
+| T2.8.2 | GET /graph/legal-proof endpoint | TODO |
+| T2.8.3 | GET /graph/damages endpoint | TODO |
+| T2.8.4 | Install dagre in frontend | TODO |
+| T2.8.5 | Create GraphViewer component | TODO |
+| T2.8.6 | Integrate with hierarchy selector | TODO |
+| T2.8.7 | Add "View Graph" buttons to pages | TODO |
+
+**Supported Hierarchies:**
+| Type | Pattern |
+|------|---------|
+| Legal Proof | Count → Allegation → Claim → Evidence |
+| Damages | Count → Harm → Allegation → Evidence |
+| Document | Document → Evidence → Claims |
+| Party | Person → Evidence → Documents |
+
+---
+
+# Phase 3 — Document Slice (Partial)
 
 ### T3.1a — Document API L0 (Skeleton) — DONE (2025-12-03)
 ### T3.1b — Document API L1 (Neo4j) — DONE (2025-12-03)
-### T3.1c — Document API L2 (Validation) — PLANNED
-### T3.1d — Document API L3 (Analysis) — PLANNED
+### T3.1c — Document API L2 (Validation) — DEFERRED
+### T3.1d — Document API L3 (Analysis) — DEFERRED
 ### T3.2a — Document UI L0 (Skeleton) — DONE (2025-12-03)
 ### T3.2b — Document UI L1 (Integration) — DONE (2025-12-03)
 ### T3.3 — Document Slice Integration — DONE (2025-12-02)
 
 ---
 
-# Phase 4 — Core Graph Expansion — FUTURE
+# Phase 5 — Schema v2 + Claims Import (Historical)
 
-### T4.1 — Evidence API + UI — FUTURE
-### T4.2 — Person API + UI — FUTURE
-### T4.3 — Hearing API + UI — FUTURE
-### T4.4 — Decision API + UI — FUTURE
+> Note: This phase was completed earlier. Import validation endpoint exists.
 
----
-
-# Phase 5 — Schema v2 + Claims Import (Active)
-
-> **Goal:** Update models to v2 schema and implement claims import pipeline.
-
-## Feature F5.1 — Schema v2 Migration ✅ COMPLETE
-
-**Branch:** `feature/P5-F5.1-schema-v2-migration` (merged to main 2025-12-20)
-
-| Task | Description | Status | Date |
-|------|-------------|--------|------|
-| T5.1.1 | Clear Neo4j test data | DONE | 2025-12-20 |
-| T5.1.2 | Update Claim model to v2 schema | DONE | 2025-12-20 |
-| T5.1.3 | Update Document model to v2 schema | DONE | 2025-12-20 |
-| T5.1.4 | Add Person model with v2 fields | DONE | 2025-12-20 |
-| T5.1.5 | Add Evidence model with v2 fields | DONE | 2025-12-20 |
-| T5.1.6 | Create Neo4j constraints and indexes | DONE | 2025-12-20 |
-
-**Deliverables:**
-- ClaimCategory enum (19 variants)
-- DocumentType enum (34 variants)
-- PersonRole enum (14 variants)
-- EvidenceKind enum (9 variants)
-- 5 unique constraints, 10 indexes in Neo4j
-- 20 unit tests passing
+## Feature F5.1 — Schema v2 Migration ✅ COMPLETE (2025-12-20)
+## Feature F5.2 — Import Validation Endpoint ✅ COMPLETE (2025-12-23)
+## Feature F5.3 — Import Execution Endpoint — DEFERRED
+## Feature F5.4 — Update Existing API Endpoints — SUPERSEDED by Phase 2
+## Feature F5.5 — Frontend Import UI — DEFERRED
 
 ---
 
-## Feature F5.2 — Import Validation Endpoint 🔄 IN PROGRESS
+# Future Phases
 
-**Branch:** `feature/P5-F5.2-import-validation` (to be created)
-**Dependency:** F5.1 ✅
-
-| Task | Description | Status | Layer |
-|------|-------------|--------|-------|
-| T5.2.1 | Create import DTOs | DONE | 2025-12-23 | L0 |
-| T5.2.2 | Implement JSON schema validation | DONE | 2025-12-23 | L1 |
-| T5.2.3 | Implement claim field validation | DONE | 2025-12-23 | L1 |
-| T5.2.4 | Implement duplicate detection | DONE | 2025-12-23 | L1 |
-| T5.2.5 | Create POST /api/import/validate endpoint | DONE | 2025-12-23 | L1 |
-| T5.2.6 | Integration tests | DONE | 2025-12-23 |
-
-**Exit Criteria:**
-- [x] Endpoint accepts JSON file upload
-- [x] Returns validation errors for invalid JSON
-- [x] Returns validation errors for missing required fields
-- [x] Returns validation errors for invalid enum values
-- [x] Detects duplicate claim IDs within file
-- [x] All tests pass
-- [x] Manual test with Awad claims JSON succeeds
+### Phase 6 — Analysis Layer — FUTURE
+### Phase 7 — Document Upload & Extraction — FUTURE
+### Phase 8 — AI Suggestion Pipeline — FUTURE
+### Phase 9 — Reporting & Visualization — FUTURE (partially in Phase 2.6)
 
 ---
 
-## Feature F5.3 — Import Execution Endpoint — PLANNED
+# API Endpoints Summary
 
-**Branch:** `feature/P5-F5.3-import-execution`
-**Dependency:** F5.2
-
-| Task | Description | Status |
-|------|-------------|--------|
-| T5.3.1 | Implement Case node creation | TODO |
-| T5.3.2 | Implement Document node creation | TODO |
-| T5.3.3 | Implement Person node creation (MERGE) | TODO |
-| T5.3.4 | Implement Claim node creation | TODO |
-| T5.3.5 | Implement Evidence node creation | TODO |
-| T5.3.6 | Implement relationship creation | TODO |
-| T5.3.7 | Create POST /api/import/execute endpoint | TODO |
-| T5.3.8 | Implement transaction rollback on error | TODO |
-| T5.3.9 | Write unit tests for node creation | TODO |
-| T5.3.10 | Write integration tests for import | TODO |
-
----
-
-## Feature F5.4 — Update Existing API Endpoints — PLANNED
-
-**Dependency:** F5.3
-
-| Task | Description | Status |
-|------|-------------|--------|
-| T5.4.1 | Update ClaimRepository to v2 schema | TODO |
-| T5.4.2 | Update DocumentRepository to v2 schema | TODO |
-| T5.4.3 | Add PersonRepository | TODO |
-| T5.4.4 | Add EvidenceRepository | TODO |
-| T5.4.5 | Fix ignored integration tests | TODO |
+| Endpoint | Method | Purpose | Status |
+|----------|--------|---------|--------|
+| `/health` | GET | Health check | ✅ |
+| `/api/status` | GET | Backend status | ✅ |
+| `/schema` | GET | Database discovery | ✅ |
+| `/persons` | GET | List persons | ✅ |
+| `/allegations` | GET | List allegations | ✅ |
+| `/evidence` | GET | List evidence | ✅ |
+| `/harms` | GET | List harms/damages | ✅ |
+| `/motion-claims` | GET | List motion claims | ✅ |
+| `/contradictions` | GET | List contradictions | ✅ |
+| `/documents` | GET | List documents | ✅ |
+| `/documents/:id` | GET | Document detail | ✅ |
+| `/documents` | POST | Create document | ✅ |
+| `/documents/:id` | PUT | Update document | ✅ |
+| `/claims` | GET | List claims (old) | ✅ |
+| `/claims/:id` | GET | Claim detail | ✅ |
+| `/claims` | POST | Create claim | ✅ |
+| `/claims/:id` | PUT | Update claim | ✅ |
+| `/import/validate` | POST | Validate import JSON | ✅ |
+| `/graph/:type` | GET | Graph data for visualization | TODO |
 
 ---
 
-## Feature F5.5 — Frontend Import UI — PLANNED
+# Frontend Pages Summary
 
-**Dependency:** F5.3
-
-| Task | Description | Status |
-|------|-------------|--------|
-| T5.5.1 | File upload component | TODO |
-| T5.5.2 | Validation results display | TODO |
-| T5.5.3 | Import preview page | TODO |
-| T5.5.4 | Import progress display | TODO |
-| T5.5.5 | Import report display | TODO |
-
----
-
-# Phase 6-9 — FUTURE
-
-See original TASK_TRACKER for details on:
-- Phase 6: Analysis Layer
-- Phase 7: Document Upload & Extraction
-- Phase 8: AI Suggestion Pipeline
-- Phase 9: Reporting & Visualization
+| Route | Page | Status |
+|-------|------|--------|
+| `/` | Dashboard | ✅ |
+| `/allegations` | Allegations | ✅ |
+| `/claims` | Motion Claims | ✅ |
+| `/documents` | Documents List | ✅ |
+| `/documents/:id` | Document Detail | ✅ |
+| `/evidence` | Evidence | ✅ |
+| `/damages` | Harms/Damages | ✅ |
+| `/people` | People | ✅ |
+| `/contradictions` | Contradictions | ✅ |
+| `/hearings` | Hearings | Placeholder |
+| `/decisions` | Decisions | Placeholder |
+| `/graph` | Graph Visualization | TODO |
 
 ---
 
 # Technical Debt
 
-### From F5.1 (ignored tests, need F5.4 to fix)
+### From F5.1 (ignored tests, need fixing)
 - [ ] `tests/claims_list.rs` — 2 tests ignored (v1 test data)
 - [ ] `tests/claims_validation.rs` — 1 test ignored (ClaimRepository v1)
 - [ ] `tests/documents_list.rs` — 1 test ignored (invalid doc_type)
+
+---
+
+# Data Quality Issues
+
+### DATA-001: Review CONTRADICTED_BY Relationships
+**Priority:** High
+**Type:** Data Quality
+**Description:** Current CONTRADICTED_BY relationships don't represent actual logical contradictions. Example: "Camille claims Marie withdrew $140K" linked to "Emil demanded Nadia return $50K" - these are not direct contradictions.
+**Action:** Review all 2 existing CONTRADICTED_BY relationships in Neo4j and correct or remove invalid ones.
+
+### DATA-002: Identify Missing Contradictions
+**Priority:** High
+**Type:** Data Extraction
+**Description:** Many actual contradictions exist in the case documents but haven't been captured. Need systematic review of:
+- Sisters' affidavits vs caregiver affidavits
+- Phillips/CFS interrogatory answers vs complaint allegations
+- Sisters' claims vs CFS admissions
+
+**Action:** Re-analyze documents specifically for contradictions.
+
+### DATA-003: Refine Document Ingestion Process
+**Priority:** Medium
+**Type:** Process Improvement
+**Description:** Current document ingestion doesn't reliably identify contradictions. Need improved extraction logic that:
+- Compares claims across documents
+- Identifies logical contradictions (not just related topics)
+- Validates contradiction relationships before creating them
+
+**Action:** Update extraction prompts/process for better contradiction detection.
+
+---
+
+# Database Statistics (2026-01-29)
+
+| Entity | Count |
+|--------|-------|
+| Documents | 13 |
+| Evidence | 60 |
+| Persons | 10 |
+| Organizations | 3 |
+| ComplaintAllegations | 18 (all PROVEN) |
+| MotionClaims | 26 |
+| Harms | 9 ($40,258.61) |
+| LegalCounts | 4 |
+| Total Nodes | 146 |
+| Total Relationships | 340 |
 
 ---
 
@@ -177,12 +265,13 @@ See original TASK_TRACKER for details on:
 
 | Phase | Status |
 |-------|--------|
-| Phase 0 | ✅ Complete |
-| Phase 1 | ✅ Complete |
-| Phase 2 | ✅ Complete |
-| Phase 3 | 🔄 In Progress (L2+ remaining) |
-| Phase 4 | ⏳ Future |
-| Phase 5 | 🔄 In Progress (F5.2 starting) |
+| Phase 0 - Initialization | ✅ Complete |
+| Phase 1 - Foundations | ✅ Complete |
+| Phase 2 - Query Layer | ✅ Complete |
+| Phase 2.5 - Extended Query | ✅ Complete |
+| Phase 2.6 - Graph Visualization | 🔄 Next |
+| Phase 3 - Document Slice | ⏸️ Partial |
+| Phase 5 - Import Pipeline | ⏸️ Partial |
 | Phase 6-9 | ⏳ Future |
 
 ---
@@ -190,8 +279,9 @@ See original TASK_TRACKER for details on:
 # Notes
 
 - One Task ID → one branch → one persona → one layer
-- F5.x uses feature branches per Feature set
+- Phase 2.x uses feature branches per Feature set
 - L1+ tasks require tests
 - Keep `main` deployable at all times
+- Graph visualization is next priority
 
 # End of TASK_TRACKER.md

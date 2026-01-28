@@ -4,6 +4,8 @@ pub mod contradiction;
 pub mod decision;
 pub mod document;
 pub mod evidence;
+pub mod evidence_chain;
+pub mod graph;
 pub mod harm;
 pub mod hearing;
 pub mod motion_claim;
@@ -21,4 +23,9 @@ pub use evidence::{EvidenceCreateRequest, EvidenceDto, EvidenceResponse, Evidenc
 pub use hearing::{HearingCreateRequest, HearingUpdateRequest};
 pub use person::{PersonCreateRequest, PersonDto, PersonUpdateRequest, PersonsResponse};
 pub use motion_claim::{MotionClaimDto, MotionClaimsResponse};
+pub use evidence_chain::{
+    ChainAllegation, ChainDocument, ChainSummary, EvidenceChainResponse,
+    EvidenceWithDocument, MotionClaimWithEvidence,
+};
+pub use graph::{GraphEdge, GraphNode, GraphNodeType, GraphResponse};
 pub use schema::SchemaResponse;
