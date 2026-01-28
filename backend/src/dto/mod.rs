@@ -1,5 +1,6 @@
 pub mod allegation;
 pub mod claim;
+pub mod contradiction;
 pub mod decision;
 pub mod document;
 pub mod evidence;
@@ -13,6 +14,7 @@ pub mod schema;
 pub use allegation::{AllegationDto, AllegationSummary, AllegationsResponse};
 pub use harm::{HarmDto, HarmsResponse};
 pub use claim::{ClaimCreateRequest, ClaimDto, ClaimUpdateRequest};
+pub use contradiction::{ContradictionDto, ContradictionEvidence, ContradictionsResponse};
 pub use decision::{DecisionCreateRequest, DecisionUpdateRequest};
 pub use document::{DocumentCreateRequest, DocumentDto, DocumentUpdateRequest};
 pub use evidence::{EvidenceCreateRequest, EvidenceDto, EvidenceResponse, EvidenceUpdateRequest};

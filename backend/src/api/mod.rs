@@ -9,6 +9,7 @@ use crate::state::AppState;
 
 pub mod allegations;
 pub mod claims;
+pub mod contradictions;
 pub mod documents;
 pub mod evidence;
 pub mod harms;
@@ -40,6 +41,7 @@ pub fn router() -> Router<AppState> {
         .route("/evidence", get(evidence::list_evidence))
         .route("/harms", get(harms::list_harms))
         .route("/motion-claims", get(claims::list_motion_claims))
+        .route("/contradictions", get(contradictions::list_contradictions))
 }
 
 async fn health_check(State(_state): State<AppState>) -> (StatusCode, &'static str) {
