@@ -1,3 +1,4 @@
+pub mod allegation;
 pub mod claim;
 pub mod decision;
 pub mod document;
@@ -7,6 +8,7 @@ pub mod person;
 pub mod schema;
 
 // Re-export DTOs / request types from submodules
+pub use allegation::{AllegationDto, AllegationSummary, AllegationsResponse};
 pub use claim::{ClaimCreateRequest, ClaimDto, ClaimUpdateRequest};
 pub use decision::{DecisionCreateRequest, DecisionUpdateRequest};
 pub use document::{DocumentCreateRequest, DocumentDto, DocumentUpdateRequest};

@@ -7,6 +7,7 @@ use axum::{
 
 use crate::state::AppState;
 
+pub mod allegations;
 pub mod claims;
 pub mod documents;
 pub mod import;
@@ -33,6 +34,7 @@ pub fn router() -> Router<AppState> {
         .route("/import/validate", post(import::validate_import))
         .route("/schema", get(schema::get_schema))
         .route("/persons", get(persons::list_persons))
+        .route("/allegations", get(allegations::list_allegations))
 }
 
 async fn health_check(State(_state): State<AppState>) -> (StatusCode, &'static str) {
