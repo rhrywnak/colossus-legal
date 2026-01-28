@@ -12,5 +12,5 @@ pub use decision::{DecisionCreateRequest, DecisionUpdateRequest};
 pub use document::{DocumentCreateRequest, DocumentDto, DocumentUpdateRequest};
 pub use evidence::{EvidenceCreateRequest, EvidenceUpdateRequest};
 pub use hearing::{HearingCreateRequest, HearingUpdateRequest};
-pub use person::{PersonCreateRequest, PersonUpdateRequest};
+pub use person::{PersonCreateRequest, PersonDto, PersonUpdateRequest, PersonsResponse};
 pub use schema::SchemaResponse;
