@@ -7,17 +7,40 @@ import {
   EvidenceWithDocument,
 } from "../services/evidenceChain";
 
-const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
-  PROVEN: { bg: "#dcfce7", text: "#166534" },
-  PARTIAL: { bg: "#fef3c7", text: "#92400e" },
-  UNPROVEN: { bg: "#fee2e2", text: "#991b1b" },
+// Professional color palette
+const COLORS = {
+  bgPage: "#f8fafc",
+  bgCard: "#ffffff",
+  border: "#e2e8f0",
+  textPrimary: "#1e293b",
+  textSecondary: "#64748b",
+  textMuted: "#94a3b8",
+  accentExpanded: "#059669",
+  accentMotionClaim: "#3b82f6",
+  accentEvidence: "#8b5cf6",
+  badgeIdBg: "#f1f5f9",
+  badgeIdText: "#475569",
+  badgeProvenBg: "#ecfdf5",
+  badgeProvenText: "#059669",
+  badgePartialBg: "#fffbeb",
+  badgePartialText: "#d97706",
+  badgeUnprovenBg: "#fef2f2",
+  badgeUnprovenText: "#dc2626",
+  badgeLegalBg: "#e0e7ff",
+  badgeLegalText: "#4338ca",
 };
 
-const DEFAULT_STATUS_COLOR = { bg: "#f3f4f6", text: "#374151" };
+const STATUS_STYLES: Record<string, { bg: string; text: string }> = {
+  PROVEN: { bg: COLORS.badgeProvenBg, text: COLORS.badgeProvenText },
+  PARTIAL: { bg: COLORS.badgePartialBg, text: COLORS.badgePartialText },
+  UNPROVEN: { bg: COLORS.badgeUnprovenBg, text: COLORS.badgeUnprovenText },
+};
+
+const DEFAULT_STATUS_STYLE = { bg: COLORS.badgeIdBg, text: COLORS.textSecondary };
 
 function getStatusStyle(status: string | undefined) {
-  if (!status) return DEFAULT_STATUS_COLOR;
-  return STATUS_COLORS[status.toUpperCase()] || DEFAULT_STATUS_COLOR;
+  if (!status) return DEFAULT_STATUS_STYLE;
+  return STATUS_STYLES[status.toUpperCase()] || DEFAULT_STATUS_STYLE;
 }
 
 const EvidenceExplorerPage: React.FC = () => {
@@ -96,7 +119,15 @@ const EvidenceExplorerPage: React.FC = () => {
 
   if (loading) {
     return (
-      <div style={{ padding: "2rem", textAlign: "center", color: "#6b7280" }}>
+      <div
+        style={{
+          padding: "3rem",
+          textAlign: "center",
+          color: COLORS.textSecondary,
+          backgroundColor: COLORS.bgPage,
+          minHeight: "100vh",
+        }}
+      >
         Loading allegations...
       </div>
     );
@@ -106,43 +137,94 @@ const EvidenceExplorerPage: React.FC = () => {
     return (
       <div
         style={{
-          padding: "1rem",
-          backgroundColor: "#fef2f2",
-          border: "1px solid #fecaca",
-          borderRadius: "6px",
-          color: "#dc2626",
+          padding: "2rem",
+          backgroundColor: COLORS.bgPage,
+          minHeight: "100vh",
         }}
       >
-        {error}
+        <div
+          style={{
+            padding: "1rem 1.25rem",
+            backgroundColor: COLORS.badgeUnprovenBg,
+            border: `1px solid ${COLORS.border}`,
+            borderRadius: "8px",
+            color: COLORS.badgeUnprovenText,
+            maxWidth: "1200px",
+            margin: "0 auto",
+          }}
+        >
+          {error}
+        </div>
       </div>
     );
   }
 
   return (
-    <div>
-      <h1 style={{ marginBottom: "0.5rem" }}>Evidence Explorer</h1>
-      <p style={{ color: "#6b7280", marginBottom: "1.5rem" }}>
-        Click an allegation to see its evidence chain
-      </p>
+    <div
+      style={{
+        backgroundColor: COLORS.bgPage,
+        minHeight: "100vh",
+        padding: "2rem",
+      }}
+    >
+      <div style={{ maxWidth: "1200px", margin: "0 auto" }}>
+        {/* Header */}
+        <h1
+          style={{
+            fontSize: "1.75rem",
+            fontWeight: 600,
+            color: COLORS.textPrimary,
+            margin: 0,
+          }}
+        >
+          Evidence Explorer
+        </h1>
+        <p
+          style={{
+            fontSize: "0.95rem",
+            color: COLORS.textSecondary,
+            marginTop: "0.25rem",
+            marginBottom: 0,
+          }}
+        >
+          Click an allegation to view its supporting evidence chain
+        </p>
 
-      {allegations.length === 0 ? (
-        <div style={{ color: "#6b7280", padding: "1rem" }}>
-          No allegations found.
-        </div>
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-          {allegations.map((allegation) => (
-            <AllegationRow
-              key={allegation.id}
-              allegation={allegation}
-              isExpanded={expandedIds.has(allegation.id)}
-              isLoading={loadingIds.has(allegation.id)}
-              chain={chainCache.get(allegation.id)}
-              onToggle={() => handleToggle(allegation.id)}
-            />
-          ))}
-        </div>
-      )}
+        {/* Divider */}
+        <div
+          style={{
+            borderBottom: `1px solid ${COLORS.border}`,
+            margin: "1.5rem 0",
+          }}
+        />
+
+        {/* Allegations list */}
+        {allegations.length === 0 ? (
+          <div
+            style={{
+              color: COLORS.textMuted,
+              padding: "2rem",
+              textAlign: "center",
+              fontStyle: "italic",
+            }}
+          >
+            No allegations found.
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+            {allegations.map((allegation) => (
+              <AllegationRow
+                key={allegation.id}
+                allegation={allegation}
+                isExpanded={expandedIds.has(allegation.id)}
+                isLoading={loadingIds.has(allegation.id)}
+                chain={chainCache.get(allegation.id)}
+                onToggle={() => handleToggle(allegation.id)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 };
@@ -167,35 +249,57 @@ const AllegationRow: React.FC<AllegationRowProps> = ({
   return (
     <div
       style={{
-        border: "1px solid #e5e7eb",
+        backgroundColor: COLORS.bgCard,
+        border: `1px solid ${COLORS.border}`,
+        borderLeft: isExpanded ? `3px solid ${COLORS.accentExpanded}` : `1px solid ${COLORS.border}`,
         borderRadius: "8px",
-        backgroundColor: "#fff",
+        boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
         overflow: "hidden",
+        transition: "box-shadow 0.15s ease",
       }}
     >
       {/* Allegation header row */}
       <div
         onClick={onToggle}
         style={{
-          padding: "0.75rem 1rem",
-          backgroundColor: isExpanded ? "#f0fdf4" : "#fff",
+          padding: "1rem 1.25rem",
           cursor: "pointer",
           display: "flex",
           alignItems: "center",
           gap: "0.75rem",
         }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.boxShadow = "0 2px 4px rgba(0,0,0,0.08)";
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.boxShadow = "none";
+        }}
       >
         {/* Toggle icon */}
-        <span style={{ fontFamily: "monospace", color: "#6b7280", width: "1rem" }}>
-          {isLoading ? "..." : isExpanded ? "▼" : "▶"}
+        <span
+          style={{
+            fontSize: "0.75rem",
+            color: COLORS.textSecondary,
+            width: "1.5rem",
+            textAlign: "center",
+            transition: "color 0.15s ease",
+          }}
+        >
+          {isLoading ? (
+            <span style={{ color: COLORS.textMuted }}>...</span>
+          ) : isExpanded ? (
+            "▼"
+          ) : (
+            "▶"
+          )}
         </span>
 
         {/* ID badge */}
         <span
           style={{
             padding: "0.2rem 0.5rem",
-            backgroundColor: "#e5e7eb",
-            color: "#374151",
+            backgroundColor: COLORS.badgeIdBg,
+            color: COLORS.badgeIdText,
             borderRadius: "4px",
             fontSize: "0.75rem",
             fontFamily: "monospace",
@@ -205,18 +309,30 @@ const AllegationRow: React.FC<AllegationRowProps> = ({
         </span>
 
         {/* Title */}
-        <span style={{ fontWeight: 500, flex: 1 }}>{allegation.title}</span>
+        <span
+          style={{
+            fontSize: "1rem",
+            fontWeight: 500,
+            color: COLORS.textPrimary,
+            flex: 1,
+            marginLeft: "0.5rem",
+          }}
+        >
+          {allegation.title}
+        </span>
 
         {/* Status badge */}
         {allegation.evidence_status && (
           <span
             style={{
-              padding: "0.2rem 0.5rem",
+              padding: "0.2rem 0.6rem",
               backgroundColor: statusStyle.bg,
               color: statusStyle.text,
-              borderRadius: "4px",
-              fontSize: "0.75rem",
+              borderRadius: "9999px",
+              fontSize: "0.7rem",
               fontWeight: 600,
+              textTransform: "uppercase",
+              letterSpacing: "0.025em",
             }}
           >
             {allegation.evidence_status}
@@ -228,57 +344,69 @@ const AllegationRow: React.FC<AllegationRowProps> = ({
       {isExpanded && chain && (
         <div
           style={{
-            borderTop: "1px solid #e5e7eb",
-            padding: "1rem",
-            backgroundColor: "#fafafa",
+            padding: "0 1.25rem 1.25rem 1.25rem",
           }}
         >
           {/* Summary line */}
           <div
             style={{
               fontSize: "0.85rem",
-              color: "#6b7280",
-              marginBottom: "0.75rem",
+              color: COLORS.textSecondary,
+              marginBottom: "0.5rem",
             }}
           >
-            ({chain.summary.motion_claim_count} claims,{" "}
-            {chain.summary.evidence_count} evidence,{" "}
-            {chain.summary.document_count} docs)
-            {chain.allegation.legal_counts &&
-              chain.allegation.legal_counts.length > 0 && (
-                <span style={{ marginLeft: "0.75rem" }}>
-                  Supports:{" "}
-                  {chain.allegation.legal_counts.map((count, i) => (
-                    <span
-                      key={i}
-                      style={{
-                        marginLeft: i > 0 ? "0.25rem" : 0,
-                        padding: "0.15rem 0.4rem",
-                        backgroundColor: "#dbeafe",
-                        color: "#1e40af",
-                        borderRadius: "4px",
-                        fontSize: "0.75rem",
-                      }}
-                    >
-                      {count}
-                    </span>
-                  ))}
-                </span>
-              )}
+            {chain.summary.motion_claim_count} claims · {chain.summary.evidence_count} evidence · {chain.summary.document_count} documents
           </div>
 
-          {/* Motion claims */}
-          {chain.motion_claims.length === 0 ? (
-            <div style={{ color: "#9ca3af", fontStyle: "italic" }}>
-              No motion claims linked to this allegation.
-            </div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-              {chain.motion_claims.map((mc) => (
-                <MotionClaimSection key={mc.id} motionClaim={mc} />
+          {/* Legal counts */}
+          {chain.allegation.legal_counts && chain.allegation.legal_counts.length > 0 && (
+            <div style={{ marginBottom: "1rem", display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+              <span style={{ fontSize: "0.85rem", color: COLORS.textSecondary }}>Supports:</span>
+              {chain.allegation.legal_counts.map((count, i) => (
+                <span
+                  key={i}
+                  style={{
+                    padding: "0.15rem 0.5rem",
+                    backgroundColor: COLORS.badgeLegalBg,
+                    color: COLORS.badgeLegalText,
+                    borderRadius: "4px",
+                    fontSize: "0.7rem",
+                    fontWeight: 500,
+                  }}
+                >
+                  {count}
+                </span>
               ))}
             </div>
           )}
+
+          {/* Evidence chain container */}
+          <div
+            style={{
+              borderTop: `1px solid ${COLORS.border}`,
+              paddingTop: "1rem",
+              marginTop: "0.5rem",
+            }}
+          >
+            {/* Motion claims */}
+            {chain.motion_claims.length === 0 ? (
+              <div
+                style={{
+                  color: COLORS.textMuted,
+                  fontStyle: "italic",
+                  padding: "1rem",
+                }}
+              >
+                No supporting evidence found
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+                {chain.motion_claims.map((mc) => (
+                  <MotionClaimSection key={mc.id} motionClaim={mc} />
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -293,20 +421,33 @@ const MotionClaimSection: React.FC<MotionClaimSectionProps> = ({ motionClaim }) 
   return (
     <div
       style={{
-        marginLeft: "24px",
-        padding: "0.75rem",
-        backgroundColor: "#fef3c7",
-        border: "1px solid #fcd34d",
+        backgroundColor: COLORS.bgCard,
+        border: `1px solid ${COLORS.border}`,
+        borderLeft: `3px solid ${COLORS.accentMotionClaim}`,
         borderRadius: "6px",
+        padding: "1rem",
       }}
     >
-      <div style={{ fontWeight: 600, color: "#854d0e", marginBottom: "0.5rem" }}>
+      <div
+        style={{
+          fontWeight: 500,
+          fontSize: "0.95rem",
+          color: COLORS.textPrimary,
+          marginBottom: "0.75rem",
+        }}
+      >
         {motionClaim.title}
       </div>
 
       {motionClaim.evidence.length === 0 ? (
-        <div style={{ color: "#92400e", fontSize: "0.85rem", fontStyle: "italic" }}>
-          No evidence linked.
+        <div
+          style={{
+            color: COLORS.textMuted,
+            fontSize: "0.85rem",
+            fontStyle: "italic",
+          }}
+        >
+          No evidence linked
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
@@ -327,32 +468,54 @@ const EvidenceItem: React.FC<EvidenceItemProps> = ({ evidence }) => {
   return (
     <div
       style={{
-        marginLeft: "24px",
-        padding: "0.6rem 0.75rem",
-        backgroundColor: "#f3e8ff",
-        border: "1px solid #d8b4fe",
+        marginLeft: "1rem",
+        backgroundColor: COLORS.bgCard,
+        border: `1px solid ${COLORS.border}`,
+        borderLeft: `3px solid ${COLORS.accentEvidence}`,
         borderRadius: "6px",
+        padding: "0.875rem",
       }}
     >
-      <div style={{ fontWeight: 500, color: "#6b21a8", marginBottom: "0.35rem" }}>
+      <div
+        style={{
+          fontWeight: 500,
+          fontSize: "0.9rem",
+          color: COLORS.textPrimary,
+          marginBottom: "0.5rem",
+        }}
+      >
         {evidence.title}
       </div>
 
       {evidence.question && (
-        <div style={{ fontSize: "0.85rem", color: "#7c3aed", marginBottom: "0.25rem" }}>
-          <strong>Q:</strong> {evidence.question}
+        <div
+          style={{
+            fontSize: "0.85rem",
+            color: COLORS.textSecondary,
+            marginBottom: "0.35rem",
+          }}
+        >
+          <span style={{ fontWeight: 600 }}>Q:</span>{" "}
+          <span style={{ color: COLORS.badgeIdText }}>{evidence.question}</span>
         </div>
       )}
 
       {evidence.answer && (
-        <div style={{ fontSize: "0.85rem", color: "#7c3aed", marginBottom: "0.35rem" }}>
-          <strong>A:</strong> {evidence.answer}
+        <div
+          style={{
+            fontSize: "0.85rem",
+            color: COLORS.textSecondary,
+            marginBottom: "0.5rem",
+          }}
+        >
+          <span style={{ fontWeight: 600 }}>A:</span>{" "}
+          <span style={{ color: COLORS.textPrimary, fontStyle: "italic" }}>
+            "{evidence.answer}"
+          </span>
         </div>
       )}
 
-      {evidence.document && (
-        <DocumentLink document={evidence.document} />
-      )}
+      {evidence.document && <DocumentLink document={evidence.document} />}
     </div>
   );
 };
@@ -365,23 +528,23 @@ const DocumentLink: React.FC<DocumentLinkProps> = ({ document }) => {
   return (
     <div
       style={{
-        marginLeft: "24px",
-        marginTop: "0.35rem",
-        padding: "0.4rem 0.6rem",
-        backgroundColor: "#f3f4f6",
-        border: "1px solid #d1d5db",
+        marginLeft: "1.5rem",
+        marginTop: "0.5rem",
+        padding: "0.5rem 0.75rem",
+        backgroundColor: COLORS.bgPage,
+        border: `1px solid ${COLORS.border}`,
         borderRadius: "4px",
-        fontSize: "0.8rem",
-        color: "#374151",
+        fontSize: "0.85rem",
+        color: COLORS.badgeIdText,
         display: "flex",
         alignItems: "center",
-        gap: "0.35rem",
+        gap: "0.5rem",
       }}
     >
-      <span>📄</span>
-      <span>{document.title}</span>
+      <span style={{ color: COLORS.textSecondary }}>Source:</span>
+      <span style={{ fontWeight: 500 }}>{document.title}</span>
       {document.page_number !== undefined && (
-        <span style={{ color: "#6b7280" }}>(p.{document.page_number})</span>
+        <span style={{ color: COLORS.textSecondary }}>(p. {document.page_number})</span>
       )}
     </div>
   );
