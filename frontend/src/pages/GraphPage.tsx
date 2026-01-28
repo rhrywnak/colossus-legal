@@ -5,7 +5,7 @@ import {
   getEvidenceChain,
   EvidenceChainResponse,
 } from "../services/evidenceChain";
-import { GraphNode, GraphEdge, GraphNodeType } from "../services/graph";
+import { GraphEdge, GraphNodeType } from "../services/graph";
 
 // Professional color palette (matching Explorer page)
 const COLORS = {
@@ -37,13 +37,33 @@ const NODE_WIDTH = 220;
 const NODE_HEIGHT = 70;
 const ACCENT_WIDTH = 4;
 
-type LayoutNode = GraphNode & { x: number; y: number };
+// Extended node type with full data for popup
+interface NodeFullData {
+  title: string;
+  paragraph?: string;
+  evidence_status?: string;
+  legal_counts?: string[];
+  question?: string;
+  answer?: string;
+  documentTitle?: string;
+  page_number?: number;
+}
+
+interface ExtendedGraphNode {
+  id: string;
+  label: string;
+  node_type: GraphNodeType;
+  subtitle?: string;
+  fullData: NodeFullData;
+}
+
+type LayoutNode = ExtendedGraphNode & { x: number; y: number };
 type LayoutEdge = GraphEdge & { points: { x: number; y: number }[] };
 
 function transformChainToGraph(
   chain: EvidenceChainResponse
-): { nodes: GraphNode[]; edges: GraphEdge[] } {
-  const nodes: GraphNode[] = [];
+): { nodes: ExtendedGraphNode[]; edges: GraphEdge[] } {
+  const nodes: ExtendedGraphNode[] = [];
   const edges: GraphEdge[] = [];
   const documentIds = new Set<string>();
 
@@ -53,6 +73,12 @@ function transformChainToGraph(
     label: chain.allegation.title,
     node_type: "allegation",
     subtitle: chain.allegation.evidence_status,
+    fullData: {
+      title: chain.allegation.title,
+      paragraph: chain.allegation.paragraph,
+      evidence_status: chain.allegation.evidence_status,
+      legal_counts: chain.allegation.legal_counts,
+    },
   });
 
   // Add motion claims and connect FROM allegation (for correct top-down layout)
@@ -61,6 +87,9 @@ function transformChainToGraph(
       id: mc.id,
       label: mc.title,
       node_type: "motion_claim",
+      fullData: {
+        title: mc.title,
+      },
     });
     // Edge flows DOWN: allegation → motion_claim
     edges.push({
@@ -75,6 +104,13 @@ function transformChainToGraph(
         id: ev.id,
         label: ev.title,
         node_type: "evidence",
+        fullData: {
+          title: ev.title,
+          question: ev.question,
+          answer: ev.answer,
+          documentTitle: ev.document?.title,
+          page_number: ev.document?.page_number,
+        },
       });
       // Edge flows DOWN: motion_claim → evidence
       edges.push({
@@ -94,6 +130,10 @@ function transformChainToGraph(
             subtitle: ev.document.page_number
               ? `p. ${ev.document.page_number}`
               : undefined,
+            fullData: {
+              title: ev.document.title,
+              page_number: ev.document.page_number,
+            },
           });
         }
         // Edge flows DOWN: evidence → document
@@ -110,7 +150,7 @@ function transformChainToGraph(
 }
 
 function computeLayout(
-  nodes: GraphNode[],
+  nodes: ExtendedGraphNode[],
   edges: GraphEdge[]
 ): { nodes: LayoutNode[]; edges: LayoutEdge[]; width: number; height: number } {
   const g = new dagre.graphlib.Graph();
@@ -168,6 +208,310 @@ function truncateLabel(label: string, maxLen: number = 28): string {
   return label.substring(0, maxLen - 1) + "…";
 }
 
+// Popup component for node details
+const NodePopup: React.FC<{
+  node: ExtendedGraphNode;
+  onClose: () => void;
+}> = ({ node, onClose }) => {
+  const { fullData, node_type } = node;
+  const accentColor = ACCENT_COLORS[node_type];
+  const statusColors = fullData.evidence_status
+    ? STATUS_COLORS[fullData.evidence_status.toUpperCase()]
+    : null;
+
+  const nodeTypeLabel = node_type
+    .replace("_", " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: "rgba(0, 0, 0, 0.5)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 1000,
+      }}
+      onClick={onClose}
+    >
+      <div
+        style={{
+          backgroundColor: COLORS.bgCard,
+          borderRadius: "8px",
+          padding: "1.5rem",
+          maxWidth: "500px",
+          width: "90%",
+          maxHeight: "80vh",
+          overflow: "auto",
+          boxShadow: "0 4px 20px rgba(0, 0, 0, 0.15)",
+          position: "relative",
+          borderLeft: `4px solid ${accentColor}`,
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Close button */}
+        <button
+          onClick={onClose}
+          style={{
+            position: "absolute",
+            top: "0.75rem",
+            right: "0.75rem",
+            background: "none",
+            border: "none",
+            fontSize: "1.5rem",
+            cursor: "pointer",
+            color: COLORS.textSecondary,
+            lineHeight: 1,
+            padding: "0.25rem",
+          }}
+        >
+          ×
+        </button>
+
+        {/* Node type badge */}
+        <div
+          style={{
+            fontSize: "0.75rem",
+            color: accentColor,
+            fontWeight: 600,
+            textTransform: "uppercase",
+            letterSpacing: "0.05em",
+            marginBottom: "0.5rem",
+          }}
+        >
+          {nodeTypeLabel}
+        </div>
+
+        {/* Title */}
+        <h3
+          style={{
+            fontSize: "1.1rem",
+            fontWeight: 600,
+            color: COLORS.textPrimary,
+            margin: "0 0 1rem 0",
+            paddingRight: "2rem",
+            lineHeight: 1.4,
+          }}
+        >
+          {fullData.title}
+        </h3>
+
+        {/* Allegation-specific content */}
+        {node_type === "allegation" && (
+          <>
+            {fullData.paragraph && (
+              <div style={{ marginBottom: "0.75rem" }}>
+                <span
+                  style={{
+                    fontSize: "0.85rem",
+                    color: COLORS.textSecondary,
+                    fontWeight: 500,
+                  }}
+                >
+                  Paragraph:{" "}
+                </span>
+                <span style={{ fontSize: "0.85rem", color: COLORS.textPrimary }}>
+                  ¶{fullData.paragraph}
+                </span>
+              </div>
+            )}
+
+            {statusColors && fullData.evidence_status && (
+              <div style={{ marginBottom: "0.75rem" }}>
+                <span
+                  style={{
+                    padding: "0.25rem 0.75rem",
+                    backgroundColor: statusColors.bg,
+                    color: statusColors.text,
+                    borderRadius: "9999px",
+                    fontSize: "0.75rem",
+                    fontWeight: 600,
+                    textTransform: "uppercase",
+                  }}
+                >
+                  {fullData.evidence_status}
+                </span>
+              </div>
+            )}
+
+            {fullData.legal_counts && fullData.legal_counts.length > 0 && (
+              <div style={{ marginBottom: "0.5rem" }}>
+                <div
+                  style={{
+                    fontSize: "0.85rem",
+                    color: COLORS.textSecondary,
+                    fontWeight: 500,
+                    marginBottom: "0.5rem",
+                  }}
+                >
+                  Supports:
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
+                  {fullData.legal_counts.map((count, i) => (
+                    <span
+                      key={i}
+                      style={{
+                        padding: "0.25rem 0.5rem",
+                        backgroundColor: "#e0e7ff",
+                        color: "#4338ca",
+                        borderRadius: "4px",
+                        fontSize: "0.8rem",
+                        fontWeight: 500,
+                      }}
+                    >
+                      {count}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* Motion Claim content */}
+        {node_type === "motion_claim" && (
+          <div
+            style={{
+              fontSize: "0.9rem",
+              color: COLORS.textSecondary,
+              fontStyle: "italic",
+            }}
+          >
+            This motion claim supports the allegation above.
+          </div>
+        )}
+
+        {/* Evidence-specific content */}
+        {node_type === "evidence" && (
+          <>
+            {fullData.question && (
+              <div style={{ marginBottom: "0.75rem" }}>
+                <div
+                  style={{
+                    fontSize: "0.85rem",
+                    color: COLORS.textSecondary,
+                    fontWeight: 600,
+                    marginBottom: "0.25rem",
+                  }}
+                >
+                  Q:
+                </div>
+                <div
+                  style={{
+                    fontSize: "0.9rem",
+                    color: COLORS.textPrimary,
+                    lineHeight: 1.5,
+                  }}
+                >
+                  {fullData.question}
+                </div>
+              </div>
+            )}
+
+            {fullData.answer && (
+              <div style={{ marginBottom: "0.75rem" }}>
+                <div
+                  style={{
+                    fontSize: "0.85rem",
+                    color: COLORS.textSecondary,
+                    fontWeight: 600,
+                    marginBottom: "0.25rem",
+                  }}
+                >
+                  A:
+                </div>
+                <div
+                  style={{
+                    fontSize: "0.9rem",
+                    color: COLORS.textPrimary,
+                    fontStyle: "italic",
+                    lineHeight: 1.5,
+                  }}
+                >
+                  "{fullData.answer}"
+                </div>
+              </div>
+            )}
+
+            {fullData.documentTitle && (
+              <div
+                style={{
+                  marginTop: "1rem",
+                  padding: "0.75rem",
+                  backgroundColor: COLORS.bgPage,
+                  borderRadius: "6px",
+                  border: `1px solid ${COLORS.border}`,
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: "0.8rem",
+                    color: COLORS.textSecondary,
+                    marginBottom: "0.25rem",
+                  }}
+                >
+                  Source:
+                </div>
+                <div
+                  style={{
+                    fontSize: "0.9rem",
+                    color: COLORS.textPrimary,
+                    fontWeight: 500,
+                  }}
+                >
+                  {fullData.documentTitle}
+                  {fullData.page_number !== undefined && (
+                    <span style={{ color: COLORS.textSecondary, fontWeight: 400 }}>
+                      {" "}
+                      (p. {fullData.page_number})
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* Document-specific content */}
+        {node_type === "document" && (
+          <>
+            {fullData.page_number !== undefined && (
+              <div style={{ marginBottom: "0.5rem" }}>
+                <span
+                  style={{
+                    fontSize: "0.85rem",
+                    color: COLORS.textSecondary,
+                    fontWeight: 500,
+                  }}
+                >
+                  Page:{" "}
+                </span>
+                <span style={{ fontSize: "0.85rem", color: COLORS.textPrimary }}>
+                  {fullData.page_number}
+                </span>
+              </div>
+            )}
+            <div
+              style={{
+                fontSize: "0.9rem",
+                color: COLORS.textSecondary,
+                fontStyle: "italic",
+              }}
+            >
+              This document contains evidence supporting the case.
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
+
 const GraphPage: React.FC = () => {
   const [allegations, setAllegations] = useState<AllegationDto[]>([]);
   const [selectedAllegationId, setSelectedAllegationId] = useState<string | null>(null);
@@ -175,6 +519,7 @@ const GraphPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [chainLoading, setChainLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [popupNode, setPopupNode] = useState<ExtendedGraphNode | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
 
   // Fetch allegations on mount
@@ -283,7 +628,7 @@ const GraphPage: React.FC = () => {
             marginBottom: 0,
           }}
         >
-          Select an allegation to visualize its supporting evidence hierarchy
+          Select an allegation to visualize its supporting evidence hierarchy. Click any node for details.
         </p>
 
         {/* Divider */}
@@ -528,10 +873,24 @@ const GraphPage: React.FC = () => {
                     const y = node.y - NODE_HEIGHT / 2;
                     const isDocument = node.node_type === "document";
                     const isAllegation = node.node_type === "allegation";
-                    const statusColors = node.subtitle ? STATUS_COLORS[node.subtitle.toUpperCase()] : null;
+                    const statusColors = node.subtitle
+                      ? STATUS_COLORS[node.subtitle.toUpperCase()]
+                      : null;
 
                     return (
-                      <g key={node.id}>
+                      <g
+                        key={node.id}
+                        style={{ cursor: "pointer" }}
+                        onClick={() => setPopupNode(node)}
+                      >
+                        {/* Invisible larger hit area for easier clicking */}
+                        <rect
+                          x={x - 2}
+                          y={y - 2}
+                          width={NODE_WIDTH + 4}
+                          height={NODE_HEIGHT + 4}
+                          fill="transparent"
+                        />
                         {/* Main node rectangle */}
                         <rect
                           x={x}
@@ -630,6 +989,9 @@ const GraphPage: React.FC = () => {
           </>
         )}
       </div>
+
+      {/* Popup modal */}
+      {popupNode && <NodePopup node={popupNode} onClose={() => setPopupNode(null)} />}
     </div>
   );
 };
