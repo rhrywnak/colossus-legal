@@ -5,7 +5,7 @@ import ClaimsPage from "./pages/ClaimsPage";
 import Decisions from "./pages/Decisions";
 import DocumentDetailPage from "./pages/DocumentDetailPage";
 import DocumentsPage from "./pages/DocumentsPage";
-import Evidence from "./pages/Evidence";
+import EvidencePage from "./pages/EvidencePage";
 import Hearings from "./pages/Hearings";
 import Home from "./pages/Home";
 import People from "./pages/People";
@@ -53,7 +53,7 @@ const App: React.FC = () => {
           <Route path="/claims" element={<ClaimsPage />} />
           <Route path="/documents" element={<DocumentsPage />} />
           <Route path="/documents/:id" element={<DocumentDetailPage />} />
-          <Route path="/evidence" element={<Evidence />} />
+          <Route path="/evidence" element={<EvidencePage />} />
           <Route path="/people" element={<People />} />
           <Route path="/hearings" element={<Hearings />} />
           <Route path="/decisions" element={<Decisions />} />
