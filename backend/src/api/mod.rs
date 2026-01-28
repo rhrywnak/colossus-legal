@@ -11,6 +11,7 @@ pub mod allegations;
 pub mod claims;
 pub mod documents;
 pub mod evidence;
+pub mod harms;
 pub mod import;
 pub mod persons;
 pub mod schema;
@@ -37,6 +38,7 @@ pub fn router() -> Router<AppState> {
         .route("/persons", get(persons::list_persons))
         .route("/allegations", get(allegations::list_allegations))
         .route("/evidence", get(evidence::list_evidence))
+        .route("/harms", get(harms::list_harms))
 }
 
 async fn health_check(State(_state): State<AppState>) -> (StatusCode, &'static str) {
