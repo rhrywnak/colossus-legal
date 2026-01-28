@@ -1,27 +1,113 @@
 import React, { useEffect, useState, useRef } from "react";
 import dagre from "dagre";
+import { getAllegations, AllegationDto } from "../services/allegations";
 import {
-  getLegalProofGraph,
-  GraphNode,
-  GraphEdge,
-  GraphNodeType,
-  GraphResponse,
-} from "../services/graph";
+  getEvidenceChain,
+  EvidenceChainResponse,
+} from "../services/evidenceChain";
+import { GraphNode, GraphEdge, GraphNodeType } from "../services/graph";
 
-// Node colors by type
-const NODE_COLORS: Record<GraphNodeType, { bg: string; border: string; text: string }> = {
-  legal_count: { bg: "#dbeafe", border: "#3b82f6", text: "#1e40af" },
-  allegation: { bg: "#dcfce7", border: "#22c55e", text: "#166534" },
-  motion_claim: { bg: "#fef3c7", border: "#eab308", text: "#854d0e" },
-  evidence: { bg: "#f3e8ff", border: "#a855f7", text: "#6b21a8" },
-  document: { bg: "#f3f4f6", border: "#6b7280", text: "#374151" },
+// Professional color palette (matching Explorer page)
+const COLORS = {
+  bgPage: "#f8fafc",
+  bgCard: "#ffffff",
+  border: "#e2e8f0",
+  textPrimary: "#1e293b",
+  textSecondary: "#64748b",
+  textMuted: "#94a3b8",
 };
 
-const NODE_WIDTH = 180;
-const NODE_HEIGHT = 60;
+// Left border accent colors by node type
+const ACCENT_COLORS: Record<GraphNodeType, string> = {
+  legal_count: "#3b82f6",
+  allegation: "#059669",
+  motion_claim: "#3b82f6",
+  evidence: "#8b5cf6",
+  document: "#6b7280",
+};
+
+// Status badge colors
+const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
+  PROVEN: { bg: "#ecfdf5", text: "#059669" },
+  PARTIAL: { bg: "#fffbeb", text: "#d97706" },
+  UNPROVEN: { bg: "#fef2f2", text: "#dc2626" },
+};
+
+const NODE_WIDTH = 220;
+const NODE_HEIGHT = 70;
+const ACCENT_WIDTH = 4;
 
 type LayoutNode = GraphNode & { x: number; y: number };
 type LayoutEdge = GraphEdge & { points: { x: number; y: number }[] };
+
+function transformChainToGraph(
+  chain: EvidenceChainResponse
+): { nodes: GraphNode[]; edges: GraphEdge[] } {
+  const nodes: GraphNode[] = [];
+  const edges: GraphEdge[] = [];
+  const documentIds = new Set<string>();
+
+  // Add allegation node (top level)
+  nodes.push({
+    id: chain.allegation.id,
+    label: chain.allegation.title,
+    node_type: "allegation",
+    subtitle: chain.allegation.evidence_status,
+  });
+
+  // Add motion claims and connect FROM allegation (for correct top-down layout)
+  chain.motion_claims.forEach((mc) => {
+    nodes.push({
+      id: mc.id,
+      label: mc.title,
+      node_type: "motion_claim",
+    });
+    // Edge flows DOWN: allegation → motion_claim
+    edges.push({
+      source: chain.allegation.id,
+      target: mc.id,
+      relationship: "PROVED_BY",
+    });
+
+    // Add evidence and connect from motion claim
+    mc.evidence.forEach((ev) => {
+      nodes.push({
+        id: ev.id,
+        label: ev.title,
+        node_type: "evidence",
+      });
+      // Edge flows DOWN: motion_claim → evidence
+      edges.push({
+        source: mc.id,
+        target: ev.id,
+        relationship: "RELIES_ON",
+      });
+
+      // Add document and connect from evidence (deduplicated)
+      if (ev.document) {
+        if (!documentIds.has(ev.document.id)) {
+          documentIds.add(ev.document.id);
+          nodes.push({
+            id: ev.document.id,
+            label: ev.document.title,
+            node_type: "document",
+            subtitle: ev.document.page_number
+              ? `p. ${ev.document.page_number}`
+              : undefined,
+          });
+        }
+        // Edge flows DOWN: evidence → document
+        edges.push({
+          source: ev.id,
+          target: ev.document.id,
+          relationship: "SOURCED_FROM",
+        });
+      }
+    });
+  });
+
+  return { nodes, edges };
+}
 
 function computeLayout(
   nodes: GraphNode[],
@@ -31,10 +117,10 @@ function computeLayout(
 
   g.setGraph({
     rankdir: "TB",
-    nodesep: 40,
-    ranksep: 80,
-    marginx: 20,
-    marginy: 20,
+    nodesep: 50,
+    ranksep: 90,
+    marginx: 40,
+    marginy: 40,
   });
 
   g.setDefaultEdgeLabel(() => ({}));
@@ -71,266 +157,478 @@ function computeLayout(
   });
 
   const graphMeta = g.graph();
-  const width = (graphMeta.width ?? 800) + 40;
-  const height = (graphMeta.height ?? 600) + 40;
+  const width = (graphMeta.width ?? 400) + 80;
+  const height = (graphMeta.height ?? 300) + 80;
 
   return { nodes: layoutNodes, edges: layoutEdges, width, height };
 }
 
-function truncateLabel(label: string, maxLen: number = 22): string {
+function truncateLabel(label: string, maxLen: number = 28): string {
   if (label.length <= maxLen) return label;
-  return label.substring(0, maxLen - 1) + "...";
+  return label.substring(0, maxLen - 1) + "…";
 }
 
 const GraphPage: React.FC = () => {
-  const [graphData, setGraphData] = useState<GraphResponse | null>(null);
+  const [allegations, setAllegations] = useState<AllegationDto[]>([]);
+  const [selectedAllegationId, setSelectedAllegationId] = useState<string | null>(null);
+  const [evidenceChain, setEvidenceChain] = useState<EvidenceChainResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [chainLoading, setChainLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [countFilter, setCountFilter] = useState<string>("");
   const svgRef = useRef<SVGSVGElement>(null);
 
+  // Fetch allegations on mount
   useEffect(() => {
     let active = true;
 
-    const fetchGraph = async () => {
-      setLoading(true);
+    const fetchAllegations = async () => {
       try {
-        const data = await getLegalProofGraph(countFilter || undefined);
+        const result = await getAllegations();
         if (!active) return;
-        setGraphData(data);
+        setAllegations(result.allegations);
         setError(null);
       } catch {
         if (!active) return;
-        setGraphData(null);
-        setError("Failed to load graph data");
+        setAllegations([]);
+        setError("Failed to load allegations");
       } finally {
         if (active) setLoading(false);
       }
     };
 
-    fetchGraph();
+    fetchAllegations();
 
     return () => {
       active = false;
     };
-  }, [countFilter]);
+  }, []);
 
-  // Extract unique legal counts for filter dropdown
-  const legalCounts = graphData
-    ? graphData.nodes.filter((n) => n.node_type === "legal_count")
-    : [];
+  // Fetch evidence chain when selection changes
+  useEffect(() => {
+    if (!selectedAllegationId) {
+      setEvidenceChain(null);
+      return;
+    }
+
+    let active = true;
+
+    const fetchChain = async () => {
+      setChainLoading(true);
+      try {
+        const chain = await getEvidenceChain(selectedAllegationId);
+        if (!active) return;
+        setEvidenceChain(chain);
+        setError(null);
+      } catch {
+        if (!active) return;
+        setEvidenceChain(null);
+        setError("Failed to load evidence chain");
+      } finally {
+        if (active) setChainLoading(false);
+      }
+    };
+
+    fetchChain();
+
+    return () => {
+      active = false;
+    };
+  }, [selectedAllegationId]);
+
+  // Transform evidence chain to graph data
+  const graphData = evidenceChain ? transformChainToGraph(evidenceChain) : null;
+  const layout = graphData ? computeLayout(graphData.nodes, graphData.edges) : null;
 
   if (loading) {
     return (
-      <div style={{ padding: "2rem", textAlign: "center", color: "#6b7280" }}>
-        Loading graph...
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
       <div
         style={{
-          padding: "1rem",
-          backgroundColor: "#fef2f2",
-          border: "1px solid #fecaca",
-          borderRadius: "6px",
-          color: "#dc2626",
+          padding: "3rem",
+          textAlign: "center",
+          color: COLORS.textSecondary,
+          backgroundColor: COLORS.bgPage,
+          minHeight: "100vh",
         }}
       >
-        {error}
+        Loading allegations...
       </div>
     );
   }
-
-  if (!graphData || graphData.nodes.length === 0) {
-    return (
-      <div>
-        <h1 style={{ marginBottom: "1rem" }}>Legal Proof Graph</h1>
-        <div style={{ color: "#6b7280", padding: "1rem" }}>
-          No graph data available.
-        </div>
-      </div>
-    );
-  }
-
-  const { nodes, edges, width, height } = computeLayout(
-    graphData.nodes,
-    graphData.edges
-  );
 
   return (
-    <div>
-      <h1 style={{ marginBottom: "0.5rem" }}>Legal Proof Graph</h1>
+    <div
+      style={{
+        backgroundColor: COLORS.bgPage,
+        minHeight: "100vh",
+        padding: "2rem",
+      }}
+    >
+      <div style={{ maxWidth: "1200px", margin: "0 auto" }}>
+        {/* Header */}
+        <h1
+          style={{
+            fontSize: "1.75rem",
+            fontWeight: 600,
+            color: COLORS.textPrimary,
+            margin: 0,
+          }}
+        >
+          Evidence Chain Graph
+        </h1>
+        <p
+          style={{
+            fontSize: "0.95rem",
+            color: COLORS.textSecondary,
+            marginTop: "0.25rem",
+            marginBottom: 0,
+          }}
+        >
+          Select an allegation to visualize its supporting evidence hierarchy
+        </p>
 
-      {/* Filter controls */}
-      <div
-        style={{
-          padding: "0.75rem 1rem",
-          backgroundColor: "#f3f4f6",
-          borderRadius: "6px",
-          marginBottom: "1rem",
-          display: "flex",
-          alignItems: "center",
-          gap: "1rem",
-          flexWrap: "wrap",
-        }}
-      >
-        <label style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-          <span style={{ color: "#374151", fontWeight: 500 }}>Filter by Count:</span>
-          <select
-            value={countFilter}
-            onChange={(e) => setCountFilter(e.target.value)}
-            style={{
-              padding: "0.35rem 0.5rem",
-              borderRadius: "4px",
-              border: "1px solid #d1d5db",
-              backgroundColor: "#fff",
-            }}
-          >
-            <option value="">All Counts</option>
-            {legalCounts.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.label}
-              </option>
-            ))}
-          </select>
-        </label>
+        {/* Divider */}
+        <div
+          style={{
+            borderBottom: `1px solid ${COLORS.border}`,
+            margin: "1.5rem 0",
+          }}
+        />
 
-        <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
-          <span style={{ fontSize: "0.8rem", color: "#6b7280" }}>
-            {graphData.nodes.length} nodes, {graphData.edges.length} edges
-          </span>
-        </div>
-      </div>
-
-      {/* Legend */}
-      <div
-        style={{
-          display: "flex",
-          gap: "1rem",
-          marginBottom: "1rem",
-          flexWrap: "wrap",
-        }}
-      >
-        {(Object.keys(NODE_COLORS) as GraphNodeType[]).map((type) => (
-          <div
-            key={type}
+        {/* Controls */}
+        <div
+          style={{
+            backgroundColor: COLORS.bgCard,
+            border: `1px solid ${COLORS.border}`,
+            borderRadius: "8px",
+            padding: "1rem 1.25rem",
+            marginBottom: "1.5rem",
+            display: "flex",
+            alignItems: "center",
+            gap: "1rem",
+            flexWrap: "wrap",
+          }}
+        >
+          <label
             style={{
               display: "flex",
               alignItems: "center",
-              gap: "0.35rem",
-              fontSize: "0.8rem",
+              gap: "0.75rem",
+              flex: 1,
+              minWidth: "300px",
+            }}
+          >
+            <span
+              style={{
+                color: COLORS.textPrimary,
+                fontWeight: 500,
+                fontSize: "0.95rem",
+                whiteSpace: "nowrap",
+              }}
+            >
+              Allegation:
+            </span>
+            <select
+              value={selectedAllegationId || ""}
+              onChange={(e) => setSelectedAllegationId(e.target.value || null)}
+              style={{
+                flex: 1,
+                padding: "0.5rem 0.75rem",
+                borderRadius: "6px",
+                border: `1px solid ${COLORS.border}`,
+                backgroundColor: COLORS.bgCard,
+                fontSize: "0.9rem",
+                color: COLORS.textPrimary,
+                cursor: "pointer",
+              }}
+            >
+              <option value="">Select an allegation...</option>
+              {allegations.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.id}: {a.title}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          {/* Node/edge count */}
+          {graphData && (
+            <span
+              style={{
+                fontSize: "0.85rem",
+                color: COLORS.textSecondary,
+                whiteSpace: "nowrap",
+              }}
+            >
+              {graphData.nodes.length} nodes · {graphData.edges.length} edges
+            </span>
+          )}
+        </div>
+
+        {/* Error state */}
+        {error && (
+          <div
+            style={{
+              padding: "1rem 1.25rem",
+              backgroundColor: "#fef2f2",
+              border: `1px solid ${COLORS.border}`,
+              borderRadius: "8px",
+              color: "#dc2626",
+              marginBottom: "1.5rem",
+            }}
+          >
+            {error}
+          </div>
+        )}
+
+        {/* Empty state - no selection */}
+        {!selectedAllegationId && (
+          <div
+            style={{
+              backgroundColor: COLORS.bgCard,
+              border: `1px solid ${COLORS.border}`,
+              borderRadius: "8px",
+              padding: "4rem 2rem",
+              textAlign: "center",
             }}
           >
             <div
               style={{
-                width: "14px",
-                height: "14px",
-                backgroundColor: NODE_COLORS[type].bg,
-                border: `2px solid ${NODE_COLORS[type].border}`,
-                borderRadius: "3px",
+                fontSize: "1.1rem",
+                color: COLORS.textMuted,
+                marginBottom: "0.5rem",
               }}
-            />
-            <span style={{ color: "#4b5563" }}>
-              {type.replace("_", " ").replace(/\b\w/g, (c) => c.toUpperCase())}
-            </span>
-          </div>
-        ))}
-      </div>
-
-      {/* SVG Graph */}
-      <div
-        style={{
-          border: "1px solid #e5e7eb",
-          borderRadius: "8px",
-          backgroundColor: "#fafafa",
-          overflow: "auto",
-          maxHeight: "70vh",
-        }}
-      >
-        <svg ref={svgRef} width={width} height={height}>
-          {/* Edges */}
-          {edges.map((edge, i) => {
-            if (edge.points.length < 2) return null;
-            const pathData = edge.points
-              .map((p, idx) => `${idx === 0 ? "M" : "L"} ${p.x} ${p.y}`)
-              .join(" ");
-            return (
-              <g key={`edge-${i}`}>
-                <path
-                  d={pathData}
-                  fill="none"
-                  stroke="#9ca3af"
-                  strokeWidth={1.5}
-                  markerEnd="url(#arrowhead)"
-                />
-              </g>
-            );
-          })}
-
-          {/* Arrow marker definition */}
-          <defs>
-            <marker
-              id="arrowhead"
-              markerWidth="10"
-              markerHeight="7"
-              refX="9"
-              refY="3.5"
-              orient="auto"
             >
-              <polygon points="0 0, 10 3.5, 0 7" fill="#9ca3af" />
-            </marker>
-          </defs>
+              Select an allegation above to see its evidence chain
+            </div>
+            <div style={{ fontSize: "0.9rem", color: COLORS.textMuted }}>
+              The graph will show the hierarchy: Allegation → Motion Claims → Evidence → Documents
+            </div>
+          </div>
+        )}
 
-          {/* Nodes */}
-          {nodes.map((node) => {
-            const colors = NODE_COLORS[node.node_type];
-            const x = node.x - NODE_WIDTH / 2;
-            const y = node.y - NODE_HEIGHT / 2;
+        {/* Loading chain */}
+        {chainLoading && (
+          <div
+            style={{
+              backgroundColor: COLORS.bgCard,
+              border: `1px solid ${COLORS.border}`,
+              borderRadius: "8px",
+              padding: "4rem 2rem",
+              textAlign: "center",
+              color: COLORS.textSecondary,
+            }}
+          >
+            Loading evidence chain...
+          </div>
+        )}
 
-            return (
-              <g key={node.id}>
-                <rect
-                  x={x}
-                  y={y}
-                  width={NODE_WIDTH}
-                  height={NODE_HEIGHT}
-                  rx={6}
-                  ry={6}
-                  fill={colors.bg}
-                  stroke={colors.border}
-                  strokeWidth={2}
-                />
-                <text
-                  x={node.x}
-                  y={node.y - 6}
-                  textAnchor="middle"
-                  fill={colors.text}
-                  fontSize="11"
-                  fontWeight="600"
-                  fontFamily="Inter, system-ui, sans-serif"
-                >
-                  {truncateLabel(node.label)}
-                </text>
-                {node.subtitle && (
-                  <text
-                    x={node.x}
-                    y={node.y + 10}
-                    textAnchor="middle"
-                    fill={colors.text}
-                    fontSize="9"
-                    fontFamily="Inter, system-ui, sans-serif"
-                    opacity={0.8}
+        {/* Graph visualization */}
+        {!chainLoading && layout && (
+          <>
+            {/* Legend */}
+            <div
+              style={{
+                display: "flex",
+                gap: "1.5rem",
+                marginBottom: "1rem",
+                flexWrap: "wrap",
+              }}
+            >
+              {(["allegation", "motion_claim", "evidence", "document"] as GraphNodeType[]).map(
+                (type) => (
+                  <div
+                    key={type}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "0.5rem",
+                      fontSize: "0.85rem",
+                    }}
                   >
-                    {node.subtitle}
-                  </text>
-                )}
-              </g>
-            );
-          })}
-        </svg>
+                    <div
+                      style={{
+                        width: "20px",
+                        height: "16px",
+                        backgroundColor: COLORS.bgCard,
+                        border: `1px solid ${COLORS.border}`,
+                        borderLeft: `3px solid ${ACCENT_COLORS[type]}`,
+                        borderRadius: "3px",
+                      }}
+                    />
+                    <span style={{ color: COLORS.textSecondary }}>
+                      {type
+                        .replace("_", " ")
+                        .replace(/\b\w/g, (c) => c.toUpperCase())}
+                    </span>
+                  </div>
+                )
+              )}
+            </div>
+
+            {/* SVG container */}
+            <div
+              style={{
+                backgroundColor: COLORS.bgCard,
+                border: `1px solid ${COLORS.border}`,
+                borderRadius: "8px",
+                overflow: "auto",
+                maxHeight: "70vh",
+              }}
+            >
+              {layout.nodes.length === 0 ? (
+                <div
+                  style={{
+                    padding: "3rem",
+                    textAlign: "center",
+                    color: COLORS.textMuted,
+                    fontStyle: "italic",
+                  }}
+                >
+                  No evidence chain found for this allegation
+                </div>
+              ) : (
+                <svg ref={svgRef} width={layout.width} height={layout.height}>
+                  {/* Arrow marker definition */}
+                  <defs>
+                    <marker
+                      id="arrowhead"
+                      markerWidth="10"
+                      markerHeight="7"
+                      refX="9"
+                      refY="3.5"
+                      orient="auto"
+                    >
+                      <polygon points="0 0, 10 3.5, 0 7" fill="#94a3b8" />
+                    </marker>
+                  </defs>
+
+                  {/* Edges */}
+                  {layout.edges.map((edge, i) => {
+                    if (edge.points.length < 2) return null;
+                    const pathData = edge.points
+                      .map((p, idx) => `${idx === 0 ? "M" : "L"} ${p.x} ${p.y}`)
+                      .join(" ");
+                    return (
+                      <g key={`edge-${i}`}>
+                        <path
+                          d={pathData}
+                          fill="none"
+                          stroke="#cbd5e1"
+                          strokeWidth={1.5}
+                          markerEnd="url(#arrowhead)"
+                        />
+                      </g>
+                    );
+                  })}
+
+                  {/* Nodes */}
+                  {layout.nodes.map((node) => {
+                    const accentColor = ACCENT_COLORS[node.node_type];
+                    const x = node.x - NODE_WIDTH / 2;
+                    const y = node.y - NODE_HEIGHT / 2;
+                    const isDocument = node.node_type === "document";
+                    const isAllegation = node.node_type === "allegation";
+                    const statusColors = node.subtitle ? STATUS_COLORS[node.subtitle.toUpperCase()] : null;
+
+                    return (
+                      <g key={node.id}>
+                        {/* Main node rectangle */}
+                        <rect
+                          x={x}
+                          y={y}
+                          width={NODE_WIDTH}
+                          height={NODE_HEIGHT}
+                          rx={6}
+                          ry={6}
+                          fill={isDocument ? COLORS.bgPage : COLORS.bgCard}
+                          stroke={COLORS.border}
+                          strokeWidth={1}
+                        />
+                        {/* Left accent border */}
+                        <rect
+                          x={x}
+                          y={y}
+                          width={ACCENT_WIDTH}
+                          height={NODE_HEIGHT}
+                          rx={0}
+                          ry={0}
+                          fill={accentColor}
+                          clipPath={`inset(0 0 0 0 round 6px 0 0 6px)`}
+                        />
+                        {/* Rounded left edge for accent */}
+                        <path
+                          d={`M ${x + 6} ${y}
+                              L ${x + ACCENT_WIDTH} ${y}
+                              L ${x + ACCENT_WIDTH} ${y + NODE_HEIGHT}
+                              L ${x + 6} ${y + NODE_HEIGHT}
+                              Q ${x} ${y + NODE_HEIGHT} ${x} ${y + NODE_HEIGHT - 6}
+                              L ${x} ${y + 6}
+                              Q ${x} ${y} ${x + 6} ${y}
+                              Z`}
+                          fill={accentColor}
+                        />
+
+                        {/* Node label */}
+                        <text
+                          x={x + ACCENT_WIDTH + 10}
+                          y={y + (isAllegation && statusColors ? 26 : NODE_HEIGHT / 2)}
+                          textAnchor="start"
+                          dominantBaseline={isAllegation && statusColors ? "auto" : "middle"}
+                          fill={COLORS.textPrimary}
+                          fontSize="12"
+                          fontWeight="500"
+                          fontFamily="Inter, system-ui, sans-serif"
+                        >
+                          {truncateLabel(node.label)}
+                        </text>
+
+                        {/* Status badge for allegation */}
+                        {isAllegation && statusColors && (
+                          <>
+                            <rect
+                              x={x + ACCENT_WIDTH + 10}
+                              y={y + 36}
+                              width={60}
+                              height={20}
+                              rx={10}
+                              ry={10}
+                              fill={statusColors.bg}
+                            />
+                            <text
+                              x={x + ACCENT_WIDTH + 40}
+                              y={y + 50}
+                              textAnchor="middle"
+                              fill={statusColors.text}
+                              fontSize="10"
+                              fontWeight="600"
+                              fontFamily="Inter, system-ui, sans-serif"
+                            >
+                              {node.subtitle}
+                            </text>
+                          </>
+                        )}
+
+                        {/* Subtitle for documents (page number) */}
+                        {isDocument && node.subtitle && (
+                          <text
+                            x={x + ACCENT_WIDTH + 10}
+                            y={y + NODE_HEIGHT / 2 + 14}
+                            textAnchor="start"
+                            fill={COLORS.textSecondary}
+                            fontSize="10"
+                            fontFamily="Inter, system-ui, sans-serif"
+                          >
+                            {node.subtitle}
+                          </text>
+                        )}
+                      </g>
+                    );
+                  })}
+                </svg>
+              )}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
