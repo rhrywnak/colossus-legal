@@ -23,8 +23,8 @@ pub struct AllegationDto {
     pub category: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub severity: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub legal_count: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub legal_counts: Vec<String>,
 }
 
 /// Response for GET /allegations

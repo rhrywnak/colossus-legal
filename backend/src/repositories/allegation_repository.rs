@@ -41,6 +41,7 @@ impl AllegationRepository {
             .execute(query(
                 "MATCH (a:ComplaintAllegation)
                  OPTIONAL MATCH (a)-[:SUPPORTS]->(c:LegalCount)
+                 WITH a, collect(DISTINCT c.title) AS legal_counts
                  RETURN a.id AS id,
                         a.paragraph AS paragraph,
                         a.title AS title,
@@ -48,7 +49,7 @@ impl AllegationRepository {
                         a.evidence_status AS evidence_status,
                         a.category AS category,
                         a.severity AS severity,
-                        c.title AS legal_count
+                        legal_counts
                  ORDER BY a.id",
             ))
             .await?;
@@ -61,7 +62,13 @@ impl AllegationRepository {
             let evidence_status: Option<String> = row.get("evidence_status").ok();
             let category: Option<String> = row.get("category").ok();
             let severity: Option<i64> = row.get("severity").ok();
-            let legal_count: Option<String> = row.get("legal_count").ok();
+            // Filter out null values from the collected array
+            let legal_counts: Vec<String> = row
+                .get::<Vec<Option<String>>>("legal_counts")
+                .unwrap_or_default()
+                .into_iter()
+                .flatten()
+                .collect();
 
             allegations.push(AllegationDto {
                 id,
@@ -71,7 +78,7 @@ impl AllegationRepository {
                 evidence_status,
                 category,
                 severity,
-                legal_count,
+                legal_counts,
             });
         }
 
