@@ -5,6 +5,7 @@ export type DocumentItem = {
   title: string;
   docType: string;
   createdAt?: string;
+  filePath?: string;
 };
 
 export type DocumentDetail = {
@@ -79,6 +80,7 @@ export async function getDocuments(): Promise<DocumentItem[]> {
       ? String(doc.docType)
       : "",
     createdAt: doc?.created_at ?? doc?.createdAt ?? undefined,
+    filePath: doc?.file_path ?? doc?.filePath ?? undefined,
   }));
 }
 
