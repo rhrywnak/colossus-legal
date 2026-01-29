@@ -39,6 +39,13 @@ pub struct PartiesGroup {
     pub other: Vec<PartyDto>,
 }
 
+/// Summary info for a legal count (cause of action)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LegalCountSummary {
+    pub id: String,
+    pub name: String,
+}
+
 /// Aggregated statistics for the case
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CaseStats {
@@ -48,6 +55,7 @@ pub struct CaseStats {
     pub document_count: i64,
     pub damages_total: f64,
     pub legal_counts: i64,
+    pub legal_count_details: Vec<LegalCountSummary>,
 }
 
 impl Default for CaseStats {
@@ -59,6 +67,7 @@ impl Default for CaseStats {
             document_count: 0,
             damages_total: 0.0,
             legal_counts: 0,
+            legal_count_details: Vec::new(),
         }
     }
 }

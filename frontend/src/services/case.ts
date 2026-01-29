@@ -25,6 +25,11 @@ export type PartiesGroup = {
   other: PartyDto[];
 };
 
+export type LegalCountSummary = {
+  id: string;
+  name: string;
+};
+
 export type CaseStats = {
   allegations_total: number;
   allegations_proven: number;
@@ -32,6 +37,7 @@ export type CaseStats = {
   document_count: number;
   damages_total: number;
   legal_counts: number;
+  legal_count_details: LegalCountSummary[];
 };
 
 export type CaseResponse = {

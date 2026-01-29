@@ -1,6 +1,6 @@
 use neo4rs::{query, Graph};
 
-use crate::dto::{CaseInfo, CaseResponse, CaseStats, PartiesGroup, PartyDto};
+use crate::dto::{CaseInfo, CaseResponse, CaseStats, LegalCountSummary, PartiesGroup, PartyDto};
 
 #[derive(Clone)]
 pub struct CaseRepository {
@@ -43,7 +43,10 @@ impl CaseRepository {
         let parties = self.get_parties().await?;
 
         // Query 3: Get aggregated stats
-        let stats = self.get_stats().await?;
+        let mut stats = self.get_stats().await?;
+
+        // Query 4: Get legal count details
+        stats.legal_count_details = self.get_legal_count_details().await?;
 
         Ok(Some(CaseResponse {
             case: case_info,
@@ -179,9 +182,32 @@ impl CaseRepository {
                 document_count: row.get("document_count").unwrap_or(0),
                 damages_total: row.get("damages_total").unwrap_or(0.0),
                 legal_counts: row.get("legal_counts").unwrap_or(0),
+                legal_count_details: Vec::new(), // Populated separately
             })
         } else {
             Ok(CaseStats::default())
         }
+    }
+
+    /// Fetch legal count details (id and name)
+    async fn get_legal_count_details(&self) -> Result<Vec<LegalCountSummary>, CaseRepositoryError> {
+        let mut details: Vec<LegalCountSummary> = Vec::new();
+
+        let mut result = self
+            .graph
+            .execute(query(
+                "MATCH (lc:LegalCount)
+                 RETURN lc.id AS id, lc.title AS name
+                 ORDER BY lc.title",
+            ))
+            .await?;
+
+        while let Some(row) = result.next().await? {
+            let id: String = row.get("id").unwrap_or_default();
+            let name: String = row.get("name").unwrap_or_default();
+            details.push(LegalCountSummary { id, name });
+        }
+
+        Ok(details)
     }
 }

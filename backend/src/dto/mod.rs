@@ -30,4 +30,4 @@ pub use evidence_chain::{
 };
 pub use graph::{GraphEdge, GraphNode, GraphNodeType, GraphResponse};
 pub use schema::SchemaResponse;
-pub use case_dto::{CaseInfo, CaseResponse, CaseStats, PartiesGroup, PartyDto};
+pub use case_dto::{CaseInfo, CaseResponse, CaseStats, LegalCountSummary, PartiesGroup, PartyDto};

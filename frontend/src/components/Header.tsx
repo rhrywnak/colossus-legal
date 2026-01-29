@@ -246,11 +246,34 @@ const Header: React.FC = () => {
   return (
     <header ref={headerRef} style={headerStyle}>
       {/* Logo */}
-      <Link to="/" style={logoStyle}>
-        <span role="img" aria-label="scales">
-          {"\u2696\uFE0F"}
+      <Link
+        to="/"
+        style={{
+          textDecoration: "none",
+          display: "flex",
+          alignItems: "center",
+          gap: "0.25rem",
+        }}
+      >
+        <span
+          style={{
+            fontSize: "1.25rem",
+            fontWeight: 700,
+            color: "#1f2937",
+            letterSpacing: "-0.025em",
+          }}
+        >
+          COLOSSUS
         </span>
-        COLOSSUS
+        <span
+          style={{
+            fontSize: "1.25rem",
+            fontWeight: 400,
+            color: "#6b7280",
+          }}
+        >
+          Legal
+        </span>
       </Link>
 
       {/* Navigation */}
