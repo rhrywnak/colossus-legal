@@ -1,6 +1,14 @@
-use axum::{extract::Path, extract::State, Json};
+use axum::{
+    body::Body,
+    extract::{Path, State},
+    http::{header, StatusCode},
+    response::Response,
+    Json,
+};
 use chrono::DateTime;
 use serde_json::json;
+use tokio::fs::File;
+use tokio_util::io::ReaderStream;
 
 use crate::{
     dto::{DocumentCreateRequest, DocumentDto, DocumentUpdateRequest},
@@ -121,6 +129,52 @@ pub async fn update_document(
         .map_err(map_repo_error)?;
 
     Ok(Json(DocumentDto::from(updated)))
+}
+
+/// Serve a document's PDF file
+pub async fn get_document_file(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Response, AppError> {
+    // 1. Get document from Neo4j
+    let repo = DocumentRepository::new(state.graph.clone());
+    let document = repo.get_document_by_id(&id).await.map_err(map_repo_error)?;
+
+    // 2. Check if file_path exists
+    let file_path = document.file_path.ok_or_else(|| AppError::NotFound {
+        message: "Document has no associated file".to_string(),
+    })?;
+
+    // 3. Validate filename (security: prevent path traversal)
+    if file_path.contains("..") || file_path.contains('/') || file_path.contains('\\') {
+        return Err(AppError::BadRequest {
+            message: "Invalid file path".to_string(),
+            details: json!({}),
+        });
+    }
+
+    // 4. Build full path
+    let full_path = format!("{}/{}", state.config.document_storage_path, file_path);
+
+    // 5. Open file
+    let file = File::open(&full_path).await.map_err(|_| AppError::NotFound {
+        message: "File not found on disk".to_string(),
+    })?;
+
+    // 6. Stream response
+    let stream = ReaderStream::new(file);
+    let body = Body::from_stream(stream);
+
+    // 7. Return with PDF headers
+    Ok(Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "application/pdf")
+        .header(
+            header::CONTENT_DISPOSITION,
+            format!("inline; filename=\"{}\"", file_path),
+        )
+        .body(body)
+        .unwrap())
 }
 
 fn map_repo_error(err: DocumentRepositoryError) -> AppError {

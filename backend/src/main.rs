@@ -55,8 +55,7 @@ async fn main() {
         .expect("Neo4j connectivity check failed");
 
     // Shared application state (global AppState)
-    // If your AppState has more fields, add them here.
-    let state = AppState { graph };
+    let state = AppState { graph, config };
 
     // Port
     let port: u16 = std::env::var("BACKEND_PORT")

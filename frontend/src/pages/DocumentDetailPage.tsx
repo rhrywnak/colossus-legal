@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import { API_BASE_URL } from "../services/api";
 import {
   DocumentDetail,
   updateDocument,
@@ -139,6 +140,27 @@ const DocumentDetailPage: React.FC = () => {
         <div><strong>Current Type:</strong> {document.doc_type}</div>
         <div><strong>Created At:</strong> {document.created_at ?? "—"}</div>
       </div>
+
+      {document.file_path && (
+        <div style={{ marginTop: "1rem", marginBottom: "1.5rem" }}>
+          <a
+            href={`${API_BASE_URL}/documents/${encodeURIComponent(document.id)}/file`}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              display: "inline-block",
+              padding: "0.5rem 1rem",
+              backgroundColor: "#2563eb",
+              color: "white",
+              borderRadius: "6px",
+              textDecoration: "none",
+              fontWeight: 500,
+            }}
+          >
+            View PDF
+          </a>
+        </div>
+      )}
 
       <form onSubmit={onSubmit} style={{ display: "grid", gap: "0.75rem", maxWidth: 480 }}>
         <div>

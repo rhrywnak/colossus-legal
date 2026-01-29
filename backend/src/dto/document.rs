@@ -9,6 +9,7 @@ pub struct DocumentDto {
     pub title: String,
     pub doc_type: String,           // e.g. "pdf", "motion", "ruling"
     pub created_at: Option<String>, // ISO-8601 string or None
+    pub file_path: Option<String>,  // filename of associated file
 }
 
 impl From<Document> for DocumentDto {
@@ -18,6 +19,7 @@ impl From<Document> for DocumentDto {
             title: doc.title,
             doc_type: doc.doc_type.unwrap_or_default(),
             created_at: doc.created_at.map(|dt| dt.to_string()),
+            file_path: doc.file_path,
         }
     }
 }

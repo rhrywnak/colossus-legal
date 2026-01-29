@@ -38,6 +38,7 @@ pub fn router() -> Router<AppState> {
         .route("/documents", post(documents::create_document))
         .route("/documents/:id", get(documents::get_document))
         .route("/documents/:id", put(documents::update_document))
+        .route("/documents/:id/file", get(documents::get_document_file))
         .route("/import/validate", post(import::validate_import))
         .route("/schema", get(schema::get_schema))
         .route("/persons", get(persons::list_persons))
