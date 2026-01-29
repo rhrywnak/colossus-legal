@@ -71,6 +71,7 @@ async fn main() {
         .allow_origin([
             HeaderValue::from_static("http://localhost:5473"),
             HeaderValue::from_static("http://localhost:3403"),
+            HeaderValue::from_static("http://10.10.0.99:5473"),
         ])
         .allow_methods([
             Method::GET,
