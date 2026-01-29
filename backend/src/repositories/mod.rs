@@ -1,4 +1,5 @@
 pub mod allegation_repository;
+pub mod case_repository;
 pub mod claim_repository;
 pub mod contradiction_repository;
 pub mod document_repository;
@@ -19,3 +20,4 @@ pub use harm_repository::HarmRepository;
 pub use motion_claim_repository::MotionClaimRepository;
 pub use person_repository::PersonRepository;
 pub use schema_repository::SchemaRepository;
+pub use case_repository::CaseRepository;
