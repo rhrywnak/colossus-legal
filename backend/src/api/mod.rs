@@ -8,6 +8,7 @@ use axum::{
 use crate::state::AppState;
 
 pub mod allegations;
+pub mod analysis;
 pub mod case;
 pub mod claims;
 pub mod contradictions;
@@ -29,6 +30,7 @@ pub mod schema;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/health", get(health_check))
+        .route("/analysis", get(analysis::get_analysis))
         .route("/case", get(case::get_case))
         .route("/claims", get(claims::list_claims))
         .route("/claims/:id", get(claims::get_claim))

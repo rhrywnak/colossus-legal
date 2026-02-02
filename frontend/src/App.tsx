@@ -3,6 +3,7 @@ import { Route, Routes } from "react-router-dom";
 import Header from "./components/Header";
 import { CaseProvider } from "./context/CaseContext";
 import AllegationsPage from "./pages/AllegationsPage";
+import AnalysisPage from "./pages/AnalysisPage";
 import ContradictionsPage from "./pages/ContradictionsPage";
 import EvidenceExplorerPage from "./pages/EvidenceExplorerPage";
 import GraphPage from "./pages/GraphPage";
@@ -24,6 +25,7 @@ const App: React.FC = () => {
         <main style={{ padding: "1.5rem" }}>
           <Routes>
             <Route path="/" element={<Home />} />
+            <Route path="/analysis" element={<AnalysisPage />} />
             <Route path="/allegations" element={<AllegationsPage />} />
             <Route path="/claims" element={<MotionClaimsPage />} />
             <Route path="/documents" element={<DocumentsPage />} />

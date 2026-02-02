@@ -34,6 +34,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "Analysis",
     items: [
+      { label: "Dashboard", path: "/analysis" },
       { label: "People", path: "/people" },
       { label: "Contradictions", path: "/contradictions" },
     ],

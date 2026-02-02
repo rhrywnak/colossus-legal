@@ -1,4 +1,5 @@
 pub mod allegation;
+pub mod analysis;
 pub mod case_dto;
 pub mod claim;
 pub mod contradiction;
@@ -31,3 +32,7 @@ pub use evidence_chain::{
 pub use graph::{GraphEdge, GraphNode, GraphNodeType, GraphResponse};
 pub use schema::SchemaResponse;
 pub use case_dto::{CaseInfo, CaseResponse, CaseStats, LegalCountSummary, PartiesGroup, PartyDto};
+pub use analysis::{
+    AllegationStrength, AnalysisResponse, ContradictionBrief, ContradictionsSummary,
+    DocumentCoverage, EvidenceCoverage, GapAnalysis,
+};

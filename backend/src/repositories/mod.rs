@@ -1,4 +1,5 @@
 pub mod allegation_repository;
+pub mod analysis_repository;
 pub mod case_repository;
 pub mod claim_repository;
 pub mod contradiction_repository;
@@ -12,6 +13,7 @@ pub mod person_repository;
 pub mod schema_repository;
 
 pub use allegation_repository::AllegationRepository;
+pub use analysis_repository::AnalysisRepository;
 pub use evidence_chain_repository::EvidenceChainRepository;
 pub use graph_repository::GraphRepository;
 pub use contradiction_repository::ContradictionRepository;
