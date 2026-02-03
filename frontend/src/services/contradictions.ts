@@ -11,6 +11,10 @@ export type ContradictionDto = {
   evidence_a: ContradictionEvidence;
   evidence_b: ContradictionEvidence;
   description?: string;
+  topic?: string;
+  impeachment_value?: string;
+  earlier_claim?: string;
+  later_admission?: string;
 };
 
 export type ContradictionsResponse = {

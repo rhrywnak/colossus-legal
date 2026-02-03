@@ -19,6 +19,14 @@ pub struct ContradictionDto {
     pub evidence_b: ContradictionEvidence,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub topic: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub impeachment_value: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub earlier_claim: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub later_admission: Option<String>,
 }
 
 /// Response for GET /contradictions

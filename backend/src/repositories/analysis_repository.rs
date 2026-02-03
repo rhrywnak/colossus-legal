@@ -158,7 +158,7 @@ impl AnalysisRepository {
         let mut result = self
             .graph
             .execute(query(
-                "MATCH (a:Evidence)-[r:CONTRADICTED_BY]->(b:Evidence)
+                "MATCH (a:Evidence)-[r:CONTRADICTS]->(b:Evidence)
                  RETURN a.id AS evidence_a_id,
                         a.title AS evidence_a_title,
                         a.answer AS evidence_a_answer,

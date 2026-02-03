@@ -106,14 +106,35 @@ const ContradictionsPage: React.FC = () => {
                   borderBottom: "1px solid #e5e7eb",
                   fontWeight: "600",
                   color: "#374151",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.75rem",
                 }}
               >
-                CONTRADICTION
+                <span>{contradiction.topic || "CONTRADICTION"}</span>
+                {contradiction.impeachment_value && (
+                  <span
+                    style={{
+                      padding: "0.25rem 0.5rem",
+                      borderRadius: "4px",
+                      fontSize: "0.75rem",
+                      fontWeight: "600",
+                      color: "#fff",
+                      backgroundColor:
+                        contradiction.impeachment_value === "HIGH"
+                          ? "#dc2626"
+                          : contradiction.impeachment_value === "MEDIUM"
+                            ? "#ea580c"
+                            : "#6b7280",
+                    }}
+                  >
+                    {contradiction.impeachment_value}
+                  </span>
+                )}
                 {contradiction.description && (
                   <span
                     style={{
                       fontWeight: "normal",
-                      marginLeft: "1rem",
                       color: "#6b7280",
                     }}
                   >
@@ -137,6 +158,35 @@ const ContradictionsPage: React.FC = () => {
                     borderRight: "1px solid #e5e7eb",
                   }}
                 >
+                  {contradiction.earlier_claim && (
+                    <>
+                      <div
+                        style={{
+                          fontSize: "0.75rem",
+                          fontWeight: "600",
+                          color: "#991b1b",
+                          marginBottom: "0.5rem",
+                          textTransform: "uppercase",
+                        }}
+                      >
+                        Claimed:
+                      </div>
+                      <blockquote
+                        style={{
+                          margin: "0 0 1rem 0",
+                          padding: "0.5rem 0.75rem",
+                          borderLeft: "3px solid #fca5a5",
+                          backgroundColor: "#fff",
+                          color: "#4b5563",
+                          fontSize: "0.9rem",
+                          fontStyle: "italic",
+                          lineHeight: "1.5",
+                        }}
+                      >
+                        "{contradiction.earlier_claim}"
+                      </blockquote>
+                    </>
+                  )}
                   <div
                     style={{
                       fontSize: "0.75rem",
@@ -198,6 +248,35 @@ const ContradictionsPage: React.FC = () => {
                     backgroundColor: "#f0fdf4",
                   }}
                 >
+                  {contradiction.later_admission && (
+                    <>
+                      <div
+                        style={{
+                          fontSize: "0.75rem",
+                          fontWeight: "600",
+                          color: "#166534",
+                          marginBottom: "0.5rem",
+                          textTransform: "uppercase",
+                        }}
+                      >
+                        Actually admitted:
+                      </div>
+                      <blockquote
+                        style={{
+                          margin: "0 0 1rem 0",
+                          padding: "0.5rem 0.75rem",
+                          borderLeft: "3px solid #86efac",
+                          backgroundColor: "#fff",
+                          color: "#4b5563",
+                          fontSize: "0.9rem",
+                          fontStyle: "italic",
+                          lineHeight: "1.5",
+                        }}
+                      >
+                        "{contradiction.later_admission}"
+                      </blockquote>
+                    </>
+                  )}
                   <div
                     style={{
                       fontSize: "0.75rem",

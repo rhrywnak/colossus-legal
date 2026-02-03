@@ -39,7 +39,7 @@ impl ContradictionRepository {
         let mut result = self
             .graph
             .execute(query(
-                "MATCH (a:Evidence)-[r:CONTRADICTED_BY]->(b:Evidence)
+                "MATCH (a:Evidence)-[r:CONTRADICTS]->(b:Evidence)
                  OPTIONAL MATCH (a)-[:CONTAINED_IN]->(da:Document)
                  OPTIONAL MATCH (b)-[:CONTAINED_IN]->(db:Document)
                  RETURN a.id AS evidence_a_id,
@@ -50,7 +50,11 @@ impl ContradictionRepository {
                         b.title AS evidence_b_title,
                         b.answer AS evidence_b_answer,
                         db.title AS evidence_b_document,
-                        r.description AS description
+                        r.description AS description,
+                        r.topic AS topic,
+                        r.impeachment_value AS impeachment_value,
+                        r.earlier_claim AS earlier_claim,
+                        r.later_admission AS later_admission
                  ORDER BY a.id",
             ))
             .await?;
@@ -71,11 +75,19 @@ impl ContradictionRepository {
             };
 
             let description: Option<String> = row.get("description").ok();
+            let topic: Option<String> = row.get("topic").ok();
+            let impeachment_value: Option<String> = row.get("impeachment_value").ok();
+            let earlier_claim: Option<String> = row.get("earlier_claim").ok();
+            let later_admission: Option<String> = row.get("later_admission").ok();
 
             contradictions.push(ContradictionDto {
                 evidence_a,
                 evidence_b,
                 description,
+                topic,
+                impeachment_value,
+                earlier_claim,
+                later_admission,
             });
         }
 
