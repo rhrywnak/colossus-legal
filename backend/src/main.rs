@@ -65,13 +65,28 @@ async fn main() {
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
 
-    // CORS (dev-friendly; you can tighten this later)
+    // CORS — configurable via CORS_ALLOWED_ORIGINS env var (comma-separated).
+    // Falls back to localhost defaults for local development.
+    //
+    // RUST NOTE — from_static vs from_str:
+    // from_static() requires a &'static str (compile-time string literal).
+    // from_str() accepts a &str (runtime string). Since we read from an env
+    // var, the values are runtime strings, so we use from_str().
+    let cors_origins: Vec<HeaderValue> = std::env::var("CORS_ALLOWED_ORIGINS")
+        .unwrap_or_else(|_| {
+            "http://localhost:5473,http://localhost:3403,http://10.10.0.99:5473".to_string()
+        })
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .map(|s| {
+            HeaderValue::from_str(&s)
+                .unwrap_or_else(|_| panic!("Invalid CORS origin: {}", s))
+        })
+        .collect();
+
     let cors = CorsLayer::new()
-        .allow_origin([
-            HeaderValue::from_static("http://localhost:5473"),
-            HeaderValue::from_static("http://localhost:3403"),
-            HeaderValue::from_static("http://10.10.0.99:5473"),
-        ])
+        .allow_origin(cors_origins)
         .allow_methods([
             Method::GET,
             Method::POST,
