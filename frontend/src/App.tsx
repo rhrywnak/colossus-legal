@@ -5,6 +5,8 @@ import { CaseProvider } from "./context/CaseContext";
 import AllegationsPage from "./pages/AllegationsPage";
 import AnalysisPage from "./pages/AnalysisPage";
 import ContradictionsPage from "./pages/ContradictionsPage";
+import DecompositionPage from "./pages/DecompositionPage";
+import AllegationDetailPage from "./pages/AllegationDetailPage";
 import EvidenceExplorerPage from "./pages/EvidenceExplorerPage";
 import GraphPage from "./pages/GraphPage";
 import MotionClaimsPage from "./pages/MotionClaimsPage";
@@ -35,6 +37,8 @@ const App: React.FC = () => {
             <Route path="/people" element={<People />} />
             <Route path="/hearings" element={<Hearings />} />
             <Route path="/decisions" element={<Decisions />} />
+            <Route path="/decomposition" element={<DecompositionPage />} />
+            <Route path="/allegations/:id/detail" element={<AllegationDetailPage />} />
             <Route path="/contradictions" element={<ContradictionsPage />} />
             <Route path="/explorer" element={<EvidenceExplorerPage />} />
             <Route path="/graph" element={<GraphPage />} />
