@@ -44,6 +44,10 @@ pub struct EvidenceDto {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub significance: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub verbatim_quote: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stated_by: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub document_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub document_title: Option<String>,

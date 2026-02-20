@@ -41,6 +41,7 @@ impl EvidenceRepository {
             .execute(query(
                 "MATCH (e:Evidence)
                  OPTIONAL MATCH (e)-[:CONTAINED_IN]->(d:Document)
+                 OPTIONAL MATCH (e)-[:STATED_BY]->(speaker)
                  RETURN e.id AS id,
                         e.exhibit_number AS exhibit_number,
                         e.title AS title,
@@ -50,6 +51,8 @@ impl EvidenceRepository {
                         e.weight AS weight,
                         e.page_number AS page_number,
                         e.significance AS significance,
+                        e.verbatim_quote AS verbatim_quote,
+                        speaker.name AS stated_by,
                         d.id AS document_id,
                         d.title AS document_title
                  ORDER BY e.id",
@@ -66,6 +69,8 @@ impl EvidenceRepository {
             let weight: Option<i64> = row.get("weight").ok();
             let page_number: Option<i64> = row.get("page_number").ok();
             let significance: Option<String> = row.get("significance").ok();
+            let verbatim_quote: Option<String> = row.get("verbatim_quote").ok();
+            let stated_by: Option<String> = row.get("stated_by").ok();
             let document_id: Option<String> = row.get("document_id").ok();
             let document_title: Option<String> = row.get("document_title").ok();
 
@@ -84,6 +89,8 @@ impl EvidenceRepository {
                 weight,
                 page_number,
                 significance,
+                verbatim_quote,
+                stated_by,
                 document_id,
                 document_title,
             });

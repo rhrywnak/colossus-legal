@@ -10,6 +10,8 @@ export type EvidenceDto = {
   weight?: number;
   page_number?: number;
   significance?: string;
+  verbatim_quote?: string;
+  stated_by?: string;
   document_id?: string;
   document_title?: string;
 };

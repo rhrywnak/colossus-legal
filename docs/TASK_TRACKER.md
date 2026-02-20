@@ -151,6 +151,51 @@ A structured task index for development.
 
 ---
 
+# Phase F — Decomposition & UI Refresh
+
+> **Goal:** Decompose complaint into allegation-level proof chains with George Phillips' characterizations, rebuttals, and proof claims. Refresh existing UI pages with Phase A-E data.
+
+## Feature F.1 — Decomposition Backend + Frontend ✅ COMPLETE (2026-02-20)
+
+**Branch:** `feature/decomposition-ui` (merged to main)
+
+| Task | Description | Status | Date |
+|------|-------------|--------|------|
+| T.F.1.1 | Decomposition DTO structs | DONE | 2026-02-20 |
+| T.F.1.2 | GET /decomposition endpoint (overview) | DONE | 2026-02-20 |
+| T.F.1.3 | GET /allegations/:id/detail endpoint | DONE | 2026-02-20 |
+| T.F.1.4 | GET /rebuttals endpoint | DONE | 2026-02-20 |
+| T.F.1.5 | DecompositionPage + AllegationDetailPage UI | DONE | 2026-02-20 |
+| T.F.1.6 | Service layer + route/nav wiring | DONE | 2026-02-20 |
+
+**Deliverables:**
+- 3 backend endpoints (`/decomposition`, `/allegations/:id/detail`, `/rebuttals`)
+- 2 frontend pages (DecompositionPage, AllegationDetailPage)
+- Service layer with TypeScript types for all 3 endpoints
+- 1708 lines across 11 files
+- Branch `feature/decomposition-ui` merged to main
+
+## Feature F.3 — Refresh Existing UI Pages ✅ COMPLETE (2026-02-20)
+
+**Branch:** `feature/f3-ui-refresh`
+
+| Task | Description | Status | Date |
+|------|-------------|--------|------|
+| T.F.3.1 | Evidence page: add stated_by + verbatim_quote | DONE | 2026-02-20 |
+| T.F.3.2 | Allegations page: add View Detail link | DONE | 2026-02-20 |
+| T.F.3.3 | Dashboard: verify dynamic (no hardcoded counts) | DONE | 2026-02-20 |
+| T.F.3.4 | Contradictions page: verify CONTRADICTS display | DONE | 2026-02-20 |
+| T.F.3.5 | Update TASK_TRACKER.md | DONE | 2026-02-20 |
+
+**Deliverables:**
+- Evidence page now shows `stated_by` and `verbatim_quote` (backend extended with 2 fields)
+- Allegations page links to `/allegations/:id/detail` (AllegationDetailPage from F.1)
+- Dashboard confirmed fully dynamic — no hardcoded counts
+- Contradictions page confirmed — already shows CONTRADICTS with impeachment values
+- Database stats updated to 227 nodes / 644 relationships
+
+---
+
 # Future Phases
 
 ### Phase 6 — Analysis Layer — FUTURE
@@ -182,6 +227,9 @@ A structured task index for development.
 | `/claims` | POST | Create claim | ✅ |
 | `/claims/:id` | PUT | Update claim | ✅ |
 | `/import/validate` | POST | Validate import JSON | ✅ |
+| `/decomposition` | GET | Decomposition overview | ✅ |
+| `/allegations/:id/detail` | GET | Allegation detail with characterizations | ✅ |
+| `/rebuttals` | GET | George's claims with rebuttals | ✅ |
 | `/graph/:type` | GET | Graph data for visualization | TODO |
 
 ---
@@ -199,6 +247,8 @@ A structured task index for development.
 | `/damages` | Harms/Damages | ✅ |
 | `/people` | People | ✅ |
 | `/contradictions` | Contradictions | ✅ |
+| `/decomposition` | Decomposition | ✅ |
+| `/allegations/:id/detail` | Allegation Detail | ✅ |
 | `/hearings` | Hearings | Placeholder |
 | `/decisions` | Decisions | Placeholder |
 | `/graph` | Graph Visualization | TODO |
@@ -244,20 +294,24 @@ A structured task index for development.
 
 ---
 
-# Database Statistics (2026-01-29)
+# Database Statistics (2026-02-20)
 
 | Entity | Count |
 |--------|-------|
-| Documents | 13 |
-| Evidence | 60 |
-| Persons | 10 |
-| Organizations | 3 |
+| Documents | 18 |
+| Evidence | 102 |
+| Persons | 17 |
+| Organizations | 4 |
 | ComplaintAllegations | 18 (all PROVEN) |
-| MotionClaims | 26 |
-| Harms | 9 ($40,258.61) |
+| MotionClaims | 32 |
+| Harms | 12 |
 | LegalCounts | 4 |
-| Total Nodes | 146 |
-| Total Relationships | 340 |
+| Events | 19 |
+| Cases | 1 |
+| Total Nodes | 227 |
+| Total Relationships | 644 |
+
+> Note: `/case` endpoint reports evidence_count=102 (matches node count) but `/evidence` endpoint returns 109 items (includes items from OPTIONAL MATCH joins). This is a pre-existing discrepancy.
 
 ---
 
@@ -272,6 +326,7 @@ A structured task index for development.
 | Phase 2.6 - Graph Visualization | 🔄 Next |
 | Phase 3 - Document Slice | ⏸️ Partial |
 | Phase 5 - Import Pipeline | ⏸️ Partial |
+| Phase F - Decomposition & UI Refresh | ✅ Complete |
 | Phase 6-9 | ⏳ Future |
 
 ---

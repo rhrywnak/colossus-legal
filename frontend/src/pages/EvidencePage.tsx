@@ -183,11 +183,25 @@ const EvidencePage: React.FC = () => {
                   {item.page_number !== undefined && (
                     <span
                       style={{
+                        padding: "0.1rem 0.4rem",
+                        backgroundColor: "#dbeafe",
+                        color: "#1e40af",
+                        borderRadius: "3px",
                         fontSize: "0.75rem",
-                        color: "#9ca3af",
+                        fontWeight: 600,
                       }}
                     >
-                      p.{item.page_number}
+                      p. {item.page_number}
+                    </span>
+                  )}
+                  {item.stated_by && (
+                    <span
+                      style={{
+                        fontSize: "0.75rem",
+                        color: "#6b7280",
+                      }}
+                    >
+                      &mdash; {item.stated_by}
                     </span>
                   )}
                 </div>
@@ -233,6 +247,25 @@ const EvidencePage: React.FC = () => {
                   >
                     {item.answer}
                   </div>
+                )}
+
+                {/* Verbatim quote */}
+                {item.verbatim_quote && (
+                  <blockquote
+                    style={{
+                      margin: "0.5rem 0",
+                      padding: "0.5rem 0.75rem",
+                      borderLeft: "3px solid #d1d5db",
+                      backgroundColor: "#f9fafb",
+                      color: "#374151",
+                      fontStyle: "italic",
+                      fontSize: "0.9rem",
+                      lineHeight: 1.6,
+                      borderRadius: "0 4px 4px 0",
+                    }}
+                  >
+                    {item.verbatim_quote}
+                  </blockquote>
                 )}
 
                 {/* Significance */}
