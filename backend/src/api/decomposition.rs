@@ -19,7 +19,9 @@ use axum::{
 use crate::dto::decomposition::{
     AllegationDetailResponse, DecompositionResponse, RebuttalsResponse,
 };
-use crate::repositories::DecompositionRepository;
+use crate::repositories::{
+    AllegationDetailRepository, DecompositionRepository, RebuttalsRepository,
+};
 use crate::state::AppState;
 
 /// GET /decomposition — Overview of all 18 allegations with characterizations
@@ -42,7 +44,7 @@ pub async fn get_allegation_detail(
     State(state): State<AppState>,
     Path(allegation_id): Path<String>,
 ) -> Result<Json<AllegationDetailResponse>, StatusCode> {
-    let repo = DecompositionRepository::new(state.graph.clone());
+    let repo = AllegationDetailRepository::new(state.graph.clone());
 
     match repo.get_allegation_detail(&allegation_id).await {
         Ok(Some(response)) => Ok(Json(response)),
@@ -62,7 +64,7 @@ pub async fn get_allegation_detail(
 pub async fn list_rebuttals(
     State(state): State<AppState>,
 ) -> Result<Json<RebuttalsResponse>, StatusCode> {
-    let repo = DecompositionRepository::new(state.graph.clone());
+    let repo = RebuttalsRepository::new(state.graph.clone());
 
     match repo.get_rebuttals().await {
         Ok(response) => Ok(Json(response)),
