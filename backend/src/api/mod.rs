@@ -12,6 +12,7 @@ pub mod analysis;
 pub mod case;
 pub mod claims;
 pub mod contradictions;
+pub mod decomposition;
 pub mod documents;
 pub mod evidence;
 pub mod evidence_chain;
@@ -54,6 +55,12 @@ pub fn router() -> Router<AppState> {
         .route("/motion-claims", get(claims::list_motion_claims))
         .route("/contradictions", get(contradictions::list_contradictions))
         .route("/graph/legal-proof", get(graph::get_legal_proof_graph))
+        .route("/decomposition", get(decomposition::list_decomposition))
+        .route(
+            "/allegations/:id/detail",
+            get(decomposition::get_allegation_detail),
+        )
+        .route("/rebuttals", get(decomposition::list_rebuttals))
 }
 
 async fn health_check(State(_state): State<AppState>) -> (StatusCode, &'static str) {

@@ -7,6 +7,7 @@ pub mod decision;
 pub mod document;
 pub mod evidence;
 pub mod evidence_chain;
+pub mod decomposition;
 pub mod graph;
 pub mod harm;
 pub mod hearing;
@@ -35,4 +36,8 @@ pub use case_dto::{CaseInfo, CaseResponse, CaseStats, LegalCountSummary, Parties
 pub use analysis::{
     AllegationStrength, AnalysisResponse, ContradictionBrief, ContradictionsSummary,
     DocumentCoverage, EvidenceCoverage, GapAnalysis,
+};
+pub use decomposition::{
+    AllegationDetailResponse, AllegationOverview, DecompositionResponse,
+    RebuttalsResponse,
 };
