@@ -1,6 +1,7 @@
 pub mod allegation_repository;
 pub mod analysis_repository;
 pub mod case_repository;
+pub mod case_summary_repository;
 pub mod claim_repository;
 pub mod contradiction_repository;
 pub mod document_repository;
@@ -26,6 +27,7 @@ pub use motion_claim_repository::MotionClaimRepository;
 pub use person_repository::PersonRepository;
 pub use schema_repository::SchemaRepository;
 pub use case_repository::CaseRepository;
+pub use case_summary_repository::CaseSummaryRepository;
 pub use allegation_detail_repository::AllegationDetailRepository;
 pub use decomposition_repository::DecompositionRepository;
 pub use rebuttals_repository::RebuttalsRepository;

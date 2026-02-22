@@ -10,6 +10,7 @@ use crate::state::AppState;
 pub mod allegations;
 pub mod analysis;
 pub mod case;
+pub mod case_summary;
 pub mod claims;
 pub mod contradictions;
 pub mod decomposition;
@@ -33,6 +34,7 @@ pub fn router() -> Router<AppState> {
         .route("/health", get(health_check))
         .route("/analysis", get(analysis::get_analysis))
         .route("/case", get(case::get_case))
+        .route("/case-summary", get(case_summary::get_case_summary))
         .route("/claims", get(claims::list_claims))
         .route("/claims/:id", get(claims::get_claim))
         .route("/claims", post(claims::create_claim))

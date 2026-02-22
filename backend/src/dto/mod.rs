@@ -9,6 +9,7 @@ pub mod evidence;
 pub mod evidence_chain;
 pub mod decomposition;
 pub mod graph;
+pub mod case_summary;
 pub mod harm;
 pub mod hearing;
 pub mod motion_claim;

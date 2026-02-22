@@ -1,38 +1,52 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useCase } from "../context/CaseContext";
-import { CaseResponse, PartyDto } from "../services/case";
+import { CaseSummaryResponse, getCaseSummary } from "../services/caseSummary";
 
-// Stat card configuration
-type StatCard = {
-  label: string;
-  route: string;
-  description: string;
-};
-
-const STAT_CARDS: StatCard[] = [
-  { label: "Allegations", route: "/allegations", description: "From original complaint" },
-  { label: "Evidence", route: "/evidence", description: "Supporting exhibits & testimony" },
-  { label: "Documents", route: "/documents", description: "Court filings & records" },
-  { label: "Damages", route: "/damages", description: "Total claimed harm" },
+// Quick-action card definitions
+const QUICK_ACTIONS = [
+  {
+    label: "George's Claims vs. Reality",
+    route: "/decomposition",
+    subtitle: (s: CaseSummaryResponse) =>
+      `${s.characterizations_total} characterizations exposed`,
+  },
+  {
+    label: "Damages Breakdown",
+    route: "/damages",
+    subtitle: (s: CaseSummaryResponse) =>
+      `${formatCurrency(s.damages_total)} proven`,
+  },
+  {
+    label: "Evidence Library",
+    route: "/evidence",
+    subtitle: (s: CaseSummaryResponse) =>
+      `${s.evidence_grounded} grounded exhibits`,
+  },
+  {
+    label: "Contradictions",
+    route: "/contradictions",
+    subtitle: () => "Statements vs. admissions",
+  },
+  {
+    label: "All Allegations",
+    route: "/allegations",
+    subtitle: (s: CaseSummaryResponse) =>
+      `${s.allegations_proven} proven allegations`,
+  },
 ];
 
-// Build dynamic summary from case data
-const buildDynamicSummary = (caseData: CaseResponse): string => {
-  const { parties, stats } = caseData;
-  const plaintiffNames = parties.plaintiffs.map((p) => p.name).join(", ");
-  const defendantNames = parties.defendants.map((p) => p.name).join(" and ");
-  const causesOfAction = stats.legal_count_details.map((lc) => lc.name).join(", ");
-  const damages = stats.damages_total.toLocaleString("en-US", {
+function formatCurrency(amount: number): string {
+  return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
     minimumFractionDigits: 0,
-  });
+    maximumFractionDigits: 0,
+  }).format(amount);
+}
 
-  return `${plaintiffNames} brings ${stats.legal_counts} cause${stats.legal_counts !== 1 ? "s" : ""} of action against ${defendantNames}: ${causesOfAction}. The complaint contains ${stats.allegations_total} allegations, of which ${stats.allegations_proven} are supported by evidence, with claimed damages of ${damages}.`;
-};
+// ─── Reusable styles ─────────────────────────────────────────────────────────
 
-// Styles
 const pageStyle: React.CSSProperties = {
   backgroundColor: "#f9fafb",
   minHeight: "calc(100vh - 100px)",
@@ -48,30 +62,6 @@ const cardStyle: React.CSSProperties = {
   marginBottom: "1rem",
 };
 
-const titleStyle: React.CSSProperties = {
-  fontSize: "1.75rem",
-  fontWeight: 700,
-  color: "#1f2937",
-  margin: 0,
-  marginBottom: "0.5rem",
-};
-
-const metaLineStyle: React.CSSProperties = {
-  color: "#6b7280",
-  fontSize: "0.95rem",
-  marginBottom: "0.75rem",
-};
-
-const statusBadgeStyle: React.CSSProperties = {
-  display: "inline-block",
-  padding: "0.25rem 0.75rem",
-  backgroundColor: "#dbeafe",
-  color: "#2563eb",
-  borderRadius: "9999px",
-  fontSize: "0.875rem",
-  fontWeight: 500,
-};
-
 const sectionTitleStyle: React.CSSProperties = {
   fontSize: "0.75rem",
   fontWeight: 600,
@@ -81,110 +71,24 @@ const sectionTitleStyle: React.CSSProperties = {
   marginBottom: "0.75rem",
 };
 
-const twoColumnStyle: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "1fr 1.5fr",
-  gap: "1rem",
-};
-
-const partyGroupStyle: React.CSSProperties = {
-  marginBottom: "1rem",
-};
-
-const partyLabelStyle: React.CSSProperties = {
-  fontSize: "0.8rem",
-  fontWeight: 600,
-  color: "#374151",
-  marginBottom: "0.25rem",
-};
-
-const partyItemStyle: React.CSSProperties = {
-  color: "#1f2937",
-  fontSize: "0.95rem",
-  padding: "0.125rem 0",
-};
-
-const orgIndicatorStyle: React.CSSProperties = {
-  fontSize: "0.75rem",
-  color: "#6b7280",
-  marginLeft: "0.5rem",
-};
-
-const statsGridStyle: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(4, 1fr)",
-  gap: "0.75rem",
-  marginBottom: "1rem",
-};
-
-const statCardStyle: React.CSSProperties = {
-  backgroundColor: "#f9fafb",
-  border: "1px solid #e5e7eb",
-  borderRadius: "8px",
-  padding: "1rem",
-  textAlign: "center",
-  textDecoration: "none",
-  transition: "box-shadow 0.2s ease, border-color 0.2s ease",
-};
-
-const statValueStyle: React.CSSProperties = {
-  fontSize: "1.5rem",
-  fontWeight: 700,
-  color: "#2563eb",
-  marginBottom: "0.25rem",
-};
-
-const statLabelStyle: React.CSSProperties = {
-  fontSize: "0.75rem",
-  fontWeight: 600,
-  color: "#6b7280",
-  textTransform: "uppercase",
-};
-
-const statDescriptionStyle: React.CSSProperties = {
-  fontSize: "0.7rem",
-  color: "#9ca3af",
-  marginTop: "0.25rem",
-};
-
-const provenContainerStyle: React.CSSProperties = {
-  marginTop: "1rem",
-  padding: "0.75rem 1rem",
-  backgroundColor: "#f0fdf4",
-  borderRadius: "6px",
-  border: "1px solid #bbf7d0",
-};
-
-const provenTextStyle: React.CSSProperties = {
-  color: "#059669",
-  fontWeight: 600,
-  fontSize: "0.95rem",
-};
-
-// Party list component
-const PartyList: React.FC<{ label: string; parties: PartyDto[] }> = ({
-  label,
-  parties,
-}) => {
-  if (parties.length === 0) return null;
-
-  return (
-    <div style={partyGroupStyle}>
-      <div style={partyLabelStyle}>{label}:</div>
-      {parties.map((party) => (
-        <div key={party.id} style={partyItemStyle}>
-          {"\u2022"} {party.name}
-          {party.type === "organization" && (
-            <span style={orgIndicatorStyle}>(Org)</span>
-          )}
-        </div>
-      ))}
-    </div>
-  );
-};
+// ─── Component ───────────────────────────────────────────────────────────────
 
 const Home: React.FC = () => {
   const { caseData, loading, error } = useCase();
+  const [summary, setSummary] = useState<CaseSummaryResponse | null>(null);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    getCaseSummary()
+      .then((data) => {
+        if (active) setSummary(data);
+      })
+      .catch(() => {
+        if (active) setSummaryError("Failed to load case summary");
+      });
+    return () => { active = false; };
+  }, []);
 
   if (loading) {
     return (
@@ -194,18 +98,13 @@ const Home: React.FC = () => {
     );
   }
 
-  if (error) {
+  if (error || summaryError) {
     return (
-      <div
-        style={{
-          padding: "1rem",
-          backgroundColor: "#fef2f2",
-          border: "1px solid #fecaca",
-          borderRadius: "6px",
-          color: "#dc2626",
-        }}
-      >
-        {error}
+      <div style={{
+        padding: "1rem", backgroundColor: "#fef2f2",
+        border: "1px solid #fecaca", borderRadius: "6px", color: "#dc2626",
+      }}>
+        {error || summaryError}
       </div>
     );
   }
@@ -218,113 +117,160 @@ const Home: React.FC = () => {
     );
   }
 
-  const { case: caseInfo, parties, stats } = caseData;
-
-  // Build metadata line from optional fields
+  const { case: caseInfo, parties } = caseData;
   const metaParts: string[] = [];
   if (caseInfo.court) metaParts.push(caseInfo.court);
   if (caseInfo.case_number) metaParts.push(`Case No. ${caseInfo.case_number}`);
   if (caseInfo.filing_date) metaParts.push(`Filed ${caseInfo.filing_date}`);
-  const metaLine = metaParts.join(" \u2022 ");
-
-  // Calculate proven percentage
-  const provenPercent =
-    stats.allegations_total > 0
-      ? Math.round((stats.allegations_proven / stats.allegations_total) * 100)
-      : 0;
-
-  // Get stat values for cards
-  const statValues: Record<string, string> = {
-    Allegations: String(stats.allegations_total),
-    Evidence: String(stats.evidence_count),
-    Documents: String(stats.document_count),
-    Damages: stats.damages_total.toLocaleString("en-US", {
-      style: "currency",
-      currency: "USD",
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }),
-  };
 
   return (
     <div style={pageStyle}>
-      {/* Case Header */}
+      {/* 1. Case Header */}
       <div style={cardStyle}>
-        <h1 style={titleStyle}>{caseInfo.title}</h1>
-        {metaLine && <div style={metaLineStyle}>{metaLine}</div>}
-        {caseInfo.status && <span style={statusBadgeStyle}>{caseInfo.status}</span>}
+        <h1 style={{ fontSize: "1.75rem", fontWeight: 700, color: "#1f2937", margin: 0, marginBottom: "0.5rem" }}>
+          {caseInfo.title}
+        </h1>
+        {metaParts.length > 0 && (
+          <div style={{ color: "#6b7280", fontSize: "0.95rem" }}>
+            {metaParts.join(" \u2022 ")}
+          </div>
+        )}
       </div>
 
-      {/* Case Summary */}
-      <div style={cardStyle}>
-        <div style={sectionTitleStyle}>Case Summary</div>
-        <p style={{ color: "#374151", lineHeight: 1.6, margin: 0 }}>
-          {buildDynamicSummary(caseData)}
-        </p>
-      </div>
+      {summary && (
+        <>
+          {/* 2. Case Strength Banner */}
+          <div style={{
+            padding: "1.25rem 1.5rem", backgroundColor: "#059669",
+            borderRadius: "8px", marginBottom: "1rem", color: "#ffffff",
+          }}>
+            <div style={{ fontSize: "1.25rem", fontWeight: 700, lineHeight: 1.4 }}>
+              {summary.allegations_proven} of {summary.allegations_total} Allegations
+              Proven {"\u2022"} All {summary.legal_counts} Legal Counts
+              Supported {"\u2022"} {formatCurrency(summary.damages_total)} in Damages
+            </div>
+          </div>
 
-      {/* Parties and Statistics */}
-      <div style={twoColumnStyle}>
-        {/* Parties Column */}
-        <div style={cardStyle}>
-          <div style={sectionTitleStyle}>Parties</div>
-          <PartyList label="Plaintiff" parties={parties.plaintiffs} />
-          <PartyList label="Defendants" parties={parties.defendants} />
-          <PartyList label="Other" parties={parties.other} />
-        </div>
+          {/* 3. Key Finding Callout */}
+          <div style={{
+            padding: "1.25rem 1.5rem", backgroundColor: "#fffbeb",
+            border: "2px solid #92400e", borderRadius: "8px", marginBottom: "1rem",
+          }}>
+            <div style={{ color: "#78350f", fontSize: "1rem", lineHeight: 1.6, marginBottom: "0.75rem" }}>
+              George Phillips characterized Marie's claims as "frivolous," "false,"
+              and "scattershot" in his 2011 Court of Appeals brief. Every single
+              allegation he attacked has been proven by sworn testimony and
+              documentary evidence.
+            </div>
+            <div style={{ color: "#92400e", fontSize: "0.875rem", fontWeight: 600 }}>
+              {summary.characterizations_total} characterizations
+              challenged {"\u2022"} {summary.rebuttals_total} directly
+              rebutted {"\u2022"} {summary.allegations_proven}/{summary.allegations_total} proven
+            </div>
+          </div>
 
-        {/* Statistics Column */}
-        <div style={cardStyle}>
-          <div style={sectionTitleStyle}>Key Statistics</div>
-          <div style={statsGridStyle}>
-            {STAT_CARDS.map((card) => (
-              <Link
-                key={card.label}
-                to={card.route}
-                style={statCardStyle}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.boxShadow = "0 4px 12px rgba(0,0,0,0.1)";
-                  e.currentTarget.style.borderColor = "#2563eb";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.boxShadow = "none";
-                  e.currentTarget.style.borderColor = "#e5e7eb";
-                }}
-              >
-                <div
+          {/* 4. Quick Actions */}
+          <div style={{ ...cardStyle, padding: "1rem 1.5rem" }}>
+            <div style={sectionTitleStyle}>Explore the Evidence</div>
+            <div style={{
+              display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: "0.75rem",
+            }}>
+              {QUICK_ACTIONS.map((action) => (
+                <Link
+                  key={action.route}
+                  to={action.route}
                   style={{
-                    ...statValueStyle,
-                    color: card.label === "Damages" ? "#059669" : "#2563eb",
+                    padding: "1rem", backgroundColor: "#f9fafb",
+                    border: "1px solid #e5e7eb", borderRadius: "8px",
+                    textDecoration: "none", textAlign: "center",
+                    transition: "box-shadow 0.2s ease, border-color 0.2s ease",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.boxShadow = "0 4px 12px rgba(0,0,0,0.1)";
+                    e.currentTarget.style.borderColor = "#2563eb";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.boxShadow = "none";
+                    e.currentTarget.style.borderColor = "#e5e7eb";
                   }}
                 >
-                  {statValues[card.label]}
-                </div>
-                <div style={statLabelStyle}>{card.label}</div>
-                <div style={statDescriptionStyle}>{card.description}</div>
-              </Link>
-            ))}
-          </div>
-
-          {/* Proven indicator */}
-          <div style={provenContainerStyle}>
-            <div style={provenTextStyle}>
-              {stats.allegations_proven} of {stats.allegations_total} allegations
-              PROVEN ({provenPercent}%)
-            </div>
-          </div>
-
-          {/* Causes of Action */}
-          {stats.legal_count_details.length > 0 && (
-            <div style={{ marginTop: "1rem", fontSize: "0.875rem", color: "#374151" }}>
-              <span style={{ fontWeight: 600 }}>Causes of Action: </span>
-              {stats.legal_count_details.map((lc, i) => (
-                <span key={lc.id}>
-                  {lc.name}
-                  {i < stats.legal_count_details.length - 1 ? ", " : ""}
-                </span>
+                  <div style={{ fontWeight: 600, color: "#1f2937", fontSize: "0.875rem", marginBottom: "0.25rem" }}>
+                    {action.label}
+                  </div>
+                  <div style={{ fontSize: "0.75rem", color: "#6b7280" }}>
+                    {action.subtitle(summary)}
+                  </div>
+                </Link>
               ))}
             </div>
-          )}
+          </div>
+
+          {/* 5. Legal Counts Summary */}
+          <div style={{ ...cardStyle, padding: "1rem 1.5rem" }}>
+            <div style={sectionTitleStyle}>Causes of Action</div>
+            <div style={{
+              display: "grid",
+              gridTemplateColumns: `repeat(${summary.legal_count_names.length}, 1fr)`,
+              gap: "0.75rem",
+            }}>
+              {summary.legal_count_names.map((name) => (
+                <Link
+                  key={name}
+                  to="/allegations"
+                  style={{
+                    padding: "1rem", backgroundColor: "#eff6ff",
+                    border: "1px solid #bfdbfe", borderRadius: "8px",
+                    textDecoration: "none", textAlign: "center",
+                    transition: "box-shadow 0.2s ease, border-color 0.2s ease",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.boxShadow = "0 4px 12px rgba(0,0,0,0.1)";
+                    e.currentTarget.style.borderColor = "#2563eb";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.boxShadow = "none";
+                    e.currentTarget.style.borderColor = "#bfdbfe";
+                  }}
+                >
+                  <div style={{ fontWeight: 600, color: "#1e40af", fontSize: "0.9rem" }}>
+                    {name}
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* 6. Parties */}
+      <div style={cardStyle}>
+        <div style={sectionTitleStyle}>Parties</div>
+        <div style={{ display: "flex", gap: "3rem" }}>
+          <div>
+            <div style={{ fontSize: "0.8rem", fontWeight: 600, color: "#374151", marginBottom: "0.25rem" }}>
+              Plaintiff
+            </div>
+            {parties.plaintiffs.map((p) => (
+              <div key={p.id} style={{ color: "#1f2937", fontSize: "0.95rem" }}>
+                {p.name}
+              </div>
+            ))}
+          </div>
+          <div>
+            <div style={{ fontSize: "0.8rem", fontWeight: 600, color: "#374151", marginBottom: "0.25rem" }}>
+              Defendants
+            </div>
+            {parties.defendants.map((p) => (
+              <div key={p.id} style={{ color: "#1f2937", fontSize: "0.95rem" }}>
+                {p.name}
+                {p.type === "organization" && (
+                  <span style={{ fontSize: "0.75rem", color: "#6b7280", marginLeft: "0.5rem" }}>
+                    (Org)
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </div>
