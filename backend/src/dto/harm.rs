@@ -18,9 +18,7 @@ pub struct HarmDto {
     pub date: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_reference: Option<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub caused_by_allegations: Vec<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub damages_for_counts: Vec<String>,
 }
 
