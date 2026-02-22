@@ -7,6 +7,7 @@ import {
   getDocument,
   DocumentUpdateRequest,
 } from "../services/documents";
+import Breadcrumb from "../components/Breadcrumb";
 
 const ALLOWED_DOC_TYPES = ["pdf", "motion", "ruling", "evidence", "filing"] as const;
 
@@ -134,6 +135,11 @@ const DocumentDetailPage: React.FC = () => {
 
   return (
     <div>
+      <Breadcrumb items={[
+        { label: "Dashboard", to: "/" },
+        { label: "Documents", to: "/documents" },
+        { label: document.title || docId },
+      ]} />
       <h2>Document Detail</h2>
       <div style={{ marginBottom: "1rem" }}>
         <div><strong>ID:</strong> {document.id}</div>

@@ -3,7 +3,7 @@
 
 use neo4rs::{query, Graph};
 
-use crate::dto::case_summary::{CaseSummaryResponse, PersonCharacterizationCount};
+use crate::dto::case_summary::{CaseSummaryResponse, LegalCountInfo, PersonCharacterizationCount};
 
 #[derive(Debug)]
 pub enum CaseSummaryRepositoryError {
@@ -47,7 +47,7 @@ impl CaseSummaryRepository {
     ) -> Result<CaseSummaryResponse, CaseSummaryRepositoryError> {
         let (case_title, court, case_number) = self.get_case_identity().await?;
         let stats = self.get_core_stats().await?;
-        let legal_count_names = self.get_legal_count_names().await?;
+        let legal_count_details = self.get_legal_count_details().await?;
         let decomp = self.get_decomposition_stats().await?;
         let (plaintiffs, defendants) = self.get_parties().await?;
 
@@ -58,7 +58,7 @@ impl CaseSummaryRepository {
             allegations_total: stats.allegations_total,
             allegations_proven: stats.allegations_proven,
             legal_counts: stats.legal_counts,
-            legal_count_names,
+            legal_count_details,
             damages_total: stats.damages_total,
             damages_financial: stats.damages_financial,
             damages_reputational_count: stats.damages_reputational_count,
@@ -147,27 +147,31 @@ impl CaseSummaryRepository {
         }
     }
 
-    // ── Query 3: Legal count names ───────────────────────────────────────
+    // ── Query 3: Legal count details (id, name, allegation count) ───────
 
-    async fn get_legal_count_names(
+    async fn get_legal_count_details(
         &self,
-    ) -> Result<Vec<String>, CaseSummaryRepositoryError> {
-        let mut names: Vec<String> = Vec::new();
+    ) -> Result<Vec<LegalCountInfo>, CaseSummaryRepositoryError> {
+        let mut details: Vec<LegalCountInfo> = Vec::new();
         let mut result = self
             .graph
             .execute(query(
                 "MATCH (lc:LegalCount)
-                 RETURN lc.title AS name
+                 OPTIONAL MATCH (a:ComplaintAllegation)-[:SUPPORTS]->(lc)
+                 RETURN lc.id AS id, lc.title AS name, count(a) AS allegation_count
                  ORDER BY lc.title",
             ))
             .await?;
 
         while let Some(row) = result.next().await? {
-            let name: String = row.get("name").unwrap_or_default();
-            names.push(name);
+            details.push(LegalCountInfo {
+                id: row.get("id").unwrap_or_default(),
+                name: row.get("name").unwrap_or_default(),
+                allegation_count: row.get("allegation_count").unwrap_or(0),
+            });
         }
 
-        Ok(names)
+        Ok(details)
     }
 
     // ── Query 4: Decomposition stats (characterizations + rebuttals) ─────

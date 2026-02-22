@@ -4,6 +4,7 @@ import {
   getAllegationDetail,
   AllegationDetailResponse,
 } from "../services/decomposition";
+import Breadcrumb from "../components/Breadcrumb";
 
 // ---------------------------------------------------------------------------
 // Color helpers (same palette as DecompositionPage)
@@ -117,13 +118,14 @@ const AllegationDetailPage: React.FC = () => {
   // -- Render ---------------------------------------------------------------
   return (
     <div style={{ maxWidth: "960px" }}>
-      {/* Back link */}
-      <Link to="/decomposition" style={backLinkStyle}>
-        &larr; Back to Decomposition
-      </Link>
+      <Breadcrumb items={[
+        { label: "Dashboard", to: "/" },
+        { label: "Allegations", to: "/allegations" },
+        { label: allegationId },
+      ]} />
 
       {/* Header */}
-      <div style={{ marginTop: "1rem", marginBottom: "1.5rem" }}>
+      <div style={{ marginBottom: "1.5rem" }}>
         <div
           style={{
             display: "flex",

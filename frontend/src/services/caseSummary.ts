@@ -5,6 +5,12 @@ export type PersonCharacterizationCount = {
   count: number;
 };
 
+export type LegalCountInfo = {
+  id: string;
+  name: string;
+  allegation_count: number;
+};
+
 export type CaseSummaryResponse = {
   case_title: string;
   court?: string;
@@ -13,7 +19,7 @@ export type CaseSummaryResponse = {
   allegations_total: number;
   allegations_proven: number;
   legal_counts: number;
-  legal_count_names: string[];
+  legal_count_details: LegalCountInfo[];
 
   damages_total: number;
   damages_financial: number;

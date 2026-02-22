@@ -14,7 +14,7 @@ pub struct CaseSummaryResponse {
     pub allegations_total: i64,
     pub allegations_proven: i64,
     pub legal_counts: i64,
-    pub legal_count_names: Vec<String>,
+    pub legal_count_details: Vec<LegalCountInfo>,
 
     // Damages
     pub damages_total: f64,
@@ -36,6 +36,14 @@ pub struct CaseSummaryResponse {
     // Parties
     pub plaintiffs: Vec<String>,
     pub defendants: Vec<String>,
+}
+
+/// Legal count with its ID, name, and how many allegations support it
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LegalCountInfo {
+    pub id: String,
+    pub name: String,
+    pub allegation_count: i64,
 }
 
 /// How many characterizations a specific person made

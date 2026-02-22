@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import React, { useEffect, useMemo, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   getAllegations,
   AllegationDto,
@@ -20,6 +20,9 @@ function getStatusStyle(status: string | undefined) {
 }
 
 const AllegationsPage: React.FC = () => {
+  const [searchParams] = useSearchParams();
+  const countFilter = searchParams.get("count");
+
   const [allegations, setAllegations] = useState<AllegationDto[]>([]);
   const [summary, setSummary] = useState<AllegationSummary>({
     proven: 0,
@@ -29,6 +32,14 @@ const AllegationsPage: React.FC = () => {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Filter allegations when a ?count= param is present
+  const displayedAllegations = useMemo(() => {
+    if (!countFilter) return allegations;
+    return allegations.filter(
+      (a) => a.legal_counts?.includes(countFilter),
+    );
+  }, [allegations, countFilter]);
 
   useEffect(() => {
     let active = true;
@@ -87,6 +98,33 @@ const AllegationsPage: React.FC = () => {
     <div>
       <h1 style={{ marginBottom: "0.5rem" }}>Allegations</h1>
 
+      {/* Filter banner when ?count= is active */}
+      {countFilter && (
+        <div
+          style={{
+            padding: "0.75rem 1rem",
+            backgroundColor: "#eff6ff",
+            border: "1px solid #bfdbfe",
+            borderRadius: "6px",
+            marginBottom: "1rem",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}
+        >
+          <span style={{ color: "#1e40af", fontWeight: 500 }}>
+            Showing allegations supporting: <strong>{countFilter}</strong>
+            {" "}({displayedAllegations.length} of {total})
+          </span>
+          <Link
+            to="/allegations"
+            style={{ color: "#2563eb", textDecoration: "none", fontWeight: 500 }}
+          >
+            Show All
+          </Link>
+        </div>
+      )}
+
       <div
         style={{
           padding: "0.75rem 1rem",
@@ -138,9 +176,9 @@ const AllegationsPage: React.FC = () => {
         </span>
       </div>
 
-      {allegations.length === 0 ? (
+      {displayedAllegations.length === 0 ? (
         <div style={{ color: "#6b7280", padding: "1rem" }}>
-          No allegations found.
+          {countFilter ? "No allegations match this filter." : "No allegations found."}
         </div>
       ) : (
         <div
@@ -150,7 +188,7 @@ const AllegationsPage: React.FC = () => {
             gap: "1rem",
           }}
         >
-          {allegations.map((allegation) => {
+          {displayedAllegations.map((allegation) => {
             const statusStyle = getStatusStyle(allegation.evidence_status);
             return (
               <div

@@ -210,13 +210,13 @@ const Home: React.FC = () => {
             <div style={sectionTitleStyle}>Causes of Action</div>
             <div style={{
               display: "grid",
-              gridTemplateColumns: `repeat(${summary.legal_count_names.length}, 1fr)`,
+              gridTemplateColumns: `repeat(${summary.legal_count_details.length}, 1fr)`,
               gap: "0.75rem",
             }}>
-              {summary.legal_count_names.map((name) => (
+              {summary.legal_count_details.map((lc) => (
                 <Link
-                  key={name}
-                  to="/allegations"
+                  key={lc.id}
+                  to={`/allegations?count=${encodeURIComponent(lc.name)}`}
                   style={{
                     padding: "1rem", backgroundColor: "#eff6ff",
                     border: "1px solid #bfdbfe", borderRadius: "8px",
@@ -232,8 +232,11 @@ const Home: React.FC = () => {
                     e.currentTarget.style.borderColor = "#bfdbfe";
                   }}
                 >
-                  <div style={{ fontWeight: 600, color: "#1e40af", fontSize: "0.9rem" }}>
-                    {name}
+                  <div style={{ fontWeight: 600, color: "#1e40af", fontSize: "0.9rem", marginBottom: "0.25rem" }}>
+                    {lc.name}
+                  </div>
+                  <div style={{ fontSize: "0.75rem", color: "#6b7280" }}>
+                    {lc.allegation_count} allegation{lc.allegation_count !== 1 ? "s" : ""}
                   </div>
                 </Link>
               ))}
