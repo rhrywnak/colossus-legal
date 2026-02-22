@@ -18,6 +18,7 @@ import HarmsPage from "./pages/HarmsPage";
 import Hearings from "./pages/Hearings";
 import Home from "./pages/Home";
 import People from "./pages/People";
+import PersonDetailPage from "./pages/PersonDetailPage";
 
 const App: React.FC = () => {
   return (
@@ -35,6 +36,7 @@ const App: React.FC = () => {
             <Route path="/evidence" element={<EvidencePage />} />
             <Route path="/damages" element={<HarmsPage />} />
             <Route path="/people" element={<People />} />
+            <Route path="/people/:id" element={<PersonDetailPage />} />
             <Route path="/hearings" element={<Hearings />} />
             <Route path="/decisions" element={<Decisions />} />
             <Route path="/decomposition" element={<DecompositionPage />} />

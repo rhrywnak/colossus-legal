@@ -47,6 +47,7 @@ pub fn router() -> Router<AppState> {
         .route("/import/validate", post(import::validate_import))
         .route("/schema", get(schema::get_schema))
         .route("/persons", get(persons::list_persons))
+        .route("/persons/:id/detail", get(persons::get_person_detail))
         .route("/allegations", get(allegations::list_allegations))
         .route(
             "/allegations/:id/evidence-chain",

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { getPersons, PersonDto } from "../services/persons";
 
 const ROLE_COLORS: Record<string, { bg: string; text: string }> = {
@@ -140,6 +141,19 @@ const People: React.FC = () => {
                     {person.description}
                   </div>
                 )}
+                <div style={{ marginTop: "0.5rem" }}>
+                  <Link
+                    to={`/people/${person.id}`}
+                    style={{
+                      color: "#2563eb",
+                      textDecoration: "none",
+                      fontSize: "0.85rem",
+                      fontWeight: 500,
+                    }}
+                  >
+                    View Detail &rarr;
+                  </Link>
+                </div>
               </div>
             );
           })}

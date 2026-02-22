@@ -13,6 +13,7 @@ pub mod decomposition_repository;
 pub mod harm_repository;
 pub mod rebuttals_repository;
 pub mod motion_claim_repository;
+pub mod person_detail_repository;
 pub mod person_repository;
 pub mod schema_repository;
 
@@ -24,6 +25,7 @@ pub use contradiction_repository::ContradictionRepository;
 pub use evidence_repository::EvidenceRepository;
 pub use harm_repository::HarmRepository;
 pub use motion_claim_repository::MotionClaimRepository;
+pub use person_detail_repository::PersonDetailRepository;
 pub use person_repository::PersonRepository;
 pub use schema_repository::SchemaRepository;
 pub use case_repository::CaseRepository;
