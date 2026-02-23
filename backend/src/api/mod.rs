@@ -15,6 +15,7 @@ pub mod claims;
 pub mod contradictions;
 pub mod decomposition;
 pub mod documents;
+pub mod embed;
 pub mod evidence;
 pub mod evidence_chain;
 pub mod graph;
@@ -67,6 +68,7 @@ pub fn router() -> Router<AppState> {
         .route("/rebuttals", get(decomposition::list_rebuttals))
         .route("/queries", get(queries::list_queries))
         .route("/queries/:id/run", get(queries::run_query))
+        .route("/admin/embed-all", post(embed::run_embed_all))
 }
 
 async fn health_check(State(_state): State<AppState>) -> (StatusCode, &'static str) {

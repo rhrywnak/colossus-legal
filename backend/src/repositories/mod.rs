@@ -5,6 +5,7 @@ pub mod case_summary_repository;
 pub mod claim_repository;
 pub mod contradiction_repository;
 pub mod document_repository;
+pub mod embedding_repository;
 pub mod evidence_chain_repository;
 pub mod evidence_repository;
 pub mod graph_repository;
