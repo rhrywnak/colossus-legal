@@ -9,6 +9,7 @@
 //! 1. Read the POST body
 //! 2. Deserialize it as JSON into `SearchRequest` via serde
 //! 3. Return 400 Bad Request if deserialization fails
+//!
 //! This is the Axum equivalent of Express's `req.body` with validation built in.
 
 use axum::{extract::State, http::StatusCode, Json};
@@ -17,6 +18,7 @@ use std::time::Instant;
 
 use crate::api::embed::ErrorResponse;
 use crate::services::embedding_service::EmbeddingService;
+use crate::services::graph_expander;
 use crate::services::qdrant_service;
 use crate::state::AppState;
 
@@ -31,6 +33,7 @@ pub struct SearchRequest {
     pub query: String,
     pub limit: Option<usize>,
     pub node_types: Option<Vec<String>>,
+    pub expand: Option<bool>,
 }
 
 #[derive(Debug, Serialize)]
@@ -39,6 +42,10 @@ pub struct SearchResponse {
     pub results: Vec<SearchHit>,
     pub total: usize,
     pub duration_ms: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context_nodes: Option<usize>,
 }
 
 #[derive(Debug, Serialize)]
@@ -136,6 +143,31 @@ pub async fn semantic_search(
         .collect();
 
     let total = hits.len();
+
+    // Graph expansion (H.3): when expand=true, expand top hits through Neo4j
+    let (context, context_nodes) = if req.expand.unwrap_or(false) && !hits.is_empty() {
+        let seed_ids: Vec<(String, String)> = hits
+            .iter()
+            .map(|h| (h.node_id.clone(), h.node_type.clone()))
+            .collect();
+
+        tracing::info!(
+            seed_count = seed_ids.len(),
+            seeds = ?seed_ids,
+            "Graph expansion: passing seed IDs to expand_context"
+        );
+
+        match graph_expander::expand_context(&state.graph, seed_ids, 6000).await {
+            Ok(expanded) => (Some(expanded.formatted_text), Some(expanded.unique_nodes)),
+            Err(e) => {
+                tracing::warn!("Graph expansion failed (non-fatal): {e}");
+                (None, None)
+            }
+        }
+    } else {
+        (None, None)
+    };
+
     let duration_ms = start.elapsed().as_millis() as u64;
 
     Ok(Json(SearchResponse {
@@ -143,5 +175,7 @@ pub async fn semantic_search(
         results: hits,
         total,
         duration_ms,
+        context,
+        context_nodes,
     }))
 }
