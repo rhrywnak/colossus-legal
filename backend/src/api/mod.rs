@@ -24,6 +24,7 @@ pub mod import;
 pub mod persons;
 pub mod queries;
 pub mod schema;
+pub mod search;
 
 /// Minimal API router.
 ///
@@ -69,6 +70,7 @@ pub fn router() -> Router<AppState> {
         .route("/queries", get(queries::list_queries))
         .route("/queries/:id/run", get(queries::run_query))
         .route("/admin/embed-all", post(embed::run_embed_all))
+        .route("/search", post(search::semantic_search))
 }
 
 async fn health_check(State(_state): State<AppState>) -> (StatusCode, &'static str) {

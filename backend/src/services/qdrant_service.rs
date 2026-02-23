@@ -12,7 +12,7 @@
 //!
 //! We then check `.status()` and optionally parse the response body.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// The Qdrant collection where all evidence embeddings are stored.
 const COLLECTION_NAME: &str = "colossus_evidence";
@@ -108,6 +108,107 @@ pub async fn upsert_points(
     }
 
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Search
+// ---------------------------------------------------------------------------
+
+/// A single search result from Qdrant, with payload fields extracted.
+#[derive(Debug)]
+pub struct SearchResult {
+    pub node_id: String,
+    pub node_type: String,
+    pub title: String,
+    pub score: f32,
+    pub document_id: Option<String>,
+    pub page_number: Option<String>,
+}
+
+/// Search for similar vectors in the collection.
+///
+/// Sends a POST to Qdrant's search endpoint with the query vector.
+/// Optionally filters by `node_type` if `node_type_filter` is provided.
+pub async fn search_points(
+    client: &reqwest::Client,
+    qdrant_url: &str,
+    query_vector: Vec<f32>,
+    limit: usize,
+    node_type_filter: Option<Vec<String>>,
+) -> Result<Vec<SearchResult>, QdrantError> {
+    let url = format!("{qdrant_url}/collections/{COLLECTION_NAME}/points/search");
+
+    let mut body = serde_json::json!({
+        "vector": query_vector,
+        "limit": limit,
+        "with_payload": true,
+    });
+
+    // Add node_type filter if specified
+    if let Some(types) = node_type_filter {
+        if !types.is_empty() {
+            body["filter"] = serde_json::json!({
+                "must": [{
+                    "key": "node_type",
+                    "match": { "any": types }
+                }]
+            });
+        }
+    }
+
+    let resp = client.post(&url).json(&body).send().await?;
+    if !resp.status().is_success() {
+        let status = resp.status().as_u16();
+        let text = resp.text().await.unwrap_or_default();
+        return Err(QdrantError::Api { status, body: text });
+    }
+
+    // Parse Qdrant response: { "result": [ { "id", "score", "payload": {...} }, ... ] }
+    let data: QdrantSearchResponse = resp.json().await?;
+
+    let results = data
+        .result
+        .into_iter()
+        .map(|hit| SearchResult {
+            node_id: extract_string(&hit.payload, "node_id"),
+            node_type: extract_string(&hit.payload, "node_type"),
+            title: extract_string(&hit.payload, "title"),
+            score: hit.score,
+            document_id: extract_optional_string(&hit.payload, "document_id"),
+            page_number: extract_optional_string(&hit.payload, "page_number"),
+        })
+        .collect();
+
+    Ok(results)
+}
+
+/// Qdrant search response shape (only the fields we need).
+#[derive(Deserialize)]
+struct QdrantSearchResponse {
+    result: Vec<QdrantSearchHit>,
+}
+
+#[derive(Deserialize)]
+struct QdrantSearchHit {
+    score: f32,
+    payload: serde_json::Value,
+}
+
+/// Extract a string from a JSON payload, returning "" if missing.
+fn extract_string(payload: &serde_json::Value, key: &str) -> String {
+    payload
+        .get(key)
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string()
+}
+
+/// Extract an optional string from a JSON payload.
+fn extract_optional_string(payload: &serde_json::Value, key: &str) -> Option<String> {
+    payload
+        .get(key)
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
 }
 
 // ---------------------------------------------------------------------------

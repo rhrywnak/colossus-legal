@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 
 // Navigation group structure for dropdown menus
 type NavItem = {
@@ -215,7 +215,9 @@ const NavDropdown: React.FC<{
 // Main Header component
 const Header: React.FC = () => {
   const location = useLocation();
+  const navigate = useNavigate();
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
   const headerRef = useRef<HTMLElement>(null);
 
   // Close dropdown when clicking outside
@@ -324,6 +326,30 @@ const Header: React.FC = () => {
           </Link>
         ))}
       </nav>
+
+      {/* Search bar */}
+      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+        <input
+          type="text"
+          placeholder="Search evidence..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && searchQuery.trim()) {
+              navigate(`/search?q=${encodeURIComponent(searchQuery.trim())}`);
+              setSearchQuery("");
+            }
+          }}
+          style={{
+            padding: "0.4rem 0.75rem",
+            border: "1px solid #d1d5db",
+            borderRadius: "6px",
+            fontSize: "0.85rem",
+            width: "200px",
+            outline: "none",
+          }}
+        />
+      </div>
 
       {/* Login placeholder */}
       <div style={loginPlaceholderStyle}>Login</div>
