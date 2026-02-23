@@ -21,6 +21,7 @@ pub mod graph;
 pub mod harms;
 pub mod import;
 pub mod persons;
+pub mod queries;
 pub mod schema;
 
 /// Minimal API router.
@@ -64,6 +65,8 @@ pub fn router() -> Router<AppState> {
             get(decomposition::get_allegation_detail),
         )
         .route("/rebuttals", get(decomposition::list_rebuttals))
+        .route("/queries", get(queries::list_queries))
+        .route("/queries/:id/run", get(queries::run_query))
 }
 
 async fn health_check(State(_state): State<AppState>) -> (StatusCode, &'static str) {

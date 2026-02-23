@@ -38,6 +38,7 @@ const NAV_GROUPS: NavGroup[] = [
       { label: "Decomposition", path: "/decomposition" },
       { label: "People", path: "/people" },
       { label: "Contradictions", path: "/contradictions" },
+      { label: "Quick Queries", path: "/queries" },
     ],
   },
 ];

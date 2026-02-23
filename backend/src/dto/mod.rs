@@ -15,6 +15,7 @@ pub mod hearing;
 pub mod motion_claim;
 pub mod person;
 pub mod person_detail;
+pub mod query;
 pub mod schema;
 
 // Re-export DTOs / request types from submodules

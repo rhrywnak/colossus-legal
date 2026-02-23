@@ -9,6 +9,7 @@ import DecompositionPage from "./pages/DecompositionPage";
 import AllegationDetailPage from "./pages/AllegationDetailPage";
 import EvidenceExplorerPage from "./pages/EvidenceExplorerPage";
 import GraphPage from "./pages/GraphPage";
+import QueriesPage from "./pages/QueriesPage";
 import MotionClaimsPage from "./pages/MotionClaimsPage";
 import Decisions from "./pages/Decisions";
 import DocumentDetailPage from "./pages/DocumentDetailPage";
@@ -44,6 +45,7 @@ const App: React.FC = () => {
             <Route path="/contradictions" element={<ContradictionsPage />} />
             <Route path="/explorer" element={<EvidenceExplorerPage />} />
             <Route path="/graph" element={<GraphPage />} />
+            <Route path="/queries" element={<QueriesPage />} />
           </Routes>
         </main>
       </div>
