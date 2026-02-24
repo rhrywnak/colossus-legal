@@ -1,16 +1,23 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { askTheCase, AskResponse } from "../services/ask";
 
 const AskPage: React.FC = () => {
-  const [question, setQuestion] = useState("");
+  const [searchParams] = useSearchParams();
+  const initialQuestion = searchParams.get("q") || "";
+
+  const [question, setQuestion] = useState(initialQuestion);
   const [response, setResponse] = useState<AskResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [phase, setPhase] = useState("");
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!question.trim() || loading) return;
+  // Auto-submit when arriving with a ?q= parameter
+  const autoSubmitted = useRef(false);
+
+  // Core submit logic — reused by form handler and auto-submit effect
+  const submitQuestion = async (q: string) => {
+    if (!q.trim() || loading) return;
 
     setLoading(true);
     setError(null);
@@ -23,7 +30,7 @@ const AskPage: React.FC = () => {
     const t3 = setTimeout(() => setPhase("Synthesizing answer..."), 3500);
 
     try {
-      const result = await askTheCase(question.trim());
+      const result = await askTheCase(q.trim());
       setResponse(result);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
@@ -35,6 +42,20 @@ const AskPage: React.FC = () => {
       setPhase("");
     }
   };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    submitQuestion(question);
+  };
+
+  // If the page loaded with ?q=..., auto-submit once
+  useEffect(() => {
+    if (initialQuestion && !autoSubmitted.current) {
+      autoSubmitted.current = true;
+      submitQuestion(initialQuestion);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialQuestion]);
 
   const handleClear = () => {
     setQuestion("");

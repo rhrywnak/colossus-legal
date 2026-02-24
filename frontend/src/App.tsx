@@ -26,9 +26,9 @@ import PersonDetailPage from "./pages/PersonDetailPage";
 const App: React.FC = () => {
   return (
     <CaseProvider>
-      <div style={{ fontFamily: "Inter, system-ui, sans-serif" }}>
+      <div style={{ fontFamily: "'DM Sans', sans-serif", backgroundColor: "#f0f2f5", minHeight: "100vh" }}>
         <Header />
-        <main style={{ padding: "1.5rem" }}>
+        <main style={{ maxWidth: "1080px", margin: "0 auto", padding: "0 2rem" }}>
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/analysis" element={<AnalysisPage />} />

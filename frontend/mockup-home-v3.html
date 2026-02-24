@@ -1,0 +1,885 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Colossus Legal — Home Page Mockup v3</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --navy-900: #0f172a;
+    --navy-800: #1e293b;
+    --navy-700: #334155;
+    --slate-500: #64748b;
+    --slate-400: #94a3b8;
+    --slate-300: #cbd5e1;
+    --slate-200: #e2e8f0;
+    --slate-100: #f1f5f9;
+    --white: #ffffff;
+    --blue-700: #1d4ed8;
+    --blue-600: #2563eb;
+    --blue-500: #3b82f6;
+    --blue-100: #dbeafe;
+    --blue-50: #eff6ff;
+    --emerald-700: #047857;
+    --emerald-50: #ecfdf5;
+    --amber-600: #d97706;
+    --amber-100: #fef3c7;
+    --bg: #f0f2f5;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--bg);
+    color: var(--navy-800);
+    min-height: 100vh;
+  }
+
+  /* ===== HEADER BAR ===== */
+  .header {
+    background: var(--white);
+    border-bottom: 1px solid var(--slate-200);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 2rem;
+    height: 56px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+
+  .header-left {
+    display: flex;
+    align-items: center;
+    gap: 2.5rem;
+  }
+
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    text-decoration: none;
+  }
+
+  .logo-icon {
+    width: 30px;
+    height: 30px;
+    background: var(--blue-600);
+    border-radius: 7px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 0.9rem;
+    color: var(--white);
+  }
+
+  .logo-text {
+    font-weight: 700;
+    font-size: 1.05rem;
+    color: var(--navy-900);
+    letter-spacing: -0.01em;
+  }
+
+  .logo-text span {
+    color: var(--slate-400);
+    font-weight: 400;
+    margin-left: 0.2rem;
+  }
+
+  .nav-links {
+    display: flex;
+    gap: 0.2rem;
+  }
+
+  .nav-link {
+    color: var(--slate-500);
+    text-decoration: none;
+    font-size: 0.84rem;
+    font-weight: 500;
+    padding: 0.4rem 0.75rem;
+    border-radius: 6px;
+    transition: all 0.15s ease;
+  }
+
+  .nav-link:hover { color: var(--navy-800); background: var(--slate-100); }
+  .nav-link.active { color: var(--blue-600); background: var(--blue-50); font-weight: 600; }
+
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .user-badge {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.84rem;
+    color: var(--navy-700);
+    font-weight: 500;
+  }
+
+  .user-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: var(--blue-600);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    font-size: 0.72rem;
+    color: var(--white);
+  }
+
+  .signout-btn {
+    color: var(--slate-400);
+    background: none;
+    border: 1px solid var(--slate-200);
+    padding: 0.32rem 0.75rem;
+    border-radius: 6px;
+    font-size: 0.76rem;
+    font-weight: 500;
+    cursor: pointer;
+    font-family: inherit;
+    transition: all 0.15s ease;
+  }
+
+  .signout-btn:hover { color: var(--navy-700); border-color: var(--slate-300); }
+
+  /* ===== MAIN ===== */
+  .main {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 2rem 2rem 4rem;
+  }
+
+  /* ===== CASE HEADER ===== */
+  .case-header {
+    margin-bottom: 1.75rem;
+  }
+
+  .case-title {
+    font-size: 1.55rem;
+    font-weight: 700;
+    color: var(--navy-900);
+    letter-spacing: -0.02em;
+    margin-bottom: 0.4rem;
+  }
+
+  .case-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin-bottom: 0.6rem;
+    flex-wrap: wrap;
+  }
+
+  .case-meta-text {
+    font-size: 0.84rem;
+    color: var(--slate-500);
+  }
+
+  .case-badge {
+    display: inline-block;
+    padding: 0.2rem 0.6rem;
+    border-radius: 5px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    background: var(--emerald-50);
+    color: var(--emerald-700);
+  }
+
+  /* ===== CASE SUMMARY ===== */
+  .case-summary {
+    background: var(--white);
+    border: 1px solid var(--slate-200);
+    border-radius: 10px;
+    padding: 1.5rem 1.75rem;
+    margin-bottom: 1.75rem;
+  }
+
+  .summary-label {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--slate-400);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.65rem;
+  }
+
+  .summary-text {
+    font-size: 0.9rem;
+    color: var(--navy-700);
+    line-height: 1.65;
+  }
+
+  /* ===== SECTION TITLE ===== */
+  .section-title {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--navy-900);
+    margin-bottom: 0.85rem;
+    letter-spacing: -0.01em;
+  }
+
+  /* ===== CAUSES OF ACTION ===== */
+  .coa-section { margin-bottom: 1.75rem; }
+
+  .coa-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.65rem;
+  }
+
+  .coa-card {
+    background: var(--white);
+    border: 1px solid var(--slate-200);
+    border-radius: 10px;
+    padding: 1.15rem 1.25rem;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+  }
+
+  .coa-card:hover {
+    border-color: var(--blue-500);
+    box-shadow: 0 2px 8px rgba(37, 99, 235, 0.08);
+  }
+
+  .coa-left { flex: 1; min-width: 0; }
+
+  .coa-count-num {
+    font-size: 0.68rem;
+    font-weight: 700;
+    color: var(--blue-600);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.2rem;
+  }
+
+  .coa-name {
+    font-size: 0.92rem;
+    font-weight: 600;
+    color: var(--navy-900);
+    margin-bottom: 0.3rem;
+    line-height: 1.3;
+  }
+
+  .coa-desc {
+    font-size: 0.8rem;
+    color: var(--slate-500);
+    line-height: 1.45;
+  }
+
+  .coa-right {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-shrink: 0;
+    margin-left: 1rem;
+  }
+
+  .coa-status {
+    padding: 0.22rem 0.55rem;
+    border-radius: 5px;
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    background: var(--emerald-50);
+    color: var(--emerald-700);
+    white-space: nowrap;
+  }
+
+  .coa-arrow {
+    color: var(--slate-300);
+    font-size: 0.9rem;
+    transition: color 0.15s ease;
+  }
+
+  .coa-card:hover .coa-arrow { color: var(--blue-500); }
+
+  /* ===== EXPLORE EVIDENCE ===== */
+  .explore-section { margin-bottom: 1.75rem; }
+
+  .explore-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.65rem;
+  }
+
+  .explore-card {
+    background: var(--white);
+    border: 1px solid var(--slate-200);
+    border-radius: 10px;
+    padding: 1.15rem 1.25rem;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    text-decoration: none;
+    color: inherit;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    min-height: 100px;
+  }
+
+  .explore-card:hover {
+    border-color: var(--blue-500);
+    box-shadow: 0 2px 8px rgba(37, 99, 235, 0.08);
+  }
+
+  .explore-name {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--navy-900);
+    margin-bottom: 0.25rem;
+  }
+
+  .explore-stat {
+    font-size: 0.78rem;
+    color: var(--slate-500);
+    line-height: 1.4;
+    flex: 1;
+  }
+
+  .explore-count {
+    margin-top: 0.6rem;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--blue-600);
+  }
+
+  /* ===== ASK THE CASE ===== */
+  .ask-section {
+    background: var(--white);
+    border: 1px solid var(--slate-200);
+    border-radius: 10px;
+    padding: 1.75rem;
+    margin-bottom: 1.75rem;
+  }
+
+  .ask-title {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--navy-900);
+    margin-bottom: 0.2rem;
+  }
+
+  .ask-subtitle {
+    font-size: 0.82rem;
+    color: var(--slate-500);
+    margin-bottom: 1.15rem;
+  }
+
+  .ask-row {
+    display: flex;
+    gap: 0.6rem;
+    margin-bottom: 0.85rem;
+  }
+
+  .ask-input {
+    flex: 1;
+    padding: 0.75rem 1rem;
+    border: 2px solid var(--slate-200);
+    border-radius: 8px;
+    font-size: 0.9rem;
+    font-family: inherit;
+    color: var(--navy-800);
+    background: var(--white);
+    outline: none;
+    transition: border-color 0.2s ease;
+  }
+
+  .ask-input:focus {
+    border-color: var(--blue-500);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  }
+
+  .ask-input::placeholder { color: var(--slate-400); }
+
+  .ask-btn {
+    padding: 0 1.4rem;
+    background: var(--blue-600);
+    color: var(--white);
+    border: none;
+    border-radius: 8px;
+    font-size: 0.88rem;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.15s ease;
+  }
+
+  .ask-btn:hover { background: var(--blue-500); }
+
+  .ask-chips {
+    display: flex;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+  }
+
+  .ask-chip {
+    padding: 0.28rem 0.65rem;
+    background: var(--white);
+    border: 1px solid var(--slate-200);
+    border-radius: 6px;
+    font-size: 0.76rem;
+    color: var(--navy-700);
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .ask-chip:hover {
+    border-color: var(--blue-500);
+    color: var(--blue-600);
+    background: var(--blue-50);
+  }
+
+  /* ===== RECENT Q&A ===== */
+  .history-section { margin-bottom: 2rem; }
+
+  .section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.85rem;
+  }
+
+  .section-link {
+    font-size: 0.8rem;
+    color: var(--blue-600);
+    text-decoration: none;
+    font-weight: 500;
+  }
+
+  .section-link:hover { text-decoration: underline; }
+
+  .qa-card {
+    background: var(--white);
+    border: 1px solid var(--slate-200);
+    border-radius: 10px;
+    padding: 1.1rem 1.3rem;
+    margin-bottom: 0.55rem;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .qa-card:hover {
+    border-color: var(--slate-300);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+  }
+
+  .qa-q {
+    font-weight: 600;
+    font-size: 0.87rem;
+    color: var(--navy-800);
+    margin-bottom: 0.3rem;
+  }
+
+  .qa-a {
+    font-size: 0.82rem;
+    color: var(--slate-500);
+    line-height: 1.5;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .qa-meta {
+    display: flex;
+    gap: 0.65rem;
+    margin-top: 0.45rem;
+    font-size: 0.7rem;
+    color: var(--slate-400);
+    align-items: center;
+  }
+
+  .qa-dot {
+    width: 3px;
+    height: 3px;
+    background: var(--slate-300);
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  /* ===== LOGIN OVERLAY ===== */
+  .login-overlay {
+    position: fixed;
+    inset: 0;
+    background: var(--navy-900);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 200;
+  }
+
+  .login-card {
+    background: var(--white);
+    border-radius: 14px;
+    padding: 2.5rem 2.5rem 2rem;
+    width: 380px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+  }
+
+  .login-logo {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    margin-bottom: 2rem;
+    justify-content: center;
+  }
+
+  .login-logo .logo-icon { width: 34px; height: 34px; font-size: 0.95rem; }
+  .login-logo .logo-text { font-size: 1.15rem; color: var(--navy-900); }
+
+  .login-label {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--navy-700);
+    margin-bottom: 0.4rem;
+    display: block;
+  }
+
+  .login-input {
+    width: 100%;
+    padding: 0.7rem 0.9rem;
+    border: 1.5px solid var(--slate-200);
+    border-radius: 8px;
+    font-size: 0.88rem;
+    font-family: inherit;
+    color: var(--navy-800);
+    margin-bottom: 1rem;
+    outline: none;
+    transition: border-color 0.2s ease;
+  }
+
+  .login-input:focus {
+    border-color: var(--blue-500);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  }
+
+  .login-btn {
+    width: 100%;
+    padding: 0.75rem;
+    background: var(--blue-600);
+    color: var(--white);
+    border: none;
+    border-radius: 8px;
+    font-size: 0.88rem;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    margin-top: 0.5rem;
+    transition: background 0.15s ease;
+  }
+
+  .login-btn:hover { background: var(--blue-500); }
+
+  .login-case {
+    text-align: center;
+    margin-top: 1.5rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--slate-200);
+    font-size: 0.75rem;
+    color: var(--slate-400);
+    line-height: 1.5;
+  }
+
+  .login-case strong { color: var(--navy-700); font-weight: 600; }
+
+  /* ===== MOCKUP BANNER ===== */
+  .mockup-banner {
+    background: var(--amber-100);
+    color: var(--amber-600);
+    text-align: center;
+    padding: 0.4rem;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+  }
+
+  .mockup-banner a { color: var(--amber-600); }
+
+  @media (max-width: 900px) {
+    .coa-grid { grid-template-columns: 1fr; }
+    .explore-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+
+  @media (max-width: 600px) {
+    .explore-grid { grid-template-columns: 1fr; }
+    .header-left { gap: 1rem; }
+    .nav-links { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<!-- LOGIN (hidden by default) -->
+<div class="login-overlay" id="loginPage" style="display: none;">
+  <div class="login-card">
+    <div class="login-logo">
+      <div class="logo-icon">C</div>
+      <div class="logo-text">Colossus <span style="color: var(--slate-400); font-weight: 400;">Legal</span></div>
+    </div>
+    <label class="login-label">Username</label>
+    <input class="login-input" type="text" placeholder="Enter username" value="cpenzien">
+    <label class="login-label">Password</label>
+    <input class="login-input" type="password" placeholder="Enter password" value="••••••••">
+    <button class="login-btn" onclick="document.getElementById('loginPage').style.display='none'">Sign In</button>
+    <div class="login-case">
+      <strong>Awad v. Catholic Family Service &amp; Phillips</strong><br>
+      Bay County Circuit Court
+    </div>
+  </div>
+</div>
+
+<!-- HEADER -->
+<header class="header">
+  <div class="header-left">
+    <a href="#" class="logo">
+      <div class="logo-icon">C</div>
+      <div class="logo-text">Colossus <span>Legal</span></div>
+    </a>
+    <nav class="nav-links">
+      <a href="#" class="nav-link active">Home</a>
+      <a href="#" class="nav-link">Evidence</a>
+      <a href="#" class="nav-link">People</a>
+      <a href="#" class="nav-link">Documents</a>
+      <a href="#" class="nav-link">Analysis</a>
+    </nav>
+  </div>
+  <div class="header-right">
+    <div class="user-badge">
+      <div class="user-avatar">CP</div>
+      Charles Penzien
+    </div>
+    <button class="signout-btn">Sign Out</button>
+  </div>
+</header>
+
+<div class="mockup-banner">Design Mockup v3 &nbsp;·&nbsp; <a href="#" onclick="document.getElementById('loginPage').style.display='flex';return false;">Preview Login Screen</a></div>
+
+<!-- MAIN -->
+<main class="main">
+
+  <!-- CASE HEADER -->
+  <div class="case-header">
+    <h1 class="case-title">Marie Awad v. Catholic Family Service, et al.</h1>
+    <div class="case-meta">
+      <span class="case-meta-text">Macomb County Circuit Court · Case No. 2011-XXXXX · Filed 2011-11-13</span>
+      <span class="case-badge">Active</span>
+    </div>
+  </div>
+
+  <!-- CASE SUMMARY -->
+  <div class="case-summary">
+    <div class="summary-label">Case Summary</div>
+    <div class="summary-text">
+      Marie Awad brings 4 causes of action against Catholic Family Service and George Phillips: Abuse of Process, Breach of Fiduciary Duty, Declaratory Relief (Ultra Vires), Fraud. The complaint contains 18 allegations, of which 18 are supported by evidence, with claimed damages of $46,258.61.
+    </div>
+  </div>
+
+  <!-- CAUSES OF ACTION -->
+  <section class="coa-section">
+    <div class="section-title">Causes of Action</div>
+    <div class="coa-grid">
+
+      <div class="coa-card">
+        <div class="coa-left">
+          <div class="coa-count-num">Count I</div>
+          <div class="coa-name">Breach of Fiduciary Duty</div>
+          <div class="coa-desc">CFS and Phillips violated duties of loyalty and care owed to Marie as estate beneficiary.</div>
+        </div>
+        <div class="coa-right">
+          <div class="coa-status">Supported</div>
+          <span class="coa-arrow">→</span>
+        </div>
+      </div>
+
+      <div class="coa-card">
+        <div class="coa-left">
+          <div class="coa-count-num">Count II</div>
+          <div class="coa-name">Fraud</div>
+          <div class="coa-desc">Defendants made material misrepresentations to the court about Marie's cooperation and estate assets.</div>
+        </div>
+        <div class="coa-right">
+          <div class="coa-status">Supported</div>
+          <span class="coa-arrow">→</span>
+        </div>
+      </div>
+
+      <div class="coa-card">
+        <div class="coa-left">
+          <div class="coa-count-num">Count III</div>
+          <div class="coa-name">Declaratory Relief (Ultra Vires)</div>
+          <div class="coa-desc">Request for court determination regarding the rights and duties of parties under the estate.</div>
+        </div>
+        <div class="coa-right">
+          <div class="coa-status">Supported</div>
+          <span class="coa-arrow">→</span>
+        </div>
+      </div>
+
+      <div class="coa-card">
+        <div class="coa-left">
+          <div class="coa-count-num">Count IV</div>
+          <div class="coa-name">Abuse of Process</div>
+          <div class="coa-desc">Phillips used court proceedings for improper purposes including sanctions motions and character attacks.</div>
+        </div>
+        <div class="coa-right">
+          <div class="coa-status">Supported</div>
+          <span class="coa-arrow">→</span>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- EXPLORE THE EVIDENCE -->
+  <section class="explore-section">
+    <div class="section-title">Explore the Evidence</div>
+    <div class="explore-grid">
+
+      <a href="#" class="explore-card">
+        <div>
+          <div class="explore-name">Evidence Explorer</div>
+          <div class="explore-stat">Browse proof chains with verbatim quotes and page numbers</div>
+        </div>
+        <div class="explore-count">102 evidence items</div>
+      </a>
+
+      <a href="#" class="explore-card">
+        <div>
+          <div class="explore-name">Graph</div>
+          <div class="explore-stat">Visual proof chain from legal counts down through evidence</div>
+        </div>
+        <div class="explore-count">18 allegation hierarchies</div>
+      </a>
+
+      <a href="#" class="explore-card">
+        <div>
+          <div class="explore-name">Contradictions</div>
+          <div class="explore-stat">Where Phillips contradicted his own prior statements under oath</div>
+        </div>
+        <div class="explore-count">5 impeachment pairs</div>
+      </a>
+
+      <a href="#" class="explore-card">
+        <div>
+          <div class="explore-name">Court Documents</div>
+          <div class="explore-stat">Briefs, motions, discovery responses, and court orders</div>
+        </div>
+        <div class="explore-count">17 filings</div>
+      </a>
+
+      <a href="#" class="explore-card">
+        <div>
+          <div class="explore-name">Damages</div>
+          <div class="explore-stat">Documented financial and reputational harms with evidence links</div>
+        </div>
+        <div class="explore-count">12 harms · $46,258.61</div>
+      </a>
+
+      <a href="#" class="explore-card">
+        <div>
+          <div class="explore-name">Case Analysis</div>
+          <div class="explore-stat">Gap analysis, allegation strength review, and evidence coverage</div>
+        </div>
+        <div class="explore-count">18 allegations analyzed</div>
+      </a>
+
+    </div>
+  </section>
+
+  <!-- ASK THE CASE -->
+  <section class="ask-section">
+    <div class="ask-title">Ask the Case</div>
+    <div class="ask-subtitle">Ask any question — Minerva searches the evidence, expands through the knowledge graph, and writes a cited answer.</div>
+
+    <div class="ask-row">
+      <input class="ask-input" type="text" placeholder="What evidence shows Phillips lied to the Court of Appeals?">
+      <button class="ask-btn">Ask Minerva</button>
+    </div>
+
+    <div class="ask-chips">
+      <span class="ask-chip">What happened to the $50,000?</span>
+      <span class="ask-chip">Phillips contradictions</span>
+      <span class="ask-chip">How was Marie treated differently?</span>
+      <span class="ask-chip">CFS conflict of interest</span>
+      <span class="ask-chip">Caregiver testimony</span>
+    </div>
+  </section>
+
+  <!-- RECENT Q&A -->
+  <section class="history-section">
+    <div class="section-header">
+      <div class="section-title">Recent Questions</div>
+      <a href="#" class="section-link">View all questions →</a>
+    </div>
+
+    <div class="qa-card">
+      <div class="qa-q">What did Phillips say about Marie's bankruptcy?</div>
+      <div class="qa-a">
+        Phillips used Marie's 18-year-old bankruptcy filing to attack her character in the appellate proceedings. The evidence indicates he deliberately introduced this irrelevant information "to prejudice and embarrass the Appellant in front of the Probate Court" since the bankruptcy had no relevance to Emil Awad's estate matters.
+      </div>
+      <div class="qa-meta">
+        <span>Roman</span>
+        <span class="qa-dot"></span>
+        <span>Feb 24, 2026 · 11:42 AM</span>
+        <span class="qa-dot"></span>
+        <span>36 nodes · 7.8s</span>
+        <span class="qa-dot"></span>
+        <span>Claude Sonnet 4.5</span>
+      </div>
+    </div>
+
+    <div class="qa-card">
+      <div class="qa-q">What evidence shows Phillips lied to the Court of Appeals?</div>
+      <div class="qa-a">
+        Phillips made six major factual representations to the Court of Appeals in 2011 that were systematically contradicted by his own sworn admissions in 2016 discovery: frivolous claims (admitted valid), burnt bridges (admitted personal conclusion), Higgs irrelevant (billing shows meetings)...
+      </div>
+      <div class="qa-meta">
+        <span>Charles Penzien</span>
+        <span class="qa-dot"></span>
+        <span>Feb 24, 2026 · 2:15 PM</span>
+        <span class="qa-dot"></span>
+        <span>42 nodes · 9.1s</span>
+        <span class="qa-dot"></span>
+        <span>Claude Sonnet 4.5</span>
+      </div>
+    </div>
+
+    <div class="qa-card">
+      <div class="qa-q">How much money is missing from the estate?</div>
+      <div class="qa-a">
+        Based on the evidence, the quantifiable financial damages total $46,258.61. The largest single item is the $50,000 check drawn from Emil Awad's account by Nadia Awad and Camille Hanley, for which no documentation of a gift was ever produced despite discovery requests...
+      </div>
+      <div class="qa-meta">
+        <span>Marie Awad</span>
+        <span class="qa-dot"></span>
+        <span>Feb 24, 2026 · 3:30 PM</span>
+        <span class="qa-dot"></span>
+        <span>28 nodes · 6.4s</span>
+        <span class="qa-dot"></span>
+        <span>Claude Sonnet 4.5</span>
+      </div>
+    </div>
+
+  </section>
+
+</main>
+
+</body>
+</html>

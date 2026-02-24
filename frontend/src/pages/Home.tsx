@@ -1,281 +1,286 @@
-import React, { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import React, { useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { useCase } from "../context/CaseContext";
-import { CaseSummaryResponse, getCaseSummary } from "../services/caseSummary";
 
-// Quick-action card definitions
-const QUICK_ACTIONS = [
-  {
-    label: "George's Claims vs. Reality",
-    route: "/decomposition",
-    subtitle: (s: CaseSummaryResponse) =>
-      `${s.characterizations_total} characterizations exposed`,
-  },
-  {
-    label: "Damages Breakdown",
-    route: "/damages",
-    subtitle: (s: CaseSummaryResponse) =>
-      `${formatCurrency(s.damages_total)} proven`,
-  },
-  {
-    label: "Evidence Library",
-    route: "/evidence",
-    subtitle: (s: CaseSummaryResponse) =>
-      `${s.evidence_grounded} grounded exhibits`,
-  },
-  {
-    label: "Contradictions",
-    route: "/contradictions",
-    subtitle: () => "Statements vs. admissions",
-  },
-  {
-    label: "All Allegations",
-    route: "/allegations",
-    subtitle: (s: CaseSummaryResponse) =>
-      `${s.allegations_proven} proven allegations`,
-  },
+// ─── Static data ─────────────────────────────────────────────────────────────
+
+const COUNT_LABELS: Record<number, string> = {
+  0: "COUNT I", 1: "COUNT II", 2: "COUNT III", 3: "COUNT IV",
+};
+
+const COUNT_DESCRIPTIONS: Record<string, string> = {
+  "count-breach-of-fiduciary-duty":
+    "CFS and Phillips violated duties of loyalty and care owed to Marie as estate beneficiary.",
+  "count-fraud":
+    "Defendants made material misrepresentations to the court about Marie's cooperation and estate assets.",
+  "count-declaratory-relief":
+    "Request for court determination regarding the rights and duties of parties under the estate.",
+  "count-abuse-of-process":
+    "Phillips used court proceedings for improper purposes including sanctions motions and character attacks.",
+};
+
+const EXPLORE_CARDS = [
+  { name: "Evidence Explorer", desc: "Browse proof chains with verbatim quotes and page numbers", stat: "102 evidence items", path: "/explorer" },
+  { name: "Graph", desc: "Visual proof chain from legal counts down through evidence", stat: "18 allegation hierarchies", path: "/graph" },
+  { name: "Contradictions", desc: "Where Phillips contradicted his own prior statements under oath", stat: "5 impeachment pairs", path: "/contradictions" },
+  { name: "Court Documents", desc: "Briefs, motions, discovery responses, and court orders", stat: "17 filings", path: "/documents" },
+  { name: "Damages", desc: "Documented financial and reputational harms with evidence links", stat: "12 harms \u00b7 $46,258.61", path: "/damages" },
+  { name: "Case Analysis", desc: "Gap analysis, allegation strength review, and evidence coverage", stat: "18 allegations analyzed", path: "/analysis" },
 ];
 
-function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(amount);
-}
-
-// ─── Reusable styles ─────────────────────────────────────────────────────────
-
-const pageStyle: React.CSSProperties = {
-  backgroundColor: "#f9fafb",
-  minHeight: "calc(100vh - 100px)",
-  margin: "-1.5rem",
-  padding: "1.5rem",
-};
-
-const cardStyle: React.CSSProperties = {
-  backgroundColor: "#ffffff",
-  border: "1px solid #e5e7eb",
-  borderRadius: "8px",
-  padding: "1.5rem",
-  marginBottom: "1rem",
-};
-
-const sectionTitleStyle: React.CSSProperties = {
-  fontSize: "0.75rem",
-  fontWeight: 600,
-  color: "#6b7280",
-  textTransform: "uppercase",
-  letterSpacing: "0.05em",
-  marginBottom: "0.75rem",
-};
+const SUGGESTIONS = [
+  "What happened to the $50,000?",
+  "Phillips contradictions",
+  "How was Marie treated differently?",
+  "CFS conflict of interest",
+  "Caregiver testimony",
+];
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
 const Home: React.FC = () => {
   const { caseData, loading, error } = useCase();
-  const [summary, setSummary] = useState<CaseSummaryResponse | null>(null);
-  const [summaryError, setSummaryError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let active = true;
-    getCaseSummary()
-      .then((data) => {
-        if (active) setSummary(data);
-      })
-      .catch(() => {
-        if (active) setSummaryError("Failed to load case summary");
-      });
-    return () => { active = false; };
-  }, []);
+  const navigate = useNavigate();
+  const [askQuestion, setAskQuestion] = useState("");
 
   if (loading) {
     return (
-      <div style={{ padding: "2rem", textAlign: "center", color: "#6b7280" }}>
+      <div style={{ padding: "2rem", textAlign: "center", color: "#64748b" }}>
         Loading case data...
       </div>
     );
   }
 
-  if (error || summaryError) {
+  if (error) {
     return (
-      <div style={{
-        padding: "1rem", backgroundColor: "#fef2f2",
-        border: "1px solid #fecaca", borderRadius: "6px", color: "#dc2626",
-      }}>
-        {error || summaryError}
+      <div style={{ padding: "1rem", backgroundColor: "#fef2f2", border: "1px solid #fecaca", borderRadius: "6px", color: "#dc2626" }}>
+        {error}
       </div>
     );
   }
 
   if (!caseData) {
     return (
-      <div style={{ padding: "2rem", textAlign: "center", color: "#6b7280" }}>
+      <div style={{ padding: "2rem", textAlign: "center", color: "#64748b" }}>
         No case data available
       </div>
     );
   }
 
-  const { case: caseInfo, parties } = caseData;
+  const { case: caseInfo, stats } = caseData;
+
   const metaParts: string[] = [];
   if (caseInfo.court) metaParts.push(caseInfo.court);
   if (caseInfo.case_number) metaParts.push(`Case No. ${caseInfo.case_number}`);
   if (caseInfo.filing_date) metaParts.push(`Filed ${caseInfo.filing_date}`);
 
+  const handleAsk = () => {
+    if (askQuestion.trim()) {
+      navigate(`/ask?q=${encodeURIComponent(askQuestion.trim())}`);
+    }
+  };
+
   return (
-    <div style={pageStyle}>
-      {/* 1. Case Header */}
-      <div style={cardStyle}>
-        <h1 style={{ fontSize: "1.75rem", fontWeight: 700, color: "#1f2937", margin: 0, marginBottom: "0.5rem" }}>
+    <div style={{ paddingTop: "2rem", paddingBottom: "4rem" }}>
+
+      {/* 2A: Case Header */}
+      <div style={{ marginBottom: "1.75rem" }}>
+        <h1 style={{ fontSize: "1.55rem", fontWeight: 700, color: "#0f172a", letterSpacing: "-0.02em", margin: 0, marginBottom: "0.4rem" }}>
           {caseInfo.title}
         </h1>
-        {metaParts.length > 0 && (
-          <div style={{ color: "#6b7280", fontSize: "0.95rem" }}>
-            {metaParts.join(" \u2022 ")}
-          </div>
-        )}
-      </div>
-
-      {summary && (
-        <>
-          {/* 2. Case Strength Banner */}
-          <div style={{
-            padding: "1.25rem 1.5rem", backgroundColor: "#059669",
-            borderRadius: "8px", marginBottom: "1rem", color: "#ffffff",
-          }}>
-            <div style={{ fontSize: "1.25rem", fontWeight: 700, lineHeight: 1.4 }}>
-              {summary.allegations_proven} of {summary.allegations_total} Allegations
-              Proven {"\u2022"} All {summary.legal_counts} Legal Counts
-              Supported {"\u2022"} {formatCurrency(summary.damages_total)} in Damages
-            </div>
-          </div>
-
-          {/* 3. Key Finding Callout */}
-          <div style={{
-            padding: "1.25rem 1.5rem", backgroundColor: "#fffbeb",
-            border: "2px solid #92400e", borderRadius: "8px", marginBottom: "1rem",
-          }}>
-            <div style={{ color: "#78350f", fontSize: "1rem", lineHeight: 1.6, marginBottom: "0.75rem" }}>
-              George Phillips characterized Marie's claims as "frivolous," "false,"
-              and "scattershot" in his 2011 Court of Appeals brief. Every single
-              allegation he attacked has been proven by sworn testimony and
-              documentary evidence.
-            </div>
-            <div style={{ color: "#92400e", fontSize: "0.875rem", fontWeight: 600 }}>
-              {summary.characterizations_total} characterizations
-              challenged {"\u2022"} {summary.rebuttals_total} directly
-              rebutted {"\u2022"} {summary.allegations_proven}/{summary.allegations_total} proven
-            </div>
-          </div>
-
-          {/* 4. Quick Actions */}
-          <div style={{ ...cardStyle, padding: "1rem 1.5rem" }}>
-            <div style={sectionTitleStyle}>Explore the Evidence</div>
-            <div style={{
-              display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: "0.75rem",
+        <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
+          {metaParts.length > 0 && (
+            <span style={{ fontSize: "0.84rem", color: "#64748b" }}>
+              {metaParts.join(" \u00b7 ")}
+            </span>
+          )}
+          {caseInfo.status && (
+            <span style={{
+              display: "inline-block", padding: "0.2rem 0.6rem", borderRadius: "5px",
+              fontSize: "0.7rem", fontWeight: 700, textTransform: "uppercase",
+              letterSpacing: "0.03em", backgroundColor: "#ecfdf5", color: "#047857",
             }}>
-              {QUICK_ACTIONS.map((action) => (
-                <Link
-                  key={action.route}
-                  to={action.route}
-                  style={{
-                    padding: "1rem", backgroundColor: "#f9fafb",
-                    border: "1px solid #e5e7eb", borderRadius: "8px",
-                    textDecoration: "none", textAlign: "center",
-                    transition: "box-shadow 0.2s ease, border-color 0.2s ease",
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.boxShadow = "0 4px 12px rgba(0,0,0,0.1)";
-                    e.currentTarget.style.borderColor = "#2563eb";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.boxShadow = "none";
-                    e.currentTarget.style.borderColor = "#e5e7eb";
-                  }}
-                >
-                  <div style={{ fontWeight: 600, color: "#1f2937", fontSize: "0.875rem", marginBottom: "0.25rem" }}>
-                    {action.label}
-                  </div>
-                  <div style={{ fontSize: "0.75rem", color: "#6b7280" }}>
-                    {action.subtitle(summary)}
-                  </div>
-                </Link>
-              ))}
-            </div>
-          </div>
-
-          {/* 5. Legal Counts Summary */}
-          <div style={{ ...cardStyle, padding: "1rem 1.5rem" }}>
-            <div style={sectionTitleStyle}>Causes of Action</div>
-            <div style={{
-              display: "grid",
-              gridTemplateColumns: `repeat(${summary.legal_count_details.length}, 1fr)`,
-              gap: "0.75rem",
-            }}>
-              {summary.legal_count_details.map((lc) => (
-                <Link
-                  key={lc.id}
-                  to={`/allegations?count=${encodeURIComponent(lc.name)}`}
-                  style={{
-                    padding: "1rem", backgroundColor: "#eff6ff",
-                    border: "1px solid #bfdbfe", borderRadius: "8px",
-                    textDecoration: "none", textAlign: "center",
-                    transition: "box-shadow 0.2s ease, border-color 0.2s ease",
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.boxShadow = "0 4px 12px rgba(0,0,0,0.1)";
-                    e.currentTarget.style.borderColor = "#2563eb";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.boxShadow = "none";
-                    e.currentTarget.style.borderColor = "#bfdbfe";
-                  }}
-                >
-                  <div style={{ fontWeight: 600, color: "#1e40af", fontSize: "0.9rem", marginBottom: "0.25rem" }}>
-                    {lc.name}
-                  </div>
-                  <div style={{ fontSize: "0.75rem", color: "#6b7280" }}>
-                    {lc.allegation_count} allegation{lc.allegation_count !== 1 ? "s" : ""}
-                  </div>
-                </Link>
-              ))}
-            </div>
-          </div>
-        </>
-      )}
-
-      {/* 6. Parties */}
-      <div style={cardStyle}>
-        <div style={sectionTitleStyle}>Parties</div>
-        <div style={{ display: "flex", gap: "3rem" }}>
-          <div>
-            <div style={{ fontSize: "0.8rem", fontWeight: 600, color: "#374151", marginBottom: "0.25rem" }}>
-              Plaintiff
-            </div>
-            {parties.plaintiffs.map((p) => (
-              <div key={p.id} style={{ color: "#1f2937", fontSize: "0.95rem" }}>
-                {p.name}
-              </div>
-            ))}
-          </div>
-          <div>
-            <div style={{ fontSize: "0.8rem", fontWeight: 600, color: "#374151", marginBottom: "0.25rem" }}>
-              Defendants
-            </div>
-            {parties.defendants.map((p) => (
-              <div key={p.id} style={{ color: "#1f2937", fontSize: "0.95rem" }}>
-                {p.name}
-                {p.type === "organization" && (
-                  <span style={{ fontSize: "0.75rem", color: "#6b7280", marginLeft: "0.5rem" }}>
-                    (Org)
-                  </span>
-                )}
-              </div>
-            ))}
-          </div>
+              {caseInfo.status}
+            </span>
+          )}
         </div>
       </div>
+
+      {/* 2B: Case Summary */}
+      {caseInfo.summary && (
+        <div style={{
+          backgroundColor: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "10px",
+          padding: "1.5rem 1.75rem", marginBottom: "1.75rem",
+        }}>
+          <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "0.65rem" }}>
+            Case Summary
+          </div>
+          <div style={{ fontSize: "0.9rem", color: "#334155", lineHeight: 1.65 }}>
+            {caseInfo.summary}
+          </div>
+        </div>
+      )}
+
+      {/* 2C: Causes of Action */}
+      {stats.legal_count_details.length > 0 && (
+        <section style={{ marginBottom: "1.75rem" }}>
+          <div style={{ fontSize: "0.95rem", fontWeight: 700, color: "#0f172a", marginBottom: "0.85rem", letterSpacing: "-0.01em" }}>
+            Causes of Action
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "0.65rem" }}>
+            {stats.legal_count_details.map((lc, idx) => (
+              <Link
+                key={lc.id}
+                to={`/explorer?count=${encodeURIComponent(lc.id)}`}
+                style={{
+                  backgroundColor: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "10px",
+                  padding: "1.15rem 1.25rem", textDecoration: "none", display: "flex",
+                  justifyContent: "space-between", alignItems: "flex-start",
+                  transition: "all 0.15s ease", cursor: "pointer",
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.borderColor = "#3b82f6"; e.currentTarget.style.boxShadow = "0 2px 8px rgba(37,99,235,0.08)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.borderColor = "#e2e8f0"; e.currentTarget.style.boxShadow = "none"; }}
+              >
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: "0.68rem", fontWeight: 700, color: "#2563eb", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "0.2rem" }}>
+                    {COUNT_LABELS[idx] || `COUNT ${idx + 1}`}
+                  </div>
+                  <div style={{ fontSize: "0.92rem", fontWeight: 600, color: "#0f172a", marginBottom: "0.3rem", lineHeight: 1.3 }}>
+                    {lc.name}
+                  </div>
+                  <div style={{ fontSize: "0.8rem", color: "#64748b", lineHeight: 1.45 }}>
+                    {COUNT_DESCRIPTIONS[lc.id] || ""}
+                  </div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexShrink: 0, marginLeft: "1rem" }}>
+                  <span style={{
+                    padding: "0.22rem 0.55rem", borderRadius: "5px", fontSize: "0.68rem",
+                    fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.03em",
+                    backgroundColor: "#ecfdf5", color: "#047857", whiteSpace: "nowrap",
+                  }}>
+                    Supported
+                  </span>
+                  <span style={{ color: "#cbd5e1", fontSize: "0.9rem" }}>{"\u2192"}</span>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* 2D: Explore the Evidence */}
+      <section style={{ marginBottom: "1.75rem" }}>
+        <div style={{ fontSize: "0.95rem", fontWeight: 700, color: "#0f172a", marginBottom: "0.85rem", letterSpacing: "-0.01em" }}>
+          Explore the Evidence
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "0.65rem" }}>
+          {EXPLORE_CARDS.map((card) => (
+            <Link
+              key={card.path}
+              to={card.path}
+              style={{
+                backgroundColor: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "10px",
+                padding: "1.15rem 1.25rem", textDecoration: "none", color: "inherit",
+                display: "flex", flexDirection: "column", justifyContent: "space-between",
+                minHeight: "100px", transition: "all 0.15s ease", cursor: "pointer",
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.borderColor = "#3b82f6"; e.currentTarget.style.boxShadow = "0 2px 8px rgba(37,99,235,0.08)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.borderColor = "#e2e8f0"; e.currentTarget.style.boxShadow = "none"; }}
+            >
+              <div>
+                <div style={{ fontSize: "0.9rem", fontWeight: 600, color: "#0f172a", marginBottom: "0.25rem" }}>
+                  {card.name}
+                </div>
+                <div style={{ fontSize: "0.78rem", color: "#64748b", lineHeight: 1.4 }}>
+                  {card.desc}
+                </div>
+              </div>
+              <div style={{ marginTop: "0.6rem", fontSize: "0.72rem", fontWeight: 600, color: "#2563eb" }}>
+                {card.stat}
+              </div>
+            </Link>
+          ))}
+        </div>
+      </section>
+
+      {/* 2E: Ask the Case */}
+      <section style={{
+        backgroundColor: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "10px",
+        padding: "1.75rem", marginBottom: "1.75rem",
+      }}>
+        <div style={{ fontSize: "1.05rem", fontWeight: 700, color: "#0f172a", marginBottom: "0.2rem" }}>
+          Ask the Case
+        </div>
+        <div style={{ fontSize: "0.82rem", color: "#64748b", marginBottom: "1.15rem" }}>
+          Ask any question — Minerva searches the evidence, expands through the knowledge graph, and writes a cited answer.
+        </div>
+        <div style={{ display: "flex", gap: "0.6rem", marginBottom: "0.85rem" }}>
+          <input
+            type="text"
+            placeholder="What evidence shows Phillips lied to the Court of Appeals?"
+            value={askQuestion}
+            onChange={(e) => setAskQuestion(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") handleAsk(); }}
+            style={{
+              flex: 1, padding: "0.75rem 1rem", border: "2px solid #e2e8f0", borderRadius: "8px",
+              fontSize: "0.9rem", fontFamily: "inherit", color: "#1e293b", backgroundColor: "#ffffff",
+              outline: "none", transition: "border-color 0.2s ease",
+            }}
+            onFocus={(e) => { e.currentTarget.style.borderColor = "#3b82f6"; }}
+            onBlur={(e) => { e.currentTarget.style.borderColor = "#e2e8f0"; }}
+          />
+          <button
+            onClick={handleAsk}
+            style={{
+              padding: "0 1.4rem", backgroundColor: "#2563eb", color: "#ffffff", border: "none",
+              borderRadius: "8px", fontSize: "0.88rem", fontWeight: 600, fontFamily: "inherit",
+              cursor: "pointer", whiteSpace: "nowrap", transition: "background 0.15s ease",
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "#3b82f6"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "#2563eb"; }}
+          >
+            Ask Minerva
+          </button>
+        </div>
+        <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
+          {SUGGESTIONS.map((s) => (
+            <span
+              key={s}
+              onClick={() => navigate(`/ask?q=${encodeURIComponent(s)}`)}
+              style={{
+                padding: "0.28rem 0.65rem", backgroundColor: "#ffffff", border: "1px solid #e2e8f0",
+                borderRadius: "6px", fontSize: "0.76rem", color: "#334155", cursor: "pointer",
+                transition: "all 0.15s ease",
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.borderColor = "#3b82f6"; e.currentTarget.style.color = "#2563eb"; e.currentTarget.style.backgroundColor = "#eff6ff"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.borderColor = "#e2e8f0"; e.currentTarget.style.color = "#334155"; e.currentTarget.style.backgroundColor = "#ffffff"; }}
+            >
+              {s}
+            </span>
+          ))}
+        </div>
+      </section>
+
+      {/* 2F: Recent Questions (placeholder) */}
+      <section style={{ marginBottom: "2rem" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.85rem" }}>
+          <div style={{ fontSize: "0.95rem", fontWeight: 700, color: "#0f172a", letterSpacing: "-0.01em" }}>
+            Recent Questions
+          </div>
+          <span style={{ fontSize: "0.8rem", color: "#2563eb", fontWeight: 500, cursor: "pointer" }}>
+            View all questions {"\u2192"}
+          </span>
+        </div>
+        <div style={{
+          backgroundColor: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "10px",
+          padding: "1.5rem 1.75rem",
+        }}>
+          <div style={{ fontSize: "0.88rem", color: "#64748b", fontStyle: "italic" }}>
+            Question history will appear here once questions are saved. Ask your first question above.
+          </div>
+        </div>
+      </section>
+
     </div>
   );
 };

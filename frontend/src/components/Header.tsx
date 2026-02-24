@@ -1,359 +1,177 @@
-import React, { useEffect, useRef, useState } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import React from "react";
+import { Link, useLocation } from "react-router-dom";
 
-// Navigation group structure for dropdown menus
-type NavItem = {
-  label: string;
-  path: string;
-};
-
-type NavGroup = {
-  label: string;
-  items: NavItem[];
-};
-
-// Grouped navigation items
-const NAV_GROUPS: NavGroup[] = [
-  {
-    label: "Case",
-    items: [
-      { label: "Home", path: "/" },
-      { label: "Allegations", path: "/allegations" },
-      { label: "Claims", path: "/claims" },
-      { label: "Damages", path: "/damages" },
-    ],
-  },
-  {
-    label: "Evidence",
-    items: [
-      { label: "Evidence", path: "/evidence" },
-      { label: "Explorer", path: "/explorer" },
-      { label: "Graph", path: "/graph" },
-      { label: "Ask", path: "/ask" },
-    ],
-  },
-  {
-    label: "Analysis",
-    items: [
-      { label: "Dashboard", path: "/analysis" },
-      { label: "Decomposition", path: "/decomposition" },
-      { label: "People", path: "/people" },
-      { label: "Contradictions", path: "/contradictions" },
-      { label: "Quick Queries", path: "/queries" },
-    ],
-  },
+// ─── Navigation items ────────────────────────────────────────────────────────
+const NAV_ITEMS = [
+  { label: "Home", path: "/" },
+  { label: "Evidence", path: "/explorer" },
+  { label: "People", path: "/people" },
+  { label: "Documents", path: "/documents" },
+  { label: "Analysis", path: "/analysis" },
 ];
 
-// Standalone links (not in dropdowns)
-const STANDALONE_LINKS: NavItem[] = [{ label: "Documents", path: "/documents" }];
+// Hardcoded user (auth comes in Phase 2)
+const userName = "Roman";
+const userInitials = "R";
 
-// Styles
+// ─── Styles ──────────────────────────────────────────────────────────────────
 const headerStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",
-  padding: "0.75rem 1.5rem",
+  padding: "0 2rem",
+  height: "56px",
   backgroundColor: "#ffffff",
-  borderBottom: "1px solid #e5e7eb",
-  fontFamily: "Inter, system-ui, sans-serif",
+  borderBottom: "1px solid #e2e8f0",
+  position: "sticky",
+  top: 0,
+  zIndex: 100,
 };
 
 const logoStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
-  gap: "0.5rem",
+  gap: "0.55rem",
   textDecoration: "none",
-  color: "#1f2937",
+};
+
+const logoIconStyle: React.CSSProperties = {
+  width: "30px",
+  height: "30px",
+  backgroundColor: "#2563eb",
+  borderRadius: "7px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
   fontWeight: 700,
-  fontSize: "1.25rem",
-};
-
-const navStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: "0.25rem",
-};
-
-const dropdownContainerStyle: React.CSSProperties = {
-  position: "relative",
-};
-
-const dropdownButtonStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: "0.25rem",
-  padding: "0.5rem 0.75rem",
-  backgroundColor: "transparent",
-  border: "none",
-  borderRadius: "6px",
-  cursor: "pointer",
   fontSize: "0.9rem",
-  fontWeight: 500,
-  color: "#374151",
-  fontFamily: "inherit",
+  color: "#ffffff",
 };
 
-const dropdownButtonActiveStyle: React.CSSProperties = {
-  ...dropdownButtonStyle,
-  backgroundColor: "#f3f4f6",
-};
-
-const dropdownMenuStyle: React.CSSProperties = {
+const navContainerStyle: React.CSSProperties = {
   position: "absolute",
-  top: "100%",
-  left: 0,
-  marginTop: "0.25rem",
-  minWidth: "160px",
-  backgroundColor: "#ffffff",
-  border: "1px solid #e5e7eb",
-  borderRadius: "8px",
-  boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)",
-  zIndex: 50,
-  padding: "0.25rem 0",
+  left: "50%",
+  transform: "translateX(-50%)",
+  display: "flex",
+  gap: "0.2rem",
 };
 
-const dropdownItemStyle: React.CSSProperties = {
-  display: "block",
-  padding: "0.5rem 1rem",
+const navLinkBase: React.CSSProperties = {
   textDecoration: "none",
-  color: "#374151",
-  fontSize: "0.875rem",
+  fontSize: "0.84rem",
+  fontWeight: 500,
+  padding: "0.4rem 0.75rem",
+  borderRadius: "6px",
+  transition: "all 0.15s ease",
+  color: "#64748b",
 };
 
-const dropdownItemActiveStyle: React.CSSProperties = {
-  ...dropdownItemStyle,
-  backgroundColor: "#eff6ff",
+const navLinkActive: React.CSSProperties = {
+  ...navLinkBase,
   color: "#2563eb",
+  backgroundColor: "#eff6ff",
+  fontWeight: 600,
+};
+
+const rightSectionStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "1rem",
+};
+
+const userBadgeStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "0.5rem",
+  fontSize: "0.84rem",
+  color: "#334155",
   fontWeight: 500,
 };
 
-const standaloneLinkStyle: React.CSSProperties = {
-  padding: "0.5rem 0.75rem",
-  textDecoration: "none",
-  color: "#374151",
-  fontSize: "0.9rem",
+const avatarStyle: React.CSSProperties = {
+  width: "32px",
+  height: "32px",
+  borderRadius: "50%",
+  backgroundColor: "#2563eb",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  fontWeight: 600,
+  fontSize: "0.72rem",
+  color: "#ffffff",
+};
+
+const signOutStyle: React.CSSProperties = {
+  color: "#94a3b8",
+  background: "none",
+  border: "1px solid #e2e8f0",
+  padding: "0.32rem 0.75rem",
+  borderRadius: "6px",
+  fontSize: "0.76rem",
   fontWeight: 500,
-  borderRadius: "6px",
+  cursor: "pointer",
+  fontFamily: "inherit",
+  transition: "all 0.15s ease",
 };
 
-const standaloneLinkActiveStyle: React.CSSProperties = {
-  ...standaloneLinkStyle,
-  backgroundColor: "#eff6ff",
-  color: "#2563eb",
-};
+// ─── Helper: is this nav item active? ────────────────────────────────────────
+function isActive(itemPath: string, currentPath: string): boolean {
+  if (itemPath === "/") return currentPath === "/";
+  return currentPath === itemPath || currentPath.startsWith(itemPath + "/");
+}
 
-const loginPlaceholderStyle: React.CSSProperties = {
-  padding: "0.5rem 1rem",
-  backgroundColor: "#f3f4f6",
-  borderRadius: "6px",
-  fontSize: "0.875rem",
-  color: "#6b7280",
-};
-
-// Dropdown component for a navigation group
-const NavDropdown: React.FC<{
-  group: NavGroup;
-  isOpen: boolean;
-  onToggle: () => void;
-  currentPath: string;
-}> = ({ group, isOpen, onToggle, currentPath }) => {
-  // Check if any item in this group is active
-  const hasActiveItem = group.items.some((item) => item.path === currentPath);
-
-  return (
-    <div style={dropdownContainerStyle}>
-      <button
-        onClick={onToggle}
-        style={hasActiveItem ? dropdownButtonActiveStyle : dropdownButtonStyle}
-        onMouseEnter={(e) => {
-          if (!hasActiveItem) {
-            e.currentTarget.style.backgroundColor = "#f3f4f6";
-          }
-        }}
-        onMouseLeave={(e) => {
-          if (!hasActiveItem) {
-            e.currentTarget.style.backgroundColor = "transparent";
-          }
-        }}
-      >
-        {group.label}
-        <span style={{ fontSize: "0.7rem", marginLeft: "0.125rem" }}>
-          {isOpen ? "\u25B2" : "\u25BC"}
-        </span>
-      </button>
-
-      {isOpen && (
-        <div style={dropdownMenuStyle}>
-          {group.items.map((item) => (
-            <Link
-              key={item.path}
-              to={item.path}
-              style={
-                currentPath === item.path
-                  ? dropdownItemActiveStyle
-                  : dropdownItemStyle
-              }
-              onMouseEnter={(e) => {
-                if (currentPath !== item.path) {
-                  e.currentTarget.style.backgroundColor = "#f9fafb";
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (currentPath !== item.path) {
-                  e.currentTarget.style.backgroundColor = "transparent";
-                }
-              }}
-            >
-              {item.label}
-            </Link>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-};
-
-// Main Header component
+// ─── Component ───────────────────────────────────────────────────────────────
 const Header: React.FC = () => {
   const location = useLocation();
-  const navigate = useNavigate();
-  const [openDropdown, setOpenDropdown] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");
-  const headerRef = useRef<HTMLElement>(null);
-
-  // Close dropdown when clicking outside
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (
-        headerRef.current &&
-        !headerRef.current.contains(event.target as Node)
-      ) {
-        setOpenDropdown(null);
-      }
-    }
-
-    document.addEventListener("click", handleClickOutside);
-
-    // Cleanup listener on unmount
-    return () => {
-      document.removeEventListener("click", handleClickOutside);
-    };
-  }, []);
-
-  // Close dropdown when route changes
-  useEffect(() => {
-    setOpenDropdown(null);
-  }, [location.pathname]);
-
-  const handleDropdownToggle = (label: string) => {
-    setOpenDropdown((current) => (current === label ? null : label));
-  };
 
   return (
-    <header ref={headerRef} style={headerStyle}>
-      {/* Logo */}
-      <Link
-        to="/"
-        style={{
-          textDecoration: "none",
-          display: "flex",
-          alignItems: "center",
-          gap: "0.25rem",
-        }}
-      >
-        <span
-          style={{
-            fontSize: "1.25rem",
-            fontWeight: 700,
-            color: "#1f2937",
-            letterSpacing: "-0.025em",
-          }}
-        >
-          COLOSSUS
-        </span>
-        <span
-          style={{
-            fontSize: "1.25rem",
-            fontWeight: 400,
-            color: "#6b7280",
-          }}
-        >
-          Legal
-        </span>
+    <header style={headerStyle}>
+      {/* Left — Logo */}
+      <Link to="/" style={logoStyle}>
+        <div style={logoIconStyle}>C</div>
+        <div>
+          <span style={{ fontWeight: 700, fontSize: "1.05rem", color: "#0f172a", letterSpacing: "-0.01em" }}>
+            Colossus
+          </span>
+          <span style={{ fontWeight: 400, color: "#94a3b8", marginLeft: "0.2rem" }}>
+            Legal
+          </span>
+        </div>
       </Link>
 
-      {/* Navigation */}
-      <nav style={navStyle}>
-        {/* Dropdown groups */}
-        {NAV_GROUPS.map((group) => (
-          <NavDropdown
-            key={group.label}
-            group={group}
-            isOpen={openDropdown === group.label}
-            onToggle={() => handleDropdownToggle(group.label)}
-            currentPath={location.pathname}
-          />
-        ))}
-
-        {/* Standalone links */}
-        {STANDALONE_LINKS.map((link) => (
+      {/* Center — Nav links */}
+      <nav style={navContainerStyle}>
+        {NAV_ITEMS.map((item) => (
           <Link
-            key={link.path}
-            to={link.path}
-            style={
-              location.pathname === link.path ||
-              location.pathname.startsWith(link.path + "/")
-                ? standaloneLinkActiveStyle
-                : standaloneLinkStyle
-            }
+            key={item.path}
+            to={item.path}
+            style={isActive(item.path, location.pathname) ? navLinkActive : navLinkBase}
             onMouseEnter={(e) => {
-              if (
-                location.pathname !== link.path &&
-                !location.pathname.startsWith(link.path + "/")
-              ) {
-                e.currentTarget.style.backgroundColor = "#f3f4f6";
+              if (!isActive(item.path, location.pathname)) {
+                e.currentTarget.style.color = "#1e293b";
+                e.currentTarget.style.backgroundColor = "#f1f5f9";
               }
             }}
             onMouseLeave={(e) => {
-              if (
-                location.pathname !== link.path &&
-                !location.pathname.startsWith(link.path + "/")
-              ) {
+              if (!isActive(item.path, location.pathname)) {
+                e.currentTarget.style.color = "#64748b";
                 e.currentTarget.style.backgroundColor = "transparent";
               }
             }}
           >
-            {link.label}
+            {item.label}
           </Link>
         ))}
       </nav>
 
-      {/* Search bar */}
-      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-        <input
-          type="text"
-          placeholder="Search evidence..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && searchQuery.trim()) {
-              navigate(`/search?q=${encodeURIComponent(searchQuery.trim())}`);
-              setSearchQuery("");
-            }
-          }}
-          style={{
-            padding: "0.4rem 0.75rem",
-            border: "1px solid #d1d5db",
-            borderRadius: "6px",
-            fontSize: "0.85rem",
-            width: "200px",
-            outline: "none",
-          }}
-        />
+      {/* Right — User badge + Sign Out */}
+      <div style={rightSectionStyle}>
+        <div style={userBadgeStyle}>
+          <div style={avatarStyle}>{userInitials}</div>
+          {userName}
+        </div>
+        <button style={signOutStyle}>Sign Out</button>
       </div>
-
-      {/* Login placeholder */}
-      <div style={loginPlaceholderStyle}>Login</div>
     </header>
   );
 };
