@@ -9,6 +9,7 @@ use crate::state::AppState;
 
 pub mod allegations;
 pub mod analysis;
+pub mod ask;
 pub mod case;
 pub mod case_summary;
 pub mod claims;
@@ -71,6 +72,7 @@ pub fn router() -> Router<AppState> {
         .route("/queries/:id/run", get(queries::run_query))
         .route("/admin/embed-all", post(embed::run_embed_all))
         .route("/search", post(search::semantic_search))
+        .route("/ask", post(ask::ask_the_case))
 }
 
 async fn health_check(State(_state): State<AppState>) -> (StatusCode, &'static str) {

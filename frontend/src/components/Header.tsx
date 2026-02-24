@@ -29,6 +29,7 @@ const NAV_GROUPS: NavGroup[] = [
       { label: "Evidence", path: "/evidence" },
       { label: "Explorer", path: "/explorer" },
       { label: "Graph", path: "/graph" },
+      { label: "Ask", path: "/ask" },
     ],
   },
   {

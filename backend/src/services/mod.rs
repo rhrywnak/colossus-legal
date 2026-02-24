@@ -1,6 +1,7 @@
 //! Service layer modules for business logic.
 
 pub mod claim_validator;
+pub mod claude_client;
 pub mod embedding_pipeline;
 pub mod embedding_service;
 pub mod embedding_text;

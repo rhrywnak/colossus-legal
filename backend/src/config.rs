@@ -6,6 +6,10 @@ pub struct AppConfig {
     pub document_storage_path: String,
     pub qdrant_url: String,
     pub fastembed_cache_path: String,
+    /// Anthropic API key — None means /ask returns 503 but the rest of the app works.
+    pub anthropic_api_key: Option<String>,
+    /// Claude model ID for synthesis (default: claude-sonnet-4-20250514).
+    pub anthropic_model: String,
 }
 
 impl AppConfig {
@@ -28,6 +32,13 @@ impl AppConfig {
         let fastembed_cache_path = std::env::var("FASTEMBED_CACHE_PATH")
             .unwrap_or_else(|_| "/data/models".to_string());
 
+        // Anthropic API key — optional so the app starts without it.
+        // If absent, POST /ask returns 503 Service Unavailable.
+        let anthropic_api_key = std::env::var("ANTHROPIC_API_KEY").ok();
+
+        let anthropic_model = std::env::var("ANTHROPIC_MODEL")
+            .unwrap_or_else(|_| "claude-sonnet-4-20250514".to_string());
+
         Ok(Self {
             neo4j_uri,
             neo4j_user,
@@ -35,6 +46,8 @@ impl AppConfig {
             document_storage_path,
             qdrant_url,
             fastembed_cache_path,
+            anthropic_api_key,
+            anthropic_model,
         })
     }
 }
