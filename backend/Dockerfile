@@ -22,7 +22,7 @@
 # ==============================================================================
 
 # ── Stage 1: Build ──────────────────────────────────────────────────────────────
-FROM docker.io/library/rust:1.84-bookworm AS builder
+FROM docker.io/library/rust:1.88-bookworm AS builder
 
 WORKDIR /build
 
@@ -47,7 +47,7 @@ RUN mkdir src && \
     echo '' > src/neo4j.rs
 
 # Build dependencies only (this layer gets cached)
-RUN cargo build --release 2>/dev/null || true
+RUN cargo build --release --locked 2>/dev/null || true
 
 # Now copy the real source code
 COPY src/ src/
@@ -56,7 +56,7 @@ COPY src/ src/
 RUN touch src/main.rs src/lib.rs
 
 # Build the actual application
-RUN cargo build --release
+RUN cargo build --release --locked
 
 # ── Stage 2: Runtime ────────────────────────────────────────────────────────────
 FROM docker.io/library/debian:bookworm-slim
