@@ -9,7 +9,7 @@
 #   binary. This stage has cargo, rustc, linker, system headers — everything needed
 #   to build. But we don't want any of that in production.
 #
-# Stage 2 ("runtime"): Uses a minimal Debian image (~80 MB). We COPY only the
+# Stage 2 ("runtime"): Uses a minimal Ubuntu image (~80 MB). We COPY only the
 #   compiled binary from stage 1. The final image contains just:
 #   - The OS with OpenSSL + CA certs (needed for TLS to Neo4j)
 #   - Your single compiled Rust binary (~15-30 MB)
@@ -19,10 +19,29 @@
 # Why Rust shines here: Unlike Python/Node which need their entire runtime shipped,
 # Rust compiles to a native binary with no runtime dependencies beyond libc and
 # any dynamically-linked system libraries (like OpenSSL).
+#
+# BASE IMAGE NOTE: We use Ubuntu 24.04 (Noble) instead of Debian Bookworm because
+# the ort/ort-sys crates (ONNX Runtime bindings, pulled in by fastembed) ship
+# prebuilt libraries compiled against glibc 2.38+. Debian Bookworm has glibc 2.36
+# which causes __isoc23_strtol linker errors. Ubuntu 24.04 has glibc 2.39,
+# matching the dev workstation. Always keep builder and runtime glibc in sync.
 # ==============================================================================
 
 # ── Stage 1: Build ──────────────────────────────────────────────────────────────
-FROM docker.io/library/rust:1.88-bookworm AS builder
+FROM docker.io/library/ubuntu:24.04 AS builder
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    build-essential \
+    pkg-config \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Rust toolchain (match workstation version)
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+    sh -s -- -y --default-toolchain 1.88.0
+ENV PATH="/root/.cargo/bin:${PATH}"
 
 WORKDIR /build
 
@@ -59,15 +78,18 @@ RUN touch src/main.rs src/lib.rs
 RUN cargo build --release --locked
 
 # ── Stage 2: Runtime ────────────────────────────────────────────────────────────
-FROM docker.io/library/debian:bookworm-slim
+FROM docker.io/library/ubuntu:24.04
 
 # Install only what the binary needs at runtime:
-# - libssl3: OpenSSL for TLS connections (Neo4j bolt+s://)
+# - libssl3t64: OpenSSL for TLS connections (Neo4j bolt+s://)
+#   (Ubuntu 24.04 renamed libssl3 → libssl3t64 for 64-bit time_t transition)
 # - ca-certificates: Trust store for TLS certificate validation
+# - curl: Used by HEALTHCHECK
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        libssl3 \
-        ca-certificates && \
+        libssl3t64 \
+        ca-certificates \
+        curl && \
     rm -rf /var/lib/apt/lists/*
 
 # Run as non-root (security best practice)
