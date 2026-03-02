@@ -1,6 +1,7 @@
 use axum::{extract::{Query, State}, http::StatusCode, Json};
 use serde::Deserialize;
 
+use crate::auth::AuthUser;
 use crate::dto::GraphResponse;
 use crate::repositories::GraphRepository;
 use crate::state::AppState;
@@ -12,9 +13,13 @@ pub struct GraphQuery {
 
 /// GET /graph/legal-proof - Returns nodes/edges for evidence chain visualization
 pub async fn get_legal_proof_graph(
+    user: Option<AuthUser>,
     State(state): State<AppState>,
     Query(params): Query<GraphQuery>,
 ) -> Result<Json<GraphResponse>, StatusCode> {
+    if let Some(ref u) = user {
+        tracing::info!("{} GET /graph/legal-proof", u.username);
+    }
     let repo = GraphRepository::new(state.graph.clone());
 
     match repo.get_legal_proof_graph(params.count_id.as_deref()).await {

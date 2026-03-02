@@ -1,13 +1,18 @@
 use axum::{extract::State, http::StatusCode, Json};
 
+use crate::auth::AuthUser;
 use crate::dto::case_summary::CaseSummaryResponse;
 use crate::repositories::CaseSummaryRepository;
 use crate::state::AppState;
 
 /// GET /case-summary — analytical dashboard data for case intelligence briefing
 pub async fn get_case_summary(
+    user: Option<AuthUser>,
     State(state): State<AppState>,
 ) -> Result<Json<CaseSummaryResponse>, StatusCode> {
+    if let Some(ref u) = user {
+        tracing::info!("{} GET /case-summary", u.username);
+    }
     let repo = CaseSummaryRepository::new(state.graph.clone());
 
     match repo.get_case_summary().await {

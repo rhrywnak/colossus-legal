@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 use std::time::Instant;
 
 use crate::api::embed::ErrorResponse;
+use crate::auth::{AuthUser, require_ai};
 use crate::services::embedding_service::EmbeddingService;
 use crate::services::graph_expander;
 use crate::services::qdrant_service;
@@ -62,9 +63,14 @@ pub struct SearchHit {
 ///
 /// Embeds the query via fastembed (spawn_blocking), searches Qdrant, returns hits.
 pub async fn semantic_search(
+    user: AuthUser,
     State(state): State<AppState>,
     Json(req): Json<SearchRequest>,
 ) -> Result<Json<SearchResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_ai(&user).map_err(|e| {
+        (StatusCode::FORBIDDEN, Json(ErrorResponse { error: e.message }))
+    })?;
+    tracing::info!("{} POST /search", user.username);
     let start = Instant::now();
 
     // Validate: query must not be empty

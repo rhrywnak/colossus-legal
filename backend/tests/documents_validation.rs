@@ -2,6 +2,7 @@ use std::sync::OnceLock;
 
 use axum::{body::to_bytes, extract::State, http::StatusCode, response::IntoResponse};
 use chrono::Utc;
+use colossus_auth::AuthUser;
 use colossus_legal_backend::{
     api::documents::{create_document, get_document, update_document},
     config::AppConfig,
@@ -17,13 +18,22 @@ type TestResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
 static GRAPH_MUTEX: OnceLock<Mutex<()>> = OnceLock::new();
 
-async fn setup_graph() -> TestResult<Graph> {
+fn test_editor() -> AuthUser {
+    AuthUser {
+        username: "test_editor".to_string(),
+        email: "editor@test.com".to_string(),
+        display_name: "Test Editor".to_string(),
+        groups: vec!["legal_editor".to_string()],
+    }
+}
+
+async fn setup() -> TestResult<(Graph, AppConfig)> {
     dotenvy::dotenv().ok();
     let config = AppConfig::from_env().map_err(|e| format!("config error: {e}"))?;
     let graph = create_neo4j_graph(&config)
         .await
         .map_err(|e| format!("neo4j connect error: {e}"))?;
-    Ok(graph)
+    Ok((graph, config))
 }
 
 async fn cleanup_document_by_id(graph: &Graph, id: &str) -> Result<(), neo4rs::Error> {
@@ -51,14 +61,15 @@ fn base_create_payload(title: &str, doc_type: &str) -> DocumentCreateRequest {
 async fn create_document_rejects_empty_title() -> TestResult<()> {
     let _guard = GRAPH_MUTEX.get_or_init(|| Mutex::new(())).lock().await;
 
-    let graph = setup_graph().await?;
+    let (graph, config) = setup().await?;
     let state = AppState {
         graph: graph.clone(),
+        config,
     };
 
     let payload = base_create_payload("", "pdf");
 
-    let response = create_document(State(state), axum::Json(payload))
+    let response = create_document(test_editor(), State(state), axum::Json(payload))
         .await
         .into_response();
 
@@ -74,14 +85,15 @@ async fn create_document_rejects_empty_title() -> TestResult<()> {
 async fn create_document_rejects_invalid_doc_type() -> TestResult<()> {
     let _guard = GRAPH_MUTEX.get_or_init(|| Mutex::new(())).lock().await;
 
-    let graph = setup_graph().await?;
+    let (graph, config) = setup().await?;
     let state = AppState {
         graph: graph.clone(),
+        config,
     };
 
     let payload = base_create_payload("Valid Title", "invalid-type");
 
-    let response = create_document(State(state), axum::Json(payload))
+    let response = create_document(test_editor(), State(state), axum::Json(payload))
         .await
         .into_response();
 
@@ -97,15 +109,16 @@ async fn create_document_rejects_invalid_doc_type() -> TestResult<()> {
 async fn create_document_rejects_invalid_created_at() -> TestResult<()> {
     let _guard = GRAPH_MUTEX.get_or_init(|| Mutex::new(())).lock().await;
 
-    let graph = setup_graph().await?;
+    let (graph, config) = setup().await?;
     let state = AppState {
         graph: graph.clone(),
+        config,
     };
 
     let mut payload = base_create_payload("Valid Title", "pdf");
     payload.created_at = Some("not-a-date".to_string());
 
-    let response = create_document(State(state), axum::Json(payload))
+    let response = create_document(test_editor(), State(state), axum::Json(payload))
         .await
         .into_response();
 
@@ -121,12 +134,13 @@ async fn create_document_rejects_invalid_created_at() -> TestResult<()> {
 async fn get_document_returns_404_when_missing() -> TestResult<()> {
     let _guard = GRAPH_MUTEX.get_or_init(|| Mutex::new(())).lock().await;
 
-    let graph = setup_graph().await?;
+    let (graph, config) = setup().await?;
     let state = AppState {
         graph: graph.clone(),
+        config,
     };
 
-    let response = get_document(State(state), axum::extract::Path("no-such".to_string()))
+    let response = get_document(None, State(state), axum::extract::Path("no-such".to_string()))
         .await
         .into_response();
 
@@ -142,13 +156,14 @@ async fn get_document_returns_404_when_missing() -> TestResult<()> {
 async fn update_document_rejects_invalid_doc_type() -> TestResult<()> {
     let _guard = GRAPH_MUTEX.get_or_init(|| Mutex::new(())).lock().await;
 
-    let graph = setup_graph().await?;
+    let (graph, config) = setup().await?;
     let state = AppState {
         graph: graph.clone(),
+        config,
     };
 
     let payload = base_create_payload("Title", "pdf");
-    let created_response = create_document(State(state.clone()), axum::Json(payload))
+    let created_response = create_document(test_editor(), State(state.clone()), axum::Json(payload))
         .await
         .into_response();
     assert_eq!(created_response.status(), StatusCode::CREATED);
@@ -167,6 +182,7 @@ async fn update_document_rejects_invalid_doc_type() -> TestResult<()> {
     };
 
     let response = update_document(
+        test_editor(),
         State(state.clone()),
         axum::extract::Path(created.id.clone()),
         axum::Json(update_payload),
@@ -187,9 +203,10 @@ async fn update_document_rejects_invalid_doc_type() -> TestResult<()> {
 async fn update_document_returns_404_when_missing() -> TestResult<()> {
     let _guard = GRAPH_MUTEX.get_or_init(|| Mutex::new(())).lock().await;
 
-    let graph = setup_graph().await?;
+    let (graph, config) = setup().await?;
     let state = AppState {
         graph: graph.clone(),
+        config,
     };
 
     let update_payload = DocumentUpdateRequest {
@@ -204,6 +221,7 @@ async fn update_document_returns_404_when_missing() -> TestResult<()> {
     };
 
     let response = update_document(
+        test_editor(),
         State(state),
         axum::extract::Path("missing-id".to_string()),
         axum::Json(update_payload),
@@ -223,15 +241,16 @@ async fn update_document_returns_404_when_missing() -> TestResult<()> {
 async fn happy_path_create_get_update_document() -> TestResult<()> {
     let _guard = GRAPH_MUTEX.get_or_init(|| Mutex::new(())).lock().await;
 
-    let graph = setup_graph().await?;
+    let (graph, config) = setup().await?;
     let state = AppState {
         graph: graph.clone(),
+        config,
     };
 
     let mut payload = base_create_payload("Happy Title", "pdf");
     payload.created_at = Some(Utc::now().to_rfc3339());
 
-    let create_response = create_document(State(state.clone()), axum::Json(payload))
+    let create_response = create_document(test_editor(), State(state.clone()), axum::Json(payload))
         .await
         .into_response();
 
@@ -240,6 +259,7 @@ async fn happy_path_create_get_update_document() -> TestResult<()> {
     let created: DocumentDto = serde_json::from_slice(&body)?;
 
     let get_response = get_document(
+        None,
         State(state.clone()),
         axum::extract::Path(created.id.clone()),
     )
@@ -264,6 +284,7 @@ async fn happy_path_create_get_update_document() -> TestResult<()> {
     };
 
     let update_response = update_document(
+        test_editor(),
         State(state),
         axum::extract::Path(fetched.id.clone()),
         axum::Json(update_payload),

@@ -15,9 +15,33 @@ pub enum AppError {
     NotFound {
         message: String,
     },
+    Unauthorized {
+        message: String,
+    },
+    Forbidden {
+        message: String,
+    },
     Internal {
         message: String,
     },
+}
+
+/// Convert colossus-auth's AuthError into our AppError.
+///
+/// AuthError with user=None means unauthenticated (401).
+/// AuthError with user=Some means insufficient permissions (403).
+impl From<colossus_auth::AuthError> for AppError {
+    fn from(err: colossus_auth::AuthError) -> Self {
+        if err.user.is_none() {
+            AppError::Unauthorized {
+                message: err.message,
+            }
+        } else {
+            AppError::Forbidden {
+                message: err.message,
+            }
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -45,6 +69,22 @@ impl IntoResponse for AppError {
                     details: json!({}),
                 };
                 (StatusCode::NOT_FOUND, Json(body)).into_response()
+            }
+            AppError::Unauthorized { message } => {
+                let body = ErrorBody {
+                    error: "unauthorized".to_string(),
+                    message,
+                    details: json!({}),
+                };
+                (StatusCode::UNAUTHORIZED, Json(body)).into_response()
+            }
+            AppError::Forbidden { message } => {
+                let body = ErrorBody {
+                    error: "forbidden".to_string(),
+                    message,
+                    details: json!({}),
+                };
+                (StatusCode::FORBIDDEN, Json(body)).into_response()
             }
             AppError::Internal { message } => {
                 let body = ErrorBody {

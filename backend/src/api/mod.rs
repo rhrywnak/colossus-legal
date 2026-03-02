@@ -5,6 +5,7 @@ use axum::{
     Router,
 };
 
+use crate::auth::me_handler;
 use crate::state::AppState;
 
 pub mod allegations;
@@ -36,6 +37,7 @@ pub mod search;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/health", get(health_check))
+        .route("/api/me", get(me_handler))
         .route("/analysis", get(analysis::get_analysis))
         .route("/case", get(case::get_case))
         .route("/case-summary", get(case_summary::get_case_summary))

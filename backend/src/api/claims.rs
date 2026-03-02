@@ -2,6 +2,7 @@ use axum::{extract::Path, extract::State, http::StatusCode, Json};
 use serde_json::json;
 
 use crate::{
+    auth::{AuthUser, require_edit},
     dto::ClaimDto,
     dto::{ClaimCreateRequest, ClaimUpdateRequest, MotionClaimsResponse},
     error::AppError,
@@ -42,7 +43,13 @@ fn to_dto(claim: Claim) -> ClaimDto {
     }
 }
 
-pub async fn list_claims(State(state): State<AppState>) -> Result<Json<Vec<ClaimDto>>, AppError> {
+pub async fn list_claims(
+    user: Option<AuthUser>,
+    State(state): State<AppState>,
+) -> Result<Json<Vec<ClaimDto>>, AppError> {
+    if let Some(ref u) = user {
+        tracing::info!("{} GET /claims", u.username);
+    }
     let repo = ClaimRepository::new(state.graph.clone());
     let claims = repo.list_claims().await.map_err(|_| AppError::Internal {
         message: "failed to list claims".to_string(),
@@ -54,9 +61,13 @@ pub async fn list_claims(State(state): State<AppState>) -> Result<Json<Vec<Claim
 }
 
 pub async fn get_claim(
+    user: Option<AuthUser>,
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<ClaimDto>, AppError> {
+    if let Some(ref u) = user {
+        tracing::info!("{} GET /claims/{}", u.username, id);
+    }
     let repo = ClaimRepository::new(state.graph.clone());
     let claim = repo.get_claim_by_id(&id).await.map_err(|err| match err {
         crate::repositories::claim_repository::ClaimRepositoryError::NotFound => {
@@ -73,9 +84,12 @@ pub async fn get_claim(
 }
 
 pub async fn create_claim(
+    user: AuthUser,
     State(state): State<AppState>,
     Json(payload): Json<ClaimCreateRequest>,
 ) -> Result<(axum::http::StatusCode, Json<ClaimDto>), AppError> {
+    require_edit(&user)?;
+    tracing::info!("{} POST /claims", user.username);
     validate_title(&payload.title)?;
     validate_status(&payload.status)?;
 
@@ -102,10 +116,13 @@ pub async fn create_claim(
 }
 
 pub async fn update_claim(
+    user: AuthUser,
     State(state): State<AppState>,
     Path(id): Path<String>,
     Json(payload): Json<ClaimUpdateRequest>,
 ) -> Result<Json<ClaimDto>, AppError> {
+    require_edit(&user)?;
+    tracing::info!("{} PUT /claims/{}", user.username, id);
     if let Some(title) = payload.title.as_deref() {
         validate_title(title)?;
     }
@@ -139,8 +156,12 @@ pub async fn update_claim(
 /// List all MotionClaim nodes with their relationships
 /// (PROVES -> Allegation, RELIES_ON -> Evidence, APPEARS_IN -> Document)
 pub async fn list_motion_claims(
+    user: Option<AuthUser>,
     State(state): State<AppState>,
 ) -> Result<Json<MotionClaimsResponse>, StatusCode> {
+    if let Some(ref u) = user {
+        tracing::info!("{} GET /motion-claims", u.username);
+    }
     let repo = MotionClaimRepository::new(state.graph.clone());
     match repo.list_motion_claims().await {
         Ok(response) => Ok(Json(response)),

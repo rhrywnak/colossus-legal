@@ -11,6 +11,7 @@ use tokio::fs::File;
 use tokio_util::io::ReaderStream;
 
 use crate::{
+    auth::{AuthUser, require_edit},
     dto::{DocumentCreateRequest, DocumentDto, DocumentUpdateRequest},
     error::AppError,
     repositories::document_repository::{DocumentRepository, DocumentRepositoryError},
@@ -49,8 +50,12 @@ fn validate_created_at(created_at: &str) -> Result<String, AppError> {
 }
 
 pub async fn list_documents(
+    user: Option<AuthUser>,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<DocumentDto>>, AppError> {
+    if let Some(ref u) = user {
+        tracing::info!("{} GET /documents", u.username);
+    }
     let repo = DocumentRepository::new(state.graph.clone());
     let documents = repo
         .list_documents()
@@ -65,9 +70,13 @@ pub async fn list_documents(
 }
 
 pub async fn get_document(
+    user: Option<AuthUser>,
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<DocumentDto>, AppError> {
+    if let Some(ref u) = user {
+        tracing::info!("{} GET /documents/{}", u.username, id);
+    }
     let repo = DocumentRepository::new(state.graph.clone());
     let document = repo.get_document_by_id(&id).await.map_err(map_repo_error)?;
 
@@ -75,9 +84,12 @@ pub async fn get_document(
 }
 
 pub async fn create_document(
+    user: AuthUser,
     State(state): State<AppState>,
     Json(payload): Json<DocumentCreateRequest>,
 ) -> Result<(axum::http::StatusCode, Json<DocumentDto>), AppError> {
+    require_edit(&user)?;
+    tracing::info!("{} POST /documents", user.username);
     validate_title(&payload.title)?;
     validate_doc_type(&payload.doc_type)?;
     let normalized_created_at = match payload.created_at.as_deref() {
@@ -101,10 +113,13 @@ pub async fn create_document(
 }
 
 pub async fn update_document(
+    user: AuthUser,
     State(state): State<AppState>,
     Path(id): Path<String>,
     Json(payload): Json<DocumentUpdateRequest>,
 ) -> Result<Json<DocumentDto>, AppError> {
+    require_edit(&user)?;
+    tracing::info!("{} PUT /documents/{}", user.username, id);
     if let Some(title) = payload.title.as_deref() {
         validate_title(title)?;
     }
@@ -133,9 +148,13 @@ pub async fn update_document(
 
 /// Serve a document's PDF file
 pub async fn get_document_file(
+    user: Option<AuthUser>,
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Response, AppError> {
+    if let Some(ref u) = user {
+        tracing::info!("{} GET /documents/{}/file", u.username, id);
+    }
     // 1. Get document from Neo4j
     let repo = DocumentRepository::new(state.graph.clone());
     let document = repo.get_document_by_id(&id).await.map_err(map_repo_error)?;

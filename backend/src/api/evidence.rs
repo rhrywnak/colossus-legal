@@ -1,13 +1,18 @@
 use axum::{extract::State, http::StatusCode, Json};
 
+use crate::auth::AuthUser;
 use crate::dto::EvidenceResponse;
 use crate::repositories::EvidenceRepository;
 use crate::state::AppState;
 
 /// GET /evidence - Returns all evidence items
 pub async fn list_evidence(
+    user: Option<AuthUser>,
     State(state): State<AppState>,
 ) -> Result<Json<EvidenceResponse>, StatusCode> {
+    if let Some(ref u) = user {
+        tracing::info!("{} GET /evidence", u.username);
+    }
     let repo = EvidenceRepository::new(state.graph.clone());
 
     match repo.list_evidence().await {

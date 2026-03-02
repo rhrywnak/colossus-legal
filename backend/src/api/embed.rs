@@ -9,6 +9,7 @@ use axum::{extract::State, http::StatusCode, Json};
 use serde::Serialize;
 use std::collections::HashMap;
 
+use crate::auth::{AuthUser, require_admin};
 use crate::services::embedding_pipeline;
 use crate::state::AppState;
 
@@ -32,8 +33,13 @@ pub struct ErrorResponse {
 ///
 /// Runs the full embedding pipeline: Neo4j → fastembed → Qdrant.
 pub async fn run_embed_all(
+    user: AuthUser,
     State(state): State<AppState>,
 ) -> Result<Json<EmbeddingResultDto>, (StatusCode, Json<ErrorResponse>)> {
+    require_admin(&user).map_err(|e| {
+        (StatusCode::FORBIDDEN, Json(ErrorResponse { error: e.message }))
+    })?;
+    tracing::info!("{} POST /admin/embed-all", user.username);
     let http_client = reqwest::Client::new();
 
     let result = embedding_pipeline::run_embedding_pipeline(

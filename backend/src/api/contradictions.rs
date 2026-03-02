@@ -1,13 +1,18 @@
 use axum::{extract::State, http::StatusCode, Json};
 
+use crate::auth::AuthUser;
 use crate::dto::ContradictionsResponse;
 use crate::repositories::ContradictionRepository;
 use crate::state::AppState;
 
 /// GET /contradictions - Returns all evidence contradictions
 pub async fn list_contradictions(
+    user: Option<AuthUser>,
     State(state): State<AppState>,
 ) -> Result<Json<ContradictionsResponse>, StatusCode> {
+    if let Some(ref u) = user {
+        tracing::info!("{} GET /contradictions", u.username);
+    }
     let repo = ContradictionRepository::new(state.graph.clone());
 
     match repo.list_contradictions().await {

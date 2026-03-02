@@ -4,6 +4,7 @@ use axum::{
     Json,
 };
 
+use crate::auth::AuthUser;
 use crate::dto::EvidenceChainResponse;
 use crate::repositories::EvidenceChainRepository;
 use crate::state::AppState;
@@ -13,9 +14,13 @@ use crate::state::AppState;
 /// Returns the complete evidence chain for a single allegation,
 /// including motion claims, evidence items, and linked documents.
 pub async fn get_evidence_chain(
+    user: Option<AuthUser>,
     State(state): State<AppState>,
     Path(allegation_id): Path<String>,
 ) -> Result<Json<EvidenceChainResponse>, StatusCode> {
+    if let Some(ref u) = user {
+        tracing::info!("{} GET /allegations/{}/evidence-chain", u.username, allegation_id);
+    }
     let repo = EvidenceChainRepository::new(state.graph.clone());
 
     match repo.get_evidence_chain(&allegation_id).await {

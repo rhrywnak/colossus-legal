@@ -24,13 +24,13 @@ fn unique_run_id() -> String {
     format!("t2-1b-{nanos}")
 }
 
-async fn setup_graph() -> TestResult<Graph> {
+async fn setup() -> TestResult<(Graph, AppConfig)> {
     dotenvy::dotenv().ok();
     let config = AppConfig::from_env().map_err(|e| format!("config error: {e}"))?;
     let graph = create_neo4j_graph(&config)
         .await
         .map_err(|e| format!("neo4j connect error: {e}"))?;
-    Ok(graph)
+    Ok((graph, config))
 }
 
 async fn cleanup_claims(graph: &Graph) -> Result<(), neo4rs::Error> {
@@ -73,7 +73,7 @@ async fn insert_claim(
 async fn get_claims_returns_non_empty_when_data_exists() -> TestResult<()> {
     let _guard = GRAPH_MUTEX.get_or_init(|| Mutex::new(())).lock().await;
 
-    let graph = setup_graph().await?;
+    let (graph, config) = setup().await?;
     cleanup_claims(&graph).await?;
 
     let run_id = unique_run_id();
@@ -90,8 +90,9 @@ async fn get_claims_returns_non_empty_when_data_exists() -> TestResult<()> {
 
     let state = AppState {
         graph: graph.clone(),
+        config,
     };
-    let response = list_claims(State(state)).await.into_response();
+    let response = list_claims(None, State(state)).await.into_response();
 
     assert_eq!(response.status(), StatusCode::OK);
     let body_bytes = to_bytes(response.into_body(), 1024 * 1024).await?;
@@ -118,13 +119,14 @@ async fn get_claims_returns_non_empty_when_data_exists() -> TestResult<()> {
 async fn get_claims_returns_empty_when_no_data() -> TestResult<()> {
     let _guard = GRAPH_MUTEX.get_or_init(|| Mutex::new(())).lock().await;
 
-    let graph = setup_graph().await?;
+    let (graph, config) = setup().await?;
     cleanup_claims(&graph).await?;
 
     let state = AppState {
         graph: graph.clone(),
+        config,
     };
-    let response = list_claims(State(state)).await.into_response();
+    let response = list_claims(None, State(state)).await.into_response();
 
     assert_eq!(response.status(), StatusCode::OK);
     let body_bytes = to_bytes(response.into_body(), 1024 * 1024).await?;

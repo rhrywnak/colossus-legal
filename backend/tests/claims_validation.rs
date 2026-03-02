@@ -4,6 +4,7 @@ use std::{
 };
 
 use axum::{body::to_bytes, extract::State, http::StatusCode, response::IntoResponse};
+use colossus_auth::AuthUser;
 use colossus_legal_backend::{
     api::claims::{create_claim, get_claim, update_claim},
     config::AppConfig,
@@ -28,13 +29,22 @@ fn unique_run_id() -> String {
     format!("t2-1c-{nanos}")
 }
 
-async fn setup_graph() -> TestResult<Graph> {
+fn test_editor() -> AuthUser {
+    AuthUser {
+        username: "test_editor".to_string(),
+        email: "editor@test.com".to_string(),
+        display_name: "Test Editor".to_string(),
+        groups: vec!["legal_editor".to_string()],
+    }
+}
+
+async fn setup() -> TestResult<(Graph, AppConfig)> {
     dotenvy::dotenv().ok();
     let config = AppConfig::from_env().map_err(|e| format!("config error: {e}"))?;
     let graph = create_neo4j_graph(&config)
         .await
         .map_err(|e| format!("neo4j connect error: {e}"))?;
-    Ok(graph)
+    Ok((graph, config))
 }
 
 async fn cleanup_claim_by_id(graph: &Graph, id: &str) -> Result<(), neo4rs::Error> {
@@ -75,9 +85,10 @@ async fn insert_claim(
 async fn create_claim_rejects_empty_title() -> TestResult<()> {
     let _guard = GRAPH_MUTEX.get_or_init(|| Mutex::new(())).lock().await;
 
-    let graph = setup_graph().await?;
+    let (graph, config) = setup().await?;
     let state = AppState {
         graph: graph.clone(),
+        config,
     };
 
     let payload = ClaimCreateRequest {
@@ -86,7 +97,7 @@ async fn create_claim_rejects_empty_title() -> TestResult<()> {
         status: "open".to_string(),
     };
 
-    let response = create_claim(State(state), axum::Json(payload))
+    let response = create_claim(test_editor(), State(state), axum::Json(payload))
         .await
         .into_response();
 
@@ -102,9 +113,10 @@ async fn create_claim_rejects_empty_title() -> TestResult<()> {
 async fn create_claim_rejects_invalid_status() -> TestResult<()> {
     let _guard = GRAPH_MUTEX.get_or_init(|| Mutex::new(())).lock().await;
 
-    let graph = setup_graph().await?;
+    let (graph, config) = setup().await?;
     let state = AppState {
         graph: graph.clone(),
+        config,
     };
 
     let payload = ClaimCreateRequest {
@@ -113,7 +125,7 @@ async fn create_claim_rejects_invalid_status() -> TestResult<()> {
         status: "invalid".to_string(),
     };
 
-    let response = create_claim(State(state), axum::Json(payload))
+    let response = create_claim(test_editor(), State(state), axum::Json(payload))
         .await
         .into_response();
 
@@ -129,12 +141,13 @@ async fn create_claim_rejects_invalid_status() -> TestResult<()> {
 async fn get_claim_returns_404_when_missing() -> TestResult<()> {
     let _guard = GRAPH_MUTEX.get_or_init(|| Mutex::new(())).lock().await;
 
-    let graph = setup_graph().await?;
+    let (graph, config) = setup().await?;
     let state = AppState {
         graph: graph.clone(),
+        config,
     };
 
-    let response = get_claim(State(state), axum::extract::Path("no-such".to_string()))
+    let response = get_claim(None, State(state), axum::extract::Path("no-such".to_string()))
         .await
         .into_response();
 
@@ -150,7 +163,7 @@ async fn get_claim_returns_404_when_missing() -> TestResult<()> {
 async fn update_claim_rejects_invalid_status() -> TestResult<()> {
     let _guard = GRAPH_MUTEX.get_or_init(|| Mutex::new(())).lock().await;
 
-    let graph = setup_graph().await?;
+    let (graph, config) = setup().await?;
     let run_id = unique_run_id();
     let claim_id = format!("claim-{run_id}");
     insert_claim(
@@ -165,6 +178,7 @@ async fn update_claim_rejects_invalid_status() -> TestResult<()> {
 
     let state = AppState {
         graph: graph.clone(),
+        config,
     };
 
     let payload = ClaimUpdateRequest {
@@ -174,6 +188,7 @@ async fn update_claim_rejects_invalid_status() -> TestResult<()> {
     };
 
     let response = update_claim(
+        test_editor(),
         State(state),
         axum::extract::Path(claim_id.clone()),
         axum::Json(payload),
@@ -194,9 +209,10 @@ async fn update_claim_rejects_invalid_status() -> TestResult<()> {
 async fn happy_path_create_and_get_claim() -> TestResult<()> {
     let _guard = GRAPH_MUTEX.get_or_init(|| Mutex::new(())).lock().await;
 
-    let graph = setup_graph().await?;
+    let (graph, config) = setup().await?;
     let state = AppState {
         graph: graph.clone(),
+        config,
     };
 
     let payload = ClaimCreateRequest {
@@ -205,7 +221,7 @@ async fn happy_path_create_and_get_claim() -> TestResult<()> {
         status: "open".to_string(),
     };
 
-    let response = create_claim(State(state.clone()), axum::Json(payload))
+    let response = create_claim(test_editor(), State(state.clone()), axum::Json(payload))
         .await
         .into_response();
 
@@ -213,7 +229,7 @@ async fn happy_path_create_and_get_claim() -> TestResult<()> {
     let body = to_bytes(response.into_body(), 1024 * 1024).await?;
     let created: ClaimDto = serde_json::from_slice(&body)?;
 
-    let get_response = get_claim(State(state), axum::extract::Path(created.id.clone()))
+    let get_response = get_claim(None, State(state), axum::extract::Path(created.id.clone()))
         .await
         .into_response();
 

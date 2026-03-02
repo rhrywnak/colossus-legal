@@ -1,5 +1,6 @@
 // Library entry point for shared modules (services, models, etc.)
 pub mod api;
+pub mod auth;
 pub mod config;
 pub mod dto;
 pub mod error;

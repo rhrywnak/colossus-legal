@@ -16,6 +16,7 @@ use axum::{
     Json,
 };
 
+use crate::auth::AuthUser;
 use crate::dto::decomposition::{
     AllegationDetailResponse, DecompositionResponse, RebuttalsResponse,
 };
@@ -26,8 +27,12 @@ use crate::state::AppState;
 
 /// GET /decomposition — Overview of all 18 allegations with characterizations
 pub async fn list_decomposition(
+    user: Option<AuthUser>,
     State(state): State<AppState>,
 ) -> Result<Json<DecompositionResponse>, StatusCode> {
+    if let Some(ref u) = user {
+        tracing::info!("{} GET /decomposition", u.username);
+    }
     let repo = DecompositionRepository::new(state.graph.clone());
 
     match repo.get_decomposition().await {
@@ -41,9 +46,13 @@ pub async fn list_decomposition(
 
 /// GET /allegations/:id/detail — Deep dive into one allegation
 pub async fn get_allegation_detail(
+    user: Option<AuthUser>,
     State(state): State<AppState>,
     Path(allegation_id): Path<String>,
 ) -> Result<Json<AllegationDetailResponse>, StatusCode> {
+    if let Some(ref u) = user {
+        tracing::info!("{} GET /allegations/{}/detail", u.username, allegation_id);
+    }
     let repo = AllegationDetailRepository::new(state.graph.clone());
 
     match repo.get_allegation_detail(&allegation_id).await {
@@ -62,8 +71,12 @@ pub async fn get_allegation_detail(
 
 /// GET /rebuttals — All REBUTS grouped by George's claims
 pub async fn list_rebuttals(
+    user: Option<AuthUser>,
     State(state): State<AppState>,
 ) -> Result<Json<RebuttalsResponse>, StatusCode> {
+    if let Some(ref u) = user {
+        tracing::info!("{} GET /rebuttals", u.username);
+    }
     let repo = RebuttalsRepository::new(state.graph.clone());
 
     match repo.get_rebuttals().await {

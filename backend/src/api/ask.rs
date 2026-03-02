@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 use std::time::Instant;
 
 use crate::api::embed::ErrorResponse;
+use crate::auth::{AuthUser, require_ai};
 use crate::services::claude_client;
 use crate::services::embedding_service::EmbeddingService;
 use crate::services::graph_expander::{self, ExpandedContext};
@@ -73,9 +74,12 @@ type ApiError = (StatusCode, Json<ErrorResponse>);
 /// If `ANTHROPIC_API_KEY` is not set, the handler returns 503 immediately.
 /// This lets the rest of the app function normally without the key.
 pub async fn ask_the_case(
+    user: AuthUser,
     State(state): State<AppState>,
     Json(req): Json<AskRequest>,
 ) -> Result<Json<AskResponse>, ApiError> {
+    require_ai(&user).map_err(|e| error_response(StatusCode::FORBIDDEN, &e.message))?;
+    tracing::info!("{} POST /ask", user.username);
     let total_start = Instant::now();
 
     let question = req.question.trim().to_string();

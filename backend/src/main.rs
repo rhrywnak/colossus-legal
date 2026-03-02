@@ -1,9 +1,11 @@
+use axum::http::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE, ORIGIN};
+use axum::http::HeaderName;
 use axum::{routing::get, Json, Router};
 use hyper::http::{HeaderValue, Method};
 use serde::Serialize;
 use std::net::SocketAddr;
 use tokio::net::TcpListener;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::CorsLayer;
 use tracing_subscriber::EnvFilter;
 
 use colossus_legal_backend::{
@@ -95,7 +97,17 @@ async fn main() {
             Method::DELETE,
             Method::OPTIONS,
         ])
-        .allow_headers(Any);
+        .allow_headers([
+            AUTHORIZATION,
+            ACCEPT,
+            CONTENT_TYPE,
+            ORIGIN,
+            HeaderName::from_static("x-authentik-username"),
+            HeaderName::from_static("x-authentik-email"),
+            HeaderName::from_static("x-authentik-groups"),
+            HeaderName::from_static("x-authentik-name"),
+        ])
+        .allow_credentials(true);
 
     // Build router:
     // - /health
