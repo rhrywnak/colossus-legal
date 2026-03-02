@@ -11,7 +11,7 @@ const NAV_ITEMS = [
   { label: "Analysis", path: "/analysis" },
 ];
 
-const SIGN_OUT_URL = "/outpost.goauthentik.io/sign_out";
+const SIGN_OUT_URL = "https://auth.cogmai.com/if/flow/default-invalidation-flow/";
 
 // ─── Styles ──────────────────────────────────────────────────────────────────
 const headerStyle: React.CSSProperties = {
