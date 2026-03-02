@@ -1,6 +1,8 @@
 import React from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { API_BASE_URL } from "../services/api";
+import { authFetch } from "../services/auth";
 
 // ─── Navigation items ────────────────────────────────────────────────────────
 const NAV_ITEMS = [
@@ -180,7 +182,13 @@ const Header: React.FC = () => {
             {isAuthenticated && (
               <button
                 style={signOutStyle}
-                onClick={() => { window.location.href = SIGN_OUT_URL; }}
+                onClick={async () => {
+                  // Clear HttpOnly proxy cookies via backend (authentik #17922 workaround)
+                  try {
+                    await authFetch(`${API_BASE_URL}/api/logout`, { method: "POST" });
+                  } catch (_) { /* best-effort — still redirect */ }
+                  window.location.href = SIGN_OUT_URL;
+                }}
               >
                 Sign Out
               </button>
