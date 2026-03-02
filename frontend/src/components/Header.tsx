@@ -1,5 +1,6 @@
 import React from "react";
 import { Link, useLocation } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
 
 // ─── Navigation items ────────────────────────────────────────────────────────
 const NAV_ITEMS = [
@@ -10,9 +11,7 @@ const NAV_ITEMS = [
   { label: "Analysis", path: "/analysis" },
 ];
 
-// Hardcoded user (auth comes in Phase 2)
-const userName = "Roman";
-const userInitials = "R";
+const SIGN_OUT_URL = "https://auth.cogmai.com/outpost.goauthentik.io/sign_out";
 
 // ─── Styles ──────────────────────────────────────────────────────────────────
 const headerStyle: React.CSSProperties = {
@@ -123,6 +122,10 @@ function isActive(itemPath: string, currentPath: string): boolean {
 // ─── Component ───────────────────────────────────────────────────────────────
 const Header: React.FC = () => {
   const location = useLocation();
+  const { user, loading, isAuthenticated } = useAuth();
+
+  const userName = user?.display_name ?? "Anonymous";
+  const userInitials = user?.display_name?.[0]?.toUpperCase() ?? "?";
 
   return (
     <header style={headerStyle}>
@@ -166,11 +169,24 @@ const Header: React.FC = () => {
 
       {/* Right — User badge + Sign Out */}
       <div style={rightSectionStyle}>
-        <div style={userBadgeStyle}>
-          <div style={avatarStyle}>{userInitials}</div>
-          {userName}
-        </div>
-        <button style={signOutStyle}>Sign Out</button>
+        {loading ? (
+          <span style={{ fontSize: "0.84rem", color: "#94a3b8" }}>...</span>
+        ) : (
+          <>
+            <div style={userBadgeStyle}>
+              <div style={avatarStyle}>{userInitials}</div>
+              {userName}
+            </div>
+            {isAuthenticated && (
+              <button
+                style={signOutStyle}
+                onClick={() => { window.location.href = SIGN_OUT_URL; }}
+              >
+                Sign Out
+              </button>
+            )}
+          </>
+        )}
       </div>
     </header>
   );

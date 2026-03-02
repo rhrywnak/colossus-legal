@@ -1,4 +1,5 @@
 import { API_BASE_URL } from "./api";
+import { authFetch } from "./auth";
 
 export type GraphNodeType =
   | "legal_count"
@@ -35,7 +36,7 @@ export async function getLegalProofGraph(
     ? `${API_BASE_URL}/graph/legal-proof?count_id=${encodeURIComponent(countId)}`
     : `${API_BASE_URL}/graph/legal-proof`;
 
-  const response = await fetch(url);
+  const response = await authFetch(url);
 
   if (!response.ok) {
     throw new Error(`Failed to fetch graph: ${response.status}`);

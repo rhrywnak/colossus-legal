@@ -1,4 +1,5 @@
 import { API_BASE_URL } from "./api";
+import { authFetch } from "./auth";
 
 export type SchemaResponse = {
   total_nodes: number;
@@ -8,7 +9,7 @@ export type SchemaResponse = {
 };
 
 export async function getSchema(): Promise<SchemaResponse> {
-  const response = await fetch(`${API_BASE_URL}/schema`);
+  const response = await authFetch(`${API_BASE_URL}/schema`);
 
   if (!response.ok) {
     throw new Error(`Schema request failed: ${response.status}`);

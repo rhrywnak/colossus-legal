@@ -1,4 +1,5 @@
 import { API_BASE_URL } from "./api";
+import { authFetch } from "./auth";
 
 export type SearchHit = {
     node_id: string;
@@ -21,7 +22,7 @@ export async function semanticSearch(
     limit?: number,
     nodeTypes?: string[],
 ): Promise<SearchResponse> {
-    const response = await fetch(`${API_BASE_URL}/search`, {
+    const response = await authFetch(`${API_BASE_URL}/search`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

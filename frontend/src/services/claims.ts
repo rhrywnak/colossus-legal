@@ -1,4 +1,5 @@
 import { API_BASE_URL } from "./api";
+import { authFetch } from "./auth";
 
 export type Claim = {
   id: string;
@@ -23,7 +24,7 @@ const stubClaims: Claim[] = [
 ];
 
 export async function getClaims(): Promise<Claim[]> {
-  const response = await fetch(`${API_BASE_URL}/claims`);
+  const response = await authFetch(`${API_BASE_URL}/claims`);
 
   if (!response.ok) {
     throw new Error(`Failed to fetch claims: ${response.status}`);

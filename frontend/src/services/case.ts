@@ -1,4 +1,5 @@
 import { API_BASE_URL } from "./api";
+import { authFetch } from "./auth";
 
 // NOTE: Fields match backend DTO - most are optional
 export type CaseInfo = {
@@ -47,7 +48,7 @@ export type CaseResponse = {
 };
 
 export async function getCase(): Promise<CaseResponse> {
-  const response = await fetch(`${API_BASE_URL}/case`);
+  const response = await authFetch(`${API_BASE_URL}/case`);
 
   if (!response.ok) {
     throw new Error(`Failed to fetch case: ${response.status}`);

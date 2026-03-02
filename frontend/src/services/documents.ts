@@ -1,4 +1,5 @@
 import { API_BASE_URL } from "./api";
+import { authFetch } from "./auth";
 
 export type DocumentItem = {
   id: string;
@@ -52,7 +53,7 @@ const stubDocuments: DocumentItem[] = [
 ];
 
 export async function getDocuments(): Promise<DocumentItem[]> {
-  const response = await fetch(`${API_BASE_URL}/documents`);
+  const response = await authFetch(`${API_BASE_URL}/documents`);
 
   if (!response.ok) {
     throw new Error(
@@ -112,7 +113,7 @@ async function parseJson(response: Response) {
 }
 
 export async function getDocument(id: string): Promise<DocumentDetail> {
-  const response = await fetch(`${API_BASE_URL}/documents/${encodeURIComponent(id)}`);
+  const response = await authFetch(`${API_BASE_URL}/documents/${encodeURIComponent(id)}`);
 
   if (response.status === 404) {
     throw { kind: "not_found", message: "Document not found" } as ServiceError;
@@ -137,7 +138,7 @@ export async function updateDocument(
   id: string,
   payload: DocumentUpdateRequest
 ): Promise<DocumentDetail> {
-  const response = await fetch(`${API_BASE_URL}/documents/${encodeURIComponent(id)}`, {
+  const response = await authFetch(`${API_BASE_URL}/documents/${encodeURIComponent(id)}`, {
     method: "PUT",
     headers: {
       "Content-Type": "application/json",

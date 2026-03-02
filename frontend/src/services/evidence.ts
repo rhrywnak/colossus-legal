@@ -1,4 +1,5 @@
 import { API_BASE_URL } from "./api";
+import { authFetch } from "./auth";
 
 export type EvidenceDto = {
   id: string;
@@ -23,7 +24,7 @@ export type EvidenceResponse = {
 };
 
 export async function getEvidence(): Promise<EvidenceResponse> {
-  const response = await fetch(`${API_BASE_URL}/evidence`);
+  const response = await authFetch(`${API_BASE_URL}/evidence`);
 
   if (!response.ok) {
     throw new Error(`Failed to fetch evidence: ${response.status}`);

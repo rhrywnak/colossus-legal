@@ -1,4 +1,5 @@
 import { API_BASE_URL } from "./api";
+import { authFetch } from "./auth";
 
 export type PersonInfo = {
   id: string;
@@ -54,7 +55,7 @@ export type PersonDetailResponse = {
 export async function getPersonDetail(
   personId: string,
 ): Promise<PersonDetailResponse> {
-  const response = await fetch(
+  const response = await authFetch(
     `${API_BASE_URL}/persons/${encodeURIComponent(personId)}/detail`,
   );
 

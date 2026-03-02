@@ -1,4 +1,5 @@
 import { API_BASE_URL } from "./api";
+import { authFetch } from "./auth";
 
 export type RetrievalStats = {
     qdrant_hits: number;
@@ -20,7 +21,7 @@ export type AskResponse = {
 };
 
 export async function askTheCase(question: string): Promise<AskResponse> {
-    const response = await fetch(`${API_BASE_URL}/ask`, {
+    const response = await authFetch(`${API_BASE_URL}/ask`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question }),

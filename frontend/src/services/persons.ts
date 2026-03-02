@@ -1,4 +1,5 @@
 import { API_BASE_URL } from "./api";
+import { authFetch } from "./auth";
 
 export type PersonDto = {
   id: string;
@@ -13,7 +14,7 @@ export type PersonsResponse = {
 };
 
 export async function getPersons(): Promise<PersonsResponse> {
-  const response = await fetch(`${API_BASE_URL}/persons`);
+  const response = await authFetch(`${API_BASE_URL}/persons`);
 
   if (!response.ok) {
     throw new Error(`Failed to fetch persons: ${response.status}`);

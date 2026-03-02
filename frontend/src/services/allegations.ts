@@ -1,4 +1,5 @@
 import { API_BASE_URL } from "./api";
+import { authFetch } from "./auth";
 
 export type AllegationDto = {
   id: string;
@@ -24,7 +25,7 @@ export type AllegationsResponse = {
 };
 
 export async function getAllegations(): Promise<AllegationsResponse> {
-  const response = await fetch(`${API_BASE_URL}/allegations`);
+  const response = await authFetch(`${API_BASE_URL}/allegations`);
 
   if (!response.ok) {
     throw new Error(`Failed to fetch allegations: ${response.status}`);

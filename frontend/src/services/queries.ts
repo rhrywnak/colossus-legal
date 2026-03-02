@@ -1,4 +1,5 @@
 import { API_BASE_URL } from "./api";
+import { authFetch } from "./auth";
 
 // ─── List endpoint types ─────────────────────────────────────────────────────
 
@@ -33,7 +34,7 @@ export type QueryResultResponse = {
 // ─── Fetch functions ─────────────────────────────────────────────────────────
 
 export async function getQueries(): Promise<QueryListResponse> {
-  const response = await fetch(`${API_BASE_URL}/queries`);
+  const response = await authFetch(`${API_BASE_URL}/queries`);
   if (!response.ok) {
     throw new Error(`Failed to fetch queries: ${response.status}`);
   }
@@ -41,7 +42,7 @@ export async function getQueries(): Promise<QueryListResponse> {
 }
 
 export async function runQuery(id: string): Promise<QueryResultResponse> {
-  const response = await fetch(
+  const response = await authFetch(
     `${API_BASE_URL}/queries/${encodeURIComponent(id)}/run`,
   );
   if (!response.ok) {

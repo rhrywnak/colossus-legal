@@ -38,13 +38,20 @@ declare global {
 
 // Single source of truth for the API base URL.
 // Every service file imports this — no other files need to change.
+// The typeof guard handles test environments (Vitest/Node) where window is undefined.
 export const API_BASE_URL: string =
-    window.__COLOSSUS_CONFIG__?.apiUrl
+    (typeof window !== "undefined" && window.__COLOSSUS_CONFIG__?.apiUrl)
     || import.meta.env.VITE_API_URL
     || "http://localhost:3403";
 
+// NOTE: Circular import — auth.ts imports API_BASE_URL from this file, and
+// this file imports authFetch from auth.ts. This works fine in ESM because
+// both values are only used inside function bodies, not at module-load time.
+// By the time any function runs, both modules are fully initialized.
+import { authFetch } from "./auth";
+
 export async function getStatus(): Promise<StatusResponse> {
-    const response = await fetch(`${API_BASE_URL}/api/status`);
+    const response = await authFetch(`${API_BASE_URL}/api/status`);
 
     if (!response.ok) {
         throw new Error(`Status request failed with ${response.status}`);

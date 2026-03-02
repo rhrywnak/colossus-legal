@@ -1,4 +1,5 @@
 import { API_BASE_URL } from "./api";
+import { authFetch } from "./auth";
 
 export type ChainDocument = {
   id: string;
@@ -43,7 +44,7 @@ export type EvidenceChainResponse = {
 export async function getEvidenceChain(
   allegationId: string
 ): Promise<EvidenceChainResponse> {
-  const response = await fetch(
+  const response = await authFetch(
     `${API_BASE_URL}/allegations/${encodeURIComponent(allegationId)}/evidence-chain`
   );
 
