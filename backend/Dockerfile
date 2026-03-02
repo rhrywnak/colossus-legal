@@ -36,6 +36,7 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     pkg-config \
     libssl-dev \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Rust toolchain (match workstation version)

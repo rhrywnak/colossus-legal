@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-colossus-auth = { git = "ssh://git@github.com/rhrywnak/colossus-rs.git", branch = "main" }
+colossus-auth = { git = "https://github.com/rhrywnak/colossus-rs.git", branch = "main" }
 axum = "0.7"
 hyper = { version = "1", features = ["full"] }
 tokio = { version = "1", features = ["full"] }
