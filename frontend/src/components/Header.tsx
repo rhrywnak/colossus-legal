@@ -123,7 +123,9 @@ const Header: React.FC = () => {
   const location = useLocation();
   const { user, loading, isAuthenticated } = useAuth();
 
-  const userName = user ? `DEBUG:${user.display_name}:${user.username}` : "Anonymous";
+  const userName = (user?.display_name && user.display_name !== "authentik Default Admin")
+    ? user.display_name
+    : (user?.username || "Anonymous");
   const userInitials = user?.display_name?.[0]?.toUpperCase() ?? "?";
 
   return (

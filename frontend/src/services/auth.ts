@@ -89,6 +89,9 @@ export function logout(): void {
 
     // Force a full browser redirect to the Authentik destructive logout URL.
     // This will destroy the ForwardAuth/Authentik session cookie.
-    window.location.href =
-        "https://auth.cogmai.com/application/o/colossus-services/end-session/?post_logout_redirect_uri=https://colossus-legal.cogmai.com";
+    // Use .replace() to ensure the logout page replaces the current entry
+    // in session history, preventing "back-button" identity ghosting.
+    window.location.replace(
+        "https://auth.cogmai.com/application/o/colossus-services/end-session/?post_logout_redirect_uri=https://colossus-legal.cogmai.com",
+    );
 }
