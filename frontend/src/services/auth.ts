@@ -76,22 +76,17 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
 // ─── Logout ─────────────────────────────────────────────────────────────────
 
 /**
- * Destructive logout: clears all local/session storage and forces a full
- * browser redirect to the Authentik OIDC end-session endpoint.
+ * Logout via Authentik OIDC end-session endpoint.
  *
- * This kills the session cookie and prevents "sticky sessions" where users
- * cannot switch between identities.
+ * Reads the logout URL from runtime config (window.__COLOSSUS_CONFIG__)
+ * injected by docker-entrypoint.sh, with a hardcoded fallback.
+ *
+ * Uses .replace() so the logout page replaces the current history entry,
+ * preventing "back-button" identity ghosting.
  */
 export function logout(): void {
-    // Clear all client-side state
-    localStorage.clear();
-    sessionStorage.clear();
-
-    // Force a full browser redirect to the Authentik destructive logout URL.
-    // This will destroy the ForwardAuth/Authentik session cookie.
-    // Use .replace() to ensure the logout page replaces the current entry
-    // in session history, preventing "back-button" identity ghosting.
-    window.location.replace(
-        "https://auth.cogmai.com/application/o/colossus-services/end-session/?post_logout_redirect_uri=https://colossus-legal.cogmai.com",
-    );
+    const config = (window as any).__COLOSSUS_CONFIG__ || {};
+    const logoutUrl = config.authLogoutUrl
+        || "https://auth.cogmai.com/application/o/colossus-services/end-session/";
+    window.location.replace(logoutUrl);
 }
