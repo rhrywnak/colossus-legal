@@ -23,6 +23,7 @@ pub mod evidence_chain;
 pub mod graph;
 pub mod harms;
 pub mod import;
+pub mod logout;
 pub mod persons;
 pub mod queries;
 pub mod schema;
@@ -38,6 +39,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/health", get(health_check))
         .route("/api/me", get(me_handler))
+        .route("/api/logout", get(logout::logout))
         .route("/analysis", get(analysis::get_analysis))
         .route("/case", get(case::get_case))
         .route("/case-summary", get(case_summary::get_case_summary))

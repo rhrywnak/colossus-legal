@@ -76,17 +76,18 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
 // ─── Logout ─────────────────────────────────────────────────────────────────
 
 /**
- * Logout via Authentik OIDC end-session endpoint.
+ * Logout via the backend /api/logout endpoint.
  *
- * Reads the logout URL from runtime config (window.__COLOSSUS_CONFIG__)
- * injected by docker-entrypoint.sh, with a hardcoded fallback.
+ * Navigates (not fetch!) to the backend, which expires the Authentik proxy
+ * cookie via Set-Cookie and 302-redirects to the OIDC end-session endpoint.
  *
  * Uses .replace() so the logout page replaces the current history entry,
  * preventing "back-button" identity ghosting.
  */
 export function logout(): void {
     const config = (window as any).__COLOSSUS_CONFIG__ || {};
-    const logoutUrl = config.authLogoutUrl
-        || "https://auth.cogmai.com/application/o/colossus-services/end-session/";
-    window.location.replace(logoutUrl);
+    const apiUrl = config.apiUrl || "";
+    // Navigate (not fetch!) to the backend logout endpoint.
+    // It expires the proxy cookie via Set-Cookie and 302s to Authentik end-session.
+    window.location.replace(`${apiUrl}/api/logout`);
 }
