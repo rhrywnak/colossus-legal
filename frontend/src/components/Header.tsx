@@ -1,6 +1,7 @@
 import React from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { logout } from "../services/auth";
 
 // ─── Navigation items ────────────────────────────────────────────────────────
 const NAV_ITEMS = [
@@ -10,13 +11,6 @@ const NAV_ITEMS = [
   { label: "Documents", path: "/documents" },
   { label: "Analysis", path: "/analysis" },
 ];
-
-// OIDC end-session URL — read from runtime config, fallback to hardcoded default.
-// This is the correct logout mechanism for Authentik ForwardAuth apps.
-// See: AUTH_LOGOUT_SESSION_TRANSITION.md, Lesson #4
-const AUTH_LOGOUT_URL: string =
-    (typeof window !== "undefined" && window.__COLOSSUS_CONFIG__?.authLogoutUrl)
-    || "https://auth.cogmai.com/application/o/colossus-services/end-session/";
 
 // ─── Styles ──────────────────────────────────────────────────────────────────
 const headerStyle: React.CSSProperties = {
@@ -186,7 +180,7 @@ const Header: React.FC = () => {
               <button
                 style={signOutStyle}
                 onClick={() => {
-                  window.location.href = AUTH_LOGOUT_URL;
+                  logout();
                 }}
               >
                 Sign Out

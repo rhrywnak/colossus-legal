@@ -72,3 +72,23 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
         return null;
     }
 }
+
+// ─── Logout ─────────────────────────────────────────────────────────────────
+
+/**
+ * Destructive logout: clears all local/session storage and forces a full
+ * browser redirect to the Authentik OIDC end-session endpoint.
+ *
+ * This kills the session cookie and prevents "sticky sessions" where users
+ * cannot switch between identities.
+ */
+export function logout(): void {
+    // Clear all client-side state
+    localStorage.clear();
+    sessionStorage.clear();
+
+    // Force a full browser redirect to the Authentik destructive logout URL.
+    // This will destroy the ForwardAuth/Authentik session cookie.
+    window.location.href =
+        "https://auth.cogmai.com/application/o/colossus-services/end-session/?post_logout_redirect_uri=https://colossus-legal.cogmai.com";
+}
