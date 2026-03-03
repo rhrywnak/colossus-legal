@@ -1,4 +1,4 @@
-use axum::{extract::State, http::StatusCode, Json};
+use axum::{extract::State, http::HeaderMap, http::StatusCode, Json};
 
 use crate::auth::AuthUser;
 use crate::dto::CaseResponse;
@@ -8,8 +8,11 @@ use crate::state::AppState;
 /// GET /case - Returns case metadata, parties, and stats
 pub async fn get_case(
     user: Option<AuthUser>,
+    headers: HeaderMap,
     State(state): State<AppState>,
 ) -> Result<Json<CaseResponse>, StatusCode> {
+    println!("DEBUG HEADERS: {:?}", headers);
+
     if let Some(ref u) = user {
         tracing::info!("{} GET /case", u.username);
     }
