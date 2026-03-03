@@ -28,10 +28,15 @@ export type StatusResponse = {
 // TypeScript: Extend the Window interface to include our runtime config.
 // The 'declare global' block tells TypeScript "this property might exist on window"
 // without actually creating it — the container entrypoint creates it at runtime.
+//
+// authLogoutUrl is optional so that older deployments that haven't updated their
+// docker-entrypoint.sh yet still satisfy the type — Header.tsx falls back to a
+// hardcoded default if it's missing (same pattern as Rust's Option<T>).
 declare global {
     interface Window {
         __COLOSSUS_CONFIG__?: {
             apiUrl: string;
+            authLogoutUrl?: string;
         };
     }
 }

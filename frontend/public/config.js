@@ -2,5 +2,6 @@
 // In container deployments, docker-entrypoint.sh overwrites this file
 // with the real API URL from the COLOSSUS_API_URL environment variable.
 window.__COLOSSUS_CONFIG__ = {
-  apiUrl: "http://localhost:3403"
+  apiUrl: "http://localhost:3403",
+  authLogoutUrl: "https://auth.cogmai.com/application/o/colossus-services/end-session/"
 };

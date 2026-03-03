@@ -23,7 +23,6 @@ pub mod evidence_chain;
 pub mod graph;
 pub mod harms;
 pub mod import;
-pub mod logout;
 pub mod persons;
 pub mod queries;
 pub mod schema;
@@ -76,7 +75,6 @@ pub fn router() -> Router<AppState> {
         .route("/admin/embed-all", post(embed::run_embed_all))
         .route("/search", post(search::semantic_search))
         .route("/ask", post(ask::ask_the_case))
-        .route("/api/logout", post(logout::logout_handler))
 }
 
 async fn health_check(State(_state): State<AppState>) -> (StatusCode, &'static str) {

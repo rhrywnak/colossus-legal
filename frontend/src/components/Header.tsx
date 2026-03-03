@@ -1,8 +1,6 @@
 import React from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { API_BASE_URL } from "../services/api";
-import { authFetch } from "../services/auth";
 
 // ─── Navigation items ────────────────────────────────────────────────────────
 const NAV_ITEMS = [
@@ -13,7 +11,12 @@ const NAV_ITEMS = [
   { label: "Analysis", path: "/analysis" },
 ];
 
-const SIGN_OUT_URL = "https://auth.cogmai.com/if/flow/default-invalidation-flow/";
+// OIDC end-session URL — read from runtime config, fallback to hardcoded default.
+// This is the correct logout mechanism for Authentik ForwardAuth apps.
+// See: AUTH_LOGOUT_SESSION_TRANSITION.md, Lesson #4
+const AUTH_LOGOUT_URL: string =
+    (typeof window !== "undefined" && window.__COLOSSUS_CONFIG__?.authLogoutUrl)
+    || "https://auth.cogmai.com/application/o/colossus-services/end-session/";
 
 // ─── Styles ──────────────────────────────────────────────────────────────────
 const headerStyle: React.CSSProperties = {
@@ -182,12 +185,8 @@ const Header: React.FC = () => {
             {isAuthenticated && (
               <button
                 style={signOutStyle}
-                onClick={async () => {
-                  // Clear HttpOnly proxy cookies via backend (authentik #17922 workaround)
-                  try {
-                    await authFetch(`${API_BASE_URL}/api/logout`, { method: "POST" });
-                  } catch (_) { /* best-effort — still redirect */ }
-                  window.location.href = SIGN_OUT_URL;
+                onClick={() => {
+                  window.location.href = AUTH_LOGOUT_URL;
                 }}
               >
                 Sign Out
