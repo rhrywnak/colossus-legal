@@ -9,10 +9,10 @@ use axum::response::{IntoResponse, Redirect};
 /// cannot be cleared by JavaScript. The browser must navigate (not fetch) to this
 /// endpoint so the Set-Cookie header is processed as a navigation response.
 ///
-/// Flow: Sign Out button → GET /api/logout → Set-Cookie (expire) + 302 → end-session → login page
+/// Flow: Sign Out button → GET /api/logout → Set-Cookie (expire) + 302 → outpost sign_out → login page
 pub async fn logout() -> impl IntoResponse {
     let logout_url = std::env::var("AUTH_LOGOUT_URL").unwrap_or_else(|_| {
-        "https://auth.cogmai.com/application/o/colossus-services/end-session/".to_string()
+        "https://colossus-legal-dev.cogmai.com/outpost.goauthentik.io/sign_out".to_string()
     });
 
     let mut headers = HeaderMap::new();
