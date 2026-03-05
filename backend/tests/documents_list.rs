@@ -85,6 +85,7 @@ async fn get_documents_returns_non_empty_when_data_exists() -> TestResult<()> {
     let state = AppState {
         graph: graph.clone(),
         config,
+        rag_pipeline: None,
     };
     let response = list_documents(None, State(state)).await.into_response();
 
@@ -119,6 +120,7 @@ async fn get_documents_returns_empty_when_no_data() -> TestResult<()> {
     let state = AppState {
         graph: graph.clone(),
         config,
+        rag_pipeline: None,
     };
     let response = list_documents(None, State(state)).await.into_response();
 

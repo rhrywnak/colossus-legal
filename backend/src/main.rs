@@ -4,6 +4,7 @@ use axum::{routing::get, Json, Router};
 use hyper::http::{HeaderValue, Method};
 use serde::Serialize;
 use std::net::SocketAddr;
+use std::sync::Arc;
 use tokio::net::TcpListener;
 use tower_http::cors::CorsLayer;
 use tracing_subscriber::EnvFilter;
@@ -56,8 +57,21 @@ async fn main() {
         .await
         .expect("Neo4j connectivity check failed");
 
+    // Build the RAG pipeline from config (if API key is available).
+    //
+    // ## Rust Learning: Graceful degradation with Option
+    //
+    // If the Anthropic API key is missing, we can't build the synthesizer,
+    // so we set rag_pipeline = None. The /ask endpoint checks this and
+    // returns 503 Service Unavailable. All other endpoints work fine.
+    let rag_pipeline = build_rag_pipeline(&config, &graph).await;
+
     // Shared application state (global AppState)
-    let state = AppState { graph, config };
+    let state = AppState {
+        graph,
+        config,
+        rag_pipeline,
+    };
 
     // Port
     let port: u16 = std::env::var("BACKEND_PORT")
@@ -123,4 +137,111 @@ async fn main() {
     let listener = TcpListener::bind(addr).await.expect("Failed to bind port");
 
     axum::serve(listener, app).await.expect("Server error");
+}
+
+// ---------------------------------------------------------------------------
+// RAG pipeline construction
+// ---------------------------------------------------------------------------
+
+/// Build the colossus-rag pipeline from environment config.
+///
+/// Returns `None` if the Anthropic API key is not configured (graceful
+/// degradation — the rest of the app still works, only /ask returns 503).
+///
+/// ## Rust Learning: Why `async`?
+///
+/// This function is async even though most component construction is sync,
+/// because we need to be inside the tokio runtime to set up the Qdrant gRPC
+/// connection (qdrant-client uses tokio internally).
+///
+/// ## Pipeline components wired here:
+///
+/// 1. **RuleBasedRouter** — keyword-based routing with Awad v CFS aliases
+/// 2. **QdrantRetriever** — embeds via rig-fastembed, searches via Qdrant gRPC
+/// 3. **Neo4jExpander** — traverses Neo4j relationships from seed nodes
+/// 4. **LegalAssembler** — formats chunks into a context prompt
+/// 5. **RigSynthesizer** — calls Claude API via rig-core
+async fn build_rag_pipeline(
+    config: &AppConfig,
+    graph: &neo4rs::Graph,
+) -> Option<Arc<colossus_rag::RagPipeline>> {
+    use colossus_rag::{
+        LegalAssembler, Neo4jExpander, QdrantRetriever, RagPipeline,
+        RigSynthesizer, RuleBasedRouter,
+    };
+
+    // Check for API key first — no key means no pipeline.
+    let api_key = config.anthropic_api_key.as_deref()?;
+
+    // --- Router: rule-based with legal case aliases ---
+    let router = RuleBasedRouter::legal_defaults();
+
+    // --- Retriever: fastembed + Qdrant gRPC ---
+    //
+    // ## Rust Learning: gRPC vs REST for Qdrant
+    //
+    // The old Minerva pipeline used Qdrant's REST API (port 6333) via reqwest.
+    // colossus-rag uses the official qdrant-client crate which speaks gRPC
+    // (port 6334) — faster for batch operations and type-safe. We derive
+    // the gRPC URL from the existing REST URL in config.
+    let qdrant_grpc_url = config.qdrant_url.replace(":6333", ":6334");
+
+    let fastembed_client = rig_fastembed::Client::new();
+    let embedding_model = Arc::new(
+        fastembed_client.embedding_model(&rig_fastembed::FastembedModel::NomicEmbedTextV15),
+    );
+
+    let qdrant_client = match qdrant_client::Qdrant::from_url(&qdrant_grpc_url)
+        .skip_compatibility_check()
+        .build()
+    {
+        Ok(client) => Arc::new(client),
+        Err(e) => {
+            tracing::error!("Failed to create Qdrant gRPC client: {e}");
+            return None;
+        }
+    };
+
+    let retriever = QdrantRetriever::new(
+        embedding_model,
+        qdrant_client,
+        "colossus_evidence",
+        0.0, // No score threshold — let the assembler handle ranking
+    );
+
+    // --- Expander: Neo4j graph traversal ---
+    let expander = Neo4jExpander::new(Arc::new(graph.clone()));
+
+    // --- Assembler: legal context formatting ---
+    let assembler = LegalAssembler::new();
+
+    // --- Synthesizer: Claude via rig-core ---
+    let synthesizer = match RigSynthesizer::claude(api_key, &config.anthropic_model, 4096) {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::error!("Failed to create RigSynthesizer: {e}");
+            return None;
+        }
+    };
+
+    // --- Wire everything together ---
+    match RagPipeline::builder()
+        .router(Box::new(router))
+        .retriever(Box::new(retriever))
+        .expander(Box::new(expander))
+        .assembler(Box::new(assembler))
+        .synthesizer(Box::new(synthesizer))
+        .max_context_tokens(6000)
+        .search_limit(10)
+        .build()
+    {
+        Ok(pipeline) => {
+            tracing::info!("RAG pipeline initialized successfully");
+            Some(Arc::new(pipeline))
+        }
+        Err(e) => {
+            tracing::error!("Failed to build RAG pipeline: {e}");
+            None
+        }
+    }
 }

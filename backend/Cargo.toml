@@ -5,6 +5,13 @@ edition = "2021"
 
 [dependencies]
 colossus-auth = { git = "https://github.com/rhrywnak/colossus-rs.git", branch = "main" }
+# ## Rust Learning: Git dependency with feature flags
+#
+# `colossus-rag` lives in the same monorepo (colossus-rs) as colossus-auth.
+# `features = ["full"]` enables all backends: Qdrant, fastembed, Neo4j.
+# The `branch` points to the feature branch where the pipeline was built.
+# Once merged to main, change this to `branch = "main"`.
+colossus-rag = { git = "https://github.com/rhrywnak/colossus-rs.git", branch = "feature/colossus-rag-scaffold", features = ["full"] }
 axum = "0.7"
 hyper = { version = "1", features = ["full"] }
 tokio = { version = "1", features = ["full"] }
@@ -19,7 +26,15 @@ neo4rs = "0.8"
 dotenvy = "0.15"
 tokio-stream = "0.1"
 tokio-util = { version = "0.7", features = ["io"] }
-fastembed = "5"
+# Downgraded from 5 to 4 to resolve `ort` version conflict with rig-fastembed.
+# fastembed 5 needs ort 2.0.0-rc.11, rig-fastembed needs ort 2.0.0-rc.9.
+# Both use the same NomicEmbedTextV15 model — API is compatible.
+fastembed = "4"
+# rig-fastembed and qdrant-client are used in main.rs to construct the
+# QdrantRetriever for the RAG pipeline. They come transitively via colossus-rag
+# but we need them as direct deps to use their types in our binary.
+rig-fastembed = "0.2"
+qdrant-client = { version = "1.14", default-features = false }
 reqwest = { version = "0.12", features = ["json"] }
 thiserror = "2"
 anyhow = "1"

@@ -89,6 +89,7 @@ async fn create_claim_rejects_empty_title() -> TestResult<()> {
     let state = AppState {
         graph: graph.clone(),
         config,
+        rag_pipeline: None,
     };
 
     let payload = ClaimCreateRequest {
@@ -117,6 +118,7 @@ async fn create_claim_rejects_invalid_status() -> TestResult<()> {
     let state = AppState {
         graph: graph.clone(),
         config,
+        rag_pipeline: None,
     };
 
     let payload = ClaimCreateRequest {
@@ -145,6 +147,7 @@ async fn get_claim_returns_404_when_missing() -> TestResult<()> {
     let state = AppState {
         graph: graph.clone(),
         config,
+        rag_pipeline: None,
     };
 
     let response = get_claim(None, State(state), axum::extract::Path("no-such".to_string()))
@@ -179,6 +182,7 @@ async fn update_claim_rejects_invalid_status() -> TestResult<()> {
     let state = AppState {
         graph: graph.clone(),
         config,
+        rag_pipeline: None,
     };
 
     let payload = ClaimUpdateRequest {
@@ -213,6 +217,7 @@ async fn happy_path_create_and_get_claim() -> TestResult<()> {
     let state = AppState {
         graph: graph.clone(),
         config,
+        rag_pipeline: None,
     };
 
     let payload = ClaimCreateRequest {
