@@ -1,0 +1,23 @@
+# .cargo/config.toml — Cargo configuration for container builds
+#
+# RUST LEARNING NOTE: Cargo Patch Overrides
+#
+# Problem: Cargo.toml references colossus-rag and colossus-auth from a private
+# GitHub repo. Inside a Docker build, there are no GitHub credentials, so cargo
+# can't fetch the dependency.
+#
+# Solution: The [patch] section tells cargo "when you encounter this git URL,
+# use the local path instead." The build script (build-release.sh) copies the
+# colossus-rs source into the build context at .colossus-rs-build/, and the
+# Dockerfile copies it to /build/colossus-rs/.
+#
+# This is a standard Rust pattern for CI/CD builds with private dependencies.
+# The local path is only valid inside the Docker build — on your workstation,
+# cargo uses the git URL directly (since you have SSH keys configured).
+#
+# NOTE: This file is ONLY used during Docker builds. For local development,
+# cargo ignores this because the git URL resolves fine with your SSH key.
+
+[patch."https://github.com/rhrywnak/colossus-rs.git"]
+colossus-rag = { path = "/build/colossus-rs/colossus-rag" }
+colossus-auth = { path = "/build/colossus-rs/colossus-auth" }

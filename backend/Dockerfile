@@ -25,6 +25,13 @@
 # prebuilt libraries compiled against glibc 2.38+. Debian Bookworm has glibc 2.36
 # which causes __isoc23_strtol linker errors. Ubuntu 24.04 has glibc 2.39,
 # matching the dev workstation. Always keep builder and runtime glibc in sync.
+#
+# PRIVATE GIT DEPENDENCY NOTE:
+# Cargo.toml references colossus-rag and colossus-auth from a private GitHub repo
+# (colossus-rs). Docker builds can't access private repos without credentials.
+# Instead, build-release.sh copies the colossus-rs source into the build context,
+# and .cargo/config.toml overrides the git URLs to use local paths.
+# This avoids putting GitHub tokens in the Docker image.
 # ==============================================================================
 
 # ── Stage 1: Build ──────────────────────────────────────────────────────────────
@@ -46,6 +53,16 @@ ENV PATH="/root/.cargo/bin:${PATH}"
 
 WORKDIR /build
 
+# ── Copy colossus-rs (shared library workspace) ────────────────────────────────
+# build-release.sh stages this directory before running podman build.
+# It contains colossus-auth and colossus-rag source code.
+COPY .colossus-rs-build/ /build/colossus-rs/
+
+# ── Copy cargo config that redirects git deps to local paths ───────────────────
+# This tells cargo: "when you see git = 'https://github.com/rhrywnak/colossus-rs.git',
+# use the local /build/colossus-rs/ directory instead of fetching from GitHub."
+COPY .cargo/ /build/.cargo/
+
 # OPTIMIZATION: Copy dependency files first, then build dependencies.
 # Docker caches each layer. If Cargo.toml hasn't changed, Docker reuses the
 # cached dependency build — saving 5-10 minutes on rebuilds when only your
@@ -58,16 +75,19 @@ COPY Cargo.toml Cargo.lock ./
 # (that would bust the cache every time we change a line of code).
 RUN mkdir src && \
     echo 'fn main() { println!("placeholder"); }' > src/main.rs && \
-    echo 'pub mod config; pub mod api; pub mod dto; pub mod error; pub mod models; pub mod neo4j; pub mod repositories; pub mod services; pub mod state;' > src/lib.rs && \
+    echo 'pub mod config; pub mod api; pub mod dto; pub mod error; pub mod models; pub mod neo4j; pub mod repositories; pub mod services; pub mod state; pub mod auth;' > src/lib.rs && \
     mkdir -p src/api src/dto src/models src/repositories src/services && \
     touch src/api/mod.rs src/dto/mod.rs src/models/mod.rs src/repositories/mod.rs src/services/mod.rs && \
     echo 'pub struct AppConfig { pub neo4j_uri: String, pub neo4j_user: String, pub neo4j_password: String, pub document_storage_path: String, }' > src/config.rs && \
     echo 'pub struct AppState {}' > src/state.rs && \
     echo '' > src/error.rs && \
-    echo '' > src/neo4j.rs
+    echo '' > src/neo4j.rs && \
+    echo '' > src/auth.rs
 
 # Build dependencies only (this layer gets cached)
-RUN cargo build --release --locked 2>/dev/null || true
+# NOTE: || true because the dummy source won't fully compile — we only want
+# to download and compile DEPENDENCIES, not our code.
+RUN cargo build --release 2>/dev/null || true
 
 # Now copy the real source code
 COPY src/ src/
@@ -76,7 +96,10 @@ COPY src/ src/
 RUN touch src/main.rs src/lib.rs
 
 # Build the actual application
-RUN cargo build --release --locked
+# NOTE: --locked removed because the local path override changes the lockfile
+# resolution. The Cargo.lock in the repo references git URLs, but we're building
+# with local paths. cargo will verify versions match but won't enforce exact URLs.
+RUN cargo build --release
 
 # ── Stage 2: Runtime ────────────────────────────────────────────────────────────
 FROM docker.io/library/ubuntu:24.04
