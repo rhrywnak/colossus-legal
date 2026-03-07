@@ -28,3 +28,6 @@ __pycache__/
 *.pyc
 
 docs/save/
+
+# ONNX model cache (large binary files)
+.fastembed_cache/
