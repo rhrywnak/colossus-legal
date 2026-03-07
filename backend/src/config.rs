@@ -8,7 +8,7 @@ pub struct AppConfig {
     pub fastembed_cache_path: String,
     /// Anthropic API key — None means /ask returns 503 but the rest of the app works.
     pub anthropic_api_key: Option<String>,
-    /// Claude model ID for synthesis (default: claude-sonnet-4-20250514).
+    /// Claude model ID for synthesis (default: claude-sonnet-4-6).
     pub anthropic_model: String,
 }
 
@@ -37,7 +37,7 @@ impl AppConfig {
         let anthropic_api_key = std::env::var("ANTHROPIC_API_KEY").ok();
 
         let anthropic_model = std::env::var("ANTHROPIC_MODEL")
-            .unwrap_or_else(|_| "claude-sonnet-4-20250514".to_string());
+            .unwrap_or_else(|_| "claude-sonnet-4-6".to_string());
 
         Ok(Self {
             neo4j_uri,
