@@ -90,6 +90,7 @@ async fn create_claim_rejects_empty_title() -> TestResult<()> {
         graph: graph.clone(),
         config,
         rag_pipeline: None,
+        http_client: reqwest::Client::new(),
     };
 
     let payload = ClaimCreateRequest {
@@ -119,6 +120,7 @@ async fn create_claim_rejects_invalid_status() -> TestResult<()> {
         graph: graph.clone(),
         config,
         rag_pipeline: None,
+        http_client: reqwest::Client::new(),
     };
 
     let payload = ClaimCreateRequest {
@@ -148,6 +150,7 @@ async fn get_claim_returns_404_when_missing() -> TestResult<()> {
         graph: graph.clone(),
         config,
         rag_pipeline: None,
+        http_client: reqwest::Client::new(),
     };
 
     let response = get_claim(None, State(state), axum::extract::Path("no-such".to_string()))
@@ -183,6 +186,7 @@ async fn update_claim_rejects_invalid_status() -> TestResult<()> {
         graph: graph.clone(),
         config,
         rag_pipeline: None,
+        http_client: reqwest::Client::new(),
     };
 
     let payload = ClaimUpdateRequest {
@@ -218,6 +222,7 @@ async fn happy_path_create_and_get_claim() -> TestResult<()> {
         graph: graph.clone(),
         config,
         rag_pipeline: None,
+        http_client: reqwest::Client::new(),
     };
 
     let payload = ClaimCreateRequest {

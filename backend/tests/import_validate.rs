@@ -26,7 +26,7 @@ async fn setup_app() -> TestResult<Router> {
     let graph = create_neo4j_graph(&config)
         .await
         .map_err(|e| format!("neo4j connect error: {e}"))?;
-    let state = AppState { graph, config, rag_pipeline: None };
+    let state = AppState { graph, config, rag_pipeline: None, http_client: reqwest::Client::new() };
     Ok(router().with_state(state))
 }
 

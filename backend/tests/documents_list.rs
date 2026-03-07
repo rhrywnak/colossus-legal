@@ -86,6 +86,7 @@ async fn get_documents_returns_non_empty_when_data_exists() -> TestResult<()> {
         graph: graph.clone(),
         config,
         rag_pipeline: None,
+        http_client: reqwest::Client::new(),
     };
     let response = list_documents(None, State(state)).await.into_response();
 
@@ -121,6 +122,7 @@ async fn get_documents_returns_empty_when_no_data() -> TestResult<()> {
         graph: graph.clone(),
         config,
         rag_pipeline: None,
+        http_client: reqwest::Client::new(),
     };
     let response = list_documents(None, State(state)).await.into_response();
 

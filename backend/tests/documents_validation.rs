@@ -66,6 +66,7 @@ async fn create_document_rejects_empty_title() -> TestResult<()> {
         graph: graph.clone(),
         config,
         rag_pipeline: None,
+        http_client: reqwest::Client::new(),
     };
 
     let payload = base_create_payload("", "pdf");
@@ -91,6 +92,7 @@ async fn create_document_rejects_invalid_doc_type() -> TestResult<()> {
         graph: graph.clone(),
         config,
         rag_pipeline: None,
+        http_client: reqwest::Client::new(),
     };
 
     let payload = base_create_payload("Valid Title", "invalid-type");
@@ -116,6 +118,7 @@ async fn create_document_rejects_invalid_created_at() -> TestResult<()> {
         graph: graph.clone(),
         config,
         rag_pipeline: None,
+        http_client: reqwest::Client::new(),
     };
 
     let mut payload = base_create_payload("Valid Title", "pdf");
@@ -142,6 +145,7 @@ async fn get_document_returns_404_when_missing() -> TestResult<()> {
         graph: graph.clone(),
         config,
         rag_pipeline: None,
+        http_client: reqwest::Client::new(),
     };
 
     let response = get_document(None, State(state), axum::extract::Path("no-such".to_string()))
@@ -165,6 +169,7 @@ async fn update_document_rejects_invalid_doc_type() -> TestResult<()> {
         graph: graph.clone(),
         config,
         rag_pipeline: None,
+        http_client: reqwest::Client::new(),
     };
 
     let payload = base_create_payload("Title", "pdf");
@@ -213,6 +218,7 @@ async fn update_document_returns_404_when_missing() -> TestResult<()> {
         graph: graph.clone(),
         config,
         rag_pipeline: None,
+        http_client: reqwest::Client::new(),
     };
 
     let update_payload = DocumentUpdateRequest {
@@ -252,6 +258,7 @@ async fn happy_path_create_get_update_document() -> TestResult<()> {
         graph: graph.clone(),
         config,
         rag_pipeline: None,
+        http_client: reqwest::Client::new(),
     };
 
     let mut payload = base_create_payload("Happy Title", "pdf");
