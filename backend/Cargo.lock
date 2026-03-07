@@ -495,7 +495,7 @@ dependencies = [
 [[package]]
 name = "colossus-rag"
 version = "0.1.0"
-source = "git+https://github.com/rhrywnak/colossus-rs.git?branch=feature%2Fcolossus-rag-scaffold#d34a1e40116d93839789021daaeb6e1ed3b2790f"
+source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.1.0-rag#d34a1e40116d93839789021daaeb6e1ed3b2790f"
 dependencies = [
  "async-trait",
  "neo4rs",
