@@ -25,6 +25,7 @@ export async function askTheCase(question: string): Promise<AskResponse> {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question }),
+        timeoutMs: 120000,  // 2 minutes for RAG synthesis
     });
     if (!response.ok) {
         const body = await response.text();

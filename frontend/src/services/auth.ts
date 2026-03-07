@@ -37,18 +37,35 @@ export type AuthUser = {
 // ─── Credentialed fetch wrapper ─────────────────────────────────────────────
 
 /**
- * Drop-in replacement for fetch() that adds `credentials: 'include'`.
- * Same signature as window.fetch — all service files can swap with no
- * other changes.
+ * Drop-in replacement for fetch() that adds credentials and a timeout.
+ * Default timeout is 30s; callers can override via options.signal or
+ * by passing a custom timeout.
  */
 export async function authFetch(
     url: string,
-    options?: RequestInit,
+    options?: RequestInit & { timeoutMs?: number },
 ): Promise<Response> {
-    return fetch(url, {
-        ...options,
-        credentials: "include",
-    });
+    const { timeoutMs = 30000, ...fetchOptions } = options ?? {};
+
+    // If caller already provided a signal, respect it; otherwise create a timeout
+    if (fetchOptions.signal) {
+        return fetch(url, {
+            ...fetchOptions,
+            credentials: "include",
+        });
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        return await fetch(url, {
+            ...fetchOptions,
+            credentials: "include",
+            signal: controller.signal,
+        });
+    } finally {
+        clearTimeout(timeoutId);
+    }
 }
 
 // ─── Get current user ───────────────────────────────────────────────────────
