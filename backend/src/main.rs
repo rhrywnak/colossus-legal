@@ -66,11 +66,21 @@ async fn main() {
     // returns 503 Service Unavailable. All other endpoints work fine.
     let rag_pipeline = build_rag_pipeline(&config, &graph).await;
 
+    // Shared HTTP client with timeouts — reused across all handlers.
+    // reqwest::Client pools connections internally, so sharing one client
+    // is both faster and safer than creating a new one per request.
+    let http_client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(90))
+        .connect_timeout(std::time::Duration::from_secs(5))
+        .build()
+        .expect("failed to build HTTP client");
+
     // Shared application state (global AppState)
     let state = AppState {
         graph,
         config,
         rag_pipeline,
+        http_client,
     };
 
     // Port

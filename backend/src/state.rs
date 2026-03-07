@@ -25,4 +25,8 @@ pub struct AppState {
     /// The RAG pipeline — None if ANTHROPIC_API_KEY is not set.
     /// Shared across all request handlers via Arc (RagPipeline is not Clone).
     pub rag_pipeline: Option<Arc<colossus_rag::RagPipeline>>,
+
+    /// Shared HTTP client with timeouts for all outbound requests.
+    /// reqwest::Client uses an internal Arc, so cloning is cheap.
+    pub http_client: reqwest::Client,
 }

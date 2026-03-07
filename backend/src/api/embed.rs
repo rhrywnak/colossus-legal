@@ -40,11 +40,11 @@ pub async fn run_embed_all(
         (StatusCode::FORBIDDEN, Json(ErrorResponse { error: e.message }))
     })?;
     tracing::info!("{} POST /admin/embed-all", user.username);
-    let http_client = reqwest::Client::new();
+    let http_client = &state.http_client;
 
     let result = embedding_pipeline::run_embedding_pipeline(
         &state.graph,
-        &http_client,
+        http_client,
         &state.config.qdrant_url,
         &state.config.fastembed_cache_path,
     )

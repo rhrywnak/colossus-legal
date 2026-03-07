@@ -115,10 +115,10 @@ pub async fn semantic_search(
         )
     })?;
 
-    // Search Qdrant
-    let http_client = reqwest::Client::new();
+    // Search Qdrant (using shared client with timeouts from AppState)
+    let http_client = &state.http_client;
     let results = qdrant_service::search_points(
-        &http_client,
+        http_client,
         &state.config.qdrant_url,
         vector,
         limit,
