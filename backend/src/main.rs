@@ -23,15 +23,10 @@ struct StatusResponse {
     status: &'static str,
 }
 
-#[allow(dead_code)]
-async fn health_check() -> &'static str {
-    "OK"
-}
-
 async fn api_status() -> Json<StatusResponse> {
     Json(StatusResponse {
         app: "colossus-legal-backend",
-        version: "0.1.0",
+        version: env!("CARGO_PKG_VERSION"),
         status: "ok",
     })
 }
