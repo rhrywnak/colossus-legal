@@ -1,7 +1,7 @@
 use axum::{
     extract::State,
     http::StatusCode,
-    routing::{get, post, put},
+    routing::{get, patch, post, put},
     Router,
 };
 
@@ -25,6 +25,7 @@ pub mod harms;
 pub mod import;
 pub mod logout;
 pub mod persons;
+pub mod qa;
 pub mod queries;
 pub mod schema;
 pub mod search;
@@ -77,6 +78,9 @@ pub fn router() -> Router<AppState> {
         .route("/admin/embed-all", post(embed::run_embed_all))
         .route("/search", post(search::semantic_search))
         .route("/ask", post(ask::ask_the_case))
+        .route("/api/qa-history", get(qa::get_qa_history))
+        .route("/api/qa/:id", get(qa::get_qa_entry))
+        .route("/api/qa/:id/rate", patch(qa::rate_qa_entry))
 }
 
 async fn health_check(State(_state): State<AppState>) -> (StatusCode, &'static str) {

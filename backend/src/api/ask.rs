@@ -27,6 +27,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::api::embed::ErrorResponse;
 use crate::auth::{AuthUser, require_ai};
+use crate::repositories::qa_repository::{self, CreateQAEntry};
 use crate::state::AppState;
 
 // ---------------------------------------------------------------------------
@@ -36,6 +37,9 @@ use crate::state::AppState;
 #[derive(Debug, Deserialize)]
 pub struct AskRequest {
     pub question: String,
+    /// Optional parent QA ID for follow-up questions.
+    #[serde(default)]
+    pub parent_qa_id: Option<String>,
 }
 
 /// The response shape the frontend expects.
@@ -52,6 +56,9 @@ pub struct AskResponse {
     pub answer: String,
     pub provider: String,
     pub retrieval_stats: RetrievalStats,
+    /// The persisted QAEntry ID (None if persistence failed).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub qa_id: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -125,22 +132,60 @@ pub async fn ask_the_case(
         "Ask the Case completed"
     );
 
+    // Build retrieval stats for response and metadata.
+    let retrieval_stats = RetrievalStats {
+        qdrant_hits: result.stats.qdrant_hits,
+        graph_nodes_expanded: result.stats.graph_nodes_expanded,
+        context_tokens: result.stats.context_tokens_approx,
+        input_tokens: result.stats.input_tokens.unwrap_or(0),
+        output_tokens: result.stats.output_tokens.unwrap_or(0),
+        search_ms: result.stats.search_ms,
+        expand_ms: result.stats.expand_ms,
+        synthesis_ms: result.stats.synthesize_ms,
+        total_ms: result.stats.total_ms,
+    };
+
+    // Persist Q&A entry to Neo4j.
+    // Try to persist, log on failure, but always return the answer.
+    let metadata = serde_json::json!({
+        "qdrant_hits": retrieval_stats.qdrant_hits,
+        "graph_nodes_expanded": retrieval_stats.graph_nodes_expanded,
+        "context_tokens": retrieval_stats.context_tokens,
+        "input_tokens": retrieval_stats.input_tokens,
+        "output_tokens": retrieval_stats.output_tokens,
+        "search_ms": retrieval_stats.search_ms,
+        "expand_ms": retrieval_stats.expand_ms,
+        "synthesis_ms": retrieval_stats.synthesis_ms,
+        "total_ms": retrieval_stats.total_ms,
+    });
+
+    let qa_create = CreateQAEntry {
+        scope_type: "case".to_string(),
+        scope_id: "awad-v-cfs-2011".to_string(),
+        session_id: None,
+        question: question.clone(),
+        answer: result.answer.clone(),
+        asked_by: user.username.clone(),
+        model: result.stats.model.clone(),
+        parent_qa_id: req.parent_qa_id,
+        metadata: Some(metadata),
+    };
+
+    let qa_id = qa_repository::create_qa_entry(&state.graph, qa_create)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to persist QA entry: {e}");
+        })
+        .ok()
+        .map(|e| e.id);
+
     // Map RagResult → AskResponse (preserving the frontend's expected shape).
     Ok(Json(AskResponse {
         question,
         answer: result.answer,
         provider: result.stats.model.clone(),
-        retrieval_stats: RetrievalStats {
-            qdrant_hits: result.stats.qdrant_hits,
-            graph_nodes_expanded: result.stats.graph_nodes_expanded,
-            context_tokens: result.stats.context_tokens_approx,
-            input_tokens: result.stats.input_tokens.unwrap_or(0),
-            output_tokens: result.stats.output_tokens.unwrap_or(0),
-            search_ms: result.stats.search_ms,
-            expand_ms: result.stats.expand_ms,
-            synthesis_ms: result.stats.synthesize_ms,
-            total_ms: result.stats.total_ms,
-        },
+        retrieval_stats,
+        qa_id,
     }))
 }
 
