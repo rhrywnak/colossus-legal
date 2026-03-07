@@ -185,15 +185,17 @@ pub async fn get_document_file(
     let body = Body::from_stream(stream);
 
     // 7. Return with PDF headers
-    Ok(Response::builder()
+    Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "application/pdf")
         .header(
             header::CONTENT_DISPOSITION,
-            format!("inline; filename=\"{}\"", file_path),
+            format!("inline; filename=\"{file_path}\""),
         )
         .body(body)
-        .unwrap())
+        .map_err(|_| AppError::Internal {
+            message: "failed to build response".to_string(),
+        })
 }
 
 fn map_repo_error(err: DocumentRepositoryError) -> AppError {
