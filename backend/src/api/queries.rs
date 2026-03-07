@@ -4,7 +4,7 @@ use axum::{
     Json,
 };
 
-use crate::auth::AuthUser;
+use crate::auth::{AuthUser, require_admin};
 use crate::dto::query::{QueryListResponse, QueryResultResponse};
 use crate::repositories::query_repository::QueryRepository;
 use crate::state::AppState;
@@ -22,14 +22,14 @@ pub async fn list_queries(
 }
 
 /// GET /queries/:id/run — execute a pre-registered query by id.
+/// Requires admin auth since this runs raw Cypher queries against Neo4j.
 pub async fn run_query(
-    user: Option<AuthUser>,
+    user: AuthUser,
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<QueryResultResponse>, StatusCode> {
-    if let Some(ref u) = user {
-        tracing::info!("{} GET /queries/{}/run", u.username, id);
-    }
+    require_admin(&user).map_err(|_| StatusCode::FORBIDDEN)?;
+    tracing::info!("{} GET /queries/{}/run", user.username, id);
     let repo = QueryRepository::new(state.graph.clone());
     match repo.run_query(&id).await {
         Ok(result) => Ok(Json(result)),
