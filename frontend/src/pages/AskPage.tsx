@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { askTheCase, AskResponse } from "../services/ask";
+import MarkdownAnswer from "../components/MarkdownAnswer";
+import ExportButtons from "../components/ExportButtons";
 
 const AskPage: React.FC = () => {
   const [searchParams] = useSearchParams();
@@ -155,21 +157,15 @@ const AnswerDisplay: React.FC<{ response: AskResponse }> = ({ response }) => {
 
   return (
     <div>
-      {/* Answer text */}
+      {/* Answer text with markdown rendering */}
       <div style={{
-        padding: "1.5rem", backgroundColor: "#f9fafb", borderRadius: "8px",
-        border: "1px solid #e5e7eb", lineHeight: 1.7, marginBottom: "1rem",
+        padding: "1.5rem", backgroundColor: "#ffffff", borderRadius: "8px",
+        border: "1px solid #e5e7eb", marginBottom: "1rem",
       }}>
-        {response.answer.split("\n\n").map((paragraph, idx) => (
-          <p key={idx} style={{ margin: idx === 0 ? 0 : "1rem 0 0" }}>
-            {paragraph.split("\n").map((line, lineIdx) => (
-              <React.Fragment key={lineIdx}>
-                {lineIdx > 0 && <br />}
-                {line}
-              </React.Fragment>
-            ))}
-          </p>
-        ))}
+        <MarkdownAnswer content={response.answer} />
+        <div style={{ marginTop: "1rem", paddingTop: "0.75rem", borderTop: "1px solid #f3f4f6" }}>
+          <ExportButtons markdown={response.answer} question={response.question} />
+        </div>
       </div>
 
       {/* Stats bar */}

@@ -218,7 +218,10 @@ async fn build_rag_pipeline(
     let expander = Neo4jExpander::new(Arc::new(graph.clone()));
 
     // --- Assembler: legal context formatting ---
-    let assembler = LegalAssembler::new();
+    // Custom system prompt with markdown FORMATTING rules appended.
+    // The base prompt + RULES come from the default; we override to add
+    // FORMATTING instructions so Claude returns markdown-structured answers.
+    let assembler = LegalAssembler::with_system_prompt(SYSTEM_PROMPT);
 
     // --- Synthesizer: Claude via rig-core ---
     let synthesizer = match RigSynthesizer::claude(api_key, &config.anthropic_model, 4096) {
@@ -250,3 +253,29 @@ async fn build_rag_pipeline(
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// System prompt with markdown formatting rules
+// ---------------------------------------------------------------------------
+
+const SYSTEM_PROMPT: &str = r#"You are a legal research assistant analyzing case evidence.
+
+You have been given evidence from a case knowledge graph, including verbatim quotes from sworn testimony, court filings, and documentary evidence. Each piece of evidence includes its source document and page number where available.
+
+RULES:
+1. Answer using ONLY the provided evidence. Do not infer facts not present in the evidence.
+2. For every factual claim in your answer, cite the specific evidence ID in parentheses, e.g., (evidence-phillips-q73).
+3. When evidence items contradict each other, note the contradiction explicitly and identify which party made each statement.
+4. If the provided evidence does not contain enough information to answer the question, say so clearly. Do not speculate.
+5. Use plain language accessible to a non-lawyer, but maintain legal precision for citations.
+6. When describing patterns (e.g., "Phillips repeatedly..."), list each specific instance with its citation.
+
+FORMATTING:
+- Use markdown formatting in your response.
+- Use **bold** for key names, dates, and legal terms on first mention.
+- Use ## headers to organize multi-part answers into clear sections.
+- Use > blockquotes for verbatim quotes from evidence.
+- Use numbered or bulleted lists when presenting multiple items.
+- Keep paragraphs focused — one main point per paragraph.
+- Do NOT use # (h1) headers — start with ## (h2) at the highest level.
+- Do NOT over-format. If the answer is a single paragraph, just write the paragraph without headers or lists."#;
