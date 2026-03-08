@@ -1,18 +1,6 @@
 //! Repository for QAEntry nodes in Neo4j.
-//!
-//! QAEntry is a generic Q&A persistence format designed to work across
-//! Colossus apps. App-specific data (retrieval stats, cited evidence)
-//! lives in the `metadata` JSON string field.
-//!
-//! ## Neo4j schema
-//!
-//! ```text
-//! (:QAEntry {id, scope_type, scope_id, session_id, question, answer,
-//!            asked_by, asked_at, model, rating, rating_by,
-//!            parent_qa_id, metadata})
-//!
-//! (:QAEntry)-[:ASKED_IN]->(:Case)   // colossus-legal specific
-//! ```
+//! QAEntry is a generic Q&A persistence format. App-specific data lives
+//! in the `metadata` JSON string field.
 
 use chrono::Utc;
 use neo4rs::{query, Graph};
@@ -81,6 +69,9 @@ pub struct QAEntrySummary {
     /// total_ms extracted from metadata for display.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total_ms: Option<i64>,
+    /// The requesting user's rating (1–5) for this entry, or None if unrated.
+    /// Populated by the handler after fetching from PostgreSQL.
+    pub user_rating: Option<i16>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -99,17 +90,8 @@ impl From<neo4rs::Error> for QAError {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Repository functions
-// ---------------------------------------------------------------------------
-
 /// Create a new QAEntry node and link it to the Case node via ASKED_IN.
-///
-/// ## Rust Learning: Parameterized Cypher
-///
-/// Every value is passed as a `$param` — never interpolated into the query
-/// string. This prevents Cypher injection (same idea as SQL injection).
-/// Neo4j's bolt protocol sends parameters separately from the query text.
+/// All values are parameterized ($param) to prevent Cypher injection.
 pub async fn create_qa_entry(
     graph: &Graph,
     entry: CreateQAEntry,
@@ -188,12 +170,7 @@ pub async fn create_qa_entry(
 }
 
 /// Get QAEntry history for a scope, newest first (summaries only).
-///
-/// ## Rust Learning: Truncating strings safely
-///
-/// `question.chars().take(200).collect()` is Unicode-safe — it won't
-/// split a multi-byte character in the middle. Using `&question[..200]`
-/// would panic on non-ASCII text.
+/// Question preview is truncated to 200 chars (Unicode-safe via `.chars().take()`).
 pub async fn get_qa_history(
     graph: &Graph,
     scope_type: &str,
@@ -248,6 +225,7 @@ pub async fn get_qa_history(
             rating: row.get("rating").ok(),
             parent_qa_id: row.get("parent_qa_id").ok(),
             total_ms,
+            user_rating: None,
         });
     }
 
@@ -308,62 +286,13 @@ pub async fn get_qa_entry(
     }))
 }
 
-/// Rate a QAEntry as "helpful" or "not_helpful".
-pub async fn rate_qa_entry(
-    graph: &Graph,
-    id: &str,
-    rating: &str,
-    rated_by: &str,
-) -> Result<(), QAError> {
-    if rating != "helpful" && rating != "not_helpful" {
-        return Err(QAError::InvalidRating(format!(
-            "must be 'helpful' or 'not_helpful', got '{rating}'"
-        )));
-    }
-
-    let mut result = graph
-        .execute(
-            query(
-                "MATCH (q:QAEntry {id: $id})
-                 SET q.rating = $rating, q.rating_by = $rated_by
-                 RETURN q.id AS id",
-            )
-            .param("id", id)
-            .param("rating", rating)
-            .param("rated_by", rated_by),
-        )
-        .await?;
-
-    if result.next().await?.is_none() {
-        return Err(QAError::NotFound(id.to_string()));
-    }
-
-    Ok(())
-}
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Convert an Option<String> to a neo4rs-compatible parameter value.
-///
-/// ## Rust Learning: Neo4j null parameters
-///
-/// neo4rs's `.param()` expects a value that implements `Into<BoltType>`.
-/// `String` maps to a bolt string, but `Option<String>` doesn't implement
-/// that trait directly. We convert `None` to an empty string placeholder
-/// and use `nullIf` in Cypher — but actually, neo4rs *does* support
-/// passing `""` which Neo4j stores as an empty string, not null.
-///
-/// To store actual null values, we pass the empty string and let Cypher
-/// handle it with `CASE WHEN $param = '' THEN null ELSE $param END`.
-/// However, that makes queries verbose. The simpler approach: pass the
-/// value and accept empty strings in the DB. On read, `.ok()` will
-/// return None for missing properties (which is what we want).
-///
-/// For this module, we store None as empty string on write, and use
-/// `.ok()` on read to get Option<String> back. Empty strings and null
-/// are treated equivalently as "not set".
+/// Convert Option<String> to a neo4rs parameter value.
+/// None becomes "" (empty string). On read, `.ok()` returns None for
+/// missing properties, so empty strings and null are equivalent.
 fn option_to_neo4j(opt: &Option<String>) -> String {
     opt.clone().unwrap_or_default()
 }

@@ -51,7 +51,7 @@ pub async fn get_qa_history(
 
     let limit = params.limit.unwrap_or(50).min(200);
 
-    let entries = qa_repository::get_qa_history(
+    let mut entries = qa_repository::get_qa_history(
         &state.graph,
         &params.scope_type,
         &params.scope_id,
@@ -59,6 +59,24 @@ pub async fn get_qa_history(
     )
     .await
     .map_err(map_qa_error)?;
+
+    // Batch-fetch this user's ratings from PostgreSQL and inject into summaries.
+    // Failure is non-fatal — entries still return with user_rating: null.
+    let qa_ids: Vec<String> = entries.iter().map(|e| e.id.clone()).collect();
+    let rating_repo = crate::repositories::rating_repository::RatingRepository::new(
+        state.pg_pool.clone(),
+    );
+    let user_ratings = rating_repo
+        .get_user_ratings_batch(&user.username, &qa_ids)
+        .await
+        .unwrap_or_else(|e| {
+            tracing::warn!("Failed to fetch ratings batch: {e}");
+            std::collections::HashMap::new()
+        });
+
+    for entry in &mut entries {
+        entry.user_rating = user_ratings.get(&entry.id).copied();
+    }
 
     Ok(Json(entries))
 }
