@@ -4,11 +4,11 @@ import { StarRating } from "./StarRating";
 
 interface Props {
   entry: QAEntrySummary;
-  onReAsk: (question: string) => void;
+  onClick: (entryId: string) => void;
   onRate: (rating: number) => void;
 }
 
-export function HistoryCard({ entry, onReAsk, onRate }: Props) {
+export function HistoryCard({ entry, onClick, onRate }: Props) {
   const [currentRating, setCurrentRating] = useState<number | null>(
     entry.user_rating
   );
@@ -26,7 +26,7 @@ export function HistoryCard({ entry, onReAsk, onRate }: Props) {
 
   return (
     <div
-      onClick={() => onReAsk(entry.question_preview)}
+      onClick={() => onClick(entry.id)}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       style={{

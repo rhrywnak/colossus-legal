@@ -20,11 +20,17 @@ export type AskResponse = {
     retrieval_stats: RetrievalStats;
 };
 
-export async function askTheCase(question: string): Promise<AskResponse> {
+export async function askTheCase(
+    question: string,
+    parentQaId?: string | null,
+): Promise<AskResponse> {
+    const body: Record<string, string> = { question };
+    if (parentQaId) body.parent_qa_id = parentQaId;
+
     const response = await authFetch(`${API_BASE_URL}/ask`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question }),
+        body: JSON.stringify(body),
         timeoutMs: 120000,  // 2 minutes for RAG synthesis
     });
     if (!response.ok) {
