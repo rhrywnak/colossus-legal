@@ -89,8 +89,9 @@ RUN mkdir src && \
 # to download and compile DEPENDENCIES, not our code.
 RUN cargo build --release 2>/dev/null || true
 
-# Now copy the real source code
+# Now copy the real source code and migrations
 COPY src/ src/
+COPY migrations/ migrations/
 
 # Touch main.rs to ensure cargo rebuilds our code (not the cached dummy)
 RUN touch src/main.rs src/lib.rs
@@ -99,6 +100,9 @@ RUN touch src/main.rs src/lib.rs
 # NOTE: --locked removed because the local path override changes the lockfile
 # resolution. The Cargo.lock in the repo references git URLs, but we're building
 # with local paths. cargo will verify versions match but won't enforce exact URLs.
+# SQLX_OFFLINE=true: sqlx compile-time macros skip database connectivity checks.
+# The migrate!() macro still embeds .sql files — it just doesn't verify against a live DB.
+ENV SQLX_OFFLINE=true
 RUN cargo build --release
 
 # ── Stage 2: Runtime ────────────────────────────────────────────────────────────

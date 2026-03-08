@@ -91,6 +91,9 @@ async fn create_claim_rejects_empty_title() -> TestResult<()> {
         config,
         rag_pipeline: None,
         http_client: reqwest::Client::new(),
+        pg_pool: sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://localhost/dummy")
+            .expect("lazy pool"),
     };
 
     let payload = ClaimCreateRequest {
@@ -121,6 +124,9 @@ async fn create_claim_rejects_invalid_status() -> TestResult<()> {
         config,
         rag_pipeline: None,
         http_client: reqwest::Client::new(),
+        pg_pool: sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://localhost/dummy")
+            .expect("lazy pool"),
     };
 
     let payload = ClaimCreateRequest {
@@ -151,6 +157,9 @@ async fn get_claim_returns_404_when_missing() -> TestResult<()> {
         config,
         rag_pipeline: None,
         http_client: reqwest::Client::new(),
+        pg_pool: sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://localhost/dummy")
+            .expect("lazy pool"),
     };
 
     let response = get_claim(None, State(state), axum::extract::Path("no-such".to_string()))
@@ -187,6 +196,9 @@ async fn update_claim_rejects_invalid_status() -> TestResult<()> {
         config,
         rag_pipeline: None,
         http_client: reqwest::Client::new(),
+        pg_pool: sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://localhost/dummy")
+            .expect("lazy pool"),
     };
 
     let payload = ClaimUpdateRequest {
@@ -223,6 +235,9 @@ async fn happy_path_create_and_get_claim() -> TestResult<()> {
         config,
         rag_pipeline: None,
         http_client: reqwest::Client::new(),
+        pg_pool: sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://localhost/dummy")
+            .expect("lazy pool"),
     };
 
     let payload = ClaimCreateRequest {

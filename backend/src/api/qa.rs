@@ -8,7 +8,7 @@ use axum::{
     http::StatusCode,
     Json,
 };
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 use crate::api::embed::ErrorResponse;
 use crate::auth::AuthUser;
@@ -28,12 +28,8 @@ pub struct QAHistoryParams {
 
 #[derive(Debug, Deserialize)]
 pub struct RateRequest {
-    pub rating: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct SuccessResponse {
-    pub success: bool,
+    /// 1–5 stars. JSON number, not string.
+    pub rating: i16,
 }
 
 // ---------------------------------------------------------------------------
@@ -87,21 +83,50 @@ pub async fn get_qa_entry(
 
 /// PATCH /api/qa/:id/rate
 ///
-/// Rate a QA entry as "helpful" or "not_helpful".
-/// Uses the authenticated user's username as rating_by.
+/// Rate a QA entry 1–5 stars. Upserts into PostgreSQL — a user can change
+/// their rating and the latest value wins. The QAEntry is fetched from Neo4j
+/// to denormalize model/scope into the rating row for analytics.
 pub async fn rate_qa_entry(
     user: AuthUser,
     State(state): State<AppState>,
     Path(id): Path<String>,
     Json(body): Json<RateRequest>,
-) -> Result<Json<SuccessResponse>, ApiError> {
-    tracing::info!("{} PATCH /api/qa/{}/rate", user.username, id);
+) -> Result<StatusCode, ApiError> {
+    tracing::info!("{} PATCH /api/qa/{}/rate rating={}", user.username, id, body.rating);
 
-    qa_repository::rate_qa_entry(&state.graph, &id, &body.rating, &user.username)
+    // Validate rating range
+    if !(1..=5).contains(&body.rating) {
+        return Err(error_response(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "rating must be between 1 and 5",
+        ));
+    }
+
+    // Fetch QAEntry from Neo4j for denormalization fields
+    let entry = qa_repository::get_qa_entry(&state.graph, &id)
         .await
-        .map_err(map_qa_error)?;
+        .map_err(map_qa_error)?
+        .ok_or_else(|| error_response(StatusCode::NOT_FOUND, "QA entry not found"))?;
 
-    Ok(Json(SuccessResponse { success: true }))
+    // Upsert rating into PostgreSQL
+    let repo = crate::repositories::rating_repository::RatingRepository::new(
+        state.pg_pool.clone(),
+    );
+    repo.upsert_rating(
+        &id,
+        &user.username,
+        body.rating,
+        &entry.model,
+        &entry.scope_type,
+        &entry.scope_id,
+    )
+    .await
+    .map_err(|e| {
+        tracing::error!("Rating upsert failed: {e}");
+        error_response(StatusCode::INTERNAL_SERVER_ERROR, "failed to save rating")
+    })?;
+
+    Ok(StatusCode::NO_CONTENT)
 }
 
 // ---------------------------------------------------------------------------

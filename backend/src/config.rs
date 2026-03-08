@@ -10,6 +10,8 @@ pub struct AppConfig {
     pub anthropic_api_key: Option<String>,
     /// Claude model ID for synthesis (default: claude-sonnet-4-6).
     pub anthropic_model: String,
+    /// PostgreSQL connection URL for analytical data (ratings, feedback).
+    pub postgres_url: String,
 }
 
 impl AppConfig {
@@ -39,6 +41,9 @@ impl AppConfig {
         let anthropic_model = std::env::var("ANTHROPIC_MODEL")
             .unwrap_or_else(|_| "claude-sonnet-4-6".to_string());
 
+        let postgres_url = std::env::var("DATABASE_URL")
+            .map_err(|_| "Missing env var: DATABASE_URL".to_string())?;
+
         Ok(Self {
             neo4j_uri,
             neo4j_user,
@@ -48,6 +53,7 @@ impl AppConfig {
             fastembed_cache_path,
             anthropic_api_key,
             anthropic_model,
+            postgres_url,
         })
     }
 }

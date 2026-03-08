@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use neo4rs::Graph;
+use sqlx::PgPool;
 
 use crate::config::AppConfig;
 
@@ -29,4 +30,8 @@ pub struct AppState {
     /// Shared HTTP client with timeouts for all outbound requests.
     /// reqwest::Client uses an internal Arc, so cloning is cheap.
     pub http_client: reqwest::Client,
+
+    /// PostgreSQL connection pool for analytical data (ratings, feedback).
+    /// PgPool uses an internal Arc, so cloning is cheap.
+    pub pg_pool: PgPool,
 }

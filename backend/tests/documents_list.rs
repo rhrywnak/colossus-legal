@@ -87,6 +87,9 @@ async fn get_documents_returns_non_empty_when_data_exists() -> TestResult<()> {
         config,
         rag_pipeline: None,
         http_client: reqwest::Client::new(),
+        pg_pool: sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://localhost/dummy")
+            .expect("lazy pool"),
     };
     let response = list_documents(None, State(state)).await.into_response();
 
@@ -123,6 +126,9 @@ async fn get_documents_returns_empty_when_no_data() -> TestResult<()> {
         config,
         rag_pipeline: None,
         http_client: reqwest::Client::new(),
+        pg_pool: sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://localhost/dummy")
+            .expect("lazy pool"),
     };
     let response = list_documents(None, State(state)).await.into_response();
 

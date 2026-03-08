@@ -52,6 +52,23 @@ async fn main() {
         .await
         .expect("Neo4j connectivity check failed");
 
+    // PostgreSQL connection pool for analytical data (ratings, feedback).
+    // PgPoolOptions configures the pool; .connect() opens it eagerly.
+    // sqlx::migrate!() embeds .sql files at compile time, runs them on startup.
+    let pg_pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(5)
+        .acquire_timeout(std::time::Duration::from_secs(5))
+        .connect(&config.postgres_url)
+        .await
+        .expect("Failed to connect to PostgreSQL");
+
+    sqlx::migrate!("./migrations")
+        .run(&pg_pool)
+        .await
+        .expect("Failed to run PostgreSQL migrations");
+
+    tracing::info!("PostgreSQL connected and migrations complete");
+
     // Build the RAG pipeline from config (if API key is available).
     //
     // ## Rust Learning: Graceful degradation with Option
@@ -76,6 +93,7 @@ async fn main() {
         config,
         rag_pipeline,
         http_client,
+        pg_pool,
     };
 
     // Port
