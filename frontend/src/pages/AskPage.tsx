@@ -1,8 +1,10 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { askTheCase, AskResponse } from "../services/ask";
+import { getQAHistory, rateQAEntry, QAEntrySummary } from "../services/qa";
 import MarkdownAnswer from "../components/MarkdownAnswer";
 import ExportButtons from "../components/ExportButtons";
+import { HistoryCard } from "../components/HistoryCard";
 
 const AskPage: React.FC = () => {
   const [searchParams] = useSearchParams();
@@ -13,6 +15,26 @@ const AskPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [phase, setPhase] = useState("");
+  const [activeTab, setActiveTab] = useState<"ask" | "history">("ask");
+  const [history, setHistory] = useState<QAEntrySummary[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  const loadHistory = async () => {
+    setHistoryLoading(true);
+    try {
+      const data = await getQAHistory("case", "awad-v-cfs-2011", 20);
+      setHistory(data);
+    } catch (e) {
+      console.error("Failed to load history", e);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  const handleTabSwitch = (tab: "ask" | "history") => {
+    setActiveTab(tab);
+    if (tab === "history") loadHistory();
+  };
 
   // Auto-submit when arriving with a ?q= parameter
   const autoSubmitted = useRef(false);
@@ -66,7 +88,7 @@ const AskPage: React.FC = () => {
   };
 
   return (
-    <div style={{ maxWidth: "900px", margin: "0 auto" }}>
+    <div style={{ maxWidth: "900px", margin: "0 auto", paddingBottom: "2rem" }}>
       {/* Header */}
       <div style={{ marginBottom: "1.5rem" }}>
         <h1 style={{ margin: 0, fontSize: "1.75rem" }}>Ask the Case</h1>
@@ -75,6 +97,29 @@ const AskPage: React.FC = () => {
         </p>
       </div>
 
+      {/* Tab bar */}
+      <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem" }}>
+        {(["ask", "history"] as const).map((tab) => (
+          <button
+            key={tab}
+            onClick={() => handleTabSwitch(tab)}
+            style={{
+              padding: "0.5rem 1.25rem",
+              border: activeTab === tab ? "1px solid #1a1a2e" : "1px solid #ccc",
+              borderRadius: "4px",
+              background: activeTab === tab ? "#1a1a2e" : "transparent",
+              color: activeTab === tab ? "white" : "inherit",
+              cursor: "pointer",
+              fontWeight: activeTab === tab ? 600 : 400,
+            }}
+          >
+            {tab === "ask" ? "Ask Minerva" : "History"}
+          </button>
+        ))}
+      </div>
+
+      {/* Ask tab */}
+      {activeTab === "ask" && (<>
       {/* Question form */}
       <form onSubmit={handleSubmit} style={{ marginBottom: "1.5rem" }}>
         <textarea
@@ -143,6 +188,34 @@ const AskPage: React.FC = () => {
 
       {/* Answer display */}
       {response && <AnswerDisplay response={response} />}
+      </>)}
+
+      {/* History tab */}
+      {activeTab === "history" && (
+        <div>
+          {historyLoading && (
+            <div style={{ textAlign: "center", color: "#6b7280", padding: "2rem 0" }}>
+              Loading…
+            </div>
+          )}
+          {!historyLoading && history.length === 0 && (
+            <div style={{ textAlign: "center", color: "#6b7280", padding: "2rem 0" }}>
+              No questions yet.
+            </div>
+          )}
+          {!historyLoading && history.map((entry) => (
+            <HistoryCard
+              key={entry.id}
+              entry={entry}
+              onReAsk={(q) => {
+                setQuestion(q);
+                handleTabSwitch("ask");
+              }}
+              onRate={(rating) => rateQAEntry(entry.id, rating)}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 };
