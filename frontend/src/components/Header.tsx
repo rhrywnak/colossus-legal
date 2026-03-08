@@ -10,6 +10,7 @@ const NAV_ITEMS = [
   { label: "People", path: "/people" },
   { label: "Documents", path: "/documents" },
   { label: "Analysis", path: "/analysis" },
+  { label: "Chat", path: "/ask" },
 ];
 
 // ─── Styles ──────────────────────────────────────────────────────────────────

@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import React from "react";
+import { Link } from "react-router-dom";
 import { useCase } from "../context/CaseContext";
 
 // ─── Static data ─────────────────────────────────────────────────────────────
@@ -28,21 +28,10 @@ const EXPLORE_CARDS = [
   { name: "Case Analysis", desc: "Gap analysis, allegation strength review, and evidence coverage", stat: "18 allegations analyzed", path: "/analysis" },
 ];
 
-const SUGGESTIONS = [
-  "What happened to the $50,000?",
-  "Phillips contradictions",
-  "How was Marie treated differently?",
-  "CFS conflict of interest",
-  "Caregiver testimony",
-];
-
 // ─── Component ───────────────────────────────────────────────────────────────
 
 const Home: React.FC = () => {
   const { caseData, loading, error } = useCase();
-  const navigate = useNavigate();
-  const [askQuestion, setAskQuestion] = useState("");
-
   if (loading) {
     return (
       <div style={{ padding: "2rem", textAlign: "center", color: "#64748b" }}>
@@ -73,12 +62,6 @@ const Home: React.FC = () => {
   if (caseInfo.court) metaParts.push(caseInfo.court);
   if (caseInfo.case_number) metaParts.push(`Case No. ${caseInfo.case_number}`);
   if (caseInfo.filing_date) metaParts.push(`Filed ${caseInfo.filing_date}`);
-
-  const handleAsk = () => {
-    if (askQuestion.trim()) {
-      navigate(`/ask?q=${encodeURIComponent(askQuestion.trim())}`);
-    }
-  };
 
   return (
     <div style={{ paddingTop: "2rem", paddingBottom: "4rem" }}>
@@ -200,84 +183,6 @@ const Home: React.FC = () => {
               </div>
             </Link>
           ))}
-        </div>
-      </section>
-
-      {/* 2E: Ask the Case */}
-      <section style={{
-        backgroundColor: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "10px",
-        padding: "1.75rem", marginBottom: "1.75rem",
-      }}>
-        <div style={{ fontSize: "1.05rem", fontWeight: 700, color: "#0f172a", marginBottom: "0.2rem" }}>
-          Ask the Case
-        </div>
-        <div style={{ fontSize: "0.82rem", color: "#64748b", marginBottom: "1.15rem" }}>
-          Ask any question — Minerva searches the evidence, expands through the knowledge graph, and writes a cited answer.
-        </div>
-        <div style={{ display: "flex", gap: "0.6rem", marginBottom: "0.85rem" }}>
-          <input
-            type="text"
-            placeholder="What evidence shows Phillips lied to the Court of Appeals?"
-            value={askQuestion}
-            onChange={(e) => setAskQuestion(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") handleAsk(); }}
-            style={{
-              flex: 1, padding: "0.75rem 1rem", border: "2px solid #e2e8f0", borderRadius: "8px",
-              fontSize: "0.9rem", fontFamily: "inherit", color: "#1e293b", backgroundColor: "#ffffff",
-              outline: "none", transition: "border-color 0.2s ease",
-            }}
-            onFocus={(e) => { e.currentTarget.style.borderColor = "#3b82f6"; }}
-            onBlur={(e) => { e.currentTarget.style.borderColor = "#e2e8f0"; }}
-          />
-          <button
-            onClick={handleAsk}
-            style={{
-              padding: "0 1.4rem", backgroundColor: "#2563eb", color: "#ffffff", border: "none",
-              borderRadius: "8px", fontSize: "0.88rem", fontWeight: 600, fontFamily: "inherit",
-              cursor: "pointer", whiteSpace: "nowrap", transition: "background 0.15s ease",
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "#3b82f6"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "#2563eb"; }}
-          >
-            Ask Minerva
-          </button>
-        </div>
-        <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
-          {SUGGESTIONS.map((s) => (
-            <span
-              key={s}
-              onClick={() => navigate(`/ask?q=${encodeURIComponent(s)}`)}
-              style={{
-                padding: "0.28rem 0.65rem", backgroundColor: "#ffffff", border: "1px solid #e2e8f0",
-                borderRadius: "6px", fontSize: "0.76rem", color: "#334155", cursor: "pointer",
-                transition: "all 0.15s ease",
-              }}
-              onMouseEnter={(e) => { e.currentTarget.style.borderColor = "#3b82f6"; e.currentTarget.style.color = "#2563eb"; e.currentTarget.style.backgroundColor = "#eff6ff"; }}
-              onMouseLeave={(e) => { e.currentTarget.style.borderColor = "#e2e8f0"; e.currentTarget.style.color = "#334155"; e.currentTarget.style.backgroundColor = "#ffffff"; }}
-            >
-              {s}
-            </span>
-          ))}
-        </div>
-      </section>
-
-      {/* 2F: Recent Questions (placeholder) */}
-      <section style={{ marginBottom: "2rem" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.85rem" }}>
-          <div style={{ fontSize: "0.95rem", fontWeight: 700, color: "#0f172a", letterSpacing: "-0.01em" }}>
-            Recent Questions
-          </div>
-          <span style={{ fontSize: "0.8rem", color: "#2563eb", fontWeight: 500, cursor: "pointer" }}>
-            View all questions {"\u2192"}
-          </span>
-        </div>
-        <div style={{
-          backgroundColor: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "10px",
-          padding: "1.5rem 1.75rem",
-        }}>
-          <div style={{ fontSize: "0.88rem", color: "#64748b", fontStyle: "italic" }}>
-            Question history will appear here once questions are saved. Ask your first question above.
-          </div>
         </div>
       </section>
 
