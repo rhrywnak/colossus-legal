@@ -239,6 +239,27 @@ fn extract_optional_string(payload: &serde_json::Value, key: &str) -> Option<Str
         .map(|s| s.to_string())
 }
 
+/// Delete the Qdrant collection. Used by the CLI `embed --clean` command.
+///
+/// Returns Ok(()) if deletion succeeded or collection didn't exist.
+pub async fn delete_collection(
+    client: &reqwest::Client,
+    qdrant_url: &str,
+) -> Result<(), QdrantError> {
+    let url = format!("{qdrant_url}/collections/{COLLECTION_NAME}");
+
+    let resp = client.delete(&url).send().await?;
+
+    // 200 = deleted, 404 = didn't exist (both are fine for our purpose)
+    if resp.status().is_success() || resp.status().as_u16() == 404 {
+        Ok(())
+    } else {
+        let status = resp.status().as_u16();
+        let body = resp.text().await.unwrap_or_default();
+        Err(QdrantError::Api { status, body })
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------

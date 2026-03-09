@@ -1,6 +1,7 @@
 use axum::http::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE, ORIGIN};
 use axum::http::HeaderName;
 use axum::{routing::get, Json, Router};
+use clap::{Parser, Subcommand};
 use hyper::http::{HeaderValue, Method};
 use serde::Serialize;
 use std::net::SocketAddr;
@@ -10,11 +11,37 @@ use tower_http::cors::CorsLayer;
 use tracing_subscriber::EnvFilter;
 
 use colossus_legal_backend::{
-    api,
+    api, cli,
     config::AppConfig,
     neo4j::{check_neo4j, create_neo4j_graph},
     state::AppState,
 };
+
+/// Colossus-Legal backend server and admin tools.
+///
+/// ## Pattern: clap derive macro
+/// The `#[derive(Parser)]` macro generates a CLI argument parser from the
+/// struct definition. Each field becomes a CLI flag or subcommand.
+/// `#[command(name = "colossus-backend")]` sets the binary name in help text.
+/// When no subcommand is given, it defaults to `Serve` via `unwrap_or`.
+#[derive(Parser)]
+#[command(name = "colossus-backend", about = "Colossus-Legal backend")]
+struct Cli {
+    #[command(subcommand)]
+    command: Option<Commands>,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Start the HTTP server (default)
+    Serve,
+    /// Run the embedding pipeline (Neo4j → fastembed → Qdrant)
+    Embed {
+        /// Delete the Qdrant collection before re-embedding (full re-index)
+        #[arg(long)]
+        clean: bool,
+    },
+}
 
 #[derive(Serialize)]
 struct StatusResponse {
@@ -33,6 +60,9 @@ async fn api_status() -> Json<StatusResponse> {
 
 #[tokio::main]
 async fn main() {
+    // Parse CLI args
+    let cli = Cli::parse();
+
     // Logging
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
@@ -41,7 +71,7 @@ async fn main() {
     // Load .env (NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD, BACKEND_PORT, etc.)
     dotenvy::dotenv().ok();
 
-    // Configuration and Neo4j connection
+    // Shared setup: config, Neo4j, HTTP client
     let config = AppConfig::from_env().expect("Failed to load configuration");
 
     let graph = create_neo4j_graph(&config)
@@ -52,6 +82,28 @@ async fn main() {
         .await
         .expect("Neo4j connectivity check failed");
 
+    // Shared HTTP client with timeouts — reused across all handlers.
+    // reqwest::Client pools connections internally, so sharing one client
+    // is both faster and safer than creating a new one per request.
+    let http_client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(90))
+        .connect_timeout(std::time::Duration::from_secs(5))
+        .build()
+        .expect("failed to build HTTP client");
+
+    // Dispatch on CLI command
+    match cli.command.unwrap_or(Commands::Serve) {
+        Commands::Serve => {
+            run_serve(config, graph, http_client).await;
+        }
+        Commands::Embed { clean } => {
+            cli::run_embed_command(&config, &graph, &http_client, clean).await;
+        }
+    }
+}
+
+/// Start the HTTP server (default command).
+async fn run_serve(config: AppConfig, graph: neo4rs::Graph, http_client: reqwest::Client) {
     // PostgreSQL connection pool for analytical data (ratings, feedback).
     // PgPoolOptions configures the pool; .connect() opens it eagerly.
     // sqlx::migrate!() embeds .sql files at compile time, runs them on startup.
@@ -77,15 +129,6 @@ async fn main() {
     // so we set rag_pipeline = None. The /ask endpoint checks this and
     // returns 503 Service Unavailable. All other endpoints work fine.
     let rag_pipeline = build_rag_pipeline(&config, &graph).await;
-
-    // Shared HTTP client with timeouts — reused across all handlers.
-    // reqwest::Client pools connections internally, so sharing one client
-    // is both faster and safer than creating a new one per request.
-    let http_client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(90))
-        .connect_timeout(std::time::Duration::from_secs(5))
-        .build()
-        .expect("failed to build HTTP client");
 
     // Shared application state (global AppState)
     let state = AppState {
@@ -147,7 +190,6 @@ async fn main() {
         .allow_credentials(true);
 
     // Build router:
-    // - /health
     // - /api/status
     // - everything from api::router()
     let app = Router::new()
