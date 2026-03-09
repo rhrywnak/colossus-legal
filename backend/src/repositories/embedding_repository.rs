@@ -39,53 +39,85 @@ pub async fn fetch_all_embeddable_nodes(
 
     // Each tuple: (Cypher query, node_type label, list of property columns)
     let queries = vec![
+        // Evidence: 1-hop join to get speaker name via STATED_BY relationship
         (
             "MATCH (e:Evidence)
+             OPTIONAL MATCH (e)-[:STATED_BY]->(speaker)
              RETURN e.id AS id, 'Evidence' AS node_type,
                     e.title AS title,
                     e.verbatim_quote AS verbatim_quote,
                     e.significance AS significance,
                     e.page_number AS page_number,
-                    e.document_id AS document_id",
-            vec!["title", "verbatim_quote", "significance", "page_number", "document_id"],
+                    e.document_id AS document_id,
+                    e.statement_type AS statement_type,
+                    e.statement_date AS statement_date,
+                    e.exhibit_number AS exhibit_number,
+                    e.kind AS kind,
+                    COALESCE(speaker.name, '') AS stated_by",
+            vec![
+                "title", "verbatim_quote", "significance", "page_number",
+                "document_id", "statement_type", "statement_date",
+                "exhibit_number", "kind", "stated_by",
+            ],
         ),
         (
             "MATCH (a:ComplaintAllegation)
              RETURN a.id AS id, 'ComplaintAllegation' AS node_type,
                     a.title AS title,
                     a.allegation AS allegation,
-                    a.verbatim AS verbatim",
-            vec!["title", "allegation", "verbatim"],
+                    a.verbatim AS verbatim,
+                    a.evidence_status AS evidence_status,
+                    a.category AS category,
+                    a.severity AS severity,
+                    a.paragraph AS paragraph",
+            vec![
+                "title", "allegation", "verbatim", "evidence_status",
+                "category", "severity", "paragraph",
+            ],
         ),
         (
             "MATCH (m:MotionClaim)
              RETURN m.id AS id, 'MotionClaim' AS node_type,
                     m.title AS title,
                     m.claim_text AS claim_text,
-                    m.significance AS significance",
-            vec!["title", "claim_text", "significance"],
+                    m.significance AS significance,
+                    m.source_document_id AS source_document_id,
+                    m.category AS category",
+            vec!["title", "claim_text", "significance", "source_document_id", "category"],
         ),
         (
             "MATCH (h:Harm)
              RETURN h.id AS id, 'Harm' AS node_type,
                     h.title AS title,
-                    h.description AS description",
-            vec!["title", "description"],
+                    h.description AS description,
+                    h.category AS category,
+                    h.subcategory AS subcategory,
+                    h.amount AS amount,
+                    h.date AS date,
+                    h.source_reference AS source_reference",
+            vec![
+                "title", "description", "category", "subcategory",
+                "amount", "date", "source_reference",
+            ],
         ),
         (
             "MATCH (d:Document)
              RETURN d.id AS id, 'Document' AS node_type,
                     d.title AS title,
-                    d.document_type AS document_type",
-            vec!["title", "document_type"],
+                    d.document_type AS document_type,
+                    d.date AS date,
+                    d.page_count AS page_count,
+                    d.file_path AS file_path",
+            vec!["title", "document_type", "date", "page_count", "file_path"],
         ),
         (
             "MATCH (p:Person)
              RETURN p.id AS id, 'Person' AS node_type,
                     p.name AS name,
                     p.role AS role,
+                    p.roles AS roles,
                     p.description AS description",
-            vec!["name", "role", "description"],
+            vec!["name", "role", "roles", "description"],
         ),
         (
             "MATCH (o:Organization)

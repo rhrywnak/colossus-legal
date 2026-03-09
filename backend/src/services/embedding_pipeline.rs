@@ -129,20 +129,31 @@ pub async fn run_embedding_pipeline(
             continue;
         };
 
+        // Build payload with ALL properties from the node's property bag.
+        // The guaranteed fields (node_id, node_type, title) are always present.
+        // All other fields are included if they exist — this means any new
+        // properties added to the Cypher queries in embedding_repository.rs
+        // automatically flow into Qdrant payloads without changing this code.
+        let title = node.properties.get("title")
+            .or_else(|| node.properties.get("name"))
+            .cloned()
+            .unwrap_or_default();
+
         let mut payload = serde_json::json!({
             "node_id": node.id,
             "node_type": node.node_type,
-            "title": node.properties.get("title")
-                .or_else(|| node.properties.get("name"))
-                .unwrap_or(&String::new()),
+            "title": title,
         });
 
-        // Include document_id and page_number if present (for Evidence nodes)
-        if let Some(doc_id) = node.properties.get("document_id") {
-            payload["document_id"] = serde_json::Value::String(doc_id.clone());
-        }
-        if let Some(page) = node.properties.get("page_number") {
-            payload["page_number"] = serde_json::Value::String(page.clone());
+        // Add every property from the bag into the payload.
+        // Skip "title" and "name" since we already handled them above.
+        if let Some(obj) = payload.as_object_mut() {
+            for (key, value) in &node.properties {
+                if key == "title" || key == "name" {
+                    continue; // Already in payload as "title"
+                }
+                obj.insert(key.clone(), serde_json::Value::String(value.clone()));
+            }
         }
 
         points.push(QdrantPoint {

@@ -81,8 +81,13 @@ pub async fn ensure_collection(
     // Create payload indexes for efficient filtering
     create_payload_index(client, qdrant_url, "node_id", "keyword").await?;
     create_payload_index(client, qdrant_url, "node_type", "keyword").await?;
+    create_payload_index(client, qdrant_url, "document_id", "keyword").await?;
+    create_payload_index(client, qdrant_url, "statement_type", "keyword").await?;
+    create_payload_index(client, qdrant_url, "stated_by", "keyword").await?;
+    create_payload_index(client, qdrant_url, "evidence_status", "keyword").await?;
+    create_payload_index(client, qdrant_url, "category", "keyword").await?;
 
-    tracing::info!("Qdrant collection '{}' created with indexes", COLLECTION_NAME);
+    tracing::info!("Qdrant collection '{}' ready with 7 payload indexes", COLLECTION_NAME);
     Ok(())
 }
 
@@ -115,14 +120,29 @@ pub async fn upsert_points(
 // ---------------------------------------------------------------------------
 
 /// A single search result from Qdrant, with payload fields extracted.
+///
+/// Fields beyond the core three (node_id, node_type, title) are Optional
+/// because they only exist on certain node types. For example, `stated_by`
+/// only appears on Evidence nodes.
 #[derive(Debug)]
 pub struct SearchResult {
     pub node_id: String,
     pub node_type: String,
     pub title: String,
     pub score: f32,
+    // Evidence-specific
     pub document_id: Option<String>,
     pub page_number: Option<String>,
+    pub stated_by: Option<String>,
+    pub statement_type: Option<String>,
+    pub statement_date: Option<String>,
+    pub exhibit_number: Option<String>,
+    pub significance: Option<String>,
+    pub verbatim_quote: Option<String>,
+    // ComplaintAllegation-specific
+    pub evidence_status: Option<String>,
+    // Shared across types
+    pub category: Option<String>,
 }
 
 /// Search for similar vectors in the collection.
@@ -176,6 +196,14 @@ pub async fn search_points(
             score: hit.score,
             document_id: extract_optional_string(&hit.payload, "document_id"),
             page_number: extract_optional_string(&hit.payload, "page_number"),
+            stated_by: extract_optional_string(&hit.payload, "stated_by"),
+            statement_type: extract_optional_string(&hit.payload, "statement_type"),
+            statement_date: extract_optional_string(&hit.payload, "statement_date"),
+            exhibit_number: extract_optional_string(&hit.payload, "exhibit_number"),
+            significance: extract_optional_string(&hit.payload, "significance"),
+            verbatim_quote: extract_optional_string(&hit.payload, "verbatim_quote"),
+            evidence_status: extract_optional_string(&hit.payload, "evidence_status"),
+            category: extract_optional_string(&hit.payload, "category"),
         })
         .collect();
 

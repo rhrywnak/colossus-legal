@@ -55,8 +55,26 @@ pub struct SearchHit {
     pub node_type: String,
     pub title: String,
     pub score: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub document_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub page_number: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stated_by: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub statement_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub statement_date: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exhibit_number: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub significance: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verbatim_quote: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub evidence_status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
 }
 
 /// POST /search
@@ -145,6 +163,14 @@ pub async fn semantic_search(
             score: r.score,
             document_id: r.document_id,
             page_number: r.page_number,
+            stated_by: r.stated_by,
+            statement_type: r.statement_type,
+            statement_date: r.statement_date,
+            exhibit_number: r.exhibit_number,
+            significance: r.significance,
+            verbatim_quote: r.verbatim_quote,
+            evidence_status: r.evidence_status,
+            category: r.category,
         })
         .collect();
 
