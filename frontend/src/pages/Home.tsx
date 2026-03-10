@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { Link } from "react-router-dom";
 import { useCase } from "../context/CaseContext";
+import { API_BASE_URL } from "../services/api";
 import { HarmDto, getHarms } from "../services/harms";
 
 // ─── Static data ─────────────────────────────────────────────────────────────
@@ -103,15 +104,17 @@ const Home: React.FC = () => {
           <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "0.65rem" }}>
             Case Summary
           </div>
-          <div style={{ fontSize: "0.9rem", color: "#334155", lineHeight: 1.65 }}>
+          <div style={{ fontSize: "0.9rem", color: "#1e293b", lineHeight: 1.65, fontFamily: "'Georgia', serif" }}>
             {caseInfo.summary}
           </div>
-          <Link
-            to="/documents/doc-awad-complaint"
+          <a
+            href={`${API_BASE_URL}/documents/doc-awad-complaint/file`}
+            target="_blank"
+            rel="noopener noreferrer"
             style={{ display: "inline-block", marginTop: "0.75rem", fontSize: "0.84rem", color: "#2563eb", textDecoration: "none", fontWeight: 500 }}
           >
             View Complaint {"\u2192"}
-          </Link>
+          </a>
         </div>
       )}
 
@@ -142,7 +145,7 @@ const Home: React.FC = () => {
                   <div style={{ fontSize: "0.92rem", fontWeight: 600, color: "#0f172a", marginBottom: "0.3rem", lineHeight: 1.3 }}>
                     {lc.name}
                   </div>
-                  <div style={{ fontSize: "0.8rem", color: "#64748b", lineHeight: 1.45 }}>
+                  <div style={{ fontSize: "0.8rem", color: "#475569", lineHeight: 1.45, fontFamily: "'Georgia', serif" }}>
                     {COUNT_DESCRIPTIONS[lc.id] || ""}
                   </div>
                 </div>
@@ -193,7 +196,7 @@ const Home: React.FC = () => {
                 <div style={{ fontSize: "0.9rem", fontWeight: 600, color: "#0f172a", marginBottom: "0.25rem" }}>
                   {card.name}
                 </div>
-                <div style={{ fontSize: "0.78rem", color: "#64748b", lineHeight: 1.4 }}>
+                <div style={{ fontSize: "0.78rem", color: "#475569", lineHeight: 1.4, fontFamily: "'Georgia', serif" }}>
                   {card.desc}
                 </div>
               </div>
@@ -214,14 +217,12 @@ const Home: React.FC = () => {
                       }
                     }}
                     style={{
-                      background: "none", border: "1px solid #e2e8f0", borderRadius: "50%",
-                      width: "18px", height: "18px", fontSize: "0.68rem", color: "#64748b",
-                      cursor: "pointer", display: "inline-flex", alignItems: "center",
-                      justifyContent: "center", padding: 0, lineHeight: 1,
+                      background: "none", border: "none", padding: 0,
+                      fontSize: "0.84rem", color: "#2563eb", cursor: "pointer",
+                      fontWeight: 500, fontFamily: "inherit",
                     }}
-                    title="View damages breakdown"
                   >
-                    i
+                    View Breakdown {"\u2192"}
                   </button>
                 )}
               </div>
