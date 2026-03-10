@@ -23,6 +23,7 @@ import Hearings from "./pages/Hearings";
 import Home from "./pages/Home";
 import People from "./pages/People";
 import PersonDetailPage from "./pages/PersonDetailPage";
+import TimelinePage from "./pages/TimelinePage";
 
 const App: React.FC = () => {
   return (
@@ -52,6 +53,7 @@ const App: React.FC = () => {
               <Route path="/queries" element={<QueriesPage />} />
               <Route path="/search" element={<SearchPage />} />
               <Route path="/ask" element={<AskPage />} />
+              <Route path="/timeline" element={<TimelinePage />} />
             </Routes>
           </main>
         </div>

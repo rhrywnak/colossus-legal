@@ -1,0 +1,283 @@
+{
+  "phases": [
+    {
+      "id": "estate",
+      "label": "Estate Proceedings",
+      "date_range": "2008–2009",
+      "color": "#b45309",
+      "description": "The $50,000 conversion, guardianship petition, and Emil Awad's passing"
+    },
+    {
+      "id": "probate",
+      "label": "Probate Court",
+      "date_range": "2009–2011",
+      "color": "#2563eb",
+      "description": "CFS appointed as Personal Representative, estate administration, auction, sanctions"
+    },
+    {
+      "id": "appeals",
+      "label": "Appeals",
+      "date_range": "2011–2013",
+      "color": "#7c3aed",
+      "description": "Two Court of Appeals cases, Judge Tighe's post-appeal order"
+    },
+    {
+      "id": "civil_lawsuit",
+      "label": "Civil Lawsuit",
+      "date_range": "2014–Present",
+      "color": "#059669",
+      "description": "Marie files suit in Macomb County Circuit Court, discovery, motions for default"
+    }
+  ],
+  "events": [
+    {
+      "id": "e001",
+      "phase": "estate",
+      "date": "2008-08-18",
+      "approximate": false,
+      "title": "$50,000 Transferred from Emil's Account",
+      "description": "Emil Awad deposits $50K into his checking account. The next day, Camille Hanley withdraws $50,371.26 and deposits it into her personal account without Emil's knowledge.",
+      "category": "financial",
+      "document_id": null,
+      "document_label": null
+    },
+    {
+      "id": "e002",
+      "phase": "estate",
+      "date": "2009-03-20",
+      "approximate": false,
+      "title": "Camille Writes $50,000 Check to Emil",
+      "description": "Camille Hanley writes a personal check for $50,000 payable to Emil Awad.",
+      "category": "financial",
+      "document_id": null,
+      "document_label": null
+    },
+    {
+      "id": "e003",
+      "phase": "estate",
+      "date": "2009-03-25",
+      "approximate": false,
+      "title": "Nadia Petitions for Guardianship",
+      "description": "Nadia Awad files petition for appointment of guardian for Emil Awad. Also seeks appointment of Milton Higgs as conservator. Represented by Attorney Richard Milster.",
+      "category": "court_action",
+      "document_id": null,
+      "document_label": null
+    },
+    {
+      "id": "e004",
+      "phase": "estate",
+      "date": "2009-03-29",
+      "approximate": false,
+      "title": "Emil Records Video Statement",
+      "description": "Emil Awad states in a video recording that he is of sound mind and requests that his $50K be returned to him.",
+      "category": "personal",
+      "document_id": null,
+      "document_label": null
+    },
+    {
+      "id": "e005",
+      "phase": "estate",
+      "date": "2009-04-12",
+      "approximate": false,
+      "title": "Nadia Takes Check from Emil",
+      "description": "Nadia Awad takes the $50,000 check from Emil Awad. The funds are never deposited into his accounts during his lifetime.",
+      "category": "financial",
+      "document_id": null,
+      "document_label": null
+    },
+    {
+      "id": "e006",
+      "phase": "estate",
+      "date": "2009-04-21",
+      "approximate": false,
+      "title": "Judge Tighe Appoints CFS as Guardian",
+      "description": "Judge Tighe rules from the bench that CFS is to be appointed as Emil's guardian and conservator. Appointment is over Emil's objection. A formal order is never entered before his death. CFS-Probate Court contract ($171K–$192K/year) is not disclosed.",
+      "category": "court_action",
+      "document_id": null,
+      "document_label": null
+    },
+    {
+      "id": "e007",
+      "phase": "estate",
+      "date": "2009-05-04",
+      "approximate": false,
+      "title": "Emil Awad Passes Away",
+      "description": "Emil Elias Awad dies. No formal guardianship order was ever entered.",
+      "category": "personal",
+      "document_id": null,
+      "document_label": null
+    },
+    {
+      "id": "e008",
+      "phase": "probate",
+      "date": "2009-07-23",
+      "approximate": false,
+      "title": "CFS Appointed as Personal Representative",
+      "description": "Judge Tighe appoints CFS as Personal Representative of Emil's estate via Order of Formal Proceedings. CFS's contractual relationship with the Probate Court is not disclosed. George Phillips substitutes in as CFS's attorney shortly after.",
+      "category": "court_action",
+      "document_id": null,
+      "document_label": null
+    },
+    {
+      "id": "e009",
+      "phase": "probate",
+      "date": "2009-12-15",
+      "approximate": false,
+      "title": "Probate Court Approves Administration Plan",
+      "description": "Hearing on CFS's petition. Court grants the petition, approving storage and auction of personal property. Heirs given 2 months for discovery. Court orders that demands from heirs require no response unless made by petition.",
+      "category": "court_action",
+      "document_id": null,
+      "document_label": null
+    },
+    {
+      "id": "e010",
+      "phase": "probate",
+      "date": "2010-02-12",
+      "approximate": false,
+      "title": "Caregiver Affidavits Filed",
+      "description": "Sabrina Morris and Jeffrey Humphrey file affidavits supporting Marie's account of Emil's wishes and treatment.",
+      "category": "filing",
+      "document_id": "doc-sabrina-morris-affidavit",
+      "document_label": "Morris Affidavit"
+    },
+    {
+      "id": "e011",
+      "phase": "probate",
+      "date": "2010-03-11",
+      "approximate": false,
+      "title": "Marie Petitions to Remove CFS",
+      "description": "Marie files petition to remove CFS as Personal Representative, citing failure to disclose conflicts of interest, failure to remain impartial, and making false statements.",
+      "category": "filing",
+      "document_id": null,
+      "document_label": null
+    },
+    {
+      "id": "e012",
+      "phase": "probate",
+      "date": "2010-05-01",
+      "approximate": true,
+      "title": "Estate Auction Held",
+      "description": "Personal property auction results in approximately $6,000 net loss to estate. CFS and Phillips collect $7,500 in fees for the auction. First auctioneer had refused because value was too small.",
+      "category": "financial",
+      "document_id": null,
+      "document_label": null
+    },
+    {
+      "id": "e013",
+      "phase": "appeals",
+      "date": "2011-03-14",
+      "approximate": false,
+      "title": "Penzien Files Appeal Brief",
+      "description": "Charles Penzien files Appellant's Brief on Appeal in Case No. 300891, challenging the Probate Court's handling of the estate.",
+      "category": "filing",
+      "document_id": "doc-penzien-coa-brief-300891",
+      "document_label": "Penzien Appeal Brief"
+    },
+    {
+      "id": "e014",
+      "phase": "appeals",
+      "date": "2011-04-11",
+      "approximate": false,
+      "title": "Phillips Files Response Brief",
+      "description": "George Phillips files Appellee's Response Brief in Case No. 300891. Contains characterizations of Marie's claims as 'frivolous', 'scattershot', and 'fanciful conspiracy theories'.",
+      "category": "filing",
+      "document_id": "doc-phillips-coa-response-300891",
+      "document_label": "Phillips Response Brief"
+    },
+    {
+      "id": "e015",
+      "phase": "appeals",
+      "date": "2012-01-12",
+      "approximate": false,
+      "title": "Court of Appeals Rules — First Appeal",
+      "description": "Michigan Court of Appeals issues opinion in Case No. 300891. Affirms probate court on most issues but identifies concerns.",
+      "category": "court_action",
+      "document_id": "doc-coa-ruling-011212",
+      "document_label": "CoA Opinion"
+    },
+    {
+      "id": "e016",
+      "phase": "appeals",
+      "date": "2012-04-12",
+      "approximate": false,
+      "title": "Judge Tighe Issues Post-Appeal Order",
+      "description": "Judge Tighe issues Opinion and Order on Marie's post-appeal petition.",
+      "category": "court_action",
+      "document_id": "doc-tighe-opinion-041212",
+      "document_label": "Tighe Order"
+    },
+    {
+      "id": "e017",
+      "phase": "appeals",
+      "date": "2013-04-25",
+      "approximate": false,
+      "title": "Court of Appeals — Reconsideration Denied",
+      "description": "Michigan Court of Appeals issues opinion in Case No. 310660 on motion for reconsideration.",
+      "category": "court_action",
+      "document_id": "doc-coa-reconsideration-042513",
+      "document_label": "CoA Reconsideration"
+    },
+    {
+      "id": "e018",
+      "phase": "appeals",
+      "date": "2013-12-20",
+      "approximate": false,
+      "title": "Phillips Files Motion for Summary Disposition",
+      "description": "George Phillips files Motion for Summary Disposition and Sanctions against Marie. Includes affidavits from Nadia Awad and Camille Hanley.",
+      "category": "filing",
+      "document_id": "doc-phillips-summary-disposition-121213",
+      "document_label": "Phillips Summary Disp."
+    },
+    {
+      "id": "e019",
+      "phase": "civil_lawsuit",
+      "date": "2014-06-03",
+      "approximate": false,
+      "title": "Marie Files Civil Lawsuit",
+      "description": "Marie Awad files Complaint in Macomb County Circuit Court against Archdiocese of Detroit, Catholic Family Service, and George Phillips. Four counts: Breach of Fiduciary Duty, Fraud, Declaratory Relief, Abuse of Process.",
+      "category": "filing",
+      "document_id": "doc-awad-complaint",
+      "document_label": "View Complaint"
+    },
+    {
+      "id": "e020",
+      "phase": "civil_lawsuit",
+      "date": "2016-08-01",
+      "approximate": true,
+      "title": "Phillips Discovery Response Filed",
+      "description": "George Phillips files sworn responses to Plaintiff's discovery requests. Contains admissions against interest on key issues including the $50,000, auction, and sanctions.",
+      "category": "discovery",
+      "document_id": "doc-phillips-discovery-response",
+      "document_label": "Phillips Discovery"
+    },
+    {
+      "id": "e021",
+      "phase": "civil_lawsuit",
+      "date": "2016-08-08",
+      "approximate": false,
+      "title": "CFS Interrogatory Response Filed",
+      "description": "Catholic Family Service files sworn responses to Plaintiff's Second Set of Interrogatories. Contains admissions about CFS-Probate Court contract and revenue arrangement.",
+      "category": "discovery",
+      "document_id": "doc-cfs-interrogatory-response",
+      "document_label": "CFS Response"
+    },
+    {
+      "id": "e022",
+      "phase": "civil_lawsuit",
+      "date": "2016-09-01",
+      "approximate": true,
+      "title": "Motions for Default Filed",
+      "description": "Penzien files Motions for Default and Default Judgment against both Phillips and CFS, based on defendants' sworn admissions in discovery.",
+      "category": "filing",
+      "document_id": "doc-phillips-motion-for-default",
+      "document_label": "Phillips Default Motion"
+    }
+  ],
+  "categories": {
+    "financial": { "color": "#059669", "label": "Financial", "icon": "$" },
+    "court_action": { "color": "#2563eb", "label": "Court Action", "icon": "⚖" },
+    "filing": { "color": "#7c3aed", "label": "Filing", "icon": "📄" },
+    "discovery": { "color": "#d97706", "label": "Discovery", "icon": "🔍" },
+    "personal": { "color": "#64748b", "label": "Personal", "icon": "●" }
+  }
+}
