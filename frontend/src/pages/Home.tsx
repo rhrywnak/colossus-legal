@@ -18,11 +18,11 @@ const toCountLabel = (countNumber: number): string => {
 // TODO: Fetch descriptions from LegalCount.description in Neo4j once the field
 // is populated. For now these are hardcoded summaries from the complaint.
 const COUNT_DESCRIPTIONS: Record<string, string> = {
-  "count-breach-of-fiduciary-duty":
+  "count-breach-fiduciary-duty":
     "CFS and Phillips violated duties of loyalty and care owed to Marie as estate beneficiary.",
   "count-fraud":
     "Defendants made material misrepresentations to the court about Marie's cooperation and estate assets.",
-  "count-declaratory-relief":
+  "count-declaratory-ultra-vires":
     "Request for court determination regarding the rights and duties of parties under the estate.",
   "count-abuse-of-process":
     "Phillips used court proceedings for improper purposes including sanctions motions and character attacks.",
