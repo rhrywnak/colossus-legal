@@ -93,6 +93,7 @@ const filenameStyle: React.CSSProperties = {
   color: "#6b7280",
   marginTop: "0.25rem",
   fontFamily: "monospace",
+  wordBreak: "break-all",
 };
 
 const notesStyle: React.CSSProperties = {

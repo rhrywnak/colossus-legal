@@ -139,6 +139,9 @@ const Header: React.FC = () => {
           <span style={{ fontWeight: 400, color: "#94a3b8", marginLeft: "0.2rem" }}>
             Legal
           </span>
+          <span style={{ fontSize: "0.72rem", color: "#94a3b8", marginLeft: "0.35rem", fontWeight: 400 }}>
+            v{__APP_VERSION__}
+          </span>
         </div>
       </Link>
 
