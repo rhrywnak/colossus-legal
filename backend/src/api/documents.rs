@@ -18,7 +18,14 @@ use crate::{
     state::AppState,
 };
 
-const ALLOWED_DOC_TYPES: &[&str] = &["pdf", "motion", "ruling", "evidence", "filing"];
+const ALLOWED_DOC_TYPES: &[&str] = &[
+    "complaint",
+    "discovery",
+    "motion",
+    "court_ruling",
+    "appellate_brief",
+    "affidavit",
+];
 
 fn validate_title(title: &str) -> Result<(), AppError> {
     if title.trim().is_empty() {
@@ -33,7 +40,7 @@ fn validate_title(title: &str) -> Result<(), AppError> {
 fn validate_doc_type(doc_type: &str) -> Result<(), AppError> {
     if !ALLOWED_DOC_TYPES.contains(&doc_type) {
         return Err(AppError::BadRequest {
-            message: "doc_type must be one of: pdf, motion, ruling, evidence, filing".to_string(),
+            message: "doc_type must be one of: complaint, discovery, motion, court_ruling, appellate_brief, affidavit".to_string(),
             details: json!({ "field": "doc_type" }),
         });
     }

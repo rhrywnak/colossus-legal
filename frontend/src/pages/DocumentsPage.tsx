@@ -3,21 +3,36 @@ import { Link } from "react-router-dom";
 import { API_BASE_URL } from "../services/api";
 import { DocumentItem, getDocuments } from "../services/documents";
 
-// Document type color mapping
+// Six legal document categories in procedural order
+const CATEGORY_ORDER = [
+  "complaint",
+  "discovery",
+  "motion",
+  "court_ruling",
+  "appellate_brief",
+  "affidavit",
+] as const;
+
+const CATEGORY_LABELS: Record<string, string> = {
+  complaint: "Complaint",
+  discovery: "Discovery",
+  motion: "Motions",
+  court_ruling: "Court Rulings",
+  appellate_brief: "Appellate Briefs",
+  affidavit: "Affidavits",
+};
+
 const DOC_TYPE_COLORS: Record<string, string> = {
   complaint: "#dc2626",
+  discovery: "#d97706",
   motion: "#2563eb",
-  affidavit: "#7c3aed",
-  ruling: "#059669",
-  response: "#d97706",
-  opinion: "#0891b2",
-  filing: "#4b5563",
-  evidence: "#0d9488",
-  pdf: "#6b7280",
+  court_ruling: "#059669",
+  appellate_brief: "#7c3aed",
+  affidavit: "#0891b2",
 };
 
 const getTypeColor = (docType: string): string => {
-  return DOC_TYPE_COLORS[docType.toLowerCase()] ?? DOC_TYPE_COLORS.pdf ?? "#6b7280";
+  return DOC_TYPE_COLORS[docType.toLowerCase()] ?? "#6b7280";
 };
 
 // Styles
@@ -80,10 +95,12 @@ const filenameStyle: React.CSSProperties = {
   fontFamily: "monospace",
 };
 
-const dateStyle: React.CSSProperties = {
+const notesStyle: React.CSSProperties = {
   fontSize: "0.8rem",
-  color: "#6b7280",
-  marginTop: "0.5rem",
+  color: "#9ca3af",
+  fontStyle: "italic",
+  marginTop: "auto",
+  paddingTop: "1rem",
 };
 
 const cardFooterStyle: React.CSSProperties = {
@@ -93,17 +110,6 @@ const cardFooterStyle: React.CSSProperties = {
   marginTop: "auto",
   paddingTop: "1rem",
 };
-
-const badgeStyle = (color: string): React.CSSProperties => ({
-  display: "inline-block",
-  padding: "0.25rem 0.625rem",
-  backgroundColor: color,
-  color: "#ffffff",
-  borderRadius: "9999px",
-  fontSize: "0.75rem",
-  fontWeight: 500,
-  textTransform: "capitalize",
-});
 
 const viewPdfButtonStyle: React.CSSProperties = {
   display: "inline-block",
@@ -191,8 +197,13 @@ const DocumentsPage: React.FC = () => {
     {} as Record<string, DocumentItem[]>
   );
 
-  // Sort group keys alphabetically
-  const sortedTypes = Object.keys(groupedDocs).sort();
+  // Sort by procedural category order, then any unknown types at the end
+  const sortedTypes = [
+    ...CATEGORY_ORDER.filter((t) => groupedDocs[t]),
+    ...Object.keys(groupedDocs).filter(
+      (t) => !CATEGORY_ORDER.includes(t as (typeof CATEGORY_ORDER)[number])
+    ),
+  ];
 
   return (
     <div style={pageStyle}>
@@ -228,8 +239,7 @@ const DocumentsPage: React.FC = () => {
                 borderRadius: "2px",
               }}
             ></span>
-            {type.charAt(0).toUpperCase() + type.slice(1)}
-            {type.endsWith("s") ? "" : "s"}
+            {CATEGORY_LABELS[type] ?? type}
           </h3>
           <div style={gridStyle}>
             {groupedDocs[type].map((doc) => (
@@ -253,17 +263,10 @@ const DocumentsPage: React.FC = () => {
                   <div style={filenameStyle}>{doc.filePath}</div>
                 )}
 
-                {/* Date */}
-                {doc.createdAt && (
-                  <div style={dateStyle}>Created: {doc.createdAt}</div>
-                )}
-
-                {/* Footer: Type badge + View PDF button */}
-                <div style={cardFooterStyle}>
-                  <span style={badgeStyle(getTypeColor(doc.docType))}>
-                    {doc.docType}
-                  </span>
-                  {doc.filePath && (
+                {/* Footer */}
+                {doc.filePath ? (
+                  <div style={cardFooterStyle}>
+                    <span />
                     <a
                       href={`${API_BASE_URL}/documents/${encodeURIComponent(doc.id)}/file`}
                       target="_blank"
@@ -272,8 +275,12 @@ const DocumentsPage: React.FC = () => {
                     >
                       View PDF
                     </a>
-                  )}
-                </div>
+                  </div>
+                ) : (
+                  <div style={notesStyle}>
+                    {doc.notes ?? "Document not available"}
+                  </div>
+                )}
               </div>
             ))}
           </div>

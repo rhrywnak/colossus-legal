@@ -13,6 +13,7 @@ pub struct Document {
     pub related_claim_id: Option<String>,
     pub source_url: Option<String>,
     pub created_at: Option<String>,
+    pub notes: Option<String>,
 }
 
 #[derive(Debug)]
@@ -50,6 +51,7 @@ impl TryFrom<Node> for Document {
         let related_claim_id: Option<String> = node.get("related_claim_id").ok();
         let source_url: Option<String> = node.get("source_url").ok();
         let created_at: Option<String> = node.get("created_at").ok();
+        let notes: Option<String> = node.get("notes").ok();
 
         Ok(Self {
             id,
@@ -61,6 +63,7 @@ impl TryFrom<Node> for Document {
             related_claim_id,
             source_url,
             created_at,
+            notes,
         })
     }
 }

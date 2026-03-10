@@ -7,6 +7,7 @@ export type DocumentItem = {
   docType: string;
   createdAt?: string;
   filePath?: string;
+  notes?: string;
 };
 
 export type DocumentDetail = {
@@ -82,6 +83,7 @@ export async function getDocuments(): Promise<DocumentItem[]> {
       : "",
     createdAt: doc?.created_at ?? doc?.createdAt ?? undefined,
     filePath: doc?.file_path ?? doc?.filePath ?? undefined,
+    notes: doc?.notes ?? undefined,
   }));
 }
 
