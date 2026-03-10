@@ -158,8 +158,10 @@ impl CaseSummaryRepository {
             .execute(query(
                 "MATCH (lc:LegalCount)
                  OPTIONAL MATCH (a:ComplaintAllegation)-[:SUPPORTS]->(lc)
-                 RETURN lc.id AS id, lc.title AS name, count(a) AS allegation_count
-                 ORDER BY lc.title",
+                 RETURN lc.id AS id, lc.title AS name,
+                        lc.count_number AS count_number,
+                        count(a) AS allegation_count
+                 ORDER BY lc.count_number",
             ))
             .await?;
 
@@ -167,6 +169,7 @@ impl CaseSummaryRepository {
             details.push(LegalCountInfo {
                 id: row.get("id").unwrap_or_default(),
                 name: row.get("name").unwrap_or_default(),
+                count_number: row.get("count_number").unwrap_or(0),
                 allegation_count: row.get("allegation_count").unwrap_or(0),
             });
         }

@@ -9,6 +9,7 @@ export type PersonCharacterizationCount = {
 export type LegalCountInfo = {
   id: string;
   name: string;
+  count_number: number;
   allegation_count: number;
 };
 

@@ -43,6 +43,7 @@ pub struct CaseSummaryResponse {
 pub struct LegalCountInfo {
     pub id: String,
     pub name: String,
+    pub count_number: i64,
     pub allegation_count: i64,
 }
 
