@@ -29,6 +29,7 @@ export type PartiesGroup = {
 export type LegalCountSummary = {
   id: string;
   name: string;
+  count_number: number;
 };
 
 export type CaseStats = {

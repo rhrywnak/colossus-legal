@@ -9,6 +9,7 @@ export type AllegationDto = {
   evidence_status?: string;
   category?: string;
   severity?: number;
+  legal_count_ids?: string[];
   legal_counts?: string[];
 };
 

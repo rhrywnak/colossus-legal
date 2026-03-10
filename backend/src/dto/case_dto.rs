@@ -44,6 +44,7 @@ pub struct PartiesGroup {
 pub struct LegalCountSummary {
     pub id: String,
     pub name: String,
+    pub count_number: i64,
 }
 
 /// Aggregated statistics for the case

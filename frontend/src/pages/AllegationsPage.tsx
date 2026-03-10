@@ -33,11 +33,11 @@ const AllegationsPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Filter allegations when a ?count= param is present
+  // Filter allegations when a ?count= param is present (match against IDs)
   const displayedAllegations = useMemo(() => {
     if (!countFilter) return allegations;
     return allegations.filter(
-      (a) => a.legal_counts?.includes(countFilter),
+      (a) => a.legal_count_ids?.includes(countFilter),
     );
   }, [allegations, countFilter]);
 

@@ -24,6 +24,8 @@ pub struct AllegationDto {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub severity: Option<i64>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub legal_count_ids: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub legal_counts: Vec<String>,
 }
 

@@ -197,15 +197,17 @@ impl CaseRepository {
             .graph
             .execute(query(
                 "MATCH (lc:LegalCount)
-                 RETURN lc.id AS id, lc.title AS name
-                 ORDER BY lc.title",
+                 RETURN lc.id AS id, lc.title AS name,
+                        lc.count_number AS count_number
+                 ORDER BY lc.count_number",
             ))
             .await?;
 
         while let Some(row) = result.next().await? {
             let id: String = row.get("id").unwrap_or_default();
             let name: String = row.get("name").unwrap_or_default();
-            details.push(LegalCountSummary { id, name });
+            let count_number: i64 = row.get("count_number").unwrap_or(0);
+            details.push(LegalCountSummary { id, name, count_number });
         }
 
         Ok(details)
