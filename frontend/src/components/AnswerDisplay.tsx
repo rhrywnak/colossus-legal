@@ -17,7 +17,7 @@ const AnswerDisplay: React.FC<Props> = ({ response }) => {
       }}>
         <MarkdownAnswer content={response.answer} />
         <div style={{ marginTop: "1rem", paddingTop: "0.75rem", borderTop: "1px solid #f3f4f6" }}>
-          <ExportButtons markdown={response.answer} question={response.question} />
+          <ExportButtons markdown={response.answer} question={response.question} response={response} />
         </div>
       </div>
     </div>

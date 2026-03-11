@@ -1,16 +1,21 @@
 import React, { useState } from "react";
+import { saveAs } from "file-saver";
+import { AskResponse } from "../services/ask";
+import { generateAnswerDocx } from "../utils/generateDocx";
 
 interface ExportButtonsProps {
   markdown: string;
   question: string;
   askedBy?: string;
   askedAt?: string;
+  response?: AskResponse;
 }
 
 const ExportButtons: React.FC<ExportButtonsProps> = ({
-  markdown, question, askedBy, askedAt,
+  markdown, question, askedBy, askedAt, response,
 }) => {
   const [copied, setCopied] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState(false);
 
   const copyToClipboard = async (text: string, label: string) => {
     try {
@@ -52,6 +57,21 @@ const ExportButtons: React.FC<ExportButtonsProps> = ({
     copyToClipboard(`Q: ${question}\n\n${plain}`, "plain");
   };
 
+  const handleDownloadDocx = async () => {
+    if (!response || downloading) return;
+    setDownloading(true);
+    try {
+      const blob = await generateAnswerDocx(response);
+      const dateStr = new Date().toISOString().slice(0, 10);
+      const slug = question.slice(0, 30).replace(/[^a-zA-Z0-9]/g, "_");
+      saveAs(blob, `minerva_${slug}_${dateStr}.docx`);
+    } catch (err) {
+      console.error("Failed to generate docx:", err);
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   const buttonStyle: React.CSSProperties = {
     padding: "0.35rem 0.75rem",
     fontSize: "0.8rem",
@@ -73,6 +93,11 @@ const ExportButtons: React.FC<ExportButtonsProps> = ({
       <button onClick={handleCopyPlainText} style={buttonStyle}>
         {copied === "plain" ? "\u2713 Copied!" : "\uD83D\uDCC4 Copy Text"}
       </button>
+      {response && (
+        <button onClick={handleDownloadDocx} disabled={downloading} style={buttonStyle}>
+          {downloading ? "Generating..." : "\u2B07 Download Docx"}
+        </button>
+      )}
     </div>
   );
 };
