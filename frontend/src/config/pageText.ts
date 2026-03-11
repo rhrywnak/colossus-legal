@@ -1,7 +1,7 @@
 export const pageText = {
   ask: {
-    title: "Case Analysis",
-    subtitle: "Ask questions about the Awad case. Answers are synthesized from the evidence graph with citations.",
+    title: "Ask Minerva",
+    subtitle: "Ask questions about the case. Answers are synthesized from the evidence graph with citations.",
     askTab: "Ask",
     historyTab: "History",
     askButton: "Ask",

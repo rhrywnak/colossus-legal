@@ -2,6 +2,7 @@ import React from "react";
 import { AllegationDto } from "../services/allegations";
 import { EvidenceChainResponse } from "../services/evidenceChain";
 import { COLORS, getStatusStyle, MotionClaimSection } from "./EvidenceChainParts";
+import { displayStatus } from "../utils/legalTerms";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -131,7 +132,7 @@ const AllegationRow: React.FC<AllegationRowProps> = ({ allegation, isExpanded, i
             padding: "0.2rem 0.6rem", backgroundColor: statusStyle.bg, color: statusStyle.text,
             borderRadius: "9999px", fontSize: "0.7rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.025em",
           }}>
-            {allegation.evidence_status}
+            {displayStatus(allegation.evidence_status)}
           </span>
         )}
       </div>

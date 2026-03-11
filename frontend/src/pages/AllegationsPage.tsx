@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { displayStatus } from "../utils/legalTerms";
 import {
   getAllegations,
   AllegationDto,
@@ -242,7 +243,7 @@ const AllegationsPage: React.FC = () => {
                         fontWeight: "600",
                       }}
                     >
-                      {allegation.evidence_status}
+                      {displayStatus(allegation.evidence_status)}
                     </span>
                   )}
                   {allegation.category && (

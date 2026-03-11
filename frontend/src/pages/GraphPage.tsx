@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from "react";
 import dagre from "dagre";
 import { getAllegations, AllegationDto } from "../services/allegations";
+import { displayStatus } from "../utils/legalTerms";
 import {
   getEvidenceChain,
   EvidenceChainResponse,
@@ -334,7 +335,7 @@ const NodePopup: React.FC<{
                     textTransform: "uppercase",
                   }}
                 >
-                  {fullData.evidence_status}
+                  {displayStatus(fullData.evidence_status)}
                 </span>
               </div>
             )}

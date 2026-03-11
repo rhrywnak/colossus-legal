@@ -6,6 +6,7 @@ import {
   QAEntrySummary, QAEntryFull,
 } from "../services/qa";
 import AnswerDisplay from "../components/AnswerDisplay";
+import MetricsBar from "../components/MetricsBar";
 import { HistoryCard } from "../components/HistoryCard";
 import { pageText } from "../config/pageText";
 
@@ -170,43 +171,50 @@ const AskPage: React.FC = () => {
 
       {/* Question form */}
       <form onSubmit={handleSubmit} style={{ marginBottom: "1.5rem" }}>
-        <textarea
-          value={question}
-          onChange={(e) => setQuestion(e.target.value)}
-          placeholder={pageText.ask.placeholder}
-          rows={3}
-          style={{
-            width: "100%", padding: "0.75rem 1rem", border: "1px solid #d1d5db",
-            borderRadius: "8px", fontSize: "1rem", fontFamily: "inherit",
-            resize: "vertical", outline: "none", boxSizing: "border-box",
-          }}
-        />
-        <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.5rem" }}>
+        {/* Textarea with overlay Ask button */}
+        <div style={{ position: "relative" }}>
+          <textarea
+            value={question}
+            onChange={(e) => setQuestion(e.target.value)}
+            placeholder={pageText.ask.placeholder}
+            rows={3}
+            style={{
+              width: "100%", padding: "0.75rem 3.5rem 0.75rem 1rem", border: "1px solid #d1d5db",
+              borderRadius: "8px", fontSize: "1rem", fontFamily: "inherit",
+              resize: "vertical", outline: "none", boxSizing: "border-box",
+            }}
+          />
           <button
             type="submit"
             disabled={loading || !question.trim()}
             style={{
-              padding: "0.6rem 1.5rem", backgroundColor: loading ? "#93c5fd" : "#2563eb",
-              color: "#fff", border: "none", borderRadius: "6px", fontSize: "0.95rem",
-              cursor: loading ? "wait" : "pointer", fontWeight: 600,
+              position: "absolute", bottom: "10px", right: "10px",
+              width: "36px", height: "36px", borderRadius: "50%",
+              backgroundColor: loading || !question.trim() ? "#93c5fd" : "#2563eb",
+              color: "#fff", border: "none", cursor: loading ? "wait" : "pointer",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: "1.1rem", lineHeight: 1,
             }}
+            title={loading ? "Thinking..." : "Ask"}
           >
-            {loading ? "Thinking..." : pageText.ask.askButton}
+            {loading ? "…" : "→"}
           </button>
-          {response && (
+        </div>
+        {response && (
+          <div style={{ marginTop: "0.5rem" }}>
             <button
               type="button"
               onClick={handleClear}
               style={{
-                padding: "0.6rem 1.25rem", backgroundColor: "#f3f4f6",
+                padding: "0.5rem 1.25rem", backgroundColor: "#f3f4f6",
                 color: "#374151", border: "1px solid #d1d5db", borderRadius: "6px",
-                fontSize: "0.95rem", cursor: "pointer",
+                fontSize: "0.9rem", cursor: "pointer",
               }}
             >
               Ask another question
             </button>
-          )}
-        </div>
+          </div>
+        )}
       </form>
 
       {/* Loading phase indicator */}
@@ -233,6 +241,9 @@ const AskPage: React.FC = () => {
           {error}
         </div>
       )}
+
+      {/* Metrics bar — shown after response, before the answer */}
+      {response && !loading && <MetricsBar response={response} />}
 
       {/* Historical answer header */}
       {viewingHistoryEntry && response && (
