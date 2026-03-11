@@ -4,9 +4,10 @@ import {
   getAnalysis,
   AnalysisResponse,
   AllegationStrength,
-  ContradictionBrief,
   DocumentCoverage,
 } from "../services/analysisApi";
+import { getContradictions, ContradictionDto } from "../services/contradictions";
+import ImpeachmentCard from "../components/ImpeachmentCard";
 
 // ============================================================================
 // Types
@@ -67,41 +68,6 @@ const sectionTitleStyle: React.CSSProperties = {
   marginBottom: "1rem",
 };
 
-const statsGridStyle: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(4, 1fr)",
-  gap: "1rem",
-  marginBottom: "1.5rem",
-};
-
-const statCardBaseStyle: React.CSSProperties = {
-  backgroundColor: "#ffffff",
-  border: "1px solid #e5e7eb",
-  borderRadius: "8px",
-  padding: "1.25rem",
-  textAlign: "center",
-  cursor: "pointer",
-  transition: "box-shadow 0.2s ease, border-color 0.2s ease",
-};
-
-const statValueStyle: React.CSSProperties = {
-  fontSize: "2rem",
-  fontWeight: 700,
-  marginBottom: "0.25rem",
-};
-
-const statLabelStyle: React.CSSProperties = {
-  fontSize: "0.8rem",
-  fontWeight: 600,
-  color: "#6b7280",
-  textTransform: "uppercase",
-};
-
-const statSubLabelStyle: React.CSSProperties = {
-  fontSize: "0.75rem",
-  color: "#9ca3af",
-  marginTop: "0.25rem",
-};
 
 const tabBarStyle: React.CSSProperties = {
   display: "flex",
@@ -193,46 +159,9 @@ const expandButtonStyle: React.CSSProperties = {
   fontSize: "0.8rem",
 };
 
-const contradictionCardStyle: React.CSSProperties = {
-  backgroundColor: "#fffbeb",
-  border: "1px solid #fde68a",
-  borderRadius: "8px",
-  padding: "1rem",
-  marginBottom: "0.75rem",
-};
-
 // ============================================================================
 // Components
 // ============================================================================
-
-// Clickable summary stat card
-const StatCard: React.FC<{
-  value: number;
-  label: string;
-  subLabel?: string;
-  color: string;
-  onClick: () => void;
-  isActive?: boolean;
-}> = ({ value, label, subLabel, color, onClick, isActive }) => {
-  const [hovered, setHovered] = useState(false);
-
-  return (
-    <div
-      style={{
-        ...statCardBaseStyle,
-        boxShadow: hovered ? "0 4px 12px rgba(0,0,0,0.1)" : "none",
-        borderColor: isActive ? "#2563eb" : hovered ? "#2563eb" : "#e5e7eb",
-      }}
-      onClick={onClick}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-    >
-      <div style={{ ...statValueStyle, color }}>{value}</div>
-      <div style={statLabelStyle}>{label}</div>
-      {subLabel && <div style={statSubLabelStyle}>{subLabel}</div>}
-    </div>
-  );
-};
 
 // Tab button
 const TabButton: React.FC<{
@@ -416,50 +345,6 @@ const AllegationRow: React.FC<{ allegation: AllegationStrength }> = ({
   );
 };
 
-// Contradiction card
-const ContradictionCard: React.FC<{ contradiction: ContradictionBrief }> = ({
-  contradiction,
-}) => (
-  <div style={contradictionCardStyle}>
-    <div style={{ display: "flex", gap: "1rem", marginBottom: "0.75rem" }}>
-      <div style={{ flex: 1 }}>
-        <div style={{ fontSize: "0.75rem", color: "#92400e", fontWeight: 600 }}>
-          Statement A
-        </div>
-        <div style={{ fontSize: "0.9rem", color: "#374151" }}>
-          {contradiction.evidence_a_answer ||
-            contradiction.evidence_a_title ||
-            contradiction.evidence_a_id}
-        </div>
-      </div>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          color: "#f59e0b",
-          fontWeight: 700,
-        }}
-      >
-        VS
-      </div>
-      <div style={{ flex: 1 }}>
-        <div style={{ fontSize: "0.75rem", color: "#92400e", fontWeight: 600 }}>
-          Statement B
-        </div>
-        <div style={{ fontSize: "0.9rem", color: "#374151" }}>
-          {contradiction.evidence_b_answer ||
-            contradiction.evidence_b_title ||
-            contradiction.evidence_b_id}
-        </div>
-      </div>
-    </div>
-    {contradiction.description && (
-      <div style={{ fontSize: "0.85rem", color: "#6b7280", fontStyle: "italic" }}>
-        {contradiction.description}
-      </div>
-    )}
-  </div>
-);
 
 // Document coverage row
 const DocumentCoverageRow: React.FC<{ doc: DocumentCoverage }> = ({ doc }) => {
@@ -569,42 +454,22 @@ const GapAnalysisContent: React.FC<{
   </div>
 );
 
-const ContradictionsContent: React.FC<{
-  contradictions_summary: AnalysisResponse["contradictions_summary"];
-}> = ({ contradictions_summary }) => (
+const ImpeachmentContent: React.FC<{
+  total: number;
+  fullContradictions: ContradictionDto[];
+}> = ({ total, fullContradictions }) => (
   <div style={cardStyle}>
-    {contradictions_summary.contradictions.length === 0 ? (
-      <div
-        style={{
-          padding: "2rem",
-          textAlign: "center",
-          color: "#059669",
-          backgroundColor: "#dcfce7",
-          borderRadius: "6px",
-        }}
-      >
-        No contradictions found in the evidence.
+    {fullContradictions.length === 0 ? (
+      <div style={{ padding: "2rem", textAlign: "center", color: "#059669", backgroundColor: "#dcfce7", borderRadius: "6px" }}>
+        No impeachment evidence found.
       </div>
     ) : (
       <>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            marginBottom: "1rem",
-          }}
-        >
-          <div style={{ color: "#6b7280", fontSize: "0.9rem" }}>
-            Found <strong style={{ color: "#f59e0b" }}>{contradictions_summary.total}</strong>{" "}
-            contradictions in evidence
-          </div>
-          <Link to="/contradictions" style={{ ...linkStyle, fontSize: "0.85rem" }}>
-            View Full Details
-          </Link>
+        <div style={{ color: "#6b7280", fontSize: "0.9rem", marginBottom: "1rem" }}>
+          Found <strong style={{ color: "#f59e0b" }}>{total}</strong> instances of impeachment evidence
         </div>
-        {contradictions_summary.contradictions.map((c, i) => (
-          <ContradictionCard key={i} contradiction={c} />
+        {fullContradictions.map((c, i) => (
+          <ImpeachmentCard key={i} contradiction={c} />
         ))}
       </>
     )}
@@ -675,6 +540,7 @@ const EvidenceCoverageContent: React.FC<{
 
 const AnalysisPage: React.FC = () => {
   const [data, setData] = useState<AnalysisResponse | null>(null);
+  const [fullContradictions, setFullContradictions] = useState<ContradictionDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>("gap-analysis");
@@ -703,9 +569,13 @@ const AnalysisPage: React.FC = () => {
 
     const fetchData = async () => {
       try {
-        const result = await getAnalysis();
+        const [analysisResult, contradictionsResult] = await Promise.all([
+          getAnalysis(),
+          getContradictions(),
+        ]);
         if (!active) return;
-        setData(result);
+        setData(analysisResult);
+        setFullContradictions(contradictionsResult.contradictions);
         setError(null);
       } catch {
         if (!active) return;
@@ -774,7 +644,7 @@ const AnalysisPage: React.FC = () => {
     },
     {
       id: "contradictions",
-      label: "Contradictions",
+      label: "Impeachment Evidence",
       badge: contradictions_summary.total,
       badgeColor:
         contradictions_summary.total > 0 ? { bg: "#fef3c7", text: "#92400e" } : undefined,
@@ -791,42 +661,6 @@ const AnalysisPage: React.FC = () => {
   return (
     <div style={pageStyle}>
       <h1 style={titleStyle}>Case Analysis</h1>
-
-      {/* Summary Cards - Always Visible */}
-      <div style={statsGridStyle}>
-        <StatCard
-          value={gap_analysis.total_allegations}
-          label="Total Allegations"
-          subLabel="From complaint"
-          color="#374151"
-          onClick={() => handleTabChange("gap-analysis")}
-          isActive={activeTab === "gap-analysis"}
-        />
-        <StatCard
-          value={gap_analysis.strong_evidence}
-          label="Strong Evidence"
-          subLabel="90%+ supported"
-          color="#22c55e"
-          onClick={() => handleTabChange("gap-analysis")}
-          isActive={activeTab === "gap-analysis"}
-        />
-        <StatCard
-          value={gap_analysis.gaps}
-          label="Gaps Identified"
-          subLabel="Needs attention"
-          color="#ef4444"
-          onClick={() => handleTabChange("gap-analysis")}
-          isActive={activeTab === "gap-analysis"}
-        />
-        <StatCard
-          value={contradictions_summary.total}
-          label="Contradictions"
-          subLabel="Found in evidence"
-          color="#f59e0b"
-          onClick={() => handleTabChange("contradictions")}
-          isActive={activeTab === "contradictions"}
-        />
-      </div>
 
       {/* Tab Bar */}
       <div style={tabBarStyle}>
@@ -849,7 +683,7 @@ const AnalysisPage: React.FC = () => {
       )}
 
       {activeTab === "contradictions" && (
-        <ContradictionsContent contradictions_summary={contradictions_summary} />
+        <ImpeachmentContent total={contradictions_summary.total} fullContradictions={fullContradictions} />
       )}
 
       {activeTab === "evidence-coverage" && (
