@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { getEvidence, EvidenceDto } from "../services/evidence";
+import { API_BASE_URL } from "../services/api";
 
 const KIND_COLORS: Record<string, { bg: string; text: string }> = {
   testimonial: { bg: "#dbeafe", text: "#1e40af" },
@@ -294,15 +295,21 @@ const EvidencePage: React.FC = () => {
                     }}
                   >
                     <span style={{ color: "#6b7280" }}>Source: </span>
-                    <Link
-                      to={`/documents/${item.document_id}`}
-                      style={{
-                        color: "#2563eb",
-                        textDecoration: "none",
-                      }}
+                    <a
+                      href={`${API_BASE_URL}/documents/${encodeURIComponent(item.document_id!)}/file${
+                        item.page_number !== undefined ? `#page=${item.page_number}` : ""
+                      }`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ color: "#2563eb", textDecoration: "none" }}
+                      onMouseEnter={(e) => { e.currentTarget.style.textDecoration = "underline"; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.textDecoration = "none"; }}
                     >
                       {item.document_title}
-                    </Link>
+                      {item.page_number !== undefined && (
+                        <span style={{ color: "#6b7280" }}> (p. {item.page_number})</span>
+                      )}
+                    </a>
                   </div>
                 )}
               </div>

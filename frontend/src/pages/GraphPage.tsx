@@ -7,6 +7,7 @@ import {
   EvidenceChainResponse,
 } from "../services/evidenceChain";
 import { GraphEdge, GraphNodeType } from "../services/graph";
+import { API_BASE_URL } from "../services/api";
 
 // Professional color palette (matching Explorer page)
 const COLORS = {
@@ -47,6 +48,7 @@ interface NodeFullData {
   question?: string;
   answer?: string;
   documentTitle?: string;
+  documentId?: string;
   page_number?: number;
 }
 
@@ -110,6 +112,7 @@ function transformChainToGraph(
           question: ev.question,
           answer: ev.answer,
           documentTitle: ev.document?.title,
+          documentId: ev.document?.id,
           page_number: ev.document?.page_number,
         },
       });
@@ -458,21 +461,30 @@ const NodePopup: React.FC<{
                 >
                   Source:
                 </div>
-                <div
-                  style={{
-                    fontSize: "0.9rem",
-                    color: COLORS.textPrimary,
-                    fontWeight: 500,
-                  }}
-                >
-                  {fullData.documentTitle}
-                  {fullData.page_number !== undefined && (
-                    <span style={{ color: COLORS.textSecondary, fontWeight: 400 }}>
-                      {" "}
-                      (p. {fullData.page_number})
-                    </span>
-                  )}
-                </div>
+                {fullData.documentId ? (
+                  <a
+                    href={`${API_BASE_URL}/documents/${encodeURIComponent(fullData.documentId)}/file${
+                      fullData.page_number !== undefined ? `#page=${fullData.page_number}` : ""
+                    }`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ fontSize: "0.9rem", color: "#2563eb", textDecoration: "none", fontWeight: 500 }}
+                    onMouseEnter={(e) => { e.currentTarget.style.textDecoration = "underline"; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.textDecoration = "none"; }}
+                  >
+                    {fullData.documentTitle}
+                    {fullData.page_number !== undefined && (
+                      <span style={{ color: COLORS.textSecondary, fontWeight: 400 }}> (p. {fullData.page_number})</span>
+                    )}
+                  </a>
+                ) : (
+                  <div style={{ fontSize: "0.9rem", color: COLORS.textPrimary, fontWeight: 500 }}>
+                    {fullData.documentTitle}
+                    {fullData.page_number !== undefined && (
+                      <span style={{ color: COLORS.textSecondary, fontWeight: 400 }}> (p. {fullData.page_number})</span>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </>
@@ -497,15 +509,18 @@ const NodePopup: React.FC<{
                 </span>
               </div>
             )}
-            <div
-              style={{
-                fontSize: "0.9rem",
-                color: COLORS.textSecondary,
-                fontStyle: "italic",
-              }}
+            <a
+              href={`${API_BASE_URL}/documents/${encodeURIComponent(node.id)}/file${
+                fullData.page_number !== undefined ? `#page=${fullData.page_number}` : ""
+              }`}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ fontSize: "0.85rem", color: "#2563eb", textDecoration: "none", fontWeight: 500 }}
+              onMouseEnter={(e) => { e.currentTarget.style.textDecoration = "underline"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.textDecoration = "none"; }}
             >
-              This document contains evidence supporting the case.
-            </div>
+              View PDF &rarr;
+            </a>
           </>
         )}
       </div>
