@@ -238,7 +238,6 @@ const Home: React.FC = () => {
             { name: "Damages", desc: "Financial and reputational damages with evidence links", stat: `${formatCurrency(stats.damages_total)} in documented harm`, path: "/damages", hasInfo: true },
             { name: "Case Analysis", desc: "Gap analysis, allegation strength, and evidence coverage", stat: `${stats.allegations_total} allegations \u00b7 ${stats.allegations_proven} proven`, path: "/analysis" },
             { name: "Graph", desc: "Interactive graph from legal counts through evidence", stat: "Visual proof chains", path: "/graph" },
-            { name: "Case Timeline", desc: "Chronological history of key events from 2008 to present", stat: `${timelineEventCount} key events`, path: "/timeline" },
           ].map((card) => (
             <Link
               key={card.path}

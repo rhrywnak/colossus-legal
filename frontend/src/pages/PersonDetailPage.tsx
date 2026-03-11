@@ -22,6 +22,26 @@ function getRoleStyle(role: string | undefined) {
   return ROLE_COLORS[role.toLowerCase()] || DEFAULT_ROLE;
 }
 
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/** Group characterizations by label, sort allegation IDs numerically within each group */
+function groupCharacterizations(chars: { allegation_id: string; characterization_label?: string }[]) {
+  const map = new Map<string, string[]>();
+  for (const ch of chars) {
+    const label = ch.characterization_label ?? "unknown";
+    if (!map.has(label)) map.set(label, []);
+    map.get(label)!.push(ch.allegation_id);
+  }
+  return Array.from(map.entries()).map(([label, ids]) => ({
+    label,
+    ids: ids.sort((a, b) => {
+      const na = parseInt(a.replace(/\D/g, ""), 10) || 0;
+      const nb = parseInt(b.replace(/\D/g, ""), 10) || 0;
+      return na - nb;
+    }),
+  }));
+}
+
 // ─── Statement card (extracted to keep component under 300 lines) ────────────
 
 const StatementCard: React.FC<{ stmt: StatementDetail }> = ({ stmt }) => (
@@ -69,25 +89,34 @@ const StatementCard: React.FC<{ stmt: StatementDetail }> = ({ stmt }) => (
       </div>
     )}
 
-    {/* Characterizations */}
+    {/* Characterizations — grouped by label */}
     {stmt.characterizes.length > 0 && (
       <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem", marginBottom: "0.5rem" }}>
-        {stmt.characterizes.map((ch) => (
-          <div key={`${ch.allegation_id}-${ch.characterization_label}`} style={{
+        {groupCharacterizations(stmt.characterizes).map(({ label, ids }) => (
+          <div key={label} style={{
             display: "flex", flexWrap: "wrap", alignItems: "center", gap: "0.5rem",
           }}>
             <span style={{
               padding: "0.15rem 0.4rem", backgroundColor: "#fef3c7", color: "#92400e",
               borderRadius: "4px", fontSize: "0.75rem", fontWeight: 600,
             }}>
-              Characterized as "{ch.characterization_label}"
+              Characterized as &ldquo;{label}&rdquo;
             </span>
-            <Link
-              to={`/allegations/${ch.allegation_id}/detail`}
-              style={{ fontSize: "0.8rem", color: "#2563eb", textDecoration: "none" }}
-            >
-              {ch.allegation_id}
-            </Link>
+            <span style={{ fontSize: "0.8rem" }}>
+              {ids.map((aid, i) => (
+                <React.Fragment key={aid}>
+                  {i > 0 && ", "}
+                  <a
+                    href={`/allegations/${aid}/detail`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ color: "#2563eb", textDecoration: "none" }}
+                  >
+                    {aid}
+                  </a>
+                </React.Fragment>
+              ))}
+            </span>
           </div>
         ))}
       </div>
