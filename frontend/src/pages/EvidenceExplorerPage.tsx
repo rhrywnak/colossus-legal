@@ -10,7 +10,7 @@ import { CountGroup, CountSection } from "../components/EvidenceExplorerParts";
 const COUNT_METADATA: Record<string, { numeral: string; legal_basis: string; paragraphs: string }> = {
   "Breach of Fiduciary Duty": { numeral: "I", legal_basis: "MCL 700.1212", paragraphs: "72-85" },
   "Fraud": { numeral: "II", legal_basis: "Common Law", paragraphs: "86-100" },
-  "Declaratory Relief": { numeral: "III", legal_basis: "MCL 450.178 / MCL 700.1212", paragraphs: "101-114" },
+  "Declaratory Relief (Ultra Vires)": { numeral: "III", legal_basis: "MCL 450.178 / MCL 700.1212", paragraphs: "101-114" },
   "Abuse of Process": { numeral: "IV", legal_basis: "Common Law", paragraphs: "115-126" },
 };
 
