@@ -139,21 +139,18 @@ const AskPage: React.FC = () => {
         </p>
       </div>
 
-      {/* Tab bar */}
+      {/* Tab toggle — show only the "other" tab as a clickable button */}
       <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem" }}>
-        {(["ask", "history"] as const).map((tab) => {
-          const active = activeTab === tab;
-          return (
-            <button key={tab} onClick={() => handleTabSwitch(tab)} style={{
-              padding: "0.5rem 1.25rem", borderRadius: "4px", cursor: "pointer",
-              border: `1px solid ${active ? "#1a1a2e" : "#ccc"}`,
-              background: active ? "#1a1a2e" : "transparent",
-              color: active ? "white" : "inherit", fontWeight: active ? 600 : 400,
-            }}>
-              {tab === "ask" ? pageText.ask.askTab : pageText.ask.historyTab}
-            </button>
-          );
-        })}
+        <button
+          onClick={() => handleTabSwitch(activeTab === "ask" ? "history" : "ask")}
+          style={{
+            padding: "0.5rem 1.25rem", borderRadius: "4px", cursor: "pointer",
+            border: "1px solid #ccc", background: "transparent",
+            color: "inherit", fontWeight: 400,
+          }}
+        >
+          {activeTab === "ask" ? pageText.ask.historyTab : pageText.ask.title}
+        </button>
       </div>
 
       {/* Ask tab */}
@@ -189,15 +186,15 @@ const AskPage: React.FC = () => {
             disabled={loading || !question.trim()}
             style={{
               position: "absolute", bottom: "10px", right: "10px",
-              width: "36px", height: "36px", borderRadius: "50%",
+              width: "40px", height: "40px", borderRadius: "50%",
               backgroundColor: loading || !question.trim() ? "#93c5fd" : "#2563eb",
               color: "#fff", border: "none", cursor: loading ? "wait" : "pointer",
               display: "flex", alignItems: "center", justifyContent: "center",
-              fontSize: "1.1rem", lineHeight: 1,
+              fontSize: "1.4rem", fontWeight: 700, lineHeight: 1,
             }}
             title={loading ? "Thinking..." : "Ask"}
           >
-            {loading ? "…" : "→"}
+            {loading ? "\u2026" : "\u2191"}
           </button>
         </div>
         {response && (
