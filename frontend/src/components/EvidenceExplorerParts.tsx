@@ -71,7 +71,7 @@ export const CountSection: React.FC<CountSectionProps> = ({
             {group.legalBasis}
             {group.paragraphs && <> &middot; Complaint &para;{group.paragraphs}</>}
             {" "}&middot; {group.allegations.length} allegation{group.allegations.length !== 1 ? "s" : ""}
-            {" "}&middot; {group.provenCount} proven
+            {" "}&middot; {group.provenCount} supported
           </div>
         )}
 

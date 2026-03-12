@@ -9,7 +9,6 @@ const NAV_ITEMS = [
   { label: "Evidence", path: "/explorer" },
   { label: "People", path: "/people" },
   { label: "Documents", path: "/documents" },
-  { label: "Analysis", path: "/analysis" },
   { label: "Chat", path: "/ask" },
 ];
 

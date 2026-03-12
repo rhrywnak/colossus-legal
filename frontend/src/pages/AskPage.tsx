@@ -139,14 +139,14 @@ const AskPage: React.FC = () => {
         </p>
       </div>
 
-      {/* Tab toggle — show only the "other" tab as a clickable button */}
-      <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem" }}>
+      {/* Tab toggle — right-aligned, matching submit button color */}
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "1rem" }}>
         <button
           onClick={() => handleTabSwitch(activeTab === "ask" ? "history" : "ask")}
           style={{
-            padding: "0.5rem 1.25rem", borderRadius: "4px", cursor: "pointer",
-            border: "1px solid #ccc", background: "transparent",
-            color: "inherit", fontWeight: 400,
+            padding: "0.5rem 1.25rem", borderRadius: "7px", cursor: "pointer",
+            border: "none", backgroundColor: "#2563eb",
+            color: "#ffffff", fontWeight: 500, fontSize: "0.84rem",
           }}
         >
           {activeTab === "ask" ? pageText.ask.historyTab : pageText.ask.title}
@@ -186,7 +186,7 @@ const AskPage: React.FC = () => {
             disabled={loading || !question.trim()}
             style={{
               position: "absolute", bottom: "10px", right: "10px",
-              width: "40px", height: "40px", borderRadius: "50%",
+              width: "40px", height: "40px", borderRadius: "7px",
               backgroundColor: loading || !question.trim() ? "#93c5fd" : "#2563eb",
               color: "#fff", border: "none", cursor: loading ? "wait" : "pointer",
               display: "flex", alignItems: "center", justifyContent: "center",
