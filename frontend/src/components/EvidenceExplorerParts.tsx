@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { AllegationDto } from "../services/allegations";
 import { AllegationStrength } from "../services/analysisApi";
 import { EvidenceChainResponse } from "../services/evidenceChain";
@@ -141,6 +141,7 @@ type AllegationRowProps = {
 };
 
 const AllegationRow: React.FC<AllegationRowProps> = ({ allegation, isExpanded, isLoading, chain, onToggle, strength }) => {
+  const [showEvidence, setShowEvidence] = useState(false);
   const statusStyle = getStatusStyle(allegation.evidence_status);
   const sColors = strength ? getStrengthStyle(strength.strength_category) : null;
 
@@ -202,19 +203,44 @@ const AllegationRow: React.FC<AllegationRowProps> = ({ allegation, isExpanded, i
 
       {/* Mini strength bar */}
       {strength && sColors && (
-        <div style={{ padding: "0 1.25rem 0.75rem 3.75rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
-          <div style={{
-            width: "200px", maxWidth: "200px", height: "4px", backgroundColor: "#e5e7eb",
-            borderRadius: "2px", overflow: "hidden",
-          }}>
+        <div style={{ padding: "0 1.25rem 0.75rem 3.75rem" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
             <div style={{
-              width: `${strength.strength_percent}%`, height: "100%",
-              backgroundColor: sColors.bar, borderRadius: "2px",
-            }} />
+              width: "200px", maxWidth: "200px", height: "4px", backgroundColor: "#e5e7eb",
+              borderRadius: "2px", overflow: "hidden",
+            }}>
+              <div style={{
+                width: `${strength.strength_percent}%`, height: "100%",
+                backgroundColor: sColors.bar, borderRadius: "2px",
+              }} />
+            </div>
+            <span style={{ fontSize: "0.7rem", color: COLORS.textMuted }}>
+              {strength.supporting_evidence_count} evidence
+            </span>
+            {strength.supporting_evidence && strength.supporting_evidence.length > 0 && (
+              <span
+                onClick={(e) => { e.stopPropagation(); setShowEvidence((prev) => !prev); }}
+                style={{
+                  marginLeft: "auto", cursor: "pointer", fontSize: "0.8rem",
+                  color: "#9ca3af", userSelect: "none",
+                }}
+              >
+                {showEvidence ? "▾ Less" : "▸ More"}
+              </span>
+            )}
           </div>
-          <span style={{ fontSize: "0.7rem", color: COLORS.textMuted }}>
-            {strength.supporting_evidence_count} evidence
-          </span>
+          {showEvidence && strength.supporting_evidence && (
+            <div style={{
+              marginTop: "0.5rem", marginLeft: "24px",
+              paddingLeft: "0.75rem", borderLeft: "3px solid #e5e7eb",
+            }}>
+              {strength.supporting_evidence.map((title, i) => (
+                <div key={i} style={{ fontSize: "0.85rem", color: "#6b7280", padding: "0.15rem 0" }}>
+                  {title}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
