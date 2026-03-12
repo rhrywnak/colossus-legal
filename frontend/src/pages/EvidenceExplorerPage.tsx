@@ -1,9 +1,11 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { getAllegations, AllegationDto } from "../services/allegations";
 import { getEvidenceChain, EvidenceChainResponse } from "../services/evidenceChain";
+import { getAnalysis, AllegationStrength } from "../services/analysisApi";
 import { useCase } from "../context/CaseContext";
 import { COLORS } from "../components/EvidenceChainParts";
 import { CountGroup, CountSection } from "../components/EvidenceExplorerParts";
+import InfoPopup from "../components/InfoPopup";
 
 // ─── Count metadata (hardcoded — not in API yet) ────────────────────────────
 
@@ -73,12 +75,26 @@ const EvidenceExplorerPage: React.FC = () => {
   const [chainCache, setChainCache] = useState<Map<string, EvidenceChainResponse>>(new Map());
   const [loadingIds, setLoadingIds] = useState<Set<string>>(new Set());
   const [collapsedCounts, setCollapsedCounts] = useState<Set<string>>(new Set());
+  const [strengthMap, setStrengthMap] = useState<Map<string, AllegationStrength>>(new Map());
 
   useEffect(() => {
     let active = true;
-    getAllegations()
-      .then((result) => { if (active) { setAllegations(result.allegations); setError(null); } })
-      .catch(() => { if (active) { setAllegations([]); setError("Failed to load allegations"); } })
+    Promise.all([getAllegations(), getAnalysis()])
+      .then(([allegationsResult, analysisResult]) => {
+        if (!active) return;
+        setAllegations(allegationsResult.allegations);
+        const map = new Map<string, AllegationStrength>();
+        for (const a of analysisResult.gap_analysis.allegations) {
+          map.set(a.id, a);
+        }
+        setStrengthMap(map);
+        setError(null);
+      })
+      .catch(() => {
+        if (!active) return;
+        setAllegations([]);
+        setError("Failed to load allegations");
+      })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, []);
@@ -134,10 +150,27 @@ const EvidenceExplorerPage: React.FC = () => {
     <div style={{ backgroundColor: COLORS.bgPage, minHeight: "100vh", padding: "2rem" }}>
       <div style={{ maxWidth: "1200px", margin: "0 auto" }}>
         <h1 style={{ fontSize: "1.75rem", fontWeight: 600, color: COLORS.textPrimary, margin: 0 }}>
-          Evidence Explorer
+          Case Evidence &amp; Analysis
+          <InfoPopup>
+            <strong style={{ display: "block", marginBottom: "0.5rem" }}>How evidence strength is calculated</strong>
+            <p style={{ margin: "0 0 0.5rem" }}>
+              Strength measures how many independent evidence items support each allegation
+              through the proof chain (MotionClaim &rarr; Evidence). This is a measure of
+              evidentiary coverage, not legal sufficiency.
+            </p>
+            <ul style={{ margin: 0, paddingLeft: "1.25rem" }}>
+              <li>0 items = Gap (25%) &mdash; No evidence linked</li>
+              <li>1 item = Weak (60%) &mdash; Single source</li>
+              <li>2 items = Moderate (80%) &mdash; Multiple sources</li>
+              <li>3+ items = Strong (90%+) &mdash; Well-supported</li>
+            </ul>
+            <p style={{ margin: "0.5rem 0 0", fontSize: "0.8rem", color: "#6b7280" }}>
+              Evidence is counted as distinct items linked via: Evidence &larr; RELIES_ON &larr; MotionClaim &rarr; PROVES &rarr; Allegation
+            </p>
+          </InfoPopup>
         </h1>
         <p style={{ fontSize: "0.95rem", color: COLORS.textSecondary, marginTop: "0.25rem", marginBottom: 0 }}>
-          Trace every allegation in the complaint back to its supporting evidence and source documents.
+          Allegations organized by legal Count with evidence strength analysis
         </p>
         <div style={{ borderBottom: `1px solid ${COLORS.border}`, margin: "1.5rem 0" }} />
 
@@ -157,6 +190,7 @@ const EvidenceExplorerPage: React.FC = () => {
                 loadingIds={loadingIds}
                 chainCache={chainCache}
                 onToggleAllegation={handleToggle}
+                strengthMap={strengthMap}
               />
             ))}
           </div>
