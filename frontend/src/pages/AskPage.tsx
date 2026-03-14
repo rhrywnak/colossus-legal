@@ -7,6 +7,7 @@ import {
 } from "../services/qa";
 import AnswerDisplay from "../components/AnswerDisplay";
 import MetricsBar from "../components/MetricsBar";
+import RetrievalDetailsPanel from "../components/RetrievalDetailsPanel";
 import { HistoryCard } from "../components/HistoryCard";
 import { pageText } from "../config/pageText";
 
@@ -241,6 +242,7 @@ const AskPage: React.FC = () => {
 
       {/* Metrics bar — shown after response, before the answer */}
       {response && !loading && <MetricsBar response={response} />}
+      {response && !loading && <RetrievalDetailsPanel response={response} />}
 
       {/* Historical answer header */}
       {viewingHistoryEntry && response && (

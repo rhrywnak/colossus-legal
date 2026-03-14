@@ -13,11 +13,27 @@ export type RetrievalStats = {
     total_ms: number;
 };
 
+export type RetrievalDetail = {
+    node_id: string;
+    node_type: string;
+    title: string;
+    score: number;
+    origin: "qdrant" | "graph";
+    document_title?: string;
+    document_id?: string;
+    page_number?: number;
+    quote_preview?: string;
+    relationship_count: number;
+};
+
 export type AskResponse = {
     question: string;
     answer: string;
     provider: string;
     retrieval_stats: RetrievalStats;
+    qa_id?: string;
+    strategy?: string;
+    retrieval_details?: RetrievalDetail[];
 };
 
 export async function askTheCase(
