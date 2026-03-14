@@ -81,6 +81,17 @@ export function mapEntryToResponse(entry: QAEntryFull): AskResponse {
   };
 }
 
+export async function deleteQAEntry(id: string): Promise<boolean> {
+  try {
+    const resp = await authFetch(`${API_BASE_URL}/api/qa/${id}`, {
+      method: "DELETE",
+    });
+    return resp.ok; // true if 204, false if 403/404
+  } catch {
+    return false;
+  }
+}
+
 // Fire-and-forget — rating failures are silent
 export async function rateQAEntry(id: string, rating: number): Promise<void> {
   try {

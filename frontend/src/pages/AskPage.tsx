@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { askTheCase, AskResponse } from "../services/ask";
 import {
-  getQAHistory, getQAEntry, rateQAEntry, mapEntryToResponse,
+  getQAHistory, getQAEntry, rateQAEntry, deleteQAEntry, mapEntryToResponse,
   QAEntrySummary, QAEntryFull,
 } from "../services/qa";
 import AnswerDisplay from "../components/AnswerDisplay";
@@ -43,19 +43,14 @@ const AskPage: React.FC = () => {
     if (tab === "history") loadHistory();
   };
 
-  // Auto-submit when arriving with a ?q= parameter
   const autoSubmitted = useRef(false);
 
-  // Core submit logic — reused by form handler and auto-submit effect
   const submitQuestion = async (q: string) => {
     if (!q.trim() || loading) return;
-
     setLoading(true);
     setError(null);
     setResponse(null);
     setViewingHistoryEntry(null);
-
-    // Simulate pipeline phase labels while waiting for the single API call
     setPhase("Embedding question...");
     const t1 = setTimeout(() => setPhase("Searching evidence..."), 800);
     const t2 = setTimeout(() => setPhase("Expanding graph context..."), 2000);
@@ -76,12 +71,8 @@ const AskPage: React.FC = () => {
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    submitQuestion(question);
-  };
+  const handleSubmit = (e: React.FormEvent) => { e.preventDefault(); submitQuestion(question); };
 
-  // If the page loaded with ?q=..., auto-submit once
   useEffect(() => {
     if (initialQuestion && !autoSubmitted.current) {
       autoSubmitted.current = true;
@@ -113,6 +104,13 @@ const AskPage: React.FC = () => {
       console.error("Failed to load history entry", e);
     } finally {
       setHistoryLoading(false);
+    }
+  };
+
+  const handleDelete = async (entryId: string) => {
+    const success = await deleteQAEntry(entryId);
+    if (success) {
+      setHistory((prev) => prev.filter((e) => e.id !== entryId));
     }
   };
 
@@ -287,6 +285,7 @@ const AskPage: React.FC = () => {
               entry={entry}
               onClick={(id) => handleHistoryClick(id)}
               onRate={(rating) => rateQAEntry(entry.id, rating)}
+              onDelete={handleDelete}
             />
           ))}
         </div>
