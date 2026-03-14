@@ -275,16 +275,14 @@ pub async fn update_rating(
 pub async fn delete_qa_entry(
     pool: &PgPool,
     id: &str,
-    username: &str,
 ) -> Result<(), QAError> {
     let uuid = Uuid::parse_str(id)
         .map_err(|e| QAError::NotFound(format!("invalid UUID: {e}")))?;
 
     let result = sqlx::query(
-        "DELETE FROM qa_entries WHERE id = $1 AND asked_by = $2",
+        "DELETE FROM qa_entries WHERE id = $1",
     )
     .bind(uuid)
-    .bind(username)
     .execute(pool)
     .await?;
 

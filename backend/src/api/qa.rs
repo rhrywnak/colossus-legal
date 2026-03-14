@@ -115,8 +115,12 @@ pub async fn delete_qa_entry(
     Path(id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
     tracing::info!("{} DELETE /api/qa/{}", user.username, id);
+    if !user.is_admin() {
+        return Err(error_response(StatusCode::FORBIDDEN, "admin access required"));
+    }
 
-    qa_repository::delete_qa_entry(&state.pg_pool, &id, &user.username)
+
+    qa_repository::delete_qa_entry(&state.pg_pool, &id)
         .await
         .map_err(map_qa_error)?;
 
