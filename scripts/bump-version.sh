@@ -4,6 +4,7 @@
 #   (do NOT include the 'v' prefix — just the semver number)
 
 set -euo pipefail
+cd "$(git rev-parse --show-toplevel)" || exit 1
 
 if [ $# -ne 1 ]; then
   echo "Usage: $0 <version>"
