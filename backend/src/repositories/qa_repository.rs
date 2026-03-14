@@ -131,7 +131,7 @@ impl QaEntryRow {
             rating_by: self.rated_by,
             parent_qa_id: self.parent_qa_id.map(|u| u.to_string()),
             metadata: self.metadata,
-            user_rating: None,
+            user_rating: self.rating,
         }
     }
 
@@ -156,7 +156,7 @@ impl QaEntryRow {
             rating: self.rating,
             parent_qa_id: self.parent_qa_id.map(|u| u.to_string()),
             total_ms,
-            user_rating: None,
+            user_rating: self.rating,
         }
     }
 }
