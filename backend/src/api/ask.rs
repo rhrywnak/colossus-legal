@@ -7,20 +7,8 @@
 //! 4. **Assemble** — format context via LegalAssembler
 //! 5. **Synthesize** — call Claude via RigSynthesizer
 //!
-//! ## What changed from the old Minerva handler
-//!
-//! The old handler (~250 lines) orchestrated 5 stages manually:
-//! embed_question → search_points → expand_context → build_system_prompt → synthesize.
-//! Each stage had its own error handling, timing, and data mapping.
-//!
-//! The new handler (~80 lines) calls `pipeline.ask(question)` and maps the
-//! result to the same `AskResponse` JSON shape. The pipeline handles all
-//! orchestration, timing, and error propagation internally.
-//!
-//! ## CRITICAL: Response shape is unchanged
-//!
-//! The frontend expects `{ question, answer, provider, retrieval_stats: {...} }`.
-//! We map `RagResult` → `AskResponse` field by field to preserve this contract.
+//! The handler calls `pipeline.ask(question)` and maps `RagResult` → `AskResponse`,
+//! including retrieval details (chunks, strategy) for frontend transparency.
 
 use axum::{extract::State, http::StatusCode, Json};
 use serde::{Deserialize, Serialize};
@@ -59,6 +47,12 @@ pub struct AskResponse {
     /// The persisted QAEntry ID (None if persistence failed).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub qa_id: Option<String>,
+
+    /// The routing strategy chosen by the pipeline (e.g., "Broad", "Focused(document)")
+    pub strategy: String,
+
+    /// Detailed breakdown of every retrieved chunk (Qdrant hits + graph expansion)
+    pub retrieval_details: Vec<RetrievalDetail>,
 }
 
 #[derive(Debug, Serialize)]
@@ -72,6 +66,89 @@ pub struct RetrievalStats {
     pub expand_ms: u64,
     pub synthesis_ms: u64,
     pub total_ms: u64,
+}
+
+/// A single retrieved chunk from the RAG pipeline, exposed for debugging
+/// and transparency. Shows what evidence was found and how it was sourced.
+///
+/// ## Rust Learning: Flattening nested data for API consumers
+///
+/// ContextChunk has nested SourceReference and Vec<RelatedNode>. Rather than
+/// exposing the internal colossus-rag types directly (which would couple the
+/// API contract to the library's internals), we flatten into a purpose-built
+/// DTO with only the fields the frontend needs.
+#[derive(Debug, Serialize)]
+pub struct RetrievalDetail {
+    /// The knowledge graph node ID (e.g., "evidence-phillips-q74")
+    pub node_id: String,
+
+    /// The node type (e.g., "Evidence", "ComplaintAllegation", "MotionClaim")
+    pub node_type: String,
+
+    /// Human-readable title
+    pub title: String,
+
+    /// Cosine similarity score from Qdrant (0.0 for graph-expanded nodes)
+    pub score: f32,
+
+    /// How this chunk was sourced: "qdrant" (vector search) or "graph" (expansion)
+    pub origin: String,
+
+    /// Source document title, if available
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub document_title: Option<String>,
+
+    /// Source document ID, if available
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub document_id: Option<String>,
+
+    /// Page number in source document, if available
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub page_number: Option<u32>,
+
+    /// Truncated verbatim quote preview (max 200 chars)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quote_preview: Option<String>,
+
+    /// Number of graph relationships attached to this chunk
+    pub relationship_count: usize,
+}
+
+/// Map a colossus-rag ContextChunk into an API-facing RetrievalDetail.
+///
+/// ## Rust Learning: Ownership via `into()` pattern
+///
+/// This function takes ownership of the chunk (not a reference) because we
+/// move strings out of it rather than cloning. Since we're done with the
+/// chunks after mapping, this avoids unnecessary allocations.
+fn chunk_to_detail(chunk: colossus_rag::ContextChunk) -> RetrievalDetail {
+    let origin = if chunk.score > 0.0 {
+        "qdrant".to_string()
+    } else {
+        "graph".to_string()
+    };
+
+    // Truncate verbatim quote to 200 chars for preview
+    let quote_preview = chunk.source.verbatim_quote.map(|q| {
+        if q.len() > 200 {
+            format!("{}...", &q[..197])
+        } else {
+            q
+        }
+    });
+
+    RetrievalDetail {
+        node_id: chunk.node_id,
+        node_type: chunk.node_type,
+        title: chunk.title,
+        score: chunk.score,
+        origin,
+        document_title: chunk.source.document_title,
+        document_id: chunk.source.document_id,
+        page_number: chunk.source.page_number,
+        quote_preview,
+        relationship_count: chunk.relationships.len(),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -145,6 +222,15 @@ pub async fn ask_the_case(
         total_ms: result.stats.total_ms,
     };
 
+    // Map chunks to retrieval details for the response.
+    let retrieval_details: Vec<RetrievalDetail> = result
+        .chunks
+        .into_iter()
+        .map(chunk_to_detail)
+        .collect();
+
+    let strategy = result.stats.strategy.clone();
+
     // Persist Q&A entry to Neo4j.
     // Try to persist, log on failure, but always return the answer.
     let metadata = serde_json::json!({
@@ -157,6 +243,8 @@ pub async fn ask_the_case(
         "expand_ms": retrieval_stats.expand_ms,
         "synthesis_ms": retrieval_stats.synthesis_ms,
         "total_ms": retrieval_stats.total_ms,
+        "strategy": &strategy,
+        "retrieval_details": &retrieval_details,
     });
 
     let qa_create = CreateQAEntry {
@@ -186,6 +274,8 @@ pub async fn ask_the_case(
         provider: result.stats.model.clone(),
         retrieval_stats,
         qa_id,
+        strategy,
+        retrieval_details,
     }))
 }
 
