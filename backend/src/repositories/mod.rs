@@ -18,7 +18,6 @@ pub mod person_detail_repository;
 pub mod person_repository;
 pub mod qa_repository;
 pub mod query_repository;
-pub mod rating_repository;
 pub mod schema_repository;
 
 pub use allegation_repository::AllegationRepository;

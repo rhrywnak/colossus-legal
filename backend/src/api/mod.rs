@@ -79,7 +79,7 @@ pub fn router() -> Router<AppState> {
         .route("/search", post(search::semantic_search))
         .route("/ask", post(ask::ask_the_case))
         .route("/api/qa-history", get(qa::get_qa_history))
-        .route("/api/qa/:id", get(qa::get_qa_entry))
+        .route("/api/qa/:id", get(qa::get_qa_entry).delete(qa::delete_qa_entry))
         .route("/api/qa/:id/rate", patch(qa::rate_qa_entry))
 }
 

@@ -51,7 +51,7 @@ pub async fn get_qa_history(
 
     let limit = params.limit.unwrap_or(50).min(200);
 
-    let mut entries = qa_repository::get_qa_history(
+    let entries = qa_repository::get_qa_history(
         &state.pg_pool,
         &params.scope_type,
         &params.scope_id,
@@ -59,24 +59,6 @@ pub async fn get_qa_history(
     )
     .await
     .map_err(map_qa_error)?;
-
-    // Batch-fetch this user's ratings from PostgreSQL and inject into summaries.
-    // Failure is non-fatal — entries still return with user_rating: null.
-    let qa_ids: Vec<String> = entries.iter().map(|e| e.id.clone()).collect();
-    let rating_repo = crate::repositories::rating_repository::RatingRepository::new(
-        state.pg_pool.clone(),
-    );
-    let user_ratings = rating_repo
-        .get_user_ratings_batch(&user.username, &qa_ids)
-        .await
-        .unwrap_or_else(|e| {
-            tracing::warn!("Failed to fetch ratings batch: {e}");
-            std::collections::HashMap::new()
-        });
-
-    for entry in &mut entries {
-        entry.user_rating = user_ratings.get(&entry.id).copied();
-    }
 
     Ok(Json(entries))
 }
@@ -101,9 +83,7 @@ pub async fn get_qa_entry(
 
 /// PATCH /api/qa/:id/rate
 ///
-/// Rate a QA entry 1–5 stars. Upserts into PostgreSQL — a user can change
-/// their rating and the latest value wins. The QAEntry is fetched from Neo4j
-/// to denormalize model/scope into the rating row for analytics.
+/// Rate a QA entry 1–5 stars. Updates the rating directly on the qa_entries row.
 pub async fn rate_qa_entry(
     user: AuthUser,
     State(state): State<AppState>,
@@ -112,7 +92,6 @@ pub async fn rate_qa_entry(
 ) -> Result<StatusCode, ApiError> {
     tracing::info!("{} PATCH /api/qa/{}/rate rating={}", user.username, id, body.rating);
 
-    // Validate rating range
     if !(1..=5).contains(&body.rating) {
         return Err(error_response(
             StatusCode::UNPROCESSABLE_ENTITY,
@@ -120,29 +99,26 @@ pub async fn rate_qa_entry(
         ));
     }
 
-    // Fetch QAEntry from PostgreSQL for denormalization fields
-    let entry = qa_repository::get_qa_entry(&state.pg_pool, &id)
+    qa_repository::update_rating(&state.pg_pool, &id, body.rating, &user.username)
         .await
-        .map_err(map_qa_error)?
-        .ok_or_else(|| error_response(StatusCode::NOT_FOUND, "QA entry not found"))?;
+        .map_err(map_qa_error)?;
 
-    // Upsert rating into PostgreSQL
-    let repo = crate::repositories::rating_repository::RatingRepository::new(
-        state.pg_pool.clone(),
-    );
-    repo.upsert_rating(
-        &id,
-        &user.username,
-        body.rating,
-        &entry.model,
-        &entry.scope_type,
-        &entry.scope_id,
-    )
-    .await
-    .map_err(|e| {
-        tracing::error!("Rating upsert failed: {e}");
-        error_response(StatusCode::INTERNAL_SERVER_ERROR, "failed to save rating")
-    })?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// DELETE /api/qa/:id
+///
+/// Delete a QA entry. Only the user who asked the question can delete it.
+pub async fn delete_qa_entry(
+    user: AuthUser,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    tracing::info!("{} DELETE /api/qa/{}", user.username, id);
+
+    qa_repository::delete_qa_entry(&state.pg_pool, &id, &user.username)
+        .await
+        .map_err(map_qa_error)?;
 
     Ok(StatusCode::NO_CONTENT)
 }
