@@ -259,7 +259,7 @@ pub async fn ask_the_case(
         metadata: Some(metadata),
     };
 
-    let qa_id = qa_repository::create_qa_entry(&state.graph, qa_create)
+    let qa_id = qa_repository::create_qa_entry(&state.pg_pool, qa_create)
         .await
         .map_err(|e| {
             tracing::error!("Failed to persist QA entry: {e}");

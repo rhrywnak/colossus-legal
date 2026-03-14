@@ -52,7 +52,7 @@ pub async fn get_qa_history(
     let limit = params.limit.unwrap_or(50).min(200);
 
     let mut entries = qa_repository::get_qa_history(
-        &state.graph,
+        &state.pg_pool,
         &params.scope_type,
         &params.scope_id,
         limit,
@@ -91,7 +91,7 @@ pub async fn get_qa_entry(
 ) -> Result<Json<QAEntry>, ApiError> {
     tracing::info!("{} GET /api/qa/{}", user.username, id);
 
-    let entry = qa_repository::get_qa_entry(&state.graph, &id)
+    let entry = qa_repository::get_qa_entry(&state.pg_pool, &id)
         .await
         .map_err(map_qa_error)?
         .ok_or_else(|| error_response(StatusCode::NOT_FOUND, "QA entry not found"))?;
@@ -120,8 +120,8 @@ pub async fn rate_qa_entry(
         ));
     }
 
-    // Fetch QAEntry from Neo4j for denormalization fields
-    let entry = qa_repository::get_qa_entry(&state.graph, &id)
+    // Fetch QAEntry from PostgreSQL for denormalization fields
+    let entry = qa_repository::get_qa_entry(&state.pg_pool, &id)
         .await
         .map_err(map_qa_error)?
         .ok_or_else(|| error_response(StatusCode::NOT_FOUND, "QA entry not found"))?;
@@ -159,7 +159,7 @@ fn map_qa_error(e: QAError) -> ApiError {
     match &e {
         QAError::NotFound(_) => error_response(StatusCode::NOT_FOUND, &e.to_string()),
         QAError::InvalidRating(_) => error_response(StatusCode::BAD_REQUEST, &e.to_string()),
-        QAError::Neo4j(_) => {
+        QAError::Database(_) => {
             tracing::error!("QA repository error: {e}");
             error_response(StatusCode::INTERNAL_SERVER_ERROR, "database error")
         }
