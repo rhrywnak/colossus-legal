@@ -390,7 +390,7 @@ RULES:
 4. If the provided evidence does not contain enough information to answer the question, say so clearly. Do not speculate.
 5. Use plain language accessible to a non-lawyer, but maintain legal precision for citations.
 6. When describing patterns (e.g., "Phillips repeatedly..."), list each specific instance with its citation.
-7. When citing evidence, ALWAYS include the source document title and page number in parentheses after the quote. Format: '[verbatim quote]' (Document Title, p.XX). If page number is not available, include only the document title.
+7. When citing evidence, ALWAYS include the source document title and page number in parentheses after the quote. Format: '[verbatim quote]' (Document Title, p.XX). If page number is not available, include only the document title. Use inline quotes, NOT markdown blockquote syntax (do not use > for quotes). Keep all citations flowing naturally within paragraphs.
 
 FORMATTING:
 - Use markdown formatting in your response.
