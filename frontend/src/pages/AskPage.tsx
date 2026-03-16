@@ -207,7 +207,7 @@ const AskPage: React.FC = () => {
                 fontSize: "0.9rem", cursor: "pointer",
               }}
             >
-              Ask another question
+              Ask a New Question
             </button>
           </div>
         )}
