@@ -232,8 +232,8 @@ async fn build_rag_pipeline(
     graph: &neo4rs::Graph,
 ) -> Option<Arc<colossus_rag::RagPipeline>> {
     use colossus_rag::{
-        LegalAssembler, Neo4jExpander, QdrantRetriever, RagPipeline,
-        RigSynthesizer, RuleBasedRouter,
+        EmbeddingReranker, LegalAssembler, Neo4jExpander, QdrantRetriever,
+        RagPipeline, RigSynthesizer, RuleBasedRouter,
     };
 
     // Check for API key first — no key means no pipeline.
@@ -268,12 +268,23 @@ async fn build_rag_pipeline(
         }
     };
 
+    // Clone the embedding model Arc BEFORE passing to the retriever,
+    // because QdrantRetriever::new() takes ownership of the Arc.
+    // The reranker needs the same model (cheap Arc reference count bump).
+    let reranker_model = embedding_model.clone();
+
     let retriever = QdrantRetriever::new(
         embedding_model,
         qdrant_client,
         "colossus_evidence",
         0.0, // No score threshold — let the assembler handle ranking
     );
+
+    // --- Reranker: post-expansion semantic filtering ---
+    //
+    // Shares the same embedding model as the retriever (cheap Arc clone).
+    // Filters graph-expanded chunks by cosine similarity to the question.
+    let reranker = EmbeddingReranker::new(reranker_model, config.rerank_threshold);
 
     // --- Expander: Neo4j graph traversal ---
     let expander = Neo4jExpander::new(Arc::new(graph.clone()));
@@ -300,6 +311,7 @@ async fn build_rag_pipeline(
         .expander(Box::new(expander))
         .assembler(Box::new(assembler))
         .synthesizer(Box::new(synthesizer))
+        .reranker(reranker)
         .max_context_tokens(6000)
         .search_limit(10)
         .build()
