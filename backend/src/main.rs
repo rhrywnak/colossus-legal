@@ -232,9 +232,10 @@ async fn build_rag_pipeline(
     graph: &neo4rs::Graph,
 ) -> Option<Arc<colossus_rag::RagPipeline>> {
     use colossus_rag::{
-        EmbeddingReranker, LegalAssembler, Neo4jExpander, QdrantRetriever,
-        RagPipeline, RigSynthesizer, RuleBasedRouter,
+        EmbeddingReranker, GraphDirectRetriever, LegalAssembler, LlmDecomposer,
+        Neo4jExpander, QdrantRetriever, RagPipeline, RigSynthesizer, RuleBasedRouter,
     };
+    use std::collections::HashMap;
 
     // Check for API key first — no key means no pipeline.
     let api_key = config.anthropic_api_key.as_deref()?;
@@ -304,18 +305,65 @@ async fn build_rag_pipeline(
         }
     };
 
+    // --- Decomposer: LLM-based query decomposition (Sonnet) ---
+    //
+    // Uses a fast model to analyze questions and produce targeted sub-queries.
+    // Shares the same API key as the synthesizer but uses a different (faster) model.
+    // Document aliases duplicated from RuleBasedRouter::legal_defaults() — these are
+    // static for the Awad v. CFS case.
+    let mut document_aliases = HashMap::new();
+    document_aliases.insert("phillips discovery".into(), "doc-phillips-discovery-response".into());
+    document_aliases.insert("phillips response".into(), "doc-phillips-discovery-response".into());
+    document_aliases.insert("cfs interrogatory".into(), "doc-cfs-interrogatory-response".into());
+    document_aliases.insert("cfs response".into(), "doc-cfs-interrogatory-response".into());
+    document_aliases.insert("complaint".into(), "doc-awad-complaint".into());
+    document_aliases.insert("awad complaint".into(), "doc-awad-complaint".into());
+    document_aliases.insert("penzien reply".into(), "doc-penzien-reply-brief-310660".into());
+    document_aliases.insert("reply brief".into(), "doc-penzien-reply-brief-310660".into());
+    document_aliases.insert("penzien brief".into(), "doc-penzien-coa-brief-300891".into());
+    document_aliases.insert("penzien appeal".into(), "doc-penzien-coa-brief-300891".into());
+    document_aliases.insert("appellant brief".into(), "doc-penzien-coa-brief-300891".into());
+    document_aliases.insert("phillips coa".into(), "doc-phillips-coa-response-300891".into());
+    document_aliases.insert("phillips appeal".into(), "doc-phillips-coa-response-300891".into());
+    document_aliases.insert("appellee response".into(), "doc-phillips-coa-response-300891".into());
+
+    let person_names = vec![
+        "George Phillips".to_string(),
+        "Emil Awad".to_string(),
+        "Marie Awad".to_string(),
+        "Charles Penzien".to_string(),
+        "Catholic Family Service".to_string(),
+    ];
+
+    let decomposer = LlmDecomposer::new(
+        api_key,
+        &config.decomposer_model,
+        &document_aliases,
+        &person_names,
+    )
+    .ok(); // None on error — pipeline works without decomposer
+
+    // --- Graph Direct Retriever: for decomposed graph sub-queries ---
+    let graph_retriever = GraphDirectRetriever::new(Arc::new(graph.clone()));
+
     // --- Wire everything together ---
-    match RagPipeline::builder()
+    let mut builder = RagPipeline::builder()
         .router(Box::new(router))
         .retriever(Box::new(retriever))
         .expander(Box::new(expander))
         .assembler(Box::new(assembler))
         .synthesizer(Box::new(synthesizer))
         .reranker(reranker)
+        .graph_retriever(graph_retriever)
         .max_context_tokens(6000)
-        .search_limit(10)
-        .build()
-    {
+        .search_limit(10);
+
+    // Add decomposer if it was created successfully.
+    if let Some(decomposer) = decomposer {
+        builder = builder.decomposer(Box::new(decomposer));
+    }
+
+    match builder.build() {
         Ok(pipeline) => {
             tracing::info!("RAG pipeline initialized successfully");
             Some(Arc::new(pipeline))

@@ -586,7 +586,7 @@ dependencies = [
 
 [[package]]
 name = "colossus-legal-backend"
-version = "0.8.3"
+version = "0.8.4"
 dependencies = [
  "anyhow",
  "axum",
@@ -617,8 +617,8 @@ dependencies = [
 
 [[package]]
 name = "colossus-rag"
-version = "0.3.0"
-source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.3.0-rag#889050c9351a3a76810c6dac45c988b01e586126"
+version = "0.4.0"
+source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.4.0-rag#903d32be825f1fd22c65f6cef12600b774e02fb8"
 dependencies = [
  "async-trait",
  "neo4rs",
@@ -4951,7 +4951,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]

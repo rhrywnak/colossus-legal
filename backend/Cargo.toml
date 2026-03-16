@@ -11,7 +11,7 @@ colossus-auth = { git = "https://github.com/rhrywnak/colossus-rs.git", branch = 
 # `features = ["full"]` enables all backends: Qdrant, fastembed, Neo4j.
 # The `branch` points to the feature branch where the pipeline was built.
 # Once merged to main, change this to `branch = "main"`.
-colossus-rag = { git = "https://github.com/rhrywnak/colossus-rs.git", tag = "v0.3.0-rag", features = ["full"] }
+colossus-rag = { git = "https://github.com/rhrywnak/colossus-rs.git", tag = "v0.4.0-rag", features = ["full"] }
 axum = "0.7"
 hyper = { version = "1", features = ["full"] }
 tokio = { version = "1", features = ["full"] }

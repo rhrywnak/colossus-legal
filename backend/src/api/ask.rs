@@ -248,6 +248,7 @@ pub async fn ask_the_case(
         "input_tokens": retrieval_stats.input_tokens,
         "output_tokens": retrieval_stats.output_tokens,
         "search_ms": retrieval_stats.search_ms,
+        "decompose_ms": result.stats.decompose_ms,
         "expand_ms": retrieval_stats.expand_ms,
         "rerank_ms": retrieval_stats.rerank_ms,
         "synthesis_ms": retrieval_stats.synthesis_ms,

@@ -14,6 +14,9 @@ pub struct AppConfig {
     /// Graph-expanded chunks below this threshold are filtered out.
     /// Default: 0.3 (conservative — keeps most chunks).
     pub rerank_threshold: f32,
+    /// Model for query decomposition (fast model like Sonnet).
+    /// Defaults to claude-sonnet-4-6 for speed and cost efficiency.
+    pub decomposer_model: String,
     /// PostgreSQL connection URL for analytical data (ratings, feedback).
     pub postgres_url: String,
 }
@@ -50,6 +53,9 @@ impl AppConfig {
             .and_then(|v| v.parse().ok())
             .unwrap_or(0.3);
 
+        let decomposer_model = std::env::var("DECOMPOSER_MODEL")
+            .unwrap_or_else(|_| "claude-sonnet-4-6".to_string());
+
         let postgres_url = std::env::var("DATABASE_URL")
             .map_err(|_| "Missing env var: DATABASE_URL".to_string())?;
 
@@ -63,6 +69,7 @@ impl AppConfig {
             anthropic_api_key,
             anthropic_model,
             rerank_threshold,
+            decomposer_model,
             postgres_url,
         })
     }
