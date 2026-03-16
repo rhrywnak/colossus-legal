@@ -53,6 +53,22 @@ pub struct AskResponse {
 
     /// Detailed breakdown of every retrieved chunk (Qdrant hits + graph expansion)
     pub retrieval_details: Vec<RetrievalDetail>,
+
+    /// Source documents referenced by the retrieved evidence.
+    /// Frontend renders these as clickable links to the actual PDFs.
+    pub sources: Vec<AnswerSource>,
+}
+
+/// A source document referenced in the answer.
+/// Used by the frontend to render clickable document links.
+#[derive(Debug, Serialize, Clone)]
+pub struct AnswerSource {
+    pub document_id: String,
+    pub document_title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub page_number: Option<u32>,
+    pub evidence_title: String,
+    pub node_id: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -228,6 +244,49 @@ pub async fn ask_the_case(
         total_ms: result.stats.total_ms,
     };
 
+    // Extract unique document sources from retrieved chunks for citation links.
+    // Must happen BEFORE into_iter() which consumes the chunks.
+    let mut sources: Vec<AnswerSource> = Vec::new();
+    let mut seen_sources: std::collections::HashSet<String> =
+        std::collections::HashSet::new();
+
+    for chunk in &result.chunks {
+        if let Some(ref doc_title) = chunk.source.document_title {
+            if doc_title.is_empty() {
+                continue;
+            }
+            let dedup_key = format!(
+                "{}:{}",
+                doc_title,
+                chunk
+                    .source
+                    .page_number
+                    .map_or("none".to_string(), |p| p.to_string())
+            );
+            if seen_sources.insert(dedup_key) {
+                let document_id = chunk
+                    .source
+                    .document_id
+                    .clone()
+                    .unwrap_or_else(|| title_to_document_id(doc_title));
+
+                sources.push(AnswerSource {
+                    document_id,
+                    document_title: doc_title.clone(),
+                    page_number: chunk.source.page_number,
+                    evidence_title: chunk.title.clone(),
+                    node_id: chunk.node_id.clone(),
+                });
+            }
+        }
+    }
+
+    sources.sort_by(|a, b| {
+        a.document_title
+            .cmp(&b.document_title)
+            .then(a.page_number.cmp(&b.page_number))
+    });
+
     // Map chunks to retrieval details for the response.
     let retrieval_details: Vec<RetrievalDetail> = result
         .chunks
@@ -286,6 +345,7 @@ pub async fn ask_the_case(
         qa_id,
         strategy,
         retrieval_details,
+        sources,
     }))
 }
 
@@ -296,4 +356,41 @@ pub async fn ask_the_case(
 /// Build a standardized error response tuple.
 fn error_response(status: StatusCode, message: &str) -> ApiError {
     (status, Json(ErrorResponse { error: message.to_string() }))
+}
+
+/// Map a document title to its Neo4j node ID.
+///
+/// Reverse lookup from known document titles to graph IDs.
+/// Used when the chunk's source doesn't carry a document_id directly.
+fn title_to_document_id(title: &str) -> String {
+    let title_lower = title.to_lowercase();
+    let mappings = [
+        ("phillips", "discovery", "doc-phillips-discovery-response"),
+        ("cfs", "interrogat", "doc-cfs-interrogatory-response"),
+        ("complaint", "", "doc-awad-complaint"),
+        ("phillips", "default", "doc-phillips-motion-for-default"),
+        ("cfs", "default", "doc-cfs-motion-for-default"),
+        ("appellant", "brief", "doc-penzien-coa-brief-300891"),
+        ("appellee", "response", "doc-phillips-coa-response-300891"),
+        ("phillips", "coa", "doc-phillips-coa-response-300891"),
+        ("reply brief", "", "doc-penzien-reply-brief-310660"),
+        ("tighe", "opinion", "doc-tighe-opinion-041212"),
+        ("summary disposition", "", "doc-phillips-summary-disposition"),
+        ("morris", "affidavit", "doc-morris-affidavit"),
+        ("humphrey", "affidavit", "doc-humphrey-affidavit"),
+        ("nadia", "affidavit", "doc-nadia-affidavit"),
+        ("camille", "affidavit", "doc-camille-affidavit"),
+    ];
+
+    for (kw1, kw2, id) in &mappings {
+        if title_lower.contains(kw1) && (kw2.is_empty() || title_lower.contains(kw2)) {
+            return id.to_string();
+        }
+    }
+
+    // Fallback: slugify the title.
+    title
+        .to_lowercase()
+        .replace(' ', "-")
+        .replace(['(', ')', ',', '.', '\''], "")
 }

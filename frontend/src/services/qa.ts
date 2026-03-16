@@ -78,6 +78,7 @@ export function mapEntryToResponse(entry: QAEntryFull): AskResponse {
       synthesis_ms: m?.synthesis_ms ?? 0,
       total_ms: m?.total_ms ?? 0,
     },
+    sources: [],  // Historical entries don't have sources
   };
 }
 

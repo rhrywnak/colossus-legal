@@ -26,6 +26,14 @@ export type RetrievalDetail = {
     relationship_count: number;
 };
 
+export type AnswerSource = {
+    document_id: string;
+    document_title: string;
+    page_number?: number;
+    evidence_title: string;
+    node_id: string;
+};
+
 export type AskResponse = {
     question: string;
     answer: string;
@@ -34,6 +42,7 @@ export type AskResponse = {
     qa_id?: string;
     strategy?: string;
     retrieval_details?: RetrievalDetail[];
+    sources?: AnswerSource[];
 };
 
 export async function askTheCase(
