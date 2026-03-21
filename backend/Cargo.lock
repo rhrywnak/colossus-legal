@@ -586,7 +586,7 @@ dependencies = [
 
 [[package]]
 name = "colossus-legal-backend"
-version = "0.8.6"
+version = "0.8.7"
 dependencies = [
  "anyhow",
  "axum",
@@ -617,8 +617,8 @@ dependencies = [
 
 [[package]]
 name = "colossus-rag"
-version = "0.4.0"
-source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.4.0-rag#903d32be825f1fd22c65f6cef12600b774e02fb8"
+version = "0.5.0"
+source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.5.0-rag#85c64699f3e164fb7002a3a92e5b1e383f2f3f9c"
 dependencies = [
  "async-trait",
  "neo4rs",

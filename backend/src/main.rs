@@ -14,6 +14,7 @@ use colossus_legal_backend::{
     api, cli,
     config::AppConfig,
     neo4j::{check_neo4j, create_neo4j_graph},
+    prompt_loader,
     state::AppState,
 };
 
@@ -122,6 +123,12 @@ async fn run_serve(config: AppConfig, graph: neo4rs::Graph, http_client: reqwest
 
     tracing::info!("PostgreSQL connected and migrations complete");
 
+    // --- Load external prompt templates from disk ---
+    //
+    // Prompts are loaded once at startup. If the files don't exist,
+    // the loader returns None and we fall back to compiled defaults.
+    let prompts = prompt_loader::load_prompts(&config.prompts_dir);
+
     // Build the RAG pipeline from config (if API key is available).
     //
     // ## Rust Learning: Graceful degradation with Option
@@ -129,7 +136,7 @@ async fn run_serve(config: AppConfig, graph: neo4rs::Graph, http_client: reqwest
     // If the Anthropic API key is missing, we can't build the synthesizer,
     // so we set rag_pipeline = None. The /ask endpoint checks this and
     // returns 503 Service Unavailable. All other endpoints work fine.
-    let rag_pipeline = build_rag_pipeline(&config, &graph).await;
+    let rag_pipeline = build_rag_pipeline(&config, &graph, &prompts).await;
 
     // Shared application state (global AppState)
     let state = AppState {
@@ -230,6 +237,7 @@ async fn run_serve(config: AppConfig, graph: neo4rs::Graph, http_client: reqwest
 async fn build_rag_pipeline(
     config: &AppConfig,
     graph: &neo4rs::Graph,
+    prompts: &prompt_loader::LoadedPrompts,
 ) -> Option<Arc<colossus_rag::RagPipeline>> {
     use colossus_rag::{
         EmbeddingReranker, GraphDirectRetriever, LegalAssembler, LlmDecomposer,
@@ -291,10 +299,13 @@ async fn build_rag_pipeline(
     let expander = Neo4jExpander::new(Arc::new(graph.clone()));
 
     // --- Assembler: legal context formatting ---
-    // Custom system prompt with markdown FORMATTING rules appended.
-    // The base prompt + RULES come from the default; we override to add
-    // FORMATTING instructions so Claude returns markdown-structured answers.
-    let assembler = LegalAssembler::with_system_prompt(SYSTEM_PROMPT);
+    // Use file-loaded prompt if available, otherwise the compiled default.
+    // The default includes 7 RULES + FORMATTING section for markdown output.
+    let synthesis_prompt = prompts
+        .synthesis
+        .as_deref()
+        .unwrap_or(prompt_loader::DEFAULT_SYNTHESIS_PROMPT);
+    let assembler = LegalAssembler::with_system_prompt(synthesis_prompt);
 
     // --- Synthesizer: Claude via rig-core ---
     let synthesizer = match RigSynthesizer::claude(api_key, &config.anthropic_model, 4096) {
@@ -340,6 +351,7 @@ async fn build_rag_pipeline(
         &config.decomposer_model,
         &document_aliases,
         &person_names,
+        prompts.decomposition.clone(),
     )
     .ok(); // None on error — pipeline works without decomposer
 
@@ -375,29 +387,3 @@ async fn build_rag_pipeline(
     }
 }
 
-// ---------------------------------------------------------------------------
-// System prompt with markdown formatting rules
-// ---------------------------------------------------------------------------
-
-const SYSTEM_PROMPT: &str = r#"You are a legal research assistant analyzing case evidence.
-
-You have been given evidence from a case knowledge graph, including verbatim quotes from sworn testimony, court filings, and documentary evidence. Each piece of evidence includes its source document and page number where available.
-
-RULES:
-1. Answer using ONLY the provided evidence. Do not infer facts not present in the evidence.
-2. For every factual claim in your answer, cite the specific evidence ID in parentheses, e.g., (evidence-phillips-q73).
-3. When evidence items contradict each other, note the contradiction explicitly and identify which party made each statement.
-4. If the provided evidence does not contain enough information to answer the question, say so clearly. Do not speculate.
-5. Use plain language accessible to a non-lawyer, but maintain legal precision for citations.
-6. When describing patterns (e.g., "Phillips repeatedly..."), list each specific instance with its citation.
-7. When citing evidence, ALWAYS include the source document title and page number in parentheses after the quote. Format: '[verbatim quote]' (Document Title, p.XX). If page number is not available, include only the document title. Use inline quotes, NOT markdown blockquote syntax (do not use > for quotes). Keep all citations flowing naturally within paragraphs.
-
-FORMATTING:
-- Use markdown formatting in your response.
-- Use **bold** for key names, dates, and legal terms on first mention.
-- Use ## headers to organize multi-part answers into clear sections.
-- Use > blockquotes for verbatim quotes from evidence.
-- Use numbered or bulleted lists when presenting multiple items.
-- Keep paragraphs focused — one main point per paragraph.
-- Do NOT use # (h1) headers — start with ## (h2) at the highest level.
-- Do NOT over-format. If the answer is a single paragraph, just write the paragraph without headers or lists."#;

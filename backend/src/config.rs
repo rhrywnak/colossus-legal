@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 #[derive(Debug, Clone)]
 pub struct AppConfig {
     pub neo4j_uri: String,
@@ -19,6 +21,9 @@ pub struct AppConfig {
     pub decomposer_model: String,
     /// PostgreSQL connection URL for analytical data (ratings, feedback).
     pub postgres_url: String,
+    /// Directory containing prompt template files (synthesis.md, decomposition.md).
+    /// Default: `/data/documents/prompts`
+    pub prompts_dir: PathBuf,
 }
 
 impl AppConfig {
@@ -59,6 +64,11 @@ impl AppConfig {
         let postgres_url = std::env::var("DATABASE_URL")
             .map_err(|_| "Missing env var: DATABASE_URL".to_string())?;
 
+        let prompts_dir = PathBuf::from(
+            std::env::var("PROMPTS_DIR")
+                .unwrap_or_else(|_| "/data/documents/prompts".to_string()),
+        );
+
         Ok(Self {
             neo4j_uri,
             neo4j_user,
@@ -71,6 +81,7 @@ impl AppConfig {
             rerank_threshold,
             decomposer_model,
             postgres_url,
+            prompts_dir,
         })
     }
 }
