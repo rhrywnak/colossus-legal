@@ -40,7 +40,11 @@ const AskPage: React.FC = () => {
 
   const handleTabSwitch = (tab: "ask" | "history") => {
     setActiveTab(tab);
-    if (tab === "history") loadHistory();
+    if (tab === "history") {
+      loadHistory();
+    } else {
+      handleClear();
+    }
   };
 
   const autoSubmitted = useRef(false);
