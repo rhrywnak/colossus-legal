@@ -20,7 +20,12 @@ pub async fn run_embed_command(
     graph: &neo4rs::Graph,
     http_client: &reqwest::Client,
     clean: bool,
+    incremental: bool,
+    dry_run: bool,
 ) {
+    let mode = if clean { "full" } else if dry_run { "dry-run" } else { "incremental" };
+    tracing::info!("Embed mode: {mode} (clean={clean}, incremental={incremental}, dry_run={dry_run})");
+
     // If --clean flag, delete the collection first
     if clean {
         tracing::info!("--clean flag: deleting Qdrant collection before re-embedding");
@@ -40,6 +45,8 @@ pub async fn run_embed_command(
         http_client,
         &config.qdrant_url,
         &config.fastembed_cache_path,
+        incremental,
+        dry_run,
     )
     .await
     {
@@ -47,8 +54,10 @@ pub async fn run_embed_command(
             // Print structured JSON to stdout for Ansible to parse
             let output = serde_json::json!({
                 "status": "success",
+                "mode": mode,
                 "total_nodes": result.total_nodes,
                 "embedded_count": result.embedded_count,
+                "skipped": result.skipped,
                 "nodes_by_type": result.nodes_by_type,
                 "duration_seconds": result.duration_seconds,
                 "errors": result.errors,

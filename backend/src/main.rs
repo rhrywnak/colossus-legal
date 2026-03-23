@@ -41,6 +41,15 @@ enum Commands {
         /// Delete the Qdrant collection before re-embedding (full re-index)
         #[arg(long)]
         clean: bool,
+
+        /// Only embed nodes not already in Qdrant (default behavior).
+        /// Ignored when --clean is passed.
+        #[arg(long, default_value_t = true)]
+        incremental: bool,
+
+        /// Show what would be indexed without actually embedding
+        #[arg(long)]
+        dry_run: bool,
     },
 }
 
@@ -98,8 +107,10 @@ async fn main() {
         Commands::Serve => {
             run_serve(config, graph, http_client).await;
         }
-        Commands::Embed { clean } => {
-            cli::run_embed_command(&config, &graph, &http_client, clean).await;
+        Commands::Embed { clean, incremental, dry_run } => {
+            // --clean overrides --incremental (full re-index)
+            let incremental = incremental && !clean;
+            cli::run_embed_command(&config, &graph, &http_client, clean, incremental, dry_run).await;
         }
     }
 }

@@ -34,6 +34,9 @@ use crate::services::qdrant_service::{self, QdrantError, QdrantPoint};
 pub struct EmbeddingResult {
     pub total_nodes: usize,
     pub embedded_count: usize,
+    /// Number of nodes skipped because they already exist in Qdrant.
+    /// Always 0 in full (non-incremental) mode.
+    pub skipped: usize,
     pub nodes_by_type: HashMap<String, usize>,
     pub duration_seconds: f64,
     pub errors: Vec<String>,
@@ -58,17 +61,27 @@ pub enum PipelineError {
 // Pipeline
 // ---------------------------------------------------------------------------
 
-/// Run the full embedding pipeline:
+/// Run the embedding pipeline:
 /// 1. Ensure Qdrant collection exists
 /// 2. Fetch all embeddable nodes from Neo4j
-/// 3. Build embedding text for each node
-/// 4. Generate embeddings via fastembed (in spawn_blocking)
-/// 5. Upsert vectors + metadata to Qdrant
+/// 3. (Incremental) Filter out nodes already in Qdrant
+/// 4. (Dry-run) Report what would be embedded, then return
+/// 5. Build embedding text for each node
+/// 6. Generate embeddings via fastembed (in spawn_blocking)
+/// 7. Upsert vectors + metadata to Qdrant
+///
+/// ## Parameters
+/// - `incremental`: if true, only embed nodes whose `id` is not already
+///   in Qdrant. When false (or after `--clean`), embeds everything.
+/// - `dry_run`: if true, reports what would be embedded without actually
+///   running fastembed or upserting to Qdrant.
 pub async fn run_embedding_pipeline(
     graph: &Graph,
     http_client: &reqwest::Client,
     qdrant_url: &str,
     fastembed_cache_path: &str,
+    incremental: bool,
+    dry_run: bool,
 ) -> Result<EmbeddingResult, PipelineError> {
     let start = Instant::now();
 
@@ -84,13 +97,81 @@ pub async fn run_embedding_pipeline(
         return Ok(EmbeddingResult {
             total_nodes: 0,
             embedded_count: 0,
+            skipped: 0,
             nodes_by_type: HashMap::new(),
             duration_seconds: start.elapsed().as_secs_f64(),
             errors: vec![],
         });
     }
 
-    // Step 3: Build embedding texts
+    // Step 3: Incremental filtering — skip nodes already in Qdrant.
+    //
+    // ## Rust Learning: Partition with retain vs. into_iter().filter()
+    //
+    // We use `retain()` on the Vec to filter in place. This avoids
+    // allocating a second Vec. The `existing_ids` HashSet gives us
+    // O(1) lookups, so the overall filter is O(n).
+    let skipped;
+    let mut nodes = nodes;
+
+    if incremental {
+        let existing_ids =
+            qdrant_service::get_existing_point_ids(http_client, qdrant_url).await?;
+        let before = nodes.len();
+        nodes.retain(|n| !existing_ids.contains(&n.id));
+        skipped = before - nodes.len();
+        tracing::info!(
+            "Incremental mode: {} new nodes to embed, {} already indexed, {} total in Neo4j",
+            nodes.len(),
+            skipped,
+            total_nodes
+        );
+    } else {
+        skipped = 0;
+    }
+
+    // Step 4: Dry-run — report what would be embedded, then exit early.
+    if dry_run {
+        tracing::info!("Dry-run mode: would embed {} nodes:", nodes.len());
+        for node in &nodes {
+            let title = node
+                .properties
+                .get("title")
+                .or_else(|| node.properties.get("name"))
+                .cloned()
+                .unwrap_or_default();
+            tracing::info!("  {} [{}] {}", node.id, node.node_type, title);
+        }
+
+        let mut nodes_by_type: HashMap<String, usize> = HashMap::new();
+        for node in &nodes {
+            *nodes_by_type.entry(node.node_type.clone()).or_insert(0) += 1;
+        }
+
+        return Ok(EmbeddingResult {
+            total_nodes,
+            embedded_count: 0,
+            skipped,
+            nodes_by_type,
+            duration_seconds: start.elapsed().as_secs_f64(),
+            errors: vec![],
+        });
+    }
+
+    // Nothing new to embed — exit early without loading fastembed.
+    if nodes.is_empty() {
+        tracing::info!("No new nodes to embed — Qdrant is up to date");
+        return Ok(EmbeddingResult {
+            total_nodes,
+            embedded_count: 0,
+            skipped,
+            nodes_by_type: HashMap::new(),
+            duration_seconds: start.elapsed().as_secs_f64(),
+            errors: vec![],
+        });
+    }
+
+    // Step 5: Build embedding texts
     let texts: Vec<String> = nodes
         .iter()
         .map(|n| build_embedding_text(&n.node_type, &n.properties))
@@ -102,7 +183,7 @@ pub async fn run_embedding_pipeline(
         *nodes_by_type.entry(node.node_type.clone()).or_insert(0) += 1;
     }
 
-    // Step 4: Embed all texts via spawn_blocking
+    // Step 6: Embed all texts via spawn_blocking
     // TextEmbedding is NOT Send, so we create it inside the blocking closure.
     tracing::info!("Embedding {} texts...", texts.len());
     let cache_path = fastembed_cache_path.to_string();
@@ -118,22 +199,16 @@ pub async fn run_embedding_pipeline(
     })
     .await??;
 
-    // Step 5: Build Qdrant points
+    // Step 7: Build Qdrant points
     let mut points = Vec::new();
     let mut errors = Vec::new();
 
     for (i, node) in nodes.iter().enumerate() {
-        // Safety: vectors.len() should equal nodes.len()
         let Some(vector) = vectors.get(i) else {
             errors.push(format!("Missing vector for node {}", node.id));
             continue;
         };
 
-        // Build payload with ALL properties from the node's property bag.
-        // The guaranteed fields (node_id, node_type, title) are always present.
-        // All other fields are included if they exist — this means any new
-        // properties added to the Cypher queries in embedding_repository.rs
-        // automatically flow into Qdrant payloads without changing this code.
         let title = node.properties.get("title")
             .or_else(|| node.properties.get("name"))
             .cloned()
@@ -145,12 +220,10 @@ pub async fn run_embedding_pipeline(
             "title": title,
         });
 
-        // Add every property from the bag into the payload.
-        // Skip "title" and "name" since we already handled them above.
         if let Some(obj) = payload.as_object_mut() {
             for (key, value) in &node.properties {
                 if key == "title" || key == "name" {
-                    continue; // Already in payload as "title"
+                    continue;
                 }
                 obj.insert(key.clone(), serde_json::Value::String(value.clone()));
             }
@@ -165,7 +238,7 @@ pub async fn run_embedding_pipeline(
 
     let embedded_count = points.len();
 
-    // Step 6: Upsert to Qdrant
+    // Step 8: Upsert to Qdrant
     tracing::info!("Upserting {} points to Qdrant...", embedded_count);
     qdrant_service::upsert_points(http_client, qdrant_url, points).await?;
 
@@ -175,6 +248,7 @@ pub async fn run_embedding_pipeline(
     Ok(EmbeddingResult {
         total_nodes,
         embedded_count,
+        skipped,
         nodes_by_type,
         duration_seconds: duration,
         errors,

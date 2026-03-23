@@ -18,6 +18,7 @@ use crate::state::AppState;
 pub struct EmbeddingResultDto {
     pub total_nodes: usize,
     pub embedded_count: usize,
+    pub skipped: usize,
     pub nodes_by_type: HashMap<String, usize>,
     pub duration_seconds: f64,
     pub errors: Vec<String>,
@@ -42,11 +43,15 @@ pub async fn run_embed_all(
     tracing::info!("{} POST /admin/embed-all", user.username);
     let http_client = &state.http_client;
 
+    // The HTTP endpoint always does a full (non-incremental) embed.
+    // Incremental mode is available only via the CLI.
     let result = embedding_pipeline::run_embedding_pipeline(
         &state.graph,
         http_client,
         &state.config.qdrant_url,
         &state.config.fastembed_cache_path,
+        false, // incremental
+        false, // dry_run
     )
     .await
     .map_err(|e| {
@@ -62,6 +67,7 @@ pub async fn run_embed_all(
     Ok(Json(EmbeddingResultDto {
         total_nodes: result.total_nodes,
         embedded_count: result.embedded_count,
+        skipped: result.skipped,
         nodes_by_type: result.nodes_by_type,
         duration_seconds: result.duration_seconds,
         errors: result.errors,

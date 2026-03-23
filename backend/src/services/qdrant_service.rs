@@ -12,6 +12,8 @@
 //!
 //! We then check `.status()` and optionally parse the response body.
 
+use std::collections::HashSet;
+
 use serde::{Deserialize, Serialize};
 
 /// The Qdrant collection where all evidence embeddings are stored.
@@ -258,6 +260,95 @@ pub async fn delete_collection(
         let body = resp.text().await.unwrap_or_default();
         Err(QdrantError::Api { status, body })
     }
+}
+
+/// Fetch all existing `node_id` values from the Qdrant collection.
+///
+/// Uses the scroll API with cursor-based pagination to handle large
+/// collections efficiently. Requests only the `node_id` payload field
+/// (no vectors) to minimize data transfer.
+///
+/// ## Rust Learning: Cursor-based pagination
+///
+/// Qdrant's scroll API returns a page of results plus an optional
+/// `next_page_offset`. We loop until `next_page_offset` is `null`,
+/// collecting results each iteration. This is the same concept as
+/// SQL's OFFSET/LIMIT but using an opaque cursor — each response
+/// tells you where to start the next request.
+pub async fn get_existing_point_ids(
+    client: &reqwest::Client,
+    qdrant_url: &str,
+) -> Result<HashSet<String>, QdrantError> {
+    let url = format!("{qdrant_url}/collections/{COLLECTION_NAME}/points/scroll");
+    let mut existing_ids = HashSet::new();
+    let mut offset: Option<serde_json::Value> = None;
+
+    loop {
+        // Build the scroll request body.
+        // `with_payload` accepts an "include" list — we only need `node_id`.
+        // `with_vector` = false avoids fetching the 768-dim vectors.
+        let mut body = serde_json::json!({
+            "limit": 500,
+            "with_payload": { "include": ["node_id"] },
+            "with_vector": false,
+        });
+
+        // On subsequent pages, include the cursor from the previous response.
+        if let Some(ref off) = offset {
+            body["offset"] = off.clone();
+        }
+
+        let resp = client.post(&url).json(&body).send().await?;
+        if !resp.status().is_success() {
+            let status = resp.status().as_u16();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(QdrantError::Api { status, body: text });
+        }
+
+        let data: ScrollResponse = resp.json().await?;
+
+        // Extract node_id from each point's payload.
+        for point in &data.result.points {
+            if let Some(node_id) = point
+                .payload
+                .get("node_id")
+                .and_then(|v| v.as_str())
+            {
+                existing_ids.insert(node_id.to_string());
+            }
+        }
+
+        // If next_page_offset is null, we've reached the end.
+        match data.result.next_page_offset {
+            Some(ref npo) if !npo.is_null() => {
+                offset = Some(npo.clone());
+            }
+            _ => break,
+        }
+    }
+
+    tracing::info!(
+        "Scrolled {} existing point IDs from Qdrant",
+        existing_ids.len()
+    );
+    Ok(existing_ids)
+}
+
+/// Response shape for Qdrant's scroll API.
+#[derive(Deserialize)]
+struct ScrollResponse {
+    result: ScrollResult,
+}
+
+#[derive(Deserialize)]
+struct ScrollResult {
+    points: Vec<ScrollPoint>,
+    next_page_offset: Option<serde_json::Value>,
+}
+
+#[derive(Deserialize)]
+struct ScrollPoint {
+    payload: serde_json::Value,
 }
 
 // ---------------------------------------------------------------------------
