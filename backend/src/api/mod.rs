@@ -11,6 +11,7 @@ use crate::state::AppState;
 pub mod admin_documents;
 pub mod admin_evidence;
 pub mod admin_evidence_helpers;
+pub mod admin_reindex;
 pub mod allegations;
 pub mod analysis;
 pub mod ask;
@@ -86,6 +87,10 @@ pub fn router() -> Router<AppState> {
         .route(
             "/api/admin/evidence",
             post(admin_evidence::import_evidence),
+        )
+        .route(
+            "/api/admin/reindex",
+            post(admin_reindex::trigger_reindex),
         )
         .route("/search", post(search::semantic_search))
         .route("/ask", post(ask::ask_the_case))
