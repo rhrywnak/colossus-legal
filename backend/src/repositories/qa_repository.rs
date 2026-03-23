@@ -271,6 +271,87 @@ pub async fn update_rating(
     Ok(())
 }
 
+/// Fetches all QA entries across all users, ordered by date descending.
+/// Admin-only — bypasses the per-scope filter used by `get_qa_history`.
+///
+/// Returns `(entries, total_count)` for pagination support.
+pub async fn get_all_qa_entries(
+    pool: &PgPool,
+    limit: i64,
+    offset: i64,
+    user_filter: Option<&str>,
+) -> Result<(Vec<QAEntrySummary>, i64), QAError> {
+    let (rows, count): (Vec<QaEntryRow>, i64) = if let Some(user) = user_filter {
+        let rows = sqlx::query_as::<_, QaEntryRow>(
+            "SELECT * FROM qa_entries
+             WHERE asked_by = $1
+             ORDER BY asked_at DESC
+             LIMIT $2 OFFSET $3",
+        )
+        .bind(user)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(pool)
+        .await?;
+
+        let count: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM qa_entries WHERE asked_by = $1",
+        )
+        .bind(user)
+        .fetch_one(pool)
+        .await?;
+
+        (rows, count.0)
+    } else {
+        let rows = sqlx::query_as::<_, QaEntryRow>(
+            "SELECT * FROM qa_entries
+             ORDER BY asked_at DESC
+             LIMIT $1 OFFSET $2",
+        )
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(pool)
+        .await?;
+
+        let count: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM qa_entries",
+        )
+        .fetch_one(pool)
+        .await?;
+
+        (rows, count.0)
+    };
+
+    Ok((rows.into_iter().map(QaEntryRow::into_summary).collect(), count))
+}
+
+/// Deletes multiple QA entries by ID. Returns count of deleted rows.
+/// Admin-only — no ownership check.
+pub async fn bulk_delete_qa_entries(
+    pool: &PgPool,
+    ids: &[Uuid],
+) -> Result<u64, QAError> {
+    let result = sqlx::query(
+        "DELETE FROM qa_entries WHERE id = ANY($1)",
+    )
+    .bind(ids)
+    .execute(pool)
+    .await?;
+
+    Ok(result.rows_affected())
+}
+
+/// Deletes ALL QA entries. Nuclear option — admin only.
+pub async fn delete_all_qa_entries(
+    pool: &PgPool,
+) -> Result<u64, QAError> {
+    let result = sqlx::query("DELETE FROM qa_entries")
+        .execute(pool)
+        .await?;
+
+    Ok(result.rows_affected())
+}
+
 /// Delete a QA entry. Only the user who asked can delete (ownership check).
 pub async fn delete_qa_entry(
     pool: &PgPool,
