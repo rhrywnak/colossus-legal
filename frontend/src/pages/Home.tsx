@@ -236,7 +236,6 @@ const Home: React.FC = () => {
             { name: "Documents", desc: "Briefs, motions, discovery responses, and court orders", stat: `${stats.document_count} court filings`, path: "/documents" },
             { name: "Contradictions", desc: "Impeachment evidence from sworn testimony", stat: "Where Phillips contradicted himself", path: "/contradictions" },
             { name: "Damages", desc: "Financial and reputational damages with evidence links", stat: `${formatCurrency(stats.damages_total)} in documented harm`, path: "/damages", hasInfo: true },
-            { name: "Case Analysis", desc: "Gap analysis, allegation strength, and evidence coverage", stat: `${stats.allegations_total} allegations \u00b7 ${stats.allegations_proven} proven`, path: "/analysis" },
             { name: "Graph", desc: "Interactive graph from legal counts through evidence", stat: "Visual proof chains", path: "/graph" },
           ].map((card) => (
             <Link
