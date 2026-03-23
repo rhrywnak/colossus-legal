@@ -9,6 +9,8 @@ use crate::auth::me_handler;
 use crate::state::AppState;
 
 pub mod admin_documents;
+pub mod admin_evidence;
+pub mod admin_evidence_helpers;
 pub mod allegations;
 pub mod analysis;
 pub mod ask;
@@ -80,6 +82,10 @@ pub fn router() -> Router<AppState> {
         .route(
             "/api/admin/documents",
             get(admin_documents::list_documents).post(admin_documents::register_document),
+        )
+        .route(
+            "/api/admin/evidence",
+            post(admin_evidence::import_evidence),
         )
         .route("/search", post(search::semantic_search))
         .route("/ask", post(ask::ask_the_case))
