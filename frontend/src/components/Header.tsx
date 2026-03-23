@@ -167,6 +167,26 @@ const Header: React.FC = () => {
             {item.label}
           </Link>
         ))}
+        {user?.permissions.is_admin && (
+          <Link
+            to="/admin"
+            style={isActive("/admin", location.pathname) ? navLinkActive : navLinkBase}
+            onMouseEnter={(e) => {
+              if (!isActive("/admin", location.pathname)) {
+                e.currentTarget.style.color = "#1e293b";
+                e.currentTarget.style.backgroundColor = "#f1f5f9";
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (!isActive("/admin", location.pathname)) {
+                e.currentTarget.style.color = "#64748b";
+                e.currentTarget.style.backgroundColor = "transparent";
+              }
+            }}
+          >
+            Admin
+          </Link>
+        )}
       </nav>
 
       {/* Right — User badge + Sign Out */}

@@ -21,6 +21,7 @@ import EvidencePage from "./pages/EvidencePage";
 import HarmsPage from "./pages/HarmsPage";
 import Hearings from "./pages/Hearings";
 import Home from "./pages/Home";
+import Admin from "./pages/Admin";
 import People from "./pages/People";
 import PersonDetailPage from "./pages/PersonDetailPage";
 import TimelinePage from "./pages/TimelinePage";
@@ -54,6 +55,7 @@ const App: React.FC = () => {
               <Route path="/search" element={<SearchPage />} />
               <Route path="/ask" element={<AskPage />} />
               <Route path="/timeline" element={<TimelinePage />} />
+              <Route path="/admin" element={<Admin />} />
             </Routes>
           </main>
         </div>
