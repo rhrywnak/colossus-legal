@@ -120,6 +120,79 @@ impl DocumentRepository {
         Err(DocumentRepositoryError::CreationFailed)
     }
 
+    /// Find a document by its SHA-256 content hash.
+    ///
+    /// Returns `Ok(Some(doc))` if found, `Ok(None)` if no match.
+    /// Used by the admin endpoint for duplicate detection before registration.
+    pub async fn find_by_content_hash(
+        &self,
+        content_hash: &str,
+    ) -> Result<Option<Document>, DocumentRepositoryError> {
+        let mut result = self
+            .graph
+            .execute(
+                query("MATCH (d:Document {content_hash: $hash}) RETURN d")
+                    .param("hash", content_hash),
+            )
+            .await?;
+
+        if let Some(row) = result.next().await? {
+            let node: Node = row.get("d")?;
+            let document = Document::try_from(node)?;
+            return Ok(Some(document));
+        }
+
+        Ok(None)
+    }
+
+    /// List all documents with their evidence counts.
+    ///
+    /// Uses an OPTIONAL MATCH to count Evidence nodes linked via
+    /// CONTAINED_IN relationships. Documents with no evidence get count 0.
+    pub async fn list_documents_with_evidence_counts(
+        &self,
+    ) -> Result<Vec<(Document, i64)>, DocumentRepositoryError> {
+        let mut result = self
+            .graph
+            .execute(query(
+                "MATCH (d:Document)
+                 OPTIONAL MATCH (e:Evidence)-[:CONTAINED_IN]->(d)
+                 RETURN d, count(e) AS evidence_count
+                 ORDER BY d.created_at DESC",
+            ))
+            .await?;
+
+        let mut documents = Vec::new();
+        while let Some(row) = result.next().await? {
+            let node: Node = row.get("d")?;
+            let evidence_count: i64 = row.get("evidence_count").unwrap_or(0);
+            let document = Document::try_from(node)?;
+            documents.push((document, evidence_count));
+        }
+
+        Ok(documents)
+    }
+
+    /// Set the content_hash property on an existing Document node.
+    ///
+    /// Called after SHA-256 computation during admin document registration.
+    /// Uses SET (not a CREATE property) so it works on existing nodes too.
+    pub async fn set_content_hash(
+        &self,
+        id: &str,
+        content_hash: &str,
+    ) -> Result<(), DocumentRepositoryError> {
+        self.graph
+            .run(
+                query("MATCH (d:Document {id: $id}) SET d.content_hash = $hash")
+                    .param("id", id)
+                    .param("hash", content_hash),
+            )
+            .await?;
+
+        Ok(())
+    }
+
     pub async fn update_document(
         &self,
         id: &str,

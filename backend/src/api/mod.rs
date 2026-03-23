@@ -8,6 +8,7 @@ use axum::{
 use crate::auth::me_handler;
 use crate::state::AppState;
 
+pub mod admin_documents;
 pub mod allegations;
 pub mod analysis;
 pub mod ask;
@@ -76,6 +77,10 @@ pub fn router() -> Router<AppState> {
         .route("/queries", get(queries::list_queries))
         .route("/queries/:id/run", get(queries::run_query))
         .route("/admin/embed-all", post(embed::run_embed_all))
+        .route(
+            "/api/admin/documents",
+            get(admin_documents::list_documents).post(admin_documents::register_document),
+        )
         .route("/search", post(search::semantic_search))
         .route("/ask", post(ask::ask_the_case))
         .route("/api/qa-history", get(qa::get_qa_history))

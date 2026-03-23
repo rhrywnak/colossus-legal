@@ -21,6 +21,10 @@ pub enum AppError {
     Forbidden {
         message: String,
     },
+    Conflict {
+        message: String,
+        details: serde_json::Value,
+    },
     Internal {
         message: String,
     },
@@ -85,6 +89,14 @@ impl IntoResponse for AppError {
                     details: json!({}),
                 };
                 (StatusCode::FORBIDDEN, Json(body)).into_response()
+            }
+            AppError::Conflict { message, details } => {
+                let body = ErrorBody {
+                    error: "conflict".to_string(),
+                    message,
+                    details,
+                };
+                (StatusCode::CONFLICT, Json(body)).into_response()
             }
             AppError::Internal { message } => {
                 let body = ErrorBody {
