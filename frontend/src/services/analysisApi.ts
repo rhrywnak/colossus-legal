@@ -77,7 +77,7 @@ export type AnalysisResponse = {
 // ============================================================================
 
 export async function getAnalysis(): Promise<AnalysisResponse> {
-  const response = await authFetch(`${API_BASE_URL}/analysis`);
+  const response = await authFetch(`${API_BASE_URL}/api/analysis`);
 
   if (!response.ok) {
     throw new Error(`Failed to fetch analysis: ${response.status}`);

@@ -33,8 +33,8 @@ export async function getLegalProofGraph(
   countId?: string
 ): Promise<GraphResponse> {
   const url = countId
-    ? `${API_BASE_URL}/graph/legal-proof?count_id=${encodeURIComponent(countId)}`
-    : `${API_BASE_URL}/graph/legal-proof`;
+    ? `${API_BASE_URL}/api/graph/legal-proof?count_id=${encodeURIComponent(countId)}`
+    : `${API_BASE_URL}/api/graph/legal-proof`;
 
   const response = await authFetch(url);
 

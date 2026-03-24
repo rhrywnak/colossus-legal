@@ -45,7 +45,7 @@ export async function getEvidenceChain(
   allegationId: string
 ): Promise<EvidenceChainResponse> {
   const response = await authFetch(
-    `${API_BASE_URL}/allegations/${encodeURIComponent(allegationId)}/evidence-chain`
+    `${API_BASE_URL}/api/allegations/${encodeURIComponent(allegationId)}/evidence-chain`
   );
 
   if (!response.ok) {

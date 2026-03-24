@@ -269,7 +269,7 @@ const DocumentsPage: React.FC = () => {
                   <div style={cardFooterStyle}>
                     <span />
                     <a
-                      href={`${API_BASE_URL}/documents/${encodeURIComponent(doc.id)}/file`}
+                      href={`${API_BASE_URL}/api/documents/${encodeURIComponent(doc.id)}/file`}
                       target="_blank"
                       rel="noopener noreferrer"
                       style={viewPdfButtonStyle}

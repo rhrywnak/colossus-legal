@@ -296,7 +296,7 @@ const EvidencePage: React.FC = () => {
                   >
                     <span style={{ color: "#6b7280" }}>Source: </span>
                     <a
-                      href={`${API_BASE_URL}/documents/${encodeURIComponent(item.document_id!)}/file${
+                      href={`${API_BASE_URL}/api/documents/${encodeURIComponent(item.document_id!)}/file${
                         item.page_number !== undefined ? `#page=${item.page_number}` : ""
                       }`}
                       target="_blank"

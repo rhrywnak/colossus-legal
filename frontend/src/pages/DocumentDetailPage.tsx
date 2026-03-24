@@ -150,7 +150,7 @@ const DocumentDetailPage: React.FC = () => {
       {document.file_path && (
         <div style={{ marginTop: "1rem", marginBottom: "1.5rem" }}>
           <a
-            href={`${API_BASE_URL}/documents/${encodeURIComponent(document.id)}/file`}
+            href={`${API_BASE_URL}/api/documents/${encodeURIComponent(document.id)}/file`}
             target="_blank"
             rel="noopener noreferrer"
             style={{

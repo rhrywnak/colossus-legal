@@ -128,7 +128,7 @@ const Home: React.FC = () => {
             {caseInfo.summary}
           </div>
           <a
-            href={`${API_BASE_URL}/documents/doc-awad-complaint/file`}
+            href={`${API_BASE_URL}/api/documents/doc-awad-complaint/file`}
             target="_blank"
             rel="noopener noreferrer"
             style={{ display: "inline-block", marginTop: "0.75rem", fontSize: "0.84rem", color: "#2563eb", textDecoration: "none", fontWeight: 500 }}

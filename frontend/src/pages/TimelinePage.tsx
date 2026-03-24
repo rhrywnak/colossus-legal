@@ -209,7 +209,7 @@ const TimelinePage: React.FC = () => {
                       </div>
                       {evt.document_id && evt.document_label && (
                         <a
-                          href={`${API_BASE_URL}/documents/${evt.document_id}/file`}
+                          href={`${API_BASE_URL}/api/documents/${evt.document_id}/file`}
                           target="_blank"
                           rel="noopener noreferrer"
                           style={{

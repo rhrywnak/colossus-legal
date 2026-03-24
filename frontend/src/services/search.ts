@@ -22,7 +22,7 @@ export async function semanticSearch(
     limit?: number,
     nodeTypes?: string[],
 ): Promise<SearchResponse> {
-    const response = await authFetch(`${API_BASE_URL}/search`, {
+    const response = await authFetch(`${API_BASE_URL}/api/search`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

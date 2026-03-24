@@ -20,7 +20,7 @@ export type MotionClaimsResponse = {
 };
 
 export async function getMotionClaims(): Promise<MotionClaimsResponse> {
-  const response = await authFetch(`${API_BASE_URL}/motion-claims`);
+  const response = await authFetch(`${API_BASE_URL}/api/motion-claims`);
 
   if (!response.ok) {
     throw new Error(`Failed to fetch motion claims: ${response.status}`);

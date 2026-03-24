@@ -42,7 +42,7 @@ export type CaseSummaryResponse = {
 };
 
 export async function getCaseSummary(): Promise<CaseSummaryResponse> {
-  const response = await authFetch(`${API_BASE_URL}/case-summary`);
+  const response = await authFetch(`${API_BASE_URL}/api/case-summary`);
 
   if (!response.ok) {
     throw new Error(`Failed to fetch case summary: ${response.status}`);

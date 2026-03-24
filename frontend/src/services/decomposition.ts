@@ -108,7 +108,7 @@ export type RebuttalsResponse = {
 // =============================================================================
 
 export async function getDecomposition(): Promise<DecompositionResponse> {
-  const response = await authFetch(`${API_BASE_URL}/decomposition`);
+  const response = await authFetch(`${API_BASE_URL}/api/decomposition`);
 
   if (!response.ok) {
     throw new Error(`Failed to fetch decomposition: ${response.status}`);
@@ -135,7 +135,7 @@ export async function getAllegationDetail(
 }
 
 export async function getRebuttals(): Promise<RebuttalsResponse> {
-  const response = await authFetch(`${API_BASE_URL}/rebuttals`);
+  const response = await authFetch(`${API_BASE_URL}/api/rebuttals`);
 
   if (!response.ok) {
     throw new Error(`Failed to fetch rebuttals: ${response.status}`);

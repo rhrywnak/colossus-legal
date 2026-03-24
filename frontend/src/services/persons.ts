@@ -14,7 +14,7 @@ export type PersonsResponse = {
 };
 
 export async function getPersons(): Promise<PersonsResponse> {
-  const response = await authFetch(`${API_BASE_URL}/persons`);
+  const response = await authFetch(`${API_BASE_URL}/api/persons`);
 
   if (!response.ok) {
     throw new Error(`Failed to fetch persons: ${response.status}`);

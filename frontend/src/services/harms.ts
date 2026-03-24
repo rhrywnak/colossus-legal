@@ -22,7 +22,7 @@ export type HarmsResponse = {
 };
 
 export async function getHarms(): Promise<HarmsResponse> {
-  const response = await authFetch(`${API_BASE_URL}/harms`);
+  const response = await authFetch(`${API_BASE_URL}/api/harms`);
 
   if (!response.ok) {
     throw new Error(`Failed to fetch harms: ${response.status}`);

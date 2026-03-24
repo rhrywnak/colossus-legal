@@ -56,7 +56,7 @@ export async function getPersonDetail(
   personId: string,
 ): Promise<PersonDetailResponse> {
   const response = await authFetch(
-    `${API_BASE_URL}/persons/${encodeURIComponent(personId)}/detail`,
+    `${API_BASE_URL}/api/persons/${encodeURIComponent(personId)}/detail`,
   );
 
   if (!response.ok) {

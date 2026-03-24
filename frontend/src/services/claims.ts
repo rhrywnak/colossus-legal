@@ -24,7 +24,7 @@ const stubClaims: Claim[] = [
 ];
 
 export async function getClaims(): Promise<Claim[]> {
-  const response = await authFetch(`${API_BASE_URL}/claims`);
+  const response = await authFetch(`${API_BASE_URL}/api/claims`);
 
   if (!response.ok) {
     throw new Error(`Failed to fetch claims: ${response.status}`);

@@ -26,7 +26,7 @@ export type AllegationsResponse = {
 };
 
 export async function getAllegations(): Promise<AllegationsResponse> {
-  const response = await authFetch(`${API_BASE_URL}/allegations`);
+  const response = await authFetch(`${API_BASE_URL}/api/allegations`);
 
   if (!response.ok) {
     throw new Error(`Failed to fetch allegations: ${response.status}`);

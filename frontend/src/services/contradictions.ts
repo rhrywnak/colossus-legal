@@ -24,7 +24,7 @@ export type ContradictionsResponse = {
 };
 
 export async function getContradictions(): Promise<ContradictionsResponse> {
-  const response = await authFetch(`${API_BASE_URL}/contradictions`);
+  const response = await authFetch(`${API_BASE_URL}/api/contradictions`);
 
   if (!response.ok) {
     throw new Error(`Failed to fetch contradictions: ${response.status}`);

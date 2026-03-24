@@ -9,7 +9,7 @@ export type SchemaResponse = {
 };
 
 export async function getSchema(): Promise<SchemaResponse> {
-  const response = await authFetch(`${API_BASE_URL}/schema`);
+  const response = await authFetch(`${API_BASE_URL}/api/schema`);
 
   if (!response.ok) {
     throw new Error(`Schema request failed: ${response.status}`);

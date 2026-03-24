@@ -49,7 +49,7 @@ export type CaseResponse = {
 };
 
 export async function getCase(): Promise<CaseResponse> {
-  const response = await authFetch(`${API_BASE_URL}/case`);
+  const response = await authFetch(`${API_BASE_URL}/api/case`);
 
   if (!response.ok) {
     throw new Error(`Failed to fetch case: ${response.status}`);

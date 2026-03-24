@@ -24,7 +24,7 @@ export type EvidenceResponse = {
 };
 
 export async function getEvidence(): Promise<EvidenceResponse> {
-  const response = await authFetch(`${API_BASE_URL}/evidence`);
+  const response = await authFetch(`${API_BASE_URL}/api/evidence`);
 
   if (!response.ok) {
     throw new Error(`Failed to fetch evidence: ${response.status}`);

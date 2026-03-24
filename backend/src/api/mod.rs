@@ -38,17 +38,21 @@ pub mod queries;
 pub mod schema;
 pub mod search;
 
-/// Minimal API router.
+/// API router — all routes are relative (no `/api/` prefix).
 ///
-/// We intentionally expose only a health check here. All of the
-/// original Codex-generated routes and logic are preserved in the
-/// `wip/codex-refactor-2025-11` branch and can be reintroduced later
-/// in small, well-structured feature branches.
+/// The `/api/` prefix is applied structurally in `main.rs` via
+/// `Router::nest("/api", api::router())`. This means every route
+/// defined here automatically gets the `/api/` prefix at runtime.
+///
+/// ## Rust Learning: Router::nest()
+/// Axum's `.nest(prefix, router)` prepends `prefix` to every route
+/// in `router`. A route defined as `.route("/documents", ...)` here
+/// becomes `/api/documents` in the final app. This is similar to
+/// Express.js `app.use('/api', apiRouter)`.
 pub fn router() -> Router<AppState> {
     Router::new()
-        .route("/health", get(health_check))
-        .route("/api/me", get(me_handler))
-        .route("/api/logout", get(logout::logout))
+        .route("/me", get(me_handler))
+        .route("/logout", get(logout::logout))
         .route("/analysis", get(analysis::get_analysis))
         .route("/case", get(case::get_case))
         .route("/case-summary", get(case_summary::get_case_summary))
@@ -85,37 +89,41 @@ pub fn router() -> Router<AppState> {
         .route("/queries/:id/run", get(queries::run_query))
         .route("/admin/embed-all", post(embed::run_embed_all))
         .route(
-            "/api/admin/documents",
+            "/admin/documents",
             get(admin_documents::list_documents).post(admin_documents::register_document),
         )
         .route(
-            "/api/admin/evidence",
+            "/admin/evidence",
             post(admin_evidence::import_evidence),
         )
         .route(
-            "/api/admin/reindex",
+            "/admin/reindex",
             post(admin_reindex::trigger_reindex),
         )
         .route(
-            "/api/admin/qa-entries",
+            "/admin/qa-entries",
             get(admin_qa::list_all_entries).delete(admin_qa::bulk_delete_entries),
         )
-        .route("/api/admin/upload", post(admin_upload::upload_file))
+        .route("/admin/upload", post(admin_upload::upload_file))
         .route(
-            "/api/admin/audit/health",
+            "/admin/audit/health",
             get(admin_audit_health::audit_health),
         )
         .route(
-            "/api/admin/status",
+            "/admin/status",
             get(admin_status::get_status),
         )
         .route("/search", post(search::semantic_search))
         .route("/ask", post(ask::ask_the_case))
-        .route("/api/qa-history", get(qa::get_qa_history))
-        .route("/api/qa/:id", get(qa::get_qa_entry).delete(qa::delete_qa_entry))
-        .route("/api/qa/:id/rate", patch(qa::rate_qa_entry))
+        .route("/qa-history", get(qa::get_qa_history))
+        .route("/qa/:id", get(qa::get_qa_entry).delete(qa::delete_qa_entry))
+        .route("/qa/:id/rate", patch(qa::rate_qa_entry))
 }
 
-async fn health_check(State(_state): State<AppState>) -> (StatusCode, &'static str) {
+/// Health check endpoint — served at `/health` (root level, no `/api/` prefix).
+///
+/// Kept outside the API router because health checks are a standard
+/// convention at the root path, and nginx/load balancers expect it there.
+pub async fn health_check(State(_state): State<AppState>) -> (StatusCode, &'static str) {
     (StatusCode::OK, "OK")
 }

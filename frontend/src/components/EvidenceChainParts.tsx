@@ -64,7 +64,7 @@ export const DocumentLink: React.FC<DocumentLinkProps> = ({ document }) => (
   >
     <span style={{ color: COLORS.textSecondary }}>Source:</span>
     <a
-      href={`${API_BASE_URL}/documents/${encodeURIComponent(document.id)}/file${
+      href={`${API_BASE_URL}/api/documents/${encodeURIComponent(document.id)}/file${
         document.page_number !== undefined ? `#page=${document.page_number}` : ""
       }`}
       target="_blank"

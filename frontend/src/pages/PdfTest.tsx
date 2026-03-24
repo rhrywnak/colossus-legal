@@ -6,7 +6,7 @@ import React, { useState } from "react";
 import PdfViewer from "../components/shared/PdfViewer";
 import { API_BASE_URL } from "../services/api";
 
-const TEST_PDF_URL = `${API_BASE_URL}/documents/doc-phillips-discovery-response/file`;
+const TEST_PDF_URL = `${API_BASE_URL}/api/documents/doc-phillips-discovery-response/file`;
 
 const PdfTest: React.FC = () => {
   const [page, setPage] = useState(1);

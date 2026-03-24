@@ -41,7 +41,7 @@ const AnswerDisplay: React.FC<Props> = ({ response }) => {
               {response.sources.map((source, idx) => (
                 <div key={idx} style={{ fontSize: "0.85rem", display: "flex", alignItems: "baseline", gap: "0.5rem" }}>
                   <a
-                    href={`${API_BASE_URL}/documents/${encodeURIComponent(source.document_id)}/file${
+                    href={`${API_BASE_URL}/api/documents/${encodeURIComponent(source.document_id)}/file${
                       source.page_number !== undefined ? `#page=${source.page_number}` : ""
                     }`}
                     target="_blank"

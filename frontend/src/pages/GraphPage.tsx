@@ -463,7 +463,7 @@ const NodePopup: React.FC<{
                 </div>
                 {fullData.documentId ? (
                   <a
-                    href={`${API_BASE_URL}/documents/${encodeURIComponent(fullData.documentId)}/file${
+                    href={`${API_BASE_URL}/api/documents/${encodeURIComponent(fullData.documentId)}/file${
                       fullData.page_number !== undefined ? `#page=${fullData.page_number}` : ""
                     }`}
                     target="_blank"
@@ -510,7 +510,7 @@ const NodePopup: React.FC<{
               </div>
             )}
             <a
-              href={`${API_BASE_URL}/documents/${encodeURIComponent(node.id)}/file${
+              href={`${API_BASE_URL}/api/documents/${encodeURIComponent(node.id)}/file${
                 fullData.page_number !== undefined ? `#page=${fullData.page_number}` : ""
               }`}
               target="_blank"

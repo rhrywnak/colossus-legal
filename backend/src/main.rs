@@ -215,11 +215,18 @@ async fn run_serve(config: AppConfig, graph: neo4rs::Graph, http_client: reqwest
         .allow_credentials(true);
 
     // Build router:
-    // - /api/status
-    // - everything from api::router()
+    // - /health at root (standard convention, no /api/ prefix)
+    // - /api/status, plus everything from api::router() under /api/
+    //
+    // ## Rust Learning: nest() vs merge()
+    // .merge() combines two routers at the same level (routes keep their paths).
+    // .nest("/api", router) prepends "/api" to every route in the sub-router.
+    // This ensures ALL API routes get the /api/ prefix structurally —
+    // you can't accidentally add a route without it.
     let app = Router::new()
+        .route("/health", get(api::health_check))
         .route("/api/status", get(api_status))
-        .merge(api::router())
+        .nest("/api", api::router())
         .layer(cors)
         .with_state(state);
     tracing::info!("Starting colossus-legal backend on http://{}", addr);

@@ -52,7 +52,7 @@ export async function askTheCase(
     const body: Record<string, string> = { question };
     if (parentQaId) body.parent_qa_id = parentQaId;
 
-    const response = await authFetch(`${API_BASE_URL}/ask`, {
+    const response = await authFetch(`${API_BASE_URL}/api/ask`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
