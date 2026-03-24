@@ -4,6 +4,7 @@ import {
   getAdminDocuments,
   registerDocument,
   importEvidence,
+  uploadDocument,
   RegisterDocumentRequest,
   ImportEvidenceRequest,
 } from "../../services/admin";
@@ -59,10 +60,15 @@ const AdminDocuments: React.FC = () => {
   const [showImport, setShowImport] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  // Register form
+  // Register form (no id — server auto-generates it)
   const [regForm, setRegForm] = useState<RegisterDocumentRequest>({
-    id: "", title: "", doc_type: "discovery", file_path: "",
+    title: "", doc_type: "discovery", file_path: "",
   });
+
+  // File upload
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
 
   // Import evidence
   const [importJson, setImportJson] = useState("");
@@ -91,7 +97,7 @@ const AdminDocuments: React.FC = () => {
       const res = await registerDocument(regForm);
       setSuccess(`Registered "${res.title}" (hash: ${res.content_hash.slice(0, 12)}...)`);
       setShowRegister(false);
-      setRegForm({ id: "", title: "", doc_type: "discovery", file_path: "" });
+      setRegForm({ title: "", doc_type: "discovery", file_path: "" });
       loadDocs();
     } catch (e: any) {
       setError(e.message);
@@ -116,6 +122,36 @@ const AdminDocuments: React.FC = () => {
       setError(e.message);
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleUpload = async () => {
+    if (!uploadFile) return;
+    setUploading(true);
+    setError("");
+    setSuccess("");
+    try {
+      const res = await uploadDocument(uploadFile);
+      setSuccess(`Uploaded "${res.filename}" (${(res.size_bytes / 1024).toFixed(0)} KB)`);
+      // Pre-fill register form with the uploaded filename
+      setRegForm((prev) => ({ ...prev, file_path: res.filename }));
+      setUploadFile(null);
+      setShowRegister(true);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleFileDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files[0];
+    if (file && file.type === "application/pdf") {
+      setUploadFile(file);
+    } else {
+      setError("Only PDF files are accepted");
     }
   };
 
@@ -148,6 +184,54 @@ const AdminDocuments: React.FC = () => {
         </button>
       </div>
 
+      {/* File upload area */}
+      <div
+        style={{
+          ...cardStyle,
+          marginBottom: "1rem",
+          border: dragOver ? "2px dashed #2563eb" : "2px dashed #e2e8f0",
+          backgroundColor: dragOver ? "#eff6ff" : "#fafbfc",
+          textAlign: "center",
+          padding: "1.25rem",
+          transition: "all 0.15s ease",
+        }}
+        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={handleFileDrop}
+      >
+        {uploadFile ? (
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "0.75rem" }}>
+            <span style={{ fontSize: "0.84rem", color: "#0f172a", fontWeight: 500 }}>
+              {uploadFile.name} ({(uploadFile.size / 1024).toFixed(0)} KB)
+            </span>
+            <button style={btnPrimary} onClick={handleUpload} disabled={uploading}>
+              {uploading ? "Uploading..." : "Upload"}
+            </button>
+            <button style={btnSecondary} onClick={() => setUploadFile(null)}>Clear</button>
+          </div>
+        ) : (
+          <div>
+            <div style={{ fontSize: "0.84rem", color: "#64748b", marginBottom: "0.5rem" }}>
+              Drag & drop a PDF here, or click to select
+            </div>
+            <input
+              type="file"
+              accept=".pdf,application/pdf"
+              style={{ display: "none" }}
+              id="pdf-upload-input"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) setUploadFile(file);
+                e.target.value = "";
+              }}
+            />
+            <label htmlFor="pdf-upload-input" style={{ ...btnSecondary, display: "inline-block", cursor: "pointer" }}>
+              Choose PDF
+            </label>
+          </div>
+        )}
+      </div>
+
       {/* Register form */}
       {showRegister && (
         <div style={{ ...cardStyle, marginBottom: "1rem" }}>
@@ -155,11 +239,6 @@ const AdminDocuments: React.FC = () => {
             Register New Document
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
-            <div>
-              <label style={labelStyle}>Document ID</label>
-              <input style={inputStyle} value={regForm.id} placeholder="doc-my-document"
-                onChange={(e) => setRegForm({ ...regForm, id: e.target.value })} />
-            </div>
             <div>
               <label style={labelStyle}>Title</label>
               <input style={inputStyle} value={regForm.title}
@@ -177,9 +256,9 @@ const AdminDocuments: React.FC = () => {
                 <option value="affidavit">Affidavit</option>
               </select>
             </div>
-            <div>
+            <div style={{ gridColumn: "1 / -1" }}>
               <label style={labelStyle}>PDF Filename</label>
-              <input style={inputStyle} value={regForm.file_path} placeholder="filename.pdf"
+              <input style={inputStyle} value={regForm.file_path ?? ""} placeholder="filename.pdf (auto-filled after upload)"
                 onChange={(e) => setRegForm({ ...regForm, file_path: e.target.value })} />
             </div>
           </div>

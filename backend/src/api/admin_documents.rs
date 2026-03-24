@@ -75,19 +75,22 @@ pub struct ListDocumentsResponse {
 // Request types
 // ---------------------------------------------------------------------------
 
-/// Request body for registering a document with content hash verification.
+/// Request body for registering a document with optional content hash verification.
 ///
-/// Unlike the base `DocumentCreateRequest`, this requires `file_path` (not
-/// optional) because admin registration always verifies the PDF on disk.
+/// Both `id` and `file_path` are optional:
+/// - If `id` is omitted, the repository auto-generates a timestamp-based ID.
+/// - If `file_path` is omitted, SHA-256 hashing and PDF verification are skipped.
 #[derive(Debug, serde::Deserialize)]
 pub struct RegisterDocumentRequest {
-    pub id: String,
+    /// Optional document ID. If omitted or empty, the repo generates one.
+    pub id: Option<String>,
     pub title: String,
     pub doc_type: String,
     pub created_at: Option<String>,
     pub description: Option<String>,
     /// PDF filename on disk (relative to DOCUMENT_STORAGE_PATH).
-    pub file_path: String,
+    /// When provided, the file is verified and SHA-256 hashed.
+    pub file_path: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -110,123 +113,143 @@ pub async fn register_document(
     require_admin(&user)?;
     tracing::info!(
         user = %user.username,
-        doc_id = %req.id,
+        doc_id = ?req.id,
         "POST /api/admin/documents"
     );
 
-    // 1. Validate file_path — prevent path traversal
-    if req.file_path.contains("..") || req.file_path.contains('/') || req.file_path.contains('\\')
-    {
-        return Err(AppError::BadRequest {
-            message: "file_path must be a plain filename, no path separators or ..".to_string(),
-            details: json!({ "field": "file_path" }),
-        });
-    }
+    // Resolve the explicit ID, if provided. Empty strings treated as None.
+    let explicit_id = req
+        .id
+        .as_ref()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
 
-    // 2. Build the full path and check the PDF exists on disk
-    let pdf_path: PathBuf = [&state.config.document_storage_path, &req.file_path]
-        .iter()
-        .collect();
+    // 1. If file_path is provided, validate and compute content hash.
+    //    If omitted, skip PDF verification and hashing entirely.
+    let (file_path, content_hash) = match &req.file_path {
+        Some(fp) if !fp.trim().is_empty() => {
+            let fp = fp.trim().to_string();
 
-    if !pdf_path.exists() {
-        return Err(AppError::BadRequest {
-            message: format!(
-                "PDF not found at {}. Upload the file before registering.",
-                pdf_path.display()
-            ),
-            details: json!({ "field": "file_path", "path": pdf_path.display().to_string() }),
-        });
-    }
+            // Prevent path traversal
+            if fp.contains("..") || fp.contains('/') || fp.contains('\\') {
+                return Err(AppError::BadRequest {
+                    message: "file_path must be a plain filename, no path separators or .."
+                        .to_string(),
+                    details: json!({ "field": "file_path" }),
+                });
+            }
 
-    // 3. Compute SHA-256 content hash
-    //
-    // We read the entire file into memory. This is fine for legal PDFs
-    // (typically 100KB–5MB). For very large files, we'd use a streaming
-    // approach with tokio::io::AsyncReadExt, but that's not needed here.
-    let file_bytes = tokio::fs::read(&pdf_path).await.map_err(|e| {
-        AppError::Internal {
-            message: format!("Failed to read PDF: {e}"),
+            // Build the full path and check the PDF exists on disk
+            let pdf_path: PathBuf =
+                [&state.config.document_storage_path, &fp].iter().collect();
+
+            if !pdf_path.exists() {
+                return Err(AppError::BadRequest {
+                    message: format!(
+                        "PDF not found at {}. Upload the file before registering.",
+                        pdf_path.display()
+                    ),
+                    details: json!({ "field": "file_path", "path": pdf_path.display().to_string() }),
+                });
+            }
+
+            // Compute SHA-256 content hash
+            let file_bytes = tokio::fs::read(&pdf_path).await.map_err(|e| {
+                AppError::Internal {
+                    message: format!("Failed to read PDF: {e}"),
+                }
+            })?;
+
+            let mut hasher = Sha256::new();
+            hasher.update(&file_bytes);
+            let hash = format!("{:x}", hasher.finalize());
+
+            (Some(fp), Some(hash))
         }
-    })?;
-
-    let mut hasher = Sha256::new();
-    hasher.update(&file_bytes);
-    let content_hash = format!("{:x}", hasher.finalize());
+        _ => (None, None),
+    };
 
     let repo = DocumentRepository::new(state.graph.clone());
 
-    // 4. Check for duplicate by ID
-    match repo.get_document_by_id(&req.id).await {
-        Ok(_) => {
-            return Err(AppError::Conflict {
-                message: format!("Document with id '{}' already exists", req.id),
-                details: json!({ "existing_id": req.id }),
-            });
-        }
-        Err(crate::repositories::document_repository::DocumentRepositoryError::NotFound) => {
-            // Good — no duplicate
-        }
-        Err(e) => {
-            return Err(AppError::Internal {
-                message: format!("Failed to check for duplicate: {e:?}"),
-            });
-        }
-    }
-
-    // 5. Check for duplicate by content hash
-    match repo.find_by_content_hash(&content_hash).await {
-        Ok(Some(existing)) => {
-            return Err(AppError::Conflict {
-                message: format!(
-                    "A document with identical content already exists: '{}' ({})",
-                    existing.title, existing.id
-                ),
-                details: json!({
-                    "existing_id": existing.id,
-                    "existing_title": existing.title,
-                    "content_hash": content_hash,
-                }),
-            });
-        }
-        Ok(None) => {
-            // Good — no duplicate content
-        }
-        Err(e) => {
-            return Err(AppError::Internal {
-                message: format!("Failed to check content hash: {e:?}"),
-            });
+    // 2. Check for duplicate by explicit ID (only if one was provided)
+    if let Some(ref id) = explicit_id {
+        match repo.get_document_by_id(id).await {
+            Ok(_) => {
+                return Err(AppError::Conflict {
+                    message: format!("Document with id '{id}' already exists"),
+                    details: json!({ "existing_id": id }),
+                });
+            }
+            Err(crate::repositories::document_repository::DocumentRepositoryError::NotFound) => {
+                // Good — no duplicate
+            }
+            Err(e) => {
+                return Err(AppError::Internal {
+                    message: format!("Failed to check for duplicate: {e:?}"),
+                });
+            }
         }
     }
 
-    // 6. Create the Document node via the existing repository
+    // 3. Check for duplicate by content hash (only if we computed one)
+    if let Some(ref hash) = content_hash {
+        match repo.find_by_content_hash(hash).await {
+            Ok(Some(existing)) => {
+                return Err(AppError::Conflict {
+                    message: format!(
+                        "A document with identical content already exists: '{}' ({})",
+                        existing.title, existing.id
+                    ),
+                    details: json!({
+                        "existing_id": existing.id,
+                        "existing_title": existing.title,
+                        "content_hash": hash,
+                    }),
+                });
+            }
+            Ok(None) => {}
+            Err(e) => {
+                return Err(AppError::Internal {
+                    message: format!("Failed to check content hash: {e:?}"),
+                });
+            }
+        }
+    }
+
+    // 4. Create the Document node via the repository.
+    //    Use explicit ID if provided, otherwise the repo auto-generates one.
     let create_req = crate::dto::document::DocumentCreateRequest {
         title: req.title.clone(),
         doc_type: req.doc_type,
         created_at: req.created_at,
         description: req.description,
-        file_path: Some(req.file_path),
+        file_path,
         uploaded_at: None,
         related_claim_id: None,
         source_url: None,
     };
 
-    let document = repo.create_document(create_req).await.map_err(|e| {
-        AppError::Internal {
-            message: format!("Failed to create document: {e:?}"),
-        }
+    let document = match explicit_id {
+        Some(id) => repo.create_document_with_id(&id, create_req).await,
+        None => repo.create_document(create_req).await,
+    }
+    .map_err(|e| AppError::Internal {
+        message: format!("Failed to create document: {e:?}"),
     })?;
 
-    // 7. Set the content_hash (not part of base create)
-    repo.set_content_hash(&document.id, &content_hash)
-        .await
-        .map_err(|e| AppError::Internal {
-            message: format!("Document created but failed to set content_hash: {e:?}"),
-        })?;
+    // 5. Set the content_hash if we computed one
+    if let Some(ref hash) = content_hash {
+        repo.set_content_hash(&document.id, hash)
+            .await
+            .map_err(|e| AppError::Internal {
+                message: format!("Document created but failed to set content_hash: {e:?}"),
+            })?;
+    }
 
     tracing::info!(
         user = %user.username,
         doc_id = %document.id,
-        hash = %content_hash,
+        hash = ?content_hash,
         "Document registered"
     );
 
@@ -236,7 +259,7 @@ pub async fn register_document(
             pdf_url: format!("/documents/{}/file", document.id),
             id: document.id,
             title: document.title,
-            content_hash,
+            content_hash: content_hash.unwrap_or_default(),
         }),
     ))
 }

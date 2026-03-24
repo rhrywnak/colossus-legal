@@ -20,12 +20,12 @@ export interface AdminDocumentList {
 }
 
 export interface RegisterDocumentRequest {
-  id: string;
+  id?: string;
   title: string;
   doc_type: string;
   created_at?: string;
   description?: string;
-  file_path: string;
+  file_path?: string;
 }
 
 export interface RegisterDocumentResponse {
@@ -166,6 +166,50 @@ export async function bulkDeleteQAEntries(
   }
   return res.json();
 }
+
+// ── Upload ────────────────────────────────────────────
+
+export interface UploadResponse {
+  filename: string;
+  size_bytes: number;
+  path: string;
+}
+
+export async function uploadDocument(file: File): Promise<UploadResponse> {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  // NOTE: Do NOT set Content-Type header — the browser sets it with the
+  // multipart boundary automatically. Setting it manually breaks the upload.
+  const res = await fetch(`${API_BASE_URL}/api/admin/upload`, {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.message || "Upload failed");
+  }
+  return res.json();
+}
+
+// ── Admin Status ──────────────────────────────────────
+
+export interface AdminStatusResponse {
+  environment: string;
+  version: string;
+  neo4j_connected: boolean;
+  qdrant_connected: boolean;
+  postgres_connected: boolean;
+}
+
+export async function getAdminStatus(): Promise<AdminStatusResponse> {
+  const res = await authFetch(`${API_BASE_URL}/api/admin/status`);
+  if (!res.ok) throw new Error(`Failed to load status: ${res.status}`);
+  return res.json();
+}
+
+// ── QA Delete All ─────────────────────────────────────
 
 export async function deleteAllQAEntries(): Promise<{ deleted: number }> {
   const res = await authFetch(`${API_BASE_URL}/api/admin/qa-entries`, {

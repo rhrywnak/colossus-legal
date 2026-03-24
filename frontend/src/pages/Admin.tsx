@@ -1,8 +1,9 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import AdminDocuments from "../components/admin/AdminDocuments";
 import AdminIndex from "../components/admin/AdminIndex";
 import AdminChats from "../components/admin/AdminChats";
+import { AdminStatusResponse, getAdminStatus } from "../services/admin";
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 
@@ -52,9 +53,52 @@ const TABS: { id: Tab; label: string }[] = [
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
+// Environment badge colors
+const envBadgeStyle = (env: string): React.CSSProperties => {
+  const colors: Record<string, { bg: string; text: string; border: string }> = {
+    dev: { bg: "#fef3c7", text: "#92400e", border: "#fcd34d" },
+    prod: { bg: "#fee2e2", text: "#991b1b", border: "#fca5a5" },
+  };
+  const c = colors[env] || { bg: "#f1f5f9", text: "#475569", border: "#e2e8f0" };
+  return {
+    display: "inline-block",
+    padding: "0.15rem 0.5rem",
+    fontSize: "0.72rem",
+    fontWeight: 700,
+    textTransform: "uppercase",
+    letterSpacing: "0.05em",
+    borderRadius: "4px",
+    backgroundColor: c.bg,
+    color: c.text,
+    border: `1px solid ${c.border}`,
+  };
+};
+
+const statusDotStyle = (ok: boolean): React.CSSProperties => ({
+  display: "inline-block",
+  width: "8px",
+  height: "8px",
+  borderRadius: "50%",
+  backgroundColor: ok ? "#10b981" : "#ef4444",
+  marginRight: "0.3rem",
+});
+
 const Admin: React.FC = () => {
   const { user, loading } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>("documents");
+  const [status, setStatus] = useState<AdminStatusResponse | null>(null);
+
+  // Fetch backend status on mount (only if admin)
+  useEffect(() => {
+    if (!loading && user?.permissions.is_admin) {
+      getAdminStatus().then(setStatus).catch(() => {});
+    }
+  }, [loading, user]);
+
+  // Read environment/version from runtime config (injected by Ansible)
+  const config = (window as any).__COLOSSUS_CONFIG__ || {};
+  const environment = status?.environment || config.environment || "unknown";
+  const version = status?.version || config.version || "unknown";
 
   if (loading) {
     return (
@@ -77,9 +121,22 @@ const Admin: React.FC = () => {
 
   return (
     <div style={{ paddingTop: "1.5rem", paddingBottom: "3rem" }}>
-      <h1 style={{ fontSize: "1.35rem", fontWeight: 700, color: "#0f172a", margin: "0 0 1.25rem", letterSpacing: "-0.02em" }}>
-        Admin
-      </h1>
+      <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", margin: "0 0 0.5rem" }}>
+        <h1 style={{ fontSize: "1.35rem", fontWeight: 700, color: "#0f172a", margin: 0, letterSpacing: "-0.02em" }}>
+          Admin
+        </h1>
+        <span style={envBadgeStyle(environment)}>{environment}</span>
+        <span style={{ fontSize: "0.76rem", color: "#64748b", fontWeight: 500 }}>v{version}</span>
+      </div>
+
+      {/* Backend connectivity status */}
+      {status && (
+        <div style={{ display: "flex", gap: "1rem", marginBottom: "1rem", fontSize: "0.76rem", color: "#475569" }}>
+          <span><span style={statusDotStyle(status.neo4j_connected)} />Neo4j</span>
+          <span><span style={statusDotStyle(status.qdrant_connected)} />Qdrant</span>
+          <span><span style={statusDotStyle(status.postgres_connected)} />PostgreSQL</span>
+        </div>
+      )}
 
       {/* Tabs */}
       <div style={tabBarStyle}>

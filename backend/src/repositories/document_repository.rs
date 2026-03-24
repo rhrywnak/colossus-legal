@@ -120,6 +120,57 @@ impl DocumentRepository {
         Err(DocumentRepositoryError::CreationFailed)
     }
 
+    /// Create a document with an explicit ID instead of auto-generating one.
+    ///
+    /// This is used by the admin registration endpoint when the caller
+    /// provides a specific ID. The rest of the logic is identical to
+    /// `create_document`.
+    pub async fn create_document_with_id(
+        &self,
+        id: &str,
+        request: DocumentCreateRequest,
+    ) -> Result<Document, DocumentRepositoryError> {
+        let created_at_value = request
+            .created_at
+            .unwrap_or_else(|| Utc::now().to_rfc3339());
+
+        let mut result = self
+            .graph
+            .execute(
+                query(
+                    "CREATE (d:Document {
+                        id: $id,
+                        title: $title,
+                        doc_type: $doc_type,
+                        created_at: $created_at,
+                        description: $description,
+                        file_path: $file_path,
+                        uploaded_at: $uploaded_at,
+                        related_claim_id: $related_claim_id,
+                        source_url: $source_url
+                    }) RETURN d",
+                )
+                .param("id", id)
+                .param("title", request.title)
+                .param("doc_type", request.doc_type)
+                .param("created_at", created_at_value)
+                .param("description", request.description)
+                .param("file_path", request.file_path)
+                .param("uploaded_at", request.uploaded_at)
+                .param("related_claim_id", request.related_claim_id)
+                .param("source_url", request.source_url),
+            )
+            .await?;
+
+        if let Some(row) = result.next().await? {
+            let node: Node = row.get("d")?;
+            let document = Document::try_from(node)?;
+            return Ok(document);
+        }
+
+        Err(DocumentRepositoryError::CreationFailed)
+    }
+
     /// Find a document by its SHA-256 content hash.
     ///
     /// Returns `Ok(Some(doc))` if found, `Ok(None)` if no match.

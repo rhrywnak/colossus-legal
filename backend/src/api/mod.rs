@@ -13,6 +13,8 @@ pub mod admin_evidence;
 pub mod admin_evidence_helpers;
 pub mod admin_qa;
 pub mod admin_reindex;
+pub mod admin_status;
+pub mod admin_upload;
 pub mod allegations;
 pub mod analysis;
 pub mod ask;
@@ -96,6 +98,11 @@ pub fn router() -> Router<AppState> {
         .route(
             "/api/admin/qa-entries",
             get(admin_qa::list_all_entries).delete(admin_qa::bulk_delete_entries),
+        )
+        .route("/api/admin/upload", post(admin_upload::upload_file))
+        .route(
+            "/api/admin/status",
+            get(admin_status::get_status),
         )
         .route("/search", post(search::semantic_search))
         .route("/ask", post(ask::ask_the_case))

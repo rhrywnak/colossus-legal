@@ -37,6 +37,8 @@ declare global {
         __COLOSSUS_CONFIG__?: {
             apiUrl: string;
             authLogoutUrl?: string;
+            environment?: string;
+            version?: string;
         };
     }
 }

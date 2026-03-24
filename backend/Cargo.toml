@@ -12,7 +12,7 @@ colossus-auth = { git = "https://github.com/rhrywnak/colossus-rs.git", branch = 
 # The `branch` points to the feature branch where the pipeline was built.
 # Once merged to main, change this to `branch = "main"`.
 colossus-rag = { git = "https://github.com/rhrywnak/colossus-rs.git", tag = "v0.5.0-rag", features = ["full"] }
-axum = "0.7"
+axum = { version = "0.7", features = ["multipart"] }
 hyper = { version = "1", features = ["full"] }
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }

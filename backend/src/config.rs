@@ -24,6 +24,9 @@ pub struct AppConfig {
     /// Directory containing prompt template files (synthesis.md, decomposition.md).
     /// Default: `/data/documents/prompts`
     pub prompts_dir: PathBuf,
+    /// Deployment environment name (e.g. "dev", "prod").
+    /// Read from COLOSSUS_ENVIRONMENT, defaults to "unknown".
+    pub environment: String,
 }
 
 impl AppConfig {
@@ -69,6 +72,9 @@ impl AppConfig {
                 .unwrap_or_else(|_| "/data/documents/prompts".to_string()),
         );
 
+        let environment = std::env::var("COLOSSUS_ENVIRONMENT")
+            .unwrap_or_else(|_| "unknown".to_string());
+
         Ok(Self {
             neo4j_uri,
             neo4j_user,
@@ -82,6 +88,7 @@ impl AppConfig {
             decomposer_model,
             postgres_url,
             prompts_dir,
+            environment,
         })
     }
 }
