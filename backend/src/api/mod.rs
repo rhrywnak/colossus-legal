@@ -9,13 +9,16 @@ use crate::auth::me_handler;
 use crate::state::AppState;
 
 pub mod admin_audit_health;
+pub mod admin_document_evidence;
 pub mod admin_documents;
 pub mod admin_evidence;
 pub mod admin_evidence_helpers;
+pub mod admin_flag;
 pub mod admin_qa;
 pub mod admin_reindex;
 pub mod admin_status;
 pub mod admin_upload;
+pub mod admin_verify;
 pub mod allegations;
 pub mod analysis;
 pub mod ask;
@@ -112,6 +115,18 @@ pub fn router() -> Router<AppState> {
         .route(
             "/admin/status",
             get(admin_status::get_status),
+        )
+        .route(
+            "/admin/documents/:id/evidence",
+            get(admin_document_evidence::get_document_evidence),
+        )
+        .route(
+            "/admin/documents/:id/evidence/:eid/verify",
+            post(admin_verify::verify_evidence),
+        )
+        .route(
+            "/admin/documents/:id/evidence/:eid/flag",
+            post(admin_flag::flag_evidence),
         )
         .route("/search", post(search::semantic_search))
         .route("/ask", post(ask::ask_the_case))
