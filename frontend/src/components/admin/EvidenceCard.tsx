@@ -5,8 +5,9 @@
  * speaker, verbatim quote, page number, and audit status badges.
  * Clicking the card navigates the PDF viewer to the cited page.
  */
-import React from "react";
+import React, { useState } from "react";
 import { DocumentEvidence } from "../../services/documentEvidence";
+import AuditDetails from "./AuditDetails";
 
 interface EvidenceCardProps {
   evidence: DocumentEvidence;
@@ -44,6 +45,12 @@ const EvidenceCard: React.FC<EvidenceCardProps> = ({
   evidence, isSelected, onSelect, onVerify, onFlag,
 }) => {
   const verStatus = evidence.verification?.status;
+  const [expanded, setExpanded] = useState(false);
+
+  // Show toggle when there's verification or flag data to display
+  const hasDetails =
+    (evidence.verification && evidence.verification.status !== "pending") ||
+    evidence.flags.length > 0;
 
   return (
     <div
@@ -116,6 +123,22 @@ const EvidenceCard: React.FC<EvidenceCardProps> = ({
           </span>
         )}
       </div>
+
+      {/* Collapsible audit details */}
+      {hasDetails && (
+        <div style={{ marginBottom: "0.4rem" }}>
+          <button
+            onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
+            style={{
+              background: "none", border: "none", padding: 0, cursor: "pointer",
+              fontSize: "0.72rem", color: "#2563eb", fontFamily: "inherit", fontWeight: 500,
+            }}
+          >
+            {expanded ? "Hide details" : "Show details"}
+          </button>
+          {expanded && <AuditDetails evidence={evidence} />}
+        </div>
+      )}
 
       {/* Action buttons */}
       <div style={{ display: "flex", gap: "0.4rem" }}>
