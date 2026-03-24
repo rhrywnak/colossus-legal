@@ -12,6 +12,7 @@ use serde_json::json;
 
 use crate::auth::{require_admin, AuthUser};
 use crate::error::AppError;
+use crate::repositories::audit_repository::log_admin_action;
 use crate::repositories::qa_repository::{self, QAEntrySummary};
 use crate::state::AppState;
 
@@ -108,6 +109,11 @@ pub async fn bulk_delete_entries(
                 message: format!("Failed to delete all QA entries: {e}"),
             })?;
         tracing::warn!(user = %user.username, deleted, "Admin deleted ALL QA entries");
+        log_admin_action(
+            &state.audit_repo, &user.username, "qa.delete_all",
+            Some("qa_entry"), None,
+            Some(json!({ "count": deleted })),
+        ).await;
         return Ok(Json(BulkDeleteResponse { deleted }));
     }
 
@@ -142,6 +148,12 @@ pub async fn bulk_delete_entries(
         requested = req.ids.len(),
         "Admin bulk deleted QA entries"
     );
+
+    log_admin_action(
+        &state.audit_repo, &user.username, "qa.bulk_delete",
+        Some("qa_entry"), None,
+        Some(json!({ "count": req.ids.len(), "ids": &req.ids })),
+    ).await;
 
     Ok(Json(BulkDeleteResponse { deleted }))
 }

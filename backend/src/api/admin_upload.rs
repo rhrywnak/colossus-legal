@@ -18,6 +18,7 @@ use std::path::PathBuf;
 
 use crate::auth::{require_admin, AuthUser};
 use crate::error::AppError;
+use crate::repositories::audit_repository::log_admin_action;
 use crate::state::AppState;
 
 /// Maximum upload size: 50 MB.
@@ -151,12 +152,13 @@ pub async fn upload_file(
         filename
     );
 
-    tracing::info!(
-        user = %user.username,
-        filename = %filename,
-        size = size_bytes,
-        "File uploaded"
-    );
+    tracing::info!(user = %user.username, filename = %filename, size = size_bytes, "File uploaded");
+
+    log_admin_action(
+        &state.audit_repo, &user.username, "document.upload",
+        Some("document"), Some(&filename),
+        Some(serde_json::json!({ "size_bytes": size_bytes, "filename": &filename })),
+    ).await;
 
     Ok(Json(UploadResponse {
         filename,

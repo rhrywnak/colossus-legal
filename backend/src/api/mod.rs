@@ -8,6 +8,7 @@ use axum::{
 use crate::auth::me_handler;
 use crate::state::AppState;
 
+pub mod admin_audit_health;
 pub mod admin_documents;
 pub mod admin_evidence;
 pub mod admin_evidence_helpers;
@@ -100,6 +101,10 @@ pub fn router() -> Router<AppState> {
             get(admin_qa::list_all_entries).delete(admin_qa::bulk_delete_entries),
         )
         .route("/api/admin/upload", post(admin_upload::upload_file))
+        .route(
+            "/api/admin/audit/health",
+            get(admin_audit_health::audit_health),
+        )
         .route(
             "/api/admin/status",
             get(admin_status::get_status),

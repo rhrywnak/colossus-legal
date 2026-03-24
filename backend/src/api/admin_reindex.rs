@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::auth::{require_admin, AuthUser};
 use crate::error::AppError;
+use crate::repositories::audit_repository::log_admin_action;
 use crate::services::{embedding_pipeline, qdrant_service};
 use crate::state::AppState;
 
@@ -86,6 +87,12 @@ pub async fn trigger_reindex(
         duration_ms,
         "Reindex complete"
     );
+
+    log_admin_action(
+        &state.audit_repo, &user.username, "reindex.trigger",
+        Some("index"), None,
+        Some(serde_json::json!({ "mode": &req.mode })),
+    ).await;
 
     Ok((
         StatusCode::OK,

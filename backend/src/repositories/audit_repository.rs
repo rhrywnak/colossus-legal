@@ -11,6 +11,7 @@
 use serde_json::Value as JsonValue;
 use sqlx::PgPool;
 
+#[derive(Clone)]
 pub struct AuditRepository {
     pool: PgPool,
 }
@@ -67,6 +68,30 @@ impl AuditRepository {
         .await?;
 
         Ok(rows)
+    }
+}
+
+/// Log an admin action, swallowing errors with a warning.
+///
+/// ## Rust Learning — Fire-and-Forget Async
+///
+/// We call `.await` on the audit log write, but discard any error via
+/// `tracing::warn!`. This is intentional — audit logging should never
+/// prevent the primary action from completing. The pattern is: we wait
+/// for completion but don't propagate failures.
+pub async fn log_admin_action(
+    audit_repo: &AuditRepository,
+    username: &str,
+    action: &str,
+    resource_type: Option<&str>,
+    resource_id: Option<&str>,
+    details: Option<JsonValue>,
+) {
+    if let Err(e) = audit_repo
+        .log_action(username, action, resource_type, resource_id, details, None)
+        .await
+    {
+        tracing::warn!("Failed to write audit log: {e}");
     }
 }
 

@@ -8,20 +8,9 @@
 //!
 //! ## Rust Learning: SHA-256 Hashing with the `Digest` Trait
 //!
-//! The `sha2` crate uses a trait-based API:
-//!
-//! ```rust,ignore
-//! use sha2::{Sha256, Digest};
-//! let mut hasher = Sha256::new();       // Create the hasher
-//! hasher.update(file_bytes);            // Feed it data (can call multiple times)
-//! let hash = hasher.finalize();         // Get the result
-//! let hex = format!("{:x}", hash);      // Convert to hex string
-//! ```
-//!
-//! The `Digest` trait is generic — you could swap `Sha256` for `Sha512`
-//! and the rest of the code stays the same. This is Rust's trait
-//! polymorphism at work, similar to how our `VectorRetriever` trait
-//! lets us swap Qdrant for a mock in tests.
+//! The `sha2` crate uses a trait-based API: `Sha256::new()` → `.update(bytes)`
+//! → `.finalize()` → `format!("{:x}", hash)`. The `Digest` trait is generic —
+//! swap `Sha256` for `Sha512` and the code stays the same.
 
 use axum::{
     extract::State,
@@ -35,6 +24,7 @@ use std::path::PathBuf;
 
 use crate::auth::{require_admin, AuthUser};
 use crate::error::AppError;
+use crate::repositories::audit_repository::log_admin_action;
 use crate::repositories::document_repository::DocumentRepository;
 use crate::state::AppState;
 
@@ -228,19 +218,24 @@ pub async fn register_document(
             })?;
     }
 
-    tracing::info!(
-        user = %user.username,
-        doc_id = %document.id,
-        hash = ?content_hash,
-        "Document registered"
-    );
+    tracing::info!(user = %user.username, doc_id = %document.id, "Document registered");
+
+    let doc_id = document.id.clone();
+    let doc_title = document.title.clone();
+    let doc_type = document.doc_type.clone().unwrap_or_default();
+
+    log_admin_action(
+        &state.audit_repo, &user.username, "document.register",
+        Some("document"), Some(&doc_id),
+        Some(json!({ "title": &doc_title, "doc_type": &doc_type })),
+    ).await;
 
     Ok((
         StatusCode::CREATED,
         Json(RegisterDocumentResponse {
-            pdf_url: format!("/documents/{}/file", document.id),
-            id: document.id,
-            title: document.title,
+            pdf_url: format!("/documents/{doc_id}/file"),
+            id: doc_id,
+            title: doc_title,
             content_hash: content_hash.unwrap_or_default(),
         }),
     ))

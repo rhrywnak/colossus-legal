@@ -149,6 +149,11 @@ async fn run_serve(config: AppConfig, graph: neo4rs::Graph, http_client: reqwest
     // returns 503 Service Unavailable. All other endpoints work fine.
     let rag_pipeline = build_rag_pipeline(&config, &graph, &prompts).await;
 
+    // Audit log repository — records every admin action for accountability.
+    let audit_repo = colossus_legal_backend::repositories::audit_repository::AuditRepository::new(
+        pg_pool.clone(),
+    );
+
     // Shared application state (global AppState)
     let state = AppState {
         graph,
@@ -156,6 +161,7 @@ async fn run_serve(config: AppConfig, graph: neo4rs::Graph, http_client: reqwest
         rag_pipeline,
         http_client,
         pg_pool,
+        audit_repo,
     };
 
     // Port

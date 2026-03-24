@@ -4,6 +4,7 @@ use neo4rs::Graph;
 use sqlx::PgPool;
 
 use crate::config::AppConfig;
+use crate::repositories::audit_repository::AuditRepository;
 
 /// Shared application state injected into every Axum handler.
 ///
@@ -34,4 +35,7 @@ pub struct AppState {
     /// PostgreSQL connection pool for analytical data (ratings, feedback).
     /// PgPool uses an internal Arc, so cloning is cheap.
     pub pg_pool: PgPool,
+
+    /// Audit log repository for recording admin actions.
+    pub audit_repo: AuditRepository,
 }

@@ -14,14 +14,11 @@ use serde_json::json;
 
 use crate::auth::{require_admin, AuthUser};
 use crate::error::AppError;
+use crate::repositories::audit_repository::log_admin_action;
 use crate::repositories::document_repository::DocumentRepository;
 use crate::state::AppState;
 
 use super::admin_evidence_helpers::{create_relationship, create_relationship_labelless_target};
-
-// ---------------------------------------------------------------------------
-// Request types
-// ---------------------------------------------------------------------------
 
 /// A single evidence item to import.
 #[derive(Debug, Deserialize)]
@@ -65,10 +62,6 @@ pub struct ImportEvidenceRequest {
     pub evidence: Vec<EvidenceImportItem>,
 }
 
-// ---------------------------------------------------------------------------
-// Response types
-// ---------------------------------------------------------------------------
-
 /// Response showing what was created.
 #[derive(Debug, Serialize)]
 pub struct ImportEvidenceResponse {
@@ -86,10 +79,6 @@ pub struct RelationshipCounts {
     pub rebuts: usize,
     pub proves: usize,
 }
-
-// ---------------------------------------------------------------------------
-// Handler
-// ---------------------------------------------------------------------------
 
 /// POST /api/admin/evidence — Import reviewed evidence into Neo4j.
 ///
@@ -294,6 +283,12 @@ pub async fn import_evidence(
             + counts.supports + counts.contradicts + counts.rebuts + counts.proves,
         "Evidence import complete"
     );
+
+    log_admin_action(
+        &state.audit_repo, &user.username, "evidence.import",
+        Some("evidence"), Some(&req.document_id),
+        Some(json!({ "document_id": &req.document_id, "count": created })),
+    ).await;
 
     Ok((StatusCode::CREATED, Json(ImportEvidenceResponse { created, relationships: counts })))
 }
