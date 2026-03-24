@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   AdminDocument,
   getAdminDocuments,
@@ -14,6 +15,7 @@ import { cardStyle, btnPrimary, btnSecondary, inputStyle, labelStyle, msgSuccess
 // ── Component ─────────────────────────────────────────────────────────────────
 
 const AdminDocuments: React.FC = () => {
+  const navigate = useNavigate();
   const [docs, setDocs] = useState<AdminDocument[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -260,28 +262,28 @@ const AdminDocuments: React.FC = () => {
 
       {/* Document table */}
       <div style={cardStyle}>
-        {loading ? (
-          <div style={{ textAlign: "center", padding: "2rem", color: "#64748b" }}>Loading...</div>
-        ) : (
+        {loading ? <div style={{ textAlign: "center", padding: "2rem", color: "#64748b" }}>Loading...</div> : (
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.84rem" }}>
             <thead>
               <tr style={{ borderBottom: "2px solid #e2e8f0" }}>
-                <th style={{ textAlign: "left", padding: "0.5rem 0.5rem 0.5rem 0", color: "#64748b", fontWeight: 600 }}>Title</th>
-                <th style={{ textAlign: "left", padding: "0.5rem", color: "#64748b", fontWeight: 600 }}>Type</th>
-                <th style={{ textAlign: "center", padding: "0.5rem", color: "#64748b", fontWeight: 600 }}>Status</th>
-                <th style={{ textAlign: "right", padding: "0.5rem", color: "#64748b", fontWeight: 600 }}>Evidence</th>
-                <th style={{ textAlign: "center", padding: "0.5rem", color: "#64748b", fontWeight: 600 }}>PDF</th>
+                {["Title", "Type", "Status", "Evidence", "PDF", ""].map((h, i) => (
+                  <th key={i} style={{ textAlign: i === 3 ? "right" : i === 0 || i === 1 ? "left" : "center", padding: "0.5rem", color: "#64748b", fontWeight: 600 }}>{h}</th>
+                ))}
               </tr>
             </thead>
             <tbody>
               {docs.map((d) => (
                 <tr key={d.id} style={{ borderBottom: "1px solid #f1f5f9" }}>
-                  <td style={{ padding: "0.5rem 0.5rem 0.5rem 0", color: "#0f172a", fontWeight: 500 }}>{d.title}</td>
+                  <td style={{ padding: "0.5rem", color: "#0f172a", fontWeight: 500 }}>{d.title}</td>
                   <td style={{ padding: "0.5rem", color: "#475569", textTransform: "capitalize" }}>{d.doc_type ?? "-"}</td>
                   <td style={{ padding: "0.5rem", textAlign: "center" }}><StatusBadge status={d.status} /></td>
                   <td style={{ padding: "0.5rem", textAlign: "right", color: "#0f172a", fontWeight: 500 }}>{d.evidence_count}</td>
                   <td style={{ padding: "0.5rem", textAlign: "center" }}>
                     {d.has_pdf ? <span style={{ color: "#047857" }}>Yes</span> : <span style={{ color: "#dc2626" }}>No</span>}
+                  </td>
+                  <td style={{ padding: "0.5rem", textAlign: "center" }}>
+                    <button style={{ fontSize: "0.74rem", color: "#2563eb", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", fontWeight: 500 }}
+                      onClick={() => navigate(`/admin/documents/${d.id}/audit`)}>Audit</button>
                   </td>
                 </tr>
               ))}

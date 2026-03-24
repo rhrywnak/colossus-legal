@@ -3,6 +3,7 @@ import { useAuth } from "../context/AuthContext";
 import AdminDocuments from "../components/admin/AdminDocuments";
 import AdminIndex from "../components/admin/AdminIndex";
 import AdminChats from "../components/admin/AdminChats";
+import AdminAudit from "../components/admin/AdminAudit";
 import { AdminStatusResponse, getAdminStatus } from "../services/admin";
 
 // ── Styles ────────────────────────────────────────────────────────────────────
@@ -43,12 +44,13 @@ const deniedStyle: React.CSSProperties = {
   fontSize: "0.9rem",
 };
 
-type Tab = "documents" | "indexing" | "chats";
+type Tab = "documents" | "indexing" | "chats" | "audit";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "documents", label: "Documents" },
   { id: "indexing", label: "Indexing" },
   { id: "chats", label: "Chats" },
+  { id: "audit", label: "Audit" },
 ];
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -155,6 +157,7 @@ const Admin: React.FC = () => {
       {activeTab === "documents" && <AdminDocuments />}
       {activeTab === "indexing" && <AdminIndex />}
       {activeTab === "chats" && <AdminChats />}
+      {activeTab === "audit" && <AdminAudit />}
     </div>
   );
 };

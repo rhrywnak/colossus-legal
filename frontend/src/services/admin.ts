@@ -210,6 +210,40 @@ export async function getAdminStatus(): Promise<AdminStatusResponse> {
   return res.json();
 }
 
+// ── Audit Health ──────────────────────────────────────
+
+export interface AuditHealthResponse {
+  checked_at: string;
+  summary: {
+    total_documents: number;
+    total_evidence: number;
+    total_qdrant_points: number;
+    completeness_pct: number;
+    issues_found: number;
+  };
+  checks: AuditCheck[];
+}
+
+export interface AuditCheck {
+  name: string;
+  status: string; // "pass" | "warn" | "fail"
+  message: string;
+  details: AuditIssue[];
+}
+
+export interface AuditIssue {
+  severity: string;
+  resource_type: string;
+  resource_id: string;
+  description: string;
+}
+
+export async function getAuditHealth(): Promise<AuditHealthResponse> {
+  const res = await authFetch(`${API_BASE_URL}/api/admin/audit/health`);
+  if (!res.ok) throw new Error(`Audit health check failed: ${res.status}`);
+  return res.json();
+}
+
 // ── QA Delete All ─────────────────────────────────────
 
 export async function deleteAllQAEntries(): Promise<{ deleted: number }> {
