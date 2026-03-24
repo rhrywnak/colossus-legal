@@ -46,10 +46,21 @@ declare global {
 // Single source of truth for the API base URL.
 // Every service file imports this — no other files need to change.
 // The typeof guard handles test environments (Vitest/Node) where window is undefined.
+//
+// Resolve API base URL:
+// 1. Runtime config from config.js (set by Ansible per environment)
+//    - Full URL like "https://colossus-legal-api.cogmai.com" = cross-origin
+//    - Empty string "" = same-origin (nginx reverse proxy)
+// 2. Vite build-time env var (for local dev without config.js)
+// 3. Fallback to localhost (bare local dev)
+//
+// NOTE: Uses != null (not ||) so empty string is preserved as valid same-origin.
+// In JavaScript, "" is falsy, so "" || fallback skips it. But "" != null is true,
+// so the ternary preserves it. This distinguishes "not configured" from "explicitly empty".
 export const API_BASE_URL: string =
-    (typeof window !== "undefined" && window.__COLOSSUS_CONFIG__?.apiUrl)
-    || import.meta.env.VITE_API_URL
-    || "http://localhost:3403";
+    (typeof window !== "undefined" && window.__COLOSSUS_CONFIG__?.apiUrl != null)
+    ? window.__COLOSSUS_CONFIG__.apiUrl
+    : import.meta.env.VITE_API_URL || "http://localhost:3403";
 
 // NOTE: Circular import — auth.ts imports API_BASE_URL from this file, and
 // this file imports authFetch from auth.ts. This works fine in ESM because
