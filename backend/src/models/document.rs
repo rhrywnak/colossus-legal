@@ -14,6 +14,9 @@ pub struct Document {
     pub source_url: Option<String>,
     pub created_at: Option<String>,
     pub notes: Option<String>,
+    /// Document lifecycle status (UPLOADED → ... → PUBLISHED).
+    /// Defaults to "PUBLISHED" for existing documents without the property.
+    pub status: String,
 }
 
 #[derive(Debug)]
@@ -52,6 +55,10 @@ impl TryFrom<Node> for Document {
         let source_url: Option<String> = node.get("source_url").ok();
         let created_at: Option<String> = node.get("created_at").ok();
         let notes: Option<String> = node.get("notes").ok();
+        let status: String = node
+            .get::<String>("status")
+            .ok()
+            .unwrap_or_else(|| "PUBLISHED".to_string());
 
         Ok(Self {
             id,
@@ -64,6 +71,7 @@ impl TryFrom<Node> for Document {
             source_url,
             created_at,
             notes,
+            status,
         })
     }
 }

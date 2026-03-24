@@ -1,6 +1,7 @@
 pub mod claim;
 pub mod decision;
 pub mod document;
+pub mod document_status;
 pub mod evidence;
 pub mod hearing;
 pub mod import;

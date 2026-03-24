@@ -38,10 +38,6 @@ use crate::error::AppError;
 use crate::repositories::document_repository::DocumentRepository;
 use crate::state::AppState;
 
-// ---------------------------------------------------------------------------
-// Response types
-// ---------------------------------------------------------------------------
-
 /// Response after successful document registration with content hash.
 #[derive(Debug, Serialize)]
 pub struct RegisterDocumentResponse {
@@ -62,6 +58,7 @@ pub struct DocumentSummary {
     pub content_hash: Option<String>,
     pub evidence_count: i64,
     pub has_pdf: bool,
+    pub status: String,
 }
 
 /// Response for the admin document list.
@@ -70,10 +67,6 @@ pub struct ListDocumentsResponse {
     pub documents: Vec<DocumentSummary>,
     pub total: usize,
 }
-
-// ---------------------------------------------------------------------------
-// Request types
-// ---------------------------------------------------------------------------
 
 /// Request body for registering a document with optional content hash verification.
 ///
@@ -93,18 +86,7 @@ pub struct RegisterDocumentRequest {
     pub file_path: Option<String>,
 }
 
-// ---------------------------------------------------------------------------
-// Handlers
-// ---------------------------------------------------------------------------
-
 /// POST /api/admin/documents — Register a document with PDF verification.
-///
-/// 1. Verifies the PDF file exists on disk
-/// 2. Computes SHA-256 content hash
-/// 3. Checks for duplicate by ID
-/// 4. Checks for duplicate by content hash
-/// 5. Creates the Document node via the repository
-/// 6. Sets content_hash on the node
 pub async fn register_document(
     user: AuthUser,
     State(state): State<AppState>,
@@ -304,6 +286,7 @@ pub async fn list_documents(
                 content_hash: None, // Not stored on the Document model struct
                 evidence_count,
                 has_pdf,
+                status: doc.status,
             }
         })
         .collect();

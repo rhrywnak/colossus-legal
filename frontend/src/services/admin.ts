@@ -12,6 +12,7 @@ export interface AdminDocument {
   evidence_count: number;
   has_pdf: boolean;
   content_hash: string | null;
+  status: string;
 }
 
 export interface AdminDocumentList {

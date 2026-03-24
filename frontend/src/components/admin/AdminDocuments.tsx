@@ -8,46 +8,8 @@ import {
   RegisterDocumentRequest,
   ImportEvidenceRequest,
 } from "../../services/admin";
-
-// ── Styles ────────────────────────────────────────────────────────────────────
-
-const cardStyle: React.CSSProperties = {
-  backgroundColor: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "10px",
-  padding: "1.25rem 1.5rem",
-};
-
-const btnPrimary: React.CSSProperties = {
-  backgroundColor: "#2563eb", color: "#fff", border: "none", borderRadius: "6px",
-  padding: "0.45rem 1rem", fontSize: "0.82rem", fontWeight: 600, cursor: "pointer",
-  fontFamily: "inherit",
-};
-
-const btnSecondary: React.CSSProperties = {
-  backgroundColor: "#f1f5f9", color: "#334155", border: "1px solid #e2e8f0",
-  borderRadius: "6px", padding: "0.45rem 1rem", fontSize: "0.82rem", fontWeight: 500,
-  cursor: "pointer", fontFamily: "inherit",
-};
-
-const inputStyle: React.CSSProperties = {
-  width: "100%", padding: "0.45rem 0.65rem", border: "1px solid #e2e8f0",
-  borderRadius: "6px", fontSize: "0.84rem", fontFamily: "inherit",
-  boxSizing: "border-box",
-};
-
-const labelStyle: React.CSSProperties = {
-  display: "block", fontSize: "0.76rem", fontWeight: 600, color: "#475569",
-  marginBottom: "0.25rem",
-};
-
-const msgSuccess: React.CSSProperties = {
-  padding: "0.65rem 1rem", backgroundColor: "#ecfdf5", border: "1px solid #a7f3d0",
-  borderRadius: "6px", fontSize: "0.84rem", color: "#047857", marginBottom: "1rem",
-};
-
-const msgError: React.CSSProperties = {
-  padding: "0.65rem 1rem", backgroundColor: "#fef2f2", border: "1px solid #fecaca",
-  borderRadius: "6px", fontSize: "0.84rem", color: "#dc2626", marginBottom: "1rem",
-};
+import StatusBadge from "./StatusBadge";
+import { cardStyle, btnPrimary, btnSecondary, inputStyle, labelStyle, msgSuccess, msgError } from "./adminStyles";
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
@@ -306,6 +268,7 @@ const AdminDocuments: React.FC = () => {
               <tr style={{ borderBottom: "2px solid #e2e8f0" }}>
                 <th style={{ textAlign: "left", padding: "0.5rem 0.5rem 0.5rem 0", color: "#64748b", fontWeight: 600 }}>Title</th>
                 <th style={{ textAlign: "left", padding: "0.5rem", color: "#64748b", fontWeight: 600 }}>Type</th>
+                <th style={{ textAlign: "center", padding: "0.5rem", color: "#64748b", fontWeight: 600 }}>Status</th>
                 <th style={{ textAlign: "right", padding: "0.5rem", color: "#64748b", fontWeight: 600 }}>Evidence</th>
                 <th style={{ textAlign: "center", padding: "0.5rem", color: "#64748b", fontWeight: 600 }}>PDF</th>
               </tr>
@@ -315,6 +278,7 @@ const AdminDocuments: React.FC = () => {
                 <tr key={d.id} style={{ borderBottom: "1px solid #f1f5f9" }}>
                   <td style={{ padding: "0.5rem 0.5rem 0.5rem 0", color: "#0f172a", fontWeight: 500 }}>{d.title}</td>
                   <td style={{ padding: "0.5rem", color: "#475569", textTransform: "capitalize" }}>{d.doc_type ?? "-"}</td>
+                  <td style={{ padding: "0.5rem", textAlign: "center" }}><StatusBadge status={d.status} /></td>
                   <td style={{ padding: "0.5rem", textAlign: "right", color: "#0f172a", fontWeight: 500 }}>{d.evidence_count}</td>
                   <td style={{ padding: "0.5rem", textAlign: "center" }}>
                     {d.has_pdf ? <span style={{ color: "#047857" }}>Yes</span> : <span style={{ color: "#dc2626" }}>No</span>}

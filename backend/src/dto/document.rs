@@ -12,6 +12,7 @@ pub struct DocumentDto {
     pub file_path: Option<String>,  // filename of associated file
     #[serde(skip_serializing_if = "Option::is_none")]
     pub notes: Option<String>,
+    pub status: String,
 }
 
 impl From<Document> for DocumentDto {
@@ -23,6 +24,7 @@ impl From<Document> for DocumentDto {
             created_at: doc.created_at.map(|dt| dt.to_string()),
             file_path: doc.file_path,
             notes: doc.notes,
+            status: doc.status,
         }
     }
 }

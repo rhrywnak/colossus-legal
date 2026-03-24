@@ -3,6 +3,7 @@ use neo4rs::{query, DeError, Graph, Node};
 
 use crate::dto::document::{DocumentCreateRequest, DocumentUpdateRequest};
 use crate::models::document::{Document, DocumentConversionError};
+use crate::models::document_status::STATUS_UPLOADED;
 
 #[derive(Clone)]
 pub struct DocumentRepository {
@@ -96,7 +97,8 @@ impl DocumentRepository {
                         file_path: $file_path,
                         uploaded_at: $uploaded_at,
                         related_claim_id: $related_claim_id,
-                        source_url: $source_url
+                        source_url: $source_url,
+                        status: $status
                     }) RETURN d",
                 )
                 .param("id", id.clone())
@@ -107,7 +109,8 @@ impl DocumentRepository {
                 .param("file_path", request.file_path)
                 .param("uploaded_at", request.uploaded_at)
                 .param("related_claim_id", request.related_claim_id)
-                .param("source_url", request.source_url),
+                .param("source_url", request.source_url)
+                .param("status", STATUS_UPLOADED),
             )
             .await?;
 
@@ -147,7 +150,8 @@ impl DocumentRepository {
                         file_path: $file_path,
                         uploaded_at: $uploaded_at,
                         related_claim_id: $related_claim_id,
-                        source_url: $source_url
+                        source_url: $source_url,
+                        status: $status
                     }) RETURN d",
                 )
                 .param("id", id)
@@ -158,7 +162,8 @@ impl DocumentRepository {
                 .param("file_path", request.file_path)
                 .param("uploaded_at", request.uploaded_at)
                 .param("related_claim_id", request.related_claim_id)
-                .param("source_url", request.source_url),
+                .param("source_url", request.source_url)
+                .param("status", STATUS_UPLOADED),
             )
             .await?;
 
