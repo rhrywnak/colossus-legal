@@ -16,6 +16,7 @@ pub mod admin_documents;
 pub mod admin_evidence;
 pub mod admin_evidence_helpers;
 pub mod admin_flag;
+pub mod admin_page_ground;
 pub mod admin_qa;
 pub mod admin_reindex;
 pub mod admin_status;
@@ -133,6 +134,10 @@ pub fn router() -> Router<AppState> {
         .route(
             "/admin/documents/:id/evidence/:eid/flag",
             post(admin_flag::flag_evidence),
+        )
+        .route(
+            "/admin/documents/:id/ground-pages",
+            post(admin_page_ground::ground_pages),
         )
         .route("/search", post(search::semantic_search))
         .route("/ask", post(ask::ask_the_case))

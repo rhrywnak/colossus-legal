@@ -21,3 +21,4 @@
 [patch."https://github.com/rhrywnak/colossus-rs.git"]
 colossus-rag = { path = "/build/colossus-rs/colossus-rag" }
 colossus-auth = { path = "/build/colossus-rs/colossus-auth" }
+colossus-pdf = { path = "/build/colossus-rs/colossus-pdf" }
