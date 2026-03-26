@@ -1,17 +1,22 @@
-//! Admin endpoint: per-document evidence listing with audit status.
+//! Admin endpoint: per-document content listing with audit status.
 //!
-//! Queries Neo4j for evidence linked to a document, then joins with
-//! PostgreSQL verification and flag data.
+//! Queries Neo4j for ALL extracted content linked to a document — not just
+//! Evidence nodes, but also ComplaintAllegation, LegalCount, Harm, and
+//! MotionClaim nodes. Each result includes a `node_type` field so the
+//! frontend can render type-specific cards.
+//!
+//! The query uses UNION ALL across five node types, with `toString()`
+//! coercion on integer fields to satisfy Neo4j's strict type-matching
+//! requirement for UNION columns.
 //!
 //! ## Rust Learning: Joining Neo4j and PostgreSQL Data
 //!
-//! The primary data (evidence nodes, relationships) lives in Neo4j,
+//! The primary data (content nodes, relationships) lives in Neo4j,
 //! while audit metadata (who verified what, when) lives in PostgreSQL.
 //! We query both and merge using a HashMap for O(1) lookup — efficient
 //! and idiomatic Rust (O(n) instead of O(n²) nested loops).
 
 use axum::{extract::Path, extract::State, Json};
-use neo4rs::query;
 use serde::Serialize;
 use std::collections::HashMap;
 
@@ -19,12 +24,18 @@ use crate::auth::{require_admin, AuthUser};
 use crate::error::AppError;
 use crate::state::AppState;
 
+use super::admin_document_evidence_queries::{fetch_content_for_document, fetch_document_meta};
+
 // ── Response DTOs ────────────────────────────────────────────────
 
 #[derive(Debug, Serialize)]
 pub struct DocumentEvidenceResponse {
     pub document_id: String,
     pub document_title: String,
+    /// Document source type — tells the frontend whether text highlighting
+    /// is available (e.g. "native_pdf", "docx_converted", "scanned").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_type: Option<String>,
     pub evidence_count: usize,
     pub verified_count: usize,
     pub flagged_count: usize,
@@ -34,9 +45,13 @@ pub struct DocumentEvidenceResponse {
 #[derive(Debug, Serialize)]
 pub struct EvidenceWithAudit {
     pub id: String,
+    /// Node label: "Evidence", "ComplaintAllegation", "LegalCount", "Harm", "MotionClaim".
+    pub node_type: String,
     pub title: Option<String>,
     pub verbatim_quote: Option<String>,
-    pub page_number: Option<i64>,
+    /// Page number or paragraph number as a string (coerced via `toString()`
+    /// in the UNION ALL query because different branches have different types).
+    pub page_number: Option<String>,
     pub kind: Option<String>,
     pub weight: Option<String>,
     pub speaker: Option<String>,
@@ -99,11 +114,19 @@ pub async fn get_document_evidence(
         "GET /admin/documents/{}/evidence", doc_id
     );
 
-    // 1. Get document title from Neo4j
-    let doc_title = fetch_document_title(&state.graph, &doc_id).await?;
+    // 1. Get document metadata from Neo4j
+    let (doc_title, source_type) = fetch_document_meta(&state.graph, &doc_id).await?;
 
-    // 2. Query Neo4j for evidence linked to this document
-    let evidence_nodes = fetch_evidence_for_document(&state.graph, &doc_id).await?;
+    // 2. Query Neo4j for ALL content linked to this document
+    let mut evidence_nodes = fetch_content_for_document(&state.graph, &doc_id).await?;
+
+    // Sort in Rust — Neo4j UNION ALL does not preserve per-branch ORDER BY.
+    // Sort by page_number (numerically where possible), then by title.
+    evidence_nodes.sort_by(|a, b| {
+        let pa = a.page_number.as_deref().and_then(|s| s.parse::<i64>().ok());
+        let pb = b.page_number.as_deref().and_then(|s| s.parse::<i64>().ok());
+        pa.cmp(&pb).then_with(|| a.title.cmp(&b.title))
+    });
 
     // 3. Query PostgreSQL for verifications
     let verifications = sqlx::query_as::<_, VerificationRow>(
@@ -182,6 +205,7 @@ pub async fn get_document_evidence(
 
             EvidenceWithAudit {
                 id: e.id,
+                node_type: e.node_type,
                 title: e.title,
                 verbatim_quote: e.verbatim_quote,
                 page_number: e.page_number,
@@ -199,6 +223,7 @@ pub async fn get_document_evidence(
     Ok(Json(DocumentEvidenceResponse {
         document_id: doc_id,
         document_title: doc_title,
+        source_type,
         evidence_count,
         verified_count,
         flagged_count,
@@ -206,76 +231,5 @@ pub async fn get_document_evidence(
     }))
 }
 
-// ── Neo4j helpers ────────────────────────────────────────────────
-
-/// Simple struct to hold evidence data from Neo4j before merging.
-struct EvidenceNode {
-    id: String,
-    title: Option<String>,
-    verbatim_quote: Option<String>,
-    page_number: Option<i64>,
-    kind: Option<String>,
-    weight: Option<String>,
-    speaker: Option<String>,
-}
-
-async fn fetch_document_title(graph: &neo4rs::Graph, doc_id: &str) -> Result<String, AppError> {
-    let mut result = graph
-        .execute(
-            query("MATCH (d:Document {id: $doc_id}) RETURN d.title AS title")
-                .param("doc_id", doc_id),
-        )
-        .await
-        .map_err(|e| AppError::Internal {
-            message: format!("Neo4j query failed: {e}"),
-        })?;
-
-    if let Some(row) = result.next().await.map_err(|e| AppError::Internal {
-        message: format!("Neo4j row fetch failed: {e}"),
-    })? {
-        Ok(row.get::<String>("title").unwrap_or_else(|_| doc_id.to_string()))
-    } else {
-        Err(AppError::NotFound {
-            message: format!("Document not found: {doc_id}"),
-        })
-    }
-}
-
-async fn fetch_evidence_for_document(
-    graph: &neo4rs::Graph,
-    doc_id: &str,
-) -> Result<Vec<EvidenceNode>, AppError> {
-    let mut result = graph
-        .execute(
-            query(
-                "MATCH (e:Evidence)-[:CONTAINED_IN]->(d:Document {id: $doc_id})
-                 OPTIONAL MATCH (e)-[:STATED_BY]->(p:Person)
-                 RETURN e.id AS id, e.title AS title, e.verbatim_quote AS verbatim_quote,
-                        e.page_number AS page_number, e.kind AS kind, e.weight AS weight,
-                        p.name AS speaker
-                 ORDER BY e.page_number, e.title",
-            )
-            .param("doc_id", doc_id),
-        )
-        .await
-        .map_err(|e| AppError::Internal {
-            message: format!("Neo4j query failed: {e}"),
-        })?;
-
-    let mut nodes = Vec::new();
-    while let Some(row) = result.next().await.map_err(|e| AppError::Internal {
-        message: format!("Neo4j row fetch failed: {e}"),
-    })? {
-        nodes.push(EvidenceNode {
-            id: row.get("id").unwrap_or_default(),
-            title: row.get("title").ok(),
-            verbatim_quote: row.get("verbatim_quote").ok(),
-            page_number: row.get("page_number").ok(),
-            kind: row.get("kind").ok(),
-            weight: row.get("weight").ok(),
-            speaker: row.get("speaker").ok(),
-        });
-    }
-
-    Ok(nodes)
-}
+// Neo4j query helpers live in admin_document_evidence_queries.rs
+// (extracted to keep this module under 300 lines).

@@ -10,6 +10,7 @@ use crate::state::AppState;
 
 pub mod admin_audit_health;
 pub mod admin_document_evidence;
+pub mod admin_document_evidence_queries;
 pub mod admin_document_extracts;
 pub mod admin_documents;
 pub mod admin_evidence;
