@@ -1,22 +1,16 @@
 /**
- * PdfViewer — Renders a PDF with continuous vertical scroll and zoom controls.
+ * PdfViewer — Domain-agnostic PDF viewer with continuous scroll, zoom, and text highlighting.
  *
- * All pages are rendered stacked vertically in a scrollable container.
- * An IntersectionObserver tracks which page is most visible and reports
- * the current page via onPageChange. The parent can set the page prop
- * to scroll to a specific page (e.g., clicking an evidence card).
- *
- * REACT LEARNING — Avoiding Infinite Loops with Bidirectional Sync:
- * The page prop and IntersectionObserver create a feedback loop risk:
- * parent sets page → scrollIntoView fires → observer sees new page →
- * calls onPageChange → parent re-renders with new page → scrollIntoView
- * fires again. We break this with an `isScrollingToPage` ref that gates
- * whether the observer should call onPageChange.
+ * Reusable across projects: depends only on react-pdf and the generic highlight utilities.
+ * Uses IntersectionObserver to track visible page and isScrollingToPage ref to prevent
+ * feedback loops between scroll-to-page and page-change reporting.
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Document, Page, pdfjs } from "react-pdf";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
+import { HIGHLIGHT_DEFAULTS } from "../../utils/highlightConstants";
+import { clearHighlights, highlightTextOnPage } from "../../utils/pdfHighlight";
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
   "pdfjs-dist/build/pdf.worker.min.mjs",
@@ -28,6 +22,9 @@ interface PdfViewerProps {
   page?: number;
   onPageChange?: (page: number) => void;
   className?: string;
+  highlightText?: string | null;
+  highlightColor?: string;
+  highlightPage?: number | null;
 }
 
 const toolbarStyle: React.CSSProperties = {
@@ -62,6 +59,7 @@ const zoomBtnStyle: React.CSSProperties = {
 
 const PdfViewer: React.FC<PdfViewerProps> = ({
   src, page = 1, onPageChange, className,
+  highlightText, highlightColor = HIGHLIGHT_DEFAULTS.color, highlightPage,
 }) => {
   const [numPages, setNumPages] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
@@ -76,7 +74,6 @@ const PdfViewer: React.FC<PdfViewerProps> = ({
 
   useEffect(() => { setPageInput(String(page)); }, [page]);
 
-  // Track container width with ResizeObserver for fit-to-width rendering
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -90,7 +87,6 @@ const PdfViewer: React.FC<PdfViewerProps> = ({
     return () => observer.disconnect();
   }, []);
 
-  // IntersectionObserver: track which page is most visible
   useEffect(() => {
     const scrollEl = scrollRef.current;
     if (!scrollEl || !numPages || loading) return;
@@ -119,7 +115,6 @@ const PdfViewer: React.FC<PdfViewerProps> = ({
     return () => observer.disconnect();
   }, [numPages, loading, page, onPageChange]);
 
-  // Scroll to page when parent changes page prop
   useEffect(() => {
     const scrollEl = scrollRef.current;
     if (!scrollEl || !numPages || loading) return;
@@ -135,10 +130,25 @@ const PdfViewer: React.FC<PdfViewerProps> = ({
     }, 500);
   }, [page, numPages, loading]);
 
-  // Cleanup timeout on unmount
   useEffect(() => {
     return () => clearTimeout(scrollTimeout.current);
   }, []);
+
+  const handleTextLayerReady = useCallback((pageNum: number) => {
+    const scrollEl = scrollRef.current;
+    if (!scrollEl || !highlightText || highlightPage !== pageNum) return;
+    clearHighlights(scrollEl);
+    highlightTextOnPage(scrollEl, pageNum, highlightText, highlightColor);
+  }, [highlightText, highlightPage, highlightColor]);
+
+  useEffect(() => {
+    const scrollEl = scrollRef.current;
+    if (!scrollEl) return;
+    clearHighlights(scrollEl);
+    if (highlightText && highlightPage) {
+      highlightTextOnPage(scrollEl, highlightPage, highlightText, highlightColor);
+    }
+  }, [highlightText, highlightPage, highlightColor]);
 
   const onLoadSuccess = useCallback(({ numPages: n }: { numPages: number }) => {
     setNumPages(n);
@@ -222,7 +232,6 @@ const PdfViewer: React.FC<PdfViewerProps> = ({
         </button>
       </div>
 
-      {/* Scrollable PDF render area — all pages stacked vertically */}
       <div
         ref={scrollRef}
         style={{
@@ -261,6 +270,8 @@ const PdfViewer: React.FC<PdfViewerProps> = ({
                 <Page
                   pageNumber={pn}
                   width={effectiveWidth}
+                  renderTextLayer={true}
+                  onRenderTextLayerSuccess={() => handleTextLayerReady(pn)}
                   loading={
                     <div style={{ padding: "2rem", color: "#64748b", fontSize: "0.82rem" }}>
                       Rendering page {pn}...

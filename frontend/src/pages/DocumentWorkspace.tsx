@@ -59,8 +59,7 @@ const DocumentWorkspace: React.FC = () => {
 
   const handleSelect = (ev: DocumentEvidence) => {
     setSelectedId(ev.id);
-    // ComplaintAllegation uses paragraph numbers, not PDF pages — skip navigation
-    if (ev.node_type === "ComplaintAllegation") return;
+    if (ev.node_type === "ComplaintAllegation") return; // paragraph numbers, not PDF pages
     const pageNum = parseInt(String(ev.page_number), 10);
     if (!isNaN(pageNum) && pageNum > 0) {
       setPdfPage(pageNum);
@@ -118,6 +117,14 @@ const DocumentWorkspace: React.FC = () => {
   const filteredItems = filterType === "all"
     ? allItems
     : allItems.filter((ev) => (ev.node_type || "Evidence") === filterType);
+  useEffect(() => {
+    if (selectedId && !filteredItems.some((ev) => ev.id === selectedId)) {
+      setSelectedId(null);
+    }
+  }, [filterType, selectedId, filteredItems]);
+  const selectedItem = allItems.find((ev) => ev.id === selectedId) ?? null;
+  const highlightText = selectedItem?.verbatim_quote ?? selectedItem?.title ?? null;
+  const highlightPage = selectedItem ? parseInt(String(selectedItem.page_number), 10) || null : null;
 
   if (loading && !data) {
     return (
@@ -189,7 +196,6 @@ const DocumentWorkspace: React.FC = () => {
         </div>
       </div>
 
-      {/* Error banner */}
       {error && (
         <div style={{
           padding: "0.5rem 1.25rem", backgroundColor: "#fef2f2",
@@ -203,7 +209,6 @@ const DocumentWorkspace: React.FC = () => {
         </div>
       )}
 
-      {/* Split pane */}
       <div ref={splitRef} style={{
         display: "flex", flex: 1, overflow: "hidden",
         userSelect: isDragging ? "none" : "auto",
@@ -213,20 +218,19 @@ const DocumentWorkspace: React.FC = () => {
             src={pdfUrl}
             page={pdfPage}
             onPageChange={setPdfPage}
+            highlightText={highlightText}
+            highlightPage={highlightPage}
           />
         </div>
 
-        {/* Draggable divider */}
         <div {...dividerProps}>
           <div style={{ width: "2px", height: "24px", borderRadius: "1px", backgroundColor: "#94a3b8" }} />
         </div>
 
-        {/* Right: Evidence panel */}
         <div style={{
           width: `${100 - splitPercent}%`, overflow: "auto", padding: "0.75rem",
           backgroundColor: "#fafbfc",
         }}>
-          {/* Inline verify form */}
           {modal.kind === "verify" && (
             <InlineVerifyForm
               evidence={modal.evidence}
@@ -240,7 +244,6 @@ const DocumentWorkspace: React.FC = () => {
             />
           )}
 
-          {/* Inline flag form */}
           {modal.kind === "flag" && (
             <InlineFlagForm
               evidence={modal.evidence}
@@ -254,14 +257,12 @@ const DocumentWorkspace: React.FC = () => {
             />
           )}
 
-          {/* Node type filter */}
           <NodeTypeFilter
             items={allItems}
             filterType={filterType}
             onFilterChange={setFilterType}
           />
 
-          {/* Evidence cards */}
           {filteredItems.map((ev) => (
             <EvidenceCard
               key={ev.id}
