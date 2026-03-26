@@ -5,9 +5,10 @@ import { authFetch } from "./auth";
 
 export interface DocumentEvidence {
   id: string;
+  node_type: string;                // "Evidence" | "ComplaintAllegation" | "MotionClaim" | "LegalCount" | "Harm"
   title: string | null;
   verbatim_quote: string | null;
-  page_number: number | null;
+  page_number: string | null;       // string — backend coerces via toString() in UNION ALL
   kind: string | null;
   weight: string | null;
   speaker: string | null;
@@ -28,6 +29,7 @@ export interface DocumentEvidence {
 export interface DocumentEvidenceResponse {
   document_id: string;
   document_title: string;
+  source_type?: string | null;      // "native_pdf" | "docx_converted" | "scanned" | "ocr_processed"
   evidence_count: number;
   verified_count: number;
   flagged_count: number;
@@ -78,4 +80,24 @@ export async function flagEvidence(
     }
   );
   if (!response.ok) throw new Error(`Failed to flag: ${response.status}`);
+}
+
+/**
+ * Fetch the Claude extraction JSON file for a document.
+ * Returns the raw JSON object, or null if no extract exists (404).
+ * Used for completeness verification (highlighting on PDF).
+ */
+export async function fetchDocumentExtracts(
+  docId: string
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): Promise<any | null> {
+  try {
+    const response = await authFetch(
+      `${API_BASE_URL}/api/admin/documents/${encodeURIComponent(docId)}/extracts`
+    );
+    if (response.ok) return response.json();
+    return null; // 404 = no extract file, not an error
+  } catch {
+    return null;
+  }
 }

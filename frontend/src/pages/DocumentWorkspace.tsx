@@ -22,7 +22,8 @@ import {
   verifyEvidence,
   flagEvidence,
 } from "../services/documentEvidence";
-import { cardStyle, btnPrimary, btnSecondary, inputStyle, labelStyle } from "../components/admin/adminStyles";
+import { getSourceTypeDisplay } from "../utils/nodeTypeDisplay";
+import { InlineVerifyForm, InlineFlagForm } from "../components/admin/InlineAuditForms";
 
 // ── Types for inline forms ──────────────────────────────────────
 
@@ -80,8 +81,11 @@ const DocumentWorkspace: React.FC = () => {
 
   const handleSelect = (ev: DocumentEvidence) => {
     setSelectedId(ev.id);
-    if (ev.page_number != null && ev.page_number > 0) {
-      setPdfPage(ev.page_number);
+    // ComplaintAllegation uses paragraph numbers, not PDF pages — skip navigation
+    if (ev.node_type === "ComplaintAllegation") return;
+    const pageNum = parseInt(String(ev.page_number), 10);
+    if (!isNaN(pageNum) && pageNum > 0) {
+      setPdfPage(pageNum);
     }
   };
 
@@ -167,8 +171,26 @@ const DocumentWorkspace: React.FC = () => {
             Back
           </Link>
           <div>
-            <div style={{ fontSize: "0.95rem", fontWeight: 600, color: "#0f172a" }}>
-              {data?.document_title || docId}
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              <span style={{ fontSize: "0.95rem", fontWeight: 600, color: "#0f172a" }}>
+                {data?.document_title || docId}
+              </span>
+              {(() => {
+                const st = getSourceTypeDisplay(data?.source_type);
+                if (!st) return null;
+                return (
+                  <span
+                    title={st.tooltip}
+                    style={{
+                      backgroundColor: st.color, color: "#fff",
+                      padding: "0.1rem 0.45rem", borderRadius: "4px",
+                      fontSize: "0.65rem", fontWeight: 600,
+                    }}
+                  >
+                    {st.label}
+                  </span>
+                );
+              })()}
             </div>
             <div style={{ fontSize: "0.74rem", color: "#64748b" }}>
               {mode} mode
@@ -176,7 +198,7 @@ const DocumentWorkspace: React.FC = () => {
           </div>
         </div>
         <div style={{ display: "flex", gap: "1.25rem", fontSize: "0.78rem" }}>
-          <StatBadge label="Evidence" value={data?.evidence_count ?? 0} color="#334155" />
+          <StatBadge label="Items" value={data?.evidence_count ?? 0} color="#334155" />
           <StatBadge label="Verified" value={data?.verified_count ?? 0} color="#047857" />
           <StatBadge label="Flagged" value={data?.flagged_count ?? 0} color="#dc2626" />
         </div>
@@ -214,71 +236,30 @@ const DocumentWorkspace: React.FC = () => {
         }}>
           {/* Inline verify form */}
           {modal.kind === "verify" && (
-            <div style={{ ...cardStyle, marginBottom: "0.75rem", border: "2px solid #a7f3d0" }}>
-              <div style={{ fontSize: "0.84rem", fontWeight: 600, color: "#0f172a", marginBottom: "0.5rem" }}>
-                Verify: {modal.evidence.title || modal.evidence.id}
-              </div>
-              <div style={{ marginBottom: "0.5rem" }}>
-                <label style={labelStyle}>Status</label>
-                <select style={inputStyle} value={formStatus} onChange={(e) => setFormStatus(e.target.value)}>
-                  <option value="verified">Verified</option>
-                  <option value="rejected">Rejected</option>
-                  <option value="pending">Pending (undo)</option>
-                </select>
-              </div>
-              <div style={{ marginBottom: "0.5rem" }}>
-                <label style={labelStyle}>Notes</label>
-                <textarea
-                  style={{ ...inputStyle, minHeight: "60px", resize: "vertical" }}
-                  value={formNotes}
-                  onChange={(e) => setFormNotes(e.target.value)}
-                  placeholder="e.g. Confirmed on page 5, paragraph 2"
-                />
-              </div>
-              <div style={{ display: "flex", gap: "0.4rem" }}>
-                <button style={btnPrimary} onClick={handleSubmitVerify} disabled={submitting}>
-                  {submitting ? "Saving..." : "Save"}
-                </button>
-                <button style={btnSecondary} onClick={() => setModal({ kind: "none" })}>
-                  Cancel
-                </button>
-              </div>
-            </div>
+            <InlineVerifyForm
+              evidence={modal.evidence}
+              status={formStatus}
+              notes={formNotes}
+              submitting={submitting}
+              onStatusChange={setFormStatus}
+              onNotesChange={setFormNotes}
+              onSubmit={handleSubmitVerify}
+              onCancel={() => setModal({ kind: "none" })}
+            />
           )}
 
           {/* Inline flag form */}
           {modal.kind === "flag" && (
-            <div style={{ ...cardStyle, marginBottom: "0.75rem", border: "2px solid #fecaca" }}>
-              <div style={{ fontSize: "0.84rem", fontWeight: 600, color: "#0f172a", marginBottom: "0.5rem" }}>
-                Flag: {modal.evidence.title || modal.evidence.id}
-              </div>
-              <div style={{ marginBottom: "0.5rem" }}>
-                <label style={labelStyle}>Severity</label>
-                <select style={inputStyle} value={formSeverity} onChange={(e) => setFormSeverity(e.target.value)}>
-                  <option value="low">Low</option>
-                  <option value="medium">Medium</option>
-                  <option value="high">High</option>
-                  <option value="critical">Critical</option>
-                </select>
-              </div>
-              <div style={{ marginBottom: "0.5rem" }}>
-                <label style={labelStyle}>Description</label>
-                <textarea
-                  style={{ ...inputStyle, minHeight: "60px", resize: "vertical" }}
-                  value={formDescription}
-                  onChange={(e) => setFormDescription(e.target.value)}
-                  placeholder="Describe the issue..."
-                />
-              </div>
-              <div style={{ display: "flex", gap: "0.4rem" }}>
-                <button style={{ ...btnPrimary, backgroundColor: "#dc2626" }} onClick={handleSubmitFlag} disabled={submitting}>
-                  {submitting ? "Saving..." : "Submit Flag"}
-                </button>
-                <button style={btnSecondary} onClick={() => setModal({ kind: "none" })}>
-                  Cancel
-                </button>
-              </div>
-            </div>
+            <InlineFlagForm
+              evidence={modal.evidence}
+              severity={formSeverity}
+              description={formDescription}
+              submitting={submitting}
+              onSeverityChange={setFormSeverity}
+              onDescriptionChange={setFormDescription}
+              onSubmit={handleSubmitFlag}
+              onCancel={() => setModal({ kind: "none" })}
+            />
           )}
 
           {/* Evidence cards */}
@@ -295,7 +276,7 @@ const DocumentWorkspace: React.FC = () => {
 
           {data?.evidence.length === 0 && (
             <div style={{ textAlign: "center", padding: "2rem", color: "#64748b", fontSize: "0.84rem" }}>
-              No evidence linked to this document.
+              No content linked to this document.
             </div>
           )}
         </div>

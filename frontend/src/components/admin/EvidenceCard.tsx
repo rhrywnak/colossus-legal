@@ -7,6 +7,7 @@
  */
 import React, { useState } from "react";
 import { DocumentEvidence } from "../../services/documentEvidence";
+import { getNodeTypeDisplay, getPageLabel } from "../../utils/nodeTypeDisplay";
 import AuditDetails from "./AuditDetails";
 
 interface EvidenceCardProps {
@@ -46,6 +47,8 @@ const EvidenceCard: React.FC<EvidenceCardProps> = ({
 }) => {
   const verStatus = evidence.verification?.status;
   const [expanded, setExpanded] = useState(false);
+  const { label: nodeLabel, color: nodeColor } = getNodeTypeDisplay(evidence.node_type);
+  const pageLabel = getPageLabel(evidence.node_type, evidence.page_number);
 
   // Show toggle when there's verification or flag data to display
   const hasDetails =
@@ -65,17 +68,26 @@ const EvidenceCard: React.FC<EvidenceCardProps> = ({
         marginBottom: "0.5rem",
       }}
     >
-      {/* Header: title + page badge */}
+      {/* Header: node type badge + title + page badge */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "0.35rem" }}>
-        <div style={{ fontSize: "0.84rem", fontWeight: 600, color: "#0f172a", flex: 1, marginRight: "0.5rem" }}>
-          {evidence.title || evidence.id}
+        <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", flex: 1, marginRight: "0.5rem" }}>
+          <span style={{
+            display: "inline-block", padding: "0.1rem 0.45rem", borderRadius: "4px",
+            fontSize: "0.68rem", fontWeight: 600, backgroundColor: nodeColor,
+            color: "#fff", whiteSpace: "nowrap", flexShrink: 0, lineHeight: "1.4",
+          }}>
+            {nodeLabel}
+          </span>
+          <span style={{ fontSize: "0.84rem", fontWeight: 600, color: "#0f172a" }}>
+            {evidence.title || evidence.id}
+          </span>
         </div>
-        {evidence.page_number != null && (
+        {pageLabel && (
           <span style={{
             ...badgeBase, backgroundColor: "#e0e7ff", color: "#3730a3",
             whiteSpace: "nowrap", flexShrink: 0,
           }}>
-            p. {evidence.page_number}
+            {pageLabel}
           </span>
         )}
       </div>
