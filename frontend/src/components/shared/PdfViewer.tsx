@@ -1,37 +1,32 @@
 /**
- * PdfViewer — Renders a PDF document with page navigation.
+ * PdfViewer — Renders a PDF with continuous vertical scroll and zoom controls.
  *
- * Uses react-pdf (wrapper around Mozilla's PDF.js) to render PDF pages
- * inline in the browser. The component is controlled: the parent specifies
- * which page to show via the `page` prop, and receives page change events
- * via `onPageChange`.
+ * All pages are rendered stacked vertically in a scrollable container.
+ * An IntersectionObserver tracks which page is most visible and reports
+ * the current page via onPageChange. The parent can set the page prop
+ * to scroll to a specific page (e.g., clicking an evidence card).
  *
- * REACT LEARNING — Controlled vs Uncontrolled Components:
- * This component follows the "controlled component" pattern. The parent
- * owns the page state and passes it down as a prop. When the user clicks
- * next/prev, we don't update internal state — we call onPageChange() and
- * let the parent decide the new page. This enables the Document Workspace
- * to sync the PDF page with the selected evidence card.
+ * REACT LEARNING — Avoiding Infinite Loops with Bidirectional Sync:
+ * The page prop and IntersectionObserver create a feedback loop risk:
+ * parent sets page → scrollIntoView fires → observer sees new page →
+ * calls onPageChange → parent re-renders with new page → scrollIntoView
+ * fires again. We break this with an `isScrollingToPage` ref that gates
+ * whether the observer should call onPageChange.
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Document, Page, pdfjs } from "react-pdf";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
 
-// Configure PDF.js worker — MUST be in the same file as Document/Page usage
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
   "pdfjs-dist/build/pdf.worker.min.mjs",
   import.meta.url,
 ).toString();
 
 interface PdfViewerProps {
-  /** URL to the PDF file (relative or absolute) */
   src: string;
-  /** Current page number (1-indexed). Default: 1 */
   page?: number;
-  /** Callback when page changes (user navigation) */
   onPageChange?: (page: number) => void;
-  /** Optional CSS class for outer container */
   className?: string;
 }
 
@@ -40,6 +35,7 @@ const toolbarStyle: React.CSSProperties = {
   gap: "0.5rem", padding: "0.5rem 0.75rem",
   backgroundColor: "#f8fafc", borderBottom: "1px solid #e2e8f0",
   fontSize: "0.82rem", color: "#475569",
+  position: "sticky", top: 0, zIndex: 10,
 };
 
 const navBtnStyle: React.CSSProperties = {
@@ -64,13 +60,6 @@ const zoomBtnStyle: React.CSSProperties = {
   minWidth: "1.6rem",
 };
 
-const sliderStyle: React.CSSProperties = {
-  width: "100%",
-  height: "4px",
-  cursor: "pointer",
-  accentColor: "#64748b",
-};
-
 const PdfViewer: React.FC<PdfViewerProps> = ({
   src, page = 1, onPageChange, className,
 }) => {
@@ -81,8 +70,10 @@ const PdfViewer: React.FC<PdfViewerProps> = ({
   const [containerWidth, setContainerWidth] = useState<number>(600);
   const [zoomLevel, setZoomLevel] = useState(1.0);
   const containerRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const isScrollingToPage = useRef(false);
+  const scrollTimeout = useRef<ReturnType<typeof setTimeout>>();
 
-  // Sync pageInput when page prop changes
   useEffect(() => { setPageInput(String(page)); }, [page]);
 
   // Track container width with ResizeObserver for fit-to-width rendering
@@ -97,6 +88,56 @@ const PdfViewer: React.FC<PdfViewerProps> = ({
     observer.observe(el);
     setContainerWidth(el.clientWidth);
     return () => observer.disconnect();
+  }, []);
+
+  // IntersectionObserver: track which page is most visible
+  useEffect(() => {
+    const scrollEl = scrollRef.current;
+    if (!scrollEl || !numPages || loading) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (isScrollingToPage.current) return;
+        let maxRatio = 0;
+        let visiblePage = page;
+        entries.forEach((entry) => {
+          if (entry.intersectionRatio > maxRatio) {
+            maxRatio = entry.intersectionRatio;
+            const pn = Number(entry.target.getAttribute("data-page-number"));
+            if (pn) visiblePage = pn;
+          }
+        });
+        if (visiblePage !== page && onPageChange) {
+          onPageChange(visiblePage);
+        }
+      },
+      { root: scrollEl, threshold: [0, 0.25, 0.5, 0.75, 1.0] },
+    );
+
+    const pages = scrollEl.querySelectorAll("[data-page-number]");
+    pages.forEach((el) => observer.observe(el));
+    return () => observer.disconnect();
+  }, [numPages, loading, page, onPageChange]);
+
+  // Scroll to page when parent changes page prop
+  useEffect(() => {
+    const scrollEl = scrollRef.current;
+    if (!scrollEl || !numPages || loading) return;
+    const pageEl = scrollEl.querySelector(`[data-page-number="${page}"]`);
+    if (!pageEl) return;
+
+    isScrollingToPage.current = true;
+    pageEl.scrollIntoView({ behavior: "smooth", block: "start" });
+
+    clearTimeout(scrollTimeout.current);
+    scrollTimeout.current = setTimeout(() => {
+      isScrollingToPage.current = false;
+    }, 500);
+  }, [page, numPages, loading]);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => clearTimeout(scrollTimeout.current);
   }, []);
 
   const onLoadSuccess = useCallback(({ numPages: n }: { numPages: number }) => {
@@ -139,18 +180,13 @@ const PdfViewer: React.FC<PdfViewerProps> = ({
 
   const zoomFit = () => setZoomLevel(1.0);
 
-  const handleSlider = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const p = parseInt(e.target.value, 10);
-    if (onPageChange) onPageChange(p);
-  };
-
   const effectiveWidth = containerWidth > 0 ? containerWidth * zoomLevel : undefined;
 
   return (
     <div
       ref={containerRef}
       className={className}
-      style={{ border: "1px solid #e2e8f0", borderRadius: "8px", overflow: "hidden", backgroundColor: "#fff" }}
+      style={{ display: "flex", flexDirection: "column", height: "100%", backgroundColor: "#fff" }}
     >
       {/* Toolbar */}
       <div style={toolbarStyle}>
@@ -186,27 +222,16 @@ const PdfViewer: React.FC<PdfViewerProps> = ({
         </button>
       </div>
 
-      {/* Page slider */}
-      {numPages && numPages > 1 && (
-        <div style={{ padding: "0.25rem 0.75rem", backgroundColor: "#f8fafc", borderBottom: "1px solid #e2e8f0" }}>
-          <input
-            type="range"
-            min={1}
-            max={numPages}
-            value={page}
-            onChange={handleSlider}
-            style={sliderStyle}
-          />
-        </div>
-      )}
-
-      {/* PDF render area */}
-      <div style={{
-        minHeight: "400px",
-        display: "flex",
-        justifyContent: zoomLevel > 1.0 ? "flex-start" : "center",
-        overflowX: zoomLevel > 1.0 ? "auto" : "hidden",
-      }}>
+      {/* Scrollable PDF render area — all pages stacked vertically */}
+      <div
+        ref={scrollRef}
+        style={{
+          flex: 1,
+          overflowY: "auto",
+          overflowX: zoomLevel > 1.0 ? "auto" : "hidden",
+          backgroundColor: "#f1f5f9",
+        }}
+      >
         {error ? (
           <div style={{ padding: "2rem", color: "#dc2626", fontSize: "0.84rem", textAlign: "center" }}>
             {error}<br />
@@ -223,17 +248,27 @@ const PdfViewer: React.FC<PdfViewerProps> = ({
               </div>
             }
           >
-            {!loading && (
-              <Page
-                pageNumber={page}
-                width={effectiveWidth}
-                loading={
-                  <div style={{ padding: "2rem", color: "#64748b", fontSize: "0.82rem" }}>
-                    Rendering page {page}...
-                  </div>
-                }
-              />
-            )}
+            {!loading && numPages && Array.from({ length: numPages }, (_, i) => i + 1).map((pn) => (
+              <div
+                key={pn}
+                data-page-number={pn}
+                style={{
+                  marginBottom: "8px",
+                  display: "flex",
+                  justifyContent: zoomLevel > 1.0 ? "flex-start" : "center",
+                }}
+              >
+                <Page
+                  pageNumber={pn}
+                  width={effectiveWidth}
+                  loading={
+                    <div style={{ padding: "2rem", color: "#64748b", fontSize: "0.82rem" }}>
+                      Rendering page {pn}...
+                    </div>
+                  }
+                />
+              </div>
+            ))}
           </Document>
         )}
       </div>

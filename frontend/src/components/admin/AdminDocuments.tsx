@@ -266,7 +266,7 @@ const AdminDocuments: React.FC = () => {
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.84rem" }}>
             <thead>
               <tr style={{ borderBottom: "2px solid #e2e8f0" }}>
-                {["Title", "Type", "Status", "Evidence", "PDF", ""].map((h, i) => (
+                {["Title", "Type", "Status", "Items", "PDF", ""].map((h, i) => (
                   <th key={i} style={{ textAlign: i === 3 ? "right" : i === 0 || i === 1 ? "left" : "center", padding: "0.5rem", color: "#64748b", fontWeight: 600 }}>{h}</th>
                 ))}
               </tr>

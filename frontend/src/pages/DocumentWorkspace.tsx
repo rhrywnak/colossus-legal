@@ -1,6 +1,7 @@
 /** DocumentWorkspace — Side-by-side PDF viewer + evidence audit panel. */
 import React, { useCallback, useEffect, useState } from "react";
 import { useParams, useLocation, Link } from "react-router-dom";
+import { useResizablePanes } from "../hooks/useResizablePanes";
 
 import PdfViewer from "../components/shared/PdfViewer";
 import EvidenceCard from "../components/admin/EvidenceCard";
@@ -110,6 +111,7 @@ const DocumentWorkspace: React.FC = () => {
     }
   };
 
+  const { splitPercent, containerRef: splitRef, dividerProps, isDragging } = useResizablePanes();
   const pdfUrl = `${API_BASE_URL}/api/documents/${encodeURIComponent(docId)}/file`;
 
   const allItems = data?.evidence ?? [];
@@ -202,9 +204,11 @@ const DocumentWorkspace: React.FC = () => {
       )}
 
       {/* Split pane */}
-      <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
-        {/* Left: PDF viewer (60%) */}
-        <div style={{ width: "60%", overflow: "auto", borderRight: "1px solid #e2e8f0" }}>
+      <div ref={splitRef} style={{
+        display: "flex", flex: 1, overflow: "hidden",
+        userSelect: isDragging ? "none" : "auto",
+      }}>
+        <div style={{ width: `${splitPercent}%`, overflow: "hidden", display: "flex", flexDirection: "column" }}>
           <PdfViewer
             src={pdfUrl}
             page={pdfPage}
@@ -212,9 +216,14 @@ const DocumentWorkspace: React.FC = () => {
           />
         </div>
 
-        {/* Right: Evidence panel (40%) */}
+        {/* Draggable divider */}
+        <div {...dividerProps}>
+          <div style={{ width: "2px", height: "24px", borderRadius: "1px", backgroundColor: "#94a3b8" }} />
+        </div>
+
+        {/* Right: Evidence panel */}
         <div style={{
-          width: "40%", overflow: "auto", padding: "0.75rem",
+          width: `${100 - splitPercent}%`, overflow: "auto", padding: "0.75rem",
           backgroundColor: "#fafbfc",
         }}>
           {/* Inline verify form */}

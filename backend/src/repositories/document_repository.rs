@@ -203,8 +203,9 @@ impl DocumentRepository {
 
     /// List all documents with their evidence counts.
     ///
-    /// Uses an OPTIONAL MATCH to count Evidence nodes linked via
-    /// CONTAINED_IN relationships. Documents with no evidence get count 0.
+    /// Uses an OPTIONAL MATCH to count all content nodes linked via
+    /// CONTAINED_IN relationships (Evidence, ComplaintAllegation, LegalCount,
+    /// Harm, MotionClaim). Documents with no linked nodes get count 0.
     pub async fn list_documents_with_evidence_counts(
         &self,
     ) -> Result<Vec<(Document, i64)>, DocumentRepositoryError> {
@@ -212,8 +213,9 @@ impl DocumentRepository {
             .graph
             .execute(query(
                 "MATCH (d:Document)
-                 OPTIONAL MATCH (e:Evidence)-[:CONTAINED_IN]->(d)
-                 RETURN d, count(e) AS evidence_count
+                 OPTIONAL MATCH (n)-[:CONTAINED_IN]->(d)
+                 WHERE n:Evidence OR n:ComplaintAllegation OR n:LegalCount OR n:Harm OR n:MotionClaim
+                 RETURN d, count(n) AS evidence_count
                  ORDER BY d.created_at DESC",
             ))
             .await?;
