@@ -10,6 +10,7 @@ use crate::state::AppState;
 
 pub mod admin_audit_health;
 pub mod admin_document_evidence;
+pub mod admin_document_extracts;
 pub mod admin_documents;
 pub mod admin_evidence;
 pub mod admin_evidence_helpers;
@@ -119,6 +120,10 @@ pub fn router() -> Router<AppState> {
         .route(
             "/admin/documents/:id/evidence",
             get(admin_document_evidence::get_document_evidence),
+        )
+        .route(
+            "/admin/documents/:id/extracts",
+            get(admin_document_extracts::get_document_extracts),
         )
         .route(
             "/admin/documents/:id/evidence/:eid/verify",
