@@ -1,14 +1,4 @@
-/**
- * DocumentWorkspace — Side-by-side PDF viewer + evidence audit panel.
- *
- * Split-pane layout:
- * - Left (60%): PdfViewer showing the document's PDF
- * - Right (40%): Scrollable evidence cards with verify/flag actions
- * - Top bar: Document title, evidence stats, back button
- *
- * Clicking an evidence card navigates the PDF to the cited page.
- * The PdfViewer is controlled — we own the page state and pass it down.
- */
+/** DocumentWorkspace — Side-by-side PDF viewer + evidence audit panel. */
 import React, { useCallback, useEffect, useState } from "react";
 import { useParams, useLocation, Link } from "react-router-dom";
 
@@ -24,15 +14,12 @@ import {
 } from "../services/documentEvidence";
 import { getSourceTypeDisplay } from "../utils/nodeTypeDisplay";
 import { InlineVerifyForm, InlineFlagForm } from "../components/admin/InlineAuditForms";
-
-// ── Types for inline forms ──────────────────────────────────────
+import NodeTypeFilter from "../components/admin/NodeTypeFilter";
 
 type ModalMode =
   | { kind: "none" }
   | { kind: "verify"; evidence: DocumentEvidence }
   | { kind: "flag"; evidence: DocumentEvidence };
-
-// ── Component ───────────────────────────────────────────────────
 
 const DocumentWorkspace: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -40,26 +27,18 @@ const DocumentWorkspace: React.FC = () => {
   const mode = location.pathname.endsWith("/audit") ? "audit" : "view";
   const docId = id ?? "";
 
-  // Data state
   const [data, setData] = useState<DocumentEvidenceResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-
-  // PDF page state (controlled)
   const [pdfPage, setPdfPage] = useState(1);
-
-  // Selected evidence card
   const [selectedId, setSelectedId] = useState<string | null>(null);
-
-  // Inline form modal
   const [modal, setModal] = useState<ModalMode>({ kind: "none" });
+  const [filterType, setFilterType] = useState("all");
   const [formStatus, setFormStatus] = useState("verified");
   const [formNotes, setFormNotes] = useState("");
   const [formSeverity, setFormSeverity] = useState("medium");
   const [formDescription, setFormDescription] = useState("");
   const [submitting, setSubmitting] = useState(false);
-
-  // ── Data fetching ────────────────────────────────────────────
 
   const loadEvidence = useCallback(async () => {
     if (!docId) return;
@@ -76,8 +55,6 @@ const DocumentWorkspace: React.FC = () => {
   }, [docId]);
 
   useEffect(() => { loadEvidence(); }, [loadEvidence]);
-
-  // ── Handlers ─────────────────────────────────────────────────
 
   const handleSelect = (ev: DocumentEvidence) => {
     setSelectedId(ev.id);
@@ -133,11 +110,12 @@ const DocumentWorkspace: React.FC = () => {
     }
   };
 
-  // ── PDF URL ──────────────────────────────────────────────────
-
   const pdfUrl = `${API_BASE_URL}/api/documents/${encodeURIComponent(docId)}/file`;
 
-  // ── Render ───────────────────────────────────────────────────
+  const allItems = data?.evidence ?? [];
+  const filteredItems = filterType === "all"
+    ? allItems
+    : allItems.filter((ev) => (ev.node_type || "Evidence") === filterType);
 
   if (loading && !data) {
     return (
@@ -198,7 +176,12 @@ const DocumentWorkspace: React.FC = () => {
           </div>
         </div>
         <div style={{ display: "flex", gap: "1.25rem", fontSize: "0.78rem" }}>
-          <StatBadge label="Items" value={data?.evidence_count ?? 0} color="#334155" />
+          <StatBadge
+            label="Items"
+            value={filteredItems.length}
+            color="#334155"
+            suffix={filterType !== "all" ? ` / ${allItems.length}` : undefined}
+          />
           <StatBadge label="Verified" value={data?.verified_count ?? 0} color="#047857" />
           <StatBadge label="Flagged" value={data?.flagged_count ?? 0} color="#dc2626" />
         </div>
@@ -262,8 +245,15 @@ const DocumentWorkspace: React.FC = () => {
             />
           )}
 
+          {/* Node type filter */}
+          <NodeTypeFilter
+            items={allItems}
+            filterType={filterType}
+            onFilterChange={setFilterType}
+          />
+
           {/* Evidence cards */}
-          {data?.evidence.map((ev) => (
+          {filteredItems.map((ev) => (
             <EvidenceCard
               key={ev.id}
               evidence={ev}
@@ -274,7 +264,7 @@ const DocumentWorkspace: React.FC = () => {
             />
           ))}
 
-          {data?.evidence.length === 0 && (
+          {filteredItems.length === 0 && (
             <div style={{ textAlign: "center", padding: "2rem", color: "#64748b", fontSize: "0.84rem" }}>
               No content linked to this document.
             </div>
@@ -285,13 +275,13 @@ const DocumentWorkspace: React.FC = () => {
   );
 };
 
-// ── Small helper component ──────────────────────────────────────
-
-const StatBadge: React.FC<{ label: string; value: number; color: string }> = ({
-  label, value, color,
+const StatBadge: React.FC<{ label: string; value: number; color: string; suffix?: string }> = ({
+  label, value, color, suffix,
 }) => (
   <div style={{ textAlign: "center" }}>
-    <div style={{ fontSize: "1.1rem", fontWeight: 700, color }}>{value}</div>
+    <div style={{ fontSize: "1.1rem", fontWeight: 700, color }}>
+      {value}{suffix && <span style={{ fontSize: "0.78rem", fontWeight: 500, color: "#94a3b8" }}>{suffix}</span>}
+    </div>
     <div style={{ fontSize: "0.68rem", color: "#64748b" }}>{label}</div>
   </div>
 );

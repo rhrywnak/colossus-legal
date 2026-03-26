@@ -55,6 +55,22 @@ const pageInputStyle: React.CSSProperties = {
   fontSize: "0.82rem", fontFamily: "inherit",
 };
 
+const ZOOM_STEPS = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
+
+const zoomBtnStyle: React.CSSProperties = {
+  ...navBtnStyle,
+  padding: "0.25rem 0.45rem",
+  fontSize: "0.75rem",
+  minWidth: "1.6rem",
+};
+
+const sliderStyle: React.CSSProperties = {
+  width: "100%",
+  height: "4px",
+  cursor: "pointer",
+  accentColor: "#64748b",
+};
+
 const PdfViewer: React.FC<PdfViewerProps> = ({
   src, page = 1, onPageChange, className,
 }) => {
@@ -63,6 +79,7 @@ const PdfViewer: React.FC<PdfViewerProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [pageInput, setPageInput] = useState(String(page));
   const [containerWidth, setContainerWidth] = useState<number>(600);
+  const [zoomLevel, setZoomLevel] = useState(1.0);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Sync pageInput when page prop changes
@@ -110,6 +127,25 @@ const PdfViewer: React.FC<PdfViewerProps> = ({
     if (e.key === "Enter") handlePageInputBlur();
   };
 
+  const zoomIn = () => {
+    const next = ZOOM_STEPS.find((s) => s > zoomLevel);
+    if (next) setZoomLevel(next);
+  };
+
+  const zoomOut = () => {
+    const prev = [...ZOOM_STEPS].reverse().find((s) => s < zoomLevel);
+    if (prev) setZoomLevel(prev);
+  };
+
+  const zoomFit = () => setZoomLevel(1.0);
+
+  const handleSlider = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const p = parseInt(e.target.value, 10);
+    if (onPageChange) onPageChange(p);
+  };
+
+  const effectiveWidth = containerWidth > 0 ? containerWidth * zoomLevel : undefined;
+
   return (
     <div
       ref={containerRef}
@@ -133,10 +169,44 @@ const PdfViewer: React.FC<PdfViewerProps> = ({
         <button style={navBtnStyle} disabled={page >= (numPages ?? 1)} onClick={() => goToPage(page + 1)}>
           Next
         </button>
+
+        <span style={{ borderLeft: "1px solid #e2e8f0", height: "1.2rem", margin: "0 0.25rem" }} />
+
+        <button style={zoomBtnStyle} disabled={zoomLevel <= ZOOM_STEPS[0]} onClick={zoomOut}>
+          −
+        </button>
+        <span style={{ fontSize: "0.78rem", minWidth: "2.8rem", textAlign: "center" }}>
+          {Math.round(zoomLevel * 100)}%
+        </span>
+        <button style={zoomBtnStyle} disabled={zoomLevel >= ZOOM_STEPS[ZOOM_STEPS.length - 1]} onClick={zoomIn}>
+          +
+        </button>
+        <button style={{ ...zoomBtnStyle, fontSize: "0.72rem" }} disabled={zoomLevel === 1.0} onClick={zoomFit}>
+          Fit
+        </button>
       </div>
 
+      {/* Page slider */}
+      {numPages && numPages > 1 && (
+        <div style={{ padding: "0.25rem 0.75rem", backgroundColor: "#f8fafc", borderBottom: "1px solid #e2e8f0" }}>
+          <input
+            type="range"
+            min={1}
+            max={numPages}
+            value={page}
+            onChange={handleSlider}
+            style={sliderStyle}
+          />
+        </div>
+      )}
+
       {/* PDF render area */}
-      <div style={{ minHeight: "400px", display: "flex", justifyContent: "center" }}>
+      <div style={{
+        minHeight: "400px",
+        display: "flex",
+        justifyContent: zoomLevel > 1.0 ? "flex-start" : "center",
+        overflowX: zoomLevel > 1.0 ? "auto" : "hidden",
+      }}>
         {error ? (
           <div style={{ padding: "2rem", color: "#dc2626", fontSize: "0.84rem", textAlign: "center" }}>
             {error}<br />
@@ -156,7 +226,7 @@ const PdfViewer: React.FC<PdfViewerProps> = ({
             {!loading && (
               <Page
                 pageNumber={page}
-                width={containerWidth > 0 ? containerWidth : undefined}
+                width={effectiveWidth}
                 loading={
                   <div style={{ padding: "2rem", color: "#64748b", fontSize: "0.82rem" }}>
                     Rendering page {page}...
