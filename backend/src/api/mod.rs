@@ -39,6 +39,7 @@ pub mod harms;
 pub mod import;
 pub mod logout;
 pub mod persons;
+pub mod pipeline;
 pub mod qa;
 pub mod queries;
 pub mod schema;
@@ -138,6 +139,14 @@ pub fn router() -> Router<AppState> {
         .route(
             "/admin/documents/:id/ground-pages",
             post(admin_page_ground::ground_pages),
+        )
+        .route(
+            "/admin/pipeline/documents",
+            post(pipeline::upload_document),
+        )
+        .route(
+            "/admin/pipeline/documents/:id/extract-text",
+            post(pipeline::extract_text),
         )
         .route("/search", post(search::semantic_search))
         .route("/ask", post(ask::ask_the_case))

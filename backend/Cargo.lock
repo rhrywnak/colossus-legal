@@ -663,12 +663,26 @@ checksum = "1d07550c9036bf2ae0c684c4297d503f838287c83c53686d05370d0e139ae570"
 [[package]]
 name = "colossus-auth"
 version = "0.1.0"
-source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.6.2#9a8c75cb59c3e66e07a0d91599033e594da6b954"
+source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.7.0#6264e1d9decab23dc0e4d19ab42f38e6257dc85b"
 dependencies = [
  "async-trait",
  "axum",
  "serde",
  "serde_json",
+ "tracing",
+]
+
+[[package]]
+name = "colossus-extract"
+version = "0.1.0"
+source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.7.0#6264e1d9decab23dc0e4d19ab42f38e6257dc85b"
+dependencies = [
+ "async-trait",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "thiserror 2.0.18",
+ "tokio",
  "tracing",
 ]
 
@@ -681,6 +695,7 @@ dependencies = [
  "chrono",
  "clap",
  "colossus-auth",
+ "colossus-extract",
  "colossus-pdf",
  "colossus-rag",
  "dotenvy",
@@ -708,7 +723,7 @@ dependencies = [
 [[package]]
 name = "colossus-pdf"
 version = "0.1.0"
-source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.6.2#9a8c75cb59c3e66e07a0d91599033e594da6b954"
+source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.7.0#6264e1d9decab23dc0e4d19ab42f38e6257dc85b"
 dependencies = [
  "pdf_oxide",
  "serde",
@@ -721,7 +736,7 @@ dependencies = [
 [[package]]
 name = "colossus-rag"
 version = "0.5.0"
-source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.6.2#9a8c75cb59c3e66e07a0d91599033e594da6b954"
+source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.7.0#6264e1d9decab23dc0e4d19ab42f38e6257dc85b"
 dependencies = [
  "async-trait",
  "neo4rs",
@@ -4061,6 +4076,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_yaml"
+version = "0.9.34+deprecated"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6a8b1a1a2ebf674015cc02edccce75287f1a0130d394307b36743c2f5d504b47"
+dependencies = [
+ "indexmap 2.13.0",
+ "itoa",
+ "ryu",
+ "serde",
+ "unsafe-libyaml",
+]
+
+[[package]]
 name = "sha1"
 version = "0.10.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5049,6 +5077,12 @@ name = "unicode_categories"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39ec24b3121d976906ece63c9daad25b85969647682eee313cb5779fdd69e14e"
+
+[[package]]
+name = "unsafe-libyaml"
+version = "0.2.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "673aac59facbab8a9007c7f6108d11f63b603f7cabff99fabf650fea5c32b861"
 
 [[package]]
 name = "untrusted"

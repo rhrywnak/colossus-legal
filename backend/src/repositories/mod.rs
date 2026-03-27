@@ -17,6 +17,7 @@ pub mod rebuttals_repository;
 pub mod motion_claim_repository;
 pub mod person_detail_repository;
 pub mod person_repository;
+pub mod pipeline_repository;
 pub mod qa_repository;
 pub mod query_repository;
 pub mod schema_repository;
