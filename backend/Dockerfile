@@ -92,6 +92,7 @@ RUN cargo build --release 2>/dev/null || true
 # Now copy the real source code and migrations
 COPY src/ src/
 COPY migrations/ migrations/
+COPY pipeline_migrations/ pipeline_migrations/
 
 # Touch main.rs to ensure cargo rebuilds our code (not the cached dummy)
 RUN touch src/main.rs src/lib.rs

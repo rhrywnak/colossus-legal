@@ -36,6 +36,10 @@ pub struct AppState {
     /// PgPool uses an internal Arc, so cloning is cheap.
     pub pg_pool: PgPool,
 
+    /// PostgreSQL pool for the pipeline v2 database (extraction, review, pipeline state).
+    /// Separate from pg_pool which connects to the existing colossus_legal database.
+    pub pipeline_pool: PgPool,
+
     /// Audit log repository for recording admin actions.
     pub audit_repo: AuditRepository,
 }

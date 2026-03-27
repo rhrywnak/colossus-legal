@@ -24,6 +24,9 @@ pub struct AppConfig {
     /// Directory containing prompt template files (synthesis.md, decomposition.md).
     /// Default: `/data/documents/prompts`
     pub prompts_dir: PathBuf,
+    /// PostgreSQL connection URL for the pipeline v2 database (clean room).
+    /// Separate from postgres_url which connects to colossus_legal.
+    pub pipeline_database_url: String,
     /// Deployment environment name (e.g. "dev", "prod").
     /// Read from COLOSSUS_ENVIRONMENT, defaults to "unknown".
     pub environment: String,
@@ -72,6 +75,9 @@ impl AppConfig {
                 .unwrap_or_else(|_| "/data/documents/prompts".to_string()),
         );
 
+        let pipeline_database_url = std::env::var("PIPELINE_DATABASE_URL")
+            .map_err(|_| "Missing env var: PIPELINE_DATABASE_URL".to_string())?;
+
         let environment = std::env::var("COLOSSUS_ENVIRONMENT")
             .unwrap_or_else(|_| "unknown".to_string());
 
@@ -87,6 +93,7 @@ impl AppConfig {
             rerank_threshold,
             decomposer_model,
             postgres_url,
+            pipeline_database_url,
             prompts_dir,
             environment,
         })

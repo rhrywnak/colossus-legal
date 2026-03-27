@@ -13,6 +13,7 @@ use tracing_subscriber::EnvFilter;
 use colossus_legal_backend::{
     api, cli,
     config::AppConfig,
+    database,
     neo4j::{check_neo4j, create_neo4j_graph},
     prompt_loader,
     state::AppState,
@@ -117,22 +118,11 @@ async fn main() {
 
 /// Start the HTTP server (default command).
 async fn run_serve(config: AppConfig, graph: neo4rs::Graph, http_client: reqwest::Client) {
-    // PostgreSQL connection pool for analytical data (ratings, feedback).
-    // PgPoolOptions configures the pool; .connect() opens it eagerly.
-    // sqlx::migrate!() embeds .sql files at compile time, runs them on startup.
-    let pg_pool = sqlx::postgres::PgPoolOptions::new()
-        .max_connections(5)
-        .acquire_timeout(std::time::Duration::from_secs(5))
-        .connect(&config.postgres_url)
-        .await
-        .expect("Failed to connect to PostgreSQL");
-
-    sqlx::migrate!("./migrations")
-        .run(&pg_pool)
-        .await
-        .expect("Failed to run PostgreSQL migrations");
-
-    tracing::info!("PostgreSQL connected and migrations complete");
+    // Connect to both PostgreSQL databases and run migrations.
+    // See database.rs for details on the two-pool / two-migration strategy.
+    let db = database::init_pools(&config).await;
+    let pg_pool = db.main_pool;
+    let pipeline_pool = db.pipeline_pool;
 
     // --- Load external prompt templates from disk ---
     //
@@ -161,6 +151,7 @@ async fn run_serve(config: AppConfig, graph: neo4rs::Graph, http_client: reqwest
         rag_pipeline,
         http_client,
         pg_pool,
+        pipeline_pool,
         audit_repo,
     };
 
