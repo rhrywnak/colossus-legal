@@ -1,8 +1,57 @@
 //! Extraction-specific repository functions (runs, items, relationships).
 
+use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 
 use super::PipelineRepoError;
+
+// ── Record types ─────────────────────────────────────────────────
+
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+pub struct ExtractionItemRecord {
+    pub id: i32,
+    pub run_id: i32,
+    pub document_id: String,
+    pub entity_type: String,
+    pub item_data: serde_json::Value,
+    pub verbatim_quote: Option<String>,
+    pub grounding_status: Option<String>,
+    pub grounded_page: Option<i32>,
+    pub review_status: String,
+    pub reviewed_by: Option<String>,
+    pub reviewed_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub review_notes: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+pub struct ExtractionRelationshipRecord {
+    pub id: i32,
+    pub run_id: i32,
+    pub document_id: String,
+    pub from_item_id: i32,
+    pub to_item_id: i32,
+    pub relationship_type: String,
+    pub properties: Option<serde_json::Value>,
+    pub review_status: String,
+    pub tier: i32,
+}
+
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+pub struct ExtractionRunRecord {
+    pub id: i32,
+    pub document_id: String,
+    pub pass_number: i32,
+    pub model_name: String,
+    pub input_tokens: Option<i32>,
+    pub output_tokens: Option<i32>,
+    /// NUMERIC(10,4) cast to text in SQL — avoids needing rust_decimal.
+    pub cost_usd: Option<String>,
+    pub status: String,
+    pub started_at: chrono::DateTime<chrono::Utc>,
+    pub completed_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+// ── Functions ────────────────────────────────────────────────────
 
 /// Insert an extraction run record. Returns the auto-generated run ID.
 /// Initial status is "RUNNING".
@@ -110,4 +159,82 @@ pub async fn insert_extraction_relationship(
     .execute(pool)
     .await?;
     Ok(())
+}
+
+/// Get all extraction items for a document that have verbatim quotes.
+pub async fn get_items_with_quotes(
+    pool: &PgPool,
+    document_id: &str,
+) -> Result<Vec<ExtractionItemRecord>, PipelineRepoError> {
+    let rows = sqlx::query_as::<_, ExtractionItemRecord>(
+        "SELECT * FROM extraction_items
+         WHERE document_id = $1 AND verbatim_quote IS NOT NULL AND verbatim_quote != ''
+         ORDER BY id",
+    )
+    .bind(document_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
+/// Update grounding status and page number for an extraction item.
+pub async fn update_item_grounding(
+    pool: &PgPool,
+    item_id: i32,
+    grounding_status: &str,
+    grounded_page: Option<i32>,
+) -> Result<(), PipelineRepoError> {
+    sqlx::query(
+        "UPDATE extraction_items SET grounding_status = $1, grounded_page = $2 WHERE id = $3",
+    )
+    .bind(grounding_status)
+    .bind(grounded_page)
+    .bind(item_id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Get all extraction items for a document (for report generation).
+pub async fn get_all_items(
+    pool: &PgPool,
+    document_id: &str,
+) -> Result<Vec<ExtractionItemRecord>, PipelineRepoError> {
+    let rows = sqlx::query_as::<_, ExtractionItemRecord>(
+        "SELECT * FROM extraction_items WHERE document_id = $1 ORDER BY entity_type, id",
+    )
+    .bind(document_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
+/// Get all extraction relationships for a document.
+pub async fn get_all_relationships(
+    pool: &PgPool,
+    document_id: &str,
+) -> Result<Vec<ExtractionRelationshipRecord>, PipelineRepoError> {
+    let rows = sqlx::query_as::<_, ExtractionRelationshipRecord>(
+        "SELECT * FROM extraction_relationships WHERE document_id = $1 ORDER BY id",
+    )
+    .bind(document_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
+/// Get extraction run metadata for a document.
+pub async fn get_extraction_runs(
+    pool: &PgPool,
+    document_id: &str,
+) -> Result<Vec<ExtractionRunRecord>, PipelineRepoError> {
+    let rows = sqlx::query_as::<_, ExtractionRunRecord>(
+        "SELECT id, document_id, pass_number, model_name, input_tokens, output_tokens,
+                cost_usd::text, status, started_at, completed_at
+         FROM extraction_runs WHERE document_id = $1 ORDER BY id",
+    )
+    .bind(document_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
 }

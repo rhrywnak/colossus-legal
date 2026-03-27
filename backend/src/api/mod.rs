@@ -152,6 +152,14 @@ pub fn router() -> Router<AppState> {
             "/admin/pipeline/documents/:id/extract",
             post(pipeline::extract_handler),
         )
+        .route(
+            "/admin/pipeline/documents/:id/verify",
+            post(pipeline::verify_handler),
+        )
+        .route(
+            "/admin/pipeline/documents/:id/report",
+            get(pipeline::report_handler),
+        )
         .route("/search", post(search::semantic_search))
         .route("/ask", post(ask::ask_the_case))
         .route("/qa-history", get(qa::get_qa_history))

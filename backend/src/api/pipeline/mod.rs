@@ -13,11 +13,15 @@
 mod anthropic;
 mod extract;
 mod extract_text;
+pub mod report;
 mod upload;
+pub mod verify;
 
 pub use extract::extract_handler;
 pub use extract_text::extract_text;
+pub use report::report_handler;
 pub use upload::upload_document;
+pub use verify::verify_handler;
 
 use serde::Serialize;
 
