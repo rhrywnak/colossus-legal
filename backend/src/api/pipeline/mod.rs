@@ -10,9 +10,12 @@
 //! `pipeline.rs` becomes `pipeline/mod.rs` + `pipeline/upload.rs` + etc.
 //! The `mod.rs` file re-exports the public items so callers don't change.
 
+mod anthropic;
+mod extract;
 mod extract_text;
 mod upload;
 
+pub use extract::extract_handler;
 pub use extract_text::extract_text;
 pub use upload::upload_document;
 
@@ -37,6 +40,18 @@ pub struct ExtractTextResponse {
     pub status: String,
     pub page_count: usize,
     pub total_chars: usize,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ExtractResponse {
+    pub document_id: String,
+    pub status: String,
+    pub run_id: i32,
+    pub model: String,
+    pub entity_count: usize,
+    pub relationship_count: usize,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
 }
 
 // ── Shared Helpers ───────────────────────────────────────────────

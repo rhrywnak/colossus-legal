@@ -27,6 +27,10 @@ pub struct AppConfig {
     /// PostgreSQL connection URL for the pipeline v2 database (clean room).
     /// Separate from postgres_url which connects to colossus_legal.
     pub pipeline_database_url: String,
+    /// Path to extraction schema YAML files directory.
+    pub extraction_schema_dir: String,
+    /// Path to extraction prompt template files directory.
+    pub extraction_template_dir: String,
     /// Deployment environment name (e.g. "dev", "prod").
     /// Read from COLOSSUS_ENVIRONMENT, defaults to "unknown".
     pub environment: String,
@@ -78,6 +82,12 @@ impl AppConfig {
         let pipeline_database_url = std::env::var("PIPELINE_DATABASE_URL")
             .map_err(|_| "Missing env var: PIPELINE_DATABASE_URL".to_string())?;
 
+        let extraction_schema_dir = std::env::var("EXTRACTION_SCHEMA_DIR")
+            .unwrap_or_else(|_| "./extraction_schemas".to_string());
+
+        let extraction_template_dir = std::env::var("EXTRACTION_TEMPLATE_DIR")
+            .unwrap_or_else(|_| "./extraction_templates".to_string());
+
         let environment = std::env::var("COLOSSUS_ENVIRONMENT")
             .unwrap_or_else(|_| "unknown".to_string());
 
@@ -94,6 +104,8 @@ impl AppConfig {
             decomposer_model,
             postgres_url,
             pipeline_database_url,
+            extraction_schema_dir,
+            extraction_template_dir,
             prompts_dir,
             environment,
         })

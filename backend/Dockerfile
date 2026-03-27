@@ -93,6 +93,8 @@ RUN cargo build --release 2>/dev/null || true
 COPY src/ src/
 COPY migrations/ migrations/
 COPY pipeline_migrations/ pipeline_migrations/
+COPY extraction_schemas/ extraction_schemas/
+COPY extraction_templates/ extraction_templates/
 
 # Touch main.rs to ensure cargo rebuilds our code (not the cached dummy)
 RUN touch src/main.rs src/lib.rs

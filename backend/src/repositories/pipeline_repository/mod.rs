@@ -2,6 +2,16 @@
 //!
 //! All functions take a `&PgPool` parameter (the pipeline pool, NOT the main pool).
 //! This keeps the repository stateless — the caller decides which pool to pass.
+//!
+//! ## Rust Learning: Module directory split
+//!
+//! This module is split into two files:
+//! - `mod.rs` — shared types, error, document and config CRUD
+//! - `extraction.rs` — extraction_runs, extraction_items, extraction_relationships
+
+mod extraction;
+
+pub use extraction::*;
 
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
@@ -57,7 +67,22 @@ pub struct DocumentTextRecord {
     pub text_content: String,
 }
 
-// ── Repository functions ─────────────────────────────────────────
+/// A pipeline_config record from the database.
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+pub struct PipelineConfigRecord {
+    pub document_id: String,
+    pub pass1_model: String,
+    pub pass2_model: Option<String>,
+    pub pass1_max_tokens: i32,
+    pub pass2_max_tokens: Option<i32>,
+    pub schema_file: String,
+    pub admin_instructions: Option<String>,
+    pub prior_context_doc_ids: Option<Vec<String>>,
+    pub created_by: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+// ── Document & config functions ──────────────────────────────────
 
 /// Insert a new document record. Status = "UPLOADED".
 pub async fn insert_document(
@@ -178,4 +203,20 @@ pub async fn get_document_text(
     .fetch_all(pool)
     .await?;
     Ok(rows)
+}
+
+/// Get pipeline config for a document. Returns None if not configured.
+pub async fn get_pipeline_config(
+    pool: &PgPool,
+    document_id: &str,
+) -> Result<Option<PipelineConfigRecord>, PipelineRepoError> {
+    let row = sqlx::query_as::<_, PipelineConfigRecord>(
+        "SELECT document_id, pass1_model, pass2_model, pass1_max_tokens, pass2_max_tokens,
+                schema_file, admin_instructions, prior_context_doc_ids, created_by, created_at
+         FROM pipeline_config WHERE document_id = $1",
+    )
+    .bind(document_id)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row)
 }
