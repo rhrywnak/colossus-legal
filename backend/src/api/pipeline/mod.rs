@@ -56,6 +56,7 @@ pub struct ExtractResponse {
     pub relationship_count: usize,
     pub input_tokens: u64,
     pub output_tokens: u64,
+    pub elapsed_secs: f64,
 }
 
 // ── Shared Helpers ───────────────────────────────────────────────

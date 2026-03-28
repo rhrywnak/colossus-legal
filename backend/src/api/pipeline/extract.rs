@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 use std::path::Path;
+use std::time::Instant;
 
 use axum::{extract::Path as AxumPath, extract::State, Json};
 
@@ -97,7 +98,9 @@ pub async fn extract_handler(
         max_tokens = max_tokens,
         "Calling Anthropic API for extraction"
     );
+    let api_start = Instant::now();
     let api_result = call_anthropic(api_key, &model_name, max_tokens, &prompt).await;
+    let elapsed_secs = api_start.elapsed().as_secs_f64();
 
     let (response_text, input_tokens, output_tokens) = match api_result {
         Ok(r) => (r.text, r.input_tokens, r.output_tokens),
@@ -199,6 +202,7 @@ pub async fn extract_handler(
         relationship_count: rel_count,
         input_tokens,
         output_tokens,
+        elapsed_secs,
     }))
 }
 
@@ -221,7 +225,8 @@ async fn store_entities_and_relationships(
         for entity in entities {
             let entity_type = entity["entity_type"].as_str().unwrap_or("unknown");
             let json_id = entity["id"].as_str().unwrap_or("");
-            let verbatim = entity["verbatim_quote"].as_str();
+            let verbatim = entity["verbatim_quote"].as_str()
+                    .or_else(|| entity["properties"]["verbatim_quote"].as_str());
 
             let db_id = pipeline_repository::insert_extraction_item(
                 &state.pipeline_pool,
