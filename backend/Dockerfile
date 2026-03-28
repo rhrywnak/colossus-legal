@@ -130,6 +130,9 @@ WORKDIR /home/appuser
 
 # Copy the compiled binary from the builder stage
 COPY --from=builder /build/target/release/colossus-legal-backend ./colossus-legal-backend
+COPY --from=builder /build/pipeline_migrations/ ./pipeline_migrations/
+COPY --from=builder /build/extraction_schemas/ ./extraction_schemas/
+COPY --from=builder /build/extraction_templates/ ./extraction_templates/
 
 # Create document storage directory
 RUN mkdir -p /home/appuser/data/documents
