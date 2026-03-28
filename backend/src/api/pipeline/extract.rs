@@ -97,7 +97,7 @@ pub async fn extract_handler(
         max_tokens = max_tokens,
         "Calling Anthropic API for extraction"
     );
-    let api_result = call_anthropic(&state.http_client, api_key, &model_name, max_tokens, &prompt).await;
+    let api_result = call_anthropic(api_key, &model_name, max_tokens, &prompt).await;
 
     let (response_text, usage) = match api_result {
         Ok(r) => r,

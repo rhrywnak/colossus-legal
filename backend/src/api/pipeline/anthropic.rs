@@ -48,15 +48,23 @@ pub(super) struct AnthropicUsage {
 
 /// Call the Anthropic Messages API. Returns (response_text, usage).
 ///
-/// Uses the shared http_client but overrides the timeout to 120 seconds
-/// because extraction prompts with long documents can take 30-60s.
+/// Builds a dedicated reqwest client per call with pool_max_idle_per_host(0)
+/// to prevent connection reuse — each extraction gets a fresh connection.
 pub(super) async fn call_anthropic(
-    client: &reqwest::Client,
     api_key: &str,
     model: &str,
     max_tokens: u32,
     prompt: &str,
 ) -> Result<(String, AnthropicUsage), AppError> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(180))
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .pool_max_idle_per_host(0)
+        .build()
+        .map_err(|e| AppError::Internal {
+            message: format!("Failed to build extraction HTTP client: {e}"),
+        })?;
+
     let request_body = AnthropicRequest {
         model: model.to_string(),
         max_tokens,
@@ -76,7 +84,6 @@ pub(super) async fn call_anthropic(
         .header("x-api-key", api_key)
         .header("anthropic-version", "2023-06-01")
         .header("content-type", "application/json")
-        .timeout(std::time::Duration::from_secs(120))
         .json(&request_body)
         .send()
         .await
