@@ -57,6 +57,7 @@ pub(super) async fn call_anthropic(
     prompt: &str,
 ) -> Result<(String, AnthropicUsage), AppError> {
     let client = reqwest::Client::builder()
+        .use_native_tls()
         .timeout(std::time::Duration::from_secs(180))
         .connect_timeout(std::time::Duration::from_secs(10))
         .pool_max_idle_per_host(0)
