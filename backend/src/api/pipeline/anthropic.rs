@@ -1,117 +1,92 @@
-//! Anthropic Messages API client for extraction calls.
+//! Anthropic Messages API client for extraction calls — via Rig.
 //!
-//! ## Rust Learning: Direct HTTP API call vs SDK
-//!
-//! Rather than pulling in the full Anthropic SDK, we call the Messages API
-//! directly via reqwest. This keeps our dependency tree small and gives us
-//! full control over timeouts and error handling.
+//! Uses rig-core's Anthropic provider, which is already proven to work
+//! from inside our container (the RAG pipeline uses it successfully).
+//! This replaces the raw reqwest approach which hung on Anthropic API calls.
 
-use serde::{Deserialize, Serialize};
+use rig::client::CompletionClient;
+use rig::completion::CompletionModel;
+use rig::message::{AssistantContent, Text};
 
 use crate::error::AppError;
 
-// ── Anthropic API types ──────────────────────────────────────────
-
-#[derive(Serialize)]
-pub(super) struct AnthropicRequest {
-    pub model: String,
-    pub max_tokens: u32,
-    pub messages: Vec<AnthropicMessage>,
-}
-
-#[derive(Serialize)]
-pub(super) struct AnthropicMessage {
-    pub role: String,
-    pub content: String,
-}
-
-#[derive(Deserialize)]
-pub(super) struct AnthropicResponse {
-    pub content: Vec<AnthropicContent>,
-    pub usage: AnthropicUsage,
-}
-
-#[derive(Deserialize)]
-pub(super) struct AnthropicContent {
-    #[serde(rename = "type")]
-    pub _content_type: String,
-    pub text: Option<String>,
-}
-
-#[derive(Deserialize)]
-pub(super) struct AnthropicUsage {
+/// Result of a successful Anthropic API call.
+pub(super) struct ExtractionApiResult {
+    pub text: String,
     pub input_tokens: u64,
     pub output_tokens: u64,
 }
 
-// ── API call ─────────────────────────────────────────────────────
-
-/// Call the Anthropic Messages API. Returns (response_text, usage).
+/// Call the Anthropic Messages API using Rig's provider.
 ///
-/// Builds a dedicated reqwest client per call with pool_max_idle_per_host(0)
-/// to prevent connection reuse — each extraction gets a fresh connection.
+/// ## Why Rig instead of raw reqwest
+///
+/// Raw reqwest hung indefinitely when calling api.anthropic.com from inside
+/// the container (likely HTTP/2 or TLS negotiation issue with Cloudflare).
+/// Rig wraps reqwest internally but handles the Anthropic protocol correctly
+/// and is proven to work — the RAG synthesizer uses the same code path.
+///
+/// ## Rig Concept: CompletionModel low-level API
+///
+/// We use `completion_request()` (not the Agent high-level API) because:
+/// - We need token usage counts (input_tokens, output_tokens)
+/// - Our prompt is the entire user message (no separate system prompt needed
+///   for extraction — the instructions are baked into the prompt)
+/// - We need to set max_tokens per-request (extraction needs 32K)
 pub(super) async fn call_anthropic(
     api_key: &str,
     model: &str,
     max_tokens: u32,
     prompt: &str,
-) -> Result<(String, AnthropicUsage), AppError> {
-    let client = reqwest::Client::builder()
-        .use_native_tls()
-        .timeout(std::time::Duration::from_secs(180))
-        .connect_timeout(std::time::Duration::from_secs(10))
-        .pool_max_idle_per_host(0)
-        .build()
+) -> Result<ExtractionApiResult, AppError> {
+    // Create a Rig Anthropic client — this sets x-api-key and
+    // anthropic-version headers automatically.
+    let client = rig::providers::anthropic::Client::new(api_key)
         .map_err(|e| AppError::Internal {
-            message: format!("Failed to build extraction HTTP client: {e}"),
+            message: format!("Failed to create Anthropic client: {e}"),
         })?;
 
-    let request_body = AnthropicRequest {
-        model: model.to_string(),
-        max_tokens,
-        messages: vec![AnthropicMessage {
-            role: "user".to_string(),
-            content: prompt.to_string(),
-        }],
-    };
+    let completion_model = client.completion_model(model);
 
     tracing::info!(
-        body_len = serde_json::to_string(&request_body).unwrap_or_default().len(),
-        "Sending Anthropic request"
+        prompt_len = prompt.len(),
+        model = %model,
+        max_tokens = max_tokens,
+        "Sending Anthropic extraction request via Rig"
     );
 
-    let response = client
-        .post("https://api.anthropic.com/v1/messages")
-        .header("x-api-key", api_key)
-        .header("anthropic-version", "2023-06-01")
-        .header("content-type", "application/json")
-        .json(&request_body)
+    // Use the low-level completion API for token usage access.
+    // max_tokens is REQUIRED for Anthropic (Rig enforces this).
+    let response = completion_model
+        .completion_request(prompt)
+        .max_tokens(max_tokens as u64)
         .send()
         .await
         .map_err(|e| AppError::Internal {
             message: format!("Anthropic API request failed: {e}"),
         })?;
 
-    let status = response.status();
-    if !status.is_success() {
-        let error_body = response.text().await.unwrap_or_default();
+    // Extract text from response.
+    // response.choice is OneOrMany<AssistantContent>.
+    let text = response
+        .choice
+        .into_iter()
+        .filter_map(|content| match content {
+            AssistantContent::Text(Text { text, .. }) => Some(text),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    if text.is_empty() {
         return Err(AppError::Internal {
-            message: format!("Anthropic API returned {status}: {error_body}"),
+            message: "Anthropic response contained no text content".to_string(),
         });
     }
 
-    let api_response: AnthropicResponse =
-        response.json().await.map_err(|e| AppError::Internal {
-            message: format!("Failed to parse Anthropic response: {e}"),
-        })?;
-
-    let text = api_response
-        .content
-        .into_iter()
-        .find_map(|c| c.text)
-        .ok_or_else(|| AppError::Internal {
-            message: "Anthropic response contained no text content".to_string(),
-        })?;
-
-    Ok((text, api_response.usage))
+    Ok(ExtractionApiResult {
+        text,
+        input_tokens: response.usage.input_tokens,
+        output_tokens: response.usage.output_tokens,
+    })
 }

@@ -1,6 +1,6 @@
 [package]
 name = "colossus-legal-backend"
-version = "2.0.0-beta.12"
+version = "2.0.0-beta.13"
 edition = "2021"
 
 [dependencies]
@@ -37,6 +37,7 @@ fastembed = "4"
 # but we need them as direct deps to use their types in our binary.
 rig-fastembed = "0.3"
 qdrant-client = { version = "1.14", default-features = false }
+rig-core = "0.33"
 reqwest = { version = "0.12", features = ["json", "native-tls"] }
 uuid = { version = "1", features = ["v4"] }
 clap = { version = "4", features = ["derive"] }

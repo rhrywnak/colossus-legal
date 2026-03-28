@@ -99,8 +99,8 @@ pub async fn extract_handler(
     );
     let api_result = call_anthropic(api_key, &model_name, max_tokens, &prompt).await;
 
-    let (response_text, usage) = match api_result {
-        Ok(r) => r,
+    let (response_text, input_tokens, output_tokens) = match api_result {
+        Ok(r) => (r.text, r.input_tokens, r.output_tokens),
         Err(e) => {
             // Mark run as FAILED
             let _ = pipeline_repository::complete_extraction_run(
@@ -126,8 +126,8 @@ pub async fn extract_handler(
                 &state.pipeline_pool,
                 run_id,
                 &serde_json::json!({ "raw_text": response_text }),
-                Some(usage.input_tokens as i32),
-                Some(usage.output_tokens as i32),
+                Some(input_tokens as i32),
+                Some(output_tokens as i32),
                 None,
                 "FAILED",
             )
@@ -147,8 +147,8 @@ pub async fn extract_handler(
         &state.pipeline_pool,
         run_id,
         &parsed,
-        Some(usage.input_tokens as i32),
-        Some(usage.output_tokens as i32),
+        Some(input_tokens as i32),
+        Some(output_tokens as i32),
         None, // Cost calculated later if needed
         "COMPLETED",
     )
@@ -170,7 +170,7 @@ pub async fn extract_handler(
 
     tracing::info!(
         doc_id = %doc_id, entity_count, rel_count,
-        input_tokens = usage.input_tokens, output_tokens = usage.output_tokens,
+        input_tokens = input_tokens, output_tokens = output_tokens,
         "Extraction complete"
     );
 
@@ -184,8 +184,8 @@ pub async fn extract_handler(
             "model": model_name,
             "entity_count": entity_count,
             "relationship_count": rel_count,
-            "input_tokens": usage.input_tokens,
-            "output_tokens": usage.output_tokens,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
         })),
     )
     .await;
@@ -197,8 +197,8 @@ pub async fn extract_handler(
         model: model_name,
         entity_count,
         relationship_count: rel_count,
-        input_tokens: usage.input_tokens,
-        output_tokens: usage.output_tokens,
+        input_tokens,
+        output_tokens,
     }))
 }
 
