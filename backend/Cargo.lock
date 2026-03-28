@@ -663,7 +663,7 @@ checksum = "1d07550c9036bf2ae0c684c4297d503f838287c83c53686d05370d0e139ae570"
 [[package]]
 name = "colossus-auth"
 version = "0.1.0"
-source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.7.1#28bbf5632d8452e78e8401a7022dfa1700965daf"
+source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.7.2#c56f9366404d443b4fd159d0c2adbcd1a5ea5e27"
 dependencies = [
  "async-trait",
  "axum",
@@ -675,7 +675,7 @@ dependencies = [
 [[package]]
 name = "colossus-extract"
 version = "0.1.0"
-source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.7.1#28bbf5632d8452e78e8401a7022dfa1700965daf"
+source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.7.2#c56f9366404d443b4fd159d0c2adbcd1a5ea5e27"
 dependencies = [
  "async-trait",
  "serde",
@@ -723,8 +723,8 @@ dependencies = [
 
 [[package]]
 name = "colossus-pdf"
-version = "0.1.1"
-source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.7.1#28bbf5632d8452e78e8401a7022dfa1700965daf"
+version = "0.1.2"
+source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.7.2#c56f9366404d443b4fd159d0c2adbcd1a5ea5e27"
 dependencies = [
  "pdf_oxide",
  "serde",
@@ -737,7 +737,7 @@ dependencies = [
 [[package]]
 name = "colossus-rag"
 version = "0.5.0"
-source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.7.1#28bbf5632d8452e78e8401a7022dfa1700965daf"
+source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.7.2#c56f9366404d443b4fd159d0c2adbcd1a5ea5e27"
 dependencies = [
  "async-trait",
  "neo4rs",
