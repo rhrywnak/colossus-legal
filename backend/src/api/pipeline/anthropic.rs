@@ -66,6 +66,11 @@ pub(super) async fn call_anthropic(
         }],
     };
 
+    tracing::info!(
+        body_len = serde_json::to_string(&request_body).unwrap_or_default().len(),
+        "Sending Anthropic request"
+    );
+
     let response = client
         .post("https://api.anthropic.com/v1/messages")
         .header("x-api-key", api_key)

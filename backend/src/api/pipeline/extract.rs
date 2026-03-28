@@ -90,6 +90,13 @@ pub async fn extract_handler(
     .map_err(|e| AppError::Internal { message: format!("Failed to insert extraction run: {e}") })?;
 
     // 8. Call Anthropic API
+    tracing::info!(
+        prompt_len = prompt.len(),
+        prompt_preview = %&prompt[..prompt.len().min(200)],
+        model = %model_name,
+        max_tokens = max_tokens,
+        "Calling Anthropic API for extraction"
+    );
     let api_result = call_anthropic(&state.http_client, api_key, &model_name, max_tokens, &prompt).await;
 
     let (response_text, usage) = match api_result {
