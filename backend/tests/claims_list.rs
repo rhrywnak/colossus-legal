@@ -96,6 +96,14 @@ async fn get_claims_returns_non_empty_when_data_exists() -> TestResult<()> {
         pg_pool: sqlx::postgres::PgPoolOptions::new()
             .connect_lazy("postgres://localhost/dummy")
             .expect("lazy pool"),
+        pipeline_pool: sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://localhost/dummy_pipeline")
+            .expect("lazy pool"),
+        audit_repo: colossus_legal_backend::repositories::audit_repository::AuditRepository::new(
+            sqlx::postgres::PgPoolOptions::new()
+                .connect_lazy("postgres://localhost/dummy_audit")
+                .expect("lazy pool"),
+        ),
     };
     let response = list_claims(None, State(state)).await.into_response();
 
@@ -135,6 +143,14 @@ async fn get_claims_returns_empty_when_no_data() -> TestResult<()> {
         pg_pool: sqlx::postgres::PgPoolOptions::new()
             .connect_lazy("postgres://localhost/dummy")
             .expect("lazy pool"),
+        pipeline_pool: sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://localhost/dummy_pipeline")
+            .expect("lazy pool"),
+        audit_repo: colossus_legal_backend::repositories::audit_repository::AuditRepository::new(
+            sqlx::postgres::PgPoolOptions::new()
+                .connect_lazy("postgres://localhost/dummy_audit")
+                .expect("lazy pool"),
+        ),
     };
     let response = list_claims(None, State(state)).await.into_response();
 

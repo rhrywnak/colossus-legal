@@ -8,6 +8,7 @@ use colossus_legal_backend::{
     config::AppConfig,
     dto::document::{DocumentCreateRequest, DocumentDto, DocumentUpdateRequest},
     neo4j::create_neo4j_graph,
+    repositories::audit_repository::AuditRepository,
     state::AppState,
 };
 use neo4rs::{query, Graph};
@@ -15,6 +16,20 @@ use serde_json::Value;
 use tokio::sync::Mutex;
 
 type TestResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
+fn dummy_pipeline_pool() -> sqlx::PgPool {
+    sqlx::postgres::PgPoolOptions::new()
+        .connect_lazy("postgres://localhost/dummy_pipeline")
+        .expect("lazy pool")
+}
+
+fn dummy_audit_repo() -> AuditRepository {
+    AuditRepository::new(
+        sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://localhost/dummy_audit")
+            .expect("lazy pool"),
+    )
+}
 
 static GRAPH_MUTEX: OnceLock<Mutex<()>> = OnceLock::new();
 
@@ -70,6 +85,8 @@ async fn create_document_rejects_empty_title() -> TestResult<()> {
         pg_pool: sqlx::postgres::PgPoolOptions::new()
             .connect_lazy("postgres://localhost/dummy")
             .expect("lazy pool"),
+        pipeline_pool: dummy_pipeline_pool(),
+        audit_repo: dummy_audit_repo(),
     };
 
     let payload = base_create_payload("", "pdf");
@@ -99,6 +116,8 @@ async fn create_document_rejects_invalid_doc_type() -> TestResult<()> {
         pg_pool: sqlx::postgres::PgPoolOptions::new()
             .connect_lazy("postgres://localhost/dummy")
             .expect("lazy pool"),
+        pipeline_pool: dummy_pipeline_pool(),
+        audit_repo: dummy_audit_repo(),
     };
 
     let payload = base_create_payload("Valid Title", "invalid-type");
@@ -128,6 +147,8 @@ async fn create_document_rejects_invalid_created_at() -> TestResult<()> {
         pg_pool: sqlx::postgres::PgPoolOptions::new()
             .connect_lazy("postgres://localhost/dummy")
             .expect("lazy pool"),
+        pipeline_pool: dummy_pipeline_pool(),
+        audit_repo: dummy_audit_repo(),
     };
 
     let mut payload = base_create_payload("Valid Title", "pdf");
@@ -158,6 +179,8 @@ async fn get_document_returns_404_when_missing() -> TestResult<()> {
         pg_pool: sqlx::postgres::PgPoolOptions::new()
             .connect_lazy("postgres://localhost/dummy")
             .expect("lazy pool"),
+        pipeline_pool: dummy_pipeline_pool(),
+        audit_repo: dummy_audit_repo(),
     };
 
     let response = get_document(None, State(state), axum::extract::Path("no-such".to_string()))
@@ -185,6 +208,8 @@ async fn update_document_rejects_invalid_doc_type() -> TestResult<()> {
         pg_pool: sqlx::postgres::PgPoolOptions::new()
             .connect_lazy("postgres://localhost/dummy")
             .expect("lazy pool"),
+        pipeline_pool: dummy_pipeline_pool(),
+        audit_repo: dummy_audit_repo(),
     };
 
     let payload = base_create_payload("Title", "pdf");
@@ -237,6 +262,8 @@ async fn update_document_returns_404_when_missing() -> TestResult<()> {
         pg_pool: sqlx::postgres::PgPoolOptions::new()
             .connect_lazy("postgres://localhost/dummy")
             .expect("lazy pool"),
+        pipeline_pool: dummy_pipeline_pool(),
+        audit_repo: dummy_audit_repo(),
     };
 
     let update_payload = DocumentUpdateRequest {
@@ -280,6 +307,8 @@ async fn happy_path_create_get_update_document() -> TestResult<()> {
         pg_pool: sqlx::postgres::PgPoolOptions::new()
             .connect_lazy("postgres://localhost/dummy")
             .expect("lazy pool"),
+        pipeline_pool: dummy_pipeline_pool(),
+        audit_repo: dummy_audit_repo(),
     };
 
     let mut payload = base_create_payload("Happy Title", "pdf");

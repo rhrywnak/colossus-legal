@@ -29,7 +29,15 @@ async fn setup_app() -> TestResult<Router> {
     let pg_pool = sqlx::postgres::PgPoolOptions::new()
         .connect_lazy("postgres://localhost/dummy")
         .expect("lazy pool");
-    let state = AppState { graph, config, rag_pipeline: None, http_client: reqwest::Client::new(), pg_pool };
+    let pipeline_pool = sqlx::postgres::PgPoolOptions::new()
+        .connect_lazy("postgres://localhost/dummy_pipeline")
+        .expect("lazy pool");
+    let audit_repo = colossus_legal_backend::repositories::audit_repository::AuditRepository::new(
+        sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://localhost/dummy_audit")
+            .expect("lazy pool"),
+    );
+    let state = AppState { graph, config, rag_pipeline: None, http_client: reqwest::Client::new(), pg_pool, pipeline_pool, audit_repo };
     Ok(router().with_state(state))
 }
 

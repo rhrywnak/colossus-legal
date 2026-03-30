@@ -10,6 +10,7 @@ use colossus_legal_backend::{
     config::AppConfig,
     dto::claim::{ClaimCreateRequest, ClaimDto, ClaimUpdateRequest},
     neo4j::create_neo4j_graph,
+    repositories::audit_repository::AuditRepository,
     state::AppState,
 };
 use neo4rs::{query, Graph};
@@ -17,6 +18,20 @@ use serde_json::Value;
 use tokio::sync::Mutex;
 
 type TestResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
+fn dummy_pipeline_pool() -> sqlx::PgPool {
+    sqlx::postgres::PgPoolOptions::new()
+        .connect_lazy("postgres://localhost/dummy_pipeline")
+        .expect("lazy pool")
+}
+
+fn dummy_audit_repo() -> AuditRepository {
+    AuditRepository::new(
+        sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://localhost/dummy_audit")
+            .expect("lazy pool"),
+    )
+}
 
 static GRAPH_MUTEX: OnceLock<Mutex<()>> = OnceLock::new();
 const TEST_SOURCE: &str = "test";
@@ -94,6 +109,8 @@ async fn create_claim_rejects_empty_title() -> TestResult<()> {
         pg_pool: sqlx::postgres::PgPoolOptions::new()
             .connect_lazy("postgres://localhost/dummy")
             .expect("lazy pool"),
+        pipeline_pool: dummy_pipeline_pool(),
+        audit_repo: dummy_audit_repo(),
     };
 
     let payload = ClaimCreateRequest {
@@ -127,6 +144,8 @@ async fn create_claim_rejects_invalid_status() -> TestResult<()> {
         pg_pool: sqlx::postgres::PgPoolOptions::new()
             .connect_lazy("postgres://localhost/dummy")
             .expect("lazy pool"),
+        pipeline_pool: dummy_pipeline_pool(),
+        audit_repo: dummy_audit_repo(),
     };
 
     let payload = ClaimCreateRequest {
@@ -160,6 +179,8 @@ async fn get_claim_returns_404_when_missing() -> TestResult<()> {
         pg_pool: sqlx::postgres::PgPoolOptions::new()
             .connect_lazy("postgres://localhost/dummy")
             .expect("lazy pool"),
+        pipeline_pool: dummy_pipeline_pool(),
+        audit_repo: dummy_audit_repo(),
     };
 
     let response = get_claim(None, State(state), axum::extract::Path("no-such".to_string()))
@@ -199,6 +220,8 @@ async fn update_claim_rejects_invalid_status() -> TestResult<()> {
         pg_pool: sqlx::postgres::PgPoolOptions::new()
             .connect_lazy("postgres://localhost/dummy")
             .expect("lazy pool"),
+        pipeline_pool: dummy_pipeline_pool(),
+        audit_repo: dummy_audit_repo(),
     };
 
     let payload = ClaimUpdateRequest {
@@ -238,6 +261,8 @@ async fn happy_path_create_and_get_claim() -> TestResult<()> {
         pg_pool: sqlx::postgres::PgPoolOptions::new()
             .connect_lazy("postgres://localhost/dummy")
             .expect("lazy pool"),
+        pipeline_pool: dummy_pipeline_pool(),
+        audit_repo: dummy_audit_repo(),
     };
 
     let payload = ClaimCreateRequest {
