@@ -177,6 +177,17 @@ pub async fn insert_document_text(
     Ok(())
 }
 
+/// List all documents, most recent first.
+pub async fn list_all_documents(pool: &PgPool) -> Result<Vec<DocumentRecord>, PipelineRepoError> {
+    let rows = sqlx::query_as::<_, DocumentRecord>(
+        "SELECT id, title, file_path, file_hash, document_type, status, created_at, updated_at
+         FROM documents ORDER BY created_at DESC",
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
 /// Get a document by ID. Returns None if not found.
 pub async fn get_document(
     pool: &PgPool,

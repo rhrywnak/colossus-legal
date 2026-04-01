@@ -39,13 +39,15 @@ pub use upload::upload_document;
 pub use verify::verify_handler;
 
 use axum::{
+    extract::State,
     routing::{get, post, put},
-    Router,
+    Json, Router,
 };
 use serde::Serialize;
 
+use crate::auth::{require_admin, AuthUser};
 use crate::error::AppError;
-use crate::repositories::pipeline_repository::DocumentRecord;
+use crate::repositories::pipeline_repository::{self, DocumentRecord};
 use crate::state::AppState;
 
 /// Self-contained pipeline router.
@@ -59,7 +61,7 @@ use crate::state::AppState;
 /// projects without modifying any pipeline code.
 pub fn router() -> Router<AppState> {
     Router::new()
-        .route("/documents", post(upload_document))
+        .route("/documents", get(list_documents_handler).post(upload_document))
         .route("/documents/:id/extract-text", post(extract_text))
         .route("/documents/:id/extract", post(extract_handler))
         .route("/documents/:id/verify", post(verify_handler))
@@ -75,6 +77,18 @@ pub fn router() -> Router<AppState> {
         .route("/items/:id", put(review::edit_handler))
         .route("/metrics", get(metrics::metrics_handler))
         .route("/schemas", get(schemas::list_schemas_handler))
+}
+
+/// GET /documents — list all pipeline documents.
+async fn list_documents_handler(
+    user: AuthUser,
+    State(state): State<AppState>,
+) -> Result<Json<Vec<DocumentRecord>>, AppError> {
+    require_admin(&user)?;
+    let docs = pipeline_repository::list_all_documents(&state.pipeline_pool)
+        .await
+        .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?;
+    Ok(Json(docs))
 }
 
 /// Maximum upload size: 50 MB.

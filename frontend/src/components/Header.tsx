@@ -187,6 +187,26 @@ const Header: React.FC = () => {
             Admin
           </Link>
         )}
+        {user?.permissions.is_admin && (
+          <Link
+            to="/pipeline"
+            style={isActive("/pipeline", location.pathname) ? navLinkActive : navLinkBase}
+            onMouseEnter={(e) => {
+              if (!isActive("/pipeline", location.pathname)) {
+                e.currentTarget.style.color = "#1e293b";
+                e.currentTarget.style.backgroundColor = "#f1f5f9";
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (!isActive("/pipeline", location.pathname)) {
+                e.currentTarget.style.color = "#64748b";
+                e.currentTarget.style.backgroundColor = "transparent";
+              }
+            }}
+          >
+            Pipeline
+          </Link>
+        )}
       </nav>
 
       {/* Right — User badge + Sign Out */}
