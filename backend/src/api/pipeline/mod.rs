@@ -18,6 +18,7 @@ mod extract_text;
 mod index;
 mod ingest;
 mod ingest_helpers;
+mod ingest_resolver;
 pub mod report;
 mod upload;
 pub mod verify;

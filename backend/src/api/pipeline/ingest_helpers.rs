@@ -1,14 +1,10 @@
 //! Helper functions for the graph ingest endpoint.
-//!
 //! Extracted from `ingest.rs` to keep it under 300 lines.
 //!
 //! ## Rust Learning
-//!
-//! - **HashMap<i32, String>**: Maps PG extraction_item IDs → Neo4j string IDs.
-//!   Built during node creation; used when creating relationships. All nodes
-//!   must be created before relationships so the map is fully populated.
-//! - **txn.run()** discards the result — good for CREATE. **txn.execute()**
-//!   returns a RowStream so we can verify MATCH found nodes (used for rels).
+//! - **HashMap<i32, String>**: Maps PG item IDs → Neo4j string IDs.
+//! - **txn.run()** discards result (CREATE). **txn.execute()** returns
+//!   RowStream to verify MATCH found nodes (used for relationships).
 
 use std::collections::{HashMap, HashSet};
 
@@ -16,6 +12,8 @@ use neo4rs::query;
 
 use crate::error::AppError;
 use crate::repositories::pipeline_repository::ExtractionItemRecord;
+
+use super::ingest_resolver::ResolutionMap;
 
 /// Generate a stable, URL-friendly slug from a name.
 /// Lowercases for natural dedup: `"MARIE AWAD"` and `"Marie Awad"` both → `"marie-awad"`.
@@ -29,7 +27,6 @@ pub fn slug(name: &str) -> String {
         .collect::<Vec<_>>()
         .join("-")
 }
-
 /// Create the Document node in Neo4j. Returns the generated neo4j ID.
 pub async fn create_document_node(
     txn: &mut neo4rs::Txn,
@@ -41,11 +38,9 @@ pub async fn create_document_node(
 
     txn.run(
         query(
-            "CREATE (d:Document {
-                id: $id, title: $title, source_document_id: $source_id,
-                doc_type: $doc_type, status: 'INGESTED',
-                ingested_at: datetime()
-            })",
+            "CREATE (d:Document { id: $id, title: $title, \
+                source_document_id: $source_id, doc_type: $doc_type, \
+                status: 'INGESTED', ingested_at: datetime() })",
         )
         .param("id", neo4j_id.as_str())
         .param("title", title)
@@ -59,13 +54,16 @@ pub async fn create_document_node(
     Ok(neo4j_id)
 }
 
-/// Create Person and Organization nodes. Deduplicates by slug.
-/// Returns (person_count, org_count).
+/// Create or merge Person/Organization nodes using entity resolution.
+/// Uses MERGE for cross-document sharing: ON CREATE sets properties,
+/// ON MATCH appends to `source_documents`. The `resolution_map` provides
+/// the resolved neo4j_id for each party_name.
 pub async fn create_party_nodes(
     txn: &mut neo4rs::Txn,
     items: &[ExtractionItemRecord],
     doc_id: &str,
     pg_to_neo4j: &mut HashMap<i32, String>,
+    resolution_map: &ResolutionMap,
 ) -> Result<(usize, usize), AppError> {
     let mut seen: HashSet<String> = HashSet::new();
     let (mut persons, mut orgs) = (0usize, 0usize);
@@ -76,22 +74,32 @@ pub async fn create_party_nodes(
         let role = props["role"].as_str().unwrap_or("");
         let party_type = props["party_type"].as_str().unwrap_or("individual");
 
-        let (label, prefix) = if party_type == "organization" {
-            ("Organization", "org")
-        } else {
-            ("Person", "person")
-        };
+        let label = if party_type == "organization" { "Organization" } else { "Person" };
 
-        let neo4j_id = format!("{prefix}-{}", slug(name));
+        // Look up resolved ID from the resolution map
+        let neo4j_id = resolution_map
+            .get(name)
+            .map(|(id, _)| id.clone())
+            .unwrap_or_else(|| {
+                let prefix = if party_type == "organization" { "org" } else { "person" };
+                format!("{prefix}-{}", slug(name))
+            });
+
         pg_to_neo4j.insert(item.id, neo4j_id.clone());
 
-        // Skip if we already created this node (dedup by slug)
+        // Skip if we already MERGE'd this node in this batch
         if !seen.insert(neo4j_id.clone()) {
             continue;
         }
 
         let cypher = format!(
-            "CREATE (n:{label} {{id: $id, name: $name, role: $role, source_document: $doc}})"
+            "MERGE (n:{label} {{id: $id}}) \
+             ON CREATE SET n.name = $name, n.role = $role, \
+               n.source_document = $doc, n.source_documents = [$doc] \
+             ON MATCH SET n.source_documents = CASE \
+               WHEN NOT $doc IN coalesce(n.source_documents, []) \
+               THEN coalesce(n.source_documents, []) + $doc \
+               ELSE n.source_documents END"
         );
         txn.run(
             query(&cypher)
@@ -102,7 +110,7 @@ pub async fn create_party_nodes(
         )
         .await
         .map_err(|e| AppError::Internal {
-            message: format!("Failed to create {label} '{name}': {e}"),
+            message: format!("Failed to merge {label} '{name}': {e}"),
         })?;
 
         match party_type {
@@ -112,7 +120,6 @@ pub async fn create_party_nodes(
     }
     Ok((persons, orgs))
 }
-
 /// Create ComplaintAllegation nodes from FactualAllegation items.
 pub async fn create_allegation_nodes(
     txn: &mut neo4rs::Txn,
@@ -134,12 +141,11 @@ pub async fn create_allegation_nodes(
 
         txn.run(
             query(
-                "CREATE (n:ComplaintAllegation {
-                    id: $id, title: $title, allegation: $allegation,
-                    verbatim_quote: $quote, page_number: $page,
-                    paragraph_ref: $para_ref, grounding_status: $grounding,
-                    source_document: $doc, extraction_item_id: $ext_id
-                })",
+                "CREATE (n:ComplaintAllegation { \
+                    id: $id, title: $title, allegation: $allegation, \
+                    verbatim_quote: $quote, page_number: $page, \
+                    paragraph_ref: $para_ref, grounding_status: $grounding, \
+                    source_document: $doc, extraction_item_id: $ext_id })",
             )
             .param("id", neo4j_id.as_str())
             .param("title", label_text)
@@ -158,7 +164,6 @@ pub async fn create_allegation_nodes(
     }
     Ok(seq)
 }
-
 /// Create LegalCount nodes.
 pub async fn create_count_nodes(
     txn: &mut neo4rs::Txn,
@@ -180,10 +185,8 @@ pub async fn create_count_nodes(
 
         txn.run(
             query(
-                "CREATE (n:LegalCount {
-                    id: $id, title: $title, count_number: $num,
-                    legal_basis: $basis, source_document: $doc
-                })",
+                "CREATE (n:LegalCount { id: $id, title: $title, \
+                    count_number: $num, legal_basis: $basis, source_document: $doc })",
             )
             .param("id", neo4j_id.as_str())
             .param("title", label_text)
@@ -221,12 +224,10 @@ pub async fn create_harm_nodes(
 
         txn.run(
             query(
-                "CREATE (n:Harm {
-                    id: $id, title: $title, description: $desc,
-                    amount: $amount, damages_type: $dtype,
-                    verbatim_quote: $quote, page_number: $page,
-                    source_document: $doc, extraction_item_id: $ext_id
-                })",
+                "CREATE (n:Harm { id: $id, title: $title, description: $desc, \
+                    amount: $amount, damages_type: $dtype, \
+                    verbatim_quote: $quote, page_number: $page, \
+                    source_document: $doc, extraction_item_id: $ext_id })",
             )
             .param("id", neo4j_id.as_str())
             .param("title", label_text)
@@ -247,8 +248,7 @@ pub async fn create_harm_nodes(
 }
 
 /// Create a relationship between two nodes inside a transaction.
-/// Uses `txn.execute()` + RETURN to verify the MATCH found both nodes.
-/// Zero rows = broken ID mapping = hard error (transaction rolls back).
+/// Zero rows from MATCH = broken ID mapping = hard error (rolls back).
 pub async fn create_ingest_relationship(
     txn: &mut neo4rs::Txn,
     from_id: &str,
@@ -286,7 +286,7 @@ pub async fn create_ingest_relationship(
     Ok(())
 }
 
-/// Create CONTAINED_IN relationships from all non-Document nodes to the Document.
+/// Create CONTAINED_IN from all non-Document nodes to the Document.
 pub async fn create_contained_in_relationships(
     txn: &mut neo4rs::Txn,
     node_ids: &[String],

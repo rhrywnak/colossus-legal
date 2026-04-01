@@ -30,6 +30,7 @@ use super::ingest_helpers::{
     create_allegation_nodes, create_contained_in_relationships, create_count_nodes,
     create_document_node, create_harm_nodes, create_ingest_relationship, create_party_nodes,
 };
+use super::ingest_resolver::{self, ResolutionSummary};
 
 // ── Response DTOs ───────────────────────────────────────────────
 
@@ -40,6 +41,7 @@ pub struct IngestResponse {
     pub neo4j_document_id: String,
     pub nodes_created: NodeCounts,
     pub relationships_created: RelCounts,
+    pub resolution_summary: ResolutionSummary,
     pub duration_secs: f64,
 }
 
@@ -120,7 +122,20 @@ pub async fn ingest_handler(
         rels = relationships.len(), "Fetched extraction data"
     );
 
-    // 5. Open Neo4j transaction — all-or-nothing
+    // 5. Entity resolution — resolve Party items against existing Neo4j nodes
+    let existing_parties = ingest_resolver::fetch_existing_parties(&state.graph).await?;
+    tracing::info!(existing = existing_parties.len(), "Fetched existing parties for resolution");
+
+    let (resolution_map, resolution_summary) =
+        ingest_resolver::resolve_parties(&items, &existing_parties).await?;
+
+    tracing::info!(
+        matched = resolution_summary.matched_existing,
+        new = resolution_summary.created_new,
+        "Entity resolution complete"
+    );
+
+    // 7. Open Neo4j transaction — all-or-nothing
     let mut txn = state.graph.start_txn().await.map_err(|e| AppError::Internal {
         message: format!("Failed to start Neo4j transaction: {e}"),
     })?;
@@ -130,7 +145,7 @@ pub async fn ingest_handler(
     // Collect all non-Document node IDs for CONTAINED_IN relationships
     let mut all_node_ids: Vec<String> = Vec::new();
 
-    // 6. Create Document node
+    // 8. Create Document node
     let doc_type = pipeline_repository::get_pipeline_config(&state.pipeline_pool, &doc_id)
         .await
         .ok()
@@ -141,9 +156,9 @@ pub async fn ingest_handler(
     let doc_neo4j_id =
         create_document_node(&mut txn, &doc_id, &document.title, &doc_type).await?;
 
-    // 7. Create Party nodes (Person + Organization)
+    // 9. Create/merge Party nodes (Person + Organization) using resolution map
     let (person_count, org_count) =
-        create_party_nodes(&mut txn, &items, &doc_id, &mut pg_to_neo4j).await?;
+        create_party_nodes(&mut txn, &items, &doc_id, &mut pg_to_neo4j, &resolution_map).await?;
     // Collect unique party node IDs for CONTAINED_IN
     {
         let mut seen = std::collections::HashSet::new();
@@ -154,7 +169,7 @@ pub async fn ingest_handler(
         }
     }
 
-    // 8. Create ComplaintAllegation nodes
+    // 10. Create ComplaintAllegation nodes
     let allegation_count =
         create_allegation_nodes(&mut txn, &items, &doc_id, &mut pg_to_neo4j).await?;
     // Collect allegation node IDs
@@ -164,7 +179,7 @@ pub async fn ingest_handler(
         }
     }
 
-    // 9. Create LegalCount nodes
+    // 11. Create LegalCount nodes
     let count_count =
         create_count_nodes(&mut txn, &items, &doc_id, &mut pg_to_neo4j).await?;
     for item in items.iter().filter(|i| i.entity_type == "LegalCount") {
@@ -173,7 +188,7 @@ pub async fn ingest_handler(
         }
     }
 
-    // 10. Create Harm nodes
+    // 12. Create Harm nodes
     let harm_count =
         create_harm_nodes(&mut txn, &items, &doc_id, &mut pg_to_neo4j).await?;
     for item in items.iter().filter(|i| i.entity_type == "DamagesClaim") {
@@ -182,7 +197,7 @@ pub async fn ingest_handler(
         }
     }
 
-    // 11. Create extraction relationships (STATED_BY, ABOUT, SUPPORTS)
+    // 13. Create extraction relationships (STATED_BY, ABOUT, SUPPORTS)
     let (mut stated_by, mut about, mut supports) = (0usize, 0usize, 0usize);
 
     for rel in &relationships {
@@ -216,16 +231,16 @@ pub async fn ingest_handler(
         }
     }
 
-    // 12. Create CONTAINED_IN relationships (all nodes → Document)
+    // 14. Create CONTAINED_IN relationships (all nodes → Document)
     let contained_in =
         create_contained_in_relationships(&mut txn, &all_node_ids, &doc_neo4j_id).await?;
 
-    // 13. Commit transaction
+    // 15. Commit transaction
     txn.commit().await.map_err(|e| AppError::Internal {
         message: format!("Neo4j transaction commit failed: {e}"),
     })?;
 
-    // 14. Update pipeline document status → INGESTED
+    // 16. Update pipeline document status → INGESTED
     pipeline_repository::update_document_status(&state.pipeline_pool, &doc_id, "INGESTED")
         .await
         .map_err(|e| AppError::Internal {
@@ -256,7 +271,7 @@ pub async fn ingest_handler(
     )
     .await;
 
-    // 15. Return summary
+    // 17. Return summary
     Ok(Json(IngestResponse {
         document_id: doc_id,
         status: "INGESTED".to_string(),
@@ -277,6 +292,7 @@ pub async fn ingest_handler(
             contained_in,
             total: total_rels,
         },
+        resolution_summary,
         duration_secs: duration,
     }))
 }

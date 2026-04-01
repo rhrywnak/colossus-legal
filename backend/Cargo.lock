@@ -675,12 +675,13 @@ dependencies = [
 [[package]]
 name = "colossus-extract"
 version = "0.1.0"
-source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.7.3#78c30c3739b69417cd2493dd30503201346c407e"
+source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.7.4#257ae180d828639ab4ff5b5fceee0badc8fd77d2"
 dependencies = [
  "async-trait",
  "serde",
  "serde_json",
  "serde_yaml",
+ "strsim",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -688,7 +689,7 @@ dependencies = [
 
 [[package]]
 name = "colossus-legal-backend"
-version = "2.0.0-beta.18"
+version = "2.0.0-beta.19"
 dependencies = [
  "anyhow",
  "axum",
