@@ -13,6 +13,7 @@
 mod anthropic;
 mod extract;
 mod extract_text;
+mod index;
 mod ingest;
 mod ingest_helpers;
 pub mod report;
@@ -21,6 +22,7 @@ pub mod verify;
 
 pub use extract::extract_handler;
 pub use extract_text::extract_text;
+pub use index::index_handler;
 pub use ingest::ingest_handler;
 pub use report::report_handler;
 pub use upload::upload_document;

@@ -161,6 +161,10 @@ pub fn router() -> Router<AppState> {
             post(pipeline::ingest_handler),
         )
         .route(
+            "/admin/pipeline/documents/:id/index",
+            post(pipeline::index_handler),
+        )
+        .route(
             "/admin/pipeline/documents/:id/report",
             get(pipeline::report_handler),
         )

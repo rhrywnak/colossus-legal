@@ -35,7 +35,7 @@ pub fn build_embedding_text(node_type: &str, props: &HashMap<String, String>) ->
             "search_document: {}. {}. {}",
             get_prop(props, "title"),
             get_prop(props, "allegation"),
-            get_prop(props, "verbatim"),
+            get_prop(props, "verbatim_quote"),
         ),
 
         "MotionClaim" => format!(
