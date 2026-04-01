@@ -32,10 +32,36 @@ pub use report::report_handler;
 pub use upload::upload_document;
 pub use verify::verify_handler;
 
+use axum::{
+    routing::{get, post},
+    Router,
+};
 use serde::Serialize;
 
 use crate::error::AppError;
 use crate::repositories::pipeline_repository::DocumentRecord;
+use crate::state::AppState;
+
+/// Self-contained pipeline router.
+///
+/// ## Rust Learning: Composable Routers
+///
+/// This router uses relative paths (e.g., `/documents/:id/ingest`).
+/// The application decides where to mount it via `Router::nest()`.
+/// In colossus-legal: `.nest("/admin/pipeline", pipeline::router())`
+/// This pattern makes the pipeline module reusable across Colossus
+/// projects without modifying any pipeline code.
+pub fn router() -> Router<AppState> {
+    Router::new()
+        .route("/documents", post(upload_document))
+        .route("/documents/:id/extract-text", post(extract_text))
+        .route("/documents/:id/extract", post(extract_handler))
+        .route("/documents/:id/verify", post(verify_handler))
+        .route("/documents/:id/ingest", post(ingest_handler))
+        .route("/documents/:id/index", post(index_handler))
+        .route("/documents/:id/completeness", get(completeness_handler))
+        .route("/documents/:id/report", get(report_handler))
+}
 
 /// Maximum upload size: 50 MB.
 pub(crate) const MAX_FILE_SIZE: usize = 50 * 1024 * 1024;

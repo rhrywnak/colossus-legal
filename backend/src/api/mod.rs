@@ -140,38 +140,7 @@ pub fn router() -> Router<AppState> {
             "/admin/documents/:id/ground-pages",
             post(admin_page_ground::ground_pages),
         )
-        .route(
-            "/admin/pipeline/documents",
-            post(pipeline::upload_document),
-        )
-        .route(
-            "/admin/pipeline/documents/:id/extract-text",
-            post(pipeline::extract_text),
-        )
-        .route(
-            "/admin/pipeline/documents/:id/extract",
-            post(pipeline::extract_handler),
-        )
-        .route(
-            "/admin/pipeline/documents/:id/verify",
-            post(pipeline::verify_handler),
-        )
-        .route(
-            "/admin/pipeline/documents/:id/ingest",
-            post(pipeline::ingest_handler),
-        )
-        .route(
-            "/admin/pipeline/documents/:id/index",
-            post(pipeline::index_handler),
-        )
-        .route(
-            "/admin/pipeline/documents/:id/completeness",
-            get(pipeline::completeness_handler),
-        )
-        .route(
-            "/admin/pipeline/documents/:id/report",
-            get(pipeline::report_handler),
-        )
+        .nest("/admin/pipeline", pipeline::router())
         .route("/search", post(search::semantic_search))
         .route("/ask", post(ask::ask_the_case))
         .route("/qa-history", get(qa::get_qa_history))
