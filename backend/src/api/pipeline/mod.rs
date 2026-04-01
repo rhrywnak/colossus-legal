@@ -17,10 +17,12 @@ mod extract;
 mod extract_text;
 mod history;
 mod index;
+mod items;
 mod ingest;
 mod ingest_helpers;
 mod ingest_resolver;
 pub mod report;
+mod review;
 mod upload;
 pub mod verify;
 
@@ -35,7 +37,7 @@ pub use upload::upload_document;
 pub use verify::verify_handler;
 
 use axum::{
-    routing::{get, post},
+    routing::{get, post, put},
     Router,
 };
 use serde::Serialize;
@@ -64,6 +66,11 @@ pub fn router() -> Router<AppState> {
         .route("/documents/:id/completeness", get(completeness_handler))
         .route("/documents/:id/report", get(report_handler))
         .route("/documents/:id/history", get(history_handler))
+        .route("/documents/:id/items", get(items::list_items_handler))
+        .route("/documents/:id/approve-all", post(review::bulk_approve_handler))
+        .route("/items/:id/approve", post(review::approve_handler))
+        .route("/items/:id/reject", post(review::reject_handler))
+        .route("/items/:id", put(review::edit_handler))
 }
 
 /// Maximum upload size: 50 MB.
