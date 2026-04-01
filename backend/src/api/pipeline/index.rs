@@ -37,7 +37,7 @@ use crate::auth::{require_admin, AuthUser};
 use crate::error::AppError;
 use crate::repositories::audit_repository::log_admin_action;
 use crate::repositories::embedding_repository;
-use crate::repositories::pipeline_repository;
+use crate::repositories::pipeline_repository::{self, steps};
 use crate::services::embedding_service::{EmbeddingError, EmbeddingService};
 use crate::services::embedding_text::build_embedding_text;
 use crate::services::qdrant_service::{self, QdrantPoint};
@@ -71,6 +71,10 @@ pub async fn index_handler(
     require_admin(&user)?;
     let start = Instant::now();
     tracing::info!(user = %user.username, doc_id = %doc_id, "POST index");
+
+    let step_id = steps::record_step_start(
+        &state.pipeline_pool, &doc_id, "index", &user.username, &serde_json::json!({}),
+    ).await.map_err(|e| AppError::Internal { message: format!("Step logging: {e}") })?;
 
     // 1. Fetch document — must exist
     let document = pipeline_repository::get_document(&state.pipeline_pool, &doc_id)
@@ -225,6 +229,11 @@ pub async fn index_handler(
         })),
     )
     .await;
+
+    steps::record_step_complete(
+        &state.pipeline_pool, step_id, duration,
+        &serde_json::json!({"nodes_embedded": embedded_count, "collection": "colossus_evidence", "errors": &errors}),
+    ).await.ok();
 
     // 10. Return summary
     Ok(Json(IndexResponse {

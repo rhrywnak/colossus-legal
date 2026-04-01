@@ -1,19 +1,11 @@
 //! POST /api/admin/pipeline/documents/:id/ingest — Graph Writer.
 //!
-//! Reads verified extraction items from the pipeline PostgreSQL database
-//! and writes them as nodes and relationships into Neo4j. This is the
-//! bridge between Phase 2 (extraction/verification) and the live
-//! knowledge graph.
+//! Reads verified extraction items from pipeline DB and writes them as
+//! nodes and relationships into Neo4j. Uses entity resolution for parties.
 //!
-//! ## Rust Learning: HashMap<i32, String> for cross-system ID mapping
-//!
-//! The pipeline database uses integer IDs for extraction items, while
-//! Neo4j uses human-readable string IDs (e.g., "person-marie-awad").
-//! We build a HashMap during node creation that maps each PG item ID
-//! to its Neo4j string ID. When we later process relationships (which
-//! reference PG IDs via from_item_id / to_item_id), we look up the
-//! Neo4j IDs from this map. That's why all nodes must be created
-//! *before* any relationships — the map must be fully populated first.
+//! ## Rust Learning: HashMap<i32, String> maps PG item IDs → Neo4j string IDs.
+//! Built during node creation; used for relationships. All nodes must be
+//! created before relationships so the map is fully populated.
 
 use std::collections::HashMap;
 
@@ -23,7 +15,7 @@ use serde::Serialize;
 use crate::auth::{require_admin, AuthUser};
 use crate::error::AppError;
 use crate::repositories::audit_repository::log_admin_action;
-use crate::repositories::pipeline_repository;
+use crate::repositories::pipeline_repository::{self, steps};
 use crate::state::AppState;
 
 use super::ingest_helpers::{
@@ -80,6 +72,9 @@ pub async fn ingest_handler(
     require_admin(&user)?;
     let start = std::time::Instant::now();
     tracing::info!(user = %user.username, doc_id = %doc_id, "POST ingest");
+    let step_id = steps::record_step_start(
+        &state.pipeline_pool, &doc_id, "ingest", &user.username, &serde_json::json!({}),
+    ).await.map_err(|e| AppError::Internal { message: format!("Step logging: {e}") })?;
 
     // 1. Fetch document — must exist
     let document = pipeline_repository::get_document(&state.pipeline_pool, &doc_id)
@@ -271,7 +266,10 @@ pub async fn ingest_handler(
     )
     .await;
 
-    // 17. Return summary
+    steps::record_step_complete(&state.pipeline_pool, step_id, duration, &serde_json::json!({
+        "nodes_created": total_nodes, "relationships_created": total_rels,
+        "matched_existing": resolution_summary.matched_existing, "created_new": resolution_summary.created_new,
+    })).await.ok();
     Ok(Json(IngestResponse {
         document_id: doc_id,
         status: "INGESTED".to_string(),

@@ -9,7 +9,7 @@ use axum::{extract::Path as AxumPath, extract::State, Json};
 use crate::auth::{require_admin, AuthUser};
 use crate::error::AppError;
 use crate::repositories::audit_repository::log_admin_action;
-use crate::repositories::pipeline_repository;
+use crate::repositories::pipeline_repository::{self, steps};
 use crate::state::AppState;
 
 use super::anthropic::call_anthropic;
@@ -23,7 +23,12 @@ pub async fn extract_handler(
     AxumPath(doc_id): AxumPath<String>,
 ) -> Result<Json<ExtractResponse>, AppError> {
     require_admin(&user)?;
+    let step_start = Instant::now();
     tracing::info!(user = %user.username, doc_id = %doc_id, "POST extract");
+
+    let step_id = steps::record_step_start(
+        &state.pipeline_pool, &doc_id, "extract", &user.username, &serde_json::json!({}),
+    ).await.map_err(|e| AppError::Internal { message: format!("Step logging: {e}") })?;
 
     let api_key = state.config.anthropic_api_key.as_deref().ok_or_else(|| {
         AppError::Internal { message: "ANTHROPIC_API_KEY not configured".to_string() }
@@ -105,17 +110,15 @@ pub async fn extract_handler(
     let (response_text, input_tokens, output_tokens) = match api_result {
         Ok(r) => (r.text, r.input_tokens, r.output_tokens),
         Err(e) => {
-            // Mark run as FAILED
             let _ = pipeline_repository::complete_extraction_run(
-                &state.pipeline_pool,
-                run_id,
+                &state.pipeline_pool, run_id,
                 &serde_json::json!({ "error": format!("{e:?}") }),
-                None,
-                None,
-                None,
-                "FAILED",
-            )
-            .await;
+                None, None, None, "FAILED",
+            ).await;
+            steps::record_step_failure(
+                &state.pipeline_pool, step_id, step_start.elapsed().as_secs_f64(),
+                &format!("{e:?}"),
+            ).await.ok();
             return Err(e);
         }
     };
@@ -124,17 +127,15 @@ pub async fn extract_handler(
     let parsed: serde_json::Value = match serde_json::from_str(&response_text) {
         Ok(v) => v,
         Err(parse_err) => {
-            // Store raw text for debugging, mark as FAILED
             let _ = pipeline_repository::complete_extraction_run(
-                &state.pipeline_pool,
-                run_id,
+                &state.pipeline_pool, run_id,
                 &serde_json::json!({ "raw_text": response_text }),
-                Some(input_tokens as i32),
-                Some(output_tokens as i32),
-                None,
-                "FAILED",
-            )
-            .await;
+                Some(input_tokens as i32), Some(output_tokens as i32), None, "FAILED",
+            ).await;
+            steps::record_step_failure(
+                &state.pipeline_pool, step_id, step_start.elapsed().as_secs_f64(),
+                &format!("LLM returned invalid JSON: {parse_err}"),
+            ).await.ok();
             return Err(AppError::BadRequest {
                 message: format!("LLM returned invalid JSON: {parse_err}"),
                 details: serde_json::json!({
@@ -192,6 +193,12 @@ pub async fn extract_handler(
         })),
     )
     .await;
+
+    steps::record_step_complete(
+        &state.pipeline_pool, step_id, step_start.elapsed().as_secs_f64(),
+        &serde_json::json!({"entity_count": entity_count, "relationship_count": rel_count,
+            "input_tokens": input_tokens, "output_tokens": output_tokens}),
+    ).await.ok();
 
     Ok(Json(ExtractResponse {
         document_id: doc_id,

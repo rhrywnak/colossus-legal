@@ -1,8 +1,6 @@
 //! GET /api/admin/pipeline/documents/:id/completeness — Completeness Check.
-//!
-//! Cross-references extraction data in the pipeline PostgreSQL database
-//! against what was written to Neo4j and indexed in Qdrant. Reports any
-//! discrepancies. Updates document status to PUBLISHED if everything matches.
+//! Cross-references pipeline DB, Neo4j, and Qdrant. Updates status to
+//! PUBLISHED if everything matches.
 
 use std::collections::HashMap;
 
@@ -12,7 +10,7 @@ use serde::Serialize;
 use crate::auth::{require_admin, AuthUser};
 use crate::error::AppError;
 use crate::repositories::audit_repository::log_admin_action;
-use crate::repositories::pipeline_repository;
+use crate::repositories::pipeline_repository::{self, steps};
 use crate::services::qdrant_service;
 use crate::state::AppState;
 
@@ -74,7 +72,12 @@ pub async fn completeness_handler(
     Path(doc_id): Path<String>,
 ) -> Result<Json<CompletenessResponse>, AppError> {
     require_admin(&user)?;
+    let start = std::time::Instant::now();
     tracing::info!(user = %user.username, doc_id = %doc_id, "GET completeness");
+
+    let step_id = steps::record_step_start(
+        &state.pipeline_pool, &doc_id, "completeness", &user.username, &serde_json::json!({}),
+    ).await.map_err(|e| AppError::Internal { message: format!("Step logging: {e}") })?;
 
     // 1. Fetch document — must exist
     let document = pipeline_repository::get_document(&state.pipeline_pool, &doc_id)
@@ -277,6 +280,13 @@ pub async fn completeness_handler(
         })),
     )
     .await;
+
+    let checks_passed = checks.iter().filter(|c| c.status == "pass").count();
+    let checks_failed = checks.iter().filter(|c| c.status == "fail").count();
+    steps::record_step_complete(
+        &state.pipeline_pool, step_id, start.elapsed().as_secs_f64(),
+        &serde_json::json!({"checks_passed": checks_passed, "checks_failed": checks_failed, "published": published}),
+    ).await.ok();
 
     Ok(Json(CompletenessResponse {
         document_id: doc_id,

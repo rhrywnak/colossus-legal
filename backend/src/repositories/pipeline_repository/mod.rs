@@ -10,6 +10,7 @@
 //! - `extraction.rs` — extraction_runs, extraction_items, extraction_relationships
 
 mod extraction;
+pub mod steps;
 
 pub use extraction::*;
 

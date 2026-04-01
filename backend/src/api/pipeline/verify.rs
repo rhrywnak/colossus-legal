@@ -9,7 +9,7 @@ use serde::Serialize;
 use crate::auth::{require_admin, AuthUser};
 use crate::error::AppError;
 use crate::repositories::audit_repository::log_admin_action;
-use crate::repositories::pipeline_repository::{self, ExtractionItemRecord};
+use crate::repositories::pipeline_repository::{self, steps, ExtractionItemRecord};
 use crate::state::AppState;
 
 #[derive(Debug, Serialize)]
@@ -30,7 +30,12 @@ pub async fn verify_handler(
     Path(doc_id): Path<String>,
 ) -> Result<Json<VerifyResponse>, AppError> {
     require_admin(&user)?;
+    let start = std::time::Instant::now();
     tracing::info!(user = %user.username, doc_id = %doc_id, "POST verify");
+
+    let step_id = steps::record_step_start(
+        &state.pipeline_pool, &doc_id, "verify", &user.username, &serde_json::json!({}),
+    ).await.map_err(|e| AppError::Internal { message: format!("Step logging: {e}") })?;
 
     // 1. Fetch document
     let document = pipeline_repository::get_document(&state.pipeline_pool, &doc_id)
@@ -129,6 +134,14 @@ pub async fn verify_handler(
         Some(serde_json::json!({ "exact": exact, "normalized": normalized, "not_found": not_found })),
     )
     .await;
+
+    let grounding_rate = if total_all > 0 {
+        ((exact + normalized) as f64 / total_all as f64 * 100.0).round()
+    } else { 0.0 };
+    steps::record_step_complete(
+        &state.pipeline_pool, step_id, start.elapsed().as_secs_f64(),
+        &serde_json::json!({"grounding_rate": grounding_rate, "exact": exact, "normalized": normalized, "not_found": not_found}),
+    ).await.ok();
 
     Ok(Json(VerifyResponse {
         document_id: doc_id,

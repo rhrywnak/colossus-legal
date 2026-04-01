@@ -18,7 +18,7 @@ use axum::{
 use crate::auth::{require_admin, AuthUser};
 use crate::error::AppError;
 use crate::repositories::audit_repository::log_admin_action;
-use crate::repositories::pipeline_repository;
+use crate::repositories::pipeline_repository::{self, steps};
 use crate::state::AppState;
 
 use super::ExtractTextResponse;
@@ -34,7 +34,12 @@ pub async fn extract_text(
     Path(doc_id): Path<String>,
 ) -> Result<Json<ExtractTextResponse>, AppError> {
     require_admin(&user)?;
+    let start = std::time::Instant::now();
     tracing::info!(user = %user.username, doc_id = %doc_id, "POST extract-text");
+
+    let step_id = steps::record_step_start(
+        &state.pipeline_pool, &doc_id, "extract_text", &user.username, &serde_json::json!({}),
+    ).await.map_err(|e| AppError::Internal { message: format!("Step logging: {e}") })?;
 
     // 1. Fetch document record
     let document = pipeline_repository::get_document(&state.pipeline_pool, &doc_id)
@@ -125,6 +130,11 @@ pub async fn extract_text(
         })),
     )
     .await;
+
+    steps::record_step_complete(
+        &state.pipeline_pool, step_id, start.elapsed().as_secs_f64(),
+        &serde_json::json!({"page_count": page_count, "total_chars": total_chars}),
+    ).await.ok();
 
     Ok(Json(ExtractTextResponse {
         document_id: doc_id,

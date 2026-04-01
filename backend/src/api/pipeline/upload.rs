@@ -16,7 +16,7 @@ use sha2::{Digest, Sha256};
 use crate::auth::{require_admin, AuthUser};
 use crate::error::AppError;
 use crate::repositories::audit_repository::log_admin_action;
-use crate::repositories::pipeline_repository::{self, PipelineConfigInput};
+use crate::repositories::pipeline_repository::{self, steps, PipelineConfigInput};
 use crate::state::AppState;
 
 use super::{field_text, require_field, UploadDocumentResponse, MAX_FILE_SIZE};
@@ -32,6 +32,7 @@ pub async fn upload_document(
     mut multipart: Multipart,
 ) -> Result<(axum::http::StatusCode, Json<UploadDocumentResponse>), AppError> {
     require_admin(&user)?;
+    let start = std::time::Instant::now();
     tracing::info!(user = %user.username, "POST /api/admin/pipeline/documents");
 
     // Collect all multipart fields into local variables.
@@ -168,6 +169,17 @@ pub async fn upload_document(
     })?;
 
     tracing::info!(user = %user.username, doc_id = %doc_id, size = file_data.len(), "Pipeline document uploaded");
+
+    // Record step (after document exists in DB so FK is satisfied)
+    if let Ok(step_id) = steps::record_step_start(
+        &state.pipeline_pool, &doc_id, "upload", &user.username,
+        &serde_json::json!({"filename": original_name, "document_type": document_type}),
+    ).await {
+        steps::record_step_complete(
+            &state.pipeline_pool, step_id, start.elapsed().as_secs_f64(),
+            &serde_json::json!({"file_size": file_data.len(), "file_hash": file_hash}),
+        ).await.ok();
+    }
 
     log_admin_action(
         &state.audit_repo,

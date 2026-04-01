@@ -15,6 +15,7 @@ mod completeness;
 mod completeness_helpers;
 mod extract;
 mod extract_text;
+mod history;
 mod index;
 mod ingest;
 mod ingest_helpers;
@@ -24,6 +25,7 @@ mod upload;
 pub mod verify;
 
 pub use completeness::completeness_handler;
+pub use history::history_handler;
 pub use extract::extract_handler;
 pub use extract_text::extract_text;
 pub use index::index_handler;
@@ -61,6 +63,7 @@ pub fn router() -> Router<AppState> {
         .route("/documents/:id/index", post(index_handler))
         .route("/documents/:id/completeness", get(completeness_handler))
         .route("/documents/:id/report", get(report_handler))
+        .route("/documents/:id/history", get(history_handler))
 }
 
 /// Maximum upload size: 50 MB.
