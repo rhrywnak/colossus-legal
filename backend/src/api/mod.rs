@@ -157,6 +157,10 @@ pub fn router() -> Router<AppState> {
             post(pipeline::verify_handler),
         )
         .route(
+            "/admin/pipeline/documents/:id/ingest",
+            post(pipeline::ingest_handler),
+        )
+        .route(
             "/admin/pipeline/documents/:id/report",
             get(pipeline::report_handler),
         )

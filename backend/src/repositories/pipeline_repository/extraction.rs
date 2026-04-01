@@ -223,6 +223,56 @@ pub async fn get_all_relationships(
     Ok(rows)
 }
 
+/// Get the latest COMPLETED extraction run ID for a document.
+///
+/// Returns `None` if no completed run exists. Used by the ingest handler
+/// to find which run's items to write into Neo4j.
+pub async fn get_latest_completed_run(
+    pool: &PgPool,
+    document_id: &str,
+) -> Result<Option<i32>, PipelineRepoError> {
+    let row = sqlx::query_scalar::<_, i32>(
+        "SELECT id FROM extraction_runs
+         WHERE document_id = $1 AND status = 'COMPLETED'
+         ORDER BY id DESC LIMIT 1",
+    )
+    .bind(document_id)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row)
+}
+
+/// Get all extraction items for a specific run (by run_id).
+///
+/// Unlike `get_all_items` which queries by document_id, this targets
+/// a single run — important when a document has been extracted multiple times.
+pub async fn get_items_for_run(
+    pool: &PgPool,
+    run_id: i32,
+) -> Result<Vec<ExtractionItemRecord>, PipelineRepoError> {
+    let rows = sqlx::query_as::<_, ExtractionItemRecord>(
+        "SELECT * FROM extraction_items WHERE run_id = $1 ORDER BY id",
+    )
+    .bind(run_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
+/// Get all extraction relationships for a specific run (by run_id).
+pub async fn get_relationships_for_run(
+    pool: &PgPool,
+    run_id: i32,
+) -> Result<Vec<ExtractionRelationshipRecord>, PipelineRepoError> {
+    let rows = sqlx::query_as::<_, ExtractionRelationshipRecord>(
+        "SELECT * FROM extraction_relationships WHERE run_id = $1 ORDER BY id",
+    )
+    .bind(run_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
 /// Get extraction run metadata for a document.
 pub async fn get_extraction_runs(
     pool: &PgPool,
