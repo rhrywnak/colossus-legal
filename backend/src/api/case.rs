@@ -17,7 +17,7 @@ pub async fn get_case(
 
     match repo.get_case().await {
         Ok(Some(response)) => Ok(Json(response)),
-        Ok(None) => Err(StatusCode::NOT_FOUND),
+        Ok(None) => Ok(Json(CaseResponse::empty())),
         Err(e) => {
             tracing::error!("Failed to fetch case: {:?}", e);
             Err(StatusCode::INTERNAL_SERVER_ERROR)

@@ -49,7 +49,7 @@ impl CaseRepository {
         stats.legal_count_details = self.get_legal_count_details().await?;
 
         Ok(Some(CaseResponse {
-            case: case_info,
+            case: Some(case_info),
             parties,
             stats,
         }))

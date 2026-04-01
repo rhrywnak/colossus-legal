@@ -43,7 +43,7 @@ export type CaseStats = {
 };
 
 export type CaseResponse = {
-  case: CaseInfo;
+  case?: CaseInfo;
   parties: PartiesGroup;
   stats: CaseStats;
 };

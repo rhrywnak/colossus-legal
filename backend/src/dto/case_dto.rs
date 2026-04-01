@@ -76,7 +76,19 @@ impl Default for CaseStats {
 /// Full response for GET /case
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CaseResponse {
-    pub case: CaseInfo,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub case: Option<CaseInfo>,
     pub parties: PartiesGroup,
     pub stats: CaseStats,
+}
+
+impl CaseResponse {
+    /// Return an empty response for when no Case node exists in Neo4j.
+    pub fn empty() -> Self {
+        Self {
+            case: None,
+            parties: PartiesGroup { plaintiffs: vec![], defendants: vec![], other: vec![] },
+            stats: CaseStats::default(),
+        }
+    }
 }

@@ -74,10 +74,21 @@ const Home: React.FC = () => {
     );
   }
 
-  if (!caseData) {
+  if (!caseData || !caseData.case) {
     return (
-      <div style={{ padding: "2rem", textAlign: "center", color: "#64748b" }}>
-        No case data available
+      <div style={{ padding: "3rem", textAlign: "center" }}>
+        <div style={{ fontSize: "1.1rem", fontWeight: 600, color: "#334155", marginBottom: "0.5rem" }}>
+          No case data available
+        </div>
+        <div style={{ fontSize: "0.84rem", color: "#64748b", marginBottom: "1rem", lineHeight: 1.5 }}>
+          Process documents through the Pipeline to populate the knowledge graph.
+        </div>
+        <Link
+          to="/pipeline"
+          style={{ fontSize: "0.84rem", color: "#2563eb", textDecoration: "none", fontWeight: 500 }}
+        >
+          Go to Pipeline Dashboard {"\u2192"}
+        </Link>
       </div>
     );
   }
