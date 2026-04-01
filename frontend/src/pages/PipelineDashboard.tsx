@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import DocumentStatusBadge from "../components/pipeline/DocumentStatusBadge";
 import PipelineProgressBar from "../components/pipeline/PipelineProgressBar";
+import UploadDialog from "../components/pipeline/UploadDialog";
 import { fetchPipelineDocuments, fetchMetrics, PipelineDocument, MetricsResponse } from "../services/pipelineApi";
 
 // ── Styles ──────────────────────────────────────────────────────
@@ -60,21 +61,21 @@ const PipelineDashboard: React.FC = () => {
   const [metrics, setMetrics] = useState<MetricsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [uploadOpen, setUploadOpen] = useState(false);
 
-  useEffect(() => {
-    async function load() {
-      try {
-        const [docs, m] = await Promise.all([fetchPipelineDocuments(), fetchMetrics()]);
-        setDocuments(docs);
-        setMetrics(m);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Failed to load pipeline data");
-      } finally {
-        setLoading(false);
-      }
+  const loadData = async () => {
+    try {
+      const [docs, m] = await Promise.all([fetchPipelineDocuments(), fetchMetrics()]);
+      setDocuments(docs);
+      setMetrics(m);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load pipeline data");
+    } finally {
+      setLoading(false);
     }
-    load();
-  }, []);
+  };
+
+  useEffect(() => { loadData(); }, []);
 
   if (!user?.permissions.is_admin) {
     return <div style={emptyState}>Admin access required.</div>;
@@ -90,10 +91,27 @@ const PipelineDashboard: React.FC = () => {
 
   return (
     <div style={{ paddingTop: "1.5rem", paddingBottom: "2rem" }}>
-      <h1 style={pageTitle}>Pipeline Dashboard</h1>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.25rem" }}>
+        <h1 style={pageTitle}>Pipeline Dashboard</h1>
+        <button
+          onClick={() => setUploadOpen(true)}
+          style={{
+            padding: "0.45rem 1rem", fontSize: "0.84rem", fontWeight: 600, border: "none",
+            borderRadius: "6px", backgroundColor: "#2563eb", color: "#ffffff",
+            cursor: "pointer", fontFamily: "inherit",
+          }}
+        >
+          Upload New
+        </button>
+      </div>
       <p style={{ fontSize: "0.84rem", color: "#64748b", marginBottom: "1.25rem" }}>
         Document extraction pipeline status and controls.
       </p>
+      <UploadDialog
+        open={uploadOpen}
+        onClose={() => setUploadOpen(false)}
+        onSuccess={() => { setUploadOpen(false); loadData(); }}
+      />
 
       {/* Stats row */}
       {metrics && (
