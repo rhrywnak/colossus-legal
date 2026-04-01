@@ -11,6 +11,8 @@
 //! The `mod.rs` file re-exports the public items so callers don't change.
 
 mod anthropic;
+mod completeness;
+mod completeness_helpers;
 mod extract;
 mod extract_text;
 mod index;
@@ -20,6 +22,7 @@ pub mod report;
 mod upload;
 pub mod verify;
 
+pub use completeness::completeness_handler;
 pub use extract::extract_handler;
 pub use extract_text::extract_text;
 pub use index::index_handler;

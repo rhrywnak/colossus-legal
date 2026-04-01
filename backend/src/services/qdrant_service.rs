@@ -241,6 +241,40 @@ fn extract_optional_string(payload: &serde_json::Value, key: &str) -> Option<Str
         .map(|s| s.to_string())
 }
 
+/// Count points in the collection matching a payload filter.
+///
+/// Uses `POST /collections/{name}/points/count` with `exact: true`.
+/// More efficient than scrolling all points when you only need the count.
+pub async fn count_points_by_filter(
+    client: &reqwest::Client,
+    qdrant_url: &str,
+    filter_key: &str,
+    filter_value: &str,
+) -> Result<usize, QdrantError> {
+    let url = format!("{qdrant_url}/collections/{COLLECTION_NAME}/points/count");
+
+    let body = serde_json::json!({
+        "filter": {
+            "must": [{
+                "key": filter_key,
+                "match": { "value": filter_value }
+            }]
+        },
+        "exact": true
+    });
+
+    let resp = client.post(&url).json(&body).send().await?;
+    if !resp.status().is_success() {
+        let status = resp.status().as_u16();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(QdrantError::Api { status, body });
+    }
+
+    let data: serde_json::Value = resp.json().await?;
+    let count = data["result"]["count"].as_u64().unwrap_or(0) as usize;
+    Ok(count)
+}
+
 /// Delete the Qdrant collection. Used by the CLI `embed --clean` command.
 ///
 /// Returns Ok(()) if deletion succeeded or collection didn't exist.
