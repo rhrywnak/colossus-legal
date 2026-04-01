@@ -24,6 +24,7 @@ mod ingest_helpers;
 mod ingest_resolver;
 pub mod report;
 mod review;
+mod schemas;
 mod upload;
 pub mod verify;
 
@@ -73,6 +74,7 @@ pub fn router() -> Router<AppState> {
         .route("/items/:id/reject", post(review::reject_handler))
         .route("/items/:id", put(review::edit_handler))
         .route("/metrics", get(metrics::metrics_handler))
+        .route("/schemas", get(schemas::list_schemas_handler))
 }
 
 /// Maximum upload size: 50 MB.
