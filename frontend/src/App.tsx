@@ -23,6 +23,7 @@ import Hearings from "./pages/Hearings";
 import Home from "./pages/Home";
 import Admin from "./pages/Admin";
 import PipelineDashboard from "./pages/PipelineDashboard";
+import PipelineDocumentDetail from "./pages/PipelineDocumentDetail";
 import DocumentWorkspace from "./pages/DocumentWorkspace";
 import PdfTest from "./pages/PdfTest";
 import People from "./pages/People";
@@ -60,6 +61,7 @@ const App: React.FC = () => {
               <Route path="/timeline" element={<TimelinePage />} />
               <Route path="/admin" element={<Admin />} />
               <Route path="/pipeline" element={<PipelineDashboard />} />
+              <Route path="/pipeline/:id" element={<PipelineDocumentDetail />} />
               <Route path="/admin/documents/:id/audit" element={<DocumentWorkspace />} />
               <Route path="/admin/documents/:id/view" element={<DocumentWorkspace />} />
               <Route path="/pdf-test" element={<PdfTest />} />
