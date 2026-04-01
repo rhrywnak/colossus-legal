@@ -18,6 +18,7 @@ mod extract_text;
 mod history;
 mod index;
 mod items;
+mod metrics;
 mod ingest;
 mod ingest_helpers;
 mod ingest_resolver;
@@ -71,6 +72,7 @@ pub fn router() -> Router<AppState> {
         .route("/items/:id/approve", post(review::approve_handler))
         .route("/items/:id/reject", post(review::reject_handler))
         .route("/items/:id", put(review::edit_handler))
+        .route("/metrics", get(metrics::metrics_handler))
 }
 
 /// Maximum upload size: 50 MB.
