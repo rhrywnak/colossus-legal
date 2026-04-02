@@ -1,7 +1,9 @@
-import React from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { logout } from "../services/auth";
+
+const AUTHENTIK_SETTINGS_URL = "https://auth.cogmai.com/if/user/#/settings";
 
 // ─── Navigation items ────────────────────────────────────────────────────────
 const NAV_ITEMS = [
@@ -9,12 +11,12 @@ const NAV_ITEMS = [
   { label: "Evidence", path: "/explorer" },
   { label: "People", path: "/people" },
   { label: "Documents", path: "/documents" },
-  { label: "Ask Minerva", path: "/ask" },
+  { label: "Chat", path: "/ask" },
 ];
 
 // Admin-only items — shown when user.permissions.is_admin
 const ADMIN_ITEMS = [
-  { label: "\u2699\u00A0Admin", path: "/admin" },
+  { label: "Admin", path: "/admin" },
 ];
 
 // ─── Styles ──────────────────────────────────────────────────────────────────
@@ -104,17 +106,20 @@ const avatarStyle: React.CSSProperties = {
   color: "#ffffff",
 };
 
-const signOutStyle: React.CSSProperties = {
-  color: "#94a3b8",
-  background: "none",
-  border: "1px solid #e2e8f0",
-  padding: "0.32rem 0.75rem",
-  borderRadius: "6px",
-  fontSize: "0.76rem",
-  fontWeight: 500,
-  cursor: "pointer",
-  fontFamily: "inherit",
-  transition: "all 0.15s ease",
+// ─── Dropdown styles ────────────────────────────────────────────────────────
+const dropdownStyle: React.CSSProperties = {
+  position: "absolute", top: "100%", right: 0, marginTop: "0.35rem",
+  minWidth: "220px", backgroundColor: "#ffffff", borderRadius: "8px",
+  border: "1px solid #e2e8f0", boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+  zIndex: 200, overflow: "hidden",
+};
+const dropdownItem: React.CSSProperties = {
+  display: "block", width: "100%", padding: "0.5rem 1rem", fontSize: "0.82rem",
+  color: "#334155", textDecoration: "none", border: "none", background: "none",
+  textAlign: "left", cursor: "pointer", fontFamily: "inherit",
+};
+const dropdownDivider: React.CSSProperties = {
+  height: "1px", backgroundColor: "#e2e8f0", margin: "0.25rem 0",
 };
 
 // ─── Helper: is this nav item active? ────────────────────────────────────────
@@ -127,9 +132,23 @@ function isActive(itemPath: string, currentPath: string): boolean {
 const Header: React.FC = () => {
   const location = useLocation();
   const { user, loading, isAuthenticated } = useAuth();
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
   const userName = user?.display_name || user?.username || "Anonymous";
   const userInitials = user?.display_name?.[0]?.toUpperCase() ?? "?";
+
+  // Close dropdown on click outside
+  useEffect(() => {
+    if (!dropdownOpen) return;
+    const handleClick = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [dropdownOpen]);
 
   return (
     <header style={headerStyle}>
@@ -195,27 +214,77 @@ const Header: React.FC = () => {
         ))}
       </nav>
 
-      {/* Right — User badge + Sign Out */}
+      {/* Right — User dropdown */}
       <div style={rightSectionStyle}>
         {loading ? (
           <span style={{ fontSize: "0.84rem", color: "#94a3b8" }}>...</span>
         ) : (
-          <>
-            <div style={userBadgeStyle}>
+          <div ref={dropdownRef} style={{ position: "relative" }}>
+            <div
+              style={{ ...userBadgeStyle, cursor: "pointer" }}
+              onClick={() => setDropdownOpen((prev) => !prev)}
+            >
               <div style={avatarStyle}>{userInitials}</div>
               {userName}
             </div>
-            {isAuthenticated && (
-              <button
-                style={signOutStyle}
-                onClick={() => {
-                  logout();
-                }}
-              >
-                Sign Out
-              </button>
+
+            {dropdownOpen && isAuthenticated && (
+              <div style={dropdownStyle}>
+                {/* User info */}
+                <div style={{ padding: "0.6rem 1rem" }}>
+                  <div style={{ fontSize: "0.84rem", fontWeight: 600, color: "#0f172a" }}>
+                    {userName}
+                  </div>
+                  {user?.email && (
+                    <div style={{ fontSize: "0.76rem", color: "#64748b", marginTop: "0.1rem" }}>
+                      {user.email}
+                    </div>
+                  )}
+                  {user?.groups && user.groups.length > 0 && (
+                    <div style={{ fontSize: "0.72rem", color: "#94a3b8", marginTop: "0.15rem" }}>
+                      {user.groups.join(", ")}
+                    </div>
+                  )}
+                </div>
+                <div style={dropdownDivider} />
+
+                {/* Account links */}
+                <a
+                  href={AUTHENTIK_SETTINGS_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={dropdownItem}
+                  onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "#f1f5f9"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "transparent"; }}
+                  onClick={() => setDropdownOpen(false)}
+                >
+                  Account Settings
+                </a>
+                <a
+                  href={AUTHENTIK_SETTINGS_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={dropdownItem}
+                  onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "#f1f5f9"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "transparent"; }}
+                  onClick={() => setDropdownOpen(false)}
+                >
+                  Change Password
+                </a>
+                <div style={dropdownDivider} />
+
+                {/* Sign out */}
+                <button
+                  style={{ ...dropdownItem, color: "#dc2626" }}
+                  onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "#fef2f2"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "transparent"; }}
+                  onClick={() => { setDropdownOpen(false); logout(); }}
+                >
+                  Sign Out
+                </button>
+              </div>
             )}
-          </>
+          </div>
         )}
       </div>
     </header>
