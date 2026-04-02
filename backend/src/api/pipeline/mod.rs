@@ -26,6 +26,7 @@ pub mod report;
 mod review;
 mod schemas;
 mod upload;
+pub mod users;
 pub mod verify;
 
 pub use completeness::completeness_handler;
@@ -77,6 +78,7 @@ pub fn router() -> Router<AppState> {
         .route("/items/:id", put(review::edit_handler))
         .route("/metrics", get(metrics::metrics_handler))
         .route("/schemas", get(schemas::list_schemas_handler))
+        .route("/documents/:id/assign", put(users::assign_reviewer_handler))
 }
 
 /// GET /documents — list all pipeline documents.

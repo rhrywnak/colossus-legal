@@ -12,6 +12,7 @@
 mod extraction;
 pub mod review;
 pub mod steps;
+pub mod users;
 
 pub use extraction::*;
 
@@ -59,6 +60,10 @@ pub struct DocumentRecord {
     pub status: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub assigned_reviewer: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub assigned_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 /// A page of extracted text from the `document_text` table.
@@ -180,7 +185,8 @@ pub async fn insert_document_text(
 /// List all documents, most recent first.
 pub async fn list_all_documents(pool: &PgPool) -> Result<Vec<DocumentRecord>, PipelineRepoError> {
     let rows = sqlx::query_as::<_, DocumentRecord>(
-        "SELECT id, title, file_path, file_hash, document_type, status, created_at, updated_at
+        "SELECT id, title, file_path, file_hash, document_type, status, created_at, updated_at,
+                assigned_reviewer, assigned_at
          FROM documents ORDER BY created_at DESC",
     )
     .fetch_all(pool)
@@ -194,7 +200,8 @@ pub async fn get_document(
     document_id: &str,
 ) -> Result<Option<DocumentRecord>, PipelineRepoError> {
     let row = sqlx::query_as::<_, DocumentRecord>(
-        "SELECT id, title, file_path, file_hash, document_type, status, created_at, updated_at
+        "SELECT id, title, file_path, file_hash, document_type, status, created_at, updated_at,
+                assigned_reviewer, assigned_at
          FROM documents WHERE id = $1",
     )
     .bind(document_id)

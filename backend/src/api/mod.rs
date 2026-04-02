@@ -1,11 +1,13 @@
 use axum::{
     extract::State,
     http::StatusCode,
+    Json,
     routing::{get, patch, post, put},
     Router,
 };
 
-use crate::auth::me_handler;
+use crate::auth::{me_handler, AuthUser, MeResponse};
+use crate::repositories::pipeline_repository::users as known_users;
 use crate::state::AppState;
 
 pub mod admin_audit_health;
@@ -58,7 +60,8 @@ pub mod search;
 /// Express.js `app.use('/api', apiRouter)`.
 pub fn router() -> Router<AppState> {
     Router::new()
-        .route("/me", get(me_handler))
+        .route("/me", get(me_with_tracking))
+        .route("/users", get(pipeline::users::list_users_handler))
         .route("/logout", get(logout::logout))
         .route("/analysis", get(analysis::get_analysis))
         .route("/case", get(case::get_case))
@@ -146,6 +149,37 @@ pub fn router() -> Router<AppState> {
         .route("/qa-history", get(qa::get_qa_history))
         .route("/qa/:id", get(qa::get_qa_entry).delete(qa::delete_qa_entry))
         .route("/qa/:id/rate", patch(qa::rate_qa_entry))
+}
+
+/// Wrapper around `me_handler` that also records the user in `known_users`.
+///
+/// The upsert is fire-and-forget: it runs in a background task so it never
+/// slows down or fails the `/api/me` response. This is the simplest way to
+/// passively track users without adding middleware complexity.
+///
+/// ## Rust Learning: tokio::spawn for fire-and-forget
+///
+/// `tokio::spawn` launches a new async task on the runtime. The spawned
+/// future runs independently — we don't `.await` the JoinHandle, so the
+/// response returns immediately. `.ok()` inside the task swallows any
+/// database errors (user tracking must never fail a request).
+async fn me_with_tracking(
+    user: AuthUser,
+    State(state): State<AppState>,
+) -> Json<MeResponse> {
+    // Clone the values the background task needs before we move `user`.
+    let pool = state.pipeline_pool.clone();
+    let username = user.username.clone();
+    let display_name = user.display_name.clone();
+    let email = user.email.clone();
+
+    tokio::spawn(async move {
+        known_users::upsert_known_user(&pool, &username, &display_name, &email)
+            .await
+            .ok();
+    });
+
+    me_handler(user).await
 }
 
 /// Health check endpoint — served at `/health` (root level, no `/api/` prefix).
