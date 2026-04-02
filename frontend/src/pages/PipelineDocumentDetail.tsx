@@ -142,7 +142,7 @@ const PipelineDocumentDetail: React.FC = () => {
 
   return (
     <div style={{ paddingTop: "1.5rem", paddingBottom: "2rem" }}>
-      <Link to="/pipeline" style={backLink}>&larr; Back to Pipeline Dashboard</Link>
+      <Link to="/documents" style={backLink}>&larr; Back to Documents</Link>
 
       <h1 style={{ ...pageTitle, marginTop: "0.75rem" }}>{doc.title}</h1>
       <div style={metaRow}>

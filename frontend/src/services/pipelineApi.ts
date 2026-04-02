@@ -14,6 +14,21 @@ export interface PipelineDocument {
   document_type: string;
   created_at: string;
   updated_at: string;
+  assigned_reviewer?: string | null;
+  assigned_at?: string | null;
+}
+
+export interface KnownUser {
+  username: string;
+  display_name: string;
+  email: string;
+  last_seen_at: string;
+}
+
+export interface AssignReviewerResponse {
+  document_id: string;
+  assigned_reviewer?: string | null;
+  assigned_at?: string | null;
 }
 
 export interface PipelineStep {
@@ -125,6 +140,25 @@ export async function fetchSchemas(): Promise<SchemaInfo[]> {
   if (!res.ok) throw new Error(`Failed to fetch schemas: ${res.status}`);
   const data = await res.json();
   return data.schemas;
+}
+
+export async function fetchUsers(): Promise<KnownUser[]> {
+  const res = await authFetch(`${API_BASE_URL}/api/users`);
+  if (!res.ok) throw new Error(`Failed to fetch users: ${res.status}`);
+  return res.json();
+}
+
+export async function assignReviewer(
+  docId: string,
+  reviewer: string | null,
+): Promise<AssignReviewerResponse> {
+  const res = await authFetch(`${PIPELINE_BASE}/documents/${docId}/assign`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reviewer }),
+  });
+  if (!res.ok) throw new Error(`Assign reviewer failed: ${res.status}`);
+  return res.json();
 }
 
 // ── Pipeline step triggers ─────────────────────────

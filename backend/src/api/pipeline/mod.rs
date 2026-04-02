@@ -46,7 +46,7 @@ use axum::{
 };
 use serde::Serialize;
 
-use crate::auth::{require_admin, AuthUser};
+use crate::auth::AuthUser;
 use crate::error::AppError;
 use crate::repositories::pipeline_repository::{self, DocumentRecord};
 use crate::state::AppState;
@@ -82,11 +82,13 @@ pub fn router() -> Router<AppState> {
 }
 
 /// GET /documents — list all pipeline documents.
+///
+/// Open to all authenticated users (no admin check). Every user can see the
+/// document list; only processing endpoints (extract, ingest, etc.) require admin.
 async fn list_documents_handler(
-    user: AuthUser,
+    _user: AuthUser,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<DocumentRecord>>, AppError> {
-    require_admin(&user)?;
     let docs = pipeline_repository::list_all_documents(&state.pipeline_pool)
         .await
         .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?;

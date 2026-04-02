@@ -97,7 +97,7 @@ const UploadDialog: React.FC<Props> = ({ open, onClose, onSuccess }) => {
         id, title, documentType: schema, schemaFile: `${schema}.yaml`,
       });
       onSuccess();
-      navigate(`/pipeline/${doc.id}`);
+      navigate(`/documents/${doc.id}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Upload failed");
     } finally {
