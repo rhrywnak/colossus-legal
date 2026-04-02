@@ -155,7 +155,7 @@ const DocumentWorkspaceTabs: React.FC = () => {
     );
   }
 
-  const pdfUrl = `${API_BASE_URL}/api/documents/${encodeURIComponent(docId)}/file`;
+  const pdfUrl = `${API_BASE_URL}/api/admin/pipeline/documents/${encodeURIComponent(docId)}/file`;
 
   return (
     <div style={{ paddingTop: "1.5rem", paddingBottom: "2rem" }}>

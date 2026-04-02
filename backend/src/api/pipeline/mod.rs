@@ -15,6 +15,7 @@ mod completeness;
 mod completeness_helpers;
 mod extract;
 mod extract_text;
+mod file;
 mod history;
 mod index;
 mod items;
@@ -79,6 +80,7 @@ pub fn router() -> Router<AppState> {
         .route("/metrics", get(metrics::metrics_handler))
         .route("/schemas", get(schemas::list_schemas_handler))
         .route("/documents/:id/assign", put(users::assign_reviewer_handler))
+        .route("/documents/:id/file", get(file::file_handler))
 }
 
 /// GET /documents — list all pipeline documents.
