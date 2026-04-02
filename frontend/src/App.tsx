@@ -18,6 +18,7 @@ import Decisions from "./pages/Decisions";
 import DocumentDetailPage from "./pages/DocumentDetailPage";
 import DocumentsPage from "./pages/DocumentsPage";
 import PipelineDocumentDetail from "./pages/PipelineDocumentDetail";
+import DocumentWorkspaceTabs from "./pages/DocumentWorkspaceTabs";
 import HarmsPage from "./pages/HarmsPage";
 import Hearings from "./pages/Hearings";
 import Home from "./pages/Home";
@@ -39,7 +40,7 @@ const App: React.FC = () => {
               <Route path="/allegations" element={<AllegationsPage />} />
               <Route path="/claims" element={<MotionClaimsPage />} />
               <Route path="/documents" element={<DocumentsPage />} />
-              <Route path="/documents/:id" element={<PipelineDocumentDetail />} />
+              <Route path="/documents/:id" element={<DocumentWorkspaceTabs />} />
               <Route path="/evidence" element={<Navigate to="/explorer" replace />} />
               <Route path="/damages" element={<HarmsPage />} />
               <Route path="/people" element={<People />} />
