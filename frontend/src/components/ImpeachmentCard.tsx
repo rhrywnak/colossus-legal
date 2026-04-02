@@ -78,6 +78,7 @@ const ImpeachmentCard: React.FC<{ contradiction: ContradictionDto }> = ({ contra
             &ldquo;{contradiction.evidence_a.answer}&rdquo;
           </blockquote>
         )}
+        {/* TODO: Link to /documents/:id when document_id is added to ContradictionEvidence API type */}
         {contradiction.evidence_a.document_title && (
           <div style={{ fontSize: "0.8rem", color: "#6b7280", marginTop: "0.5rem" }}>
             Source: {contradiction.evidence_a.document_title}
@@ -114,6 +115,7 @@ const ImpeachmentCard: React.FC<{ contradiction: ContradictionDto }> = ({ contra
             &ldquo;{contradiction.evidence_b.answer}&rdquo;
           </blockquote>
         )}
+        {/* TODO: Link to /documents/:id when document_id is added to ContradictionEvidence API type */}
         {contradiction.evidence_b.document_title && (
           <div style={{ fontSize: "0.8rem", color: "#6b7280", marginTop: "0.5rem" }}>
             Source: {contradiction.evidence_b.document_title}

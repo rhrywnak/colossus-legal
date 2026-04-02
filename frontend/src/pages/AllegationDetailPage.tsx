@@ -215,6 +215,7 @@ const AllegationDetailPage: React.FC = () => {
               </div>
 
               {/* Source document + page number */}
+              {/* TODO: Link to /documents/:id when document_id is added to CharacterizationDetail API type */}
               {(char.document || char.page_number) && (
                 <div style={sourceLineStyle}>
                   {char.document && <span>{char.document}</span>}
@@ -256,6 +257,7 @@ const AllegationDetailPage: React.FC = () => {
                     {char.rebuttals.map((reb) => (
                       <div key={reb.evidence_id}>
                         {/* Rebuttal source */}
+                        {/* TODO: Link to /documents/:id when document_id is added to RebuttalDetail API type */}
                         <div style={sourceLineStyle}>
                           {reb.document && <span>{reb.document}</span>}
                           {reb.page_number && (

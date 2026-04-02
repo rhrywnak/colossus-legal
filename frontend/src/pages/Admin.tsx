@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
-import AdminDocuments from "../components/admin/AdminDocuments";
 import AdminIndex from "../components/admin/AdminIndex";
 import AdminChats from "../components/admin/AdminChats";
 import AdminAudit from "../components/admin/AdminAudit";
@@ -44,10 +43,9 @@ const deniedStyle: React.CSSProperties = {
   fontSize: "0.9rem",
 };
 
-type Tab = "documents" | "indexing" | "chats" | "audit";
+type Tab = "indexing" | "chats" | "audit";
 
 const TABS: { id: Tab; label: string }[] = [
-  { id: "documents", label: "Documents" },
   { id: "indexing", label: "Indexing" },
   { id: "chats", label: "Chats" },
   { id: "audit", label: "Audit" },
@@ -87,7 +85,7 @@ const statusDotStyle = (ok: boolean): React.CSSProperties => ({
 
 const Admin: React.FC = () => {
   const { user, loading } = useAuth();
-  const [activeTab, setActiveTab] = useState<Tab>("documents");
+  const [activeTab, setActiveTab] = useState<Tab>("indexing");
   const [status, setStatus] = useState<AdminStatusResponse | null>(null);
 
   // Fetch backend status on mount (only if admin)
@@ -154,7 +152,6 @@ const Admin: React.FC = () => {
       </div>
 
       {/* Panels */}
-      {activeTab === "documents" && <AdminDocuments />}
       {activeTab === "indexing" && <AdminIndex />}
       {activeTab === "chats" && <AdminChats />}
       {activeTab === "audit" && <AdminAudit />}

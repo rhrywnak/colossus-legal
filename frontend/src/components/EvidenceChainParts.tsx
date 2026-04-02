@@ -1,6 +1,6 @@
 import React from "react";
+import { Link } from "react-router-dom";
 import { MotionClaimWithEvidence, EvidenceWithDocument } from "../services/evidenceChain";
-import { API_BASE_URL } from "../services/api";
 
 // Professional color palette (shared with EvidenceExplorerPage)
 export const COLORS = {
@@ -63,12 +63,8 @@ export const DocumentLink: React.FC<DocumentLinkProps> = ({ document }) => (
     }}
   >
     <span style={{ color: COLORS.textSecondary }}>Source:</span>
-    <a
-      href={`${API_BASE_URL}/api/documents/${encodeURIComponent(document.id)}/file${
-        document.page_number !== undefined ? `#page=${document.page_number}` : ""
-      }`}
-      target="_blank"
-      rel="noopener noreferrer"
+    <Link
+      to={`/documents/${document.id}`}
       style={{ color: "#2563eb", textDecoration: "none", fontWeight: 500 }}
       onMouseEnter={(e) => { e.currentTarget.style.textDecoration = "underline"; }}
       onMouseLeave={(e) => { e.currentTarget.style.textDecoration = "none"; }}
@@ -77,7 +73,7 @@ export const DocumentLink: React.FC<DocumentLinkProps> = ({ document }) => (
       {document.page_number !== undefined && (
         <span style={{ color: COLORS.textSecondary, fontWeight: 400 }}> (p. {document.page_number})</span>
       )}
-    </a>
+    </Link>
   </div>
 );
 
