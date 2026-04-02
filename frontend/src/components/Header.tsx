@@ -5,11 +5,16 @@ import { logout } from "../services/auth";
 
 // ─── Navigation items ────────────────────────────────────────────────────────
 const NAV_ITEMS = [
-  { label: "Home", path: "/" },
+  { label: "Case Overview", path: "/" },
   { label: "Evidence", path: "/explorer" },
   { label: "People", path: "/people" },
   { label: "Documents", path: "/documents" },
-  { label: "Chat", path: "/ask" },
+  { label: "Ask Minerva", path: "/ask" },
+];
+
+// Admin-only items — shown when user.permissions.is_admin
+const ADMIN_ITEMS = [
+  { label: "\u2699\u00A0Admin", path: "/admin" },
 ];
 
 // ─── Styles ──────────────────────────────────────────────────────────────────
@@ -167,46 +172,27 @@ const Header: React.FC = () => {
             {item.label}
           </Link>
         ))}
-        {user?.permissions.is_admin && (
+        {user?.permissions.is_admin && ADMIN_ITEMS.map((item) => (
           <Link
-            to="/admin"
-            style={isActive("/admin", location.pathname) ? navLinkActive : navLinkBase}
+            key={item.path}
+            to={item.path}
+            style={isActive(item.path, location.pathname) ? navLinkActive : navLinkBase}
             onMouseEnter={(e) => {
-              if (!isActive("/admin", location.pathname)) {
+              if (!isActive(item.path, location.pathname)) {
                 e.currentTarget.style.color = "#1e293b";
                 e.currentTarget.style.backgroundColor = "#f1f5f9";
               }
             }}
             onMouseLeave={(e) => {
-              if (!isActive("/admin", location.pathname)) {
+              if (!isActive(item.path, location.pathname)) {
                 e.currentTarget.style.color = "#64748b";
                 e.currentTarget.style.backgroundColor = "transparent";
               }
             }}
           >
-            Admin
+            {item.label}
           </Link>
-        )}
-        {user?.permissions.is_admin && (
-          <Link
-            to="/pipeline"
-            style={isActive("/pipeline", location.pathname) ? navLinkActive : navLinkBase}
-            onMouseEnter={(e) => {
-              if (!isActive("/pipeline", location.pathname)) {
-                e.currentTarget.style.color = "#1e293b";
-                e.currentTarget.style.backgroundColor = "#f1f5f9";
-              }
-            }}
-            onMouseLeave={(e) => {
-              if (!isActive("/pipeline", location.pathname)) {
-                e.currentTarget.style.color = "#64748b";
-                e.currentTarget.style.backgroundColor = "transparent";
-              }
-            }}
-          >
-            Pipeline
-          </Link>
-        )}
+        ))}
       </nav>
 
       {/* Right — User badge + Sign Out */}

@@ -1,5 +1,5 @@
 import React from "react";
-import { Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes } from "react-router-dom";
 import Header from "./components/Header";
 import { AuthProvider } from "./context/AuthContext";
 import { CaseProvider } from "./context/CaseContext";
@@ -17,15 +17,10 @@ import MotionClaimsPage from "./pages/MotionClaimsPage";
 import Decisions from "./pages/Decisions";
 import DocumentDetailPage from "./pages/DocumentDetailPage";
 import DocumentsPage from "./pages/DocumentsPage";
-import EvidencePage from "./pages/EvidencePage";
 import HarmsPage from "./pages/HarmsPage";
 import Hearings from "./pages/Hearings";
 import Home from "./pages/Home";
 import Admin from "./pages/Admin";
-import PipelineDashboard from "./pages/PipelineDashboard";
-import PipelineDocumentDetail from "./pages/PipelineDocumentDetail";
-import DocumentWorkspace from "./pages/DocumentWorkspace";
-import PdfTest from "./pages/PdfTest";
 import People from "./pages/People";
 import PersonDetailPage from "./pages/PersonDetailPage";
 import TimelinePage from "./pages/TimelinePage";
@@ -44,7 +39,7 @@ const App: React.FC = () => {
               <Route path="/claims" element={<MotionClaimsPage />} />
               <Route path="/documents" element={<DocumentsPage />} />
               <Route path="/documents/:id" element={<DocumentDetailPage />} />
-              <Route path="/evidence" element={<EvidencePage />} />
+              <Route path="/evidence" element={<Navigate to="/explorer" replace />} />
               <Route path="/damages" element={<HarmsPage />} />
               <Route path="/people" element={<People />} />
               <Route path="/people/:id" element={<PersonDetailPage />} />
@@ -60,11 +55,8 @@ const App: React.FC = () => {
               <Route path="/ask" element={<AskPage />} />
               <Route path="/timeline" element={<TimelinePage />} />
               <Route path="/admin" element={<Admin />} />
-              <Route path="/pipeline" element={<PipelineDashboard />} />
-              <Route path="/pipeline/:id" element={<PipelineDocumentDetail />} />
-              <Route path="/admin/documents/:id/audit" element={<DocumentWorkspace />} />
-              <Route path="/admin/documents/:id/view" element={<DocumentWorkspace />} />
-              <Route path="/pdf-test" element={<PdfTest />} />
+              <Route path="/pipeline" element={<Navigate to="/documents" replace />} />
+              <Route path="/pipeline/:id" element={<Navigate to="/documents" replace />} />
             </Routes>
           </main>
         </div>
