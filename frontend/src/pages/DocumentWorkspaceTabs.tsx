@@ -2,10 +2,10 @@
  * DocumentWorkspaceTabs — Tabbed workspace for a single pipeline document.
  *
  * Tabs: Document (PDF), Content (extracted items), Processing (admin),
- * Review (placeholder), People & Links (placeholder).
+ * Review (side-by-side review), People & Links (people/org summary).
  *
- * Loaded at /documents/:id. The previous PipelineDocumentDetail page is
- * now the Processing tab via ProcessingPanel.
+ * Loaded at /documents/:id. Tab content is rendered by dedicated panel
+ * components to keep this file under 300 lines.
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
@@ -14,6 +14,9 @@ import { API_BASE_URL } from "../services/api";
 import DocumentStatusBadge from "../components/pipeline/DocumentStatusBadge";
 import PdfViewer from "../components/shared/PdfViewer";
 import ProcessingPanel from "../components/pipeline/ProcessingPanel";
+import ContentPanel from "../components/pipeline/ContentPanel";
+import ReviewPanel from "../components/pipeline/ReviewPanel";
+import PeopleLinksPanel from "../components/pipeline/PeopleLinksPanel";
 import {
   fetchPipelineDocuments, fetchDocumentHistory, fetchDocumentItems,
   PipelineDocument, PipelineStep, ExtractionItem,
@@ -50,38 +53,6 @@ const S = {
     borderBottom: "2px solid #2563eb", marginBottom: "-2px", transition: "color 0.15s ease",
   } as React.CSSProperties,
   empty: { padding: "3rem", textAlign: "center", color: "#94a3b8", fontSize: "0.9rem" } as React.CSSProperties,
-  placeholder: {
-    padding: "3rem", textAlign: "center", color: "#94a3b8", fontSize: "0.9rem",
-    backgroundColor: "#ffffff", borderRadius: "8px", border: "1px solid #e2e8f0",
-  } as React.CSSProperties,
-};
-
-// ── Content tab helpers ──────────────────────────────────────────
-
-const itemCardStyle: React.CSSProperties = {
-  backgroundColor: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "8px",
-  padding: "0.75rem 1rem", marginBottom: "0.5rem",
-};
-const typeBadge = (color: string): React.CSSProperties => ({
-  display: "inline-block", padding: "0.1rem 0.45rem", borderRadius: "4px",
-  fontSize: "0.68rem", fontWeight: 600, backgroundColor: color, color: "#fff",
-});
-const groundBadge = (ok: boolean): React.CSSProperties => ({
-  display: "inline-block", padding: "0.1rem 0.4rem", borderRadius: "9999px",
-  fontSize: "0.68rem", fontWeight: 600,
-  backgroundColor: ok ? "#dcfce7" : "#fef9c3", color: ok ? "#166534" : "#854d0e",
-});
-const pdfBtnStyle: React.CSSProperties = {
-  padding: "0.2rem 0.5rem", fontSize: "0.72rem", fontWeight: 500, border: "1px solid #e2e8f0",
-  borderRadius: "4px", backgroundColor: "#f8fafc", color: "#2563eb", cursor: "pointer", fontFamily: "inherit",
-};
-const filterStyle: React.CSSProperties = {
-  padding: "0.35rem 0.6rem", fontSize: "0.8rem", borderRadius: "6px", border: "1px solid #e2e8f0",
-  fontFamily: "inherit", color: "#334155", backgroundColor: "#ffffff", marginBottom: "0.75rem",
-};
-const TYPE_COLORS: Record<string, string> = {
-  Person: "#2563eb", Evidence: "#059669", Allegation: "#dc2626",
-  Claim: "#7c3aed", Document: "#d97706", Event: "#0891b2",
 };
 
 // ── Component ───────────────────────────────────────────────────
@@ -103,11 +74,10 @@ const DocumentWorkspaceTabs: React.FC = () => {
   // PDF state (shared across tabs for cross-tab navigation)
   const [pdfPage, setPdfPage] = useState(1);
 
-  // Content tab state (lazy-loaded)
+  // Items state (shared between Content and People tabs)
   const [items, setItems] = useState<ExtractionItem[] | null>(null);
   const [itemsLoading, setItemsLoading] = useState(false);
   const [itemsError, setItemsError] = useState<string | null>(null);
-  const [entityFilter, setEntityFilter] = useState("all");
 
   const docId = id ?? "";
   const isPublished = doc?.status === "PUBLISHED";
@@ -149,28 +119,20 @@ const DocumentWorkspaceTabs: React.FC = () => {
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  // Lazy-load extraction items when Content tab is first activated
-  useEffect(() => {
-    if (activeTab !== "content" || items !== null || itemsLoading || !docId) return;
+  // Load extraction items (called by Content and People tabs)
+  const loadItems = useCallback(() => {
+    if (items !== null || itemsLoading || !docId) return;
     setItemsLoading(true);
     fetchDocumentItems(docId, { per_page: 500 })
       .then((res) => { setItems(res.items); setItemsError(null); })
       .catch((e) => { setItemsError(e instanceof Error ? e.message : "Failed to load items"); })
       .finally(() => setItemsLoading(false));
-  }, [activeTab, items, itemsLoading, docId]);
+  }, [items, itemsLoading, docId]);
 
-  // Filtered items for Content tab
-  const filteredItems = useMemo(() => {
-    if (!items) return [];
-    if (entityFilter === "all") return items;
-    return items.filter((it) => it.entity_type === entityFilter);
-  }, [items, entityFilter]);
-
-  const entityTypes = useMemo(() => {
-    if (!items) return [];
-    const types = new Set(items.map((it) => it.entity_type));
-    return Array.from(types).sort();
-  }, [items]);
+  // Lazy-load items when Content tab is first activated
+  useEffect(() => {
+    if (activeTab === "content") loadItems();
+  }, [activeTab, loadItems]);
 
   // Cross-tab: view item in PDF
   const viewInPdf = (pageNum: number) => {
@@ -228,70 +190,19 @@ const DocumentWorkspaceTabs: React.FC = () => {
       )}
 
       {activeTab === "content" && (
-        <div>
-          {itemsLoading && <div style={S.empty}>Loading extracted content...</div>}
-          {itemsError && <div style={{ ...S.empty, color: "#dc2626" }}>{itemsError}</div>}
-          {items && items.length === 0 && <div style={S.empty}>No extracted content yet.</div>}
-          {items && items.length > 0 && (
-            <>
-              <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.5rem" }}>
-                <select style={filterStyle} value={entityFilter} onChange={(e) => setEntityFilter(e.target.value)}>
-                  <option value="all">All types ({items.length})</option>
-                  {entityTypes.map((t) => (
-                    <option key={t} value={t}>{t} ({items.filter((i) => i.entity_type === t).length})</option>
-                  ))}
-                </select>
-                <span style={{ fontSize: "0.76rem", color: "#64748b" }}>
-                  {filteredItems.length} item{filteredItems.length !== 1 ? "s" : ""}
-                </span>
-              </div>
-              <div style={{ maxHeight: "calc(100vh - 340px)", overflowY: "auto" }}>
-                {filteredItems.map((item) => (
-                  <div key={item.id} style={itemCardStyle}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.35rem" }}>
-                      <span style={typeBadge(TYPE_COLORS[item.entity_type] || "#6b7280")}>{item.entity_type}</span>
-                      <span style={{ fontSize: "0.88rem", fontWeight: 600, color: "#0f172a" }}>{item.label}</span>
-                      {item.grounding_status && (
-                        <span style={groundBadge(item.grounding_status === "grounded")}>
-                          {item.grounding_status}
-                        </span>
-                      )}
-                      {item.grounded_page && (
-                        <button style={pdfBtnStyle} onClick={() => viewInPdf(item.grounded_page!)}>
-                          View in PDF (p.{item.grounded_page})
-                        </button>
-                      )}
-                    </div>
-                    {item.verbatim_quote && (
-                      <div style={{ fontSize: "0.78rem", color: "#64748b", fontStyle: "italic", lineHeight: 1.4 }}>
-                        "{item.verbatim_quote.length > 150
-                          ? item.verbatim_quote.slice(0, 150) + "..."
-                          : item.verbatim_quote}"
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
+        <ContentPanel items={items} loading={itemsLoading} error={itemsError} onViewInPdf={viewInPdf} />
       )}
 
       {activeTab === "processing" && (
-        <ProcessingPanel
-          document={doc}
-          history={history}
-          onStepTriggered={loadData}
-          onSwitchTab={setActiveTab}
-        />
+        <ProcessingPanel document={doc} history={history} onStepTriggered={loadData} onSwitchTab={setActiveTab} />
       )}
 
       {activeTab === "review" && (
-        <div style={S.placeholder}>Review panel — coming in Phase C2</div>
+        <ReviewPanel documentId={docId} pdfUrl={pdfUrl} />
       )}
 
       {activeTab === "people" && (
-        <div style={S.placeholder}>People &amp; Links — coming in Phase C2</div>
+        <PeopleLinksPanel documentId={docId} items={items} onLoadItems={loadItems} />
       )}
     </div>
   );
