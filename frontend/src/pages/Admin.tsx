@@ -3,6 +3,7 @@ import { useAuth } from "../context/AuthContext";
 import AdminIndex from "../components/admin/AdminIndex";
 import AdminChats from "../components/admin/AdminChats";
 import AdminAudit from "../components/admin/AdminAudit";
+import AdminMetrics from "../components/admin/AdminMetrics";
 import { AdminStatusResponse, getAdminStatus } from "../services/admin";
 
 // ── Styles ────────────────────────────────────────────────────────────────────
@@ -43,9 +44,10 @@ const deniedStyle: React.CSSProperties = {
   fontSize: "0.9rem",
 };
 
-type Tab = "indexing" | "chats" | "audit";
+type Tab = "metrics" | "indexing" | "chats" | "audit";
 
 const TABS: { id: Tab; label: string }[] = [
+  { id: "metrics", label: "Metrics" },
   { id: "indexing", label: "Indexing" },
   { id: "chats", label: "Chats" },
   { id: "audit", label: "Audit" },
@@ -85,7 +87,7 @@ const statusDotStyle = (ok: boolean): React.CSSProperties => ({
 
 const Admin: React.FC = () => {
   const { user, loading } = useAuth();
-  const [activeTab, setActiveTab] = useState<Tab>("indexing");
+  const [activeTab, setActiveTab] = useState<Tab>("metrics");
   const [status, setStatus] = useState<AdminStatusResponse | null>(null);
 
   // Fetch backend status on mount (only if admin)
@@ -152,6 +154,7 @@ const Admin: React.FC = () => {
       </div>
 
       {/* Panels */}
+      {activeTab === "metrics" && <AdminMetrics />}
       {activeTab === "indexing" && <AdminIndex />}
       {activeTab === "chats" && <AdminChats />}
       {activeTab === "audit" && <AdminAudit />}
