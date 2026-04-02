@@ -26,26 +26,11 @@ const ROLE_ORDER: Record<string, number> = {
   judge: 4,
 };
 
-// Persons with meaningful detail pages (verified in Neo4j 2026-03-11)
-// Update this list as the knowledge graph audit adds more STATED_BY relationships
-const PERSONS_WITH_DETAIL = new Set([
-  "george-phillips",   // 34 statements
-  "charles-penzien",   // 18 statements
-  "marie-awad",        // 10 statements
-  "sabrina-morris",    //  7 statements
-  "judge-tighe",       //  4 statements
-  "jeffrey-humphrey",  //  3 statements
-  "camille-hanley",    //  1 statement
-  "nadia-awad",        //  1 statement
-]);
-
 const INFO_TEXT = `This page lists everyone involved in the case — parties, attorneys, witnesses, and the court.
 
-Click "View Detail" on a highlighted person to see what they said across all case documents, including exact quotes with page references.
+Click "View Detail" on any person to see what they said across all case documents, including exact quotes with page references.
 
-For defendants, the detail view also shows how they characterized the plaintiff's claims and the evidence that disproves those characterizations.
-
-Note: Statement attribution is being expanded. Additional persons will have detailed views as the knowledge graph is refined.`;
+For defendants, the detail view also shows how they characterized the plaintiff's claims and the evidence that disproves those characterizations.`;
 
 type RoleGroup = { role: string; persons: PersonDto[] };
 
@@ -190,7 +175,6 @@ const People: React.FC = () => {
               <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
                 {group.persons.map((person) => {
                   const roleStyle = getRoleStyle(person.role);
-                  const hasDetail = PERSONS_WITH_DETAIL.has(person.id);
                   return (
                     <div
                       key={person.id}
@@ -216,16 +200,14 @@ const People: React.FC = () => {
                           {person.description}
                         </div>
                       )}
-                      {hasDetail && (
-                        <div style={{ marginTop: "0.5rem" }}>
-                          <Link
-                            to={`/people/${person.id}`}
-                            style={{ color: "#2563eb", textDecoration: "none", fontSize: "0.85rem", fontWeight: 500 }}
-                          >
-                            View Detail &rarr;
-                          </Link>
-                        </div>
-                      )}
+                      <div style={{ marginTop: "0.5rem" }}>
+                        <Link
+                          to={`/people/${person.id}`}
+                          style={{ color: "#2563eb", textDecoration: "none", fontSize: "0.85rem", fontWeight: 500 }}
+                        >
+                          View Detail &rarr;
+                        </Link>
+                      </div>
                     </div>
                   );
                 })}

@@ -1,11 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import Breadcrumb from "../components/Breadcrumb";
-import {
-  getPersonDetail,
-  PersonDetailResponse,
-  StatementDetail,
-} from "../services/personDetail";
+import { getPersonDetail, PersonDetailResponse } from "../services/personDetail";
+import StatementCard from "../components/StatementCard";
 
 const ROLE_COLORS: Record<string, { bg: string; text: string }> = {
   plaintiff: { bg: "#dcfce7", text: "#166534" },
@@ -21,144 +18,6 @@ function getRoleStyle(role: string | undefined) {
   if (!role) return DEFAULT_ROLE;
   return ROLE_COLORS[role.toLowerCase()] || DEFAULT_ROLE;
 }
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-/** Group characterizations by label, sort allegation IDs numerically within each group */
-function groupCharacterizations(chars: { allegation_id: string; characterization_label?: string }[]) {
-  const map = new Map<string, string[]>();
-  for (const ch of chars) {
-    const label = ch.characterization_label ?? "unknown";
-    if (!map.has(label)) map.set(label, []);
-    map.get(label)!.push(ch.allegation_id);
-  }
-  return Array.from(map.entries()).map(([label, ids]) => ({
-    label,
-    ids: ids.sort((a, b) => {
-      const na = parseInt(a.replace(/\D/g, ""), 10) || 0;
-      const nb = parseInt(b.replace(/\D/g, ""), 10) || 0;
-      return na - nb;
-    }),
-  }));
-}
-
-// ─── Statement card (extracted to keep component under 300 lines) ────────────
-
-const StatementCard: React.FC<{ stmt: StatementDetail }> = ({ stmt }) => (
-  <div style={{
-    padding: "1rem", backgroundColor: "#fff",
-    border: "1px solid #e5e7eb", borderRadius: "8px", marginBottom: "0.75rem",
-  }}>
-    {/* Title + page badge + kind badge */}
-    <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" }}>
-      <span style={{ fontWeight: 600, fontSize: "0.95rem", color: "#1f2937" }}>{stmt.title}</span>
-      {stmt.page_number != null && (
-        <span style={{
-          padding: "0.1rem 0.4rem", backgroundColor: "#dbeafe", color: "#1e40af",
-          borderRadius: "3px", fontSize: "0.75rem", fontWeight: 600,
-        }}>
-          p. {stmt.page_number}
-        </span>
-      )}
-      {stmt.kind && (
-        <span style={{
-          padding: "0.1rem 0.4rem", backgroundColor: "#f3f4f6", color: "#6b7280",
-          borderRadius: "3px", fontSize: "0.7rem",
-        }}>
-          {stmt.kind}
-        </span>
-      )}
-    </div>
-
-    {/* Verbatim quote */}
-    {stmt.verbatim_quote && (
-      <blockquote style={{
-        margin: "0 0 0.5rem 0", padding: "0.5rem 0.75rem",
-        borderLeft: "3px solid #93c5fd", backgroundColor: "#eff6ff",
-        color: "#374151", fontStyle: "italic", fontSize: "0.9rem", lineHeight: 1.6,
-        borderRadius: "0 4px 4px 0",
-      }}>
-        {stmt.verbatim_quote}
-      </blockquote>
-    )}
-
-    {/* Significance */}
-    {stmt.significance && (
-      <div style={{ fontSize: "0.85rem", color: "#4b5563", marginBottom: "0.5rem", lineHeight: 1.5 }}>
-        {stmt.significance}
-      </div>
-    )}
-
-    {/* Characterizations — grouped by label */}
-    {stmt.characterizes.length > 0 && (
-      <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem", marginBottom: "0.5rem" }}>
-        {groupCharacterizations(stmt.characterizes).map(({ label, ids }) => (
-          <div key={label} style={{
-            display: "flex", flexWrap: "wrap", alignItems: "center", gap: "0.5rem",
-          }}>
-            <span style={{
-              padding: "0.15rem 0.4rem", backgroundColor: "#fef3c7", color: "#92400e",
-              borderRadius: "4px", fontSize: "0.75rem", fontWeight: 600,
-            }}>
-              Characterized as &ldquo;{label}&rdquo;
-            </span>
-            <span style={{ fontSize: "0.8rem" }}>
-              {ids.map((aid, i) => (
-                <React.Fragment key={aid}>
-                  {i > 0 && ", "}
-                  <a
-                    href={`/allegations/${aid}/detail`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{ color: "#2563eb", textDecoration: "none" }}
-                  >
-                    {aid}
-                  </a>
-                </React.Fragment>
-              ))}
-            </span>
-          </div>
-        ))}
-      </div>
-    )}
-
-    {/* Rebuttals */}
-    {stmt.rebutted_by.length > 0 && (
-      <div style={{ marginTop: "0.5rem" }}>
-        <div style={{
-          fontSize: "0.75rem", fontWeight: 600, color: "#059669",
-          textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "0.35rem",
-        }}>
-          Rebutted ({stmt.rebutted_by.length})
-        </div>
-        <div style={{ paddingLeft: "0.75rem", borderLeft: "3px solid #bbf7d0" }}>
-          {stmt.rebutted_by.map((reb) => (
-            <div key={reb.evidence_id} style={{ marginBottom: "0.5rem" }}>
-              {reb.verbatim_quote && (
-                <blockquote style={{
-                  margin: "0 0 0.25rem 0", padding: "0.4rem 0.6rem",
-                  borderLeft: "3px solid #86efac", backgroundColor: "#f0fdf4",
-                  color: "#374151", fontStyle: "italic", fontSize: "0.85rem",
-                  lineHeight: 1.5, borderRadius: "0 4px 4px 0",
-                }}>
-                  {reb.verbatim_quote}
-                </blockquote>
-              )}
-              <div style={{ fontSize: "0.8rem", color: "#6b7280" }}>
-                {reb.stated_by && <span>&mdash; {reb.stated_by}</span>}
-                {reb.document_title && (
-                  <span style={{ marginLeft: "0.5rem", fontStyle: "italic" }}>
-                    ({reb.document_title})
-                  </span>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    )}
-  </div>
-);
 
 // ─── Main component ──────────────────────────────────────────────────────────
 
@@ -214,7 +73,7 @@ const PersonDetailPage: React.FC = () => {
   return (
     <div style={{ maxWidth: "960px" }}>
       <Breadcrumb items={[
-        { label: "Dashboard", to: "/" },
+        { label: "Case Overview", to: "/" },
         { label: "People", to: "/people" },
         { label: person.name },
       ]} />
@@ -247,9 +106,56 @@ const PersonDetailPage: React.FC = () => {
         )}
       </div>
 
-      {/* Document sections */}
-      {documents.length === 0 ? (
-        <div style={{ color: "#6b7280", padding: "1rem" }}>No statements found for this person.</div>
+      {/* Document Appearances */}
+      {documents.length > 0 && (
+        <div style={{ marginBottom: "1.5rem" }}>
+          <h2 style={{ fontSize: "1.1rem", fontWeight: 600, color: "#1f2937", marginBottom: "0.5rem" }}>
+            Document Appearances
+          </h2>
+          <div style={{
+            display: "flex", flexDirection: "column", gap: "0.4rem",
+            padding: "0.75rem 1rem", backgroundColor: "#f9fafb", borderRadius: "8px",
+            border: "1px solid #e5e7eb",
+          }}>
+            {documents.map((doc) => (
+              <div key={doc.document_id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <Link
+                  to={`/documents/${doc.document_id}`}
+                  style={{ color: "#2563eb", textDecoration: "none", fontSize: "0.9rem", fontWeight: 500 }}
+                >
+                  {doc.document_title}
+                </Link>
+                <span style={{ fontSize: "0.8rem", color: "#6b7280" }}>
+                  {doc.statement_count} statement{doc.statement_count !== 1 ? "s" : ""}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Contradictions — placeholder for future cross-document analysis */}
+      <div style={{
+        marginBottom: "1.5rem", padding: "1rem", borderRadius: "8px",
+        border: "1px dashed #d1d5db", backgroundColor: "#fafafa",
+      }}>
+        <h2 style={{ fontSize: "1.1rem", fontWeight: 600, color: "#9ca3af", marginBottom: "0.25rem" }}>
+          Contradictions
+        </h2>
+        <p style={{ fontSize: "0.85rem", color: "#9ca3af", fontStyle: "italic", margin: 0 }}>
+          Cross-document contradiction analysis will appear here once the v2 knowledge graph supports cross-reference detection.
+        </p>
+      </div>
+
+      {/* Statements by document */}
+      {summary.total_statements === 0 ? (
+        <div style={{
+          padding: "2rem", textAlign: "center", color: "#6b7280", fontSize: "0.9rem",
+          backgroundColor: "#f9fafb", borderRadius: "8px", border: "1px solid #e5e7eb",
+        }}>
+          No statements have been extracted for this person yet.
+          As more documents are processed, their statements will appear here.
+        </div>
       ) : (
         documents.map((doc) => (
           <div key={doc.document_id} style={{
@@ -259,9 +165,12 @@ const PersonDetailPage: React.FC = () => {
               display: "flex", alignItems: "center", gap: "0.5rem",
               marginBottom: "0.75rem", paddingBottom: "0.5rem", borderBottom: "1px solid #e5e7eb",
             }}>
-              <span style={{ fontWeight: 600, fontSize: "1.05rem", color: "#1f2937" }}>
+              <Link
+                to={`/documents/${doc.document_id}`}
+                style={{ fontWeight: 600, fontSize: "1.05rem", color: "#2563eb", textDecoration: "none" }}
+              >
                 {doc.document_title}
-              </span>
+              </Link>
               <span style={{ fontSize: "0.8rem", color: "#6b7280" }}>
                 ({doc.statement_count} statement{doc.statement_count !== 1 ? "s" : ""})
               </span>
