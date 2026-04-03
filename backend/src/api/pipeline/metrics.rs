@@ -195,17 +195,20 @@ async fn query_estimates(pool: &PgPool) -> Result<EstimatesResponse, AppError> {
         });
     }
 
-    // Avg cost per published document (from pipeline_steps result_summary)
+    // Avg cost per published document (from extraction_runs, same logic as query_total_cost)
     let avg_cost: (Option<f64>,) = sqlx::query_as(
         "SELECT AVG(doc_cost) FROM (
-            SELECT document_id,
-                   SUM(CAST(result_summary->>'cost_usd' AS NUMERIC))
-                   FILTER (WHERE result_summary->>'cost_usd' IS NOT NULL AND ps.status = 'completed')
-                   AS doc_cost
-            FROM pipeline_steps ps
-            JOIN documents d ON d.id = ps.document_id
-            WHERE d.status = 'PUBLISHED'
-            GROUP BY ps.document_id
+            SELECT er.document_id,
+                   SUM(
+                       CASE WHEN er.cost_usd IS NOT NULL AND er.cost_usd > 0 THEN er.cost_usd::float8
+                       ELSE (COALESCE(er.output_tokens, 0)::numeric * 0.000015 +
+                             COALESCE(er.input_tokens, 0)::numeric * 0.000003)::float8
+                       END
+                   ) AS doc_cost
+            FROM extraction_runs er
+            JOIN documents d ON d.id = er.document_id
+            WHERE d.status = 'PUBLISHED' AND er.status = 'COMPLETED'
+            GROUP BY er.document_id
         ) sub",
     )
     .fetch_one(pool)

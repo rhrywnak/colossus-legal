@@ -197,10 +197,14 @@ pub async fn list_all_documents(pool: &PgPool) -> Result<Vec<DocumentRecord>, Pi
          FROM documents d
          LEFT JOIN (
              SELECT document_id,
-                    SUM(CAST(result_summary->>'cost_usd' AS NUMERIC))
-                    FILTER (WHERE result_summary->>'cost_usd' IS NOT NULL AND status = 'completed')
-                    AS total_cost_usd
-             FROM pipeline_steps
+                    SUM(
+                        CASE WHEN cost_usd IS NOT NULL AND cost_usd > 0 THEN cost_usd::float8
+                        ELSE (COALESCE(output_tokens, 0)::numeric * 0.000015 +
+                              COALESCE(input_tokens, 0)::numeric * 0.000003)::float8
+                        END
+                    ) AS total_cost_usd
+             FROM extraction_runs
+             WHERE status = 'COMPLETED'
              GROUP BY document_id
          ) cost ON cost.document_id = d.id
          LEFT JOIN (
@@ -229,11 +233,14 @@ pub async fn get_document(
          FROM documents d
          LEFT JOIN (
              SELECT document_id,
-                    SUM(CAST(result_summary->>'cost_usd' AS NUMERIC))
-                    FILTER (WHERE result_summary->>'cost_usd' IS NOT NULL AND status = 'completed')
-                    AS total_cost_usd
-             FROM pipeline_steps
-             WHERE document_id = $1
+                    SUM(
+                        CASE WHEN cost_usd IS NOT NULL AND cost_usd > 0 THEN cost_usd::float8
+                        ELSE (COALESCE(output_tokens, 0)::numeric * 0.000015 +
+                              COALESCE(input_tokens, 0)::numeric * 0.000003)::float8
+                        END
+                    ) AS total_cost_usd
+             FROM extraction_runs
+             WHERE status = 'COMPLETED' AND document_id = $1
              GROUP BY document_id
          ) cost ON cost.document_id = d.id
          LEFT JOIN (
