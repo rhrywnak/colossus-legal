@@ -16,6 +16,8 @@ export interface PipelineDocument {
   updated_at: string;
   assigned_reviewer?: string | null;
   assigned_at?: string | null;
+  total_cost_usd: number | null;
+  has_failed_steps: boolean;
 }
 
 export interface KnownUser {
@@ -73,6 +75,15 @@ export interface ItemsResponse {
   total_pages: number;
 }
 
+export interface EstimatesData {
+  avg_cost_per_document: number | null;
+  avg_total_duration_per_document_secs: number | null;
+  documents_remaining: number;
+  estimated_remaining_cost_usd: number | null;
+  estimated_remaining_time_secs: number | null;
+  confidence: string;
+}
+
 export interface MetricsResponse {
   total_documents: number;
   documents_by_status: Record<string, number>;
@@ -82,6 +93,7 @@ export interface MetricsResponse {
   total_steps_executed: number;
   failed_steps: number;
   step_performance: Record<string, StepMetrics>;
+  estimates: EstimatesData;
 }
 
 export interface StepMetrics {
@@ -96,6 +108,40 @@ export interface SchemaInfo {
   name: string;
   label: string;
   description: string;
+}
+
+export interface DocumentError {
+  document_id: string;
+  document_title: string;
+  document_status: string;
+  failed_step: string;
+  error_message: string | null;
+  failed_at: string;
+  triggered_by: string | null;
+  retry_count: number;
+}
+
+export interface ErrorsResponse {
+  documents_with_errors: DocumentError[];
+  total_errors: number;
+  documents_with_no_errors: number;
+}
+
+export interface ReviewerWorkload {
+  username: string;
+  display_name: string | null;
+  assigned_documents: number;
+  reviewed_documents: number;
+  pending_documents: number;
+  total_items: number;
+  approved_items: number;
+  pending_items: number;
+  rejected_items: number;
+}
+
+export interface WorkloadResponse {
+  reviewers: ReviewerWorkload[];
+  unassigned_documents: number;
 }
 
 // ── API Functions ──────────────────────────────────
@@ -140,6 +186,18 @@ export async function fetchSchemas(): Promise<SchemaInfo[]> {
   if (!res.ok) throw new Error(`Failed to fetch schemas: ${res.status}`);
   const data = await res.json();
   return data.schemas;
+}
+
+export async function fetchErrors(): Promise<ErrorsResponse> {
+  const res = await authFetch(`${PIPELINE_BASE}/documents/errors`);
+  if (!res.ok) throw new Error(`Failed to fetch errors: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchWorkload(): Promise<WorkloadResponse> {
+  const res = await authFetch(`${PIPELINE_BASE}/reviewers/workload`);
+  if (!res.ok) throw new Error(`Failed to fetch workload: ${res.status}`);
+  return res.json();
 }
 
 export async function fetchUsers(): Promise<KnownUser[]> {

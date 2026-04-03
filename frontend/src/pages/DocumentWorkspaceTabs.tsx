@@ -167,6 +167,9 @@ const DocumentWorkspaceTabs: React.FC = () => {
         <span>Type: {doc.document_type}</span>
         <span>ID: {doc.id}</span>
         <span>Updated: {new Date(doc.updated_at).toLocaleDateString()}</span>
+        {doc.total_cost_usd != null && (
+          <span>Cost: ${doc.total_cost_usd.toFixed(2)}</span>
+        )}
       </div>
 
       {/* Tab bar */}

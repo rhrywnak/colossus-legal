@@ -7,6 +7,7 @@
 import React, { useEffect, useState } from "react";
 import { fetchMetrics, MetricsResponse } from "../../services/pipelineApi";
 import { STEP_DISPLAY_NAMES, STEP_ORDER } from "../../utils/processingSteps";
+import ReviewerWorkloadSection from "./ReviewerWorkloadSection";
 
 // ── Styles ──────────────────────────────────────────────────────
 
@@ -48,6 +49,14 @@ function fmtDuration(secs: number): string {
   const m = Math.floor(secs / 60);
   const s = Math.round(secs % 60);
   return `${m}m ${s}s`;
+}
+
+function fmtTime(secs: number): string {
+  if (secs < 60) return `${Math.round(secs)}s`;
+  if (secs < 3600) return `${Math.round(secs / 60)}m`;
+  const h = Math.floor(secs / 3600);
+  const m = Math.round((secs % 3600) / 60);
+  return `${h}h ${m}m`;
 }
 
 // ── Component ───────────────────────────────────────────────────
@@ -113,6 +122,35 @@ const AdminMetrics: React.FC = () => {
         </div>
       </div>
 
+      {/* Estimates */}
+      {metrics.estimates.confidence !== "none" ? (
+        <div style={{ ...cardRow, marginBottom: "1.5rem" }}>
+          {metrics.estimates.estimated_remaining_cost_usd != null && (
+            <div style={card}>
+              <div style={cardValue}>~${metrics.estimates.estimated_remaining_cost_usd.toFixed(2)}</div>
+              <div style={cardLabel}>Est. Remaining Cost</div>
+            </div>
+          )}
+          {metrics.estimates.estimated_remaining_time_secs != null && (
+            <div style={card}>
+              <div style={cardValue}>~{fmtTime(metrics.estimates.estimated_remaining_time_secs)}</div>
+              <div style={cardLabel}>Est. Remaining Time</div>
+            </div>
+          )}
+          <div style={card}>
+            <div style={cardValue}>{metrics.estimates.documents_remaining}</div>
+            <div style={cardLabel}>Docs Remaining</div>
+            <div style={{ fontSize: "0.72rem", color: "#94a3b8", marginTop: "0.15rem" }}>
+              Confidence: {metrics.estimates.confidence}
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div style={{ fontSize: "0.8rem", color: "#94a3b8", marginBottom: "1.5rem" }}>
+          Not enough data to estimate remaining cost and time.
+        </div>
+      )}
+
       {/* Step performance table */}
       <h2 style={{ fontSize: "1rem", fontWeight: 600, color: "#334155", marginBottom: "0.75rem" }}>
         Step Performance
@@ -166,6 +204,11 @@ const AdminMetrics: React.FC = () => {
           </table>
         </div>
       )}
+
+      {/* Reviewer workload */}
+      <div style={{ marginTop: "2rem" }}>
+        <ReviewerWorkloadSection />
+      </div>
     </div>
   );
 };

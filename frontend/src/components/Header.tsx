@@ -7,7 +7,7 @@ const AUTHENTIK_SETTINGS_URL = "https://auth.cogmai.com/if/user/#/settings";
 
 // ─── Navigation items ────────────────────────────────────────────────────────
 const NAV_ITEMS = [
-  { label: "Case Overview", path: "/" },
+  { label: "Home", path: "/" },
   { label: "Evidence", path: "/explorer" },
   { label: "People", path: "/people" },
   { label: "Documents", path: "/documents" },
