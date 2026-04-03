@@ -200,7 +200,7 @@ async fn query_estimates(pool: &PgPool) -> Result<EstimatesResponse, AppError> {
         "SELECT AVG(doc_cost) FROM (
             SELECT document_id,
                    SUM(CAST(result_summary->>'cost_usd' AS NUMERIC))
-                   FILTER (WHERE result_summary->>'cost_usd' IS NOT NULL AND status = 'completed')
+                   FILTER (WHERE result_summary->>'cost_usd' IS NOT NULL AND ps.status = 'completed')
                    AS doc_cost
             FROM pipeline_steps ps
             JOIN documents d ON d.id = ps.document_id
