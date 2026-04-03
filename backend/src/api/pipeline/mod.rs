@@ -13,6 +13,7 @@
 mod anthropic;
 mod completeness;
 mod completeness_helpers;
+pub(crate) mod constants;
 mod errors;
 mod extract;
 mod extract_text;

@@ -13,6 +13,7 @@ use crate::repositories::pipeline_repository::{self, steps};
 use crate::state::AppState;
 
 use super::anthropic::call_anthropic;
+use super::constants;
 use super::ExtractResponse;
 
 /// Loads extraction schema, builds prompt, calls Claude, parses JSON response,
@@ -130,7 +131,9 @@ pub async fn extract_handler(
             let _ = pipeline_repository::complete_extraction_run(
                 &state.pipeline_pool, run_id,
                 &serde_json::json!({ "raw_text": response_text }),
-                Some(input_tokens as i32), Some(output_tokens as i32), None, "FAILED",
+                Some(input_tokens as i32), Some(output_tokens as i32),
+                Some(constants::estimate_cost(input_tokens as i64, output_tokens as i64)),
+                "FAILED",
             ).await;
             steps::record_step_failure(
                 &state.pipeline_pool, step_id, step_start.elapsed().as_secs_f64(),
@@ -153,7 +156,7 @@ pub async fn extract_handler(
         &parsed,
         Some(input_tokens as i32),
         Some(output_tokens as i32),
-        None, // Cost calculated later if needed
+        Some(constants::estimate_cost(input_tokens as i64, output_tokens as i64)),
         "COMPLETED",
     )
     .await

@@ -38,6 +38,7 @@ const logoStyle: React.CSSProperties = {
   alignItems: "center",
   gap: "0.55rem",
   textDecoration: "none",
+  flexShrink: 0,
 };
 
 const logoIconStyle: React.CSSProperties = {
@@ -54,21 +55,23 @@ const logoIconStyle: React.CSSProperties = {
 };
 
 const navContainerStyle: React.CSSProperties = {
-  position: "absolute",
-  left: "50%",
-  transform: "translateX(-50%)",
   display: "flex",
   gap: "0.2rem",
+  flexWrap: "wrap",
+  justifyContent: "center",
+  flex: "1 1 auto",
+  minWidth: 0,
 };
 
 const navLinkBase: React.CSSProperties = {
   textDecoration: "none",
   fontSize: "0.84rem",
   fontWeight: 500,
-  padding: "0.4rem 0.75rem",
+  padding: "0.4rem 0.6rem",
   borderRadius: "6px",
   transition: "all 0.15s ease",
   color: "#64748b",
+  whiteSpace: "nowrap",
 };
 
 const navLinkActive: React.CSSProperties = {
@@ -82,6 +85,7 @@ const rightSectionStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
   gap: "1rem",
+  flexShrink: 0,
 };
 
 const userBadgeStyle: React.CSSProperties = {

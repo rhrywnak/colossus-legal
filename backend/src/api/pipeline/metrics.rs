@@ -86,28 +86,12 @@ async fn query_documents_by_status(pool: &PgPool) -> Result<HashMap<String, i64>
 }
 
 async fn query_total_cost(pool: &PgPool) -> Result<f64, AppError> {
-    // Try cost_usd column first; fall back to token-based estimate
     let row: (Option<f64>,) = sqlx::query_as(
-        "SELECT COALESCE(SUM(cost_usd::float), 0) FROM extraction_runs WHERE status = 'COMPLETED'",
+        "SELECT COALESCE(SUM(cost_usd::float8), 0.0) FROM extraction_runs WHERE status = 'COMPLETED'",
     )
     .fetch_one(pool)
     .await
     .map_err(|e| AppError::Internal { message: format!("Cost query: {e}") })?;
-
-    if row.0.unwrap_or(0.0) > 0.0 {
-        return Ok(row.0.unwrap_or(0.0));
-    }
-
-    // Fallback: estimate from tokens (Sonnet pricing: $3/M input, $15/M output)
-    let row: (Option<f64>,) = sqlx::query_as(
-        "SELECT COALESCE(SUM(
-            (output_tokens::numeric * 0.000015) + (input_tokens::numeric * 0.000003)
-        ), 0)::float8 FROM extraction_runs WHERE status = 'COMPLETED'",
-    )
-    .fetch_one(pool)
-    .await
-    .map_err(|e| AppError::Internal { message: format!("Token cost query: {e}") })?;
-
     Ok(row.0.unwrap_or(0.0))
 }
 
@@ -195,19 +179,13 @@ async fn query_estimates(pool: &PgPool) -> Result<EstimatesResponse, AppError> {
         });
     }
 
-    // Avg cost per published document (from extraction_runs, same logic as query_total_cost)
+    // Avg cost per published document (from extraction_runs)
     let avg_cost: (Option<f64>,) = sqlx::query_as(
         "SELECT AVG(doc_cost) FROM (
-            SELECT er.document_id,
-                   SUM(
-                       CASE WHEN er.cost_usd IS NOT NULL AND er.cost_usd > 0 THEN er.cost_usd::float8
-                       ELSE (COALESCE(er.output_tokens, 0)::numeric * 0.000015 +
-                             COALESCE(er.input_tokens, 0)::numeric * 0.000003)::float8
-                       END
-                   ) AS doc_cost
+            SELECT er.document_id, SUM(er.cost_usd::float8) AS doc_cost
             FROM extraction_runs er
             JOIN documents d ON d.id = er.document_id
-            WHERE d.status = 'PUBLISHED' AND er.status = 'COMPLETED'
+            WHERE d.status = 'PUBLISHED' AND er.cost_usd IS NOT NULL
             GROUP BY er.document_id
         ) sub",
     )
