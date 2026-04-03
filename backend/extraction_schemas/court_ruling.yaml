@@ -1,0 +1,97 @@
+document_type: court_ruling
+description: "Court opinion, order, or ruling with findings of fact and legal conclusions"
+
+entity_types:
+  - name: Party
+    description: "A person or organization mentioned in the ruling"
+    properties:
+      - name: role
+        type: string
+        required: true
+        description: "Role (petitioner, respondent, appellant, appellee, judge, court)"
+      - name: full_name
+        type: string
+        required: true
+        description: "Full legal name as it appears in the document"
+      - name: entity_kind
+        type: string
+        description: "person or organization"
+
+  - name: FindingOfFact
+    description: "A factual determination made by the court"
+    properties:
+      - name: finding_summary
+        type: string
+        required: true
+        description: "Summary of the factual finding"
+
+  - name: LegalConclusion
+    description: "A legal conclusion or determination reached by the court"
+    properties:
+      - name: conclusion_summary
+        type: string
+        required: true
+        description: "Summary of the legal conclusion"
+      - name: legal_basis
+        type: string
+        description: "The statute, rule, or precedent supporting the conclusion"
+
+  - name: CourtOrder
+    description: "A specific directive or order issued by the court"
+    properties:
+      - name: order_text
+        type: string
+        required: true
+        description: "Summary of what the court ordered"
+      - name: order_type
+        type: string
+        description: "Type of order (grant, deny, remand, dismiss, sanction)"
+
+  - name: CitedAuthority
+    description: "A case, statute, or court rule cited by the court"
+    properties:
+      - name: citation
+        type: string
+        required: true
+        description: "Full citation"
+      - name: authority_type
+        type: string
+        description: "statute, case_law, court_rule"
+
+relationship_types:
+  - name: FOUND_REGARDING
+    description: "Links a finding of fact to the party it concerns"
+  - name: SUPPORTS_CONCLUSION
+    description: "Links a finding of fact to the legal conclusion it supports"
+  - name: BASED_ON
+    description: "Links a legal conclusion to the authority it relies on"
+  - name: RESULTS_IN
+    description: "Links a legal conclusion to the court order it produces"
+  - name: DIRECTED_AT
+    description: "Links a court order to the party it affects"
+
+valid_patterns:
+  - from: FindingOfFact
+    relationship: FOUND_REGARDING
+    to: Party
+  - from: FindingOfFact
+    relationship: SUPPORTS_CONCLUSION
+    to: LegalConclusion
+  - from: LegalConclusion
+    relationship: BASED_ON
+    to: CitedAuthority
+  - from: LegalConclusion
+    relationship: RESULTS_IN
+    to: CourtOrder
+  - from: CourtOrder
+    relationship: DIRECTED_AT
+    to: Party
+
+extraction_rules:
+  - "Every verbatim_quote must be an exact substring of the document text"
+  - "Identify all parties by their full legal name and role"
+  - "Extract ALL findings of fact — these are the court's factual determinations"
+  - "Distinguish findings of fact from legal conclusions — facts are what the court determined happened, conclusions are the legal significance"
+  - "Extract every order or directive the court issues"
+  - "Include full citations for every authority the court relies on"
+  - "If the court quotes or characterizes a party's testimony or statements, extract those as findings of fact"

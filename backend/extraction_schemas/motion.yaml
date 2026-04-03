@@ -1,0 +1,101 @@
+document_type: motion
+description: "Legal motion requesting court action (default judgment, summary disposition, sanctions)"
+
+entity_types:
+  - name: Party
+    description: "A person or organization mentioned in the motion"
+    properties:
+      - name: role
+        type: string
+        required: true
+        description: "Role (movant, respondent, plaintiff, defendant, attorney, witness)"
+      - name: full_name
+        type: string
+        required: true
+        description: "Full legal name as it appears in the document"
+      - name: entity_kind
+        type: string
+        description: "person or organization"
+
+  - name: FactualClaim
+    description: "A specific factual assertion made in the motion to support the requested relief"
+    properties:
+      - name: claim_summary
+        type: string
+        required: true
+        description: "Brief summary of the factual claim"
+      - name: section_ref
+        type: string
+        description: "Section or paragraph reference if available"
+
+  - name: LegalArgument
+    description: "A legal argument or theory presented in the motion"
+    properties:
+      - name: argument_summary
+        type: string
+        required: true
+        description: "Summary of the legal argument"
+      - name: legal_standard
+        type: string
+        description: "The legal standard being invoked (e.g. 'MCR 2.603', 'summary disposition')"
+
+  - name: RequestedRelief
+    description: "What the motion asks the court to do"
+    properties:
+      - name: relief_description
+        type: string
+        required: true
+        description: "Description of the requested relief"
+      - name: relief_type
+        type: string
+        description: "Type of relief (default judgment, dismissal, sanctions, costs)"
+
+  - name: CitedAuthority
+    description: "A case, statute, or court rule cited in the motion"
+    properties:
+      - name: citation
+        type: string
+        required: true
+        description: "Full citation (e.g. 'MCL 700.3715', 'Woods v SLB Prop Mgt, LLC')"
+      - name: authority_type
+        type: string
+        description: "statute, case_law, court_rule"
+
+relationship_types:
+  - name: FILED_BY
+    description: "Links the motion to the filing party"
+  - name: FILED_AGAINST
+    description: "Links the motion to the opposing party"
+  - name: CLAIMED_BY
+    description: "Links a factual claim to the party asserting it"
+  - name: SUPPORTS_ARGUMENT
+    description: "Links a factual claim to the legal argument it supports"
+  - name: BASED_ON
+    description: "Links a legal argument to the authority it cites"
+  - name: SEEKS
+    description: "Links a legal argument to the relief it seeks"
+
+valid_patterns:
+  - from: FactualClaim
+    relationship: CLAIMED_BY
+    to: Party
+  - from: FactualClaim
+    relationship: SUPPORTS_ARGUMENT
+    to: LegalArgument
+  - from: LegalArgument
+    relationship: BASED_ON
+    to: CitedAuthority
+  - from: LegalArgument
+    relationship: SEEKS
+    to: RequestedRelief
+  - from: RequestedRelief
+    relationship: FILED_AGAINST
+    to: Party
+
+extraction_rules:
+  - "Every verbatim_quote must be an exact substring of the document text"
+  - "Identify all parties by their full legal name and role"
+  - "Extract ALL factual claims — these are the statements that can be verified or contradicted"
+  - "Distinguish factual claims from legal arguments — facts are what happened, arguments are why it matters legally"
+  - "Include statute and case citations with full citation text"
+  - "Extract every form of requested relief, even if multiple are requested in the same motion"

@@ -1,0 +1,100 @@
+document_type: brief
+description: "Appellate brief presenting legal arguments, issues, and factual summaries"
+
+entity_types:
+  - name: Party
+    description: "A person or organization mentioned in the brief"
+    properties:
+      - name: role
+        type: string
+        required: true
+        description: "Role (appellant, appellee, attorney, witness, lower_court_judge)"
+      - name: full_name
+        type: string
+        required: true
+        description: "Full legal name as it appears in the document"
+      - name: entity_kind
+        type: string
+        description: "person or organization"
+
+  - name: IssuePresented
+    description: "A legal issue or question presented for appellate review"
+    properties:
+      - name: issue_text
+        type: string
+        required: true
+        description: "The issue as stated in the brief"
+      - name: issue_number
+        type: integer
+        description: "Issue number if numbered"
+
+  - name: FactualAssertion
+    description: "A factual claim or characterization made in the brief's statement of facts"
+    properties:
+      - name: assertion_summary
+        type: string
+        required: true
+        description: "Summary of the factual assertion"
+      - name: record_reference
+        type: string
+        description: "Reference to the lower court record (e.g. 'Tr. p. 27')"
+
+  - name: LegalArgument
+    description: "A legal argument presented in support of or opposition to the appeal"
+    properties:
+      - name: argument_summary
+        type: string
+        required: true
+        description: "Summary of the legal argument"
+      - name: section_heading
+        type: string
+        description: "The section heading under which this argument appears"
+
+  - name: CitedAuthority
+    description: "A case, statute, or court rule cited in the brief"
+    properties:
+      - name: citation
+        type: string
+        required: true
+        description: "Full citation"
+      - name: authority_type
+        type: string
+        description: "statute, case_law, court_rule"
+
+relationship_types:
+  - name: RAISES
+    description: "Links the brief's filing party to an issue they raise"
+  - name: ASSERTED_BY
+    description: "Links a factual assertion to the party making it"
+  - name: ADDRESSES
+    description: "Links a legal argument to the issue it addresses"
+  - name: BASED_ON
+    description: "Links a legal argument to the authority it cites"
+  - name: CONCERNS
+    description: "Links a factual assertion to the party it concerns"
+
+valid_patterns:
+  - from: Party
+    relationship: RAISES
+    to: IssuePresented
+  - from: FactualAssertion
+    relationship: ASSERTED_BY
+    to: Party
+  - from: FactualAssertion
+    relationship: CONCERNS
+    to: Party
+  - from: LegalArgument
+    relationship: ADDRESSES
+    to: IssuePresented
+  - from: LegalArgument
+    relationship: BASED_ON
+    to: CitedAuthority
+
+extraction_rules:
+  - "Every verbatim_quote must be an exact substring of the document text"
+  - "Identify all parties by their full legal name and role"
+  - "Extract ALL factual assertions from the statement of facts section — these characterizations may differ from the actual record and are critical for impeachment"
+  - "Include record references (transcript pages, exhibit numbers) when the brief cites them"
+  - "Extract every issue presented for review"
+  - "Distinguish factual assertions from legal arguments"
+  - "Include full citations for every case, statute, and rule cited"
