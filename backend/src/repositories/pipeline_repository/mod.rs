@@ -64,6 +64,11 @@ pub struct DocumentRecord {
     pub assigned_reviewer: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub assigned_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// Total cost in USD across all completed pipeline steps (computed via LEFT JOIN).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_cost_usd: Option<f64>,
+    /// Whether this document has any failed pipeline steps (computed via LEFT JOIN).
+    pub has_failed_steps: bool,
 }
 
 /// A page of extracted text from the `document_text` table.
@@ -185,9 +190,26 @@ pub async fn insert_document_text(
 /// List all documents, most recent first.
 pub async fn list_all_documents(pool: &PgPool) -> Result<Vec<DocumentRecord>, PipelineRepoError> {
     let rows = sqlx::query_as::<_, DocumentRecord>(
-        "SELECT id, title, file_path, file_hash, document_type, status, created_at, updated_at,
-                assigned_reviewer, assigned_at
-         FROM documents ORDER BY created_at DESC",
+        "SELECT d.id, d.title, d.file_path, d.file_hash, d.document_type, d.status,
+                d.created_at, d.updated_at, d.assigned_reviewer, d.assigned_at,
+                cost.total_cost_usd,
+                COALESCE(err.has_failed, false) AS has_failed_steps
+         FROM documents d
+         LEFT JOIN (
+             SELECT document_id,
+                    SUM(CAST(result_summary->>'cost_usd' AS NUMERIC))
+                    FILTER (WHERE result_summary->>'cost_usd' IS NOT NULL AND status = 'completed')
+                    AS total_cost_usd
+             FROM pipeline_steps
+             GROUP BY document_id
+         ) cost ON cost.document_id = d.id
+         LEFT JOIN (
+             SELECT document_id, true AS has_failed
+             FROM pipeline_steps
+             WHERE status = 'failed'
+             GROUP BY document_id
+         ) err ON err.document_id = d.id
+         ORDER BY d.created_at DESC",
     )
     .fetch_all(pool)
     .await?;
@@ -200,9 +222,27 @@ pub async fn get_document(
     document_id: &str,
 ) -> Result<Option<DocumentRecord>, PipelineRepoError> {
     let row = sqlx::query_as::<_, DocumentRecord>(
-        "SELECT id, title, file_path, file_hash, document_type, status, created_at, updated_at,
-                assigned_reviewer, assigned_at
-         FROM documents WHERE id = $1",
+        "SELECT d.id, d.title, d.file_path, d.file_hash, d.document_type, d.status,
+                d.created_at, d.updated_at, d.assigned_reviewer, d.assigned_at,
+                cost.total_cost_usd,
+                COALESCE(err.has_failed, false) AS has_failed_steps
+         FROM documents d
+         LEFT JOIN (
+             SELECT document_id,
+                    SUM(CAST(result_summary->>'cost_usd' AS NUMERIC))
+                    FILTER (WHERE result_summary->>'cost_usd' IS NOT NULL AND status = 'completed')
+                    AS total_cost_usd
+             FROM pipeline_steps
+             WHERE document_id = $1
+             GROUP BY document_id
+         ) cost ON cost.document_id = d.id
+         LEFT JOIN (
+             SELECT document_id, true AS has_failed
+             FROM pipeline_steps
+             WHERE status = 'failed' AND document_id = $1
+             GROUP BY document_id
+         ) err ON err.document_id = d.id
+         WHERE d.id = $1",
     )
     .bind(document_id)
     .fetch_optional(pool)

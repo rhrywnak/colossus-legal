@@ -20,6 +20,17 @@ pub struct MetricsResponse {
     pub total_steps_executed: i64,
     pub failed_steps: i64,
     pub step_performance: HashMap<String, StepMetrics>,
+    pub estimates: EstimatesResponse,
+}
+
+#[derive(Debug, Serialize)]
+pub struct EstimatesResponse {
+    pub avg_cost_per_document: Option<f64>,
+    pub avg_total_duration_per_document_secs: Option<f64>,
+    pub documents_remaining: i64,
+    pub estimated_remaining_cost_usd: Option<f64>,
+    pub estimated_remaining_time_secs: Option<f64>,
+    pub confidence: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -49,6 +60,7 @@ pub async fn metrics_handler(
     };
     let avg_grounding_rate = query_avg_grounding_rate(pool).await?;
     let (total_steps, failed_steps, step_performance) = query_step_performance(pool).await?;
+    let estimates = query_estimates(pool).await?;
 
     Ok(Json(MetricsResponse {
         total_documents,
@@ -59,6 +71,7 @@ pub async fn metrics_handler(
         total_steps_executed: total_steps,
         failed_steps,
         step_performance,
+        estimates,
     }))
 }
 
@@ -154,4 +167,79 @@ async fn query_step_performance(
     }
 
     Ok((total, failed, map))
+}
+
+async fn query_estimates(pool: &PgPool) -> Result<EstimatesResponse, AppError> {
+    // Count published and total documents
+    let counts: (i64, i64) = sqlx::query_as(
+        "SELECT
+            COUNT(*) FILTER (WHERE status = 'PUBLISHED') AS published,
+            COUNT(*) AS total
+         FROM documents",
+    )
+    .fetch_one(pool)
+    .await
+    .map_err(|e| AppError::Internal { message: format!("Estimates count query: {e}") })?;
+
+    let (published, total) = counts;
+    let remaining = total - published;
+
+    if published == 0 {
+        return Ok(EstimatesResponse {
+            avg_cost_per_document: None,
+            avg_total_duration_per_document_secs: None,
+            documents_remaining: remaining,
+            estimated_remaining_cost_usd: None,
+            estimated_remaining_time_secs: None,
+            confidence: "none".to_string(),
+        });
+    }
+
+    // Avg cost per published document (from pipeline_steps result_summary)
+    let avg_cost: (Option<f64>,) = sqlx::query_as(
+        "SELECT AVG(doc_cost) FROM (
+            SELECT document_id,
+                   SUM(CAST(result_summary->>'cost_usd' AS NUMERIC))
+                   FILTER (WHERE result_summary->>'cost_usd' IS NOT NULL AND status = 'completed')
+                   AS doc_cost
+            FROM pipeline_steps ps
+            JOIN documents d ON d.id = ps.document_id
+            WHERE d.status = 'PUBLISHED'
+            GROUP BY ps.document_id
+        ) sub",
+    )
+    .fetch_one(pool)
+    .await
+    .map_err(|e| AppError::Internal { message: format!("Estimates cost query: {e}") })?;
+
+    // Avg total duration per published document (sum of all step durations)
+    let avg_duration: (Option<f64>,) = sqlx::query_as(
+        "SELECT AVG(doc_duration) FROM (
+            SELECT document_id, SUM(duration_secs) AS doc_duration
+            FROM pipeline_steps ps
+            JOIN documents d ON d.id = ps.document_id
+            WHERE d.status = 'PUBLISHED' AND ps.status = 'completed'
+            GROUP BY ps.document_id
+        ) sub",
+    )
+    .fetch_one(pool)
+    .await
+    .map_err(|e| AppError::Internal { message: format!("Estimates duration query: {e}") })?;
+
+    let confidence = match published {
+        0 => "none",
+        1..=2 => "low",
+        3..=5 => "medium",
+        _ => "high",
+    }
+    .to_string();
+
+    Ok(EstimatesResponse {
+        avg_cost_per_document: avg_cost.0,
+        avg_total_duration_per_document_secs: avg_duration.0,
+        documents_remaining: remaining,
+        estimated_remaining_cost_usd: avg_cost.0.map(|c| c * remaining as f64),
+        estimated_remaining_time_secs: avg_duration.0.map(|d| d * remaining as f64),
+        confidence,
+    })
 }

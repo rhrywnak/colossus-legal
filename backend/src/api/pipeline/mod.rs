@@ -13,6 +13,7 @@
 mod anthropic;
 mod completeness;
 mod completeness_helpers;
+mod errors;
 mod extract;
 mod extract_text;
 mod file;
@@ -29,6 +30,7 @@ mod schemas;
 mod upload;
 pub mod users;
 pub mod verify;
+mod workload;
 
 pub use completeness::completeness_handler;
 pub use history::history_handler;
@@ -64,6 +66,7 @@ use crate::state::AppState;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/documents", get(list_documents_handler).post(upload_document))
+        .route("/documents/errors", get(errors::errors_handler))
         .route("/documents/:id/extract-text", post(extract_text))
         .route("/documents/:id/extract", post(extract_handler))
         .route("/documents/:id/verify", post(verify_handler))
@@ -81,6 +84,7 @@ pub fn router() -> Router<AppState> {
         .route("/schemas", get(schemas::list_schemas_handler))
         .route("/documents/:id/assign", put(users::assign_reviewer_handler))
         .route("/documents/:id/file", get(file::file_handler))
+        .route("/reviewers/workload", get(workload::workload_handler))
 }
 
 /// GET /documents — list all pipeline documents.
