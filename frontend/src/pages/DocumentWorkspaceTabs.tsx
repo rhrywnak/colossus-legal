@@ -8,7 +8,7 @@
  * components to keep this file under 300 lines.
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { API_BASE_URL } from "../services/api";
 import DocumentStatusBadge from "../components/pipeline/DocumentStatusBadge";
@@ -19,6 +19,7 @@ import ReviewPanel from "../components/pipeline/ReviewPanel";
 import PeopleLinksPanel from "../components/pipeline/PeopleLinksPanel";
 import {
   fetchPipelineDocuments, fetchDocumentHistory, fetchDocumentItems,
+  deleteDocument,
   PipelineDocument, PipelineStep, ExtractionItem,
 } from "../services/pipelineApi";
 
@@ -59,8 +60,10 @@ const S = {
 
 const DocumentWorkspaceTabs: React.FC = () => {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const { user } = useAuth();
   const isAdmin = user?.permissions.is_admin ?? false;
+  const [deleting, setDeleting] = useState(false);
 
   // Core state
   const [doc, setDoc] = useState<PipelineDocument | null>(null);
@@ -169,6 +172,39 @@ const DocumentWorkspaceTabs: React.FC = () => {
         <span>Updated: {new Date(doc.updated_at).toLocaleDateString()}</span>
         {doc.total_cost_usd != null && (
           <span>Cost: ${doc.total_cost_usd.toFixed(2)}</span>
+        )}
+        {isAdmin && (
+          <button
+            disabled={deleting}
+            style={{
+              marginLeft: "auto",
+              padding: "0.3rem 0.75rem",
+              fontSize: "0.78rem",
+              fontWeight: 600,
+              color: "#fff",
+              backgroundColor: deleting ? "#94a3b8" : "#dc2626",
+              border: "none",
+              borderRadius: "4px",
+              cursor: deleting ? "not-allowed" : "pointer",
+              fontFamily: "inherit",
+            }}
+            onClick={async () => {
+              const ok = window.confirm(
+                `Delete "${doc.title}"? This will remove all extracted data, processing history, and the uploaded file. This cannot be undone.`
+              );
+              if (!ok) return;
+              setDeleting(true);
+              try {
+                await deleteDocument(doc.id);
+                navigate("/documents");
+              } catch (e) {
+                setError(e instanceof Error ? e.message : "Delete failed");
+                setDeleting(false);
+              }
+            }}
+          >
+            {deleting ? "Deleting..." : "Delete"}
+          </button>
         )}
       </div>
 

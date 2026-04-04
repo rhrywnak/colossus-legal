@@ -14,6 +14,7 @@ mod anthropic;
 mod completeness;
 mod completeness_helpers;
 pub(crate) mod constants;
+mod delete;
 mod errors;
 mod extract;
 mod extract_text;
@@ -34,6 +35,7 @@ pub mod verify;
 mod workload;
 
 pub use completeness::completeness_handler;
+pub use delete::delete_document;
 pub use history::history_handler;
 pub use extract::extract_handler;
 pub use extract_text::extract_text;
@@ -45,7 +47,7 @@ pub use verify::verify_handler;
 
 use axum::{
     extract::State,
-    routing::{get, post, put},
+    routing::{delete, get, post, put},
     Json, Router,
 };
 use serde::Serialize;
@@ -68,6 +70,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/documents", get(list_documents_handler).post(upload_document))
         .route("/documents/errors", get(errors::errors_handler))
+        .route("/documents/:id", delete(delete_document))
         .route("/documents/:id/extract-text", post(extract_text))
         .route("/documents/:id/extract", post(extract_handler))
         .route("/documents/:id/verify", post(verify_handler))
