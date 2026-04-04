@@ -3,6 +3,13 @@ import { authFetch } from "./auth";
 
 const PIPELINE_BASE = `${API_BASE_URL}/api/admin/pipeline`;
 
+// Timeout for long-running pipeline operations (LLM calls, graph writes, embedding).
+// Configurable via VITE_PIPELINE_LONG_TIMEOUT_MS; defaults to 10 minutes.
+const PIPELINE_LONG_TIMEOUT_MS = Number(
+  import.meta.env.VITE_PIPELINE_LONG_TIMEOUT_MS ?? 600000
+);
+const LONG_TIMEOUT = { timeoutMs: PIPELINE_LONG_TIMEOUT_MS };
+
 // ── Types ──────────────────────────────────────────
 
 export interface PipelineDocument {
@@ -228,31 +235,31 @@ export async function triggerExtractText(docId: string): Promise<unknown> {
 }
 
 export async function triggerExtract(docId: string): Promise<unknown> {
-  const res = await authFetch(`${PIPELINE_BASE}/documents/${docId}/extract`, { method: "POST" });
+  const res = await authFetch(`${PIPELINE_BASE}/documents/${docId}/extract`, { method: "POST", ...LONG_TIMEOUT });
   if (!res.ok) throw new Error(`Extract failed: ${res.status}`);
   return res.json();
 }
 
 export async function triggerVerify(docId: string): Promise<unknown> {
-  const res = await authFetch(`${PIPELINE_BASE}/documents/${docId}/verify`, { method: "POST" });
+  const res = await authFetch(`${PIPELINE_BASE}/documents/${docId}/verify`, { method: "POST", ...LONG_TIMEOUT });
   if (!res.ok) throw new Error(`Verify failed: ${res.status}`);
   return res.json();
 }
 
 export async function triggerIngest(docId: string): Promise<unknown> {
-  const res = await authFetch(`${PIPELINE_BASE}/documents/${docId}/ingest`, { method: "POST" });
+  const res = await authFetch(`${PIPELINE_BASE}/documents/${docId}/ingest`, { method: "POST", ...LONG_TIMEOUT });
   if (!res.ok) throw new Error(`Ingest failed: ${res.status}`);
   return res.json();
 }
 
 export async function triggerIndex(docId: string): Promise<unknown> {
-  const res = await authFetch(`${PIPELINE_BASE}/documents/${docId}/index`, { method: "POST" });
+  const res = await authFetch(`${PIPELINE_BASE}/documents/${docId}/index`, { method: "POST", ...LONG_TIMEOUT });
   if (!res.ok) throw new Error(`Index failed: ${res.status}`);
   return res.json();
 }
 
 export async function fetchCompleteness(docId: string): Promise<unknown> {
-  const res = await authFetch(`${PIPELINE_BASE}/documents/${docId}/completeness`);
+  const res = await authFetch(`${PIPELINE_BASE}/documents/${docId}/completeness`, LONG_TIMEOUT);
   if (!res.ok) throw new Error(`Completeness check failed: ${res.status}`);
   return res.json();
 }
@@ -297,6 +304,7 @@ export async function bulkApprove(docId: string, filter: "grounded" | "all"): Pr
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ filter }),
+    ...LONG_TIMEOUT,
   });
   if (!res.ok) throw new Error(`Bulk approve failed: ${res.status}`);
   return res.json();
