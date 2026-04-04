@@ -120,7 +120,10 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         libssl3t64 \
         ca-certificates \
-        curl && \
+        curl \
+        tesseract-ocr \
+        tesseract-ocr-eng \
+        poppler-utils && \
     rm -rf /var/lib/apt/lists/*
 
 # Run as non-root (security best practice)
