@@ -23,6 +23,7 @@ mod history;
 mod index;
 mod items;
 mod metrics;
+mod ocr;
 mod ingest;
 mod ingest_helpers;
 mod ingest_resolver;

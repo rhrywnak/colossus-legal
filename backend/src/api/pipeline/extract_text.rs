@@ -21,6 +21,7 @@ use crate::repositories::audit_repository::log_admin_action;
 use crate::repositories::pipeline_repository::{self, steps};
 use crate::state::AppState;
 
+use super::ocr;
 use super::ExtractTextResponse;
 
 /// POST /api/admin/pipeline/documents/:id/extract-text
@@ -88,25 +89,78 @@ pub async fn extract_text(
     })?
     .map_err(|e| AppError::Internal { message: e })?;
 
-    // 5. Insert each page's text into the database
+    // 5. Check OCR tool availability (non-fatal — only matters if pages need OCR)
+    let ocr_available = match ocr::check_ocr_tools_available().await {
+        Ok(()) => true,
+        Err(e) => {
+            tracing::warn!("OCR tools not available, scanned pages will have no text: {e}");
+            false
+        }
+    };
+
+    // 6. OCR fallback for pages with insufficient text, then insert into DB
     let page_count = pages.len();
+    let total_pages = page_count as u32;
     let mut total_chars: usize = 0;
+    let mut pages_native: usize = 0;
+    let mut pages_ocr: usize = 0;
 
     for page in &pages {
+        let non_ws = page.text.chars().filter(|c| !c.is_whitespace()).count();
+        let text_to_store = if non_ws < ocr::OCR_CHAR_THRESHOLD {
+            // Page looks scanned — attempt OCR if tools are available
+            if ocr_available {
+                tracing::info!(
+                    doc_id = %doc_id, page = page.page_number, non_ws_chars = non_ws,
+                    "Page {}: only {} non-whitespace chars, attempting OCR",
+                    page.page_number, non_ws
+                );
+                match ocr::ocr_page(&full_path, page.page_number, total_pages).await {
+                    Ok(ocr_text) if !ocr_text.trim().is_empty() => {
+                        pages_ocr += 1;
+                        ocr_text
+                    }
+                    Ok(_) => {
+                        tracing::warn!(
+                            doc_id = %doc_id, page = page.page_number,
+                            "OCR returned empty text, keeping original"
+                        );
+                        pages_native += 1;
+                        page.text.clone()
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            doc_id = %doc_id, page = page.page_number,
+                            "OCR failed, keeping original text: {e}"
+                        );
+                        pages_native += 1;
+                        page.text.clone()
+                    }
+                }
+            } else {
+                pages_native += 1;
+                page.text.clone()
+            }
+        } else {
+            pages_native += 1;
+            page.text.clone()
+        };
+
+        total_chars += text_to_store.len();
+
         pipeline_repository::insert_document_text(
             &state.pipeline_pool,
             &doc_id,
             page.page_number as i32,
-            &page.text,
+            &text_to_store,
         )
         .await
         .map_err(|e| AppError::Internal {
             message: format!("Failed to insert text for page {}: {e}", page.page_number),
         })?;
-        total_chars += page.char_count;
     }
 
-    // 6. Update document status
+    // 7. Update document status
     pipeline_repository::update_document_status(&state.pipeline_pool, &doc_id, "TEXT_EXTRACTED")
         .await
         .map_err(|e| AppError::Internal {
@@ -115,6 +169,7 @@ pub async fn extract_text(
 
     tracing::info!(
         doc_id = %doc_id, page_count, total_chars,
+        pages_native, pages_ocr,
         "Text extraction complete"
     );
 
@@ -127,13 +182,20 @@ pub async fn extract_text(
         Some(serde_json::json!({
             "page_count": page_count,
             "total_chars": total_chars,
+            "pages_native": pages_native,
+            "pages_ocr": pages_ocr,
         })),
     )
     .await;
 
     steps::record_step_complete(
         &state.pipeline_pool, step_id, start.elapsed().as_secs_f64(),
-        &serde_json::json!({"page_count": page_count, "total_chars": total_chars}),
+        &serde_json::json!({
+            "page_count": page_count,
+            "total_chars": total_chars,
+            "pages_native": pages_native,
+            "pages_ocr": pages_ocr,
+        }),
     ).await.ok();
 
     Ok(Json(ExtractTextResponse {
