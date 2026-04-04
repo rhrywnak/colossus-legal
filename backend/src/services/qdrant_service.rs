@@ -275,6 +275,43 @@ pub async fn count_points_by_filter(
     Ok(count)
 }
 
+/// Delete all points matching a payload filter.
+///
+/// Uses `POST /collections/{name}/points/delete` with a filter body.
+/// Returns the number of points that existed before deletion (via count).
+pub async fn delete_points_by_filter(
+    client: &reqwest::Client,
+    qdrant_url: &str,
+    filter_key: &str,
+    filter_value: &str,
+) -> Result<usize, QdrantError> {
+    // Count first so we can report how many were removed
+    let count = count_points_by_filter(client, qdrant_url, filter_key, filter_value).await?;
+    if count == 0 {
+        return Ok(0);
+    }
+
+    let url = format!("{qdrant_url}/collections/{COLLECTION_NAME}/points/delete");
+
+    let body = serde_json::json!({
+        "filter": {
+            "must": [{
+                "key": filter_key,
+                "match": { "value": filter_value }
+            }]
+        }
+    });
+
+    let resp = client.post(&url).json(&body).send().await?;
+    if !resp.status().is_success() {
+        let status = resp.status().as_u16();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(QdrantError::Api { status, body });
+    }
+
+    Ok(count)
+}
+
 /// Delete the Qdrant collection. Used by the CLI `embed --clean` command.
 ///
 /// Returns Ok(()) if deletion succeeded or collection didn't exist.

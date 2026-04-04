@@ -17,6 +17,7 @@ import ProcessingPanel from "../components/pipeline/ProcessingPanel";
 import ContentPanel from "../components/pipeline/ContentPanel";
 import ReviewPanel from "../components/pipeline/ReviewPanel";
 import PeopleLinksPanel from "../components/pipeline/PeopleLinksPanel";
+import DeleteConfirmDialog from "../components/pipeline/DeleteConfirmDialog";
 import {
   fetchPipelineDocuments, fetchDocumentHistory, fetchDocumentItems,
   deleteDocument,
@@ -64,6 +65,7 @@ const DocumentWorkspaceTabs: React.FC = () => {
   const { user } = useAuth();
   const isAdmin = user?.permissions.is_admin ?? false;
   const [deleting, setDeleting] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
   // Core state
   const [doc, setDoc] = useState<PipelineDocument | null>(null);
@@ -188,20 +190,7 @@ const DocumentWorkspaceTabs: React.FC = () => {
               cursor: deleting ? "not-allowed" : "pointer",
               fontFamily: "inherit",
             }}
-            onClick={async () => {
-              const ok = window.confirm(
-                `Delete "${doc.title}"? This will remove all extracted data, processing history, and the uploaded file. This cannot be undone.`
-              );
-              if (!ok) return;
-              setDeleting(true);
-              try {
-                await deleteDocument(doc.id);
-                navigate("/documents");
-              } catch (e) {
-                setError(e instanceof Error ? e.message : "Delete failed");
-                setDeleting(false);
-              }
-            }}
+            onClick={() => setShowDeleteDialog(true)}
           >
             {deleting ? "Deleting..." : "Delete"}
           </button>
@@ -242,6 +231,27 @@ const DocumentWorkspaceTabs: React.FC = () => {
 
       {activeTab === "people" && (
         <PeopleLinksPanel documentId={docId} items={items} onLoadItems={loadItems} />
+      )}
+
+      {/* Delete confirmation dialog */}
+      {showDeleteDialog && (
+        <DeleteConfirmDialog
+          documentTitle={doc.title}
+          documentStatus={doc.status}
+          itemCount={items?.length ?? 0}
+          onCancel={() => setShowDeleteDialog(false)}
+          onConfirm={async (reason) => {
+            setShowDeleteDialog(false);
+            setDeleting(true);
+            try {
+              await deleteDocument(doc.id, reason);
+              navigate("/documents");
+            } catch (e) {
+              setError(e instanceof Error ? e.message : "Delete failed");
+              setDeleting(false);
+            }
+          }}
+        />
       )}
     </div>
   );

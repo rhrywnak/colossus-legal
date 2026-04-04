@@ -312,10 +312,13 @@ export async function bulkApprove(docId: string, filter: "grounded" | "all"): Pr
 
 // ── Delete ─────────────────────────────────────────
 
-export async function deleteDocument(docId: string): Promise<void> {
-  const res = await authFetch(`${PIPELINE_BASE}/documents/${docId}`, {
-    method: "DELETE",
-  });
+export async function deleteDocument(docId: string, reason?: string): Promise<void> {
+  const options: RequestInit = { method: "DELETE" };
+  if (reason) {
+    options.headers = { "Content-Type": "application/json" };
+    options.body = JSON.stringify({ reason });
+  }
+  const res = await authFetch(`${PIPELINE_BASE}/documents/${docId}`, options);
   if (!res.ok) throw new Error(`Delete failed: ${res.status}`);
 }
 
