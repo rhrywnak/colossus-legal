@@ -70,12 +70,16 @@ pub async fn extract_handler(
         .collect::<Vec<_>>()
         .join("\n\n");
 
-    // 5. Load extraction schema from YAML
-    let schema_path = format!("{}/{}", state.config.extraction_schema_dir, pipe_config.schema_file);
+    // 5. Load extraction schema — always use general_legal regardless of pipeline_config
+    let schema_file = "general_legal.yaml";
+    let schema_path = format!("{}/{}", state.config.extraction_schema_dir, schema_file);
+    tracing::info!(
+        doc_id = %doc_id, schema = "general_legal", document_type = %document.document_type,
+        "Using schema: general_legal for document {doc_id} (type: {})", document.document_type
+    );
     let schema = colossus_extract::ExtractionSchema::from_file(Path::new(&schema_path))
-        .map_err(|e| AppError::BadRequest {
-            message: format!("Failed to load schema '{}': {e}", pipe_config.schema_file),
-            details: serde_json::json!({ "schema_file": pipe_config.schema_file }),
+        .map_err(|e| AppError::Internal {
+            message: format!("Failed to load schema '{}': {e}", schema_file),
         })?;
 
     // 6. Build prompt

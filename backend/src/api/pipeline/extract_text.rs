@@ -104,6 +104,7 @@ pub async fn extract_text(
     let mut total_chars: usize = 0;
     let mut pages_native: usize = 0;
     let mut pages_ocr: usize = 0;
+    let mut first_page_text = String::new();
 
     for page in &pages {
         let non_ws = page.text.chars().filter(|c| !c.is_whitespace()).count();
@@ -146,6 +147,10 @@ pub async fn extract_text(
             page.text.clone()
         };
 
+        if page.page_number == 1 {
+            first_page_text = text_to_store.clone();
+        }
+
         total_chars += text_to_store.len();
 
         pipeline_repository::insert_document_text(
@@ -160,7 +165,24 @@ pub async fn extract_text(
         })?;
     }
 
-    // 7. Update document status
+    // 7. Auto-detect document type if current type is "auto" or "unknown"
+    let detected_type = detect_document_type(&first_page_text);
+    if document.document_type == "auto" || document.document_type == "unknown" {
+        sqlx::query("UPDATE documents SET document_type = $1, updated_at = NOW() WHERE id = $2")
+            .bind(detected_type)
+            .bind(&doc_id)
+            .execute(&state.pipeline_pool)
+            .await
+            .map_err(|e| AppError::Internal {
+                message: format!("Failed to update document_type: {e}"),
+            })?;
+        tracing::info!(
+            doc_id = %doc_id, detected_type,
+            "Auto-detected document type: {detected_type} for {doc_id}"
+        );
+    }
+
+    // 8. Update document status
     pipeline_repository::update_document_status(&state.pipeline_pool, &doc_id, "TEXT_EXTRACTED")
         .await
         .map_err(|e| AppError::Internal {
@@ -169,7 +191,7 @@ pub async fn extract_text(
 
     tracing::info!(
         doc_id = %doc_id, page_count, total_chars,
-        pages_native, pages_ocr,
+        pages_native, pages_ocr, detected_type,
         "Text extraction complete"
     );
 
@@ -184,6 +206,7 @@ pub async fn extract_text(
             "total_chars": total_chars,
             "pages_native": pages_native,
             "pages_ocr": pages_ocr,
+            "detected_type": detected_type,
         })),
     )
     .await;
@@ -195,6 +218,7 @@ pub async fn extract_text(
             "total_chars": total_chars,
             "pages_native": pages_native,
             "pages_ocr": pages_ocr,
+            "detected_type": detected_type,
         }),
     ).await.ok();
 
@@ -204,4 +228,37 @@ pub async fn extract_text(
         page_count,
         total_chars,
     }))
+}
+
+// ── Document type auto-detection ────────────────────────────────
+
+/// Detect document type from the first page's text using keyword matching.
+///
+/// ## Rust Learning: &'static str return
+///
+/// Returning `&'static str` (a string literal) avoids allocating a new String.
+/// The string data lives in the compiled binary, so the returned reference
+/// is valid for the entire program lifetime.
+fn detect_document_type(first_page_text: &str) -> &'static str {
+    let upper = first_page_text.to_uppercase();
+
+    if upper.contains("AFFIDAVIT") {
+        "affidavit"
+    } else if upper.contains("INTERROGATOR") || upper.contains("REQUEST FOR ADMISSION") {
+        "discovery_response"
+    } else if upper.contains("MOTION FOR") || upper.contains("MOTION TO") {
+        "motion"
+    } else if upper.contains("OPINION AND ORDER")
+        || upper.contains("ORDER OF THE COURT")
+        || upper.contains("COURT OF APPEALS")
+    {
+        "court_ruling"
+    } else if upper.contains("BRIEF") || upper.contains("APPELLANT") || upper.contains("APPELLEE")
+    {
+        "brief"
+    } else if upper.contains("COMPLAINT") {
+        "complaint"
+    } else {
+        "unknown"
+    }
 }

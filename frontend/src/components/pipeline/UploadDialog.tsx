@@ -59,7 +59,7 @@ const UploadDialog: React.FC<Props> = ({ open, onClose, onSuccess }) => {
   const fileRef = useRef<HTMLInputElement>(null);
   const [schemas, setSchemas] = useState<SchemaInfo[]>([]);
   const [file, setFile] = useState<File | null>(null);
-  const [schema, setSchema] = useState("");
+  const [schema, setSchema] = useState("auto");
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -68,14 +68,10 @@ const UploadDialog: React.FC<Props> = ({ open, onClose, onSuccess }) => {
     if (open) {
       fetchSchemas().then(setSchemas).catch(() => setSchemas([]));
       setFile(null);
-      setSchema("");
+      setSchema("auto");
       setError(null);
     }
   }, [open]);
-
-  useEffect(() => {
-    if (schemas.length === 1 && !schema) setSchema(schemas[0].name);
-  }, [schemas, schema]);
 
   if (!open) return null;
 
@@ -94,7 +90,7 @@ const UploadDialog: React.FC<Props> = ({ open, onClose, onSuccess }) => {
       const id = `doc-${slugify(file.name)}`;
       const title = titleize(file.name);
       const doc = await uploadDocument(file, {
-        id, title, documentType: schema, schemaFile: `${schema}.yaml`,
+        id, title, documentType: schema, schemaFile: "general_legal.yaml",
       });
       onSuccess();
       navigate(`/documents/${doc.id}`);
@@ -136,7 +132,7 @@ const UploadDialog: React.FC<Props> = ({ open, onClose, onSuccess }) => {
 
         <div style={labelStyle}>Document Type</div>
         <select style={selectStyle} value={schema} onChange={(e) => setSchema(e.target.value)}>
-          <option value="">Select type...</option>
+          <option value="auto">Auto-detect</option>
           {schemas.map((s) => <option key={s.name} value={s.name}>{s.label}</option>)}
         </select>
 

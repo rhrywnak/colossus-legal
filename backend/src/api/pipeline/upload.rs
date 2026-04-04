@@ -75,8 +75,11 @@ pub async fn upload_document(
     // Validate required fields
     let doc_id = require_field("id", doc_id)?;
     let title = require_field("title", title)?;
-    let document_type = require_field("document_type", document_type)?;
-    let schema_file = require_field("schema_file", schema_file)?;
+    let document_type = document_type.unwrap_or_else(|| "auto".to_string());
+    // Always use the general_legal schema regardless of document type.
+    // The schema_file field from the client is accepted but overridden.
+    let _schema_file_from_client = schema_file;
+    let schema_file = "general_legal.yaml".to_string();
     let file_data = file_data.ok_or_else(|| AppError::BadRequest {
         message: "No 'file' field in multipart upload".to_string(),
         details: serde_json::json!({}),
