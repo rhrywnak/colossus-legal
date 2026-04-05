@@ -222,7 +222,7 @@ async fn build_audit_snapshot(
 
     // Total cost
     let total_cost: f64 = sqlx::query_scalar::<_, f64>(
-        "SELECT COALESCE(SUM(cost_usd), 0) FROM extraction_runs WHERE document_id = $1",
+        "SELECT COALESCE(SUM(cost_usd)::float8, 0.0) FROM extraction_runs WHERE document_id = $1",
     )
     .bind(document_id)
     .fetch_one(pool)
