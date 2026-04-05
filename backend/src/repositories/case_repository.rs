@@ -55,16 +55,17 @@ impl CaseRepository {
         }))
     }
 
-    /// Fetch Case node properties
+    /// Fetch case identity from the complaint Document node (v2 pipeline).
+    /// Fields like court, case_number, filing_date don't exist on Document
+    /// nodes — they return None until richer metadata is available.
     async fn get_case_info(&self) -> Result<Option<CaseInfo>, CaseRepositoryError> {
         let mut result = self
             .graph
             .execute(query(
-                "MATCH (c:Case)
-                 RETURN c.id AS id, c.title AS title, c.case_number AS case_number,
-                        c.court AS court, c.court_type AS court_type,
-                        c.filing_date AS filing_date, c.status AS status,
-                        c.summary AS summary
+                "MATCH (d:Document)
+                 WHERE d.doc_type CONTAINS 'complaint'
+                 RETURN d.id AS id, d.title AS title, d.doc_type AS doc_type,
+                        d.ingested_at AS ingested_at, d.status AS status
                  LIMIT 1",
             ))
             .await?;
@@ -72,58 +73,48 @@ impl CaseRepository {
         if let Some(row) = result.next().await? {
             let id: String = row.get("id").unwrap_or_default();
             let title: String = row.get("title").unwrap_or_default();
-            let case_number: Option<String> = row.get("case_number").ok();
-            let court: Option<String> = row.get("court").ok();
-            let court_type: Option<String> = row.get("court_type").ok();
-            let filing_date: Option<String> = row.get("filing_date").ok();
             let status: Option<String> = row.get("status").ok();
-            let summary: Option<String> = row.get("summary").ok();
 
             Ok(Some(CaseInfo {
                 id,
                 title,
-                case_number,
-                court,
-                court_type,
-                filing_date,
+                case_number: None,
+                court: None,
+                court_type: None,
+                filing_date: None,
                 status,
-                summary,
+                summary: None,
             }))
         } else {
             Ok(None)
         }
     }
 
-    /// Fetch parties via INVOLVES relationships, grouped by role
+    /// Fetch parties by role property on Person/Organization nodes (v2 pipeline).
+    /// V2 stores role directly on the node, not on an INVOLVES relationship.
     async fn get_parties(&self) -> Result<PartiesGroup, CaseRepositoryError> {
         let mut plaintiffs: Vec<PartyDto> = Vec::new();
         let mut defendants: Vec<PartyDto> = Vec::new();
         let mut other: Vec<PartyDto> = Vec::new();
 
-        // Query parties - uses labels() to detect Person vs Organization
         let mut result = self
             .graph
             .execute(query(
-                "MATCH (c:Case)-[r:INVOLVES]->(party)
-                 WHERE party:Person OR party:Organization
-                 RETURN party.id AS id,
-                        party.name AS name,
-                        party.description AS description,
-                        r.role AS role,
-                        labels(party) AS labels
-                 ORDER BY r.role, party.name",
+                "MATCH (n)
+                 WHERE n.role IS NOT NULL
+                 RETURN n.id AS id, n.name AS name, n.role AS role,
+                        labels(n)[0] AS entity_type
+                 ORDER BY n.role, n.name",
             ))
             .await?;
 
         while let Some(row) = result.next().await? {
             let id: String = row.get("id").unwrap_or_default();
             let name: String = row.get("name").unwrap_or_default();
-            let description: Option<String> = row.get("description").ok();
             let role: String = row.get("role").unwrap_or_default();
-            let labels: Vec<String> = row.get("labels").unwrap_or_default();
+            let entity_type: String = row.get("entity_type").unwrap_or_default();
 
-            // Determine party type from node labels
-            let party_type = if labels.contains(&"Organization".to_string()) {
+            let party_type = if entity_type == "Organization" {
                 "organization".to_string()
             } else {
                 "person".to_string()
@@ -133,10 +124,9 @@ impl CaseRepository {
                 id,
                 name,
                 party_type,
-                description,
+                description: None,
             };
 
-            // Group by role
             match role.as_str() {
                 "plaintiff" => plaintiffs.push(party),
                 "defendant" => defendants.push(party),
@@ -151,25 +141,26 @@ impl CaseRepository {
         })
     }
 
-    /// Fetch aggregated statistics across node types
+    /// Fetch aggregated statistics across node types (v2 pipeline).
+    /// Evidence nodes don't exist in v2 — evidence_count returns 0.
+    /// Harm.amount is a string like "$25,000.00" — parsed in Cypher.
+    /// ComplaintAllegation uses grounding_status instead of evidence_status.
     async fn get_stats(&self) -> Result<CaseStats, CaseRepositoryError> {
-        // Use separate OPTIONAL MATCH clauses for each node type to handle
-        // cases where some node types may not exist
         let mut result = self
             .graph
             .execute(query(
                 "OPTIONAL MATCH (a:ComplaintAllegation)
                  WITH count(a) AS allegations_total,
-                      sum(CASE WHEN a.evidence_status = 'PROVEN' THEN 1 ELSE 0 END) AS allegations_proven
-                 OPTIONAL MATCH (e:Evidence)
-                 WITH allegations_total, allegations_proven, count(e) AS evidence_count
+                      count(CASE WHEN a.grounding_status IN ['exact', 'normalized'] THEN 1 END) AS allegations_proven
                  OPTIONAL MATCH (d:Document)
-                 WITH allegations_total, allegations_proven, evidence_count, count(d) AS document_count
+                 WITH allegations_total, allegations_proven, count(d) AS document_count
                  OPTIONAL MATCH (h:Harm)
-                 WITH allegations_total, allegations_proven, evidence_count, document_count,
-                      sum(COALESCE(h.amount, 0)) AS damages_total
+                 WITH allegations_total, allegations_proven, document_count,
+                      SUM(CASE WHEN h.amount IS NOT NULL
+                          THEN toFloat(replace(replace(h.amount, '$', ''), ',', ''))
+                          ELSE 0 END) AS damages_total
                  OPTIONAL MATCH (l:LegalCount)
-                 RETURN allegations_total, allegations_proven, evidence_count,
+                 RETURN allegations_total, allegations_proven,
                         document_count, damages_total, count(l) AS legal_counts",
             ))
             .await?;
@@ -178,7 +169,7 @@ impl CaseRepository {
             Ok(CaseStats {
                 allegations_total: row.get("allegations_total").unwrap_or(0),
                 allegations_proven: row.get("allegations_proven").unwrap_or(0),
-                evidence_count: row.get("evidence_count").unwrap_or(0),
+                evidence_count: 0, // Evidence nodes don't exist in v2
                 document_count: row.get("document_count").unwrap_or(0),
                 damages_total: row.get("damages_total").unwrap_or(0.0),
                 legal_counts: row.get("legal_counts").unwrap_or(0),

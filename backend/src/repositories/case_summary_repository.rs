@@ -77,24 +77,24 @@ impl CaseSummaryRepository {
 
     // ── Query 1: Case node identity ──────────────────────────────────────
 
+    /// Case identity from the complaint Document node (v2 pipeline).
+    /// Court and case_number don't exist on Document nodes — return None.
     async fn get_case_identity(
         &self,
     ) -> Result<(String, Option<String>, Option<String>), CaseSummaryRepositoryError> {
         let mut result = self
             .graph
             .execute(query(
-                "MATCH (c:Case)
-                 RETURN c.title AS title, c.court AS court,
-                        c.case_number AS case_number
+                "MATCH (d:Document)
+                 WHERE d.doc_type CONTAINS 'complaint'
+                 RETURN d.title AS title
                  LIMIT 1",
             ))
             .await?;
 
         if let Some(row) = result.next().await? {
             let title: String = row.get("title").unwrap_or_default();
-            let court: Option<String> = row.get("court").ok();
-            let case_number: Option<String> = row.get("case_number").ok();
-            Ok((title, court, case_number))
+            Ok((title, None, None))
         } else {
             Ok(("Unknown Case".to_string(), None, None))
         }
@@ -102,30 +102,29 @@ impl CaseSummaryRepository {
 
     // ── Query 2: Core stats (allegations, evidence, documents, harms) ────
 
+    /// Core stats (v2 pipeline).
+    /// Evidence nodes don't exist — evidence_total/evidence_grounded return 0.
+    /// Harm.amount is a string like "$25,000.00" — parsed in Cypher.
+    /// Harm.category doesn't exist in v2 — damages_financial and
+    /// damages_reputational_count return 0.
+    /// ComplaintAllegation uses grounding_status instead of evidence_status.
     async fn get_core_stats(&self) -> Result<CoreStats, CaseSummaryRepositoryError> {
         let mut result = self
             .graph
             .execute(query(
                 "OPTIONAL MATCH (a:ComplaintAllegation)
                  WITH count(a) AS at,
-                      sum(CASE WHEN a.evidence_status = 'PROVEN' THEN 1 ELSE 0 END) AS ap
-                 OPTIONAL MATCH (e:Evidence)
-                 WITH at, ap, count(e) AS et
-                 OPTIONAL MATCH (eg:Evidence) WHERE eg.verbatim_quote IS NOT NULL
-                 WITH at, ap, et, count(eg) AS egr
+                      count(CASE WHEN a.grounding_status IN ['exact', 'normalized'] THEN 1 END) AS ap
                  OPTIONAL MATCH (d:Document)
-                 WITH at, ap, et, egr, count(d) AS dt
+                 WITH at, ap, count(d) AS dt
                  OPTIONAL MATCH (h:Harm)
-                 WITH at, ap, et, egr, dt,
+                 WITH at, ap, dt,
                       count(h) AS ht,
-                      sum(COALESCE(h.amount, 0)) AS dam_total,
-                      sum(CASE WHEN h.category STARTS WITH 'financial'
-                          THEN COALESCE(h.amount, 0) ELSE 0 END) AS dam_fin,
-                      sum(CASE WHEN h.category = 'reputational'
-                          THEN 1 ELSE 0 END) AS dam_rep
+                      SUM(CASE WHEN h.amount IS NOT NULL
+                          THEN toFloat(replace(replace(h.amount, '$', ''), ',', ''))
+                          ELSE 0 END) AS dam_total
                  OPTIONAL MATCH (l:LegalCount)
-                 RETURN at, ap, et, egr, dt, ht, dam_total, dam_fin, dam_rep,
-                        count(l) AS lc",
+                 RETURN at, ap, dt, ht, dam_total, count(l) AS lc",
             ))
             .await?;
 
@@ -133,13 +132,13 @@ impl CaseSummaryRepository {
             Ok(CoreStats {
                 allegations_total: row.get("at").unwrap_or(0),
                 allegations_proven: row.get("ap").unwrap_or(0),
-                evidence_total: row.get("et").unwrap_or(0),
-                evidence_grounded: row.get("egr").unwrap_or(0),
+                evidence_total: 0,     // Evidence nodes don't exist in v2
+                evidence_grounded: 0,  // Evidence nodes don't exist in v2
                 documents_total: row.get("dt").unwrap_or(0),
                 harms_total: row.get("ht").unwrap_or(0),
                 damages_total: row.get("dam_total").unwrap_or(0.0),
-                damages_financial: row.get("dam_fin").unwrap_or(0.0),
-                damages_reputational_count: row.get("dam_rep").unwrap_or(0),
+                damages_financial: 0.0,  // h.category doesn't exist in v2
+                damages_reputational_count: 0, // h.category doesn't exist in v2
                 legal_counts: row.get("lc").unwrap_or(0),
             })
         } else {
@@ -179,68 +178,26 @@ impl CaseSummaryRepository {
 
     // ── Query 4: Decomposition stats (characterizations + rebuttals) ─────
 
+    /// Decomposition stats (v2 pipeline).
+    /// CHARACTERIZES and REBUTS relationships don't exist in v2 — return zeros.
+    /// These will populate when cross-document analysis is implemented.
     async fn get_decomposition_stats(
         &self,
     ) -> Result<DecompStats, CaseSummaryRepositoryError> {
-        // 4a: Characterizations by person + unique labels
-        let mut by_person: Vec<PersonCharacterizationCount> = Vec::new();
-        let mut all_labels: Vec<String> = Vec::new();
-        let mut characterizations_total: i64 = 0;
-
-        let mut result = self
-            .graph
-            .execute(query(
-                "MATCH (e:Evidence)-[c:CHARACTERIZES]->(a:ComplaintAllegation)
-                 MATCH (e)-[:STATED_BY]->(p:Person)
-                 WITH p.name AS person,
-                      count(c) AS char_count,
-                      collect(DISTINCT c.characterization) AS labels
-                 RETURN person, char_count, labels
-                 ORDER BY char_count DESC",
-            ))
-            .await?;
-
-        while let Some(row) = result.next().await? {
-            let person: String = row.get("person").unwrap_or_default();
-            let count: i64 = row.get("char_count").unwrap_or(0);
-            let labels: Vec<String> = row
-                .get::<Vec<Option<String>>>("labels")
-                .unwrap_or_default()
-                .into_iter()
-                .flatten()
-                .collect();
-
-            characterizations_total += count;
-            all_labels.extend(labels);
-            by_person.push(PersonCharacterizationCount { person, count });
-        }
-
-        // Deduplicate labels across all persons
-        all_labels.sort();
-        all_labels.dedup();
-
-        // 4b: Rebuttals count
-        let mut reb_result = self
-            .graph
-            .execute(query("MATCH ()-[r:REBUTS]->() RETURN count(r) AS total"))
-            .await?;
-
-        let rebuttals_total = if let Some(row) = reb_result.next().await? {
-            row.get("total").unwrap_or(0)
-        } else {
-            0
-        };
-
+        // V2 has no CHARACTERIZES or REBUTS relationships yet.
+        // Return empty decomposition stats.
         Ok(DecompStats {
-            characterizations_total,
-            by_person,
-            rebuttals_total,
-            labels: all_labels,
+            characterizations_total: 0,
+            by_person: Vec::new(),
+            rebuttals_total: 0,
+            labels: Vec::new(),
         })
     }
 
     // ── Query 5: Parties (plaintiff/defendant names) ─────────────────────
 
+    /// Parties by role property on Person/Organization nodes (v2 pipeline).
+    /// V2 stores role directly on the node, not on an INVOLVES relationship.
     async fn get_parties(
         &self,
     ) -> Result<(Vec<String>, Vec<String>), CaseSummaryRepositoryError> {
@@ -250,10 +207,10 @@ impl CaseSummaryRepository {
         let mut result = self
             .graph
             .execute(query(
-                "MATCH (c:Case)-[r:INVOLVES]->(party)
-                 WHERE party:Person OR party:Organization
-                 RETURN party.name AS name, r.role AS role
-                 ORDER BY r.role, party.name",
+                "MATCH (n)
+                 WHERE n.role IS NOT NULL
+                 RETURN n.name AS name, n.role AS role
+                 ORDER BY n.role, n.name",
             ))
             .await?;
 
