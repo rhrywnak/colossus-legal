@@ -1,3 +1,8 @@
+// TODO: DAL Phase 2 — this repository queries v1 labels (:Evidence)
+// that no longer exist in the v2 graph. The API endpoint that uses this
+// repository will return empty results. Migrate or remove once v1 data
+// is fully deprecated.
+
 use neo4rs::{query, Graph};
 use std::collections::HashMap;
 

@@ -1,4 +1,4 @@
-use neo4rs::{query, Graph};
+use neo4rs::Graph;
 use std::collections::HashMap;
 
 use crate::dto::{HarmDto, HarmsResponse};
@@ -12,6 +12,7 @@ pub struct HarmRepository {
 pub enum HarmRepositoryError {
     Neo4j(neo4rs::Error),
     Value(neo4rs::DeError),
+    GraphAccess(colossus_graph::GraphAccessError),
 }
 
 impl From<neo4rs::Error> for HarmRepositoryError {
@@ -26,60 +27,63 @@ impl From<neo4rs::DeError> for HarmRepositoryError {
     }
 }
 
+impl From<colossus_graph::GraphAccessError> for HarmRepositoryError {
+    fn from(value: colossus_graph::GraphAccessError) -> Self {
+        HarmRepositoryError::GraphAccess(value)
+    }
+}
+
 impl HarmRepository {
     pub fn new(graph: Graph) -> Self {
         Self { graph }
     }
 
-    /// Fetch all harms from Neo4j with linked allegations and legal counts
+    /// Fetch all harms from Neo4j.
+    ///
+    /// ## Rust Learning: Skipping empty relationship joins
+    ///
+    /// The v1 query joined Harm nodes to ComplaintAllegation (via CAUSED_BY)
+    /// and LegalCount (via DAMAGES_FOR). Neither relationship type exists in v2,
+    /// so those OPTIONAL MATCHes always returned nulls. By switching to
+    /// `get_nodes_by_label("Harm")`, we skip the useless joins entirely.
+    /// The DTO fields `caused_by_allegations` and `damages_for_counts` return
+    /// empty Vecs — same result, but without wasted Cypher evaluation.
     pub async fn list_harms(&self) -> Result<HarmsResponse, HarmRepositoryError> {
+        let nodes = colossus_graph::get_nodes_by_label(&self.graph, "Harm").await?;
+
         let mut harms: Vec<HarmDto> = Vec::new();
         let mut total_damages: f64 = 0.0;
         let mut by_category: HashMap<String, f64> = HashMap::new();
 
-        let mut result = self
-            .graph
-            .execute(query(
-                "MATCH (h:Harm)
-                 OPTIONAL MATCH (h)-[:CAUSED_BY]->(a:ComplaintAllegation)
-                 OPTIONAL MATCH (h)-[:DAMAGES_FOR]->(c:LegalCount)
-                 WITH h,
-                      collect(DISTINCT a.id) AS allegation_ids,
-                      collect(DISTINCT c.title) AS legal_counts
-                 RETURN h.id AS id,
-                        h.title AS title,
-                        h.category AS category,
-                        h.subcategory AS subcategory,
-                        h.amount AS amount,
-                        h.description AS description,
-                        h.date AS date,
-                        h.source_reference AS source_reference,
-                        allegation_ids,
-                        legal_counts
-                 ORDER BY h.id",
-            ))
-            .await?;
+        for node in &nodes {
+            let id = node.id.clone();
+            let title = node.properties.get("title")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string();
+            let category = node.properties.get("category")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let subcategory = node.properties.get("subcategory")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let description = node.properties.get("description")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let date = node.properties.get("date")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let source_reference = node.properties.get("source_reference")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
 
-        while let Some(row) = result.next().await? {
-            let id: String = row.get("id").unwrap_or_default();
-            let title: String = row.get("title").unwrap_or_default();
-            let category: Option<String> = row.get("category").ok();
-            let subcategory: Option<String> = row.get("subcategory").ok();
-            let amount: Option<f64> = row.get("amount").ok();
-            let description: Option<String> = row.get("description").ok();
-            let date: Option<String> = row.get("date").ok();
-            let source_reference: Option<String> = row.get("source_reference").ok();
-
-            // Get arrays, filtering out nulls
-            let allegation_ids_raw: Vec<Option<String>> =
-                row.get("allegation_ids").unwrap_or_default();
-            let caused_by_allegations: Vec<String> =
-                allegation_ids_raw.into_iter().flatten().collect();
-
-            let legal_counts_raw: Vec<Option<String>> =
-                row.get("legal_counts").unwrap_or_default();
-            let damages_for_counts: Vec<String> =
-                legal_counts_raw.into_iter().flatten().collect();
+            // Amount can be stored as a number or a currency string like "$25,000.00"
+            let amount: Option<f64> = node.properties.get("amount").and_then(|v| {
+                v.as_f64().or_else(|| {
+                    v.as_str()
+                        .and_then(|s| s.replace(['$', ','], "").parse::<f64>().ok())
+                })
+            });
 
             // Sum damages
             if let Some(amt) = amount {
@@ -89,6 +93,9 @@ impl HarmRepository {
                 }
             }
 
+            // CAUSED_BY and DAMAGES_FOR relationships don't exist in v2 —
+            // return empty Vecs for now. Will populate when cross-document
+            // relationship types are added.
             harms.push(HarmDto {
                 id,
                 title,
@@ -98,8 +105,8 @@ impl HarmRepository {
                 description,
                 date,
                 source_reference,
-                caused_by_allegations,
-                damages_for_counts,
+                caused_by_allegations: Vec::new(),
+                damages_for_counts: Vec::new(),
             });
         }
 

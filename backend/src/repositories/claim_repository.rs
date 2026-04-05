@@ -1,3 +1,8 @@
+// TODO: DAL Phase 2 — this repository queries v1 labels (:Claim)
+// that no longer exist in the v2 graph. The API endpoints that use this
+// repository will return empty results. Migrate or remove once v1 data
+// is fully deprecated.
+
 use neo4rs::{query, DeError, Graph, Node};
 
 use crate::models::claim::{Claim, ClaimConversionError};

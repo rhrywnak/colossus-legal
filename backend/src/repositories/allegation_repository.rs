@@ -1,3 +1,7 @@
+// TODO: DAL Phase 2 — migrate to colossus_graph once batch relationship
+// queries are available. Kept as raw Cypher because the SUPPORTS aggregation
+// (collect legal count IDs per allegation) would require N+1 queries.
+
 use neo4rs::{query, Graph};
 
 use crate::dto::{AllegationDto, AllegationSummary, AllegationsResponse};
