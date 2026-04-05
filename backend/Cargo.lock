@@ -688,8 +688,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "colossus-graph"
+version = "0.1.0"
+dependencies = [
+ "neo4rs",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tracing",
+]
+
+[[package]]
 name = "colossus-legal-backend"
-version = "2.0.0-beta.37"
+version = "2.0.0-beta.38"
 dependencies = [
  "anyhow",
  "axum",
@@ -697,6 +708,7 @@ dependencies = [
  "clap",
  "colossus-auth",
  "colossus-extract",
+ "colossus-graph",
  "colossus-pdf",
  "colossus-rag",
  "dotenvy",

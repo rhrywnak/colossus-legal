@@ -16,7 +16,7 @@ use colossus_legal_backend::{
     database,
     neo4j::{check_neo4j, create_neo4j_graph},
     prompt_loader,
-    state::AppState,
+    state::{AppState, EntityTypeInfo, RelationshipTypeInfo, SchemaMetadata},
 };
 
 /// Colossus-Legal backend server and admin tools.
@@ -144,6 +144,13 @@ async fn run_serve(config: AppConfig, graph: neo4rs::Graph, http_client: reqwest
         pg_pool.clone(),
     );
 
+    // --- Load extraction schema metadata from YAML ---
+    //
+    // The schema defines what entity types and relationship types exist.
+    // This metadata is served to the frontend via GET /api/schema and used
+    // by the query layer to understand the graph structure.
+    let schema_metadata = load_schema_metadata(&config);
+
     // Shared application state (global AppState)
     let state = AppState {
         graph,
@@ -153,6 +160,7 @@ async fn run_serve(config: AppConfig, graph: neo4rs::Graph, http_client: reqwest
         pg_pool,
         pipeline_pool,
         audit_repo,
+        schema_metadata,
     };
 
     // Port
@@ -399,6 +407,63 @@ async fn build_rag_pipeline(
             tracing::error!("Failed to build RAG pipeline: {e}");
             None
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Schema metadata loading
+// ---------------------------------------------------------------------------
+
+/// Load extraction schema YAML and extract entity/relationship type metadata.
+///
+/// ## Rust Learning: expect() at startup
+///
+/// We use `expect()` here because this runs once during startup. If the schema
+/// file is missing or malformed, the server should fail fast with a clear error
+/// rather than starting in a broken state.
+fn load_schema_metadata(config: &AppConfig) -> SchemaMetadata {
+    use colossus_extract::ExtractionSchema;
+    use std::path::Path;
+
+    let schema_path = Path::new(&config.extraction_schema_dir).join("general_legal.yaml");
+
+    let extraction_schema = ExtractionSchema::from_file(&schema_path).unwrap_or_else(|e| {
+        panic!(
+            "Failed to load extraction schema from {}: {:?}",
+            schema_path.display(),
+            e
+        )
+    });
+
+    let entity_types: Vec<EntityTypeInfo> = extraction_schema
+        .entity_types
+        .iter()
+        .map(|et| EntityTypeInfo {
+            name: et.name.clone(),
+            description: et.description.clone(),
+        })
+        .collect();
+
+    let relationship_types: Vec<RelationshipTypeInfo> = extraction_schema
+        .relationship_types
+        .iter()
+        .map(|rt| RelationshipTypeInfo {
+            name: rt.name.clone(),
+            description: rt.description.clone(),
+        })
+        .collect();
+
+    tracing::info!(
+        "Loaded extraction schema '{}': {} entity types, {} relationship types",
+        extraction_schema.document_type,
+        entity_types.len(),
+        relationship_types.len(),
+    );
+
+    SchemaMetadata {
+        document_type: extraction_schema.document_type,
+        entity_types,
+        relationship_types,
     }
 }
 

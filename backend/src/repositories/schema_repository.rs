@@ -1,8 +1,6 @@
 use neo4rs::{query, Graph};
 use std::collections::HashMap;
 
-use crate::dto::SchemaResponse;
-
 #[derive(Clone)]
 pub struct SchemaRepository {
     graph: Graph,
@@ -31,8 +29,8 @@ impl SchemaRepository {
         Self { graph }
     }
 
-    /// Fetch schema statistics from Neo4j
-    pub async fn get_schema_stats(&self) -> Result<SchemaResponse, SchemaRepositoryError> {
+    /// Fetch schema statistics from Neo4j — node and relationship counts.
+    pub async fn get_schema_stats(&self) -> Result<GraphStats, SchemaRepositoryError> {
         // Query node counts by label
         let mut node_counts: HashMap<String, i64> = HashMap::new();
         let mut total_nodes: i64 = 0;
@@ -69,11 +67,20 @@ impl SchemaRepository {
             relationship_counts.insert(rel_type, count);
         }
 
-        Ok(SchemaResponse {
+        Ok(GraphStats {
             total_nodes,
             total_relationships,
             node_counts,
             relationship_counts,
         })
     }
+}
+
+/// Live graph statistics returned by `get_schema_stats`.
+/// Separate from SchemaResponse (which adds extraction schema metadata).
+pub struct GraphStats {
+    pub total_nodes: i64,
+    pub total_relationships: i64,
+    pub node_counts: HashMap<String, i64>,
+    pub relationship_counts: HashMap<String, i64>,
 }
