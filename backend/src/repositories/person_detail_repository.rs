@@ -17,6 +17,7 @@ use crate::dto::person_detail::{
 pub enum PersonDetailRepositoryError {
     Neo4j(neo4rs::Error),
     Value(neo4rs::DeError),
+    GraphAccess(colossus_graph::GraphAccessError),
 }
 
 impl From<neo4rs::Error> for PersonDetailRepositoryError {
@@ -31,15 +32,20 @@ impl From<neo4rs::DeError> for PersonDetailRepositoryError {
     }
 }
 
+impl From<colossus_graph::GraphAccessError> for PersonDetailRepositoryError {
+    fn from(value: colossus_graph::GraphAccessError) -> Self {
+        PersonDetailRepositoryError::GraphAccess(value)
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Cypher constants
 // ─────────────────────────────────────────────────────────────────────────────
 
-const PERSON_QUERY: &str = "
-    MATCH (p:Person {id: $person_id})
-    RETURN p.id AS id, p.name AS name, p.role AS role
-    LIMIT 1";
-
+// TODO: DAL Phase 2 — this query targets v1 :Evidence nodes which don't exist in v2.
+// The v2 equivalent is ComplaintAllegation -[:STATED_BY]-> Person, but the DTO expects
+// Evidence-specific fields (kind, weight, significance) that don't exist on
+// ComplaintAllegation. Needs DTO restructuring before migration.
 const STATEMENTS_QUERY: &str = "
     MATCH (e:Evidence)-[:STATED_BY]->(p:Person {id: $person_id})
     MATCH (e)-[:CONTAINED_IN]->(d:Document)
@@ -92,24 +98,33 @@ impl PersonDetailRepository {
     }
 
     // ── Query 1: Person identity ─────────────────────────────────────────
+    //
+    // Uses colossus_graph::get_node_by_id — schema-agnostic node lookup
+    // by application-level ID property.
 
     async fn get_person_info(
         &self,
         person_id: &str,
     ) -> Result<Option<PersonInfo>, PersonDetailRepositoryError> {
-        let mut result = self
-            .graph
-            .execute(query(PERSON_QUERY).param("person_id", person_id))
-            .await?;
+        let node = colossus_graph::get_node_by_id(&self.graph, person_id).await?;
 
-        if let Some(row) = result.next().await? {
-            Ok(Some(PersonInfo {
-                id: row.get("id").unwrap_or_default(),
-                name: row.get("name").unwrap_or_default(),
-                role: row.get("role").ok(),
-            }))
-        } else {
-            Ok(None)
+        match node {
+            Some(n) => {
+                let name = n.properties.get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
+                    .to_string();
+                let role = n.properties.get("role")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+
+                Ok(Some(PersonInfo {
+                    id: n.id,
+                    name,
+                    role,
+                }))
+            }
+            None => Ok(None),
         }
     }
 

@@ -35,6 +35,7 @@ use crate::dto::decomposition::{
 pub enum DecompositionRepositoryError {
     Neo4j(neo4rs::Error),
     Value(neo4rs::DeError),
+    GraphAccess(colossus_graph::GraphAccessError),
 }
 
 impl From<neo4rs::Error> for DecompositionRepositoryError {
@@ -46,6 +47,12 @@ impl From<neo4rs::Error> for DecompositionRepositoryError {
 impl From<neo4rs::DeError> for DecompositionRepositoryError {
     fn from(value: neo4rs::DeError) -> Self {
         DecompositionRepositoryError::Value(value)
+    }
+}
+
+impl From<colossus_graph::GraphAccessError> for DecompositionRepositoryError {
+    fn from(value: colossus_graph::GraphAccessError) -> Self {
+        DecompositionRepositoryError::GraphAccess(value)
     }
 }
 

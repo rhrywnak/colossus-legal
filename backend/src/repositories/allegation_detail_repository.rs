@@ -24,6 +24,9 @@ use crate::repositories::decomposition_repository::DecompositionRepositoryError;
 // Query constants — separates "what to query" from "how to process results"
 // ─────────────────────────────────────────────────────────────────────────────
 
+// TODO: DAL Phase 2 — migrate to colossus_graph once batch relationship queries
+// are available. Kept as raw Cypher because the SUPPORTS join (collect legal count
+// titles per allegation) is done efficiently in one query.
 const ALLEGATION_INFO_QUERY: &str = "
     MATCH (a:ComplaintAllegation {id: $id})
     OPTIONAL MATCH (a)-[:SUPPORTS]->(lc:LegalCount)
@@ -33,6 +36,9 @@ const ALLEGATION_INFO_QUERY: &str = "
            a.evidence_status AS status,
            collect(DISTINCT lc.title) AS legal_counts";
 
+// TODO: DAL Phase 2 — this query targets v1 :Evidence nodes and CHARACTERIZES/REBUTS
+// relationships which don't exist in v2. Returns empty results. Needs v2 equivalent
+// once cross-document analysis relationships are available.
 const CHARACTERIZATION_QUERY: &str = "
     MATCH (a:ComplaintAllegation {id: $id})
     OPTIONAL MATCH (charE:Evidence)-[c:CHARACTERIZES]->(a)
@@ -57,6 +63,8 @@ const CHARACTERIZATION_QUERY: &str = "
                 ELSE null END AS reb_speaker
     ORDER BY charE.id, rebE.id";
 
+// TODO: DAL Phase 2 — this query targets v1 :MotionClaim and :PROVES/:RELIES_ON
+// relationships which don't exist in v2. Returns empty results.
 const PROOF_CLAIMS_QUERY: &str = "
     MATCH (a:ComplaintAllegation {id: $id})
     OPTIONAL MATCH (mc:MotionClaim)-[:PROVES]->(a)
