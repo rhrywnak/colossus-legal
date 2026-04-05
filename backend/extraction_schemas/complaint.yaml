@@ -15,7 +15,7 @@ entity_types:
         type: string
         description: "individual or organization"
 
-  - name: FactualAllegation
+  - name: ComplaintAllegation
     description: "A specific factual claim made in the complaint"
     properties:
       - name: allegation_text
@@ -42,7 +42,7 @@ entity_types:
         type: string
         description: "Legal statute or common law basis"
 
-  - name: DamagesClaim
+  - name: Harm
     description: "A specific claim for damages or relief"
     properties:
       - name: claim_text
@@ -66,16 +66,16 @@ relationship_types:
     description: "This entity is found in this document"
 
 valid_patterns:
-  - from: FactualAllegation
+  - from: ComplaintAllegation
     relationship: STATED_BY
     to: Party
-  - from: FactualAllegation
+  - from: ComplaintAllegation
     relationship: ABOUT
     to: Party
-  - from: FactualAllegation
+  - from: ComplaintAllegation
     relationship: SUPPORTS
     to: LegalCount
-  - from: DamagesClaim
+  - from: Harm
     relationship: SUPPORTS
     to: LegalCount
 

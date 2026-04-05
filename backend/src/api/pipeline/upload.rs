@@ -76,10 +76,20 @@ pub async fn upload_document(
     let doc_id = require_field("id", doc_id)?;
     let title = require_field("title", title)?;
     let document_type = document_type.unwrap_or_else(|| "auto".to_string());
-    // Always use the general_legal schema regardless of document type.
-    // The schema_file field from the client is accepted but overridden.
-    let _schema_file_from_client = schema_file;
-    let schema_file = "general_legal.yaml".to_string();
+    // Schema file selection: use client-provided value if present,
+    // otherwise derive from document type. The extract handler will
+    // also select the schema based on document_type, so this is mainly
+    // for recording the intended schema in pipeline_config.
+    let schema_file = schema_file.unwrap_or_else(|| {
+        match document_type.as_str() {
+            "complaint" => "complaint.yaml",
+            "discovery_response" => "discovery_response.yaml",
+            "motion" | "brief" | "motion_brief" => "motion.yaml",
+            "affidavit" => "affidavit.yaml",
+            "court_ruling" => "court_ruling.yaml",
+            _ => "general_legal.yaml",
+        }.to_string()
+    });
     let file_data = file_data.ok_or_else(|| AppError::BadRequest {
         message: "No 'file' field in multipart upload".to_string(),
         details: serde_json::json!({}),

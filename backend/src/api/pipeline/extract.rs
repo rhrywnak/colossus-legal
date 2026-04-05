@@ -70,12 +70,21 @@ pub async fn extract_handler(
         .collect::<Vec<_>>()
         .join("\n\n");
 
-    // 5. Load extraction schema — always use general_legal regardless of pipeline_config
-    let schema_file = "general_legal.yaml";
+    // 5. Select extraction schema based on document type.
+    //    Each document type maps to a schema YAML whose entity type names
+    //    become Neo4j labels directly. Falls back to general_legal for unknown types.
+    let schema_file = match document.document_type.as_str() {
+        "complaint" => "complaint.yaml",
+        "discovery_response" => "discovery_response.yaml",
+        "motion" | "brief" | "motion_brief" => "motion.yaml",
+        "affidavit" => "affidavit.yaml",
+        "court_ruling" => "court_ruling.yaml",
+        _ => "general_legal.yaml",
+    };
     let schema_path = format!("{}/{}", state.config.extraction_schema_dir, schema_file);
     tracing::info!(
-        doc_id = %doc_id, schema = "general_legal", document_type = %document.document_type,
-        "Using schema: general_legal for document {doc_id} (type: {})", document.document_type
+        doc_id = %doc_id, schema = %schema_file, document_type = %document.document_type,
+        "Selected schema '{schema_file}' for document {doc_id} (type: {})", document.document_type
     );
     let schema = colossus_extract::ExtractionSchema::from_file(Path::new(&schema_path))
         .map_err(|e| AppError::Internal {

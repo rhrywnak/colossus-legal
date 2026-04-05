@@ -3,9 +3,12 @@
 //! Reads verified extraction items from pipeline DB and writes them as
 //! nodes and relationships into Neo4j. Uses entity resolution for parties.
 //!
-//! ## Rust Learning: HashMap<i32, String> maps PG item IDs → Neo4j string IDs.
-//! Built during node creation; used for relationships. All nodes must be
-//! created before relationships so the map is fully populated.
+//! ## Rust Learning: Generic entity ingest
+//!
+//! Instead of per-type functions (create_allegation_nodes, create_harm_nodes),
+//! this handler uses a single `create_entity_node` function for all non-Party
+//! entities. The entity_type from the extraction schema becomes the Neo4j label
+//! directly. Party entities are still special-cased (MERGE with Person/Org split).
 
 use std::collections::HashMap;
 
@@ -19,8 +22,8 @@ use crate::repositories::pipeline_repository::{self, steps};
 use crate::state::AppState;
 
 use super::ingest_helpers::{
-    create_allegation_nodes, create_contained_in_relationships, create_count_nodes,
-    create_document_node, create_harm_nodes, create_ingest_relationship, create_party_nodes,
+    create_contained_in_relationships, create_document_node, create_entity_node,
+    create_ingest_relationship, create_party_nodes,
 };
 use super::ingest_resolver::{self, ResolutionSummary};
 
@@ -37,22 +40,28 @@ pub struct IngestResponse {
     pub duration_secs: f64,
 }
 
+/// Node counts — dynamic by entity type.
+///
+/// ## Rust Learning: HashMap for dynamic entity types
+///
+/// Previously this had hardcoded fields (complaint_allegation, legal_count, harm).
+/// With generic ingest, we don't know at compile time what entity types will be
+/// created. The `by_type` HashMap provides counts for whatever types appear.
+/// `person` and `organization` are still separate (from Party resolution).
 #[derive(Debug, Serialize)]
 pub struct NodeCounts {
     pub document: usize,
     pub person: usize,
     pub organization: usize,
-    pub complaint_allegation: usize,
-    pub legal_count: usize,
-    pub harm: usize,
+    /// Counts per non-Party entity type (e.g., "ComplaintAllegation" → 5)
+    pub by_type: HashMap<String, usize>,
     pub total: usize,
 }
 
 #[derive(Debug, Serialize)]
 pub struct RelCounts {
-    pub stated_by: usize,
-    pub about: usize,
-    pub supports: usize,
+    /// Counts per relationship type (e.g., "STATED_BY" → 10)
+    pub by_type: HashMap<String, usize>,
     pub contained_in: usize,
     pub total: usize,
 }
@@ -164,36 +173,26 @@ pub async fn ingest_handler(
         }
     }
 
-    // 10. Create ComplaintAllegation nodes
-    let allegation_count =
-        create_allegation_nodes(&mut txn, &items, &doc_id, &mut pg_to_neo4j).await?;
-    // Collect allegation node IDs
-    for item in items.iter().filter(|i| i.entity_type == "FactualAllegation") {
-        if let Some(neo_id) = pg_to_neo4j.get(&item.id) {
-            all_node_ids.push(neo_id.clone());
-        }
+    // 10. Create all non-Party entity nodes using the generic function.
+    //     Each entity_type from the extraction schema becomes the Neo4j label.
+    //     Sequence numbers are tracked per entity type for readable IDs.
+    let mut entity_type_counts: HashMap<String, usize> = HashMap::new();
+    let mut entity_seq: HashMap<String, usize> = HashMap::new();
+
+    for item in items.iter().filter(|i| i.entity_type != "Party") {
+        let seq = entity_seq.entry(item.entity_type.clone()).or_insert(0);
+        *seq += 1;
+
+        let neo4j_id = create_entity_node(&mut txn, item, &doc_id, *seq).await?;
+
+        pg_to_neo4j.insert(item.id, neo4j_id.clone());
+        all_node_ids.push(neo4j_id);
+
+        *entity_type_counts.entry(item.entity_type.clone()).or_insert(0) += 1;
     }
 
-    // 11. Create LegalCount nodes
-    let count_count =
-        create_count_nodes(&mut txn, &items, &doc_id, &mut pg_to_neo4j).await?;
-    for item in items.iter().filter(|i| i.entity_type == "LegalCount") {
-        if let Some(neo_id) = pg_to_neo4j.get(&item.id) {
-            all_node_ids.push(neo_id.clone());
-        }
-    }
-
-    // 12. Create Harm nodes
-    let harm_count =
-        create_harm_nodes(&mut txn, &items, &doc_id, &mut pg_to_neo4j).await?;
-    for item in items.iter().filter(|i| i.entity_type == "DamagesClaim") {
-        if let Some(neo_id) = pg_to_neo4j.get(&item.id) {
-            all_node_ids.push(neo_id.clone());
-        }
-    }
-
-    // 13. Create extraction relationships (STATED_BY, ABOUT, SUPPORTS)
-    let (mut stated_by, mut about, mut supports) = (0usize, 0usize, 0usize);
+    // 11. Create extraction relationships (STATED_BY, ABOUT, SUPPORTS, etc.)
+    let mut rel_type_counts: HashMap<String, usize> = HashMap::new();
 
     for rel in &relationships {
         let from_neo = pg_to_neo4j.get(&rel.from_item_id).ok_or_else(|| {
@@ -215,27 +214,19 @@ pub async fn ingest_handler(
 
         create_ingest_relationship(&mut txn, from_neo, to_neo, &rel.relationship_type).await?;
 
-        match rel.relationship_type.as_str() {
-            "STATED_BY" => stated_by += 1,
-            "ABOUT" => about += 1,
-            "SUPPORTS" => supports += 1,
-            other => {
-                tracing::warn!(rel_type = other, "Unknown relationship type — created anyway");
-                // Count it as the closest match; won't break anything
-            }
-        }
+        *rel_type_counts.entry(rel.relationship_type.clone()).or_insert(0) += 1;
     }
 
-    // 14. Create CONTAINED_IN relationships (all nodes → Document)
+    // 12. Create CONTAINED_IN relationships (all nodes → Document)
     let contained_in =
         create_contained_in_relationships(&mut txn, &all_node_ids, &doc_neo4j_id).await?;
 
-    // 15. Commit transaction
+    // 13. Commit transaction
     txn.commit().await.map_err(|e| AppError::Internal {
         message: format!("Neo4j transaction commit failed: {e}"),
     })?;
 
-    // 16. Update pipeline document status → INGESTED
+    // 14. Update pipeline document status → INGESTED
     pipeline_repository::update_document_status(&state.pipeline_pool, &doc_id, "INGESTED")
         .await
         .map_err(|e| AppError::Internal {
@@ -243,8 +234,10 @@ pub async fn ingest_handler(
         })?;
 
     let duration = start.elapsed().as_secs_f64();
-    let total_nodes = 1 + person_count + org_count + allegation_count + count_count + harm_count;
-    let total_rels = stated_by + about + supports + contained_in;
+    let entity_node_total: usize = entity_type_counts.values().sum();
+    let total_nodes = 1 + person_count + org_count + entity_node_total;
+    let rel_total: usize = rel_type_counts.values().sum();
+    let total_rels = rel_total + contained_in;
 
     tracing::info!(
         doc_id = %doc_id, total_nodes, total_rels,
@@ -278,15 +271,11 @@ pub async fn ingest_handler(
             document: 1,
             person: person_count,
             organization: org_count,
-            complaint_allegation: allegation_count,
-            legal_count: count_count,
-            harm: harm_count,
+            by_type: entity_type_counts,
             total: total_nodes,
         },
         relationships_created: RelCounts {
-            stated_by,
-            about,
-            supports,
+            by_type: rel_type_counts,
             contained_in,
             total: total_rels,
         },

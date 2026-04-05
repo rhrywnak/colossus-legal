@@ -90,7 +90,7 @@ const UploadDialog: React.FC<Props> = ({ open, onClose, onSuccess }) => {
       const id = `doc-${slugify(file.name)}`;
       const title = titleize(file.name);
       const doc = await uploadDocument(file, {
-        id, title, documentType: schema, schemaFile: "general_legal.yaml",
+        id, title, documentType: schema, schemaFile: `${schema === "auto" ? "general_legal" : schema}.yaml`,
       });
       onSuccess();
       navigate(`/documents/${doc.id}`);

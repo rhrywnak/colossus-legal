@@ -1,10 +1,14 @@
 //! Helper functions for the graph ingest endpoint.
 //! Extracted from `ingest.rs` to keep it under 300 lines.
 //!
-//! ## Rust Learning
-//! - **HashMap<i32, String>**: Maps PG item IDs → Neo4j string IDs.
-//! - **txn.run()** discards result (CREATE). **txn.execute()** returns
-//!   RowStream to verify MATCH found nodes (used for relationships).
+//! ## Rust Learning: Generic entity node creation
+//!
+//! The `create_entity_node` function creates Neo4j nodes for ANY entity type.
+//! The entity_type string from the extraction schema becomes the Neo4j label
+//! directly (e.g., "ComplaintAllegation" → `:ComplaintAllegation`).
+//!
+//! Party entities are special: they use MERGE (upsert) and split into
+//! `:Person` or `:Organization` based on the `entity_kind`/`party_type` property.
 
 use std::collections::{HashMap, HashSet};
 
@@ -27,6 +31,7 @@ pub fn slug(name: &str) -> String {
         .collect::<Vec<_>>()
         .join("-")
 }
+
 /// Create the Document node in Neo4j. Returns the generated neo4j ID.
 pub async fn create_document_node(
     txn: &mut neo4rs::Txn,
@@ -54,10 +59,14 @@ pub async fn create_document_node(
     Ok(neo4j_id)
 }
 
-/// Create or merge Person/Organization nodes using entity resolution.
-/// Uses MERGE for cross-document sharing: ON CREATE sets properties,
-/// ON MATCH appends to `source_documents`. The `resolution_map` provides
-/// the resolved neo4j_id for each party_name.
+/// Create or merge Party nodes (Person/Organization) using entity resolution.
+///
+/// ## Rust Learning: MERGE for cross-document entity resolution
+///
+/// Parties are the only entity type that uses MERGE instead of CREATE.
+/// The same person (e.g., "Marie Awad") can appear in multiple documents.
+/// MERGE matches on the node ID and either creates a new node or updates
+/// the existing one by appending the new document to `source_documents`.
 pub async fn create_party_nodes(
     txn: &mut neo4rs::Txn,
     items: &[ExtractionItemRecord],
@@ -70,18 +79,26 @@ pub async fn create_party_nodes(
 
     for item in items.iter().filter(|i| i.entity_type == "Party") {
         let props = &item.item_data["properties"];
-        let name = props["party_name"].as_str().unwrap_or("unknown");
+        // Support both property naming conventions across schemas
+        let name = props["party_name"].as_str()
+            .or_else(|| props["full_name"].as_str())
+            .unwrap_or("unknown");
         let role = props["role"].as_str().unwrap_or("");
-        let party_type = props["party_type"].as_str().unwrap_or("individual");
+        // Support both "party_type" (complaint.yaml) and "entity_kind" (general_legal.yaml)
+        let party_type = props["party_type"].as_str()
+            .or_else(|| props["entity_kind"].as_str())
+            .unwrap_or("individual");
 
-        let label = if party_type == "organization" { "Organization" } else { "Person" };
+        let is_org = party_type == "organization"
+            || party_type.to_lowercase().contains("org");
+        let label = if is_org { "Organization" } else { "Person" };
 
         // Look up resolved ID from the resolution map
         let neo4j_id = resolution_map
             .get(name)
             .map(|(id, _)| id.clone())
             .unwrap_or_else(|| {
-                let prefix = if party_type == "organization" { "org" } else { "person" };
+                let prefix = if is_org { "org" } else { "person" };
                 format!("{prefix}-{}", slug(name))
             });
 
@@ -113,138 +130,131 @@ pub async fn create_party_nodes(
             message: format!("Failed to merge {label} '{name}': {e}"),
         })?;
 
-        match party_type {
-            "organization" => orgs += 1,
-            _ => persons += 1,
-        }
+        if is_org { orgs += 1; } else { persons += 1; }
     }
     Ok((persons, orgs))
 }
-/// Create ComplaintAllegation nodes from FactualAllegation items.
-pub async fn create_allegation_nodes(
+
+/// Create a Neo4j node for any non-Party entity type.
+///
+/// ## Rust Learning: Dynamic Neo4j labels from schema
+///
+/// The entity_type string from the extraction output becomes the Neo4j label
+/// directly. Neo4j Cypher does not support parameterized labels, so we
+/// interpolate the label into the query string. This is safe because the
+/// label originates from our schema YAML — we validate it contains only
+/// alphanumeric characters and underscores to prevent Cypher injection.
+///
+/// Properties are extracted generically from `item.item_data["properties"]`
+/// as individual key-value pairs. Standard fields (verbatim_quote, page_number,
+/// grounding_status) come from the ExtractionItemRecord itself.
+pub async fn create_entity_node(
     txn: &mut neo4rs::Txn,
-    items: &[ExtractionItemRecord],
+    item: &ExtractionItemRecord,
     doc_id: &str,
-    pg_to_neo4j: &mut HashMap<i32, String>,
-) -> Result<usize, AppError> {
-    let mut seq = 0usize;
+    seq: usize,
+) -> Result<String, AppError> {
+    let entity_type = &item.entity_type;
 
-    for item in items.iter().filter(|i| i.entity_type == "FactualAllegation") {
-        seq += 1;
-        let neo4j_id = format!("complaint-allegation-{seq:03}");
-        pg_to_neo4j.insert(item.id, neo4j_id.clone());
-
-        let props = &item.item_data["properties"];
-        let label_text = item.item_data["label"].as_str().unwrap_or("");
-        let allegation = props["allegation_text"].as_str().unwrap_or("");
-        let paragraph_ref = props["paragraph_ref"].as_str().unwrap_or("");
-
-        txn.run(
-            query(
-                "CREATE (n:ComplaintAllegation { \
-                    id: $id, title: $title, allegation: $allegation, \
-                    verbatim_quote: $quote, page_number: $page, \
-                    paragraph_ref: $para_ref, grounding_status: $grounding, \
-                    source_document: $doc, extraction_item_id: $ext_id })",
-            )
-            .param("id", neo4j_id.as_str())
-            .param("title", label_text)
-            .param("allegation", allegation)
-            .param("quote", item.verbatim_quote.clone())
-            .param("page", item.grounded_page)
-            .param("para_ref", paragraph_ref)
-            .param("grounding", item.grounding_status.clone())
-            .param("doc", doc_id)
-            .param("ext_id", item.id as i64),
-        )
-        .await
-        .map_err(|e| AppError::Internal {
-            message: format!("Failed to create ComplaintAllegation {neo4j_id}: {e}"),
-        })?;
+    // Validate label: alphanumeric + underscore only (prevent Cypher injection)
+    if !entity_type.chars().all(|c| c.is_alphanumeric() || c == '_') {
+        return Err(AppError::BadRequest {
+            message: format!("Invalid entity type for Neo4j label: '{entity_type}'"),
+            details: serde_json::json!({ "entity_type": entity_type }),
+        });
     }
-    Ok(seq)
-}
-/// Create LegalCount nodes.
-pub async fn create_count_nodes(
-    txn: &mut neo4rs::Txn,
-    items: &[ExtractionItemRecord],
-    doc_id: &str,
-    pg_to_neo4j: &mut HashMap<i32, String>,
-) -> Result<usize, AppError> {
-    let mut count = 0usize;
 
-    for item in items.iter().filter(|i| i.entity_type == "LegalCount") {
-        count += 1;
-        let props = &item.item_data["properties"];
-        let count_number = props["count_number"].as_i64().unwrap_or(count as i64);
-        let neo4j_id = format!("legal-count-{count_number}");
-        pg_to_neo4j.insert(item.id, neo4j_id.clone());
+    // Generate a readable node ID from entity type + sequence number
+    let neo4j_id = format!("{}-{seq:03}", slug(entity_type));
 
-        let label_text = item.item_data["label"].as_str().unwrap_or("");
-        let legal_basis = props["legal_basis"].as_str().unwrap_or("");
+    // Extract title from the item label or first property
+    let title = item.item_data["label"].as_str().unwrap_or("");
 
-        txn.run(
-            query(
-                "CREATE (n:LegalCount { id: $id, title: $title, \
-                    count_number: $num, legal_basis: $basis, source_document: $doc })",
-            )
-            .param("id", neo4j_id.as_str())
-            .param("title", label_text)
-            .param("num", count_number)
-            .param("basis", legal_basis)
-            .param("doc", doc_id),
-        )
-        .await
-        .map_err(|e| AppError::Internal {
-            message: format!("Failed to create LegalCount {neo4j_id}: {e}"),
-        })?;
+    // Build the CREATE query with all properties from item_data["properties"]
+    // plus standard fields from the item record itself.
+    //
+    // ## Rust Learning: Building dynamic Cypher properties
+    //
+    // We set fixed fields (id, title, source_document, etc.) via named params,
+    // then use SET n.key = $value for each schema-defined property.
+    // This avoids a giant property map while keeping each field explicit.
+    let mut cypher = format!(
+        "CREATE (n:{entity_type} {{ id: $id, title: $title, \
+         source_document: $doc, extraction_item_id: $ext_id"
+    );
+
+    // Add verbatim_quote and grounding fields if present
+    if item.verbatim_quote.is_some() {
+        cypher.push_str(", verbatim_quote: $quote");
     }
-    Ok(count)
-}
-
-/// Create Harm nodes from DamagesClaim items.
-pub async fn create_harm_nodes(
-    txn: &mut neo4rs::Txn,
-    items: &[ExtractionItemRecord],
-    doc_id: &str,
-    pg_to_neo4j: &mut HashMap<i32, String>,
-) -> Result<usize, AppError> {
-    let mut seq = 0usize;
-
-    for item in items.iter().filter(|i| i.entity_type == "DamagesClaim") {
-        seq += 1;
-        let neo4j_id = format!("harm-{seq:03}");
-        pg_to_neo4j.insert(item.id, neo4j_id.clone());
-
-        let props = &item.item_data["properties"];
-        let label_text = item.item_data["label"].as_str().unwrap_or("");
-        let description = props["claim_text"].as_str().unwrap_or("");
-        let amount = props["amount"].as_str().unwrap_or("");
-        let damages_type = props["damages_type"].as_str().unwrap_or("");
-
-        txn.run(
-            query(
-                "CREATE (n:Harm { id: $id, title: $title, description: $desc, \
-                    amount: $amount, damages_type: $dtype, \
-                    verbatim_quote: $quote, page_number: $page, \
-                    source_document: $doc, extraction_item_id: $ext_id })",
-            )
-            .param("id", neo4j_id.as_str())
-            .param("title", label_text)
-            .param("desc", description)
-            .param("amount", amount)
-            .param("dtype", damages_type)
-            .param("quote", item.verbatim_quote.clone())
-            .param("page", item.grounded_page)
-            .param("doc", doc_id)
-            .param("ext_id", item.id as i64),
-        )
-        .await
-        .map_err(|e| AppError::Internal {
-            message: format!("Failed to create Harm {neo4j_id}: {e}"),
-        })?;
+    if item.grounded_page.is_some() {
+        cypher.push_str(", page_number: $page");
     }
-    Ok(seq)
+    if item.grounding_status.is_some() {
+        cypher.push_str(", grounding_status: $grounding");
+    }
+
+    cypher.push_str(" })");
+
+    let mut q = query(&cypher)
+        .param("id", neo4j_id.as_str())
+        .param("title", title)
+        .param("doc", doc_id)
+        .param("ext_id", item.id as i64);
+
+    if let Some(ref quote) = item.verbatim_quote {
+        q = q.param("quote", quote.as_str());
+    }
+    if let Some(page) = item.grounded_page {
+        q = q.param("page", page as i64);
+    }
+    if let Some(ref status) = item.grounding_status {
+        q = q.param("grounding", status.as_str());
+    }
+
+    txn.run(q).await.map_err(|e| AppError::Internal {
+        message: format!("Failed to create {entity_type} {neo4j_id}: {e}"),
+    })?;
+
+    // Set schema-defined properties from item_data["properties"]
+    if let Some(props) = item.item_data.get("properties").and_then(|p| p.as_object()) {
+        for (key, value) in props {
+            // Skip properties that would conflict with standard fields
+            if key == "verbatim_quote" || key == "page_number" {
+                continue;
+            }
+            // Validate property name
+            if !key.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                continue;
+            }
+
+            let set_cypher = format!("MATCH (n {{ id: $id }}) SET n.{key} = $val");
+
+            // Convert serde_json::Value to neo4rs param
+            let set_q = match value {
+                serde_json::Value::String(s) => {
+                    Some(query(&set_cypher).param("id", neo4j_id.as_str()).param("val", s.as_str()))
+                }
+                serde_json::Value::Number(n) => {
+                    n.as_i64()
+                        .map(|i| query(&set_cypher).param("id", neo4j_id.as_str()).param("val", i))
+                        .or_else(|| n.as_f64().map(|f| query(&set_cypher).param("id", neo4j_id.as_str()).param("val", f)))
+                }
+                serde_json::Value::Bool(b) => {
+                    Some(query(&set_cypher).param("id", neo4j_id.as_str()).param("val", *b))
+                }
+                _ => None, // Skip arrays, objects, nulls
+            };
+
+            if let Some(set_q) = set_q {
+                txn.run(set_q).await.map_err(|e| AppError::Internal {
+                    message: format!("Failed to set property '{key}' on {neo4j_id}: {e}"),
+                })?;
+            }
+        }
+    }
+
+    Ok(neo4j_id)
 }
 
 /// Create a relationship between two nodes inside a transaction.
@@ -297,4 +307,3 @@ pub async fn create_contained_in_relationships(
     }
     Ok(node_ids.len())
 }
-
