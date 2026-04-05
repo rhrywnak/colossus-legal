@@ -26,12 +26,8 @@
 # which causes __isoc23_strtol linker errors. Ubuntu 24.04 has glibc 2.39,
 # matching the dev workstation. Always keep builder and runtime glibc in sync.
 #
-# PRIVATE GIT DEPENDENCY NOTE:
-# Cargo.toml references colossus-rag and colossus-auth from a private GitHub repo
-# (colossus-rs). Docker builds can't access private repos without credentials.
-# Instead, build-release.sh copies the colossus-rs source into the build context,
-# and .cargo/config.toml overrides the git URLs to use local paths.
-# This avoids putting GitHub tokens in the Docker image.
+# Cargo fetches colossus-rs crates directly from GitHub during the build
+# (both repos are public — no credentials needed).
 # ==============================================================================
 
 # ── Stage 1: Build ──────────────────────────────────────────────────────────────
@@ -52,16 +48,6 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
 ENV PATH="/root/.cargo/bin:${PATH}"
 
 WORKDIR /build
-
-# ── Copy colossus-rs (shared library workspace) ────────────────────────────────
-# build-release.sh stages this directory before running podman build.
-# It contains colossus-auth and colossus-rag source code.
-COPY .colossus-rs-build/ /build/colossus-rs/
-
-# ── Copy cargo config that redirects git deps to local paths ───────────────────
-# This tells cargo: "when you see git = 'https://github.com/rhrywnak/colossus-rs.git',
-# use the local /build/colossus-rs/ directory instead of fetching from GitHub."
-COPY .cargo/ /build/.cargo/
 
 # OPTIMIZATION: Copy dependency files first, then build dependencies.
 # Docker caches each layer. If Cargo.toml hasn't changed, Docker reuses the
@@ -100,9 +86,6 @@ COPY extraction_templates/ extraction_templates/
 RUN touch src/main.rs src/lib.rs
 
 # Build the actual application
-# NOTE: --locked removed because the local path override changes the lockfile
-# resolution. The Cargo.lock in the repo references git URLs, but we're building
-# with local paths. cargo will verify versions match but won't enforce exact URLs.
 # SQLX_OFFLINE=true: sqlx compile-time macros skip database connectivity checks.
 # The migrate!() macro still embeds .sql files — it just doesn't verify against a live DB.
 ENV SQLX_OFFLINE=true
