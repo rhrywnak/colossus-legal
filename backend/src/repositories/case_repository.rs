@@ -1,4 +1,4 @@
-use neo4rs::{query, Graph};
+use neo4rs::Graph;
 
 use crate::dto::{CaseInfo, CaseResponse, CaseStats, LegalCountSummary, PartiesGroup, PartyDto};
 
@@ -11,6 +11,7 @@ pub struct CaseRepository {
 pub enum CaseRepositoryError {
     Neo4j(neo4rs::Error),
     Value(neo4rs::DeError),
+    GraphAccess(colossus_graph::GraphAccessError),
 }
 
 impl From<neo4rs::Error> for CaseRepositoryError {
@@ -22,6 +23,12 @@ impl From<neo4rs::Error> for CaseRepositoryError {
 impl From<neo4rs::DeError> for CaseRepositoryError {
     fn from(value: neo4rs::DeError) -> Self {
         CaseRepositoryError::Value(value)
+    }
+}
+
+impl From<colossus_graph::GraphAccessError> for CaseRepositoryError {
+    fn from(value: colossus_graph::GraphAccessError) -> Self {
+        CaseRepositoryError::GraphAccess(value)
     }
 }
 
@@ -58,22 +65,28 @@ impl CaseRepository {
     /// Fetch case identity from the complaint Document node (v2 pipeline).
     /// Fields like court, case_number, filing_date don't exist on Document
     /// nodes — they return None until richer metadata is available.
+    ///
+    /// Uses colossus_graph::get_nodes_by_label to fetch all Document nodes,
+    /// then filters in Rust for the complaint document.
     async fn get_case_info(&self) -> Result<Option<CaseInfo>, CaseRepositoryError> {
-        let mut result = self
-            .graph
-            .execute(query(
-                "MATCH (d:Document)
-                 WHERE d.doc_type CONTAINS 'complaint'
-                 RETURN d.id AS id, d.title AS title, d.doc_type AS doc_type,
-                        d.ingested_at AS ingested_at, d.status AS status
-                 LIMIT 1",
-            ))
-            .await?;
+        let docs = colossus_graph::get_nodes_by_label(&self.graph, "Document").await?;
 
-        if let Some(row) = result.next().await? {
-            let id: String = row.get("id").unwrap_or_default();
-            let title: String = row.get("title").unwrap_or_default();
-            let status: Option<String> = row.get("status").ok();
+        let complaint = docs.into_iter().find(|d| {
+            d.properties.get("doc_type")
+                .and_then(|v| v.as_str())
+                .map(|s| s.contains("complaint"))
+                .unwrap_or(false)
+        });
+
+        if let Some(doc) = complaint {
+            let id = doc.id;
+            let title = doc.properties.get("title")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string();
+            let status = doc.properties.get("status")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
 
             Ok(Some(CaseInfo {
                 id,
@@ -92,27 +105,31 @@ impl CaseRepository {
 
     /// Fetch parties by role property on Person/Organization nodes (v2 pipeline).
     /// V2 stores role directly on the node, not on an INVOLVES relationship.
+    ///
+    /// ## Rust Learning: colossus_graph::get_nodes_with_property
+    ///
+    /// Instead of writing raw Cypher with `WHERE n.role IS NOT NULL`, we use
+    /// the schema-agnostic `get_nodes_with_property` function from colossus-graph.
+    /// It returns `Vec<GraphNode>` with all properties as serde_json::Value,
+    /// which we then map to our domain-specific PartyDto structs.
     async fn get_parties(&self) -> Result<PartiesGroup, CaseRepositoryError> {
         let mut plaintiffs: Vec<PartyDto> = Vec::new();
         let mut defendants: Vec<PartyDto> = Vec::new();
         let mut other: Vec<PartyDto> = Vec::new();
 
-        let mut result = self
-            .graph
-            .execute(query(
-                "MATCH (n)
-                 WHERE n.role IS NOT NULL
-                 RETURN n.id AS id, n.name AS name, n.role AS role,
-                        labels(n)[0] AS entity_type
-                 ORDER BY n.role, n.name",
-            ))
-            .await?;
+        let nodes = colossus_graph::get_nodes_with_property(&self.graph, "role").await?;
 
-        while let Some(row) = result.next().await? {
-            let id: String = row.get("id").unwrap_or_default();
-            let name: String = row.get("name").unwrap_or_default();
-            let role: String = row.get("role").unwrap_or_default();
-            let entity_type: String = row.get("entity_type").unwrap_or_default();
+        for node in &nodes {
+            let id = node.id.clone();
+            let name = node.properties.get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string();
+            let role = node.properties.get("role")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string();
+            let entity_type = node.labels.first().map(|s| s.as_str()).unwrap_or_default();
 
             let party_type = if entity_type == "Organization" {
                 "organization".to_string()
@@ -143,63 +160,80 @@ impl CaseRepository {
 
     /// Fetch aggregated statistics across node types (v2 pipeline).
     /// Evidence nodes don't exist in v2 — evidence_count returns 0.
-    /// Harm.amount is a string like "$25,000.00" — parsed in Cypher.
-    /// ComplaintAllegation uses grounding_status instead of evidence_status.
+    ///
+    /// ## Rust Learning: Aggregation in Rust vs Cypher
+    ///
+    /// Instead of one complex Cypher query with multiple OPTIONAL MATCH clauses,
+    /// we use colossus_graph::get_label_counts for simple counts and
+    /// colossus_graph::get_nodes_by_label to fetch nodes for Rust-side aggregation.
+    /// This trades one complex query for several simple ones, but decouples us
+    /// from label names embedded in Cypher strings.
     async fn get_stats(&self) -> Result<CaseStats, CaseRepositoryError> {
-        let mut result = self
-            .graph
-            .execute(query(
-                "OPTIONAL MATCH (a:ComplaintAllegation)
-                 WITH count(a) AS allegations_total,
-                      count(CASE WHEN a.grounding_status IN ['exact', 'normalized'] THEN 1 END) AS allegations_proven
-                 OPTIONAL MATCH (d:Document)
-                 WITH allegations_total, allegations_proven, count(d) AS document_count
-                 OPTIONAL MATCH (h:Harm)
-                 WITH allegations_total, allegations_proven, document_count,
-                      SUM(CASE WHEN h.amount IS NOT NULL
-                          THEN toFloat(replace(replace(h.amount, '$', ''), ',', ''))
-                          ELSE 0 END) AS damages_total
-                 OPTIONAL MATCH (l:LegalCount)
-                 RETURN allegations_total, allegations_proven,
-                        document_count, damages_total, count(l) AS legal_counts",
-            ))
-            .await?;
+        // Get entity type counts from the graph (label → count).
+        let label_counts = colossus_graph::get_label_counts(&self.graph).await?;
+        let count_for = |label: &str| -> i64 {
+            label_counts.iter()
+                .find(|lc| lc.label == label)
+                .map(|lc| lc.count)
+                .unwrap_or(0)
+        };
 
-        if let Some(row) = result.next().await? {
-            Ok(CaseStats {
-                allegations_total: row.get("allegations_total").unwrap_or(0),
-                allegations_proven: row.get("allegations_proven").unwrap_or(0),
-                evidence_count: 0, // Evidence nodes don't exist in v2
-                document_count: row.get("document_count").unwrap_or(0),
-                damages_total: row.get("damages_total").unwrap_or(0.0),
-                legal_counts: row.get("legal_counts").unwrap_or(0),
-                legal_count_details: Vec::new(), // Populated separately
+        let document_count = count_for("Document");
+        let legal_counts = count_for("LegalCount");
+
+        // Fetch Harm nodes and compute damages total in Rust.
+        // Harm.amount is a string like "$25,000.00" — strip currency formatting.
+        let harms = colossus_graph::get_nodes_by_label(&self.graph, "Harm").await?;
+        let damages_total: f64 = harms.iter()
+            .filter_map(|h| h.properties.get("amount"))
+            .filter_map(|v| v.as_str())
+            .filter_map(|s| s.replace(['$', ','], "").parse::<f64>().ok())
+            .sum();
+
+        // Fetch ComplaintAllegation nodes and count proven in Rust.
+        // grounding_status of "exact" or "normalized" means the allegation is proven.
+        let allegations = colossus_graph::get_nodes_by_label(&self.graph, "ComplaintAllegation").await?;
+        let allegations_total = allegations.len() as i64;
+        let allegations_proven = allegations.iter()
+            .filter(|a| {
+                a.properties.get("grounding_status")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s == "exact" || s == "normalized")
+                    .unwrap_or(false)
             })
-        } else {
-            Ok(CaseStats::default())
-        }
+            .count() as i64;
+
+        Ok(CaseStats {
+            allegations_total,
+            allegations_proven,
+            evidence_count: 0, // Evidence nodes don't exist in v2
+            document_count,
+            damages_total,
+            legal_counts,
+            legal_count_details: Vec::new(), // Populated separately
+        })
     }
 
-    /// Fetch legal count details (id and name)
+    /// Fetch legal count details (id and name).
+    /// Uses colossus_graph::get_nodes_by_label to fetch LegalCount nodes,
+    /// then maps properties to LegalCountSummary in Rust.
     async fn get_legal_count_details(&self) -> Result<Vec<LegalCountSummary>, CaseRepositoryError> {
-        let mut details: Vec<LegalCountSummary> = Vec::new();
+        let nodes = colossus_graph::get_nodes_by_label(&self.graph, "LegalCount").await?;
 
-        let mut result = self
-            .graph
-            .execute(query(
-                "MATCH (lc:LegalCount)
-                 RETURN lc.id AS id, lc.title AS name,
-                        lc.count_number AS count_number
-                 ORDER BY lc.count_number",
-            ))
-            .await?;
+        let mut details: Vec<LegalCountSummary> = nodes.iter().map(|node| {
+            let id = node.id.clone();
+            let name = node.properties.get("title")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string();
+            let count_number = node.properties.get("count_number")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0);
+            LegalCountSummary { id, name, count_number }
+        }).collect();
 
-        while let Some(row) = result.next().await? {
-            let id: String = row.get("id").unwrap_or_default();
-            let name: String = row.get("name").unwrap_or_default();
-            let count_number: i64 = row.get("count_number").unwrap_or(0);
-            details.push(LegalCountSummary { id, name, count_number });
-        }
+        // Sort by count_number (colossus_graph doesn't guarantee order)
+        details.sort_by_key(|d| d.count_number);
 
         Ok(details)
     }
