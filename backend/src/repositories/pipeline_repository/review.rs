@@ -168,7 +168,7 @@ pub async fn bulk_approve(
          SET review_status = 'approved', reviewed_by = $1, reviewed_at = NOW(),
              review_notes = 'Bulk approved'
          WHERE document_id = $2
-           AND review_status = 'pending'
+           AND LOWER(review_status) = 'pending'
            AND ($3 = 'all' OR grounding_status IN ('exact', 'normalized'))",
     )
     .bind(reviewed_by)
@@ -183,7 +183,7 @@ pub async fn bulk_approve(
 pub async fn count_pending(pool: &PgPool, document_id: &str) -> Result<i64, sqlx::Error> {
     sqlx::query_scalar::<_, i64>(
         "SELECT count(*) FROM extraction_items
-         WHERE document_id = $1 AND review_status = 'pending'",
+         WHERE document_id = $1 AND LOWER(review_status) = 'pending'",
     )
     .bind(document_id)
     .fetch_one(pool)
