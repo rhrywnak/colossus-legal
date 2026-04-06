@@ -6,6 +6,7 @@
  */
 import React, { useMemo, useState } from "react";
 import type { ExtractionItem } from "../../services/pipelineApi";
+import { getColor } from "../../hooks/useSchema";
 
 interface ContentPanelProps {
   items: ExtractionItem[] | null;
@@ -16,10 +17,6 @@ interface ContentPanelProps {
 
 // ── Styles ──────────────────────────────────────────────────────
 
-const TYPE_COLORS: Record<string, string> = {
-  Person: "#2563eb", Evidence: "#059669", Allegation: "#dc2626",
-  Claim: "#7c3aed", Document: "#d97706", Event: "#0891b2",
-};
 const itemCardStyle: React.CSSProperties = {
   backgroundColor: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "8px",
   padding: "0.75rem 1rem", marginBottom: "0.5rem",
@@ -83,7 +80,7 @@ const ContentPanel: React.FC<ContentPanelProps> = ({ items, loading, error, onVi
         {filteredItems.map((item) => (
           <div key={item.id} style={itemCardStyle}>
             <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.35rem" }}>
-              <span style={typeBadge(TYPE_COLORS[item.entity_type] || "#6b7280")}>{item.entity_type}</span>
+              <span style={typeBadge(getColor(item.entity_type))}>{item.entity_type}</span>
               <span style={{ fontSize: "0.88rem", fontWeight: 600, color: "#0f172a" }}>{item.label}</span>
               {item.grounding_status && (
                 <span style={groundBadge(item.grounding_status === "grounded")}>

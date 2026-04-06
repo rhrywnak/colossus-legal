@@ -4,6 +4,9 @@
  * Extracted from DocumentWorkspace to keep that page under 300 lines.
  * Computes type counts from the items array and renders a styled <select>.
  * Only shows node types that actually exist in the current data.
+ *
+ * TODO: B-4 — v1 dead code. Part of the manual evidence import workflow
+ * superseded by the v2 pipeline. Remove or rewrite when v1 is deprecated.
  */
 import React, { useMemo } from "react";
 import { DocumentEvidence } from "../../services/documentEvidence";

@@ -4,6 +4,10 @@
  * Used in the Document Workspace right panel. Shows the evidence title,
  * speaker, verbatim quote, page number, and audit status badges.
  * Clicking the card navigates the PDF viewer to the cited page.
+ *
+ * TODO: B-4 — v1 dead code. This component is part of the manual evidence
+ * import workflow (DocumentEvidence service) superseded by the v2 pipeline.
+ * No Evidence nodes exist in v2. Remove or rewrite when v1 is fully deprecated.
  */
 import React, { useState } from "react";
 import { DocumentEvidence } from "../../services/documentEvidence";

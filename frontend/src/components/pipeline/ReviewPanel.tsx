@@ -12,6 +12,7 @@ import {
   fetchDocumentItems, approveItem, rejectItem, editItem, bulkApprove,
   ExtractionItem,
 } from "../../services/pipelineApi";
+import { getColor } from "../../hooks/useSchema";
 
 interface ReviewPanelProps {
   documentId: string;
@@ -20,10 +21,6 @@ interface ReviewPanelProps {
 
 // ── Styles ──────────────────────────────────────────────────────
 
-const TYPE_COLORS: Record<string, string> = {
-  Person: "#2563eb", Evidence: "#059669", Allegation: "#dc2626",
-  Claim: "#7c3aed", Document: "#d97706", Event: "#0891b2",
-};
 const badge = (bg: string, fg: string): React.CSSProperties => ({
   display: "inline-block", padding: "0.1rem 0.4rem", borderRadius: "9999px",
   fontSize: "0.68rem", fontWeight: 600, backgroundColor: bg, color: fg,
@@ -214,7 +211,7 @@ const ReviewPanel: React.FC<ReviewPanelProps> = ({ documentId, pdfUrl }) => {
               <span style={{
                 display: "inline-block", padding: "0.1rem 0.4rem", borderRadius: "4px",
                 fontSize: "0.66rem", fontWeight: 600, color: "#fff",
-                backgroundColor: TYPE_COLORS[item.entity_type] || "#6b7280",
+                backgroundColor: getColor(item.entity_type),
               }}>{item.entity_type}</span>
               <span style={{ fontSize: "0.82rem", fontWeight: 600, color: "#0f172a" }}>{item.label}</span>
               <span style={REVIEW_BADGE[(item.review_status || "pending").toLowerCase()]}>

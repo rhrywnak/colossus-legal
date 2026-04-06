@@ -8,6 +8,7 @@ import {
 } from "../services/evidenceChain";
 import { GraphEdge, GraphNodeType } from "../services/graph";
 import { API_BASE_URL } from "../services/api";
+import { getColor, getDisplayName } from "../hooks/useSchema";
 
 // Professional color palette (matching Explorer page)
 const COLORS = {
@@ -17,15 +18,6 @@ const COLORS = {
   textPrimary: "#1e293b",
   textSecondary: "#64748b",
   textMuted: "#94a3b8",
-};
-
-// Left border accent colors by node type
-const ACCENT_COLORS: Record<GraphNodeType, string> = {
-  legal_count: "#3b82f6",
-  allegation: "#059669",
-  motion_claim: "#3b82f6",
-  evidence: "#8b5cf6",
-  document: "#6b7280",
 };
 
 // Status badge colors
@@ -218,7 +210,7 @@ const NodePopup: React.FC<{
   onClose: () => void;
 }> = ({ node, onClose }) => {
   const { fullData, node_type } = node;
-  const accentColor = ACCENT_COLORS[node_type];
+  const accentColor = getColor(node_type);
   const statusColors = fullData.evidence_status
     ? STATUS_COLORS[fullData.evidence_status.toUpperCase()]
     : null;
@@ -812,14 +804,12 @@ const GraphPage: React.FC = () => {
                         height: "16px",
                         backgroundColor: COLORS.bgCard,
                         border: `1px solid ${COLORS.border}`,
-                        borderLeft: `3px solid ${ACCENT_COLORS[type]}`,
+                        borderLeft: `3px solid ${getColor(type)}`,
                         borderRadius: "3px",
                       }}
                     />
                     <span style={{ color: COLORS.textSecondary }}>
-                      {type
-                        .replace("_", " ")
-                        .replace(/\b\w/g, (c) => c.toUpperCase())}
+                      {getDisplayName(type)}
                     </span>
                   </div>
                 )
@@ -884,7 +874,7 @@ const GraphPage: React.FC = () => {
 
                   {/* Nodes */}
                   {layout.nodes.map((node) => {
-                    const accentColor = ACCENT_COLORS[node.node_type];
+                    const accentColor = getColor(node.node_type);
                     const x = node.x - NODE_WIDTH / 2;
                     const y = node.y - NODE_HEIGHT / 2;
                     const isDocument = node.node_type === "document";

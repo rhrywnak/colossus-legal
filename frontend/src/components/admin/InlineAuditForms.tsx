@@ -4,6 +4,9 @@
  * Extracted from DocumentWorkspace.tsx to keep that page under 300 lines.
  * These forms appear at the top of the evidence panel when the user clicks
  * "Verify" or "Flag" on an evidence card.
+ *
+ * TODO: B-4 — v1 dead code. Part of the manual evidence audit workflow
+ * superseded by the v2 pipeline. Remove when v1 is fully deprecated.
  */
 import React from "react";
 import { DocumentEvidence } from "../../services/documentEvidence";

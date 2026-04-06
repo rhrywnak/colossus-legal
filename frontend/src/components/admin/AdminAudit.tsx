@@ -1,3 +1,5 @@
+// TODO: B-4 — v1 dead code. Part of the manual audit workflow superseded
+// by the v2 pipeline review system. Remove when v1 is fully deprecated.
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AuditHealthResponse, AuditCheck, getAuditHealth } from "../../services/admin";

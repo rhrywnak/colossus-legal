@@ -1,3 +1,6 @@
+// TODO: B-4 — v1 dead code. This component is part of the manual document
+// registration and evidence import workflow superseded by the v2 pipeline.
+// Remove or rewrite when v1 is fully deprecated.
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {

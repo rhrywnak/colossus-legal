@@ -3,6 +3,9 @@
  *
  * Shows verification info (who, when, notes) and individual flag entries
  * (severity badge, description, who flagged and when).
+ *
+ * TODO: B-4 — v1 dead code. Part of the manual evidence import workflow
+ * superseded by the v2 pipeline. Remove or rewrite when v1 is deprecated.
  */
 import React from "react";
 import { DocumentEvidence } from "../../services/documentEvidence";

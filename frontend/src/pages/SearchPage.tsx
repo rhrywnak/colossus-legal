@@ -1,30 +1,13 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { semanticSearch, SearchHit } from "../services/search";
+import { getBadgeColor, getPluralLabel } from "../hooks/useSchema";
 
-// Node type colors for badge styling
-const NODE_TYPE_COLORS: Record<string, { bg: string; text: string }> = {
-  Evidence: { bg: "#dbeafe", text: "#1d4ed8" },
-  ComplaintAllegation: { bg: "#fef3c7", text: "#92400e" },
-  MotionClaim: { bg: "#e0e7ff", text: "#3730a3" },
-  Document: { bg: "#d1fae5", text: "#065f46" },
-  Person: { bg: "#fce7f3", text: "#9d174d" },
-  Organization: { bg: "#f3e8ff", text: "#6b21a8" },
-  Harm: { bg: "#fee2e2", text: "#991b1b" },
-};
-const DEFAULT_COLOR = { bg: "#f3f4f6", text: "#374151" };
-
-// Display-friendly labels for filter chips
-const NODE_TYPE_LABELS: Record<string, string> = {
-  Evidence: "Evidence",
-  ComplaintAllegation: "Allegations",
-  MotionClaim: "Claims",
-  Document: "Documents",
-  Person: "People",
-  Organization: "Organizations",
-  Harm: "Harms",
-};
-const ALL_NODE_TYPES = Object.keys(NODE_TYPE_LABELS);
+// Entity types shown as filter chips in search. Order matters for display.
+const ALL_NODE_TYPES = [
+  "Evidence", "ComplaintAllegation", "MotionClaim", "Document",
+  "Person", "Organization", "Harm",
+];
 
 function getDetailLink(hit: SearchHit): string | null {
   switch (hit.node_type) {
@@ -134,7 +117,7 @@ const SearchPage: React.FC = () => {
       <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", marginBottom: "1.5rem" }}>
         {ALL_NODE_TYPES.map((type) => {
           const active = activeTypes.includes(type);
-          const colors = NODE_TYPE_COLORS[type] || DEFAULT_COLOR;
+          const colors = getBadgeColor(type);
           return (
             <button
               key={type}
@@ -147,7 +130,7 @@ const SearchPage: React.FC = () => {
                 fontSize: "0.8rem", fontWeight: active ? 600 : 400, cursor: "pointer",
               }}
             >
-              {NODE_TYPE_LABELS[type]}
+              {getPluralLabel(type)}
             </button>
           );
         })}
@@ -192,7 +175,7 @@ const SearchPage: React.FC = () => {
       {!loading && results.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
           {results.map((hit, idx) => {
-            const colors = NODE_TYPE_COLORS[hit.node_type] || DEFAULT_COLOR;
+            const colors = getBadgeColor(hit.node_type);
             const link = getDetailLink(hit);
             const scorePercent = Math.round(hit.score * 100);
             return (

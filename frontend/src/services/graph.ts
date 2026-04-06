@@ -1,12 +1,8 @@
 import { API_BASE_URL } from "./api";
 import { authFetch } from "./auth";
 
-export type GraphNodeType =
-  | "legal_count"
-  | "allegation"
-  | "motion_claim"
-  | "evidence"
-  | "document";
+/** Node type from the graph API. Now a string to support any schema-defined type. */
+export type GraphNodeType = string;
 
 export type GraphNode = {
   id: string;

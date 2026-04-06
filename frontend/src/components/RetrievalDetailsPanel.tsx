@@ -1,15 +1,6 @@
 import React, { useState } from "react";
 import { AskResponse, RetrievalDetail } from "../services/ask";
-
-const NODE_TYPE_COLORS: Record<string, { bg: string; text: string }> = {
-  Evidence:            { bg: "#dbeafe", text: "#1e40af" },
-  ComplaintAllegation: { bg: "#ede9fe", text: "#5b21b6" },
-  MotionClaim:         { bg: "#fef3c7", text: "#92400e" },
-  Harm:                { bg: "#fee2e2", text: "#991b1b" },
-  LegalCount:          { bg: "#d1fae5", text: "#065f46" },
-  Document:            { bg: "#e0e7ff", text: "#3730a3" },
-};
-const DEFAULT_COLOR = { bg: "#f3f4f6", text: "#374151" };
+import { getBadgeColor } from "../hooks/useSchema";
 
 /** Truncate a string to maxLen chars, adding ellipsis if needed. */
 function truncate(s: string, maxLen: number): string {
@@ -18,7 +9,7 @@ function truncate(s: string, maxLen: number): string {
 
 /** Small colored pill for the node type. */
 const NodeBadge: React.FC<{ nodeType: string }> = ({ nodeType }) => {
-  const color = NODE_TYPE_COLORS[nodeType] || DEFAULT_COLOR;
+  const color = getBadgeColor(nodeType);
   return (
     <span style={{
       display: "inline-block", padding: "0.1rem 0.45rem", borderRadius: "4px",

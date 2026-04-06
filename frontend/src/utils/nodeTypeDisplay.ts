@@ -5,6 +5,8 @@
  * Extracted here to keep both components under the 300-line limit.
  */
 
+import { getColor, getDisplayName } from "../hooks/useSchema";
+
 // ── Node type display ────────────────────────────────────────────
 
 export interface NodeTypeDisplay {
@@ -12,20 +14,12 @@ export interface NodeTypeDisplay {
   color: string;
 }
 
+/** Get display label and color for any entity type. Schema-driven. */
 export function getNodeTypeDisplay(nodeType: string): NodeTypeDisplay {
-  switch (nodeType) {
-    case "ComplaintAllegation":
-      return { label: "Allegation", color: "#9C27B0" };
-    case "MotionClaim":
-      return { label: "Motion Claim", color: "#4CAF50" };
-    case "LegalCount":
-      return { label: "Legal Count", color: "#FF9800" };
-    case "Harm":
-      return { label: "Harm", color: "#F44336" };
-    case "Evidence":
-    default:
-      return { label: "Evidence", color: "#2196F3" };
-  }
+  return {
+    label: getDisplayName(nodeType),
+    color: getColor(nodeType),
+  };
 }
 
 // ── Source type display ──────────────────────────────────────────
