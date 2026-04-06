@@ -70,20 +70,33 @@ export interface AvailableAction {
   is_navigation: boolean;
 }
 
-export interface CompletedStep {
+export interface PipelineStage {
+  name: string;
+  label: string;
+  order: number;
+  status: "completed" | "available" | "pending" | "failed";
+  duration_secs: number | null;
+  summary: string | null;
+  action: AvailableAction | null;
+}
+
+export interface ExecutionHistoryEntry {
   step_name: string;
   label: string;
   status: string;
+  started_at: string;
   duration_secs: number | null;
-  result_summary: Record<string, unknown> | null;
+  triggered_by: string | null;
+  summary: Record<string, unknown> | null;
   error_message: string | null;
 }
 
 export interface DocumentActions {
   document_id: string;
   current_status: string;
+  pipeline_stages: PipelineStage[];
   available_actions: AvailableAction[];
-  completed_steps: CompletedStep[];
+  execution_history: ExecutionHistoryEntry[];
   delete_confirmation_level: string;
 }
 
