@@ -30,6 +30,7 @@ mod ingest_resolver;
 pub mod report;
 mod review;
 mod schemas;
+pub mod state_machine;
 mod upload;
 pub mod users;
 pub mod verify;
@@ -79,6 +80,7 @@ pub fn router() -> Router<AppState> {
         .route("/documents/:id/index", post(index_handler))
         .route("/documents/:id/completeness", get(completeness_handler))
         .route("/documents/:id/report", get(report_handler))
+        .route("/documents/:id/actions", get(state_machine::get_document_actions))
         .route("/documents/:id/history", get(history_handler))
         .route("/documents/:id/items", get(items::list_items_handler))
         .route("/documents/:id/approve-all", post(review::bulk_approve_handler))

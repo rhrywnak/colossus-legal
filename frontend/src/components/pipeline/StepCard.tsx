@@ -1,22 +1,23 @@
+/**
+ * StepCard — Display-only card for a completed or in-progress pipeline step.
+ *
+ * Shows icon, label, duration, and metric summary. No business logic —
+ * just presentation based on step data from the backend.
+ */
 import React from "react";
-import type { PipelineStep } from "../../services/pipelineApi";
 
-export interface StepDef {
-  name: string;
+interface StepData {
+  step_name: string;
   label: string;
-  statusRequired: string | null;
-  isManual?: boolean;
+  status: string;
+  duration_secs: number | null;
+  result_summary: Record<string, unknown> | null;
+  error_message: string | null;
 }
 
 interface Props {
-  step: StepDef;
+  step: StepData;
   index: number;
-  historyEntry: PipelineStep | undefined;
-  documentStatus: string;
-  isNextAction: boolean;
-  running: boolean;
-  onTrigger: (stepName: string) => void;
-  onNavigate?: (stepName: string) => void;
 }
 
 const cardStyle: React.CSSProperties = {
@@ -28,14 +29,6 @@ const iconStyle = (status: string): React.CSSProperties => ({
   width: "24px", textAlign: "center" as const, fontSize: "0.9rem",
   color: status === "completed" ? "#22c55e" : status === "failed" ? "#ef4444"
     : status === "running" ? "#2563eb" : "#cbd5e1",
-});
-
-const btnStyle = (enabled: boolean): React.CSSProperties => ({
-  padding: "0.3rem 0.7rem", fontSize: "0.76rem", fontWeight: 600,
-  border: "1px solid #2563eb", borderRadius: "6px", cursor: enabled ? "pointer" : "default",
-  backgroundColor: enabled ? "#2563eb" : "#e2e8f0",
-  color: enabled ? "#ffffff" : "#94a3b8",
-  fontFamily: "inherit", opacity: enabled ? 1 : 0.6,
 });
 
 function statusIcon(status: string): string {
@@ -55,10 +48,10 @@ function formatDuration(secs: number | null): string {
   return `${mins}m ${s}s`;
 }
 
-function formatMetric(entry: PipelineStep | undefined): string {
-  if (!entry || entry.status !== "completed") return "";
-  const r = entry.result_summary as Record<string, unknown>;
-  switch (entry.step_name) {
+function formatMetric(step: StepData): string {
+  if (step.status !== "completed" || !step.result_summary) return "";
+  const r = step.result_summary;
+  switch (step.step_name) {
     case "extract_text": return `${r.page_count ?? ""} pages, ${r.total_chars ?? ""} chars`;
     case "extract": return `${r.entity_count ?? ""} items`;
     case "verify": return r.grounding_rate != null ? `${r.grounding_rate}% grounded` : "";
@@ -73,47 +66,22 @@ function formatMetric(entry: PipelineStep | undefined): string {
   }
 }
 
-function stepStatus(entry: PipelineStep | undefined): string {
-  if (!entry) return "pending";
-  return entry.status;
-}
-
-const StepCard: React.FC<Props> = ({
-  step, index, historyEntry, isNextAction, running, onTrigger, onNavigate,
-}) => {
-  const status = stepStatus(historyEntry);
-  const metric = formatMetric(historyEntry);
-  const enabled = isNextAction && !running;
-
-  const handleClick = () => {
-    if (!enabled) return;
-    if (step.isManual && onNavigate) {
-      onNavigate(step.name);
-    } else {
-      onTrigger(step.name);
-    }
-  };
-
-  const buttonLabel = step.isManual ? "Review Items \u2192" : `Run ${step.label}`;
+const StepCard: React.FC<Props> = ({ step, index }) => {
+  const metric = formatMetric(step);
 
   return (
     <div style={cardStyle}>
-      <span style={iconStyle(status)}>{statusIcon(status)}</span>
+      <span style={iconStyle(step.status)}>{statusIcon(step.status)}</span>
       <span style={{ fontWeight: 600, fontSize: "0.84rem", color: "#0f172a", minWidth: "110px" }}>
         {index + 1}. {step.label}
       </span>
       <span style={{ fontSize: "0.76rem", color: "#64748b", minWidth: "60px" }}>
-        {formatDuration(historyEntry?.duration_secs ?? null)}
+        {formatDuration(step.duration_secs)}
       </span>
       <span style={{ flex: 1, fontSize: "0.76rem", color: "#64748b" }}>{metric}</span>
-      {isNextAction && (
-        <button style={btnStyle(enabled)} onClick={handleClick} disabled={!enabled}>
-          {running ? "Running..." : buttonLabel}
-        </button>
-      )}
-      {status === "failed" && historyEntry?.error_message && (
+      {step.status === "failed" && step.error_message && (
         <span style={{ fontSize: "0.72rem", color: "#ef4444", maxWidth: "200px", overflow: "hidden", textOverflow: "ellipsis" }}>
-          {historyEntry.error_message}
+          {step.error_message}
         </span>
       )}
     </div>

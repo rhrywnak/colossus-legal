@@ -59,6 +59,34 @@ export interface HistoryResponse {
   steps: PipelineStep[];
 }
 
+// ── Actions (state machine) ──────────────────────────
+
+export interface AvailableAction {
+  action: string;
+  label: string;
+  method: string;
+  requires_confirmation: boolean;
+  description: string;
+  is_navigation: boolean;
+}
+
+export interface CompletedStep {
+  step_name: string;
+  label: string;
+  status: string;
+  duration_secs: number | null;
+  result_summary: Record<string, unknown> | null;
+  error_message: string | null;
+}
+
+export interface DocumentActions {
+  document_id: string;
+  current_status: string;
+  available_actions: AvailableAction[];
+  completed_steps: CompletedStep[];
+  delete_confirmation_level: string;
+}
+
 export interface ExtractionItem {
   id: number;
   entity_type: string;
@@ -261,6 +289,12 @@ export async function triggerIndex(docId: string): Promise<unknown> {
 export async function fetchCompleteness(docId: string): Promise<unknown> {
   const res = await authFetch(`${PIPELINE_BASE}/documents/${docId}/completeness`, LONG_TIMEOUT);
   if (!res.ok) throw new Error(`Completeness check failed: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchDocumentActions(docId: string): Promise<DocumentActions> {
+  const res = await authFetch(`${PIPELINE_BASE}/documents/${docId}/actions`);
+  if (!res.ok) throw new Error(`Failed to fetch actions: ${res.status}`);
   return res.json();
 }
 

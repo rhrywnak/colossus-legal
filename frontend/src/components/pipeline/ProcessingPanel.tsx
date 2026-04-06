@@ -1,33 +1,21 @@
 /**
- * ProcessingPanel — Pipeline step cards and execution history.
+ * ProcessingPanel — Pipeline step cards and execution controls.
  *
- * Extracted from PipelineDocumentDetail so it can be used as a tab
- * inside DocumentWorkspaceTabs. Contains the step definitions, trigger
- * map, and next-action logic that were previously inline.
+ * Fetches available actions from the backend state machine
+ * (GET /documents/:id/actions). The frontend renders what the backend
+ * provides — zero status string checks for decision-making.
  */
-import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import StepCard, { StepDef } from "./StepCard";
+import React, { useCallback, useEffect, useState } from "react";
+import StepCard from "./StepCard";
 import ExecutionHistory from "./ExecutionHistory";
 import {
   triggerExtractText, triggerExtract, triggerVerify,
   triggerIngest, triggerIndex, fetchCompleteness,
-  PipelineDocument, PipelineStep,
+  fetchDocumentActions,
+  PipelineDocument, PipelineStep, DocumentActions,
 } from "../../services/pipelineApi";
 
-// ── Step definitions ────────────────────────────────────────────
-
-const PIPELINE_STEPS: StepDef[] = [
-  { name: "upload", label: "Upload", statusRequired: null },
-  { name: "extract_text", label: "Extract Text", statusRequired: "UPLOADED" },
-  { name: "extract", label: "LLM Extract", statusRequired: "TEXT_EXTRACTED" },
-  { name: "verify", label: "Verify", statusRequired: "EXTRACTED" },
-  { name: "review", label: "Review", statusRequired: "VERIFIED", isManual: true },
-  { name: "ingest", label: "Ingest", statusRequired: "VERIFIED" },
-  { name: "index", label: "Index", statusRequired: "INGESTED" },
-  { name: "completeness", label: "Completeness", statusRequired: "INDEXED" },
-];
-
+// Map action names to API trigger functions
 const TRIGGER_MAP: Record<string, (id: string) => Promise<unknown>> = {
   extract_text: triggerExtractText,
   extract: triggerExtract,
@@ -36,22 +24,6 @@ const TRIGGER_MAP: Record<string, (id: string) => Promise<unknown>> = {
   index: triggerIndex,
   completeness: fetchCompleteness,
 };
-
-// ── Helpers ─────────────────────────────────────────────────────
-
-function latestEntry(history: PipelineStep[], stepName: string): PipelineStep | undefined {
-  return history.find((h) => h.step_name === stepName);
-}
-
-function findNextAction(docStatus: string, history: PipelineStep[]): string | null {
-  for (const step of PIPELINE_STEPS) {
-    if (step.statusRequired === null) continue;
-    const entry = latestEntry(history, step.name);
-    if (entry && entry.status === "completed") continue;
-    if (step.statusRequired === docStatus) return step.name;
-  }
-  return null;
-}
 
 // ── Styles ──────────────────────────────────────────────────────
 
@@ -67,6 +39,17 @@ const errorBox: React.CSSProperties = {
   padding: "0.6rem 1rem", backgroundColor: "#fef2f2", border: "1px solid #fecaca",
   borderRadius: "6px", color: "#991b1b", fontSize: "0.84rem", marginBottom: "1rem",
 };
+const actionBtnStyle = (enabled: boolean): React.CSSProperties => ({
+  padding: "0.4rem 0.9rem", fontSize: "0.8rem", fontWeight: 600,
+  border: "1px solid #2563eb", borderRadius: "6px", cursor: enabled ? "pointer" : "default",
+  backgroundColor: enabled ? "#2563eb" : "#e2e8f0",
+  color: enabled ? "#ffffff" : "#94a3b8",
+  fontFamily: "inherit", opacity: enabled ? 1 : 0.6,
+});
+const actionsRow: React.CSSProperties = {
+  display: "flex", gap: "0.5rem", padding: "0.75rem 0.85rem",
+  borderTop: "1px solid #e2e8f0", backgroundColor: "#f8fafc",
+};
 
 // ── Component ───────────────────────────────────────────────────
 
@@ -80,33 +63,54 @@ interface ProcessingPanelProps {
 const ProcessingPanel: React.FC<ProcessingPanelProps> = ({
   document: doc, history, onStepTriggered, onSwitchTab,
 }) => {
-  const navigate = useNavigate();
   const [running, setRunning] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [actions, setActions] = useState<DocumentActions | null>(null);
 
-  const handleTrigger = async (stepName: string) => {
-    if (running) return;
-    const triggerFn = TRIGGER_MAP[stepName];
-    if (!triggerFn) return;
+  const loadActions = useCallback(async () => {
+    try {
+      const data = await fetchDocumentActions(doc.id);
+      setActions(data);
+    } catch {
+      // Non-fatal — fall back to showing history only
+    }
+  }, [doc.id]);
+
+  // Load actions on mount and when document status changes
+  useEffect(() => { loadActions(); }, [loadActions, doc.status]);
+
+  const handleAction = async (actionName: string, isNavigation: boolean) => {
+    if (isNavigation) {
+      if (actionName === "review" && onSwitchTab) {
+        onSwitchTab("review");
+      }
+      return;
+    }
+
+    const triggerFn = TRIGGER_MAP[actionName];
+    if (!triggerFn || running) return;
     setRunning(true);
     setActionError(null);
     try {
       await triggerFn(doc.id);
       onStepTriggered();
+      // Refresh actions after step completes
+      await loadActions();
     } catch (e) {
-      setActionError(e instanceof Error ? e.message : `Step '${stepName}' failed`);
+      setActionError(e instanceof Error ? e.message : `Step '${actionName}' failed`);
     } finally {
       setRunning(false);
     }
   };
 
-  const handleNavigate = (stepName: string) => {
-    if (stepName === "review" && onSwitchTab) {
-      onSwitchTab("review");
-    }
+  // Build completed steps list from history for display
+  // The upload step is synthetic — always shown as completed
+  const uploadStep = {
+    step_name: "upload", label: "Upload", status: "completed",
+    duration_secs: null, result_summary: null, error_message: null,
   };
-
-  const nextAction = findNextAction(doc.status, history);
+  const completedSteps = actions?.completed_steps ?? [];
+  const allSteps = [uploadStep, ...completedSteps];
 
   return (
     <div>
@@ -114,29 +118,29 @@ const ProcessingPanel: React.FC<ProcessingPanelProps> = ({
 
       <div style={stepsContainer}>
         <div style={stepsHeader}>Pipeline Steps</div>
-        {PIPELINE_STEPS.map((step, i) => {
-          const entry = step.name === "upload"
-            ? { id: 0, document_id: doc.id, step_name: "upload", status: "completed",
-                started_at: doc.created_at, completed_at: doc.created_at,
-                duration_secs: null, triggered_by: null, input_params: {},
-                result_summary: {}, error_message: null } as PipelineStep
-            : latestEntry(history, step.name);
 
-          return (
-            <StepCard
-              key={step.name}
-              step={step}
-              index={i}
-              historyEntry={entry}
-              documentStatus={doc.status}
-              isNextAction={step.name === nextAction ||
-                (step.name === "review" && doc.status === "VERIFIED" && nextAction === "ingest")}
-              running={running}
-              onTrigger={handleTrigger}
-              onNavigate={handleNavigate}
-            />
-          );
-        })}
+        {/* Completed steps */}
+        {allSteps.map((step, i) => (
+          <StepCard key={`${step.step_name}-${i}`} step={step} index={i} />
+        ))}
+
+        {/* Available actions from backend */}
+        {actions && actions.available_actions.length > 0 && (
+          <div style={actionsRow}>
+            {actions.available_actions.map((action) => (
+              <button
+                key={action.action}
+                style={actionBtnStyle(!running)}
+                disabled={running}
+                onClick={() => handleAction(action.action, action.is_navigation)}
+                title={action.description}
+              >
+                {running ? "Running..." : action.label}
+                {action.is_navigation ? " →" : ""}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       <ExecutionHistory steps={history} />

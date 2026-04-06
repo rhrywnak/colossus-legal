@@ -1,16 +1,17 @@
 /**
- * DeleteConfirmDialog — Status-aware confirmation dialog for document deletion.
+ * DeleteConfirmDialog — Confirmation dialog for document deletion.
  *
- * Three confirmation levels based on document status:
- * - UPLOADED / TEXT_EXTRACTED: simple confirmation, optional reason
- * - EXTRACTED / VERIFIED / APPROVED: shows entity count, optional reason
- * - PUBLISHED: requires reason + type title to confirm
+ * Three confirmation levels (determined by the backend, not the frontend):
+ * - "simple": basic confirmation, optional reason
+ * - "moderate": shows entity count, optional reason
+ * - "strict": requires reason + type title to confirm
  */
 import React, { useState } from "react";
 
 interface DeleteConfirmDialogProps {
   documentTitle: string;
-  documentStatus: string;
+  /** Confirmation level from the backend state machine */
+  confirmationLevel: string;
   itemCount: number;
   onConfirm: (reason?: string) => void;
   onCancel: () => void;
@@ -68,7 +69,7 @@ const S = {
 
 const DeleteConfirmDialog: React.FC<DeleteConfirmDialogProps> = ({
   documentTitle,
-  documentStatus,
+  confirmationLevel,
   itemCount,
   onConfirm,
   onCancel,
@@ -76,24 +77,24 @@ const DeleteConfirmDialog: React.FC<DeleteConfirmDialogProps> = ({
   const [reason, setReason] = useState("");
   const [titleConfirm, setTitleConfirm] = useState("");
 
-  const isPublished = documentStatus === "PUBLISHED";
-  const isExtracted = ["EXTRACTED", "VERIFIED", "APPROVED"].includes(documentStatus);
+  const isStrict = confirmationLevel === "strict";
+  const isModerate = confirmationLevel === "moderate";
 
-  // Determine message based on status
+  // Determine message based on confirmation level
   let message: string;
-  if (isPublished) {
+  if (isStrict) {
     message = `Delete "${documentTitle}"? This will remove ${itemCount} entities from the knowledge graph, search vectors, and all processing data. This affects chat answers.`;
-  } else if (isExtracted) {
+  } else if (isModerate) {
     message = `Delete "${documentTitle}"? This will remove the uploaded file, ${itemCount} extracted entities, and all processing data.`;
   } else {
     message = `Delete "${documentTitle}"? The uploaded file and any extracted text will be removed.`;
   }
 
-  // For PUBLISHED: reason required AND title must match
+  // For strict: reason required AND title must match
   const reasonFilled = reason.trim().length > 0;
   const titleMatches = titleConfirm === documentTitle;
-  const canDelete = isPublished ? (reasonFilled && titleMatches) : true;
-  const buttonLabel = isPublished ? "Delete Permanently" : "Delete";
+  const canDelete = isStrict ? (reasonFilled && titleMatches) : true;
+  const buttonLabel = isStrict ? "Delete Permanently" : "Delete";
 
   return (
     <div style={S.overlay} onClick={onCancel}>
@@ -104,7 +105,7 @@ const DeleteConfirmDialog: React.FC<DeleteConfirmDialogProps> = ({
         {/* Reason field */}
         <div style={S.fieldGroup}>
           <label style={S.label}>
-            Reason{isPublished ? " (required)" : " (optional)"}
+            Reason{isStrict ? " (required)" : " (optional)"}
           </label>
           <input
             style={S.input}
@@ -115,8 +116,8 @@ const DeleteConfirmDialog: React.FC<DeleteConfirmDialogProps> = ({
           />
         </div>
 
-        {/* Title confirmation for PUBLISHED docs */}
-        {isPublished && (
+        {/* Title confirmation for strict deletions */}
+        {isStrict && (
           <div style={S.fieldGroup}>
             <label style={S.label}>
               Type the document title to confirm: <strong>{documentTitle}</strong>

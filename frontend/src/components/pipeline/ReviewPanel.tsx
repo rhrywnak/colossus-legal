@@ -85,7 +85,7 @@ const ReviewPanel: React.FC<ReviewPanelProps> = ({ documentId, pdfUrl }) => {
   const filtered = useMemo(() => {
     return items.filter((it) => {
       if (typeFilter !== "all" && it.entity_type !== typeFilter) return false;
-      if (reviewFilter !== "all" && (it.review_status || "pending") !== reviewFilter) return false;
+      if (reviewFilter !== "all" && (it.review_status || "pending").toLowerCase() !== reviewFilter) return false;
       if (groundFilter !== "all" && (it.grounding_status || "unknown") !== groundFilter) return false;
       return true;
     });
@@ -100,9 +100,9 @@ const ReviewPanel: React.FC<ReviewPanelProps> = ({ documentId, pdfUrl }) => {
   const highlightPage = selectedItem?.grounded_page ?? null;
 
   // Summary counts
-  const pending = items.filter((it) => !it.review_status || it.review_status === "pending").length;
-  const approved = items.filter((it) => it.review_status === "approved").length;
-  const rejected = items.filter((it) => it.review_status === "rejected").length;
+  const pending = items.filter((it) => !it.review_status || it.review_status.toLowerCase() === "pending").length;
+  const approved = items.filter((it) => it.review_status?.toLowerCase() === "approved").length;
+  const rejected = items.filter((it) => it.review_status?.toLowerCase() === "rejected").length;
 
   const handleSelect = (item: ExtractionItem) => {
     setSelectedId(item.id);
@@ -204,8 +204,8 @@ const ReviewPanel: React.FC<ReviewPanelProps> = ({ documentId, pdfUrl }) => {
                 backgroundColor: TYPE_COLORS[item.entity_type] || "#6b7280",
               }}>{item.entity_type}</span>
               <span style={{ fontSize: "0.82rem", fontWeight: 600, color: "#0f172a" }}>{item.label}</span>
-              <span style={REVIEW_BADGE[item.review_status || "pending"]}>
-                {item.review_status || "pending"}
+              <span style={REVIEW_BADGE[(item.review_status || "pending").toLowerCase()]}>
+                {(item.review_status || "pending").toLowerCase()}
               </span>
               {item.grounded_page && (
                 <span style={{ fontSize: "0.68rem", color: "#64748b" }}>p.{item.grounded_page}</span>
@@ -235,7 +235,7 @@ const ReviewPanel: React.FC<ReviewPanelProps> = ({ documentId, pdfUrl }) => {
             ) : (
               <div style={{ display: "flex", gap: "0.3rem", marginTop: "0.2rem" }}
                 onClick={(e) => e.stopPropagation()}>
-                {(!item.review_status || item.review_status === "pending") && (
+                {(!item.review_status || item.review_status.toLowerCase() === "pending") && (
                   <>
                     <button style={actionBtn("#ecfdf5", "#047857", "#a7f3d0")} onClick={() => handleApprove(item.id)}>Approve</button>
                     <button style={actionBtn("#fef2f2", "#dc2626", "#fecaca")} onClick={() => handleReject(item.id)}>Reject</button>

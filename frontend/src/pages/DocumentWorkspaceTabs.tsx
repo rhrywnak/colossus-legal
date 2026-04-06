@@ -20,8 +20,8 @@ import PeopleLinksPanel from "../components/pipeline/PeopleLinksPanel";
 import DeleteConfirmDialog from "../components/pipeline/DeleteConfirmDialog";
 import {
   fetchPipelineDocuments, fetchDocumentHistory, fetchDocumentItems,
-  deleteDocument,
-  PipelineDocument, PipelineStep, ExtractionItem,
+  fetchDocumentActions, deleteDocument,
+  PipelineDocument, PipelineStep, ExtractionItem, DocumentActions,
 } from "../services/pipelineApi";
 
 // ── Tab definitions ─────────────────────────────────────────────
@@ -79,6 +79,9 @@ const DocumentWorkspaceTabs: React.FC = () => {
   // PDF state (shared across tabs for cross-tab navigation)
   const [pdfPage, setPdfPage] = useState(1);
 
+  // Actions state (from backend state machine)
+  const [actionsData, setActionsData] = useState<DocumentActions | null>(null);
+
   // Items state (shared between Content and People tabs)
   const [items, setItems] = useState<ExtractionItem[] | null>(null);
   const [itemsLoading, setItemsLoading] = useState(false);
@@ -102,7 +105,7 @@ const DocumentWorkspaceTabs: React.FC = () => {
     });
   }, [isAdmin, isPublished, isAssignedReviewer]);
 
-  // Load document + history
+  // Load document + history + actions
   const loadData = useCallback(async () => {
     if (!docId) return;
     try {
@@ -115,6 +118,8 @@ const DocumentWorkspaceTabs: React.FC = () => {
       setDoc(found);
       setHistory(hist.steps);
       setError(null);
+      // Load actions (non-blocking — used for delete confirmation level)
+      fetchDocumentActions(docId).then(setActionsData).catch(() => {});
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load document");
     } finally {
@@ -237,7 +242,7 @@ const DocumentWorkspaceTabs: React.FC = () => {
       {showDeleteDialog && (
         <DeleteConfirmDialog
           documentTitle={doc.title}
-          documentStatus={doc.status}
+          confirmationLevel={actionsData?.delete_confirmation_level ?? "simple"}
           itemCount={items?.length ?? 0}
           onCancel={() => setShowDeleteDialog(false)}
           onConfirm={async (reason) => {
