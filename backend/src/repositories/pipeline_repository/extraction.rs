@@ -195,6 +195,25 @@ pub async fn update_item_grounding(
     Ok(())
 }
 
+/// Update the entity_type for an extraction item.
+///
+/// Used after ingest when the Neo4j label written differs from the
+/// original pipeline entity_type (e.g., Party → Person or Organization).
+pub async fn update_item_entity_type(
+    pool: &PgPool,
+    item_id: i32,
+    new_entity_type: &str,
+) -> Result<(), PipelineRepoError> {
+    sqlx::query(
+        "UPDATE extraction_items SET entity_type = $1 WHERE id = $2",
+    )
+    .bind(new_entity_type)
+    .bind(item_id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 /// Get all extraction items for a document (for report generation).
 pub async fn get_all_items(
     pool: &PgPool,

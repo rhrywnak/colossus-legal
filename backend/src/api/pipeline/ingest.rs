@@ -160,9 +160,12 @@ pub async fn ingest_handler(
     let doc_neo4j_id =
         create_document_node(&mut txn, &doc_id, &document.title, &doc_type).await?;
 
-    // 9. Create/merge Party nodes (Person + Organization) using resolution map
+    // 9. Create/merge Party nodes (Person + Organization) using resolution map.
+    //    pg_to_label tracks which Neo4j label each item actually got
+    //    (e.g., Party items → "Person" or "Organization").
+    let mut pg_to_label: HashMap<i32, String> = HashMap::new();
     let (person_count, org_count) =
-        create_party_nodes(&mut txn, &items, &doc_id, &mut pg_to_neo4j, &resolution_map).await?;
+        create_party_nodes(&mut txn, &items, &doc_id, &mut pg_to_neo4j, &mut pg_to_label, &resolution_map).await?;
     // Collect unique party node IDs for CONTAINED_IN
     {
         let mut seen = std::collections::HashSet::new();
@@ -232,6 +235,37 @@ pub async fn ingest_handler(
         .map_err(|e| AppError::Internal {
             message: format!("Failed to update document status: {e}"),
         })?;
+
+    // 14b. Sync extraction_items.entity_type with the actual Neo4j label.
+    //
+    // Generic pattern: if the label written to Neo4j differs from the
+    // pipeline entity_type, update the pipeline DB to match. Today this
+    // handles Party → Person/Organization; future type transformations
+    // will work automatically without code changes.
+    let mut entity_type_updates = 0usize;
+    for item in &items {
+        let actual_label = pg_to_label
+            .get(&item.id)
+            .map(|s| s.as_str())
+            .unwrap_or(&item.entity_type);
+
+        if actual_label != item.entity_type {
+            pipeline_repository::update_item_entity_type(
+                &state.pipeline_pool, item.id, actual_label,
+            )
+            .await
+            .map_err(|e| AppError::Internal {
+                message: format!("Failed to update entity_type for item {}: {e}", item.id),
+            })?;
+            entity_type_updates += 1;
+        }
+    }
+    if entity_type_updates > 0 {
+        tracing::info!(
+            doc_id = %doc_id, updates = entity_type_updates,
+            "Updated extraction_items.entity_type to match Neo4j labels"
+        );
+    }
 
     let duration = start.elapsed().as_secs_f64();
     let entity_node_total: usize = entity_type_counts.values().sum();

@@ -72,6 +72,7 @@ pub async fn create_party_nodes(
     items: &[ExtractionItemRecord],
     doc_id: &str,
     pg_to_neo4j: &mut HashMap<i32, String>,
+    pg_to_label: &mut HashMap<i32, String>,
     resolution_map: &ResolutionMap,
 ) -> Result<(usize, usize), AppError> {
     let mut seen: HashSet<String> = HashSet::new();
@@ -103,6 +104,7 @@ pub async fn create_party_nodes(
             });
 
         pg_to_neo4j.insert(item.id, neo4j_id.clone());
+        pg_to_label.insert(item.id, label.to_string());
 
         // Skip if we already MERGE'd this node in this batch
         if !seen.insert(neo4j_id.clone()) {
