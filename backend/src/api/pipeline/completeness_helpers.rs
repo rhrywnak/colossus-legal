@@ -10,8 +10,6 @@ use neo4rs::query;
 use crate::error::AppError;
 use crate::state::AppState;
 
-use super::completeness::CompletenessCheck;
-
 /// Count Neo4j nodes by label, scoped to a document.
 pub async fn count_neo4j_nodes(
     state: &AppState,
@@ -83,22 +81,3 @@ pub async fn find_orphaned_nodes(
     Ok(ids)
 }
 
-/// Compare a pipeline entity type count against a Neo4j label count.
-pub fn check_entity_count(
-    checks: &mut Vec<CompletenessCheck>,
-    pipeline: &HashMap<String, usize>,
-    neo4j: &HashMap<String, usize>,
-    pipeline_type: &str,
-    neo4j_label: &str,
-    check_name: &str,
-) {
-    let expected = *pipeline.get(pipeline_type).unwrap_or(&0);
-    let actual = *neo4j.get(neo4j_label).unwrap_or(&0);
-    checks.push(CompletenessCheck {
-        name: check_name.into(),
-        status: if expected == actual { "pass" } else { "fail" }.into(),
-        expected,
-        actual,
-        message: format!("{pipeline_type}({expected}) vs {neo4j_label}({actual})"),
-    });
-}

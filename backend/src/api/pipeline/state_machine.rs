@@ -180,15 +180,24 @@ fn build_pipeline_stages(
     PIPELINE_STAGE_ORDER.iter().enumerate().map(|(i, &(name, label))| {
         let order = (i + 1) as u8;
 
-        // Special case: "upload" is always completed (document exists)
+        // Special case: "upload" is always completed (document exists).
+        // Still look up the step record for duration and summary info.
         if name == "upload" {
+            let latest = step_records.iter().find(|s| s.step_name == "upload");
+            let (dur, summary) = match latest {
+                Some(record) => (
+                    record.duration_secs,
+                    format_stage_summary("upload", &record.result_summary),
+                ),
+                None => (None, None),
+            };
             return PipelineStage {
                 name: name.to_string(),
                 label: label.to_string(),
                 order,
                 status: "completed".to_string(),
-                duration_secs: None,
-                summary: None,
+                duration_secs: dur,
+                summary,
                 action: None,
             };
         }
@@ -286,6 +295,21 @@ fn format_stage_summary(step_name: &str, result: &serde_json::Value) -> Option<S
         return None;
     }
     match step_name {
+        "upload" => {
+            let name = result.get("file_name").and_then(|v| v.as_str());
+            let size = result.get("file_size_bytes")
+                .and_then(|v| v.as_u64())
+                .or_else(|| result.get("file_size").and_then(|v| v.as_u64()));
+            match (name, size) {
+                (Some(n), Some(s)) => {
+                    let kb = s as f64 / 1024.0;
+                    Some(format!("{n} ({kb:.0} KB)"))
+                }
+                (Some(n), None) => Some(n.to_string()),
+                (None, Some(s)) => Some(format!("{:.0} KB", s as f64 / 1024.0)),
+                (None, None) => None,
+            }
+        }
         "extract_text" => {
             let pages = result.get("page_count").and_then(|v| v.as_i64());
             let chars = result.get("total_chars").and_then(|v| v.as_i64());

@@ -61,14 +61,6 @@ const actionBtn = (enabled: boolean): React.CSSProperties => ({
   color: enabled ? "#ffffff" : "#94a3b8",
   fontFamily: "inherit", flexShrink: 0, whiteSpace: "nowrap",
 });
-const historySection: React.CSSProperties = {
-  marginTop: "1rem", backgroundColor: "#ffffff", borderRadius: "8px",
-  border: "1px solid #e2e8f0", overflow: "hidden",
-};
-const historySummary: React.CSSProperties = {
-  padding: "0.6rem 0.85rem", fontSize: "0.84rem", fontWeight: 600,
-  color: "#334155", cursor: "pointer", backgroundColor: "#f8fafc",
-};
 
 // ── Helpers ─────────────────────────────────────────────────────
 
@@ -150,7 +142,6 @@ const ProcessingPanel: React.FC<ProcessingPanelProps> = ({
   };
 
   const stages = actions?.pipeline_stages ?? [];
-  const execHistory = actions?.execution_history ?? [];
 
   return (
     <div>
@@ -193,14 +184,9 @@ const ProcessingPanel: React.FC<ProcessingPanelProps> = ({
         ))}
       </div>
 
-      {/* Collapsible execution history */}
-      {execHistory.length > 0 && (
-        <details style={historySection}>
-          <summary style={historySummary}>
-            Execution History ({execHistory.length} entries)
-          </summary>
-          <ExecutionHistory steps={history} />
-        </details>
+      {/* Collapsible execution history — single instance (ISS-010) */}
+      {history.length > 0 && (
+        <ExecutionHistory steps={history} />
       )}
     </div>
   );

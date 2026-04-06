@@ -15,7 +15,7 @@ use crate::services::qdrant_service;
 use crate::state::AppState;
 
 use super::completeness_helpers::{
-    check_entity_count, count_neo4j_nodes, count_neo4j_relationships, find_orphaned_nodes,
+    count_neo4j_nodes, count_neo4j_relationships, find_orphaned_nodes,
 };
 
 // ── Response DTOs ───────────────────────────────────────────────
@@ -161,97 +161,22 @@ pub async fn completeness_handler(
         collection: "colossus_evidence".to_string(),
     };
 
-    // 7. Run comparison checks
-    let mut checks = Vec::new();
-
-    // Check: Party count (pipeline "Party" == Neo4j Person + Organization)
-    let pipeline_party = *pipeline_items.get("Party").unwrap_or(&0);
-    let neo4j_person = *neo4j_nodes.get("Person").unwrap_or(&0);
-    let neo4j_org = *neo4j_nodes.get("Organization").unwrap_or(&0);
-    let neo4j_party_total = neo4j_person + neo4j_org;
-    checks.push(CompletenessCheck {
-        name: "party_count".into(),
-        status: if pipeline_party == neo4j_party_total { "pass" } else { "fail" }.into(),
-        expected: pipeline_party,
-        actual: neo4j_party_total,
-        message: format!(
-            "Pipeline Party({pipeline_party}) vs Neo4j Person({neo4j_person})+Org({neo4j_org})"
-        ),
-    });
-
-    // Check: FactualAllegation → ComplaintAllegation
-    check_entity_count(
-        &mut checks, &pipeline_items, &neo4j_nodes,
-        "FactualAllegation", "ComplaintAllegation", "allegation_count",
-    );
-
-    // Check: DamagesClaim → Harm
-    check_entity_count(
-        &mut checks, &pipeline_items, &neo4j_nodes,
-        "DamagesClaim", "Harm", "harm_count",
-    );
-
-    // Check: LegalCount → LegalCount
-    check_entity_count(
-        &mut checks, &pipeline_items, &neo4j_nodes,
-        "LegalCount", "LegalCount", "legal_count_count",
-    );
-
-    // Check: Total nodes (pipeline items + 1 Document == Neo4j total)
-    let expected_neo4j_nodes = items.len() + 1; // +1 for Document node
-    checks.push(CompletenessCheck {
-        name: "total_node_count".into(),
-        status: if expected_neo4j_nodes == neo4j_total_nodes { "pass" } else { "fail" }.into(),
-        expected: expected_neo4j_nodes,
-        actual: neo4j_total_nodes,
-        message: format!(
-            "Pipeline items({}) + 1 Document vs Neo4j nodes({neo4j_total_nodes})",
-            items.len()
-        ),
-    });
-
-    // Check: Extraction relationships (exclude CONTAINED_IN from Neo4j)
-    let neo4j_data_rels = neo4j_total_rels
-        - neo4j_rels.get("CONTAINED_IN").copied().unwrap_or(0);
-    checks.push(CompletenessCheck {
-        name: "relationship_count".into(),
-        status: if rels.len() == neo4j_data_rels { "pass" } else { "fail" }.into(),
-        expected: rels.len(),
-        actual: neo4j_data_rels,
-        message: format!(
-            "Pipeline rels({}) vs Neo4j rels({neo4j_data_rels}) (excl CONTAINED_IN)"
-        , rels.len()),
-    });
-
-    // Check: Per-type relationship counts (STATED_BY, ABOUT, SUPPORTS)
-    for rel_type in &["STATED_BY", "ABOUT", "SUPPORTS"] {
-        let pipeline_count = *pipeline_rels.get(*rel_type).unwrap_or(&0);
-        let neo4j_count = *neo4j_rels.get(*rel_type).unwrap_or(&0);
-        checks.push(CompletenessCheck {
-            name: format!("rel_{}", rel_type.to_lowercase()),
-            status: if pipeline_count == neo4j_count { "pass" } else { "fail" }.into(),
-            expected: pipeline_count,
-            actual: neo4j_count,
-            message: format!("{rel_type}: pipeline({pipeline_count}) vs neo4j({neo4j_count})"),
-        });
-    }
-
-    // Check: Neo4j nodes vs Qdrant points
-    checks.push(CompletenessCheck {
-        name: "qdrant_point_count".into(),
-        status: if neo4j_total_nodes == qdrant_count { "pass" } else { "fail" }.into(),
-        expected: neo4j_total_nodes,
-        actual: qdrant_count,
-        message: format!("Neo4j nodes({neo4j_total_nodes}) vs Qdrant points({qdrant_count})"),
-    });
-
-    // Check: Orphaned nodes
-    checks.push(CompletenessCheck {
-        name: "orphaned_nodes".into(),
-        status: if neo4j.orphaned_nodes.is_empty() { "pass" } else { "warn" }.into(),
-        expected: 0,
-        actual: neo4j.orphaned_nodes.len(),
-        message: format!("{} orphaned nodes", neo4j.orphaned_nodes.len()),
+    // 7. Run comparison checks using the pure comparison function.
+    //
+    // Since generic ingest (beta.41), pipeline entity_type == Neo4j label
+    // directly. No translation mapping is needed — we compare counts
+    // by grouping on the same string in both systems.
+    let checks = compare_counts(&CompareInput {
+        pipeline_items: &pipeline_items,
+        neo4j_nodes: &neo4j_nodes,
+        pipeline_rels: &pipeline_rels,
+        neo4j_rels: &neo4j_rels,
+        total_pipeline_items: items.len(),
+        total_pipeline_rels: rels.len(),
+        neo4j_total_nodes,
+        neo4j_total_rels,
+        qdrant_count,
+        orphaned_node_count: neo4j.orphaned_nodes.len(),
     });
 
     // 8. Determine overall status
@@ -297,4 +222,326 @@ pub async fn completeness_handler(
         checks,
         published,
     }))
+}
+
+// ── Pure comparison logic (testable without DB) ────────────────
+
+/// Input for the pure comparison function. Bundles all pre-fetched
+/// counts from pipeline DB, Neo4j, and Qdrant so we can test without
+/// any database access.
+pub struct CompareInput<'a> {
+    pub pipeline_items: &'a HashMap<String, usize>,
+    pub neo4j_nodes: &'a HashMap<String, usize>,
+    pub pipeline_rels: &'a HashMap<String, usize>,
+    pub neo4j_rels: &'a HashMap<String, usize>,
+    pub total_pipeline_items: usize,
+    pub total_pipeline_rels: usize,
+    pub neo4j_total_nodes: usize,
+    pub neo4j_total_rels: usize,
+    pub qdrant_count: usize,
+    pub orphaned_node_count: usize,
+}
+
+/// Compare pipeline DB counts against Neo4j/Qdrant counts.
+///
+/// This is a pure function — no I/O, no database access. It takes
+/// pre-fetched count maps and returns the list of completeness checks.
+/// This design makes it easy to unit test with mock data.
+///
+/// ## How entity type comparison works (since beta.41)
+///
+/// The pipeline DB `entity_type` field stores the same string as the
+/// Neo4j node label (e.g., "ComplaintAllegation", "Person"). No
+/// translation mapping is needed. We dynamically iterate all entity
+/// types found in either system and compare counts.
+pub fn compare_counts(input: &CompareInput<'_>) -> Vec<CompletenessCheck> {
+    let CompareInput {
+        pipeline_items, neo4j_nodes, pipeline_rels, neo4j_rels,
+        total_pipeline_items, total_pipeline_rels,
+        neo4j_total_nodes, neo4j_total_rels,
+        qdrant_count, orphaned_node_count,
+    } = input;
+    let mut checks = Vec::new();
+
+    // Per-type entity counts: iterate all types from both sides.
+    // This handles any entity type dynamically — no hardcoded names.
+    let mut all_entity_types: Vec<&String> = pipeline_items.keys()
+        .chain(neo4j_nodes.keys())
+        .collect();
+    all_entity_types.sort();
+    all_entity_types.dedup();
+
+    // Skip "Document" from per-type checks — it's a structural node
+    // created by ingest, not an extraction item.
+    for entity_type in &all_entity_types {
+        if entity_type.as_str() == "Document" {
+            continue;
+        }
+        let expected = *pipeline_items.get(entity_type.as_str()).unwrap_or(&0);
+        let actual = *neo4j_nodes.get(entity_type.as_str()).unwrap_or(&0);
+        checks.push(CompletenessCheck {
+            name: format!("entity_{}", entity_type.to_lowercase()),
+            status: if expected == actual { "pass" } else { "fail" }.into(),
+            expected,
+            actual,
+            message: format!("{entity_type}: pipeline({expected}) vs neo4j({actual})"),
+        });
+    }
+
+    // Total nodes: pipeline items + 1 Document node == Neo4j total
+    let expected_neo4j_nodes = *total_pipeline_items + 1;
+    checks.push(CompletenessCheck {
+        name: "total_node_count".into(),
+        status: if expected_neo4j_nodes == *neo4j_total_nodes { "pass" } else { "fail" }.into(),
+        expected: expected_neo4j_nodes,
+        actual: *neo4j_total_nodes,
+        message: format!(
+            "Pipeline items({total_pipeline_items}) + 1 Document vs Neo4j nodes({neo4j_total_nodes})"
+        ),
+    });
+
+    // Total relationships: exclude CONTAINED_IN (structural, not extraction data)
+    let neo4j_data_rels = *neo4j_total_rels
+        - neo4j_rels.get("CONTAINED_IN").copied().unwrap_or(0);
+    checks.push(CompletenessCheck {
+        name: "relationship_count".into(),
+        status: if *total_pipeline_rels == neo4j_data_rels { "pass" } else { "fail" }.into(),
+        expected: *total_pipeline_rels,
+        actual: neo4j_data_rels,
+        message: format!(
+            "Pipeline rels({total_pipeline_rels}) vs Neo4j rels({neo4j_data_rels}) (excl CONTAINED_IN)"
+        ),
+    });
+
+    // Per-type relationship counts: dynamic, like entity types
+    let mut all_rel_types: Vec<&String> = pipeline_rels.keys()
+        .chain(neo4j_rels.keys())
+        .collect();
+    all_rel_types.sort();
+    all_rel_types.dedup();
+
+    for rel_type in &all_rel_types {
+        // Skip CONTAINED_IN — it's structural (Document→entity), not extraction data
+        if rel_type.as_str() == "CONTAINED_IN" {
+            continue;
+        }
+        let expected = *pipeline_rels.get(rel_type.as_str()).unwrap_or(&0);
+        let actual = *neo4j_rels.get(rel_type.as_str()).unwrap_or(&0);
+        checks.push(CompletenessCheck {
+            name: format!("rel_{}", rel_type.to_lowercase()),
+            status: if expected == actual { "pass" } else { "fail" }.into(),
+            expected,
+            actual,
+            message: format!("{rel_type}: pipeline({expected}) vs neo4j({actual})"),
+        });
+    }
+
+    // Qdrant: Neo4j nodes should equal Qdrant points
+    checks.push(CompletenessCheck {
+        name: "qdrant_point_count".into(),
+        status: if *neo4j_total_nodes == *qdrant_count { "pass" } else { "fail" }.into(),
+        expected: *neo4j_total_nodes,
+        actual: *qdrant_count,
+        message: format!("Neo4j nodes({neo4j_total_nodes}) vs Qdrant points({qdrant_count})"),
+    });
+
+    // Orphaned nodes
+    checks.push(CompletenessCheck {
+        name: "orphaned_nodes".into(),
+        status: if *orphaned_node_count == 0 { "pass" } else { "warn" }.into(),
+        expected: 0,
+        actual: *orphaned_node_count,
+        message: format!("{orphaned_node_count} orphaned nodes"),
+    });
+
+    checks
+}
+
+// ── Tests ──────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Helper: build a HashMap from pairs.
+    fn counts(pairs: &[(&str, usize)]) -> HashMap<String, usize> {
+        pairs.iter().map(|(k, v)| (k.to_string(), *v)).collect()
+    }
+
+    #[test]
+    fn completeness_check_passes_with_v2_entity_types() {
+        // Since beta.41, pipeline stores the same labels as Neo4j.
+        let pipeline_items = counts(&[
+            ("ComplaintAllegation", 83),
+            ("Harm", 9),
+            ("LegalCount", 4),
+            ("Person", 9),
+            ("Organization", 4),
+        ]);
+        let neo4j_nodes = counts(&[
+            ("ComplaintAllegation", 83),
+            ("Harm", 9),
+            ("LegalCount", 4),
+            ("Person", 9),
+            ("Organization", 4),
+            ("Document", 1),
+        ]);
+        let pipeline_rels = counts(&[
+            ("STATED_BY", 83),
+            ("ABOUT", 9),
+            ("SUPPORTS", 4),
+        ]);
+        let neo4j_rels = counts(&[
+            ("STATED_BY", 83),
+            ("ABOUT", 9),
+            ("SUPPORTS", 4),
+            ("CONTAINED_IN", 109),
+        ]);
+
+        let total_items: usize = pipeline_items.values().sum(); // 109
+        let total_rels: usize = pipeline_rels.values().sum();   // 96
+        let neo4j_total_nodes: usize = neo4j_nodes.values().sum(); // 110
+        let neo4j_total_rels: usize = neo4j_rels.values().sum();   // 205
+
+        let checks = compare_counts(&CompareInput {
+            pipeline_items: &pipeline_items,
+            neo4j_nodes: &neo4j_nodes,
+            pipeline_rels: &pipeline_rels,
+            neo4j_rels: &neo4j_rels,
+            total_pipeline_items: total_items,
+            total_pipeline_rels: total_rels,
+            neo4j_total_nodes,
+            neo4j_total_rels,
+            qdrant_count: neo4j_total_nodes, // qdrant == neo4j nodes
+            orphaned_node_count: 0,
+        });
+
+        let failed: Vec<_> = checks.iter().filter(|c| c.status == "fail").collect();
+        assert!(
+            failed.is_empty(),
+            "Expected all checks to pass, but these failed: {failed:?}"
+        );
+    }
+
+    #[test]
+    fn completeness_check_fails_on_count_mismatch() {
+        let pipeline_items = counts(&[("ComplaintAllegation", 83)]);
+        let neo4j_nodes = counts(&[
+            ("ComplaintAllegation", 80), // 3 missing!
+            ("Document", 1),
+        ]);
+        let empty = HashMap::new();
+
+        let checks = compare_counts(&CompareInput {
+            pipeline_items: &pipeline_items,
+            neo4j_nodes: &neo4j_nodes,
+            pipeline_rels: &empty,
+            neo4j_rels: &empty,
+            total_pipeline_items: 83,
+            total_pipeline_rels: 0,
+            neo4j_total_nodes: 81,
+            neo4j_total_rels: 0,
+            qdrant_count: 81,
+            orphaned_node_count: 0,
+        });
+
+        let entity_check = checks.iter().find(|c| c.name == "entity_complaintallegation")
+            .expect("Should have entity_complaintallegation check");
+        assert_eq!(entity_check.status, "fail");
+        assert_eq!(entity_check.expected, 83);
+        assert_eq!(entity_check.actual, 80);
+    }
+
+    #[test]
+    fn completeness_check_passes_with_zero_counts() {
+        // Empty pipeline + empty Neo4j is valid (no data to mismatch).
+        // We need at least a Document node for total_node_count to pass.
+        let empty = HashMap::new();
+        let neo4j_nodes = counts(&[("Document", 1)]);
+
+        let checks = compare_counts(&CompareInput {
+            pipeline_items: &empty,
+            neo4j_nodes: &neo4j_nodes,
+            pipeline_rels: &empty,
+            neo4j_rels: &empty,
+            total_pipeline_items: 0,
+            total_pipeline_rels: 0,
+            neo4j_total_nodes: 1,
+            neo4j_total_rels: 0,
+            qdrant_count: 1,
+            orphaned_node_count: 0,
+        });
+
+        let failed: Vec<_> = checks.iter().filter(|c| c.status == "fail").collect();
+        assert!(
+            failed.is_empty(),
+            "Expected all checks to pass with zero counts, but these failed: {failed:?}"
+        );
+    }
+
+    #[test]
+    fn completeness_check_works_with_arbitrary_entity_types() {
+        // Proves no hardcoded type dependency — works with any entity type name.
+        let pipeline_items = counts(&[("CustomType", 10), ("AnotherType", 5)]);
+        let neo4j_nodes = counts(&[
+            ("CustomType", 10),
+            ("AnotherType", 5),
+            ("Document", 1),
+        ]);
+        let empty = HashMap::new();
+
+        let checks = compare_counts(&CompareInput {
+            pipeline_items: &pipeline_items,
+            neo4j_nodes: &neo4j_nodes,
+            pipeline_rels: &empty,
+            neo4j_rels: &empty,
+            total_pipeline_items: 15,
+            total_pipeline_rels: 0,
+            neo4j_total_nodes: 16,
+            neo4j_total_rels: 0,
+            qdrant_count: 16,
+            orphaned_node_count: 0,
+        });
+
+        // Should have per-type checks for CustomType and AnotherType
+        assert!(checks.iter().any(|c| c.name == "entity_customtype"));
+        assert!(checks.iter().any(|c| c.name == "entity_anothertype"));
+
+        let failed: Vec<_> = checks.iter().filter(|c| c.status == "fail").collect();
+        assert!(
+            failed.is_empty(),
+            "Expected all checks to pass with arbitrary types, but these failed: {failed:?}"
+        );
+    }
+
+    #[test]
+    fn completeness_check_detects_extra_neo4j_type() {
+        // Neo4j has a type that pipeline doesn't — should show 0 vs N.
+        let pipeline_items = counts(&[("Person", 5)]);
+        let neo4j_nodes = counts(&[
+            ("Person", 5),
+            ("Ghost", 3), // extra type not in pipeline
+            ("Document", 1),
+        ]);
+        let empty = HashMap::new();
+
+        let checks = compare_counts(&CompareInput {
+            pipeline_items: &pipeline_items,
+            neo4j_nodes: &neo4j_nodes,
+            pipeline_rels: &empty,
+            neo4j_rels: &empty,
+            total_pipeline_items: 5,
+            total_pipeline_rels: 0,
+            neo4j_total_nodes: 9,
+            neo4j_total_rels: 0,
+            qdrant_count: 9,
+            orphaned_node_count: 0,
+        });
+
+        let ghost_check = checks.iter().find(|c| c.name == "entity_ghost")
+            .expect("Should detect Ghost type from Neo4j side");
+        assert_eq!(ghost_check.status, "fail");
+        assert_eq!(ghost_check.expected, 0); // pipeline has 0
+        assert_eq!(ghost_check.actual, 3);   // neo4j has 3
+    }
 }

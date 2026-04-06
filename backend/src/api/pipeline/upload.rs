@@ -190,7 +190,12 @@ pub async fn upload_document(
     ).await {
         steps::record_step_complete(
             &state.pipeline_pool, step_id, start.elapsed().as_secs_f64(),
-            &serde_json::json!({"file_size": file_data.len(), "file_hash": file_hash}),
+            &serde_json::json!({
+                "file_name": original_name,
+                "file_size_bytes": file_data.len(),
+                "file_hash": file_hash,
+                "document_type": document_type,
+            }),
         ).await.ok();
     }
 
