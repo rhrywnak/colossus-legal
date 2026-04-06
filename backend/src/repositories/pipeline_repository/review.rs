@@ -179,11 +179,33 @@ pub async fn bulk_approve(
     Ok(result.rows_affected())
 }
 
-/// Count remaining pending items for a document.
+/// Count ungrounded pending items for a document.
+///
+/// These are items with review_status = 'pending' and grounding_status
+/// NOT IN ('exact', 'normalized') — i.e., items skipped by approve-grounded.
+pub async fn count_ungrounded_pending(pool: &PgPool, document_id: &str) -> Result<i64, sqlx::Error> {
+    sqlx::query_scalar::<_, i64>(
+        "SELECT count(*) FROM extraction_items
+         WHERE document_id = $1
+           AND LOWER(review_status) = 'pending'
+           AND (grounding_status IS NULL OR grounding_status NOT IN ('exact', 'normalized'))",
+    )
+    .bind(document_id)
+    .fetch_one(pool)
+    .await
+}
+
+/// Count remaining pending items that are actionable in the pipeline.
+///
+/// Only counts grounded items (grounding_status IN ('exact', 'normalized')).
+/// Ungrounded pending items are intentionally excluded from the pipeline
+/// flow — they don't block the Ingest button from appearing.
 pub async fn count_pending(pool: &PgPool, document_id: &str) -> Result<i64, sqlx::Error> {
     sqlx::query_scalar::<_, i64>(
         "SELECT count(*) FROM extraction_items
-         WHERE document_id = $1 AND LOWER(review_status) = 'pending'",
+         WHERE document_id = $1
+           AND LOWER(review_status) = 'pending'
+           AND grounding_status IN ('exact', 'normalized')",
     )
     .bind(document_id)
     .fetch_one(pool)

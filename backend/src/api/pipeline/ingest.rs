@@ -112,14 +112,20 @@ pub async fn ingest_handler(
             message: format!("No completed extraction run for document '{doc_id}'"),
         })?;
 
-    // 4. Fetch items and relationships for that run
-    let items = pipeline_repository::get_items_for_run(&state.pipeline_pool, run_id)
-        .await
-        .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?;
+    // 4. Fetch APPROVED items and their relationships for that run.
+    //    Only approved items are written to Neo4j — unapproved items
+    //    (e.g., ungrounded/hallucinated) are intentionally excluded.
+    let items = pipeline_repository::get_approved_items_for_document(
+        &state.pipeline_pool, &doc_id, run_id,
+    )
+    .await
+    .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?;
 
-    let relationships = pipeline_repository::get_relationships_for_run(&state.pipeline_pool, run_id)
-        .await
-        .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?;
+    let relationships = pipeline_repository::get_approved_relationships_for_document(
+        &state.pipeline_pool, run_id,
+    )
+    .await
+    .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?;
 
     tracing::info!(
         doc_id = %doc_id, run_id, items = items.len(),

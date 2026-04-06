@@ -49,6 +49,7 @@ pub struct ReviewResponse {
 pub struct BulkApproveResponse {
     pub document_id: String,
     pub approved_count: u64,
+    pub skipped_ungrounded: i64,
     pub remaining_pending: i64,
 }
 
@@ -203,9 +204,15 @@ pub async fn bulk_approve_handler(
     .await
     .map_err(|e| AppError::Internal { message: format!("Bulk approve failed: {e}") })?;
 
+    // count_pending only counts grounded pending items (pipeline-actionable).
     let remaining_pending = review_repo::count_pending(&state.pipeline_pool, &doc_id)
         .await
         .map_err(|e| AppError::Internal { message: format!("Count pending failed: {e}") })?;
+
+    // Count ungrounded pending items (skipped by approve-grounded).
+    let skipped_ungrounded = review_repo::count_ungrounded_pending(&state.pipeline_pool, &doc_id)
+        .await
+        .map_err(|e| AppError::Internal { message: format!("Count ungrounded failed: {e}") })?;
 
     if let Ok(sid) = steps::record_step_start(
         &state.pipeline_pool, &doc_id, "bulk_approve", &user.username,
@@ -213,13 +220,18 @@ pub async fn bulk_approve_handler(
     ).await {
         steps::record_step_complete(
             &state.pipeline_pool, sid, 0.0,
-            &serde_json::json!({"approved_count": approved_count, "remaining_pending": remaining_pending}),
+            &serde_json::json!({
+                "approved_count": approved_count,
+                "skipped_ungrounded": skipped_ungrounded,
+                "remaining_pending": remaining_pending,
+            }),
         ).await.ok();
     }
 
     Ok(Json(BulkApproveResponse {
         document_id: doc_id,
         approved_count,
+        skipped_ungrounded,
         remaining_pending,
     }))
 }

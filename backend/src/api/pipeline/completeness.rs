@@ -106,14 +106,20 @@ pub async fn completeness_handler(
             message: format!("No completed extraction run for document '{doc_id}'"),
         })?;
 
-    // 4. Count pipeline DB items and relationships by type
-    let items = pipeline_repository::get_items_for_run(&state.pipeline_pool, run_id)
-        .await
-        .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?;
+    // 4. Count pipeline DB items and relationships by type.
+    //    Only count APPROVED items — unapproved items are not in Neo4j,
+    //    so including them would cause a count mismatch.
+    let items = pipeline_repository::get_approved_items_for_document(
+        &state.pipeline_pool, &doc_id, run_id,
+    )
+    .await
+    .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?;
 
-    let rels = pipeline_repository::get_relationships_for_run(&state.pipeline_pool, run_id)
-        .await
-        .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?;
+    let rels = pipeline_repository::get_approved_relationships_for_document(
+        &state.pipeline_pool, run_id,
+    )
+    .await
+    .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?;
 
     let mut pipeline_items: HashMap<String, usize> = HashMap::new();
     for item in &items {

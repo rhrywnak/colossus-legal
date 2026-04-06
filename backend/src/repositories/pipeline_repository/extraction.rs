@@ -242,6 +242,53 @@ pub async fn get_all_relationships(
     Ok(rows)
 }
 
+/// Get approved extraction items for a document's latest completed run.
+///
+/// Only returns items where review_status = 'approved'. Used by ingest
+/// (to write only approved items to Neo4j) and completeness (to count
+/// only approved items for comparison). Unapproved items are intentionally
+/// excluded from the knowledge graph.
+pub async fn get_approved_items_for_document(
+    pool: &PgPool,
+    document_id: &str,
+    run_id: i32,
+) -> Result<Vec<ExtractionItemRecord>, PipelineRepoError> {
+    let rows = sqlx::query_as::<_, ExtractionItemRecord>(
+        "SELECT * FROM extraction_items
+         WHERE run_id = $1 AND document_id = $2 AND review_status = 'approved'
+         ORDER BY id",
+    )
+    .bind(run_id)
+    .bind(document_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
+/// Get approved extraction relationships for a document's latest completed run.
+///
+/// Only returns relationships where both endpoints (from_item_id, to_item_id)
+/// have review_status = 'approved'. This prevents ingesting relationships
+/// that reference unapproved (potentially hallucinated) items.
+pub async fn get_approved_relationships_for_document(
+    pool: &PgPool,
+    run_id: i32,
+) -> Result<Vec<ExtractionRelationshipRecord>, PipelineRepoError> {
+    let rows = sqlx::query_as::<_, ExtractionRelationshipRecord>(
+        "SELECT r.* FROM extraction_relationships r
+         JOIN extraction_items fi ON fi.id = r.from_item_id
+         JOIN extraction_items ti ON ti.id = r.to_item_id
+         WHERE r.run_id = $1
+           AND fi.review_status = 'approved'
+           AND ti.review_status = 'approved'
+         ORDER BY r.id",
+    )
+    .bind(run_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
 /// Get the latest COMPLETED extraction run ID for a document.
 ///
 /// Returns `None` if no completed run exists. Used by the ingest handler

@@ -134,8 +134,21 @@ const ReviewPanel: React.FC<ReviewPanelProps> = ({ documentId, pdfUrl }) => {
     try { await editItem(editingId, updates); setEditingId(null); await loadItems(); } catch { /* silent */ }
   };
 
-  const handleBulkApprove = async (filter: "grounded" | "all") => {
-    try { await bulkApprove(documentId, filter); await loadItems(); } catch { /* silent */ }
+  const [bulkMsg, setBulkMsg] = useState<string | null>(null);
+
+  const handleBulkApprove = async () => {
+    setBulkMsg(null);
+    try {
+      const result = await bulkApprove(documentId, "grounded") as {
+        approved_count: number; skipped_ungrounded: number;
+      };
+      await loadItems();
+      if (result.skipped_ungrounded > 0) {
+        setBulkMsg(`Approved ${result.approved_count} items. ${result.skipped_ungrounded} ungrounded items skipped.`);
+      } else {
+        setBulkMsg(`Approved all ${result.approved_count} items.`);
+      }
+    } catch { /* silent */ }
   };
 
   if (loading && items.length === 0) {
@@ -160,12 +173,12 @@ const ReviewPanel: React.FC<ReviewPanelProps> = ({ documentId, pdfUrl }) => {
           </span>
           <span style={{ fontSize: "0.76rem", color: "#166534" }}>{approved} approved</span>
           <span style={{ fontSize: "0.76rem", color: "#991b1b" }}>{rejected} rejected</span>
-          <button style={actionBtn("#ecfdf5", "#047857", "#a7f3d0")} onClick={() => handleBulkApprove("grounded")}>
-            Approve Grounded
+          <button style={actionBtn("#ecfdf5", "#047857", "#a7f3d0")} onClick={handleBulkApprove}>
+            Approve All Grounded
           </button>
-          <button style={actionBtn("#eff6ff", "#2563eb", "#bfdbfe")} onClick={() => handleBulkApprove("all")}>
-            Approve All
-          </button>
+          {bulkMsg && (
+            <span style={{ fontSize: "0.72rem", color: "#047857", fontStyle: "italic" }}>{bulkMsg}</span>
+          )}
         </div>
 
         {/* Filters */}
