@@ -42,17 +42,24 @@ impl From<colossus_graph::GraphAccessError> for PersonDetailRepositoryError {
 // Cypher constants
 // ─────────────────────────────────────────────────────────────────────────────
 
-// TODO: DAL Phase 2 — this query targets v1 :Evidence nodes which don't exist in v2.
-// The v2 equivalent is ComplaintAllegation -[:STATED_BY]-> Person, but the DTO expects
-// Evidence-specific fields (kind, weight, significance) that don't exist on
-// ComplaintAllegation. Needs DTO restructuring before migration.
+/// Statements query — relationship-anchored, label-agnostic.
+///
+/// Queries ALL nodes connected to the person via STATED_BY, regardless of
+/// their label. This works with v2 data (ComplaintAllegation nodes have
+/// STATED_BY relationships) and will automatically pick up Evidence nodes
+/// when they exist in the graph.
+///
+/// The `p.id = $person_id` filter uses the person's application-level ID.
+/// CONTAINED_IN anchors to the Document node. CHARACTERIZES and REBUTS
+/// are optional — they'll populate when cross-document analysis exists.
 const STATEMENTS_QUERY: &str = "
-    MATCH (e:Evidence)-[:STATED_BY]->(p:Person {id: $person_id})
-    MATCH (e)-[:CONTAINED_IN]->(d:Document)
-    OPTIONAL MATCH (e)-[c:CHARACTERIZES]->(a:ComplaintAllegation)
-    OPTIONAL MATCH (reb:Evidence)-[:REBUTS]->(e)
+    MATCH (e)-[:STATED_BY]->(p {id: $person_id})
+    MATCH (e)-[:CONTAINED_IN]->(d)
+      WHERE labels(d)[0] = 'Document'
+    OPTIONAL MATCH (e)-[c:CHARACTERIZES]->(a)
+    OPTIONAL MATCH (reb)-[:REBUTS]->(e)
     OPTIONAL MATCH (reb)-[:STATED_BY]->(rp)
-    OPTIONAL MATCH (reb)-[:CONTAINED_IN]->(rd:Document)
+    OPTIONAL MATCH (reb)-[:CONTAINED_IN]->(rd)
     RETURN e.id AS eid, e.title AS etitle, e.verbatim_quote AS quote,
            e.page_number AS page_number, e.kind AS kind,
            e.significance AS significance,

@@ -1,6 +1,8 @@
-// TODO: DAL Phase 2 — migrate to colossus_graph once batch relationship
-// queries are available. Kept as raw Cypher because the SUPPORTS aggregation
-// (collect legal count IDs per allegation) would require N+1 queries.
+// Allegation repository — lists allegations with linked legal counts.
+//
+// Uses parameterized Cypher with `labels(n)[0] = $label` instead of
+// hardcoded `:ComplaintAllegation` and `:LegalCount` labels. The SUPPORTS
+// relationship type is stable across schema versions.
 
 use neo4rs::{query, Graph};
 
@@ -34,7 +36,10 @@ impl AllegationRepository {
         Self { graph }
     }
 
-    /// Fetch all allegations from Neo4j with their linked legal counts
+    /// Fetch all allegations from Neo4j with their linked legal counts.
+    ///
+    /// Uses `labels(n)[0] = $label` instead of hardcoded node labels so
+    /// the query works with any allegation/count label the schema produces.
     pub async fn list_allegations(
         &self,
     ) -> Result<AllegationsResponse, AllegationRepositoryError> {
@@ -42,22 +47,27 @@ impl AllegationRepository {
 
         let mut result = self
             .graph
-            .execute(query(
-                "MATCH (a:ComplaintAllegation)
-                 OPTIONAL MATCH (a)-[:SUPPORTS]->(c:LegalCount)
-                 WITH a, collect(DISTINCT c.id) AS legal_count_ids,
-                      collect(DISTINCT c.title) AS legal_counts
-                 RETURN a.id AS id,
-                        a.paragraph AS paragraph,
-                        a.title AS title,
-                        a.allegation AS allegation,
-                        a.evidence_status AS evidence_status,
-                        a.category AS category,
-                        a.severity AS severity,
-                        legal_count_ids,
-                        legal_counts
-                 ORDER BY a.id",
-            ))
+            .execute(
+                query(
+                    "MATCH (a) WHERE labels(a)[0] = $allegation_label
+                     OPTIONAL MATCH (a)-[:SUPPORTS]->(c)
+                       WHERE labels(c)[0] = $count_label
+                     WITH a, collect(DISTINCT c.id) AS legal_count_ids,
+                          collect(DISTINCT c.title) AS legal_counts
+                     RETURN a.id AS id,
+                            a.paragraph AS paragraph,
+                            a.title AS title,
+                            a.allegation AS allegation,
+                            a.evidence_status AS evidence_status,
+                            a.category AS category,
+                            a.severity AS severity,
+                            legal_count_ids,
+                            legal_counts
+                     ORDER BY a.id",
+                )
+                .param("allegation_label", "ComplaintAllegation")
+                .param("count_label", "LegalCount"),
+            )
             .await?;
 
         while let Some(row) = result.next().await? {
@@ -68,7 +78,6 @@ impl AllegationRepository {
             let evidence_status: Option<String> = row.get("evidence_status").ok();
             let category: Option<String> = row.get("category").ok();
             let severity: Option<i64> = row.get("severity").ok();
-            // Filter out null values from the collected arrays
             let legal_count_ids: Vec<String> = row
                 .get::<Vec<Option<String>>>("legal_count_ids")
                 .unwrap_or_default()
@@ -95,7 +104,6 @@ impl AllegationRepository {
             });
         }
 
-        // Calculate summary
         let proven = allegations
             .iter()
             .filter(|a| a.evidence_status.as_deref() == Some("PROVEN"))

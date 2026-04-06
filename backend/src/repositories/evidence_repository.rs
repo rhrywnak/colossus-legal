@@ -1,7 +1,8 @@
-// TODO: DAL Phase 2 — this repository queries v1 labels (:Evidence)
-// that no longer exist in the v2 graph. The API endpoint that uses this
-// repository will return empty results. Migrate or remove once v1 data
-// is fully deprecated.
+// TODO: B-1 Approach C — this repository queries :Evidence nodes which don't
+// exist yet in v2 (only complaint documents have been processed). The API
+// endpoint returns empty results. Evidence nodes will be created when
+// discovery_response documents are processed through the pipeline.
+// When that happens, parameterize the :Evidence label.
 
 use neo4rs::{query, Graph};
 use std::collections::HashMap;

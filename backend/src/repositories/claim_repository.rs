@@ -1,7 +1,8 @@
-// TODO: DAL Phase 2 — this repository queries v1 labels (:Claim)
-// that no longer exist in the v2 graph. The API endpoints that use this
-// repository will return empty results. Migrate or remove once v1 data
-// is fully deprecated.
+// TODO: B-1 Approach C — this repository queries :Claim nodes which have
+// never existed in v1 or v2. The /claims API routes are registered but
+// return empty results. The Claim model and these CRUD functions are
+// legacy scaffolding. Parameterize or remove when Claim nodes are defined
+// in a future schema.
 
 use neo4rs::{query, DeError, Graph, Node};
 

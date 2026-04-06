@@ -6,9 +6,9 @@
 //
 // Extracted from decomposition_repository.rs to keep modules under 300 lines.
 // Uses three separate queries to avoid cartesian products:
-//   1. Allegation + legal counts
-//   2. Characterizations + rebuttals (HashMap accumulator pattern)
-//   3. Proof claims with evidence counts
+//   1. Allegation + legal counts (parameterized labels)
+//   2. Characterizations + rebuttals (relationship-anchored, label-agnostic)
+//   3. Proof claims — returns empty until MotionClaim nodes exist
 // =============================================================================
 
 use neo4rs::{query, Graph, Row};
@@ -21,31 +21,34 @@ use crate::dto::decomposition::{
 use crate::repositories::decomposition_repository::DecompositionRepositoryError;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Query constants — separates "what to query" from "how to process results"
+// Query constants
 // ─────────────────────────────────────────────────────────────────────────────
 
-// TODO: DAL Phase 2 — migrate to colossus_graph once batch relationship queries
-// are available. Kept as raw Cypher because the SUPPORTS join (collect legal count
-// titles per allegation) is done efficiently in one query.
+/// Allegation info query — uses `labels(n)[0] = $label` instead of hardcoded
+/// `:ComplaintAllegation` and `:LegalCount`. SUPPORTS relationship is stable.
 const ALLEGATION_INFO_QUERY: &str = "
-    MATCH (a:ComplaintAllegation {id: $id})
-    OPTIONAL MATCH (a)-[:SUPPORTS]->(lc:LegalCount)
+    MATCH (a) WHERE a.id = $id AND labels(a)[0] = $allegation_label
+    OPTIONAL MATCH (a)-[:SUPPORTS]->(lc)
+      WHERE labels(lc)[0] = $count_label
     RETURN a.id AS id,
            a.title AS title,
            a.allegation AS description,
            a.evidence_status AS status,
            collect(DISTINCT lc.title) AS legal_counts";
 
-// TODO: DAL Phase 2 — this query targets v1 :Evidence nodes and CHARACTERIZES/REBUTS
-// relationships which don't exist in v2. Returns empty results. Needs v2 equivalent
-// once cross-document analysis relationships are available.
+/// Characterization query — relationship-anchored, label-agnostic for evidence
+/// nodes. Uses CHARACTERIZES and REBUTS relationship types as anchors.
+/// STATED_BY and CONTAINED_IN are stable structural relationships.
+///
+/// Returns empty in v2 (no CHARACTERIZES relationships yet). Will populate
+/// when cross-document analysis relationships are created.
 const CHARACTERIZATION_QUERY: &str = "
-    MATCH (a:ComplaintAllegation {id: $id})
-    OPTIONAL MATCH (charE:Evidence)-[c:CHARACTERIZES]->(a)
-    OPTIONAL MATCH (charE)-[:CONTAINED_IN]->(charDoc:Document)
-    OPTIONAL MATCH (charE)-[:STATED_BY]->(charSpeaker:Person)
-    OPTIONAL MATCH (rebE:Evidence)-[r:REBUTS]->(charE)
-    OPTIONAL MATCH (rebE)-[:CONTAINED_IN]->(rebDoc:Document)
+    MATCH (a) WHERE a.id = $id AND labels(a)[0] = $allegation_label
+    OPTIONAL MATCH (charE)-[c:CHARACTERIZES]->(a)
+    OPTIONAL MATCH (charE)-[:CONTAINED_IN]->(charDoc)
+    OPTIONAL MATCH (charE)-[:STATED_BY]->(charSpeaker)
+    OPTIONAL MATCH (rebE)-[:REBUTS]->(charE)
+    OPTIONAL MATCH (rebE)-[:CONTAINED_IN]->(rebDoc)
     OPTIONAL MATCH (rebE)-[:STATED_BY]->(rebSpeaker)
     RETURN c.characterization AS label,
            charE.id AS char_evidence_id,
@@ -58,17 +61,17 @@ const CHARACTERIZATION_QUERY: &str = "
            rebE.verbatim_quote AS reb_quote,
            rebE.page_number AS reb_page,
            rebDoc.title AS reb_doc_title,
-           CASE WHEN rebSpeaker:Person THEN rebSpeaker.name
-                WHEN rebSpeaker:Organization THEN rebSpeaker.name
-                ELSE null END AS reb_speaker
+           rebSpeaker.name AS reb_speaker
     ORDER BY charE.id, rebE.id";
 
-// TODO: DAL Phase 2 — this query targets v1 :MotionClaim and :PROVES/:RELIES_ON
-// relationships which don't exist in v2. Returns empty results.
+// TODO: B-1 Approach C — MotionClaim nodes don't exist in v2. This query
+// returns empty results gracefully. Will work once motion briefs are
+// processed and MotionClaim/PROVES/RELIES_ON relationships are created.
 const PROOF_CLAIMS_QUERY: &str = "
-    MATCH (a:ComplaintAllegation {id: $id})
-    OPTIONAL MATCH (mc:MotionClaim)-[:PROVES]->(a)
-    OPTIONAL MATCH (mc)-[:RELIES_ON]->(e:Evidence)
+    MATCH (a) WHERE a.id = $id AND labels(a)[0] = $allegation_label
+    OPTIONAL MATCH (mc)-[:PROVES]->(a)
+      WHERE labels(mc)[0] = 'MotionClaim'
+    OPTIONAL MATCH (mc)-[:RELIES_ON]->(e)
     RETURN mc.id AS mc_id,
            mc.title AS mc_title,
            mc.category AS mc_category,
@@ -118,7 +121,12 @@ impl AllegationDetailRepository {
     ) -> Result<Option<AllegationInfo>, DecompositionRepositoryError> {
         let mut result = self
             .graph
-            .execute(query(ALLEGATION_INFO_QUERY).param("id", allegation_id))
+            .execute(
+                query(ALLEGATION_INFO_QUERY)
+                    .param("id", allegation_id)
+                    .param("allegation_label", "ComplaintAllegation")
+                    .param("count_label", "LegalCount"),
+            )
             .await?;
 
         let row = match result.next().await? {
@@ -143,10 +151,6 @@ impl AllegationDetailRepository {
     }
 
     // ── Private: Query 2 — characterizations with nested rebuttals ───────
-    //
-    // Multiple rebuttals per characterization → multiple rows with same
-    // char_evidence_id. We accumulate with a HashMap, then convert to Vec
-    // in insertion order.
 
     async fn fetch_characterizations(
         &self,
@@ -154,7 +158,11 @@ impl AllegationDetailRepository {
     ) -> Result<Vec<CharacterizationDetail>, DecompositionRepositoryError> {
         let mut result = self
             .graph
-            .execute(query(CHARACTERIZATION_QUERY).param("id", allegation_id))
+            .execute(
+                query(CHARACTERIZATION_QUERY)
+                    .param("id", allegation_id)
+                    .param("allegation_label", "ComplaintAllegation"),
+            )
             .await?;
 
         let mut char_map: HashMap<String, CharacterizationDetail> = HashMap::new();
@@ -167,7 +175,6 @@ impl AllegationDetailRepository {
                 None => continue,
             };
 
-            // Get-or-create the CharacterizationDetail entry
             if !char_map.contains_key(&char_evidence_id) {
                 char_order.push(char_evidence_id.clone());
                 char_map.insert(
@@ -184,7 +191,6 @@ impl AllegationDetailRepository {
                 );
             }
 
-            // If this row has a rebuttal, push it onto the characterization
             if let Some(rebuttal) = Self::parse_rebuttal_from_row(&row) {
                 if let Some(detail) = char_map.get_mut(&char_evidence_id) {
                     detail.rebuttals.push(rebuttal);
@@ -192,7 +198,6 @@ impl AllegationDetailRepository {
             }
         }
 
-        // Convert HashMap → Vec preserving insertion order
         Ok(char_order
             .into_iter()
             .filter_map(|id| char_map.remove(&id))
@@ -207,7 +212,11 @@ impl AllegationDetailRepository {
     ) -> Result<Vec<ProofClaimSummary>, DecompositionRepositoryError> {
         let mut result = self
             .graph
-            .execute(query(PROOF_CLAIMS_QUERY).param("id", allegation_id))
+            .execute(
+                query(PROOF_CLAIMS_QUERY)
+                    .param("id", allegation_id)
+                    .param("allegation_label", "ComplaintAllegation"),
+            )
             .await?;
 
         let mut proof_claims: Vec<ProofClaimSummary> = Vec::new();

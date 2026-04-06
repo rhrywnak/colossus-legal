@@ -1,3 +1,4 @@
+pub mod graph_helpers;
 pub mod allegation_repository;
 pub mod analysis_repository;
 pub mod audit_repository;

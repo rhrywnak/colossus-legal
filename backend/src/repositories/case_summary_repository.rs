@@ -184,14 +184,19 @@ impl CaseSummaryRepository {
         let mut details: Vec<LegalCountInfo> = Vec::new();
         let mut result = self
             .graph
-            .execute(query(
-                "MATCH (lc:LegalCount)
-                 OPTIONAL MATCH (a:ComplaintAllegation)-[:SUPPORTS]->(lc)
-                 RETURN lc.id AS id, lc.title AS name,
-                        lc.count_number AS count_number,
-                        count(a) AS allegation_count
-                 ORDER BY lc.count_number",
-            ))
+            .execute(
+                query(
+                    "MATCH (lc) WHERE labels(lc)[0] = $count_label
+                     OPTIONAL MATCH (a)-[:SUPPORTS]->(lc)
+                       WHERE labels(a)[0] = $allegation_label
+                     RETURN lc.id AS id, lc.title AS name,
+                            lc.count_number AS count_number,
+                            count(a) AS allegation_count
+                     ORDER BY lc.count_number",
+                )
+                .param("count_label", "LegalCount")
+                .param("allegation_label", "ComplaintAllegation"),
+            )
             .await?;
 
         while let Some(row) = result.next().await? {
