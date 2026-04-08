@@ -21,15 +21,15 @@ use axum::{extract::Path, extract::State, Json};
 // ── Fixed pipeline stage definitions ────────────────────────────
 
 /// The 8 pipeline stages in fixed order.
-const PIPELINE_STAGE_ORDER: &[(&str, &str)] = &[
+pub const PIPELINE_STAGE_ORDER: &[(&str, &str)] = &[
     ("upload", "Upload"),
-    ("extract_text", "Extract Text"),
-    ("extract", "LLM Extract"),
-    ("verify", "Verify / Ground"),
-    ("review", "Review"),
-    ("ingest", "Ingest to Graph"),
-    ("index", "Index Embeddings"),
-    ("completeness", "Completeness Check"),
+    ("extract_text", "Read Document"),
+    ("extract", "Analyze Content"),
+    ("verify", "Verify Accuracy"),
+    ("review", "Human Review"),
+    ("ingest", "Build Knowledge Graph"),
+    ("index", "Enable Search"),
+    ("completeness", "Quality Check"),
 ];
 
 // ── Response types ──────────────────────────────────────────────
@@ -73,6 +73,8 @@ pub struct AvailableAction {
     pub requires_confirmation: bool,
     pub description: String,
     pub is_navigation: bool,
+    /// Relative URL path, e.g. "/documents/{id}/extract-text"
+    pub endpoint: String,
 }
 
 /// A raw execution history entry from the pipeline_steps table.
@@ -98,37 +100,44 @@ fn get_available_actions(
 ) -> Vec<AvailableAction> {
     match document_status {
         "UPLOADED" => vec![
-            make_action("extract_text", "Extract Text", "POST", false, false,
-                        "Extract text from the PDF document"),
+            make_action("extract_text", "Read Document", "POST", false, false,
+                        "Extract text from the PDF document",
+                        "/documents/{id}/extract-text"),
         ],
         "TEXT_EXTRACTED" => vec![
-            make_action("extract", "LLM Extract", "POST", false, false,
-                        "Run LLM extraction to identify entities and relationships"),
+            make_action("extract", "Analyze Content", "POST", false, false,
+                        "Run LLM extraction to identify entities and relationships",
+                        "/documents/{id}/extract"),
         ],
         "EXTRACTED" => vec![
-            make_action("verify", "Verify / Ground", "POST", false, false,
-                        "Verify extracted quotes against document text"),
+            make_action("verify", "Verify Accuracy", "POST", false, false,
+                        "Verify extracted quotes against document text",
+                        "/documents/{id}/verify"),
         ],
         "VERIFIED" => {
             let mut actions = vec![
                 make_action("review", "Review Items", "GET", false, true,
-                            "Review and approve extracted items"),
+                            "Review and approve extracted items",
+                            "/documents/{id}/review"),
             ];
             if pending_review_count == 0 && total_item_count > 0 {
                 actions.push(
-                    make_action("ingest", "Ingest to Graph", "POST", true, false,
-                                "Write approved items to the knowledge graph"),
+                    make_action("ingest", "Build Knowledge Graph", "POST", true, false,
+                                "Write approved items to the knowledge graph",
+                                "/documents/{id}/ingest"),
                 );
             }
             actions
         },
         "INGESTED" => vec![
-            make_action("index", "Index Embeddings", "POST", false, false,
-                        "Generate vector embeddings for search"),
+            make_action("index", "Enable Search", "POST", false, false,
+                        "Generate vector embeddings for search",
+                        "/documents/{id}/index"),
         ],
         "INDEXED" => vec![
-            make_action("completeness", "Check Completeness", "POST", false, false,
-                        "Verify all items are in the graph and indexed"),
+            make_action("completeness", "Quality Check", "GET", false, false,
+                        "Verify all items are in the graph and indexed",
+                        "/documents/{id}/completeness"),
         ],
         "PUBLISHED" => vec![],
         _ => vec![],
@@ -145,6 +154,7 @@ fn delete_confirmation_level(status: &str) -> &'static str {
 
 fn make_action(
     name: &str, label: &str, method: &str, confirm: bool, is_nav: bool, desc: &str,
+    endpoint: &str,
 ) -> AvailableAction {
     AvailableAction {
         action: name.to_string(),
@@ -153,6 +163,7 @@ fn make_action(
         requires_confirmation: confirm,
         description: desc.to_string(),
         is_navigation: is_nav,
+        endpoint: endpoint.to_string(),
     }
 }
 
@@ -734,5 +745,48 @@ mod tests {
         assert_eq!(titleize_step("bulk_approve"), "Bulk Approve");
         assert_eq!(titleize_step("extract_text"), "Extract Text");
         assert_eq!(titleize_step("ingest"), "Ingest");
+    }
+
+    // --- endpoint tests ---
+
+    #[test]
+    fn test_available_actions_include_endpoint() {
+        let actions = get_available_actions("UPLOADED", 0, 0);
+        assert_eq!(actions.len(), 1);
+        assert_eq!(actions[0].endpoint, "/documents/{id}/extract-text");
+    }
+
+    #[test]
+    fn test_all_actions_have_nonempty_endpoint() {
+        for status in &["UPLOADED", "TEXT_EXTRACTED", "EXTRACTED", "VERIFIED", "INGESTED", "INDEXED"] {
+            let actions = get_available_actions(status, 5, 10);
+            for action in &actions {
+                assert!(!action.endpoint.is_empty(),
+                        "Action '{}' for status '{}' has empty endpoint", action.action, status);
+                assert!(action.endpoint.starts_with("/documents/{id}/"),
+                        "Action '{}' endpoint '{}' should start with /documents/{{id}}/",
+                        action.action, action.endpoint);
+            }
+        }
+    }
+
+    #[test]
+    fn test_completeness_action_uses_get() {
+        let actions = get_available_actions("INDEXED", 0, 0);
+        assert_eq!(actions[0].action, "completeness");
+        assert_eq!(actions[0].method, "GET");
+    }
+
+    // --- user-friendly label tests ---
+
+    #[test]
+    fn test_pipeline_stage_labels() {
+        assert_eq!(PIPELINE_STAGE_ORDER[1].1, "Read Document");
+        assert_eq!(PIPELINE_STAGE_ORDER[2].1, "Analyze Content");
+        assert_eq!(PIPELINE_STAGE_ORDER[3].1, "Verify Accuracy");
+        assert_eq!(PIPELINE_STAGE_ORDER[4].1, "Human Review");
+        assert_eq!(PIPELINE_STAGE_ORDER[5].1, "Build Knowledge Graph");
+        assert_eq!(PIPELINE_STAGE_ORDER[6].1, "Enable Search");
+        assert_eq!(PIPELINE_STAGE_ORDER[7].1, "Quality Check");
     }
 }

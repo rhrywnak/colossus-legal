@@ -8,21 +8,10 @@
 import React, { useCallback, useEffect, useState } from "react";
 import ExecutionHistory from "./ExecutionHistory";
 import {
-  triggerExtractText, triggerExtract, triggerVerify,
-  triggerIngest, triggerIndex, fetchCompleteness,
+  triggerPipelineAction,
   fetchDocumentActions,
   PipelineDocument, PipelineStep, DocumentActions, PipelineStage,
 } from "../../services/pipelineApi";
-
-// Map action names to API trigger functions
-const TRIGGER_MAP: Record<string, (id: string) => Promise<unknown>> = {
-  extract_text: triggerExtractText,
-  extract: triggerExtract,
-  verify: triggerVerify,
-  ingest: triggerIngest,
-  index: triggerIndex,
-  completeness: fetchCompleteness,
-};
 
 // ── Styles ──────────────────────────────────────────────────────
 
@@ -125,16 +114,15 @@ const ProcessingPanel: React.FC<ProcessingPanelProps> = ({
       return;
     }
 
-    const triggerFn = TRIGGER_MAP[stage.action.action];
-    if (!triggerFn || running) return;
+    if (running) return;
     setRunning(true);
     setActionError(null);
     try {
-      await triggerFn(doc.id);
+      await triggerPipelineAction(doc.id, stage.action.endpoint, stage.action.method);
       onStepTriggered();
       await loadActions();
     } catch (e) {
-      setActionError(e instanceof Error ? e.message : `Step '${stage.action.action}' failed`);
+      setActionError(e instanceof Error ? e.message : `Step '${stage.action.label}' failed`);
       await loadActions();
     } finally {
       setRunning(false);

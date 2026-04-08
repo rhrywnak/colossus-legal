@@ -10,6 +10,8 @@ use crate::auth::{require_admin, AuthUser};
 use crate::error::AppError;
 use crate::state::AppState;
 
+use super::state_machine::PIPELINE_STAGE_ORDER;
+
 #[derive(Debug, Serialize)]
 pub struct MetricsResponse {
     pub total_documents: i64,
@@ -35,6 +37,10 @@ pub struct EstimatesResponse {
 
 #[derive(Debug, Serialize)]
 pub struct StepMetrics {
+    /// Human-readable label from PIPELINE_STAGE_ORDER
+    pub label: String,
+    /// Display order (1-8), 0 for unknown steps
+    pub order: u8,
     pub count: i64,
     pub avg_duration_secs: f64,
     pub min_duration_secs: f64,
@@ -141,7 +147,17 @@ async fn query_step_performance(
     for row in rows {
         total += row.count;
         failed += row.failure_count;
+
+        // Look up label and order from the canonical stage definitions
+        let (label, order) = PIPELINE_STAGE_ORDER.iter()
+            .enumerate()
+            .find(|(_, &(name, _))| name == row.step_name)
+            .map(|(i, &(_, lbl))| (lbl.to_string(), (i + 1) as u8))
+            .unwrap_or_else(|| (row.step_name.clone(), 0));
+
         map.insert(row.step_name, StepMetrics {
+            label,
+            order,
             count: row.count,
             avg_duration_secs: row.avg_duration.unwrap_or(0.0),
             min_duration_secs: row.min_duration.unwrap_or(0.0),
@@ -223,4 +239,17 @@ async fn query_estimates(pool: &PgPool) -> Result<EstimatesResponse, AppError> {
         estimated_remaining_time_secs: avg_duration.0.map(|d| d * remaining as f64),
         confidence,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_pipeline_stage_order_is_accessible() {
+        let extract = PIPELINE_STAGE_ORDER.iter()
+            .find(|&&(name, _)| name == "extract_text");
+        assert!(extract.is_some());
+        assert_eq!(extract.unwrap().1, "Read Document");
+    }
 }

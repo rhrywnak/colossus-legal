@@ -6,7 +6,6 @@
  */
 import React, { useEffect, useState } from "react";
 import { fetchMetrics, MetricsResponse } from "../../services/pipelineApi";
-import { STEP_DISPLAY_NAMES, STEP_ORDER } from "../../utils/processingSteps";
 import ReviewerWorkloadSection from "./ReviewerWorkloadSection";
 
 // ── Styles ──────────────────────────────────────────────────────
@@ -79,14 +78,15 @@ const AdminMetrics: React.FC = () => {
 
   const published = metrics.documents_by_status["PUBLISHED"] ?? 0;
 
-  // Build ordered step rows, filtering to steps that have data
-  const stepRows = STEP_ORDER
-    .filter((key) => metrics.step_performance[key])
-    .map((key) => ({
+  // Build ordered step rows from backend-provided label and order
+  const stepRows = Object.entries(metrics.step_performance)
+    .map(([key, perf]) => ({
       key,
-      label: STEP_DISPLAY_NAMES[key] || key,
-      ...metrics.step_performance[key],
-    }));
+      label: perf.label || key,
+      order: perf.order ?? 99,
+      ...perf,
+    }))
+    .sort((a, b) => a.order - b.order);
 
   const maxAvgDuration = Math.max(...stepRows.map((s) => s.avg_duration_secs), 0.001);
 

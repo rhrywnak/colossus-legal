@@ -74,6 +74,7 @@ export interface AvailableAction {
   requires_confirmation: boolean;
   description: string;
   is_navigation: boolean;
+  endpoint: string;
 }
 
 export interface PipelineStage {
@@ -166,6 +167,8 @@ export interface MetricsResponse {
 }
 
 export interface StepMetrics {
+  label: string;
+  order: number;
   count: number;
   avg_duration_secs: number;
   min_duration_secs: number;
@@ -288,48 +291,33 @@ export async function assignReviewer(
   return res.json();
 }
 
-// ── Pipeline step triggers ─────────────────────────
-
-export async function triggerExtractText(docId: string): Promise<unknown> {
-  const res = await authFetch(`${PIPELINE_BASE}/documents/${docId}/extract-text`, { method: "POST" });
-  if (!res.ok) throw new Error(`Extract text failed: ${res.status}`);
-  return res.json();
-}
-
-export async function triggerExtract(docId: string): Promise<unknown> {
-  const res = await authFetch(`${PIPELINE_BASE}/documents/${docId}/extract`, { method: "POST", ...LONG_TIMEOUT });
-  if (!res.ok) throw new Error(`Extract failed: ${res.status}`);
-  return res.json();
-}
-
-export async function triggerVerify(docId: string): Promise<unknown> {
-  const res = await authFetch(`${PIPELINE_BASE}/documents/${docId}/verify`, { method: "POST", ...LONG_TIMEOUT });
-  if (!res.ok) throw new Error(`Verify failed: ${res.status}`);
-  return res.json();
-}
-
-export async function triggerIngest(docId: string): Promise<unknown> {
-  const res = await authFetch(`${PIPELINE_BASE}/documents/${docId}/ingest`, { method: "POST", ...LONG_TIMEOUT });
-  if (!res.ok) throw new Error(`Ingest failed: ${res.status}`);
-  return res.json();
-}
-
-export async function triggerIndex(docId: string): Promise<unknown> {
-  const res = await authFetch(`${PIPELINE_BASE}/documents/${docId}/index`, { method: "POST", ...LONG_TIMEOUT });
-  if (!res.ok) throw new Error(`Index failed: ${res.status}`);
-  return res.json();
-}
-
-export async function fetchCompleteness(docId: string): Promise<unknown> {
-  const res = await authFetch(`${PIPELINE_BASE}/documents/${docId}/completeness`, LONG_TIMEOUT);
-  if (!res.ok) throw new Error(`Completeness check failed: ${res.status}`);
-  return res.json();
-}
-
 export async function fetchDocumentActions(docId: string): Promise<DocumentActions> {
   const res = await authFetch(`${PIPELINE_BASE}/documents/${docId}/actions`);
   if (!res.ok) throw new Error(`Failed to fetch actions: ${res.status}`);
   return res.json();
+}
+
+/**
+ * Generic pipeline action trigger. Calls the endpoint returned by the
+ * backend state machine, substituting the document ID.
+ */
+export async function triggerPipelineAction(
+  docId: string,
+  endpoint: string,
+  method: string = "POST",
+): Promise<unknown> {
+  const resolvedPath = endpoint.replace("{id}", docId);
+  const url = `${PIPELINE_BASE}${resolvedPath}`;
+  const res = await authFetch(url, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    ...LONG_TIMEOUT,
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(body || `Pipeline action failed: ${res.status}`);
+  }
+  return res.json().catch(() => ({}));
 }
 
 // ── Review actions ─────────────────────────────────
