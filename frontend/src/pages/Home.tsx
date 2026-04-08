@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useCase } from "../context/CaseContext";
-import { API_BASE_URL } from "../services/api";
 import { HarmDto, getHarms } from "../services/harms";
 
 // ─── Static data ─────────────────────────────────────────────────────────────
@@ -74,7 +73,7 @@ const Home: React.FC = () => {
     );
   }
 
-  if (!caseData || !caseData.case) {
+  if (!caseData) {
     return (
       <div style={{ padding: "3rem", textAlign: "center" }}>
         <div style={{ fontSize: "1.1rem", fontWeight: 600, color: "#334155", marginBottom: "0.5rem" }}>
@@ -93,12 +92,15 @@ const Home: React.FC = () => {
     );
   }
 
-  const { case: caseInfo, stats } = caseData;
+  // Strip any " - DocumentType" suffix from the case title (e.g., "Awad v. CFS - Complaint" → "Awad v. CFS")
+  const rawTitle = caseData.case_title;
+  const displayTitle = rawTitle.includes(" - ")
+    ? rawTitle.substring(0, rawTitle.lastIndexOf(" - "))
+    : rawTitle;
 
   const metaParts: string[] = [];
-  if (caseInfo.court) metaParts.push(caseInfo.court);
-  if (caseInfo.case_number) metaParts.push(`Case No. ${caseInfo.case_number}`);
-  if (caseInfo.filing_date) metaParts.push(`Filed ${caseInfo.filing_date}`);
+  if (caseData.court) metaParts.push(caseData.court);
+  if (caseData.case_number) metaParts.push(`Case No. ${caseData.case_number}`);
 
   return (
     <div style={{ paddingTop: "2rem", paddingBottom: "4rem" }}>
@@ -106,48 +108,16 @@ const Home: React.FC = () => {
       {/* 2A: Case Header */}
       <div style={{ marginBottom: "1.75rem" }}>
         <h1 style={{ fontSize: "1.55rem", fontWeight: 700, color: "#0f172a", letterSpacing: "-0.02em", margin: 0, marginBottom: "0.4rem" }}>
-          {caseInfo.title}
+          {displayTitle}
         </h1>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
-          {metaParts.length > 0 && (
-            <span style={{ fontSize: "0.84rem", color: "#64748b" }}>
-              {metaParts.join(" \u00b7 ")}
-            </span>
-          )}
-          {caseInfo.status && (
-            <span style={{
-              display: "inline-block", padding: "0.2rem 0.6rem", borderRadius: "5px",
-              fontSize: "0.7rem", fontWeight: 700, textTransform: "uppercase",
-              letterSpacing: "0.03em", backgroundColor: "#ecfdf5", color: "#047857",
-            }}>
-              {caseInfo.status}
-            </span>
-          )}
-        </div>
+        {metaParts.length > 0 && (
+          <span style={{ fontSize: "0.84rem", color: "#64748b" }}>
+            {metaParts.join(" \u00b7 ")}
+          </span>
+        )}
       </div>
 
-      {/* 2B: Case Summary */}
-      {caseInfo.summary && (
-        <div style={{
-          backgroundColor: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "10px",
-          padding: "1.5rem 1.75rem", marginBottom: "1.75rem",
-        }}>
-          <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "0.65rem" }}>
-            Case Summary
-          </div>
-          <div style={{ fontSize: "0.9rem", color: "#1e293b", lineHeight: 1.65, fontFamily: "'Georgia', serif" }}>
-            {caseInfo.summary}
-          </div>
-          <a
-            href={`${API_BASE_URL}/api/documents/doc-awad-complaint/file`}
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{ display: "inline-block", marginTop: "0.75rem", fontSize: "0.84rem", color: "#2563eb", textDecoration: "none", fontWeight: 500 }}
-          >
-            View Complaint {"\u2192"}
-          </a>
-        </div>
-      )}
+      {/* 2B: Case Summary — rendered when available from API */}
 
       {/* 2B2: Compact Timeline Bar */}
       {timelinePhases.length > 0 && (
@@ -189,13 +159,13 @@ const Home: React.FC = () => {
       )}
 
       {/* 2C: Causes of Action */}
-      {stats.legal_count_details.length > 0 && (
+      {caseData.legal_count_details.length > 0 && (
         <section style={{ marginBottom: "1.75rem" }}>
           <div style={{ fontSize: "0.95rem", fontWeight: 700, color: "#0f172a", marginBottom: "0.85rem", letterSpacing: "-0.01em" }}>
             Causes of Action
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "0.65rem" }}>
-            {stats.legal_count_details.map((lc, idx) => (
+            {caseData.legal_count_details.map((lc) => (
               <Link
                 key={lc.id}
                 to={`/allegations?count=${encodeURIComponent(lc.id)}`}
@@ -243,10 +213,10 @@ const Home: React.FC = () => {
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "0.65rem" }}>
           {[
-            { name: "Evidence Explorer", desc: "Browse proof chains with verbatim quotes and page numbers", stat: `${stats.evidence_count} sworn statements and exhibits`, path: "/explorer" },
-            { name: "Documents", desc: "Briefs, motions, discovery responses, and court orders", stat: `${stats.document_count} court filings`, path: "/documents" },
+            { name: "Evidence Explorer", desc: "Browse proof chains with verbatim quotes and page numbers", stat: `${caseData.evidence_total} sworn statements and exhibits`, path: "/explorer" },
+            { name: "Documents", desc: "Briefs, motions, discovery responses, and court orders", stat: `${caseData.documents_total} court filings`, path: "/documents" },
             { name: "Contradictions", desc: "Impeachment evidence from sworn testimony", stat: "Where Phillips contradicted himself", path: "/contradictions" },
-            { name: "Damages", desc: "Financial and reputational damages with evidence links", stat: `${formatCurrency(stats.damages_total)} in documented harm`, path: "/damages", hasInfo: true },
+            { name: "Damages", desc: "Financial and reputational damages with evidence links", stat: `${formatCurrency(caseData.damages_total)} in documented harm`, path: "/damages", hasInfo: true },
             { name: "Graph", desc: "Interactive graph from legal counts through evidence", stat: "Visual proof chains", path: "/graph" },
           ].map((card) => (
             <Link
@@ -358,7 +328,7 @@ const Home: React.FC = () => {
                   <tr style={{ borderTop: "2px solid #e2e8f0" }}>
                     <td colSpan={2} style={{ padding: "0.65rem 0.5rem 0.5rem 0", fontWeight: 700, color: "#0f172a" }}>Total</td>
                     <td style={{ padding: "0.65rem 0 0.5rem 0.5rem", textAlign: "right", fontWeight: 700, color: "#0f172a" }}>
-                      {formatCurrency(stats.damages_total)}
+                      {formatCurrency(caseData.damages_total)}
                     </td>
                   </tr>
                 </tfoot>

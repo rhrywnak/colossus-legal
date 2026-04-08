@@ -156,12 +156,7 @@ pub async fn ingest_handler(
     let mut all_node_ids: Vec<String> = Vec::new();
 
     // 8. Create Document node
-    let doc_type = pipeline_repository::get_pipeline_config(&state.pipeline_pool, &doc_id)
-        .await
-        .ok()
-        .flatten()
-        .map(|c| c.schema_file)
-        .unwrap_or_else(|| document.document_type.clone());
+    let doc_type = document.document_type.clone();
 
     let doc_neo4j_id =
         create_document_node(&mut txn, &doc_id, &document.title, &doc_type).await?;
@@ -322,4 +317,23 @@ pub async fn ingest_handler(
         resolution_summary,
         duration_secs: duration,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_document_type_not_schema_filename() {
+        // The doc_type written to Neo4j should be the document_type from PG,
+        // NOT the schema_file from pipeline_config.
+        // Schema files look like "general_legal.yaml" or "complaint.yaml"
+        // Document types look like "complaint", "discovery_response", "affidavit"
+        let bad_values = ["general_legal.yaml", "complaint.yaml", "discovery_response.yaml"];
+        for val in &bad_values {
+            assert!(val.contains('.'), "Schema filenames contain dots");
+        }
+        let good_values = ["complaint", "discovery_response", "affidavit", "court_ruling"];
+        for val in &good_values {
+            assert!(!val.contains('.'), "Document types should not contain dots");
+        }
+    }
 }

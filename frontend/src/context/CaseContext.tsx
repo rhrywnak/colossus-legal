@@ -1,9 +1,9 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
-import { CaseResponse, getCase } from "../services/case";
+import { CaseSummaryResponse, getCaseSummary } from "../services/caseSummary";
 
 // Context value type
 type CaseContextValue = {
-  caseData: CaseResponse | null;
+  caseData: CaseSummaryResponse | null;
   loading: boolean;
   error: string | null;
 };
@@ -15,7 +15,7 @@ const CaseContext = createContext<CaseContextValue | undefined>(undefined);
 export const CaseProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
-  const [caseData, setCaseData] = useState<CaseResponse | null>(null);
+  const [caseData, setCaseData] = useState<CaseSummaryResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -24,7 +24,7 @@ export const CaseProvider: React.FC<{ children: React.ReactNode }> = ({
 
     async function fetchCase() {
       try {
-        const data = await getCase();
+        const data = await getCaseSummary();
         if (!cancelled) {
           setCaseData(data);
           setLoading(false);
