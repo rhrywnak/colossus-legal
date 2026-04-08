@@ -14,6 +14,7 @@ mod anthropic;
 mod completeness;
 mod completeness_helpers;
 pub(crate) mod constants;
+mod document_response;
 mod delete;
 mod errors;
 mod extract;
@@ -94,18 +95,26 @@ pub fn router() -> Router<AppState> {
         .route("/reviewers/workload", get(workload::workload_handler))
 }
 
-/// GET /documents — list all pipeline documents.
+/// GET /documents — list all pipeline documents with computed fields.
 ///
 /// Open to all authenticated users (no admin check). Every user can see the
 /// document list; only processing endpoints (extract, ingest, etc.) require admin.
+/// Response includes `visible_tabs`, `can_view`, and `status_group` computed
+/// from the user's role and the document's status — so the frontend never
+/// needs to compare status strings or check user roles.
 async fn list_documents_handler(
-    _user: AuthUser,
+    user: AuthUser,
     State(state): State<AppState>,
-) -> Result<Json<Vec<DocumentRecord>>, AppError> {
+) -> Result<Json<Vec<document_response::DocumentResponse>>, AppError> {
     let docs = pipeline_repository::list_all_documents(&state.pipeline_pool)
         .await
         .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?;
-    Ok(Json(docs))
+
+    let enriched = docs.into_iter()
+        .map(|doc| document_response::enrich_document(doc, &user))
+        .collect();
+
+    Ok(Json(enriched))
 }
 
 /// Maximum upload size: 50 MB.

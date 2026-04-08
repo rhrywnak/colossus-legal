@@ -10,7 +10,7 @@ import PdfViewer from "../shared/PdfViewer";
 import { useResizablePanes } from "../../hooks/useResizablePanes";
 import {
   fetchDocumentItems, approveItem, rejectItem, editItem, bulkApprove,
-  ExtractionItem,
+  ExtractionItem, ReviewSummary,
 } from "../../services/pipelineApi";
 import { getColor } from "../../hooks/useSchema";
 
@@ -49,6 +49,7 @@ const cardBase: React.CSSProperties = {
 
 const ReviewPanel: React.FC<ReviewPanelProps> = ({ documentId, pdfUrl }) => {
   const [items, setItems] = useState<ExtractionItem[]>([]);
+  const [summary, setSummary] = useState<ReviewSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -69,6 +70,7 @@ const ReviewPanel: React.FC<ReviewPanelProps> = ({ documentId, pdfUrl }) => {
     try {
       const res = await fetchDocumentItems(documentId, { per_page: 500 });
       setItems(res.items);
+      setSummary(res.summary ?? null);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load items");
@@ -96,10 +98,10 @@ const ReviewPanel: React.FC<ReviewPanelProps> = ({ documentId, pdfUrl }) => {
   const highlightText = selectedItem?.verbatim_quote ?? null;
   const highlightPage = selectedItem?.grounded_page ?? null;
 
-  // Summary counts
-  const pending = items.filter((it) => !it.review_status || it.review_status.toLowerCase() === "pending").length;
-  const approved = items.filter((it) => it.review_status?.toLowerCase() === "approved").length;
-  const rejected = items.filter((it) => it.review_status?.toLowerCase() === "rejected").length;
+  // Summary counts from backend — no client-side filtering
+  const pending = summary?.pending ?? 0;
+  const approved = summary?.approved ?? 0;
+  const rejected = summary?.rejected ?? 0;
 
   const handleSelect = (item: ExtractionItem) => {
     setSelectedId(item.id);
@@ -245,13 +247,15 @@ const ReviewPanel: React.FC<ReviewPanelProps> = ({ documentId, pdfUrl }) => {
             ) : (
               <div style={{ display: "flex", gap: "0.3rem", marginTop: "0.2rem" }}
                 onClick={(e) => e.stopPropagation()}>
-                {(!item.review_status || item.review_status.toLowerCase() === "pending") && (
-                  <>
-                    <button style={actionBtn("#ecfdf5", "#047857", "#a7f3d0")} onClick={() => handleApprove(item.id)}>Approve</button>
-                    <button style={actionBtn("#fef2f2", "#dc2626", "#fecaca")} onClick={() => handleReject(item.id)}>Reject</button>
-                  </>
+                {item.can_approve && (
+                  <button style={actionBtn("#ecfdf5", "#047857", "#a7f3d0")} onClick={() => handleApprove(item.id)}>Approve</button>
                 )}
-                <button style={actionBtn("#fff", "#64748b", "#e2e8f0")} onClick={() => startEdit(item)}>Edit</button>
+                {item.can_reject && (
+                  <button style={actionBtn("#fef2f2", "#dc2626", "#fecaca")} onClick={() => handleReject(item.id)}>Reject</button>
+                )}
+                {item.can_edit && (
+                  <button style={actionBtn("#fff", "#64748b", "#e2e8f0")} onClick={() => startEdit(item)}>Edit</button>
+                )}
               </div>
             )}
           </div>

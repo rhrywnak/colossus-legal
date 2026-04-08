@@ -88,22 +88,12 @@ const DocumentWorkspaceTabs: React.FC = () => {
   const [itemsError, setItemsError] = useState<string | null>(null);
 
   const docId = id ?? "";
-  const isPublished = doc?.status === "PUBLISHED";
-  const isAssignedReviewer = doc?.assigned_reviewer === user?.username;
 
-  // Visible tabs based on role and document state
+  // Visible tabs computed by backend — no client-side role/status checks
   const visibleTabs = useMemo(() => {
-    return ALL_TABS.filter((tab) => {
-      switch (tab.id) {
-        case "document": return true;
-        case "content": return isPublished || isAdmin;
-        case "processing": return isAdmin;
-        case "review": return isAdmin || isAssignedReviewer;
-        case "people": return isPublished || isAdmin;
-        default: return false;
-      }
-    });
-  }, [isAdmin, isPublished, isAssignedReviewer]);
+    const allowed = doc?.visible_tabs ?? ["document"];
+    return ALL_TABS.filter((tab) => allowed.includes(tab.id));
+  }, [doc?.visible_tabs]);
 
   // Load document + history + actions
   const loadData = useCallback(async () => {
@@ -155,8 +145,8 @@ const DocumentWorkspaceTabs: React.FC = () => {
   if (error) return <div style={{ ...S.empty, color: "#dc2626" }}>{error}</div>;
   if (!doc) return <div style={S.empty}>Document not found.</div>;
 
-  // Non-admin users can only view published documents
-  if (!isAdmin && !isPublished) {
+  // Access gate — backend computes can_view based on role + status
+  if (doc.can_view === false) {
     return (
       <div style={S.empty}>
         <p>This document is still being processed.</p>

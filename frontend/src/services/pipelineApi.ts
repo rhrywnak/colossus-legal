@@ -25,6 +25,12 @@ export interface PipelineDocument {
   assigned_at?: string | null;
   total_cost_usd: number | null;
   has_failed_steps: boolean;
+  /** Tabs the current user can see (computed by backend). */
+  visible_tabs?: string[];
+  /** Whether the current user can view/interact with this document. */
+  can_view?: boolean;
+  /** Display grouping: "published" | "processing" | "in_review" | "uploaded". */
+  status_group?: string;
 }
 
 export interface KnownUser {
@@ -112,11 +118,26 @@ export interface ExtractionItem {
   reviewed_at: string | null;
   review_notes: string | null;
   properties: Record<string, unknown>;
+  /** Whether this item can be approved (computed by backend). */
+  can_approve?: boolean;
+  /** Whether this item can be rejected (computed by backend). */
+  can_reject?: boolean;
+  /** Whether this item can be edited (computed by backend). */
+  can_edit?: boolean;
+}
+
+export interface ReviewSummary {
+  pending: number;
+  approved: number;
+  rejected: number;
+  edited: number;
+  total: number;
 }
 
 export interface ItemsResponse {
   document_id: string;
   items: ExtractionItem[];
+  summary?: ReviewSummary;
   total: number;
   page: number;
   per_page: number;

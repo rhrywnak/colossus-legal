@@ -14,12 +14,6 @@ function titleizeType(slug: string): string {
   return slug.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-function statusBucket(status: string): string {
-  if (status === "PUBLISHED") return "published";
-  if (status === "VERIFIED" || status === "REVIEWED") return "in_review";
-  if (status === "UPLOADED") return "uploaded";
-  return "processing";
-}
 
 // ── Styles ─────────────────────────────────────────────────────────
 
@@ -133,7 +127,7 @@ const DocumentsPage: React.FC = () => {
 
   const filtered = useMemo(() => {
     return documents.filter((doc) => {
-      if (statusFilter !== "all" && statusBucket(doc.status) !== statusFilter) return false;
+      if (statusFilter !== "all" && (doc.status_group ?? "processing") !== statusFilter) return false;
       if (typeFilter !== "all" && doc.document_type !== typeFilter) return false;
       if (reviewerFilter === "unassigned" && doc.assigned_reviewer) return false;
       if (reviewerFilter === "assigned_to_me" && doc.assigned_reviewer !== user?.username) return false;
@@ -148,7 +142,7 @@ const DocumentsPage: React.FC = () => {
     const total = documents.length;
     let published = 0, inReview = 0, processing = 0;
     for (const d of documents) {
-      const bucket = statusBucket(d.status);
+      const bucket = (d.status_group ?? "processing");
       if (bucket === "published") published++;
       else if (bucket === "in_review") inReview++;
       else if (bucket === "processing" || bucket === "uploaded") processing++;

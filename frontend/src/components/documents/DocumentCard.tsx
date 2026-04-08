@@ -54,8 +54,7 @@ const errorIndicator: React.CSSProperties = {
 // ── Component ───────────────────────────────────────────────────
 
 const DocumentCard: React.FC<DocumentCardProps> = ({ doc, isAdmin, users, onAssign }) => {
-  const isPublished = doc.status === "PUBLISHED";
-  const canInteract = isAdmin || isPublished;
+  const canInteract = doc.can_view ?? true;
 
   return (
     <div
@@ -100,7 +99,7 @@ const DocumentCard: React.FC<DocumentCardProps> = ({ doc, isAdmin, users, onAssi
       </div>
 
       {/* Row 3: Progress bar (non-published) */}
-      {!isPublished && (
+      {doc.status_group !== "published" && (
         <div style={{ maxWidth: "240px", marginBottom: "0.5rem" }}>
           <PipelineProgressBar status={doc.status} />
         </div>

@@ -27,12 +27,6 @@ function fmtTime(secs: number): string {
   return `${h}h ${m}m`;
 }
 
-function statusBucket(status: string): string {
-  if (status === "PUBLISHED") return "published";
-  if (status === "UPLOADED") return "uploaded";
-  if (status === "VERIFIED" || status === "REVIEWED") return "in_review";
-  return "processing";
-}
 
 // ── Styles ──────────────────────────────────────────────────────
 
@@ -68,7 +62,7 @@ const BatchProgressHeader: React.FC<BatchProgressHeaderProps> = ({
   const buckets = { published: 0, uploaded: 0, in_review: 0, processing: 0 };
   let totalCost = 0;
   for (const d of documents) {
-    buckets[statusBucket(d.status) as keyof typeof buckets]++;
+    buckets[(d.status_group ?? "processing") as keyof typeof buckets]++;
     if (d.total_cost_usd != null) totalCost += d.total_cost_usd;
   }
   const published = buckets.published;
