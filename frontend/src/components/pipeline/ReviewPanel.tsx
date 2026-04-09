@@ -85,7 +85,13 @@ const ReviewPanel: React.FC<ReviewPanelProps> = ({ documentId, pdfUrl }) => {
     return items.filter((it) => {
       if (typeFilter !== "all" && it.entity_type !== typeFilter) return false;
       if (reviewFilter !== "all" && (it.review_status || "pending").toLowerCase() !== reviewFilter) return false;
-      if (groundFilter !== "all" && (it.grounding_status || "unknown") !== groundFilter) return false;
+      if (groundFilter === "grounded") {
+        const gs = it.grounding_status || "";
+        if (gs !== "exact" && gs !== "normalized") return false;
+      } else if (groundFilter === "ungrounded") {
+        const gs = it.grounding_status || "";
+        if (gs === "exact" || gs === "normalized") return false;
+      }
       return true;
     });
   }, [items, typeFilter, reviewFilter, groundFilter]);
@@ -193,9 +199,9 @@ const ReviewPanel: React.FC<ReviewPanelProps> = ({ documentId, pdfUrl }) => {
             <option value="rejected">Rejected</option>
           </select>
           <select style={filterSel} value={groundFilter} onChange={(e) => setGroundFilter(e.target.value)}>
-            <option value="all">All grounding</option>
-            <option value="grounded">Grounded</option>
-            <option value="ungrounded">Ungrounded</option>
+            <option value="all">All items</option>
+            <option value="grounded">Verified in document</option>
+            <option value="ungrounded">Not verified</option>
           </select>
           <span style={{ fontSize: "0.72rem", color: "#64748b", alignSelf: "center" }}>
             {filtered.length} / {items.length}

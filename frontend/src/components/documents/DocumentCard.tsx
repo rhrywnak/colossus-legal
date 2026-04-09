@@ -56,31 +56,17 @@ const errorIndicator: React.CSSProperties = {
 const DocumentCard: React.FC<DocumentCardProps> = ({ doc, isAdmin, users, onAssign }) => {
   const canInteract = doc.can_view ?? true;
 
-  return (
-    <div
-      style={{
-        ...cardStyle,
-        opacity: canInteract ? 1 : 0.5,
-        pointerEvents: canInteract ? "auto" : "none",
-        borderLeft: doc.has_failed_steps ? "3px solid #dc2626" : undefined,
-      }}
-      onMouseEnter={(e) => {
-        if (canInteract) e.currentTarget.style.boxShadow = "0 2px 8px rgba(0,0,0,0.08)";
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.boxShadow = "none";
-      }}
-    >
+  const cardContent = (
+    <>
       {/* Row 1: Title + Status */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "0.5rem" }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          {canInteract ? (
-            <Link to={`/documents/${doc.id}`} style={cardTitleLink}>
-              {doc.title}
-            </Link>
-          ) : (
-            <span style={{ ...cardTitleLink, color: "#94a3b8" }}>{doc.title}</span>
-          )}
+          <span style={{
+            ...cardTitleLink,
+            color: canInteract ? "#0f172a" : "#94a3b8",
+          }}>
+            {doc.title}
+          </span>
         </div>
         <div style={{ marginLeft: "1rem", flexShrink: 0, display: "flex", alignItems: "center", gap: "0.5rem" }}>
           {doc.has_failed_steps && <span style={errorIndicator}>Needs attention</span>}
@@ -114,7 +100,10 @@ const DocumentCard: React.FC<DocumentCardProps> = ({ doc, isAdmin, users, onAssi
           <select
             style={assignSelect}
             value={doc.assigned_reviewer || ""}
+            onClick={(e) => e.preventDefault()}
+            onMouseDown={(e) => e.stopPropagation()}
             onChange={(e) => {
+              e.stopPropagation();
               const val = e.target.value || null;
               onAssign(doc.id, val);
             }}
@@ -128,6 +117,31 @@ const DocumentCard: React.FC<DocumentCardProps> = ({ doc, isAdmin, users, onAssi
           </select>
         )}
       </div>
+    </>
+  );
+
+  if (canInteract) {
+    return (
+      <Link
+        to={`/documents/${doc.id}`}
+        style={{
+          ...cardStyle,
+          textDecoration: "none",
+          color: "inherit",
+          display: "block",
+          borderLeft: doc.has_failed_steps ? "3px solid #dc2626" : undefined,
+        }}
+        onMouseEnter={(e) => { e.currentTarget.style.boxShadow = "0 2px 8px rgba(0,0,0,0.08)"; }}
+        onMouseLeave={(e) => { e.currentTarget.style.boxShadow = "none"; }}
+      >
+        {cardContent}
+      </Link>
+    );
+  }
+
+  return (
+    <div style={{ ...cardStyle, opacity: 0.5, pointerEvents: "none" }}>
+      {cardContent}
     </div>
   );
 };

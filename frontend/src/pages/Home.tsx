@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { Link } from "react-router-dom";
 import { useCase } from "../context/CaseContext";
 import { HarmDto, getHarms } from "../services/harms";
@@ -37,25 +37,6 @@ const Home: React.FC = () => {
   const [showDamages, setShowDamages] = useState(false);
   const [harms, setHarms] = useState<HarmDto[]>([]);
   const [harmsLoading, setHarmsLoading] = useState(false);
-  const [timelinePhases, setTimelinePhases] = useState<{ id: string; label: string; date_range: string; color: string; eventCount: number }[]>([]);
-  const [timelineEventCount, setTimelineEventCount] = useState(0);
-
-  useEffect(() => {
-    fetch("/data/timeline.json")
-      .then((r) => r.json())
-      .then((d) => {
-        const phases = (d.phases ?? []).map((p: any) => ({
-          id: p.id,
-          label: p.label,
-          date_range: p.date_range,
-          color: p.color,
-          eventCount: (d.events ?? []).filter((e: any) => e.phase === p.id).length,
-        }));
-        setTimelinePhases(phases);
-        setTimelineEventCount((d.events ?? []).length);
-      })
-      .catch(() => {});
-  }, []);
 
   if (loading) {
     return (
@@ -117,46 +98,41 @@ const Home: React.FC = () => {
         )}
       </div>
 
-      {/* 2B: Case Summary — rendered when available from API */}
-
-      {/* 2B2: Compact Timeline Bar */}
-      {timelinePhases.length > 0 && (
-        <div style={{ marginBottom: "1.75rem" }}>
-          <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "0.65rem" }}>
-            Case Timeline
+      {/* 2B: Case Summary Stats */}
+      <div style={{ display: "flex", gap: "2rem", marginBottom: "1.75rem", flexWrap: "wrap" }}>
+        {caseData.plaintiffs.length > 0 && (
+          <div>
+            <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "0.3rem" }}>
+              Plaintiffs
+            </div>
+            <div style={{ fontSize: "0.9rem", color: "#0f172a" }}>{caseData.plaintiffs.join(", ")}</div>
           </div>
-          <div style={{ display: "flex", gap: "0.35rem", flexWrap: "wrap" }}>
-            {timelinePhases.map((phase) => (
-              <Link
-                key={phase.id}
-                to={`/timeline#phase-${phase.id}`}
-                style={{
-                  flex: 1, minWidth: "140px", padding: "0.75rem 1rem",
-                  backgroundColor: phase.color + "0d", border: `1px solid ${phase.color}30`,
-                  borderRadius: "8px", textDecoration: "none",
-                  borderLeft: `3px solid ${phase.color}`,
-                  transition: "all 0.15s ease",
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = phase.color + "18"; }}
-                onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = phase.color + "0d"; }}
-              >
-                <div style={{ fontSize: "0.82rem", fontWeight: 600, color: "#0f172a", marginBottom: "0.15rem" }}>
-                  {phase.label}
-                </div>
-                <div style={{ fontSize: "0.7rem", color: "#64748b" }}>
-                  {phase.date_range} {"\u00b7"} {phase.eventCount} event{phase.eventCount !== 1 ? "s" : ""}
-                </div>
-              </Link>
-            ))}
+        )}
+        {caseData.defendants.length > 0 && (
+          <div>
+            <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "0.3rem" }}>
+              Defendants
+            </div>
+            <div style={{ fontSize: "0.9rem", color: "#0f172a" }}>{caseData.defendants.join(", ")}</div>
           </div>
-          <Link
-            to="/timeline"
-            style={{ display: "inline-block", marginTop: "0.6rem", fontSize: "0.84rem", color: "#2563eb", textDecoration: "none", fontWeight: 500 }}
-          >
-            View Full Timeline {"\u2192"}
-          </Link>
-        </div>
-      )}
+        )}
+        {caseData.allegations_total > 0 && (
+          <div>
+            <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "0.3rem" }}>
+              Allegations
+            </div>
+            <div style={{ fontSize: "0.9rem", color: "#0f172a" }}>{caseData.allegations_total}</div>
+          </div>
+        )}
+        {caseData.legal_counts > 0 && (
+          <div>
+            <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "0.3rem" }}>
+              Legal Counts
+            </div>
+            <div style={{ fontSize: "0.9rem", color: "#0f172a" }}>{caseData.legal_counts}</div>
+          </div>
+        )}
+      </div>
 
       {/* 2C: Causes of Action */}
       {caseData.legal_count_details.length > 0 && (
