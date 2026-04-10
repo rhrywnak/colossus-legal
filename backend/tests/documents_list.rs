@@ -7,7 +7,7 @@ use axum::{body::to_bytes, extract::State, http::StatusCode, response::IntoRespo
 use chrono::Utc;
 use colossus_legal_backend::{
     api::documents::list_documents, config::AppConfig, dto::DocumentDto, neo4j::create_neo4j_graph,
-    state::AppState,
+    state::{AppState, SchemaMetadata},
 };
 use neo4rs::{query, Graph};
 use tokio::sync::Mutex;
@@ -98,6 +98,11 @@ async fn get_documents_returns_non_empty_when_data_exists() -> TestResult<()> {
                 .connect_lazy("postgres://localhost/dummy_audit")
                 .expect("lazy pool"),
         ),
+        schema_metadata: SchemaMetadata {
+            document_type: String::new(),
+            entity_types: vec![],
+            relationship_types: vec![],
+        },
     };
     let response = list_documents(None, State(state)).await.into_response();
 
@@ -145,6 +150,11 @@ async fn get_documents_returns_empty_when_no_data() -> TestResult<()> {
                 .connect_lazy("postgres://localhost/dummy_audit")
                 .expect("lazy pool"),
         ),
+        schema_metadata: SchemaMetadata {
+            document_type: String::new(),
+            entity_types: vec![],
+            relationship_types: vec![],
+        },
     };
     let response = list_documents(None, State(state)).await.into_response();
 

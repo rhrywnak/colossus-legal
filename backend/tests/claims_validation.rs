@@ -11,7 +11,7 @@ use colossus_legal_backend::{
     dto::claim::{ClaimCreateRequest, ClaimDto, ClaimUpdateRequest},
     neo4j::create_neo4j_graph,
     repositories::audit_repository::AuditRepository,
-    state::AppState,
+    state::{AppState, SchemaMetadata},
 };
 use neo4rs::{query, Graph};
 use serde_json::Value;
@@ -111,6 +111,11 @@ async fn create_claim_rejects_empty_title() -> TestResult<()> {
             .expect("lazy pool"),
         pipeline_pool: dummy_pipeline_pool(),
         audit_repo: dummy_audit_repo(),
+        schema_metadata: SchemaMetadata {
+            document_type: String::new(),
+            entity_types: vec![],
+            relationship_types: vec![],
+        },
     };
 
     let payload = ClaimCreateRequest {
@@ -146,6 +151,11 @@ async fn create_claim_rejects_invalid_status() -> TestResult<()> {
             .expect("lazy pool"),
         pipeline_pool: dummy_pipeline_pool(),
         audit_repo: dummy_audit_repo(),
+        schema_metadata: SchemaMetadata {
+            document_type: String::new(),
+            entity_types: vec![],
+            relationship_types: vec![],
+        },
     };
 
     let payload = ClaimCreateRequest {
@@ -181,6 +191,11 @@ async fn get_claim_returns_404_when_missing() -> TestResult<()> {
             .expect("lazy pool"),
         pipeline_pool: dummy_pipeline_pool(),
         audit_repo: dummy_audit_repo(),
+        schema_metadata: SchemaMetadata {
+            document_type: String::new(),
+            entity_types: vec![],
+            relationship_types: vec![],
+        },
     };
 
     let response = get_claim(None, State(state), axum::extract::Path("no-such".to_string()))
@@ -222,6 +237,11 @@ async fn update_claim_rejects_invalid_status() -> TestResult<()> {
             .expect("lazy pool"),
         pipeline_pool: dummy_pipeline_pool(),
         audit_repo: dummy_audit_repo(),
+        schema_metadata: SchemaMetadata {
+            document_type: String::new(),
+            entity_types: vec![],
+            relationship_types: vec![],
+        },
     };
 
     let payload = ClaimUpdateRequest {
@@ -263,6 +283,11 @@ async fn happy_path_create_and_get_claim() -> TestResult<()> {
             .expect("lazy pool"),
         pipeline_pool: dummy_pipeline_pool(),
         audit_repo: dummy_audit_repo(),
+        schema_metadata: SchemaMetadata {
+            document_type: String::new(),
+            entity_types: vec![],
+            relationship_types: vec![],
+        },
     };
 
     let payload = ClaimCreateRequest {

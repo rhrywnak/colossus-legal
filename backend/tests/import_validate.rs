@@ -12,7 +12,7 @@ use colossus_legal_backend::{
     config::AppConfig,
     models::import::{ValidationErrorType, ValidationResult},
     neo4j::create_neo4j_graph,
-    state::AppState,
+    state::{AppState, SchemaMetadata},
 };
 use tower::ServiceExt;
 
@@ -37,7 +37,7 @@ async fn setup_app() -> TestResult<Router> {
             .connect_lazy("postgres://localhost/dummy_audit")
             .expect("lazy pool"),
     );
-    let state = AppState { graph, config, rag_pipeline: None, http_client: reqwest::Client::new(), pg_pool, pipeline_pool, audit_repo };
+    let state = AppState { graph, config, rag_pipeline: None, http_client: reqwest::Client::new(), pg_pool, pipeline_pool, audit_repo, schema_metadata: SchemaMetadata { document_type: String::new(), entity_types: vec![], relationship_types: vec![] } };
     Ok(router().with_state(state))
 }
 

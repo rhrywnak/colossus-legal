@@ -6,7 +6,7 @@ use std::{
 use axum::{body::to_bytes, extract::State, http::StatusCode, response::IntoResponse};
 use colossus_legal_backend::{
     api::claims::list_claims, config::AppConfig, dto::claim::ClaimDto, neo4j::create_neo4j_graph,
-    state::AppState,
+    state::{AppState, SchemaMetadata},
 };
 use neo4rs::{query, Graph};
 use tokio::sync::Mutex;
@@ -104,6 +104,11 @@ async fn get_claims_returns_non_empty_when_data_exists() -> TestResult<()> {
                 .connect_lazy("postgres://localhost/dummy_audit")
                 .expect("lazy pool"),
         ),
+        schema_metadata: SchemaMetadata {
+            document_type: String::new(),
+            entity_types: vec![],
+            relationship_types: vec![],
+        },
     };
     let response = list_claims(None, State(state)).await.into_response();
 
@@ -151,6 +156,11 @@ async fn get_claims_returns_empty_when_no_data() -> TestResult<()> {
                 .connect_lazy("postgres://localhost/dummy_audit")
                 .expect("lazy pool"),
         ),
+        schema_metadata: SchemaMetadata {
+            document_type: String::new(),
+            entity_types: vec![],
+            relationship_types: vec![],
+        },
     };
     let response = list_claims(None, State(state)).await.into_response();
 

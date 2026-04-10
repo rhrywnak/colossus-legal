@@ -9,7 +9,7 @@ use colossus_legal_backend::{
     dto::document::{DocumentCreateRequest, DocumentDto, DocumentUpdateRequest},
     neo4j::create_neo4j_graph,
     repositories::audit_repository::AuditRepository,
-    state::AppState,
+    state::{AppState, SchemaMetadata},
 };
 use neo4rs::{query, Graph};
 use serde_json::Value;
@@ -87,6 +87,11 @@ async fn create_document_rejects_empty_title() -> TestResult<()> {
             .expect("lazy pool"),
         pipeline_pool: dummy_pipeline_pool(),
         audit_repo: dummy_audit_repo(),
+        schema_metadata: SchemaMetadata {
+            document_type: String::new(),
+            entity_types: vec![],
+            relationship_types: vec![],
+        },
     };
 
     let payload = base_create_payload("", "pdf");
@@ -118,6 +123,11 @@ async fn create_document_rejects_invalid_doc_type() -> TestResult<()> {
             .expect("lazy pool"),
         pipeline_pool: dummy_pipeline_pool(),
         audit_repo: dummy_audit_repo(),
+        schema_metadata: SchemaMetadata {
+            document_type: String::new(),
+            entity_types: vec![],
+            relationship_types: vec![],
+        },
     };
 
     let payload = base_create_payload("Valid Title", "invalid-type");
@@ -149,6 +159,11 @@ async fn create_document_rejects_invalid_created_at() -> TestResult<()> {
             .expect("lazy pool"),
         pipeline_pool: dummy_pipeline_pool(),
         audit_repo: dummy_audit_repo(),
+        schema_metadata: SchemaMetadata {
+            document_type: String::new(),
+            entity_types: vec![],
+            relationship_types: vec![],
+        },
     };
 
     let mut payload = base_create_payload("Valid Title", "pdf");
@@ -181,6 +196,11 @@ async fn get_document_returns_404_when_missing() -> TestResult<()> {
             .expect("lazy pool"),
         pipeline_pool: dummy_pipeline_pool(),
         audit_repo: dummy_audit_repo(),
+        schema_metadata: SchemaMetadata {
+            document_type: String::new(),
+            entity_types: vec![],
+            relationship_types: vec![],
+        },
     };
 
     let response = get_document(None, State(state), axum::extract::Path("no-such".to_string()))
@@ -210,6 +230,11 @@ async fn update_document_rejects_invalid_doc_type() -> TestResult<()> {
             .expect("lazy pool"),
         pipeline_pool: dummy_pipeline_pool(),
         audit_repo: dummy_audit_repo(),
+        schema_metadata: SchemaMetadata {
+            document_type: String::new(),
+            entity_types: vec![],
+            relationship_types: vec![],
+        },
     };
 
     let payload = base_create_payload("Title", "pdf");
@@ -264,6 +289,11 @@ async fn update_document_returns_404_when_missing() -> TestResult<()> {
             .expect("lazy pool"),
         pipeline_pool: dummy_pipeline_pool(),
         audit_repo: dummy_audit_repo(),
+        schema_metadata: SchemaMetadata {
+            document_type: String::new(),
+            entity_types: vec![],
+            relationship_types: vec![],
+        },
     };
 
     let update_payload = DocumentUpdateRequest {
@@ -309,6 +339,11 @@ async fn happy_path_create_get_update_document() -> TestResult<()> {
             .expect("lazy pool"),
         pipeline_pool: dummy_pipeline_pool(),
         audit_repo: dummy_audit_repo(),
+        schema_metadata: SchemaMetadata {
+            document_type: String::new(),
+            entity_types: vec![],
+            relationship_types: vec![],
+        },
     };
 
     let mut payload = base_create_payload("Happy Title", "pdf");
