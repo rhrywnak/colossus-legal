@@ -85,12 +85,25 @@ pub async fn extract_handler(
             message: format!("Failed to load schema '{}': {e}", schema_file),
         })?;
 
-    // 6. Build prompt
+    // 6. Build prompt.
+    //    Select prompt template based on document type. Document-type-specific
+    //    templates are named pass1_{document_type}.md. Falls back to
+    //    pass1_template.md (the generic template) if not found.
+    let specific_template = format!("pass1_{}.md", schema.document_type);
+    let template_path = Path::new(&state.config.extraction_template_dir).join(&specific_template);
+    let template_name = if template_path.exists() {
+        tracing::info!(doc_id = %doc_id, template = %specific_template, "Using document-type-specific prompt template");
+        Some(specific_template.as_str())
+    } else {
+        tracing::info!(doc_id = %doc_id, "No specific template for '{}', using default pass1_template.md", schema.document_type);
+        None // PromptBuilder defaults to pass1_template.md
+    };
+
     let mut builder = colossus_extract::PromptBuilder::new(
         Path::new(&state.config.extraction_template_dir),
     );
     let prompt = builder
-        .build_extraction_prompt(&schema, &full_text, None, pipe_config.admin_instructions.as_deref(), Some("global_rules.md"))
+        .build_extraction_prompt(&schema, &full_text, None, pipe_config.admin_instructions.as_deref(), Some("global_rules.md"), template_name)
         .map_err(|e| AppError::Internal { message: format!("Failed to build prompt: {e}") })?;
 
     let model_name = pipe_config.pass1_model.clone();
