@@ -1,9 +1,24 @@
 //! POST /api/admin/pipeline/documents/:id/verify — PageGrounder verification.
 //!
-//! Searches the document's PDF for each extraction item's verbatim quote,
-//! updating grounding_status and grounded_page in the database.
+//! Searches the document's PDF for each extraction item's grounding snippet,
+//! using per-entity-type grounding modes from the extraction schema.
+//!
+//! ## Grounding Modes
+//!
+//! - **Verbatim** — search for the item's `verbatim_quote` in the PDF
+//! - **NameMatch** — search for the entity label/name in the PDF
+//! - **HeadingMatch** — search for the entity label or legal_basis in the PDF
+//! - **Derived** — no PDF search; mark as "derived" (provenance-based)
+//! - **None** — no PDF search; mark as "unverified"
+//!
+//! If the schema cannot be loaded, all items fall back to Verbatim behavior
+//! for backward compatibility.
 
-use axum::{extract::Path, extract::State, Json};
+use std::collections::HashMap;
+use std::path::Path;
+
+use axum::{extract::Path as AxumPath, extract::State, Json};
+use colossus_extract::GroundingMode;
 use serde::Serialize;
 
 use crate::auth::{require_admin, AuthUser};
@@ -21,13 +36,17 @@ pub struct VerifyResponse {
     pub grounded_normalized: usize,
     pub not_found: usize,
     pub skipped_no_quote: usize,
+    pub derived: usize,
+    pub unverified: usize,
+    pub name_matched: usize,
+    pub heading_matched: usize,
 }
 
 /// POST /api/admin/pipeline/documents/:id/verify
 pub async fn verify_handler(
     user: AuthUser,
     State(state): State<AppState>,
-    Path(doc_id): Path<String>,
+    AxumPath(doc_id): AxumPath<String>,
 ) -> Result<Json<VerifyResponse>, AppError> {
     require_admin(&user)?;
     let start = std::time::Instant::now();
@@ -51,12 +70,16 @@ pub async fn verify_handler(
         });
     }
 
-    // 3. Fetch items with verbatim quotes
-    let items = pipeline_repository::get_items_with_quotes(&state.pipeline_pool, &doc_id)
+    // 3. Load extraction schema for grounding mode lookup.
+    //    If schema loading fails, fall back to treating everything as Verbatim.
+    let grounding_modes = load_grounding_modes(&state, &doc_id).await;
+
+    // 4. Fetch ALL items (not just those with quotes)
+    let items = pipeline_repository::get_all_items(&state.pipeline_pool, &doc_id)
         .await
         .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?;
 
-    // 4. Build full path and verify PDF exists
+    // 5. Build full path and verify PDF exists
     let full_path = format!(
         "{}/{}",
         state.config.document_storage_path.trim_end_matches('/'),
@@ -68,13 +91,57 @@ pub async fn verify_handler(
         });
     }
 
-    // 5. Collect snippets for grounding
-    let snippets: Vec<String> = items
-        .iter()
-        .filter_map(|item| item.verbatim_quote.clone())
-        .collect();
+    // 6. Categorize items by grounding mode and build combined snippets.
+    //    Each snippet-based item gets an entry in `snippets` and a back-reference
+    //    in `snippet_items` so we can distribute PageGrounder results.
+    let mut snippets: Vec<String> = Vec::new();
+    let mut snippet_items: Vec<SnippetMeta> = Vec::new();
+    let mut derived_items: Vec<i32> = Vec::new();
+    let mut none_items: Vec<i32> = Vec::new();
+    let mut missing_quote_items: Vec<i32> = Vec::new();
 
-    // 6. Run PageGrounder in blocking thread
+    for item in &items {
+        let mode = grounding_modes
+            .get(&item.entity_type)
+            .unwrap_or(&GroundingMode::Verbatim);
+
+        match mode {
+            GroundingMode::Derived => {
+                derived_items.push(item.id);
+            }
+            GroundingMode::None => {
+                none_items.push(item.id);
+            }
+            GroundingMode::Verbatim => {
+                if let Some(quote) = item.verbatim_quote.as_deref().filter(|q| !q.is_empty()) {
+                    snippets.push(quote.to_string());
+                    snippet_items.push(SnippetMeta { item_id: item.id, kind: SnippetKind::Verbatim });
+                } else {
+                    missing_quote_items.push(item.id);
+                }
+            }
+            GroundingMode::NameMatch => {
+                let label = extract_name_label(item);
+                if !label.is_empty() {
+                    snippets.push(label);
+                    snippet_items.push(SnippetMeta { item_id: item.id, kind: SnippetKind::NameMatch });
+                } else {
+                    missing_quote_items.push(item.id);
+                }
+            }
+            GroundingMode::HeadingMatch => {
+                let label = extract_heading_label(item);
+                if !label.is_empty() {
+                    snippets.push(label);
+                    snippet_items.push(SnippetMeta { item_id: item.id, kind: SnippetKind::HeadingMatch });
+                } else {
+                    missing_quote_items.push(item.id);
+                }
+            }
+        }
+    }
+
+    // 7. Run PageGrounder in blocking thread for all snippet-based items
     let pdf_path = full_path.clone();
     let grounding_results = tokio::task::spawn_blocking(move || {
         run_grounding(&pdf_path, &snippets)
@@ -82,22 +149,23 @@ pub async fn verify_handler(
     .await
     .map_err(|e| AppError::Internal { message: format!("Grounding task panicked: {e}") })??;
 
-    // 7. Update each item's grounding status
+    // 8. Distribute grounding results and update DB
     let (mut exact, mut normalized, mut not_found) = (0usize, 0usize, 0usize);
-    let items_with_quotes: Vec<&ExtractionItemRecord> = items
-        .iter()
-        .filter(|i| i.verbatim_quote.is_some())
-        .collect();
+    let (mut name_matched, mut heading_matched) = (0usize, 0usize);
 
     for (i, result) in grounding_results.iter().enumerate() {
-        let item = items_with_quotes[i];
+        let meta = &snippet_items[i];
         let (status_str, page) = match result.match_type {
             colossus_pdf::MatchType::Exact => {
                 exact += 1;
+                if matches!(meta.kind, SnippetKind::NameMatch) { name_matched += 1; }
+                if matches!(meta.kind, SnippetKind::HeadingMatch) { heading_matched += 1; }
                 ("exact", result.page_number.map(|p| p as i32))
             }
             colossus_pdf::MatchType::Normalized => {
                 normalized += 1;
+                if matches!(meta.kind, SnippetKind::NameMatch) { name_matched += 1; }
+                if matches!(meta.kind, SnippetKind::HeadingMatch) { heading_matched += 1; }
                 ("normalized", result.page_number.map(|p| p as i32))
             }
             colossus_pdf::MatchType::NotFound => {
@@ -107,51 +175,187 @@ pub async fn verify_handler(
         };
 
         pipeline_repository::update_item_grounding(
-            &state.pipeline_pool, item.id, status_str, page,
+            &state.pipeline_pool, meta.item_id, status_str, page,
         )
         .await
         .map_err(|e| AppError::Internal {
-            message: format!("Failed to update item {}: {e}", item.id),
+            message: format!("Failed to update item {}: {e}", meta.item_id),
         })?;
     }
 
-    // 8. Update document status
+    // 9. Update derived items
+    for item_id in &derived_items {
+        pipeline_repository::update_item_grounding(
+            &state.pipeline_pool, *item_id, "derived", None,
+        )
+        .await
+        .map_err(|e| AppError::Internal {
+            message: format!("Failed to update derived item {item_id}: {e}"),
+        })?;
+    }
+
+    // 10. Update none-mode items
+    for item_id in &none_items {
+        pipeline_repository::update_item_grounding(
+            &state.pipeline_pool, *item_id, "unverified", None,
+        )
+        .await
+        .map_err(|e| AppError::Internal {
+            message: format!("Failed to update unverified item {item_id}: {e}"),
+        })?;
+    }
+
+    // 11. Update missing-quote items
+    if !missing_quote_items.is_empty() {
+        tracing::warn!(
+            doc_id = %doc_id,
+            count = missing_quote_items.len(),
+            "Items missing required grounding snippet"
+        );
+    }
+    for item_id in &missing_quote_items {
+        pipeline_repository::update_item_grounding(
+            &state.pipeline_pool, *item_id, "missing_quote", None,
+        )
+        .await
+        .map_err(|e| AppError::Internal {
+            message: format!("Failed to update missing-quote item {item_id}: {e}"),
+        })?;
+    }
+
+    // 12. Update document status
     pipeline_repository::update_document_status(&state.pipeline_pool, &doc_id, "VERIFIED")
         .await
         .map_err(|e| AppError::Internal { message: format!("Failed to update status: {e}") })?;
 
-    let total_all = pipeline_repository::get_all_items(&state.pipeline_pool, &doc_id)
-        .await
-        .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?
-        .len();
-    let skipped = total_all - items_with_quotes.len();
+    let derived_count = derived_items.len();
+    let unverified_count = none_items.len();
+    let skipped_count = missing_quote_items.len();
 
-    tracing::info!(doc_id = %doc_id, exact, normalized, not_found, skipped, "Verification complete");
+    tracing::info!(
+        doc_id = %doc_id, exact, normalized, not_found,
+        derived = derived_count, unverified = unverified_count,
+        name_matched, heading_matched, skipped = skipped_count,
+        "Verification complete"
+    );
 
     log_admin_action(
         &state.audit_repo, &user.username, "pipeline.document.verify",
         Some("document"), Some(&doc_id),
-        Some(serde_json::json!({ "exact": exact, "normalized": normalized, "not_found": not_found })),
+        Some(serde_json::json!({
+            "exact": exact, "normalized": normalized, "not_found": not_found,
+            "derived": derived_count, "unverified": unverified_count,
+            "name_matched": name_matched, "heading_matched": heading_matched,
+            "skipped_no_quote": skipped_count,
+        })),
     )
     .await;
 
-    let grounding_rate = if total_all > 0 {
-        ((exact + normalized) as f64 / total_all as f64 * 100.0).round()
-    } else { 0.0 };
+    let total = items.len();
+    let grounding_rate = if total > 0 {
+        ((exact + normalized) as f64 / total as f64 * 100.0).round()
+    } else {
+        0.0
+    };
     steps::record_step_complete(
         &state.pipeline_pool, step_id, start.elapsed().as_secs_f64(),
-        &serde_json::json!({"grounding_rate": grounding_rate, "exact": exact, "normalized": normalized, "not_found": not_found}),
+        &serde_json::json!({
+            "grounding_rate": grounding_rate,
+            "exact": exact, "normalized": normalized, "not_found": not_found,
+            "derived": derived_count, "unverified": unverified_count,
+            "name_matched": name_matched, "heading_matched": heading_matched,
+        }),
     ).await.ok();
 
     Ok(Json(VerifyResponse {
         document_id: doc_id,
         status: "VERIFIED".to_string(),
-        total_items: total_all,
+        total_items: total,
         grounded_exact: exact,
         grounded_normalized: normalized,
         not_found,
-        skipped_no_quote: skipped,
+        skipped_no_quote: skipped_count,
+        derived: derived_count,
+        unverified: unverified_count,
+        name_matched,
+        heading_matched,
     }))
+}
+
+// ── Helpers ──────────────────────────────────────────────────────
+
+/// Tracks which item a snippet belongs to and what kind of grounding it is.
+struct SnippetMeta {
+    item_id: i32,
+    kind: SnippetKind,
+}
+
+/// The grounding mode category for a snippet in the combined batch.
+enum SnippetKind {
+    Verbatim,
+    NameMatch,
+    HeadingMatch,
+}
+
+/// Load grounding modes from the extraction schema.
+///
+/// Returns an empty map on failure (all items default to Verbatim).
+/// This ensures backward compatibility for documents uploaded before F2.
+async fn load_grounding_modes(
+    state: &AppState,
+    doc_id: &str,
+) -> HashMap<String, GroundingMode> {
+    let pipe_config = match pipeline_repository::get_pipeline_config(&state.pipeline_pool, doc_id).await {
+        Ok(Some(cfg)) => cfg,
+        Ok(None) => {
+            tracing::warn!(doc_id = %doc_id, "No pipeline config found — defaulting all items to Verbatim");
+            return HashMap::new();
+        }
+        Err(e) => {
+            tracing::warn!(doc_id = %doc_id, error = %e, "Failed to load pipeline config — defaulting all items to Verbatim");
+            return HashMap::new();
+        }
+    };
+
+    let schema_path = format!("{}/{}", state.config.extraction_schema_dir, pipe_config.schema_file);
+    let schema = match colossus_extract::ExtractionSchema::from_file(Path::new(&schema_path)) {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::warn!(
+                doc_id = %doc_id, schema = %pipe_config.schema_file, error = %e,
+                "Failed to load extraction schema — defaulting all items to Verbatim"
+            );
+            return HashMap::new();
+        }
+    };
+
+    schema
+        .entity_types
+        .iter()
+        .map(|et| (et.name.clone(), et.grounding_mode.clone()))
+        .collect()
+}
+
+/// Extract a name label from an item for NameMatch grounding.
+///
+/// Tries `label`, then common name properties.
+fn extract_name_label(item: &ExtractionItemRecord) -> String {
+    item.item_data["label"].as_str()
+        .or_else(|| item.item_data["properties"]["full_name"].as_str())
+        .or_else(|| item.item_data["properties"]["party_name"].as_str())
+        .unwrap_or("")
+        .to_string()
+}
+
+/// Extract a heading label from an item for HeadingMatch grounding.
+///
+/// Tries `label`, then heading-specific properties.
+fn extract_heading_label(item: &ExtractionItemRecord) -> String {
+    item.item_data["label"].as_str()
+        .or_else(|| item.item_data["properties"]["legal_basis"].as_str())
+        .or_else(|| item.item_data["properties"]["count_name"].as_str())
+        .unwrap_or("")
+        .to_string()
 }
 
 /// Run PDF grounding (sync — called from spawn_blocking).
