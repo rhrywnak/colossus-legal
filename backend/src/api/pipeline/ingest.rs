@@ -23,7 +23,7 @@ use crate::state::AppState;
 
 use super::ingest_helpers::{
     create_contained_in_relationships, create_document_node, create_entity_node,
-    create_ingest_relationship, create_party_nodes,
+    create_ingest_relationship, create_party_nodes, create_provenance_relationships,
 };
 use super::ingest_resolver::{self, ResolutionSummary};
 
@@ -221,6 +221,14 @@ pub async fn ingest_handler(
         *rel_type_counts.entry(rel.relationship_type.clone()).or_insert(0) += 1;
     }
 
+    // 11b. Create DERIVED_FROM relationships from provenance data
+    let derived_from_count =
+        create_provenance_relationships(&mut txn, &items, &pg_to_neo4j).await?;
+    if derived_from_count > 0 {
+        tracing::info!(doc_id = %doc_id, derived_from_count, "Created DERIVED_FROM provenance relationships");
+        *rel_type_counts.entry("DERIVED_FROM".to_string()).or_insert(0) += derived_from_count;
+    }
+
     // 12. Create CONTAINED_IN relationships (all nodes → Document)
     let contained_in =
         create_contained_in_relationships(&mut txn, &all_node_ids, &doc_neo4j_id).await?;
@@ -296,6 +304,7 @@ pub async fn ingest_handler(
 
     steps::record_step_complete(&state.pipeline_pool, step_id, duration, &serde_json::json!({
         "nodes_created": total_nodes, "relationships_created": total_rels,
+        "derived_from": derived_from_count,
         "matched_existing": resolution_summary.matched_existing, "created_new": resolution_summary.created_new,
     })).await.ok();
     Ok(Json(IngestResponse {

@@ -298,6 +298,99 @@ pub async fn create_ingest_relationship(
     Ok(())
 }
 
+/// Create DERIVED_FROM relationships from provenance data in item_data.
+///
+/// For each item with a `provenance` array, finds the referenced entity
+/// (typically a ComplaintAllegation matched by paragraph_number) and creates
+/// a DERIVED_FROM relationship with `ref_type` and `quote_snippet` properties.
+///
+/// Returns the count of relationships created.
+pub async fn create_provenance_relationships(
+    txn: &mut neo4rs::Txn,
+    items: &[ExtractionItemRecord],
+    pg_to_neo4j: &HashMap<i32, String>,
+) -> Result<usize, AppError> {
+    // Build a lookup: paragraph_number → extraction_item.id
+    // Handles both string and integer paragraph_number values.
+    let mut para_to_item_id: HashMap<String, i32> = HashMap::new();
+    for item in items {
+        if let Some(para) = item.item_data["properties"]["paragraph_number"].as_str() {
+            para_to_item_id.insert(para.to_string(), item.id);
+        } else if let Some(para) = item.item_data["properties"]["paragraph_number"].as_i64() {
+            para_to_item_id.insert(para.to_string(), item.id);
+        }
+    }
+
+    let mut count = 0usize;
+
+    for item in items {
+        let provenance = match item.item_data.get("provenance").and_then(|p| p.as_array()) {
+            Some(arr) => arr,
+            None => continue,
+        };
+
+        let from_neo = match pg_to_neo4j.get(&item.id) {
+            Some(id) => id,
+            None => continue,
+        };
+
+        for entry in provenance {
+            let ref_type = entry["ref_type"].as_str().unwrap_or("paragraph");
+            let ref_val = entry["ref"].as_str()
+                .map(|s| s.to_string())
+                .or_else(|| entry["ref"].as_i64().map(|n| n.to_string()));
+
+            let ref_val = match ref_val {
+                Some(v) => v,
+                None => continue,
+            };
+
+            let quote_snippet = entry["quote_snippet"].as_str().unwrap_or("");
+
+            // Find the target item by paragraph number
+            let target_item_id = match ref_type {
+                "paragraph" => para_to_item_id.get(&ref_val),
+                _ => continue, // Only paragraph references supported for now
+            };
+
+            let to_neo = match target_item_id.and_then(|id| pg_to_neo4j.get(id)) {
+                Some(id) => id,
+                None => {
+                    tracing::debug!(
+                        from = %from_neo, ref_type, ref_val = %ref_val,
+                        "Provenance target not found — skipping DERIVED_FROM"
+                    );
+                    continue;
+                }
+            };
+
+            let cypher =
+                "MATCH (a {id: $from_id}), (b {id: $to_id}) \
+                 CREATE (a)-[:DERIVED_FROM {ref_type: $ref_type, quote_snippet: $snippet}]->(b) \
+                 RETURN b.id";
+
+            let mut result = txn
+                .execute(
+                    query(cypher)
+                        .param("from_id", from_neo.as_str())
+                        .param("to_id", to_neo.as_str())
+                        .param("ref_type", ref_type)
+                        .param("snippet", quote_snippet),
+                )
+                .await
+                .map_err(|e| AppError::Internal {
+                    message: format!("Failed to create DERIVED_FROM {from_neo}->{to_neo}: {e}"),
+                })?;
+
+            if result.next(&mut *txn).await.ok().flatten().is_some() {
+                count += 1;
+            }
+        }
+    }
+
+    Ok(count)
+}
+
 /// Create CONTAINED_IN from all non-Document nodes to the Document.
 pub async fn create_contained_in_relationships(
     txn: &mut neo4rs::Txn,
