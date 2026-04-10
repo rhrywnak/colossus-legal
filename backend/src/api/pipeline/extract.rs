@@ -70,21 +70,15 @@ pub async fn extract_handler(
         .collect::<Vec<_>>()
         .join("\n\n");
 
-    // 5. Select extraction schema based on document type.
-    //    Each document type maps to a schema YAML whose entity type names
-    //    become Neo4j labels directly. Falls back to general_legal for unknown types.
-    let schema_file = match document.document_type.as_str() {
-        "complaint" => "complaint.yaml",
-        "discovery_response" => "discovery_response.yaml",
-        "motion" | "brief" | "motion_brief" => "motion.yaml",
-        "affidavit" => "affidavit.yaml",
-        "court_ruling" => "court_ruling.yaml",
-        _ => "general_legal.yaml",
-    };
+    // 5. Load extraction schema from pipeline config.
+    //    The schema filename is set at upload time and stored in pipeline_config.
+    //    Entity type names in the schema become Neo4j labels directly.
+    let schema_file = &pipe_config.schema_file;
     let schema_path = format!("{}/{}", state.config.extraction_schema_dir, schema_file);
     tracing::info!(
         doc_id = %doc_id, schema = %schema_file, document_type = %document.document_type,
-        "Selected schema '{schema_file}' for document {doc_id} (type: {})", document.document_type
+        "Using schema '{}' from pipeline config for document {} (type: {})",
+        schema_file, doc_id, document.document_type
     );
     let schema = colossus_extract::ExtractionSchema::from_file(Path::new(&schema_path))
         .map_err(|e| AppError::Internal {
@@ -176,6 +170,42 @@ pub async fn extract_handler(
     .map_err(|e| AppError::Internal {
         message: format!("Failed to complete extraction run: {e}"),
     })?;
+
+    // 10b. Run completeness validation against schema rules
+    let completeness = super::completeness_validation::validate_completeness(&schema, &parsed);
+
+    // Log entity counts
+    for (entity_type, count) in &completeness.entity_counts {
+        tracing::info!(doc_id = %doc_id, entity_type = %entity_type, count, "Extracted entity count");
+    }
+
+    // Log warnings
+    for warning in &completeness.warnings {
+        tracing::warn!(doc_id = %doc_id, "Completeness warning: {}", warning);
+    }
+
+    // If validation failed, update status and return error
+    if !completeness.passed {
+        pipeline_repository::update_document_status(&state.pipeline_pool, &doc_id, "EXTRACTION_FAILED")
+            .await
+            .map_err(|e| AppError::Internal { message: format!("Failed to update status: {e}") })?;
+
+        let error_detail = serde_json::json!({
+            "errors": completeness.errors,
+            "warnings": completeness.warnings,
+            "entity_counts": completeness.entity_counts,
+        });
+
+        steps::record_step_failure(
+            &state.pipeline_pool, step_id, step_start.elapsed().as_secs_f64(),
+            &format!("Completeness validation failed: {:?}", completeness.errors),
+        ).await.ok();
+
+        return Err(AppError::BadRequest {
+            message: format!("Extraction completeness validation failed: {}", completeness.errors.join("; ")),
+            details: error_detail,
+        });
+    }
 
     // 11-12. Parse entities and relationships, insert into DB
     let (entity_count, rel_count) =

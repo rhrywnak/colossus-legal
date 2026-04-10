@@ -13,6 +13,7 @@
 mod anthropic;
 mod completeness;
 mod completeness_helpers;
+pub mod completeness_validation;
 pub(crate) mod constants;
 mod document_response;
 mod delete;
