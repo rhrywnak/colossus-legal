@@ -55,23 +55,61 @@ pub struct ExtractionRunRecord {
 
 /// Insert an extraction run record. Returns the auto-generated run ID.
 /// Initial status is "RUNNING".
+///
+/// ## F3 Reproducibility
+///
+/// The new parameters capture everything needed to reproduce an extraction:
+/// the assembled prompt, template/rules file hashes, the schema content,
+/// and model parameters. All are optional so older code paths still compile.
+#[allow(clippy::too_many_arguments)]
 pub async fn insert_extraction_run(
     pool: &PgPool,
     document_id: &str,
     pass_number: i32,
     model_name: &str,
     schema_version: &str,
+    // F3 reproducibility fields:
+    assembled_prompt: Option<&str>,
+    template_name: Option<&str>,
+    template_hash: Option<&str>,
+    rules_name: Option<&str>,
+    rules_hash: Option<&str>,
+    schema_hash: Option<&str>,
+    schema_content: Option<&serde_json::Value>,
+    temperature: Option<f64>,
+    max_tokens_requested: Option<i32>,
+    admin_instructions: Option<&str>,
+    prior_context: Option<&str>,
 ) -> Result<i32, PipelineRepoError> {
     let row = sqlx::query_scalar::<_, i32>(
-        r#"INSERT INTO extraction_runs
-           (document_id, pass_number, model_name, schema_version, started_at, raw_output, status)
-           VALUES ($1, $2, $3, $4, NOW(), '{}'::jsonb, 'RUNNING')
+        r#"INSERT INTO extraction_runs (
+               document_id, pass_number, model_name, schema_version,
+               started_at, raw_output, status,
+               assembled_prompt, template_name, template_hash,
+               rules_name, rules_hash, schema_hash, schema_content,
+               temperature, max_tokens_requested,
+               admin_instructions, prior_context
+           ) VALUES (
+               $1, $2, $3, $4, NOW(), '{}'::jsonb, 'RUNNING',
+               $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
+           )
            RETURNING id"#,
     )
     .bind(document_id)
     .bind(pass_number)
     .bind(model_name)
     .bind(schema_version)
+    .bind(assembled_prompt)
+    .bind(template_name)
+    .bind(template_hash)
+    .bind(rules_name)
+    .bind(rules_hash)
+    .bind(schema_hash)
+    .bind(schema_content)
+    .bind(temperature)
+    .bind(max_tokens_requested)
+    .bind(admin_instructions)
+    .bind(prior_context)
     .fetch_one(pool)
     .await?;
     Ok(row)

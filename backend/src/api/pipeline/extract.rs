@@ -102,16 +102,33 @@ pub async fn extract_handler(
     let mut builder = colossus_extract::PromptBuilder::new(
         Path::new(&state.config.extraction_template_dir),
     );
-    let prompt = builder
+    let artifact = builder
         .build_extraction_prompt(&schema, &full_text, None, pipe_config.admin_instructions.as_deref(), Some("global_rules.md"), template_name)
         .map_err(|e| AppError::Internal { message: format!("Failed to build prompt: {e}") })?;
+    let prompt = &artifact.prompt_text;
 
     let model_name = pipe_config.pass1_model.clone();
     let max_tokens = pipe_config.pass1_max_tokens as u32;
 
-    // 7. Insert extraction run (status = RUNNING)
+    // 7. Insert extraction run (status = RUNNING) with reproducibility metadata
+    let schema_json_value = serde_json::to_value(&schema).ok();
     let run_id = pipeline_repository::insert_extraction_run(
-        &state.pipeline_pool, &doc_id, 1, &model_name, &schema.document_type,
+        &state.pipeline_pool,
+        &doc_id,
+        1,
+        &model_name,
+        &schema.document_type,
+        Some(&artifact.prompt_text),
+        Some(&artifact.template_name),
+        Some(&artifact.template_hash),
+        artifact.rules_name.as_deref(),
+        artifact.rules_hash.as_deref(),
+        Some(&artifact.schema_hash),
+        schema_json_value.as_ref(),
+        None, // temperature — not configurable yet (F4)
+        Some(max_tokens as i32),
+        pipe_config.admin_instructions.as_deref(),
+        None, // prior_context — not implemented yet (F7)
     )
     .await
     .map_err(|e| AppError::Internal { message: format!("Failed to insert extraction run: {e}") })?;
@@ -125,7 +142,7 @@ pub async fn extract_handler(
         "Calling Anthropic API for extraction"
     );
     let api_start = Instant::now();
-    let api_result = call_anthropic(api_key, &model_name, max_tokens, &prompt).await;
+    let api_result = call_anthropic(api_key, &model_name, max_tokens, prompt).await;
     let elapsed_secs = api_start.elapsed().as_secs_f64();
 
     let (response_text, input_tokens, output_tokens) = match api_result {

@@ -663,7 +663,7 @@ checksum = "1d07550c9036bf2ae0c684c4297d503f838287c83c53686d05370d0e139ae570"
 [[package]]
 name = "colossus-auth"
 version = "0.1.0"
-source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.8.2#0cb006cb00d8241b2b6296a897a565c70bf3a19c"
+source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.8.3#5d728f56ec389ff83cffee4da13b75e017ea7119"
 dependencies = [
  "async-trait",
  "axum",
@@ -674,13 +674,14 @@ dependencies = [
 
 [[package]]
 name = "colossus-extract"
-version = "0.3.0"
-source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.8.2#0cb006cb00d8241b2b6296a897a565c70bf3a19c"
+version = "0.4.0"
+source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.8.3#5d728f56ec389ff83cffee4da13b75e017ea7119"
 dependencies = [
  "async-trait",
  "serde",
  "serde_json",
  "serde_yaml",
+ "sha2",
  "strsim",
  "thiserror 2.0.18",
  "tokio",
@@ -690,7 +691,7 @@ dependencies = [
 [[package]]
 name = "colossus-graph"
 version = "0.1.0"
-source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.8.2#0cb006cb00d8241b2b6296a897a565c70bf3a19c"
+source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.8.3#5d728f56ec389ff83cffee4da13b75e017ea7119"
 dependencies = [
  "neo4rs",
  "serde",
@@ -739,7 +740,7 @@ dependencies = [
 [[package]]
 name = "colossus-pdf"
 version = "0.2.0"
-source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.8.2#0cb006cb00d8241b2b6296a897a565c70bf3a19c"
+source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.8.3#5d728f56ec389ff83cffee4da13b75e017ea7119"
 dependencies = [
  "pdf_oxide",
  "serde",
@@ -752,7 +753,7 @@ dependencies = [
 [[package]]
 name = "colossus-rag"
 version = "0.5.0"
-source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.8.2#0cb006cb00d8241b2b6296a897a565c70bf3a19c"
+source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.8.3#5d728f56ec389ff83cffee4da13b75e017ea7119"
 dependencies = [
  "async-trait",
  "neo4rs",
