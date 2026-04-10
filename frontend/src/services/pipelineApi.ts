@@ -125,6 +125,12 @@ export interface ExtractionItem {
   can_reject?: boolean;
   /** Whether this item can be edited (computed by backend). */
   can_edit?: boolean;
+  /** Entity category from schema: "foundation", "structural", "evidence", "reference" */
+  category?: string;
+  /** Available actions for this item given category, status, and lock state. */
+  available_actions?: string[];
+  /** True if the document is post-ingest (items locked). */
+  locked?: boolean;
 }
 
 export interface ReviewSummary {
@@ -363,6 +369,30 @@ export async function bulkApprove(docId: string, filter: "grounded" | "all"): Pr
     ...LONG_TIMEOUT,
   });
   if (!res.ok) throw new Error(`Bulk approve failed: ${res.status}`);
+  return res.json();
+}
+
+export async function unapproveItem(itemId: number): Promise<unknown> {
+  const res = await authFetch(`${PIPELINE_BASE}/items/${itemId}/unapprove`, {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error(`Unapprove failed: ${res.status}`);
+  return res.json();
+}
+
+export async function unrejectItem(itemId: number): Promise<unknown> {
+  const res = await authFetch(`${PIPELINE_BASE}/items/${itemId}/unreject`, {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error(`Unreject failed: ${res.status}`);
+  return res.json();
+}
+
+export async function revertIngest(documentId: string): Promise<unknown> {
+  const res = await authFetch(`${PIPELINE_BASE}/documents/${documentId}/revert-ingest`, {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error(`Revert ingest failed: ${res.status}`);
   return res.json();
 }
 
