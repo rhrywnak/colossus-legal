@@ -14,6 +14,7 @@ mod anthropic;
 mod completeness;
 mod completeness_helpers;
 pub mod completeness_validation;
+mod config_endpoints;
 pub(crate) mod constants;
 mod document_response;
 mod delete;
@@ -31,7 +32,6 @@ mod ingest_helpers;
 mod ingest_resolver;
 pub mod report;
 mod review;
-mod schemas;
 pub mod state_machine;
 mod upload;
 pub mod users;
@@ -90,7 +90,9 @@ pub fn router() -> Router<AppState> {
         .route("/items/:id/reject", post(review::reject_handler))
         .route("/items/:id", put(review::edit_handler))
         .route("/metrics", get(metrics::metrics_handler))
-        .route("/schemas", get(schemas::list_schemas_handler))
+        .route("/models", get(config_endpoints::list_models))
+        .route("/schemas", get(config_endpoints::list_schemas))
+        .route("/templates", get(config_endpoints::list_templates))
         .route("/documents/:id/assign", put(users::assign_reviewer_handler))
         .route("/documents/:id/file", get(file::file_handler))
         .route("/reviewers/workload", get(workload::workload_handler))

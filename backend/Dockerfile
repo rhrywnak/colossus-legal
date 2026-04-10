@@ -81,6 +81,7 @@ COPY migrations/ migrations/
 COPY pipeline_migrations/ pipeline_migrations/
 COPY extraction_schemas/ extraction_schemas/
 COPY extraction_templates/ extraction_templates/
+COPY config/ config/
 
 # Touch main.rs to ensure cargo rebuilds our code (not the cached dummy)
 RUN touch src/main.rs src/lib.rs
@@ -119,6 +120,7 @@ COPY --from=builder /build/target/release/colossus-legal-backend ./colossus-lega
 COPY --from=builder /build/pipeline_migrations/ ./pipeline_migrations/
 COPY --from=builder /build/extraction_schemas/ ./extraction_schemas/
 COPY --from=builder /build/extraction_templates/ ./extraction_templates/
+COPY --from=builder /build/config/ ./config/
 
 # Create document storage directory
 RUN mkdir -p /home/appuser/data/documents

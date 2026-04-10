@@ -1,0 +1,32 @@
+# Available LLM models for extraction pipeline.
+# Loaded at startup, served via GET /api/admin/pipeline/models.
+# Domain-agnostic — any Colossus project can use this format.
+models:
+  - id: "claude-sonnet-4-20250514"
+    provider: anthropic
+    display_name: "Claude Sonnet 4"
+    input_cost_per_mtok: 3.00
+    output_cost_per_mtok: 15.00
+    max_context: 200000
+    max_output: 64000
+    recommended_for:
+      - extraction_pass1
+  - id: "claude-sonnet-4-6"
+    provider: anthropic
+    display_name: "Claude Sonnet 4.6"
+    input_cost_per_mtok: 3.00
+    output_cost_per_mtok: 15.00
+    max_context: 200000
+    max_output: 64000
+    recommended_for:
+      - extraction_pass1
+  - id: "claude-opus-4-6"
+    provider: anthropic
+    display_name: "Claude Opus 4.6"
+    input_cost_per_mtok: 15.00
+    output_cost_per_mtok: 75.00
+    max_context: 200000
+    max_output: 32000
+    recommended_for:
+      - extraction_pass2
+      - synthesis

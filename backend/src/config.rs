@@ -31,6 +31,8 @@ pub struct AppConfig {
     pub extraction_schema_dir: String,
     /// Path to extraction prompt template files directory.
     pub extraction_template_dir: String,
+    /// Path to extraction config files directory (models.yaml, etc.).
+    pub extraction_config_dir: String,
     /// Deployment environment name (e.g. "dev", "prod").
     /// Read from COLOSSUS_ENVIRONMENT, defaults to "unknown".
     pub environment: String,
@@ -88,6 +90,9 @@ impl AppConfig {
         let extraction_template_dir = std::env::var("EXTRACTION_TEMPLATE_DIR")
             .unwrap_or_else(|_| "./extraction_templates".to_string());
 
+        let extraction_config_dir = std::env::var("EXTRACTION_CONFIG_DIR")
+            .unwrap_or_else(|_| "./config".to_string());
+
         let environment = std::env::var("COLOSSUS_ENVIRONMENT")
             .unwrap_or_else(|_| "unknown".to_string());
 
@@ -106,6 +111,7 @@ impl AppConfig {
             pipeline_database_url,
             extraction_schema_dir,
             extraction_template_dir,
+            extraction_config_dir,
             prompts_dir,
             environment,
         })

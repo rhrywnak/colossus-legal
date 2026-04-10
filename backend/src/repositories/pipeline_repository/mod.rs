@@ -275,3 +275,25 @@ pub async fn get_pipeline_config(
     .await?;
     Ok(row)
 }
+
+/// Update pipeline config with extraction overrides so the next run uses the same settings.
+pub async fn update_pipeline_config(
+    pool: &PgPool,
+    document_id: &str,
+    pass1_model: &str,
+    pass1_max_tokens: i32,
+    schema_file: &str,
+    admin_instructions: Option<&str>,
+) -> Result<(), PipelineRepoError> {
+    sqlx::query(
+        "UPDATE pipeline_config SET pass1_model = $2, pass1_max_tokens = $3, schema_file = $4, admin_instructions = $5 WHERE document_id = $1",
+    )
+    .bind(document_id)
+    .bind(pass1_model)
+    .bind(pass1_max_tokens)
+    .bind(schema_file)
+    .bind(admin_instructions)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
