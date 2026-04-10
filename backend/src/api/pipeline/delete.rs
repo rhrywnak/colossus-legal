@@ -310,7 +310,7 @@ async fn build_audit_snapshot(
 /// doc get removed. Nodes shared across documents survive.
 ///
 /// Best-effort: logs errors but does not fail the request.
-async fn cleanup_neo4j(state: &AppState, document_id: &str) {
+pub(super) async fn cleanup_neo4j(state: &AppState, document_id: &str) {
     // Delete nodes where source_document matches (Allegation, Harm, LegalCount, Person, Org)
     match state
         .graph

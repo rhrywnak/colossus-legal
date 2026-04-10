@@ -195,6 +195,134 @@ pub async fn count_ungrounded_pending(pool: &PgPool, document_id: &str) -> Resul
     .await
 }
 
+/// Fetch a single extraction item by ID (for guards and history).
+pub async fn get_item_by_id(
+    pool: &PgPool,
+    item_id: i32,
+) -> Result<Option<ReviewActionResult>, sqlx::Error> {
+    sqlx::query_as::<_, ReviewActionResult>(
+        "SELECT id, review_status, grounded_page, grounding_status
+         FROM extraction_items WHERE id = $1",
+    )
+    .bind(item_id)
+    .fetch_optional(pool)
+    .await
+}
+
+/// Get the entity_type and document_id for an item.
+#[derive(Debug, sqlx::FromRow)]
+pub struct ItemTypeInfo {
+    pub entity_type: String,
+    pub document_id: String,
+}
+
+pub async fn get_item_type_info(
+    pool: &PgPool,
+    item_id: i32,
+) -> Result<Option<ItemTypeInfo>, sqlx::Error> {
+    sqlx::query_as::<_, ItemTypeInfo>(
+        "SELECT entity_type, document_id FROM extraction_items WHERE id = $1",
+    )
+    .bind(item_id)
+    .fetch_optional(pool)
+    .await
+}
+
+/// Revert an approved/edited item back to pending.
+pub async fn unapprove_item(
+    pool: &PgPool,
+    item_id: i32,
+) -> Result<Option<ReviewActionResult>, sqlx::Error> {
+    sqlx::query_as::<_, ReviewActionResult>(
+        "UPDATE extraction_items
+         SET review_status = 'pending', reviewed_by = NULL, reviewed_at = NULL, review_notes = NULL
+         WHERE id = $1 AND review_status IN ('approved', 'edited')
+         RETURNING id, review_status, grounded_page, grounding_status",
+    )
+    .bind(item_id)
+    .fetch_optional(pool)
+    .await
+}
+
+/// Revert a rejected item back to pending.
+pub async fn unreject_item(
+    pool: &PgPool,
+    item_id: i32,
+) -> Result<Option<ReviewActionResult>, sqlx::Error> {
+    sqlx::query_as::<_, ReviewActionResult>(
+        "UPDATE extraction_items
+         SET review_status = 'pending', reviewed_by = NULL, reviewed_at = NULL, review_notes = NULL
+         WHERE id = $1 AND review_status = 'rejected'
+         RETURNING id, review_status, grounded_page, grounding_status",
+    )
+    .bind(item_id)
+    .fetch_optional(pool)
+    .await
+}
+
+/// Count relationships that reference an item (for cascade warnings).
+pub async fn count_relationships_for_item(
+    pool: &PgPool,
+    item_id: i32,
+) -> Result<i64, sqlx::Error> {
+    sqlx::query_scalar::<_, i64>(
+        "SELECT count(*) FROM extraction_relationships
+         WHERE from_item_id = $1 OR to_item_id = $1",
+    )
+    .bind(item_id)
+    .fetch_one(pool)
+    .await
+}
+
+/// Record a field change in the edit history audit trail.
+pub async fn insert_edit_history(
+    pool: &PgPool,
+    item_id: i32,
+    field_changed: &str,
+    old_value: Option<&str>,
+    new_value: Option<&str>,
+    changed_by: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO review_edit_history (item_id, field_changed, old_value, new_value, changed_by)
+         VALUES ($1, $2, $3, $4, $5)",
+    )
+    .bind(item_id)
+    .bind(field_changed)
+    .bind(old_value)
+    .bind(new_value)
+    .bind(changed_by)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Edit history record for the audit trail.
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct EditHistoryRecord {
+    pub id: i32,
+    pub item_id: i32,
+    pub field_changed: String,
+    pub old_value: Option<String>,
+    pub new_value: Option<String>,
+    pub changed_by: String,
+    pub changed_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Get edit history for an item.
+pub async fn get_edit_history(
+    pool: &PgPool,
+    item_id: i32,
+) -> Result<Vec<EditHistoryRecord>, sqlx::Error> {
+    sqlx::query_as::<_, EditHistoryRecord>(
+        "SELECT id, item_id, field_changed, old_value, new_value, changed_by, changed_at
+         FROM review_edit_history WHERE item_id = $1 ORDER BY changed_at DESC",
+    )
+    .bind(item_id)
+    .fetch_all(pool)
+    .await
+}
+
 /// Count remaining pending items that are actionable in the pipeline.
 ///
 /// Only counts grounded items (grounding_status IN ('exact', 'normalized')).
