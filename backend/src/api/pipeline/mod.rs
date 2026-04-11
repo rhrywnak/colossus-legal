@@ -11,6 +11,7 @@
 //! The `mod.rs` file re-exports the public items so callers don't change.
 
 mod anthropic;
+pub mod chunk_extractor;
 mod completeness;
 mod completeness_helpers;
 pub mod completeness_validation;

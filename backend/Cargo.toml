@@ -4,15 +4,15 @@ version = "2.0.0-beta.56"
 edition = "2021"
 
 [dependencies]
-colossus-auth = { git = "https://github.com/rhrywnak/colossus-rs.git", tag = "v0.8.3" }
-colossus-extract = { git = "https://github.com/rhrywnak/colossus-rs.git", tag = "v0.8.3" }
+colossus-auth = { git = "https://github.com/rhrywnak/colossus-rs.git", tag = "v0.9.0" }
+colossus-extract = { git = "https://github.com/rhrywnak/colossus-rs.git", tag = "v0.9.0" }
 # ## Rust Learning: Git dependency with feature flags
 #
 # `colossus-rag` lives in the same monorepo (colossus-rs) as colossus-auth.
 # `features = ["full"]` enables all backends: Qdrant, fastembed, Neo4j.
-colossus-rag = { git = "https://github.com/rhrywnak/colossus-rs.git", tag = "v0.8.3", features = ["full"] }
-colossus-pdf = { git = "https://github.com/rhrywnak/colossus-rs.git", tag = "v0.8.3" }
-colossus-graph = { git = "https://github.com/rhrywnak/colossus-rs.git", tag = "v0.8.3", features = ["neo4j"] }
+colossus-rag = { git = "https://github.com/rhrywnak/colossus-rs.git", tag = "v0.9.0", features = ["full"] }
+colossus-pdf = { git = "https://github.com/rhrywnak/colossus-rs.git", tag = "v0.9.0" }
+colossus-graph = { git = "https://github.com/rhrywnak/colossus-rs.git", tag = "v0.9.0", features = ["neo4j"] }
 axum = { version = "0.7", features = ["multipart"] }
 hyper = { version = "1", features = ["full"] }
 tokio = { version = "1", features = ["full"] }
@@ -47,6 +47,7 @@ thiserror = "2"
 anyhow = "1"
 llm_json = "1"
 backon = { version = "1", features = ["tokio-sleep"] }
+async-trait = "0.1"
 sqlx = { version = "0.8", features = [
     "runtime-tokio-rustls",
     "postgres",

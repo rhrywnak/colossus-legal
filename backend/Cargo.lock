@@ -674,7 +674,7 @@ checksum = "1d07550c9036bf2ae0c684c4297d503f838287c83c53686d05370d0e139ae570"
 [[package]]
 name = "colossus-auth"
 version = "0.1.0"
-source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.8.3#5d728f56ec389ff83cffee4da13b75e017ea7119"
+source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.9.0#14d2cd894b4d43212bd848c7f8ca1c036f9c8649"
 dependencies = [
  "async-trait",
  "axum",
@@ -686,9 +686,10 @@ dependencies = [
 [[package]]
 name = "colossus-extract"
 version = "0.4.0"
-source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.8.3#5d728f56ec389ff83cffee4da13b75e017ea7119"
+source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.9.0#14d2cd894b4d43212bd848c7f8ca1c036f9c8649"
 dependencies = [
  "async-trait",
+ "schemars",
  "serde",
  "serde_json",
  "serde_yaml",
@@ -702,7 +703,7 @@ dependencies = [
 [[package]]
 name = "colossus-graph"
 version = "0.1.0"
-source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.8.3#5d728f56ec389ff83cffee4da13b75e017ea7119"
+source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.9.0#14d2cd894b4d43212bd848c7f8ca1c036f9c8649"
 dependencies = [
  "neo4rs",
  "serde",
@@ -716,6 +717,7 @@ name = "colossus-legal-backend"
 version = "2.0.0-beta.56"
 dependencies = [
  "anyhow",
+ "async-trait",
  "axum",
  "backon",
  "chrono",
@@ -754,7 +756,7 @@ dependencies = [
 [[package]]
 name = "colossus-pdf"
 version = "0.2.0"
-source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.8.3#5d728f56ec389ff83cffee4da13b75e017ea7119"
+source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.9.0#14d2cd894b4d43212bd848c7f8ca1c036f9c8649"
 dependencies = [
  "pdf_oxide",
  "serde",
@@ -767,7 +769,7 @@ dependencies = [
 [[package]]
 name = "colossus-rag"
 version = "0.5.0"
-source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.8.3#5d728f56ec389ff83cffee4da13b75e017ea7119"
+source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.9.0#14d2cd894b4d43212bd848c7f8ca1c036f9c8649"
 dependencies = [
  "async-trait",
  "neo4rs",
