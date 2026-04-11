@@ -729,6 +729,7 @@ dependencies = [
  "colossus-rag",
  "dotenvy",
  "fastembed",
+ "futures",
  "hyper",
  "llm_json",
  "neo4rs",

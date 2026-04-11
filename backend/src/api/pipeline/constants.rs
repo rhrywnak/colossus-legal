@@ -1,3 +1,4 @@
+#![allow(dead_code)] // FP-5: token counts not tracked per-chunk yet; re-enabled in FP-6.
 //! Shared pricing constants for token-based cost estimation.
 
 // NOTE: Documents extracted before this change have cost_usd = NULL in extraction_runs.

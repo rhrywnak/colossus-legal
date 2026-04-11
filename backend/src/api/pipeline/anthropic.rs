@@ -1,3 +1,4 @@
+#![allow(dead_code)] // FP-5: chunk pipeline replaced the single-call path; kept for reference.
 //! Anthropic Messages API client for extraction calls — via Rig.
 //!
 //! Uses rig-core's Anthropic provider, which is already proven to work

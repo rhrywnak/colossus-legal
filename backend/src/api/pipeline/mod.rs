@@ -12,6 +12,8 @@
 
 mod anthropic;
 pub mod chunk_extractor;
+mod chunk_orchestration;
+mod chunk_storage;
 mod completeness;
 mod completeness_helpers;
 pub mod completeness_validation;
