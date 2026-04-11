@@ -482,6 +482,17 @@ pub async fn reprocess_handler(
             message: format!("Delete extraction_items: {e}"),
         })?;
 
+    sqlx::query(
+        "DELETE FROM extraction_chunks WHERE extraction_run_id IN \
+         (SELECT id FROM extraction_runs WHERE document_id = $1)"
+    )
+    .bind(&doc_id)
+    .execute(&mut *txn)
+    .await
+    .map_err(|e| AppError::Internal {
+        message: format!("Delete extraction_chunks: {e}"),
+    })?;
+
     sqlx::query("DELETE FROM extraction_runs WHERE document_id = $1")
         .bind(&doc_id)
         .execute(&mut *txn)
@@ -489,6 +500,17 @@ pub async fn reprocess_handler(
         .map_err(|e| AppError::Internal {
             message: format!("Delete extraction_runs: {e}"),
         })?;
+
+    sqlx::query(
+        "DELETE FROM pipeline_steps \
+         WHERE document_id = $1 AND step_name NOT IN ('upload', 'extract_text')"
+    )
+    .bind(&doc_id)
+    .execute(&mut *txn)
+    .await
+    .map_err(|e| AppError::Internal {
+        message: format!("Delete pipeline_steps: {e}"),
+    })?;
 
     sqlx::query("UPDATE documents SET status = 'TEXT_EXTRACTED', updated_at = NOW() WHERE id = $1")
         .bind(&doc_id)

@@ -45,6 +45,8 @@ sha2 = "0.10"
 tempfile = "3"
 thiserror = "2"
 anyhow = "1"
+llm_json = "1"
+backon = { version = "1", features = ["tokio-sleep"] }
 sqlx = { version = "0.8", features = [
     "runtime-tokio-rustls",
     "postgres",

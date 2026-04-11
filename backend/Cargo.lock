@@ -380,6 +380,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "backon"
+version = "1.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cffb0e931875b666fc4fcb20fee52e9bbd1ef836fd9e9e04ec21555f9f85f7ef"
+dependencies = [
+ "fastrand",
+ "gloo-timers",
+ "tokio",
+]
+
+[[package]]
 name = "base64"
 version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -702,10 +713,11 @@ dependencies = [
 
 [[package]]
 name = "colossus-legal-backend"
-version = "2.0.0-beta.55"
+version = "2.0.0-beta.56"
 dependencies = [
  "anyhow",
  "axum",
+ "backon",
  "chrono",
  "clap",
  "colossus-auth",
@@ -716,6 +728,7 @@ dependencies = [
  "dotenvy",
  "fastembed",
  "hyper",
+ "llm_json",
  "neo4rs",
  "qdrant-client",
  "reqwest 0.12.28",
@@ -1570,6 +1583,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
 
 [[package]]
+name = "gloo-timers"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbb143cf96099802033e0d4f4963b19fd2e0b728bcf076cd9cf7f6634f092994"
+dependencies = [
+ "futures-channel",
+ "futures-core",
+ "js-sys",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "h2"
 version = "0.4.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2340,6 +2365,17 @@ name = "litemap"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6373607a59f0be73a39b6fe456b8192fcc3585f602af20751600e974dd455e77"
+
+[[package]]
+name = "llm_json"
+version = "1.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8e3a81b4dfc9cbadf5adde6e601f1b8ec0806d2b41da589e40cdc082e8e223b2"
+dependencies = [
+ "clap",
+ "serde_json",
+ "thiserror 1.0.69",
+]
 
 [[package]]
 name = "lock_api"
