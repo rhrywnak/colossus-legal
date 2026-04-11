@@ -103,14 +103,19 @@ pub async fn extract_handler(
             message: format!("Failed to load schema '{}': {e}", schema_file),
         })?;
 
-    // Prompt artifact — FP-5 uses it for reproducibility metadata only;
-    // FP-6 will rewrite the template to use the chunk extractor's placeholders.
-    let specific_template = format!("pass1_{}.md", schema.document_type);
-    let template_path = Path::new(&state.config.extraction_template_dir).join(&specific_template);
-    let template_name = template_path.exists().then_some(specific_template.as_str());
-    let mut builder = colossus_extract::PromptBuilder::new(Path::new(&state.config.extraction_template_dir));
+    // Chunk-based extraction uses a single generic template containing
+    // {{schema_json}}, {{chunk_text}}, {{examples}} placeholders — the chunk
+    // extractor substitutes those per chunk. PromptBuilder still runs so
+    // extraction_runs records the real template/schema/rules hashes; its
+    // rendered output is unused because it can't substitute chunk_text.
+    let template_dir = Path::new(&state.config.extraction_template_dir);
+    let raw_template = std::fs::read_to_string(template_dir.join("chunk_extract.md"))
+        .map_err(|e| AppError::Internal {
+            message: format!("Failed to read chunk_extract.md: {e}"),
+        })?;
+    let mut builder = colossus_extract::PromptBuilder::new(template_dir);
     let artifact = builder
-        .build_extraction_prompt(&schema, &full_text, None, admin_instructions, Some("global_rules.md"), template_name)
+        .build_extraction_prompt(&schema, &full_text, None, admin_instructions, Some("global_rules.md"), Some("chunk_extract.md"))
         .map_err(|e| AppError::Internal { message: format!("Failed to build prompt: {e}") })?;
 
     let schema_json_value = serde_json::to_value(&schema).ok();
@@ -137,7 +142,7 @@ pub async fn extract_handler(
     let api_start = Instant::now();
     let summary_result = chunk_orchestration::run_chunk_extraction(
         &state.pipeline_pool, run_id, &full_text, &schema_for_chunks,
-        &artifact.prompt_text, Arc::clone(&extractor),
+        &raw_template, Arc::clone(&extractor),
     ).await;
     let elapsed_secs = api_start.elapsed().as_secs_f64();
 
