@@ -368,7 +368,7 @@ pub(super) async fn cleanup_neo4j(state: &AppState, document_id: &str) {
 ///
 /// Uses the `document_id` payload field which is indexed in the collection.
 /// Best-effort: logs errors but does not fail the request.
-async fn cleanup_qdrant(state: &AppState, document_id: &str) {
+pub(super) async fn cleanup_qdrant(state: &AppState, document_id: &str) {
     match qdrant_service::delete_points_by_filter(
         &state.http_client,
         &state.config.qdrant_url,

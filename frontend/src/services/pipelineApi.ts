@@ -183,9 +183,23 @@ export interface StepMetrics {
 }
 
 export interface SchemaInfo {
-  name: string;
-  label: string;
+  filename: string;
+  document_type: string;
+  version: string;
   description: string;
+  entity_type_count: number;
+  entity_types: string[];
+}
+
+export interface ModelInfo {
+  id: string;
+  provider: string;
+  display_name: string;
+  input_cost_per_mtok: number;
+  output_cost_per_mtok: number;
+  max_context: number;
+  max_output: number;
+  recommended_for: string[];
 }
 
 export interface DocumentError {
@@ -266,6 +280,13 @@ export async function fetchSchemas(): Promise<SchemaInfo[]> {
   return data.schemas;
 }
 
+export async function fetchModels(): Promise<ModelInfo[]> {
+  const res = await authFetch(`${PIPELINE_BASE}/models`);
+  if (!res.ok) throw new Error(`Failed to fetch models: ${res.status}`);
+  const data = await res.json();
+  return data.models;
+}
+
 export async function fetchErrors(): Promise<ErrorsResponse> {
   const res = await authFetch(`${PIPELINE_BASE}/documents/errors`);
   if (!res.ok) throw new Error(`Failed to fetch errors: ${res.status}`);
@@ -311,17 +332,22 @@ export async function triggerPipelineAction(
   docId: string,
   endpoint: string,
   method: string = "POST",
+  body?: Record<string, unknown>,
 ): Promise<unknown> {
   const resolvedPath = endpoint.replace("{id}", docId);
   const url = `${PIPELINE_BASE}${resolvedPath}`;
-  const res = await authFetch(url, {
+  const options: RequestInit & { timeoutMs?: number } = {
     method,
     headers: { "Content-Type": "application/json" },
     ...LONG_TIMEOUT,
-  });
+  };
+  if (body) {
+    options.body = JSON.stringify(body);
+  }
+  const res = await authFetch(url, options);
   if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(body || `Pipeline action failed: ${res.status}`);
+    const text = await res.text().catch(() => "");
+    throw new Error(text || `Pipeline action failed: ${res.status}`);
   }
   return res.json().catch(() => ({}));
 }

@@ -88,6 +88,7 @@ pub fn router() -> Router<AppState> {
         .route("/documents/:id/items", get(items::list_items_handler))
         .route("/documents/:id/approve-all", post(review::bulk_approve_handler))
         .route("/documents/:id/revert-ingest", post(review::revert_ingest_handler))
+        .route("/documents/:id/reprocess", post(review::reprocess_handler))
         .route("/documents/:id/validate-graph", post(graph_validation::validate_graph_handler))
         .route("/items/:id/approve", post(review::approve_handler))
         .route("/items/:id/reject", post(review::reject_handler))

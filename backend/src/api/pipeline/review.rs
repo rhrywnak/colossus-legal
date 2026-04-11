@@ -74,6 +74,13 @@ pub struct RevertIngestResponse {
     pub message: String,
 }
 
+#[derive(Debug, Serialize)]
+pub struct ReprocessResponse {
+    pub document_id: String,
+    pub status: String,
+    pub message: String,
+}
+
 // ── Approve ─────────────────────────────────────────────────────
 
 /// POST /items/:id/approve
@@ -407,6 +414,108 @@ pub async fn revert_ingest_handler(
         document_id: doc_id,
         status: "VERIFIED".to_string(),
         message: "Ingest reverted. Items unlocked for re-review.".to_string(),
+    }))
+}
+
+// ── Reprocess ──────────────────────────────────────────────────
+
+/// POST /documents/:id/reprocess — full reset to TEXT_EXTRACTED for re-extraction.
+///
+/// Cleans Neo4j + Qdrant (best-effort), deletes extraction data in FK-safe
+/// order inside a PG transaction, then resets document status to
+/// TEXT_EXTRACTED so "Analyze Content" becomes available again.
+pub async fn reprocess_handler(
+    user: AuthUser,
+    State(state): State<AppState>,
+    AxumPath(doc_id): AxumPath<String>,
+) -> Result<Json<ReprocessResponse>, AppError> {
+    require_admin(&user)?;
+    tracing::info!(user = %user.username, doc_id = %doc_id, "POST reprocess");
+
+    let document = pipeline_repository::get_document(&state.pipeline_pool, &doc_id)
+        .await
+        .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?
+        .ok_or_else(|| AppError::NotFound {
+            message: format!("Document '{doc_id}' not found"),
+        })?;
+
+    if !matches!(document.status.as_str(), "INGESTED" | "INDEXED" | "PUBLISHED") {
+        return Err(AppError::Conflict {
+            message: format!(
+                "Cannot reprocess: status is '{}', expected INGESTED, INDEXED, or PUBLISHED",
+                document.status
+            ),
+            details: serde_json::json!({"status": document.status}),
+        });
+    }
+
+    super::delete::cleanup_neo4j(&state, &doc_id).await;
+    super::delete::cleanup_qdrant(&state, &doc_id).await;
+
+    let mut txn = state.pipeline_pool.begin().await
+        .map_err(|e| AppError::Internal { message: format!("Transaction begin: {e}") })?;
+
+    sqlx::query(
+        "DELETE FROM review_edit_history WHERE item_id IN \
+         (SELECT id FROM extraction_items WHERE document_id = $1)"
+    )
+    .bind(&doc_id)
+    .execute(&mut *txn)
+    .await
+    .map_err(|e| AppError::Internal {
+        message: format!("Delete review_edit_history: {e}"),
+    })?;
+
+    sqlx::query("DELETE FROM extraction_relationships WHERE document_id = $1")
+        .bind(&doc_id)
+        .execute(&mut *txn)
+        .await
+        .map_err(|e| AppError::Internal {
+            message: format!("Delete extraction_relationships: {e}"),
+        })?;
+
+    sqlx::query("DELETE FROM extraction_items WHERE document_id = $1")
+        .bind(&doc_id)
+        .execute(&mut *txn)
+        .await
+        .map_err(|e| AppError::Internal {
+            message: format!("Delete extraction_items: {e}"),
+        })?;
+
+    sqlx::query("DELETE FROM extraction_runs WHERE document_id = $1")
+        .bind(&doc_id)
+        .execute(&mut *txn)
+        .await
+        .map_err(|e| AppError::Internal {
+            message: format!("Delete extraction_runs: {e}"),
+        })?;
+
+    sqlx::query("UPDATE documents SET status = 'TEXT_EXTRACTED', updated_at = NOW() WHERE id = $1")
+        .bind(&doc_id)
+        .execute(&mut *txn)
+        .await
+        .map_err(|e| AppError::Internal {
+            message: format!("Update status: {e}"),
+        })?;
+
+    txn.commit().await
+        .map_err(|e| AppError::Internal { message: format!("Transaction commit: {e}") })?;
+
+    log_admin_action(
+        &state.audit_repo, &user.username, "pipeline.document.reprocess",
+        Some("document"), Some(&doc_id),
+        Some(serde_json::json!({"previous_status": document.status})),
+    ).await;
+
+    tracing::info!(
+        doc_id = %doc_id, previous = %document.status,
+        "Document reprocessed — status → TEXT_EXTRACTED"
+    );
+
+    Ok(Json(ReprocessResponse {
+        document_id: doc_id,
+        status: "TEXT_EXTRACTED".to_string(),
+        message: "Document reset for re-extraction. Select schema and run Analyze Content.".to_string(),
     }))
 }
 

@@ -133,13 +133,23 @@ fn get_available_actions(
             make_action("index", "Enable Search", "POST", false, false,
                         "Generate vector embeddings for search",
                         "/documents/{id}/index"),
+            make_action("reprocess", "Reprocess Document", "POST", true, false,
+                        "Reset document for re-extraction with different schema",
+                        "/documents/{id}/reprocess"),
         ],
         "INDEXED" => vec![
             make_action("completeness", "Quality Check", "GET", false, false,
                         "Verify all items are in the graph and indexed",
                         "/documents/{id}/completeness"),
+            make_action("reprocess", "Reprocess Document", "POST", true, false,
+                        "Reset document for re-extraction with different schema",
+                        "/documents/{id}/reprocess"),
         ],
-        "PUBLISHED" => vec![],
+        "PUBLISHED" => vec![
+            make_action("reprocess", "Reprocess Document", "POST", true, false,
+                        "Reset document for re-extraction with different schema",
+                        "/documents/{id}/reprocess"),
+        ],
         _ => vec![],
     }
 }
@@ -518,23 +528,36 @@ mod tests {
     }
 
     #[test]
-    fn test_ingested_shows_index() {
+    fn test_ingested_shows_index_and_reprocess() {
         let actions = get_available_actions("INGESTED", 0, 0);
-        assert_eq!(actions.len(), 1);
-        assert_eq!(actions[0].action, "index");
+        assert_eq!(actions.len(), 2);
+        assert!(actions.iter().any(|a| a.action == "index"));
+        assert!(actions.iter().any(|a| a.action == "reprocess"));
     }
 
     #[test]
-    fn test_indexed_shows_completeness() {
+    fn test_indexed_shows_completeness_and_reprocess() {
         let actions = get_available_actions("INDEXED", 0, 0);
-        assert_eq!(actions.len(), 1);
-        assert_eq!(actions[0].action, "completeness");
+        assert_eq!(actions.len(), 2);
+        assert!(actions.iter().any(|a| a.action == "completeness"));
+        assert!(actions.iter().any(|a| a.action == "reprocess"));
     }
 
     #[test]
-    fn test_published_shows_no_actions() {
+    fn test_published_shows_reprocess() {
         let actions = get_available_actions("PUBLISHED", 0, 0);
-        assert!(actions.is_empty());
+        assert_eq!(actions.len(), 1);
+        assert_eq!(actions[0].action, "reprocess");
+        assert!(actions[0].requires_confirmation);
+    }
+
+    #[test]
+    fn test_reprocess_action_requires_confirmation() {
+        let actions = get_available_actions("PUBLISHED", 0, 0);
+        let reprocess = actions.iter().find(|a| a.action == "reprocess").unwrap();
+        assert!(reprocess.requires_confirmation);
+        assert_eq!(reprocess.method, "POST");
+        assert!(!reprocess.is_navigation);
     }
 
     #[test]

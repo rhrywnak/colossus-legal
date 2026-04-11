@@ -133,7 +133,10 @@ const UploadDialog: React.FC<Props> = ({ open, onClose, onSuccess }) => {
         <div style={labelStyle}>Document Type</div>
         <select style={selectStyle} value={schema} onChange={(e) => setSchema(e.target.value)}>
           <option value="auto">Auto-detect</option>
-          {schemas.map((s) => <option key={s.name} value={s.name}>{s.label}</option>)}
+          {schemas.map((s) => {
+            const base = s.filename.replace(/\.yaml$/, "");
+            return <option key={s.filename} value={base}>{s.document_type || base}</option>;
+          })}
         </select>
 
         {error && (
