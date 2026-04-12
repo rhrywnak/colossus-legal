@@ -415,11 +415,35 @@ async fn run_pipeline(
 
 /// Check cancellation and handle status update if cancelled.
 /// Returns true if cancelled (caller should return early).
+///
+/// Saves the current processing step into error_message before clearing
+/// progress, so the CANCELLED view can show what was interrupted.
 async fn check_cancelled(pool: &sqlx::PgPool, doc_id: &str) -> bool {
     if documents::is_cancelled(pool, doc_id).await.unwrap_or(false) {
+        // Read the current step label before clearing progress
+        let step_label = sqlx::query_scalar::<_, Option<String>>(
+            "SELECT processing_step_label FROM documents WHERE id = $1",
+        )
+        .bind(doc_id)
+        .fetch_one(pool)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| "unknown step".to_string());
+
+        // Save cancellation info into error fields so frontend can display it
+        sqlx::query(
+            "UPDATE documents SET error_message = $2, updated_at = NOW() WHERE id = $1",
+        )
+        .bind(doc_id)
+        .bind(format!("Cancelled during: {step_label}"))
+        .execute(pool)
+        .await
+        .ok();
+
         documents::clear_processing_progress(pool, doc_id).await.ok();
         pipeline_repository::update_document_status(pool, doc_id, "CANCELLED").await.ok();
-        tracing::info!(doc_id = %doc_id, "Pipeline cancelled by user");
+        tracing::info!(doc_id = %doc_id, step = %step_label, "Pipeline cancelled by user");
         true
     } else {
         false

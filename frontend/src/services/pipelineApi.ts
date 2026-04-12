@@ -49,6 +49,12 @@ export interface PipelineDocument {
   entities_written?: number;
   entities_flagged?: number;
   relationships_written?: number;
+
+  // Latest extraction run stats
+  model_name?: string;
+  run_chunk_count?: number;
+  run_chunks_succeeded?: number;
+  run_chunks_failed?: number;
 }
 
 export interface KnownUser {

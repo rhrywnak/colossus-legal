@@ -94,6 +94,12 @@ pub struct DocumentRecord {
     pub entities_written: Option<i32>,
     pub entities_flagged: Option<i32>,
     pub relationships_written: Option<i32>,
+    // ── Latest extraction run stats (computed via LEFT JOIN) ─────
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_name: Option<String>,
+    pub run_chunk_count: Option<i32>,
+    pub run_chunks_succeeded: Option<i32>,
+    pub run_chunks_failed: Option<i32>,
 }
 
 /// A page of extracted text from the `document_text` table.
@@ -223,7 +229,11 @@ pub async fn list_all_documents(pool: &PgPool) -> Result<Vec<DocumentRecord>, Pi
                 d.chunks_total, d.chunks_processed, d.entities_found, d.percent_complete,
                 d.failed_step, d.failed_chunk, d.error_message, d.error_suggestion,
                 d.is_cancelled,
-                d.entities_written, d.entities_flagged, d.relationships_written
+                d.entities_written, d.entities_flagged, d.relationships_written,
+                run.model_name,
+                run.chunk_count AS run_chunk_count,
+                run.chunks_succeeded AS run_chunks_succeeded,
+                run.chunks_failed AS run_chunks_failed
          FROM documents d
          LEFT JOIN (
              SELECT document_id, SUM(cost_usd::float8) AS total_cost_usd
@@ -237,6 +247,12 @@ pub async fn list_all_documents(pool: &PgPool) -> Result<Vec<DocumentRecord>, Pi
              WHERE status = 'failed'
              GROUP BY document_id
          ) err ON err.document_id = d.id
+         LEFT JOIN LATERAL (
+             SELECT model_name, chunk_count, chunks_succeeded, chunks_failed
+             FROM extraction_runs
+             WHERE document_id = d.id AND status = 'COMPLETED'
+             ORDER BY id DESC LIMIT 1
+         ) run ON true
          ORDER BY d.created_at DESC",
     )
     .fetch_all(pool)
@@ -258,7 +274,11 @@ pub async fn get_document(
                 d.chunks_total, d.chunks_processed, d.entities_found, d.percent_complete,
                 d.failed_step, d.failed_chunk, d.error_message, d.error_suggestion,
                 d.is_cancelled,
-                d.entities_written, d.entities_flagged, d.relationships_written
+                d.entities_written, d.entities_flagged, d.relationships_written,
+                run.model_name,
+                run.chunk_count AS run_chunk_count,
+                run.chunks_succeeded AS run_chunks_succeeded,
+                run.chunks_failed AS run_chunks_failed
          FROM documents d
          LEFT JOIN (
              SELECT document_id, SUM(cost_usd::float8) AS total_cost_usd
@@ -272,6 +292,12 @@ pub async fn get_document(
              WHERE status = 'failed' AND document_id = $1
              GROUP BY document_id
          ) err ON err.document_id = d.id
+         LEFT JOIN LATERAL (
+             SELECT model_name, chunk_count, chunks_succeeded, chunks_failed
+             FROM extraction_runs
+             WHERE document_id = $1 AND status = 'COMPLETED'
+             ORDER BY id DESC LIMIT 1
+         ) run ON true
          WHERE d.id = $1",
     )
     .bind(document_id)

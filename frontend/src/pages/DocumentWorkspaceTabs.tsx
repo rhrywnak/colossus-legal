@@ -8,7 +8,7 @@
  * components to keep this file under 300 lines.
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { API_BASE_URL } from "../services/api";
 import DocumentStatusBadge from "../components/pipeline/DocumentStatusBadge";
@@ -29,7 +29,7 @@ import {
 const ALL_TABS = [
   { id: "document", label: "Document" },
   { id: "content", label: "Content" },
-  { id: "processing", label: "Processing" },
+  { id: "processing", label: "Process" },
   { id: "review", label: "Review" },
   { id: "people", label: "People & Links" },
 ];
@@ -73,8 +73,13 @@ const DocumentWorkspaceTabs: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Tab state
-  const [activeTab, setActiveTab] = useState("document");
+  // Tab state — persisted in URL search params so refresh keeps the tab
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [activeTab, setActiveTabRaw] = useState(searchParams.get("tab") || "document");
+  const handleTabChange = (tabId: string) => {
+    setActiveTabRaw(tabId);
+    setSearchParams({ tab: tabId }, { replace: true });
+  };
 
   // PDF state (shared across tabs for cross-tab navigation)
   const [pdfPage, setPdfPage] = useState(1);
@@ -144,7 +149,7 @@ const DocumentWorkspaceTabs: React.FC = () => {
   // Cross-tab: view item in PDF
   const viewInPdf = (pageNum: number) => {
     setPdfPage(pageNum);
-    setActiveTab("document");
+    handleTabChange("document");
   };
 
   // Early returns
@@ -205,7 +210,7 @@ const DocumentWorkspaceTabs: React.FC = () => {
           <button
             key={tab.id}
             style={activeTab === tab.id ? S.tabActive : S.tabBase}
-            onClick={() => setActiveTab(tab.id)}
+            onClick={() => handleTabChange(tab.id)}
           >
             {tab.label}
           </button>

@@ -4,9 +4,10 @@
  * Redesigned for the 5-status pipeline model (new, processing, completed,
  * failed, cancelled). Each status_group gets a distinct layout.
  */
-import React from "react";
+import React, { useState } from "react";
 import { Link } from "react-router-dom";
 import DocumentStatusBadge from "../pipeline/DocumentStatusBadge";
+import ReprocessDialog from "../pipeline/ReprocessDialog";
 import { PipelineDocument, processDocument, cancelProcessing } from "../../services/pipelineApi";
 
 interface DocumentCardProps {
@@ -55,6 +56,7 @@ const smallBtn = (bg: string): React.CSSProperties => ({
 
 const DocumentCard: React.FC<DocumentCardProps> = ({ doc, isAdmin, onRefresh }) => {
   const status = doc.status_group ?? "new";
+  const [showReprocess, setShowReprocess] = useState(false);
 
   // -- Action helpers (stop propagation so the Link wrapper isn't triggered) --
 
@@ -151,7 +153,7 @@ const DocumentCard: React.FC<DocumentCardProps> = ({ doc, isAdmin, onRefresh }) 
                 {doc.error_suggestion ? `Suggestion: ${doc.error_suggestion}` : ""}
               </span>
               {isAdmin && (
-                <button style={smallBtn("#2563eb")} onClick={handleProcess}>Re-process</button>
+                <button style={smallBtn("#2563eb")} onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowReprocess(true); }}>Re-process</button>
               )}
             </div>
           </>
@@ -166,7 +168,7 @@ const DocumentCard: React.FC<DocumentCardProps> = ({ doc, isAdmin, onRefresh }) 
             </div>
             {isAdmin && (
               <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-                <button style={smallBtn("#2563eb")} onClick={handleProcess}>Re-process</button>
+                <button style={smallBtn("#2563eb")} onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowReprocess(true); }}>Re-process</button>
                 <Link
                   to={`/documents/${doc.id}`}
                   style={{ ...metaText, fontSize: "0.72rem", color: "#dc2626", textDecoration: "underline" }}
@@ -209,20 +211,30 @@ const DocumentCard: React.FC<DocumentCardProps> = ({ doc, isAdmin, onRefresh }) 
   );
 
   return (
-    <Link
-      to={`/documents/${doc.id}`}
-      style={{
-        ...cardStyle,
-        textDecoration: "none",
-        color: "inherit",
-        display: "block",
-        borderLeft: isFailed ? "3px solid #dc2626" : undefined,
-      }}
-      onMouseEnter={(e) => { e.currentTarget.style.boxShadow = "0 2px 8px rgba(0,0,0,0.08)"; }}
-      onMouseLeave={(e) => { e.currentTarget.style.boxShadow = "none"; }}
-    >
-      {cardContent}
-    </Link>
+    <>
+      <Link
+        to={`/documents/${doc.id}`}
+        style={{
+          ...cardStyle,
+          textDecoration: "none",
+          color: "inherit",
+          display: "block",
+          borderLeft: isFailed ? "3px solid #dc2626" : undefined,
+        }}
+        onMouseEnter={(e) => { e.currentTarget.style.boxShadow = "0 2px 8px rgba(0,0,0,0.08)"; }}
+        onMouseLeave={(e) => { e.currentTarget.style.boxShadow = "none"; }}
+      >
+        {cardContent}
+      </Link>
+      {showReprocess && (
+        <ReprocessDialog
+          open={showReprocess}
+          documentId={doc.id}
+          onClose={() => setShowReprocess(false)}
+          onSuccess={() => { setShowReprocess(false); onRefresh(); }}
+        />
+      )}
+    </>
   );
 };
 

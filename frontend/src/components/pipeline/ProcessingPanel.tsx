@@ -7,6 +7,7 @@
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import ExecutionHistory from "./ExecutionHistory";
+import ReprocessDialog from "./ReprocessDialog";
 import {
   fetchDocumentActions,
   processDocument,
@@ -97,6 +98,7 @@ const ProcessingPanel: React.FC<ProcessingPanelProps> = ({
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actions, setActions] = useState<DocumentActions | null>(null);
+  const [showReprocess, setShowReprocess] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Fetch execution history from actions endpoint
@@ -137,18 +139,8 @@ const ProcessingPanel: React.FC<ProcessingPanelProps> = ({
     }
   };
 
-  const handleReprocess = async () => {
-    if (busy) return;
-    setBusy(true);
-    setActionError(null);
-    try {
-      await processDocument(doc.id, "same_settings");
-      onRefresh();
-    } catch (e) {
-      setActionError(e instanceof Error ? e.message : "Failed to re-process");
-    } finally {
-      setBusy(false);
-    }
+  const handleReprocess = () => {
+    setShowReprocess(true);
   };
 
   const handleCancel = async () => {
@@ -206,6 +198,30 @@ const ProcessingPanel: React.FC<ProcessingPanelProps> = ({
       <div style={{ fontSize: "0.95rem", fontWeight: 600, color: "#22c55e", marginBottom: "0.75rem" }}>
         Processing Complete
       </div>
+      {doc.model_name && (
+        <div style={summaryLine}>Model: {doc.model_name}</div>
+      )}
+      {doc.total_cost_usd != null && (
+        <div style={summaryLine}>Cost: ${doc.total_cost_usd.toFixed(2)}</div>
+      )}
+      {doc.run_chunk_count != null && (
+        <div style={summaryLine}>
+          Chunks: {doc.run_chunk_count} total
+          {doc.run_chunks_succeeded != null && <>, {doc.run_chunks_succeeded} succeeded</>}
+          {(doc.run_chunks_failed ?? 0) > 0 && <>, <span style={{ color: "#dc2626" }}>{doc.run_chunks_failed} failed</span></>}
+        </div>
+      )}
+      {(doc.entities_written ?? 0) > 0 && (() => {
+        const written = doc.entities_written ?? 0;
+        const flagged = doc.entities_flagged ?? 0;
+        const total = written + flagged;
+        const rate = total > 0 ? Math.round((written / total) * 100) : 0;
+        return (
+          <div style={summaryLine}>
+            Grounding: {rate}% ({written} grounded, {flagged} ungrounded)
+          </div>
+        );
+      })()}
       <div style={{ ...summaryLine, color: "#16a34a" }}>
         {doc.entities_written ?? 0} entities written to graph
       </div>
@@ -217,11 +233,8 @@ const ProcessingPanel: React.FC<ProcessingPanelProps> = ({
           {doc.entities_flagged} entities flagged (ungrounded)
         </div>
       )}
-      {doc.total_cost_usd != null && (
-        <div style={summaryLine}>Cost: ${doc.total_cost_usd.toFixed(4)}</div>
-      )}
       <div style={{ marginTop: "1rem" }}>
-        <button style={btnPrimary(!busy)} disabled={busy} onClick={handleReprocess}>
+        <button style={btnPrimary(!busy)} disabled={busy} onClick={() => setShowReprocess(true)}>
           {busy ? "Starting..." : "Re-process"}
         </button>
       </div>
@@ -249,7 +262,7 @@ const ProcessingPanel: React.FC<ProcessingPanelProps> = ({
         </div>
       )}
       <div style={{ marginTop: "1rem" }}>
-        <button style={btnPrimary(!busy)} disabled={busy} onClick={handleReprocess}>
+        <button style={btnPrimary(!busy)} disabled={busy} onClick={() => setShowReprocess(true)}>
           {busy ? "Starting..." : "Re-process"}
         </button>
       </div>
@@ -261,11 +274,14 @@ const ProcessingPanel: React.FC<ProcessingPanelProps> = ({
       <div style={{ fontSize: "0.95rem", fontWeight: 600, color: "#64748b", marginBottom: "0.75rem" }}>
         Processing Cancelled
       </div>
+      {doc.error_message && (
+        <div style={summaryLine}>{doc.error_message}</div>
+      )}
       <div style={mutedText}>
-        Processing was cancelled. No data was written to the knowledge graph.
+        No data was written to the knowledge graph.
       </div>
       <div style={{ marginTop: "1rem" }}>
-        <button style={btnPrimary(!busy)} disabled={busy} onClick={handleReprocess}>
+        <button style={btnPrimary(!busy)} disabled={busy} onClick={() => setShowReprocess(true)}>
           {busy ? "Starting..." : "Re-process"}
         </button>
       </div>
@@ -309,6 +325,15 @@ const ProcessingPanel: React.FC<ProcessingPanelProps> = ({
 
       {/* Collapsible execution history */}
       {historySteps.length > 0 && <ExecutionHistory steps={historySteps} />}
+
+      {showReprocess && (
+        <ReprocessDialog
+          open={showReprocess}
+          documentId={doc.id}
+          onClose={() => setShowReprocess(false)}
+          onSuccess={() => { setShowReprocess(false); onRefresh(); }}
+        />
+      )}
     </div>
   );
 };
