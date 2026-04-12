@@ -104,7 +104,7 @@ pub async fn upload_document(
     .await
     .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?;
 
-    if !has_complaint && document_type != "complaint" {
+    if !has_complaint && document_type != "complaint" && document_type != "auto" {
         return Err(AppError::BadRequest {
             message: "A Complaint document must be uploaded first. The Complaint establishes the parties, claims, and legal context that all other documents reference.".to_string(),
             details: serde_json::json!({ "document_type": document_type }),
