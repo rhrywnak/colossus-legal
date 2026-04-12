@@ -154,7 +154,11 @@ fn get_available_actions(
                         "/documents/{id}/reprocess"),
         ],
         // New process endpoint statuses (coexist with legacy statuses)
-        "PROCESSING" => vec![], // No actions while processing — frontend shows progress
+        "PROCESSING" => vec![
+            make_action("cancel", "Cancel", "POST", true, false,
+                        "Cancel processing",
+                        "/documents/{id}/cancel"),
+        ],
         "COMPLETED" => vec![
             make_action("reprocess", "Reprocess Document", "POST", true, false,
                         "Reset document for re-extraction with different schema",

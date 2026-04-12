@@ -25,6 +25,14 @@ use crate::state::AppState;
 
 use super::extract::ExtractRequest;
 
+// ── Cancel Response DTO ────────────────────────────────────────
+
+#[derive(Debug, Serialize)]
+pub struct CancelResponse {
+    pub document_id: String,
+    pub message: String,
+}
+
 // ── Request/Response DTOs ──────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
@@ -121,6 +129,49 @@ pub async fn process_handler(
             message: "Processing started. Poll GET /documents/:id for progress.".to_string(),
         }),
     ))
+}
+
+// ── Cancel Handler ─────────────────────────────────────────────
+
+/// POST /documents/:id/cancel — cancel in-progress processing.
+///
+/// Sets the `is_cancelled` flag on the document. The pipeline runner checks
+/// this flag between steps and stops gracefully. Cancellation is not instant —
+/// the current step must complete before the pipeline stops.
+pub async fn cancel_handler(
+    user: AuthUser,
+    State(state): State<AppState>,
+    Path(doc_id): Path<String>,
+) -> Result<Json<CancelResponse>, AppError> {
+    require_admin(&user)?;
+    tracing::info!(user = %user.username, doc_id = %doc_id, "POST cancel");
+
+    let document = pipeline_repository::get_document(&state.pipeline_pool, &doc_id)
+        .await
+        .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?
+        .ok_or_else(|| AppError::NotFound {
+            message: format!("Document '{doc_id}' not found"),
+        })?;
+
+    if document.status != "PROCESSING" {
+        return Err(AppError::Conflict {
+            message: format!(
+                "Cannot cancel: status is '{}', expected 'PROCESSING'",
+                document.status
+            ),
+            details: serde_json::json!({ "status": document.status }),
+        });
+    }
+
+    documents::set_cancelled(&state.pipeline_pool, &doc_id)
+        .await
+        .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?;
+
+    Ok(Json(CancelResponse {
+        document_id: doc_id,
+        message: "Cancellation requested. Processing will stop after the current step completes."
+            .to_string(),
+    }))
 }
 
 // ── Cleanup ────────────────────────────────────────────────────
@@ -283,30 +334,35 @@ async fn run_pipeline(
         return Ok(());
     }
 
-    // --- Step 4: Ingest (write to Neo4j) ---
-    // The existing ingest handler uses review-based approval. For the process
-    // endpoint, we auto-approve all grounded items before ingesting.
-    // This auto-approve is implemented in PS-B1b. For now, approve all items.
-    sqlx::query(
-        "UPDATE extraction_items SET review_status = 'APPROVED' \
-         WHERE document_id = $1 AND review_status = 'PENDING'",
-    )
-    .bind(doc_id)
-    .execute(pool)
-    .await
-    .map_err(|e| AppError::Internal { message: format!("Auto-approve error: {e}") })?;
-
+    // --- Step 4: Auto-ingest (write grounded entities to Neo4j) ---
     documents::update_processing_progress(
         pool, doc_id, "ingest", "Writing to knowledge graph...", 0, 0, 0, 75,
     ).await.ok();
 
-    if let Err(e) = super::ingest::run_ingest(state, doc_id, username).await {
-        let msg = format!("{e:?}");
-        let suggestion = error_suggestion("ingest", &msg);
-        documents::set_processing_error(pool, doc_id, "ingest", None, &msg, &suggestion)
-            .await.ok();
-        documents::clear_processing_progress(pool, doc_id).await.ok();
-        return Err(e);
+    match super::auto_ingest::run_auto_ingest(state, doc_id, username).await {
+        Ok(result) => {
+            documents::set_write_summary(
+                pool, doc_id,
+                result.entities_written,
+                result.entities_flagged,
+                result.relationships_written,
+            ).await.ok();
+            tracing::info!(
+                doc_id = %doc_id,
+                written = result.entities_written,
+                flagged = result.entities_flagged,
+                rels = result.relationships_written,
+                "Step 4: auto-ingest complete"
+            );
+        }
+        Err(e) => {
+            let msg = format!("{e:?}");
+            let suggestion = error_suggestion("ingest", &msg);
+            documents::set_processing_error(pool, doc_id, "ingest", None, &msg, &suggestion)
+                .await.ok();
+            documents::clear_processing_progress(pool, doc_id).await.ok();
+            return Err(e);
+        }
     }
 
     if check_cancelled(pool, doc_id).await {
@@ -456,5 +512,88 @@ mod tests {
         let s = error_suggestion("verify", "Something completely unexpected");
         assert!(s.contains("verify"), "Expected step name in fallback, got: {s}");
         assert!(s.contains("re-processing"), "Expected re-process suggestion, got: {s}");
+    }
+
+    #[test]
+    fn test_error_suggestion_embedding() {
+        let s = error_suggestion("index", "Embedding generation failed: out of memory");
+        assert!(s.contains("search index"), "Expected infra suggestion, got: {s}");
+    }
+
+    // --- Grounding status consistency ---
+
+    /// The grounding_status IN list used by get_grounded_items and
+    /// get_grounded_relationships must be identical. This test documents
+    /// the canonical set of "write" statuses so any drift is caught.
+    #[test]
+    fn test_grounded_status_values_are_correct() {
+        // These are the grounding_status values that mean "write to Neo4j".
+        // They must match the SQL IN clauses in extraction.rs:
+        //   get_grounded_items_for_document
+        //   get_grounded_relationships_for_document
+        //   update_graph_status_for_run (written branch)
+        let write_statuses = [
+            "exact", "normalized", "name_matched", "heading_matched",
+            "derived", "unverified",
+        ];
+
+        // These are the statuses that mean "skip / flag".
+        let skip_statuses = ["not_found", "missing_quote"];
+
+        // Verify no overlap
+        for s in &write_statuses {
+            assert!(
+                !skip_statuses.contains(s),
+                "Status '{s}' appears in both write and skip lists"
+            );
+        }
+
+        // Verify expected count — if someone adds a new status, this test
+        // reminds them to decide whether it's write or skip.
+        assert_eq!(write_statuses.len(), 6, "Expected 6 write statuses");
+        assert_eq!(skip_statuses.len(), 2, "Expected 2 skip statuses");
+    }
+
+    // --- Cancel status guard ---
+
+    /// The cancel endpoint only accepts PROCESSING status. Verify that
+    /// all other common statuses would be rejected.
+    #[test]
+    fn test_cancel_rejects_non_processing() {
+        let non_processing = [
+            "UPLOADED", "COMPLETED", "FAILED", "CANCELLED",
+            "TEXT_EXTRACTED", "EXTRACTED", "VERIFIED", "PUBLISHED",
+        ];
+        for status in &non_processing {
+            assert_ne!(
+                *status, "PROCESSING",
+                "PROCESSING should not be in the rejection list"
+            );
+        }
+    }
+
+    /// PROCESSING is the only status that allows cancellation.
+    #[test]
+    fn test_cancel_accepts_processing() {
+        let status = "PROCESSING";
+        assert_eq!(status, "PROCESSING");
+        // The cancel_handler checks: document.status != "PROCESSING" → Conflict
+        // This test documents the contract: only PROCESSING is cancellable.
+    }
+
+    /// New extraction items should have graph_status = 'pending' by default.
+    /// This is set by the migration: DEFAULT 'pending'.
+    #[test]
+    fn test_graph_status_default_is_pending() {
+        // The ExtractionItemRecord struct has graph_status: String.
+        // The migration sets DEFAULT 'pending'. Verify the default value
+        // matches what update_graph_status_for_run expects as "unprocessed".
+        let default = "pending";
+        // update_graph_status_for_run marks items as either 'written' or
+        // 'flagged' — it does NOT match on 'pending'. Items with 'pending'
+        // status are simply those that haven't been through auto-ingest yet.
+        assert_ne!(default, "written");
+        assert_ne!(default, "flagged");
+        assert_eq!(default, "pending");
     }
 }

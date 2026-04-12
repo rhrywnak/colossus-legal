@@ -21,6 +21,7 @@ pub struct ExtractionItemRecord {
     pub reviewed_by: Option<String>,
     pub reviewed_at: Option<chrono::DateTime<chrono::Utc>>,
     pub review_notes: Option<String>,
+    pub graph_status: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
@@ -391,4 +392,82 @@ pub async fn get_extraction_runs(
     .fetch_all(pool)
     .await?;
     Ok(rows)
+}
+
+// ── Grounding-based item selection (auto-ingest) ────────────────
+
+/// Get items that should be written to Neo4j based on grounding status.
+///
+/// Auto-write rules (from PIPELINE_SIMPLIFICATION_DESIGN_v2.md §4):
+/// - grounding_status IN ('exact', 'normalized', 'name_matched', 'heading_matched') → write
+/// - grounding_status IN ('derived', 'unverified') → write (no grounding needed)
+/// - grounding_status = 'not_found' → skip (potentially hallucinated)
+/// - grounding_status = 'missing_quote' → skip (no quote to verify)
+/// - grounding_status IS NULL → skip (not yet grounded)
+pub async fn get_grounded_items_for_document(
+    pool: &PgPool,
+    run_id: i32,
+) -> Result<Vec<ExtractionItemRecord>, PipelineRepoError> {
+    let rows = sqlx::query_as::<_, ExtractionItemRecord>(
+        "SELECT * FROM extraction_items
+         WHERE run_id = $1
+           AND grounding_status IN ('exact', 'normalized', 'name_matched', 'heading_matched', 'derived', 'unverified')
+         ORDER BY id",
+    )
+    .bind(run_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
+/// Get relationships where BOTH endpoints are grounded (will be written to Neo4j).
+pub async fn get_grounded_relationships_for_document(
+    pool: &PgPool,
+    run_id: i32,
+) -> Result<Vec<ExtractionRelationshipRecord>, PipelineRepoError> {
+    let rows = sqlx::query_as::<_, ExtractionRelationshipRecord>(
+        "SELECT r.* FROM extraction_relationships r
+         JOIN extraction_items fi ON fi.id = r.from_item_id
+         JOIN extraction_items ti ON ti.id = r.to_item_id
+         WHERE r.run_id = $1
+           AND fi.grounding_status IN ('exact', 'normalized', 'name_matched', 'heading_matched', 'derived', 'unverified')
+           AND ti.grounding_status IN ('exact', 'normalized', 'name_matched', 'heading_matched', 'derived', 'unverified')
+         ORDER BY r.id",
+    )
+    .bind(run_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
+/// Mark items as 'written' or 'flagged' based on grounding status.
+/// Called after auto-ingest to record what was written to Neo4j.
+/// Returns (written_count, flagged_count).
+pub async fn update_graph_status_for_run(
+    pool: &PgPool,
+    run_id: i32,
+) -> Result<(i32, i32), PipelineRepoError> {
+    // Mark grounded items as 'written'
+    let written = sqlx::query(
+        "UPDATE extraction_items SET graph_status = 'written'
+         WHERE run_id = $1
+           AND grounding_status IN ('exact', 'normalized', 'name_matched', 'heading_matched', 'derived', 'unverified')",
+    )
+    .bind(run_id)
+    .execute(pool)
+    .await?
+    .rows_affected() as i32;
+
+    // Mark ungrounded items as 'flagged'
+    let flagged = sqlx::query(
+        "UPDATE extraction_items SET graph_status = 'flagged'
+         WHERE run_id = $1
+           AND (grounding_status IN ('not_found', 'missing_quote') OR grounding_status IS NULL)",
+    )
+    .bind(run_id)
+    .execute(pool)
+    .await?
+    .rows_affected() as i32;
+
+    Ok((written, flagged))
 }
