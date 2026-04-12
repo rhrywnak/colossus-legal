@@ -81,9 +81,11 @@ fn compute_can_view(status: &str, is_admin: bool) -> bool {
 /// Map pipeline status to a display group for frontend filtering/sorting.
 fn compute_status_group(status: &str) -> String {
     match status {
-        "PUBLISHED" => "published",
+        "PUBLISHED" | "COMPLETED" => "published",
         "UPLOADED" => "uploaded",
         "VERIFIED" | "REVIEWED" => "in_review",
+        "FAILED" | "CANCELLED" => "failed",
+        "PROCESSING" => "processing",
         _ => "processing",
     }
     .to_string()

@@ -31,42 +31,37 @@ pub struct ExtractRequest {
     pub temperature: Option<f64>,
 }
 
-pub async fn extract_handler(
-    user: AuthUser,
-    State(state): State<AppState>,
-    AxumPath(doc_id): AxumPath<String>,
-    body: Option<Json<ExtractRequest>>,
-) -> Result<Json<ExtractResponse>, AppError> {
-    require_admin(&user)?;
+/// Core logic for LLM extraction — callable from handler AND process endpoint.
+///
+/// Runs chunk-based extraction, validates completeness, stores entities.
+/// Does NOT check document status — caller is responsible for validation.
+pub(crate) async fn run_extract(
+    state: &AppState,
+    doc_id: &str,
+    username: &str,
+    overrides: ExtractRequest,
+) -> Result<ExtractResponse, AppError> {
     let step_start = Instant::now();
-    tracing::info!(user = %user.username, doc_id = %doc_id, "POST extract");
 
     let step_id = steps::record_step_start(
-        &state.pipeline_pool, &doc_id, "extract", &user.username, &serde_json::json!({}),
+        &state.pipeline_pool, doc_id, "extract", username, &serde_json::json!({}),
     ).await.map_err(|e| AppError::Internal { message: format!("Step logging: {e}") })?;
 
     let api_key = state.config.anthropic_api_key.as_deref().ok_or_else(|| {
         AppError::Internal { message: "ANTHROPIC_API_KEY not configured".to_string() }
     })?;
 
-    let document = pipeline_repository::get_document(&state.pipeline_pool, &doc_id)
+    let document = pipeline_repository::get_document(&state.pipeline_pool, doc_id)
         .await
         .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?
         .ok_or_else(|| AppError::NotFound { message: format!("Document '{doc_id}' not found") })?;
 
-    if document.status != "TEXT_EXTRACTED" {
-        return Err(AppError::Conflict {
-            message: format!("Cannot extract: status is '{}', expected 'TEXT_EXTRACTED'", document.status),
-            details: serde_json::json!({ "status": document.status }),
-        });
-    }
-
-    let pipe_config = pipeline_repository::get_pipeline_config(&state.pipeline_pool, &doc_id)
+    let pipe_config = pipeline_repository::get_pipeline_config(&state.pipeline_pool, doc_id)
         .await
         .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?
         .ok_or_else(|| AppError::NotFound { message: format!("No pipeline config for '{doc_id}'") })?;
 
-    let pages = pipeline_repository::get_document_text(&state.pipeline_pool, &doc_id)
+    let pages = pipeline_repository::get_document_text(&state.pipeline_pool, doc_id)
         .await
         .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?;
     if pages.is_empty() {
@@ -80,7 +75,6 @@ pub async fn extract_handler(
         .collect::<Vec<_>>()
         .join("\n\n");
 
-    let overrides = body.map(|b| b.0).unwrap_or_default();
     let has_overrides = overrides.schema_file.is_some()
         || overrides.model.is_some()
         || overrides.max_tokens.is_some()
@@ -103,11 +97,6 @@ pub async fn extract_handler(
             message: format!("Failed to load schema '{}': {e}", schema_file),
         })?;
 
-    // Chunk-based extraction uses a single generic template containing
-    // {{schema_json}}, {{chunk_text}}, {{examples}} placeholders — the chunk
-    // extractor substitutes those per chunk. PromptBuilder still runs so
-    // extraction_runs records the real template/schema/rules hashes; its
-    // rendered output is unused because it can't substitute chunk_text.
     let template_dir = Path::new(&state.config.extraction_template_dir);
     let raw_template = std::fs::read_to_string(template_dir.join("chunk_extract.md"))
         .map_err(|e| AppError::Internal {
@@ -120,7 +109,7 @@ pub async fn extract_handler(
 
     let schema_json_value = serde_json::to_value(&schema).ok();
     let run_id = pipeline_repository::insert_extraction_run(
-        &state.pipeline_pool, &doc_id, 1, &model_name, &schema.document_type,
+        &state.pipeline_pool, doc_id, 1, &model_name, &schema.document_type,
         Some(&artifact.prompt_text), Some(&artifact.template_name), Some(&artifact.template_hash),
         artifact.rules_name.as_deref(), artifact.rules_hash.as_deref(),
         Some(&artifact.schema_hash), schema_json_value.as_ref(),
@@ -162,8 +151,6 @@ pub async fn extract_handler(
         }
     };
 
-    // Token counts are not tracked per-chunk yet (rig's prompt_typed/prompt
-    // don't expose usage). Stored as None; FP-6+ can add aggregation.
     pipeline_repository::complete_extraction_run(
         &state.pipeline_pool, run_id, &summary.legacy_json,
         None, None, None, "COMPLETED",
@@ -185,7 +172,7 @@ pub async fn extract_handler(
     }
 
     if !completeness.passed {
-        pipeline_repository::update_document_status(&state.pipeline_pool, &doc_id, "EXTRACTION_FAILED")
+        pipeline_repository::update_document_status(&state.pipeline_pool, doc_id, "EXTRACTION_FAILED")
             .await
             .map_err(|e| AppError::Internal { message: format!("Failed to update status: {e}") })?;
         steps::record_step_failure(
@@ -203,10 +190,10 @@ pub async fn extract_handler(
     }
 
     let (entity_count, rel_count) = chunk_storage::store_entities_and_relationships(
-        &state, run_id, &doc_id, &summary.legacy_json,
+        state, run_id, doc_id, &summary.legacy_json,
     ).await?;
 
-    pipeline_repository::update_document_status(&state.pipeline_pool, &doc_id, "EXTRACTED")
+    pipeline_repository::update_document_status(&state.pipeline_pool, doc_id, "EXTRACTED")
         .await
         .map_err(|e| AppError::Internal { message: format!("Failed to update document status: {e}") })?;
 
@@ -227,8 +214,8 @@ pub async fn extract_handler(
         "chunks_failed": summary.chunks_failed,
     });
     log_admin_action(
-        &state.audit_repo, &user.username, "pipeline.document.extract",
-        Some("document"), Some(&doc_id), Some(action_details.clone()),
+        &state.audit_repo, username, "pipeline.document.extract",
+        Some("document"), Some(doc_id), Some(action_details.clone()),
     ).await;
 
     steps::record_step_complete(
@@ -237,13 +224,13 @@ pub async fn extract_handler(
 
     if has_overrides {
         pipeline_repository::update_pipeline_config(
-            &state.pipeline_pool, &doc_id, &model_name,
+            &state.pipeline_pool, doc_id, &model_name,
             max_tokens as i32, schema_file, admin_instructions,
         ).await.ok();
     }
 
-    Ok(Json(ExtractResponse {
-        document_id: doc_id,
+    Ok(ExtractResponse {
+        document_id: doc_id.to_string(),
         status: "EXTRACTED".to_string(),
         run_id,
         model: model_name,
@@ -252,5 +239,36 @@ pub async fn extract_handler(
         input_tokens: 0,
         output_tokens: 0,
         elapsed_secs,
-    }))
+    })
+}
+
+/// POST /api/admin/pipeline/documents/:id/extract
+///
+/// HTTP handler — thin wrapper around `run_extract`.
+/// Checks admin auth and status guard, then delegates to core logic.
+pub async fn extract_handler(
+    user: AuthUser,
+    State(state): State<AppState>,
+    AxumPath(doc_id): AxumPath<String>,
+    body: Option<Json<ExtractRequest>>,
+) -> Result<Json<ExtractResponse>, AppError> {
+    require_admin(&user)?;
+    tracing::info!(user = %user.username, doc_id = %doc_id, "POST extract");
+
+    // Status guard
+    let document = pipeline_repository::get_document(&state.pipeline_pool, &doc_id)
+        .await
+        .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?
+        .ok_or_else(|| AppError::NotFound { message: format!("Document '{doc_id}' not found") })?;
+
+    if document.status != "TEXT_EXTRACTED" {
+        return Err(AppError::Conflict {
+            message: format!("Cannot extract: status is '{}', expected 'TEXT_EXTRACTED'", document.status),
+            details: serde_json::json!({ "status": document.status }),
+        });
+    }
+
+    let overrides = body.map(|b| b.0).unwrap_or_default();
+    let result = run_extract(&state, &doc_id, &user.username, overrides).await?;
+    Ok(Json(result))
 }

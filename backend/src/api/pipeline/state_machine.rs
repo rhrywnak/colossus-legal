@@ -100,6 +100,9 @@ fn get_available_actions(
 ) -> Vec<AvailableAction> {
     match document_status {
         "UPLOADED" => vec![
+            make_action("process", "Process Document", "POST", false, false,
+                        "Run the full processing pipeline",
+                        "/documents/{id}/process"),
             make_action("extract_text", "Read Document", "POST", false, false,
                         "Extract text from the PDF document",
                         "/documents/{id}/extract-text"),
@@ -149,6 +152,18 @@ fn get_available_actions(
             make_action("reprocess", "Reprocess Document", "POST", true, false,
                         "Reset document for re-extraction with different schema",
                         "/documents/{id}/reprocess"),
+        ],
+        // New process endpoint statuses (coexist with legacy statuses)
+        "PROCESSING" => vec![], // No actions while processing — frontend shows progress
+        "COMPLETED" => vec![
+            make_action("reprocess", "Reprocess Document", "POST", true, false,
+                        "Reset document for re-extraction with different schema",
+                        "/documents/{id}/reprocess"),
+        ],
+        "FAILED" | "CANCELLED" => vec![
+            make_action("process", "Re-process Document", "POST", false, false,
+                        "Re-run the full processing pipeline",
+                        "/documents/{id}/process"),
         ],
         _ => vec![],
     }
@@ -486,10 +501,11 @@ mod tests {
     // --- get_available_actions tests ---
 
     #[test]
-    fn test_uploaded_shows_extract_text() {
+    fn test_uploaded_shows_process_and_extract_text() {
         let actions = get_available_actions("UPLOADED", 0, 0);
-        assert_eq!(actions.len(), 1);
-        assert_eq!(actions[0].action, "extract_text");
+        assert_eq!(actions.len(), 2);
+        assert_eq!(actions[0].action, "process");
+        assert_eq!(actions[1].action, "extract_text");
     }
 
     #[test]
@@ -775,8 +791,9 @@ mod tests {
     #[test]
     fn test_available_actions_include_endpoint() {
         let actions = get_available_actions("UPLOADED", 0, 0);
-        assert_eq!(actions.len(), 1);
-        assert_eq!(actions[0].endpoint, "/documents/{id}/extract-text");
+        assert_eq!(actions.len(), 2);
+        assert_eq!(actions[0].endpoint, "/documents/{id}/process");
+        assert_eq!(actions[1].endpoint, "/documents/{id}/extract-text");
     }
 
     #[test]

@@ -42,40 +42,33 @@ pub struct VerifyResponse {
     pub heading_matched: usize,
 }
 
-/// POST /api/admin/pipeline/documents/:id/verify
-pub async fn verify_handler(
-    user: AuthUser,
-    State(state): State<AppState>,
-    AxumPath(doc_id): AxumPath<String>,
-) -> Result<Json<VerifyResponse>, AppError> {
-    require_admin(&user)?;
+/// Core logic for verification — callable from handler AND process endpoint.
+///
+/// Runs PDF grounding for all extraction items, updates grounding status.
+/// Does NOT check document status — caller is responsible for validation.
+pub(crate) async fn run_verify(
+    state: &AppState,
+    doc_id: &str,
+    username: &str,
+) -> Result<VerifyResponse, AppError> {
     let start = std::time::Instant::now();
-    tracing::info!(user = %user.username, doc_id = %doc_id, "POST verify");
 
     let step_id = steps::record_step_start(
-        &state.pipeline_pool, &doc_id, "verify", &user.username, &serde_json::json!({}),
+        &state.pipeline_pool, doc_id, "verify", username, &serde_json::json!({}),
     ).await.map_err(|e| AppError::Internal { message: format!("Step logging: {e}") })?;
 
     // 1. Fetch document
-    let document = pipeline_repository::get_document(&state.pipeline_pool, &doc_id)
+    let document = pipeline_repository::get_document(&state.pipeline_pool, doc_id)
         .await
         .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?
         .ok_or_else(|| AppError::NotFound { message: format!("Document '{doc_id}' not found") })?;
 
-    // 2. Check status
-    if document.status != "EXTRACTED" && document.status != "VERIFIED" {
-        return Err(AppError::Conflict {
-            message: format!("Cannot verify: status is '{}', expected 'EXTRACTED'", document.status),
-            details: serde_json::json!({ "status": document.status }),
-        });
-    }
-
-    // 3. Load extraction schema for grounding mode lookup.
+    // 2. Load extraction schema for grounding mode lookup.
     //    If schema loading fails, fall back to treating everything as Verbatim.
-    let grounding_modes = load_grounding_modes(&state, &doc_id).await;
+    let grounding_modes = load_grounding_modes(state, doc_id).await;
 
     // 4. Fetch ALL items (not just those with quotes)
-    let items = pipeline_repository::get_all_items(&state.pipeline_pool, &doc_id)
+    let items = pipeline_repository::get_all_items(&state.pipeline_pool, doc_id)
         .await
         .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?;
 
@@ -224,7 +217,7 @@ pub async fn verify_handler(
     }
 
     // 12. Update document status
-    pipeline_repository::update_document_status(&state.pipeline_pool, &doc_id, "VERIFIED")
+    pipeline_repository::update_document_status(&state.pipeline_pool, doc_id, "VERIFIED")
         .await
         .map_err(|e| AppError::Internal { message: format!("Failed to update status: {e}") })?;
 
@@ -240,8 +233,8 @@ pub async fn verify_handler(
     );
 
     log_admin_action(
-        &state.audit_repo, &user.username, "pipeline.document.verify",
-        Some("document"), Some(&doc_id),
+        &state.audit_repo, username, "pipeline.document.verify",
+        Some("document"), Some(doc_id),
         Some(serde_json::json!({
             "exact": exact, "normalized": normalized, "not_found": not_found,
             "derived": derived_count, "unverified": unverified_count,
@@ -267,8 +260,8 @@ pub async fn verify_handler(
         }),
     ).await.ok();
 
-    Ok(Json(VerifyResponse {
-        document_id: doc_id,
+    Ok(VerifyResponse {
+        document_id: doc_id.to_string(),
         status: "VERIFIED".to_string(),
         total_items: total,
         grounded_exact: exact,
@@ -279,7 +272,36 @@ pub async fn verify_handler(
         unverified: unverified_count,
         name_matched,
         heading_matched,
-    }))
+    })
+}
+
+/// POST /api/admin/pipeline/documents/:id/verify
+///
+/// HTTP handler — thin wrapper around `run_verify`.
+/// Checks admin auth and status guard, then delegates to core logic.
+pub async fn verify_handler(
+    user: AuthUser,
+    State(state): State<AppState>,
+    AxumPath(doc_id): AxumPath<String>,
+) -> Result<Json<VerifyResponse>, AppError> {
+    require_admin(&user)?;
+    tracing::info!(user = %user.username, doc_id = %doc_id, "POST verify");
+
+    // Status guard
+    let document = pipeline_repository::get_document(&state.pipeline_pool, &doc_id)
+        .await
+        .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?
+        .ok_or_else(|| AppError::NotFound { message: format!("Document '{doc_id}' not found") })?;
+
+    if document.status != "EXTRACTED" && document.status != "VERIFIED" {
+        return Err(AppError::Conflict {
+            message: format!("Cannot verify: status is '{}', expected 'EXTRACTED'", document.status),
+            details: serde_json::json!({ "status": document.status }),
+        });
+    }
+
+    let result = run_verify(&state, &doc_id, &user.username).await?;
+    Ok(Json(result))
 }
 
 // ── Helpers ──────────────────────────────────────────────────────

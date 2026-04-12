@@ -24,44 +24,31 @@ use crate::state::AppState;
 use super::ocr;
 use super::ExtractTextResponse;
 
-/// POST /api/admin/pipeline/documents/:id/extract-text
+/// Core logic for text extraction — callable from handler AND process endpoint.
 ///
-/// Reads the document's PDF, extracts text page by page using colossus-pdf,
-/// stores each page in the `document_text` table, and updates the document
-/// status to "TEXT_EXTRACTED".
-pub async fn extract_text(
-    user: AuthUser,
-    State(state): State<AppState>,
-    Path(doc_id): Path<String>,
-) -> Result<Json<ExtractTextResponse>, AppError> {
-    require_admin(&user)?;
+/// Extracts text from the document's PDF page by page, stores in `document_text`,
+/// auto-detects document type, records pipeline step, and updates status.
+/// Does NOT check document status — caller is responsible for validation.
+pub(crate) async fn run_extract_text(
+    state: &AppState,
+    doc_id: &str,
+    username: &str,
+) -> Result<ExtractTextResponse, AppError> {
     let start = std::time::Instant::now();
-    tracing::info!(user = %user.username, doc_id = %doc_id, "POST extract-text");
 
     let step_id = steps::record_step_start(
-        &state.pipeline_pool, &doc_id, "extract_text", &user.username, &serde_json::json!({}),
+        &state.pipeline_pool, doc_id, "extract_text", username, &serde_json::json!({}),
     ).await.map_err(|e| AppError::Internal { message: format!("Step logging: {e}") })?;
 
     // 1. Fetch document record
-    let document = pipeline_repository::get_document(&state.pipeline_pool, &doc_id)
+    let document = pipeline_repository::get_document(&state.pipeline_pool, doc_id)
         .await
         .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?
         .ok_or_else(|| AppError::NotFound {
             message: format!("Document '{doc_id}' not found"),
         })?;
 
-    // 2. Check status — only allow extraction from UPLOADED or TEXT_EXTRACTED (re-extract)
-    if document.status != "UPLOADED" && document.status != "TEXT_EXTRACTED" {
-        return Err(AppError::Conflict {
-            message: format!(
-                "Cannot extract text: document status is '{}', expected 'UPLOADED' or 'TEXT_EXTRACTED'",
-                document.status
-            ),
-            details: serde_json::json!({ "status": document.status }),
-        });
-    }
-
-    // 3. Build full path and verify PDF exists
+    // 2. Build full path and verify PDF exists
     let full_path = format!(
         "{}/{}",
         state.config.document_storage_path.trim_end_matches('/'),
@@ -74,7 +61,7 @@ pub async fn extract_text(
         });
     }
 
-    // 4. Extract text in a blocking thread (colossus-pdf is sync)
+    // 3. Extract text in a blocking thread (colossus-pdf is sync)
     let pdf_path = full_path.clone();
     let pages = tokio::task::spawn_blocking(move || -> Result<Vec<colossus_pdf::PageText>, String> {
         let mut extractor = colossus_pdf::PdfTextExtractor::open(&pdf_path)
@@ -89,7 +76,7 @@ pub async fn extract_text(
     })?
     .map_err(|e| AppError::Internal { message: e })?;
 
-    // 5. Check OCR tool availability (non-fatal — only matters if pages need OCR)
+    // 4. Check OCR tool availability (non-fatal — only matters if pages need OCR)
     let ocr_available = match ocr::check_ocr_tools_available().await {
         Ok(()) => true,
         Err(e) => {
@@ -98,7 +85,7 @@ pub async fn extract_text(
         }
     };
 
-    // 6. OCR fallback for pages with insufficient text, then insert into DB
+    // 5. OCR fallback for pages with insufficient text, then insert into DB
     let page_count = pages.len();
     let total_pages = page_count as u32;
     let mut total_chars: usize = 0;
@@ -109,7 +96,6 @@ pub async fn extract_text(
     for page in &pages {
         let non_ws = page.text.chars().filter(|c| !c.is_whitespace()).count();
         let text_to_store = if non_ws < ocr::OCR_CHAR_THRESHOLD {
-            // Page looks scanned — attempt OCR if tools are available
             if ocr_available {
                 tracing::info!(
                     doc_id = %doc_id, page = page.page_number, non_ws_chars = non_ws,
@@ -155,7 +141,7 @@ pub async fn extract_text(
 
         pipeline_repository::insert_document_text(
             &state.pipeline_pool,
-            &doc_id,
+            doc_id,
             page.page_number as i32,
             &text_to_store,
         )
@@ -165,12 +151,12 @@ pub async fn extract_text(
         })?;
     }
 
-    // 7. Auto-detect document type if current type is "auto" or "unknown"
+    // 6. Auto-detect document type if current type is "auto" or "unknown"
     let detected_type = detect_document_type(&first_page_text);
     if document.document_type == "auto" || document.document_type == "unknown" {
         sqlx::query("UPDATE documents SET document_type = $1, updated_at = NOW() WHERE id = $2")
             .bind(detected_type)
-            .bind(&doc_id)
+            .bind(doc_id)
             .execute(&state.pipeline_pool)
             .await
             .map_err(|e| AppError::Internal {
@@ -182,12 +168,20 @@ pub async fn extract_text(
         );
     }
 
-    // 8. Update document status
-    pipeline_repository::update_document_status(&state.pipeline_pool, &doc_id, "TEXT_EXTRACTED")
+    // 7. Update document status
+    pipeline_repository::update_document_status(&state.pipeline_pool, doc_id, "TEXT_EXTRACTED")
         .await
         .map_err(|e| AppError::Internal {
             message: format!("Failed to update document status: {e}"),
         })?;
+
+    let step_summary = serde_json::json!({
+        "page_count": page_count,
+        "total_chars": total_chars,
+        "pages_native": pages_native,
+        "pages_ocr": pages_ocr,
+        "detected_type": detected_type,
+    });
 
     tracing::info!(
         doc_id = %doc_id, page_count, total_chars,
@@ -197,37 +191,58 @@ pub async fn extract_text(
 
     log_admin_action(
         &state.audit_repo,
-        &user.username,
+        username,
         "pipeline.document.extract_text",
         Some("document"),
-        Some(&doc_id),
-        Some(serde_json::json!({
-            "page_count": page_count,
-            "total_chars": total_chars,
-            "pages_native": pages_native,
-            "pages_ocr": pages_ocr,
-            "detected_type": detected_type,
-        })),
+        Some(doc_id),
+        Some(step_summary.clone()),
     )
     .await;
 
     steps::record_step_complete(
-        &state.pipeline_pool, step_id, start.elapsed().as_secs_f64(),
-        &serde_json::json!({
-            "page_count": page_count,
-            "total_chars": total_chars,
-            "pages_native": pages_native,
-            "pages_ocr": pages_ocr,
-            "detected_type": detected_type,
-        }),
+        &state.pipeline_pool, step_id, start.elapsed().as_secs_f64(), &step_summary,
     ).await.ok();
 
-    Ok(Json(ExtractTextResponse {
-        document_id: doc_id,
+    Ok(ExtractTextResponse {
+        document_id: doc_id.to_string(),
         status: "TEXT_EXTRACTED".to_string(),
         page_count,
         total_chars,
-    }))
+    })
+}
+
+/// POST /api/admin/pipeline/documents/:id/extract-text
+///
+/// HTTP handler — thin wrapper around `run_extract_text`.
+/// Checks admin auth and status guard, then delegates to core logic.
+pub async fn extract_text(
+    user: AuthUser,
+    State(state): State<AppState>,
+    Path(doc_id): Path<String>,
+) -> Result<Json<ExtractTextResponse>, AppError> {
+    require_admin(&user)?;
+    tracing::info!(user = %user.username, doc_id = %doc_id, "POST extract-text");
+
+    // Status guard — only allow from UPLOADED or TEXT_EXTRACTED (re-extract)
+    let document = pipeline_repository::get_document(&state.pipeline_pool, &doc_id)
+        .await
+        .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?
+        .ok_or_else(|| AppError::NotFound {
+            message: format!("Document '{doc_id}' not found"),
+        })?;
+
+    if document.status != "UPLOADED" && document.status != "TEXT_EXTRACTED" {
+        return Err(AppError::Conflict {
+            message: format!(
+                "Cannot extract text: document status is '{}', expected 'UPLOADED' or 'TEXT_EXTRACTED'",
+                document.status
+            ),
+            details: serde_json::json!({ "status": document.status }),
+        });
+    }
+
+    let result = run_extract_text(&state, &doc_id, &user.username).await?;
+    Ok(Json(result))
 }
 
 // ── Document type auto-detection ────────────────────────────────

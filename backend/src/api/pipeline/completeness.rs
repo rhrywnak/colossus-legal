@@ -65,41 +65,31 @@ pub struct CompletenessCheck {
 
 // ── Handler ─────────────────────────────────────────────────────
 
-/// GET /api/admin/pipeline/documents/:id/completeness
-pub async fn completeness_handler(
-    user: AuthUser,
-    State(state): State<AppState>,
-    Path(doc_id): Path<String>,
-) -> Result<Json<CompletenessResponse>, AppError> {
-    require_admin(&user)?;
+/// Core logic for completeness check — callable from handler AND process endpoint.
+///
+/// Cross-references pipeline DB, Neo4j, and Qdrant. Updates to PUBLISHED if pass.
+/// Does NOT check document status — caller is responsible for validation.
+pub(crate) async fn run_completeness(
+    state: &AppState,
+    doc_id: &str,
+    username: &str,
+) -> Result<CompletenessResponse, AppError> {
     let start = std::time::Instant::now();
-    tracing::info!(user = %user.username, doc_id = %doc_id, "GET completeness");
 
     let step_id = steps::record_step_start(
-        &state.pipeline_pool, &doc_id, "completeness", &user.username, &serde_json::json!({}),
+        &state.pipeline_pool, doc_id, "completeness", username, &serde_json::json!({}),
     ).await.map_err(|e| AppError::Internal { message: format!("Step logging: {e}") })?;
 
     // 1. Fetch document — must exist
-    let document = pipeline_repository::get_document(&state.pipeline_pool, &doc_id)
+    let document = pipeline_repository::get_document(&state.pipeline_pool, doc_id)
         .await
         .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?
         .ok_or_else(|| AppError::NotFound {
             message: format!("Document '{doc_id}' not found"),
         })?;
 
-    // 2. Verify status = INDEXED (or already PUBLISHED for re-check)
-    if document.status != "INDEXED" && document.status != "PUBLISHED" {
-        return Err(AppError::Conflict {
-            message: format!(
-                "Cannot check completeness: status is '{}', expected 'INDEXED'",
-                document.status
-            ),
-            details: serde_json::json!({ "status": document.status }),
-        });
-    }
-
-    // 3. Get latest completed extraction run
-    let run_id = pipeline_repository::get_latest_completed_run(&state.pipeline_pool, &doc_id)
+    // 2. Get latest completed extraction run
+    let run_id = pipeline_repository::get_latest_completed_run(&state.pipeline_pool, doc_id)
         .await
         .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?
         .ok_or_else(|| AppError::NotFound {
@@ -110,7 +100,7 @@ pub async fn completeness_handler(
     //    Only count APPROVED items — unapproved items are not in Neo4j,
     //    so including them would cause a count mismatch.
     let items = pipeline_repository::get_approved_items_for_document(
-        &state.pipeline_pool, &doc_id, run_id,
+        &state.pipeline_pool, doc_id, run_id,
     )
     .await
     .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?;
@@ -138,9 +128,9 @@ pub async fn completeness_handler(
     };
 
     // 5. Count Neo4j nodes by label scoped to this document
-    let neo4j_nodes = count_neo4j_nodes(&state, &doc_id).await?;
-    let neo4j_rels = count_neo4j_relationships(&state, &doc_id).await?;
-    let orphaned = find_orphaned_nodes(&state, &doc_id).await?;
+    let neo4j_nodes = count_neo4j_nodes(state, doc_id).await?;
+    let neo4j_rels = count_neo4j_relationships(state, doc_id).await?;
+    let orphaned = find_orphaned_nodes(state, doc_id).await?;
 
     let neo4j_total_nodes: usize = neo4j_nodes.values().sum();
     let neo4j_total_rels: usize = neo4j_rels.values().sum();
@@ -155,7 +145,7 @@ pub async fn completeness_handler(
 
     // 6. Count Qdrant points filtered by source_document
     let qdrant_count = qdrant_service::count_points_by_filter(
-        &state.http_client, &state.config.qdrant_url, "source_document", &doc_id,
+        &state.http_client, &state.config.qdrant_url, "source_document", doc_id,
     )
     .await
     .map_err(|e| AppError::Internal {
@@ -191,7 +181,7 @@ pub async fn completeness_handler(
 
     // 9. If all pass, update status → PUBLISHED
     let published = if all_pass && document.status != "PUBLISHED" {
-        pipeline_repository::update_document_status(&state.pipeline_pool, &doc_id, "PUBLISHED")
+        pipeline_repository::update_document_status(&state.pipeline_pool, doc_id, "PUBLISHED")
             .await
             .map_err(|e| AppError::Internal {
                 message: format!("Failed to update status: {e}"),
@@ -203,8 +193,8 @@ pub async fn completeness_handler(
     };
 
     log_admin_action(
-        &state.audit_repo, &user.username, "pipeline.document.completeness",
-        Some("document"), Some(&doc_id),
+        &state.audit_repo, username, "pipeline.document.completeness",
+        Some("document"), Some(doc_id),
         Some(serde_json::json!({
             "status": overall_status, "published": published,
             "neo4j_nodes": neo4j_total_nodes, "qdrant_points": qdrant_count,
@@ -219,15 +209,49 @@ pub async fn completeness_handler(
         &serde_json::json!({"checks_passed": checks_passed, "checks_failed": checks_failed, "published": published}),
     ).await.ok();
 
-    Ok(Json(CompletenessResponse {
-        document_id: doc_id,
+    Ok(CompletenessResponse {
+        document_id: doc_id.to_string(),
         status: overall_status.to_string(),
         pipeline_db,
         neo4j,
         qdrant,
         checks,
         published,
-    }))
+    })
+}
+
+/// GET /api/admin/pipeline/documents/:id/completeness
+///
+/// HTTP handler — thin wrapper around `run_completeness`.
+/// Checks admin auth and status guard, then delegates to core logic.
+pub async fn completeness_handler(
+    user: AuthUser,
+    State(state): State<AppState>,
+    Path(doc_id): Path<String>,
+) -> Result<Json<CompletenessResponse>, AppError> {
+    require_admin(&user)?;
+    tracing::info!(user = %user.username, doc_id = %doc_id, "GET completeness");
+
+    // Status guard
+    let document = pipeline_repository::get_document(&state.pipeline_pool, &doc_id)
+        .await
+        .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?
+        .ok_or_else(|| AppError::NotFound {
+            message: format!("Document '{doc_id}' not found"),
+        })?;
+
+    if document.status != "INDEXED" && document.status != "PUBLISHED" {
+        return Err(AppError::Conflict {
+            message: format!(
+                "Cannot check completeness: status is '{}', expected 'INDEXED'",
+                document.status
+            ),
+            details: serde_json::json!({ "status": document.status }),
+        });
+    }
+
+    let result = run_completeness(&state, &doc_id, &user.username).await?;
+    Ok(Json(result))
 }
 
 // ── Pure comparison logic (testable without DB) ────────────────

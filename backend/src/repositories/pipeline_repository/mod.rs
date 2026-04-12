@@ -9,6 +9,7 @@
 //! - `mod.rs` — shared types, error, document and config CRUD
 //! - `extraction.rs` — extraction_runs, extraction_items, extraction_relationships
 
+pub mod documents;
 mod extraction;
 pub mod review;
 pub mod steps;
@@ -69,6 +70,30 @@ pub struct DocumentRecord {
     pub total_cost_usd: Option<f64>,
     /// Whether this document has any failed pipeline steps (computed via LEFT JOIN).
     pub has_failed_steps: bool,
+    // ── Progress tracking (process endpoint) ────────────────────
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub processing_step: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub processing_step_label: Option<String>,
+    pub chunks_total: Option<i32>,
+    pub chunks_processed: Option<i32>,
+    pub entities_found: Option<i32>,
+    pub percent_complete: Option<i32>,
+    // ── Error detail (process endpoint) ─────────────────────────
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failed_step: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failed_chunk: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_suggestion: Option<String>,
+    // ── Cancellation ────────────────────────────────────────────
+    pub is_cancelled: bool,
+    // ── Auto-write tracking ─────────────────────────────────────
+    pub entities_written: Option<i32>,
+    pub entities_flagged: Option<i32>,
+    pub relationships_written: Option<i32>,
 }
 
 /// A page of extracted text from the `document_text` table.
@@ -193,7 +218,12 @@ pub async fn list_all_documents(pool: &PgPool) -> Result<Vec<DocumentRecord>, Pi
         "SELECT d.id, d.title, d.file_path, d.file_hash, d.document_type, d.status,
                 d.created_at, d.updated_at, d.assigned_reviewer, d.assigned_at,
                 cost.total_cost_usd,
-                COALESCE(err.has_failed, false) AS has_failed_steps
+                COALESCE(err.has_failed, false) AS has_failed_steps,
+                d.processing_step, d.processing_step_label,
+                d.chunks_total, d.chunks_processed, d.entities_found, d.percent_complete,
+                d.failed_step, d.failed_chunk, d.error_message, d.error_suggestion,
+                d.is_cancelled,
+                d.entities_written, d.entities_flagged, d.relationships_written
          FROM documents d
          LEFT JOIN (
              SELECT document_id, SUM(cost_usd::float8) AS total_cost_usd
@@ -223,7 +253,12 @@ pub async fn get_document(
         "SELECT d.id, d.title, d.file_path, d.file_hash, d.document_type, d.status,
                 d.created_at, d.updated_at, d.assigned_reviewer, d.assigned_at,
                 cost.total_cost_usd,
-                COALESCE(err.has_failed, false) AS has_failed_steps
+                COALESCE(err.has_failed, false) AS has_failed_steps,
+                d.processing_step, d.processing_step_label,
+                d.chunks_total, d.chunks_processed, d.entities_found, d.percent_complete,
+                d.failed_step, d.failed_chunk, d.error_message, d.error_suggestion,
+                d.is_cancelled,
+                d.entities_written, d.entities_flagged, d.relationships_written
          FROM documents d
          LEFT JOIN (
              SELECT document_id, SUM(cost_usd::float8) AS total_cost_usd

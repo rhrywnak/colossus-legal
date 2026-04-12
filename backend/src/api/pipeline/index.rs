@@ -58,45 +58,31 @@ pub struct IndexResponse {
 
 // ── Handler ─────────────────────────────────────────────────────
 
-/// POST /api/admin/pipeline/documents/:id/index
+/// Core logic for vector indexing — callable from handler AND process endpoint.
 ///
-/// Embeds all Neo4j nodes belonging to a document and upserts them
-/// to Qdrant. Reuses the existing embedding infrastructure:
-/// `EmbeddingService` for fastembed, `qdrant_service` for upsert.
-pub async fn index_handler(
-    user: AuthUser,
-    State(state): State<AppState>,
-    Path(doc_id): Path<String>,
-) -> Result<Json<IndexResponse>, AppError> {
-    require_admin(&user)?;
+/// Embeds all Neo4j nodes for a document and upserts to Qdrant.
+/// Does NOT check document status — caller is responsible for validation.
+pub(crate) async fn run_index(
+    state: &AppState,
+    doc_id: &str,
+    username: &str,
+) -> Result<IndexResponse, AppError> {
     let start = Instant::now();
-    tracing::info!(user = %user.username, doc_id = %doc_id, "POST index");
 
     let step_id = steps::record_step_start(
-        &state.pipeline_pool, &doc_id, "index", &user.username, &serde_json::json!({}),
+        &state.pipeline_pool, doc_id, "index", username, &serde_json::json!({}),
     ).await.map_err(|e| AppError::Internal { message: format!("Step logging: {e}") })?;
 
-    // 1. Fetch document — must exist
-    let document = pipeline_repository::get_document(&state.pipeline_pool, &doc_id)
+    // 1. Fetch document — must exist (for title/metadata, not status check)
+    let _document = pipeline_repository::get_document(&state.pipeline_pool, doc_id)
         .await
         .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?
         .ok_or_else(|| AppError::NotFound {
             message: format!("Document '{doc_id}' not found"),
         })?;
 
-    // 2. Verify status = INGESTED
-    if document.status != "INGESTED" {
-        return Err(AppError::Conflict {
-            message: format!(
-                "Cannot index: status is '{}', expected 'INGESTED'",
-                document.status
-            ),
-            details: serde_json::json!({ "status": document.status }),
-        });
-    }
-
-    // 3. Query Neo4j for all nodes belonging to this document
-    let nodes = embedding_repository::fetch_nodes_for_document(&state.graph, &doc_id)
+    // 2. Query Neo4j for all nodes belonging to this document
+    let nodes = embedding_repository::fetch_nodes_for_document(&state.graph, doc_id)
         .await
         .map_err(|e| AppError::Internal {
             message: format!("Neo4j fetch error: {e}"),
@@ -205,7 +191,7 @@ pub async fn index_handler(
         })?;
 
     // 9. Update pipeline document status → INDEXED
-    pipeline_repository::update_document_status(&state.pipeline_pool, &doc_id, "INDEXED")
+    pipeline_repository::update_document_status(&state.pipeline_pool, doc_id, "INDEXED")
         .await
         .map_err(|e| AppError::Internal {
             message: format!("Failed to update document status: {e}"),
@@ -219,10 +205,10 @@ pub async fn index_handler(
 
     log_admin_action(
         &state.audit_repo,
-        &user.username,
+        username,
         "pipeline.document.index",
         Some("document"),
-        Some(&doc_id),
+        Some(doc_id),
         Some(serde_json::json!({
             "nodes_embedded": embedded_count,
             "qdrant_collection": "colossus_evidence",
@@ -236,15 +222,49 @@ pub async fn index_handler(
     ).await.ok();
 
     // 10. Return summary
-    Ok(Json(IndexResponse {
-        document_id: doc_id,
+    Ok(IndexResponse {
+        document_id: doc_id.to_string(),
         status: "INDEXED".to_string(),
         nodes_embedded: embedded_count,
         nodes_by_type,
         qdrant_collection: "colossus_evidence".to_string(),
         duration_secs: duration,
         errors,
-    }))
+    })
+}
+
+/// POST /api/admin/pipeline/documents/:id/index
+///
+/// HTTP handler — thin wrapper around `run_index`.
+/// Checks admin auth and status guard, then delegates to core logic.
+pub async fn index_handler(
+    user: AuthUser,
+    State(state): State<AppState>,
+    Path(doc_id): Path<String>,
+) -> Result<Json<IndexResponse>, AppError> {
+    require_admin(&user)?;
+    tracing::info!(user = %user.username, doc_id = %doc_id, "POST index");
+
+    // Status guard
+    let document = pipeline_repository::get_document(&state.pipeline_pool, &doc_id)
+        .await
+        .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?
+        .ok_or_else(|| AppError::NotFound {
+            message: format!("Document '{doc_id}' not found"),
+        })?;
+
+    if document.status != "INGESTED" {
+        return Err(AppError::Conflict {
+            message: format!(
+                "Cannot index: status is '{}', expected 'INGESTED'",
+                document.status
+            ),
+            details: serde_json::json!({ "status": document.status }),
+        });
+    }
+
+    let result = run_index(&state, &doc_id, &user.username).await?;
+    Ok(Json(result))
 }
 
 /// Convert a node ID string to a deterministic u64 for Qdrant point IDs.
