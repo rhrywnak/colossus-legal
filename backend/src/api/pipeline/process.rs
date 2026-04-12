@@ -75,10 +75,10 @@ pub async fn process_handler(
 
     // Allow processing from: UPLOADED (first time), COMPLETED, FAILED, CANCELLED (re-process)
     let allowed_statuses = [
-        "UPLOADED", "COMPLETED", "FAILED", "CANCELLED",
-        // Legacy statuses that should also be processable:
-        "TEXT_EXTRACTED", "EXTRACTED", "VERIFIED", "PUBLISHED",
-        "EXTRACTION_FAILED",
+        "NEW", "COMPLETED", "FAILED", "CANCELLED",
+        // Legacy statuses (pre-migration documents that haven't been migrated yet):
+        "UPLOADED", "TEXT_EXTRACTED", "EXTRACTED", "VERIFIED",
+        "PUBLISHED", "EXTRACTION_FAILED",
     ];
     if !allowed_statuses.contains(&document.status.as_str()) {
         return Err(AppError::Conflict {
@@ -96,7 +96,7 @@ pub async fn process_handler(
         .and_then(|b| b.reprocess_option.as_deref())
         .unwrap_or("none");
 
-    if document.status != "UPLOADED" {
+    if document.status != "NEW" && document.status != "UPLOADED" {
         cleanup_for_reprocess(&state, &doc_id, reprocess_option).await?;
     }
 

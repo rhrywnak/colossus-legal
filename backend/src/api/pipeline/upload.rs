@@ -95,6 +95,22 @@ pub async fn upload_document(
         details: serde_json::json!({}),
     })?;
 
+    // Complaint-first enforcement: the first document must be a complaint.
+    // The complaint establishes parties, claims, and legal context that all
+    // other documents reference.
+    let has_complaint = pipeline_repository::documents::has_document_of_type(
+        &state.pipeline_pool, "complaint",
+    )
+    .await
+    .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?;
+
+    if !has_complaint && document_type != "complaint" {
+        return Err(AppError::BadRequest {
+            message: "A Complaint document must be uploaded first. The Complaint establishes the parties, claims, and legal context that all other documents reference.".to_string(),
+            details: serde_json::json!({ "document_type": document_type }),
+        });
+    }
+
     // Validate file
     if file_data.len() > MAX_FILE_SIZE {
         return Err(AppError::BadRequest {

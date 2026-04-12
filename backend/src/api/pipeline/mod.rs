@@ -42,6 +42,7 @@ pub mod state_machine;
 mod upload;
 pub mod users;
 pub mod verify;
+#[allow(dead_code)]
 mod workload;
 
 pub use completeness::completeness_handler;
@@ -110,7 +111,6 @@ pub fn router() -> Router<AppState> {
         .route("/templates", get(config_endpoints::list_templates))
         .route("/documents/:id/assign", put(users::assign_reviewer_handler))
         .route("/documents/:id/file", get(file::file_handler))
-        .route("/reviewers/workload", get(workload::workload_handler))
 }
 
 /// GET /documents — list all pipeline documents with computed fields.

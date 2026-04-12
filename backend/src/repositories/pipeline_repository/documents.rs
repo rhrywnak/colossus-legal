@@ -165,3 +165,25 @@ pub async fn set_write_summary(
     .await?;
     Ok(())
 }
+
+/// Count total documents in the pipeline.
+pub async fn count_documents(pool: &PgPool) -> Result<i64, PipelineRepoError> {
+    let count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM documents")
+        .fetch_one(pool)
+        .await?;
+    Ok(count)
+}
+
+/// Check if at least one document of the given type exists.
+pub async fn has_document_of_type(
+    pool: &PgPool,
+    doc_type: &str,
+) -> Result<bool, PipelineRepoError> {
+    let count = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM documents WHERE document_type = $1",
+    )
+    .bind(doc_type)
+    .fetch_one(pool)
+    .await?;
+    Ok(count > 0)
+}

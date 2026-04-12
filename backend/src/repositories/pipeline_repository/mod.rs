@@ -121,7 +121,7 @@ pub struct PipelineConfigRecord {
 
 // ── Document & config functions ──────────────────────────────────
 
-/// Insert a new document record. Status = "UPLOADED".
+/// Insert a new document record. Status = "NEW".
 pub async fn insert_document(
     pool: &PgPool,
     id: &str,
@@ -132,7 +132,7 @@ pub async fn insert_document(
 ) -> Result<(), PipelineRepoError> {
     sqlx::query(
         r#"INSERT INTO documents (id, title, file_path, file_hash, document_type, status)
-           VALUES ($1, $2, $3, $4, $5, 'UPLOADED')"#,
+           VALUES ($1, $2, $3, $4, $5, 'NEW')"#,
     )
     .bind(id)
     .bind(title)

@@ -88,19 +88,19 @@ pub async fn delete_document(
         message: format!("Failed to write audit log: {e}"),
     })?;
 
-    // 4. Neo4j cleanup (best-effort, only for ingested/published/indexed documents)
+    // 4. Neo4j cleanup (best-effort, for documents that have been ingested)
     let needs_graph_cleanup = matches!(
         previous_status.as_str(),
-        "PUBLISHED" | "INGESTED" | "INDEXED"
+        "COMPLETED" | "PUBLISHED" | "INGESTED" | "INDEXED"
     );
     if needs_graph_cleanup {
         cleanup_neo4j(&state, &document_id).await;
     }
 
-    // 5. Qdrant cleanup (best-effort, only for published/indexed documents)
+    // 5. Qdrant cleanup (best-effort, for documents that have been indexed)
     let needs_vector_cleanup = matches!(
         previous_status.as_str(),
-        "PUBLISHED" | "INDEXED"
+        "COMPLETED" | "PUBLISHED" | "INDEXED"
     );
     if needs_vector_cleanup {
         cleanup_qdrant(&state, &document_id).await;
