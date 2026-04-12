@@ -31,6 +31,24 @@ export interface PipelineDocument {
   can_view?: boolean;
   /** Display grouping: "published" | "processing" | "in_review" | "uploaded". */
   status_group?: string;
+  // Progress (populated when status === "PROCESSING")
+  processing_step?: string;
+  processing_step_label?: string;
+  chunks_total?: number;
+  chunks_processed?: number;
+  entities_found?: number;
+  percent_complete?: number;
+  // Error details (populated when status === "FAILED")
+  failed_step?: string;
+  failed_chunk?: number;
+  error_message?: string;
+  error_suggestion?: string;
+  // Cancellation
+  is_cancelled?: boolean;
+  // Write summary (populated when status === "COMPLETED")
+  entities_written?: number;
+  entities_flagged?: number;
+  relationships_written?: number;
 }
 
 export interface KnownUser {
@@ -77,16 +95,6 @@ export interface AvailableAction {
   endpoint: string;
 }
 
-export interface PipelineStage {
-  name: string;
-  label: string;
-  order: number;
-  status: "completed" | "available" | "pending" | "failed";
-  duration_secs: number | null;
-  summary: string | null;
-  action: AvailableAction | null;
-}
-
 export interface ExecutionHistoryEntry {
   step_name: string;
   label: string;
@@ -101,7 +109,6 @@ export interface ExecutionHistoryEntry {
 export interface DocumentActions {
   document_id: string;
   current_status: string;
-  pipeline_stages: PipelineStage[];
   available_actions: AvailableAction[];
   execution_history: ExecutionHistoryEntry[];
   delete_confirmation_level: string;
@@ -129,6 +136,8 @@ export interface ExtractionItem {
   category?: string;
   /** Available actions for this item given category, status, and lock state. */
   available_actions?: string[];
+  /** Graph write status: 'pending', 'written', 'flagged' */
+  graph_status?: string;
   /** True if the document is post-ingest (items locked). */
   locked?: boolean;
 }
@@ -238,7 +247,12 @@ export interface WorkloadResponse {
 
 // ── API Functions ──────────────────────────────────
 
-export async function fetchPipelineDocuments(): Promise<PipelineDocument[]> {
+export interface DocumentListResponse {
+  documents: PipelineDocument[];
+  complaint_exists: boolean;
+}
+
+export async function fetchPipelineDocuments(): Promise<DocumentListResponse> {
   const res = await authFetch(`${PIPELINE_BASE}/documents`);
   if (!res.ok) throw new Error(`Failed to fetch documents: ${res.status}`);
   return res.json();
@@ -350,6 +364,32 @@ export async function triggerPipelineAction(
     throw new Error(text || `Pipeline action failed: ${res.status}`);
   }
   return res.json().catch(() => ({}));
+}
+
+/** Start processing a document (returns 202 Accepted). */
+export async function processDocument(
+  documentId: string,
+  reprocessOption?: "same_settings" | "new_settings" | "delete_and_reextract"
+): Promise<{ document_id: string; status: string; message: string }> {
+  const body = reprocessOption ? { reprocess_option: reprocessOption } : {};
+  const res = await authFetch(`${PIPELINE_BASE}/documents/${encodeURIComponent(documentId)}/process`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+/** Cancel in-progress processing. */
+export async function cancelProcessing(
+  documentId: string
+): Promise<{ document_id: string; message: string }> {
+  const res = await authFetch(`${PIPELINE_BASE}/documents/${encodeURIComponent(documentId)}/cancel`, {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
 }
 
 // ── Review actions ─────────────────────────────────

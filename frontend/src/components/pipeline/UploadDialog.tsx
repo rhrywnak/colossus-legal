@@ -6,6 +6,7 @@ interface Props {
   open: boolean;
   onClose: () => void;
   onSuccess: () => void;
+  complaintExists?: boolean;
 }
 
 const MAX_SIZE = 50 * 1024 * 1024;
@@ -54,7 +55,7 @@ function titleize(name: string): string {
   return name.replace(/\.pdf$/i, "").replace(/[-_]+/g, " ").replace(/\b\w/g, c => c.toUpperCase());
 }
 
-const UploadDialog: React.FC<Props> = ({ open, onClose, onSuccess }) => {
+const UploadDialog: React.FC<Props> = ({ open, onClose, onSuccess, complaintExists = true }) => {
   const navigate = useNavigate();
   const fileRef = useRef<HTMLInputElement>(null);
   const [schemas, setSchemas] = useState<SchemaInfo[]>([]);
@@ -131,11 +132,22 @@ const UploadDialog: React.FC<Props> = ({ open, onClose, onSuccess }) => {
         </div>
 
         <div style={labelStyle}>Document Type</div>
-        <select style={selectStyle} value={schema} onChange={(e) => setSchema(e.target.value)}>
-          <option value="auto">Auto-detect</option>
+        {!complaintExists && (
+          <div style={{ padding: "0.5rem 0.75rem", backgroundColor: "#fffbeb", border: "1px solid #fde68a", borderRadius: "6px", color: "#92400e", fontSize: "0.76rem", marginBottom: "0.5rem" }}>
+            A Complaint must be uploaded first. Other document types will be available after.
+          </div>
+        )}
+        <select style={selectStyle} value={complaintExists ? schema : "complaint"} onChange={(e) => setSchema(e.target.value)}>
+          {complaintExists && <option value="auto">Auto-detect</option>}
           {schemas.map((s) => {
             const base = s.filename.replace(/\.yaml$/, "");
-            return <option key={s.filename} value={base}>{s.document_type || base}</option>;
+            const isComplaint = base === "complaint";
+            const disabled = !complaintExists && !isComplaint;
+            return (
+              <option key={s.filename} value={base} disabled={disabled}>
+                {s.document_type || base}{disabled ? " (upload Complaint first)" : ""}
+              </option>
+            );
           })}
         </select>
 

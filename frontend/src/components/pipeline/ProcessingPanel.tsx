@@ -1,18 +1,20 @@
 /**
- * ProcessingPanel — Fixed 8-stage pipeline display with inline actions.
+ * ProcessingPanel — Displays content based on doc.status_group.
  *
- * Fetches pipeline stages from the backend state machine. Always shows
- * exactly 8 stages in order. Action buttons appear inline on the
- * actionable stage. Execution history is a collapsible section below.
+ * Five statuses: new, processing, completed, failed, cancelled.
+ * Fetches execution history from the actions endpoint on mount
+ * and when the document status changes.
  */
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import ExecutionHistory from "./ExecutionHistory";
-import ActionConfirmDialog from "./ActionConfirmDialog";
-import ExtractionConfigDialog from "./ExtractionConfigDialog";
 import {
-  triggerPipelineAction,
   fetchDocumentActions,
-  PipelineDocument, PipelineStep, DocumentActions, PipelineStage, AvailableAction,
+  processDocument,
+  cancelProcessing,
+  PipelineDocument,
+  DocumentActions,
+  ExecutionHistoryEntry,
+  PipelineStep,
 } from "../../services/pipelineApi";
 
 // ── Styles ──────────────────────────────────────────────────────
@@ -25,81 +27,79 @@ const headerStyle: React.CSSProperties = {
   padding: "0.6rem 0.85rem", fontWeight: 600, fontSize: "0.84rem", color: "#334155",
   backgroundColor: "#f8fafc", borderBottom: "1px solid #e2e8f0",
 };
+const bodyStyle: React.CSSProperties = {
+  padding: "1rem 0.85rem",
+};
 const errorBox: React.CSSProperties = {
   padding: "0.6rem 1rem", backgroundColor: "#fef2f2", border: "1px solid #fecaca",
   borderRadius: "6px", color: "#991b1b", fontSize: "0.84rem", marginBottom: "1rem",
 };
-const rowStyle: React.CSSProperties = {
-  display: "flex", alignItems: "center", gap: "0.75rem",
-  padding: "0.55rem 0.85rem", borderBottom: "1px solid #f1f5f9",
+const suggestionBox: React.CSSProperties = {
+  padding: "0.6rem 1rem", backgroundColor: "#fffbeb", border: "1px solid #fde68a",
+  borderRadius: "6px", color: "#92400e", fontSize: "0.84rem", marginTop: "0.75rem",
 };
-const iconCol: React.CSSProperties = {
-  width: "24px", textAlign: "center", fontSize: "0.9rem", flexShrink: 0,
+const summaryLine: React.CSSProperties = {
+  fontSize: "0.84rem", color: "#334155", marginBottom: "0.35rem",
 };
-const labelCol: React.CSSProperties = {
-  fontWeight: 600, fontSize: "0.84rem", color: "#0f172a", minWidth: "140px",
+const mutedText: React.CSSProperties = {
+  fontSize: "0.84rem", color: "#64748b",
 };
-const durationCol: React.CSSProperties = {
-  fontSize: "0.76rem", color: "#64748b", minWidth: "55px",
+const progressBarOuter: React.CSSProperties = {
+  width: "100%", height: "10px", backgroundColor: "#e2e8f0",
+  borderRadius: "5px", overflow: "hidden", marginTop: "0.5rem",
 };
-const summaryCol: React.CSSProperties = {
-  flex: 1, fontSize: "0.76rem", color: "#64748b",
-};
-const actionBtn = (enabled: boolean): React.CSSProperties => ({
-  padding: "0.25rem 0.65rem", fontSize: "0.76rem", fontWeight: 600,
-  border: "1px solid #2563eb", borderRadius: "6px", cursor: enabled ? "pointer" : "default",
+const btnPrimary = (enabled: boolean): React.CSSProperties => ({
+  padding: "0.35rem 0.85rem", fontSize: "0.8rem", fontWeight: 600,
+  border: "1px solid #2563eb", borderRadius: "6px",
+  cursor: enabled ? "pointer" : "default",
   backgroundColor: enabled ? "#2563eb" : "#e2e8f0",
   color: enabled ? "#ffffff" : "#94a3b8",
-  fontFamily: "inherit", flexShrink: 0, whiteSpace: "nowrap",
-});
-const docActionBtn = (enabled: boolean): React.CSSProperties => ({
-  padding: "0.3rem 0.75rem", fontSize: "0.76rem", fontWeight: 600,
-  border: "1px solid #d97706", borderRadius: "6px",
-  cursor: enabled ? "pointer" : "default",
-  backgroundColor: enabled ? "#fff" : "#e2e8f0",
-  color: enabled ? "#d97706" : "#94a3b8",
   fontFamily: "inherit",
 });
-const docActionsRow: React.CSSProperties = {
-  padding: "0.6rem 0.85rem", display: "flex", gap: "0.5rem", flexWrap: "wrap",
-  borderTop: "1px solid #f1f5f9", backgroundColor: "#fafafa",
-};
+const btnDanger = (enabled: boolean): React.CSSProperties => ({
+  padding: "0.35rem 0.85rem", fontSize: "0.8rem", fontWeight: 600,
+  border: "1px solid #dc2626", borderRadius: "6px",
+  cursor: enabled ? "pointer" : "default",
+  backgroundColor: enabled ? "#dc2626" : "#e2e8f0",
+  color: enabled ? "#ffffff" : "#94a3b8",
+  fontFamily: "inherit",
+});
 
 // ── Helpers ─────────────────────────────────────────────────────
 
-const ICONS: Record<string, string> = {
-  completed: "\u2705", available: "\uD83D\uDD35", failed: "\u274C",
-};
-const ICON_COLORS: Record<string, string> = {
-  completed: "#22c55e", available: "#2563eb", failed: "#ef4444",
-};
-const stageIcon = (s: string) => ICONS[s] ?? "\u2B1C";
-const iconColor = (s: string) => ICON_COLORS[s] ?? "#cbd5e1";
-
-function formatDuration(secs: number | null): string {
-  if (secs == null) return "\u2014";
-  if (secs < 60) return `${secs.toFixed(1)}s`;
-  return `${Math.floor(secs / 60)}m ${Math.round(secs % 60)}s`;
+/** Map ExecutionHistoryEntry[] to PipelineStep[] for the ExecutionHistory component. */
+function toSteps(entries: ExecutionHistoryEntry[]): PipelineStep[] {
+  return entries.map((e, i) => ({
+    id: i,
+    document_id: "",
+    step_name: e.label || e.step_name,
+    status: e.status,
+    started_at: e.started_at,
+    completed_at: null,
+    duration_secs: e.duration_secs,
+    triggered_by: e.triggered_by,
+    input_params: {},
+    result_summary: e.summary ?? {},
+    error_message: e.error_message,
+  }));
 }
 
 // ── Component ───────────────────────────────────────────────────
 
 interface ProcessingPanelProps {
   document: PipelineDocument;
-  history: PipelineStep[];
-  onStepTriggered: () => void;
-  onSwitchTab?: (tabId: string) => void;
+  onRefresh: () => void;
 }
 
 const ProcessingPanel: React.FC<ProcessingPanelProps> = ({
-  document: doc, history, onStepTriggered, onSwitchTab,
+  document: doc, onRefresh,
 }) => {
-  const [running, setRunning] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actions, setActions] = useState<DocumentActions | null>(null);
-  const [confirmAction, setConfirmAction] = useState<AvailableAction | null>(null);
-  const [showExtractConfig, setShowExtractConfig] = useState(false);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Fetch execution history from actions endpoint
   const loadActions = useCallback(async () => {
     try {
       const data = await fetchDocumentActions(doc.id);
@@ -109,136 +109,206 @@ const ProcessingPanel: React.FC<ProcessingPanelProps> = ({
 
   useEffect(() => { loadActions(); }, [loadActions, doc.status]);
 
-  const runAction = async (
-    action: AvailableAction,
-    body?: Record<string, unknown>,
-  ) => {
-    if (running) return;
-    setRunning(true);
+  // Polling: refresh every 3s while processing
+  useEffect(() => {
+    if (doc.status_group === "processing") {
+      pollRef.current = setInterval(() => { onRefresh(); }, 3000);
+    }
+    return () => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    };
+  }, [doc.status_group, onRefresh]);
+
+  // Button handlers
+  const handleProcess = async () => {
+    if (busy) return;
+    setBusy(true);
     setActionError(null);
-    setConfirmAction(null);
     try {
-      await triggerPipelineAction(doc.id, action.endpoint, action.method, body);
-      onStepTriggered();
-      await loadActions();
+      await processDocument(doc.id);
+      onRefresh();
     } catch (e) {
-      setActionError(e instanceof Error ? e.message : `Action '${action.label}' failed`);
-      await loadActions();
+      setActionError(e instanceof Error ? e.message : "Failed to start processing");
     } finally {
-      setRunning(false);
+      setBusy(false);
     }
   };
 
-  const handleAction = (stage: PipelineStage) => {
-    if (!stage.action) return;
-    if (stage.action.is_navigation) {
-      if (stage.action.action === "review" && onSwitchTab) onSwitchTab("review");
-      return;
+  const handleReprocess = async () => {
+    if (busy) return;
+    setBusy(true);
+    setActionError(null);
+    try {
+      await processDocument(doc.id, "same_settings");
+      onRefresh();
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "Failed to re-process");
+    } finally {
+      setBusy(false);
     }
-    if (stage.action.action === "extract") {
-      setShowExtractConfig(true);
-      return;
-    }
-    if (stage.action.requires_confirmation) {
-      setConfirmAction(stage.action);
-      return;
-    }
-    void runAction(stage.action);
   };
 
-  const handleDocAction = (action: AvailableAction) => {
-    if (action.requires_confirmation) {
-      setConfirmAction(action);
-      return;
+  const handleCancel = async () => {
+    if (busy) return;
+    setBusy(true);
+    setActionError(null);
+    try {
+      await cancelProcessing(doc.id);
+      onRefresh();
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "Failed to cancel processing");
+    } finally {
+      setBusy(false);
     }
-    void runAction(action);
   };
 
-  const stages = actions?.pipeline_stages ?? [];
-  const stageActionNames = new Set(
-    stages.filter((s) => s.action).map((s) => s.action!.action)
+  const historySteps = toSteps(actions?.execution_history ?? []);
+  const statusGroup = doc.status_group ?? "new";
+
+  // ── Render per status_group ────────────────────────────────────
+
+  const renderProcessing = () => (
+    <div style={bodyStyle}>
+      <div style={{ fontSize: "0.95rem", fontWeight: 600, color: "#2563eb", marginBottom: "0.75rem" }}>
+        Processing...
+      </div>
+      <div style={summaryLine}>
+        Current step: <strong>{doc.processing_step_label ?? doc.processing_step ?? "—"}</strong>
+      </div>
+      {doc.entities_found != null && (
+        <div style={summaryLine}>Entities found: {doc.entities_found}</div>
+      )}
+      <div style={{ ...mutedText, marginTop: "0.25rem" }}>
+        Progress: {doc.percent_complete ?? 0}%
+      </div>
+      <div style={progressBarOuter}>
+        <div style={{
+          width: `${doc.percent_complete ?? 0}%`,
+          height: "100%",
+          backgroundColor: "#2563eb",
+          borderRadius: "5px",
+          transition: "width 0.3s ease",
+        }} />
+      </div>
+      <div style={{ marginTop: "1rem" }}>
+        <button style={btnDanger(!busy)} disabled={busy} onClick={handleCancel}>
+          {busy ? "Cancelling..." : "Cancel Processing"}
+        </button>
+      </div>
+    </div>
   );
-  const docActions = (actions?.available_actions ?? []).filter(
-    (a) => !stageActionNames.has(a.action)
+
+  const renderCompleted = () => (
+    <div style={bodyStyle}>
+      <div style={{ fontSize: "0.95rem", fontWeight: 600, color: "#22c55e", marginBottom: "0.75rem" }}>
+        Processing Complete
+      </div>
+      <div style={{ ...summaryLine, color: "#16a34a" }}>
+        {doc.entities_written ?? 0} entities written to graph
+      </div>
+      <div style={summaryLine}>
+        {doc.relationships_written ?? 0} relationships written
+      </div>
+      {(doc.entities_flagged ?? 0) > 0 && (
+        <div style={{ ...summaryLine, color: "#d97706" }}>
+          {doc.entities_flagged} entities flagged (ungrounded)
+        </div>
+      )}
+      {doc.total_cost_usd != null && (
+        <div style={summaryLine}>Cost: ${doc.total_cost_usd.toFixed(4)}</div>
+      )}
+      <div style={{ marginTop: "1rem" }}>
+        <button style={btnPrimary(!busy)} disabled={busy} onClick={handleReprocess}>
+          {busy ? "Starting..." : "Re-process"}
+        </button>
+      </div>
+    </div>
   );
+
+  const renderFailed = () => (
+    <div style={bodyStyle}>
+      <div style={{ fontSize: "0.95rem", fontWeight: 600, color: "#dc2626", marginBottom: "0.75rem" }}>
+        Processing Failed
+      </div>
+      {doc.failed_step && (
+        <div style={summaryLine}>
+          Failed at: <strong>{doc.failed_step}</strong>
+        </div>
+      )}
+      {doc.error_message && (
+        <div style={{ ...summaryLine, color: "#dc2626" }}>
+          Error: {doc.error_message}
+        </div>
+      )}
+      {doc.error_suggestion && (
+        <div style={suggestionBox}>
+          Suggestion: {doc.error_suggestion}
+        </div>
+      )}
+      <div style={{ marginTop: "1rem" }}>
+        <button style={btnPrimary(!busy)} disabled={busy} onClick={handleReprocess}>
+          {busy ? "Starting..." : "Re-process"}
+        </button>
+      </div>
+    </div>
+  );
+
+  const renderCancelled = () => (
+    <div style={bodyStyle}>
+      <div style={{ fontSize: "0.95rem", fontWeight: 600, color: "#64748b", marginBottom: "0.75rem" }}>
+        Processing Cancelled
+      </div>
+      <div style={mutedText}>
+        Processing was cancelled. No data was written to the knowledge graph.
+      </div>
+      <div style={{ marginTop: "1rem" }}>
+        <button style={btnPrimary(!busy)} disabled={busy} onClick={handleReprocess}>
+          {busy ? "Starting..." : "Re-process"}
+        </button>
+      </div>
+    </div>
+  );
+
+  const renderNew = () => (
+    <div style={bodyStyle}>
+      <div style={mutedText}>
+        This document has not been processed yet.
+      </div>
+      <div style={{ ...mutedText, marginTop: "0.5rem" }}>
+        Click "Process Document" to start extraction.
+      </div>
+      <div style={{ marginTop: "1rem" }}>
+        <button style={btnPrimary(!busy)} disabled={busy} onClick={handleProcess}>
+          {busy ? "Starting..." : "Process Document"}
+        </button>
+      </div>
+    </div>
+  );
+
+  const contentRenderers: Record<string, () => React.ReactNode> = {
+    processing: renderProcessing,
+    completed: renderCompleted,
+    failed: renderFailed,
+    cancelled: renderCancelled,
+    new: renderNew,
+  };
+
+  const renderContent = contentRenderers[statusGroup] ?? renderNew;
 
   return (
     <div>
       {actionError && <div style={errorBox}>{actionError}</div>}
 
       <div style={containerStyle}>
-        <div style={headerStyle}>Pipeline Steps</div>
-
-        {stages.map((stage) => (
-          <div key={stage.name} style={rowStyle}>
-            <span style={{ ...iconCol, color: iconColor(stage.status) }}>
-              {stageIcon(stage.status)}
-            </span>
-            <span style={{
-              ...labelCol,
-              color: stage.status === "pending" ? "#94a3b8" : "#0f172a",
-            }}>
-              {stage.order}. {stage.label}
-            </span>
-            <span style={durationCol}>
-              {stage.status === "completed" ? formatDuration(stage.duration_secs) : "\u2014"}
-            </span>
-            <span style={{
-              ...summaryCol,
-              color: stage.status === "failed" ? "#ef4444" : "#64748b",
-            }}>
-              {stage.summary ?? ""}
-            </span>
-            {stage.action && (
-              <button
-                style={actionBtn(!running)}
-                disabled={running}
-                onClick={() => handleAction(stage)}
-              >
-                {running ? "Running..." : stage.action.label}
-                {stage.action.is_navigation ? " \u2192" : ""}
-              </button>
-            )}
-          </div>
-        ))}
-
-        {docActions.length > 0 && (
-          <div style={docActionsRow}>
-            {docActions.map((a) => (
-              <button
-                key={a.action}
-                style={docActionBtn(!running)}
-                disabled={running}
-                onClick={() => handleDocAction(a)}
-                title={a.description}
-              >
-                {running ? "Running..." : a.label}
-              </button>
-            ))}
-          </div>
-        )}
+        <div style={headerStyle}>Processing</div>
+        {renderContent()}
       </div>
 
-      {/* Collapsible execution history — single instance (ISS-010) */}
-      {history.length > 0 && <ExecutionHistory steps={history} />}
-      {confirmAction && (
-        <ActionConfirmDialog
-          action={confirmAction}
-          onCancel={() => setConfirmAction(null)}
-          onConfirm={() => void runAction(confirmAction)}
-        />
-      )}
-      {showExtractConfig && (
-        <ExtractionConfigDialog
-          documentId={doc.id}
-          onCancel={() => setShowExtractConfig(false)}
-          onSubmit={async (config) => {
-            setShowExtractConfig(false);
-            const extractStage = stages.find((s) => s.action?.action === "extract");
-            if (extractStage?.action) await runAction(extractStage.action, config);
-          }}
-        />
-      )}
+      {/* Collapsible execution history */}
+      {historySteps.length > 0 && <ExecutionHistory steps={historySteps} />}
     </div>
   );
 };

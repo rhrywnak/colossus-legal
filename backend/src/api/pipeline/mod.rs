@@ -123,22 +123,34 @@ pub fn router() -> Router<AppState> {
 async fn list_documents_handler(
     user: AuthUser,
     State(state): State<AppState>,
-) -> Result<Json<Vec<document_response::DocumentResponse>>, AppError> {
+) -> Result<Json<DocumentListResponse>, AppError> {
     let docs = pipeline_repository::list_all_documents(&state.pipeline_pool)
         .await
         .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?;
 
-    let enriched = docs.into_iter()
+    let complaint_exists = pipeline_repository::documents::has_document_of_type(
+        &state.pipeline_pool, "complaint",
+    )
+    .await
+    .unwrap_or(false);
+
+    let documents = docs.into_iter()
         .map(|doc| document_response::enrich_document(doc, &user))
         .collect();
 
-    Ok(Json(enriched))
+    Ok(Json(DocumentListResponse { documents, complaint_exists }))
 }
 
 /// Maximum upload size: 50 MB.
 pub(crate) const MAX_FILE_SIZE: usize = 50 * 1024 * 1024;
 
 // ── Shared Response DTOs ─────────────────────────────────────────
+
+#[derive(Debug, Serialize)]
+pub struct DocumentListResponse {
+    pub documents: Vec<document_response::DocumentResponse>,
+    pub complaint_exists: bool,
+}
 
 #[derive(Debug, Serialize)]
 pub struct UploadDocumentResponse {

@@ -217,7 +217,7 @@ const DocumentWorkspaceTabs: React.FC = () => {
       )}
 
       {activeTab === "processing" && (
-        <ProcessingPanel document={doc} history={history} onStepTriggered={loadData} onSwitchTab={setActiveTab} />
+        <ProcessingPanel document={doc} onRefresh={loadData} />
       )}
 
       {activeTab === "review" && (

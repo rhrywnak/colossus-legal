@@ -4,8 +4,8 @@ import UploadDialog from "../components/pipeline/UploadDialog";
 import BatchProgressHeader from "../components/documents/BatchProgressHeader";
 import DocumentCard from "../components/documents/DocumentCard";
 import {
-  fetchPipelineDocuments, fetchUsers, fetchMetrics, fetchErrors,
-  assignReviewer, PipelineDocument, KnownUser, EstimatesData,
+  fetchPipelineDocuments, fetchMetrics, fetchErrors,
+  processDocument, PipelineDocument, EstimatesData,
 } from "../services/pipelineApi";
 
 // ── Helpers ────────────────────────────────────────────────────────
@@ -73,7 +73,7 @@ const DocumentsPage: React.FC = () => {
   const isAdmin = user?.permissions.is_admin ?? false;
 
   const [documents, setDocuments] = useState<PipelineDocument[]>([]);
-  const [users, setUsers] = useState<KnownUser[]>([]);
+  const [complaintExists, setComplaintExists] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
@@ -83,17 +83,14 @@ const DocumentsPage: React.FC = () => {
   // Filters
   const [statusFilter, setStatusFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
-  const [reviewerFilter, setReviewerFilter] = useState("all");
+  const [sortBy, setSortBy] = useState("recent");
   const [search, setSearch] = useState("");
 
   const loadData = async () => {
     try {
-      const [docs, knownUsers] = await Promise.all([
-        fetchPipelineDocuments(),
-        isAdmin ? fetchUsers() : Promise.resolve([]),
-      ]);
-      setDocuments(docs);
-      setUsers(knownUsers);
+      const result = await fetchPipelineDocuments();
+      setDocuments(result.documents);
+      setComplaintExists(result.complaint_exists);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load documents");
@@ -113,56 +110,56 @@ const DocumentsPage: React.FC = () => {
       .catch(() => { /* errors are optional */ });
   }, []);  // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Poll when documents are processing
+  useEffect(() => {
+    const hasProcessing = documents.some(d => d.status_group === "processing");
+    if (!hasProcessing) return;
+    const interval = setInterval(() => { loadData(); }, 3000);
+    return () => clearInterval(interval);
+  }, [documents]);  // eslint-disable-line react-hooks/exhaustive-deps
+
   const uniqueTypes = useMemo(() => {
     const types = new Set(documents.map((d) => d.document_type));
     return Array.from(types).sort();
   }, [documents]);
 
-  const uniqueReviewers = useMemo(() => {
-    const reviewers = new Set(
-      documents.map((d) => d.assigned_reviewer).filter(Boolean) as string[]
-    );
-    return Array.from(reviewers).sort();
-  }, [documents]);
-
   const filtered = useMemo(() => {
-    return documents.filter((doc) => {
-      if (statusFilter !== "all" && (doc.status_group ?? "processing") !== statusFilter) return false;
-      if (typeFilter !== "all" && doc.document_type !== typeFilter) return false;
-      if (reviewerFilter === "unassigned" && doc.assigned_reviewer) return false;
-      if (reviewerFilter === "assigned_to_me" && doc.assigned_reviewer !== user?.username) return false;
-      if (reviewerFilter !== "all" && reviewerFilter !== "unassigned" && reviewerFilter !== "assigned_to_me"
-          && doc.assigned_reviewer !== reviewerFilter) return false;
-      if (search && !doc.title.toLowerCase().includes(search.toLowerCase())) return false;
-      return true;
-    });
-  }, [documents, statusFilter, typeFilter, reviewerFilter, search, user?.username]);
-
-  const counts = useMemo(() => {
-    const total = documents.length;
-    let published = 0, inReview = 0, processing = 0;
-    for (const d of documents) {
-      const bucket = (d.status_group ?? "processing");
-      if (bucket === "published") published++;
-      else if (bucket === "in_review") inReview++;
-      else if (bucket === "processing" || bucket === "uploaded") processing++;
+    let result = documents;
+    if (statusFilter !== "all") result = result.filter(d => d.status_group === statusFilter);
+    if (typeFilter !== "all") result = result.filter(d => d.document_type === typeFilter);
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      result = result.filter(d => d.title.toLowerCase().includes(q));
     }
-    return { total, published, inReview, processing };
-  }, [documents]);
-
-  const handleAssign = async (docId: string, reviewer: string | null) => {
-    try {
-      const result = await assignReviewer(docId, reviewer);
-      setDocuments((prev) =>
-        prev.map((d) =>
-          d.id === docId
-            ? { ...d, assigned_reviewer: result.assigned_reviewer, assigned_at: result.assigned_at }
-            : d
-        )
-      );
-    } catch (e) {
-      console.error("Assign reviewer failed:", e);
+    // Sort
+    const copy = [...result];
+    switch (sortBy) {
+      case "recent": return copy.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
+      case "oldest": return copy.sort((a, b) => new Date(a.updated_at).getTime() - new Date(b.updated_at).getTime());
+      case "name": return copy.sort((a, b) => a.title.localeCompare(b.title));
+      case "failed_first": {
+        const order: Record<string, number> = { failed: 0, processing: 1, new: 2, cancelled: 3, completed: 4 };
+        return copy.sort((a, b) => (order[a.status_group ?? ""] ?? 5) - (order[b.status_group ?? ""] ?? 5));
+      }
+      default: return copy;
     }
+  }, [documents, statusFilter, typeFilter, search, sortBy]);
+
+  const counts = useMemo(() => ({
+    total: documents.length,
+    completed: documents.filter(d => d.status_group === "completed").length,
+    failed: documents.filter(d => d.status_group === "failed").length,
+    processing: documents.filter(d => d.status_group === "processing").length,
+    new: documents.filter(d => d.status_group === "new").length,
+    cancelled: documents.filter(d => d.status_group === "cancelled").length,
+  }), [documents]);
+
+  const handleProcessAllNew = async () => {
+    const newDocs = documents.filter(d => d.status === "NEW");
+    for (const doc of newDocs) {
+      try { await processDocument(doc.id); } catch (e) { console.error(`Failed to start processing ${doc.id}:`, e); }
+    }
+    loadData();
   };
 
   if (loading) return <div style={emptyState}>Loading documents...</div>;
@@ -173,11 +170,18 @@ const DocumentsPage: React.FC = () => {
       {/* Header */}
       <div style={headerRow}>
         <h1 style={pageTitle}>Documents</h1>
-        {isAdmin && (
-          <button style={uploadBtn} onClick={() => setUploadOpen(true)}>
-            + Upload
-          </button>
-        )}
+        <div style={{ display: "flex", alignItems: "center" }}>
+          {isAdmin && counts.new > 0 && (
+            <button style={{ ...uploadBtn, backgroundColor: "#16a34a", marginRight: "0.5rem" }} onClick={handleProcessAllNew}>
+              Process All New ({counts.new})
+            </button>
+          )}
+          {isAdmin && (
+            <button style={uploadBtn} onClick={() => setUploadOpen(true)}>
+              + Upload
+            </button>
+          )}
+        </div>
       </div>
       <p style={subtitle}>
         Case documents — extraction pipeline status and review.
@@ -188,13 +192,24 @@ const DocumentsPage: React.FC = () => {
           open={uploadOpen}
           onClose={() => setUploadOpen(false)}
           onSuccess={() => { setUploadOpen(false); loadData(); }}
+          complaintExists={complaintExists}
         />
       )}
 
       {/* Error alert banner */}
       {errorCount > 0 && (
-        <div style={errorBanner} onClick={() => setStatusFilter("processing")}>
+        <div style={errorBanner} onClick={() => setStatusFilter("failed")}>
           {errorCount} document{errorCount !== 1 ? "s" : ""} need attention — click to filter
+        </div>
+      )}
+
+      {/* Complaint-first warning */}
+      {documents.length === 0 && (
+        <div style={{ padding: "1rem", backgroundColor: "#fffbeb", border: "1px solid #fde68a", borderRadius: "8px", color: "#92400e", fontSize: "0.84rem", marginBottom: "1rem" }}>
+          <strong>A Complaint must be uploaded and processed first.</strong>
+          <p style={{ margin: "0.25rem 0 0", fontSize: "0.8rem" }}>
+            The Complaint establishes the parties, claims, and legal context that all other documents reference.
+          </p>
         </div>
       )}
 
@@ -209,10 +224,11 @@ const DocumentsPage: React.FC = () => {
       <div style={filtersRow}>
         <select style={filterSelect} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
           <option value="all">All Statuses</option>
-          <option value="published">Published</option>
-          <option value="in_review">In Review</option>
+          <option value="new">New</option>
           <option value="processing">Processing</option>
-          <option value="uploaded">Uploaded</option>
+          <option value="completed">Completed</option>
+          <option value="failed">Failed</option>
+          <option value="cancelled">Cancelled</option>
         </select>
 
         <select style={filterSelect} value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
@@ -222,13 +238,11 @@ const DocumentsPage: React.FC = () => {
           ))}
         </select>
 
-        <select style={filterSelect} value={reviewerFilter} onChange={(e) => setReviewerFilter(e.target.value)}>
-          <option value="all">All Reviewers</option>
-          <option value="assigned_to_me">Assigned to Me</option>
-          <option value="unassigned">Unassigned</option>
-          {uniqueReviewers.map((r) => (
-            <option key={r} value={r}>{r}</option>
-          ))}
+        <select style={filterSelect} value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+          <option value="recent">Most Recent</option>
+          <option value="oldest">Oldest</option>
+          <option value="name">Name A-Z</option>
+          <option value="failed_first">Failed First</option>
         </select>
 
         <input
@@ -253,8 +267,7 @@ const DocumentsPage: React.FC = () => {
             key={doc.id}
             doc={doc}
             isAdmin={isAdmin}
-            users={users}
-            onAssign={handleAssign}
+            onRefresh={loadData}
           />
         ))
       )}
@@ -263,9 +276,10 @@ const DocumentsPage: React.FC = () => {
       {documents.length > 0 && (
         <div style={footerStyle}>
           {counts.total} document{counts.total !== 1 ? "s" : ""}
-          {" \u2502 "}{counts.published} published
-          {" \u2502 "}{counts.inReview} in review
-          {" \u2502 "}{counts.processing} awaiting processing
+          {" | "}{counts.completed} completed
+          {counts.failed > 0 && <>{" | "}<span style={{ color: "#dc2626" }}>{counts.failed} failed</span></>}
+          {counts.processing > 0 && <>{" | "}{counts.processing} processing</>}
+          {counts.new > 0 && <>{" | "}{counts.new} new</>}
         </div>
       )}
     </div>
