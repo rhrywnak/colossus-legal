@@ -130,7 +130,7 @@ pub(crate) async fn run_extract(
 
     let api_start = Instant::now();
     let summary_result = chunk_orchestration::run_chunk_extraction(
-        &state.pipeline_pool, run_id, &full_text, &schema_for_chunks,
+        &state.pipeline_pool, run_id, doc_id, &full_text, &schema_for_chunks,
         &raw_template, Arc::clone(&extractor),
     ).await;
     let elapsed_secs = api_start.elapsed().as_secs_f64();

@@ -119,6 +119,13 @@ const DocumentWorkspaceTabs: React.FC = () => {
 
   useEffect(() => { loadData(); }, [loadData]);
 
+  // Poll every 3s while document is PROCESSING so header badge + panels update
+  useEffect(() => {
+    if (doc?.status_group !== "processing") return;
+    const interval = setInterval(() => { loadData(); }, 3000);
+    return () => clearInterval(interval);
+  }, [doc?.status_group, loadData]);
+
   // Load extraction items (called by Content and People tabs)
   const loadItems = useCallback(() => {
     if (items !== null || itemsLoading || !docId) return;

@@ -42,6 +42,18 @@ const emptyStyle: React.CSSProperties = {
   padding: "3rem", textAlign: "center", color: "#94a3b8", fontSize: "0.9rem",
 };
 
+// ── Helpers ─────────────────────────────────────────────────────
+
+/** Extract a display name from the item's properties.
+ *  Tries common fields in priority order, falls back to entity_type. */
+function getEntityName(item: ExtractionItem): string {
+  const p = item.properties;
+  if (!p || typeof p !== "object") return item.label || item.entity_type;
+  const name = (p.label ?? p.full_name ?? p.party_name ?? p.legal_basis
+    ?? p.summary ?? p.description ?? p.harm_type) as string | undefined;
+  return name || item.label || item.entity_type;
+}
+
 // ── Component ───────────────────────────────────────────────────
 
 const ContentPanel: React.FC<ContentPanelProps> = ({ items, loading, error, onViewInPdf }) => {
@@ -93,7 +105,7 @@ const ContentPanel: React.FC<ContentPanelProps> = ({ items, loading, error, onVi
           <div key={item.id} style={itemCardStyle}>
             <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.35rem" }}>
               <span style={typeBadge(getColor(item.entity_type))}>{item.entity_type}</span>
-              <span style={{ fontSize: "0.88rem", fontWeight: 600, color: "#0f172a" }}>{item.label}</span>
+              <span style={{ fontSize: "0.88rem", fontWeight: 600, color: "#0f172a" }}>{getEntityName(item)}</span>
               {item.graph_status === "written" && (
                 <span style={{ color: "#16a34a", fontSize: "0.72rem", fontWeight: 600 }}>In graph</span>
               )}

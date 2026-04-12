@@ -82,7 +82,7 @@ pub async fn upload_document(
     // for recording the intended schema in pipeline_config.
     let schema_file = schema_file.unwrap_or_else(|| {
         match document_type.as_str() {
-            "complaint" => "complaint.yaml",
+            "complaint" => "complaint_v2.yaml",
             "discovery_response" => "discovery_response.yaml",
             "motion" | "brief" | "motion_brief" => "motion.yaml",
             "affidavit" => "affidavit.yaml",

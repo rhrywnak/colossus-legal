@@ -1,12 +1,13 @@
-//! Chunk extraction orchestration — splits text, runs concurrent per-chunk
-//! extraction, merges results, persists per-chunk observability rows, and
-//! stores merged entities/relationships via the existing repo helpers.
+//! Chunk extraction orchestration — splits text, runs sequential per-chunk
+//! extraction with inter-chunk delay, merges results, persists per-chunk
+//! observability rows, and stores merged entities/relationships.
 //!
-//! This module exists because `extract.rs` would otherwise exceed the
-//! 300-line module limit (CLAUDE.md golden rule). The handler remains
-//! the orchestrator of overall flow (validation, run recording, status
-//! transitions); this module owns the chunk-level concurrency, merging,
-//! and persistence glue.
+//! ## Rate Limiting
+//!
+//! Anthropic's API has an 8,000 output tokens/minute rate limit. Concurrent
+//! extraction (even with CONCURRENCY_LIMIT=2) can exceed this in seconds.
+//! We process chunks sequentially with a 15-second delay between each to
+//! stay well under the limit.
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -15,15 +16,14 @@ use colossus_extract::{
     ChunkExtractionResult, ChunkExtractor, ExtractedNode, ExtractedRel, FixedSizeSplitter,
     TextChunk, TextSplitter,
 };
-use futures::future::join_all;
 use sqlx::PgPool;
-use tokio::sync::Semaphore;
 
 use super::chunk_extractor::AnthropicChunkExtractor;
 use crate::error::AppError;
+use crate::repositories::pipeline_repository::documents;
 
-/// Maximum chunks in flight against the LLM API at once.
-const CONCURRENCY_LIMIT: usize = 2;
+/// Delay between sequential chunk extractions to avoid rate limits.
+const INTER_CHUNK_DELAY_SECS: u64 = 15;
 
 /// Summary returned from the chunk extraction run.
 pub(super) struct ChunkExtractionSummary {
@@ -35,15 +35,16 @@ pub(super) struct ChunkExtractionSummary {
     pub chunks_failed: usize,
 }
 
-/// Split `full_text` into chunks and extract each concurrently, writing a
-/// row into `extraction_chunks` per chunk (success or failure).
+/// Split `full_text` into chunks and extract each sequentially with a delay,
+/// writing a row into `extraction_chunks` per chunk (success or failure).
 ///
-/// The prompt template and schema JSON are passed through verbatim to the
-/// chunk extractor; FP-6 will update the template files to include the
-/// `{{chunk_text}}` / `{{schema_json}}` placeholders the extractor substitutes.
+/// Updates document progress after each chunk completes so the frontend
+/// can display per-chunk progress during PROCESSING status.
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn run_chunk_extraction(
     pool: &PgPool,
     run_id: i32,
+    doc_id: &str,
     full_text: &str,
     schema_json: &serde_json::Value,
     prompt_template: &str,
@@ -53,86 +54,82 @@ pub(super) async fn run_chunk_extraction(
     let chunk_count = chunks.len();
     tracing::info!(run_id, chunk_count, "Split document into chunks");
 
-    let sem = Arc::new(Semaphore::new(CONCURRENCY_LIMIT));
-    let schema_json = Arc::new(schema_json.clone());
-    let template = Arc::new(prompt_template.to_string());
-
-    let mut handles = Vec::with_capacity(chunk_count);
-    for chunk in chunks {
-        let sem = Arc::clone(&sem);
-        let extractor = Arc::clone(&extractor);
-        let schema_json = Arc::clone(&schema_json);
-        let template = Arc::clone(&template);
-
-        handles.push(tokio::spawn(async move {
-            let _permit = sem.acquire_owned().await.expect("semaphore closed");
-            let start = Instant::now();
-            let result = extractor
-                .extract_chunk(&chunk.text, &schema_json, &template, "")
-                .await;
-            let duration_ms = start.elapsed().as_millis() as i64;
-            (chunk.index, chunk.text, result, duration_ms)
-        }));
-    }
-
-    let joined = join_all(handles).await;
-
     let mut merged_nodes: Vec<ExtractedNode> = Vec::new();
     let mut merged_rels: Vec<ExtractedRel> = Vec::new();
     let mut chunks_succeeded = 0usize;
     let mut chunks_failed = 0usize;
 
-    for join_result in joined {
-        match join_result {
-            Ok((chunk_index, chunk_text, Ok(mut result), duration_ms)) => {
-                prefix_chunk_ids(&mut result, chunk_index);
-                let node_count = result.nodes.len();
-                let rel_count = result.relationships.len();
-                merged_nodes.extend(result.nodes);
-                merged_rels.extend(result.relationships);
+    // Sequential extraction with inter-chunk delay to stay under rate limits.
+    // Concurrent extraction disabled due to Anthropic rate limits (8k output tokens/min).
+    // Re-enable when rate limit is increased or when using a self-hosted model.
+    for (index, chunk) in chunks.iter().enumerate() {
+        // Update progress before starting this chunk
+        let entities_so_far = merged_nodes.len();
+        let pct = 10 + (50 * (index) / chunk_count.max(1));
+        documents::update_processing_progress(
+            pool, doc_id, "extract",
+            &format!("Analyzing content... chunk {} of {}", index + 1, chunk_count),
+            chunk_count as i32, index as i32,
+            entities_so_far as i32, pct as i32,
+        ).await.ok();
+
+        // Extract this chunk
+        let start = Instant::now();
+        let result = extractor
+            .extract_chunk(&chunk.text, schema_json, prompt_template, "")
+            .await;
+        let duration_ms = start.elapsed().as_millis() as i64;
+
+        match result {
+            Ok(mut chunk_result) => {
+                prefix_chunk_ids(&mut chunk_result, chunk.index);
+                let node_count = chunk_result.nodes.len();
+                let rel_count = chunk_result.relationships.len();
+                merged_nodes.extend(chunk_result.nodes);
+                merged_rels.extend(chunk_result.relationships);
                 chunks_succeeded += 1;
                 insert_chunk_row(
-                    pool,
-                    run_id,
-                    chunk_index as i32,
-                    &chunk_text,
-                    "completed",
-                    node_count as i32,
-                    rel_count as i32,
-                    None,
-                    duration_ms,
-                )
-                .await;
+                    pool, run_id, chunk.index as i32, &chunk.text,
+                    "completed", node_count as i32, rel_count as i32,
+                    None, duration_ms,
+                ).await;
+                tracing::info!(
+                    run_id, chunk_index = chunk.index, node_count, rel_count,
+                    duration_ms, "Chunk extraction succeeded"
+                );
             }
-            Ok((chunk_index, chunk_text, Err(err), duration_ms)) => {
+            Err(err) => {
                 chunks_failed += 1;
                 let error_message = format!("{err:?}");
                 tracing::error!(
-                    run_id,
-                    chunk_index,
-                    error = %error_message,
-                    "Chunk extraction failed"
+                    run_id, chunk_index = chunk.index,
+                    error = %error_message, "Chunk extraction failed"
                 );
                 insert_chunk_row(
-                    pool,
-                    run_id,
-                    chunk_index as i32,
-                    &chunk_text,
-                    "failed",
-                    0,
-                    0,
-                    Some(&error_message),
-                    duration_ms,
-                )
-                .await;
-            }
-            Err(join_err) => {
-                // Task panicked — no chunk_index / chunk_text available.
-                chunks_failed += 1;
-                tracing::error!(run_id, error = %join_err, "Chunk extraction task panicked");
+                    pool, run_id, chunk.index as i32, &chunk.text,
+                    "failed", 0, 0, Some(&error_message), duration_ms,
+                ).await;
             }
         }
+
+        // Delay between chunks (skip delay after last chunk)
+        if index < chunks.len() - 1 {
+            tracing::info!(
+                run_id, delay_secs = INTER_CHUNK_DELAY_SECS,
+                "Waiting between chunks to respect rate limits"
+            );
+            tokio::time::sleep(tokio::time::Duration::from_secs(INTER_CHUNK_DELAY_SECS)).await;
+        }
     }
+
+    // Final progress update
+    let final_pct = 55;
+    documents::update_processing_progress(
+        pool, doc_id, "extract",
+        "Content analyzed",
+        chunk_count as i32, chunk_count as i32,
+        merged_nodes.len() as i32, final_pct,
+    ).await.ok();
 
     let legacy_json = chunk_results_to_legacy_json(&merged_nodes, &merged_rels);
 
@@ -266,4 +263,3 @@ pub(super) async fn update_run_chunk_stats(
         tracing::error!(run_id, error = %e, "Failed to update extraction_runs chunk stats");
     }
 }
-
