@@ -23,7 +23,7 @@ use super::chunk_extractor::AnthropicChunkExtractor;
 use crate::error::AppError;
 
 /// Maximum chunks in flight against the LLM API at once.
-const CONCURRENCY_LIMIT: usize = 5;
+const CONCURRENCY_LIMIT: usize = 2;
 
 /// Summary returned from the chunk extraction run.
 pub(super) struct ChunkExtractionSummary {
