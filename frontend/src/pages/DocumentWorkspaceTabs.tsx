@@ -99,11 +99,11 @@ const DocumentWorkspaceTabs: React.FC = () => {
   const loadData = useCallback(async () => {
     if (!docId) return;
     try {
-      const [docs, hist] = await Promise.all([
+      const [listResponse, hist] = await Promise.all([
         fetchPipelineDocuments(),
         fetchDocumentHistory(docId).catch(() => ({ document_id: docId, steps: [] })),
       ]);
-      const found = docs.find((d) => d.id === docId);
+      const found = listResponse.documents.find((d) => d.id === docId);
       if (!found) { setError(`Document '${docId}' not found`); return; }
       setDoc(found);
       setHistory(hist.steps);
