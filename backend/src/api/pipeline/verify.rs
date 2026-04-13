@@ -84,54 +84,27 @@ pub(crate) async fn run_verify(
         });
     }
 
-    // 6. Categorize items by grounding mode and build combined snippets.
-    //    Each snippet-based item gets an entry in `snippets` and a back-reference
-    //    in `snippet_items` so we can distribute PageGrounder results.
+    // 6. Categorize items by grounding mode using the extracted pure function.
+    //    Then build combined snippets for PageGrounder.
+    let categorization = categorize_items_for_grounding(&items, &grounding_modes);
+
     let mut snippets: Vec<String> = Vec::new();
     let mut snippet_items: Vec<SnippetMeta> = Vec::new();
-    let mut derived_items: Vec<i32> = Vec::new();
-    let mut none_items: Vec<i32> = Vec::new();
-    let mut missing_quote_items: Vec<i32> = Vec::new();
+    let derived_items = categorization.derived_item_ids;
+    let none_items = categorization.none_item_ids;
+    let missing_quote_items = categorization.missing_quote_item_ids;
 
-    for item in &items {
-        let mode = grounding_modes
-            .get(&item.entity_type)
-            .unwrap_or(&GroundingMode::Verbatim);
-
-        match mode {
-            GroundingMode::Derived => {
-                derived_items.push(item.id);
-            }
-            GroundingMode::None => {
-                none_items.push(item.id);
-            }
-            GroundingMode::Verbatim => {
-                if let Some(quote) = item.verbatim_quote.as_deref().filter(|q| !q.is_empty()) {
-                    snippets.push(quote.to_string());
-                    snippet_items.push(SnippetMeta { item_id: item.id, kind: SnippetKind::Verbatim });
-                } else {
-                    missing_quote_items.push(item.id);
-                }
-            }
-            GroundingMode::NameMatch => {
-                let label = extract_name_label(item);
-                if !label.is_empty() {
-                    snippets.push(label);
-                    snippet_items.push(SnippetMeta { item_id: item.id, kind: SnippetKind::NameMatch });
-                } else {
-                    missing_quote_items.push(item.id);
-                }
-            }
-            GroundingMode::HeadingMatch => {
-                let label = extract_heading_label(item);
-                if !label.is_empty() {
-                    snippets.push(label);
-                    snippet_items.push(SnippetMeta { item_id: item.id, kind: SnippetKind::HeadingMatch });
-                } else {
-                    missing_quote_items.push(item.id);
-                }
-            }
-        }
+    for (item_id, quote) in &categorization.verbatim_items {
+        snippets.push(quote.clone());
+        snippet_items.push(SnippetMeta { item_id: *item_id, kind: SnippetKind::Verbatim });
+    }
+    for (item_id, name) in &categorization.name_match_items {
+        snippets.push(name.clone());
+        snippet_items.push(SnippetMeta { item_id: *item_id, kind: SnippetKind::NameMatch });
+    }
+    for (item_id, heading) in &categorization.heading_match_items {
+        snippets.push(heading.clone());
+        snippet_items.push(SnippetMeta { item_id: *item_id, kind: SnippetKind::HeadingMatch });
     }
 
     // 7. Run PageGrounder in blocking thread for all snippet-based items
@@ -319,6 +292,92 @@ enum SnippetKind {
     HeadingMatch,
 }
 
+/// Result of categorizing extraction items by grounding mode.
+///
+/// ## Why this struct is extracted from run_verify
+///
+/// The categorization logic — which items need verbatim quote matching,
+/// which need name matching, which are derived — is pure business logic
+/// with no IO dependencies. Extracting it as a pure function allows it
+/// to be tested without a database connection.
+pub(crate) struct GroundingCategorization {
+    /// Items that need verbatim quote search (have a non-empty quote)
+    pub verbatim_items: Vec<(i32, String)>,  // (item_id, quote)
+    /// Items that need name-based search
+    pub name_match_items: Vec<(i32, String)>, // (item_id, name)
+    /// Items that need heading-based search
+    pub heading_match_items: Vec<(i32, String)>, // (item_id, heading)
+    /// Items marked as derived (no PDF search needed)
+    pub derived_item_ids: Vec<i32>,
+    /// Items marked as unverified (grounding_mode = None)
+    pub none_item_ids: Vec<i32>,
+    /// Items that should have a quote but don't (will get missing_quote status)
+    pub missing_quote_item_ids: Vec<i32>,
+}
+
+/// Categorize extraction items by grounding mode.
+///
+/// Pure function — no IO, no database. Takes items and their grounding modes
+/// from the schema, returns categorized lists ready for the grounding step.
+pub(crate) fn categorize_items_for_grounding(
+    items: &[ExtractionItemRecord],
+    grounding_modes: &HashMap<String, GroundingMode>,
+) -> GroundingCategorization {
+    let mut verbatim_items = Vec::new();
+    let mut name_match_items = Vec::new();
+    let mut heading_match_items = Vec::new();
+    let mut derived_item_ids = Vec::new();
+    let mut none_item_ids = Vec::new();
+    let mut missing_quote_item_ids = Vec::new();
+
+    for item in items {
+        let mode = grounding_modes
+            .get(&item.entity_type)
+            .unwrap_or(&GroundingMode::Verbatim);
+
+        match mode {
+            GroundingMode::Derived => {
+                derived_item_ids.push(item.id);
+            }
+            GroundingMode::None => {
+                none_item_ids.push(item.id);
+            }
+            GroundingMode::Verbatim => {
+                if let Some(quote) = item.verbatim_quote.as_deref().filter(|q| !q.is_empty()) {
+                    verbatim_items.push((item.id, quote.to_string()));
+                } else {
+                    missing_quote_item_ids.push(item.id);
+                }
+            }
+            GroundingMode::NameMatch => {
+                let label = extract_name_label(item);
+                if !label.is_empty() {
+                    name_match_items.push((item.id, label));
+                } else {
+                    missing_quote_item_ids.push(item.id);
+                }
+            }
+            GroundingMode::HeadingMatch => {
+                let label = extract_heading_label(item);
+                if !label.is_empty() {
+                    heading_match_items.push((item.id, label));
+                } else {
+                    missing_quote_item_ids.push(item.id);
+                }
+            }
+        }
+    }
+
+    GroundingCategorization {
+        verbatim_items,
+        name_match_items,
+        heading_match_items,
+        derived_item_ids,
+        none_item_ids,
+        missing_quote_item_ids,
+    }
+}
+
 /// Load grounding modes from the extraction schema.
 ///
 /// Returns an empty map on failure (all items default to Verbatim).
@@ -399,4 +458,112 @@ fn run_grounding(
         AppError::Internal { message: format!("Grounding failed: {e}") }
     })?;
     Ok(results)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_item(id: i32, entity_type: &str, verbatim_quote: Option<&str>) -> ExtractionItemRecord {
+        ExtractionItemRecord {
+            id,
+            run_id: 1,
+            document_id: "test-doc".to_string(),
+            entity_type: entity_type.to_string(),
+            item_data: serde_json::json!({}),
+            verbatim_quote: verbatim_quote.map(|s| s.to_string()),
+            grounding_status: None,
+            grounded_page: None,
+            review_status: "pending".to_string(),
+            reviewed_by: None,
+            reviewed_at: None,
+            review_notes: None,
+            graph_status: "pending".to_string(),
+        }
+    }
+
+    fn complaint_grounding_modes() -> HashMap<String, GroundingMode> {
+        // Mirrors the complaint_v2.yaml grounding modes
+        let mut modes = HashMap::new();
+        modes.insert("Party".to_string(), GroundingMode::NameMatch);
+        modes.insert("LegalCount".to_string(), GroundingMode::HeadingMatch);
+        modes.insert("ComplaintAllegation".to_string(), GroundingMode::Verbatim);
+        modes.insert("Harm".to_string(), GroundingMode::Derived);
+        modes
+    }
+
+    #[test]
+    fn test_complaint_allegation_with_quote_goes_to_verbatim() {
+        let items = vec![make_item(1, "ComplaintAllegation", Some("Defendant fired plaintiff."))];
+        let modes = complaint_grounding_modes();
+        let cat = categorize_items_for_grounding(&items, &modes);
+        assert_eq!(cat.verbatim_items.len(), 1);
+        assert_eq!(cat.verbatim_items[0].0, 1);
+        assert_eq!(cat.verbatim_items[0].1, "Defendant fired plaintiff.");
+        assert!(cat.missing_quote_item_ids.is_empty());
+    }
+
+    #[test]
+    fn test_complaint_allegation_without_quote_goes_to_missing() {
+        // This is the bug: 211 items went to missing_quote because LLM
+        // did not produce verbatim quotes. Test documents the expectation.
+        let items = vec![make_item(1, "ComplaintAllegation", None)];
+        let modes = complaint_grounding_modes();
+        let cat = categorize_items_for_grounding(&items, &modes);
+        assert!(cat.verbatim_items.is_empty());
+        assert_eq!(cat.missing_quote_item_ids, vec![1]);
+    }
+
+    #[test]
+    fn test_party_goes_to_name_match() {
+        let mut item = make_item(2, "Party", None);
+        item.item_data = serde_json::json!({"properties": {"full_name": "Marie Awad"}});
+        let items = vec![item];
+        let modes = complaint_grounding_modes();
+        let cat = categorize_items_for_grounding(&items, &modes);
+        assert_eq!(cat.name_match_items.len(), 1);
+        assert!(cat.missing_quote_item_ids.is_empty());
+    }
+
+    #[test]
+    fn test_harm_goes_to_derived() {
+        let items = vec![make_item(3, "Harm", None)];
+        let modes = complaint_grounding_modes();
+        let cat = categorize_items_for_grounding(&items, &modes);
+        assert_eq!(cat.derived_item_ids, vec![3]);
+    }
+
+    #[test]
+    fn test_unknown_entity_type_defaults_to_verbatim() {
+        // Items with entity_type not in the schema default to Verbatim.
+        // Without a quote they go to missing_quote.
+        let items = vec![make_item(4, "UnknownType", None)];
+        let modes = complaint_grounding_modes();
+        let cat = categorize_items_for_grounding(&items, &modes);
+        assert_eq!(cat.missing_quote_item_ids, vec![4]);
+    }
+
+    #[test]
+    fn test_general_legal_schema_gives_all_missing_quote() {
+        // This documents WHY general_legal.yaml produces all missing_quote:
+        // Statement entities have grounding_mode=verbatim but general_legal
+        // extracts no verbatim_quote field → all 211 items go to missing_quote.
+        // Fixed by using complaint_v2.yaml which has proper verbatim_quote fields.
+        let items = vec![
+            make_item(1, "Statement", None),  // no quote
+            make_item(2, "Party", None),
+        ];
+        // general_legal modes — Statement is Verbatim, Party is NameMatch
+        let mut modes = HashMap::new();
+        modes.insert("Statement".to_string(), GroundingMode::Verbatim);
+        modes.insert("Party".to_string(), GroundingMode::NameMatch);
+
+        let cat = categorize_items_for_grounding(&items, &modes);
+        // Statement without quote → missing_quote (verbatim mode, no quote)
+        // Party without name label → missing_quote (name_match mode, empty item_data)
+        // Both end up in missing_quote because neither has the data its mode requires.
+        assert_eq!(cat.missing_quote_item_ids, vec![1, 2]);
+        assert!(cat.verbatim_items.is_empty());
+        assert!(cat.name_match_items.is_empty());
+    }
 }

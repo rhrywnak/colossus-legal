@@ -21,6 +21,33 @@ use crate::state::AppState;
 
 use super::{field_text, require_field, UploadDocumentResponse, MAX_FILE_SIZE};
 
+/// Map a document type name to its extraction schema filename.
+///
+/// This is the single authoritative mapping between document types and
+/// schemas. Used by both upload (to set initial pipeline_config) and
+/// extract_text (to update pipeline_config after auto-detection).
+///
+/// ## Why this function exists
+///
+/// Previously, the mapping existed in two places (upload.rs and a comment
+/// in extract_text.rs) and they were inconsistent. Centralizing it here
+/// ensures both use the same mapping and both are updated when schemas change.
+pub fn schema_for_document_type(document_type: &str) -> &'static str {
+    match document_type {
+        "complaint" => "complaint_v2.yaml",
+        "discovery_response" => "discovery_response.yaml",
+        "motion" | "brief" | "motion_brief" => "motion.yaml",
+        "affidavit" => "affidavit.yaml",
+        "court_ruling" => "court_ruling.yaml",
+        // "auto" and "unknown" default to complaint schema because this
+        // system's primary document type is a legal complaint. When type
+        // is unknown at upload time, using the complaint schema is safer
+        // than the generic schema because complaint_v2.yaml extracts
+        // the specific legal structures the application needs.
+        _ => "complaint_v2.yaml",
+    }
+}
+
 /// POST /api/admin/pipeline/documents
 ///
 /// Accepts a multipart form with a PDF file and metadata fields.
@@ -81,14 +108,7 @@ pub async fn upload_document(
     // also select the schema based on document_type, so this is mainly
     // for recording the intended schema in pipeline_config.
     let schema_file = schema_file.unwrap_or_else(|| {
-        match document_type.as_str() {
-            "complaint" => "complaint_v2.yaml",
-            "discovery_response" => "discovery_response.yaml",
-            "motion" | "brief" | "motion_brief" => "motion.yaml",
-            "affidavit" => "affidavit.yaml",
-            "court_ruling" => "court_ruling.yaml",
-            _ => "general_legal.yaml",
-        }.to_string()
+        schema_for_document_type(&document_type).to_string()
     });
     let file_data = file_data.ok_or_else(|| AppError::BadRequest {
         message: "No 'file' field in multipart upload".to_string(),
@@ -239,4 +259,102 @@ pub async fn upload_document(
         })?;
 
     Ok((axum::http::StatusCode::CREATED, Json(UploadDocumentResponse { document })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── schema_for_document_type tests ──────────────────────────
+
+    /// These tests document the authoritative mapping between document
+    /// types and schema files. If a schema file is renamed, these tests
+    /// will fail — which is the correct behavior (the mapping must be
+    /// updated explicitly, not silently broken).
+
+    #[test]
+    fn test_complaint_maps_to_v2_schema() {
+        // This is the bug that cost $0.44 to discover in production.
+        // complaint_v2.yaml (not complaint.yaml) is the correct schema.
+        assert_eq!(
+            schema_for_document_type("complaint"),
+            "complaint_v2.yaml",
+            "Complaint must use complaint_v2.yaml — complaint.yaml is outdated"
+        );
+    }
+
+    #[test]
+    fn test_auto_maps_to_complaint_schema() {
+        // "auto" documents default to complaint schema because this system
+        // processes legal complaints as its primary document type.
+        assert_eq!(
+            schema_for_document_type("auto"),
+            "complaint_v2.yaml",
+            "Auto-detect defaults to complaint schema for this system"
+        );
+    }
+
+    #[test]
+    fn test_unknown_maps_to_complaint_schema() {
+        assert_eq!(
+            schema_for_document_type("unknown"),
+            "complaint_v2.yaml"
+        );
+    }
+
+    #[test]
+    fn test_discovery_response_schema() {
+        assert_eq!(
+            schema_for_document_type("discovery_response"),
+            "discovery_response.yaml"
+        );
+    }
+
+    #[test]
+    fn test_motion_schema() {
+        assert_eq!(schema_for_document_type("motion"), "motion.yaml");
+        assert_eq!(schema_for_document_type("brief"), "motion.yaml");
+        assert_eq!(schema_for_document_type("motion_brief"), "motion.yaml");
+    }
+
+    #[test]
+    fn test_affidavit_schema() {
+        assert_eq!(schema_for_document_type("affidavit"), "affidavit.yaml");
+    }
+
+    #[test]
+    fn test_court_ruling_schema() {
+        assert_eq!(schema_for_document_type("court_ruling"), "court_ruling.yaml");
+    }
+
+    #[test]
+    fn test_completely_unknown_type_defaults_to_complaint() {
+        // Any unrecognized document type defaults to complaint schema.
+        // This prevents general_legal.yaml from being used, which produces
+        // generic Statement/Party entities instead of legal-specific ones.
+        assert_eq!(schema_for_document_type("garbage"), "complaint_v2.yaml");
+        assert_eq!(schema_for_document_type(""), "complaint_v2.yaml");
+    }
+
+    #[test]
+    fn test_schema_mapping_is_exhaustive() {
+        // Verify all known document types return a .yaml file.
+        // This test catches typos in schema filenames.
+        let known_types = [
+            "complaint", "discovery_response", "motion", "brief",
+            "motion_brief", "affidavit", "court_ruling", "auto", "unknown",
+        ];
+        for doc_type in &known_types {
+            let schema = schema_for_document_type(doc_type);
+            assert!(
+                schema.ends_with(".yaml"),
+                "Schema for '{}' must end with .yaml, got: {}",
+                doc_type, schema
+            );
+            assert!(
+                !schema.is_empty(),
+                "Schema for '{}' must not be empty", doc_type
+            );
+        }
+    }
 }

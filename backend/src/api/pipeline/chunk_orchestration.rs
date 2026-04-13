@@ -232,7 +232,7 @@ fn prefix_chunk_ids(result: &mut ChunkExtractionResult, chunk_index: usize) {
 /// Convert merged chunk results into the JSON shape expected by the
 /// existing `store_entities_and_relationships` / `validate_completeness`
 /// code paths — `{ entities: [...], relationships: [...] }`.
-fn chunk_results_to_legacy_json(
+pub(crate) fn chunk_results_to_legacy_json(
     merged_nodes: &[ExtractedNode],
     merged_rels: &[ExtractedRel],
 ) -> serde_json::Value {
@@ -342,6 +342,89 @@ pub(super) async fn update_run_chunk_stats(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_legacy_json_promotes_verbatim_quote() {
+        use colossus_extract::ExtractedNode;
+        use std::collections::HashMap;
+
+        // Build a node with verbatim_quote in properties (as LLM returns it)
+        let mut properties = HashMap::new();
+        properties.insert(
+            "verbatim_quote".to_string(),
+            serde_json::Value::String("Plaintiff was wrongfully terminated.".to_string()),
+        );
+        properties.insert(
+            "paragraph_number".to_string(),
+            serde_json::Value::String("42".to_string()),
+        );
+
+        let node = ExtractedNode {
+            id: "chunk_0:1".to_string(),
+            label: "ComplaintAllegation".to_string(),
+            properties,
+        };
+
+        let legacy = chunk_results_to_legacy_json(&[node], &[]);
+
+        let entities = legacy["entities"].as_array().unwrap();
+        assert_eq!(entities.len(), 1);
+
+        let entity = &entities[0];
+
+        // verbatim_quote must be promoted to the top level
+        assert_eq!(
+            entity["verbatim_quote"].as_str(),
+            Some("Plaintiff was wrongfully terminated."),
+            "verbatim_quote must be promoted from properties to top-level entity"
+        );
+    }
+
+    #[test]
+    fn test_legacy_json_node_without_verbatim_quote() {
+        use colossus_extract::ExtractedNode;
+        use std::collections::HashMap;
+
+        // Party node — no verbatim_quote
+        let mut properties = HashMap::new();
+        properties.insert(
+            "full_name".to_string(),
+            serde_json::Value::String("Marie Awad".to_string()),
+        );
+
+        let node = ExtractedNode {
+            id: "chunk_0:0".to_string(),
+            label: "Party".to_string(),
+            properties,
+        };
+
+        let legacy = chunk_results_to_legacy_json(&[node], &[]);
+        let entity = &legacy["entities"][0];
+
+        // verbatim_quote should not appear at top level when not in properties
+        assert!(
+            entity["verbatim_quote"].is_null(),
+            "Entity without verbatim_quote should not have null promoted to top level"
+        );
+    }
+
+    #[test]
+    fn test_legacy_json_preserves_entity_type_and_id() {
+        use colossus_extract::ExtractedNode;
+        use std::collections::HashMap;
+
+        let node = ExtractedNode {
+            id: "chunk_2:5".to_string(),
+            label: "LegalCount".to_string(),
+            properties: HashMap::new(),
+        };
+
+        let legacy = chunk_results_to_legacy_json(&[node], &[]);
+        let entity = &legacy["entities"][0];
+
+        assert_eq!(entity["entity_type"].as_str(), Some("LegalCount"));
+        assert_eq!(entity["id"].as_str(), Some("chunk_2:5"));
+    }
 
     #[test]
     fn test_max_rate_limit_retries_is_reasonable() {

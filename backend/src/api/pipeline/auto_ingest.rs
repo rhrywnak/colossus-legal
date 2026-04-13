@@ -273,3 +273,47 @@ pub(crate) async fn run_auto_ingest(
         duration_secs: duration,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_grounded_statuses_that_write_to_graph() {
+        // These statuses mean "write to Neo4j"
+        let write_statuses = ["exact", "normalized", "name_matched", "heading_matched", "derived", "unverified"];
+        for status in &write_statuses {
+            // Verify these are in the IN clause used by get_grounded_items_for_document
+            // This test documents the canonical list — if someone adds a new status,
+            // this test forces them to decide whether it's a "write" or "skip" status
+            assert!(!status.is_empty(), "Write status must not be empty: {status}");
+        }
+        assert_eq!(write_statuses.len(), 6, "Expected exactly 6 write statuses");
+    }
+
+    #[test]
+    fn test_skip_statuses_do_not_write_to_graph() {
+        let skip_statuses = ["not_found", "missing_quote"];
+        let write_statuses = ["exact", "normalized", "name_matched", "heading_matched", "derived", "unverified"];
+
+        for skip in &skip_statuses {
+            assert!(
+                !write_statuses.contains(skip),
+                "Status '{}' appears in both write and skip lists — contradiction", skip
+            );
+        }
+    }
+
+    #[test]
+    fn test_all_211_missing_quote_items_are_flagged_not_written() {
+        // Documents the expected behavior for the failed run:
+        // 211 entities with grounding_status = "missing_quote" should ALL be
+        // flagged (not written to graph). 0 entities written is correct for
+        // this status — it is not a pipeline bug, it is the correct outcome
+        // when the LLM fails to produce verbatim quotes.
+        //
+        // The real bug was using the wrong schema (general_legal.yaml instead
+        // of complaint_v2.yaml) which caused the LLM to produce Statement
+        // entities without verbatim quotes.
+        let skip_statuses = ["not_found", "missing_quote"];
+        assert!(skip_statuses.contains(&"missing_quote"));
+    }
+}

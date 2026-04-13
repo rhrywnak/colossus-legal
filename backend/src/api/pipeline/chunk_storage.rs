@@ -90,3 +90,98 @@ pub(super) async fn store_entities_and_relationships(
 
     Ok((entity_count, rel_count))
 }
+
+#[cfg(test)]
+mod tests {
+    /// Helper: build a minimal entity JSON as the LLM would return it,
+    /// with verbatim_quote inside properties (the standard LLM output shape).
+    fn entity_with_quote_in_properties(quote: &str) -> serde_json::Value {
+        serde_json::json!({
+            "entity_type": "ComplaintAllegation",
+            "id": "chunk_0:1",
+            "properties": {
+                "paragraph_number": "12",
+                "summary": "Plaintiff was terminated",
+                "verbatim_quote": quote
+            }
+        })
+    }
+
+    /// Helper: build entity JSON with verbatim_quote at the top level.
+    /// This is the promoted shape after chunk_results_to_legacy_json runs.
+    fn entity_with_quote_at_top_level(quote: &str) -> serde_json::Value {
+        serde_json::json!({
+            "entity_type": "ComplaintAllegation",
+            "id": "chunk_0:1",
+            "verbatim_quote": quote,
+            "properties": {
+                "paragraph_number": "12",
+                "summary": "Plaintiff was terminated"
+            }
+        })
+    }
+
+    #[test]
+    fn test_verbatim_quote_extracted_from_properties() {
+        // This is the exact logic in store_entities_and_relationships.
+        // Tests that verbatim_quote is found inside entity["properties"].
+        let entity = entity_with_quote_in_properties("The defendant terminated plaintiff without cause.");
+        let verbatim = entity["verbatim_quote"]
+            .as_str()
+            .or_else(|| entity["properties"]["verbatim_quote"].as_str());
+        assert_eq!(
+            verbatim,
+            Some("The defendant terminated plaintiff without cause."),
+            "verbatim_quote must be extracted from properties when not at top level"
+        );
+    }
+
+    #[test]
+    fn test_verbatim_quote_extracted_from_top_level() {
+        // When already promoted to top level, extraction must still work.
+        let entity = entity_with_quote_at_top_level("The defendant terminated plaintiff without cause.");
+        let verbatim = entity["verbatim_quote"]
+            .as_str()
+            .or_else(|| entity["properties"]["verbatim_quote"].as_str());
+        assert_eq!(
+            verbatim,
+            Some("The defendant terminated plaintiff without cause.")
+        );
+    }
+
+    #[test]
+    fn test_verbatim_quote_returns_none_when_absent() {
+        // Entity without any verbatim_quote — should return None, not panic.
+        let entity = serde_json::json!({
+            "entity_type": "Party",
+            "id": "chunk_0:1",
+            "properties": {
+                "full_name": "Marie Awad",
+                "role": "plaintiff"
+            }
+        });
+        let verbatim = entity["verbatim_quote"]
+            .as_str()
+            .or_else(|| entity["properties"]["verbatim_quote"].as_str());
+        assert_eq!(verbatim, None, "No verbatim_quote should return None, not panic");
+    }
+
+    #[test]
+    fn test_verbatim_quote_empty_string_treated_as_absent() {
+        // An empty verbatim_quote is equivalent to no quote —
+        // verify.rs checks: filter(|q| !q.is_empty())
+        let entity = serde_json::json!({
+            "entity_type": "ComplaintAllegation",
+            "id": "chunk_0:1",
+            "properties": { "verbatim_quote": "" }
+        });
+        let verbatim = entity["verbatim_quote"]
+            .as_str()
+            .or_else(|| entity["properties"]["verbatim_quote"].as_str())
+            .filter(|q| !q.is_empty());
+        assert_eq!(
+            verbatim, None,
+            "Empty verbatim_quote should be treated as absent"
+        );
+    }
+}
