@@ -25,6 +25,7 @@ mod delete;
 mod errors;
 mod extract;
 mod extract_text;
+pub mod graph_migrations;
 mod graph_validation;
 mod file;
 mod history;

@@ -94,6 +94,10 @@ async fn main() {
         .await
         .expect("Neo4j connectivity check failed");
 
+    // Run Neo4j schema migrations (uniqueness constraints for entity nodes).
+    // These are idempotent (IF NOT EXISTS) and must run before any ingest.
+    colossus_legal_backend::api::pipeline::graph_migrations::run_graph_migrations(&graph).await;
+
     // Shared HTTP client with timeouts — reused across all handlers.
     // reqwest::Client pools connections internally, so sharing one client
     // is both faster and safer than creating a new one per request.
