@@ -2,19 +2,23 @@
  * ProcessingPanel — Displays content based on doc.status_group.
  *
  * Five statuses: new, processing, completed, failed, cancelled.
- * Fetches execution history from the actions endpoint on mount
- * and when the document status changes.
+ * Execution history is passed from the parent (DocumentWorkspaceTabs)
+ * which already fetches it in loadData(). Polling is also owned by the
+ * parent — this component does not poll independently.
+ *
+ * ## Contract: onStepTriggered
+ *
+ * onStepTriggered must be called after every user action (process, cancel,
+ * reprocess) to ensure the parent reloads document state. Without this
+ * call, the UI shows stale status indefinitely.
  */
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useState } from "react";
 import ExecutionHistory from "./ExecutionHistory";
 import ReprocessDialog from "./ReprocessDialog";
 import {
-  fetchDocumentActions,
   processDocument,
   cancelProcessing,
   PipelineDocument,
-  DocumentActions,
-  ExecutionHistoryEntry,
   PipelineStep,
 } from "../../services/pipelineApi";
 
@@ -66,63 +70,31 @@ const btnDanger = (enabled: boolean): React.CSSProperties => ({
   fontFamily: "inherit",
 });
 
-// ── Helpers ─────────────────────────────────────────────────────
-
-/** Map ExecutionHistoryEntry[] to PipelineStep[] for the ExecutionHistory component. */
-function toSteps(entries: ExecutionHistoryEntry[]): PipelineStep[] {
-  return entries.map((e, i) => ({
-    id: i,
-    document_id: "",
-    step_name: e.label || e.step_name,
-    status: e.status,
-    started_at: e.started_at,
-    completed_at: null,
-    duration_secs: e.duration_secs,
-    triggered_by: e.triggered_by,
-    input_params: {},
-    result_summary: e.summary ?? {},
-    error_message: e.error_message,
-  }));
-}
-
 // ── Component ───────────────────────────────────────────────────
 
 interface ProcessingPanelProps {
   document: PipelineDocument;
-  onRefresh: () => void;
+  // Called after any action (process, cancel, reprocess) to reload the document.
+  // Named onStepTriggered to match DocumentWorkspaceTabs.
+  onStepTriggered: () => void;
+  // Called when the panel wants the parent to switch tabs (e.g., after
+  // reprocess starts, switch to the processing view). Optional.
+  onSwitchTab?: (tabId: string) => void;
+  // History is passed from the parent — no need to fetch it again here.
+  // The parent already has it from loadData(). Kept as optional so the
+  // component works standalone if needed.
+  history?: PipelineStep[];
 }
 
 const ProcessingPanel: React.FC<ProcessingPanelProps> = ({
-  document: doc, onRefresh,
+  document: doc, onStepTriggered, onSwitchTab, history,
 }) => {
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [actions, setActions] = useState<DocumentActions | null>(null);
   const [showReprocess, setShowReprocess] = useState(false);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Fetch execution history from actions endpoint
-  const loadActions = useCallback(async () => {
-    try {
-      const data = await fetchDocumentActions(doc.id);
-      setActions(data);
-    } catch { /* non-fatal */ }
-  }, [doc.id]);
-
-  useEffect(() => { loadActions(); }, [loadActions, doc.status]);
-
-  // Polling: refresh every 3s while processing
-  useEffect(() => {
-    if (doc.status_group === "processing") {
-      pollRef.current = setInterval(() => { onRefresh(); }, 3000);
-    }
-    return () => {
-      if (pollRef.current) {
-        clearInterval(pollRef.current);
-        pollRef.current = null;
-      }
-    };
-  }, [doc.status_group, onRefresh]);
+  // No internal polling — the parent (DocumentWorkspaceTabs) owns polling
+  // and passes updated document props every 3s during PROCESSING.
 
   // Button handlers
   const handleProcess = async () => {
@@ -131,7 +103,14 @@ const ProcessingPanel: React.FC<ProcessingPanelProps> = ({
     setActionError(null);
     try {
       await processDocument(doc.id);
-      onRefresh();
+      // Small delay before refresh to allow the backend to transition
+      // the document status from NEW to PROCESSING. Without this delay,
+      // the first poll may return the document still in NEW status because
+      // the status update hasn't committed yet. 500ms is enough.
+      await new Promise(resolve => setTimeout(resolve, 500));
+      onStepTriggered();
+      // Switch to processing tab so user sees live progress immediately
+      if (onSwitchTab) onSwitchTab("processing");
     } catch (e) {
       setActionError(e instanceof Error ? e.message : "Failed to start processing");
     } finally {
@@ -149,7 +128,7 @@ const ProcessingPanel: React.FC<ProcessingPanelProps> = ({
     setActionError(null);
     try {
       await cancelProcessing(doc.id);
-      onRefresh();
+      onStepTriggered();
     } catch (e) {
       setActionError(e instanceof Error ? e.message : "Failed to cancel processing");
     } finally {
@@ -157,7 +136,7 @@ const ProcessingPanel: React.FC<ProcessingPanelProps> = ({
     }
   };
 
-  const historySteps = toSteps(actions?.execution_history ?? []);
+  const historySteps = history ?? [];
   const statusGroup = doc.status_group ?? "new";
 
   // ── Render per status_group ────────────────────────────────────
@@ -167,14 +146,28 @@ const ProcessingPanel: React.FC<ProcessingPanelProps> = ({
       <div style={{ fontSize: "0.95rem", fontWeight: 600, color: "#2563eb", marginBottom: "0.75rem" }}>
         Processing...
       </div>
+
+      {/* Current step label — updated after each chunk */}
       <div style={summaryLine}>
-        Current step: <strong>{doc.processing_step_label ?? doc.processing_step ?? "—"}</strong>
+        <strong>{doc.processing_step_label ?? doc.processing_step ?? "Starting..."}</strong>
       </div>
-      {doc.entities_found != null && (
-        <div style={summaryLine}>Entities found: {doc.entities_found}</div>
+
+      {/* Chunk progress — only shown during extraction step when chunks are known.
+          chunks_total > 0 means the extraction step has started and we know
+          how many chunks there are. Without this, the user has no way to tell
+          if the pipeline is progressing normally or stuck on a slow chunk. */}
+      {(doc.chunks_total ?? 0) > 0 && (
+        <div style={{ ...summaryLine, marginTop: "0.4rem" }}>
+          Chunk {doc.chunks_processed ?? 0} of {doc.chunks_total} analyzed
+          {(doc.entities_found ?? 0) > 0 && (
+            <span style={{ color: "#64748b" }}> — {doc.entities_found} entities found so far</span>
+          )}
+        </div>
       )}
-      <div style={{ ...mutedText, marginTop: "0.25rem" }}>
-        Progress: {doc.percent_complete ?? 0}%
+
+      {/* Overall percent complete bar */}
+      <div style={{ ...mutedText, marginTop: "0.5rem" }}>
+        Overall: {doc.percent_complete ?? 0}%
       </div>
       <div style={progressBarOuter}>
         <div style={{
@@ -185,6 +178,7 @@ const ProcessingPanel: React.FC<ProcessingPanelProps> = ({
           transition: "width 0.3s ease",
         }} />
       </div>
+
       <div style={{ marginTop: "1rem" }}>
         <button style={btnDanger(!busy)} disabled={busy} onClick={handleCancel}>
           {busy ? "Cancelling..." : "Cancel Processing"}
@@ -331,7 +325,7 @@ const ProcessingPanel: React.FC<ProcessingPanelProps> = ({
           open={showReprocess}
           documentId={doc.id}
           onClose={() => setShowReprocess(false)}
-          onSuccess={() => { setShowReprocess(false); onRefresh(); }}
+          onSuccess={() => { setShowReprocess(false); onStepTriggered(); }}
         />
       )}
     </div>

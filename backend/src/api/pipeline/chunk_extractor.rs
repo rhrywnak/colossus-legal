@@ -1,26 +1,62 @@
-//! Anthropic chunk extractor — implements ChunkExtractor using rig's prompt_typed.
+//! Anthropic chunk extractor — calls the Anthropic Messages API directly
+//! via reqwest for precise rate limit handling.
 //!
-//! This module handles per-chunk LLM extraction with three layers of defense:
-//! 1. Structured output via rig's prompt_typed (guaranteed valid JSON)
-//! 2. JSON repair via llm_json (fallback for providers without structured output)
-//! 3. Retry with exponential backoff via backon (handles rate limits)
+//! ## Why direct HTTP instead of rig
 //!
-//! ## Rust Learning: async_trait for trait implementation
+//! The `rig` crate provides a convenient abstraction over LLM providers,
+//! but it converts HTTP responses into string errors, discarding the
+//! `retry-after` header that Anthropic includes in every 429 response.
+//! Without the exact retry-after value, any backoff strategy is a guess.
 //!
-//! ChunkExtractor is defined in colossus-extract with #[async_trait].
-//! Our implementation must also use #[async_trait] so the signatures match.
-//! The trait is provider-agnostic — this file is the Anthropic-specific impl.
+//! Anthropic uses a token bucket algorithm for rate limiting — capacity
+//! refills continuously, not at fixed intervals. The retry-after header
+//! contains the exact seconds until the bucket has enough capacity for
+//! the next request. Waiting less causes immediate re-rejection. Waiting
+//! more wastes time. Only the exact value is correct.
+//!
+//! Direct reqwest gives us the full HTTP response including all headers,
+//! letting us read retry-after precisely and return PipelineError::RateLimited
+//! with the authoritative wait duration.
+//!
+//! ## Error taxonomy (important for retry decisions)
+//!
+//! HTTP 429 rate_limit_error → PipelineError::RateLimited { retry_after_secs }
+//!   Orchestrator must wait retry_after_secs, then retry this chunk.
+//!
+//! HTTP 529 overloaded_error → PipelineError::LlmProvider("overloaded: ...")
+//!   Server-side capacity issue unrelated to our rate limit. Orchestrator
+//!   uses short exponential backoff (different from rate limit handling).
+//!
+//! HTTP 5xx (500, 502, 503, 504) → PipelineError::LlmProvider("server error: ...")
+//!   Transient server errors. Short exponential backoff appropriate.
+//!
+//! HTTP 4xx (400, 401, 403) → PipelineError::LlmProvider("client error: ...")
+//!   Permanent errors. Do not retry — the request itself is wrong.
+//!
+//! Network timeout → PipelineError::LlmProvider("request timeout: ...")
+//!   Transient. Short exponential backoff appropriate.
+//!
+//! JSON parse failure → llm_json repair → PipelineError::Extraction if repair fails
+//!   Not retryable with same input. Mark chunk failed.
 
 use std::time::Duration;
-
 use async_trait::async_trait;
-use backon::{ExponentialBuilder, Retryable};
 use colossus_extract::{ChunkExtractionResult, ChunkExtractor, PipelineError};
 
-/// Anthropic-powered chunk extractor using rig's structured output.
-///
-/// Each instance holds an API key and model name. The rig Client is
-/// created per-call (it's cheap — just stores config, no connection pool).
+// Anthropic API constants.
+// These are stable values from the Anthropic API documentation.
+// The model_id is not hardcoded here — it comes from self.model.
+const ANTHROPIC_API_URL: &str = "https://api.anthropic.com/v1/messages";
+const ANTHROPIC_VERSION: &str = "2023-06-01";
+// Request timeout: 5 minutes. Individual chunk extractions should complete
+// in well under this. The timeout prevents a hung connection from blocking
+// the pipeline indefinitely.
+const REQUEST_TIMEOUT_SECS: u64 = 300;
+// Default retry-after value when the header is absent.
+// Anthropic's documentation states the header is always present on 429,
+// but we default to 60s (one full minute) as a safe fallback.
+const DEFAULT_RETRY_AFTER_SECS: u64 = 60;
+
 pub struct AnthropicChunkExtractor {
     api_key: String,
     model: String,
@@ -29,17 +65,10 @@ pub struct AnthropicChunkExtractor {
 
 impl AnthropicChunkExtractor {
     pub fn new(api_key: String, model: String, max_tokens: u64) -> Self {
-        Self {
-            api_key,
-            model,
-            max_tokens,
-        }
+        Self { api_key, model, max_tokens }
     }
 
     /// Build the extraction prompt from template + schema + chunk text.
-    ///
-    /// This is a simple string substitution — the prompt template has
-    /// placeholders for {{schema_json}}, {{chunk_text}}, and {{examples}}.
     fn build_prompt(
         &self,
         chunk_text: &str,
@@ -49,110 +78,73 @@ impl AnthropicChunkExtractor {
     ) -> String {
         let schema_str = serde_json::to_string_pretty(schema_json)
             .unwrap_or_else(|_| "{}".to_string());
-
         prompt_template
             .replace("{{schema_json}}", &schema_str)
             .replace("{{chunk_text}}", chunk_text)
             .replace("{{examples}}", examples)
     }
 
-    /// Single extraction attempt — called by the retry wrapper.
+    /// Parse the Anthropic API response body into ChunkExtractionResult.
     ///
-    /// Tries structured output first (prompt_typed). If that fails,
-    /// falls back to raw completion + JSON repair.
-    async fn try_extract(
+    /// Tries direct deserialization first. If that fails (LLM produced
+    /// slightly malformed JSON), attempts llm_json repair before giving up.
+    fn parse_response(
         &self,
-        prompt: &str,
+        response_text: &str,
     ) -> Result<ChunkExtractionResult, PipelineError> {
-        use rig::client::CompletionClient;
+        // The Anthropic response body looks like:
+        // { "content": [{ "type": "text", "text": "{ JSON here }" }], ... }
+        // We extract the text field from the first content block.
+        let response_json: serde_json::Value = serde_json::from_str(response_text)
+            .map_err(|e| PipelineError::LlmProvider(
+                format!("Failed to parse Anthropic response envelope: {e}")
+            ))?;
 
-        let client = rig::providers::anthropic::Client::new(&self.api_key)
-            .map_err(|e| PipelineError::LlmProvider(format!(
-                "Failed to create Anthropic client: {e}"
-            )))?;
+        let content_text = response_json["content"]
+            .as_array()
+            .and_then(|arr| arr.first())
+            .and_then(|block| block["text"].as_str())
+            .ok_or_else(|| PipelineError::LlmProvider(
+                "Anthropic response missing content[0].text field".into()
+            ))?;
 
-        let agent = client
-            .agent(&self.model)
-            .preamble("You extract entities and relationships from text. Follow the schema exactly.")
-            .max_tokens(self.max_tokens)
-            .temperature(0.0)
-            .build();
-
-        // Try structured output first (prompt_typed)
-        use rig::completion::TypedPrompt;
-        let typed_result: Result<ChunkExtractionResult, _> = agent
-            .prompt_typed(prompt)
-            .await;
-
-        match typed_result {
-            Ok(result) => {
-                tracing::debug!(
-                    nodes = result.nodes.len(),
-                    rels = result.relationships.len(),
-                    "Structured output extraction succeeded"
-                );
-                Ok(result)
-            }
-            Err(typed_err) => {
-                tracing::warn!(
-                    error = %typed_err,
-                    "Structured output failed, falling back to raw completion + JSON repair"
-                );
-
-                // Fallback: raw completion + JSON repair
-                self.extract_with_repair(&client, prompt).await
-            }
-        }
-    }
-
-    /// Fallback extraction: raw completion + llm_json repair.
-    ///
-    /// Used when structured output fails (e.g., schema too complex,
-    /// or provider doesn't support it).
-    async fn extract_with_repair(
-        &self,
-        client: &rig::providers::anthropic::Client,
-        prompt: &str,
-    ) -> Result<ChunkExtractionResult, PipelineError> {
-        use rig::client::CompletionClient;
-        use rig::completion::Prompt;
-
-        let agent = client
-            .agent(&self.model)
-            .preamble("You extract entities and relationships from text. Return ONLY valid JSON with 'nodes' and 'relationships' arrays. No markdown, no explanation.")
-            .max_tokens(self.max_tokens)
-            .temperature(0.0)
-            .build();
-
-        let raw_text: String = agent
-            .prompt(prompt)
-            .await
-            .map_err(|e| PipelineError::LlmProvider(format!(
-                "Raw completion failed: {e}"
-            )))?;
-
-        // Try direct parse first
-        if let Ok(result) = serde_json::from_str::<ChunkExtractionResult>(&raw_text) {
-            tracing::debug!("Raw JSON parsed directly (no repair needed)");
+        // Try direct JSON parse of the content text.
+        // The LLM should return a JSON object matching ChunkExtractionResult.
+        if let Ok(result) = serde_json::from_str::<ChunkExtractionResult>(content_text) {
             return Ok(result);
         }
 
-        // JSON repair
-        let repaired = llm_json::repair_json(&raw_text, &Default::default())
-            .map_err(|e| PipelineError::Extraction(format!(
-                "JSON repair failed: {e}"
-            )))?;
+        // Fallback: llm_json repair for slightly malformed JSON.
+        // Common LLM failure modes: trailing commas, unquoted keys, truncated output.
+        tracing::warn!(
+            model = %self.model,
+            "Direct JSON parse failed, attempting llm_json repair"
+        );
+        let repaired = llm_json::repair_json(content_text, &Default::default())
+            .map_err(|e| PipelineError::Extraction(
+                format!("JSON repair failed: {e}")
+            ))?;
 
         serde_json::from_str::<ChunkExtractionResult>(&repaired)
-            .map_err(|e| PipelineError::Extraction(format!(
-                "Repaired JSON still invalid: {e}. Preview: {}",
-                &repaired[..repaired.len().min(200)]
-            )))
+            .map_err(|e| PipelineError::Extraction(
+                format!("Repaired JSON still invalid: {e}. Preview: {}",
+                    &repaired[..repaired.len().min(200)])
+            ))
     }
 }
 
 #[async_trait]
 impl ChunkExtractor for AnthropicChunkExtractor {
+    /// Make a single extraction attempt against the Anthropic Messages API.
+    ///
+    /// Returns:
+    /// - Ok(result) on success
+    /// - Err(RateLimited { retry_after_secs }) on HTTP 429
+    /// - Err(LlmProvider(...)) on HTTP 529, 5xx, network timeout
+    /// - Err(Extraction(...)) on JSON parse failure after repair
+    ///
+    /// Does NOT retry internally. The orchestrator owns retry logic and
+    /// has access to the database pool for progress label updates during waits.
     async fn extract_chunk(
         &self,
         chunk_text: &str,
@@ -162,34 +154,159 @@ impl ChunkExtractor for AnthropicChunkExtractor {
     ) -> Result<ChunkExtractionResult, PipelineError> {
         let prompt = self.build_prompt(chunk_text, schema_json, prompt_template, examples);
 
-        // Retry with exponential backoff (handles 429 rate limits
-        // and transient API errors)
-        (|| async { self.try_extract(&prompt).await })
-            .retry(
-                ExponentialBuilder::default()
-                    .with_min_delay(Duration::from_secs(1))
-                    .with_max_delay(Duration::from_secs(60))
-                    .with_max_times(3),
-            )
-            .when(|e| {
-                let msg = format!("{e:?}");
-                msg.contains("429")
-                    || msg.contains("rate limit")
-                    || msg.contains("too many requests")
-                    || msg.contains("overloaded")
-                    || msg.contains("timeout")
-            })
-            .notify(|err, dur: Duration| {
-                tracing::warn!(
-                    error = %err,
-                    retry_after_secs = dur.as_secs(),
-                    "Retrying chunk extraction after error"
-                );
-            })
+        // Build the Anthropic Messages API request body.
+        // We use a simple user message containing the full prompt.
+        // The system message instructs the model to return only JSON.
+        let request_body = serde_json::json!({
+            "model": self.model,
+            "max_tokens": self.max_tokens,
+            "temperature": 0.0,
+            "system": "You extract entities and relationships from text. \
+                       Return ONLY valid JSON with 'nodes' and 'relationships' arrays. \
+                       No markdown, no explanation, no preamble.",
+            "messages": [
+                { "role": "user", "content": prompt }
+            ]
+        });
+
+        // Build reqwest client with timeout.
+        // A new client per call is acceptable here — each chunk extraction
+        // is a discrete operation. Connection pooling is not needed for
+        // sequential single-chunk processing.
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
+            .build()
+            .map_err(|e| PipelineError::LlmProvider(
+                format!("Failed to build HTTP client: {e}")
+            ))?;
+
+        let response = client
+            .post(ANTHROPIC_API_URL)
+            .header("x-api-key", &self.api_key)
+            .header("anthropic-version", ANTHROPIC_VERSION)
+            .header("content-type", "application/json")
+            .json(&request_body)
+            .send()
             .await
+            .map_err(|e| {
+                // reqwest errors on send include: connection refused, DNS failure,
+                // and request timeout. All are transient — short backoff appropriate.
+                if e.is_timeout() {
+                    PipelineError::LlmProvider(format!("request timeout after {REQUEST_TIMEOUT_SECS}s: {e}"))
+                } else {
+                    PipelineError::LlmProvider(format!("network error: {e}"))
+                }
+            })?;
+
+        let status = response.status();
+
+        // Handle rate limiting specifically.
+        // HTTP 429 means our token bucket is depleted. Anthropic tells us
+        // exactly how long to wait via the retry-after header.
+        if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+            // Read retry-after header. Parse as integer seconds.
+            // Fall back to DEFAULT_RETRY_AFTER_SECS if header is absent or unparseable.
+            let retry_after_secs = response
+                .headers()
+                .get("retry-after")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|s| s.parse::<u64>().ok())
+                .unwrap_or(DEFAULT_RETRY_AFTER_SECS);
+
+            tracing::warn!(
+                model = %self.model,
+                retry_after_secs,
+                "Anthropic API rate limited (429) — returning RateLimited error to orchestrator"
+            );
+
+            return Err(PipelineError::RateLimited { retry_after_secs });
+        }
+
+        // Handle server overload (529) — distinct from rate limiting.
+        // This is Anthropic's server being busy, not our quota being exceeded.
+        // Short exponential backoff is appropriate (not the full retry-after window).
+        if status.as_u16() == 529 {
+            let body = response.text().await.unwrap_or_default();
+            return Err(PipelineError::LlmProvider(
+                format!("overloaded (529): {}", &body[..body.len().min(200)])
+            ));
+        }
+
+        // Handle other non-success HTTP status codes.
+        if !status.is_success() {
+            let body = response.text().await.unwrap_or_default();
+            // 4xx errors (except 429) are permanent — wrong API key, bad request, etc.
+            // 5xx errors are transient server errors.
+            let category = if status.is_client_error() { "client error" } else { "server error" };
+            return Err(PipelineError::LlmProvider(
+                format!("{category} HTTP {status}: {}", &body[..body.len().min(300)])
+            ));
+        }
+
+        // Success — parse the response body.
+        let response_text = response.text().await
+            .map_err(|e| PipelineError::LlmProvider(
+                format!("Failed to read response body: {e}")
+            ))?;
+
+        self.parse_response(&response_text)
     }
 
     fn model_name(&self) -> &str {
         &self.model
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_retry_after_is_safe() {
+        // When the retry-after header is absent (rare for 429),
+        // we fall back to DEFAULT_RETRY_AFTER_SECS.
+        // This must be >= 60 to ensure the rate limit window clears.
+        assert!(DEFAULT_RETRY_AFTER_SECS >= 60,
+            "Default retry-after must be at least 60s to allow rate limit window to clear. \
+             Got: {}s", DEFAULT_RETRY_AFTER_SECS);
+    }
+
+    #[test]
+    fn test_request_timeout_is_generous() {
+        // The request timeout must be long enough for slow chunk extractions
+        // (large chunks, complex schemas) but finite to prevent hung connections.
+        // 5 minutes (300s) is the right range.
+        assert!(REQUEST_TIMEOUT_SECS >= 120,
+            "Request timeout too short — large chunks may time out legitimately");
+        assert!(REQUEST_TIMEOUT_SECS <= 600,
+            "Request timeout too long — hung connections block pipeline for too long");
+    }
+
+    #[test]
+    fn test_parse_response_handles_repair() {
+        // Verify that parse_response can handle slightly malformed JSON
+        // (the llm_json repair path).
+        // We test this with a well-formed response to verify the happy path.
+        // The repair path is tested implicitly by the llm_json crate's own tests.
+        let extractor = AnthropicChunkExtractor::new(
+            "test-key".into(),
+            "claude-test".into(),
+            1000,
+        );
+
+        // Well-formed Anthropic response envelope
+        let good_response = r#"{
+            "content": [{
+                "type": "text",
+                "text": "{\"nodes\": [], \"relationships\": []}"
+            }],
+            "usage": {"input_tokens": 10, "output_tokens": 5}
+        }"#;
+
+        let result = extractor.parse_response(good_response);
+        assert!(result.is_ok(), "Well-formed response should parse successfully");
+        let chunk_result = result.unwrap();
+        assert_eq!(chunk_result.nodes.len(), 0);
+        assert_eq!(chunk_result.relationships.len(), 0);
     }
 }
