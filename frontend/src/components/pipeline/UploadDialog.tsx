@@ -54,6 +54,9 @@ function slugify(name: string): string {
 function titleize(name: string): string {
   return name.replace(/\.pdf$/i, "").replace(/[-_]+/g, " ").replace(/\b\w/g, c => c.toUpperCase());
 }
+function capitalize(s: string): string {
+  return s.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+}
 
 const UploadDialog: React.FC<Props> = ({ open, onClose, onSuccess, complaintExists = true }) => {
   const navigate = useNavigate();
@@ -90,9 +93,13 @@ const UploadDialog: React.FC<Props> = ({ open, onClose, onSuccess, complaintExis
     try {
       const id = `doc-${slugify(file.name)}`;
       const title = titleize(file.name);
-      const doc = await uploadDocument(file, {
-        id, title, documentType: schema, schemaFile: `${schema === "auto" ? "general_legal" : schema}.yaml`,
-      });
+      const selectedSchema = schemas.find(s => s.filename === schema);
+      const documentType = schema === "auto" ? "auto" : (selectedSchema?.document_type ?? "auto");
+      const uploadParams: Record<string, string> = { id, title, documentType };
+      if (schema !== "auto") {
+        uploadParams.schemaFile = schema; // exact filename e.g. "complaint_v2.yaml"
+      }
+      const doc = await uploadDocument(file, uploadParams as { id: string; title: string; documentType: string; schemaFile?: string });
       onSuccess();
       navigate(`/documents/${doc.id}`);
     } catch (e) {
@@ -137,18 +144,25 @@ const UploadDialog: React.FC<Props> = ({ open, onClose, onSuccess, complaintExis
             A Complaint must be uploaded first. Other document types will be available after.
           </div>
         )}
-        <select style={selectStyle} value={complaintExists ? schema : "complaint"} onChange={(e) => setSchema(e.target.value)}>
+        <select style={selectStyle} value={complaintExists ? schema : "complaint_v2.yaml"} onChange={(e) => setSchema(e.target.value)}>
           {complaintExists && <option value="auto">Auto-detect</option>}
-          {schemas.map((s) => {
-            const base = s.filename.replace(/\.yaml$/, "");
-            const isComplaint = base === "complaint";
-            const disabled = !complaintExists && !isComplaint;
-            return (
-              <option key={s.filename} value={base} disabled={disabled}>
-                {s.document_type || base}{disabled ? " (upload Complaint first)" : ""}
-              </option>
-            );
-          })}
+          {schemas
+            .filter(s => s.filename !== "complaint.yaml") // exclude obsolete v1
+            .map((s) => {
+              // Check if multiple schemas share the same document_type
+              const sameType = schemas.filter(x => x.document_type === s.document_type);
+              const label = sameType.length > 1
+                ? `${capitalize(s.document_type)} (v${s.version})`
+                : capitalize(s.document_type);
+              const isComplaint = s.document_type === "complaint";
+              const disabled = !complaintExists && !isComplaint;
+              return (
+                <option key={s.filename} value={s.filename} disabled={disabled}>
+                  {label}{disabled ? " (upload Complaint first)" : ""}
+                </option>
+              );
+            })
+          }
         </select>
 
         {error && (

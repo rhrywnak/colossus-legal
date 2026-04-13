@@ -484,14 +484,16 @@ export async function deleteDocument(docId: string, reason?: string): Promise<vo
 
 export async function uploadDocument(
   file: File,
-  params: { id: string; title: string; documentType: string; schemaFile: string }
+  params: { id: string; title: string; documentType: string; schemaFile?: string }
 ): Promise<PipelineDocument> {
   const formData = new FormData();
   formData.append("file", file);
   formData.append("id", params.id);
   formData.append("title", params.title);
   formData.append("document_type", params.documentType);
-  formData.append("schema_file", params.schemaFile);
+  if (params.schemaFile) {
+    formData.append("schema_file", params.schemaFile);
+  }
   const res = await authFetch(`${PIPELINE_BASE}/documents`, {
     method: "POST",
     body: formData,
