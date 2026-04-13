@@ -46,17 +46,11 @@ pub fn enrich_document(doc: DocumentRecord, user: &AuthUser) -> DocumentResponse
 }
 
 /// Compute which tabs a user can see for a document in its current state.
-fn compute_visible_tabs(status: &str, is_admin: bool) -> Vec<&'static str> {
+fn compute_visible_tabs(status: &str, _is_admin: bool) -> Vec<&'static str> {
     match status {
-        "NEW" => vec!["document"],
+        "NEW" => vec!["document", "processing"],
         "PROCESSING" => vec!["document", "processing"],
-        "COMPLETED" => {
-            if is_admin {
-                vec!["document", "content", "processing"]
-            } else {
-                vec!["document", "content"]
-            }
-        }
+        "COMPLETED" => vec!["document", "content", "processing"],
         "FAILED" => vec!["document", "processing"],
         "CANCELLED" => vec!["document", "processing"],
         _ => vec!["document"],
@@ -123,7 +117,7 @@ mod tests {
     #[test]
     fn test_visible_tabs_new() {
         let tabs = compute_visible_tabs("NEW", false);
-        assert_eq!(tabs, vec!["document"]);
+        assert_eq!(tabs, vec!["document", "processing"]);
     }
 
     #[test]
@@ -141,7 +135,7 @@ mod tests {
     #[test]
     fn test_visible_tabs_completed_non_admin() {
         let tabs = compute_visible_tabs("COMPLETED", false);
-        assert_eq!(tabs, vec!["document", "content"]);
+        assert_eq!(tabs, vec!["document", "content", "processing"]);
     }
 
     #[test]
