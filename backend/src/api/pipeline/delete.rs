@@ -106,64 +106,21 @@ pub async fn delete_document(
         cleanup_qdrant(&state, &document_id).await;
     }
 
-    // 6. PostgreSQL deletion — FK-safe order in a single transaction
-    let mut txn = state.pipeline_pool.begin().await.map_err(|e| {
-        AppError::Internal { message: format!("Failed to begin transaction: {e}") }
-    })?;
-
-    sqlx::query("DELETE FROM extraction_relationships WHERE document_id = $1")
-        .bind(&document_id)
-        .execute(&mut *txn)
-        .await
-        .map_err(|e| AppError::Internal { message: format!("Delete extraction_relationships: {e}") })?;
-
-    sqlx::query("DELETE FROM extraction_items WHERE document_id = $1")
-        .bind(&document_id)
-        .execute(&mut *txn)
-        .await
-        .map_err(|e| AppError::Internal { message: format!("Delete extraction_items: {e}") })?;
-
-    sqlx::query(
-        "DELETE FROM extraction_chunks WHERE extraction_run_id IN \
-         (SELECT id FROM extraction_runs WHERE document_id = $1)"
+    // 6. Delete all PostgreSQL data in FK-safe order, atomically.
+    //
+    // This delegates to delete_all_document_data in the repository, which
+    // wraps all DELETEs in a single transaction. Either all data is removed
+    // or none is — no partial deletion states.
+    //
+    // See documents.rs:delete_all_document_data for the detailed explanation
+    // of delete ordering and why we do not use ON DELETE CASCADE on documents(id).
+    pipeline_repository::documents::delete_all_document_data(
+        &state.pipeline_pool,
+        &document_id,
     )
-    .bind(&document_id)
-    .execute(&mut *txn)
     .await
-    .map_err(|e| AppError::Internal { message: format!("Delete extraction_chunks: {e}") })?;
-
-    sqlx::query("DELETE FROM extraction_runs WHERE document_id = $1")
-        .bind(&document_id)
-        .execute(&mut *txn)
-        .await
-        .map_err(|e| AppError::Internal { message: format!("Delete extraction_runs: {e}") })?;
-
-    sqlx::query("DELETE FROM document_text WHERE document_id = $1")
-        .bind(&document_id)
-        .execute(&mut *txn)
-        .await
-        .map_err(|e| AppError::Internal { message: format!("Delete document_text: {e}") })?;
-
-    sqlx::query("DELETE FROM pipeline_steps WHERE document_id = $1")
-        .bind(&document_id)
-        .execute(&mut *txn)
-        .await
-        .map_err(|e| AppError::Internal { message: format!("Delete pipeline_steps: {e}") })?;
-
-    sqlx::query("DELETE FROM pipeline_config WHERE document_id = $1")
-        .bind(&document_id)
-        .execute(&mut *txn)
-        .await
-        .map_err(|e| AppError::Internal { message: format!("Delete pipeline_config: {e}") })?;
-
-    sqlx::query("DELETE FROM documents WHERE id = $1")
-        .bind(&document_id)
-        .execute(&mut *txn)
-        .await
-        .map_err(|e| AppError::Internal { message: format!("Delete documents: {e}") })?;
-
-    txn.commit().await.map_err(|e| {
-        AppError::Internal { message: format!("Failed to commit transaction: {e}") }
+    .map_err(|e| AppError::Internal {
+        message: format!("Failed to delete document data: {e}"),
     })?;
 
     // 7. Delete PDF file from disk (warn on failure, don't fail the request)

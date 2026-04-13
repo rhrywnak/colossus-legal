@@ -168,12 +168,31 @@ pub(crate) async fn run_extract_text(
         );
     }
 
-    // 7. Update document status
-    pipeline_repository::update_document_status(&state.pipeline_pool, doc_id, "TEXT_EXTRACTED")
-        .await
-        .map_err(|e| AppError::Internal {
-            message: format!("Failed to update document status: {e}"),
-        })?;
+    // DO NOT set document status here.
+    //
+    // ## Why individual steps must not set document status
+    //
+    // run_extract_text is called both:
+    // (a) directly from extract_text handler (the standalone /extract-text endpoint), and
+    // (b) from run_pipeline in process.rs (the automated one-button pipeline).
+    //
+    // When called from run_pipeline, setting status = "TEXT_EXTRACTED" here is
+    // incorrect. The orchestrator (run_pipeline) owns all status transitions.
+    // Setting an intermediate status from inside a step creates two problems:
+    //
+    // 1. The document briefly shows "TEXT_EXTRACTED" status in the UI while it is
+    //    still being processed — confusing to the user.
+    //
+    // 2. If a later step fails, the spawn block sets status = "FAILED". But
+    //    the intermediate "TEXT_EXTRACTED" update has already been committed to the
+    //    database. There is a window where status = "TEXT_EXTRACTED" is visible
+    //    between the text extraction completing and the failure being recorded.
+    //
+    // When called from extract_text handler directly (standalone admin use),
+    // the caller sets the appropriate status after this function returns.
+    //
+    // The correct architecture: run_* functions return results. Callers
+    // decide what status to set based on those results.
 
     let step_summary = serde_json::json!({
         "page_count": page_count,
@@ -242,6 +261,14 @@ pub async fn extract_text(
     }
 
     let result = run_extract_text(&state, &doc_id, &user.username).await?;
+
+    // extract_text handler is the standalone admin endpoint, not the automated pipeline.
+    // When called directly, we set TEXT_EXTRACTED status here — the orchestrator pattern.
+    // run_extract_text no longer sets this status itself (see comment in run_extract_text).
+    pipeline_repository::update_document_status(&state.pipeline_pool, &doc_id, "TEXT_EXTRACTED")
+        .await
+        .map_err(|e| AppError::Internal { message: format!("Failed to update status: {e}") })?;
+
     Ok(Json(result))
 }
 

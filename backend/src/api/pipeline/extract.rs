@@ -193,9 +193,31 @@ pub(crate) async fn run_extract(
         state, run_id, doc_id, &summary.legacy_json,
     ).await?;
 
-    pipeline_repository::update_document_status(&state.pipeline_pool, doc_id, "EXTRACTED")
-        .await
-        .map_err(|e| AppError::Internal { message: format!("Failed to update document status: {e}") })?;
+    // DO NOT set document status here.
+    //
+    // ## Why individual steps must not set document status
+    //
+    // run_extract is called both:
+    // (a) directly from extract_handler (the standalone /extract endpoint), and
+    // (b) from run_pipeline in process.rs (the automated one-button pipeline).
+    //
+    // When called from run_pipeline, setting status = "EXTRACTED" here is
+    // incorrect. The orchestrator (run_pipeline) owns all status transitions.
+    // Setting an intermediate status from inside a step creates two problems:
+    //
+    // 1. The document briefly shows "EXTRACTED" status in the UI while it is
+    //    still being processed — confusing to the user.
+    //
+    // 2. If a later step fails, the spawn block sets status = "FAILED". But
+    //    the intermediate "EXTRACTED" update has already been committed to the
+    //    database. There is a window where status = "EXTRACTED" is visible
+    //    between the extraction completing and the failure being recorded.
+    //
+    // When called from extract_handler directly (standalone admin use),
+    // the caller sets the appropriate status after this function returns.
+    //
+    // The correct architecture: run_* functions return results. Callers
+    // decide what status to set based on those results.
 
     tracing::info!(
         doc_id = %doc_id, entity_count, rel_count,
@@ -270,5 +292,13 @@ pub async fn extract_handler(
 
     let overrides = body.map(|b| b.0).unwrap_or_default();
     let result = run_extract(&state, &doc_id, &user.username, overrides).await?;
+
+    // extract_handler is the standalone admin endpoint, not the automated pipeline.
+    // When called directly, we set EXTRACTED status here — the orchestrator pattern.
+    // run_extract no longer sets this status itself (see comment in run_extract).
+    pipeline_repository::update_document_status(&state.pipeline_pool, &doc_id, "EXTRACTED")
+        .await
+        .map_err(|e| AppError::Internal { message: format!("Failed to update status: {e}") })?;
+
     Ok(Json(result))
 }
