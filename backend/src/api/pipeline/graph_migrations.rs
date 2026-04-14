@@ -37,32 +37,32 @@ pub async fn run_graph_migrations(graph: &Graph) {
         (
             "Document",
             "CREATE CONSTRAINT document_id_unique IF NOT EXISTS \
-             FOR (n:Document) ON (n.id)",
+             FOR (n:Document) REQUIRE (n.id) IS UNIQUE",
         ),
         (
             "Person",
             "CREATE CONSTRAINT person_id_unique IF NOT EXISTS \
-             FOR (n:Person) ON (n.id)",
+             FOR (n:Person) REQUIRE (n.id) IS UNIQUE",
         ),
         (
             "Organization",
             "CREATE CONSTRAINT organization_id_unique IF NOT EXISTS \
-             FOR (n:Organization) ON (n.id)",
+             FOR (n:Organization) REQUIRE (n.id) IS UNIQUE",
         ),
         (
             "ComplaintAllegation",
             "CREATE CONSTRAINT complaint_allegation_id_unique IF NOT EXISTS \
-             FOR (n:ComplaintAllegation) ON (n.id)",
+             FOR (n:ComplaintAllegation) REQUIRE (n.id) IS UNIQUE",
         ),
         (
             "LegalCount",
             "CREATE CONSTRAINT legal_count_id_unique IF NOT EXISTS \
-             FOR (n:LegalCount) ON (n.id)",
+             FOR (n:LegalCount) REQUIRE (n.id) IS UNIQUE",
         ),
         (
             "Harm",
             "CREATE CONSTRAINT harm_id_unique IF NOT EXISTS \
-             FOR (n:Harm) ON (n.id)",
+             FOR (n:Harm) REQUIRE (n.id) IS UNIQUE",
         ),
     ];
 
