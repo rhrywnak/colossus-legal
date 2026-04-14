@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { fetchSchemas, uploadDocument, SchemaInfo } from "../../services/pipelineApi";
+import { fetchSchemas, uploadDocument, processDocument, SchemaInfo } from "../../services/pipelineApi";
 
 interface Props {
   open: boolean;
@@ -65,6 +65,7 @@ const UploadDialog: React.FC<Props> = ({ open, onClose, onSuccess, complaintExis
   const [file, setFile] = useState<File | null>(null);
   const [schema, setSchema] = useState("auto");
   const [uploading, setUploading] = useState(false);
+  const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
 
@@ -93,19 +94,25 @@ const UploadDialog: React.FC<Props> = ({ open, onClose, onSuccess, complaintExis
     try {
       const id = `doc-${slugify(file.name)}`;
       const title = titleize(file.name);
-      const selectedSchema = schemas.find(s => s.filename === schema);
-      const documentType = schema === "auto" ? "auto" : (selectedSchema?.document_type ?? "auto");
-      const uploadParams: Record<string, string> = { id, title, documentType };
-      if (schema !== "auto") {
-        uploadParams.schemaFile = schema; // exact filename e.g. "complaint_v2.yaml"
-      }
-      const doc = await uploadDocument(file, uploadParams as { id: string; title: string; documentType: string; schemaFile?: string });
+      const doc = await uploadDocument(file, {
+        id, title, documentType: schema,
+        schemaFile: schema === "auto" ? undefined : `${schema}.yaml`,
+      });
       onSuccess();
-      navigate(`/documents/${doc.id}`);
+      setUploading(false);
+      setProcessing(true);
+      try {
+        await processDocument(doc.id);
+      } catch {
+        // Process failed — user will see NEW status and can click Process manually
+      } finally {
+        setProcessing(false);
+      }
+      navigate(`/documents/${doc.id}?tab=processing`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Upload failed");
-    } finally {
       setUploading(false);
+      setProcessing(false);
     }
   };
 
@@ -174,7 +181,7 @@ const UploadDialog: React.FC<Props> = ({ open, onClose, onSuccess, complaintExis
         <div style={btnRow}>
           <button style={btnCancel} onClick={onClose}>Cancel</button>
           <button style={btnUpload(canUpload)} onClick={handleUpload} disabled={!canUpload}>
-            {uploading ? "Uploading..." : "Upload & Process"}
+            {uploading ? "Uploading..." : processing ? "Starting..." : "Upload & Process"}
           </button>
         </div>
       </div>
