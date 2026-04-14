@@ -10,9 +10,6 @@
 //! `pipeline.rs` becomes `pipeline/mod.rs` + `pipeline/upload.rs` + etc.
 //! The `mod.rs` file re-exports the public items so callers don't change.
 
-mod anthropic;
-mod auto_ingest;
-pub mod chunk_extractor;
 mod chunk_orchestration;
 mod chunk_storage;
 mod completeness;
@@ -36,7 +33,6 @@ mod ocr;
 mod ingest;
 mod ingest_helpers;
 mod ingest_resolver;
-mod process;
 pub mod report;
 mod review;
 pub mod state_machine;
@@ -54,7 +50,6 @@ pub use extract_text::extract_text;
 pub use index::index_handler;
 pub use ingest::ingest_handler;
 pub use report::report_handler;
-pub use process::{cancel_handler, process_handler};
 pub use upload::upload_document;
 pub use verify::verify_handler;
 
@@ -90,8 +85,6 @@ pub fn router() -> Router<AppState> {
         .route("/documents/:id/ingest", post(ingest_handler))
         .route("/documents/:id/index", post(index_handler))
         .route("/documents/:id/completeness", get(completeness_handler))
-        .route("/documents/:id/process", post(process_handler))
-        .route("/documents/:id/cancel", post(cancel_handler))
         .route("/documents/:id/report", get(report_handler))
         .route("/documents/:id/actions", get(state_machine::get_document_actions))
         .route("/documents/:id/history", get(history_handler))
