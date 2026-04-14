@@ -1,7 +1,6 @@
 //! POST /api/admin/pipeline/documents/:id/extract — chunk-based LLM extraction (Pass 1).
 
 use std::path::Path;
-use std::sync::Arc;
 use std::time::Instant;
 
 use axum::{extract::Path as AxumPath, extract::State, Json};
@@ -12,7 +11,6 @@ use crate::repositories::audit_repository::log_admin_action;
 use crate::repositories::pipeline_repository::{self, steps};
 use crate::state::AppState;
 
-use super::chunk_extractor::AnthropicChunkExtractor;
 use super::{chunk_orchestration, chunk_storage, ExtractResponse};
 
 /// Optional request body for extraction overrides. Non-null fields override
@@ -123,15 +121,13 @@ pub(crate) async fn run_extract(
         "Running chunk-based extraction"
     );
 
-    let extractor = Arc::new(AnthropicChunkExtractor::new(
-        api_key.to_string(), model_name.clone(), max_tokens as u64,
-    ));
+    // TODO(Phase4): replaced by LlmExtract step via context.llm_provider
     let schema_for_chunks = schema_json_value.clone().unwrap_or(serde_json::Value::Null);
 
     let api_start = Instant::now();
     let summary_result = chunk_orchestration::run_chunk_extraction(
         &state.pipeline_pool, run_id, doc_id, &full_text, &schema_for_chunks,
-        &raw_template, Arc::clone(&extractor),
+        &raw_template,
     ).await;
     let elapsed_secs = api_start.elapsed().as_secs_f64();
 

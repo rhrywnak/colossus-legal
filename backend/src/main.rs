@@ -267,10 +267,9 @@ async fn build_rag_pipeline(
     prompts: &prompt_loader::LoadedPrompts,
 ) -> Option<Arc<colossus_rag::RagPipeline>> {
     use colossus_rag::{
-        EmbeddingReranker, GraphDirectRetriever, LegalAssembler, LlmDecomposer,
+        EmbeddingReranker, GraphDirectRetriever, LegalAssembler,
         Neo4jExpander, QdrantRetriever, RagPipeline, RigSynthesizer, RuleBasedRouter,
     };
-    use std::collections::HashMap;
 
     // Check for API key first — no key means no pipeline.
     let api_key = config.anthropic_api_key.as_deref()?;
@@ -358,10 +357,8 @@ async fn build_rag_pipeline(
         .max_context_tokens(6000)
         .search_limit(10);
 
-    // Add decomposer if it was created successfully.
-    if let Some(decomposer) = decomposer {
-        builder = builder.decomposer(Box::new(decomposer));
-    }
+    // TODO(Phase2): LlmDecomposer reconstructed from rag_config DB table
+    // TODO(Phase2): build_rag_pipeline() rewritten to use Arc<dyn LlmProvider>
 
     match builder.build() {
         Ok(pipeline) => {

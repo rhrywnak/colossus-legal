@@ -9,26 +9,20 @@
 //! We process chunks sequentially with a 15-second delay between each to
 //! stay well under the limit.
 
-use std::sync::Arc;
 use std::time::Instant;
 
 use colossus_extract::{
-    ChunkExtractionResult, ChunkExtractor, ExtractedNode, ExtractedRel, FixedSizeSplitter,
+    ChunkExtractionResult, ExtractedNode, ExtractedRel, FixedSizeSplitter,
     TextChunk, TextSplitter,
 };
 use sqlx::PgPool;
 
-use super::chunk_extractor::AnthropicChunkExtractor;
 use crate::error::AppError;
 use crate::repositories::pipeline_repository::documents;
 
 /// Delay between sequential chunk extractions to avoid rate limits.
 const INTER_CHUNK_DELAY_SECS: u64 = 15;
 
-/// Maximum number of times we will retry a single chunk after a rate limit.
-/// After MAX_RATE_LIMIT_RETRIES, the chunk is marked failed and processing
-/// continues with the next chunk.
-const MAX_RATE_LIMIT_RETRIES: u32 = 3;
 
 /// Summary returned from the chunk extraction run.
 pub(super) struct ChunkExtractionSummary {
@@ -53,7 +47,7 @@ pub(super) async fn run_chunk_extraction(
     full_text: &str,
     schema_json: &serde_json::Value,
     prompt_template: &str,
-    extractor: Arc<AnthropicChunkExtractor>,
+    // TODO(Phase4): replaced by context.llm_provider.invoke() in LlmExtract step
 ) -> Result<ChunkExtractionSummary, AppError> {
     let chunks: Vec<TextChunk> = FixedSizeSplitter::new().split(full_text);
     let chunk_count = chunks.len();
@@ -94,65 +88,13 @@ pub(super) async fn run_chunk_extraction(
         // "Rate limited — resuming in 45s (chunk 4 of 8)"
         // instead of a frozen progress bar with no explanation.
         let start = Instant::now();
-        let mut rate_limit_retries = 0u32;
 
-        let result = loop {
-            match extractor.extract_chunk(&chunk.text, schema_json, prompt_template, "").await {
-                Ok(chunk_result) => break Ok(chunk_result),
-
-                Err(colossus_extract::PipelineError::RateLimited { retry_after_secs }) => {
-                    rate_limit_retries += 1;
-
-                    if rate_limit_retries > MAX_RATE_LIMIT_RETRIES {
-                        tracing::error!(
-                            run_id,
-                            chunk_index = chunk.index,
-                            retry_after_secs,
-                            retries = rate_limit_retries,
-                            "Chunk rate-limited — retry limit exhausted, marking as failed"
-                        );
-                        break Err(colossus_extract::PipelineError::RateLimited { retry_after_secs });
-                    }
-
-                    tracing::warn!(
-                        run_id,
-                        chunk_index = chunk.index,
-                        retry_after_secs,
-                        retry_number = rate_limit_retries,
-                        max_retries = MAX_RATE_LIMIT_RETRIES,
-                        "Chunk rate-limited — waiting before retry"
-                    );
-
-                    // Update the progress label so the user sees exactly what is
-                    // happening. Without this, the UI shows a frozen progress bar
-                    // with no indication that the pipeline is alive and waiting.
-                    documents::update_processing_progress(
-                        pool, doc_id, "extract",
-                        &format!(
-                            "Rate limited — resuming in {}s (chunk {} of {}, retry {}/{})",
-                            retry_after_secs,
-                            index + 1,
-                            chunk_count,
-                            rate_limit_retries,
-                            MAX_RATE_LIMIT_RETRIES,
-                        ),
-                        chunk_count as i32,
-                        index as i32,
-                        merged_nodes.len() as i32,
-                        // Keep current percent — do not advance during the wait
-                        (10 + (50 * index / chunk_count.max(1))) as i32,
-                    ).await.ok();
-
-                    // Wait exactly the duration Anthropic specified.
-                    tokio::time::sleep(tokio::time::Duration::from_secs(retry_after_secs)).await;
-
-                    // Continue the retry loop — try this chunk again.
-                    continue;
-                }
-
-                Err(other_err) => break Err(other_err),
-            }
-        };
+        // TODO(Phase4): replaced by context.llm_provider.invoke() in LlmExtract step
+        let result: Result<ChunkExtractionResult, colossus_extract::PipelineError> = Err(
+            colossus_extract::PipelineError::Extraction(
+                "chunk extractor removed — pending Phase 4 LlmExtract step".into(),
+            ),
+        );
         let duration_ms = start.elapsed().as_millis() as i64;
 
         match result {
@@ -426,16 +368,4 @@ mod tests {
         assert_eq!(entity["id"].as_str(), Some("chunk_2:5"));
     }
 
-    #[test]
-    fn test_max_rate_limit_retries_is_reasonable() {
-        // MAX_RATE_LIMIT_RETRIES controls how many times we retry a rate-limited chunk.
-        // Too few: chunks fail unnecessarily on brief rate limit spikes.
-        // Too many: a persistently rate-limited chunk blocks the pipeline for a long time.
-        // 3 retries is the right balance — if 3 retries at retry-after duration fail,
-        // something is wrong beyond a transient rate limit.
-        assert!(MAX_RATE_LIMIT_RETRIES >= 2,
-            "Too few retries — transient rate limits may cause unnecessary chunk failures");
-        assert!(MAX_RATE_LIMIT_RETRIES <= 5,
-            "Too many retries — persistent rate limiting blocks pipeline too long");
-    }
 }
