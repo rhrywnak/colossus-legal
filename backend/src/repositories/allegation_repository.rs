@@ -40,9 +40,7 @@ impl AllegationRepository {
     ///
     /// Uses `labels(n)[0] = $label` instead of hardcoded node labels so
     /// the query works with any allegation/count label the schema produces.
-    pub async fn list_allegations(
-        &self,
-    ) -> Result<AllegationsResponse, AllegationRepositoryError> {
+    pub async fn list_allegations(&self) -> Result<AllegationsResponse, AllegationRepositoryError> {
         let mut allegations: Vec<AllegationDto> = Vec::new();
 
         let mut result = self

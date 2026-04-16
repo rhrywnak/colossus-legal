@@ -73,7 +73,10 @@ pub async fn get_document_extracts(
     })?;
 
     // Step 2: Validate filename (security: prevent path traversal)
-    if extract_filename.contains("..") || extract_filename.contains('/') || extract_filename.contains('\\') {
+    if extract_filename.contains("..")
+        || extract_filename.contains('/')
+        || extract_filename.contains('\\')
+    {
         return Err(AppError::BadRequest {
             message: "Invalid extract path".to_string(),
             details: serde_json::json!({}),

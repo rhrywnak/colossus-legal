@@ -61,11 +61,10 @@ pub async fn init_pools(config: &AppConfig) -> DatabasePools {
         .await
         .expect("Failed to connect to pipeline PostgreSQL database");
 
-    let pipeline_migrator = sqlx::migrate::Migrator::new(
-        std::path::Path::new("./pipeline_migrations"),
-    )
-    .await
-    .expect("Failed to load pipeline migrations");
+    let pipeline_migrator =
+        sqlx::migrate::Migrator::new(std::path::Path::new("./pipeline_migrations"))
+            .await
+            .expect("Failed to load pipeline migrations");
 
     pipeline_migrator
         .run(&pipeline_pool)

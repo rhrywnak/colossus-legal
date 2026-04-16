@@ -35,11 +35,7 @@ pub async fn get_status(
     require_admin(&user)?;
 
     // Neo4j — run a trivial Cypher query
-    let neo4j_ok = state
-        .graph
-        .run(neo4rs::query("RETURN 1"))
-        .await
-        .is_ok();
+    let neo4j_ok = state.graph.run(neo4rs::query("RETURN 1")).await.is_ok();
 
     // Qdrant — HTTP GET to the collections endpoint with a 3-second timeout
     let qdrant_ok = state

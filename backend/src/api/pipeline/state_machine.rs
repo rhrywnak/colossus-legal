@@ -83,41 +83,93 @@ fn get_available_actions(
 ) -> Vec<AvailableAction> {
     match document_status {
         "NEW" => vec![
-            make_action("process", "Process Document", "POST", true, false,
-                        "Run the full extraction pipeline",
-                        "/documents/{id}/process"),
-            make_action("delete", "Delete", "DELETE", true, false,
-                        "Delete this document",
-                        "/documents/{id}"),
+            make_action(
+                "process",
+                "Process Document",
+                "POST",
+                true,
+                false,
+                "Run the full extraction pipeline",
+                "/documents/{id}/process",
+            ),
+            make_action(
+                "delete",
+                "Delete",
+                "DELETE",
+                true,
+                false,
+                "Delete this document",
+                "/documents/{id}",
+            ),
         ],
-        "PROCESSING" => vec![
-            make_action("cancel", "Cancel", "POST", true, false,
-                        "Cancel processing",
-                        "/documents/{id}/cancel"),
-        ],
+        "PROCESSING" => vec![make_action(
+            "cancel",
+            "Cancel",
+            "POST",
+            true,
+            false,
+            "Cancel processing",
+            "/documents/{id}/cancel",
+        )],
         "COMPLETED" => vec![
-            make_action("reprocess", "Re-process", "POST", true, false,
-                        "Re-run extraction with same or different settings",
-                        "/documents/{id}/process"),
-            make_action("delete", "Delete", "DELETE", true, false,
-                        "Delete this document and its graph data",
-                        "/documents/{id}"),
+            make_action(
+                "reprocess",
+                "Re-process",
+                "POST",
+                true,
+                false,
+                "Re-run extraction with same or different settings",
+                "/documents/{id}/process",
+            ),
+            make_action(
+                "delete",
+                "Delete",
+                "DELETE",
+                true,
+                false,
+                "Delete this document and its graph data",
+                "/documents/{id}",
+            ),
         ],
         "FAILED" => vec![
-            make_action("reprocess", "Re-process", "POST", true, false,
-                        "Re-run extraction",
-                        "/documents/{id}/process"),
-            make_action("delete", "Delete", "DELETE", true, false,
-                        "Delete this document",
-                        "/documents/{id}"),
+            make_action(
+                "reprocess",
+                "Re-process",
+                "POST",
+                true,
+                false,
+                "Re-run extraction",
+                "/documents/{id}/process",
+            ),
+            make_action(
+                "delete",
+                "Delete",
+                "DELETE",
+                true,
+                false,
+                "Delete this document",
+                "/documents/{id}",
+            ),
         ],
         "CANCELLED" => vec![
-            make_action("reprocess", "Re-process", "POST", true, false,
-                        "Re-run extraction",
-                        "/documents/{id}/process"),
-            make_action("delete", "Delete", "DELETE", true, false,
-                        "Delete this document",
-                        "/documents/{id}"),
+            make_action(
+                "reprocess",
+                "Re-process",
+                "POST",
+                true,
+                false,
+                "Re-run extraction",
+                "/documents/{id}/process",
+            ),
+            make_action(
+                "delete",
+                "Delete",
+                "DELETE",
+                true,
+                false,
+                "Delete this document",
+                "/documents/{id}",
+            ),
         ],
         _ => vec![],
     }
@@ -133,7 +185,12 @@ fn delete_confirmation_level(status: &str) -> &'static str {
 }
 
 fn make_action(
-    name: &str, label: &str, method: &str, confirm: bool, is_nav: bool, desc: &str,
+    name: &str,
+    label: &str,
+    method: &str,
+    confirm: bool,
+    is_nav: bool,
+    desc: &str,
     endpoint: &str,
 ) -> AvailableAction {
     AvailableAction {
@@ -154,25 +211,33 @@ fn make_action(
 fn build_execution_history(
     step_records: &[steps::PipelineStepRecord],
 ) -> Vec<ExecutionHistoryEntry> {
-    step_records.iter().map(|s| {
-        let label = PIPELINE_STEPS.iter()
-            .find(|(name, _)| *name == s.step_name.as_str())
-            .map(|(_, l)| l.to_string())
-            .unwrap_or_else(|| titleize_step(&s.step_name));
+    step_records
+        .iter()
+        .map(|s| {
+            let label = PIPELINE_STEPS
+                .iter()
+                .find(|(name, _)| *name == s.step_name.as_str())
+                .map(|(_, l)| l.to_string())
+                .unwrap_or_else(|| titleize_step(&s.step_name));
 
-        let summary = if s.result_summary.is_null() { None } else { Some(s.result_summary.clone()) };
+            let summary = if s.result_summary.is_null() {
+                None
+            } else {
+                Some(s.result_summary.clone())
+            };
 
-        ExecutionHistoryEntry {
-            step_name: s.step_name.clone(),
-            label,
-            status: s.status.clone(),
-            started_at: s.started_at.to_rfc3339(),
-            duration_secs: s.duration_secs,
-            triggered_by: s.triggered_by.clone(),
-            summary,
-            error_message: s.error_message.clone(),
-        }
-    }).collect()
+            ExecutionHistoryEntry {
+                step_name: s.step_name.clone(),
+                label,
+                status: s.status.clone(),
+                started_at: s.started_at.to_rfc3339(),
+                duration_secs: s.duration_secs,
+                triggered_by: s.triggered_by.clone(),
+                summary,
+                error_message: s.error_message.clone(),
+            }
+        })
+        .collect()
 }
 
 // ── Handler ─────────────────────────────────────────────────────
@@ -187,7 +252,9 @@ pub async fn get_document_actions(
 
     let document = pipeline_repository::get_document(&state.pipeline_pool, &doc_id)
         .await
-        .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?
+        .map_err(|e| AppError::Internal {
+            message: format!("DB error: {e}"),
+        })?
         .ok_or_else(|| AppError::NotFound {
             message: format!("Document '{doc_id}' not found"),
         })?;
@@ -338,12 +405,14 @@ mod tests {
                 assert!(
                     !action.endpoint.is_empty(),
                     "Action '{}' for status '{}' has empty endpoint",
-                    action.action, status
+                    action.action,
+                    status
                 );
                 assert!(
                     action.endpoint.starts_with("/documents/{id}"),
                     "Action '{}' endpoint '{}' should start with /documents/{{id}}",
-                    action.action, action.endpoint
+                    action.action,
+                    action.endpoint
                 );
             }
         }

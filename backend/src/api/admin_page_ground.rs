@@ -73,9 +73,12 @@ pub async fn ground_pages(
     let (doc_title, _source_type) = fetch_document_meta(&state.graph, &doc_id).await?;
 
     let repo = DocumentRepository::new(state.graph.clone());
-    let document = repo.get_document_by_id(&doc_id).await.map_err(|e| {
-        AppError::Internal { message: format!("Failed to fetch document: {e:?}") }
-    })?;
+    let document = repo
+        .get_document_by_id(&doc_id)
+        .await
+        .map_err(|e| AppError::Internal {
+            message: format!("Failed to fetch document: {e:?}"),
+        })?;
 
     let file_path = document.file_path.ok_or_else(|| AppError::BadRequest {
         message: "Document has no associated PDF file".to_string(),
@@ -114,13 +117,12 @@ pub async fn ground_pages(
 
     // 4. Run colossus-pdf grounding in a blocking thread (it's sync)
     let pdf_path = full_path.clone();
-    let grounding_results = tokio::task::spawn_blocking(move || {
-        run_grounding(&pdf_path, &snippet_texts)
-    })
-    .await
-    .map_err(|e| AppError::Internal {
-        message: format!("Grounding task failed: {e}"),
-    })??;
+    let grounding_results =
+        tokio::task::spawn_blocking(move || run_grounding(&pdf_path, &snippet_texts))
+            .await
+            .map_err(|e| AppError::Internal {
+                message: format!("Grounding task failed: {e}"),
+            })??;
 
     let pdf_pages = grounding_results.0;
     let pdf_results = grounding_results.1;
@@ -182,9 +184,7 @@ pub async fn ground_pages(
 
 /// Extract the best snippet text from an item for PDF search.
 /// Prefers verbatim_quote, falls back to title.
-fn get_snippet_text(
-    item: &super::admin_document_evidence_queries::ContentNode,
-) -> Option<String> {
+fn get_snippet_text(item: &super::admin_document_evidence_queries::ContentNode) -> Option<String> {
     item.verbatim_quote
         .as_ref()
         .filter(|q| !q.is_empty())
@@ -199,20 +199,25 @@ fn run_grounding(
     pdf_path: &str,
     snippets: &[String],
 ) -> Result<(u32, Vec<colossus_pdf::GroundingResult>), AppError> {
-    let mut extractor = colossus_pdf::PdfTextExtractor::open(pdf_path).map_err(|e| {
-        AppError::Internal { message: format!("Failed to open PDF: {e}") }
-    })?;
+    let mut extractor =
+        colossus_pdf::PdfTextExtractor::open(pdf_path).map_err(|e| AppError::Internal {
+            message: format!("Failed to open PDF: {e}"),
+        })?;
 
-    let pages = extractor.extract_all_pages().map_err(|e| {
-        AppError::Internal { message: format!("Failed to extract PDF pages: {e}") }
-    })?;
+    let pages = extractor
+        .extract_all_pages()
+        .map_err(|e| AppError::Internal {
+            message: format!("Failed to extract PDF pages: {e}"),
+        })?;
     let total_pages = pages.len() as u32;
 
     let snippet_refs: Vec<&str> = snippets.iter().map(|s| s.as_str()).collect();
     let mut grounder = colossus_pdf::PageGrounder::new(&mut extractor);
-    let results = grounder.ground_snippets(&snippet_refs).map_err(|e| {
-        AppError::Internal { message: format!("Grounding failed: {e}") }
-    })?;
+    let results = grounder
+        .ground_snippets(&snippet_refs)
+        .map_err(|e| AppError::Internal {
+            message: format!("Grounding failed: {e}"),
+        })?;
 
     Ok((total_pages, results))
 }
@@ -237,9 +242,14 @@ async fn persist_page_numbers(
                     message: format!("Failed to update page for {}: {e}", item.node_id),
                 })?;
             // Consume the result stream to complete the query
-            while result.next().await.map_err(|e| AppError::Internal {
-                message: format!("Neo4j result error: {e}"),
-            })?.is_some() {}
+            while result
+                .next()
+                .await
+                .map_err(|e| AppError::Internal {
+                    message: format!("Neo4j result error: {e}"),
+                })?
+                .is_some()
+            {}
         }
     }
 

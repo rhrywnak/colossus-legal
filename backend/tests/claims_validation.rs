@@ -198,9 +198,13 @@ async fn get_claim_returns_404_when_missing() -> TestResult<()> {
         },
     };
 
-    let response = get_claim(None, State(state), axum::extract::Path("no-such".to_string()))
-        .await
-        .into_response();
+    let response = get_claim(
+        None,
+        State(state),
+        axum::extract::Path("no-such".to_string()),
+    )
+    .await
+    .into_response();
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
     let body = to_bytes(response.into_body(), 1024 * 1024).await?;

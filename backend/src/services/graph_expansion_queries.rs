@@ -90,11 +90,19 @@ pub async fn expand_evidence(
 
     while let Some(row) = result.next().await? {
         if let Some(n) = try_extract_node(
-            &row, "eid", "Evidence",
-            &[("etitle", "title"), ("equote", "verbatim_quote"),
-              ("esig", "significance"), ("epage", "page_number")],
+            &row,
+            "eid",
+            "Evidence",
+            &[
+                ("etitle", "title"),
+                ("equote", "verbatim_quote"),
+                ("esig", "significance"),
+                ("epage", "page_number"),
+            ],
             seen,
-        ) { nodes.push(n); }
+        ) {
+            nodes.push(n);
+        }
 
         let sid = get_str(&row, "sid");
         if let Some(n) = try_extract_node(&row, "sid", "Person", &[("sname", "name")], seen) {
@@ -110,7 +118,11 @@ pub async fn expand_evidence(
 
         let did = get_str(&row, "did");
         if let Some(n) = try_extract_node(
-            &row, "did", "Document", &[("dtitle", "title"), ("dtype", "document_type")], seen,
+            &row,
+            "did",
+            "Document",
+            &[("dtitle", "title"), ("dtype", "document_type")],
+            seen,
         ) {
             rels.push(ExpandedRelationship::new(id, &did, "CONTAINED_IN"));
             nodes.push(n);
@@ -118,7 +130,11 @@ pub async fn expand_evidence(
 
         let aid = get_str(&row, "aid");
         if let Some(n) = try_extract_node(
-            &row, "aid", "ComplaintAllegation", &[("atitle", "title"), ("astatus", "evidence_status")], seen,
+            &row,
+            "aid",
+            "ComplaintAllegation",
+            &[("atitle", "title"), ("astatus", "evidence_status")],
+            seen,
         ) {
             rels.push(ExpandedRelationship::new(id, &aid, "CHARACTERIZES"));
             nodes.push(n);
@@ -174,28 +190,45 @@ pub async fn expand_allegation(
 
     while let Some(row) = result.next().await? {
         if let Some(n) = try_extract_node(
-            &row, "aid", "ComplaintAllegation",
-            &[("atitle", "title"), ("astatus", "evidence_status"), ("aalleg", "allegation")],
+            &row,
+            "aid",
+            "ComplaintAllegation",
+            &[
+                ("atitle", "title"),
+                ("astatus", "evidence_status"),
+                ("aalleg", "allegation"),
+            ],
             seen,
-        ) { nodes.push(n); }
+        ) {
+            nodes.push(n);
+        }
 
         let cid = get_str(&row, "cid");
-        if let Some(n) = try_extract_node(&row, "cid", "MotionClaim", &[("ctitle", "title")], seen) {
+        if let Some(n) = try_extract_node(&row, "cid", "MotionClaim", &[("ctitle", "title")], seen)
+        {
             rels.push(ExpandedRelationship::new(&cid, id, "PROVES"));
             nodes.push(n);
         }
 
         let eid = get_str(&row, "eid");
         if let Some(n) = try_extract_node(
-            &row, "eid", "Evidence", &[("etitle", "title"), ("equote", "verbatim_quote")], seen,
+            &row,
+            "eid",
+            "Evidence",
+            &[("etitle", "title"), ("equote", "verbatim_quote")],
+            seen,
         ) {
-            if !cid.is_empty() { rels.push(ExpandedRelationship::new(&cid, &eid, "RELIES_ON")); }
+            if !cid.is_empty() {
+                rels.push(ExpandedRelationship::new(&cid, &eid, "RELIES_ON"));
+            }
             nodes.push(n);
         }
 
         let did = get_str(&row, "did");
         if let Some(n) = try_extract_node(&row, "did", "Document", &[("dtitle", "title")], seen) {
-            if !eid.is_empty() { rels.push(ExpandedRelationship::new(&eid, &did, "CONTAINED_IN")); }
+            if !eid.is_empty() {
+                rels.push(ExpandedRelationship::new(&eid, &did, "CONTAINED_IN"));
+            }
             nodes.push(n);
         }
 
@@ -204,14 +237,19 @@ pub async fn expand_allegation(
         }
 
         let lcid = get_str(&row, "lcid");
-        if let Some(n) = try_extract_node(&row, "lcid", "LegalCount", &[("lctitle", "title")], seen) {
+        if let Some(n) = try_extract_node(&row, "lcid", "LegalCount", &[("lctitle", "title")], seen)
+        {
             rels.push(ExpandedRelationship::new(id, &lcid, "SUPPORTS"));
             nodes.push(n);
         }
 
         let hid = get_str(&row, "hid");
         if let Some(n) = try_extract_node(
-            &row, "hid", "Harm", &[("htitle", "title"), ("hamount", "amount")], seen,
+            &row,
+            "hid",
+            "Harm",
+            &[("htitle", "title"), ("hamount", "amount")],
+            seen,
         ) {
             rels.push(ExpandedRelationship::new(&hid, id, "CAUSED_BY"));
             nodes.push(n);
@@ -253,14 +291,26 @@ pub async fn expand_motion_claim(
 
     while let Some(row) = result.next().await? {
         if let Some(n) = try_extract_node(
-            &row, "mid", "MotionClaim",
-            &[("mtitle", "title"), ("mtext", "claim_text"), ("msig", "significance")],
+            &row,
+            "mid",
+            "MotionClaim",
+            &[
+                ("mtitle", "title"),
+                ("mtext", "claim_text"),
+                ("msig", "significance"),
+            ],
             seen,
-        ) { nodes.push(n); }
+        ) {
+            nodes.push(n);
+        }
 
         let eid = get_str(&row, "eid");
         if let Some(n) = try_extract_node(
-            &row, "eid", "Evidence", &[("etitle", "title"), ("equote", "verbatim_quote")], seen,
+            &row,
+            "eid",
+            "Evidence",
+            &[("etitle", "title"), ("equote", "verbatim_quote")],
+            seen,
         ) {
             rels.push(ExpandedRelationship::new(id, &eid, "RELIES_ON"));
             nodes.push(n);
@@ -268,7 +318,9 @@ pub async fn expand_motion_claim(
 
         let did = get_str(&row, "did");
         if let Some(n) = try_extract_node(&row, "did", "Document", &[("dtitle", "title")], seen) {
-            if !eid.is_empty() { rels.push(ExpandedRelationship::new(&eid, &did, "CONTAINED_IN")); }
+            if !eid.is_empty() {
+                rels.push(ExpandedRelationship::new(&eid, &did, "CONTAINED_IN"));
+            }
             nodes.push(n);
         }
 
@@ -278,7 +330,11 @@ pub async fn expand_motion_claim(
 
         let aid = get_str(&row, "aid");
         if let Some(n) = try_extract_node(
-            &row, "aid", "ComplaintAllegation", &[("atitle", "title")], seen,
+            &row,
+            "aid",
+            "ComplaintAllegation",
+            &[("atitle", "title")],
+            seen,
         ) {
             rels.push(ExpandedRelationship::new(id, &aid, "PROVES"));
             nodes.push(n);

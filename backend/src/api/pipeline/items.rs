@@ -131,12 +131,16 @@ fn category_to_string(cat: &EntityCategory) -> &'static str {
 /// Load entity category map from schema. Returns empty map on failure
 /// (all items default to Evidence).
 async fn load_category_map(state: &AppState, doc_id: &str) -> HashMap<String, EntityCategory> {
-    let pipe_config = match pipeline_repository::get_pipeline_config(&state.pipeline_pool, doc_id).await {
-        Ok(Some(cfg)) => cfg,
-        _ => return HashMap::new(),
-    };
+    let pipe_config =
+        match pipeline_repository::get_pipeline_config(&state.pipeline_pool, doc_id).await {
+            Ok(Some(cfg)) => cfg,
+            _ => return HashMap::new(),
+        };
 
-    let schema_path = format!("{}/{}", state.config.extraction_schema_dir, pipe_config.schema_file);
+    let schema_path = format!(
+        "{}/{}",
+        state.config.extraction_schema_dir, pipe_config.schema_file
+    );
     let schema = match colossus_extract::ExtractionSchema::from_file(Path::new(&schema_path)) {
         Ok(s) => s,
         Err(e) => {
@@ -145,7 +149,9 @@ async fn load_category_map(state: &AppState, doc_id: &str) -> HashMap<String, En
         }
     };
 
-    schema.entity_types.iter()
+    schema
+        .entity_types
+        .iter()
         .map(|et| (et.name.clone(), et.category.clone()))
         .collect()
 }
@@ -167,7 +173,9 @@ pub async fn list_items_handler(
     // Find latest completed run for this document
     let run_id = pipeline_repository::get_latest_completed_run(&state.pipeline_pool, &doc_id)
         .await
-        .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?
+        .map_err(|e| AppError::Internal {
+            message: format!("DB error: {e}"),
+        })?
         .ok_or_else(|| AppError::NotFound {
             message: format!("No completed extraction run for document '{doc_id}'"),
         })?;
@@ -175,7 +183,9 @@ pub async fn list_items_handler(
     // Load document status for lock check
     let document = pipeline_repository::get_document(&state.pipeline_pool, &doc_id)
         .await
-        .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?
+        .map_err(|e| AppError::Internal {
+            message: format!("DB error: {e}"),
+        })?
         .ok_or_else(|| AppError::NotFound {
             message: format!("Document '{doc_id}' not found"),
         })?;
@@ -194,38 +204,58 @@ pub async fn list_items_handler(
     let grounding_status = params.grounding_status.as_deref();
 
     let total = review_repo::count_items(
-        &state.pipeline_pool, run_id, review_status, entity_type, grounding_status,
+        &state.pipeline_pool,
+        run_id,
+        review_status,
+        entity_type,
+        grounding_status,
     )
     .await
-    .map_err(|e| AppError::Internal { message: format!("Count query failed: {e}") })?;
+    .map_err(|e| AppError::Internal {
+        message: format!("Count query failed: {e}"),
+    })?;
 
     let items = review_repo::list_items(
-        &state.pipeline_pool, run_id, review_status, entity_type, grounding_status, limit, offset,
+        &state.pipeline_pool,
+        run_id,
+        review_status,
+        entity_type,
+        grounding_status,
+        limit,
+        offset,
     )
     .await
-    .map_err(|e| AppError::Internal { message: format!("List query failed: {e}") })?;
+    .map_err(|e| AppError::Internal {
+        message: format!("List query failed: {e}"),
+    })?;
 
     // Compute summary counts (unfiltered — always show total picture)
     let total_all = review_repo::count_items(&state.pipeline_pool, run_id, None, None, None)
         .await
         .unwrap_or(0);
-    let pending_count = review_repo::count_items(
-        &state.pipeline_pool, run_id, Some("pending"), None, None,
-    ).await.unwrap_or(0);
-    let approved_count = review_repo::count_items(
-        &state.pipeline_pool, run_id, Some("approved"), None, None,
-    ).await.unwrap_or(0);
-    let rejected_count = review_repo::count_items(
-        &state.pipeline_pool, run_id, Some("rejected"), None, None,
-    ).await.unwrap_or(0);
-    let edited_count = review_repo::count_items(
-        &state.pipeline_pool, run_id, Some("edited"), None, None,
-    ).await.unwrap_or(0);
+    let pending_count =
+        review_repo::count_items(&state.pipeline_pool, run_id, Some("pending"), None, None)
+            .await
+            .unwrap_or(0);
+    let approved_count =
+        review_repo::count_items(&state.pipeline_pool, run_id, Some("approved"), None, None)
+            .await
+            .unwrap_or(0);
+    let rejected_count =
+        review_repo::count_items(&state.pipeline_pool, run_id, Some("rejected"), None, None)
+            .await
+            .unwrap_or(0);
+    let edited_count =
+        review_repo::count_items(&state.pipeline_pool, run_id, Some("edited"), None, None)
+            .await
+            .unwrap_or(0);
 
     // Enrich items with category, available_actions, locked, and legacy booleans
-    let enriched_items: Vec<ReviewItemResponse> = items.into_iter()
+    let enriched_items: Vec<ReviewItemResponse> = items
+        .into_iter()
         .map(|item| {
-            let category = category_map.get(&item.entity_type)
+            let category = category_map
+                .get(&item.entity_type)
                 .unwrap_or(&EntityCategory::Evidence);
             let actions = compute_available_actions(category, &item.review_status, locked);
             let can_approve = actions.iter().any(|a| a == "approve" || a == "confirm");
@@ -244,7 +274,11 @@ pub async fn list_items_handler(
         })
         .collect();
 
-    let total_pages = if total == 0 { 1 } else { (total as u32).div_ceil(per_page) };
+    let total_pages = if total == 0 {
+        1
+    } else {
+        (total as u32).div_ceil(per_page)
+    };
 
     Ok(Json(ListItemsResponse {
         document_id: doc_id,

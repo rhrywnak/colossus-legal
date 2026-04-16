@@ -243,13 +243,11 @@ pub async fn update_item_entity_type(
     item_id: i32,
     new_entity_type: &str,
 ) -> Result<(), PipelineRepoError> {
-    sqlx::query(
-        "UPDATE extraction_items SET entity_type = $1 WHERE id = $2",
-    )
-    .bind(new_entity_type)
-    .bind(item_id)
-    .execute(pool)
-    .await?;
+    sqlx::query("UPDATE extraction_items SET entity_type = $1 WHERE id = $2")
+        .bind(new_entity_type)
+        .bind(item_id)
+        .execute(pool)
+        .await?;
     Ok(())
 }
 

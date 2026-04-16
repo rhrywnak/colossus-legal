@@ -134,8 +134,7 @@ pub fn validate_completeness(
                     .iter()
                     .filter(|&from_id| {
                         relationships.iter().any(|rel| {
-                            rel["relationship_type"].as_str()
-                                == Some(relationship.as_str())
+                            rel["relationship_type"].as_str() == Some(relationship.as_str())
                                 && rel["from_entity"].as_str() == Some(from_id)
                                 && rel["to_entity"]
                                     .as_str()
@@ -145,8 +144,7 @@ pub fn validate_completeness(
                     })
                     .count();
 
-                let percentage =
-                    (linked_count as f64 / from_entities.len() as f64 * 100.0) as u32;
+                let percentage = (linked_count as f64 / from_entities.len() as f64 * 100.0) as u32;
                 if percentage < *min_percentage {
                     warnings.push(format!(
                         "{} ({}% of {} linked, need {}%)",

@@ -95,23 +95,38 @@ pub async fn approve_handler(
     // Fetch current status for history
     let current = review_repo::get_item_by_id(&state.pipeline_pool, item_id)
         .await
-        .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?
-        .ok_or_else(|| AppError::NotFound { message: format!("Item {item_id} not found") })?;
+        .map_err(|e| AppError::Internal {
+            message: format!("DB error: {e}"),
+        })?
+        .ok_or_else(|| AppError::NotFound {
+            message: format!("Item {item_id} not found"),
+        })?;
 
     let result = review_repo::approve_item(
-        &state.pipeline_pool, item_id, &user.username, body.notes.as_deref(),
+        &state.pipeline_pool,
+        item_id,
+        &user.username,
+        body.notes.as_deref(),
     )
     .await
-    .map_err(|e| AppError::Internal { message: format!("Approve failed: {e}") })?
+    .map_err(|e| AppError::Internal {
+        message: format!("Approve failed: {e}"),
+    })?
     .ok_or_else(|| AppError::NotFound {
         message: format!("Item {item_id} not found"),
     })?;
 
     // Record history
     review_repo::insert_edit_history(
-        &state.pipeline_pool, item_id, "review_status",
-        Some(&current.review_status), Some("approved"), &user.username,
-    ).await.ok();
+        &state.pipeline_pool,
+        item_id,
+        "review_status",
+        Some(&current.review_status),
+        Some("approved"),
+        &user.username,
+    )
+    .await
+    .ok();
 
     Ok(Json(ReviewResponse {
         id: result.id,
@@ -144,11 +159,16 @@ pub async fn reject_handler(
     // Guard: check entity category — foundation entities cannot be rejected
     let type_info = review_repo::get_item_type_info(&state.pipeline_pool, item_id)
         .await
-        .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?
-        .ok_or_else(|| AppError::NotFound { message: format!("Item {item_id} not found") })?;
+        .map_err(|e| AppError::Internal {
+            message: format!("DB error: {e}"),
+        })?
+        .ok_or_else(|| AppError::NotFound {
+            message: format!("Item {item_id} not found"),
+        })?;
 
     let category_map = load_category_map(&state, &type_info.document_id).await;
-    let category = category_map.get(&type_info.entity_type)
+    let category = category_map
+        .get(&type_info.entity_type)
         .unwrap_or(&EntityCategory::Evidence);
 
     if *category == EntityCategory::Foundation {
@@ -164,23 +184,34 @@ pub async fn reject_handler(
     // Fetch current status for history
     let current = review_repo::get_item_by_id(&state.pipeline_pool, item_id)
         .await
-        .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?
-        .ok_or_else(|| AppError::NotFound { message: format!("Item {item_id} not found") })?;
+        .map_err(|e| AppError::Internal {
+            message: format!("DB error: {e}"),
+        })?
+        .ok_or_else(|| AppError::NotFound {
+            message: format!("Item {item_id} not found"),
+        })?;
 
-    let result = review_repo::reject_item(
-        &state.pipeline_pool, item_id, &user.username, &body.reason,
-    )
-    .await
-    .map_err(|e| AppError::Internal { message: format!("Reject failed: {e}") })?
-    .ok_or_else(|| AppError::NotFound {
-        message: format!("Item {item_id} not found"),
-    })?;
+    let result =
+        review_repo::reject_item(&state.pipeline_pool, item_id, &user.username, &body.reason)
+            .await
+            .map_err(|e| AppError::Internal {
+                message: format!("Reject failed: {e}"),
+            })?
+            .ok_or_else(|| AppError::NotFound {
+                message: format!("Item {item_id} not found"),
+            })?;
 
     // Record history
     review_repo::insert_edit_history(
-        &state.pipeline_pool, item_id, "review_status",
-        Some(&current.review_status), Some("rejected"), &user.username,
-    ).await.ok();
+        &state.pipeline_pool,
+        item_id,
+        "review_status",
+        Some(&current.review_status),
+        Some("rejected"),
+        &user.username,
+    )
+    .await
+    .ok();
 
     // Cascade warning for structural entities
     let cascade_warning = if *category == EntityCategory::Structural {
@@ -190,7 +221,9 @@ pub async fn reject_handler(
         if affected > 0 {
             Some(CascadeWarning {
                 affected_relationships: affected,
-                message: format!("This rejection affects {affected} relationships that reference this entity."),
+                message: format!(
+                    "This rejection affects {affected} relationships that reference this entity."
+                ),
             })
         } else {
             None
@@ -223,15 +256,25 @@ pub async fn edit_handler(
     // Fetch current values for history
     let current = review_repo::get_item_by_id(&state.pipeline_pool, item_id)
         .await
-        .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?
-        .ok_or_else(|| AppError::NotFound { message: format!("Item {item_id} not found") })?;
+        .map_err(|e| AppError::Internal {
+            message: format!("DB error: {e}"),
+        })?
+        .ok_or_else(|| AppError::NotFound {
+            message: format!("Item {item_id} not found"),
+        })?;
 
     let result = review_repo::edit_item(
-        &state.pipeline_pool, item_id, &user.username,
-        body.grounded_page, body.verbatim_quote.as_deref(), body.notes.as_deref(),
+        &state.pipeline_pool,
+        item_id,
+        &user.username,
+        body.grounded_page,
+        body.verbatim_quote.as_deref(),
+        body.notes.as_deref(),
     )
     .await
-    .map_err(|e| AppError::Internal { message: format!("Edit failed: {e}") })?
+    .map_err(|e| AppError::Internal {
+        message: format!("Edit failed: {e}"),
+    })?
     .ok_or_else(|| AppError::NotFound {
         message: format!("Item {item_id} not found"),
     })?;
@@ -239,23 +282,39 @@ pub async fn edit_handler(
     // Record history for each changed field
     if current.review_status != result.review_status {
         review_repo::insert_edit_history(
-            &state.pipeline_pool, item_id, "review_status",
-            Some(&current.review_status), Some(&result.review_status), &user.username,
-        ).await.ok();
+            &state.pipeline_pool,
+            item_id,
+            "review_status",
+            Some(&current.review_status),
+            Some(&result.review_status),
+            &user.username,
+        )
+        .await
+        .ok();
     }
     if body.grounded_page.is_some() {
         review_repo::insert_edit_history(
-            &state.pipeline_pool, item_id, "grounded_page",
+            &state.pipeline_pool,
+            item_id,
+            "grounded_page",
             current.grounded_page.map(|p| p.to_string()).as_deref(),
             body.grounded_page.map(|p| p.to_string()).as_deref(),
             &user.username,
-        ).await.ok();
+        )
+        .await
+        .ok();
     }
     if let Some(ref quote) = body.verbatim_quote {
         review_repo::insert_edit_history(
-            &state.pipeline_pool, item_id, "verbatim_quote",
-            Some("(previous)"), Some(quote), &user.username,
-        ).await.ok();
+            &state.pipeline_pool,
+            item_id,
+            "verbatim_quote",
+            Some("(previous)"),
+            Some(quote),
+            &user.username,
+        )
+        .await
+        .ok();
     }
 
     Ok(Json(ReviewResponse {
@@ -281,34 +340,53 @@ pub async fn unapprove_handler(
     // Check document is not post-ingest
     let type_info = review_repo::get_item_type_info(&state.pipeline_pool, item_id)
         .await
-        .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?
-        .ok_or_else(|| AppError::NotFound { message: format!("Item {item_id} not found") })?;
+        .map_err(|e| AppError::Internal {
+            message: format!("DB error: {e}"),
+        })?
+        .ok_or_else(|| AppError::NotFound {
+            message: format!("Item {item_id} not found"),
+        })?;
 
     check_not_post_ingest(&state, &type_info.document_id, "unapprove").await?;
 
     let current = review_repo::get_item_by_id(&state.pipeline_pool, item_id)
         .await
-        .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?
-        .ok_or_else(|| AppError::NotFound { message: format!("Item {item_id} not found") })?;
+        .map_err(|e| AppError::Internal {
+            message: format!("DB error: {e}"),
+        })?
+        .ok_or_else(|| AppError::NotFound {
+            message: format!("Item {item_id} not found"),
+        })?;
 
     if current.review_status != "approved" && current.review_status != "edited" {
         return Err(AppError::BadRequest {
-            message: format!("Cannot unapprove: item status is '{}', expected 'approved' or 'edited'", current.review_status),
+            message: format!(
+                "Cannot unapprove: item status is '{}', expected 'approved' or 'edited'",
+                current.review_status
+            ),
             details: serde_json::json!({"review_status": current.review_status}),
         });
     }
 
     let result = review_repo::unapprove_item(&state.pipeline_pool, item_id)
         .await
-        .map_err(|e| AppError::Internal { message: format!("Unapprove failed: {e}") })?
+        .map_err(|e| AppError::Internal {
+            message: format!("Unapprove failed: {e}"),
+        })?
         .ok_or_else(|| AppError::Internal {
             message: "Unapprove returned no rows — race condition?".to_string(),
         })?;
 
     review_repo::insert_edit_history(
-        &state.pipeline_pool, item_id, "review_status",
-        Some(&current.review_status), Some("pending"), &user.username,
-    ).await.ok();
+        &state.pipeline_pool,
+        item_id,
+        "review_status",
+        Some(&current.review_status),
+        Some("pending"),
+        &user.username,
+    )
+    .await
+    .ok();
 
     Ok(Json(ReviewResponse {
         id: result.id,
@@ -332,34 +410,53 @@ pub async fn unreject_handler(
 
     let type_info = review_repo::get_item_type_info(&state.pipeline_pool, item_id)
         .await
-        .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?
-        .ok_or_else(|| AppError::NotFound { message: format!("Item {item_id} not found") })?;
+        .map_err(|e| AppError::Internal {
+            message: format!("DB error: {e}"),
+        })?
+        .ok_or_else(|| AppError::NotFound {
+            message: format!("Item {item_id} not found"),
+        })?;
 
     check_not_post_ingest(&state, &type_info.document_id, "unreject").await?;
 
     let current = review_repo::get_item_by_id(&state.pipeline_pool, item_id)
         .await
-        .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?
-        .ok_or_else(|| AppError::NotFound { message: format!("Item {item_id} not found") })?;
+        .map_err(|e| AppError::Internal {
+            message: format!("DB error: {e}"),
+        })?
+        .ok_or_else(|| AppError::NotFound {
+            message: format!("Item {item_id} not found"),
+        })?;
 
     if current.review_status != "rejected" {
         return Err(AppError::BadRequest {
-            message: format!("Cannot unreject: item status is '{}', expected 'rejected'", current.review_status),
+            message: format!(
+                "Cannot unreject: item status is '{}', expected 'rejected'",
+                current.review_status
+            ),
             details: serde_json::json!({"review_status": current.review_status}),
         });
     }
 
     let result = review_repo::unreject_item(&state.pipeline_pool, item_id)
         .await
-        .map_err(|e| AppError::Internal { message: format!("Unreject failed: {e}") })?
+        .map_err(|e| AppError::Internal {
+            message: format!("Unreject failed: {e}"),
+        })?
         .ok_or_else(|| AppError::Internal {
             message: "Unreject returned no rows — race condition?".to_string(),
         })?;
 
     review_repo::insert_edit_history(
-        &state.pipeline_pool, item_id, "review_status",
-        Some("rejected"), Some("pending"), &user.username,
-    ).await.ok();
+        &state.pipeline_pool,
+        item_id,
+        "review_status",
+        Some("rejected"),
+        Some("pending"),
+        &user.username,
+    )
+    .await
+    .ok();
 
     Ok(Json(ReviewResponse {
         id: result.id,
@@ -384,12 +481,22 @@ pub async fn revert_ingest_handler(
 
     let document = pipeline_repository::get_document(&state.pipeline_pool, &doc_id)
         .await
-        .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?
-        .ok_or_else(|| AppError::NotFound { message: format!("Document '{doc_id}' not found") })?;
+        .map_err(|e| AppError::Internal {
+            message: format!("DB error: {e}"),
+        })?
+        .ok_or_else(|| AppError::NotFound {
+            message: format!("Document '{doc_id}' not found"),
+        })?;
 
-    if !matches!(document.status.as_str(), "INGESTED" | "INDEXED" | "PUBLISHED") {
+    if !matches!(
+        document.status.as_str(),
+        "INGESTED" | "INDEXED" | "PUBLISHED"
+    ) {
         return Err(AppError::Conflict {
-            message: format!("Cannot revert ingest: status is '{}', expected INGESTED, INDEXED, or PUBLISHED", document.status),
+            message: format!(
+                "Cannot revert ingest: status is '{}', expected INGESTED, INDEXED, or PUBLISHED",
+                document.status
+            ),
             details: serde_json::json!({"status": document.status}),
         });
     }
@@ -400,13 +507,19 @@ pub async fn revert_ingest_handler(
     // Reset status to VERIFIED
     pipeline_repository::update_document_status(&state.pipeline_pool, &doc_id, "VERIFIED")
         .await
-        .map_err(|e| AppError::Internal { message: format!("Failed to update status: {e}") })?;
+        .map_err(|e| AppError::Internal {
+            message: format!("Failed to update status: {e}"),
+        })?;
 
     log_admin_action(
-        &state.audit_repo, &user.username, "pipeline.document.revert_ingest",
-        Some("document"), Some(&doc_id),
+        &state.audit_repo,
+        &user.username,
+        "pipeline.document.revert_ingest",
+        Some("document"),
+        Some(&doc_id),
         Some(serde_json::json!({"previous_status": document.status})),
-    ).await;
+    )
+    .await;
 
     tracing::info!(doc_id = %doc_id, previous = %document.status, "Ingest reverted — status → VERIFIED");
 
@@ -434,12 +547,17 @@ pub async fn reprocess_handler(
 
     let document = pipeline_repository::get_document(&state.pipeline_pool, &doc_id)
         .await
-        .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?
+        .map_err(|e| AppError::Internal {
+            message: format!("DB error: {e}"),
+        })?
         .ok_or_else(|| AppError::NotFound {
             message: format!("Document '{doc_id}' not found"),
         })?;
 
-    if !matches!(document.status.as_str(), "INGESTED" | "INDEXED" | "PUBLISHED") {
+    if !matches!(
+        document.status.as_str(),
+        "INGESTED" | "INDEXED" | "PUBLISHED"
+    ) {
         return Err(AppError::Conflict {
             message: format!(
                 "Cannot reprocess: status is '{}', expected INGESTED, INDEXED, or PUBLISHED",
@@ -452,12 +570,17 @@ pub async fn reprocess_handler(
     super::delete::cleanup_neo4j(&state, &doc_id).await;
     super::delete::cleanup_qdrant(&state, &doc_id).await;
 
-    let mut txn = state.pipeline_pool.begin().await
-        .map_err(|e| AppError::Internal { message: format!("Transaction begin: {e}") })?;
+    let mut txn = state
+        .pipeline_pool
+        .begin()
+        .await
+        .map_err(|e| AppError::Internal {
+            message: format!("Transaction begin: {e}"),
+        })?;
 
     sqlx::query(
         "DELETE FROM review_edit_history WHERE item_id IN \
-         (SELECT id FROM extraction_items WHERE document_id = $1)"
+         (SELECT id FROM extraction_items WHERE document_id = $1)",
     )
     .bind(&doc_id)
     .execute(&mut *txn)
@@ -484,7 +607,7 @@ pub async fn reprocess_handler(
 
     sqlx::query(
         "DELETE FROM extraction_chunks WHERE extraction_run_id IN \
-         (SELECT id FROM extraction_runs WHERE document_id = $1)"
+         (SELECT id FROM extraction_runs WHERE document_id = $1)",
     )
     .bind(&doc_id)
     .execute(&mut *txn)
@@ -503,7 +626,7 @@ pub async fn reprocess_handler(
 
     sqlx::query(
         "DELETE FROM pipeline_steps \
-         WHERE document_id = $1 AND step_name NOT IN ('upload', 'extract_text')"
+         WHERE document_id = $1 AND step_name NOT IN ('upload', 'extract_text')",
     )
     .bind(&doc_id)
     .execute(&mut *txn)
@@ -520,14 +643,19 @@ pub async fn reprocess_handler(
             message: format!("Update status: {e}"),
         })?;
 
-    txn.commit().await
-        .map_err(|e| AppError::Internal { message: format!("Transaction commit: {e}") })?;
+    txn.commit().await.map_err(|e| AppError::Internal {
+        message: format!("Transaction commit: {e}"),
+    })?;
 
     log_admin_action(
-        &state.audit_repo, &user.username, "pipeline.document.reprocess",
-        Some("document"), Some(&doc_id),
+        &state.audit_repo,
+        &user.username,
+        "pipeline.document.reprocess",
+        Some("document"),
+        Some(&doc_id),
         Some(serde_json::json!({"previous_status": document.status})),
-    ).await;
+    )
+    .await;
 
     tracing::info!(
         doc_id = %doc_id, previous = %document.status,
@@ -537,7 +665,8 @@ pub async fn reprocess_handler(
     Ok(Json(ReprocessResponse {
         document_id: doc_id,
         status: "TEXT_EXTRACTED".to_string(),
-        message: "Document reset for re-extraction. Select schema and run Analyze Content.".to_string(),
+        message: "Document reset for re-extraction. Select schema and run Analyze Content."
+            .to_string(),
     }))
 }
 
@@ -554,37 +683,54 @@ pub async fn bulk_approve_handler(
 
     if body.filter != "grounded" && body.filter != "all" {
         return Err(AppError::BadRequest {
-            message: format!("Invalid filter '{}' — must be 'grounded' or 'all'", body.filter),
+            message: format!(
+                "Invalid filter '{}' — must be 'grounded' or 'all'",
+                body.filter
+            ),
             details: serde_json::json!({"field": "filter", "valid": ["grounded", "all"]}),
         });
     }
 
-    let approved_count = review_repo::bulk_approve(
-        &state.pipeline_pool, &doc_id, &user.username, &body.filter,
-    )
-    .await
-    .map_err(|e| AppError::Internal { message: format!("Bulk approve failed: {e}") })?;
+    let approved_count =
+        review_repo::bulk_approve(&state.pipeline_pool, &doc_id, &user.username, &body.filter)
+            .await
+            .map_err(|e| AppError::Internal {
+                message: format!("Bulk approve failed: {e}"),
+            })?;
 
     let remaining_pending = review_repo::count_pending(&state.pipeline_pool, &doc_id)
         .await
-        .map_err(|e| AppError::Internal { message: format!("Count pending failed: {e}") })?;
+        .map_err(|e| AppError::Internal {
+            message: format!("Count pending failed: {e}"),
+        })?;
 
     let skipped_ungrounded = review_repo::count_ungrounded_pending(&state.pipeline_pool, &doc_id)
         .await
-        .map_err(|e| AppError::Internal { message: format!("Count ungrounded failed: {e}") })?;
+        .map_err(|e| AppError::Internal {
+            message: format!("Count ungrounded failed: {e}"),
+        })?;
 
     if let Ok(sid) = steps::record_step_start(
-        &state.pipeline_pool, &doc_id, "bulk_approve", &user.username,
+        &state.pipeline_pool,
+        &doc_id,
+        "bulk_approve",
+        &user.username,
         &serde_json::json!({"filter": body.filter}),
-    ).await {
+    )
+    .await
+    {
         steps::record_step_complete(
-            &state.pipeline_pool, sid, 0.0,
+            &state.pipeline_pool,
+            sid,
+            0.0,
             &serde_json::json!({
                 "approved_count": approved_count,
                 "skipped_ungrounded": skipped_ungrounded,
                 "remaining_pending": remaining_pending,
             }),
-        ).await.ok();
+        )
+        .await
+        .ok();
     }
 
     Ok(Json(BulkApproveResponse {
@@ -607,7 +753,9 @@ pub async fn item_history_handler(
 
     let history = review_repo::get_edit_history(&state.pipeline_pool, item_id)
         .await
-        .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?;
+        .map_err(|e| AppError::Internal {
+            message: format!("DB error: {e}"),
+        })?;
 
     Ok(Json(history))
 }
@@ -622,14 +770,22 @@ async fn check_not_post_ingest(
 ) -> Result<(), AppError> {
     let document = pipeline_repository::get_document(&state.pipeline_pool, document_id)
         .await
-        .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?
+        .map_err(|e| AppError::Internal {
+            message: format!("DB error: {e}"),
+        })?
         .ok_or_else(|| AppError::NotFound {
             message: format!("Document '{document_id}' not found"),
         })?;
 
-    if matches!(document.status.as_str(), "INGESTED" | "INDEXED" | "PUBLISHED" | "COMPLETED") {
+    if matches!(
+        document.status.as_str(),
+        "INGESTED" | "INDEXED" | "PUBLISHED" | "COMPLETED"
+    ) {
         return Err(AppError::Conflict {
-            message: format!("Cannot {action}: document is post-ingest (status: {}). Revert ingest first.", document.status),
+            message: format!(
+                "Cannot {action}: document is post-ingest (status: {}). Revert ingest first.",
+                document.status
+            ),
             details: serde_json::json!({"status": document.status}),
         });
     }
@@ -638,14 +794,20 @@ async fn check_not_post_ingest(
 
 /// Load entity category map from schema. Returns empty map on failure.
 async fn load_category_map(state: &AppState, doc_id: &str) -> HashMap<String, EntityCategory> {
-    let pipe_config = match pipeline_repository::get_pipeline_config(&state.pipeline_pool, doc_id).await {
-        Ok(Some(cfg)) => cfg,
-        _ => return HashMap::new(),
-    };
+    let pipe_config =
+        match pipeline_repository::get_pipeline_config(&state.pipeline_pool, doc_id).await {
+            Ok(Some(cfg)) => cfg,
+            _ => return HashMap::new(),
+        };
 
-    let schema_path = format!("{}/{}", state.config.extraction_schema_dir, pipe_config.schema_file);
+    let schema_path = format!(
+        "{}/{}",
+        state.config.extraction_schema_dir, pipe_config.schema_file
+    );
     match colossus_extract::ExtractionSchema::from_file(Path::new(&schema_path)) {
-        Ok(schema) => schema.entity_types.iter()
+        Ok(schema) => schema
+            .entity_types
+            .iter()
             .map(|et| (et.name.clone(), et.category.clone()))
             .collect(),
         Err(_) => HashMap::new(),

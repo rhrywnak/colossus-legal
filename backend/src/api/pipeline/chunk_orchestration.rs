@@ -12,8 +12,7 @@
 use std::time::Instant;
 
 use colossus_extract::{
-    ChunkExtractionResult, ExtractedNode, ExtractedRel, FixedSizeSplitter,
-    TextChunk, TextSplitter,
+    ChunkExtractionResult, ExtractedNode, ExtractedRel, FixedSizeSplitter, TextChunk, TextSplitter,
 };
 use sqlx::PgPool;
 
@@ -22,7 +21,6 @@ use crate::repositories::pipeline_repository::documents;
 
 /// Delay between sequential chunk extractions to avoid rate limits.
 const INTER_CHUNK_DELAY_SECS: u64 = 15;
-
 
 /// Summary returned from the chunk extraction run.
 pub(super) struct ChunkExtractionSummary {
@@ -66,11 +64,21 @@ pub(super) async fn run_chunk_extraction(
         let entities_so_far = merged_nodes.len();
         let pct = 10 + (50 * (index) / chunk_count.max(1));
         documents::update_processing_progress(
-            pool, doc_id, "extract",
-            &format!("Analyzing content... chunk {} of {}", index + 1, chunk_count),
-            chunk_count as i32, index as i32,
-            entities_so_far as i32, pct as i32,
-        ).await.ok();
+            pool,
+            doc_id,
+            "extract",
+            &format!(
+                "Analyzing content... chunk {} of {}",
+                index + 1,
+                chunk_count
+            ),
+            chunk_count as i32,
+            index as i32,
+            entities_so_far as i32,
+            pct as i32,
+        )
+        .await
+        .ok();
 
         // Extract this chunk with rate limit retry loop.
         //
@@ -90,11 +98,10 @@ pub(super) async fn run_chunk_extraction(
         let start = Instant::now();
 
         // TODO(Phase4): replaced by context.llm_provider.invoke() in LlmExtract step
-        let result: Result<ChunkExtractionResult, colossus_extract::PipelineError> = Err(
-            colossus_extract::PipelineError::Extraction(
+        let result: Result<ChunkExtractionResult, colossus_extract::PipelineError> =
+            Err(colossus_extract::PipelineError::Extraction(
                 "chunk extractor removed — pending Phase 4 LlmExtract step".into(),
-            ),
-        );
+            ));
         let duration_ms = start.elapsed().as_millis() as i64;
 
         match result {
@@ -106,13 +113,24 @@ pub(super) async fn run_chunk_extraction(
                 merged_rels.extend(chunk_result.relationships);
                 chunks_succeeded += 1;
                 insert_chunk_row(
-                    pool, run_id, chunk.index as i32, &chunk.text,
-                    "completed", node_count as i32, rel_count as i32,
-                    None, duration_ms,
-                ).await;
+                    pool,
+                    run_id,
+                    chunk.index as i32,
+                    &chunk.text,
+                    "completed",
+                    node_count as i32,
+                    rel_count as i32,
+                    None,
+                    duration_ms,
+                )
+                .await;
                 tracing::info!(
-                    run_id, chunk_index = chunk.index, node_count, rel_count,
-                    duration_ms, "Chunk extraction succeeded"
+                    run_id,
+                    chunk_index = chunk.index,
+                    node_count,
+                    rel_count,
+                    duration_ms,
+                    "Chunk extraction succeeded"
                 );
             }
             Err(err) => {
@@ -123,16 +141,25 @@ pub(super) async fn run_chunk_extraction(
                     error = %error_message, "Chunk extraction failed"
                 );
                 insert_chunk_row(
-                    pool, run_id, chunk.index as i32, &chunk.text,
-                    "failed", 0, 0, Some(&error_message), duration_ms,
-                ).await;
+                    pool,
+                    run_id,
+                    chunk.index as i32,
+                    &chunk.text,
+                    "failed",
+                    0,
+                    0,
+                    Some(&error_message),
+                    duration_ms,
+                )
+                .await;
             }
         }
 
         // Delay between chunks (skip delay after last chunk)
         if index < chunks.len() - 1 {
             tracing::info!(
-                run_id, delay_secs = INTER_CHUNK_DELAY_SECS,
+                run_id,
+                delay_secs = INTER_CHUNK_DELAY_SECS,
                 "Waiting between chunks to respect rate limits"
             );
             tokio::time::sleep(tokio::time::Duration::from_secs(INTER_CHUNK_DELAY_SECS)).await;
@@ -142,11 +169,17 @@ pub(super) async fn run_chunk_extraction(
     // Final progress update
     let final_pct = 55;
     documents::update_processing_progress(
-        pool, doc_id, "extract",
+        pool,
+        doc_id,
+        "extract",
         "Content analyzed",
-        chunk_count as i32, chunk_count as i32,
-        merged_nodes.len() as i32, final_pct,
-    ).await.ok();
+        chunk_count as i32,
+        chunk_count as i32,
+        merged_nodes.len() as i32,
+        final_pct,
+    )
+    .await
+    .ok();
 
     let legacy_json = chunk_results_to_legacy_json(&merged_nodes, &merged_rels);
 
@@ -181,8 +214,8 @@ pub(crate) fn chunk_results_to_legacy_json(
     let entities: Vec<serde_json::Value> = merged_nodes
         .iter()
         .map(|node| {
-            let props_value = serde_json::to_value(&node.properties)
-                .unwrap_or(serde_json::Value::Null);
+            let props_value =
+                serde_json::to_value(&node.properties).unwrap_or(serde_json::Value::Null);
             let mut entity = serde_json::json!({
                 "entity_type": node.label,
                 "id": node.id,
@@ -198,8 +231,8 @@ pub(crate) fn chunk_results_to_legacy_json(
     let relationships: Vec<serde_json::Value> = merged_rels
         .iter()
         .map(|rel| {
-            let props_value = serde_json::to_value(&rel.properties)
-                .unwrap_or(serde_json::Value::Null);
+            let props_value =
+                serde_json::to_value(&rel.properties).unwrap_or(serde_json::Value::Null);
             serde_json::json!({
                 "relationship_type": rel.rel_type,
                 "from_entity": rel.start_node_id,
@@ -367,5 +400,4 @@ mod tests {
         assert_eq!(entity["entity_type"].as_str(), Some("LegalCount"));
         assert_eq!(entity["id"].as_str(), Some("chunk_2:5"));
     }
-
 }

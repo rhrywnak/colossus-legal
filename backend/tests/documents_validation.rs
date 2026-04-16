@@ -203,9 +203,13 @@ async fn get_document_returns_404_when_missing() -> TestResult<()> {
         },
     };
 
-    let response = get_document(None, State(state), axum::extract::Path("no-such".to_string()))
-        .await
-        .into_response();
+    let response = get_document(
+        None,
+        State(state),
+        axum::extract::Path("no-such".to_string()),
+    )
+    .await
+    .into_response();
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
     let body = to_bytes(response.into_body(), 1024 * 1024).await?;
@@ -238,9 +242,10 @@ async fn update_document_rejects_invalid_doc_type() -> TestResult<()> {
     };
 
     let payload = base_create_payload("Title", "pdf");
-    let created_response = create_document(test_editor(), State(state.clone()), axum::Json(payload))
-        .await
-        .into_response();
+    let created_response =
+        create_document(test_editor(), State(state.clone()), axum::Json(payload))
+            .await
+            .into_response();
     assert_eq!(created_response.status(), StatusCode::CREATED);
     let body = to_bytes(created_response.into_body(), 1024 * 1024).await?;
     let created: DocumentDto = serde_json::from_slice(&body)?;

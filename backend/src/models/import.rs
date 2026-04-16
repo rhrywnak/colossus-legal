@@ -232,7 +232,10 @@ mod tests {
         assert_eq!(claim.id, "CLAIM-001");
         assert_eq!(claim.severity, Some(8));
         assert_eq!(claim.against.len(), 2);
-        assert_eq!(claim.evidence_refs, Some(vec!["Exhibit 1".to_string(), "Exhibit 5".to_string()]));
+        assert_eq!(
+            claim.evidence_refs,
+            Some(vec!["Exhibit 1".to_string(), "Exhibit 5".to_string()])
+        );
     }
 
     #[test]

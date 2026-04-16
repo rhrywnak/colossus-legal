@@ -70,13 +70,23 @@ pub(crate) async fn run_index(
     let start = Instant::now();
 
     let step_id = steps::record_step_start(
-        &state.pipeline_pool, doc_id, "index", username, &serde_json::json!({}),
-    ).await.map_err(|e| AppError::Internal { message: format!("Step logging: {e}") })?;
+        &state.pipeline_pool,
+        doc_id,
+        "index",
+        username,
+        &serde_json::json!({}),
+    )
+    .await
+    .map_err(|e| AppError::Internal {
+        message: format!("Step logging: {e}"),
+    })?;
 
     // 1. Fetch document — must exist (for title/metadata, not status check)
     let _document = pipeline_repository::get_document(&state.pipeline_pool, doc_id)
         .await
-        .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?
+        .map_err(|e| AppError::Internal {
+            message: format!("DB error: {e}"),
+        })?
         .ok_or_else(|| AppError::NotFound {
             message: format!("Document '{doc_id}' not found"),
         })?;
@@ -248,7 +258,9 @@ pub async fn index_handler(
     // Status guard
     let document = pipeline_repository::get_document(&state.pipeline_pool, &doc_id)
         .await
-        .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?
+        .map_err(|e| AppError::Internal {
+            message: format!("DB error: {e}"),
+        })?
         .ok_or_else(|| AppError::NotFound {
             message: format!("Document '{doc_id}' not found"),
         })?;

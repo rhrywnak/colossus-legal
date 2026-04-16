@@ -44,16 +44,11 @@ pub async fn update_processing_progress(
 }
 
 /// Check if document is cancelled.
-pub async fn is_cancelled(
-    pool: &PgPool,
-    document_id: &str,
-) -> Result<bool, PipelineRepoError> {
-    let row = sqlx::query_scalar::<_, bool>(
-        "SELECT is_cancelled FROM documents WHERE id = $1",
-    )
-    .bind(document_id)
-    .fetch_optional(pool)
-    .await?;
+pub async fn is_cancelled(pool: &PgPool, document_id: &str) -> Result<bool, PipelineRepoError> {
+    let row = sqlx::query_scalar::<_, bool>("SELECT is_cancelled FROM documents WHERE id = $1")
+        .bind(document_id)
+        .fetch_optional(pool)
+        .await?;
     Ok(row.unwrap_or(false))
 }
 
@@ -70,12 +65,11 @@ pub async fn has_document_of_type(
     pool: &PgPool,
     doc_type: &str,
 ) -> Result<bool, PipelineRepoError> {
-    let count = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM documents WHERE document_type = $1",
-    )
-    .bind(doc_type)
-    .fetch_one(pool)
-    .await?;
+    let count =
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM documents WHERE document_type = $1")
+            .bind(doc_type)
+            .fetch_one(pool)
+            .await?;
     Ok(count > 0)
 }
 
@@ -147,21 +141,17 @@ pub async fn delete_document_extraction_data(
     // Step 1: Delete relationships first — they reference both extraction_items
     // (from_item_id, to_item_id) and extraction_runs (run_id). They must be
     // deleted before either of their referenced tables.
-    sqlx::query(
-        "DELETE FROM extraction_relationships WHERE document_id = $1",
-    )
-    .bind(document_id)
-    .execute(&mut *txn)
-    .await?;
+    sqlx::query("DELETE FROM extraction_relationships WHERE document_id = $1")
+        .bind(document_id)
+        .execute(&mut *txn)
+        .await?;
 
     // Step 2: Delete items — they reference extraction_runs (run_id). Must be
     // deleted before extraction_runs.
-    sqlx::query(
-        "DELETE FROM extraction_items WHERE document_id = $1",
-    )
-    .bind(document_id)
-    .execute(&mut *txn)
-    .await?;
+    sqlx::query("DELETE FROM extraction_items WHERE document_id = $1")
+        .bind(document_id)
+        .execute(&mut *txn)
+        .await?;
 
     // Step 3: Delete chunk observability rows — they reference extraction_runs
     // (extraction_run_id). The migration added ON DELETE CASCADE, but we delete
@@ -177,12 +167,10 @@ pub async fn delete_document_extraction_data(
 
     // Step 4: Delete the run record itself. All child rows are gone, so this
     // will not violate any FK constraints.
-    sqlx::query(
-        "DELETE FROM extraction_runs WHERE document_id = $1",
-    )
-    .bind(document_id)
-    .execute(&mut *txn)
-    .await?;
+    sqlx::query("DELETE FROM extraction_runs WHERE document_id = $1")
+        .bind(document_id)
+        .execute(&mut *txn)
+        .await?;
 
     // Step 5: Delete pipeline step records for extraction-related steps only.
     // We keep 'upload' and 'extract_text' steps because they record permanent
@@ -242,34 +230,50 @@ pub async fn delete_all_document_data(
 
     // Extraction data — same order as delete_document_extraction_data
     sqlx::query("DELETE FROM extraction_relationships WHERE document_id = $1")
-        .bind(document_id).execute(&mut *txn).await?;
+        .bind(document_id)
+        .execute(&mut *txn)
+        .await?;
 
     sqlx::query("DELETE FROM extraction_items WHERE document_id = $1")
-        .bind(document_id).execute(&mut *txn).await?;
+        .bind(document_id)
+        .execute(&mut *txn)
+        .await?;
 
     sqlx::query(
         "DELETE FROM extraction_chunks \
          WHERE extraction_run_id IN \
          (SELECT id FROM extraction_runs WHERE document_id = $1)",
     )
-    .bind(document_id).execute(&mut *txn).await?;
+    .bind(document_id)
+    .execute(&mut *txn)
+    .await?;
 
     sqlx::query("DELETE FROM extraction_runs WHERE document_id = $1")
-        .bind(document_id).execute(&mut *txn).await?;
+        .bind(document_id)
+        .execute(&mut *txn)
+        .await?;
 
     // Document content and config — only deleted on full document removal
     sqlx::query("DELETE FROM document_text WHERE document_id = $1")
-        .bind(document_id).execute(&mut *txn).await?;
+        .bind(document_id)
+        .execute(&mut *txn)
+        .await?;
 
     sqlx::query("DELETE FROM pipeline_steps WHERE document_id = $1")
-        .bind(document_id).execute(&mut *txn).await?;
+        .bind(document_id)
+        .execute(&mut *txn)
+        .await?;
 
     sqlx::query("DELETE FROM pipeline_config WHERE document_id = $1")
-        .bind(document_id).execute(&mut *txn).await?;
+        .bind(document_id)
+        .execute(&mut *txn)
+        .await?;
 
     // Document row last — all FK children are gone, this will succeed.
     sqlx::query("DELETE FROM documents WHERE id = $1")
-        .bind(document_id).execute(&mut *txn).await?;
+        .bind(document_id)
+        .execute(&mut *txn)
+        .await?;
 
     txn.commit().await?;
     Ok(())
@@ -294,18 +298,36 @@ mod cleanup_tests {
             "extraction_runs",
         ];
         // Verify relationships come before items
-        let rel_pos = correct_order.iter().position(|&s| s == "extraction_relationships").unwrap();
-        let item_pos = correct_order.iter().position(|&s| s == "extraction_items").unwrap();
-        assert!(rel_pos < item_pos,
-            "extraction_relationships must be deleted before extraction_items");
+        let rel_pos = correct_order
+            .iter()
+            .position(|&s| s == "extraction_relationships")
+            .unwrap();
+        let item_pos = correct_order
+            .iter()
+            .position(|&s| s == "extraction_items")
+            .unwrap();
+        assert!(
+            rel_pos < item_pos,
+            "extraction_relationships must be deleted before extraction_items"
+        );
         // Verify items come before runs
-        let run_pos = correct_order.iter().position(|&s| s == "extraction_runs").unwrap();
-        assert!(item_pos < run_pos,
-            "extraction_items must be deleted before extraction_runs");
+        let run_pos = correct_order
+            .iter()
+            .position(|&s| s == "extraction_runs")
+            .unwrap();
+        assert!(
+            item_pos < run_pos,
+            "extraction_items must be deleted before extraction_runs"
+        );
         // Verify chunks come before runs
-        let chunk_pos = correct_order.iter().position(|&s| s == "extraction_chunks").unwrap();
-        assert!(chunk_pos < run_pos,
-            "extraction_chunks must be deleted before extraction_runs");
+        let chunk_pos = correct_order
+            .iter()
+            .position(|&s| s == "extraction_chunks")
+            .unwrap();
+        assert!(
+            chunk_pos < run_pos,
+            "extraction_chunks must be deleted before extraction_runs"
+        );
     }
 
     #[test]
@@ -313,10 +335,10 @@ mod cleanup_tests {
         // After pipeline simplification, COMPLETED is the terminal status
         // for all successfully processed documents. Neo4j and Qdrant cleanup
         // must include COMPLETED — verifies Finding 5 fix is present.
-        let statuses_requiring_graph_cleanup = [
-            "COMPLETED", "PUBLISHED", "INGESTED", "INDEXED",
-        ];
-        assert!(statuses_requiring_graph_cleanup.contains(&"COMPLETED"),
-            "COMPLETED documents have Neo4j/Qdrant data — must be cleaned on delete");
+        let statuses_requiring_graph_cleanup = ["COMPLETED", "PUBLISHED", "INGESTED", "INDEXED"];
+        assert!(
+            statuses_requiring_graph_cleanup.contains(&"COMPLETED"),
+            "COMPLETED documents have Neo4j/Qdrant data — must be cleaned on delete"
+        );
     }
 }

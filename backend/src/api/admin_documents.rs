@@ -12,11 +12,7 @@
 //! → `.finalize()` → `format!("{:x}", hash)`. The `Digest` trait is generic —
 //! swap `Sha256` for `Sha512` and the code stays the same.
 
-use axum::{
-    extract::State,
-    http::StatusCode,
-    Json,
-};
+use axum::{extract::State, http::StatusCode, Json};
 use serde::Serialize;
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -112,8 +108,7 @@ pub async fn register_document(
             }
 
             // Build the full path and check the PDF exists on disk
-            let pdf_path: PathBuf =
-                [&state.config.document_storage_path, &fp].iter().collect();
+            let pdf_path: PathBuf = [&state.config.document_storage_path, &fp].iter().collect();
 
             if !pdf_path.exists() {
                 return Err(AppError::BadRequest {
@@ -126,11 +121,11 @@ pub async fn register_document(
             }
 
             // Compute SHA-256 content hash
-            let file_bytes = tokio::fs::read(&pdf_path).await.map_err(|e| {
-                AppError::Internal {
+            let file_bytes = tokio::fs::read(&pdf_path)
+                .await
+                .map_err(|e| AppError::Internal {
                     message: format!("Failed to read PDF: {e}"),
-                }
-            })?;
+                })?;
 
             let mut hasher = Sha256::new();
             hasher.update(&file_bytes);
@@ -225,10 +220,14 @@ pub async fn register_document(
     let doc_type = document.doc_type.clone().unwrap_or_default();
 
     log_admin_action(
-        &state.audit_repo, &user.username, "document.register",
-        Some("document"), Some(&doc_id),
+        &state.audit_repo,
+        &user.username,
+        "document.register",
+        Some("document"),
+        Some(&doc_id),
         Some(json!({ "title": &doc_title, "doc_type": &doc_type })),
-    ).await;
+    )
+    .await;
 
     Ok((
         StatusCode::CREATED,

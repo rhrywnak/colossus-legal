@@ -184,13 +184,11 @@ pub async fn update_document_status(
     document_id: &str,
     status: &str,
 ) -> Result<(), PipelineRepoError> {
-    let result = sqlx::query(
-        "UPDATE documents SET status = $1, updated_at = NOW() WHERE id = $2",
-    )
-    .bind(status)
-    .bind(document_id)
-    .execute(pool)
-    .await?;
+    let result = sqlx::query("UPDATE documents SET status = $1, updated_at = NOW() WHERE id = $2")
+        .bind(status)
+        .bind(document_id)
+        .execute(pool)
+        .await?;
 
     if result.rows_affected() == 0 {
         return Err(PipelineRepoError::NotFound(document_id.to_string()));

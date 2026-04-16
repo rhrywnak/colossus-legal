@@ -63,10 +63,7 @@ pub fn slug(name: &str) -> String {
 /// The {doc_slug} prefix scopes document-specific entities to their document,
 /// preventing ID collisions across different documents that happen to have
 /// the same paragraph number or count number.
-pub fn stable_entity_id(
-    item: &ExtractionItemRecord,
-    doc_id: &str,
-) -> String {
+pub fn stable_entity_id(item: &ExtractionItemRecord, doc_id: &str) -> String {
     let doc_slug = slug(doc_id);
 
     match item.entity_type.as_str() {
@@ -122,8 +119,7 @@ pub fn stable_entity_id(
         }
         other => {
             // Unknown entity type — hash the full item_data for uniqueness.
-            let data_str = serde_json::to_string(&item.item_data)
-                .unwrap_or_default();
+            let data_str = serde_json::to_string(&item.item_data).unwrap_or_default();
             let hash = format!("{:x}", Sha256::digest(data_str.as_bytes()));
             format!("{}:{}:{}", doc_slug, slug(other), &hash[..8])
         }
@@ -191,17 +187,18 @@ pub async fn create_party_nodes(
     for item in items.iter().filter(|i| i.entity_type == "Party") {
         let props = &item.item_data["properties"];
         // Support both property naming conventions across schemas
-        let name = props["party_name"].as_str()
+        let name = props["party_name"]
+            .as_str()
             .or_else(|| props["full_name"].as_str())
             .unwrap_or("unknown");
         let role = props["role"].as_str().unwrap_or("");
         // Support both "party_type" (complaint.yaml) and "entity_kind" (general_legal.yaml)
-        let party_type = props["party_type"].as_str()
+        let party_type = props["party_type"]
+            .as_str()
             .or_else(|| props["entity_kind"].as_str())
             .unwrap_or("individual");
 
-        let is_org = party_type == "organization"
-            || party_type.to_lowercase().contains("org");
+        let is_org = party_type == "organization" || party_type.to_lowercase().contains("org");
         let label = if is_org { "Organization" } else { "Person" };
 
         // Look up resolved ID from the resolution map
@@ -242,7 +239,11 @@ pub async fn create_party_nodes(
             message: format!("Failed to merge {label} '{name}': {e}"),
         })?;
 
-        if is_org { orgs += 1; } else { persons += 1; }
+        if is_org {
+            orgs += 1;
+        } else {
+            persons += 1;
+        }
     }
     Ok((persons, orgs))
 }
@@ -269,7 +270,7 @@ pub async fn create_entity_node(
     txn: &mut neo4rs::Txn,
     item: &ExtractionItemRecord,
     doc_id: &str,
-    _seq: usize,  // kept for API compatibility but no longer used for ID generation
+    _seq: usize, // kept for API compatibility but no longer used for ID generation
 ) -> Result<String, AppError> {
     let entity_type = &item.entity_type;
 
@@ -346,9 +347,7 @@ pub async fn create_entity_node(
                 continue;
             }
 
-            let set_cypher = format!(
-                "MATCH (n:{entity_type} {{id: $id}}) SET n.{key} = $val"
-            );
+            let set_cypher = format!("MATCH (n:{entity_type} {{id: $id}}) SET n.{key} = $val");
 
             let set_q = match value {
                 serde_json::Value::String(s) => Some(
@@ -380,9 +379,7 @@ pub async fn create_entity_node(
 
             if let Some(set_q) = set_q {
                 txn.run(set_q).await.map_err(|e| AppError::Internal {
-                    message: format!(
-                        "Failed to set property '{key}' on {neo4j_id}: {e}"
-                    ),
+                    message: format!("Failed to set property '{key}' on {neo4j_id}: {e}"),
                 })?;
             }
         }
@@ -484,7 +481,8 @@ pub async fn create_provenance_relationships(
 
         for entry in provenance {
             let ref_type = entry["ref_type"].as_str().unwrap_or("paragraph");
-            let ref_val = entry["ref"].as_str()
+            let ref_val = entry["ref"]
+                .as_str()
                 .map(|s| s.to_string())
                 .or_else(|| entry["ref"].as_i64().map(|n| n.to_string()));
 
@@ -512,8 +510,7 @@ pub async fn create_provenance_relationships(
                 }
             };
 
-            let cypher =
-                "MATCH (a {id: $from_id}), (b {id: $to_id}) \
+            let cypher = "MATCH (a {id: $from_id}), (b {id: $to_id}) \
                  MERGE (a)-[r:DERIVED_FROM {ref_type: $ref_type}]->(b) \
                  ON CREATE SET r.quote_snippet = $snippet \
                  ON MATCH SET  r.quote_snippet = $snippet \
@@ -580,81 +577,118 @@ mod tests {
 
     #[test]
     fn test_stable_id_complaint_allegation_by_paragraph() {
-        let item = make_item("ComplaintAllegation",
-            serde_json::json!({ "paragraph_number": "42", "summary": "test" }));
+        let item = make_item(
+            "ComplaintAllegation",
+            serde_json::json!({ "paragraph_number": "42", "summary": "test" }),
+        );
         let id = stable_entity_id(&item, DOC_ID);
         assert!(id.starts_with("doc-awad-v-catholic-family-complaint-11-1-13:para:"));
-        assert!(id.ends_with(":para:42"),
-            "ID should end with :para:42, got: {}", id);
+        assert!(
+            id.ends_with(":para:42"),
+            "ID should end with :para:42, got: {}",
+            id
+        );
     }
 
     #[test]
     fn test_stable_id_complaint_allegation_numeric_paragraph() {
         // paragraph_number can be stored as a JSON number, not just string
-        let item = make_item("ComplaintAllegation",
-            serde_json::json!({ "paragraph_number": 42 }));
+        let item = make_item(
+            "ComplaintAllegation",
+            serde_json::json!({ "paragraph_number": 42 }),
+        );
         let id = stable_entity_id(&item, DOC_ID);
-        assert!(id.ends_with(":para:42"),
-            "Numeric paragraph_number should produce same ID as string, got: {}", id);
+        assert!(
+            id.ends_with(":para:42"),
+            "Numeric paragraph_number should produce same ID as string, got: {}",
+            id
+        );
     }
 
     #[test]
     fn test_stable_id_legal_count_by_number() {
-        let item = make_item("LegalCount",
-            serde_json::json!({ "count_number": 3, "legal_basis": "Breach of Contract" }));
+        let item = make_item(
+            "LegalCount",
+            serde_json::json!({ "count_number": 3, "legal_basis": "Breach of Contract" }),
+        );
         let id = stable_entity_id(&item, DOC_ID);
-        assert!(id.ends_with(":count:3"),
-            "ID should end with :count:3, got: {}", id);
+        assert!(
+            id.ends_with(":count:3"),
+            "ID should end with :count:3, got: {}",
+            id
+        );
     }
 
     #[test]
     fn test_stable_id_harm_by_content_hash() {
-        let item = make_item("Harm",
+        let item = make_item(
+            "Harm",
             serde_json::json!({
                 "harm_type": "financial",
                 "description": "Lost wages and benefits"
-            }));
+            }),
+        );
         let id1 = stable_entity_id(&item, DOC_ID);
         // Run again — same inputs must produce same ID
         let id2 = stable_entity_id(&item, DOC_ID);
         assert_eq!(id1, id2, "Harm ID must be deterministic");
-        assert!(id1.contains(":harm:"), "Harm ID must contain :harm: segment, got: {}", id1);
+        assert!(
+            id1.contains(":harm:"),
+            "Harm ID must contain :harm: segment, got: {}",
+            id1
+        );
         // Hash segment must be 8 hex chars
         let hash_part = id1.split(":harm:").nth(1).unwrap_or("");
-        assert_eq!(hash_part.len(), 8,
-            "Hash segment must be 8 hex chars, got: '{}'", hash_part);
+        assert_eq!(
+            hash_part.len(),
+            8,
+            "Hash segment must be 8 hex chars, got: '{}'",
+            hash_part
+        );
     }
 
     #[test]
     fn test_stable_id_different_documents_differ() {
-        let item = make_item("ComplaintAllegation",
-            serde_json::json!({ "paragraph_number": "42" }));
+        let item = make_item(
+            "ComplaintAllegation",
+            serde_json::json!({ "paragraph_number": "42" }),
+        );
         let id1 = stable_entity_id(&item, "doc-awad-complaint");
         let id2 = stable_entity_id(&item, "doc-different-complaint");
-        assert_ne!(id1, id2,
-            "Same paragraph in different documents must produce different IDs");
+        assert_ne!(
+            id1, id2,
+            "Same paragraph in different documents must produce different IDs"
+        );
     }
 
     #[test]
     fn test_stable_id_same_paragraph_same_document_same_id() {
         // This is the core idempotency guarantee.
         // The same entity extracted twice must produce the same ID.
-        let item = make_item("ComplaintAllegation",
-            serde_json::json!({ "paragraph_number": "42", "summary": "Plaintiff was fired" }));
+        let item = make_item(
+            "ComplaintAllegation",
+            serde_json::json!({ "paragraph_number": "42", "summary": "Plaintiff was fired" }),
+        );
         let id1 = stable_entity_id(&item, DOC_ID);
         let id2 = stable_entity_id(&item, DOC_ID);
-        assert_eq!(id1, id2,
-            "Same entity extracted twice must produce same ID (idempotency guarantee)");
+        assert_eq!(
+            id1, id2,
+            "Same entity extracted twice must produce same ID (idempotency guarantee)"
+        );
     }
 
     #[test]
     fn test_stable_id_order_independence() {
         // Simulates two extractions where LLM returns different paragraphs first.
         // IDs must NOT depend on which paragraph was processed first.
-        let item_para_42 = make_item("ComplaintAllegation",
-            serde_json::json!({ "paragraph_number": "42" }));
-        let item_para_15 = make_item("ComplaintAllegation",
-            serde_json::json!({ "paragraph_number": "15" }));
+        let item_para_42 = make_item(
+            "ComplaintAllegation",
+            serde_json::json!({ "paragraph_number": "42" }),
+        );
+        let item_para_15 = make_item(
+            "ComplaintAllegation",
+            serde_json::json!({ "paragraph_number": "15" }),
+        );
 
         let id_42 = stable_entity_id(&item_para_42, DOC_ID);
         let id_15 = stable_entity_id(&item_para_15, DOC_ID);
@@ -665,8 +699,10 @@ mod tests {
         // If we "re-extract" (simulate by calling again):
         // paragraph 42 still gets the same ID regardless of order
         let id_42_rerun = stable_entity_id(&item_para_42, DOC_ID);
-        assert_eq!(id_42, id_42_rerun,
-            "Paragraph 42 must get same ID regardless of extraction order");
+        assert_eq!(
+            id_42, id_42_rerun,
+            "Paragraph 42 must get same ID regardless of extraction order"
+        );
     }
 
     #[test]

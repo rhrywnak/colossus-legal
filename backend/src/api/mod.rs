@@ -1,9 +1,8 @@
 use axum::{
     extract::State,
     http::StatusCode,
-    Json,
     routing::{get, patch, post, put},
-    Router,
+    Json, Router,
 };
 
 use crate::auth::{me_handler, AuthUser, MeResponse};
@@ -102,27 +101,15 @@ pub fn router() -> Router<AppState> {
             "/admin/documents",
             get(admin_documents::list_documents).post(admin_documents::register_document),
         )
-        .route(
-            "/admin/evidence",
-            post(admin_evidence::import_evidence),
-        )
-        .route(
-            "/admin/reindex",
-            post(admin_reindex::trigger_reindex),
-        )
+        .route("/admin/evidence", post(admin_evidence::import_evidence))
+        .route("/admin/reindex", post(admin_reindex::trigger_reindex))
         .route(
             "/admin/qa-entries",
             get(admin_qa::list_all_entries).delete(admin_qa::bulk_delete_entries),
         )
         .route("/admin/upload", post(admin_upload::upload_file))
-        .route(
-            "/admin/audit/health",
-            get(admin_audit_health::audit_health),
-        )
-        .route(
-            "/admin/status",
-            get(admin_status::get_status),
-        )
+        .route("/admin/audit/health", get(admin_audit_health::audit_health))
+        .route("/admin/status", get(admin_status::get_status))
         .route(
             "/admin/documents/:id/evidence",
             get(admin_document_evidence::get_document_evidence),
@@ -163,10 +150,7 @@ pub fn router() -> Router<AppState> {
 /// future runs independently — we don't `.await` the JoinHandle, so the
 /// response returns immediately. `.ok()` inside the task swallows any
 /// database errors (user tracking must never fail a request).
-async fn me_with_tracking(
-    user: AuthUser,
-    State(state): State<AppState>,
-) -> Json<MeResponse> {
+async fn me_with_tracking(user: AuthUser, State(state): State<AppState>) -> Json<MeResponse> {
     // Clone the values the background task needs before we move `user`.
     let pool = state.pipeline_pool.clone();
     let username = user.username.clone();

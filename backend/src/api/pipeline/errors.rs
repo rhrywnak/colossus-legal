@@ -59,14 +59,18 @@ pub async fn errors_handler(
     )
     .fetch_all(pool)
     .await
-    .map_err(|e| AppError::Internal { message: format!("Failed to query errors: {e}") })?;
+    .map_err(|e| AppError::Internal {
+        message: format!("Failed to query errors: {e}"),
+    })?;
 
     let total_errors = errors.len() as i64;
 
     let total_docs: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM documents")
         .fetch_one(pool)
         .await
-        .map_err(|e| AppError::Internal { message: format!("Failed to count documents: {e}") })?;
+        .map_err(|e| AppError::Internal {
+            message: format!("Failed to count documents: {e}"),
+        })?;
 
     Ok(Json(ErrorsResponse {
         documents_with_errors: errors,

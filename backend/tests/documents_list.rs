@@ -6,7 +6,10 @@ use std::{
 use axum::{body::to_bytes, extract::State, http::StatusCode, response::IntoResponse};
 use chrono::Utc;
 use colossus_legal_backend::{
-    api::documents::list_documents, config::AppConfig, dto::DocumentDto, neo4j::create_neo4j_graph,
+    api::documents::list_documents,
+    config::AppConfig,
+    dto::DocumentDto,
+    neo4j::create_neo4j_graph,
     state::{AppState, SchemaMetadata},
 };
 use neo4rs::{query, Graph};

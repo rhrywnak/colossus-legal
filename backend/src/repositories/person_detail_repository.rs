@@ -117,11 +117,15 @@ impl PersonDetailRepository {
 
         match node {
             Some(n) => {
-                let name = n.properties.get("name")
+                let name = n
+                    .properties
+                    .get("name")
                     .and_then(|v| v.as_str())
                     .unwrap_or_default()
                     .to_string();
-                let role = n.properties.get("role")
+                let role = n
+                    .properties
+                    .get("role")
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string());
 
@@ -161,23 +165,27 @@ impl PersonDetailRepository {
                 statements: HashMap::new(),
             });
 
-            let stmt = doc.statements.entry(eid.clone()).or_insert_with(|| StmtBuilder {
-                evidence_id: eid,
-                title: row.get("etitle").unwrap_or_default(),
-                verbatim_quote: row.get("quote").ok(),
-                page_number: row.get("page_number").ok(),
-                kind: row.get("kind").ok(),
-                significance: row.get("significance").ok(),
-                characterizes: Vec::new(),
-                seen_chars: HashSet::new(),
-                rebutted_by: Vec::new(),
-                seen_rebs: HashSet::new(),
-            });
+            let stmt = doc
+                .statements
+                .entry(eid.clone())
+                .or_insert_with(|| StmtBuilder {
+                    evidence_id: eid,
+                    title: row.get("etitle").unwrap_or_default(),
+                    verbatim_quote: row.get("quote").ok(),
+                    page_number: row.get("page_number").ok(),
+                    kind: row.get("kind").ok(),
+                    significance: row.get("significance").ok(),
+                    characterizes: Vec::new(),
+                    seen_chars: HashSet::new(),
+                    rebutted_by: Vec::new(),
+                    seen_rebs: HashSet::new(),
+                });
 
             // Accumulate characterization (dedup by allegation_id + label)
             if let Ok(allegation_id) = row.get::<String>("allegation_id") {
                 let char_label: Option<String> = row.get("char_label").ok();
-                let dedup_key = format!("{}:{}", allegation_id, char_label.as_deref().unwrap_or(""));
+                let dedup_key =
+                    format!("{}:{}", allegation_id, char_label.as_deref().unwrap_or(""));
                 if stmt.seen_chars.insert(dedup_key.clone()) {
                     char_ids.insert(dedup_key);
                     stmt.characterizes.push(CharacterizesInfo {

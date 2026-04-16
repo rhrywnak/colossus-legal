@@ -89,7 +89,10 @@ pub async fn ensure_collection(
     create_payload_index(client, qdrant_url, "evidence_status", "keyword").await?;
     create_payload_index(client, qdrant_url, "category", "keyword").await?;
 
-    tracing::info!("Qdrant collection '{}' ready with 7 payload indexes", COLLECTION_NAME);
+    tracing::info!(
+        "Qdrant collection '{}' ready with 7 payload indexes",
+        COLLECTION_NAME
+    );
     Ok(())
 }
 
@@ -380,11 +383,7 @@ pub async fn get_existing_point_ids(
 
         // Extract node_id from each point's payload.
         for point in &data.result.points {
-            if let Some(node_id) = point
-                .payload
-                .get("node_id")
-                .and_then(|v| v.as_str())
-            {
+            if let Some(node_id) = point.payload.get("node_id").and_then(|v| v.as_str()) {
                 existing_ids.insert(node_id.to_string());
             }
         }

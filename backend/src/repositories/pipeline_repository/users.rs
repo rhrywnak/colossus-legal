@@ -58,9 +58,7 @@ pub async fn upsert_known_user(
 /// List all known users, ordered by display_name.
 ///
 /// Used to populate reviewer dropdowns and other user-selection UIs.
-pub async fn list_known_users(
-    pool: &PgPool,
-) -> Result<Vec<KnownUser>, PipelineRepoError> {
+pub async fn list_known_users(pool: &PgPool) -> Result<Vec<KnownUser>, PipelineRepoError> {
     let rows = sqlx::query_as::<_, KnownUser>(
         "SELECT username, display_name, email, last_seen_at
          FROM known_users ORDER BY display_name",

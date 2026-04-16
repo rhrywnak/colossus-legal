@@ -80,10 +80,8 @@ impl MotionClaimRepository {
             let proves_allegations: Vec<String> =
                 allegation_ids_raw.into_iter().flatten().collect();
 
-            let evidence_ids_raw: Vec<Option<String>> =
-                row.get("evidence_ids").unwrap_or_default();
-            let relies_on_evidence: Vec<String> =
-                evidence_ids_raw.into_iter().flatten().collect();
+            let evidence_ids_raw: Vec<Option<String>> = row.get("evidence_ids").unwrap_or_default();
+            let relies_on_evidence: Vec<String> = evidence_ids_raw.into_iter().flatten().collect();
 
             // Count by category
             if let Some(ref cat) = category {

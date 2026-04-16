@@ -89,10 +89,14 @@ pub async fn trigger_reindex(
     );
 
     log_admin_action(
-        &state.audit_repo, &user.username, "reindex.trigger",
-        Some("index"), None,
+        &state.audit_repo,
+        &user.username,
+        "reindex.trigger",
+        Some("index"),
+        None,
         Some(serde_json::json!({ "mode": &req.mode })),
-    ).await;
+    )
+    .await;
 
     Ok((
         StatusCode::OK,

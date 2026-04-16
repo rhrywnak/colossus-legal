@@ -28,8 +28,5 @@ pub async fn history_handler(
             message: format!("History query failed: {e}"),
         })?;
 
-    Ok(Json(HistoryResponse {
-        document_id,
-        steps,
-    }))
+    Ok(Json(HistoryResponse { document_id, steps }))
 }

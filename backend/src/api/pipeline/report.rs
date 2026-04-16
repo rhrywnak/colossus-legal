@@ -25,26 +25,33 @@ pub async fn report_handler(
     // Fetch all data
     let document = pipeline_repository::get_document(&state.pipeline_pool, &doc_id)
         .await
-        .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?
-        .ok_or_else(|| AppError::NotFound { message: format!("Document '{doc_id}' not found") })?;
+        .map_err(|e| AppError::Internal {
+            message: format!("DB error: {e}"),
+        })?
+        .ok_or_else(|| AppError::NotFound {
+            message: format!("Document '{doc_id}' not found"),
+        })?;
 
     let runs = pipeline_repository::get_extraction_runs(&state.pipeline_pool, &doc_id)
         .await
-        .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?;
+        .map_err(|e| AppError::Internal {
+            message: format!("DB error: {e}"),
+        })?;
 
     let items = pipeline_repository::get_all_items(&state.pipeline_pool, &doc_id)
         .await
-        .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?;
+        .map_err(|e| AppError::Internal {
+            message: format!("DB error: {e}"),
+        })?;
 
     let relationships = pipeline_repository::get_all_relationships(&state.pipeline_pool, &doc_id)
         .await
-        .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?;
+        .map_err(|e| AppError::Internal {
+            message: format!("DB error: {e}"),
+        })?;
 
     // Build item_id → label lookup for relationship display
-    let item_labels: HashMap<i32, String> = items
-        .iter()
-        .map(|i| (i.id, item_label(i)))
-        .collect();
+    let item_labels: HashMap<i32, String> = items.iter().map(|i| (i.id, item_label(i))).collect();
 
     // Count grounding statuses
     let (mut exact, mut normalized, mut not_found, mut pending) = (0, 0, 0, 0);
@@ -58,20 +65,37 @@ pub async fn report_handler(
     }
 
     // Run metadata
-    let (model, input_tok, output_tok, cost) = runs.first().map(|r| {
-        (
-            r.model_name.as_str(),
-            r.input_tokens.unwrap_or(0),
-            r.output_tokens.unwrap_or(0),
-            r.cost_usd.as_deref().unwrap_or("—"),
-        )
-    }).unwrap_or(("—", 0, 0, "—"));
+    let (model, input_tok, output_tok, cost) = runs
+        .first()
+        .map(|r| {
+            (
+                r.model_name.as_str(),
+                r.input_tokens.unwrap_or(0),
+                r.output_tokens.unwrap_or(0),
+                r.cost_usd.as_deref().unwrap_or("—"),
+            )
+        })
+        .unwrap_or(("—", 0, 0, "—"));
 
     // Build HTML
     let mut html = String::with_capacity(32_000);
-    write_header(&mut html, &document.title, &document.id, &document.document_type,
-                 &document.status, model, input_tok, output_tok, cost,
-                 items.len(), exact, normalized, not_found, pending, relationships.len());
+    write_header(
+        &mut html,
+        &document.title,
+        &document.id,
+        &document.document_type,
+        &document.status,
+        model,
+        input_tok,
+        output_tok,
+        cost,
+        items.len(),
+        exact,
+        normalized,
+        not_found,
+        pending,
+        relationships.len(),
+    );
 
     // Group items by entity_type
     let mut grouped: Vec<(String, Vec<&ExtractionItemRecord>)> = Vec::new();
@@ -110,17 +134,33 @@ fn item_label(item: &ExtractionItemRecord) -> String {
 
 /// Escape HTML special characters.
 fn esc(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
 }
 
 #[allow(clippy::too_many_arguments)]
 fn write_header(
-    html: &mut String, title: &str, id: &str, doc_type: &str, status: &str,
-    model: &str, input_tok: i32, output_tok: i32, cost: &str,
-    total: usize, exact: usize, normalized: usize, not_found: usize,
-    pending: usize, rel_count: usize,
+    html: &mut String,
+    title: &str,
+    id: &str,
+    doc_type: &str,
+    status: &str,
+    model: &str,
+    input_tok: i32,
+    output_tok: i32,
+    cost: &str,
+    total: usize,
+    exact: usize,
+    normalized: usize,
+    not_found: usize,
+    pending: usize,
+    rel_count: usize,
 ) {
-    let _ = write!(html, r#"<!DOCTYPE html>
+    let _ = write!(
+        html,
+        r#"<!DOCTYPE html>
 <html><head><meta charset="utf-8">
 <title>Extraction Report: {title}</title>
 <style>
@@ -151,29 +191,54 @@ h1 {{ margin-bottom: 5px; }}
   <div class="summary-card pending">Pending<br><strong>{pending}</strong></div>
   <div class="summary-card">Relationships<br><strong>{rel_count}</strong></div>
 </div>
-"#, title = esc(title), id = esc(id), doc_type = esc(doc_type), status = esc(status),
-    model = esc(model), input_tok = input_tok, output_tok = output_tok, cost = esc(cost),
-    total = total, exact = exact, normalized = normalized, not_found = not_found,
-    pending = pending, rel_count = rel_count);
+"#,
+        title = esc(title),
+        id = esc(id),
+        doc_type = esc(doc_type),
+        status = esc(status),
+        model = esc(model),
+        input_tok = input_tok,
+        output_tok = output_tok,
+        cost = esc(cost),
+        total = total,
+        exact = exact,
+        normalized = normalized,
+        not_found = not_found,
+        pending = pending,
+        rel_count = rel_count
+    );
 }
 
 fn write_entity_table(html: &mut String, entity_type: &str, items: &[&ExtractionItemRecord]) {
-    let _ = write!(html, "<h3>{et} ({count})</h3>\n<table>\n<tr><th>ID</th><th>Label</th>\
+    let _ = write!(
+        html,
+        "<h3>{et} ({count})</h3>\n<table>\n<tr><th>ID</th><th>Label</th>\
         <th>Verbatim Quote</th><th>Page</th><th>Grounding</th><th>Review</th></tr>\n",
-        et = esc(entity_type), count = items.len());
+        et = esc(entity_type),
+        count = items.len()
+    );
 
     for item in items {
         let label = item_label(item);
         let status = item.grounding_status.as_deref().unwrap_or("pending");
         let quote = item.verbatim_quote.as_deref().unwrap_or("—");
-        let page = item.grounded_page.map(|p| p.to_string()).unwrap_or_else(|| "—".to_string());
-        let _ = writeln!(html,
+        let page = item
+            .grounded_page
+            .map(|p| p.to_string())
+            .unwrap_or_else(|| "—".to_string());
+        let _ = writeln!(
+            html,
             "<tr class=\"{cls}\"><td>{id}</td><td>{label}</td>\
              <td class=\"quote\">{quote}</td><td>{page}</td>\
              <td>{status}</td><td>{review}</td></tr>",
-            cls = esc(status), id = item.id, label = esc(&label),
-            quote = esc(quote), page = page, status = esc(status),
-            review = esc(&item.review_status));
+            cls = esc(status),
+            id = item.id,
+            label = esc(&label),
+            quote = esc(quote),
+            page = page,
+            status = esc(status),
+            review = esc(&item.review_status)
+        );
     }
     html.push_str("</table>\n");
 }
@@ -183,18 +248,25 @@ fn write_relationships_table(
     relationships: &[pipeline_repository::ExtractionRelationshipRecord],
     item_labels: &HashMap<i32, String>,
 ) {
-    let _ = write!(html,
+    let _ = write!(
+        html,
         "<h2>Extracted Relationships ({count})</h2>\n<table>\n\
          <tr><th>Type</th><th>From</th><th>To</th><th>Tier</th></tr>\n",
-        count = relationships.len());
+        count = relationships.len()
+    );
 
     let unknown = "???".to_string();
     for rel in relationships {
         let from = item_labels.get(&rel.from_item_id).unwrap_or(&unknown);
         let to = item_labels.get(&rel.to_item_id).unwrap_or(&unknown);
-        let _ = writeln!(html,
+        let _ = writeln!(
+            html,
             "<tr><td>{rt}</td><td>{from}</td><td>{to}</td><td>{tier}</td></tr>",
-            rt = esc(&rel.relationship_type), from = esc(from), to = esc(to), tier = rel.tier);
+            rt = esc(&rel.relationship_type),
+            from = esc(from),
+            to = esc(to),
+            tier = rel.tier
+        );
     }
     html.push_str("</table>\n");
 }

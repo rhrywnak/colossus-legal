@@ -23,8 +23,16 @@ pub async fn run_embed_command(
     incremental: bool,
     dry_run: bool,
 ) {
-    let mode = if clean { "full" } else if dry_run { "dry-run" } else { "incremental" };
-    tracing::info!("Embed mode: {mode} (clean={clean}, incremental={incremental}, dry_run={dry_run})");
+    let mode = if clean {
+        "full"
+    } else if dry_run {
+        "dry-run"
+    } else {
+        "incremental"
+    };
+    tracing::info!(
+        "Embed mode: {mode} (clean={clean}, incremental={incremental}, dry_run={dry_run})"
+    );
 
     // If --clean flag, delete the collection first
     if clean {
@@ -62,7 +70,10 @@ pub async fn run_embed_command(
                 "duration_seconds": result.duration_seconds,
                 "errors": result.errors,
             });
-            println!("{}", serde_json::to_string_pretty(&output).expect("JSON serialization failed"));
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&output).expect("JSON serialization failed")
+            );
             std::process::exit(0);
         }
         Err(e) => {
@@ -70,7 +81,10 @@ pub async fn run_embed_command(
                 "status": "error",
                 "error": e.to_string(),
             });
-            eprintln!("{}", serde_json::to_string_pretty(&output).expect("JSON serialization failed"));
+            eprintln!(
+                "{}",
+                serde_json::to_string_pretty(&output).expect("JSON serialization failed")
+            );
             std::process::exit(1);
         }
     }

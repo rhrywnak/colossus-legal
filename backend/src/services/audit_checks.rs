@@ -6,7 +6,12 @@ use serde::Serialize;
 use std::path::PathBuf;
 
 fn error_check(name: &str, msg: String) -> AuditCheck {
-    AuditCheck { name: name.into(), status: "fail".into(), message: msg, details: vec![] }
+    AuditCheck {
+        name: name.into(),
+        status: "fail".into(),
+        message: msg,
+        details: vec![],
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -107,7 +112,13 @@ pub async fn check_evidence_completeness(graph: &Graph) -> (AuditCheck, usize, u
 
     let mut rows = match result {
         Ok(r) => r,
-        Err(e) => return (error_check("evidence_completeness", format!("Neo4j query failed: {e}")), 0, 0),
+        Err(e) => {
+            return (
+                error_check("evidence_completeness", format!("Neo4j query failed: {e}")),
+                0,
+                0,
+            )
+        }
     };
 
     while let Ok(Some(row)) = rows.next().await {
@@ -160,7 +171,10 @@ pub async fn check_evidence_completeness(graph: &Graph) -> (AuditCheck, usize, u
     let check = AuditCheck {
         name: "evidence_completeness".into(),
         status: status.into(),
-        message: format!("{complete}/{total} evidence items complete, {} issues", issues.len()),
+        message: format!(
+            "{complete}/{total} evidence items complete, {} issues",
+            issues.len()
+        ),
         details: issues,
     };
     (check, total, complete)
@@ -186,16 +200,23 @@ pub async fn check_qdrant_reconciliation(
             }
             ids
         }
-        Err(e) => return (error_check("qdrant_reconciliation", format!("Neo4j query failed: {e}")), 0),
+        Err(e) => {
+            return (
+                error_check("qdrant_reconciliation", format!("Neo4j query failed: {e}")),
+                0,
+            )
+        }
     };
 
     // Get all point node_ids from Qdrant via scroll API
-    let scroll_url = format!("{}/collections/colossus_evidence/points/scroll", qdrant_url.trim_end_matches('/'));
+    let scroll_url = format!(
+        "{}/collections/colossus_evidence/points/scroll",
+        qdrant_url.trim_end_matches('/')
+    );
     let qdrant_ids = fetch_qdrant_node_ids(http_client, &scroll_url).await;
 
     let qdrant_point_count = qdrant_ids.len();
-    let neo4j_set: std::collections::HashSet<&str> =
-        neo4j_ids.iter().map(|s| s.as_str()).collect();
+    let neo4j_set: std::collections::HashSet<&str> = neo4j_ids.iter().map(|s| s.as_str()).collect();
     let qdrant_set: std::collections::HashSet<&str> =
         qdrant_ids.iter().map(|s| s.as_str()).collect();
 
@@ -263,7 +284,10 @@ pub async fn check_orphaned_nodes(graph: &Graph) -> AuditCheck {
             severity: "low".into(),
             resource_type: label_str,
             resource_id: id,
-            description: format!("Orphaned node{}", title.map(|t| format!(": {t}")).unwrap_or_default()),
+            description: format!(
+                "Orphaned node{}",
+                title.map(|t| format!(": {t}")).unwrap_or_default()
+            ),
         });
     }
 

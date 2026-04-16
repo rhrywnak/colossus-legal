@@ -164,14 +164,14 @@ pub async fn get_document_evidence(
     // we see for each evidence_id is the most recent.
     let mut verification_map: HashMap<String, VerificationStatus> = HashMap::new();
     for v in &verifications {
-        verification_map.entry(v.evidence_id.clone()).or_insert_with(|| {
-            VerificationStatus {
+        verification_map
+            .entry(v.evidence_id.clone())
+            .or_insert_with(|| VerificationStatus {
                 status: v.status.clone(),
                 notes: v.notes.clone(),
                 verified_by: v.verified_by.clone(),
                 verified_at: v.verified_at.to_rfc3339(),
-            }
-        });
+            });
     }
 
     let mut flag_map: HashMap<String, Vec<FlagEntry>> = HashMap::new();
@@ -196,7 +196,10 @@ pub async fn get_document_evidence(
             let verification = verification_map.get(&e.id).cloned();
             let flags = flag_map.get(&e.id).cloned().unwrap_or_default();
 
-            if verification.as_ref().is_some_and(|v| v.status == "verified") {
+            if verification
+                .as_ref()
+                .is_some_and(|v| v.status == "verified")
+            {
                 verified_count += 1;
             }
             if !flags.is_empty() {

@@ -4,7 +4,7 @@ use axum::{
     Json,
 };
 
-use crate::auth::{AuthUser, require_admin};
+use crate::auth::{require_admin, AuthUser};
 use crate::dto::query::{QueryListResponse, QueryResultResponse};
 use crate::repositories::query_repository::QueryRepository;
 use crate::state::AppState;

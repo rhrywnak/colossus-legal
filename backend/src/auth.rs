@@ -4,7 +4,6 @@
 //! All implementation lives in the shared colossus-auth crate.
 
 pub use colossus_auth::{
-    AuthError, AuthMode, AuthUser, MeResponse, Permissions,
-    me_handler, require_admin, require_ai, require_edit,
-    GROUP_ADMIN, GROUP_AI_USER, GROUP_LEGAL_EDITOR, GROUP_LEGAL_VIEWER,
+    me_handler, require_admin, require_ai, require_edit, AuthError, AuthMode, AuthUser, MeResponse,
+    Permissions, GROUP_ADMIN, GROUP_AI_USER, GROUP_LEGAL_EDITOR, GROUP_LEGAL_VIEWER,
 };

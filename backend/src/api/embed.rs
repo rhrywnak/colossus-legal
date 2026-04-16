@@ -9,7 +9,7 @@ use axum::{extract::State, http::StatusCode, Json};
 use serde::Serialize;
 use std::collections::HashMap;
 
-use crate::auth::{AuthUser, require_admin};
+use crate::auth::{require_admin, AuthUser};
 use crate::services::embedding_pipeline;
 use crate::state::AppState;
 
@@ -38,7 +38,10 @@ pub async fn run_embed_all(
     State(state): State<AppState>,
 ) -> Result<Json<EmbeddingResultDto>, (StatusCode, Json<ErrorResponse>)> {
     require_admin(&user).map_err(|e| {
-        (StatusCode::FORBIDDEN, Json(ErrorResponse { error: e.message }))
+        (
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse { error: e.message }),
+        )
     })?;
     tracing::info!("{} POST /admin/embed-all", user.username);
     let http_client = &state.http_client;

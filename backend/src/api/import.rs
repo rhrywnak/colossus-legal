@@ -2,10 +2,10 @@
 //!
 //! POST /import/validate - Validates claims import JSON without persisting.
 
-use axum::Json;
-use crate::auth::{AuthError, AuthUser, require_edit};
+use crate::auth::{require_edit, AuthError, AuthUser};
 use crate::models::import::ValidationResult;
 use crate::services::import_validator::validate_json;
+use axum::Json;
 
 /// Validate import JSON and return validation result.
 ///
@@ -65,7 +65,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_validate_import_invalid_json_syntax() {
-        let result = validate_import(test_editor(), "{ invalid }".to_string()).await.unwrap();
+        let result = validate_import(test_editor(), "{ invalid }".to_string())
+            .await
+            .unwrap();
         assert!(!result.valid);
         assert!(!result.errors.is_empty());
         assert_eq!(result.errors[0].field, "json");
@@ -75,7 +77,9 @@ mod tests {
     async fn test_validate_import_validation_errors() {
         // Missing required fields in claim
         let json = r#"{"schema_version":"2.1","extraction_metadata":{"extracted_at":"x","extraction_model":"x"},"source_document":{"id":"d","title":"D","doc_type":"m"},"case":{"id":"c","name":"C"},"parties":{"plaintiffs":[],"defendants":[]},"claims":[{"id":"","category":"bad","quote":"","source":{"document_id":""},"made_by":"","against":[]}]}"#;
-        let result = validate_import(test_editor(), json.to_string()).await.unwrap();
+        let result = validate_import(test_editor(), json.to_string())
+            .await
+            .unwrap();
         assert!(!result.valid);
         assert!(result.errors.len() >= 2); // Multiple validation errors
     }

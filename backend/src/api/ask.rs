@@ -14,7 +14,7 @@ use axum::{extract::State, http::StatusCode, Json};
 use serde::{Deserialize, Serialize};
 
 use crate::api::embed::ErrorResponse;
-use crate::auth::{AuthUser, require_ai};
+use crate::auth::{require_ai, AuthUser};
 use crate::repositories::qa_repository::{self, CreateQAEntry};
 use crate::state::AppState;
 
@@ -197,7 +197,10 @@ pub async fn ask_the_case(
 
     let question = req.question.trim().to_string();
     if question.is_empty() {
-        return Err(error_response(StatusCode::BAD_REQUEST, "question must not be empty"));
+        return Err(error_response(
+            StatusCode::BAD_REQUEST,
+            "question must not be empty",
+        ));
     }
 
     // Get the pipeline — returns 503 if not configured (no API key).
@@ -247,8 +250,7 @@ pub async fn ask_the_case(
     // Extract unique document sources from retrieved chunks for citation links.
     // Must happen BEFORE into_iter() which consumes the chunks.
     let mut sources: Vec<AnswerSource> = Vec::new();
-    let mut seen_sources: std::collections::HashSet<String> =
-        std::collections::HashSet::new();
+    let mut seen_sources: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     for chunk in &result.chunks {
         if let Some(ref doc_title) = chunk.source.document_title {
@@ -288,11 +290,8 @@ pub async fn ask_the_case(
     });
 
     // Map chunks to retrieval details for the response.
-    let retrieval_details: Vec<RetrievalDetail> = result
-        .chunks
-        .into_iter()
-        .map(chunk_to_detail)
-        .collect();
+    let retrieval_details: Vec<RetrievalDetail> =
+        result.chunks.into_iter().map(chunk_to_detail).collect();
 
     let strategy = result.stats.strategy.clone();
 
@@ -355,7 +354,12 @@ pub async fn ask_the_case(
 
 /// Build a standardized error response tuple.
 fn error_response(status: StatusCode, message: &str) -> ApiError {
-    (status, Json(ErrorResponse { error: message.to_string() }))
+    (
+        status,
+        Json(ErrorResponse {
+            error: message.to_string(),
+        }),
+    )
 }
 
 /// Map a document title to its Neo4j node ID.
@@ -375,7 +379,11 @@ fn title_to_document_id(title: &str) -> String {
         ("phillips", "coa", "doc-phillips-coa-response-300891"),
         ("reply brief", "", "doc-penzien-reply-brief-310660"),
         ("tighe", "opinion", "doc-tighe-opinion-041212"),
-        ("summary disposition", "", "doc-phillips-summary-disposition"),
+        (
+            "summary disposition",
+            "",
+            "doc-phillips-summary-disposition",
+        ),
         ("morris", "affidavit", "doc-morris-affidavit"),
         ("humphrey", "affidavit", "doc-humphrey-affidavit"),
         ("nadia", "affidavit", "doc-nadia-affidavit"),

@@ -57,23 +57,35 @@ impl HarmRepository {
 
         for node in &nodes {
             let id = node.id.clone();
-            let title = node.properties.get("title")
+            let title = node
+                .properties
+                .get("title")
                 .and_then(|v| v.as_str())
                 .unwrap_or_default()
                 .to_string();
-            let category = node.properties.get("category")
+            let category = node
+                .properties
+                .get("category")
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string());
-            let subcategory = node.properties.get("subcategory")
+            let subcategory = node
+                .properties
+                .get("subcategory")
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string());
-            let description = node.properties.get("description")
+            let description = node
+                .properties
+                .get("description")
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string());
-            let date = node.properties.get("date")
+            let date = node
+                .properties
+                .get("date")
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string());
-            let source_reference = node.properties.get("source_reference")
+            let source_reference = node
+                .properties
+                .get("source_reference")
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string());
 

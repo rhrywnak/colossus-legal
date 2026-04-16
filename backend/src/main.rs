@@ -112,10 +112,15 @@ async fn main() {
         Commands::Serve => {
             run_serve(config, graph, http_client).await;
         }
-        Commands::Embed { clean, incremental, dry_run } => {
+        Commands::Embed {
+            clean,
+            incremental,
+            dry_run,
+        } => {
             // --clean overrides --incremental (full re-index)
             let incremental = incremental && !clean;
-            cli::run_embed_command(&config, &graph, &http_client, clean, incremental, dry_run).await;
+            cli::run_embed_command(&config, &graph, &http_client, clean, incremental, dry_run)
+                .await;
         }
     }
 }
@@ -189,10 +194,7 @@ async fn run_serve(config: AppConfig, graph: neo4rs::Graph, http_client: reqwest
         .split(',')
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
-        .map(|s| {
-            HeaderValue::from_str(&s)
-                .unwrap_or_else(|_| panic!("Invalid CORS origin: {}", s))
-        })
+        .map(|s| HeaderValue::from_str(&s).unwrap_or_else(|_| panic!("Invalid CORS origin: {}", s)))
         .collect();
 
     let cors = CorsLayer::new()
@@ -267,8 +269,8 @@ async fn build_rag_pipeline(
     prompts: &prompt_loader::LoadedPrompts,
 ) -> Option<Arc<colossus_rag::RagPipeline>> {
     use colossus_rag::{
-        EmbeddingReranker, GraphDirectRetriever, LegalAssembler,
-        Neo4jExpander, QdrantRetriever, RagPipeline, RigSynthesizer, RuleBasedRouter,
+        EmbeddingReranker, GraphDirectRetriever, LegalAssembler, Neo4jExpander, QdrantRetriever,
+        RagPipeline, RigSynthesizer, RuleBasedRouter,
     };
 
     // Check for API key first — no key means no pipeline.
@@ -428,4 +430,3 @@ fn load_schema_metadata(config: &AppConfig) -> SchemaMetadata {
         relationship_types,
     }
 }
-

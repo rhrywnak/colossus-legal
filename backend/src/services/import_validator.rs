@@ -3,7 +3,9 @@
 //! Validates JSON syntax, schema version, and top-level structure.
 //! Delegates claim-level validation to claim_validator module.
 
-use crate::models::import::{ImportRequest, ValidationError, ValidationErrorType, ValidationResult};
+use crate::models::import::{
+    ImportRequest, ValidationError, ValidationErrorType, ValidationResult,
+};
 use crate::services::claim_validator::validate_claims;
 
 const SUPPORTED_SCHEMA_VERSION: &str = "2.1";
@@ -20,10 +22,19 @@ pub fn validate_json(json_str: &str) -> Result<ImportRequest, ValidationResult> 
     let request: ImportRequest = match serde_json::from_str(json_str) {
         Ok(req) => req,
         Err(e) => {
-            return Err(make_result("", vec![make_error(
-                "json", ValidationErrorType::InvalidJson,
-                &format!("Invalid JSON: {} at line {}, column {}", e, e.line(), e.column()),
-            )]));
+            return Err(make_result(
+                "",
+                vec![make_error(
+                    "json",
+                    ValidationErrorType::InvalidJson,
+                    &format!(
+                        "Invalid JSON: {} at line {}, column {}",
+                        e,
+                        e.line(),
+                        e.column()
+                    ),
+                )],
+            ));
         }
     };
 
@@ -50,7 +61,8 @@ pub fn validate_json(json_str: &str) -> Result<ImportRequest, ValidationResult> 
 fn validate_schema_version(version: &str) -> Result<(), ValidationError> {
     if version != SUPPORTED_SCHEMA_VERSION {
         return Err(make_error(
-            "schema_version", ValidationErrorType::SchemaVersionMismatch,
+            "schema_version",
+            ValidationErrorType::SchemaVersionMismatch,
             &format!("Unsupported schema version: {version}, expected {SUPPORTED_SCHEMA_VERSION}"),
         ));
     }
@@ -60,19 +72,39 @@ fn validate_schema_version(version: &str) -> Result<(), ValidationError> {
 fn validate_structure(request: &ImportRequest) -> Vec<ValidationError> {
     let mut errors = Vec::new();
     if request.claims.is_empty() {
-        errors.push(make_error("claims", ValidationErrorType::InvalidValue, "claims array cannot be empty"));
+        errors.push(make_error(
+            "claims",
+            ValidationErrorType::InvalidValue,
+            "claims array cannot be empty",
+        ));
     }
     if request.source_document.id.is_empty() {
-        errors.push(make_error("source_document.id", ValidationErrorType::MissingField, "source_document.id is required"));
+        errors.push(make_error(
+            "source_document.id",
+            ValidationErrorType::MissingField,
+            "source_document.id is required",
+        ));
     }
     if request.source_document.title.is_empty() {
-        errors.push(make_error("source_document.title", ValidationErrorType::MissingField, "source_document.title is required"));
+        errors.push(make_error(
+            "source_document.title",
+            ValidationErrorType::MissingField,
+            "source_document.title is required",
+        ));
     }
     if request.case.id.is_empty() {
-        errors.push(make_error("case.id", ValidationErrorType::MissingField, "case.id is required"));
+        errors.push(make_error(
+            "case.id",
+            ValidationErrorType::MissingField,
+            "case.id is required",
+        ));
     }
     if request.case.name.is_empty() {
-        errors.push(make_error("case.name", ValidationErrorType::MissingField, "case.name is required"));
+        errors.push(make_error(
+            "case.name",
+            ValidationErrorType::MissingField,
+            "case.name is required",
+        ));
     }
     errors
 }
@@ -87,7 +119,13 @@ fn make_error(field: &str, error_type: ValidationErrorType, message: &str) -> Va
 }
 
 fn make_result(doc_title: &str, errors: Vec<ValidationError>) -> ValidationResult {
-    ValidationResult { valid: false, claim_count: 0, document_title: doc_title.to_string(), errors, warnings: Vec::new() }
+    ValidationResult {
+        valid: false,
+        claim_count: 0,
+        document_title: doc_title.to_string(),
+        errors,
+        warnings: Vec::new(),
+    }
 }
 
 #[cfg(test)]
@@ -108,7 +146,10 @@ mod tests {
     fn test_validate_json_invalid_syntax() {
         let result = validate_json(r#"{ invalid }"#);
         assert!(result.is_err());
-        assert_eq!(result.unwrap_err().errors[0].error_type, ValidationErrorType::InvalidJson);
+        assert_eq!(
+            result.unwrap_err().errors[0].error_type,
+            ValidationErrorType::InvalidJson
+        );
     }
 
     #[test]
@@ -122,7 +163,10 @@ mod tests {
     fn test_validate_json_unsupported_version() {
         let json = r#"{"schema_version":"1.0","extraction_metadata":{"extracted_at":"x","extraction_model":"x"},"source_document":{"id":"d","title":"D","doc_type":"m"},"case":{"id":"c","name":"C"},"parties":{"plaintiffs":[],"defendants":[]},"claims":[{"id":"c1","category":"fraud","quote":"x","source":{"document_id":"d"},"made_by":"p","against":["d"]}]}"#;
         let err = validate_json(json).unwrap_err();
-        assert_eq!(err.errors[0].error_type, ValidationErrorType::SchemaVersionMismatch);
+        assert_eq!(
+            err.errors[0].error_type,
+            ValidationErrorType::SchemaVersionMismatch
+        );
     }
 
     #[test]
@@ -137,7 +181,9 @@ mod tests {
         let json = r#"{"schema_version":"2.1","extraction_metadata":{"extracted_at":"x","extraction_model":"x"},"source_document":{"id":"","title":"","doc_type":"m"},"case":{"id":"c","name":"C"},"parties":{"plaintiffs":[],"defendants":[]},"claims":[{"id":"c1","category":"fraud","quote":"x","source":{"document_id":"d"},"made_by":"p","against":["d"]}]}"#;
         let err = validate_json(json).unwrap_err();
         let fields: Vec<_> = err.errors.iter().map(|e| e.field.as_str()).collect();
-        assert!(fields.contains(&"source_document.id") && fields.contains(&"source_document.title"));
+        assert!(
+            fields.contains(&"source_document.id") && fields.contains(&"source_document.title")
+        );
     }
 
     #[test]

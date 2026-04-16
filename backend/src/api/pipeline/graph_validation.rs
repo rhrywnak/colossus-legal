@@ -49,18 +49,36 @@ pub async fn validate_graph_handler(
     tracing::info!(user = %user.username, doc_id = %doc_id, "POST validate-graph");
 
     let step_id = steps::record_step_start(
-        &state.pipeline_pool, &doc_id, "validate_graph", &user.username, &serde_json::json!({}),
-    ).await.map_err(|e| AppError::Internal { message: format!("Step logging: {e}") })?;
+        &state.pipeline_pool,
+        &doc_id,
+        "validate_graph",
+        &user.username,
+        &serde_json::json!({}),
+    )
+    .await
+    .map_err(|e| AppError::Internal {
+        message: format!("Step logging: {e}"),
+    })?;
 
     // 1. Verify document exists and is post-ingest
     let document = pipeline_repository::get_document(&state.pipeline_pool, &doc_id)
         .await
-        .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?
-        .ok_or_else(|| AppError::NotFound { message: format!("Document '{doc_id}' not found") })?;
+        .map_err(|e| AppError::Internal {
+            message: format!("DB error: {e}"),
+        })?
+        .ok_or_else(|| AppError::NotFound {
+            message: format!("Document '{doc_id}' not found"),
+        })?;
 
-    if !matches!(document.status.as_str(), "INGESTED" | "INDEXED" | "PUBLISHED") {
+    if !matches!(
+        document.status.as_str(),
+        "INGESTED" | "INDEXED" | "PUBLISHED"
+    ) {
         return Err(AppError::Conflict {
-            message: format!("Cannot validate graph: status is '{}', expected INGESTED or later", document.status),
+            message: format!(
+                "Cannot validate graph: status is '{}', expected INGESTED or later",
+                document.status
+            ),
             details: serde_json::json!({"status": document.status}),
         });
     }
@@ -76,17 +94,25 @@ pub async fn validate_graph_handler(
     let warnings = result.warnings.len();
 
     log_admin_action(
-        &state.audit_repo, &user.username, "pipeline.document.validate_graph",
-        Some("document"), Some(&doc_id),
+        &state.audit_repo,
+        &user.username,
+        "pipeline.document.validate_graph",
+        Some("document"),
+        Some(&doc_id),
         Some(serde_json::json!({
             "checks_passed": passed, "checks_failed": failed, "warnings": warnings,
         })),
-    ).await;
+    )
+    .await;
 
     steps::record_step_complete(
-        &state.pipeline_pool, step_id, start.elapsed().as_secs_f64(),
+        &state.pipeline_pool,
+        step_id,
+        start.elapsed().as_secs_f64(),
         &serde_json::json!({"passed": passed, "failed": failed, "warnings": warnings}),
-    ).await.ok();
+    )
+    .await
+    .ok();
 
     Ok(Json(result))
 }
@@ -106,13 +132,22 @@ async fn run_validation(
     for et in &schema.entity_types {
         if et.category == EntityCategory::Foundation && et.required {
             let label = &et.name;
-            if !is_safe_label(label) { continue; }
+            if !is_safe_label(label) {
+                continue;
+            }
 
             let count = count_nodes_by_label(graph, label, document_id).await?;
-            let min = if et.min_count > 0 { et.min_count as usize } else { 1 };
+            let min = if et.min_count > 0 {
+                et.min_count as usize
+            } else {
+                1
+            };
 
             if count >= min {
-                passed.push(format!("Foundation '{}': {} nodes (need {})", label, count, min));
+                passed.push(format!(
+                    "Foundation '{}': {} nodes (need {})",
+                    label, count, min
+                ));
             } else {
                 failed.push(GraphValidationIssue {
                     check: format!("foundation_{}", label.to_lowercase()),
@@ -132,7 +167,10 @@ async fn run_validation(
         warnings.push(GraphValidationIssue {
             check: "orphan_nodes".to_string(),
             severity: "warning".to_string(),
-            message: format!("{} nodes have no relationships other than CONTAINED_IN", orphans.len()),
+            message: format!(
+                "{} nodes have no relationships other than CONTAINED_IN",
+                orphans.len()
+            ),
             details: serde_json::json!({"orphan_ids": orphans}),
         });
     }
@@ -145,7 +183,10 @@ async fn run_validation(
         failed.push(GraphValidationIssue {
             check: "document_linked".to_string(),
             severity: "error".to_string(),
-            message: format!("{} nodes missing CONTAINED_IN relationship to Document", unlinked.len()),
+            message: format!(
+                "{} nodes missing CONTAINED_IN relationship to Document",
+                unlinked.len()
+            ),
             details: serde_json::json!({"unlinked_ids": unlinked}),
         });
     }
@@ -153,21 +194,32 @@ async fn run_validation(
     // Check 4: Completeness rule — RelationshipExists checks
     for rule in &schema.completeness_rules {
         if let CompletenessRule::RelationshipExists {
-            from, relationship, to, min_percentage, message,
-        } = rule {
+            from,
+            relationship,
+            to,
+            min_percentage,
+            message,
+        } = rule
+        {
             if !is_safe_label(from) || !is_safe_label(to) || !is_safe_label(relationship) {
                 continue;
             }
 
-            let percentage = compute_relationship_coverage(
-                graph, document_id, from, relationship, to,
-            ).await?;
+            let percentage =
+                compute_relationship_coverage(graph, document_id, from, relationship, to).await?;
 
             if percentage >= *min_percentage {
-                passed.push(format!("{}: {}% (need {}%)", message, percentage, min_percentage));
+                passed.push(format!(
+                    "{}: {}% (need {}%)",
+                    message, percentage, min_percentage
+                ));
             } else {
                 warnings.push(GraphValidationIssue {
-                    check: format!("rel_coverage_{}_{}", from.to_lowercase(), relationship.to_lowercase()),
+                    check: format!(
+                        "rel_coverage_{}_{}",
+                        from.to_lowercase(),
+                        relationship.to_lowercase()
+                    ),
                     severity: "warning".to_string(),
                     message: format!("{} ({}%, need {}%)", message, percentage, min_percentage),
                     details: serde_json::json!({
@@ -218,12 +270,19 @@ async fn count_nodes_by_label(
     label: &str,
     document_id: &str,
 ) -> Result<usize, AppError> {
-    let cypher = format!(
-        "MATCH (n:{label}) WHERE n.source_document = $doc_id RETURN count(n) AS cnt"
-    );
-    let mut result = graph.execute(query(&cypher).param("doc_id", document_id)).await
-        .map_err(|e| AppError::Internal { message: format!("Neo4j count {label}: {e}") })?;
-    let count: i64 = result.next().await.ok().flatten()
+    let cypher =
+        format!("MATCH (n:{label}) WHERE n.source_document = $doc_id RETURN count(n) AS cnt");
+    let mut result = graph
+        .execute(query(&cypher).param("doc_id", document_id))
+        .await
+        .map_err(|e| AppError::Internal {
+            message: format!("Neo4j count {label}: {e}"),
+        })?;
+    let count: i64 = result
+        .next()
+        .await
+        .ok()
+        .flatten()
         .and_then(|row| row.get("cnt").ok())
         .unwrap_or(0);
     Ok(count as usize)
@@ -234,20 +293,26 @@ async fn find_orphan_nodes(
     graph: &neo4rs::Graph,
     document_id: &str,
 ) -> Result<Vec<String>, AppError> {
-    let cypher =
-        "MATCH (n) \
+    let cypher = "MATCH (n) \
          WHERE (n.source_document = $doc_id OR n.source_document_id = $doc_id) \
            AND NOT n:Document \
          WITH n \
          WHERE ALL(r IN [(n)-[rel]-() | type(rel)] WHERE r = 'CONTAINED_IN') \
          RETURN n.id AS id";
-    let mut result = graph.execute(query(cypher).param("doc_id", document_id)).await
-        .map_err(|e| AppError::Internal { message: format!("Neo4j orphan query: {e}") })?;
+    let mut result = graph
+        .execute(query(cypher).param("doc_id", document_id))
+        .await
+        .map_err(|e| AppError::Internal {
+            message: format!("Neo4j orphan query: {e}"),
+        })?;
     let mut ids = Vec::new();
-    while let Some(row) = result.next().await
-        .map_err(|e| AppError::Internal { message: format!("Neo4j row: {e}") })? {
+    while let Some(row) = result.next().await.map_err(|e| AppError::Internal {
+        message: format!("Neo4j row: {e}"),
+    })? {
         let id: String = row.get("id").unwrap_or_default();
-        if !id.is_empty() { ids.push(id); }
+        if !id.is_empty() {
+            ids.push(id);
+        }
     }
     Ok(ids)
 }
@@ -257,19 +322,25 @@ async fn find_unlinked_nodes(
     graph: &neo4rs::Graph,
     document_id: &str,
 ) -> Result<Vec<String>, AppError> {
-    let cypher =
-        "MATCH (n) \
+    let cypher = "MATCH (n) \
          WHERE (n.source_document = $doc_id OR n.source_document_id = $doc_id) \
            AND NOT n:Document \
            AND NOT (n)-[:CONTAINED_IN]->(:Document) \
          RETURN n.id AS id";
-    let mut result = graph.execute(query(cypher).param("doc_id", document_id)).await
-        .map_err(|e| AppError::Internal { message: format!("Neo4j unlinked query: {e}") })?;
+    let mut result = graph
+        .execute(query(cypher).param("doc_id", document_id))
+        .await
+        .map_err(|e| AppError::Internal {
+            message: format!("Neo4j unlinked query: {e}"),
+        })?;
     let mut ids = Vec::new();
-    while let Some(row) = result.next().await
-        .map_err(|e| AppError::Internal { message: format!("Neo4j row: {e}") })? {
+    while let Some(row) = result.next().await.map_err(|e| AppError::Internal {
+        message: format!("Neo4j row: {e}"),
+    })? {
         let id: String = row.get("id").unwrap_or_default();
-        if !id.is_empty() { ids.push(id); }
+        if !id.is_empty() {
+            ids.push(id);
+        }
     }
     Ok(ids)
 }
@@ -284,7 +355,9 @@ async fn compute_relationship_coverage(
 ) -> Result<u32, AppError> {
     // Count total `from` nodes
     let total = count_nodes_by_label(graph, from_label, document_id).await?;
-    if total == 0 { return Ok(100); } // No from nodes → vacuously true
+    if total == 0 {
+        return Ok(100);
+    } // No from nodes → vacuously true
 
     // Count `from` nodes that have at least one relationship to a `to` node
     let cypher = format!(
@@ -292,11 +365,17 @@ async fn compute_relationship_coverage(
          WHERE a.source_document = $doc_id \
          RETURN count(DISTINCT a) AS linked"
     );
-    let mut result = graph.execute(query(&cypher).param("doc_id", document_id)).await
+    let mut result = graph
+        .execute(query(&cypher).param("doc_id", document_id))
+        .await
         .map_err(|e| AppError::Internal {
             message: format!("Neo4j coverage query {from_label}-{rel_type}->{to_label}: {e}"),
         })?;
-    let linked: i64 = result.next().await.ok().flatten()
+    let linked: i64 = result
+        .next()
+        .await
+        .ok()
+        .flatten()
         .and_then(|row| row.get("linked").ok())
         .unwrap_or(0);
 
@@ -305,20 +384,21 @@ async fn compute_relationship_coverage(
 
 // ── Schema loader ───────────────────────────────────────────────
 
-async fn load_schema(
-    state: &AppState,
-    doc_id: &str,
-) -> Result<ExtractionSchema, AppError> {
+async fn load_schema(state: &AppState, doc_id: &str) -> Result<ExtractionSchema, AppError> {
     let pipe_config = pipeline_repository::get_pipeline_config(&state.pipeline_pool, doc_id)
         .await
-        .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?
+        .map_err(|e| AppError::Internal {
+            message: format!("DB error: {e}"),
+        })?
         .ok_or_else(|| AppError::NotFound {
             message: format!("No pipeline config for '{doc_id}'"),
         })?;
 
-    let schema_path = format!("{}/{}", state.config.extraction_schema_dir, pipe_config.schema_file);
-    ExtractionSchema::from_file(Path::new(&schema_path))
-        .map_err(|e| AppError::Internal {
-            message: format!("Failed to load schema '{}': {e}", pipe_config.schema_file),
-        })
+    let schema_path = format!(
+        "{}/{}",
+        state.config.extraction_schema_dir, pipe_config.schema_file
+    );
+    ExtractionSchema::from_file(Path::new(&schema_path)).map_err(|e| AppError::Internal {
+        message: format!("Failed to load schema '{}': {e}", pipe_config.schema_file),
+    })
 }

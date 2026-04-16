@@ -37,13 +37,23 @@ pub(crate) async fn run_extract_text(
     let start = std::time::Instant::now();
 
     let step_id = steps::record_step_start(
-        &state.pipeline_pool, doc_id, "extract_text", username, &serde_json::json!({}),
-    ).await.map_err(|e| AppError::Internal { message: format!("Step logging: {e}") })?;
+        &state.pipeline_pool,
+        doc_id,
+        "extract_text",
+        username,
+        &serde_json::json!({}),
+    )
+    .await
+    .map_err(|e| AppError::Internal {
+        message: format!("Step logging: {e}"),
+    })?;
 
     // 1. Fetch document record
     let document = pipeline_repository::get_document(&state.pipeline_pool, doc_id)
         .await
-        .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?
+        .map_err(|e| AppError::Internal {
+            message: format!("DB error: {e}"),
+        })?
         .ok_or_else(|| AppError::NotFound {
             message: format!("Document '{doc_id}' not found"),
         })?;
@@ -63,18 +73,19 @@ pub(crate) async fn run_extract_text(
 
     // 3. Extract text in a blocking thread (colossus-pdf is sync)
     let pdf_path = full_path.clone();
-    let pages = tokio::task::spawn_blocking(move || -> Result<Vec<colossus_pdf::PageText>, String> {
-        let mut extractor = colossus_pdf::PdfTextExtractor::open(&pdf_path)
-            .map_err(|e| format!("Failed to open PDF: {e}"))?;
-        extractor
-            .extract_all_pages()
-            .map_err(|e| format!("Failed to extract pages: {e}"))
-    })
-    .await
-    .map_err(|e| AppError::Internal {
-        message: format!("Text extraction task panicked: {e}"),
-    })?
-    .map_err(|e| AppError::Internal { message: e })?;
+    let pages =
+        tokio::task::spawn_blocking(move || -> Result<Vec<colossus_pdf::PageText>, String> {
+            let mut extractor = colossus_pdf::PdfTextExtractor::open(&pdf_path)
+                .map_err(|e| format!("Failed to open PDF: {e}"))?;
+            extractor
+                .extract_all_pages()
+                .map_err(|e| format!("Failed to extract pages: {e}"))
+        })
+        .await
+        .map_err(|e| AppError::Internal {
+            message: format!("Text extraction task panicked: {e}"),
+        })?
+        .map_err(|e| AppError::Internal { message: e })?;
 
     // 4. Check OCR tool availability (non-fatal — only matters if pages need OCR)
     let ocr_available = match ocr::check_ocr_tools_available().await {
@@ -168,16 +179,14 @@ pub(crate) async fn run_extract_text(
         // This ensures pipeline_config.schema_file is always consistent with
         // documents.document_type after extract_text runs.
         let detected_schema = super::upload::schema_for_document_type(detected_type);
-        sqlx::query(
-            "UPDATE pipeline_config SET schema_file = $1 WHERE document_id = $2",
-        )
-        .bind(detected_schema)
-        .bind(doc_id)
-        .execute(&state.pipeline_pool)
-        .await
-        .map_err(|e| AppError::Internal {
-            message: format!("Failed to update pipeline_config schema_file: {e}"),
-        })?;
+        sqlx::query("UPDATE pipeline_config SET schema_file = $1 WHERE document_id = $2")
+            .bind(detected_schema)
+            .bind(doc_id)
+            .execute(&state.pipeline_pool)
+            .await
+            .map_err(|e| AppError::Internal {
+                message: format!("Failed to update pipeline_config schema_file: {e}"),
+            })?;
         tracing::info!(
             doc_id = %doc_id, detected_type, schema = detected_schema,
             "Updated pipeline_config.schema_file after auto-detection"
@@ -235,8 +244,13 @@ pub(crate) async fn run_extract_text(
     .await;
 
     steps::record_step_complete(
-        &state.pipeline_pool, step_id, start.elapsed().as_secs_f64(), &step_summary,
-    ).await.ok();
+        &state.pipeline_pool,
+        step_id,
+        start.elapsed().as_secs_f64(),
+        &step_summary,
+    )
+    .await
+    .ok();
 
     Ok(ExtractTextResponse {
         document_id: doc_id.to_string(),
@@ -261,7 +275,9 @@ pub async fn extract_text(
     // Status guard — only allow from UPLOADED or TEXT_EXTRACTED (re-extract)
     let document = pipeline_repository::get_document(&state.pipeline_pool, &doc_id)
         .await
-        .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?
+        .map_err(|e| AppError::Internal {
+            message: format!("DB error: {e}"),
+        })?
         .ok_or_else(|| AppError::NotFound {
             message: format!("Document '{doc_id}' not found"),
         })?;
@@ -283,7 +299,9 @@ pub async fn extract_text(
     // run_extract_text no longer sets this status itself (see comment in run_extract_text).
     pipeline_repository::update_document_status(&state.pipeline_pool, &doc_id, "TEXT_EXTRACTED")
         .await
-        .map_err(|e| AppError::Internal { message: format!("Failed to update status: {e}") })?;
+        .map_err(|e| AppError::Internal {
+            message: format!("Failed to update status: {e}"),
+        })?;
 
     Ok(Json(result))
 }
@@ -311,8 +329,7 @@ fn detect_document_type(first_page_text: &str) -> &'static str {
         || upper.contains("COURT OF APPEALS")
     {
         "court_ruling"
-    } else if upper.contains("BRIEF") || upper.contains("APPELLANT") || upper.contains("APPELLEE")
-    {
+    } else if upper.contains("BRIEF") || upper.contains("APPELLANT") || upper.contains("APPELLEE") {
         "brief"
     } else if upper.contains("COMPLAINT") {
         "complaint"
@@ -333,26 +350,44 @@ mod tests {
 
     #[test]
     fn test_detects_complaint() {
-        assert_eq!(detect_document_type("STATE OF MICHIGAN\nCOMPLAINT\nPlaintiff vs Defendant"), "complaint");
-        assert_eq!(detect_document_type("VERIFIED COMPLAINT FOR DAMAGES"), "complaint");
+        assert_eq!(
+            detect_document_type("STATE OF MICHIGAN\nCOMPLAINT\nPlaintiff vs Defendant"),
+            "complaint"
+        );
+        assert_eq!(
+            detect_document_type("VERIFIED COMPLAINT FOR DAMAGES"),
+            "complaint"
+        );
     }
 
     #[test]
     fn test_detects_affidavit() {
         assert_eq!(detect_document_type("AFFIDAVIT OF JOHN SMITH"), "affidavit");
         // Affidavit takes priority over other keywords
-        assert_eq!(detect_document_type("AFFIDAVIT IN SUPPORT OF MOTION FOR SUMMARY JUDGMENT"), "affidavit");
+        assert_eq!(
+            detect_document_type("AFFIDAVIT IN SUPPORT OF MOTION FOR SUMMARY JUDGMENT"),
+            "affidavit"
+        );
     }
 
     #[test]
     fn test_detects_discovery_response() {
-        assert_eq!(detect_document_type("PLAINTIFF'S RESPONSES TO INTERROGATORIES"), "discovery_response");
-        assert_eq!(detect_document_type("REQUEST FOR ADMISSION NUMBER 1"), "discovery_response");
+        assert_eq!(
+            detect_document_type("PLAINTIFF'S RESPONSES TO INTERROGATORIES"),
+            "discovery_response"
+        );
+        assert_eq!(
+            detect_document_type("REQUEST FOR ADMISSION NUMBER 1"),
+            "discovery_response"
+        );
     }
 
     #[test]
     fn test_detects_motion() {
-        assert_eq!(detect_document_type("MOTION FOR SUMMARY JUDGMENT"), "motion");
+        assert_eq!(
+            detect_document_type("MOTION FOR SUMMARY JUDGMENT"),
+            "motion"
+        );
         assert_eq!(detect_document_type("MOTION TO DISMISS"), "motion");
     }
 
@@ -360,7 +395,10 @@ mod tests {
     fn test_detects_court_ruling() {
         assert_eq!(detect_document_type("OPINION AND ORDER"), "court_ruling");
         assert_eq!(detect_document_type("ORDER OF THE COURT"), "court_ruling");
-        assert_eq!(detect_document_type("COURT OF APPEALS STATE OF MICHIGAN"), "court_ruling");
+        assert_eq!(
+            detect_document_type("COURT OF APPEALS STATE OF MICHIGAN"),
+            "court_ruling"
+        );
     }
 
     #[test]
@@ -373,7 +411,10 @@ mod tests {
     #[test]
     fn test_unknown_when_no_keywords_match() {
         assert_eq!(detect_document_type(""), "unknown");
-        assert_eq!(detect_document_type("lorem ipsum dolor sit amet"), "unknown");
+        assert_eq!(
+            detect_document_type("lorem ipsum dolor sit amet"),
+            "unknown"
+        );
         assert_eq!(detect_document_type("EXHIBIT A"), "unknown");
     }
 

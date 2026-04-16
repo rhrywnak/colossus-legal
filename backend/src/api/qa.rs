@@ -51,14 +51,10 @@ pub async fn get_qa_history(
 
     let limit = params.limit.unwrap_or(50).min(200);
 
-    let entries = qa_repository::get_qa_history(
-        &state.pg_pool,
-        &params.scope_type,
-        &params.scope_id,
-        limit,
-    )
-    .await
-    .map_err(map_qa_error)?;
+    let entries =
+        qa_repository::get_qa_history(&state.pg_pool, &params.scope_type, &params.scope_id, limit)
+            .await
+            .map_err(map_qa_error)?;
 
     Ok(Json(entries))
 }
@@ -90,7 +86,12 @@ pub async fn rate_qa_entry(
     Path(id): Path<String>,
     Json(body): Json<RateRequest>,
 ) -> Result<StatusCode, ApiError> {
-    tracing::info!("{} PATCH /api/qa/{}/rate rating={}", user.username, id, body.rating);
+    tracing::info!(
+        "{} PATCH /api/qa/{}/rate rating={}",
+        user.username,
+        id,
+        body.rating
+    );
 
     if !(1..=5).contains(&body.rating) {
         return Err(error_response(
@@ -116,9 +117,11 @@ pub async fn delete_qa_entry(
 ) -> Result<StatusCode, ApiError> {
     tracing::info!("{} DELETE /api/qa/{}", user.username, id);
     if !user.is_admin() {
-        return Err(error_response(StatusCode::FORBIDDEN, "admin access required"));
+        return Err(error_response(
+            StatusCode::FORBIDDEN,
+            "admin access required",
+        ));
     }
-
 
     qa_repository::delete_qa_entry(&state.pg_pool, &id)
         .await
@@ -132,7 +135,12 @@ pub async fn delete_qa_entry(
 // ---------------------------------------------------------------------------
 
 fn error_response(status: StatusCode, message: &str) -> ApiError {
-    (status, Json(ErrorResponse { error: message.to_string() }))
+    (
+        status,
+        Json(ErrorResponse {
+            error: message.to_string(),
+        }),
+    )
 }
 
 fn map_qa_error(e: QAError) -> ApiError {

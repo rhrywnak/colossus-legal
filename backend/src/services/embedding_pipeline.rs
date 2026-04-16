@@ -115,8 +115,7 @@ pub async fn run_embedding_pipeline(
     let mut nodes = nodes;
 
     if incremental {
-        let existing_ids =
-            qdrant_service::get_existing_point_ids(http_client, qdrant_url).await?;
+        let existing_ids = qdrant_service::get_existing_point_ids(http_client, qdrant_url).await?;
         let before = nodes.len();
         nodes.retain(|n| !existing_ids.contains(&n.id));
         skipped = before - nodes.len();
@@ -209,7 +208,9 @@ pub async fn run_embedding_pipeline(
             continue;
         };
 
-        let title = node.properties.get("title")
+        let title = node
+            .properties
+            .get("title")
             .or_else(|| node.properties.get("name"))
             .cloned()
             .unwrap_or_default();

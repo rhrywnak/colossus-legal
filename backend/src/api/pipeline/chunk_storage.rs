@@ -125,7 +125,8 @@ mod tests {
     fn test_verbatim_quote_extracted_from_properties() {
         // This is the exact logic in store_entities_and_relationships.
         // Tests that verbatim_quote is found inside entity["properties"].
-        let entity = entity_with_quote_in_properties("The defendant terminated plaintiff without cause.");
+        let entity =
+            entity_with_quote_in_properties("The defendant terminated plaintiff without cause.");
         let verbatim = entity["verbatim_quote"]
             .as_str()
             .or_else(|| entity["properties"]["verbatim_quote"].as_str());
@@ -139,7 +140,8 @@ mod tests {
     #[test]
     fn test_verbatim_quote_extracted_from_top_level() {
         // When already promoted to top level, extraction must still work.
-        let entity = entity_with_quote_at_top_level("The defendant terminated plaintiff without cause.");
+        let entity =
+            entity_with_quote_at_top_level("The defendant terminated plaintiff without cause.");
         let verbatim = entity["verbatim_quote"]
             .as_str()
             .or_else(|| entity["properties"]["verbatim_quote"].as_str());
@@ -163,7 +165,10 @@ mod tests {
         let verbatim = entity["verbatim_quote"]
             .as_str()
             .or_else(|| entity["properties"]["verbatim_quote"].as_str());
-        assert_eq!(verbatim, None, "No verbatim_quote should return None, not panic");
+        assert_eq!(
+            verbatim, None,
+            "No verbatim_quote should return None, not panic"
+        );
     }
 
     #[test]

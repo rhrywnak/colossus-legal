@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use std::time::Instant;
 
 use crate::api::embed::ErrorResponse;
-use crate::auth::{AuthUser, require_ai};
+use crate::auth::{require_ai, AuthUser};
 use crate::services::embedding_service::EmbeddingService;
 use crate::services::graph_expander;
 use crate::services::qdrant_service;
@@ -86,7 +86,10 @@ pub async fn semantic_search(
     Json(req): Json<SearchRequest>,
 ) -> Result<Json<SearchResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_ai(&user).map_err(|e| {
-        (StatusCode::FORBIDDEN, Json(ErrorResponse { error: e.message }))
+        (
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse { error: e.message }),
+        )
     })?;
     tracing::info!("{} POST /search", user.username);
     let start = Instant::now();

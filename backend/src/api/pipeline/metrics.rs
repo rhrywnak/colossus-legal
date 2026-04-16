@@ -82,12 +82,13 @@ pub async fn metrics_handler(
 }
 
 async fn query_documents_by_status(pool: &PgPool) -> Result<HashMap<String, i64>, AppError> {
-    let rows: Vec<(String, i64)> = sqlx::query_as(
-        "SELECT status, COUNT(*) as count FROM documents GROUP BY status",
-    )
-    .fetch_all(pool)
-    .await
-    .map_err(|e| AppError::Internal { message: format!("Documents query: {e}") })?;
+    let rows: Vec<(String, i64)> =
+        sqlx::query_as("SELECT status, COUNT(*) as count FROM documents GROUP BY status")
+            .fetch_all(pool)
+            .await
+            .map_err(|e| AppError::Internal {
+                message: format!("Documents query: {e}"),
+            })?;
     Ok(rows.into_iter().collect())
 }
 
@@ -110,7 +111,9 @@ async fn query_avg_grounding_rate(pool: &PgPool) -> Result<f64, AppError> {
     )
     .fetch_one(pool)
     .await
-    .map_err(|e| AppError::Internal { message: format!("Grounding rate query: {e}") })?;
+    .map_err(|e| AppError::Internal {
+        message: format!("Grounding rate query: {e}"),
+    })?;
     Ok(row.0.unwrap_or(0.0))
 }
 
@@ -138,7 +141,9 @@ async fn query_step_performance(
     )
     .fetch_all(pool)
     .await
-    .map_err(|e| AppError::Internal { message: format!("Step perf query: {e}") })?;
+    .map_err(|e| AppError::Internal {
+        message: format!("Step perf query: {e}"),
+    })?;
 
     let mut total: i64 = 0;
     let mut failed: i64 = 0;
@@ -149,21 +154,25 @@ async fn query_step_performance(
         failed += row.failure_count;
 
         // Look up label and order from the canonical stage definitions
-        let (label, order) = PIPELINE_STEPS.iter()
+        let (label, order) = PIPELINE_STEPS
+            .iter()
             .enumerate()
             .find(|(_, &(name, _))| name == row.step_name)
             .map(|(i, &(_, lbl))| (lbl.to_string(), (i + 1) as u8))
             .unwrap_or_else(|| (row.step_name.clone(), 0));
 
-        map.insert(row.step_name, StepMetrics {
-            label,
-            order,
-            count: row.count,
-            avg_duration_secs: row.avg_duration.unwrap_or(0.0),
-            min_duration_secs: row.min_duration.unwrap_or(0.0),
-            max_duration_secs: row.max_duration.unwrap_or(0.0),
-            failure_count: row.failure_count,
-        });
+        map.insert(
+            row.step_name,
+            StepMetrics {
+                label,
+                order,
+                count: row.count,
+                avg_duration_secs: row.avg_duration.unwrap_or(0.0),
+                min_duration_secs: row.min_duration.unwrap_or(0.0),
+                max_duration_secs: row.max_duration.unwrap_or(0.0),
+                failure_count: row.failure_count,
+            },
+        );
     }
 
     Ok((total, failed, map))
@@ -179,7 +188,9 @@ async fn query_estimates(pool: &PgPool) -> Result<EstimatesResponse, AppError> {
     )
     .fetch_one(pool)
     .await
-    .map_err(|e| AppError::Internal { message: format!("Estimates count query: {e}") })?;
+    .map_err(|e| AppError::Internal {
+        message: format!("Estimates count query: {e}"),
+    })?;
 
     let (completed, total) = counts;
     let remaining = total - completed;
@@ -207,7 +218,9 @@ async fn query_estimates(pool: &PgPool) -> Result<EstimatesResponse, AppError> {
     )
     .fetch_one(pool)
     .await
-    .map_err(|e| AppError::Internal { message: format!("Estimates cost query: {e}") })?;
+    .map_err(|e| AppError::Internal {
+        message: format!("Estimates cost query: {e}"),
+    })?;
 
     // Avg total duration per published document (sum of all step durations)
     let avg_duration: (Option<f64>,) = sqlx::query_as(
@@ -221,7 +234,9 @@ async fn query_estimates(pool: &PgPool) -> Result<EstimatesResponse, AppError> {
     )
     .fetch_one(pool)
     .await
-    .map_err(|e| AppError::Internal { message: format!("Estimates duration query: {e}") })?;
+    .map_err(|e| AppError::Internal {
+        message: format!("Estimates duration query: {e}"),
+    })?;
 
     let confidence = match completed {
         0 => "none",
@@ -247,7 +262,8 @@ mod tests {
 
     #[test]
     fn test_pipeline_stage_order_is_accessible() {
-        let extract = PIPELINE_STEPS.iter()
+        let extract = PIPELINE_STEPS
+            .iter()
             .find(|&&(name, _)| name == "extract_text");
         assert!(extract.is_some());
         assert_eq!(extract.unwrap().1, "Read Document");

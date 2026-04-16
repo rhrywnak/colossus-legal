@@ -96,8 +96,7 @@ impl AnalysisRepository {
                 .get::<Vec<String>>("evidence_titles")
                 .unwrap_or_default();
 
-            let (strength_percent, strength_category) =
-                Self::calculate_strength(evidence_count);
+            let (strength_percent, strength_category) = Self::calculate_strength(evidence_count);
 
             // Generate gap notes for weak/gap allegations
             let gap_notes = if strength_category == "gap" {

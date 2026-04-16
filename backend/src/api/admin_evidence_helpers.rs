@@ -47,12 +47,15 @@ pub async fn create_relationship(
 
     let tgt = format!("(tgt:{target_label} {{id: $tgt_id}})");
 
-    let cypher = format!(
-        "MATCH {src}, {tgt} CREATE (src)-[:{rel_type}{prop_clause}]->(tgt) RETURN tgt.id"
-    );
+    let cypher =
+        format!("MATCH {src}, {tgt} CREATE (src)-[:{rel_type}{prop_clause}]->(tgt) RETURN tgt.id");
 
     let mut result = txn
-        .execute(query(&cypher).param("src_id", source_id).param("tgt_id", target_id))
+        .execute(
+            query(&cypher)
+                .param("src_id", source_id)
+                .param("tgt_id", target_id),
+        )
         .await
         .map_err(|e| format!("Cypher failed for {rel_type}: {e}"))?;
 
@@ -84,7 +87,11 @@ pub async fn create_relationship_labelless_target(
     );
 
     let mut result = txn
-        .execute(query(&cypher).param("src_id", source_id).param("tgt_id", target_id))
+        .execute(
+            query(&cypher)
+                .param("src_id", source_id)
+                .param("tgt_id", target_id),
+        )
         .await
         .map_err(|e| format!("Cypher failed for {rel_type}: {e}"))?;
 
