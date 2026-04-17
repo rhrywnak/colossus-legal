@@ -55,6 +55,11 @@ pub async fn run_embed_command(
         &config.fastembed_cache_path,
         incremental,
         dry_run,
+        // FIXME(P2-Nx-C): replace literal 768 with the embedding provider's
+        // dimensions() value. Unlike the HTTP handlers, the CLI has no
+        // AppState — P2-Nx-C will need to construct a provider directly
+        // from env here (e.g. colossus_extract::providers::embedding_provider_from_env()).
+        768,
     )
     .await
     {

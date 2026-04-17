@@ -70,6 +70,9 @@ pub async fn trigger_reindex(
         &state.config.fastembed_cache_path,
         incremental,
         false, // dry_run
+        // FIXME(P2-Nx-C): replace literal 768 with state.embedding_provider.dimensions()
+        // once P2-Nx-B has added the provider to AppState.
+        768,
     )
     .await
     .map_err(|e| AppError::Internal {

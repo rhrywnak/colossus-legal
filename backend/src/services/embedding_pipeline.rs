@@ -82,11 +82,12 @@ pub async fn run_embedding_pipeline(
     fastembed_cache_path: &str,
     incremental: bool,
     dry_run: bool,
+    dimensions: u32,
 ) -> Result<EmbeddingResult, PipelineError> {
     let start = Instant::now();
 
     // Step 1: Ensure Qdrant collection
-    qdrant_service::ensure_collection(http_client, qdrant_url).await?;
+    qdrant_service::ensure_collection(http_client, qdrant_url, dimensions).await?;
 
     // Step 2: Fetch all nodes from Neo4j
     let nodes = embedding_repository::fetch_all_embeddable_nodes(graph).await?;

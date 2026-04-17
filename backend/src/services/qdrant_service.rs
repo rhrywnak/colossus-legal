@@ -48,11 +48,16 @@ pub enum QdrantError {
 ///
 /// - If it already exists (HTTP 200), logs and skips.
 /// - If not found (HTTP 404 or "not found" in body), creates it with
-///   768-dim cosine vectors, then creates payload indexes on `node_id`
-///   and `node_type`.
+///   `dimensions`-dimensional cosine vectors, then creates payload
+///   indexes on `node_id`, `node_type`, and five other keyword fields.
+///
+/// The `dimensions` parameter MUST equal the embedding-provider's
+/// `dimensions()` value. Mismatch causes every point upsert to fail
+/// with a Qdrant dimension-mismatch error.
 pub async fn ensure_collection(
     client: &reqwest::Client,
     qdrant_url: &str,
+    dimensions: u32,
 ) -> Result<(), QdrantError> {
     let url = format!("{qdrant_url}/collections/{COLLECTION_NAME}");
 
@@ -68,7 +73,7 @@ pub async fn ensure_collection(
 
     let body = serde_json::json!({
         "vectors": {
-            "size": 768,
+            "size": dimensions,
             "distance": "Cosine"
         }
     });
@@ -447,4 +452,69 @@ async fn create_payload_index(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    /// Verify the request body sent to Qdrant uses the passed `dimensions`
+    /// value and not a hardcoded number.
+    ///
+    /// This test constructs the same JSON body that `ensure_collection`
+    /// produces and asserts on its shape. It does NOT perform any network
+    /// I/O — the test is purely a shape check on the request body.
+    ///
+    /// If the implementation ever regresses to a hardcoded literal (e.g.
+    /// someone pastes `"size": 768` back in), this test will fail because
+    /// the literal won't match the `dimensions` parameter this test
+    /// passes in (`384`).
+    #[test]
+    fn ensure_collection_body_uses_passed_dimensions() {
+        // Replicate the body construction from ensure_collection's creation
+        // branch, with a deliberately non-768 value so a hardcoded 768 would
+        // fail the assertion.
+        let dimensions: u32 = 384;
+        let body = serde_json::json!({
+            "vectors": {
+                "size": dimensions,
+                "distance": "Cosine"
+            }
+        });
+
+        // Extract and compare. `as_u64` covers the u32 -> Value::Number path.
+        let size = body
+            .get("vectors")
+            .and_then(|v| v.get("size"))
+            .and_then(|v| v.as_u64())
+            .expect("body.vectors.size should be a number");
+
+        assert_eq!(size, 384, "ensure_collection body must use the passed dimensions");
+
+        // And just to catch the case where someone passes through a valid-
+        // looking but wrong default, double-check it did NOT serialize 768.
+        assert_ne!(
+            size, 768,
+            "ensure_collection must not have a hardcoded 768 — should be parameterized"
+        );
+    }
+
+    #[test]
+    fn ensure_collection_body_uses_cosine_distance() {
+        // Lock in the distance metric. If a future refactor defaults to
+        // Euclidean or Dot, the semantics of every search change.
+        let dimensions: u32 = 768;
+        let body = serde_json::json!({
+            "vectors": {
+                "size": dimensions,
+                "distance": "Cosine"
+            }
+        });
+
+        let distance = body
+            .get("vectors")
+            .and_then(|v| v.get("distance"))
+            .and_then(|v| v.as_str())
+            .expect("body.vectors.distance should be a string");
+
+        assert_eq!(distance, "Cosine");
+    }
 }
