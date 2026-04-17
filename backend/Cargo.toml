@@ -4,15 +4,16 @@ version = "2.0.0-beta.73"
 edition = "2021"
 
 [dependencies]
-colossus-auth = { git = "https://github.com/rhrywnak/colossus-rs.git", tag = "v0.9.1" }
-colossus-extract = { git = "https://github.com/rhrywnak/colossus-rs.git", tag = "v0.9.2" }
+colossus-auth = { git = "https://github.com/rhrywnak/colossus-rs.git", tag = "v0.10.0" }
+colossus-extract = { git = "https://github.com/rhrywnak/colossus-rs.git", tag = "v0.10.0" }
 # ## Rust Learning: Git dependency with feature flags
 #
 # `colossus-rag` lives in the same monorepo (colossus-rs) as colossus-auth.
 # `features = ["full"]` enables all backends: Qdrant, fastembed, Neo4j.
-colossus-rag = { git = "https://github.com/rhrywnak/colossus-rs.git", tag = "v0.9.1", features = ["full"] }
-colossus-pdf = { git = "https://github.com/rhrywnak/colossus-rs.git", tag = "v0.9.1" }
-colossus-graph = { git = "https://github.com/rhrywnak/colossus-rs.git", tag = "v0.9.1", features = ["neo4j"] }
+colossus-rag = { git = "https://github.com/rhrywnak/colossus-rs.git", tag = "v0.10.0", features = ["full"] }
+colossus-pdf = { git = "https://github.com/rhrywnak/colossus-rs.git", tag = "v0.10.0" }
+colossus-graph = { git = "https://github.com/rhrywnak/colossus-rs.git", tag = "v0.10.0", features = ["neo4j"] }
+colossus-pipeline = { git = "https://github.com/rhrywnak/colossus-rs.git", tag = "v0.10.0" }
 axum = { version = "0.7", features = ["multipart"] }
 hyper = { version = "1", features = ["full"] }
 tokio = { version = "1", features = ["full"] }
