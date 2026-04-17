@@ -186,13 +186,15 @@ pub(crate) async fn run_index(
     let embedded_count = points.len();
 
     // 7. Ensure Qdrant collection exists
-    // FIXME(P2-Nx-C): replace literal 768 with state.embedding_provider.dimensions()
-    // once P2-Nx-B has added the provider to AppState.
-    qdrant_service::ensure_collection(&state.http_client, &state.config.qdrant_url, 768)
-        .await
-        .map_err(|e| AppError::Internal {
-            message: format!("Qdrant collection error: {e}"),
-        })?;
+    qdrant_service::ensure_collection(
+        &state.http_client,
+        &state.config.qdrant_url,
+        state.embedding_provider.dimensions(),
+    )
+    .await
+    .map_err(|e| AppError::Internal {
+        message: format!("Qdrant collection error: {e}"),
+    })?;
 
     // 8. Upsert points to Qdrant
     tracing::info!("Upserting {} points to Qdrant...", embedded_count);

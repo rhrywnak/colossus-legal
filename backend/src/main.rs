@@ -181,6 +181,25 @@ async fn run_serve(config: AppConfig, graph: neo4rs::Graph, http_client: reqwest
         schema_metadata,
     };
 
+    // Ensure the Qdrant collection exists with the correct dimensions.
+    // Running this at startup (before any handler can run) makes the
+    // collection's dimensionality deterministic: the value baked in is
+    // whatever the provider reports right now, not whatever the first
+    // incoming request happened to supply.
+    //
+    // If the collection already exists (common case on DEV/PROD where a
+    // previous deployment created it), ensure_collection short-circuits
+    // on the HTTP 200 path and logs "already exists".
+    if let Err(e) = colossus_legal_backend::services::qdrant_service::ensure_collection(
+        &state.http_client,
+        &state.config.qdrant_url,
+        state.embedding_provider.dimensions(),
+    )
+    .await
+    {
+        tracing::error!(error = %e, "Failed to ensure Qdrant collection at startup — continuing anyway; handlers may retry");
+    }
+
     // Port
     let port: u16 = std::env::var("BACKEND_PORT")
         .unwrap_or_else(|_| "3403".to_string())

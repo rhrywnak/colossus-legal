@@ -48,6 +48,21 @@ pub async fn run_embed_command(
 
     tracing::info!("Starting embedding pipeline...");
 
+    // Construct the embedding provider locally — the CLI has no AppState.
+    // Using expect() here is correct: the CLI is a one-shot process and if
+    // the provider can't be built, there's nothing to do but exit.
+    let embedding_provider = match colossus_extract::providers::embedding_provider_from_env() {
+        Ok(p) => p,
+        Err(e) => {
+            let output = serde_json::json!({
+                "status": "error",
+                "error": format!("Failed to construct embedding provider: {e}"),
+            });
+            eprintln!("{}", serde_json::to_string_pretty(&output).expect("JSON serialization failed"));
+            std::process::exit(1);
+        }
+    };
+
     match embedding_pipeline::run_embedding_pipeline(
         graph,
         http_client,
@@ -55,11 +70,7 @@ pub async fn run_embed_command(
         &config.fastembed_cache_path,
         incremental,
         dry_run,
-        // FIXME(P2-Nx-C): replace literal 768 with the embedding provider's
-        // dimensions() value. Unlike the HTTP handlers, the CLI has no
-        // AppState — P2-Nx-C will need to construct a provider directly
-        // from env here (e.g. colossus_extract::providers::embedding_provider_from_env()).
-        768,
+        embedding_provider.dimensions(),
     )
     .await
     {

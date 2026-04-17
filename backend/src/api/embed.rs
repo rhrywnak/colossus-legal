@@ -55,9 +55,7 @@ pub async fn run_embed_all(
         &state.config.fastembed_cache_path,
         false, // incremental
         false, // dry_run
-        // FIXME(P2-Nx-C): replace literal 768 with state.embedding_provider.dimensions()
-        // once P2-Nx-B has added the provider to AppState.
-        768,
+        state.embedding_provider.dimensions(),
     )
     .await
     .map_err(|e| {
