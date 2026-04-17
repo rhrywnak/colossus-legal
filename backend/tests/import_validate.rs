@@ -18,6 +18,29 @@ use tower::ServiceExt;
 
 type TestResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
+/// Minimal `EmbeddingProvider` stub for tests.
+///
+/// Tests that construct `AppState` need a concrete provider to satisfy the
+/// trait object. This stub compiles and satisfies the trait without doing
+/// any real work — `embed()` panics if called, because no test in this
+/// file should actually trigger embedding. `dimensions()` returns the
+/// historical Nomic default of 768 so any code that reads it during a test
+/// sees a sensible value.
+struct TestEmbeddingProvider;
+
+#[async_trait::async_trait]
+impl colossus_extract::EmbeddingProvider for TestEmbeddingProvider {
+    async fn embed(&self, _text: &str) -> Result<Vec<f32>, colossus_extract::PipelineError> {
+        panic!("TestEmbeddingProvider::embed called in a test — tests should not exercise real embedding")
+    }
+    fn dimensions(&self) -> u32 {
+        768
+    }
+    fn model_name(&self) -> &str {
+        "test-embedding-provider"
+    }
+}
+
 /// Create the app router with Neo4j state.
 /// Note: Validation endpoint doesn't query Neo4j, but router requires AppState.
 async fn setup_app() -> TestResult<Router> {
@@ -45,6 +68,7 @@ async fn setup_app() -> TestResult<Router> {
         pg_pool,
         pipeline_pool,
         audit_repo,
+        embedding_provider: std::sync::Arc::new(TestEmbeddingProvider),
         schema_metadata: SchemaMetadata {
             document_type: String::new(),
             entity_types: vec![],

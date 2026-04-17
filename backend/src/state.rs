@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use colossus_extract::EmbeddingProvider;
 use neo4rs::Graph;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
@@ -43,6 +44,16 @@ pub struct AppState {
 
     /// Audit log repository for recording admin actions.
     pub audit_repo: AuditRepository,
+
+    /// Embedding provider — fastembed or vLLM, selected by EMBEDDING_PROVIDER
+    /// env var at startup. Used by handlers that need to query embedding
+    /// dimensions (e.g., for Qdrant collection sizing) or invoke embeddings
+    /// directly. See `colossus_extract::providers` for the factory.
+    ///
+    /// The trait object is the single source of truth for the provider's
+    /// configuration; handlers should call methods on it rather than carrying
+    /// extracted copies of its values elsewhere.
+    pub embedding_provider: Arc<dyn EmbeddingProvider>,
 
     /// Schema metadata loaded at startup from the extraction schema YAML.
     /// Provides entity type and relationship type names to the query layer

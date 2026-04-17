@@ -160,6 +160,14 @@ async fn run_serve(config: AppConfig, graph: neo4rs::Graph, http_client: reqwest
     // by the query layer to understand the graph structure.
     let schema_metadata = load_schema_metadata(&config);
 
+    // Construct the embedding provider from environment variables.
+    // See colossus_extract::providers for EMBEDDING_PROVIDER semantics.
+    // Panicking via expect() here is correct behavior: if the embedding
+    // provider can't be built, the server can't serve embeddings — fail
+    // fast at startup rather than fail per-request later.
+    let embedding_provider = colossus_extract::providers::embedding_provider_from_env()
+        .expect("Failed to construct embedding provider — check EMBEDDING_PROVIDER env var");
+
     // Shared application state (global AppState)
     let state = AppState {
         graph,
@@ -169,6 +177,7 @@ async fn run_serve(config: AppConfig, graph: neo4rs::Graph, http_client: reqwest
         pg_pool,
         pipeline_pool,
         audit_repo,
+        embedding_provider,
         schema_metadata,
     };
 
