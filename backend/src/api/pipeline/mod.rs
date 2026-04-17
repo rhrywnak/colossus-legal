@@ -10,8 +10,6 @@
 //! `pipeline.rs` becomes `pipeline/mod.rs` + `pipeline/upload.rs` + etc.
 //! The `mod.rs` file re-exports the public items so callers don't change.
 
-mod chunk_orchestration;
-mod chunk_storage;
 mod completeness;
 mod completeness_helpers;
 pub mod completeness_validation;
@@ -20,7 +18,6 @@ pub(crate) mod constants;
 mod delete;
 mod document_response;
 mod errors;
-mod extract;
 mod extract_text;
 mod file;
 pub mod graph_migrations;
@@ -44,7 +41,6 @@ mod workload;
 
 pub use completeness::completeness_handler;
 pub use delete::delete_document;
-pub use extract::extract_handler;
 pub use extract_text::extract_text;
 pub use history::history_handler;
 pub use index::index_handler;
@@ -83,7 +79,6 @@ pub fn router() -> Router<AppState> {
         .route("/documents/errors", get(errors::errors_handler))
         .route("/documents/:id", delete(delete_document))
         .route("/documents/:id/extract-text", post(extract_text))
-        .route("/documents/:id/extract", post(extract_handler))
         .route("/documents/:id/verify", post(verify_handler))
         .route("/documents/:id/ingest", post(ingest_handler))
         .route("/documents/:id/index", post(index_handler))
@@ -177,19 +172,6 @@ pub struct ExtractTextResponse {
     pub status: String,
     pub page_count: usize,
     pub total_chars: usize,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ExtractResponse {
-    pub document_id: String,
-    pub status: String,
-    pub run_id: i32,
-    pub model: String,
-    pub entity_count: usize,
-    pub relationship_count: usize,
-    pub input_tokens: u64,
-    pub output_tokens: u64,
-    pub elapsed_secs: f64,
 }
 
 // ── Shared Helpers ───────────────────────────────────────────────
