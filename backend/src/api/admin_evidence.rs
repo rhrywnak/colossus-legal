@@ -106,28 +106,32 @@ pub async fn import_evidence(
 
     // 1. Validate document exists
     let repo = DocumentRepository::new(state.graph.clone());
-    repo.get_document_by_id(&req.document_id).await.map_err(|_| {
-        AppError::NotFound {
+    repo.get_document_by_id(&req.document_id)
+        .await
+        .map_err(|_| AppError::NotFound {
             message: format!("Document '{}' not found", req.document_id),
-        }
-    })?;
+        })?;
 
     // 2. Check for duplicate evidence IDs (batch check before transaction)
     for item in &req.evidence {
         let mut result = state
             .graph
             .execute(
-                query("MATCH (e:Evidence {id: $id}) RETURN e.id")
-                    .param("id", item.id.as_str()),
+                query("MATCH (e:Evidence {id: $id}) RETURN e.id").param("id", item.id.as_str()),
             )
             .await
             .map_err(|e| AppError::Internal {
                 message: format!("Neo4j query failed: {e}"),
             })?;
 
-        if result.next().await.map_err(|e| AppError::Internal {
-            message: format!("Neo4j row fetch failed: {e}"),
-        })?.is_some() {
+        if result
+            .next()
+            .await
+            .map_err(|e| AppError::Internal {
+                message: format!("Neo4j row fetch failed: {e}"),
+            })?
+            .is_some()
+        {
             return Err(AppError::Conflict {
                 message: format!("Evidence '{}' already exists", item.id),
                 details: json!({ "existing_id": item.id }),
@@ -136,9 +140,13 @@ pub async fn import_evidence(
     }
 
     // 3. Open transaction — all-or-nothing
-    let mut txn = state.graph.start_txn().await.map_err(|e| AppError::Internal {
-        message: format!("Failed to start transaction: {e}"),
-    })?;
+    let mut txn = state
+        .graph
+        .start_txn()
+        .await
+        .map_err(|e| AppError::Internal {
+            message: format!("Failed to start transaction: {e}"),
+        })?;
 
     let mut counts = RelationshipCounts::default();
 
@@ -167,10 +175,16 @@ pub async fn import_evidence(
 
         // 4b. CONTAINED_IN → Document
         create_relationship(
-            &mut txn, &item.id, &req.document_id,
-            "Evidence", "Document",
-            "CONTAINED_IN", None,
-        ).await.map_err(|msg| AppError::Internal { message: msg })?;
+            &mut txn,
+            &item.id,
+            &req.document_id,
+            "Evidence",
+            "Document",
+            "CONTAINED_IN",
+            None,
+        )
+        .await
+        .map_err(|msg| AppError::Internal { message: msg })?;
         counts.contained_in += 1;
 
         // 4c. STATED_BY → Person or Organization (label-free match)
@@ -285,11 +299,20 @@ pub async fn import_evidence(
     );
 
     log_admin_action(
-        &state.audit_repo, &user.username, "evidence.import",
-        Some("evidence"), Some(&req.document_id),
+        &state.audit_repo,
+        &user.username,
+        "evidence.import",
+        Some("evidence"),
+        Some(&req.document_id),
         Some(json!({ "document_id": &req.document_id, "count": created })),
-    ).await;
+    )
+    .await;
 
-    Ok((StatusCode::CREATED, Json(ImportEvidenceResponse { created, relationships: counts })))
+    Ok((
+        StatusCode::CREATED,
+        Json(ImportEvidenceResponse {
+            created,
+            relationships: counts,
+        }),
+    ))
 }
-

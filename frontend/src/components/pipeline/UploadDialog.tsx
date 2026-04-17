@@ -1,11 +1,12 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { fetchSchemas, uploadDocument, SchemaInfo } from "../../services/pipelineApi";
+import { fetchSchemas, uploadDocument, processDocument, SchemaInfo } from "../../services/pipelineApi";
 
 interface Props {
   open: boolean;
   onClose: () => void;
   onSuccess: () => void;
+  complaintExists?: boolean;
 }
 
 const MAX_SIZE = 50 * 1024 * 1024;
@@ -53,14 +54,18 @@ function slugify(name: string): string {
 function titleize(name: string): string {
   return name.replace(/\.pdf$/i, "").replace(/[-_]+/g, " ").replace(/\b\w/g, c => c.toUpperCase());
 }
+function capitalize(s: string): string {
+  return s.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+}
 
-const UploadDialog: React.FC<Props> = ({ open, onClose, onSuccess }) => {
+const UploadDialog: React.FC<Props> = ({ open, onClose, onSuccess, complaintExists = true }) => {
   const navigate = useNavigate();
   const fileRef = useRef<HTMLInputElement>(null);
   const [schemas, setSchemas] = useState<SchemaInfo[]>([]);
   const [file, setFile] = useState<File | null>(null);
   const [schema, setSchema] = useState("auto");
   const [uploading, setUploading] = useState(false);
+  const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
 
@@ -90,14 +95,24 @@ const UploadDialog: React.FC<Props> = ({ open, onClose, onSuccess }) => {
       const id = `doc-${slugify(file.name)}`;
       const title = titleize(file.name);
       const doc = await uploadDocument(file, {
-        id, title, documentType: schema, schemaFile: `${schema === "auto" ? "general_legal" : schema}.yaml`,
+        id, title, documentType: schema,
+        schemaFile: schema === "auto" ? undefined : `${schema}.yaml`,
       });
       onSuccess();
-      navigate(`/documents/${doc.id}`);
+      setUploading(false);
+      setProcessing(true);
+      try {
+        await processDocument(doc.id);
+      } catch {
+        // Process failed — user will see NEW status and can click Process manually
+      } finally {
+        setProcessing(false);
+      }
+      navigate(`/documents/${doc.id}?tab=processing`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Upload failed");
-    } finally {
       setUploading(false);
+      setProcessing(false);
     }
   };
 
@@ -131,12 +146,30 @@ const UploadDialog: React.FC<Props> = ({ open, onClose, onSuccess }) => {
         </div>
 
         <div style={labelStyle}>Document Type</div>
-        <select style={selectStyle} value={schema} onChange={(e) => setSchema(e.target.value)}>
-          <option value="auto">Auto-detect</option>
-          {schemas.map((s) => {
-            const base = s.filename.replace(/\.yaml$/, "");
-            return <option key={s.filename} value={base}>{s.document_type || base}</option>;
-          })}
+        {!complaintExists && (
+          <div style={{ padding: "0.5rem 0.75rem", backgroundColor: "#fffbeb", border: "1px solid #fde68a", borderRadius: "6px", color: "#92400e", fontSize: "0.76rem", marginBottom: "0.5rem" }}>
+            A Complaint must be uploaded first. Other document types will be available after.
+          </div>
+        )}
+        <select style={selectStyle} value={complaintExists ? schema : "complaint_v2.yaml"} onChange={(e) => setSchema(e.target.value)}>
+          {complaintExists && <option value="auto">Auto-detect</option>}
+          {schemas
+            .filter(s => s.filename !== "complaint.yaml") // exclude obsolete v1
+            .map((s) => {
+              // Check if multiple schemas share the same document_type
+              const sameType = schemas.filter(x => x.document_type === s.document_type);
+              const label = sameType.length > 1
+                ? `${capitalize(s.document_type)} (v${s.version})`
+                : capitalize(s.document_type);
+              const isComplaint = s.document_type === "complaint";
+              const disabled = !complaintExists && !isComplaint;
+              return (
+                <option key={s.filename} value={s.filename} disabled={disabled}>
+                  {label}{disabled ? " (upload Complaint first)" : ""}
+                </option>
+              );
+            })
+          }
         </select>
 
         {error && (
@@ -148,7 +181,7 @@ const UploadDialog: React.FC<Props> = ({ open, onClose, onSuccess }) => {
         <div style={btnRow}>
           <button style={btnCancel} onClick={onClose}>Cancel</button>
           <button style={btnUpload(canUpload)} onClick={handleUpload} disabled={!canUpload}>
-            {uploading ? "Uploading..." : "Upload & Process"}
+            {uploading ? "Uploading..." : processing ? "Starting..." : "Upload & Process"}
           </button>
         </div>
       </div>

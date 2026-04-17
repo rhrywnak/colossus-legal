@@ -55,9 +55,16 @@ pub async fn fetch_all_embeddable_nodes(
                     e.kind AS kind,
                     COALESCE(speaker.name, '') AS stated_by",
             vec![
-                "title", "verbatim_quote", "significance", "page_number",
-                "document_id", "statement_type", "statement_date",
-                "exhibit_number", "kind", "stated_by",
+                "title",
+                "verbatim_quote",
+                "significance",
+                "page_number",
+                "document_id",
+                "statement_type",
+                "statement_date",
+                "exhibit_number",
+                "kind",
+                "stated_by",
             ],
         ),
         (
@@ -71,8 +78,13 @@ pub async fn fetch_all_embeddable_nodes(
                     a.severity AS severity,
                     a.paragraph AS paragraph",
             vec![
-                "title", "allegation", "verbatim_quote", "evidence_status",
-                "category", "severity", "paragraph",
+                "title",
+                "allegation",
+                "verbatim_quote",
+                "evidence_status",
+                "category",
+                "severity",
+                "paragraph",
             ],
         ),
         (
@@ -83,7 +95,13 @@ pub async fn fetch_all_embeddable_nodes(
                     m.significance AS significance,
                     m.source_document_id AS source_document_id,
                     m.category AS category",
-            vec!["title", "claim_text", "significance", "source_document_id", "category"],
+            vec![
+                "title",
+                "claim_text",
+                "significance",
+                "source_document_id",
+                "category",
+            ],
         ),
         (
             "MATCH (h:Harm)
@@ -96,8 +114,13 @@ pub async fn fetch_all_embeddable_nodes(
                     h.date AS date,
                     h.source_reference AS source_reference",
             vec![
-                "title", "description", "category", "subcategory",
-                "amount", "date", "source_reference",
+                "title",
+                "description",
+                "category",
+                "subcategory",
+                "amount",
+                "date",
+                "source_reference",
             ],
         ),
         (
@@ -246,8 +269,12 @@ pub async fn fetch_nodes_for_document(
                     a.paragraph_ref AS paragraph_ref,
                     a.page_number AS page_number",
             vec![
-                "title", "allegation", "verbatim_quote", "grounding_status",
-                "paragraph_ref", "page_number",
+                "title",
+                "allegation",
+                "verbatim_quote",
+                "grounding_status",
+                "paragraph_ref",
+                "page_number",
             ],
         ),
         (
@@ -259,7 +286,13 @@ pub async fn fetch_nodes_for_document(
                     h.amount AS amount,
                     h.damages_type AS damages_type,
                     h.page_number AS page_number",
-            vec!["title", "description", "amount", "damages_type", "page_number"],
+            vec![
+                "title",
+                "description",
+                "amount",
+                "damages_type",
+                "page_number",
+            ],
         ),
         (
             "MATCH (p:Person)

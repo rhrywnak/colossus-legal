@@ -4,9 +4,7 @@
 use neo4rs::{query, Graph};
 use std::collections::HashMap;
 
-use crate::dto::query::{
-    QueryCategory, QueryInfo, QueryListResponse, QueryResultResponse,
-};
+use crate::dto::query::{QueryCategory, QueryInfo, QueryListResponse, QueryResultResponse};
 
 #[derive(Debug)]
 pub enum QueryRepositoryError {

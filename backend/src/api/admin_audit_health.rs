@@ -15,9 +15,7 @@ use serde::Serialize;
 
 use crate::auth::{require_admin, AuthUser};
 use crate::error::AppError;
-use crate::services::audit_checks::{
-    self, AuditCheck,
-};
+use crate::services::audit_checks::{self, AuditCheck};
 use crate::state::AppState;
 
 #[derive(Debug, Serialize)]
@@ -47,11 +45,8 @@ pub async fn audit_health(
     require_admin(&user)?;
     tracing::info!(user = %user.username, "GET /api/admin/audit/health");
 
-    let result = tokio::time::timeout(
-        std::time::Duration::from_secs(10),
-        run_all_checks(&state),
-    )
-    .await;
+    let result =
+        tokio::time::timeout(std::time::Duration::from_secs(10), run_all_checks(&state)).await;
 
     match result {
         Ok(response) => Ok(Json(response)),
@@ -65,7 +60,12 @@ async fn run_all_checks(state: &AppState) -> AuditHealthResponse {
     let storage_path = &state.config.document_storage_path;
 
     // Run all four checks concurrently
-    let (pdf_check, (evidence_check, total_evidence, complete_evidence), (qdrant_check, qdrant_points), orphan_check) = tokio::join!(
+    let (
+        pdf_check,
+        (evidence_check, total_evidence, complete_evidence),
+        (qdrant_check, qdrant_points),
+        orphan_check,
+    ) = tokio::join!(
         audit_checks::check_pdf_match(&state.graph, storage_path),
         audit_checks::check_evidence_completeness(&state.graph),
         audit_checks::check_qdrant_reconciliation(

@@ -19,6 +19,29 @@ use tokio::sync::Mutex;
 
 type TestResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
+/// Minimal `EmbeddingProvider` stub for tests.
+///
+/// Tests that construct `AppState` need a concrete provider to satisfy the
+/// trait object. This stub compiles and satisfies the trait without doing
+/// any real work — `embed()` panics if called, because no test in this
+/// file should actually trigger embedding. `dimensions()` returns the
+/// historical Nomic default of 768 so any code that reads it during a test
+/// sees a sensible value.
+struct TestEmbeddingProvider;
+
+#[async_trait::async_trait]
+impl colossus_extract::EmbeddingProvider for TestEmbeddingProvider {
+    async fn embed(&self, _text: &str) -> Result<Vec<f32>, colossus_extract::PipelineError> {
+        panic!("TestEmbeddingProvider::embed called in a test — tests should not exercise real embedding")
+    }
+    fn dimensions(&self) -> u32 {
+        768
+    }
+    fn model_name(&self) -> &str {
+        "test-embedding-provider"
+    }
+}
+
 fn dummy_pipeline_pool() -> sqlx::PgPool {
     sqlx::postgres::PgPoolOptions::new()
         .connect_lazy("postgres://localhost/dummy_pipeline")
@@ -111,6 +134,7 @@ async fn create_claim_rejects_empty_title() -> TestResult<()> {
             .expect("lazy pool"),
         pipeline_pool: dummy_pipeline_pool(),
         audit_repo: dummy_audit_repo(),
+        embedding_provider: std::sync::Arc::new(TestEmbeddingProvider),
         schema_metadata: SchemaMetadata {
             document_type: String::new(),
             entity_types: vec![],
@@ -151,6 +175,7 @@ async fn create_claim_rejects_invalid_status() -> TestResult<()> {
             .expect("lazy pool"),
         pipeline_pool: dummy_pipeline_pool(),
         audit_repo: dummy_audit_repo(),
+        embedding_provider: std::sync::Arc::new(TestEmbeddingProvider),
         schema_metadata: SchemaMetadata {
             document_type: String::new(),
             entity_types: vec![],
@@ -191,6 +216,7 @@ async fn get_claim_returns_404_when_missing() -> TestResult<()> {
             .expect("lazy pool"),
         pipeline_pool: dummy_pipeline_pool(),
         audit_repo: dummy_audit_repo(),
+        embedding_provider: std::sync::Arc::new(TestEmbeddingProvider),
         schema_metadata: SchemaMetadata {
             document_type: String::new(),
             entity_types: vec![],
@@ -198,9 +224,13 @@ async fn get_claim_returns_404_when_missing() -> TestResult<()> {
         },
     };
 
-    let response = get_claim(None, State(state), axum::extract::Path("no-such".to_string()))
-        .await
-        .into_response();
+    let response = get_claim(
+        None,
+        State(state),
+        axum::extract::Path("no-such".to_string()),
+    )
+    .await
+    .into_response();
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
     let body = to_bytes(response.into_body(), 1024 * 1024).await?;
@@ -237,6 +267,7 @@ async fn update_claim_rejects_invalid_status() -> TestResult<()> {
             .expect("lazy pool"),
         pipeline_pool: dummy_pipeline_pool(),
         audit_repo: dummy_audit_repo(),
+        embedding_provider: std::sync::Arc::new(TestEmbeddingProvider),
         schema_metadata: SchemaMetadata {
             document_type: String::new(),
             entity_types: vec![],
@@ -283,6 +314,7 @@ async fn happy_path_create_and_get_claim() -> TestResult<()> {
             .expect("lazy pool"),
         pipeline_pool: dummy_pipeline_pool(),
         audit_repo: dummy_audit_repo(),
+        embedding_provider: std::sync::Arc::new(TestEmbeddingProvider),
         schema_metadata: SchemaMetadata {
             document_type: String::new(),
             entity_types: vec![],

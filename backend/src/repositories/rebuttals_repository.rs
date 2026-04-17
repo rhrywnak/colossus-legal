@@ -12,8 +12,7 @@ use neo4rs::{query, Graph};
 use std::collections::HashMap;
 
 use crate::dto::decomposition::{
-    GeorgeClaimWithRebuttals, RebuttalDetail, RebuttalsResponse, RebuttalsSummary,
-    UnrebuttedReason,
+    GeorgeClaimWithRebuttals, RebuttalDetail, RebuttalsResponse, RebuttalsSummary, UnrebuttedReason,
 };
 use crate::repositories::decomposition_repository::DecompositionRepositoryError;
 
@@ -62,9 +61,7 @@ impl RebuttalsRepository {
     }
 
     /// Fetch all REBUTS relationships grouped by George Phillips' claims.
-    pub async fn get_rebuttals(
-        &self,
-    ) -> Result<RebuttalsResponse, DecompositionRepositoryError> {
+    pub async fn get_rebuttals(&self) -> Result<RebuttalsResponse, DecompositionRepositoryError> {
         let george_claims = self.fetch_and_group_claims().await?;
         let (total_rebutted, total_unrebutted) = self.fetch_rebuttal_totals().await?;
 
@@ -131,9 +128,7 @@ impl RebuttalsRepository {
 
     // ── Private: count rebutted vs unrebutted George claims ──────────────
 
-    async fn fetch_rebuttal_totals(
-        &self,
-    ) -> Result<(i64, i64), DecompositionRepositoryError> {
+    async fn fetch_rebuttal_totals(&self) -> Result<(i64, i64), DecompositionRepositoryError> {
         let mut result = self.graph.execute(query(TOTAL_COUNTS_QUERY)).await?;
 
         let mut total_rebutted: i64 = 0;

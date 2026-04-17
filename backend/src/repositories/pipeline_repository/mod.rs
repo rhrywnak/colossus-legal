@@ -9,6 +9,7 @@
 //! - `mod.rs` — shared types, error, document and config CRUD
 //! - `extraction.rs` — extraction_runs, extraction_items, extraction_relationships
 
+pub mod documents;
 mod extraction;
 pub mod review;
 pub mod steps;
@@ -69,6 +70,36 @@ pub struct DocumentRecord {
     pub total_cost_usd: Option<f64>,
     /// Whether this document has any failed pipeline steps (computed via LEFT JOIN).
     pub has_failed_steps: bool,
+    // ── Progress tracking (process endpoint) ────────────────────
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub processing_step: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub processing_step_label: Option<String>,
+    pub chunks_total: Option<i32>,
+    pub chunks_processed: Option<i32>,
+    pub entities_found: Option<i32>,
+    pub percent_complete: Option<i32>,
+    // ── Error detail (process endpoint) ─────────────────────────
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failed_step: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failed_chunk: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_suggestion: Option<String>,
+    // ── Cancellation ────────────────────────────────────────────
+    pub is_cancelled: bool,
+    // ── Auto-write tracking ─────────────────────────────────────
+    pub entities_written: Option<i32>,
+    pub entities_flagged: Option<i32>,
+    pub relationships_written: Option<i32>,
+    // ── Latest extraction run stats (computed via LEFT JOIN) ─────
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_name: Option<String>,
+    pub run_chunk_count: Option<i32>,
+    pub run_chunks_succeeded: Option<i32>,
+    pub run_chunks_failed: Option<i32>,
 }
 
 /// A page of extracted text from the `document_text` table.
@@ -96,7 +127,7 @@ pub struct PipelineConfigRecord {
 
 // ── Document & config functions ──────────────────────────────────
 
-/// Insert a new document record. Status = "UPLOADED".
+/// Insert a new document record. Status = "NEW".
 pub async fn insert_document(
     pool: &PgPool,
     id: &str,
@@ -107,7 +138,7 @@ pub async fn insert_document(
 ) -> Result<(), PipelineRepoError> {
     sqlx::query(
         r#"INSERT INTO documents (id, title, file_path, file_hash, document_type, status)
-           VALUES ($1, $2, $3, $4, $5, 'UPLOADED')"#,
+           VALUES ($1, $2, $3, $4, $5, 'NEW')"#,
     )
     .bind(id)
     .bind(title)
@@ -153,13 +184,11 @@ pub async fn update_document_status(
     document_id: &str,
     status: &str,
 ) -> Result<(), PipelineRepoError> {
-    let result = sqlx::query(
-        "UPDATE documents SET status = $1, updated_at = NOW() WHERE id = $2",
-    )
-    .bind(status)
-    .bind(document_id)
-    .execute(pool)
-    .await?;
+    let result = sqlx::query("UPDATE documents SET status = $1, updated_at = NOW() WHERE id = $2")
+        .bind(status)
+        .bind(document_id)
+        .execute(pool)
+        .await?;
 
     if result.rows_affected() == 0 {
         return Err(PipelineRepoError::NotFound(document_id.to_string()));
@@ -193,7 +222,16 @@ pub async fn list_all_documents(pool: &PgPool) -> Result<Vec<DocumentRecord>, Pi
         "SELECT d.id, d.title, d.file_path, d.file_hash, d.document_type, d.status,
                 d.created_at, d.updated_at, d.assigned_reviewer, d.assigned_at,
                 cost.total_cost_usd,
-                COALESCE(err.has_failed, false) AS has_failed_steps
+                COALESCE(err.has_failed, false) AS has_failed_steps,
+                d.processing_step, d.processing_step_label,
+                d.chunks_total, d.chunks_processed, d.entities_found, d.percent_complete,
+                d.failed_step, d.failed_chunk, d.error_message, d.error_suggestion,
+                d.is_cancelled,
+                d.entities_written, d.entities_flagged, d.relationships_written,
+                run.model_name,
+                run.chunk_count AS run_chunk_count,
+                run.chunks_succeeded AS run_chunks_succeeded,
+                run.chunks_failed AS run_chunks_failed
          FROM documents d
          LEFT JOIN (
              SELECT document_id, SUM(cost_usd::float8) AS total_cost_usd
@@ -207,6 +245,12 @@ pub async fn list_all_documents(pool: &PgPool) -> Result<Vec<DocumentRecord>, Pi
              WHERE status = 'failed'
              GROUP BY document_id
          ) err ON err.document_id = d.id
+         LEFT JOIN LATERAL (
+             SELECT model_name, chunk_count, chunks_succeeded, chunks_failed
+             FROM extraction_runs
+             WHERE document_id = d.id AND status = 'COMPLETED'
+             ORDER BY id DESC LIMIT 1
+         ) run ON true
          ORDER BY d.created_at DESC",
     )
     .fetch_all(pool)
@@ -223,7 +267,16 @@ pub async fn get_document(
         "SELECT d.id, d.title, d.file_path, d.file_hash, d.document_type, d.status,
                 d.created_at, d.updated_at, d.assigned_reviewer, d.assigned_at,
                 cost.total_cost_usd,
-                COALESCE(err.has_failed, false) AS has_failed_steps
+                COALESCE(err.has_failed, false) AS has_failed_steps,
+                d.processing_step, d.processing_step_label,
+                d.chunks_total, d.chunks_processed, d.entities_found, d.percent_complete,
+                d.failed_step, d.failed_chunk, d.error_message, d.error_suggestion,
+                d.is_cancelled,
+                d.entities_written, d.entities_flagged, d.relationships_written,
+                run.model_name,
+                run.chunk_count AS run_chunk_count,
+                run.chunks_succeeded AS run_chunks_succeeded,
+                run.chunks_failed AS run_chunks_failed
          FROM documents d
          LEFT JOIN (
              SELECT document_id, SUM(cost_usd::float8) AS total_cost_usd
@@ -237,6 +290,12 @@ pub async fn get_document(
              WHERE status = 'failed' AND document_id = $1
              GROUP BY document_id
          ) err ON err.document_id = d.id
+         LEFT JOIN LATERAL (
+             SELECT model_name, chunk_count, chunks_succeeded, chunks_failed
+             FROM extraction_runs
+             WHERE document_id = $1 AND status = 'COMPLETED'
+             ORDER BY id DESC LIMIT 1
+         ) run ON true
          WHERE d.id = $1",
     )
     .bind(document_id)

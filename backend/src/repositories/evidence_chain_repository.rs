@@ -2,8 +2,8 @@ use neo4rs::{query, Graph};
 use std::collections::{HashMap, HashSet};
 
 use crate::dto::{
-    ChainAllegation, ChainDocument, ChainSummary, EvidenceChainResponse,
-    EvidenceWithDocument, MotionClaimWithEvidence,
+    ChainAllegation, ChainDocument, ChainSummary, EvidenceChainResponse, EvidenceWithDocument,
+    MotionClaimWithEvidence,
 };
 
 #[derive(Clone)]
@@ -147,8 +147,7 @@ impl EvidenceChainRepository {
             None => return Ok(None),
         };
 
-        let motion_claims: Vec<MotionClaimWithEvidence> =
-            motion_claims_map.into_values().collect();
+        let motion_claims: Vec<MotionClaimWithEvidence> = motion_claims_map.into_values().collect();
 
         let summary = ChainSummary {
             motion_claim_count: motion_claims.len(),

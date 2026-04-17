@@ -110,10 +110,14 @@ pub async fn bulk_delete_entries(
             })?;
         tracing::warn!(user = %user.username, deleted, "Admin deleted ALL QA entries");
         log_admin_action(
-            &state.audit_repo, &user.username, "qa.delete_all",
-            Some("qa_entry"), None,
+            &state.audit_repo,
+            &user.username,
+            "qa.delete_all",
+            Some("qa_entry"),
+            None,
             Some(json!({ "count": deleted })),
-        ).await;
+        )
+        .await;
         return Ok(Json(BulkDeleteResponse { deleted }));
     }
 
@@ -150,10 +154,14 @@ pub async fn bulk_delete_entries(
     );
 
     log_admin_action(
-        &state.audit_repo, &user.username, "qa.bulk_delete",
-        Some("qa_entry"), None,
+        &state.audit_repo,
+        &user.username,
+        "qa.bulk_delete",
+        Some("qa_entry"),
+        None,
         Some(json!({ "count": req.ids.len(), "ids": &req.ids })),
-    ).await;
+    )
+    .await;
 
     Ok(Json(BulkDeleteResponse { deleted }))
 }

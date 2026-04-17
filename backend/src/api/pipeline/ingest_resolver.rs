@@ -120,10 +120,7 @@ pub async fn fetch_existing_parties(graph: &Graph) -> Result<Vec<KnownEntity>, A
 /// Convert a pipeline ExtractionItemRecord (Party) to an ExtractedEntity
 /// for the resolver.
 fn to_extracted_entity(item: &ExtractionItemRecord) -> ExtractedEntity {
-    let label = item.item_data["label"]
-        .as_str()
-        .unwrap_or("")
-        .to_string();
+    let label = item.item_data["label"].as_str().unwrap_or("").to_string();
     let properties = item.item_data["properties"].clone();
 
     ExtractedEntity {

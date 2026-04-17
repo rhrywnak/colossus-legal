@@ -8,6 +8,7 @@ pub mod dto;
 pub mod error;
 pub mod models;
 pub mod neo4j;
+pub mod pipeline;
 pub mod prompt_loader;
 pub mod repositories;
 pub mod services;

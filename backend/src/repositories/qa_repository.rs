@@ -167,10 +167,7 @@ impl QaEntryRow {
 
 /// Create a new QAEntry in PostgreSQL.
 /// Generates a UUID server-side and returns the created entry.
-pub async fn create_qa_entry(
-    pool: &PgPool,
-    entry: CreateQAEntry,
-) -> Result<QAEntry, QAError> {
+pub async fn create_qa_entry(pool: &PgPool, entry: CreateQAEntry) -> Result<QAEntry, QAError> {
     let id = Uuid::new_v4();
     let parent_qa_id = entry
         .parent_qa_id
@@ -225,19 +222,13 @@ pub async fn get_qa_history(
 }
 
 /// Get a single QAEntry by ID, with full answer and metadata.
-pub async fn get_qa_entry(
-    pool: &PgPool,
-    id: &str,
-) -> Result<Option<QAEntry>, QAError> {
-    let uuid = Uuid::parse_str(id)
-        .map_err(|e| QAError::NotFound(format!("invalid UUID: {e}")))?;
+pub async fn get_qa_entry(pool: &PgPool, id: &str) -> Result<Option<QAEntry>, QAError> {
+    let uuid = Uuid::parse_str(id).map_err(|e| QAError::NotFound(format!("invalid UUID: {e}")))?;
 
-    let row = sqlx::query_as::<_, QaEntryRow>(
-        "SELECT * FROM qa_entries WHERE id = $1",
-    )
-    .bind(uuid)
-    .fetch_optional(pool)
-    .await?;
+    let row = sqlx::query_as::<_, QaEntryRow>("SELECT * FROM qa_entries WHERE id = $1")
+        .bind(uuid)
+        .fetch_optional(pool)
+        .await?;
 
     Ok(row.map(QaEntryRow::into_qa_entry))
 }
@@ -251,8 +242,7 @@ pub async fn update_rating(
     rating: i16,
     rated_by: &str,
 ) -> Result<(), QAError> {
-    let uuid = Uuid::parse_str(id)
-        .map_err(|e| QAError::NotFound(format!("invalid UUID: {e}")))?;
+    let uuid = Uuid::parse_str(id).map_err(|e| QAError::NotFound(format!("invalid UUID: {e}")))?;
 
     let result = sqlx::query(
         "UPDATE qa_entries SET rating = $2, rated_by = $3, rated_at = NOW()
@@ -294,12 +284,10 @@ pub async fn get_all_qa_entries(
         .fetch_all(pool)
         .await?;
 
-        let count: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM qa_entries WHERE asked_by = $1",
-        )
-        .bind(user)
-        .fetch_one(pool)
-        .await?;
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM qa_entries WHERE asked_by = $1")
+            .bind(user)
+            .fetch_one(pool)
+            .await?;
 
         (rows, count.0)
     } else {
@@ -313,59 +301,45 @@ pub async fn get_all_qa_entries(
         .fetch_all(pool)
         .await?;
 
-        let count: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM qa_entries",
-        )
-        .fetch_one(pool)
-        .await?;
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM qa_entries")
+            .fetch_one(pool)
+            .await?;
 
         (rows, count.0)
     };
 
-    Ok((rows.into_iter().map(QaEntryRow::into_summary).collect(), count))
+    Ok((
+        rows.into_iter().map(QaEntryRow::into_summary).collect(),
+        count,
+    ))
 }
 
 /// Deletes multiple QA entries by ID. Returns count of deleted rows.
 /// Admin-only — no ownership check.
-pub async fn bulk_delete_qa_entries(
-    pool: &PgPool,
-    ids: &[Uuid],
-) -> Result<u64, QAError> {
-    let result = sqlx::query(
-        "DELETE FROM qa_entries WHERE id = ANY($1)",
-    )
-    .bind(ids)
-    .execute(pool)
-    .await?;
-
-    Ok(result.rows_affected())
-}
-
-/// Deletes ALL QA entries. Nuclear option — admin only.
-pub async fn delete_all_qa_entries(
-    pool: &PgPool,
-) -> Result<u64, QAError> {
-    let result = sqlx::query("DELETE FROM qa_entries")
+pub async fn bulk_delete_qa_entries(pool: &PgPool, ids: &[Uuid]) -> Result<u64, QAError> {
+    let result = sqlx::query("DELETE FROM qa_entries WHERE id = ANY($1)")
+        .bind(ids)
         .execute(pool)
         .await?;
 
     Ok(result.rows_affected())
 }
 
-/// Delete a QA entry. Only the user who asked can delete (ownership check).
-pub async fn delete_qa_entry(
-    pool: &PgPool,
-    id: &str,
-) -> Result<(), QAError> {
-    let uuid = Uuid::parse_str(id)
-        .map_err(|e| QAError::NotFound(format!("invalid UUID: {e}")))?;
+/// Deletes ALL QA entries. Nuclear option — admin only.
+pub async fn delete_all_qa_entries(pool: &PgPool) -> Result<u64, QAError> {
+    let result = sqlx::query("DELETE FROM qa_entries").execute(pool).await?;
 
-    let result = sqlx::query(
-        "DELETE FROM qa_entries WHERE id = $1",
-    )
-    .bind(uuid)
-    .execute(pool)
-    .await?;
+    Ok(result.rows_affected())
+}
+
+/// Delete a QA entry. Only the user who asked can delete (ownership check).
+pub async fn delete_qa_entry(pool: &PgPool, id: &str) -> Result<(), QAError> {
+    let uuid = Uuid::parse_str(id).map_err(|e| QAError::NotFound(format!("invalid UUID: {e}")))?;
+
+    let result = sqlx::query("DELETE FROM qa_entries WHERE id = $1")
+        .bind(uuid)
+        .execute(pool)
+        .await?;
 
     if result.rows_affected() == 0 {
         return Err(QAError::NotFound(id.to_string()));

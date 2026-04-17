@@ -70,6 +70,7 @@ pub async fn trigger_reindex(
         &state.config.fastembed_cache_path,
         incremental,
         false, // dry_run
+        state.embedding_provider.dimensions(),
     )
     .await
     .map_err(|e| AppError::Internal {
@@ -89,10 +90,14 @@ pub async fn trigger_reindex(
     );
 
     log_admin_action(
-        &state.audit_repo, &user.username, "reindex.trigger",
-        Some("index"), None,
+        &state.audit_repo,
+        &user.username,
+        "reindex.trigger",
+        Some("index"),
+        None,
         Some(serde_json::json!({ "mode": &req.mode })),
-    ).await;
+    )
+    .await;
 
     Ok((
         StatusCode::OK,

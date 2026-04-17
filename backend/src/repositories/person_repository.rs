@@ -47,26 +47,35 @@ impl PersonRepository {
     pub async fn list_persons(&self) -> Result<PersonsResponse, PersonRepositoryError> {
         let nodes = colossus_graph::get_nodes_by_label(&self.graph, "Person").await?;
 
-        let mut persons: Vec<PersonDto> = nodes.iter().map(|node| {
-            let id = node.id.clone();
-            let name = node.properties.get("name")
-                .and_then(|v| v.as_str())
-                .unwrap_or_default()
-                .to_string();
-            let role = node.properties.get("role")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string());
-            let description = node.properties.get("description")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string());
+        let mut persons: Vec<PersonDto> = nodes
+            .iter()
+            .map(|node| {
+                let id = node.id.clone();
+                let name = node
+                    .properties
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
+                    .to_string();
+                let role = node
+                    .properties
+                    .get("role")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                let description = node
+                    .properties
+                    .get("description")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
 
-            PersonDto {
-                id,
-                name,
-                role,
-                description,
-            }
-        }).collect();
+                PersonDto {
+                    id,
+                    name,
+                    role,
+                    description,
+                }
+            })
+            .collect();
 
         // Sort by name (colossus_graph doesn't guarantee order)
         persons.sort_by(|a, b| a.name.cmp(&b.name));

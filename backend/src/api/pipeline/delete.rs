@@ -49,7 +49,9 @@ pub async fn delete_document(
     // 1. Fetch document (404 if not found)
     let doc = pipeline_repository::get_document(&state.pipeline_pool, &document_id)
         .await
-        .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?
+        .map_err(|e| AppError::Internal {
+            message: format!("DB error: {e}"),
+        })?
         .ok_or_else(|| AppError::NotFound {
             message: format!("Document '{document_id}' not found"),
         })?;
@@ -88,83 +90,37 @@ pub async fn delete_document(
         message: format!("Failed to write audit log: {e}"),
     })?;
 
-    // 4. Neo4j cleanup (best-effort, only for ingested/published/indexed documents)
+    // 4. Neo4j cleanup (best-effort, for documents that have been ingested)
     let needs_graph_cleanup = matches!(
         previous_status.as_str(),
-        "PUBLISHED" | "INGESTED" | "INDEXED"
+        "COMPLETED" | "PUBLISHED" | "INGESTED" | "INDEXED"
     );
     if needs_graph_cleanup {
         cleanup_neo4j(&state, &document_id).await;
     }
 
-    // 5. Qdrant cleanup (best-effort, only for published/indexed documents)
+    // 5. Qdrant cleanup (best-effort, for documents that have been indexed)
     let needs_vector_cleanup = matches!(
         previous_status.as_str(),
-        "PUBLISHED" | "INDEXED"
+        "COMPLETED" | "PUBLISHED" | "INDEXED"
     );
     if needs_vector_cleanup {
         cleanup_qdrant(&state, &document_id).await;
     }
 
-    // 6. PostgreSQL deletion — FK-safe order in a single transaction
-    let mut txn = state.pipeline_pool.begin().await.map_err(|e| {
-        AppError::Internal { message: format!("Failed to begin transaction: {e}") }
-    })?;
-
-    sqlx::query("DELETE FROM extraction_relationships WHERE document_id = $1")
-        .bind(&document_id)
-        .execute(&mut *txn)
+    // 6. Delete all PostgreSQL data in FK-safe order, atomically.
+    //
+    // This delegates to delete_all_document_data in the repository, which
+    // wraps all DELETEs in a single transaction. Either all data is removed
+    // or none is — no partial deletion states.
+    //
+    // See documents.rs:delete_all_document_data for the detailed explanation
+    // of delete ordering and why we do not use ON DELETE CASCADE on documents(id).
+    pipeline_repository::documents::delete_all_document_data(&state.pipeline_pool, &document_id)
         .await
-        .map_err(|e| AppError::Internal { message: format!("Delete extraction_relationships: {e}") })?;
-
-    sqlx::query("DELETE FROM extraction_items WHERE document_id = $1")
-        .bind(&document_id)
-        .execute(&mut *txn)
-        .await
-        .map_err(|e| AppError::Internal { message: format!("Delete extraction_items: {e}") })?;
-
-    sqlx::query(
-        "DELETE FROM extraction_chunks WHERE extraction_run_id IN \
-         (SELECT id FROM extraction_runs WHERE document_id = $1)"
-    )
-    .bind(&document_id)
-    .execute(&mut *txn)
-    .await
-    .map_err(|e| AppError::Internal { message: format!("Delete extraction_chunks: {e}") })?;
-
-    sqlx::query("DELETE FROM extraction_runs WHERE document_id = $1")
-        .bind(&document_id)
-        .execute(&mut *txn)
-        .await
-        .map_err(|e| AppError::Internal { message: format!("Delete extraction_runs: {e}") })?;
-
-    sqlx::query("DELETE FROM document_text WHERE document_id = $1")
-        .bind(&document_id)
-        .execute(&mut *txn)
-        .await
-        .map_err(|e| AppError::Internal { message: format!("Delete document_text: {e}") })?;
-
-    sqlx::query("DELETE FROM pipeline_steps WHERE document_id = $1")
-        .bind(&document_id)
-        .execute(&mut *txn)
-        .await
-        .map_err(|e| AppError::Internal { message: format!("Delete pipeline_steps: {e}") })?;
-
-    sqlx::query("DELETE FROM pipeline_config WHERE document_id = $1")
-        .bind(&document_id)
-        .execute(&mut *txn)
-        .await
-        .map_err(|e| AppError::Internal { message: format!("Delete pipeline_config: {e}") })?;
-
-    sqlx::query("DELETE FROM documents WHERE id = $1")
-        .bind(&document_id)
-        .execute(&mut *txn)
-        .await
-        .map_err(|e| AppError::Internal { message: format!("Delete documents: {e}") })?;
-
-    txn.commit().await.map_err(|e| {
-        AppError::Internal { message: format!("Failed to commit transaction: {e}") }
-    })?;
+        .map_err(|e| AppError::Internal {
+            message: format!("Failed to delete document data: {e}"),
+        })?;
 
     // 7. Delete PDF file from disk (warn on failure, don't fail the request)
     let full_path = format!(
@@ -205,13 +161,14 @@ async fn build_audit_snapshot(
     let pool = &state.pipeline_pool;
 
     // Counts
-    let text_pages: i64 = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM document_text WHERE document_id = $1",
-    )
-    .bind(document_id)
-    .fetch_one(pool)
-    .await
-    .map_err(|e| AppError::Internal { message: format!("Count document_text: {e}") })?;
+    let text_pages: i64 =
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM document_text WHERE document_id = $1")
+            .bind(document_id)
+            .fetch_one(pool)
+            .await
+            .map_err(|e| AppError::Internal {
+                message: format!("Count document_text: {e}"),
+            })?;
 
     let item_count: i64 = sqlx::query_scalar::<_, i64>(
         "SELECT COUNT(*) FROM extraction_items WHERE document_id = $1",
@@ -219,7 +176,9 @@ async fn build_audit_snapshot(
     .bind(document_id)
     .fetch_one(pool)
     .await
-    .map_err(|e| AppError::Internal { message: format!("Count extraction_items: {e}") })?;
+    .map_err(|e| AppError::Internal {
+        message: format!("Count extraction_items: {e}"),
+    })?;
 
     let rel_count: i64 = sqlx::query_scalar::<_, i64>(
         "SELECT COUNT(*) FROM extraction_relationships WHERE document_id = $1",
@@ -227,7 +186,9 @@ async fn build_audit_snapshot(
     .bind(document_id)
     .fetch_one(pool)
     .await
-    .map_err(|e| AppError::Internal { message: format!("Count extraction_relationships: {e}") })?;
+    .map_err(|e| AppError::Internal {
+        message: format!("Count extraction_relationships: {e}"),
+    })?;
 
     // Total cost
     let total_cost: f64 = sqlx::query_scalar::<_, f64>(
@@ -236,7 +197,9 @@ async fn build_audit_snapshot(
     .bind(document_id)
     .fetch_one(pool)
     .await
-    .map_err(|e| AppError::Internal { message: format!("Sum extraction cost: {e}") })?;
+    .map_err(|e| AppError::Internal {
+        message: format!("Sum extraction cost: {e}"),
+    })?;
 
     // Extraction items as JSON array
     let items_json: Vec<serde_json::Value> = sqlx::query_scalar::<_, serde_json::Value>(
@@ -249,7 +212,9 @@ async fn build_audit_snapshot(
     .bind(document_id)
     .fetch_all(pool)
     .await
-    .map_err(|e| AppError::Internal { message: format!("Fetch extraction_items snapshot: {e}") })?;
+    .map_err(|e| AppError::Internal {
+        message: format!("Fetch extraction_items snapshot: {e}"),
+    })?;
 
     // Extraction relationships as JSON array
     let rels_json: Vec<serde_json::Value> = sqlx::query_scalar::<_, serde_json::Value>(
@@ -261,7 +226,9 @@ async fn build_audit_snapshot(
     .bind(document_id)
     .fetch_all(pool)
     .await
-    .map_err(|e| AppError::Internal { message: format!("Fetch extraction_relationships snapshot: {e}") })?;
+    .map_err(|e| AppError::Internal {
+        message: format!("Fetch extraction_relationships snapshot: {e}"),
+    })?;
 
     // Pipeline steps as JSON array
     let steps_json: Vec<serde_json::Value> = sqlx::query_scalar::<_, serde_json::Value>(
@@ -275,7 +242,9 @@ async fn build_audit_snapshot(
     .bind(document_id)
     .fetch_all(pool)
     .await
-    .map_err(|e| AppError::Internal { message: format!("Fetch pipeline_steps snapshot: {e}") })?;
+    .map_err(|e| AppError::Internal {
+        message: format!("Fetch pipeline_steps snapshot: {e}"),
+    })?;
 
     Ok(serde_json::json!({
         "document": {

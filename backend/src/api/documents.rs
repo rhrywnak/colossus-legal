@@ -11,7 +11,7 @@ use tokio::fs::File;
 use tokio_util::io::ReaderStream;
 
 use crate::{
-    auth::{AuthUser, require_edit},
+    auth::{require_edit, AuthUser},
     dto::{DocumentCreateRequest, DocumentDto, DocumentUpdateRequest},
     error::AppError,
     repositories::document_repository::{DocumentRepository, DocumentRepositoryError},
@@ -183,9 +183,11 @@ pub async fn get_document_file(
     let full_path = format!("{}/{}", state.config.document_storage_path, file_path);
 
     // 5. Open file
-    let file = File::open(&full_path).await.map_err(|_| AppError::NotFound {
-        message: "File not found on disk".to_string(),
-    })?;
+    let file = File::open(&full_path)
+        .await
+        .map_err(|_| AppError::NotFound {
+            message: "File not found on disk".to_string(),
+        })?;
 
     // 6. Stream response
     let stream = ReaderStream::new(file);

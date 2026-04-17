@@ -674,7 +674,7 @@ checksum = "1d07550c9036bf2ae0c684c4297d503f838287c83c53686d05370d0e139ae570"
 [[package]]
 name = "colossus-auth"
 version = "0.1.0"
-source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.9.1#a689bb70a82ea4d302f4ad8c00839d83aff0d3fa"
+source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.10.0#619d610a0f4ccf82fd7dff618ed30544b117ae15"
 dependencies = [
  "async-trait",
  "axum",
@@ -685,10 +685,12 @@ dependencies = [
 
 [[package]]
 name = "colossus-extract"
-version = "0.4.0"
-source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.9.1#a689bb70a82ea4d302f4ad8c00839d83aff0d3fa"
+version = "0.4.1"
+source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.10.0#619d610a0f4ccf82fd7dff618ed30544b117ae15"
 dependencies = [
  "async-trait",
+ "fastembed",
+ "reqwest 0.12.28",
  "schemars",
  "serde",
  "serde_json",
@@ -703,7 +705,7 @@ dependencies = [
 [[package]]
 name = "colossus-graph"
 version = "0.1.0"
-source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.9.1#a689bb70a82ea4d302f4ad8c00839d83aff0d3fa"
+source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.10.0#619d610a0f4ccf82fd7dff618ed30544b117ae15"
 dependencies = [
  "neo4rs",
  "serde",
@@ -714,7 +716,7 @@ dependencies = [
 
 [[package]]
 name = "colossus-legal-backend"
-version = "2.0.0-beta.59"
+version = "2.0.0-beta.73"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -726,6 +728,7 @@ dependencies = [
  "colossus-extract",
  "colossus-graph",
  "colossus-pdf",
+ "colossus-pipeline",
  "colossus-rag",
  "dotenvy",
  "fastembed",
@@ -757,7 +760,7 @@ dependencies = [
 [[package]]
 name = "colossus-pdf"
 version = "0.2.0"
-source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.9.1#a689bb70a82ea4d302f4ad8c00839d83aff0d3fa"
+source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.10.0#619d610a0f4ccf82fd7dff618ed30544b117ae15"
 dependencies = [
  "pdf_oxide",
  "serde",
@@ -768,9 +771,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "colossus-pipeline"
+version = "0.1.0"
+source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.10.0#619d610a0f4ccf82fd7dff618ed30544b117ae15"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "futures",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "colossus-rag"
 version = "0.5.0"
-source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.9.1#a689bb70a82ea4d302f4ad8c00839d83aff0d3fa"
+source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.10.0#619d610a0f4ccf82fd7dff618ed30544b117ae15"
 dependencies = [
  "async-trait",
  "neo4rs",
@@ -5207,6 +5227,7 @@ checksum = "5ac8b6f42ead25368cf5b098aeb3dc8a1a2c05a3eee8a9a1a68c640edbfc79d9"
 dependencies = [
  "getrandom 0.4.2",
  "js-sys",
+ "serde_core",
  "wasm-bindgen",
 ]
 

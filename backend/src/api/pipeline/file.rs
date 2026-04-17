@@ -36,7 +36,9 @@ pub async fn file_handler(
     // 1. Look up document in pipeline DB
     let doc = pipeline_repository::get_document(&state.pipeline_pool, &document_id)
         .await
-        .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?
+        .map_err(|e| AppError::Internal {
+            message: format!("DB error: {e}"),
+        })?
         .ok_or_else(|| AppError::NotFound {
             message: format!("Document '{document_id}' not found"),
         })?;
@@ -62,9 +64,11 @@ pub async fn file_handler(
         file_path
     );
 
-    let file = File::open(&full_path).await.map_err(|_| AppError::NotFound {
-        message: "File not found on disk".to_string(),
-    })?;
+    let file = File::open(&full_path)
+        .await
+        .map_err(|_| AppError::NotFound {
+            message: "File not found on disk".to_string(),
+        })?;
 
     // 4. Stream response with PDF headers
     let stream = ReaderStream::new(file);

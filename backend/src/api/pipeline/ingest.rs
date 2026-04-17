@@ -68,46 +68,44 @@ pub struct RelCounts {
 
 // ── Handler ─────────────────────────────────────────────────────
 
-/// POST /api/admin/pipeline/documents/:id/ingest
+/// Core logic for graph ingest — callable from handler AND process endpoint.
 ///
-/// Writes verified extraction data from pipeline DB into Neo4j as a
-/// knowledge graph. All Neo4j writes happen in a single transaction —
-/// if anything fails, the entire import rolls back.
-pub async fn ingest_handler(
-    user: AuthUser,
-    State(state): State<AppState>,
-    Path(doc_id): Path<String>,
-) -> Result<Json<IngestResponse>, AppError> {
-    require_admin(&user)?;
+/// Writes approved extraction items to Neo4j with entity resolution.
+/// Does NOT check document status — caller is responsible for validation.
+pub(crate) async fn run_ingest(
+    state: &AppState,
+    doc_id: &str,
+    username: &str,
+) -> Result<IngestResponse, AppError> {
     let start = std::time::Instant::now();
-    tracing::info!(user = %user.username, doc_id = %doc_id, "POST ingest");
     let step_id = steps::record_step_start(
-        &state.pipeline_pool, &doc_id, "ingest", &user.username, &serde_json::json!({}),
-    ).await.map_err(|e| AppError::Internal { message: format!("Step logging: {e}") })?;
+        &state.pipeline_pool,
+        doc_id,
+        "ingest",
+        username,
+        &serde_json::json!({}),
+    )
+    .await
+    .map_err(|e| AppError::Internal {
+        message: format!("Step logging: {e}"),
+    })?;
 
     // 1. Fetch document — must exist
-    let document = pipeline_repository::get_document(&state.pipeline_pool, &doc_id)
+    let document = pipeline_repository::get_document(&state.pipeline_pool, doc_id)
         .await
-        .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?
+        .map_err(|e| AppError::Internal {
+            message: format!("DB error: {e}"),
+        })?
         .ok_or_else(|| AppError::NotFound {
             message: format!("Document '{doc_id}' not found"),
         })?;
 
-    // 2. Verify status = VERIFIED
-    if document.status != "VERIFIED" {
-        return Err(AppError::Conflict {
-            message: format!(
-                "Cannot ingest: status is '{}', expected 'VERIFIED'",
-                document.status
-            ),
-            details: serde_json::json!({ "status": document.status }),
-        });
-    }
-
-    // 3. Find latest COMPLETED extraction run
-    let run_id = pipeline_repository::get_latest_completed_run(&state.pipeline_pool, &doc_id)
+    // 2. Find latest COMPLETED extraction run
+    let run_id = pipeline_repository::get_latest_completed_run(&state.pipeline_pool, doc_id)
         .await
-        .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?
+        .map_err(|e| AppError::Internal {
+            message: format!("DB error: {e}"),
+        })?
         .ok_or_else(|| AppError::NotFound {
             message: format!("No completed extraction run for document '{doc_id}'"),
         })?;
@@ -115,17 +113,19 @@ pub async fn ingest_handler(
     // 4. Fetch APPROVED items and their relationships for that run.
     //    Only approved items are written to Neo4j — unapproved items
     //    (e.g., ungrounded/hallucinated) are intentionally excluded.
-    let items = pipeline_repository::get_approved_items_for_document(
-        &state.pipeline_pool, &doc_id, run_id,
-    )
-    .await
-    .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?;
+    let items =
+        pipeline_repository::get_approved_items_for_document(&state.pipeline_pool, doc_id, run_id)
+            .await
+            .map_err(|e| AppError::Internal {
+                message: format!("DB error: {e}"),
+            })?;
 
-    let relationships = pipeline_repository::get_approved_relationships_for_document(
-        &state.pipeline_pool, run_id,
-    )
-    .await
-    .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?;
+    let relationships =
+        pipeline_repository::get_approved_relationships_for_document(&state.pipeline_pool, run_id)
+            .await
+            .map_err(|e| AppError::Internal {
+                message: format!("DB error: {e}"),
+            })?;
 
     tracing::info!(
         doc_id = %doc_id, run_id, items = items.len(),
@@ -134,7 +134,10 @@ pub async fn ingest_handler(
 
     // 5. Entity resolution — resolve Party items against existing Neo4j nodes
     let existing_parties = ingest_resolver::fetch_existing_parties(&state.graph).await?;
-    tracing::info!(existing = existing_parties.len(), "Fetched existing parties for resolution");
+    tracing::info!(
+        existing = existing_parties.len(),
+        "Fetched existing parties for resolution"
+    );
 
     let (resolution_map, resolution_summary) =
         ingest_resolver::resolve_parties(&items, &existing_parties).await?;
@@ -146,9 +149,13 @@ pub async fn ingest_handler(
     );
 
     // 7. Open Neo4j transaction — all-or-nothing
-    let mut txn = state.graph.start_txn().await.map_err(|e| AppError::Internal {
-        message: format!("Failed to start Neo4j transaction: {e}"),
-    })?;
+    let mut txn = state
+        .graph
+        .start_txn()
+        .await
+        .map_err(|e| AppError::Internal {
+            message: format!("Failed to start Neo4j transaction: {e}"),
+        })?;
 
     // PG item ID → Neo4j node ID mapping (populated during node creation)
     let mut pg_to_neo4j: HashMap<i32, String> = HashMap::new();
@@ -158,15 +165,21 @@ pub async fn ingest_handler(
     // 8. Create Document node
     let doc_type = document.document_type.clone();
 
-    let doc_neo4j_id =
-        create_document_node(&mut txn, &doc_id, &document.title, &doc_type).await?;
+    let doc_neo4j_id = create_document_node(&mut txn, doc_id, &document.title, &doc_type).await?;
 
     // 9. Create/merge Party nodes (Person + Organization) using resolution map.
     //    pg_to_label tracks which Neo4j label each item actually got
     //    (e.g., Party items → "Person" or "Organization").
     let mut pg_to_label: HashMap<i32, String> = HashMap::new();
-    let (person_count, org_count) =
-        create_party_nodes(&mut txn, &items, &doc_id, &mut pg_to_neo4j, &mut pg_to_label, &resolution_map).await?;
+    let (person_count, org_count) = create_party_nodes(
+        &mut txn,
+        &items,
+        doc_id,
+        &mut pg_to_neo4j,
+        &mut pg_to_label,
+        &resolution_map,
+    )
+    .await?;
     // Collect unique party node IDs for CONTAINED_IN
     {
         let mut seen = std::collections::HashSet::new();
@@ -187,38 +200,42 @@ pub async fn ingest_handler(
         let seq = entity_seq.entry(item.entity_type.clone()).or_insert(0);
         *seq += 1;
 
-        let neo4j_id = create_entity_node(&mut txn, item, &doc_id, *seq).await?;
+        let neo4j_id = create_entity_node(&mut txn, item, doc_id, *seq).await?;
 
         pg_to_neo4j.insert(item.id, neo4j_id.clone());
         all_node_ids.push(neo4j_id);
 
-        *entity_type_counts.entry(item.entity_type.clone()).or_insert(0) += 1;
+        *entity_type_counts
+            .entry(item.entity_type.clone())
+            .or_insert(0) += 1;
     }
 
     // 11. Create extraction relationships (STATED_BY, ABOUT, SUPPORTS, etc.)
     let mut rel_type_counts: HashMap<String, usize> = HashMap::new();
 
     for rel in &relationships {
-        let from_neo = pg_to_neo4j.get(&rel.from_item_id).ok_or_else(|| {
-            AppError::Internal {
+        let from_neo = pg_to_neo4j
+            .get(&rel.from_item_id)
+            .ok_or_else(|| AppError::Internal {
                 message: format!(
                     "No Neo4j ID for from_item_id {} (rel type {})",
                     rel.from_item_id, rel.relationship_type
                 ),
-            }
-        })?;
-        let to_neo = pg_to_neo4j.get(&rel.to_item_id).ok_or_else(|| {
-            AppError::Internal {
+            })?;
+        let to_neo = pg_to_neo4j
+            .get(&rel.to_item_id)
+            .ok_or_else(|| AppError::Internal {
                 message: format!(
                     "No Neo4j ID for to_item_id {} (rel type {})",
                     rel.to_item_id, rel.relationship_type
                 ),
-            }
-        })?;
+            })?;
 
         create_ingest_relationship(&mut txn, from_neo, to_neo, &rel.relationship_type).await?;
 
-        *rel_type_counts.entry(rel.relationship_type.clone()).or_insert(0) += 1;
+        *rel_type_counts
+            .entry(rel.relationship_type.clone())
+            .or_insert(0) += 1;
     }
 
     // 11b. Create DERIVED_FROM relationships from provenance data
@@ -226,7 +243,9 @@ pub async fn ingest_handler(
         create_provenance_relationships(&mut txn, &items, &pg_to_neo4j).await?;
     if derived_from_count > 0 {
         tracing::info!(doc_id = %doc_id, derived_from_count, "Created DERIVED_FROM provenance relationships");
-        *rel_type_counts.entry("DERIVED_FROM".to_string()).or_insert(0) += derived_from_count;
+        *rel_type_counts
+            .entry("DERIVED_FROM".to_string())
+            .or_insert(0) += derived_from_count;
     }
 
     // 12. Create CONTAINED_IN relationships (all nodes → Document)
@@ -239,7 +258,7 @@ pub async fn ingest_handler(
     })?;
 
     // 14. Update pipeline document status → INGESTED
-    pipeline_repository::update_document_status(&state.pipeline_pool, &doc_id, "INGESTED")
+    pipeline_repository::update_document_status(&state.pipeline_pool, doc_id, "INGESTED")
         .await
         .map_err(|e| AppError::Internal {
             message: format!("Failed to update document status: {e}"),
@@ -260,7 +279,9 @@ pub async fn ingest_handler(
 
         if actual_label != item.entity_type {
             pipeline_repository::update_item_entity_type(
-                &state.pipeline_pool, item.id, actual_label,
+                &state.pipeline_pool,
+                item.id,
+                actual_label,
             )
             .await
             .map_err(|e| AppError::Internal {
@@ -290,10 +311,10 @@ pub async fn ingest_handler(
 
     log_admin_action(
         &state.audit_repo,
-        &user.username,
+        username,
         "pipeline.document.ingest",
         Some("document"),
-        Some(&doc_id),
+        Some(doc_id),
         Some(serde_json::json!({
             "neo4j_document_id": doc_neo4j_id,
             "nodes": total_nodes,
@@ -307,8 +328,8 @@ pub async fn ingest_handler(
         "derived_from": derived_from_count,
         "matched_existing": resolution_summary.matched_existing, "created_new": resolution_summary.created_new,
     })).await.ok();
-    Ok(Json(IngestResponse {
-        document_id: doc_id,
+    Ok(IngestResponse {
+        document_id: doc_id.to_string(),
         status: "INGESTED".to_string(),
         neo4j_document_id: doc_neo4j_id,
         nodes_created: NodeCounts {
@@ -325,7 +346,43 @@ pub async fn ingest_handler(
         },
         resolution_summary,
         duration_secs: duration,
-    }))
+    })
+}
+
+/// POST /api/admin/pipeline/documents/:id/ingest
+///
+/// HTTP handler — thin wrapper around `run_ingest`.
+/// Checks admin auth and status guard, then delegates to core logic.
+pub async fn ingest_handler(
+    user: AuthUser,
+    State(state): State<AppState>,
+    Path(doc_id): Path<String>,
+) -> Result<Json<IngestResponse>, AppError> {
+    require_admin(&user)?;
+    tracing::info!(user = %user.username, doc_id = %doc_id, "POST ingest");
+
+    // Status guard
+    let document = pipeline_repository::get_document(&state.pipeline_pool, &doc_id)
+        .await
+        .map_err(|e| AppError::Internal {
+            message: format!("DB error: {e}"),
+        })?
+        .ok_or_else(|| AppError::NotFound {
+            message: format!("Document '{doc_id}' not found"),
+        })?;
+
+    if document.status != "VERIFIED" {
+        return Err(AppError::Conflict {
+            message: format!(
+                "Cannot ingest: status is '{}', expected 'VERIFIED'",
+                document.status
+            ),
+            details: serde_json::json!({ "status": document.status }),
+        });
+    }
+
+    let result = run_ingest(&state, &doc_id, &user.username).await?;
+    Ok(Json(result))
 }
 
 #[cfg(test)]
@@ -336,11 +393,20 @@ mod tests {
         // NOT the schema_file from pipeline_config.
         // Schema files look like "general_legal.yaml" or "complaint.yaml"
         // Document types look like "complaint", "discovery_response", "affidavit"
-        let bad_values = ["general_legal.yaml", "complaint.yaml", "discovery_response.yaml"];
+        let bad_values = [
+            "general_legal.yaml",
+            "complaint.yaml",
+            "discovery_response.yaml",
+        ];
         for val in &bad_values {
             assert!(val.contains('.'), "Schema filenames contain dots");
         }
-        let good_values = ["complaint", "discovery_response", "affidavit", "court_ruling"];
+        let good_values = [
+            "complaint",
+            "discovery_response",
+            "affidavit",
+            "court_ruling",
+        ];
         for val in &good_values {
             assert!(!val.contains('.'), "Document types should not contain dots");
         }

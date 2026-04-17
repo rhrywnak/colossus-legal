@@ -87,7 +87,9 @@ pub async fn workload_handler(
     )
     .fetch_all(pool)
     .await
-    .map_err(|e| AppError::Internal { message: format!("Failed to query workload: {e}") })?;
+    .map_err(|e| AppError::Internal {
+        message: format!("Failed to query workload: {e}"),
+    })?;
 
     let reviewers: Vec<ReviewerWorkload> = rows
         .into_iter()
@@ -105,12 +107,13 @@ pub async fn workload_handler(
         .collect();
 
     // Count unassigned documents
-    let unassigned: (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM documents WHERE assigned_reviewer IS NULL",
-    )
-    .fetch_one(pool)
-    .await
-    .map_err(|e| AppError::Internal { message: format!("Failed to count unassigned: {e}") })?;
+    let unassigned: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM documents WHERE assigned_reviewer IS NULL")
+            .fetch_one(pool)
+            .await
+            .map_err(|e| AppError::Internal {
+                message: format!("Failed to count unassigned: {e}"),
+            })?;
 
     Ok(Json(WorkloadResponse {
         reviewers,

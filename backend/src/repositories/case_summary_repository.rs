@@ -95,14 +95,17 @@ impl CaseSummaryRepository {
         let docs = colossus_graph::get_nodes_by_label(&self.graph, "Document").await?;
 
         let complaint = docs.into_iter().find(|d| {
-            d.properties.get("doc_type")
+            d.properties
+                .get("doc_type")
                 .and_then(|v| v.as_str())
                 .map(|s| s.contains("complaint"))
                 .unwrap_or(false)
         });
 
         if let Some(doc) = complaint {
-            let title = doc.properties.get("title")
+            let title = doc
+                .properties
+                .get("title")
                 .and_then(|v| v.as_str())
                 .unwrap_or_default()
                 .to_string();
@@ -128,7 +131,8 @@ impl CaseSummaryRepository {
         // Get entity type counts from the graph.
         let label_counts = colossus_graph::get_label_counts(&self.graph).await?;
         let count_for = |label: &str| -> i64 {
-            label_counts.iter()
+            label_counts
+                .iter()
                 .find(|lc| lc.label == label)
                 .map(|lc| lc.count)
                 .unwrap_or(0)
@@ -141,18 +145,22 @@ impl CaseSummaryRepository {
         // Harm.amount is a string like "$25,000.00" — strip currency formatting.
         let harms = colossus_graph::get_nodes_by_label(&self.graph, "Harm").await?;
         let harms_total = harms.len() as i64;
-        let damages_total: f64 = harms.iter()
+        let damages_total: f64 = harms
+            .iter()
             .filter_map(|h| h.properties.get("amount"))
             .filter_map(|v| v.as_str())
             .filter_map(|s| s.replace(['$', ','], "").parse::<f64>().ok())
             .sum();
 
         // Fetch ComplaintAllegation nodes and count proven in Rust.
-        let allegations = colossus_graph::get_nodes_by_label(&self.graph, "ComplaintAllegation").await?;
+        let allegations =
+            colossus_graph::get_nodes_by_label(&self.graph, "ComplaintAllegation").await?;
         let allegations_total = allegations.len() as i64;
-        let allegations_proven = allegations.iter()
+        let allegations_proven = allegations
+            .iter()
             .filter(|a| {
-                a.properties.get("grounding_status")
+                a.properties
+                    .get("grounding_status")
                     .and_then(|v| v.as_str())
                     .map(|s| s == "exact" || s == "normalized")
                     .unwrap_or(false)
@@ -162,12 +170,12 @@ impl CaseSummaryRepository {
         Ok(CoreStats {
             allegations_total,
             allegations_proven,
-            evidence_total: 0,     // Evidence nodes don't exist in v2
-            evidence_grounded: 0,  // Evidence nodes don't exist in v2
+            evidence_total: 0,    // Evidence nodes don't exist in v2
+            evidence_grounded: 0, // Evidence nodes don't exist in v2
             documents_total,
             harms_total,
             damages_total,
-            damages_financial: 0.0,  // h.category doesn't exist in v2
+            damages_financial: 0.0,        // h.category doesn't exist in v2
             damages_reputational_count: 0, // h.category doesn't exist in v2
             legal_counts,
         })
@@ -216,9 +224,7 @@ impl CaseSummaryRepository {
     /// Decomposition stats (v2 pipeline).
     /// CHARACTERIZES and REBUTS relationships don't exist in v2 — return zeros.
     /// These will populate when cross-document analysis is implemented.
-    async fn get_decomposition_stats(
-        &self,
-    ) -> Result<DecompStats, CaseSummaryRepositoryError> {
+    async fn get_decomposition_stats(&self) -> Result<DecompStats, CaseSummaryRepositoryError> {
         // V2 has no CHARACTERIZES or REBUTS relationships yet.
         // Return empty decomposition stats.
         Ok(DecompStats {
@@ -236,20 +242,22 @@ impl CaseSummaryRepository {
     ///
     /// Uses colossus_graph::get_nodes_with_property to fetch all nodes that
     /// have a `role` property, then groups by role in Rust.
-    async fn get_parties(
-        &self,
-    ) -> Result<(Vec<String>, Vec<String>), CaseSummaryRepositoryError> {
+    async fn get_parties(&self) -> Result<(Vec<String>, Vec<String>), CaseSummaryRepositoryError> {
         let mut plaintiffs: Vec<String> = Vec::new();
         let mut defendants: Vec<String> = Vec::new();
 
         let nodes = colossus_graph::get_nodes_with_property(&self.graph, "role").await?;
 
         for node in &nodes {
-            let name = node.properties.get("name")
+            let name = node
+                .properties
+                .get("name")
                 .and_then(|v| v.as_str())
                 .unwrap_or_default()
                 .to_string();
-            let role = node.properties.get("role")
+            let role = node
+                .properties
+                .get("role")
                 .and_then(|v| v.as_str())
                 .unwrap_or_default();
             match role {

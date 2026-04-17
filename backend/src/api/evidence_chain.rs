@@ -19,7 +19,11 @@ pub async fn get_evidence_chain(
     Path(allegation_id): Path<String>,
 ) -> Result<Json<EvidenceChainResponse>, StatusCode> {
     if let Some(ref u) = user {
-        tracing::info!("{} GET /allegations/{}/evidence-chain", u.username, allegation_id);
+        tracing::info!(
+            "{} GET /allegations/{}/evidence-chain",
+            u.username,
+            allegation_id
+        );
     }
     let repo = EvidenceChainRepository::new(state.graph.clone());
 

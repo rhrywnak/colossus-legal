@@ -1,177 +1,171 @@
-# CLAUDE.md — Colossus-Legal
+# CLAUDE.md — colossus-legal
 
-> **Read this FIRST.** Then read `docs/CLAUDE_CODE_INSTRUCTIONS.md` for full standards.
-
-## Project
-
-**Colossus-Legal** — Legal case analysis system  
-- **Backend:** Rust + Axum (port 3403) → `backend/`
-- **Frontend:** React + Vite + TS (port 5473) → `frontend/`
-- **Database:** Neo4j 5.x → `bolt://10.10.100.50:7687`
-
-**Current Phase:** Phase 2 — Query Layer  
-**Current Feature:** F2.1 — Schema Discovery Endpoint
+> **Read this file first. Then read `COLOSSUS-CC-STANDARDS.md` immediately after.**
+> COLOSSUS-CC-STANDARDS.md contains the pre-coding analysis template,
+> STOP gate rules, forensic mode, completion report format, and all
+> generic coding standards. Both files must be read before any task begins.
 
 ---
 
-## Human Context
+## What this repo is
 
-**Developer:** Roman — 45 years IT, retired, learning Rust.
-- Explain patterns when you use them
-- Reference `docs/RUST-PATTERNS.md` for pattern examples
-- Clear explanations over terse code
-- Working code over perfect code
+**Colossus-Legal** — Legal document analysis and case management system.
+
+- **Backend:** Rust + Axum → `backend/`
+- **Frontend:** React + Vite + TypeScript → `frontend/`
+- **Pipeline DB:** PostgreSQL `colossus_legal_v2`
+- **Graph DB:** Neo4j 5.x
+- **Vector DB:** Qdrant (REST :6333, gRPC :6334)
+- **Auth:** Authentik SSO → Traefik ForwardAuth → X-authentik-* headers
+- **Shared libraries:** colossus-rs workspace (colossus-auth, colossus-rag,
+  colossus-extract, colossus-pipeline)
+
+Current phase, active branch, and task status are in the session transition
+document — not here. Read the transition doc for that context.
 
 ---
 
-## The Golden Rules
+## Colossus-legal specific rules
 
+These rules apply permanently to this repo regardless of phase.
+They are IN ADDITION to everything in COLOSSUS-CC-STANDARDS.md.
+
+### AppContext not AppState
+Steps accept `&AppContext` — never `&AppState`.
+AppState is the old struct. AppContext holds Arc<dyn LlmProvider> etc.
+If you see AppState in step code, that is a bug. Stop and flag it.
+
+### LlmProvider — never bypass
+Call `context.llm_provider.invoke()` for all LLM calls.
+Never call AnthropicChunkExtractor or rig::providers::anthropic directly.
+
+### EmbeddingProvider — never bypass
+Call `context.embedding_provider.embed()` for all embedding calls.
+Never call rig_fastembed directly.
+
+### Constants — always use them
+All document status values come from `backend/src/pipeline/constants.rs`.
+Never write "COMPLETED", "FAILED", "NEW" etc. as string literals in code.
+If constants.rs does not exist yet for a task, create it first.
+
+### Step idempotency — mandatory
+Every step must check whether its work is already done before doing it.
+Re-running a step on an already-processed document must produce the
+same result without duplicating data. No exceptions.
+
+### No tokio::spawn in steps
+Steps are called by the Worker. The Worker handles concurrency.
+Steps must never spawn their own tasks.
+
+### Transactions for multi-table writes
+Any step that writes to more than one table must use a PostgreSQL
+transaction. Partial writes are not acceptable.
+
+### Cleanup hooks — mandatory
+on_cancel() and on_delete() must reverse all external side effects:
+- Neo4j nodes written by this step
+- Qdrant vectors written by this step
+- PostgreSQL rows written by this step
+
+A no-op on_cancel() or on_delete() is only correct when the step
+has zero external side effects. Always verify before leaving as no-op.
+
+### Environment variables — always update Ansible
+When adding any new env var to the backend:
+1. Add to `backend/src/config.rs`
+2. Add to Ansible template `colossus-legal-backend.env.j2`
+3. Add to group_vars
+4. Add to Ansible vault if it is a secret
+
+Never add an env var to config.rs without updating the Ansible template.
+They must stay in sync or DEV/PROD will have different behavior.
+
+### Timeouts — mandatory on all HTTP calls
+Frontend: every `authFetch` must use AbortController
+- Normal endpoints: 30 seconds
+- `/ask` (RAG synthesis): 90 seconds
+
+Backend: every `reqwest::Client` built with `.timeout()` and
+`.connect_timeout()`. Never create a per-request reqwest::Client —
+share via AppState.
+
+---
+
+## Infrastructure
+
+| Role | Hostname | IP |
+|------|----------|----|
+| DEV app | colossus-dev-app1 | 10.10.100.220 |
+| DEV DB | colossus-dev-db1 | 10.10.100.200 |
+| PROD app | colossus-prod-app1 | 10.10.100.120 |
+| PROD DB | colossus-prod-db1 | 10.10.100.110 |
+
+All servers run CoreOS. All podman commands require `sudo`. SSH user is `core`.
+Backend API port: 3403. All routes under `/api/` prefix. Exception: `/health` at root.
+
+### DEV PostgreSQL access
+```bash
+ssh core@10.10.100.200 "sudo podman exec colossus-postgres psql \
+  -U postgres -d colossus_legal_v2 -c \"YOUR QUERY\""
 ```
-1. cargo check after EVERY change
-2. Never accumulate more than 10 errors
-3. No module over 300 lines
-4. No function over 50 lines
-5. Pre-Coding Analysis BEFORE any code
-6. Wait for "Proceed" before implementing
-```
+
+### Logging rule
+NEVER issue `journalctl` without `-n 5` or less AND `grep` with a
+specific search term. No exceptions.
+
+### Deploy sequence — never deviate
+1. `git add -A && git commit`
+2. `./scripts/bump-version.sh {ver}` → commit → tag → push with tags
+3. `cd ~/Projects/colossus-ansible && ./scripts/build-release.sh v{ver}`
+4. Deploy via Semaphore web UI only — never `ansible-playbook` directly
 
 ---
 
-## Mandatory Pre-Coding Process
-
-**For EVERY task, provide Pre-Coding Analysis first:**
-
-```markdown
-## Pre-Coding Analysis for [Task ID]
-
-### Task Understanding
-[What will be implemented]
-
-### Branch Verification
-- Current: `feature/xxx`
-- Clean: YES/NO
-
-### Files to Modify
-| File | Changes |
-|------|---------|
-
-### Files to Create  
-| File | Purpose | Est. Lines |
-|------|---------|------------|
-
-### Rust Patterns to Implement
-| Pattern | Example |
-|---------|---------|
-
-### Tests to Write
-| Test Name | Description |
-|-----------|-------------|
-
-### Potential Issues
-[Any concerns]
-```
-
-**STOP. Wait for "Proceed" before writing code.**
-
----
-
-## Post-Coding Requirements
+## Commands for this repo
 
 ```bash
-git diff --name-only    # Only approved files?
-cargo build             # Compiles?
-cargo test              # Tests pass?
-cargo clippy            # No warnings?
-```
-
-Provide completion report with build/test results.
-
----
-
-## Key Documents
-
-| Document | When to Read |
-|----------|--------------|
-| `docs/CLAUDE_CODE_INSTRUCTIONS.md` | Before ANY task |
-| `docs/TASK_TRACKER.md` | Check task status |
-| `docs/DATA_MODEL_v3.md` | Working on models |
-| `docs/CLAIMS_IMPORT_WORKFLOW.md` | Working on import |
-| `docs/RUST-PATTERNS.md` | Writing Rust code |
-| `docs/DEVELOPMENT_PROCESS.md` | Full workflow |
-
----
-
-## Rust Quick Reference
-
-```rust
-// ✅ Required derives
-#[derive(Debug, Clone, Serialize, Deserialize)]
-
-// ✅ Enums with snake_case
-#[serde(rename_all = "snake_case")]
-
-// ✅ Error handling
-#[derive(Debug, thiserror::Error)]
-pub enum MyError {
-    #[error("message: {0}")]
-    Variant(String),
-}
-
-// ✅ Optional fields
-#[serde(skip_serializing_if = "Option::is_none")]
-pub field: Option<String>,
-
-// ❌ NEVER use
-option.unwrap()      // Use ? or match
-"error".into()       // Use typed errors
-```
-
----
-
-## Commands
-
-```bash
-# Backend
-cd backend && cargo check    # Quick check
-cd backend && cargo test     # Run tests
-cd backend && cargo clippy   # Lint
-
-# Git
+# Branch verification
 git branch --show-current
 git status
-git diff --name-only
+
+# Backend
+cd backend && cargo check
+cd backend && cargo test
+cd backend && cargo build
+cd backend && cargo clippy -- -D warnings
+
+# Frontend
+cd frontend && npm run build
+cd frontend && npm run lint
+
+# Module size check (code lines, excluding comments)
+find backend/src -name "*.rs" -exec sh -c \
+  'lines=$(grep -v "^[[:space:]]*//\|^[[:space:]]*\*\|^[[:space:]]*$" "$1" | wc -l); \
+   if [ $lines -gt 300 ]; then echo "OVER 300: $lines $1"; fi' _ {} \;
 ```
 
 ---
 
-## What NOT To Do
+## What NOT to do in this repo
 
-❌ Write code before Pre-Coding Analysis approved  
-❌ Modify files not in approved list  
-❌ Add features not in task spec  
-❌ Use `unwrap()` in production code  
-❌ Create modules over 300 lines  
-❌ Skip layers (must do L0 before L1)  
-
----
-
-## If Something Goes Wrong
-
-**STOP all edits.** Report the issue. Read-only operations only until resolved.
-
----
-
-## Layer System
-
-| Layer | Description |
-|-------|-------------|
-| L0 | Skeleton — compiles, structure in place |
-| L1 | Real Data — happy path works |
-| L2 | Validation — error handling complete |
-| L3 | Integration — advanced features |
-
-Never skip layers.
+❌ Use AppState in step implementations — use AppContext
+❌ Call AnthropicChunkExtractor — use context.llm_provider.invoke()
+❌ Call rig_fastembed directly — use context.embedding_provider.embed()
+❌ Write document status as string literals — use constants from constants.rs
+❌ Use tokio::spawn inside step implementations
+❌ Write steps without idempotency checks
+❌ Write multi-table steps without transactions
+❌ Leave on_cancel/on_delete as no-ops when side effects exist
+❌ Add env vars to config.rs without updating the Ansible template
+❌ Create authFetch calls without AbortController timeout
+❌ Create reqwest::Client without timeout
+❌ Use :latest on container images
+❌ Deploy via ansible-playbook directly — Semaphore UI only
+❌ Bump version numbers — Roman does that
+❌ Reference or modify files in colossus-rs, colossus-ansible, or colossus-homelab
 
 ---
 
-# End of CLAUDE.md
+*This file contains permanent rules only.*
+*Current phase, branch, and task state: read the session transition document.*
+*Full coding standards, STOP gate, pre-coding template: read COLOSSUS-CC-STANDARDS.md.*

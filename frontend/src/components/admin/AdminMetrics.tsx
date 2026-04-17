@@ -6,7 +6,7 @@
  */
 import React, { useEffect, useState } from "react";
 import { fetchMetrics, MetricsResponse } from "../../services/pipelineApi";
-import ReviewerWorkloadSection from "./ReviewerWorkloadSection";
+// ReviewerWorkloadSection removed — will be repurposed for audit workload later
 
 // ── Styles ──────────────────────────────────────────────────────
 
@@ -76,7 +76,7 @@ const AdminMetrics: React.FC = () => {
   if (error) return <div style={{ ...emptyStyle, color: "#dc2626" }}>{error}</div>;
   if (!metrics) return <div style={emptyStyle}>No metrics available.</div>;
 
-  const published = metrics.documents_by_status["PUBLISHED"] ?? 0;
+  const completed = metrics.documents_by_status["COMPLETED"] ?? 0;
 
   // Build ordered step rows from backend-provided label and order
   const stepRows = Object.entries(metrics.step_performance)
@@ -117,8 +117,8 @@ const AdminMetrics: React.FC = () => {
           <div style={cardLabel}>Avg Grounding</div>
         </div>
         <div style={card}>
-          <div style={cardValue}>{published} / {metrics.total_documents}</div>
-          <div style={cardLabel}>Published</div>
+          <div style={cardValue}>{completed} / {metrics.total_documents}</div>
+          <div style={cardLabel}>Completed</div>
         </div>
       </div>
 
@@ -205,10 +205,7 @@ const AdminMetrics: React.FC = () => {
         </div>
       )}
 
-      {/* Reviewer workload */}
-      <div style={{ marginTop: "2rem" }}>
-        <ReviewerWorkloadSection />
-      </div>
+      {/* Reviewer workload removed — audit workload coming in a future session */}
     </div>
   );
 };

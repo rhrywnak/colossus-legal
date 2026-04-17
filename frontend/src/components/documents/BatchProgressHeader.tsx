@@ -2,7 +2,7 @@
  * BatchProgressHeader — shows batch processing progress above the document list.
  *
  * Displays a progress bar, status bucket counts, and cost/time estimates.
- * Only renders when there are unpublished documents.
+ * Updated for 5-status model: new, processing, completed, failed, cancelled.
  */
 import React from "react";
 import { PipelineDocument, EstimatesData } from "../../services/pipelineApi";
@@ -27,7 +27,6 @@ function fmtTime(secs: number): string {
   return `${h}h ${m}m`;
 }
 
-
 // ── Styles ──────────────────────────────────────────────────────
 
 const container: React.CSSProperties = {
@@ -41,11 +40,11 @@ const progressBarOuter: React.CSSProperties = {
 const bucketsRow: React.CSSProperties = {
   display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.75rem",
 };
-const bucketBtn: React.CSSProperties = {
+const bucketBtn = (color: string): React.CSSProperties => ({
   padding: "0.3rem 0.6rem", fontSize: "0.76rem", borderRadius: "4px",
-  border: "1px solid #e2e8f0", background: "#ffffff", cursor: "pointer",
-  fontFamily: "inherit", color: "#334155",
-};
+  border: `1px solid ${color}20`, background: `${color}10`, cursor: "pointer",
+  fontFamily: "inherit", color,
+});
 const metaRow: React.CSSProperties = {
   display: "flex", gap: "1.25rem", fontSize: "0.76rem", color: "#64748b",
   flexWrap: "wrap",
@@ -59,39 +58,41 @@ const BatchProgressHeader: React.FC<BatchProgressHeaderProps> = ({
   if (documents.length === 0) return null;
 
   const total = documents.length;
-  const buckets = { published: 0, uploaded: 0, in_review: 0, processing: 0 };
+  const buckets = { new: 0, processing: 0, completed: 0, failed: 0, cancelled: 0 };
   let totalCost = 0;
   for (const d of documents) {
-    buckets[(d.status_group ?? "processing") as keyof typeof buckets]++;
+    const group = (d.status_group ?? "new") as keyof typeof buckets;
+    if (group in buckets) buckets[group]++;
     if (d.total_cost_usd != null) totalCost += d.total_cost_usd;
   }
-  const published = buckets.published;
-  const pct = Math.round((published / total) * 100);
+  const completed = buckets.completed;
+  const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
 
-  if (published === total) {
+  if (completed === total) {
     return (
       <div style={{ ...container, textAlign: "center", fontSize: "0.9rem", color: "#16a34a" }}>
-        All {total} documents published
+        All {total} documents completed
       </div>
     );
   }
 
-  const bucketLabels: { key: string; label: string; filter: string }[] = [
-    { key: "uploaded", label: "Uploaded", filter: "uploaded" },
-    { key: "processing", label: "Processing", filter: "processing" },
-    { key: "in_review", label: "In Review", filter: "in_review" },
-    { key: "published", label: "Published", filter: "published" },
+  const bucketLabels: { key: keyof typeof buckets; label: string; color: string }[] = [
+    { key: "failed", label: "Failed", color: "#dc2626" },
+    { key: "processing", label: "Processing", color: "#d97706" },
+    { key: "new", label: "New", color: "#2563eb" },
+    { key: "cancelled", label: "Cancelled", color: "#64748b" },
+    { key: "completed", label: "Completed", color: "#16a34a" },
   ];
 
   return (
     <div style={container}>
       {/* Progress bar */}
       <div style={{ fontSize: "0.8rem", color: "#334155", marginBottom: "0.35rem", fontWeight: 500 }}>
-        {published} / {total} published ({pct}%)
+        {completed} / {total} completed ({pct}%)
       </div>
       <div style={progressBarOuter}>
         <div style={{
-          width: `${pct}%`, height: "100%", backgroundColor: "#2563eb",
+          width: `${pct}%`, height: "100%", backgroundColor: "#16a34a",
           borderRadius: "4px", transition: "width 0.3s ease",
         }} />
       </div>
@@ -99,10 +100,10 @@ const BatchProgressHeader: React.FC<BatchProgressHeaderProps> = ({
       {/* Status buckets */}
       <div style={bucketsRow}>
         {bucketLabels.map((b) => {
-          const count = buckets[b.key as keyof typeof buckets];
+          const count = buckets[b.key];
           if (count === 0) return null;
           return (
-            <button key={b.key} style={bucketBtn} onClick={() => onStatusFilter(b.filter)}>
+            <button key={b.key} style={bucketBtn(b.color)} onClick={() => onStatusFilter(b.key)}>
               {count} {b.label}
             </button>
           );

@@ -42,6 +42,18 @@ const emptyStyle: React.CSSProperties = {
   padding: "3rem", textAlign: "center", color: "#94a3b8", fontSize: "0.9rem",
 };
 
+// ── Helpers ─────────────────────────────────────────────────────
+
+/** Extract a display name from the item's properties.
+ *  Tries common fields in priority order, falls back to entity_type. */
+function getEntityName(item: ExtractionItem): string {
+  const p = item.properties;
+  if (!p || typeof p !== "object") return item.label || item.entity_type;
+  const name = (p.label ?? p.full_name ?? p.party_name ?? p.legal_basis
+    ?? p.summary ?? p.description ?? p.harm_type) as string | undefined;
+  return name || item.label || item.entity_type;
+}
+
 // ── Component ───────────────────────────────────────────────────
 
 const ContentPanel: React.FC<ContentPanelProps> = ({ items, loading, error, onViewInPdf }) => {
@@ -63,8 +75,20 @@ const ContentPanel: React.FC<ContentPanelProps> = ({ items, loading, error, onVi
   if (items && items.length === 0) return <div style={emptyStyle}>No extracted content yet.</div>;
   if (!items) return null;
 
+  const writtenCount = items.filter((i) => i.graph_status === "written").length;
+  const flaggedCount = items.filter((i) => i.graph_status === "flagged").length;
+
   return (
     <div>
+      {/* Summary line */}
+      {(writtenCount > 0 || flaggedCount > 0) && (
+        <div style={{ fontSize: "0.8rem", color: "#334155", marginBottom: "0.5rem", fontWeight: 500 }}>
+          {writtenCount} entities in graph
+          {flaggedCount > 0 && (
+            <span style={{ color: "#d97706" }}> | {flaggedCount} flagged (ungrounded)</span>
+          )}
+        </div>
+      )}
       <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.5rem" }}>
         <select style={filterStyle} value={entityFilter} onChange={(e) => setEntityFilter(e.target.value)}>
           <option value="all">All types ({items.length})</option>
@@ -81,8 +105,14 @@ const ContentPanel: React.FC<ContentPanelProps> = ({ items, loading, error, onVi
           <div key={item.id} style={itemCardStyle}>
             <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.35rem" }}>
               <span style={typeBadge(getColor(item.entity_type))}>{item.entity_type}</span>
-              <span style={{ fontSize: "0.88rem", fontWeight: 600, color: "#0f172a" }}>{item.label}</span>
-              {item.grounding_status && (
+              <span style={{ fontSize: "0.88rem", fontWeight: 600, color: "#0f172a" }}>{getEntityName(item)}</span>
+              {item.graph_status === "written" && (
+                <span style={{ color: "#16a34a", fontSize: "0.72rem", fontWeight: 600 }}>In graph</span>
+              )}
+              {item.graph_status === "flagged" && (
+                <span style={{ color: "#d97706", fontSize: "0.72rem", fontWeight: 600 }}>Ungrounded</span>
+              )}
+              {item.grounding_status && !item.graph_status && (
                 <span style={groundBadge(item.grounding_status === "grounded")}>
                   {item.grounding_status}
                 </span>

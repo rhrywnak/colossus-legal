@@ -21,6 +21,33 @@ use crate::state::AppState;
 
 use super::{field_text, require_field, UploadDocumentResponse, MAX_FILE_SIZE};
 
+/// Map a document type name to its extraction schema filename.
+///
+/// This is the single authoritative mapping between document types and
+/// schemas. Used by both upload (to set initial pipeline_config) and
+/// extract_text (to update pipeline_config after auto-detection).
+///
+/// ## Why this function exists
+///
+/// Previously, the mapping existed in two places (upload.rs and a comment
+/// in extract_text.rs) and they were inconsistent. Centralizing it here
+/// ensures both use the same mapping and both are updated when schemas change.
+pub fn schema_for_document_type(document_type: &str) -> &'static str {
+    match document_type {
+        "complaint" => "complaint_v2.yaml",
+        "discovery_response" => "discovery_response.yaml",
+        "motion" | "brief" | "motion_brief" => "motion.yaml",
+        "affidavit" => "affidavit.yaml",
+        "court_ruling" => "court_ruling.yaml",
+        // "auto" and "unknown" default to complaint schema because this
+        // system's primary document type is a legal complaint. When type
+        // is unknown at upload time, using the complaint schema is safer
+        // than the generic schema because complaint_v2.yaml extracts
+        // the specific legal structures the application needs.
+        _ => "complaint_v2.yaml",
+    }
+}
+
 /// POST /api/admin/pipeline/documents
 ///
 /// Accepts a multipart form with a PDF file and metadata fields.
@@ -47,10 +74,14 @@ pub async fn upload_document(
     let mut pass2_model: Option<String> = None;
     let mut admin_instructions: Option<String> = None;
 
-    while let Some(field) = multipart.next_field().await.map_err(|e| AppError::BadRequest {
-        message: format!("Failed to read multipart field: {e}"),
-        details: serde_json::json!({}),
-    })? {
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| AppError::BadRequest {
+            message: format!("Failed to read multipart field: {e}"),
+            details: serde_json::json!({}),
+        })?
+    {
         let name = field.name().unwrap_or("").to_string();
         match name.as_str() {
             "file" => {
@@ -80,25 +111,37 @@ pub async fn upload_document(
     // otherwise derive from document type. The extract handler will
     // also select the schema based on document_type, so this is mainly
     // for recording the intended schema in pipeline_config.
-    let schema_file = schema_file.unwrap_or_else(|| {
-        match document_type.as_str() {
-            "complaint" => "complaint.yaml",
-            "discovery_response" => "discovery_response.yaml",
-            "motion" | "brief" | "motion_brief" => "motion.yaml",
-            "affidavit" => "affidavit.yaml",
-            "court_ruling" => "court_ruling.yaml",
-            _ => "general_legal.yaml",
-        }.to_string()
-    });
+    let schema_file =
+        schema_file.unwrap_or_else(|| schema_for_document_type(&document_type).to_string());
     let file_data = file_data.ok_or_else(|| AppError::BadRequest {
         message: "No 'file' field in multipart upload".to_string(),
         details: serde_json::json!({}),
     })?;
 
+    // Complaint-first enforcement: the first document must be a complaint.
+    // The complaint establishes parties, claims, and legal context that all
+    // other documents reference.
+    let has_complaint =
+        pipeline_repository::documents::has_document_of_type(&state.pipeline_pool, "complaint")
+            .await
+            .map_err(|e| AppError::Internal {
+                message: format!("DB error: {e}"),
+            })?;
+
+    if !has_complaint && document_type != "complaint" && document_type != "auto" {
+        return Err(AppError::BadRequest {
+            message: "A Complaint document must be uploaded first. The Complaint establishes the parties, claims, and legal context that all other documents reference.".to_string(),
+            details: serde_json::json!({ "document_type": document_type }),
+        });
+    }
+
     // Validate file
     if file_data.len() > MAX_FILE_SIZE {
         return Err(AppError::BadRequest {
-            message: format!("File too large: {} bytes (max {MAX_FILE_SIZE})", file_data.len()),
+            message: format!(
+                "File too large: {} bytes (max {MAX_FILE_SIZE})",
+                file_data.len()
+            ),
             details: serde_json::json!({ "size_bytes": file_data.len(), "max_bytes": MAX_FILE_SIZE }),
         });
     }
@@ -134,7 +177,9 @@ pub async fn upload_document(
     // Check for existing document in the database (409 if already exists)
     if pipeline_repository::get_document(&state.pipeline_pool, &doc_id)
         .await
-        .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?
+        .map_err(|e| AppError::Internal {
+            message: format!("DB error: {e}"),
+        })?
         .is_some()
     {
         return Err(AppError::Conflict {
@@ -144,9 +189,11 @@ pub async fn upload_document(
     }
 
     // Write file to disk
-    tokio::fs::write(&dest_path, &file_data).await.map_err(|e| AppError::Internal {
-        message: format!("Failed to write file to disk: {e}"),
-    })?;
+    tokio::fs::write(&dest_path, &file_data)
+        .await
+        .map_err(|e| AppError::Internal {
+            message: format!("Failed to write file to disk: {e}"),
+        })?;
 
     // Insert document record
     pipeline_repository::insert_document(
@@ -158,7 +205,9 @@ pub async fn upload_document(
         &document_type,
     )
     .await
-    .map_err(|e| AppError::Internal { message: format!("Failed to insert document: {e}") })?;
+    .map_err(|e| AppError::Internal {
+        message: format!("Failed to insert document: {e}"),
+    })?;
 
     // Insert pipeline config
     let config_input = PipelineConfigInput {
@@ -185,18 +234,27 @@ pub async fn upload_document(
 
     // Record step (after document exists in DB so FK is satisfied)
     if let Ok(step_id) = steps::record_step_start(
-        &state.pipeline_pool, &doc_id, "upload", &user.username,
+        &state.pipeline_pool,
+        &doc_id,
+        "upload",
+        &user.username,
         &serde_json::json!({"filename": original_name, "document_type": document_type}),
-    ).await {
+    )
+    .await
+    {
         steps::record_step_complete(
-            &state.pipeline_pool, step_id, start.elapsed().as_secs_f64(),
+            &state.pipeline_pool,
+            step_id,
+            start.elapsed().as_secs_f64(),
             &serde_json::json!({
                 "file_name": original_name,
                 "file_size_bytes": file_data.len(),
                 "file_hash": file_hash,
                 "document_type": document_type,
             }),
-        ).await.ok();
+        )
+        .await
+        .ok();
     }
 
     log_admin_action(
@@ -217,10 +275,122 @@ pub async fn upload_document(
     // Fetch the inserted record to return it
     let document = pipeline_repository::get_document(&state.pipeline_pool, &doc_id)
         .await
-        .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?
+        .map_err(|e| AppError::Internal {
+            message: format!("DB error: {e}"),
+        })?
         .ok_or_else(|| AppError::Internal {
             message: "Document was inserted but not found on re-read".to_string(),
         })?;
 
-    Ok((axum::http::StatusCode::CREATED, Json(UploadDocumentResponse { document })))
+    Ok((
+        axum::http::StatusCode::CREATED,
+        Json(UploadDocumentResponse { document }),
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── schema_for_document_type tests ──────────────────────────
+
+    /// These tests document the authoritative mapping between document
+    /// types and schema files. If a schema file is renamed, these tests
+    /// will fail — which is the correct behavior (the mapping must be
+    /// updated explicitly, not silently broken).
+
+    #[test]
+    fn test_complaint_maps_to_v2_schema() {
+        // This is the bug that cost $0.44 to discover in production.
+        // complaint_v2.yaml (not complaint.yaml) is the correct schema.
+        assert_eq!(
+            schema_for_document_type("complaint"),
+            "complaint_v2.yaml",
+            "Complaint must use complaint_v2.yaml — complaint.yaml is outdated"
+        );
+    }
+
+    #[test]
+    fn test_auto_maps_to_complaint_schema() {
+        // "auto" documents default to complaint schema because this system
+        // processes legal complaints as its primary document type.
+        assert_eq!(
+            schema_for_document_type("auto"),
+            "complaint_v2.yaml",
+            "Auto-detect defaults to complaint schema for this system"
+        );
+    }
+
+    #[test]
+    fn test_unknown_maps_to_complaint_schema() {
+        assert_eq!(schema_for_document_type("unknown"), "complaint_v2.yaml");
+    }
+
+    #[test]
+    fn test_discovery_response_schema() {
+        assert_eq!(
+            schema_for_document_type("discovery_response"),
+            "discovery_response.yaml"
+        );
+    }
+
+    #[test]
+    fn test_motion_schema() {
+        assert_eq!(schema_for_document_type("motion"), "motion.yaml");
+        assert_eq!(schema_for_document_type("brief"), "motion.yaml");
+        assert_eq!(schema_for_document_type("motion_brief"), "motion.yaml");
+    }
+
+    #[test]
+    fn test_affidavit_schema() {
+        assert_eq!(schema_for_document_type("affidavit"), "affidavit.yaml");
+    }
+
+    #[test]
+    fn test_court_ruling_schema() {
+        assert_eq!(
+            schema_for_document_type("court_ruling"),
+            "court_ruling.yaml"
+        );
+    }
+
+    #[test]
+    fn test_completely_unknown_type_defaults_to_complaint() {
+        // Any unrecognized document type defaults to complaint schema.
+        // This prevents general_legal.yaml from being used, which produces
+        // generic Statement/Party entities instead of legal-specific ones.
+        assert_eq!(schema_for_document_type("garbage"), "complaint_v2.yaml");
+        assert_eq!(schema_for_document_type(""), "complaint_v2.yaml");
+    }
+
+    #[test]
+    fn test_schema_mapping_is_exhaustive() {
+        // Verify all known document types return a .yaml file.
+        // This test catches typos in schema filenames.
+        let known_types = [
+            "complaint",
+            "discovery_response",
+            "motion",
+            "brief",
+            "motion_brief",
+            "affidavit",
+            "court_ruling",
+            "auto",
+            "unknown",
+        ];
+        for doc_type in &known_types {
+            let schema = schema_for_document_type(doc_type);
+            assert!(
+                schema.ends_with(".yaml"),
+                "Schema for '{}' must end with .yaml, got: {}",
+                doc_type,
+                schema
+            );
+            assert!(
+                !schema.is_empty(),
+                "Schema for '{}' must not be empty",
+                doc_type
+            );
+        }
+    }
 }

@@ -10,7 +10,7 @@ use crate::auth::{require_admin, AuthUser};
 use crate::error::AppError;
 use crate::state::AppState;
 
-use super::state_machine::PIPELINE_STAGE_ORDER;
+use super::state_machine::PIPELINE_STEPS;
 
 #[derive(Debug, Serialize)]
 pub struct MetricsResponse {
@@ -37,7 +37,7 @@ pub struct EstimatesResponse {
 
 #[derive(Debug, Serialize)]
 pub struct StepMetrics {
-    /// Human-readable label from PIPELINE_STAGE_ORDER
+    /// Human-readable label from PIPELINE_STEPS
     pub label: String,
     /// Display order (1-8), 0 for unknown steps
     pub order: u8,
@@ -82,12 +82,13 @@ pub async fn metrics_handler(
 }
 
 async fn query_documents_by_status(pool: &PgPool) -> Result<HashMap<String, i64>, AppError> {
-    let rows: Vec<(String, i64)> = sqlx::query_as(
-        "SELECT status, COUNT(*) as count FROM documents GROUP BY status",
-    )
-    .fetch_all(pool)
-    .await
-    .map_err(|e| AppError::Internal { message: format!("Documents query: {e}") })?;
+    let rows: Vec<(String, i64)> =
+        sqlx::query_as("SELECT status, COUNT(*) as count FROM documents GROUP BY status")
+            .fetch_all(pool)
+            .await
+            .map_err(|e| AppError::Internal {
+                message: format!("Documents query: {e}"),
+            })?;
     Ok(rows.into_iter().collect())
 }
 
@@ -110,7 +111,9 @@ async fn query_avg_grounding_rate(pool: &PgPool) -> Result<f64, AppError> {
     )
     .fetch_one(pool)
     .await
-    .map_err(|e| AppError::Internal { message: format!("Grounding rate query: {e}") })?;
+    .map_err(|e| AppError::Internal {
+        message: format!("Grounding rate query: {e}"),
+    })?;
     Ok(row.0.unwrap_or(0.0))
 }
 
@@ -138,7 +141,9 @@ async fn query_step_performance(
     )
     .fetch_all(pool)
     .await
-    .map_err(|e| AppError::Internal { message: format!("Step perf query: {e}") })?;
+    .map_err(|e| AppError::Internal {
+        message: format!("Step perf query: {e}"),
+    })?;
 
     let mut total: i64 = 0;
     let mut failed: i64 = 0;
@@ -149,42 +154,48 @@ async fn query_step_performance(
         failed += row.failure_count;
 
         // Look up label and order from the canonical stage definitions
-        let (label, order) = PIPELINE_STAGE_ORDER.iter()
+        let (label, order) = PIPELINE_STEPS
+            .iter()
             .enumerate()
             .find(|(_, &(name, _))| name == row.step_name)
             .map(|(i, &(_, lbl))| (lbl.to_string(), (i + 1) as u8))
             .unwrap_or_else(|| (row.step_name.clone(), 0));
 
-        map.insert(row.step_name, StepMetrics {
-            label,
-            order,
-            count: row.count,
-            avg_duration_secs: row.avg_duration.unwrap_or(0.0),
-            min_duration_secs: row.min_duration.unwrap_or(0.0),
-            max_duration_secs: row.max_duration.unwrap_or(0.0),
-            failure_count: row.failure_count,
-        });
+        map.insert(
+            row.step_name,
+            StepMetrics {
+                label,
+                order,
+                count: row.count,
+                avg_duration_secs: row.avg_duration.unwrap_or(0.0),
+                min_duration_secs: row.min_duration.unwrap_or(0.0),
+                max_duration_secs: row.max_duration.unwrap_or(0.0),
+                failure_count: row.failure_count,
+            },
+        );
     }
 
     Ok((total, failed, map))
 }
 
 async fn query_estimates(pool: &PgPool) -> Result<EstimatesResponse, AppError> {
-    // Count published and total documents
+    // Count completed and total documents
     let counts: (i64, i64) = sqlx::query_as(
         "SELECT
-            COUNT(*) FILTER (WHERE status = 'PUBLISHED') AS published,
+            COUNT(*) FILTER (WHERE status = 'COMPLETED') AS completed,
             COUNT(*) AS total
          FROM documents",
     )
     .fetch_one(pool)
     .await
-    .map_err(|e| AppError::Internal { message: format!("Estimates count query: {e}") })?;
+    .map_err(|e| AppError::Internal {
+        message: format!("Estimates count query: {e}"),
+    })?;
 
-    let (published, total) = counts;
-    let remaining = total - published;
+    let (completed, total) = counts;
+    let remaining = total - completed;
 
-    if published == 0 {
+    if completed == 0 {
         return Ok(EstimatesResponse {
             avg_cost_per_document: None,
             avg_total_duration_per_document_secs: None,
@@ -195,19 +206,21 @@ async fn query_estimates(pool: &PgPool) -> Result<EstimatesResponse, AppError> {
         });
     }
 
-    // Avg cost per published document (from extraction_runs)
+    // Avg cost per completed document (from extraction_runs)
     let avg_cost: (Option<f64>,) = sqlx::query_as(
         "SELECT AVG(doc_cost) FROM (
             SELECT er.document_id, SUM(er.cost_usd::float8) AS doc_cost
             FROM extraction_runs er
             JOIN documents d ON d.id = er.document_id
-            WHERE d.status = 'PUBLISHED' AND er.cost_usd IS NOT NULL
+            WHERE d.status = 'COMPLETED' AND er.cost_usd IS NOT NULL
             GROUP BY er.document_id
         ) sub",
     )
     .fetch_one(pool)
     .await
-    .map_err(|e| AppError::Internal { message: format!("Estimates cost query: {e}") })?;
+    .map_err(|e| AppError::Internal {
+        message: format!("Estimates cost query: {e}"),
+    })?;
 
     // Avg total duration per published document (sum of all step durations)
     let avg_duration: (Option<f64>,) = sqlx::query_as(
@@ -215,15 +228,17 @@ async fn query_estimates(pool: &PgPool) -> Result<EstimatesResponse, AppError> {
             SELECT document_id, SUM(duration_secs) AS doc_duration
             FROM pipeline_steps ps
             JOIN documents d ON d.id = ps.document_id
-            WHERE d.status = 'PUBLISHED' AND ps.status = 'completed'
+            WHERE d.status = 'COMPLETED' AND ps.status = 'completed'
             GROUP BY ps.document_id
         ) sub",
     )
     .fetch_one(pool)
     .await
-    .map_err(|e| AppError::Internal { message: format!("Estimates duration query: {e}") })?;
+    .map_err(|e| AppError::Internal {
+        message: format!("Estimates duration query: {e}"),
+    })?;
 
-    let confidence = match published {
+    let confidence = match completed {
         0 => "none",
         1..=2 => "low",
         3..=5 => "medium",
@@ -247,7 +262,8 @@ mod tests {
 
     #[test]
     fn test_pipeline_stage_order_is_accessible() {
-        let extract = PIPELINE_STAGE_ORDER.iter()
+        let extract = PIPELINE_STEPS
+            .iter()
             .find(|&&(name, _)| name == "extract_text");
         assert!(extract.is_some());
         assert_eq!(extract.unwrap().1, "Read Document");

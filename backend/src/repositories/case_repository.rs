@@ -72,7 +72,8 @@ impl CaseRepository {
         let docs = colossus_graph::get_nodes_by_label(&self.graph, "Document").await?;
 
         let complaint = docs.into_iter().find(|d| {
-            d.properties.get("doc_type")
+            d.properties
+                .get("doc_type")
                 .and_then(|v| v.as_str())
                 .map(|s| s.contains("complaint"))
                 .unwrap_or(false)
@@ -80,11 +81,15 @@ impl CaseRepository {
 
         if let Some(doc) = complaint {
             let id = doc.id;
-            let title = doc.properties.get("title")
+            let title = doc
+                .properties
+                .get("title")
                 .and_then(|v| v.as_str())
                 .unwrap_or_default()
                 .to_string();
-            let status = doc.properties.get("status")
+            let status = doc
+                .properties
+                .get("status")
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string());
 
@@ -121,11 +126,15 @@ impl CaseRepository {
 
         for node in &nodes {
             let id = node.id.clone();
-            let name = node.properties.get("name")
+            let name = node
+                .properties
+                .get("name")
                 .and_then(|v| v.as_str())
                 .unwrap_or_default()
                 .to_string();
-            let role = node.properties.get("role")
+            let role = node
+                .properties
+                .get("role")
                 .and_then(|v| v.as_str())
                 .unwrap_or_default()
                 .to_string();
@@ -172,7 +181,8 @@ impl CaseRepository {
         // Get entity type counts from the graph (label → count).
         let label_counts = colossus_graph::get_label_counts(&self.graph).await?;
         let count_for = |label: &str| -> i64 {
-            label_counts.iter()
+            label_counts
+                .iter()
                 .find(|lc| lc.label == label)
                 .map(|lc| lc.count)
                 .unwrap_or(0)
@@ -184,7 +194,8 @@ impl CaseRepository {
         // Fetch Harm nodes and compute damages total in Rust.
         // Harm.amount is a string like "$25,000.00" — strip currency formatting.
         let harms = colossus_graph::get_nodes_by_label(&self.graph, "Harm").await?;
-        let damages_total: f64 = harms.iter()
+        let damages_total: f64 = harms
+            .iter()
             .filter_map(|h| h.properties.get("amount"))
             .filter_map(|v| v.as_str())
             .filter_map(|s| s.replace(['$', ','], "").parse::<f64>().ok())
@@ -192,11 +203,14 @@ impl CaseRepository {
 
         // Fetch ComplaintAllegation nodes and count proven in Rust.
         // grounding_status of "exact" or "normalized" means the allegation is proven.
-        let allegations = colossus_graph::get_nodes_by_label(&self.graph, "ComplaintAllegation").await?;
+        let allegations =
+            colossus_graph::get_nodes_by_label(&self.graph, "ComplaintAllegation").await?;
         let allegations_total = allegations.len() as i64;
-        let allegations_proven = allegations.iter()
+        let allegations_proven = allegations
+            .iter()
             .filter(|a| {
-                a.properties.get("grounding_status")
+                a.properties
+                    .get("grounding_status")
                     .and_then(|v| v.as_str())
                     .map(|s| s == "exact" || s == "normalized")
                     .unwrap_or(false)
@@ -220,17 +234,28 @@ impl CaseRepository {
     async fn get_legal_count_details(&self) -> Result<Vec<LegalCountSummary>, CaseRepositoryError> {
         let nodes = colossus_graph::get_nodes_by_label(&self.graph, "LegalCount").await?;
 
-        let mut details: Vec<LegalCountSummary> = nodes.iter().map(|node| {
-            let id = node.id.clone();
-            let name = node.properties.get("title")
-                .and_then(|v| v.as_str())
-                .unwrap_or_default()
-                .to_string();
-            let count_number = node.properties.get("count_number")
-                .and_then(|v| v.as_i64())
-                .unwrap_or(0);
-            LegalCountSummary { id, name, count_number }
-        }).collect();
+        let mut details: Vec<LegalCountSummary> = nodes
+            .iter()
+            .map(|node| {
+                let id = node.id.clone();
+                let name = node
+                    .properties
+                    .get("title")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
+                    .to_string();
+                let count_number = node
+                    .properties
+                    .get("count_number")
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(0);
+                LegalCountSummary {
+                    id,
+                    name,
+                    count_number,
+                }
+            })
+            .collect();
 
         // Sort by count_number (colossus_graph doesn't guarantee order)
         details.sort_by_key(|d| d.count_number);

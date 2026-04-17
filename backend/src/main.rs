@@ -94,6 +94,10 @@ async fn main() {
         .await
         .expect("Neo4j connectivity check failed");
 
+    // Run Neo4j schema migrations (uniqueness constraints for entity nodes).
+    // These are idempotent (IF NOT EXISTS) and must run before any ingest.
+    colossus_legal_backend::api::pipeline::graph_migrations::run_graph_migrations(&graph).await;
+
     // Shared HTTP client with timeouts — reused across all handlers.
     // reqwest::Client pools connections internally, so sharing one client
     // is both faster and safer than creating a new one per request.
@@ -108,10 +112,15 @@ async fn main() {
         Commands::Serve => {
             run_serve(config, graph, http_client).await;
         }
-        Commands::Embed { clean, incremental, dry_run } => {
+        Commands::Embed {
+            clean,
+            incremental,
+            dry_run,
+        } => {
             // --clean overrides --incremental (full re-index)
             let incremental = incremental && !clean;
-            cli::run_embed_command(&config, &graph, &http_client, clean, incremental, dry_run).await;
+            cli::run_embed_command(&config, &graph, &http_client, clean, incremental, dry_run)
+                .await;
         }
     }
 }
@@ -151,6 +160,14 @@ async fn run_serve(config: AppConfig, graph: neo4rs::Graph, http_client: reqwest
     // by the query layer to understand the graph structure.
     let schema_metadata = load_schema_metadata(&config);
 
+    // Construct the embedding provider from environment variables.
+    // See colossus_extract::providers for EMBEDDING_PROVIDER semantics.
+    // Panicking via expect() here is correct behavior: if the embedding
+    // provider can't be built, the server can't serve embeddings — fail
+    // fast at startup rather than fail per-request later.
+    let embedding_provider = colossus_extract::providers::embedding_provider_from_env()
+        .expect("Failed to construct embedding provider — check EMBEDDING_PROVIDER env var");
+
     // Shared application state (global AppState)
     let state = AppState {
         graph,
@@ -160,8 +177,28 @@ async fn run_serve(config: AppConfig, graph: neo4rs::Graph, http_client: reqwest
         pg_pool,
         pipeline_pool,
         audit_repo,
+        embedding_provider,
         schema_metadata,
     };
+
+    // Ensure the Qdrant collection exists with the correct dimensions.
+    // Running this at startup (before any handler can run) makes the
+    // collection's dimensionality deterministic: the value baked in is
+    // whatever the provider reports right now, not whatever the first
+    // incoming request happened to supply.
+    //
+    // If the collection already exists (common case on DEV/PROD where a
+    // previous deployment created it), ensure_collection short-circuits
+    // on the HTTP 200 path and logs "already exists".
+    if let Err(e) = colossus_legal_backend::services::qdrant_service::ensure_collection(
+        &state.http_client,
+        &state.config.qdrant_url,
+        state.embedding_provider.dimensions(),
+    )
+    .await
+    {
+        tracing::error!(error = %e, "Failed to ensure Qdrant collection at startup — continuing anyway; handlers may retry");
+    }
 
     // Port
     let port: u16 = std::env::var("BACKEND_PORT")
@@ -185,10 +222,7 @@ async fn run_serve(config: AppConfig, graph: neo4rs::Graph, http_client: reqwest
         .split(',')
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
-        .map(|s| {
-            HeaderValue::from_str(&s)
-                .unwrap_or_else(|_| panic!("Invalid CORS origin: {}", s))
-        })
+        .map(|s| HeaderValue::from_str(&s).unwrap_or_else(|_| panic!("Invalid CORS origin: {}", s)))
         .collect();
 
     let cors = CorsLayer::new()
@@ -263,10 +297,9 @@ async fn build_rag_pipeline(
     prompts: &prompt_loader::LoadedPrompts,
 ) -> Option<Arc<colossus_rag::RagPipeline>> {
     use colossus_rag::{
-        EmbeddingReranker, GraphDirectRetriever, LegalAssembler, LlmDecomposer,
-        Neo4jExpander, QdrantRetriever, RagPipeline, RigSynthesizer, RuleBasedRouter,
+        EmbeddingReranker, GraphDirectRetriever, LegalAssembler, Neo4jExpander, QdrantRetriever,
+        RagPipeline, RigSynthesizer, RuleBasedRouter,
     };
-    use std::collections::HashMap;
 
     // Check for API key first — no key means no pipeline.
     let api_key = config.anthropic_api_key.as_deref()?;
@@ -339,45 +372,6 @@ async fn build_rag_pipeline(
         }
     };
 
-    // --- Decomposer: LLM-based query decomposition (Sonnet) ---
-    //
-    // Uses a fast model to analyze questions and produce targeted sub-queries.
-    // Shares the same API key as the synthesizer but uses a different (faster) model.
-    // Document aliases duplicated from RuleBasedRouter::legal_defaults() — these are
-    // static for the Awad v. CFS case.
-    let mut document_aliases = HashMap::new();
-    document_aliases.insert("phillips discovery".into(), "doc-phillips-discovery-response".into());
-    document_aliases.insert("phillips response".into(), "doc-phillips-discovery-response".into());
-    document_aliases.insert("cfs interrogatory".into(), "doc-cfs-interrogatory-response".into());
-    document_aliases.insert("cfs response".into(), "doc-cfs-interrogatory-response".into());
-    document_aliases.insert("complaint".into(), "doc-awad-complaint".into());
-    document_aliases.insert("awad complaint".into(), "doc-awad-complaint".into());
-    document_aliases.insert("penzien reply".into(), "doc-penzien-reply-brief-310660".into());
-    document_aliases.insert("reply brief".into(), "doc-penzien-reply-brief-310660".into());
-    document_aliases.insert("penzien brief".into(), "doc-penzien-coa-brief-300891".into());
-    document_aliases.insert("penzien appeal".into(), "doc-penzien-coa-brief-300891".into());
-    document_aliases.insert("appellant brief".into(), "doc-penzien-coa-brief-300891".into());
-    document_aliases.insert("phillips coa".into(), "doc-phillips-coa-response-300891".into());
-    document_aliases.insert("phillips appeal".into(), "doc-phillips-coa-response-300891".into());
-    document_aliases.insert("appellee response".into(), "doc-phillips-coa-response-300891".into());
-
-    let person_names = vec![
-        "George Phillips".to_string(),
-        "Emil Awad".to_string(),
-        "Marie Awad".to_string(),
-        "Charles Penzien".to_string(),
-        "Catholic Family Service".to_string(),
-    ];
-
-    let decomposer = LlmDecomposer::new(
-        api_key,
-        &config.decomposer_model,
-        &document_aliases,
-        &person_names,
-        prompts.decomposition.clone(),
-    )
-    .ok(); // None on error — pipeline works without decomposer
-
     // --- Graph Direct Retriever: for decomposed graph sub-queries ---
     let graph_retriever = GraphDirectRetriever::new(Arc::new(graph.clone()));
 
@@ -393,10 +387,8 @@ async fn build_rag_pipeline(
         .max_context_tokens(6000)
         .search_limit(10);
 
-    // Add decomposer if it was created successfully.
-    if let Some(decomposer) = decomposer {
-        builder = builder.decomposer(Box::new(decomposer));
-    }
+    // TODO(Phase2): LlmDecomposer reconstructed from rag_config DB table
+    // TODO(Phase2): build_rag_pipeline() rewritten to use Arc<dyn LlmProvider>
 
     match builder.build() {
         Ok(pipeline) => {
@@ -466,4 +458,3 @@ fn load_schema_metadata(config: &AppConfig) -> SchemaMetadata {
         relationship_types,
     }
 }
-

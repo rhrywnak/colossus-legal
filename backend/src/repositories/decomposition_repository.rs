@@ -17,9 +17,7 @@
 use neo4rs::{query, Graph, Row};
 use std::collections::HashMap;
 
-use crate::dto::decomposition::{
-    AllegationOverview, DecompositionResponse, DecompositionSummary,
-};
+use crate::dto::decomposition::{AllegationOverview, DecompositionResponse, DecompositionSummary};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared error type — used by all three decomposition repositories.

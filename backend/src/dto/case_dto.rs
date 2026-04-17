@@ -87,7 +87,11 @@ impl CaseResponse {
     pub fn empty() -> Self {
         Self {
             case: None,
-            parties: PartiesGroup { plaintiffs: vec![], defendants: vec![], other: vec![] },
+            parties: PartiesGroup {
+                plaintiffs: vec![],
+                defendants: vec![],
+                other: vec![],
+            },
             stats: CaseStats::default(),
         }
     }

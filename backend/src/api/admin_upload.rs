@@ -70,10 +70,7 @@ pub async fn upload_file(
     };
 
     // Validate content type
-    let content_type = field
-        .content_type()
-        .unwrap_or("")
-        .to_string();
+    let content_type = field.content_type().unwrap_or("").to_string();
     if content_type != "application/pdf" {
         return Err(AppError::BadRequest {
             message: format!("Only PDF files accepted, got content type: {content_type}"),
@@ -82,10 +79,7 @@ pub async fn upload_file(
     }
 
     // Get and validate filename
-    let filename = field
-        .file_name()
-        .map(|s| s.to_string())
-        .unwrap_or_default();
+    let filename = field.file_name().map(|s| s.to_string()).unwrap_or_default();
     if filename.is_empty() {
         return Err(AppError::BadRequest {
             message: "File has no filename".to_string(),
@@ -139,11 +133,11 @@ pub async fn upload_file(
     }
 
     // Write to disk
-    tokio::fs::write(&dest_path, &data).await.map_err(|e| {
-        AppError::Internal {
+    tokio::fs::write(&dest_path, &data)
+        .await
+        .map_err(|e| AppError::Internal {
             message: format!("Failed to write file to disk: {e}"),
-        }
-    })?;
+        })?;
 
     let size_bytes = data.len();
     let storage_path = format!(
@@ -155,10 +149,14 @@ pub async fn upload_file(
     tracing::info!(user = %user.username, filename = %filename, size = size_bytes, "File uploaded");
 
     log_admin_action(
-        &state.audit_repo, &user.username, "document.upload",
-        Some("document"), Some(&filename),
+        &state.audit_repo,
+        &user.username,
+        "document.upload",
+        Some("document"),
+        Some(&filename),
         Some(serde_json::json!({ "size_bytes": size_bytes, "filename": &filename })),
-    ).await;
+    )
+    .await;
 
     Ok(Json(UploadResponse {
         filename,

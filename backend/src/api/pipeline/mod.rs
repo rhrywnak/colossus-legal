@@ -10,43 +10,39 @@
 //! `pipeline.rs` becomes `pipeline/mod.rs` + `pipeline/upload.rs` + etc.
 //! The `mod.rs` file re-exports the public items so callers don't change.
 
-mod anthropic;
-pub mod chunk_extractor;
-mod chunk_orchestration;
-mod chunk_storage;
 mod completeness;
 mod completeness_helpers;
 pub mod completeness_validation;
 mod config_endpoints;
 pub(crate) mod constants;
-mod document_response;
 mod delete;
+mod document_response;
 mod errors;
-mod extract;
 mod extract_text;
-mod graph_validation;
 mod file;
+pub mod graph_migrations;
+mod graph_validation;
 mod history;
 mod index;
-mod items;
-mod metrics;
-mod ocr;
 mod ingest;
 mod ingest_helpers;
 mod ingest_resolver;
+mod items;
+mod metrics;
+mod ocr;
 pub mod report;
 mod review;
 pub mod state_machine;
 mod upload;
 pub mod users;
 pub mod verify;
+#[allow(dead_code)]
 mod workload;
 
 pub use completeness::completeness_handler;
 pub use delete::delete_document;
-pub use history::history_handler;
-pub use extract::extract_handler;
 pub use extract_text::extract_text;
+pub use history::history_handler;
 pub use index::index_handler;
 pub use ingest::ingest_handler;
 pub use report::report_handler;
@@ -76,23 +72,37 @@ use crate::state::AppState;
 /// projects without modifying any pipeline code.
 pub fn router() -> Router<AppState> {
     Router::new()
-        .route("/documents", get(list_documents_handler).post(upload_document))
+        .route(
+            "/documents",
+            get(list_documents_handler).post(upload_document),
+        )
         .route("/documents/errors", get(errors::errors_handler))
         .route("/documents/:id", delete(delete_document))
         .route("/documents/:id/extract-text", post(extract_text))
-        .route("/documents/:id/extract", post(extract_handler))
         .route("/documents/:id/verify", post(verify_handler))
         .route("/documents/:id/ingest", post(ingest_handler))
         .route("/documents/:id/index", post(index_handler))
         .route("/documents/:id/completeness", get(completeness_handler))
         .route("/documents/:id/report", get(report_handler))
-        .route("/documents/:id/actions", get(state_machine::get_document_actions))
+        .route(
+            "/documents/:id/actions",
+            get(state_machine::get_document_actions),
+        )
         .route("/documents/:id/history", get(history_handler))
         .route("/documents/:id/items", get(items::list_items_handler))
-        .route("/documents/:id/approve-all", post(review::bulk_approve_handler))
-        .route("/documents/:id/revert-ingest", post(review::revert_ingest_handler))
+        .route(
+            "/documents/:id/approve-all",
+            post(review::bulk_approve_handler),
+        )
+        .route(
+            "/documents/:id/revert-ingest",
+            post(review::revert_ingest_handler),
+        )
         .route("/documents/:id/reprocess", post(review::reprocess_handler))
-        .route("/documents/:id/validate-graph", post(graph_validation::validate_graph_handler))
+        .route(
+            "/documents/:id/validate-graph",
+            post(graph_validation::validate_graph_handler),
+        )
         .route("/items/:id/approve", post(review::approve_handler))
         .route("/items/:id/reject", post(review::reject_handler))
         .route("/items/:id/unapprove", post(review::unapprove_handler))
@@ -105,7 +115,6 @@ pub fn router() -> Router<AppState> {
         .route("/templates", get(config_endpoints::list_templates))
         .route("/documents/:id/assign", put(users::assign_reviewer_handler))
         .route("/documents/:id/file", get(file::file_handler))
-        .route("/reviewers/workload", get(workload::workload_handler))
 }
 
 /// GET /documents — list all pipeline documents with computed fields.
@@ -118,22 +127,39 @@ pub fn router() -> Router<AppState> {
 async fn list_documents_handler(
     user: AuthUser,
     State(state): State<AppState>,
-) -> Result<Json<Vec<document_response::DocumentResponse>>, AppError> {
+) -> Result<Json<DocumentListResponse>, AppError> {
     let docs = pipeline_repository::list_all_documents(&state.pipeline_pool)
         .await
-        .map_err(|e| AppError::Internal { message: format!("DB error: {e}") })?;
+        .map_err(|e| AppError::Internal {
+            message: format!("DB error: {e}"),
+        })?;
 
-    let enriched = docs.into_iter()
+    let complaint_exists =
+        pipeline_repository::documents::has_document_of_type(&state.pipeline_pool, "complaint")
+            .await
+            .unwrap_or(false);
+
+    let documents = docs
+        .into_iter()
         .map(|doc| document_response::enrich_document(doc, &user))
         .collect();
 
-    Ok(Json(enriched))
+    Ok(Json(DocumentListResponse {
+        documents,
+        complaint_exists,
+    }))
 }
 
 /// Maximum upload size: 50 MB.
 pub(crate) const MAX_FILE_SIZE: usize = 50 * 1024 * 1024;
 
 // ── Shared Response DTOs ─────────────────────────────────────────
+
+#[derive(Debug, Serialize)]
+pub struct DocumentListResponse {
+    pub documents: Vec<document_response::DocumentResponse>,
+    pub complaint_exists: bool,
+}
 
 #[derive(Debug, Serialize)]
 pub struct UploadDocumentResponse {
@@ -146,19 +172,6 @@ pub struct ExtractTextResponse {
     pub status: String,
     pub page_count: usize,
     pub total_chars: usize,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ExtractResponse {
-    pub document_id: String,
-    pub status: String,
-    pub run_id: i32,
-    pub model: String,
-    pub entity_count: usize,
-    pub relationship_count: usize,
-    pub input_tokens: u64,
-    pub output_tokens: u64,
-    pub elapsed_secs: f64,
 }
 
 // ── Shared Helpers ───────────────────────────────────────────────

@@ -103,24 +103,16 @@ pub async fn expand_context(
     // doesn't kill the entire expansion. Errors are logged and skipped.
     for (node_id, node_type) in &seed_node_ids {
         let result = match node_type.as_str() {
-            "Evidence" => {
-                graph_expansion_queries::expand_evidence(graph, node_id, &mut seen).await
-            }
+            "Evidence" => graph_expansion_queries::expand_evidence(graph, node_id, &mut seen).await,
             "ComplaintAllegation" => {
                 graph_expansion_queries::expand_allegation(graph, node_id, &mut seen).await
             }
             "MotionClaim" => {
                 graph_expansion_queries::expand_motion_claim(graph, node_id, &mut seen).await
             }
-            "Harm" => {
-                graph_expansion_minor::expand_harm(graph, node_id, &mut seen).await
-            }
-            "Document" => {
-                graph_expansion_minor::expand_document(graph, node_id, &mut seen).await
-            }
-            "Person" => {
-                graph_expansion_minor::expand_person(graph, node_id, &mut seen).await
-            }
+            "Harm" => graph_expansion_minor::expand_harm(graph, node_id, &mut seen).await,
+            "Document" => graph_expansion_minor::expand_document(graph, node_id, &mut seen).await,
+            "Person" => graph_expansion_minor::expand_person(graph, node_id, &mut seen).await,
             "Organization" => {
                 graph_expansion_minor::expand_organization(graph, node_id, &mut seen).await
             }
@@ -235,28 +227,52 @@ fn format_node(node: &ExpandedNode) -> String {
     // Type-specific fields
     match node.node_type.as_str() {
         "Evidence" => {
-            if let Some(v) = props.get("verbatim_quote") { let _ = writeln!(s, "Quote: {v}"); }
-            if let Some(v) = props.get("significance") { let _ = writeln!(s, "Significance: {v}"); }
-            if let Some(v) = props.get("page_number") { let _ = writeln!(s, "Page: {v}"); }
+            if let Some(v) = props.get("verbatim_quote") {
+                let _ = writeln!(s, "Quote: {v}");
+            }
+            if let Some(v) = props.get("significance") {
+                let _ = writeln!(s, "Significance: {v}");
+            }
+            if let Some(v) = props.get("page_number") {
+                let _ = writeln!(s, "Page: {v}");
+            }
         }
         "ComplaintAllegation" => {
-            if let Some(v) = props.get("allegation") { let _ = writeln!(s, "Allegation: {v}"); }
-            if let Some(v) = props.get("evidence_status") { let _ = writeln!(s, "Status: {v}"); }
+            if let Some(v) = props.get("allegation") {
+                let _ = writeln!(s, "Allegation: {v}");
+            }
+            if let Some(v) = props.get("evidence_status") {
+                let _ = writeln!(s, "Status: {v}");
+            }
         }
         "MotionClaim" => {
-            if let Some(v) = props.get("claim_text") { let _ = writeln!(s, "Claim: {v}"); }
-            if let Some(v) = props.get("significance") { let _ = writeln!(s, "Significance: {v}"); }
+            if let Some(v) = props.get("claim_text") {
+                let _ = writeln!(s, "Claim: {v}");
+            }
+            if let Some(v) = props.get("significance") {
+                let _ = writeln!(s, "Significance: {v}");
+            }
         }
         "Harm" => {
-            if let Some(v) = props.get("description") { let _ = writeln!(s, "Description: {v}"); }
-            if let Some(v) = props.get("amount") { let _ = writeln!(s, "Amount: ${v}"); }
+            if let Some(v) = props.get("description") {
+                let _ = writeln!(s, "Description: {v}");
+            }
+            if let Some(v) = props.get("amount") {
+                let _ = writeln!(s, "Amount: ${v}");
+            }
         }
         "Person" | "Organization" => {
-            if let Some(v) = props.get("name") { let _ = writeln!(s, "Name: {v}"); }
-            if let Some(v) = props.get("role") { let _ = writeln!(s, "Role: {v}"); }
+            if let Some(v) = props.get("name") {
+                let _ = writeln!(s, "Name: {v}");
+            }
+            if let Some(v) = props.get("role") {
+                let _ = writeln!(s, "Role: {v}");
+            }
         }
         "Document" => {
-            if let Some(v) = props.get("document_type") { let _ = writeln!(s, "Type: {v}"); }
+            if let Some(v) = props.get("document_type") {
+                let _ = writeln!(s, "Type: {v}");
+            }
         }
         "LegalCount" => {}
         _ => {}

@@ -183,7 +183,10 @@ pub async fn bulk_approve(
 ///
 /// These are items with review_status = 'pending' and grounding_status
 /// NOT IN ('exact', 'normalized') — i.e., items skipped by approve-grounded.
-pub async fn count_ungrounded_pending(pool: &PgPool, document_id: &str) -> Result<i64, sqlx::Error> {
+pub async fn count_ungrounded_pending(
+    pool: &PgPool,
+    document_id: &str,
+) -> Result<i64, sqlx::Error> {
     sqlx::query_scalar::<_, i64>(
         "SELECT count(*) FROM extraction_items
          WHERE document_id = $1
@@ -261,10 +264,7 @@ pub async fn unreject_item(
 }
 
 /// Count relationships that reference an item (for cascade warnings).
-pub async fn count_relationships_for_item(
-    pool: &PgPool,
-    item_id: i32,
-) -> Result<i64, sqlx::Error> {
+pub async fn count_relationships_for_item(pool: &PgPool, item_id: i32) -> Result<i64, sqlx::Error> {
     sqlx::query_scalar::<_, i64>(
         "SELECT count(*) FROM extraction_relationships
          WHERE from_item_id = $1 OR to_item_id = $1",

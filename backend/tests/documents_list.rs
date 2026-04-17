@@ -6,13 +6,39 @@ use std::{
 use axum::{body::to_bytes, extract::State, http::StatusCode, response::IntoResponse};
 use chrono::Utc;
 use colossus_legal_backend::{
-    api::documents::list_documents, config::AppConfig, dto::DocumentDto, neo4j::create_neo4j_graph,
+    api::documents::list_documents,
+    config::AppConfig,
+    dto::DocumentDto,
+    neo4j::create_neo4j_graph,
     state::{AppState, SchemaMetadata},
 };
 use neo4rs::{query, Graph};
 use tokio::sync::Mutex;
 
 type TestResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
+/// Minimal `EmbeddingProvider` stub for tests.
+///
+/// Tests that construct `AppState` need a concrete provider to satisfy the
+/// trait object. This stub compiles and satisfies the trait without doing
+/// any real work — `embed()` panics if called, because no test in this
+/// file should actually trigger embedding. `dimensions()` returns the
+/// historical Nomic default of 768 so any code that reads it during a test
+/// sees a sensible value.
+struct TestEmbeddingProvider;
+
+#[async_trait::async_trait]
+impl colossus_extract::EmbeddingProvider for TestEmbeddingProvider {
+    async fn embed(&self, _text: &str) -> Result<Vec<f32>, colossus_extract::PipelineError> {
+        panic!("TestEmbeddingProvider::embed called in a test — tests should not exercise real embedding")
+    }
+    fn dimensions(&self) -> u32 {
+        768
+    }
+    fn model_name(&self) -> &str {
+        "test-embedding-provider"
+    }
+}
 
 static GRAPH_MUTEX: OnceLock<Mutex<()>> = OnceLock::new();
 const TEST_SOURCE: &str = "test";
@@ -98,6 +124,7 @@ async fn get_documents_returns_non_empty_when_data_exists() -> TestResult<()> {
                 .connect_lazy("postgres://localhost/dummy_audit")
                 .expect("lazy pool"),
         ),
+        embedding_provider: std::sync::Arc::new(TestEmbeddingProvider),
         schema_metadata: SchemaMetadata {
             document_type: String::new(),
             entity_types: vec![],
@@ -150,6 +177,7 @@ async fn get_documents_returns_empty_when_no_data() -> TestResult<()> {
                 .connect_lazy("postgres://localhost/dummy_audit")
                 .expect("lazy pool"),
         ),
+        embedding_provider: std::sync::Arc::new(TestEmbeddingProvider),
         schema_metadata: SchemaMetadata {
             document_type: String::new(),
             entity_types: vec![],

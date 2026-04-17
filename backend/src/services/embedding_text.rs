@@ -72,10 +72,7 @@ pub fn build_embedding_text(node_type: &str, props: &HashMap<String, String>) ->
         ),
 
         // Unknown node type — use whatever title or name is available
-        _ => format!(
-            "search_document: {}",
-            get_prop(props, "title"),
-        ),
+        _ => format!("search_document: {}", get_prop(props, "title"),),
     };
 
     let trimmed = text.trim().to_string();

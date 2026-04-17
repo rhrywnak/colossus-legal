@@ -2,7 +2,7 @@ use axum::{extract::Path, extract::State, http::StatusCode, Json};
 use serde_json::json;
 
 use crate::{
-    auth::{AuthUser, require_edit},
+    auth::{require_edit, AuthUser},
     dto::ClaimDto,
     dto::{ClaimCreateRequest, ClaimUpdateRequest, MotionClaimsResponse},
     error::AppError,

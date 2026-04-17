@@ -18,6 +18,29 @@ use tower::ServiceExt;
 
 type TestResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
+/// Minimal `EmbeddingProvider` stub for tests.
+///
+/// Tests that construct `AppState` need a concrete provider to satisfy the
+/// trait object. This stub compiles and satisfies the trait without doing
+/// any real work — `embed()` panics if called, because no test in this
+/// file should actually trigger embedding. `dimensions()` returns the
+/// historical Nomic default of 768 so any code that reads it during a test
+/// sees a sensible value.
+struct TestEmbeddingProvider;
+
+#[async_trait::async_trait]
+impl colossus_extract::EmbeddingProvider for TestEmbeddingProvider {
+    async fn embed(&self, _text: &str) -> Result<Vec<f32>, colossus_extract::PipelineError> {
+        panic!("TestEmbeddingProvider::embed called in a test — tests should not exercise real embedding")
+    }
+    fn dimensions(&self) -> u32 {
+        768
+    }
+    fn model_name(&self) -> &str {
+        "test-embedding-provider"
+    }
+}
+
 /// Create the app router with Neo4j state.
 /// Note: Validation endpoint doesn't query Neo4j, but router requires AppState.
 async fn setup_app() -> TestResult<Router> {
@@ -37,7 +60,21 @@ async fn setup_app() -> TestResult<Router> {
             .connect_lazy("postgres://localhost/dummy_audit")
             .expect("lazy pool"),
     );
-    let state = AppState { graph, config, rag_pipeline: None, http_client: reqwest::Client::new(), pg_pool, pipeline_pool, audit_repo, schema_metadata: SchemaMetadata { document_type: String::new(), entity_types: vec![], relationship_types: vec![] } };
+    let state = AppState {
+        graph,
+        config,
+        rag_pipeline: None,
+        http_client: reqwest::Client::new(),
+        pg_pool,
+        pipeline_pool,
+        audit_repo,
+        embedding_provider: std::sync::Arc::new(TestEmbeddingProvider),
+        schema_metadata: SchemaMetadata {
+            document_type: String::new(),
+            entity_types: vec![],
+            relationship_types: vec![],
+        },
+    };
     Ok(router().with_state(state))
 }
 
@@ -72,7 +109,8 @@ fn valid_import_json() -> String {
                 "source": {"document_id": "doc-001"}
             }
         ]
-    }"#.to_string()
+    }"#
+    .to_string()
 }
 
 /// Helper to make POST request and parse response.
@@ -111,7 +149,10 @@ async fn test_endpoint_invalid_json_syntax() -> TestResult<()> {
     assert_eq!(status, StatusCode::OK); // Validation errors are data, not HTTP errors
     assert!(!result.valid);
     assert_eq!(result.errors.len(), 1);
-    assert_eq!(result.errors[0].error_type, ValidationErrorType::InvalidJson);
+    assert_eq!(
+        result.errors[0].error_type,
+        ValidationErrorType::InvalidJson
+    );
     assert_eq!(result.errors[0].field, "json");
     Ok(())
 }
@@ -125,7 +166,10 @@ async fn test_endpoint_missing_schema_version() -> TestResult<()> {
 
     assert_eq!(status, StatusCode::OK);
     assert!(!result.valid);
-    assert!(result.errors.iter().any(|e| e.error_type == ValidationErrorType::SchemaVersionMismatch));
+    assert!(result
+        .errors
+        .iter()
+        .any(|e| e.error_type == ValidationErrorType::SchemaVersionMismatch));
     Ok(())
 }
 
@@ -140,7 +184,10 @@ async fn test_endpoint_invalid_claim_category() -> TestResult<()> {
     assert!(!result.valid);
     let cat_error = result.errors.iter().find(|e| e.field == "category");
     assert!(cat_error.is_some(), "Expected error for invalid category");
-    assert_eq!(cat_error.unwrap().error_type, ValidationErrorType::InvalidValue);
+    assert_eq!(
+        cat_error.unwrap().error_type,
+        ValidationErrorType::InvalidValue
+    );
     assert_eq!(cat_error.unwrap().claim_id, Some("CLAIM-001".to_string()));
     Ok(())
 }
@@ -154,7 +201,9 @@ async fn test_endpoint_duplicate_claim_ids() -> TestResult<()> {
 
     assert_eq!(status, StatusCode::OK);
     assert!(!result.valid);
-    let dup_errors: Vec<_> = result.errors.iter()
+    let dup_errors: Vec<_> = result
+        .errors
+        .iter()
         .filter(|e| e.error_type == ValidationErrorType::DuplicateId)
         .collect();
     assert_eq!(dup_errors.len(), 1, "Expected one duplicate ID error");
@@ -172,12 +221,22 @@ async fn test_endpoint_multiple_validation_errors() -> TestResult<()> {
     assert_eq!(status, StatusCode::OK);
     assert!(!result.valid);
     // Should have at least 4 errors: id, quote, category, against
-    assert!(result.errors.len() >= 4, "Expected at least 4 errors, got {}", result.errors.len());
+    assert!(
+        result.errors.len() >= 4,
+        "Expected at least 4 errors, got {}",
+        result.errors.len()
+    );
 
     let fields: Vec<&str> = result.errors.iter().map(|e| e.field.as_str()).collect();
     assert!(fields.contains(&"id"), "Expected error for empty id");
     assert!(fields.contains(&"quote"), "Expected error for empty quote");
-    assert!(fields.contains(&"category"), "Expected error for invalid category");
-    assert!(fields.contains(&"against"), "Expected error for empty against");
+    assert!(
+        fields.contains(&"category"),
+        "Expected error for invalid category"
+    );
+    assert!(
+        fields.contains(&"against"),
+        "Expected error for empty against"
+    );
     Ok(())
 }

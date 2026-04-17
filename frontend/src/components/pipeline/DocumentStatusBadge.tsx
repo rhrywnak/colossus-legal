@@ -1,14 +1,11 @@
 import React from "react";
 
 const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
-  UPLOADED: { bg: "#f1f5f9", text: "#64748b" },
-  TEXT_EXTRACTED: { bg: "#dbeafe", text: "#1e40af" },
-  EXTRACTED: { bg: "#dbeafe", text: "#1e40af" },
-  VERIFIED: { bg: "#fef9c3", text: "#854d0e" },
-  INGESTED: { bg: "#fed7aa", text: "#9a3412" },
-  INDEXED: { bg: "#e9d5ff", text: "#6b21a8" },
-  PUBLISHED: { bg: "#dcfce7", text: "#166534" },
-  FAILED: { bg: "#fee2e2", text: "#991b1b" },
+  NEW: { bg: "#eff6ff", text: "#2563eb" },
+  PROCESSING: { bg: "#fffbeb", text: "#d97706" },
+  COMPLETED: { bg: "#f0fdf4", text: "#16a34a" },
+  FAILED: { bg: "#fef2f2", text: "#dc2626" },
+  CANCELLED: { bg: "#f8fafc", text: "#64748b" },
 };
 
 const DEFAULT_COLOR = { bg: "#f1f5f9", text: "#64748b" };

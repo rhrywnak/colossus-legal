@@ -45,18 +45,19 @@ pub async fn list_models(
     require_admin(&user)?;
 
     let models_path = Path::new(&state.config.extraction_config_dir).join("models.yaml");
-    let content = tokio::fs::read_to_string(&models_path).await.map_err(|e| {
-        AppError::Internal {
-            message: format!("Failed to read models.yaml: {e}"),
-        }
-    })?;
-    let parsed: ModelsFile = serde_yaml::from_str(&content).map_err(|e| {
-        AppError::Internal {
-            message: format!("Failed to parse models.yaml: {e}"),
-        }
+    let content =
+        tokio::fs::read_to_string(&models_path)
+            .await
+            .map_err(|e| AppError::Internal {
+                message: format!("Failed to read models.yaml: {e}"),
+            })?;
+    let parsed: ModelsFile = serde_yaml::from_str(&content).map_err(|e| AppError::Internal {
+        message: format!("Failed to parse models.yaml: {e}"),
     })?;
 
-    Ok(Json(ModelsResponse { models: parsed.models }))
+    Ok(Json(ModelsResponse {
+        models: parsed.models,
+    }))
 }
 
 // ── Schemas endpoint ────────────────────────────────────────────
@@ -86,21 +87,23 @@ pub async fn list_schemas(
     let schema_dir = &state.config.extraction_schema_dir;
     let mut schemas = Vec::new();
 
-    let mut entries = tokio::fs::read_dir(schema_dir).await.map_err(|e| {
-        AppError::Internal {
+    let mut entries = tokio::fs::read_dir(schema_dir)
+        .await
+        .map_err(|e| AppError::Internal {
             message: format!("Failed to read schema directory: {e}"),
-        }
-    })?;
+        })?;
 
-    while let Some(entry) = entries.next_entry().await.map_err(|e| {
-        AppError::Internal { message: format!("Failed to read directory entry: {e}") }
+    while let Some(entry) = entries.next_entry().await.map_err(|e| AppError::Internal {
+        message: format!("Failed to read directory entry: {e}"),
     })? {
         let path = entry.path();
         if path.extension().and_then(|e| e.to_str()) == Some("yaml") {
             let filename = entry.file_name().to_string_lossy().to_string();
             match colossus_extract::ExtractionSchema::from_file(&path) {
                 Ok(schema) => {
-                    let entity_types: Vec<String> = schema.entity_types.iter()
+                    let entity_types: Vec<String> = schema
+                        .entity_types
+                        .iter()
                         .map(|et| et.name.clone())
                         .collect();
                     schemas.push(SchemaInfo {
@@ -147,20 +150,20 @@ pub async fn list_templates(
     let template_dir = &state.config.extraction_template_dir;
     let mut templates = Vec::new();
 
-    let mut entries = tokio::fs::read_dir(template_dir).await.map_err(|e| {
-        AppError::Internal {
+    let mut entries = tokio::fs::read_dir(template_dir)
+        .await
+        .map_err(|e| AppError::Internal {
             message: format!("Failed to read template directory: {e}"),
-        }
-    })?;
+        })?;
 
-    while let Some(entry) = entries.next_entry().await.map_err(|e| {
-        AppError::Internal { message: format!("Failed to read directory entry: {e}") }
+    while let Some(entry) = entries.next_entry().await.map_err(|e| AppError::Internal {
+        message: format!("Failed to read directory entry: {e}"),
     })? {
         let path = entry.path();
         if path.extension().and_then(|e| e.to_str()) == Some("md") {
             let filename = entry.file_name().to_string_lossy().to_string();
-            let metadata = entry.metadata().await.map_err(|e| {
-                AppError::Internal { message: format!("Failed to read file metadata: {e}") }
+            let metadata = entry.metadata().await.map_err(|e| AppError::Internal {
+                message: format!("Failed to read file metadata: {e}"),
             })?;
             let content = tokio::fs::read_to_string(&path).await.unwrap_or_default();
             let preview: String = content.chars().take(500).collect();

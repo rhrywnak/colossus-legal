@@ -57,7 +57,11 @@ fn test_completeness_passes_with_sufficient_entities() {
 
     let result = validate_completeness(&schema, &parsed);
 
-    assert!(result.passed, "Expected passed=true, got errors: {:?}", result.errors);
+    assert!(
+        result.passed,
+        "Expected passed=true, got errors: {:?}",
+        result.errors
+    );
     assert!(result.errors.is_empty());
 }
 
@@ -99,7 +103,11 @@ fn test_completeness_fails_below_min_count() {
 
     assert!(!result.passed);
     let party_error = result.errors.iter().find(|e| e.contains("Party"));
-    assert!(party_error.is_some(), "Expected error for Party, got: {:?}", result.errors);
+    assert!(
+        party_error.is_some(),
+        "Expected error for Party, got: {:?}",
+        result.errors
+    );
     assert!(
         party_error.unwrap().contains("need at least 2"),
         "Expected 'need at least 2' in error, got: {}",
@@ -169,7 +177,11 @@ completeness_rules:
     let result = validate_completeness(&schema, &parsed);
 
     // Warnings don't block — should still pass
-    assert!(result.passed, "Expected passed=true (warnings don't block), got errors: {:?}", result.errors);
+    assert!(
+        result.passed,
+        "Expected passed=true (warnings don't block), got errors: {:?}",
+        result.errors
+    );
     assert!(
         result.warnings.iter().any(|w| w.contains("30%")),
         "Expected warning with '30%', got: {:?}",
@@ -200,7 +212,11 @@ valid_patterns:
 
     let result = validate_completeness(&schema, &parsed);
 
-    assert!(result.passed, "Expected passed=true with no rules, got errors: {:?}", result.errors);
+    assert!(
+        result.passed,
+        "Expected passed=true with no rules, got errors: {:?}",
+        result.errors
+    );
     assert!(result.errors.is_empty());
 }
 
@@ -241,16 +257,26 @@ fn test_completeness_entity_counts_reported() {
     let result = validate_completeness(&schema, &parsed);
 
     // entity_counts should have one entry per schema entity type
-    assert_eq!(result.entity_counts.len(), 2, "Expected 2 entity type counts");
+    assert_eq!(
+        result.entity_counts.len(),
+        2,
+        "Expected 2 entity type counts"
+    );
 
-    let party_count = result.entity_counts.iter().find(|(name, _)| name == "Party");
+    let party_count = result
+        .entity_counts
+        .iter()
+        .find(|(name, _)| name == "Party");
     assert_eq!(
         party_count,
         Some(&("Party".to_string(), 3)),
         "Expected Party count = 3"
     );
 
-    let lc_count = result.entity_counts.iter().find(|(name, _)| name == "LegalCount");
+    let lc_count = result
+        .entity_counts
+        .iter()
+        .find(|(name, _)| name == "LegalCount");
     assert_eq!(
         lc_count,
         Some(&("LegalCount".to_string(), 1)),

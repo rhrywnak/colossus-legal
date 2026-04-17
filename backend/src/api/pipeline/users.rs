@@ -63,28 +63,22 @@ pub async fn assign_reviewer_handler(
 ) -> Result<Json<AssignReviewerResponse>, AppError> {
     require_admin(&user)?;
 
-    users::assign_reviewer(
-        &state.pipeline_pool,
-        &document_id,
-        body.reviewer.as_deref(),
-    )
-    .await
-    .map_err(|e| AppError::Internal {
-        message: format!("Failed to assign reviewer: {e}"),
-    })?;
+    users::assign_reviewer(&state.pipeline_pool, &document_id, body.reviewer.as_deref())
+        .await
+        .map_err(|e| AppError::Internal {
+            message: format!("Failed to assign reviewer: {e}"),
+        })?;
 
     // Read back the document to get the actual assigned_at timestamp.
-    let doc = crate::repositories::pipeline_repository::get_document(
-        &state.pipeline_pool,
-        &document_id,
-    )
-    .await
-    .map_err(|e| AppError::Internal {
-        message: format!("Failed to read document: {e}"),
-    })?
-    .ok_or_else(|| AppError::Internal {
-        message: format!("Document not found after update: {document_id}"),
-    })?;
+    let doc =
+        crate::repositories::pipeline_repository::get_document(&state.pipeline_pool, &document_id)
+            .await
+            .map_err(|e| AppError::Internal {
+                message: format!("Failed to read document: {e}"),
+            })?
+            .ok_or_else(|| AppError::Internal {
+                message: format!("Document not found after update: {document_id}"),
+            })?;
 
     Ok(Json(AssignReviewerResponse {
         document_id: doc.id,

@@ -82,11 +82,12 @@ pub async fn run_embedding_pipeline(
     fastembed_cache_path: &str,
     incremental: bool,
     dry_run: bool,
+    dimensions: u32,
 ) -> Result<EmbeddingResult, PipelineError> {
     let start = Instant::now();
 
     // Step 1: Ensure Qdrant collection
-    qdrant_service::ensure_collection(http_client, qdrant_url).await?;
+    qdrant_service::ensure_collection(http_client, qdrant_url, dimensions).await?;
 
     // Step 2: Fetch all nodes from Neo4j
     let nodes = embedding_repository::fetch_all_embeddable_nodes(graph).await?;
@@ -115,8 +116,7 @@ pub async fn run_embedding_pipeline(
     let mut nodes = nodes;
 
     if incremental {
-        let existing_ids =
-            qdrant_service::get_existing_point_ids(http_client, qdrant_url).await?;
+        let existing_ids = qdrant_service::get_existing_point_ids(http_client, qdrant_url).await?;
         let before = nodes.len();
         nodes.retain(|n| !existing_ids.contains(&n.id));
         skipped = before - nodes.len();
@@ -209,7 +209,9 @@ pub async fn run_embedding_pipeline(
             continue;
         };
 
-        let title = node.properties.get("title")
+        let title = node
+            .properties
+            .get("title")
             .or_else(|| node.properties.get("name"))
             .cloned()
             .unwrap_or_default();

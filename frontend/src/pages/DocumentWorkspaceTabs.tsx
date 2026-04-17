@@ -8,7 +8,7 @@
  * components to keep this file under 300 lines.
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { API_BASE_URL } from "../services/api";
 import DocumentStatusBadge from "../components/pipeline/DocumentStatusBadge";
@@ -29,7 +29,7 @@ import {
 const ALL_TABS = [
   { id: "document", label: "Document" },
   { id: "content", label: "Content" },
-  { id: "processing", label: "Processing" },
+  { id: "processing", label: "Process" },
   { id: "review", label: "Review" },
   { id: "people", label: "People & Links" },
 ];
@@ -73,8 +73,13 @@ const DocumentWorkspaceTabs: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Tab state
-  const [activeTab, setActiveTab] = useState("document");
+  // Tab state — persisted in URL search params so refresh keeps the tab
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [activeTab, setActiveTabRaw] = useState(searchParams.get("tab") || "document");
+  const handleTabChange = (tabId: string) => {
+    setActiveTabRaw(tabId);
+    setSearchParams({ tab: tabId }, { replace: true });
+  };
 
   // PDF state (shared across tabs for cross-tab navigation)
   const [pdfPage, setPdfPage] = useState(1);
@@ -99,11 +104,11 @@ const DocumentWorkspaceTabs: React.FC = () => {
   const loadData = useCallback(async () => {
     if (!docId) return;
     try {
-      const [docs, hist] = await Promise.all([
+      const [listResponse, hist] = await Promise.all([
         fetchPipelineDocuments(),
         fetchDocumentHistory(docId).catch(() => ({ document_id: docId, steps: [] })),
       ]);
-      const found = docs.find((d) => d.id === docId);
+      const found = listResponse.documents.find((d) => d.id === docId);
       if (!found) { setError(`Document '${docId}' not found`); return; }
       setDoc(found);
       setHistory(hist.steps);
@@ -118,6 +123,13 @@ const DocumentWorkspaceTabs: React.FC = () => {
   }, [docId]);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  // Poll every 3s while document is PROCESSING so header badge + panels update
+  useEffect(() => {
+    if (doc?.status_group !== "processing") return;
+    const interval = setInterval(() => { loadData(); }, 3000);
+    return () => clearInterval(interval);
+  }, [doc?.status_group, loadData]);
 
   // Load extraction items (called by Content and People tabs)
   const loadItems = useCallback(() => {
@@ -137,7 +149,7 @@ const DocumentWorkspaceTabs: React.FC = () => {
   // Cross-tab: view item in PDF
   const viewInPdf = (pageNum: number) => {
     setPdfPage(pageNum);
-    setActiveTab("document");
+    handleTabChange("document");
   };
 
   // Early returns
@@ -198,7 +210,7 @@ const DocumentWorkspaceTabs: React.FC = () => {
           <button
             key={tab.id}
             style={activeTab === tab.id ? S.tabActive : S.tabBase}
-            onClick={() => setActiveTab(tab.id)}
+            onClick={() => handleTabChange(tab.id)}
           >
             {tab.label}
           </button>
@@ -217,7 +229,12 @@ const DocumentWorkspaceTabs: React.FC = () => {
       )}
 
       {activeTab === "processing" && (
-        <ProcessingPanel document={doc} history={history} onStepTriggered={loadData} onSwitchTab={setActiveTab} />
+        <ProcessingPanel
+          document={doc}
+          onStepTriggered={loadData}
+          onSwitchTab={handleTabChange}
+          history={history}
+        />
       )}
 
       {activeTab === "review" && (
