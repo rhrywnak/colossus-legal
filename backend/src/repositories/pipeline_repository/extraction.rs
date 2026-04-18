@@ -599,6 +599,94 @@ pub async fn update_graph_status_for_run(
     Ok((written, flagged))
 }
 
+// ── Per-chunk extraction tracking (extraction_chunks) ───────────
+
+/// Insert a pending extraction chunk record. Returns the chunk UUID.
+///
+/// Called at the start of each chunk's processing. Status starts as 'pending'
+/// and is updated to 'success' or 'failed' by `complete_extraction_chunk`.
+pub async fn insert_extraction_chunk(
+    pool: &PgPool,
+    run_id: i32,
+    chunk_index: i32,
+    chunk_text: &str,
+) -> Result<uuid::Uuid, PipelineRepoError> {
+    let id = uuid::Uuid::new_v4();
+    sqlx::query(
+        r#"INSERT INTO extraction_chunks
+           (id, extraction_run_id, chunk_index, chunk_text, status, created_at)
+           VALUES ($1, $2, $3, $4, 'pending', NOW())"#,
+    )
+    .bind(id)
+    .bind(run_id)
+    .bind(chunk_index)
+    .bind(chunk_text)
+    .execute(pool)
+    .await?;
+    Ok(id)
+}
+
+/// Update an extraction chunk with its result.
+///
+/// Called after each chunk completes (success or failure). Sets final status,
+/// entity/relationship counts, token usage, duration, and error message.
+#[allow(clippy::too_many_arguments)]
+pub async fn complete_extraction_chunk(
+    pool: &PgPool,
+    chunk_id: uuid::Uuid,
+    status: &str,
+    node_count: Option<i32>,
+    relationship_count: Option<i32>,
+    input_tokens: Option<i32>,
+    output_tokens: Option<i32>,
+    duration_ms: Option<i32>,
+    error_message: Option<&str>,
+) -> Result<(), PipelineRepoError> {
+    sqlx::query(
+        r#"UPDATE extraction_chunks
+           SET status = $1, node_count = $2, relationship_count = $3,
+               input_tokens = $4, output_tokens = $5,
+               duration_ms = $6, error_message = $7
+           WHERE id = $8"#,
+    )
+    .bind(status)
+    .bind(node_count)
+    .bind(relationship_count)
+    .bind(input_tokens)
+    .bind(output_tokens)
+    .bind(duration_ms)
+    .bind(error_message)
+    .bind(chunk_id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Update the chunk statistics on an extraction run after all chunks complete.
+///
+/// Called once after the chunk loop finishes, regardless of partial success.
+/// These columns were added by migration 20260412_fp7_chunk_extraction.sql.
+pub async fn update_run_chunk_stats(
+    pool: &PgPool,
+    run_id: i32,
+    chunk_count: i32,
+    chunks_succeeded: i32,
+    chunks_failed: i32,
+) -> Result<(), PipelineRepoError> {
+    sqlx::query(
+        r#"UPDATE extraction_runs
+           SET chunk_count = $1, chunks_succeeded = $2, chunks_failed = $3
+           WHERE id = $4"#,
+    )
+    .bind(chunk_count)
+    .bind(chunks_succeeded)
+    .bind(chunks_failed)
+    .bind(run_id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

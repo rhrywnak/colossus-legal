@@ -20,30 +20,27 @@ For each entity, include all relevant properties defined in the schema.
 
 ## Required output format
 
-Return a JSON object with two arrays: "nodes" and "relationships".
+Return a JSON object with exactly two arrays: "entities" and "relationships".
 
-Each node MUST have exactly these fields:
+Each entity MUST have these fields:
 - "id": unique string identifier (e.g., "0", "1", "2")
-- "label": the entity type name from the schema (e.g., "Party", "LegalCount")
+- "entity_type": the entity type name from the schema (e.g., "Party", "LegalCount")
 - "properties": an object containing the extracted properties
+- "verbatim_quote": the exact text from the document that supports this entity (if applicable, otherwise omit)
 
-Example node:
-```json
-{"id": "0", "label": "Party", "properties": {"party_name": "John Smith", "role": "plaintiff"}}
-```
+Example entity:
+{"id": "0", "entity_type": "Party", "properties": {"party_name": "John Smith", "role": "plaintiff"}, "verbatim_quote": "Plaintiff John Smith filed..."}
 
-Each relationship MUST have exactly these fields:
-- "type": the relationship type from the schema (e.g., "FILED_BY", "SUPPORTS")
-- "start_node_id": the id of the source node
-- "end_node_id": the id of the target node
+Each relationship MUST have these fields:
+- "relationship_type": the relationship type from the schema (e.g., "FILED_BY", "SUPPORTS")
+- "from_entity": the id of the source entity
+- "to_entity": the id of the target entity
 - "properties": an object (can be empty {})
 
 Example relationship:
-```json
-{"type": "FILED_BY", "start_node_id": "0", "end_node_id": "1", "properties": {}}
-```
+{"relationship_type": "FILED_BY", "from_entity": "0", "to_entity": "1", "properties": {}}
 
-{{examples}}
+Return ONLY the JSON object. No explanation, no markdown fences, no commentary.
 
 ## Text to analyze
 
