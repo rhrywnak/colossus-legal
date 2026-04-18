@@ -64,7 +64,7 @@ use colossus_pipeline::{Step, StepResult};
 use crate::pipeline::context::AppContext;
 use crate::pipeline::steps::ingest::Ingest;
 use crate::pipeline::task::DocProcessing;
-use crate::repositories::pipeline_repository::{self, extraction, steps};
+use crate::repositories::pipeline_repository::{self, documents, extraction, steps};
 
 // ── Constants ───────────────────────────────────────────────────
 
@@ -364,6 +364,20 @@ impl LlmExtract {
         let mut total_input_tokens: i64 = 0;
         let mut total_output_tokens: i64 = 0;
 
+        // Set initial progress so UI shows chunk count immediately.
+        documents::update_processing_progress(
+            db,
+            &self.document_id,
+            "LlmExtract",
+            "Extracting entities...",
+            chunks.len() as i32,
+            0,
+            0,
+            0,
+        )
+        .await
+        .ok();
+
         for (i, chunk) in chunks.iter().enumerate() {
             // Cancel check before each chunk
             if cancel.is_cancelled().await {
@@ -450,6 +464,22 @@ impl LlmExtract {
                                 chunk = i, entities = entity_count, relationships = rel_count,
                                 "Chunk extraction succeeded"
                             );
+
+                            // Update document progress for UI.
+                            let percent =
+                                ((chunks_succeeded as f64 / chunks.len() as f64) * 100.0) as i32;
+                            documents::update_processing_progress(
+                                db,
+                                &self.document_id,
+                                "LlmExtract",
+                                &format!("Extracting chunk {} of {}...", i + 1, chunks.len()),
+                                chunks.len() as i32,
+                                chunks_succeeded,
+                                all_entities.len() as i32,
+                                percent.min(95),
+                            )
+                            .await
+                            .ok();
                         }
                         Err(parse_err) => {
                             chunks_failed += 1;
@@ -465,6 +495,23 @@ impl LlmExtract {
                             )
                             .await
                             .ok();
+
+                            // Update document progress for UI (even on failure).
+                            let processed = chunks_succeeded + chunks_failed;
+                            let percent =
+                                ((processed as f64 / chunks.len() as f64) * 100.0) as i32;
+                            documents::update_processing_progress(
+                                db,
+                                &self.document_id,
+                                "LlmExtract",
+                                &format!("Extracting chunk {} of {}...", i + 1, chunks.len()),
+                                chunks.len() as i32,
+                                processed,
+                                all_entities.len() as i32,
+                                percent.min(95),
+                            )
+                            .await
+                            .ok();
                         }
                     }
                 }
@@ -476,6 +523,23 @@ impl LlmExtract {
                         None, None, None, None,
                         Some(chunk_duration_ms),
                         Some(&format!("{call_err}")),
+                    )
+                    .await
+                    .ok();
+
+                    // Update document progress for UI (even on failure).
+                    let processed = chunks_succeeded + chunks_failed;
+                    let percent =
+                        ((processed as f64 / chunks.len() as f64) * 100.0) as i32;
+                    documents::update_processing_progress(
+                        db,
+                        &self.document_id,
+                        "LlmExtract",
+                        &format!("Extracting chunk {} of {}...", i + 1, chunks.len()),
+                        chunks.len() as i32,
+                        processed,
+                        all_entities.len() as i32,
+                        percent.min(95),
                     )
                     .await
                     .ok();
@@ -545,6 +609,20 @@ impl LlmExtract {
                 .map_err(|e| LlmExtractError::StoreFailed {
                     message: format!("{e}"),
                 })?;
+
+        // Final progress update — 100%.
+        documents::update_processing_progress(
+            db,
+            &self.document_id,
+            "LlmExtract",
+            "Extraction complete",
+            chunks.len() as i32,
+            chunks.len() as i32,
+            entity_count as i32,
+            100,
+        )
+        .await
+        .ok();
 
         tracing::info!(
             document_id = %self.document_id,
