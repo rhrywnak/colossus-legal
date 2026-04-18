@@ -32,7 +32,7 @@ use sqlx::PgPool;
 use colossus_pipeline::cancel::CancellationToken;
 use colossus_pipeline::progress::ProgressReporter;
 use colossus_pipeline::step::step_name_of;
-use colossus_pipeline::{PipelineError, StepResult, Task};
+use colossus_pipeline::{PipelineError, Step, StepResult, Task};
 
 use crate::pipeline::context::AppContext;
 use crate::pipeline::steps::{
@@ -95,21 +95,21 @@ impl Task for DocProcessing {
 
     async fn execute_current(
         self,
-        _db: &PgPool,
-        _context: &Self::Context,
-        _cancel: &CancellationToken,
-        _progress: &ProgressReporter,
+        db: &PgPool,
+        context: &Self::Context,
+        cancel: &CancellationToken,
+        progress: &ProgressReporter,
     ) -> Result<StepResult<Self>, Box<dyn Error + Send + Sync>> {
         // Each arm is replaced by its owning task:
         //   ExtractText  → P4-3
         //   LlmExtract   → P4-4
-        //   Ingest       → P4-5
+        //   Ingest       → P4-5  (landed)
         //   Index        → P4-6
         //   Completeness → P4-7
         match self {
             DocProcessing::ExtractText(_) => todo!("P4-3: ExtractText::execute"),
             DocProcessing::LlmExtract(_) => todo!("P4-4: LlmExtract::execute"),
-            DocProcessing::Ingest(_) => todo!("P4-5: Ingest::execute"),
+            DocProcessing::Ingest(step) => step.execute(db, context, cancel, progress).await,
             DocProcessing::Index(_) => todo!("P4-6: Index::execute"),
             DocProcessing::Completeness(_) => todo!("P4-7: Completeness::execute"),
         }
@@ -117,8 +117,8 @@ impl Task for DocProcessing {
 
     async fn on_cancel_current(
         self,
-        _db: &PgPool,
-        _context: &Self::Context,
+        db: &PgPool,
+        context: &Self::Context,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         // Each arm's per-step cancel rollback is filled in by P4-3..P4-7.
         // Until then, cancellation dispatch panics with a clear message
@@ -126,7 +126,7 @@ impl Task for DocProcessing {
         match self {
             DocProcessing::ExtractText(_) => todo!("P4-3: ExtractText::on_cancel"),
             DocProcessing::LlmExtract(_) => todo!("P4-4: LlmExtract::on_cancel"),
-            DocProcessing::Ingest(_) => todo!("P4-5: Ingest::on_cancel"),
+            DocProcessing::Ingest(step) => step.on_cancel(db, context).await,
             DocProcessing::Index(_) => todo!("P4-6: Index::on_cancel"),
             DocProcessing::Completeness(_) => todo!("P4-7: Completeness::on_cancel"),
         }
