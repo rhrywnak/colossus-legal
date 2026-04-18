@@ -10,8 +10,8 @@
 //! `pipeline.rs` becomes `pipeline/mod.rs` + `pipeline/upload.rs` + etc.
 //! The `mod.rs` file re-exports the public items so callers don't change.
 
-mod completeness;
-mod completeness_helpers;
+pub(crate) mod completeness;
+pub(crate) mod completeness_helpers;
 pub mod completeness_validation;
 mod config_endpoints;
 pub(crate) mod constants;
