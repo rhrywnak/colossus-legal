@@ -58,7 +58,10 @@ pub async fn run_embed_command(
                 "status": "error",
                 "error": format!("Failed to construct embedding provider: {e}"),
             });
-            eprintln!("{}", serde_json::to_string_pretty(&output).expect("JSON serialization failed"));
+            eprintln!(
+                "{}",
+                serde_json::to_string_pretty(&output).expect("JSON serialization failed")
+            );
             std::process::exit(1);
         }
     };

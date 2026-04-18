@@ -487,7 +487,10 @@ mod tests {
             .and_then(|v| v.as_u64())
             .expect("body.vectors.size should be a number");
 
-        assert_eq!(size, 384, "ensure_collection body must use the passed dimensions");
+        assert_eq!(
+            size, 384,
+            "ensure_collection body must use the passed dimensions"
+        );
 
         // And just to catch the case where someone passes through a valid-
         // looking but wrong default, double-check it did NOT serialize 768.

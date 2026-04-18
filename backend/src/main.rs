@@ -376,7 +376,7 @@ async fn build_rag_pipeline(
     let graph_retriever = GraphDirectRetriever::new(Arc::new(graph.clone()));
 
     // --- Wire everything together ---
-    let mut builder = RagPipeline::builder()
+    let builder = RagPipeline::builder()
         .router(Box::new(router))
         .retriever(Box::new(retriever))
         .expander(Box::new(expander))
