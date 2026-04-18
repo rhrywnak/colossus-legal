@@ -7,14 +7,21 @@ use serde::Serialize;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
+use tokio::signal;
+use tokio::sync::watch;
 use tower_http::cors::CorsLayer;
 use tracing_subscriber::EnvFilter;
+
+use colossus_pipeline::worker::config::WorkerConfig;
+use colossus_pipeline::Worker;
 
 use colossus_legal_backend::{
     api, cli,
     config::AppConfig,
     database,
     neo4j::{check_neo4j, create_neo4j_graph},
+    pipeline::context::{AppContext, AppContextDeps},
+    pipeline::task::DocProcessing,
     prompt_loader,
     state::{AppState, EntityTypeInfo, RelationshipTypeInfo, SchemaMetadata},
 };
@@ -132,6 +139,63 @@ async fn run_serve(config: AppConfig, graph: neo4rs::Graph, http_client: reqwest
     let db = database::init_pools(&config).await;
     let pg_pool = db.main_pool;
     let pipeline_pool = db.pipeline_pool;
+
+    // --- Build AppContext for pipeline step execution ---
+    //
+    // AppContext holds the LLM provider, embedding provider, semaphore,
+    // and all paths/handles the pipeline steps need. Construction reads
+    // LLM_PROVIDER and EMBEDDING_PROVIDER env vars.
+    //
+    // Failure here is fatal — no pipeline without providers.
+    let app_context = AppContext::from_deps_and_env(AppContextDeps {
+        pipeline_pool: pipeline_pool.clone(),
+        graph: graph.clone(),
+        qdrant_url: config.qdrant_url.clone(),
+        http_client: http_client.clone(),
+        schema_dir: config.extraction_schema_dir.clone(),
+        template_dir: config.extraction_template_dir.clone(),
+        document_storage_path: config.document_storage_path.clone(),
+    })
+    .expect("Failed to build AppContext from env");
+
+    let app_context = Arc::new(app_context);
+    tracing::info!(
+        llm_model = app_context.llm_provider.model_name(),
+        embed_model = app_context.embedding_provider.model_name(),
+        llm_concurrency_limit = app_context.llm_semaphore.available_permits(),
+        "AppContext constructed"
+    );
+
+    // --- Start the pipeline worker ---
+    //
+    // The worker polls pipeline_jobs and executes DocProcessing step
+    // sequences. Worker::run() takes a watch::Receiver<bool>; when the
+    // sender sends true, the worker completes its current job and exits.
+    //
+    // We spawn the worker on the tokio runtime as a background task and
+    // keep the JoinHandle to await it on shutdown. The watch::Sender is
+    // kept in scope so we can signal shutdown after axum's graceful
+    // shutdown future completes.
+    let worker_config = WorkerConfig::from_env();
+    tracing::info!(
+        worker_id = %worker_config.worker_id,
+        max_concurrent = worker_config.max_concurrent,
+        "Worker config loaded"
+    );
+
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let worker = Worker::<DocProcessing>::new(
+        pipeline_pool.clone(),
+        app_context.clone(),
+        worker_config,
+        shutdown_rx,
+    );
+    let worker_handle: tokio::task::JoinHandle<()> = tokio::spawn(async move {
+        match worker.run().await {
+            Ok(()) => tracing::info!("Worker exited cleanly"),
+            Err(e) => tracing::error!(error = %e, "Worker exited with error"),
+        }
+    });
 
     // --- Load external prompt templates from disk ---
     //
@@ -266,7 +330,60 @@ async fn run_serve(config: AppConfig, graph: neo4rs::Graph, http_client: reqwest
 
     let listener = TcpListener::bind(addr).await.expect("Failed to bind port");
 
-    axum::serve(listener, app).await.expect("Server error");
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await
+        .expect("Server error");
+
+    tracing::info!("HTTP server stopped; signalling worker shutdown");
+
+    // Signal the worker to stop.
+    let _ = shutdown_tx.send(true);
+
+    // Wait up to 30 seconds for the worker to drain.
+    // This ceiling matches podman's default stop-timeout (10s) plus headroom.
+    // Past this, we exit regardless; the recovery system will clean up
+    // any jobs that were in-flight on the next restart.
+    match tokio::time::timeout(std::time::Duration::from_secs(30), worker_handle).await {
+        Ok(Ok(())) => tracing::info!("Worker drain completed"),
+        Ok(Err(e)) => tracing::error!(error = %e, "Worker task panicked during drain"),
+        Err(_) => tracing::warn!("Worker drain timed out after 30s; exiting anyway"),
+    }
+
+    tracing::info!("colossus-legal backend shutdown complete");
+}
+
+/// Await a shutdown signal — either Ctrl+C or SIGTERM (unix).
+///
+/// This is the axum-canonical shutdown pattern:
+/// <https://github.com/tokio-rs/axum/blob/main/examples/graceful-shutdown/src/main.rs>
+///
+/// Podman sends SIGTERM on `podman stop`, so SIGTERM handling is REQUIRED
+/// for graceful shutdown under our deployment. Without it, podman SIGKILLs
+/// the process 10 seconds after SIGTERM, leaving the worker's in-flight
+/// jobs zombie'd for the recovery system to clean up on next restart.
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        signal::unix::signal(signal::unix::SignalKind::terminate())
+            .expect("failed to install SIGTERM handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => tracing::info!("shutdown: Ctrl+C received"),
+        _ = terminate => tracing::info!("shutdown: SIGTERM received"),
+    }
 }
 
 // ---------------------------------------------------------------------------

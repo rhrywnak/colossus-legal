@@ -30,6 +30,7 @@ pub(crate) mod ingest_resolver;
 mod items;
 mod metrics;
 pub(crate) mod ocr;
+mod process;
 pub mod report;
 mod review;
 pub mod state_machine;
@@ -79,6 +80,7 @@ pub fn router() -> Router<AppState> {
         .route("/documents/errors", get(errors::errors_handler))
         .route("/documents/:id", delete(delete_document))
         .route("/documents/:id/extract-text", post(extract_text))
+        .route("/documents/:id/process", post(process::process_handler))
         .route("/documents/:id/verify", post(verify_handler))
         .route("/documents/:id/ingest", post(ingest_handler))
         .route("/documents/:id/index", post(index_handler))
