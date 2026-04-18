@@ -5,3 +5,8 @@
 //! this subtree must be idempotent per `colossus-legal`'s CLAUDE.md rules.
 
 pub mod cleanup;
+pub mod completeness;
+pub mod extract_text;
+pub mod index;
+pub mod ingest;
+pub mod llm_extract;
