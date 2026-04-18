@@ -62,37 +62,36 @@ pub async fn check_ocr_tools_available() -> Result<(), OcrError> {
 
 // ── Per-page OCR ────────────────────────────────────────────────
 
-/// OCR a single page of a PDF using pdftoppm (render) + tesseract (recognise).
+/// Shared subprocess helper: render one PDF page with pdftoppm, then OCR with tesseract.
 ///
-/// ## Arguments
-/// - `pdf_path` — full filesystem path to the PDF
-/// - `page_number` — 1-indexed page to OCR
-/// - `_total_pages` — total page count (unused; we glob for the output file
-///   instead of constructing the zero-padded filename)
+/// Both [`ocr_page`] (hardcoded default config, used by the HTTP handler) and
+/// [`ocr_page_with_config`] (configurable, used by the pipeline step) delegate
+/// here so there is exactly one place that shells out to the external tools.
 ///
-/// ## Flow
-/// 1. Create temp directory (auto-cleaned on drop)
-/// 2. `pdftoppm -png -f N -l N -r 300 <pdf> <prefix>` → renders one PNG
-/// 3. Glob temp dir for the single `page-*.png` file
-/// 4. `tesseract <png> <output_base> --oem 1 -l eng` → writes `output.txt`
-/// 5. Read and return the text
-pub async fn ocr_page(
+/// `.kill_on_drop(true)` is set on both child processes. When the pipeline
+/// executor cancels a step via `tokio::select!`, the step future is dropped
+/// mid-await; without `kill_on_drop` an in-flight tesseract keeps running
+/// to completion as a zombie. The HTTP path never gets cancelled, so this
+/// is primarily a pipeline-cancel fix — but both callers benefit.
+async fn run_ocr_subprocesses(
     pdf_path: &str,
     page_number: u32,
-    _total_pages: u32,
+    dpi: u32,
+    lang: &str,
+    oem: u32,
 ) -> Result<String, OcrError> {
     let tmp = tempfile::TempDir::new()?;
     let prefix = tmp.path().join("page");
 
-    // Step 1: Render the page to PNG with pdftoppm.
     let render = Command::new("pdftoppm")
+        .kill_on_drop(true)
         .arg("-png")
         .arg("-f")
         .arg(page_number.to_string())
         .arg("-l")
         .arg(page_number.to_string())
         .arg("-r")
-        .arg(OCR_DPI.to_string())
+        .arg(dpi.to_string())
         .arg(pdf_path)
         .arg(&prefix)
         .output()
@@ -106,19 +105,17 @@ pub async fn ocr_page(
         )));
     }
 
-    // Step 2: Find the output PNG.
-    // pdftoppm zero-pads based on total pages, so we glob rather than guess.
     let png_path = find_png_in_dir(tmp.path())?;
-
-    // Step 3: Run tesseract on the PNG.
     let output_base = tmp.path().join("output");
+
     let tess = Command::new("tesseract")
+        .kill_on_drop(true)
         .arg(&png_path)
         .arg(&output_base)
         .arg("--oem")
-        .arg("1")
+        .arg(oem.to_string())
         .arg("-l")
-        .arg("eng")
+        .arg(lang)
         .output()
         .await?;
 
@@ -130,11 +127,44 @@ pub async fn ocr_page(
         )));
     }
 
-    // Step 4: Read the output text (tesseract appends .txt automatically).
     let txt_path = tmp.path().join("output.txt");
     let text = tokio::fs::read_to_string(&txt_path).await?;
-
     Ok(text)
+    // `tmp: TempDir` drops here — RAII cleanup of the PNG and the .txt file.
+}
+
+/// OCR a single page of a PDF using pdftoppm (render) + tesseract (recognise).
+///
+/// Uses the compiled-in defaults: [`OCR_DPI`] for rendering, `"eng"` for the
+/// tesseract language, `1` for the OCR engine mode. For the configurable
+/// pipeline-step variant, see [`ocr_page_with_config`].
+///
+/// ## Arguments
+/// - `pdf_path` — full filesystem path to the PDF
+/// - `page_number` — 1-indexed page to OCR
+/// - `_total_pages` — total page count (unused; we glob for the output file
+///   instead of constructing the zero-padded filename)
+pub async fn ocr_page(
+    pdf_path: &str,
+    page_number: u32,
+    _total_pages: u32,
+) -> Result<String, OcrError> {
+    run_ocr_subprocesses(pdf_path, page_number, OCR_DPI, "eng", 1).await
+}
+
+/// OCR a single page of a PDF with caller-supplied configuration.
+///
+/// Used by the pipeline `ExtractText` step, which resolves its
+/// [`crate::pipeline::steps::extract_text::OcrConfig`] from
+/// `pipeline_config.step_config` JSONB → `PIPELINE_OCR_*` env vars → compiled
+/// defaults. The HTTP handler keeps calling [`ocr_page`] with hardcoded
+/// defaults.
+pub async fn ocr_page_with_config(
+    pdf_path: &str,
+    page_number: u32,
+    cfg: &crate::pipeline::steps::extract_text::OcrConfig,
+) -> Result<String, OcrError> {
+    run_ocr_subprocesses(pdf_path, page_number, cfg.dpi, &cfg.lang, cfg.oem).await
 }
 
 /// Find exactly one `page-*.png` file in a directory.

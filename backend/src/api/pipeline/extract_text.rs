@@ -315,7 +315,7 @@ pub async fn extract_text(
 /// Returning `&'static str` (a string literal) avoids allocating a new String.
 /// The string data lives in the compiled binary, so the returned reference
 /// is valid for the entire program lifetime.
-fn detect_document_type(first_page_text: &str) -> &'static str {
+pub(crate) fn detect_document_type(first_page_text: &str) -> &'static str {
     let upper = first_page_text.to_uppercase();
 
     if upper.contains("AFFIDAVIT") {
