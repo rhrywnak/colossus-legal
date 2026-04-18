@@ -652,17 +652,23 @@ async fn call_with_rate_limit_retry(
 /// Parse an LLM response as a JSON Value containing entities and relationships.
 ///
 /// Tries direct `serde_json` parse first. On failure, strips markdown fences
-/// and uses `llm_json::repair_json` for repair, then retries parse.
+/// and uses `llm_json::repair_json` for repair, then retries parse. In either
+/// path, the parsed result must be a JSON object — see [`ensure_object`].
 fn parse_chunk_response(text: &str) -> Result<serde_json::Value, String> {
     let stripped = strip_markdown_fences(text);
 
+    // Direct parse.
     if let Ok(val) = serde_json::from_str::<serde_json::Value>(&stripped) {
-        return Ok(val);
+        return ensure_object(val);
     }
 
+    // Repair + parse.
     match llm_json::repair_json(&stripped, &Default::default()) {
-        Ok(repaired) => serde_json::from_str::<serde_json::Value>(&repaired)
-            .map_err(|e| format!("JSON repair succeeded but parse still failed: {e}")),
+        Ok(repaired) => {
+            let val: serde_json::Value = serde_json::from_str(&repaired)
+                .map_err(|e| format!("JSON repair succeeded but parse still failed: {e}"))?;
+            ensure_object(val)
+        }
         Err(repair_err) => {
             let preview = &stripped[..stripped.len().min(200)];
             Err(format!(
@@ -670,6 +676,29 @@ fn parse_chunk_response(text: &str) -> Result<serde_json::Value, String> {
             ))
         }
     }
+}
+
+/// Gate parsed LLM output on a top-level JSON object.
+///
+/// `llm_json::repair_json` is aggressively permissive — it coerces arbitrary
+/// prose into a valid JSON string primitive rather than failing. Without this
+/// check, `parsed["entities"].as_array()` silently returns `None` downstream
+/// and the chunk counts as a zero-entity success instead of a parse failure.
+fn ensure_object(val: serde_json::Value) -> Result<serde_json::Value, String> {
+    if !val.is_object() {
+        let kind = match &val {
+            serde_json::Value::String(_) => "string",
+            serde_json::Value::Array(_) => "array",
+            serde_json::Value::Number(_) => "number",
+            serde_json::Value::Bool(_) => "bool",
+            serde_json::Value::Null => "null",
+            _ => "unknown",
+        };
+        return Err(format!(
+            "LLM returned valid JSON but not an object (got {kind})"
+        ));
+    }
+    Ok(val)
 }
 
 /// Strip leading/trailing markdown code fences.
@@ -820,4 +849,72 @@ mod tests {
     fn llm_extract_store_path_compiles() {
         let _f = crate::repositories::pipeline_repository::extraction::store_entities_and_relationships;
     }
+
+    // ── strip_markdown_fences ──
+
+    #[test]
+    fn test_strip_fences_json_block() {
+        let input = "```json\n{\"entities\":[]}\n```";
+        assert_eq!(strip_markdown_fences(input), "{\"entities\":[]}");
+    }
+
+    #[test]
+    fn test_strip_fences_plain_block() {
+        let input = "```\n{\"entities\":[]}\n```";
+        assert_eq!(strip_markdown_fences(input), "{\"entities\":[]}");
+    }
+
+    #[test]
+    fn test_strip_fences_no_fences() {
+        let input = "{\"entities\":[]}";
+        assert_eq!(strip_markdown_fences(input), "{\"entities\":[]}");
+    }
+
+    #[test]
+    fn test_strip_fences_with_whitespace() {
+        let input = "  \n```json\n{\"a\":1}\n```\n  ";
+        assert_eq!(strip_markdown_fences(input), "{\"a\":1}");
+    }
+
+    // ── parse_chunk_response ──
+
+    #[test]
+    fn test_parse_valid_json() {
+        let input =
+            r#"{"entities": [{"id": "0", "entity_type": "Party"}], "relationships": []}"#;
+        let result = parse_chunk_response(input);
+        assert!(result.is_ok());
+        let val = result.unwrap();
+        assert!(val["entities"].is_array());
+        assert_eq!(val["entities"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_parse_fenced_json() {
+        let input = "```json\n{\"entities\": [], \"relationships\": []}\n```";
+        let result = parse_chunk_response(input);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_parse_repairable_json() {
+        // Trailing comma is invalid JSON but llm_json can repair it.
+        let input =
+            r#"{"entities": [{"id": "0", "entity_type": "Party"},], "relationships": []}"#;
+        let result = parse_chunk_response(input);
+        assert!(result.is_ok(), "Expected repair to succeed, got: {:?}", result);
+    }
+
+    #[test]
+    fn test_parse_garbage_fails() {
+        let input = "This is not JSON at all, just random text from the LLM.";
+        let result = parse_chunk_response(input);
+        assert!(result.is_err());
+    }
+
+    // TODO: retry logic tests (call_with_rate_limit_retry) require a
+    // constructible ProgressReporter, which needs a real PgPool (from the
+    // external colossus-pipeline crate — no test constructor available).
+    // Deferred to integration testing where DATABASE_URL is provided.
+    // See CC_CHUNKED_LLM_EXTRACT_STEP2C.md FALLBACK NOTE.
 }
