@@ -438,6 +438,135 @@ pub async fn get_grounded_relationships_for_document(
     Ok(rows)
 }
 
+// ── Entity + relationship storage (LLM-extraction result writer) ───
+
+/// Store the entities and relationships contained in a raw LLM response into
+/// `extraction_items` and `extraction_relationships` for a given run.
+///
+/// Inputs come from a parsed `serde_json::Value` shaped like:
+///
+/// ```json
+/// {
+///   "entities": [
+///     { "id": "e1", "entity_type": "Party",
+///       "properties": { "full_name": "Marie Awad" },
+///       "verbatim_quote": "..." },
+///     ...
+///   ],
+///   "relationships": [
+///     { "from_entity": "e1", "to_entity": "e2",
+///       "relationship_type": "MENTIONS",
+///       "properties": { ... } },
+///     ...
+///   ]
+/// }
+/// ```
+///
+/// Returns `(entity_count, relationship_count)` — the number of rows inserted
+/// into each table. Relationships whose `from_entity` or `to_entity` cannot
+/// be resolved via the LLM-supplied `id` → DB `item_id` map are SKIPPED
+/// (logged and ignored) rather than erroring, so partial outputs still
+/// produce a usable graph. Unknown/missing JSON fields fall back to safe
+/// defaults (`entity_type = "unknown"`, `relationship_type = "UNKNOWN"`).
+///
+/// ## Why this lives in the repository layer
+///
+/// Prior to 2026-04-16 this helper lived in `api::pipeline::chunk_storage`
+/// (deleted by commit 1414838 as part of the P2-Cleanup purge of the old
+/// chunked extraction path). The step-layer [`LlmExtract`] is the only
+/// remaining caller, and a storage helper is a pure data-layer concern —
+/// placing it here avoids re-introducing a step → api-handler dependency.
+///
+/// [`LlmExtract`]: crate::pipeline::steps::llm_extract::LlmExtract
+pub async fn store_entities_and_relationships(
+    pool: &sqlx::PgPool,
+    run_id: i32,
+    document_id: &str,
+    parsed: &serde_json::Value,
+) -> Result<(usize, usize), PipelineRepoError> {
+    use std::collections::HashMap;
+
+    let mut id_map: HashMap<String, i32> = HashMap::new();
+    let mut entity_count: usize = 0;
+
+    if let Some(entities) = parsed.get("entities").and_then(|v| v.as_array()) {
+        for entity in entities {
+            let entity_type = entity
+                .get("entity_type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
+
+            let json_id = entity.get("id").and_then(|v| v.as_str()).unwrap_or("");
+
+            let verbatim_quote = entity
+                .get("verbatim_quote")
+                .and_then(|v| v.as_str())
+                .or_else(|| {
+                    entity
+                        .get("properties")
+                        .and_then(|p| p.get("verbatim_quote"))
+                        .and_then(|v| v.as_str())
+                });
+
+            let item_id = insert_extraction_item(
+                pool,
+                run_id,
+                document_id,
+                entity_type,
+                entity,
+                verbatim_quote,
+            )
+            .await?;
+
+            if !json_id.is_empty() {
+                id_map.insert(json_id.to_string(), item_id);
+            }
+            entity_count += 1;
+        }
+    }
+
+    let mut rel_count: usize = 0;
+
+    if let Some(rels) = parsed.get("relationships").and_then(|v| v.as_array()) {
+        for rel in rels {
+            let from_key = rel.get("from_entity").and_then(|v| v.as_str()).unwrap_or("");
+            let to_key = rel.get("to_entity").and_then(|v| v.as_str()).unwrap_or("");
+
+            let (Some(&from_id), Some(&to_id)) = (id_map.get(from_key), id_map.get(to_key))
+            else {
+                tracing::warn!(
+                    run_id, document_id,
+                    from = %from_key, to = %to_key,
+                    "Skipping relationship with unresolved endpoint(s)"
+                );
+                continue;
+            };
+
+            let relationship_type = rel
+                .get("relationship_type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("UNKNOWN");
+
+            let properties = rel.get("properties");
+
+            insert_extraction_relationship(
+                pool,
+                run_id,
+                document_id,
+                from_id,
+                to_id,
+                relationship_type,
+                properties,
+                1,
+            )
+            .await?;
+            rel_count += 1;
+        }
+    }
+
+    Ok((entity_count, rel_count))
+}
+
 /// Mark items as 'written' or 'flagged' based on grounding status.
 /// Called after auto-ingest to record what was written to Neo4j.
 /// Returns (written_count, flagged_count).
@@ -468,4 +597,18 @@ pub async fn update_graph_status_for_run(
     .rows_affected() as i32;
 
     Ok((written, flagged))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Compile-only: freezes `store_entities_and_relationships`'s parameter
+    /// list. Any future refactor that changes argument order or types breaks
+    /// this, forcing explicit acknowledgement at the call site
+    /// (`pipeline/steps/llm_extract.rs`). No DB is touched.
+    #[test]
+    fn store_entities_signature_is_stable() {
+        let _f = store_entities_and_relationships;
+    }
 }

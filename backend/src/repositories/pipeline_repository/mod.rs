@@ -10,7 +10,7 @@
 //! - `extraction.rs` — extraction_runs, extraction_items, extraction_relationships
 
 pub mod documents;
-mod extraction;
+pub mod extraction;
 pub mod review;
 pub mod steps;
 pub mod users;

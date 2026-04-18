@@ -108,7 +108,7 @@ impl Task for DocProcessing {
         //   Completeness → P4-7
         match self {
             DocProcessing::ExtractText(step) => step.execute(db, context, cancel, progress).await,
-            DocProcessing::LlmExtract(_) => todo!("P4-4: LlmExtract::execute"),
+            DocProcessing::LlmExtract(step) => step.execute(db, context, cancel, progress).await,
             DocProcessing::Ingest(step) => step.execute(db, context, cancel, progress).await,
             DocProcessing::Index(step) => step.execute(db, context, cancel, progress).await,
             DocProcessing::Completeness(step) => step.execute(db, context, cancel, progress).await,
@@ -125,7 +125,7 @@ impl Task for DocProcessing {
         // naming the owning task.
         match self {
             DocProcessing::ExtractText(step) => step.on_cancel(db, context).await,
-            DocProcessing::LlmExtract(_) => todo!("P4-4: LlmExtract::on_cancel"),
+            DocProcessing::LlmExtract(step) => step.on_cancel(db, context).await,
             DocProcessing::Ingest(step) => step.on_cancel(db, context).await,
             DocProcessing::Index(step) => step.on_cancel(db, context).await,
             DocProcessing::Completeness(step) => step.on_cancel(db, context).await,
