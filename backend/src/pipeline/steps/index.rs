@@ -210,14 +210,23 @@ impl Index {
         // 4. Batch embed via the provider abstraction. `FastembedProvider`
         //    overrides `embed_batch` to use fastembed's rayon-parallel
         //    batch API — single `spawn_blocking`, not N.
-        let vectors = context
-            .embedding_provider
-            .embed_batch(&text_refs)
-            .await
-            .map_err(|e| IndexError::Embedding {
-                doc_id: doc_id.to_string(),
-                message: e.to_string(),
-            })?;
+        // Batch embed in chunks of 20 to avoid OOM on memory-constrained
+        // containers. FastembedProvider loads a ~500MB ONNX model; embedding
+        // all nodes at once peaks at 3.6GB+ and triggers the OOM killer on
+        // the 3.8GB DEV VM.
+        const EMBED_BATCH_SIZE: usize = 20;
+        let mut vectors: Vec<Vec<f32>> = Vec::with_capacity(text_refs.len());
+        for chunk in text_refs.chunks(EMBED_BATCH_SIZE) {
+            let batch = context
+                .embedding_provider
+                .embed_batch(chunk)
+                .await
+                .map_err(|e| IndexError::Embedding {
+                    doc_id: doc_id.to_string(),
+                    message: e.to_string(),
+                })?;
+            vectors.extend(batch);
+        }
 
         // Sanity check: provider must return one vector per input.
         if vectors.len() != nodes.len() {

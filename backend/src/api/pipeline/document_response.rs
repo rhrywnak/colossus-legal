@@ -51,7 +51,7 @@ fn compute_visible_tabs(status: &str, _is_admin: bool) -> Vec<&'static str> {
         "NEW" | "UPLOADED" => vec!["document", "processing"],
         "PROCESSING" => vec!["document", "processing"],
         "EXTRACTED" | "VERIFIED" => vec!["document", "content", "processing"],
-        "INDEXED" | "COMPLETED" | "PUBLISHED" => {
+        "INGESTED" | "INDEXED" | "COMPLETED" | "PUBLISHED" => {
             vec!["document", "content", "processing", "review", "people"]
         }
         "FAILED" | "CANCELLED" => vec!["document", "processing"],
@@ -66,7 +66,7 @@ fn compute_can_view(status: &str, is_admin: bool) -> bool {
     }
     matches!(
         status,
-        "EXTRACTED" | "VERIFIED" | "INDEXED" | "COMPLETED" | "PUBLISHED"
+        "EXTRACTED" | "VERIFIED" | "INGESTED" | "INDEXED" | "COMPLETED" | "PUBLISHED"
     )
 }
 
@@ -75,7 +75,7 @@ pub fn compute_status_group(status: &str) -> &'static str {
     match status {
         "NEW" | "UPLOADED" => "new",
         "PROCESSING" => "processing",
-        "EXTRACTED" | "VERIFIED" | "INDEXED" | "COMPLETED" | "PUBLISHED" => "completed",
+        "EXTRACTED" | "VERIFIED" | "INGESTED" | "INDEXED" | "COMPLETED" | "PUBLISHED" => "completed",
         "FAILED" => "failed",
         "CANCELLED" => "cancelled",
         _ => "unknown",
@@ -113,6 +113,11 @@ mod tests {
     #[test]
     fn test_status_group_verified() {
         assert_eq!(compute_status_group("VERIFIED"), "completed");
+    }
+
+    #[test]
+    fn test_status_group_ingested() {
+        assert_eq!(compute_status_group("INGESTED"), "completed");
     }
 
     #[test]
@@ -172,6 +177,12 @@ mod tests {
     }
 
     #[test]
+    fn test_visible_tabs_ingested() {
+        let tabs = compute_visible_tabs("INGESTED", false);
+        assert_eq!(tabs, vec!["document", "content", "processing", "review", "people"]);
+    }
+
+    #[test]
     fn test_visible_tabs_indexed() {
         let tabs = compute_visible_tabs("INDEXED", false);
         assert_eq!(tabs, vec!["document", "content", "processing", "review", "people"]);
@@ -203,6 +214,11 @@ mod tests {
     }
 
     #[test]
+    fn test_can_view_ingested_non_admin() {
+        assert!(compute_can_view("INGESTED", false));
+    }
+
+    #[test]
     fn test_can_view_indexed_non_admin() {
         assert!(compute_can_view("INDEXED", false));
     }
@@ -227,6 +243,7 @@ mod tests {
         assert!(compute_can_view("NEW", true));
         assert!(compute_can_view("PROCESSING", true));
         assert!(compute_can_view("EXTRACTED", true));
+        assert!(compute_can_view("INGESTED", true));
         assert!(compute_can_view("INDEXED", true));
         assert!(compute_can_view("PUBLISHED", true));
         assert!(compute_can_view("FAILED", true));
