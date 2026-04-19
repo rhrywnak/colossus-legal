@@ -68,7 +68,7 @@ use crate::repositories::pipeline_repository::{self, documents, extraction, step
 
 // ── Constants ───────────────────────────────────────────────────
 
-/// Max tokens per chunk LLM call. 8000 is sufficient for a 4000-char chunk
+/// Max tokens per chunk LLM call. 8000 is sufficient for an 8000-char chunk
 /// producing structured JSON output. Overridable via step_config or LLM_MAX_TOKENS env.
 const DEFAULT_CHUNK_MAX_TOKENS: u32 = 8000;
 
@@ -302,7 +302,7 @@ impl LlmExtract {
             .join("\n\n");
 
         // ── 8. Split into chunks ──
-        let chunks = FixedSizeSplitter::new().split(&full_text);
+        let chunks = FixedSizeSplitter::with_config(8000, 500).split(&full_text);
         if chunks.is_empty() {
             return Err("Splitter produced zero chunks from non-empty text".into());
         }
