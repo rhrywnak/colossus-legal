@@ -77,7 +77,12 @@ pub(crate) async fn run_verify(
 
     // 2. Load extraction schema for grounding mode lookup.
     //    If schema loading fails, fall back to treating everything as Verbatim.
-    let grounding_modes = load_grounding_modes(state, doc_id).await;
+    let grounding_modes = load_grounding_modes(
+        &state.pipeline_pool,
+        &state.config.extraction_schema_dir,
+        doc_id,
+    )
+    .await;
 
     // 4. Fetch ALL items (not just those with quotes)
     let items = pipeline_repository::get_all_items(&state.pipeline_pool, doc_id)
@@ -335,13 +340,13 @@ pub async fn verify_handler(
 // ── Helpers ──────────────────────────────────────────────────────
 
 /// Tracks which item a snippet belongs to and what kind of grounding it is.
-struct SnippetMeta {
-    item_id: i32,
-    kind: SnippetKind,
+pub(crate) struct SnippetMeta {
+    pub(crate) item_id: i32,
+    pub(crate) kind: SnippetKind,
 }
 
 /// The grounding mode category for a snippet in the combined batch.
-enum SnippetKind {
+pub(crate) enum SnippetKind {
     Verbatim,
     NameMatch,
     HeadingMatch,
@@ -437,10 +442,12 @@ pub(crate) fn categorize_items_for_grounding(
 ///
 /// Returns an empty map on failure (all items default to Verbatim).
 /// This ensures backward compatibility for documents uploaded before F2.
-async fn load_grounding_modes(state: &AppState, doc_id: &str) -> HashMap<String, GroundingMode> {
-    let pipe_config = match pipeline_repository::get_pipeline_config(&state.pipeline_pool, doc_id)
-        .await
-    {
+pub(crate) async fn load_grounding_modes(
+    pool: &sqlx::PgPool,
+    extraction_schema_dir: &str,
+    doc_id: &str,
+) -> HashMap<String, GroundingMode> {
+    let pipe_config = match pipeline_repository::get_pipeline_config(pool, doc_id).await {
         Ok(Some(cfg)) => cfg,
         Ok(None) => {
             tracing::warn!(doc_id = %doc_id, "No pipeline config found — defaulting all items to Verbatim");
@@ -452,10 +459,7 @@ async fn load_grounding_modes(state: &AppState, doc_id: &str) -> HashMap<String,
         }
     };
 
-    let schema_path = format!(
-        "{}/{}",
-        state.config.extraction_schema_dir, pipe_config.schema_file
-    );
+    let schema_path = format!("{}/{}", extraction_schema_dir, pipe_config.schema_file);
     let schema = match colossus_extract::ExtractionSchema::from_file(Path::new(&schema_path)) {
         Ok(s) => s,
         Err(e) => {
@@ -477,7 +481,7 @@ async fn load_grounding_modes(state: &AppState, doc_id: &str) -> HashMap<String,
 /// Extract a name label from an item for NameMatch grounding.
 ///
 /// Tries `label`, then common name properties.
-fn extract_name_label(item: &ExtractionItemRecord) -> String {
+pub(crate) fn extract_name_label(item: &ExtractionItemRecord) -> String {
     item.item_data["label"]
         .as_str()
         .or_else(|| item.item_data["properties"]["full_name"].as_str())
@@ -489,7 +493,7 @@ fn extract_name_label(item: &ExtractionItemRecord) -> String {
 /// Extract a heading label from an item for HeadingMatch grounding.
 ///
 /// Tries `label`, then heading-specific properties.
-fn extract_heading_label(item: &ExtractionItemRecord) -> String {
+pub(crate) fn extract_heading_label(item: &ExtractionItemRecord) -> String {
     item.item_data["label"]
         .as_str()
         .or_else(|| item.item_data["properties"]["legal_basis"].as_str())
@@ -499,7 +503,7 @@ fn extract_heading_label(item: &ExtractionItemRecord) -> String {
 }
 
 /// Run PDF grounding (sync — called from spawn_blocking).
-fn run_grounding(
+pub(crate) fn run_grounding(
     pdf_path: &str,
     snippets: &[String],
 ) -> Result<Vec<colossus_pdf::GroundingResult>, AppError> {

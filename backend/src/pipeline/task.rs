@@ -1,8 +1,8 @@
 //! backend/src/pipeline/task.rs
 //!
 //! The `DocProcessing` task enum — the application-defined Task implementation
-//! that drives the Phase 4 pipeline FSM through 5 steps:
-//! ExtractText → LlmExtract → Ingest → Index → Completeness.
+//! that drives the Phase 4 pipeline FSM through 7 steps:
+//! ExtractText → LlmExtract → Verify → AutoApprove → Ingest → Index → Completeness.
 //!
 //! This file defines the enum and its [`colossus_pipeline::Task`] impl.
 //! The per-step logic lives in individual files under `pipeline/steps/`
@@ -36,8 +36,9 @@ use colossus_pipeline::{PipelineError, Step, StepResult, Task};
 
 use crate::pipeline::context::AppContext;
 use crate::pipeline::steps::{
-    cleanup::cleanup_all, completeness::Completeness, extract_text::ExtractText, index::Index,
-    ingest::Ingest, llm_extract::LlmExtract,
+    auto_approve::AutoApprove, cleanup::cleanup_all, completeness::Completeness,
+    extract_text::ExtractText, index::Index, ingest::Ingest, llm_extract::LlmExtract,
+    verify::Verify,
 };
 
 /// The colossus-legal document-processing pipeline task.
@@ -49,6 +50,8 @@ use crate::pipeline::steps::{
 pub enum DocProcessing {
     ExtractText(ExtractText),
     LlmExtract(LlmExtract),
+    Verify(Verify),
+    AutoApprove(AutoApprove),
     Ingest(Ingest),
     Index(Index),
     Completeness(Completeness),
@@ -56,11 +59,13 @@ pub enum DocProcessing {
 
 /// Permitted (from, to) transitions for the DocProcessing FSM.
 ///
-/// ExtractText → LlmExtract → Ingest → Index → Completeness.
+/// ExtractText → LlmExtract → Verify → AutoApprove → Ingest → Index → Completeness.
 /// No branches, no backward edges, no self-loops.
 const VALID_TRANSITIONS: &[(&str, &str)] = &[
     ("ExtractText", "LlmExtract"),
-    ("LlmExtract", "Ingest"),
+    ("LlmExtract", "Verify"),
+    ("Verify", "AutoApprove"),
+    ("AutoApprove", "Ingest"),
     ("Ingest", "Index"),
     ("Index", "Completeness"),
 ];
@@ -73,6 +78,8 @@ impl Task for DocProcessing {
         match self {
             DocProcessing::ExtractText(_) => step_name_of::<ExtractText>(),
             DocProcessing::LlmExtract(_) => step_name_of::<LlmExtract>(),
+            DocProcessing::Verify(_) => step_name_of::<Verify>(),
+            DocProcessing::AutoApprove(_) => step_name_of::<AutoApprove>(),
             DocProcessing::Ingest(_) => step_name_of::<Ingest>(),
             DocProcessing::Index(_) => step_name_of::<Index>(),
             DocProcessing::Completeness(_) => step_name_of::<Completeness>(),
@@ -109,6 +116,8 @@ impl Task for DocProcessing {
         match self {
             DocProcessing::ExtractText(step) => step.execute(db, context, cancel, progress).await,
             DocProcessing::LlmExtract(step) => step.execute(db, context, cancel, progress).await,
+            DocProcessing::Verify(step) => step.execute(db, context, cancel, progress).await,
+            DocProcessing::AutoApprove(step) => step.execute(db, context, cancel, progress).await,
             DocProcessing::Ingest(step) => step.execute(db, context, cancel, progress).await,
             DocProcessing::Index(step) => step.execute(db, context, cancel, progress).await,
             DocProcessing::Completeness(step) => step.execute(db, context, cancel, progress).await,
@@ -126,6 +135,8 @@ impl Task for DocProcessing {
         match self {
             DocProcessing::ExtractText(step) => step.on_cancel(db, context).await,
             DocProcessing::LlmExtract(step) => step.on_cancel(db, context).await,
+            DocProcessing::Verify(step) => step.on_cancel(db, context).await,
+            DocProcessing::AutoApprove(step) => step.on_cancel(db, context).await,
             DocProcessing::Ingest(step) => step.on_cancel(db, context).await,
             DocProcessing::Index(step) => step.on_cancel(db, context).await,
             DocProcessing::Completeness(step) => step.on_cancel(db, context).await,
@@ -143,6 +154,8 @@ impl Task for DocProcessing {
         let document_id = match &self {
             DocProcessing::ExtractText(s) => s.document_id.clone(),
             DocProcessing::LlmExtract(s) => s.document_id.clone(),
+            DocProcessing::Verify(s) => s.document_id.clone(),
+            DocProcessing::AutoApprove(s) => s.document_id.clone(),
             DocProcessing::Ingest(s) => s.document_id.clone(),
             DocProcessing::Index(s) => s.document_id.clone(),
             DocProcessing::Completeness(s) => s.document_id.clone(),
@@ -163,9 +176,11 @@ mod tests {
     use super::*;
 
     const DOC_ID: &str = "test-doc";
-    const STEP_NAMES: [&str; 5] = [
+    const STEP_NAMES: [&str; 7] = [
         "ExtractText",
         "LlmExtract",
+        "Verify",
+        "AutoApprove",
         "Ingest",
         "Index",
         "Completeness",
@@ -178,6 +193,16 @@ mod tests {
     }
     fn make_llm_extract() -> DocProcessing {
         DocProcessing::LlmExtract(LlmExtract {
+            document_id: DOC_ID.to_string(),
+        })
+    }
+    fn make_verify() -> DocProcessing {
+        DocProcessing::Verify(Verify {
+            document_id: DOC_ID.to_string(),
+        })
+    }
+    fn make_auto_approve() -> DocProcessing {
+        DocProcessing::AutoApprove(AutoApprove {
             document_id: DOC_ID.to_string(),
         })
     }
@@ -199,9 +224,11 @@ mod tests {
 
     #[test]
     fn current_step_name_returns_last_component_for_each_variant() {
-        let cases: [(DocProcessing, &'static str); 5] = [
+        let cases: [(DocProcessing, &'static str); 7] = [
             (make_extract_text(), "ExtractText"),
             (make_llm_extract(), "LlmExtract"),
+            (make_verify(), "Verify"),
+            (make_auto_approve(), "AutoApprove"),
             (make_ingest(), "Ingest"),
             (make_index(), "Index"),
             (make_completeness(), "Completeness"),
@@ -240,10 +267,13 @@ mod tests {
 
     #[test]
     fn validate_transition_rejects_backward_edges() {
-        let backward: [(&str, &str); 3] = [
+        let backward: [(&str, &str); 6] = [
             ("LlmExtract", "ExtractText"),
+            ("Verify", "LlmExtract"),
+            ("AutoApprove", "Verify"),
+            ("Ingest", "AutoApprove"),
+            ("Index", "Ingest"),
             ("Completeness", "Index"),
-            ("Ingest", "LlmExtract"),
         ];
         for (from, to) in backward {
             let result = DocProcessing::validate_transition(from, to);
@@ -256,14 +286,22 @@ mod tests {
 
     #[test]
     fn validate_transition_rejects_step_skip() {
+        // Skip three steps: ExtractText -> Ingest
         let result = DocProcessing::validate_transition("ExtractText", "Ingest");
         assert!(
             matches!(result, Err(PipelineError::InvalidTransition { .. })),
             "step-skip ExtractText -> Ingest should be rejected, got {result:?}"
         );
+
+        // Skip two steps: LlmExtract -> Ingest (skips Verify + AutoApprove)
+        let result = DocProcessing::validate_transition("LlmExtract", "Ingest");
+        assert!(
+            matches!(result, Err(PipelineError::InvalidTransition { .. })),
+            "step-skip LlmExtract -> Ingest should be rejected, got {result:?}"
+        );
     }
 
-    /// Compile-time exhaustiveness check. If a 6th variant is ever added to
+    /// Compile-time exhaustiveness check. If an 8th variant is ever added to
     /// `DocProcessing`, this match (and every other match in task.rs) will
     /// fail to compile, forcing the author to update dispatch everywhere.
     /// The function is never called — its presence alone is the assertion.
@@ -272,6 +310,8 @@ mod tests {
         match t {
             DocProcessing::ExtractText(_) => "et",
             DocProcessing::LlmExtract(_) => "le",
+            DocProcessing::Verify(_) => "vr",
+            DocProcessing::AutoApprove(_) => "aa",
             DocProcessing::Ingest(_) => "in",
             DocProcessing::Index(_) => "ix",
             DocProcessing::Completeness(_) => "cp",

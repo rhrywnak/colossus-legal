@@ -62,7 +62,7 @@ use colossus_pipeline::progress::ProgressReporter;
 use colossus_pipeline::{Step, StepResult};
 
 use crate::pipeline::context::AppContext;
-use crate::pipeline::steps::ingest::Ingest;
+use crate::pipeline::steps::verify::Verify;
 use crate::pipeline::task::DocProcessing;
 use crate::repositories::pipeline_repository::{self, documents, extraction, steps};
 
@@ -232,7 +232,7 @@ impl LlmExtract {
                 document_id = %self.document_id,
                 "Completed extraction run exists, skipping"
             );
-            return Ok(StepResult::Next(DocProcessing::Ingest(Ingest {
+            return Ok(StepResult::Next(DocProcessing::Verify(Verify {
                 document_id: self.document_id.clone(),
             })));
         }
@@ -653,8 +653,8 @@ impl LlmExtract {
         .await
         .ok();
 
-        // ── 18. Advance to Ingest ──
-        Ok(StepResult::Next(DocProcessing::Ingest(Ingest {
+        // ── 18. Advance to Verify ──
+        Ok(StepResult::Next(DocProcessing::Verify(Verify {
             document_id: self.document_id.clone(),
         })))
     }
