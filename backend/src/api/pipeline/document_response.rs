@@ -48,26 +48,34 @@ pub fn enrich_document(doc: DocumentRecord, user: &AuthUser) -> DocumentResponse
 /// Compute which tabs a user can see for a document in its current state.
 fn compute_visible_tabs(status: &str, _is_admin: bool) -> Vec<&'static str> {
     match status {
-        "NEW" => vec!["document", "processing"],
+        "NEW" | "UPLOADED" => vec!["document", "processing"],
         "PROCESSING" => vec!["document", "processing"],
-        "COMPLETED" => vec!["document", "content", "processing"],
-        "FAILED" => vec!["document", "processing"],
-        "CANCELLED" => vec!["document", "processing"],
-        _ => vec!["document"],
+        "EXTRACTED" | "VERIFIED" => vec!["document", "content", "processing"],
+        "INDEXED" | "COMPLETED" | "PUBLISHED" => {
+            vec!["document", "content", "processing", "review", "people"]
+        }
+        "FAILED" | "CANCELLED" => vec!["document", "processing"],
+        _ => vec!["document", "processing"],
     }
 }
 
 /// Whether the current user can view/interact with this document.
 fn compute_can_view(status: &str, is_admin: bool) -> bool {
-    is_admin || status == "COMPLETED"
+    if is_admin {
+        return true;
+    }
+    matches!(
+        status,
+        "EXTRACTED" | "VERIFIED" | "INDEXED" | "COMPLETED" | "PUBLISHED"
+    )
 }
 
 /// Map pipeline status to a display group for frontend filtering/sorting.
 pub fn compute_status_group(status: &str) -> &'static str {
     match status {
-        "NEW" => "new",
+        "NEW" | "UPLOADED" => "new",
         "PROCESSING" => "processing",
-        "COMPLETED" => "completed",
+        "EXTRACTED" | "VERIFIED" | "INDEXED" | "COMPLETED" | "PUBLISHED" => "completed",
         "FAILED" => "failed",
         "CANCELLED" => "cancelled",
         _ => "unknown",
@@ -88,13 +96,38 @@ mod tests {
     }
 
     #[test]
+    fn test_status_group_uploaded() {
+        assert_eq!(compute_status_group("UPLOADED"), "new");
+    }
+
+    #[test]
     fn test_status_group_processing() {
         assert_eq!(compute_status_group("PROCESSING"), "processing");
     }
 
     #[test]
+    fn test_status_group_extracted() {
+        assert_eq!(compute_status_group("EXTRACTED"), "completed");
+    }
+
+    #[test]
+    fn test_status_group_verified() {
+        assert_eq!(compute_status_group("VERIFIED"), "completed");
+    }
+
+    #[test]
+    fn test_status_group_indexed() {
+        assert_eq!(compute_status_group("INDEXED"), "completed");
+    }
+
+    #[test]
     fn test_status_group_completed() {
         assert_eq!(compute_status_group("COMPLETED"), "completed");
+    }
+
+    #[test]
+    fn test_status_group_published() {
+        assert_eq!(compute_status_group("PUBLISHED"), "completed");
     }
 
     #[test]
@@ -121,21 +154,33 @@ mod tests {
     }
 
     #[test]
+    fn test_visible_tabs_uploaded() {
+        let tabs = compute_visible_tabs("UPLOADED", false);
+        assert_eq!(tabs, vec!["document", "processing"]);
+    }
+
+    #[test]
     fn test_visible_tabs_processing() {
         let tabs = compute_visible_tabs("PROCESSING", false);
         assert_eq!(tabs, vec!["document", "processing"]);
     }
 
     #[test]
-    fn test_visible_tabs_completed_admin() {
-        let tabs = compute_visible_tabs("COMPLETED", true);
+    fn test_visible_tabs_extracted() {
+        let tabs = compute_visible_tabs("EXTRACTED", false);
         assert_eq!(tabs, vec!["document", "content", "processing"]);
     }
 
     #[test]
-    fn test_visible_tabs_completed_non_admin() {
-        let tabs = compute_visible_tabs("COMPLETED", false);
-        assert_eq!(tabs, vec!["document", "content", "processing"]);
+    fn test_visible_tabs_indexed() {
+        let tabs = compute_visible_tabs("INDEXED", false);
+        assert_eq!(tabs, vec!["document", "content", "processing", "review", "people"]);
+    }
+
+    #[test]
+    fn test_visible_tabs_published() {
+        let tabs = compute_visible_tabs("PUBLISHED", false);
+        assert_eq!(tabs, vec!["document", "content", "processing", "review", "people"]);
     }
 
     #[test]
@@ -153,8 +198,18 @@ mod tests {
     // --- can_view ---
 
     #[test]
-    fn test_can_view_completed_non_admin() {
-        assert!(compute_can_view("COMPLETED", false));
+    fn test_can_view_published_non_admin() {
+        assert!(compute_can_view("PUBLISHED", false));
+    }
+
+    #[test]
+    fn test_can_view_indexed_non_admin() {
+        assert!(compute_can_view("INDEXED", false));
+    }
+
+    #[test]
+    fn test_can_view_extracted_non_admin() {
+        assert!(compute_can_view("EXTRACTED", false));
     }
 
     #[test]
@@ -163,10 +218,17 @@ mod tests {
     }
 
     #[test]
+    fn test_can_view_processing_non_admin_rejected() {
+        assert!(!compute_can_view("PROCESSING", false));
+    }
+
+    #[test]
     fn test_can_view_admin_always() {
         assert!(compute_can_view("NEW", true));
         assert!(compute_can_view("PROCESSING", true));
-        assert!(compute_can_view("COMPLETED", true));
+        assert!(compute_can_view("EXTRACTED", true));
+        assert!(compute_can_view("INDEXED", true));
+        assert!(compute_can_view("PUBLISHED", true));
         assert!(compute_can_view("FAILED", true));
         assert!(compute_can_view("CANCELLED", true));
     }

@@ -184,7 +184,7 @@ const DocumentsPage: React.FC = () => {
         </div>
       </div>
       <p style={subtitle}>
-        Case documents — extraction pipeline status and review.
+        Case documents
       </p>
 
       {isAdmin && (
