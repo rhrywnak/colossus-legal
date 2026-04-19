@@ -25,11 +25,16 @@ Return a JSON object with exactly two arrays: "entities" and "relationships".
 Each entity MUST have these fields:
 - "id": unique string identifier (e.g., "0", "1", "2")
 - "entity_type": the entity type name from the schema (e.g., "Party", "LegalCount")
+- "label": a short, descriptive human-readable name for this entity. Examples:
+  - Party: the person or organization's full name (e.g., "Marie Awad", "Catholic Family Services")
+  - LegalCount: the cause of action name (e.g., "Breach of Fiduciary Duty", "Fraud")
+  - ComplaintAllegation: a brief title summarizing the allegation (e.g., "$50,000 conversion by sisters")
+  - Harm: a brief title for the damages claim (e.g., "Loss of estate assets")
 - "properties": an object containing the extracted properties
 - "verbatim_quote": the exact text from the document that supports this entity (if applicable, otherwise omit)
 
 Example entity:
-{"id": "0", "entity_type": "Party", "properties": {"party_name": "John Smith", "role": "plaintiff"}, "verbatim_quote": "Plaintiff John Smith filed..."}
+{"id": "0", "entity_type": "Party", "label": "John Smith", "properties": {"party_name": "John Smith", "role": "plaintiff"}, "verbatim_quote": "Plaintiff John Smith filed..."}
 
 Each relationship MUST have these fields:
 - "relationship_type": the relationship type from the schema (e.g., "FILED_BY", "SUPPORTS")

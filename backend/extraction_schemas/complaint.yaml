@@ -54,6 +54,12 @@ entity_types:
       - name: damages_type
         type: string
         description: "compensatory, punitive, equitable, etc."
+      - name: harm_type
+        type: string
+        description: "Type of harm: financial, reputational, emotional, procedural"
+      - name: description
+        type: string
+        description: "Brief description of the harm"
 
 relationship_types:
   - name: STATED_BY
@@ -87,3 +93,8 @@ extraction_rules:
   - "Extract EVERY factual allegation individually — do not group multiple facts into one."
   - "Output MUST be valid JSON with no markdown fences, no code blocks, no backticks."
   - "Each entity must have a unique id field (e.g. party-001, allegation-001, count-001)."
+  - "For LegalCount entities, the label MUST be the name of the cause of action (e.g., 'Breach of Fiduciary Duty', 'Fraud', 'Abuse of Process'), NOT 'Count I' or a number."
+  - "Use the FULL name of each party consistently throughout. Do NOT create separate entities for abbreviations or short forms. For example, if the document refers to 'George Phillips' and 'Phillips', create ONE Party entity with label 'George Phillips'. Do NOT create a second entity for 'Phillips'."
+  - "Do NOT extract generic references as Party entities. Words like 'Plaintiff', 'Defendants', 'the Court', 'Petitioner', or 'Respondent' are roles, not party names. Only extract named individuals and named organizations."
+  - "Every ComplaintAllegation that is part of a numbered cause of action (Count) MUST have a SUPPORTS relationship to the corresponding LegalCount entity."
+  - "For Harm entities, extract the specific damages amount if stated in the document. Set the label to a brief description of the harm (e.g., 'Loss of $50,000 estate funds', 'Attorney fees of $7,500')."
