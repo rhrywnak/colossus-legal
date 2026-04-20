@@ -161,6 +161,13 @@ export interface ConfigurationPanelProps {
    * `document_text` pages and returns an error before ExtractText runs.
    */
   documentStatus?: string;
+  /** PDF classification fields (populated at upload time). Absent on
+   *  legacy rows predating the classifier — the panel renders no
+   *  content line in that case. */
+  contentType?: string;
+  pageCount?: number;
+  textPages?: number;
+  scannedPages?: number;
   /** Trigger the existing process flow. Called when "Process Document" is clicked. */
   onProcess: () => Promise<void>;
   /** Whether the parent is currently processing an action. */
@@ -188,10 +195,53 @@ const CHUNKING_MODES = ["chunked", "full"] as const;
 
 // ── Component ───────────────────────────────────────────────────
 
+/**
+ * Format the PDF-classification summary for the top of the panel.
+ * Returns `null` when no classification data is available.
+ */
+function formatContentLine(
+  contentType?: string,
+  pageCount?: number,
+  textPages?: number,
+  scannedPages?: number,
+): string | null {
+  if (!contentType) return null;
+  switch (contentType) {
+    case "text_based":
+      return pageCount != null
+        ? `${pageCount} text-based page${pageCount === 1 ? "" : "s"}`
+        : "Text-based document";
+    case "scanned":
+      return pageCount != null
+        ? `Scanned document (${pageCount} page${pageCount === 1 ? "" : "s"} need OCR)`
+        : "Scanned document (OCR required)";
+    case "mixed":
+      return `Mixed (${textPages ?? 0} text, ${scannedPages ?? 0} scanned)`;
+    case "unknown":
+      return "Content type unknown";
+    default:
+      return null;
+  }
+}
+
+const contentInfoStyle: React.CSSProperties = {
+  fontSize: "0.82rem",
+  color: "#334155",
+  marginBottom: "0.85rem",
+  padding: "0.5rem 0.75rem",
+  backgroundColor: "#f8fafc",
+  border: "1px solid #e2e8f0",
+  borderRadius: "6px",
+};
+
 const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
   documentId,
   documentType,
   documentStatus,
+  contentType,
+  pageCount,
+  textPages,
+  scannedPages,
   onProcess,
   busy,
 }) => {
@@ -435,6 +485,15 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
     <div style={containerStyle}>
       <div style={headerStyle}>Processing Configuration</div>
       <div style={bodyStyle}>
+        {(() => {
+          const line = formatContentLine(contentType, pageCount, textPages, scannedPages);
+          return line ? (
+            <div style={contentInfoStyle}>
+              <strong>Content:</strong> {line}
+            </div>
+          ) : null;
+        })()}
+
         <div style={fieldGrid}>
           <label style={isModified("profile_name") ? fieldLabelModified : fieldLabel}>
             Profile

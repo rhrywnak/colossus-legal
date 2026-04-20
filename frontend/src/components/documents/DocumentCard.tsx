@@ -52,6 +52,67 @@ const smallBtn = (bg: string): React.CSSProperties => ({
   fontFamily: "inherit",
 });
 
+const badgeBase: React.CSSProperties = {
+  display: "inline-block",
+  padding: "0.1rem 0.45rem",
+  fontSize: "0.68rem",
+  fontWeight: 600,
+  borderRadius: "4px",
+  marginRight: "0.4rem",
+};
+const badgeAmber: React.CSSProperties = {
+  ...badgeBase,
+  backgroundColor: "#fffbeb",
+  border: "1px solid #fde68a",
+  color: "#92400e",
+};
+const badgeNeutral: React.CSSProperties = {
+  ...badgeBase,
+  backgroundColor: "#f1f5f9",
+  border: "1px solid #e2e8f0",
+  color: "#64748b",
+};
+const badgePlain: React.CSSProperties = {
+  fontSize: "0.72rem",
+  color: "#64748b",
+  marginRight: "0.4rem",
+};
+
+/**
+ * Render the PDF-classification summary for a card row. Returns null when
+ * no classification fields are present (row predates the classifier or the
+ * upload-time classify() call failed).
+ */
+function renderContentInfo(doc: PipelineDocument): React.ReactNode {
+  const ct = doc.content_type;
+  if (!ct) return null;
+  const pages = doc.page_count;
+  switch (ct) {
+    case "text_based":
+      return (
+        <span style={badgePlain}>
+          {pages != null ? `${pages} page${pages === 1 ? "" : "s"}` : "Text-based"}
+        </span>
+      );
+    case "scanned":
+      return (
+        <span style={badgeAmber}>
+          Scanned{pages != null && ` · ${pages} pages`} · OCR required
+        </span>
+      );
+    case "mixed":
+      return (
+        <span style={badgeAmber}>
+          Mixed · {doc.text_pages ?? 0} text, {doc.scanned_pages ?? 0} scanned
+        </span>
+      );
+    case "unknown":
+      return <span style={badgeNeutral}>Unknown</span>;
+    default:
+      return null;
+  }
+}
+
 // ── Component ───────────────────────────────────────────────────
 
 const DocumentCard: React.FC<DocumentCardProps> = ({ doc, isAdmin, onRefresh }) => {
@@ -90,6 +151,7 @@ const DocumentCard: React.FC<DocumentCardProps> = ({ doc, isAdmin, onRefresh }) 
             <div style={{ ...metaText, marginBottom: "0.4rem" }}>
               {titleizeType(doc.document_type)} | Created {formatDate(doc.created_at)}
             </div>
+            <div style={{ marginBottom: "0.4rem" }}>{renderContentInfo(doc)}</div>
             {isAdmin && (
               <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
                 <button style={smallBtn("#2563eb")} onClick={handleProcess}>Configure</button>

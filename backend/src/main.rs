@@ -420,8 +420,38 @@ async fn build_rag_pipeline(
         RagPipeline, RigSynthesizer, RuleBasedRouter,
     };
 
-    // Check for API key first — no key means no pipeline.
-    let api_key = config.anthropic_api_key.as_deref()?;
+    // Preserve the legacy short-circuit: if no Anthropic API key is
+    // configured, /ask has no synthesis backend and we build no pipeline.
+    // The envelope check here is cheap; the real provider is constructed
+    // below via `llm_provider_from_env()` which reads the same env var.
+    if config.anthropic_api_key.is_none() {
+        return None;
+    }
+
+    // --- LLM + embedding providers (v0.10.4 API) ---
+    //
+    // v0.10.4 replaced the `RigSynthesizer::claude(api_key, ...)` convenience
+    // constructor with `RigSynthesizer::new(Arc<dyn LlmProvider>, max_tokens)`
+    // and `EmbeddingReranker::new(model, ...)` with
+    // `EmbeddingReranker::new(Arc<dyn EmbeddingProvider>, threshold)`.
+    // We reach for `colossus_extract::providers::*_from_env()` so the RAG
+    // bootstrap picks up whatever provider backend the rest of the app uses
+    // (the same functions AppContext already calls at startup).
+    let llm_provider = match colossus_extract::providers::llm_provider_from_env() {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::error!("Failed to build LLM provider for RAG: {e}");
+            return None;
+        }
+    };
+    let embedding_provider =
+        match colossus_extract::providers::embedding_provider_from_env() {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::error!("Failed to build embedding provider for RAG: {e}");
+                return None;
+            }
+        };
 
     // --- Router: rule-based with legal case aliases ---
     let router = RuleBasedRouter::legal_defaults();
@@ -436,11 +466,6 @@ async fn build_rag_pipeline(
     // the gRPC URL from the existing REST URL in config.
     let qdrant_grpc_url = config.qdrant_url.replace(":6333", ":6334");
 
-    let fastembed_client = rig_fastembed::Client::new();
-    let embedding_model = Arc::new(
-        fastembed_client.embedding_model(&rig_fastembed::FastembedModel::NomicEmbedTextV15),
-    );
-
     let qdrant_client = match qdrant_client::Qdrant::from_url(&qdrant_grpc_url)
         .skip_compatibility_check()
         .build()
@@ -452,23 +477,18 @@ async fn build_rag_pipeline(
         }
     };
 
-    // Clone the embedding model Arc BEFORE passing to the retriever,
-    // because QdrantRetriever::new() takes ownership of the Arc.
-    // The reranker needs the same model (cheap Arc reference count bump).
-    let reranker_model = embedding_model.clone();
-
+    // Both the retriever and the reranker take an `Arc<dyn EmbeddingProvider>`
+    // in v0.10.4. Cloning an Arc is cheap (one refcount bump) so we share a
+    // single provider instance across both stages.
     let retriever = QdrantRetriever::new(
-        embedding_model,
+        embedding_provider.clone(),
         qdrant_client,
         "colossus_evidence",
         0.0, // No score threshold — let the assembler handle ranking
     );
 
     // --- Reranker: post-expansion semantic filtering ---
-    //
-    // Shares the same embedding model as the retriever (cheap Arc clone).
-    // Filters graph-expanded chunks by cosine similarity to the question.
-    let reranker = EmbeddingReranker::new(reranker_model, config.rerank_threshold);
+    let reranker = EmbeddingReranker::new(embedding_provider, config.rerank_threshold);
 
     // --- Expander: Neo4j graph traversal ---
     let expander = Neo4jExpander::new(Arc::new(graph.clone()));
@@ -482,14 +502,12 @@ async fn build_rag_pipeline(
         .unwrap_or(prompt_loader::DEFAULT_SYNTHESIS_PROMPT);
     let assembler = LegalAssembler::with_system_prompt(synthesis_prompt);
 
-    // --- Synthesizer: Claude via rig-core ---
-    let synthesizer = match RigSynthesizer::claude(api_key, &config.anthropic_model, 4096) {
-        Ok(s) => s,
-        Err(e) => {
-            tracing::error!("Failed to create RigSynthesizer: {e}");
-            return None;
-        }
-    };
+    // --- Synthesizer: uses the shared LLM provider (v0.10.4 API) ---
+    //
+    // The model id and provider backend are resolved by
+    // `llm_provider_from_env()` (via LLM_PROVIDER / ANTHROPIC_MODEL env
+    // vars), so `config.anthropic_model` is no longer consulted here.
+    let synthesizer = RigSynthesizer::new(llm_provider, 4096);
 
     // --- Graph Direct Retriever: for decomposed graph sub-queries ---
     let graph_retriever = GraphDirectRetriever::new(Arc::new(graph.clone()));

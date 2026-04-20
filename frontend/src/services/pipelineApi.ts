@@ -55,6 +55,13 @@ export interface PipelineDocument {
   run_chunk_count?: number;
   run_chunks_succeeded?: number;
   run_chunks_failed?: number;
+
+  // PDF content classification (populated at upload time)
+  content_type?: string;   // "text_based" | "scanned" | "mixed" | "unknown"
+  page_count?: number;
+  text_pages?: number;
+  scanned_pages?: number;
+  total_chars?: number;
 }
 
 export interface KnownUser {

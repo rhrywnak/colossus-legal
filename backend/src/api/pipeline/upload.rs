@@ -209,6 +209,55 @@ pub async fn upload_document(
         message: format!("Failed to insert document: {e}"),
     })?;
 
+    // Classify PDF content — this populates text/scanned/mixed, per-page
+    // OCR flags, and character counts. Failures are logged but MUST NOT
+    // block the upload: the default `content_type = 'unknown'` stays on
+    // the row and ExtractText handles discovery the hard way at processing
+    // time. Design: PDF_CONTENT_CLASSIFICATION_DESIGN_v2.md Phase B.
+    let classification = match colossus_pdf::PdfTextExtractor::open(&dest_path) {
+        Ok(mut extractor) => match extractor.classify() {
+            Ok(c) => Some(c),
+            Err(e) => {
+                tracing::warn!(
+                    doc_id = %doc_id, error = %e,
+                    "PDF classification failed, defaulting to unknown"
+                );
+                None
+            }
+        },
+        Err(e) => {
+            tracing::warn!(
+                doc_id = %doc_id, error = %e,
+                "Failed to open PDF for classification"
+            );
+            None
+        }
+    };
+
+    if let Some(ref c) = classification {
+        let pages_ocr: Vec<i32> = c.pages_needing_ocr.iter().map(|&p| p as i32).collect();
+        if let Err(e) = sqlx::query(
+            "UPDATE documents SET content_type = $1, page_count = $2, \
+             text_pages = $3, scanned_pages = $4, pages_needing_ocr = $5, \
+             total_chars = $6 WHERE id = $7",
+        )
+        .bind(c.content_type.as_str())
+        .bind(c.page_count as i32)
+        .bind(c.text_pages as i32)
+        .bind(c.scanned_pages as i32)
+        .bind(&pages_ocr)
+        .bind(c.total_chars as i32)
+        .bind(&doc_id)
+        .execute(&state.pipeline_pool)
+        .await
+        {
+            tracing::warn!(
+                doc_id = %doc_id, error = %e,
+                "Failed to store PDF classification — upload succeeds, content_type stays 'unknown'"
+            );
+        }
+    }
+
     // Insert pipeline config
     let config_input = PipelineConfigInput {
         pass1_model,

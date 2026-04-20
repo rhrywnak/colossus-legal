@@ -104,6 +104,19 @@ pub struct DocumentRecord {
     pub run_chunk_count: Option<i32>,
     pub run_chunks_succeeded: Option<i32>,
     pub run_chunks_failed: Option<i32>,
+    // ── PDF content classification (upload-time; see migration
+    //     20260420143625_add_document_content_classification.sql) ────
+    /// One of `"text_based"`, `"scanned"`, `"mixed"`, or `"unknown"`
+    /// (default). Never null on rows inserted after the migration.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_type: Option<String>,
+    pub page_count: Option<i32>,
+    pub text_pages: Option<i32>,
+    pub scanned_pages: Option<i32>,
+    /// One-based page indices that need OCR. Empty for `text_based`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pages_needing_ocr: Option<Vec<i32>>,
+    pub total_chars: Option<i32>,
 }
 
 /// A page of extracted text from the `document_text` table.
@@ -235,7 +248,9 @@ pub async fn list_all_documents(pool: &PgPool) -> Result<Vec<DocumentRecord>, Pi
                 run.model_name,
                 run.chunk_count AS run_chunk_count,
                 run.chunks_succeeded AS run_chunks_succeeded,
-                run.chunks_failed AS run_chunks_failed
+                run.chunks_failed AS run_chunks_failed,
+                d.content_type, d.page_count, d.text_pages, d.scanned_pages,
+                d.pages_needing_ocr, d.total_chars
          FROM documents d
          LEFT JOIN (
              SELECT document_id, SUM(cost_usd::float8) AS total_cost_usd
@@ -280,7 +295,9 @@ pub async fn get_document(
                 run.model_name,
                 run.chunk_count AS run_chunk_count,
                 run.chunks_succeeded AS run_chunks_succeeded,
-                run.chunks_failed AS run_chunks_failed
+                run.chunks_failed AS run_chunks_failed,
+                d.content_type, d.page_count, d.text_pages, d.scanned_pages,
+                d.pages_needing_ocr, d.total_chars
          FROM documents d
          LEFT JOIN (
              SELECT document_id, SUM(cost_usd::float8) AS total_cost_usd

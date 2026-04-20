@@ -352,6 +352,10 @@ const ProcessingPanel: React.FC<ProcessingPanelProps> = ({
           documentId={doc.id}
           documentType={doc.document_type}
           documentStatus={doc.status}
+          contentType={doc.content_type}
+          pageCount={doc.page_count}
+          textPages={doc.text_pages}
+          scannedPages={doc.scanned_pages}
           onProcess={handleProcess}
           busy={busy}
         />
