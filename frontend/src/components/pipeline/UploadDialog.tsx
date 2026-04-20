@@ -47,6 +47,13 @@ const btnUpload = (enabled: boolean): React.CSSProperties => ({
   borderRadius: "6px", backgroundColor: enabled ? "#2563eb" : "#94a3b8",
   color: "#ffffff", cursor: enabled ? "pointer" : "default", fontFamily: "inherit",
 });
+const btnUploadOnly = (enabled: boolean): React.CSSProperties => ({
+  padding: "0.45rem 1rem", fontSize: "0.84rem", fontWeight: 600,
+  border: `1px solid ${enabled ? "#2563eb" : "#cbd5e1"}`,
+  borderRadius: "6px", backgroundColor: "#ffffff",
+  color: enabled ? "#2563eb" : "#94a3b8",
+  cursor: enabled ? "pointer" : "default", fontFamily: "inherit",
+});
 
 function slugify(name: string): string {
   return name.toLowerCase().replace(/\.pdf$/i, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -87,36 +94,59 @@ const UploadDialog: React.FC<Props> = ({ open, onClose, onSuccess, complaintExis
     setError(null);
   };
 
-  const handleUpload = async () => {
-    if (!file || !schema || uploading) return;
-    setUploading(true);
-    setError(null);
+  /**
+   * Shared upload step for both "Upload" and "Upload & Process".
+   *
+   * Returns the created document id on success, or `null` on failure
+   * (the caller should just return — the error state has been set).
+   */
+  const doUpload = async (): Promise<string | null> => {
+    if (!file || !schema) return null;
+    const id = `doc-${slugify(file.name)}`;
+    const title = titleize(file.name);
     try {
-      const id = `doc-${slugify(file.name)}`;
-      const title = titleize(file.name);
       const doc = await uploadDocument(file, {
         id, title, documentType: schema,
         schemaFile: schema === "auto" ? undefined : `${schema}.yaml`,
       });
-      onSuccess();
-      setUploading(false);
-      setProcessing(true);
-      try {
-        await processDocument(doc.id);
-      } catch {
-        // Process failed — user will see NEW status and can click Process manually
-      } finally {
-        setProcessing(false);
-      }
-      navigate(`/documents/${doc.id}?tab=processing`);
+      return doc.id;
     } catch (e) {
       setError(e instanceof Error ? e.message : "Upload failed");
-      setUploading(false);
-      setProcessing(false);
+      return null;
     }
   };
 
-  const canUpload = !!file && !!schema && !uploading;
+  const handleUploadOnly = async () => {
+    if (!file || !schema || uploading || processing) return;
+    setError(null);
+    setUploading(true);
+    const docId = await doUpload();
+    setUploading(false);
+    if (!docId) return;
+    onSuccess();
+    navigate(`/documents/${docId}?tab=processing`);
+  };
+
+  const handleUpload = async () => {
+    if (!file || !schema || uploading || processing) return;
+    setError(null);
+    setUploading(true);
+    const docId = await doUpload();
+    setUploading(false);
+    if (!docId) return;
+    onSuccess();
+    setProcessing(true);
+    try {
+      await processDocument(docId);
+    } catch {
+      // Process failed — user will see NEW status and can click Process manually
+    } finally {
+      setProcessing(false);
+    }
+    navigate(`/documents/${docId}?tab=processing`);
+  };
+
+  const canUpload = !!file && !!schema && !uploading && !processing;
 
   return (
     <div style={overlay} onClick={onClose}>
@@ -180,6 +210,9 @@ const UploadDialog: React.FC<Props> = ({ open, onClose, onSuccess, complaintExis
 
         <div style={btnRow}>
           <button style={btnCancel} onClick={onClose}>Cancel</button>
+          <button style={btnUploadOnly(canUpload)} onClick={handleUploadOnly} disabled={!canUpload}>
+            {uploading && !processing ? "Uploading..." : "Upload"}
+          </button>
           <button style={btnUpload(canUpload)} onClick={handleUpload} disabled={!canUpload}>
             {uploading ? "Uploading..." : processing ? "Starting..." : "Upload & Process"}
           </button>
