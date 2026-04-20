@@ -68,6 +68,12 @@ pub struct AppContextDeps {
     /// Filesystem root for document storage
     /// (e.g. `/data/documents`).
     pub document_storage_path: String,
+
+    /// Path to the processing-profile YAML directory.
+    pub profile_dir: String,
+
+    /// Path to the system-prompt directory.
+    pub system_prompt_dir: String,
 }
 
 /// Per-job pipeline execution context.
@@ -101,6 +107,14 @@ pub struct AppContext {
 
     /// Filesystem root for document storage.
     pub document_storage_path: String,
+
+    /// Path to the processing-profile YAML directory.
+    /// Profiles are YAML files on mounted storage, not database rows.
+    /// Loaded per-request — editing a YAML file takes effect immediately.
+    pub profile_dir: String,
+
+    /// Path to the system-prompt directory.
+    pub system_prompt_dir: String,
 
     /// LLM provider (Anthropic or vLLM).
     /// Constructed from `LLM_PROVIDER` env var at startup.
@@ -155,6 +169,8 @@ impl AppContext {
             schema_dir: deps.schema_dir,
             template_dir: deps.template_dir,
             document_storage_path: deps.document_storage_path,
+            profile_dir: deps.profile_dir,
+            system_prompt_dir: deps.system_prompt_dir,
             llm_provider,
             embedding_provider,
             llm_semaphore: Arc::new(Semaphore::new(llm_concurrency)),
@@ -215,6 +231,8 @@ mod tests {
             schema_dir: String,
             template_dir: String,
             document_storage_path: String,
+            profile_dir: String,
+            system_prompt_dir: String,
         ) {
             let _ = AppContextDeps {
                 pipeline_pool,
@@ -224,6 +242,8 @@ mod tests {
                 schema_dir,
                 template_dir,
                 document_storage_path,
+                profile_dir,
+                system_prompt_dir,
             };
         }
         // Function body intentionally empty — the existence of the function
