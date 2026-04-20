@@ -89,6 +89,28 @@ Backend: every `reqwest::Client` built with `.timeout()` and
 `.connect_timeout()`. Never create a per-request reqwest::Client —
 share via AppState.
 
+### Migration files — always use the script
+NEVER create migration files manually. Use the provided script:
+
+```bash
+./scripts/new-migration.sh pipeline "description of change"
+./scripts/new-migration.sh main "description of change"
+```
+
+The script generates timestamp-based filenames (`YYYYMMDDHHMMSS_<slug>.sql`)
+that are unique to the second. Date-based prefixes (`YYYYMMDD`) caused a
+production crash on 2026-04-20 when two migrations landed the same day and
+sqlx panicked with VersionMismatch at startup.
+
+Existing migrations with `YYYYMMDD` prefixes are locked — do not rename
+them, because sqlx tracks applied versions by number and a rename looks
+like a brand-new migration to the tracker.
+
+`./scripts/check-migrations.sh` validates uniqueness across both migration
+directories. It runs as part of `build-release.sh` (in colossus-ansible),
+so duplicates fail the build before any container is shipped. Run it
+manually before committing a new migration.
+
 ---
 
 ## Infrastructure
