@@ -1,94 +1,50 @@
-//! backend/src/pipeline/steps/llm_extract.rs
+//! LlmExtract pipeline step — config-driven entity extraction.
 //!
-//! LlmExtract pipeline step — single-call LLM entity and relationship
-//! extraction. Reads the document's per-page text from `document_text`,
-//! assembles a prompt via `colossus_extract::PromptBuilder`, invokes the
-//! configured `LlmProvider` once, parses the response JSON, and stores the
-//! resulting entities and relationships into `extraction_items` /
-//! `extraction_relationships` via the new
-//! `pipeline_repository::extraction::store_entities_and_relationships`
-//! helper.
+//! Loads a processing profile from YAML, resolves per-document overrides,
+//! branches on chunking_mode (full document vs chunked), and stores a
+//! complete configuration snapshot for audit trail.
 //!
-//! ## Research-grounded deviation from v5_2 Part 10.2
-//!
-//! The v5_2 spec sketches a chunked architecture using FixedSizeSplitter
-//! with per-chunk observability (record_chunk_success / record_chunk_failure
-//! / store_extraction_results / complete_extraction_run called inside a
-//! loop). This implementation deviates from that sketch. Rationale:
-//!
-//! 1. The chunking helpers named in v5_2 Part 10.2 (build_chunk_prompt,
-//!    record_chunk_success, record_chunk_failure, store_extraction_results)
-//!    do not exist in the codebase. They lived in chunk_extractor.rs,
-//!    chunk_orchestration.rs, and chunk_storage.rs, which P2-Cleanup
-//!    commit 1414838 deleted on 2026-04-16 because the chunking
-//!    implementation had a double-storage FK violation bug and
-//!    rate-limiting misbehavior that required a full rewrite.
-//!
-//! 2. That same P2-Cleanup commit also deleted
-//!    backend/src/api/pipeline/extract.rs (the old HTTP extract_handler
-//!    and run_extract function), going beyond v5_2 Part 15's published
-//!    cleanup map. As of 2026-04-16 there has been no working LLM
-//!    extraction path in the codebase, HTTP or pipeline. This step is
-//!    the first working LLM extraction path since that deletion.
-//!
-//! 3. DOCUMENT_PROCESSING_PIPELINE_DESIGN_v1.md section 13 decision 2
-//!    specified: "Our documents are 7K-10K tokens, fitting in a single
-//!    LLM call. If colossus-ai encounters 50K+ token documents, we'll
-//!    need chunking. Design the LlmExtractor to accept a TextSplitter
-//!    trait but don't implement chunking until needed." Original design
-//!    intent was single-call.
-//!
-//! 4. Anthropic Sonnet 4.x supports 64K output tokens and 200K input
-//!    context, which comfortably accommodates the OCR'd legal corpus.
-//!
-//! Chunking, llm_json repair fallback, rate-limit retry on
-//! PipelineError::RateLimited, and stop_reason=max_tokens monitoring are
-//! DELIBERATELY DEFERRED as additive follow-ups (tracked in follow-up
-//! debt section) to be added after first successful end-to-end DEV test
-//! run. These features layer onto the existing call site and parse path
-//! without restructuring this file.
+//! Design: DOC_PROCESSING_CONFIG_DESIGN_v2.md Sections 3.7 and 3.8.
 
 use std::error::Error;
 use std::time::Instant;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use sqlx::PgPool;
-use tokio::time::Duration;
 
-use colossus_extract::{FixedSizeSplitter, LlmProvider, LlmResponse, PipelineError, TextSplitter};
+use colossus_extract::{FixedSizeSplitter, LlmProvider, TextSplitter};
 use colossus_pipeline::cancel::CancellationToken;
 use colossus_pipeline::progress::ProgressReporter;
 use colossus_pipeline::{Step, StepResult};
 
+use crate::pipeline::config::{resolve_config, ProcessingProfile, ResolvedConfig};
 use crate::pipeline::context::AppContext;
+use crate::pipeline::providers::provider_for_model;
+use crate::pipeline::steps::llm_extract_helpers::{
+    call_with_rate_limit_retry, mark_run_failed, mark_step_failed, parse_chunk_response,
+};
 use crate::pipeline::steps::verify::Verify;
 use crate::pipeline::task::DocProcessing;
-use crate::repositories::pipeline_repository::{self, documents, extraction, steps};
+use crate::repositories::pipeline_repository::{self, documents, extraction, models, steps};
 
 // ── Constants ───────────────────────────────────────────────────
 
-/// Max tokens per chunk LLM call. 8000 is sufficient for an 8000-char chunk
-/// producing structured JSON output. Overridable via step_config or LLM_MAX_TOKENS env.
+/// Fallback max tokens per LLM call when neither the profile nor
+/// step_config / env var provides one.
 const DEFAULT_CHUNK_MAX_TOKENS: u32 = 8000;
 
-/// Maximum retry attempts per chunk on rate-limit (429) errors.
-const MAX_RETRIES_PER_CHUNK: u32 = 3;
+/// Chunking-mode string recognised for single-call (no chunking) extraction.
+const CHUNKING_MODE_FULL: &str = "full";
 
-// ── Error type (Kazlauskas G6 — Display omits {source}) ─────────
+// ── Error type ──────────────────────────────────────────────────
 
 /// Failure modes for the LlmExtract step.
 ///
 /// Display strings are terminal messages — they never interpolate
 /// `{source}` (Kazlauskas Guideline 6). Source chains are preserved via
-/// `#[source]` where applicable. Mirrors the P4-3 / P4-5 / P4-6 / P4-7
-/// error-type discipline exactly.
-///
-/// `InsertRunFailed` / `CompleteRunFailed` / `StoreFailed` collapse their
-/// inner repo error to a `String` rather than threading `PipelineRepoError`
-/// directly, to match the existing `IngestError::Helper` pattern (the
-/// underlying repo error is already stringly-typed so there is nothing to
-/// source-chain).
+/// `#[source]` where applicable.
 #[derive(Debug, thiserror::Error)]
 pub enum LlmExtractError {
     #[error("Document not found: {document_id}")]
@@ -137,29 +93,29 @@ pub enum LlmExtractError {
 
     #[error("LLM semaphore closed before permit could be acquired")]
     SemaphoreClosed,
+
+    #[error("Failed to load processing profile: {message}")]
+    ProfileLoadFailed { message: String },
+
+    #[error("Model '{model_id}' not found or inactive in llm_models")]
+    ModelNotFound { model_id: String },
+
+    #[error("Failed to construct LLM provider: {message}")]
+    ProviderConstructionFailed { message: String },
 }
 
 // ── Step struct ─────────────────────────────────────────────────
 
 /// The LlmExtract step variant's payload.
 ///
-/// Like every other Phase 4 step, the only runtime state is the document
-/// id. Everything else (model, max_tokens, schema, templates) is fetched
-/// from `pipeline_config` / `AppContext` at execute time.
+/// Only runtime state is the document id; all other parameters are
+/// resolved at execute time from the processing profile and per-document
+/// overrides.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct LlmExtract {
     pub document_id: String,
 }
 
-/// Retry and timeout configuration is deliberately NOT set via trait
-/// associated constants. These values should be read from deployment
-/// config (pipeline_config.step_config["LlmExtract"] JSONB then env
-/// vars) via the framework's resolve_step_config machinery. Setting
-/// compile-time defaults here would violate the no-hardcoded-operational
-/// -values discipline. The existing P4-5/P4-6/P4-7 steps DO currently
-/// set these constants — that is tracked as follow-up debt
-/// P-CONFIG-refactor to be addressed after Phase 5 integration testing
-/// surfaces the real operational values.
 #[async_trait]
 impl Step<DocProcessing> for LlmExtract {
     async fn execute(
@@ -180,11 +136,12 @@ impl Step<DocProcessing> for LlmExtract {
         // Best-effort: wipe any RUNNING/FAILED runs this step left behind.
         // A COMPLETED run is left intact — its rows are the authoritative
         // output and the idempotency check will short-circuit future retries.
-        if let Err(e) =
-            sqlx::query("DELETE FROM extraction_runs WHERE document_id = $1 AND status IN ('RUNNING', 'FAILED')")
-                .bind(&self.document_id)
-                .execute(db)
-                .await
+        if let Err(e) = sqlx::query(
+            "DELETE FROM extraction_runs WHERE document_id = $1 AND status IN ('RUNNING', 'FAILED')",
+        )
+        .bind(&self.document_id)
+        .execute(db)
+        .await
         {
             tracing::warn!(
                 doc_id = %self.document_id, error = %e,
@@ -195,11 +152,32 @@ impl Step<DocProcessing> for LlmExtract {
     }
 }
 
+// ── Outcome of a single extraction path ─────────────────────────
+
+/// Aggregated result produced by either the full-document or chunked path.
+///
+/// The orchestrator consumes this to write the final run record and store
+/// entities + relationships. Chunk-specific stats are `None` for the
+/// full-document path.
+struct ExtractionOutcome {
+    entities: Vec<serde_json::Value>,
+    relationships: Vec<serde_json::Value>,
+    total_input_tokens: i64,
+    total_output_tokens: i64,
+    chunk_count: Option<i32>,
+    chunks_succeeded: Option<i32>,
+    chunks_failed: Option<i32>,
+}
+
 // ── Core implementation ─────────────────────────────────────────
 
 impl LlmExtract {
-    /// Internal: perform the full chunked LLM extraction write path.
-    /// Called from [`Step::execute`] via the thin wrapper above.
+    /// Orchestrate the full extraction path.
+    ///
+    /// Resolves config, looks up the model, constructs the provider, inserts
+    /// the `extraction_runs` row, dispatches to the full-document or chunked
+    /// sub-function, then finalizes the run, stores entities + relationships,
+    /// and writes the processing_config JSONB snapshot.
     async fn run_llm_extract(
         &self,
         db: &PgPool,
@@ -217,17 +195,8 @@ impl LlmExtract {
         )
         .await?;
 
-        // ── 1. Idempotency check ──
-        let existing: Option<i32> = sqlx::query_scalar(
-            "SELECT id FROM extraction_runs \
-             WHERE document_id = $1 AND status = 'COMPLETED' \
-             ORDER BY id DESC LIMIT 1",
-        )
-        .bind(&self.document_id)
-        .fetch_optional(db)
-        .await?;
-
-        if existing.is_some() {
+        // 1. Idempotency: short-circuit if a COMPLETED run already exists.
+        if extraction_already_complete(db, &self.document_id).await? {
             tracing::info!(
                 document_id = %self.document_id,
                 "Completed extraction run exists, skipping"
@@ -237,44 +206,19 @@ impl LlmExtract {
             })));
         }
 
-        // ── 2. Fetch pipeline config ──
+        // 2. Pipeline config + document + schema + text pages.
         let pipe_config = pipeline_repository::get_pipeline_config(db, &self.document_id)
             .await?
             .ok_or_else(|| LlmExtractError::NoPipelineConfig {
                 document_id: self.document_id.clone(),
             })?;
 
-        // ── 3. Resolve max_tokens: step_config → env → default ──
-        let max_tokens: u32 = {
-            let step_cfg: Option<serde_json::Value> = sqlx::query_scalar(
-                "SELECT step_config->'LlmExtract' FROM pipeline_config WHERE document_id = $1",
-            )
-            .bind(&self.document_id)
-            .fetch_optional(db)
-            .await?
-            .flatten();
-
-            step_cfg
-                .as_ref()
-                .and_then(|c| c.get("max_tokens"))
-                .and_then(|v| v.as_u64())
-                .map(|v| v as u32)
-                .unwrap_or_else(|| {
-                    std::env::var("LLM_MAX_TOKENS")
-                        .ok()
-                        .and_then(|v| v.parse().ok())
-                        .unwrap_or(DEFAULT_CHUNK_MAX_TOKENS)
-                })
-        };
-
-        // ── 4. Verify document exists ──
         let _doc = pipeline_repository::get_document(db, &self.document_id)
             .await?
             .ok_or_else(|| LlmExtractError::DocumentNotFound {
                 document_id: self.document_id.clone(),
             })?;
 
-        // ── 5. Load schema ──
         let schema_path = format!("{}/{}", context.schema_dir, pipe_config.schema_file);
         let schema = colossus_extract::ExtractionSchema::from_file(std::path::Path::new(
             &schema_path,
@@ -285,7 +229,6 @@ impl LlmExtract {
         })?;
         let schema_json = serde_json::to_string_pretty(&schema)?;
 
-        // ── 6. Fetch document text pages ──
         let pages = pipeline_repository::get_document_text(db, &self.document_id).await?;
         if pages.is_empty() {
             return Err(LlmExtractError::NoTextPages {
@@ -293,307 +236,144 @@ impl LlmExtract {
             }
             .into());
         }
-
-        // ── 7. Concatenate pages with page markers ──
         let full_text = pages
             .iter()
             .map(|p| format!("--- Page {} ---\n{}", p.page_number, p.text_content))
             .collect::<Vec<_>>()
             .join("\n\n");
 
-        // ── 8. Split into chunks ──
-        let chunks = FixedSizeSplitter::with_config(8000, 500).split(&full_text);
-        if chunks.is_empty() {
-            return Err("Splitter produced zero chunks from non-empty text".into());
-        }
-        tracing::info!(
-            document_id = %self.document_id,
-            chunk_count = chunks.len(),
-            full_text_len = full_text.len(),
-            "Split document into chunks for extraction"
-        );
+        // 3. Resolve three-level config hierarchy.
+        let overrides =
+            pipeline_repository::get_pipeline_config_overrides(db, &self.document_id).await?;
+        let profile_name = overrides
+            .profile_name
+            .clone()
+            .unwrap_or_else(|| default_profile_name_from_schema(&pipe_config.schema_file));
+        let profile = ProcessingProfile::load(&context.profile_dir, &profile_name)
+            .map_err(|e| LlmExtractError::ProfileLoadFailed { message: e })?;
+        let resolved = resolve_config(&profile, &overrides);
 
-        // ── 9. Load chunk prompt template ──
-        let template_path = format!("{}/chunk_extract.md", context.template_dir);
+        // 4. Look up the model row and construct a provider for this document.
+        let model_record = models::get_active_model_by_id(db, &resolved.model)
+            .await?
+            .ok_or_else(|| LlmExtractError::ModelNotFound {
+                model_id: resolved.model.clone(),
+            })?;
+        let llm_provider = provider_for_model(&model_record)
+            .map_err(|message| LlmExtractError::ProviderConstructionFailed { message })?;
+
+        // 5. Load template and hash it.
+        let template_path = format!("{}/{}", context.template_dir, resolved.template_file);
         let template_text = std::fs::read_to_string(&template_path)
-            .map_err(|e| format!("Failed to read chunk_extract.md: {e}"))?;
+            .map_err(|e| format!("Failed to read template '{template_path}': {e}"))?;
+        let template_hash = sha2_hex(&template_text);
 
-        // ── 10. Insert extraction run ──
-        let model_name = context.llm_provider.model_name().to_string();
+        // 6. Choose an effective max_tokens.
+        let max_tokens = resolve_max_tokens(&resolved);
+
+        // 7. Insert the extraction_runs row.
         let run_id = extraction::insert_extraction_run(
             db,
             &self.document_id,
-            1,                          // pass_number
-            &model_name,
+            1,
+            &resolved.model,
             &schema.version,
-            None,                       // assembled_prompt (per-chunk, not stored here)
-            Some("chunk_extract.md"),   // template_name
-            None,                       // template_hash
-            None,                       // rules_name
-            None,                       // rules_hash
-            None,                       // schema_hash
-            Some(&serde_json::to_value(&schema)?), // schema_content
-            None,                       // temperature
-            Some(max_tokens as i32),    // max_tokens_requested
+            None,
+            Some(resolved.template_file.as_str()),
+            Some(&template_hash),
+            None,
+            None,
+            None,
+            Some(&serde_json::to_value(&schema)?),
+            Some(resolved.temperature),
+            Some(max_tokens as i32),
             pipe_config.admin_instructions.as_deref(),
-            None,                       // prior_context
+            None,
         )
         .await
         .map_err(|e| LlmExtractError::InsertRunFailed {
             message: format!("{e}"),
         })?;
 
-        // ── 11. Cancel check before acquiring semaphore ──
+        // 8. Cancel check before acquiring semaphore.
         if cancel.is_cancelled().await {
             mark_run_failed(db, run_id, "Cancelled before extraction").await;
             return Err("Cancelled before extraction".into());
         }
 
-        // ── 12. Acquire LLM semaphore ──
+        // 9. Acquire LLM semaphore for the duration of the extraction.
         let _llm_permit = context
             .llm_semaphore
             .acquire()
             .await
             .map_err(|_| LlmExtractError::SemaphoreClosed)?;
 
-        // ── 13. Chunked extraction loop ──
-        let mut all_entities: Vec<serde_json::Value> = Vec::new();
-        let mut all_relationships: Vec<serde_json::Value> = Vec::new();
-        let mut chunks_succeeded: i32 = 0;
-        let mut chunks_failed: i32 = 0;
-        let mut total_input_tokens: i64 = 0;
-        let mut total_output_tokens: i64 = 0;
-
-        // Set initial progress so UI shows chunk count immediately.
-        documents::update_processing_progress(
-            db,
-            &self.document_id,
-            "LlmExtract",
-            "Extracting entities...",
-            chunks.len() as i32,
-            0,
-            0,
-            0,
-        )
-        .await
-        .ok();
-
-        for (i, chunk) in chunks.iter().enumerate() {
-            // Cancel check before each chunk
-            if cancel.is_cancelled().await {
-                mark_run_failed(db, run_id, "Cancelled during extraction").await;
-                mark_step_failed(db, step_id, step_start, "Cancelled during extraction").await;
-                return Err("Cancelled during extraction".into());
-            }
-
-            // Progress event
-            progress
-                .report(serde_json::json!({
-                    "status": "extracting",
-                    "chunk": i + 1,
-                    "total": chunks.len(),
-                    "chars": chunk.text.len(),
-                }))
-                .await
-                .ok();
-
-            // Insert chunk record (pending)
-            let chunk_id = extraction::insert_extraction_chunk(db, run_id, i as i32, &chunk.text)
-                .await
-                .map_err(|e| format!("Failed to insert chunk record: {e}"))?;
-
-            let chunk_start = Instant::now();
-
-            // Build prompt for this chunk
-            let prompt = template_text
-                .replace("{{schema_json}}", &schema_json)
-                .replace("{{chunk_text}}", &chunk.text);
-
-            // Call LLM with rate-limit retry
-            let llm_result = call_with_rate_limit_retry(
-                &*context.llm_provider,
-                &prompt,
+        // 10. Dispatch on chunking_mode.
+        let outcome = if resolved.chunking_mode == CHUNKING_MODE_FULL {
+            run_full_document_extraction(RunArgs {
+                db,
+                document_id: &self.document_id,
+                llm_provider: &*llm_provider,
+                template_text: &template_text,
+                schema_json: &schema_json,
+                full_text: &full_text,
                 max_tokens,
                 cancel,
                 progress,
-                i,
-                chunks.len(),
+                run_id,
+                step_id,
+                step_start,
+            })
+            .await?
+        } else {
+            run_chunked_extraction(
+                RunArgs {
+                    db,
+                    document_id: &self.document_id,
+                    llm_provider: &*llm_provider,
+                    template_text: &template_text,
+                    schema_json: &schema_json,
+                    full_text: &full_text,
+                    max_tokens,
+                    cancel,
+                    progress,
+                    run_id,
+                    step_id,
+                    step_start,
+                },
+                &resolved,
             )
-            .await;
+            .await?
+        };
 
-            let chunk_duration_ms = chunk_start.elapsed().as_millis() as i32;
-
-            match llm_result {
-                Ok(response) => {
-                    let input_toks = response.input_tokens.map(|t| t as i32);
-                    let output_toks = response.output_tokens.map(|t| t as i32);
-                    total_input_tokens += response.input_tokens.unwrap_or(0) as i64;
-                    total_output_tokens += response.output_tokens.unwrap_or(0) as i64;
-
-                    // Parse response JSON (with repair fallback)
-                    match parse_chunk_response(&response.text) {
-                        Ok(parsed) => {
-                            let entity_count = parsed["entities"]
-                                .as_array()
-                                .map(|a| a.len())
-                                .unwrap_or(0);
-                            let rel_count = parsed["relationships"]
-                                .as_array()
-                                .map(|a| a.len())
-                                .unwrap_or(0);
-
-                            // Accumulate entities and relationships
-                            if let Some(entities) = parsed["entities"].as_array() {
-                                all_entities.extend(entities.iter().cloned());
-                            }
-                            if let Some(rels) = parsed["relationships"].as_array() {
-                                all_relationships.extend(rels.iter().cloned());
-                            }
-
-                            chunks_succeeded += 1;
-                            extraction::complete_extraction_chunk(
-                                db, chunk_id, "success",
-                                Some(entity_count as i32), Some(rel_count as i32),
-                                input_toks, output_toks,
-                                Some(chunk_duration_ms), None,
-                            )
-                            .await
-                            .ok();
-
-                            tracing::info!(
-                                chunk = i, entities = entity_count, relationships = rel_count,
-                                "Chunk extraction succeeded"
-                            );
-
-                            // Update document progress for UI.
-                            let percent =
-                                ((chunks_succeeded as f64 / chunks.len() as f64) * 100.0) as i32;
-                            documents::update_processing_progress(
-                                db,
-                                &self.document_id,
-                                "LlmExtract",
-                                &format!("Extracting chunk {} of {}...", i + 1, chunks.len()),
-                                chunks.len() as i32,
-                                chunks_succeeded,
-                                all_entities.len() as i32,
-                                percent.min(95),
-                            )
-                            .await
-                            .ok();
-                        }
-                        Err(parse_err) => {
-                            chunks_failed += 1;
-                            tracing::warn!(
-                                chunk = i, error = %parse_err,
-                                "Chunk parse failed after repair attempt"
-                            );
-                            extraction::complete_extraction_chunk(
-                                db, chunk_id, "failed",
-                                None, None, input_toks, output_toks,
-                                Some(chunk_duration_ms),
-                                Some(&format!("Parse error: {parse_err}")),
-                            )
-                            .await
-                            .ok();
-
-                            // Update document progress for UI (even on failure).
-                            let processed = chunks_succeeded + chunks_failed;
-                            let percent =
-                                ((processed as f64 / chunks.len() as f64) * 100.0) as i32;
-                            documents::update_processing_progress(
-                                db,
-                                &self.document_id,
-                                "LlmExtract",
-                                &format!("Extracting chunk {} of {}...", i + 1, chunks.len()),
-                                chunks.len() as i32,
-                                processed,
-                                all_entities.len() as i32,
-                                percent.min(95),
-                            )
-                            .await
-                            .ok();
-                        }
-                    }
-                }
-                Err(call_err) => {
-                    chunks_failed += 1;
-                    tracing::warn!(chunk = i, error = %call_err, "Chunk LLM call failed");
-                    extraction::complete_extraction_chunk(
-                        db, chunk_id, "failed",
-                        None, None, None, None,
-                        Some(chunk_duration_ms),
-                        Some(&format!("{call_err}")),
-                    )
-                    .await
-                    .ok();
-
-                    // Update document progress for UI (even on failure).
-                    let processed = chunks_succeeded + chunks_failed;
-                    let percent =
-                        ((processed as f64 / chunks.len() as f64) * 100.0) as i32;
-                    documents::update_processing_progress(
-                        db,
-                        &self.document_id,
-                        "LlmExtract",
-                        &format!("Extracting chunk {} of {}...", i + 1, chunks.len()),
-                        chunks.len() as i32,
-                        processed,
-                        all_entities.len() as i32,
-                        percent.min(95),
-                    )
-                    .await
-                    .ok();
-                }
-            }
-        }
-
-        // ── 14. Update chunk stats on the run ──
-        extraction::update_run_chunk_stats(
-            db,
-            run_id,
-            chunks.len() as i32,
-            chunks_succeeded,
-            chunks_failed,
-        )
-        .await
-        .ok();
-
-        // ── 15. Check if ALL chunks failed ──
-        if chunks_succeeded == 0 {
-            let msg = format!("All {} chunks failed extraction", chunks.len());
-            mark_run_failed(db, run_id, &msg).await;
-            mark_step_failed(db, step_id, step_start, &msg).await;
-            return Err(msg.into());
-        }
-
-        // ── 16. Build merged result and store ──
+        // 11. Merge and finalize the run.
         let merged = serde_json::json!({
-            "entities": all_entities,
-            "relationships": all_relationships,
+            "entities": outcome.entities,
+            "relationships": outcome.relationships,
         });
 
-        // Compute cost from aggregated token usage across all chunks.
-        let cost_usd = {
-            let cost_in = context
-                .llm_provider
-                .cost_per_input_token()
-                .map(|c| c * total_input_tokens as f64);
-            let cost_out = context
-                .llm_provider
-                .cost_per_output_token()
-                .map(|c| c * total_output_tokens as f64);
-            match (cost_in, cost_out) {
-                (Some(a), Some(b)) => Some(a + b),
-                _ => None,
-            }
-        };
+        let cost_usd = compute_cost(
+            &model_record,
+            outcome.total_input_tokens,
+            outcome.total_output_tokens,
+        );
+
+        if let (Some(total), Some(ok), Some(failed)) = (
+            outcome.chunk_count,
+            outcome.chunks_succeeded,
+            outcome.chunks_failed,
+        ) {
+            extraction::update_run_chunk_stats(db, run_id, total, ok, failed)
+                .await
+                .ok();
+        }
 
         extraction::complete_extraction_run(
             db,
             run_id,
             &merged,
-            Some(total_input_tokens as i32),
-            Some(total_output_tokens as i32),
+            Some(outcome.total_input_tokens as i32),
+            Some(outcome.total_output_tokens as i32),
             cost_usd,
             "COMPLETED",
         )
@@ -602,7 +382,6 @@ impl LlmExtract {
             message: format!("{e}"),
         })?;
 
-        // Store individual entities and relationships.
         let (entity_count, rel_count) =
             extraction::store_entities_and_relationships(db, run_id, &self.document_id, &merged)
                 .await
@@ -610,16 +389,39 @@ impl LlmExtract {
                     message: format!("{e}"),
                 })?;
 
-        // Final progress update — 100%.
+        // 12. Write processing_config JSONB snapshot (best-effort).
+        write_processing_config_snapshot(db, run_id, &resolved, &template_hash).await;
+
+        // 13. Final progress + step complete.
         documents::update_processing_progress(
             db,
             &self.document_id,
             "LlmExtract",
             "Extraction complete",
-            chunks.len() as i32,
-            chunks.len() as i32,
+            outcome.chunk_count.unwrap_or(1),
+            outcome.chunk_count.unwrap_or(1),
             entity_count as i32,
             100,
+        )
+        .await
+        .ok();
+
+        steps::record_step_complete(
+            db,
+            step_id,
+            step_start.elapsed().as_secs_f64(),
+            &serde_json::json!({
+                "entity_count": entity_count,
+                "relationship_count": rel_count,
+                "chunk_count": outcome.chunk_count,
+                "chunks_succeeded": outcome.chunks_succeeded,
+                "chunks_failed": outcome.chunks_failed,
+                "input_tokens": outcome.total_input_tokens,
+                "output_tokens": outcome.total_output_tokens,
+                "profile": resolved.profile_name,
+                "model": resolved.model,
+                "chunking_mode": resolved.chunking_mode,
+            }),
         )
         .await
         .ok();
@@ -628,205 +430,491 @@ impl LlmExtract {
             document_id = %self.document_id,
             entities = entity_count,
             relationships = rel_count,
-            chunks_succeeded,
-            chunks_failed,
-            total_input_tokens,
-            total_output_tokens,
-            "Chunked extraction complete"
+            chunks_succeeded = ?outcome.chunks_succeeded,
+            chunks_failed = ?outcome.chunks_failed,
+            total_input_tokens = outcome.total_input_tokens,
+            total_output_tokens = outcome.total_output_tokens,
+            profile = %resolved.profile_name,
+            chunking_mode = %resolved.chunking_mode,
+            "Extraction complete"
         );
 
-        // ── 17. Record step complete ──
-        steps::record_step_complete(
-            db,
-            step_id,
-            step_start.elapsed().as_secs_f64(),
-            &serde_json::json!({
-                "entity_count": entity_count,
-                "relationship_count": rel_count,
-                "chunk_count": chunks.len(),
-                "chunks_succeeded": chunks_succeeded,
-                "chunks_failed": chunks_failed,
-                "input_tokens": total_input_tokens,
-                "output_tokens": total_output_tokens,
-            }),
-        )
-        .await
-        .ok();
-
-        // ── 18. Advance to Verify ──
         Ok(StepResult::Next(DocProcessing::Verify(Verify {
             document_id: self.document_id.clone(),
         })))
     }
 }
 
-// ── Helpers: rate-limit retry and JSON repair ───────────────────
+// ── Shared run arguments ────────────────────────────────────────
 
-/// Call the LLM provider with rate-limit-aware retry.
+/// Arguments shared by the full-document and chunked extraction paths.
 ///
-/// On `PipelineError::RateLimited`, sleeps exactly `retry_after_secs` and retries.
-/// Max `MAX_RETRIES_PER_CHUNK` attempts. Any other error returns immediately.
-/// Emits progress events during waits so the UI shows status.
-async fn call_with_rate_limit_retry(
-    provider: &dyn LlmProvider,
-    prompt: &str,
+/// Grouping these into a single struct keeps the sub-function signatures
+/// readable and lets the orchestrator build the bundle once.
+struct RunArgs<'a> {
+    db: &'a PgPool,
+    document_id: &'a str,
+    llm_provider: &'a dyn LlmProvider,
+    template_text: &'a str,
+    schema_json: &'a str,
+    full_text: &'a str,
     max_tokens: u32,
-    cancel: &CancellationToken,
-    progress: &ProgressReporter,
-    chunk_idx: usize,
-    chunk_total: usize,
-) -> Result<LlmResponse, PipelineError> {
-    let mut attempt = 0u32;
-    loop {
-        match provider.invoke(prompt, max_tokens).await {
-            Ok(response) => return Ok(response),
-            Err(PipelineError::RateLimited { retry_after_secs }) => {
-                attempt += 1;
-                if attempt > MAX_RETRIES_PER_CHUNK {
-                    return Err(PipelineError::LlmProvider(format!(
-                        "chunk {}/{}: exhausted {} rate-limit retries",
-                        chunk_idx + 1,
-                        chunk_total,
-                        MAX_RETRIES_PER_CHUNK
-                    )));
-                }
+    cancel: &'a CancellationToken,
+    progress: &'a ProgressReporter,
+    run_id: i32,
+    step_id: i32,
+    step_start: Instant,
+}
 
-                progress
-                    .report(serde_json::json!({
-                        "status": "rate_limited",
-                        "chunk": chunk_idx + 1,
-                        "total": chunk_total,
-                        "retry_after_secs": retry_after_secs,
-                        "attempt": attempt,
-                    }))
-                    .await
-                    .ok();
+// ── Full-document extraction ────────────────────────────────────
 
-                tracing::warn!(
-                    chunk = chunk_idx,
-                    retry_after_secs,
-                    attempt,
-                    "Rate limited, sleeping before retry"
-                );
+/// Perform a single-call extraction on the full document text.
+///
+/// Used when the profile's `chunking_mode` is `"full"`. Produces exactly
+/// one LLM call with `{{document_text}}` substituted into the template.
+/// No chunk records are written — the extraction_runs row is the only
+/// audit record for this path.
+async fn run_full_document_extraction(
+    args: RunArgs<'_>,
+) -> Result<ExtractionOutcome, Box<dyn Error + Send + Sync>> {
+    args.progress
+        .report(serde_json::json!({
+            "status": "extracting",
+            "mode": "full",
+        }))
+        .await
+        .ok();
 
-                // Sleep with cancel awareness. Poll is_cancelled every second.
-                let mut remaining = retry_after_secs;
-                while remaining > 0 {
-                    tokio::time::sleep(Duration::from_secs(1)).await;
-                    remaining -= 1;
-                    if cancel.is_cancelled().await {
-                        return Err(PipelineError::LlmProvider(
-                            "Cancelled during rate-limit wait".into(),
-                        ));
+    documents::update_processing_progress(
+        args.db,
+        args.document_id,
+        "LlmExtract",
+        "Extracting (full document)...",
+        1,
+        0,
+        0,
+        5,
+    )
+    .await
+    .ok();
+
+    let prompt = args
+        .template_text
+        .replace("{{schema_json}}", args.schema_json)
+        .replace("{{document_text}}", args.full_text);
+
+    let response = call_with_rate_limit_retry(
+        args.llm_provider,
+        &prompt,
+        args.max_tokens,
+        args.cancel,
+        args.progress,
+        0,
+        1,
+    )
+    .await
+    .map_err(|e| {
+        LlmExtractError::LlmCallFailed {
+            source: e,
+        }
+    })?;
+
+    let parsed = parse_chunk_response(&response.text).map_err(|e| -> Box<dyn Error + Send + Sync> {
+        let fail_msg = format!("Full-document parse failed: {e}");
+        Box::<dyn Error + Send + Sync>::from(fail_msg)
+    });
+    let parsed = match parsed {
+        Ok(v) => v,
+        Err(e) => {
+            mark_run_failed(args.db, args.run_id, &format!("{e}")).await;
+            mark_step_failed(args.db, args.step_id, args.step_start, &format!("{e}")).await;
+            return Err(e);
+        }
+    };
+
+    let entities = parsed["entities"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    let relationships = parsed["relationships"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+
+    Ok(ExtractionOutcome {
+        entities,
+        relationships,
+        total_input_tokens: response.input_tokens.unwrap_or(0) as i64,
+        total_output_tokens: response.output_tokens.unwrap_or(0) as i64,
+        chunk_count: None,
+        chunks_succeeded: None,
+        chunks_failed: None,
+    })
+}
+
+// ── Chunked extraction ──────────────────────────────────────────
+
+/// Perform extraction over text chunks with per-chunk observability.
+///
+/// Splits the full document text using `FixedSizeSplitter` with the
+/// resolved chunk_size / chunk_overlap, then iterates each chunk with
+/// rate-limit retry, JSON repair fallback, and per-chunk progress
+/// reporting. A chunk failure is logged and counted but does not abort
+/// the run unless *every* chunk fails.
+async fn run_chunked_extraction(
+    args: RunArgs<'_>,
+    resolved: &ResolvedConfig,
+) -> Result<ExtractionOutcome, Box<dyn Error + Send + Sync>> {
+    let chunk_size = resolved.chunk_size.unwrap_or(8000).max(1) as usize;
+    let chunk_overlap = resolved.chunk_overlap.unwrap_or(500).max(0) as usize;
+    let chunks = FixedSizeSplitter::with_config(chunk_size, chunk_overlap).split(args.full_text);
+    if chunks.is_empty() {
+        return Err("Splitter produced zero chunks from non-empty text".into());
+    }
+    tracing::info!(
+        document_id = %args.document_id,
+        chunk_count = chunks.len(),
+        full_text_len = args.full_text.len(),
+        chunk_size,
+        chunk_overlap,
+        "Split document into chunks for extraction"
+    );
+
+    let mut all_entities: Vec<serde_json::Value> = Vec::new();
+    let mut all_relationships: Vec<serde_json::Value> = Vec::new();
+    let mut chunks_succeeded: i32 = 0;
+    let mut chunks_failed: i32 = 0;
+    let mut total_input_tokens: i64 = 0;
+    let mut total_output_tokens: i64 = 0;
+
+    documents::update_processing_progress(
+        args.db,
+        args.document_id,
+        "LlmExtract",
+        "Extracting entities...",
+        chunks.len() as i32,
+        0,
+        0,
+        0,
+    )
+    .await
+    .ok();
+
+    for (i, chunk) in chunks.iter().enumerate() {
+        if args.cancel.is_cancelled().await {
+            mark_run_failed(args.db, args.run_id, "Cancelled during extraction").await;
+            mark_step_failed(
+                args.db,
+                args.step_id,
+                args.step_start,
+                "Cancelled during extraction",
+            )
+            .await;
+            return Err("Cancelled during extraction".into());
+        }
+
+        args.progress
+            .report(serde_json::json!({
+                "status": "extracting",
+                "chunk": i + 1,
+                "total": chunks.len(),
+                "chars": chunk.text.len(),
+            }))
+            .await
+            .ok();
+
+        let chunk_id =
+            extraction::insert_extraction_chunk(args.db, args.run_id, i as i32, &chunk.text)
+                .await
+                .map_err(|e| format!("Failed to insert chunk record: {e}"))?;
+
+        let chunk_start = Instant::now();
+
+        let prompt = args
+            .template_text
+            .replace("{{schema_json}}", args.schema_json)
+            .replace("{{chunk_text}}", &chunk.text);
+
+        let llm_result = call_with_rate_limit_retry(
+            args.llm_provider,
+            &prompt,
+            args.max_tokens,
+            args.cancel,
+            args.progress,
+            i,
+            chunks.len(),
+        )
+        .await;
+
+        let chunk_duration_ms = chunk_start.elapsed().as_millis() as i32;
+
+        match llm_result {
+            Ok(response) => {
+                let input_toks = response.input_tokens.map(|t| t as i32);
+                let output_toks = response.output_tokens.map(|t| t as i32);
+                total_input_tokens += response.input_tokens.unwrap_or(0) as i64;
+                total_output_tokens += response.output_tokens.unwrap_or(0) as i64;
+
+                match parse_chunk_response(&response.text) {
+                    Ok(parsed) => {
+                        let entity_count = parsed["entities"]
+                            .as_array()
+                            .map(|a| a.len())
+                            .unwrap_or(0);
+                        let rel_count = parsed["relationships"]
+                            .as_array()
+                            .map(|a| a.len())
+                            .unwrap_or(0);
+
+                        if let Some(entities) = parsed["entities"].as_array() {
+                            all_entities.extend(entities.iter().cloned());
+                        }
+                        if let Some(rels) = parsed["relationships"].as_array() {
+                            all_relationships.extend(rels.iter().cloned());
+                        }
+
+                        chunks_succeeded += 1;
+                        extraction::complete_extraction_chunk(
+                            args.db,
+                            chunk_id,
+                            "success",
+                            Some(entity_count as i32),
+                            Some(rel_count as i32),
+                            input_toks,
+                            output_toks,
+                            Some(chunk_duration_ms),
+                            None,
+                        )
+                        .await
+                        .ok();
+
+                        tracing::info!(
+                            chunk = i,
+                            entities = entity_count,
+                            relationships = rel_count,
+                            "Chunk extraction succeeded"
+                        );
+
+                        let percent =
+                            ((chunks_succeeded as f64 / chunks.len() as f64) * 100.0) as i32;
+                        documents::update_processing_progress(
+                            args.db,
+                            args.document_id,
+                            "LlmExtract",
+                            &format!("Extracting chunk {} of {}...", i + 1, chunks.len()),
+                            chunks.len() as i32,
+                            chunks_succeeded,
+                            all_entities.len() as i32,
+                            percent.min(95),
+                        )
+                        .await
+                        .ok();
+                    }
+                    Err(parse_err) => {
+                        chunks_failed += 1;
+                        tracing::warn!(
+                            chunk = i,
+                            error = %parse_err,
+                            "Chunk parse failed after repair attempt"
+                        );
+                        extraction::complete_extraction_chunk(
+                            args.db,
+                            chunk_id,
+                            "failed",
+                            None,
+                            None,
+                            input_toks,
+                            output_toks,
+                            Some(chunk_duration_ms),
+                            Some(&format!("Parse error: {parse_err}")),
+                        )
+                        .await
+                        .ok();
+
+                        let processed = chunks_succeeded + chunks_failed;
+                        let percent = ((processed as f64 / chunks.len() as f64) * 100.0) as i32;
+                        documents::update_processing_progress(
+                            args.db,
+                            args.document_id,
+                            "LlmExtract",
+                            &format!("Extracting chunk {} of {}...", i + 1, chunks.len()),
+                            chunks.len() as i32,
+                            processed,
+                            all_entities.len() as i32,
+                            percent.min(95),
+                        )
+                        .await
+                        .ok();
                     }
                 }
-                // Loop continues — retry the call
             }
-            Err(other) => return Err(other),
+            Err(call_err) => {
+                chunks_failed += 1;
+                tracing::warn!(chunk = i, error = %call_err, "Chunk LLM call failed");
+                extraction::complete_extraction_chunk(
+                    args.db,
+                    chunk_id,
+                    "failed",
+                    None,
+                    None,
+                    None,
+                    None,
+                    Some(chunk_duration_ms),
+                    Some(&format!("{call_err}")),
+                )
+                .await
+                .ok();
+
+                let processed = chunks_succeeded + chunks_failed;
+                let percent = ((processed as f64 / chunks.len() as f64) * 100.0) as i32;
+                documents::update_processing_progress(
+                    args.db,
+                    args.document_id,
+                    "LlmExtract",
+                    &format!("Extracting chunk {} of {}...", i + 1, chunks.len()),
+                    chunks.len() as i32,
+                    processed,
+                    all_entities.len() as i32,
+                    percent.min(95),
+                )
+                .await
+                .ok();
+            }
         }
     }
-}
 
-/// Parse an LLM response as a JSON Value containing entities and relationships.
-///
-/// Tries direct `serde_json` parse first. On failure, strips markdown fences
-/// and uses `llm_json::repair_json` for repair, then retries parse. In either
-/// path, the parsed result must be a JSON object — see [`ensure_object`].
-fn parse_chunk_response(text: &str) -> Result<serde_json::Value, String> {
-    let stripped = strip_markdown_fences(text);
-
-    // Direct parse.
-    if let Ok(val) = serde_json::from_str::<serde_json::Value>(&stripped) {
-        return ensure_object(val);
+    if chunks_succeeded == 0 {
+        let msg = format!("All {} chunks failed extraction", chunks.len());
+        mark_run_failed(args.db, args.run_id, &msg).await;
+        mark_step_failed(args.db, args.step_id, args.step_start, &msg).await;
+        return Err(msg.into());
     }
 
-    // Repair + parse.
-    match llm_json::repair_json(&stripped, &Default::default()) {
-        Ok(repaired) => {
-            let val: serde_json::Value = serde_json::from_str(&repaired)
-                .map_err(|e| format!("JSON repair succeeded but parse still failed: {e}"))?;
-            ensure_object(val)
-        }
-        Err(repair_err) => {
-            let preview = &stripped[..stripped.len().min(200)];
-            Err(format!(
-                "JSON parse and repair both failed. Repair error: {repair_err}. Preview: {preview}"
-            ))
-        }
-    }
+    Ok(ExtractionOutcome {
+        entities: all_entities,
+        relationships: all_relationships,
+        total_input_tokens,
+        total_output_tokens,
+        chunk_count: Some(chunks.len() as i32),
+        chunks_succeeded: Some(chunks_succeeded),
+        chunks_failed: Some(chunks_failed),
+    })
 }
 
-/// Gate parsed LLM output on a top-level JSON object.
-///
-/// `llm_json::repair_json` is aggressively permissive — it coerces arbitrary
-/// prose into a valid JSON string primitive rather than failing. Without this
-/// check, `parsed["entities"].as_array()` silently returns `None` downstream
-/// and the chunk counts as a zero-entity success instead of a parse failure.
-fn ensure_object(val: serde_json::Value) -> Result<serde_json::Value, String> {
-    if !val.is_object() {
-        let kind = match &val {
-            serde_json::Value::String(_) => "string",
-            serde_json::Value::Array(_) => "array",
-            serde_json::Value::Number(_) => "number",
-            serde_json::Value::Bool(_) => "bool",
-            serde_json::Value::Null => "null",
-            _ => "unknown",
-        };
-        return Err(format!(
-            "LLM returned valid JSON but not an object (got {kind})"
-        ));
-    }
-    Ok(val)
-}
+// ── Small helpers ───────────────────────────────────────────────
 
-/// Strip leading/trailing markdown code fences.
-fn strip_markdown_fences(text: &str) -> String {
-    let t = text.trim();
-    let t = t
-        .strip_prefix("```json")
-        .or_else(|| t.strip_prefix("```"))
-        .unwrap_or(t);
-    let t = t.strip_suffix("```").unwrap_or(t);
-    t.trim().to_string()
-}
-
-// ── Helpers: best-effort failure recording ──────────────────────
-
-/// Log-and-ignore writer used when the step is about to return Err: we want
-/// the DB record to reflect the failure but we don't want a secondary write
-/// error to mask the primary cause.
-async fn mark_run_failed(db: &PgPool, run_id: i32, reason: &str) {
-    if let Err(e) = extraction::complete_extraction_run(
-        db,
-        run_id,
-        &serde_json::json!({"error": reason}),
-        None,
-        None,
-        None,
-        "FAILED",
-    )
-    .await
-    {
-        tracing::warn!(run_id, error = %e, reason, "mark_run_failed: DB write failed (non-fatal)");
-    }
-}
-
-async fn mark_step_failed(
+/// True if a COMPLETED extraction_run already exists for this document.
+async fn extraction_already_complete(
     db: &PgPool,
-    step_id: i32,
-    step_start: std::time::Instant,
-    error_message: &str,
-) {
-    if let Err(e) = steps::record_step_failure(
-        db,
-        step_id,
-        step_start.elapsed().as_secs_f64(),
-        error_message,
+    document_id: &str,
+) -> Result<bool, sqlx::Error> {
+    let existing: Option<i32> = sqlx::query_scalar(
+        "SELECT id FROM extraction_runs \
+         WHERE document_id = $1 AND status = 'COMPLETED' \
+         ORDER BY id DESC LIMIT 1",
     )
-    .await
-    {
-        tracing::warn!(step_id, error = %e, "mark_step_failed: DB write failed (non-fatal)");
+    .bind(document_id)
+    .fetch_optional(db)
+    .await?;
+    Ok(existing.is_some())
+}
+
+/// Fall back to deriving a profile name from the schema filename.
+///
+/// Legacy rows in `pipeline_config` may not have a `profile_name` set yet.
+/// `complaint_v2.yaml` → `complaint`. This keeps migration-era documents
+/// processable without forcing a backfill.
+fn default_profile_name_from_schema(schema_file: &str) -> String {
+    schema_file
+        .trim_end_matches(".yaml")
+        .trim_end_matches("_v2")
+        .to_string()
+}
+
+/// Resolve an effective `max_tokens` for LLM calls.
+///
+/// Priority: `ResolvedConfig.max_tokens` (from profile) → `LLM_MAX_TOKENS`
+/// env var → [`DEFAULT_CHUNK_MAX_TOKENS`]. Values ≤ 0 in the profile are
+/// treated as unset.
+fn resolve_max_tokens(resolved: &ResolvedConfig) -> u32 {
+    if resolved.max_tokens > 0 {
+        return resolved.max_tokens as u32;
     }
+    std::env::var("LLM_MAX_TOKENS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(DEFAULT_CHUNK_MAX_TOKENS)
+}
+
+/// Compute the total cost in USD from token counts and model rates.
+///
+/// Returns `None` if either rate is missing on the model record — the
+/// downstream UI treats `None` as "unknown cost" rather than zero.
+fn compute_cost(
+    model: &crate::repositories::pipeline_repository::LlmModelRecord,
+    input_tokens: i64,
+    output_tokens: i64,
+) -> Option<f64> {
+    let cost_in = model
+        .cost_per_input_token
+        .map(|c| c * input_tokens as f64);
+    let cost_out = model
+        .cost_per_output_token
+        .map(|c| c * output_tokens as f64);
+    match (cost_in, cost_out) {
+        (Some(a), Some(b)) => Some(a + b),
+        _ => None,
+    }
+}
+
+/// Write the resolved configuration snapshot to
+/// `extraction_runs.processing_config`.
+///
+/// Best-effort: a snapshot-write failure is logged but does not fail
+/// extraction — the merged entities have already been committed.
+async fn write_processing_config_snapshot(
+    db: &PgPool,
+    run_id: i32,
+    resolved: &ResolvedConfig,
+    template_hash: &str,
+) {
+    let mut resolved_with_hash = resolved.clone();
+    resolved_with_hash.template_hash = Some(template_hash.to_string());
+
+    let config_json = match serde_json::to_value(&resolved_with_hash) {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!(
+                run_id,
+                error = %e,
+                "Failed to serialize resolved config for snapshot (non-fatal)"
+            );
+            return;
+        }
+    };
+
+    if let Err(e) = sqlx::query("UPDATE extraction_runs SET processing_config = $1 WHERE id = $2")
+        .bind(&config_json)
+        .bind(run_id)
+        .execute(db)
+        .await
+    {
+        tracing::warn!(
+            run_id,
+            error = %e,
+            "Failed to write processing_config snapshot (non-fatal)"
+        );
+    }
+}
+
+/// SHA-256 hex digest of a UTF-8 string.
+///
+/// Used to fingerprint the loaded prompt template so the audit snapshot
+/// can prove *exactly* which template version produced a given run.
+fn sha2_hex(input: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(input.as_bytes());
+    format!("{:x}", hasher.finalize())
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -836,8 +924,6 @@ async fn mark_step_failed(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // ── Error discipline ──────────────────────────────────────────
 
     #[test]
     fn llm_extract_error_display_g6_compliance() {
@@ -898,9 +984,6 @@ mod tests {
 
     #[test]
     fn step_defaults_are_trait_defaults() {
-        // This test enforces the no-hardcoded-values discipline. If a future
-        // change sets these constants to numeric values, this test MUST fail
-        // until the P-CONFIG-refactor framework fix lands.
         assert_eq!(
             <LlmExtract as Step<DocProcessing>>::DEFAULT_RETRY_LIMIT,
             0
@@ -920,79 +1003,47 @@ mod tests {
         assert!(e.to_string().contains('x'));
     }
 
-    /// Compile-only reference to the new repository helper — catches any
-    /// module-path drift (e.g., if the helper is ever moved). No runtime
-    /// execution, no DB.
+    /// Compile-only reference catches module-path drift for the extraction
+    /// store helper. No runtime execution, no DB.
     #[test]
     fn llm_extract_store_path_compiles() {
         let _f = crate::repositories::pipeline_repository::extraction::store_entities_and_relationships;
     }
 
-    // ── strip_markdown_fences ──
-
     #[test]
-    fn test_strip_fences_json_block() {
-        let input = "```json\n{\"entities\":[]}\n```";
-        assert_eq!(strip_markdown_fences(input), "{\"entities\":[]}");
+    fn default_profile_name_strips_yaml_and_v2() {
+        assert_eq!(default_profile_name_from_schema("complaint_v2.yaml"), "complaint");
+        assert_eq!(default_profile_name_from_schema("brief.yaml"), "brief");
+        assert_eq!(default_profile_name_from_schema("custom"), "custom");
     }
 
     #[test]
-    fn test_strip_fences_plain_block() {
-        let input = "```\n{\"entities\":[]}\n```";
-        assert_eq!(strip_markdown_fences(input), "{\"entities\":[]}");
+    fn sha2_hex_is_deterministic_and_64_chars() {
+        let a = sha2_hex("hello");
+        let b = sha2_hex("hello");
+        assert_eq!(a, b);
+        assert_eq!(a.len(), 64);
+        assert_ne!(a, sha2_hex("hello!"));
     }
 
     #[test]
-    fn test_strip_fences_no_fences() {
-        let input = "{\"entities\":[]}";
-        assert_eq!(strip_markdown_fences(input), "{\"entities\":[]}");
+    fn resolve_max_tokens_prefers_profile_value() {
+        let r = ResolvedConfig {
+            profile_name: "p".into(),
+            model: "m".into(),
+            template_file: "t".into(),
+            template_hash: None,
+            system_prompt_file: None,
+            schema_file: "s".into(),
+            chunking_mode: "chunked".into(),
+            chunk_size: None,
+            chunk_overlap: None,
+            max_tokens: 12345,
+            temperature: 0.0,
+            auto_approve_grounded: true,
+            run_pass2: false,
+            overrides_applied: vec![],
+        };
+        assert_eq!(resolve_max_tokens(&r), 12345);
     }
-
-    #[test]
-    fn test_strip_fences_with_whitespace() {
-        let input = "  \n```json\n{\"a\":1}\n```\n  ";
-        assert_eq!(strip_markdown_fences(input), "{\"a\":1}");
-    }
-
-    // ── parse_chunk_response ──
-
-    #[test]
-    fn test_parse_valid_json() {
-        let input =
-            r#"{"entities": [{"id": "0", "entity_type": "Party"}], "relationships": []}"#;
-        let result = parse_chunk_response(input);
-        assert!(result.is_ok());
-        let val = result.unwrap();
-        assert!(val["entities"].is_array());
-        assert_eq!(val["entities"].as_array().unwrap().len(), 1);
-    }
-
-    #[test]
-    fn test_parse_fenced_json() {
-        let input = "```json\n{\"entities\": [], \"relationships\": []}\n```";
-        let result = parse_chunk_response(input);
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_parse_repairable_json() {
-        // Trailing comma is invalid JSON but llm_json can repair it.
-        let input =
-            r#"{"entities": [{"id": "0", "entity_type": "Party"},], "relationships": []}"#;
-        let result = parse_chunk_response(input);
-        assert!(result.is_ok(), "Expected repair to succeed, got: {:?}", result);
-    }
-
-    #[test]
-    fn test_parse_garbage_fails() {
-        let input = "This is not JSON at all, just random text from the LLM.";
-        let result = parse_chunk_response(input);
-        assert!(result.is_err());
-    }
-
-    // TODO: retry logic tests (call_with_rate_limit_retry) require a
-    // constructible ProgressReporter, which needs a real PgPool (from the
-    // external colossus-pipeline crate — no test constructor available).
-    // Deferred to integration testing where DATABASE_URL is provided.
-    // See CC_CHUNKED_LLM_EXTRACT_STEP2C.md FALLBACK NOTE.
 }

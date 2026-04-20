@@ -19,6 +19,8 @@ pub mod users;
 pub use extraction::*;
 pub use models::LlmModelRecord;
 
+use crate::pipeline::config::PipelineConfigOverrides;
+
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 
@@ -335,6 +337,60 @@ pub async fn get_pipeline_config(
     .fetch_optional(pool)
     .await?;
     Ok(row)
+}
+
+/// Row-shaped helper used only by [`get_pipeline_config_overrides`].
+///
+/// The nullable override columns have an awkward 8-tuple shape; a named
+/// struct keeps the type signature readable and avoids the
+/// `clippy::type_complexity` lint on anonymous tuples.
+#[derive(sqlx::FromRow)]
+struct PipelineConfigOverridesRow {
+    profile_name: Option<String>,
+    template_file: Option<String>,
+    system_prompt_file: Option<String>,
+    chunking_mode: Option<String>,
+    chunk_size: Option<i32>,
+    chunk_overlap: Option<i32>,
+    temperature: Option<f64>,
+    run_pass2: Option<bool>,
+}
+
+/// Read per-document override columns from `pipeline_config`.
+///
+/// Returns a [`PipelineConfigOverrides`] populated from the nullable columns
+/// added by migration `20260420_config_system.sql`. Each field is `Option` —
+/// `None` means "use the profile default."
+///
+/// If no `pipeline_config` row exists for the document, returns
+/// `PipelineConfigOverrides::default()` (all `None`). Callers can then
+/// still resolve against the profile without a separate existence check.
+pub async fn get_pipeline_config_overrides(
+    db: &PgPool,
+    document_id: &str,
+) -> Result<PipelineConfigOverrides, PipelineRepoError> {
+    let row: Option<PipelineConfigOverridesRow> = sqlx::query_as(
+        "SELECT profile_name, template_file, system_prompt_file, chunking_mode, \
+                chunk_size, chunk_overlap, temperature::float8 AS temperature, run_pass2 \
+         FROM pipeline_config WHERE document_id = $1",
+    )
+    .bind(document_id)
+    .fetch_optional(db)
+    .await?;
+
+    Ok(match row {
+        Some(r) => PipelineConfigOverrides {
+            profile_name: r.profile_name,
+            template_file: r.template_file,
+            system_prompt_file: r.system_prompt_file,
+            chunking_mode: r.chunking_mode,
+            chunk_size: r.chunk_size,
+            chunk_overlap: r.chunk_overlap,
+            temperature: r.temperature,
+            run_pass2: r.run_pass2,
+        },
+        None => PipelineConfigOverrides::default(),
+    })
 }
 
 /// Update pipeline config with extraction overrides so the next run uses the same settings.

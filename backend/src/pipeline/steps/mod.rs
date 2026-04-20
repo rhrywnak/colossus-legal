@@ -11,4 +11,5 @@ pub mod extract_text;
 pub mod index;
 pub mod ingest;
 pub mod llm_extract;
+pub mod llm_extract_helpers;
 pub mod verify;
