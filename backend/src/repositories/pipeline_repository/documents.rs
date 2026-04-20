@@ -269,6 +269,15 @@ pub async fn delete_all_document_data(
         .execute(&mut *txn)
         .await?;
 
+    // Pipeline jobs — no FK to documents, but `job_key` holds the
+    // document_id. Failing to clear these strands orphaned rows behind
+    // (usually a FAILED job) and prevents re-uploading the same document
+    // because the old job blocks the new insert.
+    sqlx::query("DELETE FROM pipeline_jobs WHERE job_key = $1")
+        .bind(document_id)
+        .execute(&mut *txn)
+        .await?;
+
     // Document row last — all FK children are gone, this will succeed.
     sqlx::query("DELETE FROM documents WHERE id = $1")
         .bind(document_id)
