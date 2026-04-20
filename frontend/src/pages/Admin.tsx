@@ -4,6 +4,11 @@ import AdminIndex from "../components/admin/AdminIndex";
 import AdminChats from "../components/admin/AdminChats";
 import AdminAudit from "../components/admin/AdminAudit";
 import AdminMetrics from "../components/admin/AdminMetrics";
+import AdminModels from "../components/admin/AdminModels";
+import AdminProfiles from "../components/admin/AdminProfiles";
+import AdminPrompts from "../components/admin/AdminPrompts";
+import AdminSchemas from "../components/admin/AdminSchemas";
+import AdminSystemPrompts from "../components/admin/AdminSystemPrompts";
 import { AdminStatusResponse, getAdminStatus } from "../services/admin";
 
 // ── Styles ────────────────────────────────────────────────────────────────────
@@ -44,13 +49,27 @@ const deniedStyle: React.CSSProperties = {
   fontSize: "0.9rem",
 };
 
-type Tab = "metrics" | "indexing" | "chats" | "audit";
+type Tab =
+  | "metrics"
+  | "indexing"
+  | "chats"
+  | "audit"
+  | "models"
+  | "profiles"
+  | "prompts"
+  | "schemas"
+  | "systemPrompts";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "metrics", label: "Metrics" },
   { id: "indexing", label: "Indexing" },
   { id: "chats", label: "Chats" },
   { id: "audit", label: "Audit" },
+  { id: "models", label: "Models" },
+  { id: "profiles", label: "Profiles" },
+  { id: "prompts", label: "Prompts" },
+  { id: "schemas", label: "Schemas" },
+  { id: "systemPrompts", label: "System Prompts" },
 ];
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -158,6 +177,11 @@ const Admin: React.FC = () => {
       {activeTab === "indexing" && <AdminIndex />}
       {activeTab === "chats" && <AdminChats />}
       {activeTab === "audit" && <AdminAudit />}
+      {activeTab === "models" && <AdminModels />}
+      {activeTab === "profiles" && <AdminProfiles />}
+      {activeTab === "prompts" && <AdminPrompts />}
+      {activeTab === "schemas" && <AdminSchemas />}
+      {activeTab === "systemPrompts" && <AdminSystemPrompts />}
     </div>
   );
 };
