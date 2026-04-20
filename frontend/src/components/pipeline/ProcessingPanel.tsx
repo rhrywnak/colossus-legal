@@ -142,7 +142,46 @@ const ProcessingPanel: React.FC<ProcessingPanelProps> = ({
 
   // ── Render per status_group ────────────────────────────────────
 
-  const renderProcessing = () => (
+  // Fallback render used when a pipeline step has already failed but the
+  // document row hasn't yet transitioned to FAILED status. In that gap,
+  // status_group is still "processing" but showing a Cancel button is
+  // wrong — the job is already dead. A proper full fix would have the
+  // documents list query LEFT JOIN the most-recent failed step so we can
+  // show its error message here too; for now we render whatever doc-level
+  // error fields exist plus a note that details may still be settling.
+  const renderProcessingButFailed = () => (
+    <div style={bodyStyle}>
+      <div style={{ fontSize: "0.95rem", fontWeight: 600, color: "#dc2626", marginBottom: "0.75rem" }}>
+        Processing Failed
+      </div>
+      <div style={suggestionBox}>
+        A pipeline step failed. Full error details will appear once the job
+        finalizes — refresh in a moment, or click Re-process to try again.
+      </div>
+      {doc.failed_step && (
+        <div style={summaryLine}>
+          Failed at: <strong>{doc.failed_step}</strong>
+        </div>
+      )}
+      {doc.error_message && (
+        <div style={{ ...summaryLine, color: "#dc2626" }}>
+          Error: {doc.error_message}
+        </div>
+      )}
+      <div style={{ marginTop: "1rem" }}>
+        <button style={btnPrimary(!busy)} disabled={busy} onClick={() => setShowReprocess(true)}>
+          {busy ? "Starting..." : "Re-process"}
+        </button>
+      </div>
+    </div>
+  );
+
+  const renderProcessing = () => {
+    // Detect the failure-transition gap described on renderProcessingButFailed.
+    if (doc.has_failed_steps) {
+      return renderProcessingButFailed();
+    }
+    return (
     <div style={bodyStyle}>
       <div style={{ fontSize: "0.95rem", fontWeight: 600, color: "#2563eb", marginBottom: "0.75rem" }}>
         Processing...
@@ -186,7 +225,8 @@ const ProcessingPanel: React.FC<ProcessingPanelProps> = ({
         </button>
       </div>
     </div>
-  );
+    );
+  };
 
   const renderCompleted = () => (
     <div style={bodyStyle}>

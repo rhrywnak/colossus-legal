@@ -5,10 +5,10 @@
  * failed, cancelled). Each status_group gets a distinct layout.
  */
 import React, { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import DocumentStatusBadge from "../pipeline/DocumentStatusBadge";
 import ReprocessDialog from "../pipeline/ReprocessDialog";
-import { PipelineDocument, processDocument, cancelProcessing } from "../../services/pipelineApi";
+import { PipelineDocument, cancelProcessing } from "../../services/pipelineApi";
 
 interface DocumentCardProps {
   doc: PipelineDocument;
@@ -57,14 +57,19 @@ const smallBtn = (bg: string): React.CSSProperties => ({
 const DocumentCard: React.FC<DocumentCardProps> = ({ doc, isAdmin, onRefresh }) => {
   const status = doc.status_group ?? "new";
   const [showReprocess, setShowReprocess] = useState(false);
+  const navigate = useNavigate();
 
   // -- Action helpers (stop propagation so the Link wrapper isn't triggered) --
 
-  const handleProcess = async (e: React.MouseEvent) => {
+  /**
+   * Navigate to the document's Process tab instead of kicking off
+   * processing from the card. This lets the user review the Configuration
+   * Panel (profile, model, overrides) before actually running extraction.
+   */
+  const handleProcess = (e: React.MouseEvent) => {
     e.stopPropagation();
     e.preventDefault();
-    await processDocument(doc.id);
-    onRefresh();
+    navigate(`/documents/${doc.id}?tab=processing`);
   };
 
   const handleCancel = async (e: React.MouseEvent) => {
@@ -87,7 +92,7 @@ const DocumentCard: React.FC<DocumentCardProps> = ({ doc, isAdmin, onRefresh }) 
             </div>
             {isAdmin && (
               <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-                <button style={smallBtn("#2563eb")} onClick={handleProcess}>Process</button>
+                <button style={smallBtn("#2563eb")} onClick={handleProcess}>Configure</button>
                 <Link
                   to={`/documents/${doc.id}`}
                   style={{ ...metaText, fontSize: "0.72rem", color: "#dc2626", textDecoration: "underline" }}
