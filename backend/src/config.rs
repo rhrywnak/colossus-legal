@@ -33,6 +33,12 @@ pub struct AppConfig {
     pub extraction_template_dir: String,
     /// Path to extraction config files directory (models.yaml, etc.).
     pub extraction_config_dir: String,
+    /// Path to the processing-profile YAML directory.
+    /// Consumed by the pipeline (`AppContext.profile_dir`) and by admin
+    /// handlers that need to check profile references (e.g. DELETE /models).
+    pub processing_profile_dir: String,
+    /// Path to the system-prompt directory.
+    pub system_prompt_dir: String,
     /// Deployment environment name (e.g. "dev", "prod").
     /// Read from COLOSSUS_ENVIRONMENT, defaults to "unknown".
     pub environment: String,
@@ -92,6 +98,12 @@ impl AppConfig {
         let extraction_config_dir =
             std::env::var("EXTRACTION_CONFIG_DIR").unwrap_or_else(|_| "./config".to_string());
 
+        let processing_profile_dir = std::env::var("PROCESSING_PROFILE_DIR")
+            .unwrap_or_else(|_| "./profiles".to_string());
+
+        let system_prompt_dir = std::env::var("SYSTEM_PROMPT_DIR")
+            .unwrap_or_else(|_| "./system_prompts".to_string());
+
         let environment =
             std::env::var("COLOSSUS_ENVIRONMENT").unwrap_or_else(|_| "unknown".to_string());
 
@@ -111,6 +123,8 @@ impl AppConfig {
             extraction_schema_dir,
             extraction_template_dir,
             extraction_config_dir,
+            processing_profile_dir,
+            system_prompt_dir,
             prompts_dir,
             environment,
         })

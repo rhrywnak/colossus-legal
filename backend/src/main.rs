@@ -155,10 +155,8 @@ async fn run_serve(config: AppConfig, graph: neo4rs::Graph, http_client: reqwest
         schema_dir: config.extraction_schema_dir.clone(),
         template_dir: config.extraction_template_dir.clone(),
         document_storage_path: config.document_storage_path.clone(),
-        profile_dir: std::env::var("PROCESSING_PROFILE_DIR")
-            .unwrap_or_else(|_| "./profiles".to_string()),
-        system_prompt_dir: std::env::var("SYSTEM_PROMPT_DIR")
-            .unwrap_or_else(|_| "./system_prompts".to_string()),
+        profile_dir: config.processing_profile_dir.clone(),
+        system_prompt_dir: config.system_prompt_dir.clone(),
     })
     .expect("Failed to build AppContext from env");
 

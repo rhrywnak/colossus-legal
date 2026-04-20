@@ -112,7 +112,18 @@ pub fn router() -> Router<AppState> {
         .route("/items/:id/history", get(review::item_history_handler))
         .route("/items/:id", put(review::edit_handler))
         .route("/metrics", get(metrics::metrics_handler))
-        .route("/models", get(config_endpoints::list_models))
+        .route(
+            "/models",
+            get(config_endpoints::list_models).post(config_endpoints::create_model),
+        )
+        .route(
+            "/models/:id",
+            put(config_endpoints::update_model).delete(config_endpoints::delete_model),
+        )
+        .route(
+            "/models/:id/toggle",
+            put(config_endpoints::toggle_model),
+        )
         .route("/schemas", get(config_endpoints::list_schemas))
         .route("/templates", get(config_endpoints::list_templates))
         .route("/documents/:id/assign", put(users::assign_reviewer_handler))
