@@ -155,6 +155,12 @@ const previewTextarea: React.CSSProperties = {
 export interface ConfigurationPanelProps {
   documentId: string;
   documentType: string;
+  /**
+   * Raw backend status — e.g. `"NEW"`, `"TEXT_EXTRACTED"`. The Preview
+   * button is gated on this because the preview endpoint needs
+   * `document_text` pages and returns an error before ExtractText runs.
+   */
+  documentStatus?: string;
   /** Trigger the existing process flow. Called when "Process Document" is clicked. */
   onProcess: () => Promise<void>;
   /** Whether the parent is currently processing an action. */
@@ -185,9 +191,16 @@ const CHUNKING_MODES = ["chunked", "full"] as const;
 const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
   documentId,
   documentType,
+  documentStatus,
   onProcess,
   busy,
 }) => {
+  // Preview calls previewPrompt, which reads document_text pages. Before
+  // ExtractText runs those pages don't exist yet, so previewing from the
+  // NEW state errors out. The button stays visible but disabled with a
+  // small hint; Process Document stays enabled (it runs ExtractText as
+  // the first step of the pipeline).
+  const previewDisabled = documentStatus === "NEW";
   const [baseProfile, setBaseProfile] = useState<ProcessingProfile | null>(null);
   const [profiles, setProfiles] = useState<ProcessingProfile[]>([]);
   const [models, setModels] = useState<LlmModel[]>([]);
@@ -547,9 +560,10 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
 
         <div style={btnRow}>
           <button
-            style={btnSecondary(!previewBusy && !saving)}
-            disabled={previewBusy || saving}
+            style={btnSecondary(!previewBusy && !saving && !previewDisabled)}
+            disabled={previewBusy || saving || previewDisabled}
             onClick={() => { void runPreview(); }}
+            title={previewDisabled ? "Preview available after text extraction." : undefined}
           >
             {previewBusy ? "Previewing..." : "Preview Prompt"}
           </button>
@@ -565,6 +579,11 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
                 : "Process Document"}
           </button>
         </div>
+        {previewDisabled && (
+          <div style={{ marginTop: "0.4rem", fontSize: "0.76rem", color: "#64748b" }}>
+            Preview available after text extraction.
+          </div>
+        )}
 
         {saveError && (
           <div style={{ ...errorBox, marginTop: "0.75rem", marginBottom: 0 }}>

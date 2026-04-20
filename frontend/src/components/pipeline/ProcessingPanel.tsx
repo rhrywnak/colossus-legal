@@ -351,6 +351,7 @@ const ProcessingPanel: React.FC<ProcessingPanelProps> = ({
         <ConfigurationPanel
           documentId={doc.id}
           documentType={doc.document_type}
+          documentStatus={doc.status}
           onProcess={handleProcess}
           busy={busy}
         />

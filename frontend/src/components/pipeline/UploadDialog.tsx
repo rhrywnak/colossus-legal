@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { fetchSchemas, uploadDocument, processDocument, SchemaInfo } from "../../services/pipelineApi";
+import { fetchSchemas, uploadDocument, SchemaInfo } from "../../services/pipelineApi";
 
 interface Props {
   open: boolean;
@@ -47,13 +47,6 @@ const btnUpload = (enabled: boolean): React.CSSProperties => ({
   borderRadius: "6px", backgroundColor: enabled ? "#2563eb" : "#94a3b8",
   color: "#ffffff", cursor: enabled ? "pointer" : "default", fontFamily: "inherit",
 });
-const btnUploadOnly = (enabled: boolean): React.CSSProperties => ({
-  padding: "0.45rem 1rem", fontSize: "0.84rem", fontWeight: 600,
-  border: `1px solid ${enabled ? "#2563eb" : "#cbd5e1"}`,
-  borderRadius: "6px", backgroundColor: "#ffffff",
-  color: enabled ? "#2563eb" : "#94a3b8",
-  cursor: enabled ? "pointer" : "default", fontFamily: "inherit",
-});
 
 function slugify(name: string): string {
   return name.toLowerCase().replace(/\.pdf$/i, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -72,7 +65,6 @@ const UploadDialog: React.FC<Props> = ({ open, onClose, onSuccess, complaintExis
   const [file, setFile] = useState<File | null>(null);
   const [schema, setSchema] = useState("auto");
   const [uploading, setUploading] = useState(false);
-  const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
 
@@ -94,59 +86,40 @@ const UploadDialog: React.FC<Props> = ({ open, onClose, onSuccess, complaintExis
     setError(null);
   };
 
-  /**
-   * Shared upload step for both "Upload" and "Upload & Process".
-   *
-   * Returns the created document id on success, or `null` on failure
-   * (the caller should just return — the error state has been set).
-   */
-  const doUpload = async (): Promise<string | null> => {
-    if (!file || !schema) return null;
-    const id = `doc-${slugify(file.name)}`;
-    const title = titleize(file.name);
+  const handleUpload = async () => {
+    if (!file || !schema || uploading) return;
+    setError(null);
+    setUploading(true);
+
+    // Resolve the selected option into the correct document_type +
+    // schema filename. The <option value=...> is the schema's filename
+    // (e.g. "motion.yaml"), so we look it up here to recover both:
+    //   - documentType: the schema's `document_type` field (e.g. "motion")
+    //   - schemaFile:   the filename itself (e.g. "motion.yaml")
+    // When the user picks "Auto-detect", there is no matching SchemaInfo,
+    // so we fall through to `documentType: "auto"` and omit schemaFile —
+    // the backend's auto-detect path handles it from there.
+    const selectedSchema = schemas.find(
+      (s) => s.filename === schema || s.document_type === schema,
+    );
+    const documentType = selectedSchema?.document_type ?? schema;
+    const schemaFile =
+      selectedSchema?.filename ?? (schema === "auto" ? undefined : schema);
+
     try {
-      const doc = await uploadDocument(file, {
-        id, title, documentType: schema,
-        schemaFile: schema === "auto" ? undefined : `${schema}.yaml`,
-      });
-      return doc.id;
+      const id = `doc-${slugify(file.name)}`;
+      const title = titleize(file.name);
+      const doc = await uploadDocument(file, { id, title, documentType, schemaFile });
+      setUploading(false);
+      onSuccess();
+      navigate(`/documents/${doc.id}?tab=processing`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Upload failed");
-      return null;
+      setUploading(false);
     }
   };
 
-  const handleUploadOnly = async () => {
-    if (!file || !schema || uploading || processing) return;
-    setError(null);
-    setUploading(true);
-    const docId = await doUpload();
-    setUploading(false);
-    if (!docId) return;
-    onSuccess();
-    navigate(`/documents/${docId}?tab=processing`);
-  };
-
-  const handleUpload = async () => {
-    if (!file || !schema || uploading || processing) return;
-    setError(null);
-    setUploading(true);
-    const docId = await doUpload();
-    setUploading(false);
-    if (!docId) return;
-    onSuccess();
-    setProcessing(true);
-    try {
-      await processDocument(docId);
-    } catch {
-      // Process failed — user will see NEW status and can click Process manually
-    } finally {
-      setProcessing(false);
-    }
-    navigate(`/documents/${docId}?tab=processing`);
-  };
-
-  const canUpload = !!file && !!schema && !uploading && !processing;
+  const canUpload = !!file && !!schema && !uploading;
 
   return (
     <div style={overlay} onClick={onClose}>
@@ -210,11 +183,8 @@ const UploadDialog: React.FC<Props> = ({ open, onClose, onSuccess, complaintExis
 
         <div style={btnRow}>
           <button style={btnCancel} onClick={onClose}>Cancel</button>
-          <button style={btnUploadOnly(canUpload)} onClick={handleUploadOnly} disabled={!canUpload}>
-            {uploading && !processing ? "Uploading..." : "Upload"}
-          </button>
           <button style={btnUpload(canUpload)} onClick={handleUpload} disabled={!canUpload}>
-            {uploading ? "Uploading..." : processing ? "Starting..." : "Upload & Process"}
+            {uploading ? "Uploading..." : "Upload"}
           </button>
         </div>
       </div>
