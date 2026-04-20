@@ -5,7 +5,7 @@ import BatchProgressHeader from "../components/documents/BatchProgressHeader";
 import DocumentCard from "../components/documents/DocumentCard";
 import {
   fetchPipelineDocuments, fetchMetrics, fetchErrors,
-  processDocument, PipelineDocument, EstimatesData,
+  PipelineDocument, EstimatesData,
 } from "../services/pipelineApi";
 
 // ── Helpers ────────────────────────────────────────────────────────
@@ -154,14 +154,6 @@ const DocumentsPage: React.FC = () => {
     cancelled: documents.filter(d => d.status_group === "cancelled").length,
   }), [documents]);
 
-  const handleProcessAllNew = async () => {
-    const newDocs = documents.filter(d => d.status === "NEW");
-    for (const doc of newDocs) {
-      try { await processDocument(doc.id); } catch (e) { console.error(`Failed to start processing ${doc.id}:`, e); }
-    }
-    loadData();
-  };
-
   if (loading) return <div style={emptyState}>Loading documents...</div>;
   if (error) return <div style={errorBox}>{error}</div>;
 
@@ -171,11 +163,6 @@ const DocumentsPage: React.FC = () => {
       <div style={headerRow}>
         <h1 style={pageTitle}>Documents</h1>
         <div style={{ display: "flex", alignItems: "center" }}>
-          {isAdmin && counts.new > 0 && (
-            <button style={{ ...uploadBtn, backgroundColor: "#16a34a", marginRight: "0.5rem" }} onClick={handleProcessAllNew}>
-              Process All New ({counts.new})
-            </button>
-          )}
           {isAdmin && (
             <button style={uploadBtn} onClick={() => setUploadOpen(true)}>
               + Upload

@@ -463,7 +463,7 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
           >
             {models.map((m) => (
               <option key={m.id} value={m.id}>
-                {m.display_name} ({m.id})
+                {m.display_name}
               </option>
             ))}
           </select>
