@@ -134,8 +134,37 @@ pub fn router() -> Router<AppState> {
                 .put(config_endpoints::update_profile)
                 .delete(config_endpoints::deactivate_profile),
         )
-        .route("/schemas", get(config_endpoints::list_schemas))
-        .route("/templates", get(config_endpoints::list_templates))
+        .route(
+            "/schemas",
+            get(config_endpoints::list_schemas).post(config_endpoints::create_schema),
+        )
+        .route(
+            "/schemas/:filename",
+            get(config_endpoints::get_schema)
+                .put(config_endpoints::update_schema)
+                .delete(config_endpoints::delete_schema),
+        )
+        .route(
+            "/templates",
+            get(config_endpoints::list_templates).post(config_endpoints::create_template),
+        )
+        .route(
+            "/templates/:filename",
+            get(config_endpoints::get_template)
+                .put(config_endpoints::update_template)
+                .delete(config_endpoints::delete_template),
+        )
+        .route(
+            "/system-prompts",
+            get(config_endpoints::list_system_prompts)
+                .post(config_endpoints::create_system_prompt),
+        )
+        .route(
+            "/system-prompts/:filename",
+            get(config_endpoints::get_system_prompt)
+                .put(config_endpoints::update_system_prompt)
+                .delete(config_endpoints::delete_system_prompt),
+        )
         .route("/documents/:id/assign", put(users::assign_reviewer_handler))
         .route("/documents/:id/file", get(file::file_handler))
 }
