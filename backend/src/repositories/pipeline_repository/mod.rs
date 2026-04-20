@@ -11,11 +11,13 @@
 
 pub mod documents;
 pub mod extraction;
+pub mod models;
 pub mod review;
 pub mod steps;
 pub mod users;
 
 pub use extraction::*;
+pub use models::LlmModelRecord;
 
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
