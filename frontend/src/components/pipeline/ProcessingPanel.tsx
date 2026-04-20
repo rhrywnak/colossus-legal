@@ -13,6 +13,7 @@
  * call, the UI shows stale status indefinitely.
  */
 import React, { useState } from "react";
+import ConfigurationPanel from "./ConfigurationPanel";
 import ExecutionHistory from "./ExecutionHistory";
 import ReprocessDialog from "./ReprocessDialog";
 import {
@@ -285,15 +286,9 @@ const ProcessingPanel: React.FC<ProcessingPanelProps> = ({
   const renderNew = () => (
     <div style={bodyStyle}>
       <div style={mutedText}>
-        This document has not been processed yet.
-      </div>
-      <div style={{ ...mutedText, marginTop: "0.5rem" }}>
-        Click "Process Document" to start extraction.
-      </div>
-      <div style={{ marginTop: "1rem" }}>
-        <button style={btnPrimary(!busy)} disabled={busy} onClick={handleProcess}>
-          {busy ? "Starting..." : "Process Document"}
-        </button>
+        This document has not been processed yet. Review the processing
+        configuration above, preview the assembled prompt if needed, then
+        click Process Document to start extraction.
       </div>
     </div>
   );
@@ -311,6 +306,15 @@ const ProcessingPanel: React.FC<ProcessingPanelProps> = ({
   return (
     <div>
       {actionError && <div style={errorBox}>{actionError}</div>}
+
+      {statusGroup === "new" && (
+        <ConfigurationPanel
+          documentId={doc.id}
+          documentType={doc.document_type}
+          onProcess={handleProcess}
+          busy={busy}
+        />
+      )}
 
       <div style={containerStyle}>
         <div style={headerStyle}>Processing</div>
