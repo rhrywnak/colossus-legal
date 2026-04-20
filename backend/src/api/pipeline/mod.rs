@@ -165,6 +165,7 @@ pub fn router() -> Router<AppState> {
                 .put(config_endpoints::update_system_prompt)
                 .delete(config_endpoints::delete_system_prompt),
         )
+        .route("/preview-prompt", post(config_endpoints::preview_prompt))
         .route("/documents/:id/assign", put(users::assign_reviewer_handler))
         .route("/documents/:id/file", get(file::file_handler))
 }

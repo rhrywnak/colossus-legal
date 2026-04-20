@@ -16,6 +16,7 @@
 //! DOC_PROCESSING_CONFIG_DESIGN_v2.md Sections 3.4.1 through 3.4.4.
 
 pub mod models;
+pub mod preview;
 pub mod profiles;
 pub mod schemas;
 pub mod shared;
@@ -23,6 +24,7 @@ pub mod system_prompts;
 pub mod templates;
 
 pub use models::{create_model, delete_model, list_models, toggle_model, update_model};
+pub use preview::preview_prompt;
 pub use profiles::{
     create_profile, deactivate_profile, get_profile, list_profiles, update_profile,
 };
