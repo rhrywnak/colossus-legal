@@ -471,9 +471,17 @@ struct RunArgs<'a> {
 /// Perform a single-call extraction on the full document text.
 ///
 /// Used when the profile's `chunking_mode` is `"full"`. Produces exactly
-/// one LLM call with `{{document_text}}` substituted into the template.
+/// one LLM call with the full document text substituted into the template.
 /// No chunk records are written — the extraction_runs row is the only
 /// audit record for this path.
+///
+/// The template may use either the `{{document_text}}` placeholder
+/// (preferred for full-doc templates like `pass1_complaint.md`) or the
+/// `{{chunk_text}}` placeholder (convenience when reusing a chunk template
+/// at full size). Which placeholder gets the substitution is detected at
+/// runtime — hardcoding one would silently produce a template with an
+/// unfilled placeholder and blow up downstream. If the template has
+/// neither, we fail fast with an explicit error.
 async fn run_full_document_extraction(
     args: RunArgs<'_>,
 ) -> Result<ExtractionOutcome, Box<dyn Error + Send + Sync>> {
@@ -498,10 +506,43 @@ async fn run_full_document_extraction(
     .await
     .ok();
 
-    let prompt = args
-        .template_text
-        .replace("{{schema_json}}", args.schema_json)
-        .replace("{{document_text}}", args.full_text);
+    // Dynamic placeholder detection: use whichever of the two body
+    // placeholders the template actually references. `{{schema_json}}` is
+    // substituted unconditionally because the schema prompt fragment is
+    // expected in every extraction template.
+    let has_document_text = args.template_text.contains("{{document_text}}");
+    let has_chunk_text = args.template_text.contains("{{chunk_text}}");
+    let prompt = if has_document_text {
+        args.template_text
+            .replace("{{schema_json}}", args.schema_json)
+            .replace("{{document_text}}", args.full_text)
+    } else if has_chunk_text {
+        args.template_text
+            .replace("{{schema_json}}", args.schema_json)
+            .replace("{{chunk_text}}", args.full_text)
+    } else {
+        let msg = "Template has no {{document_text}} or {{chunk_text}} placeholder";
+        mark_run_failed(args.db, args.run_id, msg).await;
+        mark_step_failed(args.db, args.step_id, args.step_start, msg).await;
+        return Err(msg.into());
+    };
+
+    // Persist the assembled prompt on the run for debugging / audit. The
+    // insert_extraction_run call earlier stored NULL here because the
+    // prompt hadn't been built yet; do it now with an UPDATE. Failure is
+    // logged but not fatal — the extraction itself proceeds.
+    if let Err(e) = sqlx::query("UPDATE extraction_runs SET assembled_prompt = $1 WHERE id = $2")
+        .bind(&prompt)
+        .bind(args.run_id)
+        .execute(args.db)
+        .await
+    {
+        tracing::warn!(
+            run_id = args.run_id,
+            error = %e,
+            "Failed to store assembled_prompt (non-fatal)"
+        );
+    }
 
     let response = call_with_rate_limit_retry(
         args.llm_provider,
