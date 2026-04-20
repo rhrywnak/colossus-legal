@@ -347,11 +347,13 @@ pub async fn get_pipeline_config(
 #[derive(sqlx::FromRow)]
 struct PipelineConfigOverridesRow {
     profile_name: Option<String>,
+    extraction_model: Option<String>,
     template_file: Option<String>,
     system_prompt_file: Option<String>,
     chunking_mode: Option<String>,
     chunk_size: Option<i32>,
     chunk_overlap: Option<i32>,
+    max_tokens: Option<i32>,
     temperature: Option<f64>,
     run_pass2: Option<bool>,
 }
@@ -370,8 +372,9 @@ pub async fn get_pipeline_config_overrides(
     document_id: &str,
 ) -> Result<PipelineConfigOverrides, PipelineRepoError> {
     let row: Option<PipelineConfigOverridesRow> = sqlx::query_as(
-        "SELECT profile_name, template_file, system_prompt_file, chunking_mode, \
-                chunk_size, chunk_overlap, temperature::float8 AS temperature, run_pass2 \
+        "SELECT profile_name, extraction_model, template_file, system_prompt_file, \
+                chunking_mode, chunk_size, chunk_overlap, max_tokens, \
+                temperature::float8 AS temperature, run_pass2 \
          FROM pipeline_config WHERE document_id = $1",
     )
     .bind(document_id)
@@ -381,16 +384,94 @@ pub async fn get_pipeline_config_overrides(
     Ok(match row {
         Some(r) => PipelineConfigOverrides {
             profile_name: r.profile_name,
+            extraction_model: r.extraction_model,
             template_file: r.template_file,
             system_prompt_file: r.system_prompt_file,
             chunking_mode: r.chunking_mode,
             chunk_size: r.chunk_size,
             chunk_overlap: r.chunk_overlap,
+            max_tokens: r.max_tokens,
             temperature: r.temperature,
             run_pass2: r.run_pass2,
         },
         None => PipelineConfigOverrides::default(),
     })
+}
+
+/// Partially update the per-document override columns on `pipeline_config`.
+///
+/// Uses `UPDATE ... SET col = COALESCE($n, col)` so each `None` field in
+/// `overrides` leaves the corresponding column untouched. If every field
+/// in `overrides` is `None`, the UPDATE is skipped entirely to avoid a
+/// pointless roundtrip.
+///
+/// Returns `PipelineRepoError::NotFound` if no `pipeline_config` row
+/// matches `document_id` — the caller should have already inserted one at
+/// upload time.
+///
+/// `temperature` is cast to `NUMERIC` inside the SQL so sqlx doesn't need
+/// the `rust_decimal` feature for a direct `NUMERIC(3,2)` bind.
+pub async fn patch_pipeline_config_overrides(
+    db: &PgPool,
+    document_id: &str,
+    overrides: &PipelineConfigOverrides,
+) -> Result<(), PipelineRepoError> {
+    // Short-circuit when there is nothing to update.
+    let any_field = overrides.profile_name.is_some()
+        || overrides.extraction_model.is_some()
+        || overrides.template_file.is_some()
+        || overrides.system_prompt_file.is_some()
+        || overrides.chunking_mode.is_some()
+        || overrides.chunk_size.is_some()
+        || overrides.chunk_overlap.is_some()
+        || overrides.max_tokens.is_some()
+        || overrides.temperature.is_some()
+        || overrides.run_pass2.is_some();
+    if !any_field {
+        let existing: Option<String> =
+            sqlx::query_scalar("SELECT document_id FROM pipeline_config WHERE document_id = $1")
+                .bind(document_id)
+                .fetch_optional(db)
+                .await?;
+        return if existing.is_some() {
+            Ok(())
+        } else {
+            Err(PipelineRepoError::NotFound(document_id.to_string()))
+        };
+    }
+
+    let result = sqlx::query(
+        "UPDATE pipeline_config SET \
+           profile_name = COALESCE($2, profile_name), \
+           extraction_model = COALESCE($3, extraction_model), \
+           template_file = COALESCE($4, template_file), \
+           system_prompt_file = COALESCE($5, system_prompt_file), \
+           chunking_mode = COALESCE($6, chunking_mode), \
+           chunk_size = COALESCE($7, chunk_size), \
+           chunk_overlap = COALESCE($8, chunk_overlap), \
+           max_tokens = COALESCE($9, max_tokens), \
+           temperature = COALESCE($10::numeric, temperature), \
+           run_pass2 = COALESCE($11, run_pass2) \
+         WHERE document_id = $1",
+    )
+    .bind(document_id)
+    .bind(&overrides.profile_name)
+    .bind(&overrides.extraction_model)
+    .bind(&overrides.template_file)
+    .bind(&overrides.system_prompt_file)
+    .bind(&overrides.chunking_mode)
+    .bind(overrides.chunk_size)
+    .bind(overrides.chunk_overlap)
+    .bind(overrides.max_tokens)
+    .bind(overrides.temperature)
+    .bind(overrides.run_pass2)
+    .execute(db)
+    .await?;
+
+    if result.rows_affected() == 0 {
+        return Err(PipelineRepoError::NotFound(document_id.to_string()));
+    }
+    Ok(())
 }
 
 /// Update pipeline config with extraction overrides so the next run uses the same settings.

@@ -123,6 +123,28 @@ export interface UpdateFileInput {
   content: string;
 }
 
+// ── Types: Pipeline config patch ───────────────────────────────
+
+/**
+ * Per-document overrides that can be persisted via
+ * PATCH /api/admin/pipeline/documents/:id/config.
+ *
+ * Every field is optional — omitting a field preserves the existing
+ * column value on the `pipeline_config` row.
+ */
+export interface PatchConfigInput {
+  profile_name?: string;
+  extraction_model?: string;
+  template_file?: string;
+  system_prompt_file?: string | null;
+  chunking_mode?: string;
+  chunk_size?: number | null;
+  chunk_overlap?: number | null;
+  max_tokens?: number | null;
+  temperature?: number | null;
+  run_pass2?: boolean;
+}
+
 // ── Types: Prompt Preview ──────────────────────────────────────
 
 export interface PromptPreviewInput {
@@ -436,6 +458,24 @@ export async function deleteSystemPrompt(filename: string): Promise<void> {
     { method: "DELETE" },
   );
   if (!res.ok) await throwFromResponse(res, "deleteSystemPrompt");
+  await discardBody(res);
+}
+
+// ── Pipeline config patch ──────────────────────────────────────
+
+export async function patchDocumentConfig(
+  documentId: string,
+  input: PatchConfigInput,
+): Promise<void> {
+  const res = await authFetch(
+    `${CONFIG_BASE}/documents/${encodeURIComponent(documentId)}/config`,
+    {
+      method: "PATCH",
+      headers: JSON_HEADERS,
+      body: JSON.stringify(input),
+    },
+  );
+  if (!res.ok) await throwFromResponse(res, "patchDocumentConfig");
   await discardBody(res);
 }
 

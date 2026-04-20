@@ -18,6 +18,8 @@ import {
   listSchemas,
   listTemplates,
   LlmModel,
+  patchDocumentConfig,
+  PatchConfigInput,
   previewPrompt,
   ProcessingProfile,
   PromptPreviewResponse,
@@ -105,15 +107,6 @@ const btnRow: React.CSSProperties = {
   display: "flex",
   gap: "0.5rem",
   marginTop: "0.85rem",
-};
-const noteStyle: React.CSSProperties = {
-  fontSize: "0.76rem",
-  color: "#92400e",
-  backgroundColor: "#fffbeb",
-  border: "1px solid #fde68a",
-  borderRadius: "6px",
-  padding: "0.45rem 0.65rem",
-  marginTop: "0.75rem",
 };
 const errorBox: React.CSSProperties = {
   padding: "0.6rem 0.85rem",
@@ -207,6 +200,9 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
   const [preview, setPreview] = useState<PromptPreviewResponse | null>(null);
   const [previewBusy, setPreviewBusy] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
+
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -328,6 +324,47 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
     }
   };
 
+  /**
+   * Build the PATCH payload from the user-tracked overrides. Only fields
+   * the user actually changed are included — the server treats omitted
+   * fields as "preserve existing column value".
+   */
+  const buildPatchInput = (): PatchConfigInput => {
+    const out: PatchConfigInput = {};
+    if (overrides.profile_name !== undefined) out.profile_name = overrides.profile_name;
+    if (overrides.extraction_model !== undefined) out.extraction_model = overrides.extraction_model;
+    if (overrides.template_file !== undefined) out.template_file = overrides.template_file;
+    if (overrides.schema_file !== undefined) {
+      // schema_file is not yet a pipeline_config override column — skip it
+      // silently; schema switching must go via the profile.
+    }
+    if (overrides.chunking_mode !== undefined) out.chunking_mode = overrides.chunking_mode;
+    if (overrides.chunk_size !== undefined) out.chunk_size = overrides.chunk_size;
+    if (overrides.chunk_overlap !== undefined) out.chunk_overlap = overrides.chunk_overlap;
+    if (overrides.max_tokens !== undefined) out.max_tokens = overrides.max_tokens;
+    if (overrides.temperature !== undefined) out.temperature = overrides.temperature;
+    if (overrides.run_pass2 !== undefined) out.run_pass2 = overrides.run_pass2;
+    return out;
+  };
+
+  const saveAndProcess = async () => {
+    setSaveError(null);
+    const payload = buildPatchInput();
+    const hasChanges = Object.keys(payload).length > 0;
+    if (hasChanges) {
+      setSaving(true);
+      try {
+        await patchDocumentConfig(documentId, payload);
+      } catch (e) {
+        setSaveError(e instanceof Error ? e.message : "Failed to save configuration");
+        setSaving(false);
+        return;
+      }
+      setSaving(false);
+    }
+    await onProcess();
+  };
+
   if (loading) {
     return (
       <div style={containerStyle}>
@@ -360,13 +397,22 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
           </div>
           <div style={btnRow}>
             <button
-              style={btnPrimary(!busy)}
-              disabled={busy}
-              onClick={() => { void onProcess(); }}
+              style={btnPrimary(!busy && !saving)}
+              disabled={busy || saving}
+              onClick={() => { void saveAndProcess(); }}
             >
-              {busy ? "Starting..." : "Process Document"}
+              {saving
+                ? "Saving configuration..."
+                : busy
+                  ? "Starting..."
+                  : "Process Document"}
             </button>
           </div>
+          {saveError && (
+            <div style={{ ...errorBox, marginTop: "0.75rem", marginBottom: 0 }}>
+              {saveError}
+            </div>
+          )}
         </div>
       </div>
     );
@@ -499,29 +545,32 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
           </label>
         </div>
 
-        <div style={noteStyle}>
-          Preview reflects the persisted profile + file-level overrides
-          (profile / template / schema). Other parameter changes (model,
-          chunking, tokens, temperature) are UI-only for now — override
-          persistence requires a future backend update.
-        </div>
-
         <div style={btnRow}>
           <button
-            style={btnSecondary(!previewBusy)}
-            disabled={previewBusy}
+            style={btnSecondary(!previewBusy && !saving)}
+            disabled={previewBusy || saving}
             onClick={() => { void runPreview(); }}
           >
             {previewBusy ? "Previewing..." : "Preview Prompt"}
           </button>
           <button
-            style={btnPrimary(!busy)}
-            disabled={busy}
-            onClick={() => { void onProcess(); }}
+            style={btnPrimary(!busy && !saving)}
+            disabled={busy || saving}
+            onClick={() => { void saveAndProcess(); }}
           >
-            {busy ? "Starting..." : "Process Document"}
+            {saving
+              ? "Saving configuration..."
+              : busy
+                ? "Starting..."
+                : "Process Document"}
           </button>
         </div>
+
+        {saveError && (
+          <div style={{ ...errorBox, marginTop: "0.75rem", marginBottom: 0 }}>
+            {saveError}
+          </div>
+        )}
 
         {previewError && (
           <div style={{ ...errorBox, marginTop: "0.75rem", marginBottom: 0 }}>

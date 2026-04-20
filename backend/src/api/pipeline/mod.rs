@@ -14,6 +14,7 @@ pub(crate) mod completeness;
 pub(crate) mod completeness_helpers;
 pub mod completeness_validation;
 mod config_endpoints;
+mod config_handler;
 pub(crate) mod constants;
 mod delete;
 mod document_response;
@@ -52,7 +53,7 @@ pub use verify::verify_handler;
 
 use axum::{
     extract::State,
-    routing::{delete, get, post, put},
+    routing::{delete, get, patch, post, put},
     Json, Router,
 };
 use serde::Serialize;
@@ -167,6 +168,10 @@ pub fn router() -> Router<AppState> {
         )
         .route("/preview-prompt", post(config_endpoints::preview_prompt))
         .route("/documents/:id/assign", put(users::assign_reviewer_handler))
+        .route(
+            "/documents/:id/config",
+            patch(config_handler::patch_config_handler),
+        )
         .route("/documents/:id/file", get(file::file_handler))
 }
 

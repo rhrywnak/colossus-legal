@@ -157,11 +157,13 @@ pub struct ResolvedConfig {
 #[derive(Debug, Clone, Default)]
 pub struct PipelineConfigOverrides {
     pub profile_name: Option<String>,
+    pub extraction_model: Option<String>,
     pub template_file: Option<String>,
     pub system_prompt_file: Option<String>,
     pub chunking_mode: Option<String>,
     pub chunk_size: Option<i32>,
     pub chunk_overlap: Option<i32>,
+    pub max_tokens: Option<i32>,
     pub temperature: Option<f64>,
     pub run_pass2: Option<bool>,
 }
@@ -211,7 +213,10 @@ pub fn resolve_config(
 ) -> ResolvedConfig {
     let mut applied = Vec::new();
 
-    let model = profile.extraction_model.clone();
+    let model = match &overrides.extraction_model {
+        Some(v) => { applied.push("extraction_model".to_string()); v.clone() }
+        None => profile.extraction_model.clone(),
+    };
 
     let template_file = match &overrides.template_file {
         Some(v) => { applied.push("template_file".to_string()); v.clone() }
@@ -238,7 +243,10 @@ pub fn resolve_config(
         None => profile.chunk_overlap,
     };
 
-    let max_tokens = profile.max_tokens;
+    let max_tokens = match overrides.max_tokens {
+        Some(v) => { applied.push("max_tokens".to_string()); v }
+        None => profile.max_tokens,
+    };
 
     let temperature = match overrides.temperature {
         Some(v) => { applied.push("temperature".to_string()); v }
