@@ -124,6 +124,16 @@ pub fn router() -> Router<AppState> {
             "/models/:id/toggle",
             put(config_endpoints::toggle_model),
         )
+        .route(
+            "/profiles",
+            get(config_endpoints::list_profiles).post(config_endpoints::create_profile),
+        )
+        .route(
+            "/profiles/:name",
+            get(config_endpoints::get_profile)
+                .put(config_endpoints::update_profile)
+                .delete(config_endpoints::deactivate_profile),
+        )
         .route("/schemas", get(config_endpoints::list_schemas))
         .route("/templates", get(config_endpoints::list_templates))
         .route("/documents/:id/assign", put(users::assign_reviewer_handler))
