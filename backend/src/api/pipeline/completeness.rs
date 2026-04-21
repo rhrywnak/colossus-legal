@@ -9,13 +9,14 @@ use serde::Serialize;
 
 use crate::auth::{require_admin, AuthUser};
 use crate::error::AppError;
+use crate::pipeline::constants::QDRANT_DOCUMENT_ID_FIELD;
 use crate::repositories::audit_repository::log_admin_action;
 use crate::repositories::pipeline_repository::{self, steps};
 use crate::services::qdrant_service;
 use crate::state::AppState;
 
 use super::completeness_helpers::{
-    count_neo4j_nodes, count_neo4j_relationships, find_orphaned_nodes,
+    count_neo4j_nodes, count_neo4j_relationships, find_orphaned_nodes, unique_party_counts,
 };
 
 // ── Response DTOs ───────────────────────────────────────────────
@@ -129,6 +130,15 @@ pub(crate) async fn run_completeness(
     for item in &items {
         *pipeline_items.entry(item.entity_type.clone()).or_insert(0) += 1;
     }
+
+    // Bug 9a: `create_party_nodes` MERGEs parties by slug(name), so N
+    // Party items with K unique names yield K Neo4j Person nodes, not N.
+    // Replace the raw Person/Organization counts with unique-name counts
+    // so the per-type check compares like-for-like.
+    for (label, count) in unique_party_counts(&items) {
+        pipeline_items.insert(label, count);
+    }
+
     let mut pipeline_rels: HashMap<String, usize> = HashMap::new();
     for rel in &rels {
         *pipeline_rels
@@ -159,11 +169,15 @@ pub(crate) async fn run_completeness(
         orphaned_nodes: orphaned,
     };
 
-    // 6. Count Qdrant points filtered by source_document
+    // 6. Count Qdrant points filtered by document_id.
+    //    Bug 9b: previously filtered by "source_document", which the Index
+    //    step does write but Qdrant has no payload index for (see
+    //    qdrant_service::ensure_collection). QDRANT_DOCUMENT_ID_FIELD
+    //    ("document_id") IS indexed and is the authoritative filter key.
     let qdrant_count = qdrant_service::count_points_by_filter(
         &state.http_client,
         &state.config.qdrant_url,
-        "source_document",
+        QDRANT_DOCUMENT_ID_FIELD,
         doc_id,
     )
     .await

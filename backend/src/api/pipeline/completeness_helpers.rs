@@ -10,12 +10,15 @@
 //! - `*` — the HTTP-handler variant, a thin wrapper around `*_by_graph`
 //!   that takes `&AppState` and wraps the error into `AppError::Internal`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use neo4rs::{query, Graph};
 
 use crate::error::AppError;
+use crate::repositories::pipeline_repository::ExtractionItemRecord;
 use crate::state::AppState;
+
+use super::ingest_helpers::slug;
 
 // ─── Cypher constants ──────────────────────────────────────────────────
 
@@ -130,4 +133,114 @@ pub async fn find_orphaned_nodes(state: &AppState, doc_id: &str) -> Result<Vec<S
         .map_err(|e| AppError::Internal {
             message: format!("Neo4j orphan query error: {e}"),
         })
+}
+
+/// Count unique party names per label (Person / Organization) across the
+/// approved items of a run.
+///
+/// `create_party_nodes` MERGEs Party items on `slug(name)` in Neo4j, so 6
+/// raw Party items with 3 unique names produce 3 Person nodes. Comparing
+/// raw pipeline-item counts against Neo4j node counts therefore always
+/// fails the completeness check for shared parties (bug 9a).
+///
+/// This helper reproduces the MERGE-dedup key (lowercased slug of
+/// `party_name` → `full_name` → `"unknown"`) so the per-label comparison
+/// is apples-to-apples.
+///
+/// Only labels that actually appear in `items` are present in the returned
+/// map — callers merge it into `pipeline_items` to override those entries.
+pub fn unique_party_counts(items: &[ExtractionItemRecord]) -> HashMap<String, usize> {
+    let mut by_label: HashMap<String, HashSet<String>> = HashMap::new();
+    for item in items {
+        if item.entity_type != "Person" && item.entity_type != "Organization" {
+            continue;
+        }
+        let props = &item.item_data["properties"];
+        let name = props["party_name"]
+            .as_str()
+            .or_else(|| props["full_name"].as_str())
+            .unwrap_or("unknown");
+        by_label
+            .entry(item.entity_type.clone())
+            .or_default()
+            .insert(slug(name));
+    }
+    by_label.into_iter().map(|(k, v)| (k, v.len())).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_item(id: i32, entity_type: &str, party_name: &str) -> ExtractionItemRecord {
+        ExtractionItemRecord {
+            id,
+            run_id: 1,
+            document_id: "doc-test".to_string(),
+            entity_type: entity_type.to_string(),
+            item_data: serde_json::json!({
+                "label": "test",
+                "properties": { "party_name": party_name }
+            }),
+            verbatim_quote: None,
+            grounding_status: None,
+            grounded_page: None,
+            review_status: "approved".to_string(),
+            reviewed_by: None,
+            reviewed_at: None,
+            review_notes: None,
+            graph_status: "written".to_string(),
+        }
+    }
+
+    #[test]
+    fn unique_party_counts_dedups_by_slugged_name() {
+        // 6 Party items with 3 distinct names — case and whitespace differ
+        // but slug() normalizes them so they collapse to 3 unique Persons.
+        let items = vec![
+            make_item(1, "Person", "Marie Awad"),
+            make_item(2, "Person", "MARIE AWAD"),
+            make_item(3, "Person", "John Smith"),
+            make_item(4, "Person", "john smith"),
+            make_item(5, "Person", "Jane Doe"),
+            make_item(6, "Person", "jane  doe"),
+        ];
+        let counts = unique_party_counts(&items);
+        assert_eq!(counts.get("Person").copied(), Some(3));
+        assert!(counts.get("Organization").is_none());
+    }
+
+    #[test]
+    fn unique_party_counts_separates_person_and_organization() {
+        let items = vec![
+            make_item(1, "Person", "Marie Awad"),
+            make_item(2, "Organization", "Catholic Family Services"),
+            make_item(3, "Organization", "catholic family services"),
+        ];
+        let counts = unique_party_counts(&items);
+        assert_eq!(counts.get("Person").copied(), Some(1));
+        assert_eq!(counts.get("Organization").copied(), Some(1));
+    }
+
+    #[test]
+    fn unique_party_counts_ignores_non_party_entity_types() {
+        let items = vec![
+            make_item(1, "ComplaintAllegation", "not a party"),
+            make_item(2, "LegalCount", "also not a party"),
+        ];
+        let counts = unique_party_counts(&items);
+        assert!(counts.is_empty());
+    }
+
+    #[test]
+    fn unique_party_counts_falls_back_to_full_name() {
+        // Schemas may use `full_name` instead of `party_name`.
+        let mut item = make_item(1, "Person", "ignored");
+        item.item_data = serde_json::json!({
+            "label": "test",
+            "properties": { "full_name": "Marie Awad" }
+        });
+        let counts = unique_party_counts(std::slice::from_ref(&item));
+        assert_eq!(counts.get("Person").copied(), Some(1));
+    }
 }

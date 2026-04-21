@@ -15,6 +15,7 @@ use sha2::{Digest, Sha256};
 
 use crate::auth::{require_admin, AuthUser};
 use crate::error::AppError;
+use crate::pipeline::config::{PipelineConfigOverrides, ProcessingProfile};
 use crate::repositories::audit_repository::log_admin_action;
 use crate::repositories::pipeline_repository::{self, steps, PipelineConfigInput};
 use crate::state::AppState;
@@ -32,6 +33,19 @@ use super::{field_text, require_field, UploadDocumentResponse, MAX_FILE_SIZE};
 /// Previously, the mapping existed in two places (upload.rs and a comment
 /// in extract_text.rs) and they were inconsistent. Centralizing it here
 /// ensures both use the same mapping and both are updated when schemas change.
+/// Derive the default processing-profile name from a schema filename.
+///
+/// Mirrors the two private copies in `pipeline::steps::llm_extract` and
+/// `api::pipeline::config_endpoints::preview` so upload-time pre-population
+/// picks the same profile the extraction step would load at run time.
+/// Example: `"complaint_v2.yaml"` → `"complaint"`.
+fn default_profile_name_from_schema(schema_file: &str) -> String {
+    schema_file
+        .trim_end_matches(".yaml")
+        .trim_end_matches("_v2")
+        .to_string()
+}
+
 pub fn schema_for_document_type(document_type: &str) -> &'static str {
     match document_type {
         "complaint" => "complaint_v2.yaml",
@@ -278,6 +292,50 @@ pub async fn upload_document(
     .map_err(|e| AppError::Internal {
         message: format!("Failed to insert pipeline config: {e}"),
     })?;
+
+    // Problem 4: pre-populate the per-document override columns from the
+    // matched processing profile. The Configuration Panel reads those
+    // columns — without this, it shows compiled defaults until the user
+    // manually overrides each dropdown. Profile-load failure is non-fatal:
+    // the extraction step will re-attempt and fail loudly if the profile
+    // truly does not exist.
+    let profile_name = default_profile_name_from_schema(&config_input.schema_file);
+    match ProcessingProfile::load(&state.config.processing_profile_dir, &profile_name) {
+        Ok(profile) => {
+            let overrides = PipelineConfigOverrides {
+                profile_name: Some(profile.name.clone()),
+                extraction_model: Some(profile.extraction_model.clone()),
+                template_file: Some(profile.template_file.clone()),
+                system_prompt_file: profile.system_prompt_file.clone(),
+                chunking_mode: Some(profile.chunking_mode.clone()),
+                chunk_size: profile.chunk_size,
+                chunk_overlap: profile.chunk_overlap,
+                max_tokens: Some(profile.max_tokens),
+                temperature: Some(profile.temperature),
+                run_pass2: Some(profile.run_pass2),
+            };
+            if let Err(e) = pipeline_repository::patch_pipeline_config_overrides(
+                &state.pipeline_pool,
+                &doc_id,
+                &overrides,
+            )
+            .await
+            {
+                tracing::warn!(
+                    doc_id = %doc_id, error = %e,
+                    "Failed to persist profile overrides at upload (non-fatal) — \
+                     Configuration Panel may show compiled defaults until user edits"
+                );
+            }
+        }
+        Err(e) => {
+            tracing::warn!(
+                doc_id = %doc_id, profile = %profile_name, error = %e,
+                "Profile load failed at upload (non-fatal) — Configuration Panel \
+                 will show compiled defaults; extraction will re-attempt load"
+            );
+        }
+    }
 
     tracing::info!(user = %user.username, doc_id = %doc_id, size = file_data.len(), "Pipeline document uploaded");
 

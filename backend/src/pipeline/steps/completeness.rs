@@ -59,6 +59,7 @@ use colossus_pipeline::{Step, StepResult};
 use crate::api::pipeline::completeness::{compare_counts, CompareInput, CompletenessCheck};
 use crate::api::pipeline::completeness_helpers::{
     count_neo4j_nodes_by_graph, count_neo4j_relationships_by_graph, find_orphaned_nodes_by_graph,
+    unique_party_counts,
 };
 use crate::models::document_status::STATUS_PUBLISHED;
 use crate::pipeline::constants::QDRANT_DOCUMENT_ID_FIELD;
@@ -258,6 +259,14 @@ impl Completeness {
         for item in &items {
             *pipeline_items.entry(item.entity_type.clone()).or_insert(0) += 1;
         }
+
+        // Bug 9a: MERGE in create_party_nodes dedups Parties by slug(name).
+        // Replace raw Person/Organization counts with unique-name counts so
+        // the per-type comparison is apples-to-apples.
+        for (label, count) in unique_party_counts(&items) {
+            pipeline_items.insert(label, count);
+        }
+
         let mut pipeline_rels: HashMap<String, usize> = HashMap::new();
         for rel in &rels {
             *pipeline_rels
