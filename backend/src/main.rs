@@ -4,6 +4,7 @@ use axum::{routing::get, Json, Router};
 use clap::{Parser, Subcommand};
 use hyper::http::{HeaderValue, Method};
 use serde::Serialize;
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
@@ -12,8 +13,24 @@ use tokio::sync::watch;
 use tower_http::cors::CorsLayer;
 use tracing_subscriber::EnvFilter;
 
+use colossus_extract::providers::AnthropicProvider;
+use colossus_extract::LlmProvider;
+
 use colossus_pipeline::worker::config::WorkerConfig;
 use colossus_pipeline::Worker;
+
+/// Model id the Chat endpoint uses when the request does not specify one.
+///
+/// Hardcoded rather than read from an env var so the default is explicit in
+/// source and doesn't silently drift with `LLM_MODEL` (which drives pipeline
+/// extraction). Pipeline extraction and Chat can legitimately differ.
+const DEFAULT_CHAT_MODEL: &str = "claude-sonnet-4-6";
+
+/// Per-chat-model `max_tokens` passed to `AnthropicProvider::new`. The
+/// Chat endpoint always wraps the provider in `RigSynthesizer::new(_, 4096)`
+/// at request time, so this default is only used if some future caller
+/// invokes the provider directly.
+const CHAT_MAX_TOKENS: u32 = 4096;
 
 use colossus_legal_backend::{
     api, cli,
@@ -205,6 +222,21 @@ async fn run_serve(config: AppConfig, graph: neo4rs::Graph, http_client: reqwest
     // the loader returns None and we fall back to compiled defaults.
     let prompts = prompt_loader::load_prompts(&config.prompts_dir);
 
+    // Build the per-model Chat provider map. Each entry is an
+    // `AnthropicProvider` with `temperature = None` (natural variation —
+    // distinct from pipeline extraction which pins to Some(0.0) for
+    // determinism). Empty when ANTHROPIC_API_KEY is unset.
+    let chat_providers = build_chat_providers(&config, &pipeline_pool).await;
+    if !chat_providers.is_empty() && !chat_providers.contains_key(DEFAULT_CHAT_MODEL) {
+        tracing::error!(
+            default = DEFAULT_CHAT_MODEL,
+            available = ?chat_providers.keys().collect::<Vec<_>>(),
+            "Chat default model not present in provider map — /ask with \
+             no `model` field will return 400 until the llm_models row is \
+             added or activated"
+        );
+    }
+
     // Build the RAG pipeline from config (if API key is available).
     //
     // ## Rust Learning: Graceful degradation with Option
@@ -212,7 +244,15 @@ async fn run_serve(config: AppConfig, graph: neo4rs::Graph, http_client: reqwest
     // If the Anthropic API key is missing, we can't build the synthesizer,
     // so we set rag_pipeline = None. The /ask endpoint checks this and
     // returns 503 Service Unavailable. All other endpoints work fine.
-    let rag_pipeline = build_rag_pipeline(&config, &graph, &prompts).await;
+    //
+    // The pipeline's built-in synthesizer is taken from the Chat default
+    // provider so `ask()` and `ask_with_synthesizer(…default…)` agree on
+    // temperature semantics. Falls back to `llm_provider_from_env()` if
+    // the Chat default isn't in the provider map (typically because the
+    // `llm_models` row is missing) so admin paths still work.
+    let default_chat_provider = chat_providers.get(DEFAULT_CHAT_MODEL).cloned();
+    let rag_pipeline =
+        build_rag_pipeline(&config, &graph, &prompts, default_chat_provider).await;
 
     // Audit log repository — records every admin action for accountability.
     let audit_repo = colossus_legal_backend::repositories::audit_repository::AuditRepository::new(
@@ -245,6 +285,8 @@ async fn run_serve(config: AppConfig, graph: neo4rs::Graph, http_client: reqwest
         audit_repo,
         embedding_provider,
         schema_metadata,
+        chat_providers,
+        default_chat_model: DEFAULT_CHAT_MODEL.to_string(),
     };
 
     // Ensure the Qdrant collection exists with the correct dimensions.
@@ -414,6 +456,7 @@ async fn build_rag_pipeline(
     config: &AppConfig,
     graph: &neo4rs::Graph,
     prompts: &prompt_loader::LoadedPrompts,
+    default_chat_provider: Option<Arc<dyn LlmProvider>>,
 ) -> Option<Arc<colossus_rag::RagPipeline>> {
     use colossus_rag::{
         EmbeddingReranker, GraphDirectRetriever, LegalAssembler, Neo4jExpander, QdrantRetriever,
@@ -422,27 +465,26 @@ async fn build_rag_pipeline(
 
     // Preserve the legacy short-circuit: if no Anthropic API key is
     // configured, /ask has no synthesis backend and we build no pipeline.
-    // The envelope check here is cheap; the real provider is constructed
-    // below via `llm_provider_from_env()` which reads the same env var.
     if config.anthropic_api_key.is_none() {
         return None;
     }
 
-    // --- LLM + embedding providers (v0.10.4 API) ---
-    //
-    // v0.10.4 replaced the `RigSynthesizer::claude(api_key, ...)` convenience
-    // constructor with `RigSynthesizer::new(Arc<dyn LlmProvider>, max_tokens)`
-    // and `EmbeddingReranker::new(model, ...)` with
-    // `EmbeddingReranker::new(Arc<dyn EmbeddingProvider>, threshold)`.
-    // We reach for `colossus_extract::providers::*_from_env()` so the RAG
-    // bootstrap picks up whatever provider backend the rest of the app uses
-    // (the same functions AppContext already calls at startup).
-    let llm_provider = match colossus_extract::providers::llm_provider_from_env() {
-        Ok(p) => p,
-        Err(e) => {
-            tracing::error!("Failed to build LLM provider for RAG: {e}");
-            return None;
-        }
+    // LLM provider for the pipeline's built-in synthesizer. Prefer the
+    // Chat default provider (temperature = None, natural variation) so
+    // `ask()` matches `ask_with_synthesizer(…default…)`. Fall back to
+    // `llm_provider_from_env()` only if the Chat default isn't in the map
+    // (typically because the `llm_models` row is missing) — that path
+    // picks up `LLM_TEMPERATURE` from the environment and may therefore
+    // diverge from the chat-default's None.
+    let llm_provider = match default_chat_provider {
+        Some(p) => p,
+        None => match colossus_extract::providers::llm_provider_from_env() {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::error!("Failed to build LLM provider for RAG: {e}");
+                return None;
+            }
+        },
     };
     let embedding_provider =
         match colossus_extract::providers::embedding_provider_from_env() {
@@ -537,6 +579,81 @@ async fn build_rag_pipeline(
             None
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Chat provider map
+// ---------------------------------------------------------------------------
+
+/// Build one `AnthropicProvider` per active `llm_models` row with
+/// `provider = "anthropic"`, keyed by the model id.
+///
+/// Temperature is `None` on every entry — chat responses should have
+/// natural variation. Pipeline extraction uses `Some(0.0)` via its own
+/// `pipeline::providers::provider_for_model` helper.
+///
+/// Returns an empty map if `ANTHROPIC_API_KEY` is unset or if the DB
+/// query fails. Both are non-fatal: the `/ask` handler will surface a
+/// missing default model as 400, and `/chat/models` still serves the
+/// catalog from the DB directly.
+async fn build_chat_providers(
+    config: &AppConfig,
+    pipeline_pool: &sqlx::PgPool,
+) -> HashMap<String, Arc<dyn LlmProvider>> {
+    use colossus_legal_backend::repositories::pipeline_repository::models;
+
+    let mut map: HashMap<String, Arc<dyn LlmProvider>> = HashMap::new();
+
+    let api_key = match &config.anthropic_api_key {
+        Some(k) => k.clone(),
+        None => {
+            tracing::info!(
+                "ANTHROPIC_API_KEY not set; chat provider map will be empty"
+            );
+            return map;
+        }
+    };
+
+    let models = match models::list_active_models(pipeline_pool).await {
+        Ok(m) => m,
+        Err(e) => {
+            tracing::error!(error = %e, "Failed to load active llm_models for chat provider map");
+            return map;
+        }
+    };
+
+    for model in &models {
+        if model.provider != "anthropic" {
+            // Non-Anthropic chat backends (vLLM, future others) are out of
+            // scope for this map; chat dispatch only supports Anthropic
+            // today. Extraction continues to route vLLM through its own
+            // provider_for_model.
+            continue;
+        }
+        match AnthropicProvider::new(
+            api_key.clone(),
+            model.id.clone(),
+            CHAT_MAX_TOKENS,
+            None, // natural variation for chat
+        ) {
+            Ok(provider) => {
+                map.insert(model.id.clone(), Arc::new(provider) as Arc<dyn LlmProvider>);
+            }
+            Err(e) => {
+                tracing::error!(
+                    model = %model.id, error = %e,
+                    "Failed to construct AnthropicProvider for chat — skipping"
+                );
+            }
+        }
+    }
+
+    tracing::info!(
+        count = map.len(),
+        models = ?map.keys().collect::<Vec<_>>(),
+        "Chat provider map built"
+    );
+    map
 }
 
 // ---------------------------------------------------------------------------

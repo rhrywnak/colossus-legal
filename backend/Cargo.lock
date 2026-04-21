@@ -674,7 +674,7 @@ checksum = "1d07550c9036bf2ae0c684c4297d503f838287c83c53686d05370d0e139ae570"
 [[package]]
 name = "colossus-auth"
 version = "0.1.0"
-source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.10.4#c75482acbd56293dfd9c1f051af5b2789b426ee0"
+source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.11.1#c8732cea4c50bd87a60e84ed0ba5e259eacb8ded"
 dependencies = [
  "async-trait",
  "axum",
@@ -685,8 +685,8 @@ dependencies = [
 
 [[package]]
 name = "colossus-extract"
-version = "0.4.2"
-source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.10.4#c75482acbd56293dfd9c1f051af5b2789b426ee0"
+version = "0.4.3"
+source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.11.1#c8732cea4c50bd87a60e84ed0ba5e259eacb8ded"
 dependencies = [
  "async-trait",
  "fastembed",
@@ -705,7 +705,7 @@ dependencies = [
 [[package]]
 name = "colossus-graph"
 version = "0.1.0"
-source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.10.4#c75482acbd56293dfd9c1f051af5b2789b426ee0"
+source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.11.1#c8732cea4c50bd87a60e84ed0ba5e259eacb8ded"
 dependencies = [
  "neo4rs",
  "serde",
@@ -716,7 +716,7 @@ dependencies = [
 
 [[package]]
 name = "colossus-legal-backend"
-version = "2.0.0-beta.91"
+version = "2.0.0-beta.92"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -760,7 +760,7 @@ dependencies = [
 [[package]]
 name = "colossus-pdf"
 version = "0.2.0"
-source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.10.4#c75482acbd56293dfd9c1f051af5b2789b426ee0"
+source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.11.1#c8732cea4c50bd87a60e84ed0ba5e259eacb8ded"
 dependencies = [
  "pdf_oxide",
  "serde",
@@ -773,7 +773,7 @@ dependencies = [
 [[package]]
 name = "colossus-pipeline"
 version = "0.1.0"
-source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.10.4#c75482acbd56293dfd9c1f051af5b2789b426ee0"
+source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.11.1#c8732cea4c50bd87a60e84ed0ba5e259eacb8ded"
 dependencies = [
  "async-trait",
  "chrono",
@@ -789,8 +789,8 @@ dependencies = [
 
 [[package]]
 name = "colossus-rag"
-version = "0.5.0"
-source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.10.4#c75482acbd56293dfd9c1f051af5b2789b426ee0"
+version = "0.5.1"
+source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.11.1#c8732cea4c50bd87a60e84ed0ba5e259eacb8ded"
 dependencies = [
  "async-trait",
  "colossus-extract",

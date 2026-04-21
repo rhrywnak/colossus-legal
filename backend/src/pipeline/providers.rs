@@ -49,9 +49,16 @@ pub fn provider_for_model(model: &LlmModelRecord) -> Result<Box<dyn LlmProvider>
             let api_key = std::env::var(ANTHROPIC_API_KEY_ENV).map_err(|_| {
                 format!("{ANTHROPIC_API_KEY_ENV} is not set — required for anthropic provider")
             })?;
-            let provider =
-                AnthropicProvider::new(api_key, model.id.clone(), max_tokens_default)
-                    .map_err(|e| format!("AnthropicProvider::new failed: {e}"))?;
+            // Extraction pipeline: temperature = Some(0.0) for deterministic
+            // output. The Chat endpoint builds its own providers with
+            // temperature = None for natural variation — see main.rs.
+            let provider = AnthropicProvider::new(
+                api_key,
+                model.id.clone(),
+                max_tokens_default,
+                Some(0.0),
+            )
+            .map_err(|e| format!("AnthropicProvider::new failed: {e}"))?;
             Ok(Box::new(provider))
         }
         "vllm" => {

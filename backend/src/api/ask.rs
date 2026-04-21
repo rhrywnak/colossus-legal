@@ -10,6 +10,8 @@
 //! The handler calls `pipeline.ask(question)` and maps `RagResult` → `AskResponse`,
 //! including retrieval details (chunks, strategy) for frontend transparency.
 
+use std::sync::Arc;
+
 use axum::{extract::State, http::StatusCode, Json};
 use serde::{Deserialize, Serialize};
 
@@ -28,6 +30,11 @@ pub struct AskRequest {
     /// Optional parent QA ID for follow-up questions.
     #[serde(default)]
     pub parent_qa_id: Option<String>,
+    /// Model id to use for synthesis. `None` (absent key) selects the
+    /// server's configured default chat model. Must match an entry in
+    /// `AppState::chat_providers`; unknown ids return 400.
+    #[serde(default)]
+    pub model: Option<String>,
 }
 
 /// The response shape the frontend expects.
@@ -211,16 +218,36 @@ pub async fn ask_the_case(
         )
     })?;
 
-    // Run the full pipeline: route → search → expand → assemble → synthesize.
-    let result = pipeline.ask(&question).await.map_err(|e| {
-        tracing::error!("RAG pipeline error: {e}");
-        // Map RagError variants to appropriate HTTP status codes.
-        let status = match &e {
-            colossus_rag::RagError::InvalidInput(_) => StatusCode::BAD_REQUEST,
-            _ => StatusCode::INTERNAL_SERVER_ERROR,
-        };
-        error_response(status, &e.to_string())
+    // Resolve the per-request synthesizer from the chat provider map.
+    // Absent `model` field uses the server default. Unknown ids are 400.
+    let model_id = req
+        .model
+        .as_deref()
+        .unwrap_or(&state.default_chat_model);
+    let provider = state.chat_providers.get(model_id).ok_or_else(|| {
+        error_response(
+            StatusCode::BAD_REQUEST,
+            &format!(
+                "Model '{model_id}' not available. GET /api/chat/models for available models."
+            ),
+        )
     })?;
+    let synthesizer = colossus_rag::RigSynthesizer::new(Arc::clone(provider), 4096);
+
+    // Run the full pipeline: route → search → expand → assemble → synthesize.
+    // ask_with_synthesizer delegates stage 5 to the caller-supplied
+    // synthesizer — every earlier stage is identical to pipeline.ask().
+    let result = pipeline
+        .ask_with_synthesizer(&question, &synthesizer)
+        .await
+        .map_err(|e| {
+            tracing::error!("RAG pipeline error: {e}");
+            let status = match &e {
+                colossus_rag::RagError::InvalidInput(_) => StatusCode::BAD_REQUEST,
+                _ => StatusCode::INTERNAL_SERVER_ERROR,
+            };
+            error_response(status, &e.to_string())
+        })?;
 
     tracing::info!(
         question = %question,
@@ -360,6 +387,29 @@ fn error_response(status: StatusCode, message: &str) -> ApiError {
             error: message.to_string(),
         }),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ask_request_without_model_deserializes() {
+        // Backward-compat: old clients send no `model` field.
+        let req: AskRequest = serde_json::from_str(r#"{"question":"hi"}"#).unwrap();
+        assert_eq!(req.question, "hi");
+        assert!(req.model.is_none());
+        assert!(req.parent_qa_id.is_none());
+    }
+
+    #[test]
+    fn ask_request_with_model_deserializes() {
+        let req: AskRequest = serde_json::from_str(
+            r#"{"question":"hi","model":"claude-opus-4-6"}"#,
+        )
+        .unwrap();
+        assert_eq!(req.model.as_deref(), Some("claude-opus-4-6"));
+    }
 }
 
 /// Map a document title to its Neo4j node ID.

@@ -1,6 +1,7 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
-use colossus_extract::EmbeddingProvider;
+use colossus_extract::{EmbeddingProvider, LlmProvider};
 use neo4rs::Graph;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
@@ -59,6 +60,20 @@ pub struct AppState {
     /// Provides entity type and relationship type names to the query layer
     /// and frontend via GET /api/schema.
     pub schema_metadata: SchemaMetadata,
+
+    /// Per-model LLM providers for the Chat endpoint, built once at startup
+    /// from the active rows in `llm_models`. Temperature is `None` on every
+    /// entry so chat responses have natural variation (distinct from the
+    /// pipeline extraction providers, which pin temperature to 0.0 for
+    /// deterministic output). Empty when `ANTHROPIC_API_KEY` is unset —
+    /// callers must treat a missing key as 503 just like `rag_pipeline`.
+    pub chat_providers: HashMap<String, Arc<dyn LlmProvider>>,
+
+    /// Model id the Chat endpoint uses when the request omits `model`.
+    /// Hardcoded at startup (see `main.rs`); may not be present in
+    /// `chat_providers` if the corresponding `llm_models` row is missing
+    /// or inactive — the `/ask` handler surfaces that as a 400.
+    pub default_chat_model: String,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

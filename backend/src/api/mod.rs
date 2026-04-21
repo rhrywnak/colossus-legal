@@ -26,6 +26,7 @@ pub mod admin_verify;
 pub mod allegations;
 pub mod analysis;
 pub mod ask;
+pub mod chat_models;
 pub mod case;
 pub mod case_summary;
 pub mod claims;
@@ -133,6 +134,7 @@ pub fn router() -> Router<AppState> {
         .nest("/admin/pipeline", pipeline::router())
         .route("/search", post(search::semantic_search))
         .route("/ask", post(ask::ask_the_case))
+        .route("/chat/models", get(chat_models::list_chat_models))
         .route("/qa-history", get(qa::get_qa_history))
         .route("/qa/:id", get(qa::get_qa_entry).delete(qa::delete_qa_entry))
         .route("/qa/:id/rate", patch(qa::rate_qa_entry))
