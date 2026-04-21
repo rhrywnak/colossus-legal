@@ -16,6 +16,17 @@ const rowStyle: React.CSSProperties = {
   fontSize: "0.76rem", borderBottom: "1px solid #f1f5f9",
 };
 
+const headerRowStyle: React.CSSProperties = {
+  ...rowStyle,
+  backgroundColor: "#f8fafc",
+  borderBottom: "1px solid #e2e8f0",
+  fontWeight: 600,
+  color: "#334155",
+  textTransform: "uppercase",
+  fontSize: "0.68rem",
+  letterSpacing: "0.03em",
+};
+
 const cellStyle: React.CSSProperties = { color: "#64748b" };
 
 const ExecutionHistory: React.FC<Props> = ({ steps }) => {
@@ -37,7 +48,15 @@ const ExecutionHistory: React.FC<Props> = ({ steps }) => {
               No execution history yet.
             </div>
           ) : (
-            steps.map((s) => (
+            <>
+              <div style={headerRowStyle}>
+                <span style={{ minWidth: "130px" }}>Date</span>
+                <span style={{ minWidth: "100px" }}>Step</span>
+                <span style={{ minWidth: "70px" }}>Status</span>
+                <span style={{ minWidth: "60px" }}>Duration</span>
+                <span>Triggered By</span>
+              </div>
+              {steps.map((s) => (
               <div key={s.id} style={rowStyle}>
                 <span style={{ ...cellStyle, minWidth: "130px" }}>
                   {new Date(s.started_at).toLocaleString()}
@@ -57,7 +76,8 @@ const ExecutionHistory: React.FC<Props> = ({ steps }) => {
                   <span style={{ color: "#ef4444", fontSize: "0.72rem" }}>{s.error_message}</span>
                 )}
               </div>
-            ))
+              ))}
+            </>
           )}
         </div>
       )}

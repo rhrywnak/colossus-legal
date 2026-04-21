@@ -32,6 +32,26 @@ const containerStyle: React.CSSProperties = {
 const headerStyle: React.CSSProperties = {
   padding: "0.6rem 0.85rem", fontWeight: 600, fontSize: "0.84rem", color: "#334155",
   backgroundColor: "#f8fafc", borderBottom: "1px solid #e2e8f0",
+  display: "flex", alignItems: "center", gap: "0.5rem",
+};
+const spinnerStyle: React.CSSProperties = {
+  width: "14px", height: "14px",
+  border: "2px solid #e2e8f0",
+  borderTopColor: "#2563eb",
+  borderRadius: "50%",
+  animation: "colossus-spin 0.8s linear infinite",
+  display: "inline-block",
+};
+const configBlock: React.CSSProperties = {
+  marginTop: "1rem", padding: "0.6rem 0.75rem",
+  backgroundColor: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "6px",
+};
+const configLabel: React.CSSProperties = {
+  fontSize: "0.72rem", fontWeight: 600, color: "#64748b",
+  textTransform: "uppercase", letterSpacing: "0.03em", marginBottom: "0.4rem",
+};
+const reprocessSubtitle: React.CSSProperties = {
+  marginTop: "0.3rem", fontSize: "0.72rem", color: "#64748b",
 };
 const bodyStyle: React.CSSProperties = {
   padding: "1rem 0.85rem",
@@ -70,6 +90,31 @@ const btnDanger = (enabled: boolean): React.CSSProperties => ({
   color: enabled ? "#ffffff" : "#94a3b8",
   fontFamily: "inherit",
 });
+
+// ── Helpers ─────────────────────────────────────────────────────
+
+/** Convert a model id like "claude-sonnet-4-6" into "Claude Sonnet 4.6". */
+function humanizeModelName(model: string): string {
+  return model
+    .replace(/-/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+    .replace(/(\d+) (\d+)/g, "$1.$2");
+}
+
+/** Derive the card header title + color from the current status group. */
+function cardTitle(statusGroup: string, hasFailedSteps: boolean):
+  { text: string; color: string; showSpinner: boolean }
+{
+  if (statusGroup === "completed") return { text: "Processing Complete", color: "#15803d", showSpinner: false };
+  if (statusGroup === "failed") return { text: "Processing Failed", color: "#dc2626", showSpinner: false };
+  if (statusGroup === "cancelled") return { text: "Processing Cancelled", color: "#64748b", showSpinner: false };
+  if (statusGroup === "processing") {
+    // Failure-transition gap: step already failed but doc row not yet FAILED.
+    if (hasFailedSteps) return { text: "Processing Failed", color: "#dc2626", showSpinner: false };
+    return { text: "Processing...", color: "#2563eb", showSpinner: true };
+  }
+  return { text: "Processing", color: "#334155", showSpinner: false };
+}
 
 // ── Component ───────────────────────────────────────────────────
 
@@ -139,6 +184,19 @@ const ProcessingPanel: React.FC<ProcessingPanelProps> = ({
 
   const historySteps = history ?? [];
   const statusGroup = doc.status_group ?? "new";
+  const title = cardTitle(statusGroup, doc.has_failed_steps);
+
+  // Shared Re-process button + subtitle. Used in four render paths.
+  const reprocessButton = (label = "Re-process") => (
+    <div style={{ marginTop: "1rem" }}>
+      <button style={btnPrimary(!busy)} disabled={busy} onClick={() => setShowReprocess(true)}>
+        {busy ? "Starting..." : label}
+      </button>
+      <div style={reprocessSubtitle}>
+        Delete extracted data and run the pipeline again with current settings.
+      </div>
+    </div>
+  );
 
   // ── Render per status_group ────────────────────────────────────
 
@@ -151,9 +209,6 @@ const ProcessingPanel: React.FC<ProcessingPanelProps> = ({
   // error fields exist plus a note that details may still be settling.
   const renderProcessingButFailed = () => (
     <div style={bodyStyle}>
-      <div style={{ fontSize: "0.95rem", fontWeight: 600, color: "#dc2626", marginBottom: "0.75rem" }}>
-        Processing Failed
-      </div>
       <div style={suggestionBox}>
         A pipeline step failed. Full error details will appear once the job
         finalizes — refresh in a moment, or click Re-process to try again.
@@ -168,11 +223,7 @@ const ProcessingPanel: React.FC<ProcessingPanelProps> = ({
           Error: {doc.error_message}
         </div>
       )}
-      <div style={{ marginTop: "1rem" }}>
-        <button style={btnPrimary(!busy)} disabled={busy} onClick={() => setShowReprocess(true)}>
-          {busy ? "Starting..." : "Re-process"}
-        </button>
-      </div>
+      {reprocessButton()}
     </div>
   );
 
@@ -183,10 +234,6 @@ const ProcessingPanel: React.FC<ProcessingPanelProps> = ({
     }
     return (
     <div style={bodyStyle}>
-      <div style={{ fontSize: "0.95rem", fontWeight: 600, color: "#2563eb", marginBottom: "0.75rem" }}>
-        Processing...
-      </div>
-
       {/* Current step label — updated after each chunk */}
       <div style={summaryLine}>
         <strong>{doc.processing_step_label ?? doc.processing_step ?? "Starting..."}</strong>
@@ -228,59 +275,71 @@ const ProcessingPanel: React.FC<ProcessingPanelProps> = ({
     );
   };
 
-  const renderCompleted = () => (
-    <div style={bodyStyle}>
-      <div style={{ fontSize: "0.95rem", fontWeight: 600, color: "#22c55e", marginBottom: "0.75rem" }}>
-        Processing Complete
-      </div>
-      {doc.model_name && (
-        <div style={summaryLine}>Model: {doc.model_name}</div>
-      )}
-      {doc.total_cost_usd != null && (
-        <div style={summaryLine}>Cost: ${doc.total_cost_usd.toFixed(2)}</div>
-      )}
-      {doc.run_chunk_count != null && (
-        <div style={summaryLine}>
-          Chunks: {doc.run_chunk_count} total
-          {doc.run_chunks_succeeded != null && <>, {doc.run_chunks_succeeded} succeeded</>}
-          {(doc.run_chunks_failed ?? 0) > 0 && <>, <span style={{ color: "#dc2626" }}>{doc.run_chunks_failed} failed</span></>}
-        </div>
-      )}
-      {(doc.entities_written ?? 0) > 0 && (() => {
-        const written = doc.entities_written ?? 0;
-        const flagged = doc.entities_flagged ?? 0;
-        const total = written + flagged;
-        const rate = total > 0 ? Math.round((written / total) * 100) : 0;
-        return (
+  const renderCompleted = () => {
+    const entitiesCreated = doc.entities_written ?? 0;
+    const relationshipsCreated = doc.relationships_written ?? 0;
+    const modelDisplay = doc.model_name ? humanizeModelName(doc.model_name) : null;
+
+    return (
+      <div style={bodyStyle}>
+        {doc.total_cost_usd != null && (
+          <div style={summaryLine}>Cost: ${doc.total_cost_usd.toFixed(2)}</div>
+        )}
+        {doc.run_chunk_count != null && (
           <div style={summaryLine}>
-            Grounding: {rate}% ({written} grounded, {flagged} ungrounded)
+            Chunks: {doc.run_chunk_count} total
+            {doc.run_chunks_succeeded != null && <>, {doc.run_chunks_succeeded} succeeded</>}
+            {(doc.run_chunks_failed ?? 0) > 0 && <>, <span style={{ color: "#dc2626" }}>{doc.run_chunks_failed} failed</span></>}
           </div>
-        );
-      })()}
-      <div style={{ ...summaryLine, color: "#16a34a" }}>
-        {doc.entities_written ?? 0} entities written to graph
-      </div>
-      <div style={summaryLine}>
-        {doc.relationships_written ?? 0} relationships written
-      </div>
-      {(doc.entities_flagged ?? 0) > 0 && (
-        <div style={{ ...summaryLine, color: "#d97706" }}>
-          {doc.entities_flagged} entities flagged (ungrounded)
+        )}
+        {entitiesCreated > 0 && (() => {
+          const flagged = doc.entities_flagged ?? 0;
+          const total = entitiesCreated + flagged;
+          const rate = total > 0 ? Math.round((entitiesCreated / total) * 100) : 0;
+          return (
+            <div style={summaryLine}>
+              Grounding: {rate}% ({entitiesCreated} grounded, {flagged} ungrounded)
+            </div>
+          );
+        })()}
+        {entitiesCreated > 0 ? (
+          <>
+            <div style={{ ...summaryLine, color: "#16a34a" }}>
+              {entitiesCreated} entities created
+            </div>
+            <div style={summaryLine}>
+              {relationshipsCreated} relationships created
+            </div>
+          </>
+        ) : (
+          <div style={{ ...summaryLine, color: "#64748b", fontStyle: "italic" }}>
+            See Review tab for extracted items.
+          </div>
+        )}
+        {(doc.entities_flagged ?? 0) > 0 && (
+          <div style={{ ...summaryLine, color: "#d97706" }}>
+            {doc.entities_flagged} entities flagged (ungrounded)
+          </div>
+        )}
+
+        <div style={configBlock}>
+          <div style={configLabel}>Configuration</div>
+          {modelDisplay && (
+            <div style={summaryLine}>Model: {modelDisplay}</div>
+          )}
+          <div style={{ ...mutedText, marginTop: "0.3rem" }}>
+            Full run configuration (profile, template, schema, OCR engine) will appear
+            after the next backend update.
+          </div>
         </div>
-      )}
-      <div style={{ marginTop: "1rem" }}>
-        <button style={btnPrimary(!busy)} disabled={busy} onClick={() => setShowReprocess(true)}>
-          {busy ? "Starting..." : "Re-process"}
-        </button>
+
+        {reprocessButton()}
       </div>
-    </div>
-  );
+    );
+  };
 
   const renderFailed = () => (
     <div style={bodyStyle}>
-      <div style={{ fontSize: "0.95rem", fontWeight: 600, color: "#dc2626", marginBottom: "0.75rem" }}>
-        Processing Failed
-      </div>
       {doc.failed_step && (
         <div style={summaryLine}>
           Failed at: <strong>{doc.failed_step}</strong>
@@ -296,30 +355,19 @@ const ProcessingPanel: React.FC<ProcessingPanelProps> = ({
           Suggestion: {doc.error_suggestion}
         </div>
       )}
-      <div style={{ marginTop: "1rem" }}>
-        <button style={btnPrimary(!busy)} disabled={busy} onClick={() => setShowReprocess(true)}>
-          {busy ? "Starting..." : "Re-process"}
-        </button>
-      </div>
+      {reprocessButton()}
     </div>
   );
 
   const renderCancelled = () => (
     <div style={bodyStyle}>
-      <div style={{ fontSize: "0.95rem", fontWeight: 600, color: "#64748b", marginBottom: "0.75rem" }}>
-        Processing Cancelled
-      </div>
       {doc.error_message && (
         <div style={summaryLine}>{doc.error_message}</div>
       )}
       <div style={mutedText}>
         No data was written to the knowledge graph.
       </div>
-      <div style={{ marginTop: "1rem" }}>
-        <button style={btnPrimary(!busy)} disabled={busy} onClick={() => setShowReprocess(true)}>
-          {busy ? "Starting..." : "Re-process"}
-        </button>
-      </div>
+      {reprocessButton()}
     </div>
   );
 
@@ -345,6 +393,10 @@ const ProcessingPanel: React.FC<ProcessingPanelProps> = ({
 
   return (
     <div>
+      {/* Spinner keyframes — scoped by a unique animation name to avoid
+          collisions with any other "spin" animation in the app. */}
+      <style>{`@keyframes colossus-spin { to { transform: rotate(360deg); } }`}</style>
+
       {actionError && <div style={errorBox}>{actionError}</div>}
 
       {statusGroup === "new" && (
@@ -362,7 +414,10 @@ const ProcessingPanel: React.FC<ProcessingPanelProps> = ({
       )}
 
       <div style={containerStyle}>
-        <div style={headerStyle}>Processing</div>
+        <div style={{ ...headerStyle, color: title.color }}>
+          {title.showSpinner && <span style={spinnerStyle} aria-hidden="true" />}
+          <span>{title.text}</span>
+        </div>
         {renderContent()}
       </div>
 
