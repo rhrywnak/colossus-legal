@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { askTheCase, AskResponse } from "../services/ask";
+import { askTheCase, AskResponse, ChatModel, fetchChatModels } from "../services/ask";
 import {
   getQAHistory, getQAEntry, rateQAEntry, deleteQAEntry, mapEntryToResponse,
   QAEntrySummary, QAEntryFull,
@@ -25,6 +25,17 @@ const AskPage: React.FC = () => {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [viewingHistoryEntry, setViewingHistoryEntry] = useState<QAEntryFull | null>(null);
   const [parentQaId, setParentQaId] = useState<string | null>(null);
+  const [chatModels, setChatModels] = useState<ChatModel[]>([]);
+  const [selectedModel, setSelectedModel] = useState<string>("");
+
+  // Fetch the chat-model catalog once on mount. The fallback inside
+  // fetchChatModels guarantees a non-empty models list even on failure.
+  useEffect(() => {
+    fetchChatModels().then((res) => {
+      setChatModels(res.models);
+      setSelectedModel(res.default_model);
+    });
+  }, []);
 
   const loadHistory = async () => {
     setHistoryLoading(true);
@@ -61,7 +72,7 @@ const AskPage: React.FC = () => {
     const t3 = setTimeout(() => setPhase("Synthesizing answer..."), 3500);
 
     try {
-      const result = await askTheCase(q.trim(), parentQaId);
+      const result = await askTheCase(q.trim(), parentQaId, selectedModel || undefined);
       setResponse(result);
       setParentQaId(null);
     } catch (err) {
@@ -104,6 +115,13 @@ const AskPage: React.FC = () => {
       setResponse(mapEntryToResponse(full));
       setError(null);
       setActiveTab("ask");
+      // Preselect the model that was used for this entry, but only if
+      // it's still in the active catalog — a retired model would POST
+      // back as a 400 on the next submit. Silently keep the current
+      // selection if the historical model is no longer available.
+      if (full.model && chatModels.some((m) => m.model_id === full.model)) {
+        setSelectedModel(full.model);
+      }
     } catch (e) {
       console.error("Failed to load history entry", e);
     } finally {
@@ -179,11 +197,52 @@ const AskPage: React.FC = () => {
             placeholder={pageText.ask.placeholder}
             rows={3}
             style={{
-              width: "100%", padding: "0.75rem 3.5rem 0.75rem 1rem", border: "1px solid #d1d5db",
+              width: "100%", padding: "0.75rem 11rem 0.75rem 1rem", border: "1px solid #d1d5db",
               borderRadius: "8px", fontSize: "1rem", fontFamily: "inherit",
               resize: "vertical", outline: "none", boxSizing: "border-box",
             }}
           />
+          {/* Model picker — sits inside the input area, left of the send
+              button. Compact style matches claude.ai. During the initial
+              fetch we render a disabled placeholder so the <select> never
+              appears with zero options. */}
+          <div style={{
+            position: "absolute", bottom: "12px", right: "58px",
+            display: "flex", alignItems: "center",
+          }}>
+            <select
+              value={selectedModel}
+              onChange={(e) => setSelectedModel(e.target.value)}
+              disabled={chatModels.length === 0}
+              style={{
+                appearance: "none",
+                WebkitAppearance: "none",
+                border: "1px solid #e2e8f0",
+                borderRadius: "6px",
+                padding: "4px 24px 4px 8px",
+                fontSize: "0.78rem",
+                color: "#475569",
+                backgroundColor: "#f8fafc",
+                cursor: chatModels.length === 0 ? "wait" : "pointer",
+                fontFamily: "inherit",
+                backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,
+                backgroundRepeat: "no-repeat",
+                backgroundPosition: "right 6px center",
+                outline: "none",
+              }}
+              title="Chat model"
+            >
+              {chatModels.length === 0 ? (
+                <option value="" disabled>Loading models…</option>
+              ) : (
+                chatModels.map((m) => (
+                  <option key={m.model_id} value={m.model_id}>
+                    {m.display_name.replace("Claude ", "")}
+                  </option>
+                ))
+              )}
+            </select>
+          </div>
           <button
             type="submit"
             disabled={loading || !question.trim()}
