@@ -87,18 +87,60 @@ pub(crate) async fn run_extract_text(
         })?
         .map_err(|e| AppError::Internal { message: e })?;
 
-    // 4. Check OCR tool availability (non-fatal — only matters if pages need OCR)
-    let ocr_available = match ocr::check_ocr_tools_available().await {
+    // 4. Check Surya OCR service availability (non-fatal — only matters if pages need OCR)
+    let ocr_available = match ocr::check_surya_available(&state.http_client).await {
         Ok(()) => true,
         Err(e) => {
-            tracing::warn!("OCR tools not available, scanned pages will have no text: {e}");
+            tracing::warn!("Surya OCR service not available, scanned pages will have no text: {e}");
             false
         }
     };
 
+    // 4b. Batch-OCR scanned pages via Surya service (one HTTP call for all pages).
+    //     See Surya-vs-tesseract rationale in `ocr::ocr_full_document_surya`.
+    let scanned_page_numbers: Vec<u32> = pages
+        .iter()
+        .filter(|p| p.text.chars().filter(|c| !c.is_whitespace()).count() < ocr::OCR_CHAR_THRESHOLD)
+        .map(|p| p.page_number)
+        .collect();
+
+    let surya_results: std::collections::HashMap<u32, String> =
+        if !scanned_page_numbers.is_empty() && ocr_available {
+            match ocr::ocr_full_document_surya(
+                &state.http_client,
+                &full_path,
+                Some(&scanned_page_numbers),
+            )
+            .await
+            {
+                Ok(response) => {
+                    tracing::info!(
+                        doc_id = %doc_id,
+                        pages_ocr = response.pages_processed,
+                        elapsed = response.elapsed_secs,
+                        "Surya OCR returned {} pages",
+                        response.pages.len()
+                    );
+                    response
+                        .pages
+                        .into_iter()
+                        .map(|p| (p.page_number, p.text))
+                        .collect()
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        doc_id = %doc_id, error = %e,
+                        "Surya OCR failed — scanned pages will have no usable text"
+                    );
+                    std::collections::HashMap::new()
+                }
+            }
+        } else {
+            std::collections::HashMap::new()
+        };
+
     // 5. OCR fallback for pages with insufficient text, then insert into DB
     let page_count = pages.len();
-    let total_pages = page_count as u32;
     let mut total_chars: usize = 0;
     let mut pages_native: usize = 0;
     let mut pages_ocr: usize = 0;
@@ -107,33 +149,17 @@ pub(crate) async fn run_extract_text(
     for page in &pages {
         let non_ws = page.text.chars().filter(|c| !c.is_whitespace()).count();
         let text_to_store = if non_ws < ocr::OCR_CHAR_THRESHOLD {
-            if ocr_available {
-                tracing::info!(
-                    doc_id = %doc_id, page = page.page_number, non_ws_chars = non_ws,
-                    "Page {}: only {} non-whitespace chars, attempting OCR",
-                    page.page_number, non_ws
-                );
-                match ocr::ocr_page(&full_path, page.page_number, total_pages).await {
-                    Ok(ocr_text) if !ocr_text.trim().is_empty() => {
-                        pages_ocr += 1;
-                        ocr_text
-                    }
-                    Ok(_) => {
-                        tracing::warn!(
-                            doc_id = %doc_id, page = page.page_number,
-                            "OCR returned empty text, keeping original"
-                        );
-                        pages_native += 1;
-                        page.text.clone()
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            doc_id = %doc_id, page = page.page_number,
-                            "OCR failed, keeping original text: {e}"
-                        );
-                        pages_native += 1;
-                        page.text.clone()
-                    }
+            if let Some(surya_text) = surya_results.get(&page.page_number) {
+                if !surya_text.trim().is_empty() {
+                    pages_ocr += 1;
+                    surya_text.clone()
+                } else {
+                    tracing::warn!(
+                        doc_id = %doc_id, page = page.page_number,
+                        "Surya returned empty text; keeping native"
+                    );
+                    pages_native += 1;
+                    page.text.clone()
                 }
             } else {
                 pages_native += 1;

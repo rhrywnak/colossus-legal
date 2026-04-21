@@ -39,7 +39,7 @@ fastembed = "4"
 rig-fastembed = "0.3"
 qdrant-client = { version = "1.14", default-features = false }
 rig-core = "0.33"
-reqwest = { version = "0.12", features = ["json", "native-tls"] }
+reqwest = { version = "0.12", features = ["json", "native-tls", "multipart"] }
 uuid = { version = "1", features = ["v4"] }
 clap = { version = "4", features = ["derive"] }
 sha2 = "0.10"

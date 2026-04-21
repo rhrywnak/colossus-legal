@@ -73,6 +73,8 @@ use crate::repositories::pipeline_repository::{self, steps};
 /// Fields are applied per-key, so partial overrides compose cleanly.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OcrConfig {
+    /// Which OCR engine to use: "surya" (GPU service, default) or "surya-cpu" (local, slow).
+    pub ocr_engine: String,
     /// Pages whose native-extraction text has fewer non-whitespace chars
     /// than this are treated as scanned and routed through OCR.
     pub char_threshold: usize,
@@ -87,6 +89,7 @@ pub struct OcrConfig {
 impl Default for OcrConfig {
     fn default() -> Self {
         Self {
+            ocr_engine: "surya".to_string(),
             char_threshold: 50,
             dpi: 300,
             lang: "eng".to_string(),
@@ -107,6 +110,9 @@ impl OcrConfig {
         let mut cfg = Self::default();
 
         // Layer 1: env vars (parse failures are logged and ignored).
+        if let Ok(v) = std::env::var("PIPELINE_OCR_ENGINE") {
+            cfg.ocr_engine = v;
+        }
         if let Ok(v) = std::env::var("PIPELINE_OCR_CHAR_THRESHOLD") {
             if let Ok(n) = v.parse() {
                 cfg.char_threshold = n;
@@ -143,6 +149,9 @@ impl OcrConfig {
         });
 
         if let Some(cfg_json) = step_cfg.filter(|v| !v.is_null()) {
+            if let Some(s) = cfg_json.get("ocr_engine").and_then(|v| v.as_str()) {
+                cfg.ocr_engine = s.to_string();
+            }
             if let Some(n) = cfg_json.get("ocr_char_threshold").and_then(|v| v.as_u64()) {
                 cfg.char_threshold = n as usize;
             }
@@ -323,14 +332,61 @@ impl ExtractText {
             return Err(ExtractTextError::Cancelled);
         }
 
-        // [5] OCR tool availability (non-fatal — scanned pages just won't OCR).
-        let ocr_available = ocr::check_ocr_tools_available().await.is_ok();
+        // [5] Surya OCR service availability (non-fatal — scanned pages just won't OCR).
+        let ocr_available = ocr::check_surya_available(&context.http_client).await.is_ok();
         if !ocr_available {
             tracing::warn!(
                 doc_id = %doc_id,
-                "OCR tools unavailable; scanned pages will have no text"
+                "Surya OCR service unavailable; scanned pages will have no text"
             );
         }
+
+        // [5b] Batch-OCR scanned pages via Surya service (one HTTP call for all pages).
+        //      Unlike the legacy per-page tesseract path, Surya processes the whole
+        //      PDF in a single GPU batch. We collect page numbers that fall below
+        //      the char threshold, then pull text out of the response by page number.
+        let scanned_page_numbers: Vec<u32> = pages
+            .iter()
+            .filter(|p| {
+                p.text.chars().filter(|c| !c.is_whitespace()).count() < cfg.char_threshold
+            })
+            .map(|p| p.page_number)
+            .collect();
+
+        let surya_results: std::collections::HashMap<u32, String> =
+            if !scanned_page_numbers.is_empty() && ocr_available {
+                match ocr::ocr_full_document_surya(
+                    &context.http_client,
+                    &full_path,
+                    Some(&scanned_page_numbers),
+                )
+                .await
+                {
+                    Ok(response) => {
+                        tracing::info!(
+                            doc_id = %doc_id,
+                            pages_ocr = response.pages_processed,
+                            elapsed = response.elapsed_secs,
+                            "Surya OCR returned {} pages",
+                            response.pages.len()
+                        );
+                        response
+                            .pages
+                            .into_iter()
+                            .map(|p| (p.page_number, p.text))
+                            .collect()
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            doc_id = %doc_id, error = %e,
+                            "Surya OCR failed — scanned pages will have no usable text"
+                        );
+                        std::collections::HashMap::new()
+                    }
+                }
+            } else {
+                std::collections::HashMap::new()
+            };
 
         // [6] Per-page loop: OCR fallback when native extraction is too
         //     sparse; insert into document_text (ON CONFLICT handles
@@ -347,28 +403,22 @@ impl ExtractText {
             }
 
             let non_ws = page.text.chars().filter(|c| !c.is_whitespace()).count();
-            let text_to_store = if non_ws < cfg.char_threshold && ocr_available {
-                match ocr::ocr_page_with_config(&full_path, page.page_number, &cfg).await {
-                    Ok(t) if !t.trim().is_empty() => {
+            let text_to_store = if non_ws < cfg.char_threshold {
+                if let Some(surya_text) = surya_results.get(&page.page_number) {
+                    if !surya_text.trim().is_empty() {
                         pages_ocr += 1;
-                        t
-                    }
-                    Ok(_) => {
+                        surya_text.clone()
+                    } else {
                         tracing::warn!(
                             doc_id = %doc_id, page = page.page_number,
-                            "OCR returned empty text; keeping native"
+                            "Surya returned empty text; keeping native"
                         );
                         pages_native += 1;
                         page.text.clone()
                     }
-                    Err(e) => {
-                        tracing::warn!(
-                            doc_id = %doc_id, page = page.page_number, error = %e,
-                            "OCR failed; keeping native"
-                        );
-                        pages_native += 1;
-                        page.text.clone()
-                    }
+                } else {
+                    pages_native += 1;
+                    page.text.clone()
                 }
             } else {
                 pages_native += 1;
@@ -473,6 +523,7 @@ mod tests {
         assert_eq!(
             OcrConfig::default(),
             OcrConfig {
+                ocr_engine: "surya".to_string(),
                 char_threshold: 50,
                 dpi: 300,
                 lang: "eng".to_string(),
