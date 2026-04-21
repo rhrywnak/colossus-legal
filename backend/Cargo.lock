@@ -716,7 +716,7 @@ dependencies = [
 
 [[package]]
 name = "colossus-legal-backend"
-version = "2.0.0-beta.89"
+version = "2.0.0-beta.90"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3692,6 +3692,7 @@ dependencies = [
  "js-sys",
  "log",
  "mime",
+ "mime_guess",
  "native-tls",
  "percent-encoding",
  "pin-project-lite",
