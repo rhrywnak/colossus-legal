@@ -1,7 +1,12 @@
-//! POST /api/admin/pipeline/documents/:id/verify — PageGrounder verification.
+//! POST /api/admin/pipeline/documents/:id/verify — Canonical text verification.
 //!
-//! Searches the document's PDF for each extraction item's grounding snippet,
-//! using per-entity-type grounding modes from the extraction schema.
+//! Searches the document's canonical stored text (`document_text` table) for
+//! each extraction item's grounding snippet. This is format-agnostic: text PDFs,
+//! scanned PDFs (OCR), and future formats all verify against the same canonical
+//! text the LLM saw during extraction.
+//!
+//! Replaces the previous PageGrounder approach which opened the original PDF —
+//! that failed for scanned documents because the PDF has no native text layer.
 //!
 //! ## Grounding Modes
 //!
@@ -21,6 +26,7 @@ use axum::{extract::Path as AxumPath, extract::State, Json};
 use colossus_extract::GroundingMode;
 use serde::Serialize;
 
+use super::canonical_verifier::{find_in_canonical_text, CanonicalMatchType};
 use crate::auth::{require_admin, AuthUser};
 use crate::error::AppError;
 use crate::repositories::audit_repository::log_admin_action;
@@ -65,8 +71,9 @@ pub(crate) async fn run_verify(
         message: format!("Step logging: {e}"),
     })?;
 
-    // 1. Fetch document
-    let document = pipeline_repository::get_document(&state.pipeline_pool, doc_id)
+    // 1. Fetch document (existence guard — content is no longer read here;
+    //    canonical text comes from document_text in step 5).
+    let _document = pipeline_repository::get_document(&state.pipeline_pool, doc_id)
         .await
         .map_err(|e| AppError::Internal {
             message: format!("DB error: {e}"),
@@ -91,17 +98,24 @@ pub(crate) async fn run_verify(
             message: format!("DB error: {e}"),
         })?;
 
-    // 5. Build full path and verify PDF exists
-    let full_path = format!(
-        "{}/{}",
-        state.config.document_storage_path.trim_end_matches('/'),
-        document.file_path
-    );
-    if !tokio::fs::try_exists(&full_path).await.unwrap_or(false) {
-        return Err(AppError::NotFound {
-            message: format!("PDF file not found: {}", document.file_path),
+    // 5. Load canonical text from document_text table
+    let document_text_rows = pipeline_repository::get_document_text(&state.pipeline_pool, doc_id)
+        .await
+        .map_err(|e| AppError::Internal {
+            message: format!("Failed to load document text: {e}"),
+        })?;
+
+    if document_text_rows.is_empty() {
+        return Err(AppError::Internal {
+            message: format!("No canonical text found for document '{doc_id}'. Was ExtractText run?"),
         });
     }
+
+    // Convert to (page_number, text_content) tuples for the verifier
+    let document_pages: Vec<(u32, String)> = document_text_rows
+        .into_iter()
+        .map(|row| (row.page_number as u32, row.text_content))
+        .collect();
 
     // 6. Categorize items by grounding mode using the extracted pure function.
     //    Then build combined snippets for PageGrounder.
@@ -135,23 +149,16 @@ pub(crate) async fn run_verify(
         });
     }
 
-    // 7. Run PageGrounder in blocking thread for all snippet-based items
-    let pdf_path = full_path.clone();
-    let grounding_results =
-        tokio::task::spawn_blocking(move || run_grounding(&pdf_path, &snippets))
-            .await
-            .map_err(|e| AppError::Internal {
-                message: format!("Grounding task panicked: {e}"),
-            })??;
-
-    // 8. Distribute grounding results and update DB
+    // 7. Search each snippet against canonical text and update DB
     let (mut exact, mut normalized, mut not_found) = (0usize, 0usize, 0usize);
     let (mut name_matched, mut heading_matched) = (0usize, 0usize);
 
-    for (i, result) in grounding_results.iter().enumerate() {
+    for (i, snippet) in snippets.iter().enumerate() {
         let meta = &snippet_items[i];
+        let result = find_in_canonical_text(snippet, &document_pages);
+
         let (status_str, page) = match result.match_type {
-            colossus_pdf::MatchType::Exact => {
+            CanonicalMatchType::Exact => {
                 exact += 1;
                 if matches!(meta.kind, SnippetKind::NameMatch) {
                     name_matched += 1;
@@ -161,7 +168,7 @@ pub(crate) async fn run_verify(
                 }
                 ("exact", result.page_number.map(|p| p as i32))
             }
-            colossus_pdf::MatchType::Normalized => {
+            CanonicalMatchType::Normalized => {
                 normalized += 1;
                 if matches!(meta.kind, SnippetKind::NameMatch) {
                     name_matched += 1;
@@ -171,7 +178,7 @@ pub(crate) async fn run_verify(
                 }
                 ("normalized", result.page_number.map(|p| p as i32))
             }
-            colossus_pdf::MatchType::NotFound => {
+            CanonicalMatchType::NotFound => {
                 not_found += 1;
                 ("not_found", None)
             }
@@ -500,32 +507,6 @@ pub(crate) fn extract_heading_label(item: &ExtractionItemRecord) -> String {
         .or_else(|| item.item_data["properties"]["count_name"].as_str())
         .unwrap_or("")
         .to_string()
-}
-
-/// Run PDF grounding (sync — called from spawn_blocking).
-pub(crate) fn run_grounding(
-    pdf_path: &str,
-    snippets: &[String],
-) -> Result<Vec<colossus_pdf::GroundingResult>, AppError> {
-    let mut extractor =
-        colossus_pdf::PdfTextExtractor::open(pdf_path).map_err(|e| AppError::Internal {
-            message: format!("Failed to open PDF: {e}"),
-        })?;
-    // extract_all_pages() must be called before grounding to load page text
-    extractor
-        .extract_all_pages()
-        .map_err(|e| AppError::Internal {
-            message: format!("Failed to extract PDF pages: {e}"),
-        })?;
-
-    let snippet_refs: Vec<&str> = snippets.iter().map(|s| s.as_str()).collect();
-    let mut grounder = colossus_pdf::PageGrounder::new(&mut extractor);
-    let results = grounder
-        .ground_snippets(&snippet_refs)
-        .map_err(|e| AppError::Internal {
-            message: format!("Grounding failed: {e}"),
-        })?;
-    Ok(results)
 }
 
 #[cfg(test)]

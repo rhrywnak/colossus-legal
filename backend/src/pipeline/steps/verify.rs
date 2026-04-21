@@ -1,12 +1,13 @@
-//! Verify step: runs PageGrounder verification on extraction items.
+//! Verify step: runs canonical text verification on extraction items.
 //!
-//! The logic is the pipeline-framework adaptation of
-//! `api::pipeline::verify::run_verify` — same categorization + grounding
-//! algorithm, but drives from `&PgPool` + `&AppContext` rather than
-//! `&AppState`. The pure helpers (categorization, schema loading,
-//! PDF grounding) live in `api::pipeline::verify` and are reused from
-//! there; only the snippet-assembly and result-distribution loops are
-//! written here, as they are iteration/wiring rather than domain logic.
+//! Searches the document's stored text (`document_text` table) for each
+//! extraction item's grounding snippet. Format-agnostic: text PDFs,
+//! scanned PDFs (OCR), and future formats all verify against the same
+//! canonical text the LLM saw during extraction.
+//!
+//! The categorization and schema-loading helpers live in
+//! `api::pipeline::verify` and are reused from there. The canonical text
+//! search logic lives in `api::pipeline::canonical_verifier`.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -21,6 +22,7 @@ use colossus_pipeline::cancel::CancellationToken;
 use colossus_pipeline::progress::ProgressReporter;
 use colossus_pipeline::{Step, StepResult};
 
+use crate::api::pipeline::canonical_verifier::{find_in_canonical_text, CanonicalMatchType};
 use crate::api::pipeline::verify as verify_api;
 use crate::pipeline::context::AppContext;
 use crate::pipeline::steps::auto_approve::AutoApprove;
@@ -46,11 +48,17 @@ pub enum VerifyError {
     #[error("Document '{doc_id}' not found")]
     DocumentNotFound { doc_id: String },
 
+    /// Retained for the Display-hygiene regression test
+    /// (`verify_error_pdf_not_found_display_excludes_path_body`),
+    /// which asserts that `path` is a struct field but never interpolated
+    /// into the Display output (Kazlauskas Guideline 6). The canonical-text
+    /// flow no longer constructs this variant.
+    #[allow(dead_code)]
     #[error("PDF not found for document '{doc_id}'")]
     PdfNotFound { doc_id: String, path: String },
 
-    #[error("PDF grounding failed for document '{doc_id}'")]
-    GroundingFailed { doc_id: String, message: String },
+    #[error("No canonical text found for document '{doc_id}' — was ExtractText run?")]
+    NoCanonicalText { doc_id: String },
 
     #[error("Database operation failed for document '{doc_id}'")]
     Db { doc_id: String, message: String },
@@ -144,8 +152,9 @@ impl Verify {
     ) -> Result<VerifyResult, VerifyError> {
         let doc_id = self.document_id.as_str();
 
-        // 1. Fetch document.
-        let document = pipeline_repository::get_document(db, doc_id)
+        // 1. Fetch document (existence guard — content is no longer read here;
+        //    canonical text comes from document_text in step 4).
+        let _document = pipeline_repository::get_document(db, doc_id)
             .await
             .map_err(|e| VerifyError::Db {
                 doc_id: doc_id.to_string(),
@@ -169,20 +178,25 @@ impl Verify {
                 message: format!("get_all_items: {e}"),
             })?;
 
-        // 4. Build PDF path.
-        let full_path = format!(
-            "{}/{}",
-            context.document_storage_path.trim_end_matches('/'),
-            document.file_path
-        );
-
-        // 5. Verify the PDF file exists on disk.
-        if !tokio::fs::try_exists(&full_path).await.unwrap_or(false) {
-            return Err(VerifyError::PdfNotFound {
+        // 4. Load canonical text from document_text table.
+        let document_text_rows = pipeline_repository::get_document_text(db, doc_id)
+            .await
+            .map_err(|e| VerifyError::Db {
                 doc_id: doc_id.to_string(),
-                path: document.file_path.clone(),
+                message: format!("get_document_text: {e}"),
+            })?;
+
+        if document_text_rows.is_empty() {
+            return Err(VerifyError::NoCanonicalText {
+                doc_id: doc_id.to_string(),
             });
         }
+
+        // 5. Convert to (page_number, text_content) tuples for the verifier.
+        let document_pages: Vec<(u32, String)> = document_text_rows
+            .into_iter()
+            .map(|row| (row.page_number as u32, row.text_content))
+            .collect();
 
         // 6. Categorize items by grounding mode.
         let categorization = verify_api::categorize_items_for_grounding(&items, &grounding_modes);
@@ -213,36 +227,22 @@ impl Verify {
             });
         }
 
-        // 8. Run PageGrounder on a blocking worker thread.
-        let pdf_path = full_path.clone();
-        let snippets_for_blocking = snippets.clone();
-        let grounding_results = tokio::task::spawn_blocking(move || {
-            verify_api::run_grounding(&pdf_path, &snippets_for_blocking)
-        })
-        .await
-        .map_err(|e| VerifyError::GroundingFailed {
-            doc_id: doc_id.to_string(),
-            message: format!("grounding task panicked: {e}"),
-        })?
-        .map_err(|e| VerifyError::GroundingFailed {
-            doc_id: doc_id.to_string(),
-            message: format!("{e:?}"),
-        })?;
-
-        // 9. Distribute grounding results and update each item's status.
+        // 8. Search each snippet against canonical text and update DB.
         let (mut exact, mut normalized, mut not_found) = (0usize, 0usize, 0usize);
-        for (i, result) in grounding_results.iter().enumerate() {
+        for (i, snippet) in snippets.iter().enumerate() {
             let meta = &snippet_items[i];
+            let result = find_in_canonical_text(snippet, &document_pages);
+
             let (status_str, page) = match result.match_type {
-                colossus_pdf::MatchType::Exact => {
+                CanonicalMatchType::Exact => {
                     exact += 1;
                     ("exact", result.page_number.map(|p| p as i32))
                 }
-                colossus_pdf::MatchType::Normalized => {
+                CanonicalMatchType::Normalized => {
                     normalized += 1;
                     ("normalized", result.page_number.map(|p| p as i32))
                 }
-                colossus_pdf::MatchType::NotFound => {
+                CanonicalMatchType::NotFound => {
                     not_found += 1;
                     ("not_found", None)
                 }
