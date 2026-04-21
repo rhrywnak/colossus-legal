@@ -195,6 +195,30 @@ pub async fn insert_pipeline_config(
     Ok(())
 }
 
+/// Update the entity and relationship write counts on the documents table.
+///
+/// Called after Ingest commits nodes to Neo4j. These counts power the
+/// Processing tab's "N entities written to graph" indicator. Previously
+/// the counts were computed and logged but never persisted, so the UI
+/// always displayed 0 (bug B2).
+pub async fn update_document_write_counts(
+    pool: &PgPool,
+    document_id: &str,
+    entities_written: i32,
+    relationships_written: i32,
+) -> Result<(), PipelineRepoError> {
+    sqlx::query(
+        "UPDATE documents SET entities_written = $2, relationships_written = $3, \
+         updated_at = NOW() WHERE id = $1",
+    )
+    .bind(document_id)
+    .bind(entities_written)
+    .bind(relationships_written)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 /// Update document status and set updated_at to now.
 pub async fn update_document_status(
     pool: &PgPool,

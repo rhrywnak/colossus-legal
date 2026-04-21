@@ -27,7 +27,7 @@ use crate::api::pipeline::verify as verify_api;
 use crate::pipeline::context::AppContext;
 use crate::pipeline::steps::auto_approve::AutoApprove;
 use crate::pipeline::task::DocProcessing;
-use crate::repositories::pipeline_repository::{self, documents};
+use crate::repositories::pipeline_repository::{self, documents, steps};
 
 /// Verify step state.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -99,6 +99,22 @@ impl Step<DocProcessing> for Verify {
             return Err("Cancelled before verify".into());
         }
 
+        let step_id = steps::record_step_start(
+            db,
+            &self.document_id,
+            "verify",
+            "pipeline",
+            &serde_json::json!({}),
+        )
+        .await
+        .unwrap_or_else(|e| {
+            tracing::warn!(
+                doc_id = %self.document_id, error = %e,
+                "Verify: record_step_start failed (non-fatal)"
+            );
+            0
+        });
+
         let result = self.run_verify(db, context).await?;
 
         if cancel.is_cancelled().await {
@@ -133,6 +149,26 @@ impl Step<DocProcessing> for Verify {
             grounding_pct = result.grounding_pct,
             "Verify step complete"
         );
+
+        if step_id != 0 {
+            let summary = serde_json::json!({
+                "total_items": result.total_items,
+                "exact": result.exact,
+                "normalized": result.normalized,
+                "not_found": result.not_found,
+                "derived": result.derived,
+                "unverified": result.unverified,
+                "missing_quote": result.missing_quote,
+                "grounding_pct": result.grounding_pct,
+            });
+            if let Err(e) = steps::record_step_complete(db, step_id, duration_secs, &summary).await
+            {
+                tracing::warn!(
+                    doc_id = %self.document_id, step_id, error = %e,
+                    "Verify: record_step_complete failed (non-fatal)"
+                );
+            }
+        }
 
         Ok(StepResult::Next(DocProcessing::AutoApprove(AutoApprove {
             document_id: self.document_id,

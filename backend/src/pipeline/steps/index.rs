@@ -54,7 +54,7 @@ use crate::pipeline::steps::cleanup::{cleanup_qdrant, CleanupError};
 use crate::pipeline::steps::completeness::Completeness;
 use crate::pipeline::task::DocProcessing;
 use crate::repositories::embedding_repository;
-use crate::repositories::pipeline_repository;
+use crate::repositories::pipeline_repository::{self, steps};
 use crate::services::embedding_text::build_embedding_text;
 use crate::services::qdrant_service::{self, QdrantPoint};
 
@@ -62,6 +62,15 @@ use crate::services::qdrant_service::{self, QdrantPoint};
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Index {
     pub document_id: String,
+}
+
+/// Counts returned by [`Index::run_index`] for the `pipeline_steps`
+/// `result_summary` JSON (bug B3).
+#[derive(Debug)]
+struct IndexStats {
+    embedded_count: usize,
+    node_count: usize,
+    by_type: HashMap<String, usize>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -124,7 +133,23 @@ impl Step<DocProcessing> for Index {
             return Err("Cancelled before indexing".into());
         }
 
-        self.run_index(db, context, &doc_id).await?;
+        let step_id = steps::record_step_start(
+            db,
+            &doc_id,
+            "index",
+            "pipeline",
+            &serde_json::json!({}),
+        )
+        .await
+        .unwrap_or_else(|e| {
+            tracing::warn!(
+                doc_id = %doc_id, error = %e,
+                "Index: record_step_start failed (non-fatal)"
+            );
+            0
+        });
+
+        let stats = self.run_index(db, context, &doc_id).await?;
 
         if cancel.is_cancelled().await {
             return Err("Cancelled after indexing".into());
@@ -134,8 +159,25 @@ impl Step<DocProcessing> for Index {
         tracing::info!(
             doc_id = %doc_id,
             duration_secs,
+            embedded_count = stats.embedded_count,
             "Index step complete"
         );
+
+        if step_id != 0 {
+            let summary = serde_json::json!({
+                "embedded_count": stats.embedded_count,
+                "node_count": stats.node_count,
+                "by_type": stats.by_type,
+                "collection": QDRANT_COLLECTION_NAME,
+            });
+            if let Err(e) = steps::record_step_complete(db, step_id, duration_secs, &summary).await
+            {
+                tracing::warn!(
+                    doc_id = %doc_id, step_id, error = %e,
+                    "Index: record_step_complete failed (non-fatal)"
+                );
+            }
+        }
 
         Ok(StepResult::Next(DocProcessing::Completeness(
             Completeness {
@@ -164,7 +206,7 @@ impl Index {
         db: &PgPool,
         context: &AppContext,
         doc_id: &str,
-    ) -> Result<(), IndexError> {
+    ) -> Result<IndexStats, IndexError> {
         // 1. Ensure Qdrant collection exists (idempotent no-op if present).
         //    Dimension must match the provider's output — passed through
         //    per P2-Nx-A's parameterised signature.
@@ -313,7 +355,11 @@ impl Index {
                 message: format!("update_document_status: {e}"),
             })?;
 
-        Ok(())
+        Ok(IndexStats {
+            embedded_count,
+            node_count: nodes.len(),
+            by_type,
+        })
     }
 }
 

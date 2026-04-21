@@ -64,13 +64,27 @@ use crate::models::document_status::STATUS_PUBLISHED;
 use crate::pipeline::constants::QDRANT_DOCUMENT_ID_FIELD;
 use crate::pipeline::context::AppContext;
 use crate::pipeline::task::DocProcessing;
-use crate::repositories::pipeline_repository;
+use crate::repositories::pipeline_repository::{self, steps};
 use crate::services::qdrant_service;
 
 /// Completeness step state.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Completeness {
     pub document_id: String,
+}
+
+/// Counts returned by [`Completeness::run_completeness`] for the
+/// `pipeline_steps.result_summary` JSON (bug B3). Only populated when all
+/// checks pass — failures return `Err(ChecksFailed)` before this is built.
+#[derive(Debug)]
+struct CompletenessStats {
+    checks_passed: usize,
+    checks_total: usize,
+    warnings: usize,
+    neo4j_total_nodes: usize,
+    neo4j_total_rels: usize,
+    qdrant_count: usize,
+    orphaned_count: usize,
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -142,7 +156,23 @@ impl Step<DocProcessing> for Completeness {
             return Err("Cancelled before completeness check".into());
         }
 
-        self.run_completeness(db, context, &doc_id).await?;
+        let step_id = steps::record_step_start(
+            db,
+            &doc_id,
+            "completeness",
+            "pipeline",
+            &serde_json::json!({}),
+        )
+        .await
+        .unwrap_or_else(|e| {
+            tracing::warn!(
+                doc_id = %doc_id, error = %e,
+                "Completeness: record_step_start failed (non-fatal)"
+            );
+            0
+        });
+
+        let stats = self.run_completeness(db, context, &doc_id).await?;
 
         let duration_secs = start.elapsed().as_secs_f64();
         tracing::info!(
@@ -150,6 +180,25 @@ impl Step<DocProcessing> for Completeness {
             duration_secs,
             "Completeness step complete — document PUBLISHED"
         );
+
+        if step_id != 0 {
+            let summary = serde_json::json!({
+                "checks_passed": stats.checks_passed,
+                "checks_total": stats.checks_total,
+                "warnings": stats.warnings,
+                "neo4j_total_nodes": stats.neo4j_total_nodes,
+                "neo4j_total_rels": stats.neo4j_total_rels,
+                "qdrant_count": stats.qdrant_count,
+                "orphaned_count": stats.orphaned_count,
+            });
+            if let Err(e) = steps::record_step_complete(db, step_id, duration_secs, &summary).await
+            {
+                tracing::warn!(
+                    doc_id = %doc_id, step_id, error = %e,
+                    "Completeness: record_step_complete failed (non-fatal)"
+                );
+            }
+        }
 
         Ok(StepResult::Done)
     }
@@ -167,7 +216,7 @@ impl Completeness {
         db: &PgPool,
         context: &AppContext,
         doc_id: &str,
-    ) -> Result<(), CompletenessError> {
+    ) -> Result<CompletenessStats, CompletenessError> {
         // 1. Verify document exists.
         let _document = pipeline_repository::get_document(db, doc_id)
             .await
@@ -310,7 +359,15 @@ impl Completeness {
                 message: format!("update_document_status: {e}"),
             })?;
 
-        Ok(())
+        Ok(CompletenessStats {
+            checks_passed: checks.len() - failed_checks.len() - warn_count,
+            checks_total: checks.len(),
+            warnings: warn_count,
+            neo4j_total_nodes,
+            neo4j_total_rels,
+            qdrant_count,
+            orphaned_count: orphaned.len(),
+        })
     }
 }
 

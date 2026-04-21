@@ -257,12 +257,34 @@ pub(crate) async fn run_ingest(
         message: format!("Neo4j transaction commit failed: {e}"),
     })?;
 
+    // Compute totals before the status write so we can persist them in 14b.
+    // Moved up from below the entity_type sync so `update_document_write_counts`
+    // sits adjacent to `update_document_status` and the two always run together.
+    let entity_node_total: usize = entity_type_counts.values().sum();
+    let total_nodes = 1 + person_count + org_count + entity_node_total;
+    let rel_total: usize = rel_type_counts.values().sum();
+    let total_rels = rel_total + contained_in;
+
     // 14. Update pipeline document status → INGESTED
     pipeline_repository::update_document_status(&state.pipeline_pool, doc_id, "INGESTED")
         .await
         .map_err(|e| AppError::Internal {
             message: format!("Failed to update document status: {e}"),
         })?;
+
+    // 14a. Persist write counts for the UI's Processing tab (bug B2).
+    //      Previously these totals were only logged, so the UI always
+    //      displayed "0 entities written to graph".
+    pipeline_repository::update_document_write_counts(
+        &state.pipeline_pool,
+        doc_id,
+        total_nodes as i32,
+        total_rels as i32,
+    )
+    .await
+    .map_err(|e| AppError::Internal {
+        message: format!("Failed to update write counts: {e}"),
+    })?;
 
     // 14b. Sync extraction_items.entity_type with the actual Neo4j label.
     //
@@ -298,10 +320,6 @@ pub(crate) async fn run_ingest(
     }
 
     let duration = start.elapsed().as_secs_f64();
-    let entity_node_total: usize = entity_type_counts.values().sum();
-    let total_nodes = 1 + person_count + org_count + entity_node_total;
-    let rel_total: usize = rel_type_counts.values().sum();
-    let total_rels = rel_total + contained_in;
 
     tracing::info!(
         doc_id = %doc_id, total_nodes, total_rels,

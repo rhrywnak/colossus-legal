@@ -55,12 +55,23 @@ use crate::pipeline::context::AppContext;
 use crate::pipeline::steps::cleanup::{cleanup_neo4j, CleanupError};
 use crate::pipeline::steps::index::Index;
 use crate::pipeline::task::DocProcessing;
-use crate::repositories::pipeline_repository;
+use crate::repositories::pipeline_repository::{self, steps};
 
 /// Ingest step state.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Ingest {
     pub document_id: String,
+}
+
+/// Counts returned by [`Ingest::run_ingest`] so [`Step::execute`] can both
+/// persist them (bug B2: `documents.entities_written`) and surface them in
+/// the `pipeline_steps.result_summary` JSON (bug B3).
+#[derive(Debug)]
+struct IngestStats {
+    total_nodes: usize,
+    total_rels: usize,
+    person_count: usize,
+    org_count: usize,
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -132,6 +143,22 @@ impl Step<DocProcessing> for Ingest {
             return Err("Cancelled before ingest".into());
         }
 
+        let step_id = steps::record_step_start(
+            db,
+            &doc_id,
+            "ingest",
+            "pipeline",
+            &serde_json::json!({}),
+        )
+        .await
+        .unwrap_or_else(|e| {
+            tracing::warn!(
+                doc_id = %doc_id, error = %e,
+                "Ingest: record_step_start failed (non-fatal)"
+            );
+            0
+        });
+
         // Pre-run cleanup: wipe any prior partial Neo4j state for this
         // doc_id before opening the write transaction. Makes retry safe
         // even though the underlying helpers use CREATE rather than MERGE.
@@ -142,7 +169,7 @@ impl Step<DocProcessing> for Ingest {
                 source,
             })?;
 
-        self.run_ingest(db, context, &doc_id).await?;
+        let stats = self.run_ingest(db, context, &doc_id).await?;
 
         if cancel.is_cancelled().await {
             return Err("Cancelled after ingest".into());
@@ -152,8 +179,26 @@ impl Step<DocProcessing> for Ingest {
         tracing::info!(
             doc_id = %doc_id,
             duration_secs,
+            total_nodes = stats.total_nodes,
+            total_rels = stats.total_rels,
             "Ingest step complete"
         );
+
+        if step_id != 0 {
+            let summary = serde_json::json!({
+                "total_nodes": stats.total_nodes,
+                "total_rels": stats.total_rels,
+                "person_count": stats.person_count,
+                "org_count": stats.org_count,
+            });
+            if let Err(e) = steps::record_step_complete(db, step_id, duration_secs, &summary).await
+            {
+                tracing::warn!(
+                    doc_id = %doc_id, step_id, error = %e,
+                    "Ingest: record_step_complete failed (non-fatal)"
+                );
+            }
+        }
 
         Ok(StepResult::Next(DocProcessing::Index(Index {
             document_id: self.document_id,
@@ -184,7 +229,7 @@ impl Ingest {
         db: &PgPool,
         context: &AppContext,
         doc_id: &str,
-    ) -> Result<(), IngestError> {
+    ) -> Result<IngestStats, IngestError> {
         // 1. Fetch document — must exist
         let document = pipeline_repository::get_document(db, doc_id)
             .await
@@ -395,6 +440,24 @@ impl Ingest {
                 message: format!("update_document_status: {source}"),
             })?;
 
+        let total_nodes = 1 + person_count + org_count + entity_type_counts.values().sum::<usize>();
+        let total_rels =
+            rel_type_counts.values().sum::<usize>() + contained_in_count + derived_from_count;
+
+        // 14b. Persist write counts for the UI's Processing tab (bug B2).
+        //      Previously these totals were only logged.
+        pipeline_repository::update_document_write_counts(
+            db,
+            doc_id,
+            total_nodes as i32,
+            total_rels as i32,
+        )
+        .await
+        .map_err(|source| IngestError::Helper {
+            doc_id: doc_id.to_string(),
+            message: format!("update_document_write_counts: {source}"),
+        })?;
+
         // 15. Sync entity_type for Party → Person/Organization
         let mut entity_type_updates = 0usize;
         for item in &items {
@@ -414,10 +477,6 @@ impl Ingest {
             }
         }
 
-        let total_nodes = 1 + person_count + org_count + entity_type_counts.values().sum::<usize>();
-        let total_rels =
-            rel_type_counts.values().sum::<usize>() + contained_in_count + derived_from_count;
-
         tracing::info!(
             doc_id = %doc_id,
             neo4j_doc_id = %doc_neo4j_id,
@@ -433,7 +492,12 @@ impl Ingest {
             "Ingest write complete"
         );
 
-        Ok(())
+        Ok(IngestStats {
+            total_nodes,
+            total_rels,
+            person_count,
+            org_count,
+        })
     }
 }
 

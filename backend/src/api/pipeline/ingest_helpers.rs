@@ -137,8 +137,11 @@ pub async fn create_document_node(
     title: &str,
     doc_type: &str,
 ) -> Result<String, AppError> {
-    // Document ID: use doc_id directly (already stable — it's the pipeline ID)
-    let neo4j_id = format!("doc-{}", slug(doc_id));
+    // Document ID: use doc_id directly (already stable — it's the pipeline ID).
+    // doc_id already starts with "doc-" (e.g. "doc-jeffrey-humphrey-affidavit"),
+    // so slug() preserves that. Previously format!("doc-{}", slug(doc_id))
+    // produced a double-prefixed id like "doc-doc-jeffrey-humphrey-affidavit" (B6).
+    let neo4j_id = slug(doc_id);
 
     txn.run(
         query(
@@ -707,13 +710,18 @@ mod tests {
 
     #[test]
     fn test_document_id_uses_doc_id_not_title() {
-        // Verifies create_document_node generates ID from doc_id not title.
-        // This ensures Document IDs are stable even if title is corrected.
-        let doc_slug = slug(DOC_ID);
-        let expected = format!("doc-{}", doc_slug);
+        // Verifies create_document_node generates its ID from doc_id directly
+        // (no "doc-" re-prefix). Since doc_id itself starts with "doc-", the
+        // resulting neo4j id still has the expected single prefix.
+        // Regression guard for B6: previously this produced "doc-doc-...".
+        let expected = slug(DOC_ID);
         assert!(!expected.is_empty());
-        // The format must start with "doc-" followed by the slug of doc_id
         assert!(expected.starts_with("doc-"));
+        assert!(
+            !expected.starts_with("doc-doc-"),
+            "neo4j Document id must not be double-prefixed; got: {expected}"
+        );
+        assert_eq!(expected, slug(DOC_ID));
     }
 
     #[test]
