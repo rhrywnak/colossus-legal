@@ -247,93 +247,85 @@ async fn run_node_query_with_param(
 
 /// Fetch embeddable nodes belonging to a specific document.
 ///
-/// Queries the same node types as `fetch_all_embeddable_nodes` but scoped
-/// to a single document via `source_document = $doc_id` (or `source_document_id`
-/// for Document nodes). Used by the per-document indexing endpoint.
+/// ## Why this is label-agnostic
+///
+/// Previously this function enumerated each entity label with a bespoke
+/// Cypher query (ComplaintAllegation, Harm, Person, Organization,
+/// LegalCount, Document). New labels introduced by future extraction
+/// schemas (SwornStatement, DocumentReference, ...) would silently skip
+/// the Index step and never reach Qdrant.
+///
+/// The fix: anchor on the `CONTAINED_IN` relationship that `Ingest` always
+/// creates from every entity to its Document. One query matches all
+/// current and future entity labels without code changes.
+///
+/// ## Shape of the RETURN
+///
+/// `labels(n)[0]` extracts the node's primary label as `node_type`. The
+/// RETURN is a union of every string-valued property the
+/// `build_embedding_text` builder reads for any existing type
+/// (`title`, `name`, `verbatim_quote`, `description`, `role`,
+/// `significance`, `allegation`, `claim_text`, `document_type`,
+/// `source_document`). Missing properties for a given label become empty
+/// strings and are omitted by `run_node_query_with_param`. The
+/// `verbatim_quote`/`verbatim` COALESCE preserves backward compatibility
+/// with older ComplaintAllegation writes.
 pub async fn fetch_nodes_for_document(
     graph: &Graph,
     document_id: &str,
 ) -> Result<Vec<EmbeddableNode>, EmbeddingRepoError> {
     let mut all_nodes = Vec::new();
 
-    // Each tuple: (Cypher with $doc_id param, prop_keys)
-    let queries: Vec<(&str, Vec<&str>)> = vec![
-        (
-            "MATCH (a:ComplaintAllegation)
-             WHERE a.source_document = $doc_id
-             RETURN a.id AS id, 'ComplaintAllegation' AS node_type,
-                    a.title AS title,
-                    a.allegation AS allegation,
-                    COALESCE(a.verbatim_quote, a.verbatim, '') AS verbatim_quote,
-                    a.grounding_status AS grounding_status,
-                    a.paragraph_ref AS paragraph_ref,
-                    a.page_number AS page_number",
-            vec![
-                "title",
-                "allegation",
-                "verbatim_quote",
-                "grounding_status",
-                "paragraph_ref",
-                "page_number",
-            ],
-        ),
-        (
-            "MATCH (h:Harm)
-             WHERE h.source_document = $doc_id
-             RETURN h.id AS id, 'Harm' AS node_type,
-                    h.title AS title,
-                    h.description AS description,
-                    h.amount AS amount,
-                    h.damages_type AS damages_type,
-                    h.page_number AS page_number",
-            vec![
-                "title",
-                "description",
-                "amount",
-                "damages_type",
-                "page_number",
-            ],
-        ),
-        (
-            "MATCH (p:Person)
-             WHERE p.source_document = $doc_id
-             RETURN p.id AS id, 'Person' AS node_type,
-                    p.name AS name,
-                    p.role AS role",
-            vec!["name", "role"],
-        ),
-        (
-            "MATCH (o:Organization)
-             WHERE o.source_document = $doc_id
-             RETURN o.id AS id, 'Organization' AS node_type,
-                    o.name AS name,
-                    o.role AS role",
-            vec!["name", "role"],
-        ),
-        (
-            "MATCH (lc:LegalCount)
-             WHERE lc.source_document = $doc_id
-             RETURN lc.id AS id, 'LegalCount' AS node_type,
-                    lc.title AS title,
-                    lc.count_number AS count_number,
-                    lc.legal_basis AS legal_basis",
-            vec!["title", "count_number", "legal_basis"],
-        ),
-        (
-            "MATCH (d:Document)
-             WHERE d.source_document_id = $doc_id
-             RETURN d.id AS id, 'Document' AS node_type,
-                    d.title AS title,
-                    d.doc_type AS document_type",
-            vec!["title", "document_type"],
-        ),
-    ];
+    // 1. The Document node itself (keyed on source_document_id rather
+    //    than CONTAINED_IN — Documents aren't contained in themselves).
+    let doc_cypher = "MATCH (d:Document)
+         WHERE d.source_document_id = $doc_id
+         RETURN d.id AS id, 'Document' AS node_type,
+                d.title AS title,
+                d.doc_type AS document_type,
+                d.source_document_id AS source_document";
+    let doc_prop_keys = vec!["title", "document_type", "source_document"];
+    all_nodes.extend(
+        run_node_query_with_param(graph, doc_cypher, &doc_prop_keys, "doc_id", document_id)
+            .await?,
+    );
 
-    for (cypher, prop_keys) in queries {
-        let nodes =
-            run_node_query_with_param(graph, cypher, &prop_keys, "doc_id", document_id).await?;
-        all_nodes.extend(nodes);
-    }
+    // 2. Every non-Document entity contained in that Document. Works for
+    //    any entity label — current or future.
+    let entity_cypher = "MATCH (n)-[:CONTAINED_IN]->(d:Document)
+         WHERE d.source_document_id = $doc_id AND NOT n:Document
+         RETURN n.id AS id,
+                labels(n)[0] AS node_type,
+                n.title AS title,
+                n.name AS name,
+                COALESCE(n.verbatim_quote, n.verbatim, '') AS verbatim_quote,
+                n.description AS description,
+                n.role AS role,
+                n.significance AS significance,
+                n.allegation AS allegation,
+                n.claim_text AS claim_text,
+                n.source_document AS source_document";
+    let entity_prop_keys = vec![
+        "title",
+        "name",
+        "verbatim_quote",
+        "description",
+        "role",
+        "significance",
+        "allegation",
+        "claim_text",
+        "source_document",
+    ];
+    all_nodes.extend(
+        run_node_query_with_param(
+            graph,
+            entity_cypher,
+            &entity_prop_keys,
+            "doc_id",
+            document_id,
+        )
+        .await?,
+    );
 
     Ok(all_nodes)
 }

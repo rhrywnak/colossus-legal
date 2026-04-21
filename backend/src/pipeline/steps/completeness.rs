@@ -173,35 +173,63 @@ impl Step<DocProcessing> for Completeness {
             0
         });
 
-        let stats = self.run_completeness(db, context, &doc_id).await?;
-
+        let result = self.run_completeness(db, context, &doc_id).await;
         let duration_secs = start.elapsed().as_secs_f64();
-        tracing::info!(
-            doc_id = %doc_id,
-            duration_secs,
-            "Completeness step complete — document PUBLISHED"
-        );
 
-        if step_id != 0 {
-            let summary = serde_json::json!({
-                "checks_passed": stats.checks_passed,
-                "checks_total": stats.checks_total,
-                "warnings": stats.warnings,
-                "neo4j_total_nodes": stats.neo4j_total_nodes,
-                "neo4j_total_rels": stats.neo4j_total_rels,
-                "qdrant_count": stats.qdrant_count,
-                "orphaned_count": stats.orphaned_count,
-            });
-            if let Err(e) = steps::record_step_complete(db, step_id, duration_secs, &summary).await
-            {
-                tracing::warn!(
-                    doc_id = %doc_id, step_id, error = %e,
-                    "Completeness: record_step_complete failed (non-fatal)"
+        match result {
+            Ok(stats) => {
+                tracing::info!(
+                    doc_id = %doc_id,
+                    duration_secs,
+                    "Completeness step complete — document PUBLISHED"
                 );
+
+                if step_id != 0 {
+                    let summary = serde_json::json!({
+                        "checks_passed": stats.checks_passed,
+                        "checks_total": stats.checks_total,
+                        "warnings": stats.warnings,
+                        "neo4j_total_nodes": stats.neo4j_total_nodes,
+                        "neo4j_total_rels": stats.neo4j_total_rels,
+                        "qdrant_count": stats.qdrant_count,
+                        "orphaned_count": stats.orphaned_count,
+                    });
+                    if let Err(e) =
+                        steps::record_step_complete(db, step_id, duration_secs, &summary).await
+                    {
+                        tracing::warn!(
+                            doc_id = %doc_id, step_id, error = %e,
+                            "Completeness: record_step_complete failed (non-fatal)"
+                        );
+                    }
+                }
+
+                Ok(StepResult::Done)
+            }
+            Err(e) => {
+                // Flip pipeline_steps.status from 'running' to 'failed' so
+                // Execution History shows the step as failed rather than
+                // stuck in-flight. Non-fatal — the original error still
+                // propagates regardless of whether the UPDATE succeeds.
+                if step_id != 0 {
+                    let err_msg = e.to_string();
+                    if let Err(rec_err) = steps::record_step_failure(
+                        db,
+                        step_id,
+                        duration_secs,
+                        &err_msg,
+                    )
+                    .await
+                    {
+                        tracing::warn!(
+                            doc_id = %doc_id, step_id, error = %rec_err,
+                            "Completeness: record_step_failure failed (non-fatal)"
+                        );
+                    }
+                }
+                Err(Box::new(e) as Box<dyn Error + Send + Sync>)
             }
         }
-
-        Ok(StepResult::Done)
     }
 
     // on_cancel: read-only step, no partial state → trait-default no-op.

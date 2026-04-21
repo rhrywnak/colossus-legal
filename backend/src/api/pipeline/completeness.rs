@@ -89,6 +89,69 @@ pub(crate) async fn run_completeness(
         message: format!("Step logging: {e}"),
     })?;
 
+    // Wrap the full check in an inner helper so any `?`-propagated error
+    // (DB, Neo4j, Qdrant) still flips pipeline_steps.status from
+    // 'running' to 'failed' via record_step_failure. Without this,
+    // Execution History would show the step stuck in-flight.
+    let result = run_completeness_impl(state, doc_id, username).await;
+    let duration_secs = start.elapsed().as_secs_f64();
+
+    match result {
+        Ok(response) => {
+            let checks_passed = response.checks.iter().filter(|c| c.status == "pass").count();
+            let checks_failed = response.checks.iter().filter(|c| c.status == "fail").count();
+            steps::record_step_complete(
+                &state.pipeline_pool,
+                step_id,
+                duration_secs,
+                &serde_json::json!({
+                    "checks_passed": checks_passed,
+                    "checks_failed": checks_failed,
+                    "published": response.published,
+                }),
+            )
+            .await
+            .ok();
+            Ok(response)
+        }
+        Err(e) => {
+            // AppError doesn't impl Display; extract the inner message for
+            // the pipeline_steps error_message column.
+            let err_msg = match &e {
+                AppError::BadRequest { message, .. } => message.clone(),
+                AppError::NotFound { message } => message.clone(),
+                AppError::Unauthorized { message } => message.clone(),
+                AppError::Forbidden { message } => message.clone(),
+                AppError::Conflict { message, .. } => message.clone(),
+                AppError::Internal { message } => message.clone(),
+            };
+            if let Err(rec_err) = steps::record_step_failure(
+                &state.pipeline_pool,
+                step_id,
+                duration_secs,
+                &err_msg,
+            )
+            .await
+            {
+                tracing::warn!(
+                    doc_id = %doc_id, step_id, error = %rec_err,
+                    "Completeness: record_step_failure failed (non-fatal)"
+                );
+            }
+            Err(e)
+        }
+    }
+}
+
+/// Core body of completeness — split out from `run_completeness` so the
+/// outer function can call either `record_step_complete` or
+/// `record_step_failure` based on the result. Does not touch
+/// `pipeline_steps` itself.
+async fn run_completeness_impl(
+    state: &AppState,
+    doc_id: &str,
+    username: &str,
+) -> Result<CompletenessResponse, AppError> {
     // 1. Fetch document — must exist
     let document = pipeline_repository::get_document(&state.pipeline_pool, doc_id)
         .await
@@ -238,13 +301,6 @@ pub(crate) async fn run_completeness(
     )
     .await;
 
-    let checks_passed = checks.iter().filter(|c| c.status == "pass").count();
-    let checks_failed = checks.iter().filter(|c| c.status == "fail").count();
-    steps::record_step_complete(
-        &state.pipeline_pool, step_id, start.elapsed().as_secs_f64(),
-        &serde_json::json!({"checks_passed": checks_passed, "checks_failed": checks_failed, "published": published}),
-    ).await.ok();
-
     Ok(CompletenessResponse {
         document_id: doc_id.to_string(),
         status: overall_status.to_string(),
@@ -352,9 +408,22 @@ pub fn compare_counts(input: &CompareInput<'_>) -> Vec<CompletenessCheck> {
         }
         let expected = *pipeline_items.get(entity_type.as_str()).unwrap_or(&0);
         let actual = *neo4j_nodes.get(entity_type.as_str()).unwrap_or(&0);
+        // Person / Organization mismatches are downgraded from "fail" to
+        // "warn": cross-document MERGE resolution collapses spelling
+        // variants into a single Neo4j node, so pipeline-item counts
+        // legitimately diverge from Neo4j counts even after the local
+        // slug-based dedup in `unique_party_counts`. The mismatch is
+        // still visible on the report — it just doesn't block PUBLISHED.
+        let status = if expected == actual {
+            "pass"
+        } else if matches!(entity_type.as_str(), "Person" | "Organization") {
+            "warn"
+        } else {
+            "fail"
+        };
         checks.push(CompletenessCheck {
             name: format!("entity_{}", entity_type.to_lowercase()),
-            status: if expected == actual { "pass" } else { "fail" }.into(),
+            status: status.into(),
             expected,
             actual,
             message: format!("{entity_type}: pipeline({expected}) vs neo4j({actual})"),
@@ -586,6 +655,68 @@ mod tests {
             failed.is_empty(),
             "Expected all checks to pass with arbitrary types, but these failed: {failed:?}"
         );
+    }
+
+    #[test]
+    fn completeness_person_count_mismatch_is_warn_not_fail() {
+        // Cross-document MERGE may leave pipeline != neo4j for Person /
+        // Organization even after unique-name dedup. That's expected —
+        // we downgrade to "warn" so the check surfaces but doesn't block.
+        let pipeline_items = counts(&[("Person", 6), ("Organization", 4)]);
+        let neo4j_nodes = counts(&[("Person", 3), ("Organization", 2), ("Document", 1)]);
+        let empty = HashMap::new();
+
+        let checks = compare_counts(&CompareInput {
+            pipeline_items: &pipeline_items,
+            neo4j_nodes: &neo4j_nodes,
+            pipeline_rels: &empty,
+            neo4j_rels: &empty,
+            total_pipeline_items: 10,
+            total_pipeline_rels: 0,
+            neo4j_total_nodes: 6,
+            neo4j_total_rels: 0,
+            qdrant_count: 6,
+            orphaned_node_count: 0,
+        });
+
+        let person = checks
+            .iter()
+            .find(|c| c.name == "entity_person")
+            .expect("entity_person check must exist");
+        assert_eq!(person.status, "warn");
+        let org = checks
+            .iter()
+            .find(|c| c.name == "entity_organization")
+            .expect("entity_organization check must exist");
+        assert_eq!(org.status, "warn");
+    }
+
+    #[test]
+    fn completeness_non_party_mismatch_still_fails() {
+        // ComplaintAllegation has no MERGE dedup — a count mismatch there
+        // is a real bug and must keep the "fail" status.
+        let pipeline_items = counts(&[("ComplaintAllegation", 10)]);
+        let neo4j_nodes = counts(&[("ComplaintAllegation", 7), ("Document", 1)]);
+        let empty = HashMap::new();
+
+        let checks = compare_counts(&CompareInput {
+            pipeline_items: &pipeline_items,
+            neo4j_nodes: &neo4j_nodes,
+            pipeline_rels: &empty,
+            neo4j_rels: &empty,
+            total_pipeline_items: 10,
+            total_pipeline_rels: 0,
+            neo4j_total_nodes: 8,
+            neo4j_total_rels: 0,
+            qdrant_count: 8,
+            orphaned_node_count: 0,
+        });
+
+        let check = checks
+            .iter()
+            .find(|c| c.name == "entity_complaintallegation")
+            .expect("entity_complaintallegation check must exist");
+        assert_eq!(check.status, "fail");
     }
 
     #[test]
