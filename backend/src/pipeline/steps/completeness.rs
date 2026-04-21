@@ -1,50 +1,32 @@
-//! backend/src/pipeline/steps/completeness.rs
+//! `pipeline/steps/completeness.rs` — entity-level completeness step.
 //!
-//! Completeness step: verifies that the pipeline's PostgreSQL state,
-//! Neo4j graph, and Qdrant vector store agree on counts. This is the
-//! terminal step of the DocProcessing FSM — if it passes, the document
-//! status moves to PUBLISHED and the pipeline job is Done.
+//! Terminal step of the `DocProcessing` FSM. For each approved
+//! extraction item we compute the expected Neo4j id (via the same
+//! helpers the HTTP handler uses), batch-verify node existence, and
+//! batch-verify a Qdrant point per found node. The previous count-based
+//! comparison is gone — see `COMPLETENESS_VERIFICATION_REDESIGN_v1.md`.
 //!
-//! ## Rust Learning: transitional status write
+//! ## check-fail IS step-fail
 //!
-//! Tracker v1_5 says Completeness sets `DOC_STATUS_COMPLETED` — a
-//! constant whose eventual value will be `"COMPLETED"`, per the planned
-//! 5-state lifecycle simplification (PIPELINE_SIMPLIFICATION_TRACKER_v1
-//! PS-B8). That migration has not happened yet. The current system
-//! still uses the 8-state legacy lifecycle ending in `"PUBLISHED"`,
-//! which the frontend, `state_machine`, `delete`, and the HTTP
-//! completeness handler all key off of.
+//! The HTTP endpoint returns 200 OK with status "pass"/"warn"/"fail" in
+//! the body because it's a diagnostic endpoint for a human. The pipeline
+//! Step cannot do that — the FSM expects success or error. So missing
+//! Document node or missing entity nodes convert to
+//! `Err(CompletenessError::MissingNodes { … })` or
+//! `Err(CompletenessError::MissingDocumentNode { … })`. Missing Qdrant
+//! points remain a WARN: logged, but the step still succeeds and the
+//! document still moves to PUBLISHED.
 //!
-//! If we wrote `"COMPLETED"` here today, the frontend would not
-//! recognise the state, `state_machine` would return no actions, and
-//! the Quality Check stage indicator would confuse. So this step
-//! writes the same `STATUS_PUBLISHED` that the HTTP handler writes —
-//! exactly the same transitional pattern as P4-5's `STATUS_INGESTED`
-//! and P4-6's `STATUS_INDEXED` writes. Phase 5's lifecycle migration
-//! owns the rename across all consumers in one coordinated change.
+//! ## Transitional `STATUS_PUBLISHED` write
 //!
-//! ## Rust Learning: check-fail IS step-fail
+//! Preserved from the prior design — the 8-state legacy lifecycle still
+//! ends in `"PUBLISHED"`. Phase 5 PS-B8 will coordinate the rename.
 //!
-//! The HTTP completeness endpoint returns 200 OK with pass/fail
-//! details in the body, because it's a diagnostic endpoint for a
-//! human admin to inspect. The pipeline step cannot do that — the FSM
-//! expects success or error. So any `"fail"` status in the check list
-//! causes the step to return `Err(CompletenessError::ChecksFailed {
-//! ... })`, which the framework records in
-//! `pipeline_jobs.error_message`. `"warn"` status (only
-//! `orphaned_nodes` uses it) does NOT trigger step failure.
+//! ## Read-only step, no-op on_cancel
 //!
-//! ## Rust Learning: read-only step, no-op on_cancel
-//!
-//! Completeness reads Neo4j + Qdrant + Postgres (counts only), then
-//! writes exactly one row to Postgres (the status update). There's no
-//! partial state to roll back on cancel — a cancel mid-query just
-//! drops the read; a cancel pre-status-write leaves the document at
-//! `INDEXED` (correct resume point); a cancel post-status-write
-//! leaves it at `PUBLISHED` (also fine, the work succeeded). No
-//! cleanup needed.
+//! This step reads Neo4j + Qdrant + Postgres, then writes exactly one
+//! row to Postgres (the status update). No partial state to roll back.
 
-use std::collections::HashMap;
 use std::error::Error;
 use std::time::Instant;
 
@@ -56,17 +38,14 @@ use colossus_pipeline::cancel::CancellationToken;
 use colossus_pipeline::progress::ProgressReporter;
 use colossus_pipeline::{Step, StepResult};
 
-use crate::api::pipeline::completeness::{compare_counts, CompareInput, CompletenessCheck};
 use crate::api::pipeline::completeness_helpers::{
-    count_neo4j_nodes_by_graph, count_neo4j_relationships_by_graph, find_orphaned_nodes_by_graph,
-    unique_party_counts,
+    compute_expected_neo4j_ids, document_node_exists, verify_neo4j_nodes, verify_qdrant_points,
 };
+use crate::error::AppError;
 use crate::models::document_status::STATUS_PUBLISHED;
-use crate::pipeline::constants::QDRANT_DOCUMENT_ID_FIELD;
 use crate::pipeline::context::AppContext;
 use crate::pipeline::task::DocProcessing;
 use crate::repositories::pipeline_repository::{self, steps};
-use crate::services::qdrant_service;
 
 /// Completeness step state.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -74,33 +53,30 @@ pub struct Completeness {
     pub document_id: String,
 }
 
-/// Counts returned by [`Completeness::run_completeness`] for the
-/// `pipeline_steps.result_summary` JSON (bug B3). Only populated when all
-/// checks pass — failures return `Err(ChecksFailed)` before this is built.
+/// Result summary threaded into `pipeline_steps.result_summary` on
+/// success. Mirrors the HTTP handler's response shape (without the
+/// full id lists — those stay in the on-error path).
 #[derive(Debug)]
 struct CompletenessStats {
-    checks_passed: usize,
-    checks_total: usize,
-    warnings: usize,
-    neo4j_total_nodes: usize,
-    neo4j_total_rels: usize,
-    qdrant_count: usize,
-    orphaned_count: usize,
+    total_items: usize,
+    nodes_verified: usize,
+    nodes_missing: usize,
+    points_verified: usize,
+    points_missing: usize,
+    document_node: bool,
 }
 
-// ─────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────
 // CompletenessError
-// ─────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────
 
 /// Failure modes for the Completeness step.
 ///
-/// `ChecksFailed` deliberately embeds all the check details in its
-/// Display text so `pipeline_jobs.error_message` gets actionable info
-/// without requiring a separate GET to `/completeness`.
+/// `MissingNodes` / `MissingDocumentNode` carry enough id detail in the
+/// Display string so `pipeline_jobs.error_message` is actionable on its
+/// own — the admin doesn't need a separate GET to `/completeness`.
 ///
-/// Other variants follow the Kazlauskas G6 discipline: `#[source]` where
-/// the inner type is structurally useful, Display strings excluding
-/// `{source}` text.
+/// Display strings omit the `#[source]` body (Kazlauskas G6).
 #[derive(Debug, thiserror::Error)]
 pub enum CompletenessError {
     #[error("Document '{doc_id}' not found")]
@@ -109,33 +85,49 @@ pub enum CompletenessError {
     #[error("No completed extraction run for document '{doc_id}'")]
     NoCompletedRun { doc_id: String },
 
-    #[error("Neo4j query failed for document '{doc_id}'")]
-    Neo4j {
-        doc_id: String,
-        #[source]
-        source: neo4rs::Error,
-    },
-
-    #[error("Qdrant query failed for document '{doc_id}': {message}")]
-    Qdrant { doc_id: String, message: String },
+    #[error("Document node missing in Neo4j for document '{doc_id}'")]
+    MissingDocumentNode { doc_id: String },
 
     #[error(
-        "Completeness checks failed for document '{doc_id}': {failed_count} of {total_count} checks failed. Details: {details}"
+        "Completeness failed for document '{doc_id}': {missing_count} of {total} \
+         expected Neo4j nodes are missing. Missing ids: {ids}"
     )]
-    ChecksFailed {
+    MissingNodes {
         doc_id: String,
-        failed_count: usize,
-        total_count: usize,
-        details: String,
+        missing_count: usize,
+        total: usize,
+        ids: String,
     },
 
+    /// Helper-origin failure (Postgres or helper module). Stringly-typed
+    /// message — same discipline as other step files.
     #[error("Helper failed for document '{doc_id}': {message}")]
     Helper { doc_id: String, message: String },
 }
 
-// ─────────────────────────────────────────────────────────────────────────
+impl From<AppError> for CompletenessError {
+    /// Convert errors from `completeness_helpers` (which return
+    /// `AppError` for cross-path compatibility with the HTTP handler)
+    /// into step-local failures routed through the Helper variant.
+    fn from(err: AppError) -> Self {
+        let message = match err {
+            AppError::BadRequest { message, .. } => message,
+            AppError::NotFound { message } => message,
+            AppError::Unauthorized { message } => message,
+            AppError::Forbidden { message } => message,
+            AppError::Conflict { message, .. } => message,
+            AppError::Internal { message } => message,
+        };
+        CompletenessError::Helper {
+            doc_id: String::new(),
+            message,
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // Step impl
-// ─────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────
 
 #[async_trait]
 impl Step<DocProcessing> for Completeness {
@@ -181,18 +173,21 @@ impl Step<DocProcessing> for Completeness {
                 tracing::info!(
                     doc_id = %doc_id,
                     duration_secs,
+                    total_items = stats.total_items,
+                    nodes_verified = stats.nodes_verified,
+                    points_verified = stats.points_verified,
+                    points_missing = stats.points_missing,
                     "Completeness step complete — document PUBLISHED"
                 );
 
                 if step_id != 0 {
                     let summary = serde_json::json!({
-                        "checks_passed": stats.checks_passed,
-                        "checks_total": stats.checks_total,
-                        "warnings": stats.warnings,
-                        "neo4j_total_nodes": stats.neo4j_total_nodes,
-                        "neo4j_total_rels": stats.neo4j_total_rels,
-                        "qdrant_count": stats.qdrant_count,
-                        "orphaned_count": stats.orphaned_count,
+                        "total_items": stats.total_items,
+                        "nodes_verified": stats.nodes_verified,
+                        "nodes_missing": stats.nodes_missing,
+                        "points_verified": stats.points_verified,
+                        "points_missing": stats.points_missing,
+                        "document_node": stats.document_node,
                     });
                     if let Err(e) =
                         steps::record_step_complete(db, step_id, duration_secs, &summary).await
@@ -207,19 +202,14 @@ impl Step<DocProcessing> for Completeness {
                 Ok(StepResult::Done)
             }
             Err(e) => {
-                // Flip pipeline_steps.status from 'running' to 'failed' so
-                // Execution History shows the step as failed rather than
-                // stuck in-flight. Non-fatal — the original error still
+                // Flip pipeline_steps.status from 'running' to 'failed'
+                // so Execution History shows the step as failed rather
+                // than stuck in-flight. Non-fatal — original error still
                 // propagates regardless of whether the UPDATE succeeds.
                 if step_id != 0 {
                     let err_msg = e.to_string();
-                    if let Err(rec_err) = steps::record_step_failure(
-                        db,
-                        step_id,
-                        duration_secs,
-                        &err_msg,
-                    )
-                    .await
+                    if let Err(rec_err) =
+                        steps::record_step_failure(db, step_id, duration_secs, &err_msg).await
                     {
                         tracing::warn!(
                             doc_id = %doc_id, step_id, error = %rec_err,
@@ -238,15 +228,14 @@ impl Step<DocProcessing> for Completeness {
 }
 
 impl Completeness {
-    /// Internal: fetch counts from all three stores, compare, and finalise.
-    /// Called from [`Step::execute`].
+    /// Entity-level verification body. Called from [`Step::execute`].
     async fn run_completeness(
         &self,
         db: &PgPool,
         context: &AppContext,
         doc_id: &str,
     ) -> Result<CompletenessStats, CompletenessError> {
-        // 1. Verify document exists.
+        // 1. Document exists in Postgres.
         let _document = pipeline_repository::get_document(db, doc_id)
             .await
             .map_err(|e| CompletenessError::Helper {
@@ -257,7 +246,7 @@ impl Completeness {
                 doc_id: doc_id.to_string(),
             })?;
 
-        // 2. Get latest completed extraction run.
+        // 2. Latest completed extraction run.
         let run_id = pipeline_repository::get_latest_completed_run(db, doc_id)
             .await
             .map_err(|e| CompletenessError::Helper {
@@ -268,127 +257,73 @@ impl Completeness {
                 doc_id: doc_id.to_string(),
             })?;
 
-        // 3. Fetch pipeline items and relationships.
+        // 3. Approved extraction items.
         let items = pipeline_repository::get_approved_items_for_document(db, doc_id, run_id)
             .await
             .map_err(|e| CompletenessError::Helper {
                 doc_id: doc_id.to_string(),
                 message: format!("get_approved_items: {e}"),
             })?;
-        let rels = pipeline_repository::get_approved_relationships_for_document(db, run_id)
+        let total_items = items.len();
+
+        // 4. Compute expected Neo4j ids.
+        let expected: Vec<(i32, String)> = compute_expected_neo4j_ids(&items, doc_id);
+        let expected_ids: Vec<String> = expected.iter().map(|(_, id)| id.clone()).collect();
+
+        // 5. Document node — hard FAIL if missing.
+        let document_node = document_node_exists(&context.graph, doc_id)
             .await
-            .map_err(|e| CompletenessError::Helper {
+            .map_err(|e| helper_with_doc(doc_id, e))?;
+        if !document_node {
+            return Err(CompletenessError::MissingDocumentNode {
                 doc_id: doc_id.to_string(),
-                message: format!("get_approved_relationships: {e}"),
-            })?;
-
-        // 4. Group pipeline counts by type.
-        let mut pipeline_items: HashMap<String, usize> = HashMap::new();
-        for item in &items {
-            *pipeline_items.entry(item.entity_type.clone()).or_insert(0) += 1;
-        }
-
-        // Bug 9a: MERGE in create_party_nodes dedups Parties by slug(name).
-        // Replace raw Person/Organization counts with unique-name counts so
-        // the per-type comparison is apples-to-apples.
-        for (label, count) in unique_party_counts(&items) {
-            pipeline_items.insert(label, count);
-        }
-
-        let mut pipeline_rels: HashMap<String, usize> = HashMap::new();
-        for rel in &rels {
-            *pipeline_rels
-                .entry(rel.relationship_type.clone())
-                .or_insert(0) += 1;
-        }
-
-        // 5. Count Neo4j.
-        let neo4j_nodes = count_neo4j_nodes_by_graph(&context.graph, doc_id)
-            .await
-            .map_err(|source| CompletenessError::Neo4j {
-                doc_id: doc_id.to_string(),
-                source,
-            })?;
-        let neo4j_rels = count_neo4j_relationships_by_graph(&context.graph, doc_id)
-            .await
-            .map_err(|source| CompletenessError::Neo4j {
-                doc_id: doc_id.to_string(),
-                source,
-            })?;
-        let orphaned = find_orphaned_nodes_by_graph(&context.graph, doc_id)
-            .await
-            .map_err(|source| CompletenessError::Neo4j {
-                doc_id: doc_id.to_string(),
-                source,
-            })?;
-
-        let neo4j_total_nodes: usize = neo4j_nodes.values().sum();
-        let neo4j_total_rels: usize = neo4j_rels.values().sum();
-
-        // 6. Count Qdrant. Filter on QDRANT_DOCUMENT_ID_FIELD — matches
-        //    what the Index step wrote and what cleanup_qdrant uses.
-        let qdrant_count = qdrant_service::count_points_by_filter(
-            &context.http_client,
-            &context.qdrant_url,
-            QDRANT_DOCUMENT_ID_FIELD,
-            doc_id,
-        )
-        .await
-        .map_err(|e| CompletenessError::Qdrant {
-            doc_id: doc_id.to_string(),
-            message: e.to_string(),
-        })?;
-
-        // 7. Run comparison (pure function, no I/O).
-        let checks = compare_counts(&CompareInput {
-            pipeline_items: &pipeline_items,
-            neo4j_nodes: &neo4j_nodes,
-            pipeline_rels: &pipeline_rels,
-            neo4j_rels: &neo4j_rels,
-            total_pipeline_items: items.len(),
-            total_pipeline_rels: rels.len(),
-            neo4j_total_nodes,
-            neo4j_total_rels,
-            qdrant_count,
-            orphaned_node_count: orphaned.len(),
-        });
-
-        let failed_checks: Vec<&CompletenessCheck> =
-            checks.iter().filter(|c| c.status == "fail").collect();
-        let warn_count = checks.iter().filter(|c| c.status == "warn").count();
-
-        tracing::info!(
-            doc_id = %doc_id,
-            total_checks = checks.len(),
-            failed = failed_checks.len(),
-            warnings = warn_count,
-            neo4j_total_nodes,
-            neo4j_total_rels,
-            qdrant_count,
-            orphaned = orphaned.len(),
-            "Completeness: checks evaluated"
-        );
-
-        // 8. Fail semantics: any "fail" → step error.
-        if !failed_checks.is_empty() {
-            let details = failed_checks
-                .iter()
-                .map(|c| format!("{}: {}", c.name, c.message))
-                .collect::<Vec<_>>()
-                .join("; ");
-            return Err(CompletenessError::ChecksFailed {
-                doc_id: doc_id.to_string(),
-                failed_count: failed_checks.len(),
-                total_count: checks.len(),
-                details,
             });
         }
 
-        // 9. All checks passed → legacy status write.
+        // 6. Batch Neo4j verification.
+        let nodes_missing = verify_neo4j_nodes(&context.graph, &expected_ids)
+            .await
+            .map_err(|e| helper_with_doc(doc_id, e))?;
+        let missing_set: std::collections::HashSet<&String> = nodes_missing.iter().collect();
+        let found_node_ids: Vec<String> = expected_ids
+            .iter()
+            .filter(|id| !missing_set.contains(id))
+            .cloned()
+            .collect();
+        let nodes_verified = found_node_ids.len();
+
+        if !nodes_missing.is_empty() {
+            let ids = nodes_missing.join(", ");
+            return Err(CompletenessError::MissingNodes {
+                doc_id: doc_id.to_string(),
+                missing_count: nodes_missing.len(),
+                total: expected_ids.len(),
+                ids,
+            });
+        }
+
+        // 7. Batch Qdrant verification — WARN only.
+        let points_missing = verify_qdrant_points(
+            &context.http_client,
+            &context.qdrant_url,
+            &found_node_ids,
+        )
+        .await
+        .map_err(|e| helper_with_doc(doc_id, e))?;
+        let points_verified = found_node_ids.len() - points_missing.len();
+        if !points_missing.is_empty() {
+            tracing::warn!(
+                doc_id = %doc_id,
+                missing = points_missing.len(),
+                "Completeness: {} Neo4j nodes have no Qdrant point — re-indexing would repair",
+                points_missing.len()
+            );
+        }
+
+        // 8. All nodes present → transition to PUBLISHED.
         //
-        // NOTE: writes STATUS_PUBLISHED (legacy) not DOC_STATUS_COMPLETED
-        // (tracker). See module doc comment — Phase 5 PS-B8 owns the
-        // lifecycle-migration coordination.
+        // NOTE: writes STATUS_PUBLISHED (legacy), not DOC_STATUS_COMPLETED
+        // (tracker). See module doc — Phase 5 PS-B8 owns the rename.
         pipeline_repository::update_document_status(db, doc_id, STATUS_PUBLISHED)
             .await
             .map_err(|e| CompletenessError::Helper {
@@ -397,20 +332,33 @@ impl Completeness {
             })?;
 
         Ok(CompletenessStats {
-            checks_passed: checks.len() - failed_checks.len() - warn_count,
-            checks_total: checks.len(),
-            warnings: warn_count,
-            neo4j_total_nodes,
-            neo4j_total_rels,
-            qdrant_count,
-            orphaned_count: orphaned.len(),
+            total_items,
+            nodes_verified,
+            nodes_missing: 0,
+            points_verified,
+            points_missing: points_missing.len(),
+            document_node,
         })
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────
+/// Attach `doc_id` to an `AppError` → `CompletenessError::Helper`
+/// conversion. The `From<AppError>` impl can't fill `doc_id` on its
+/// own — this helper does the final substitution at call sites.
+fn helper_with_doc(doc_id: &str, err: AppError) -> CompletenessError {
+    let mut e: CompletenessError = err.into();
+    if let CompletenessError::Helper {
+        doc_id: ref mut d, ..
+    } = e
+    {
+        *d = doc_id.to_string();
+    }
+    e
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // Unit tests
-// ─────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
@@ -425,34 +373,26 @@ mod tests {
     }
 
     #[test]
-    fn completeness_error_neo4j_display_excludes_source_text() {
-        const UNIQUE: &str = "UNIQUE_COMPLETENESS_INNER_ERROR";
-        let err = CompletenessError::Neo4j {
-            doc_id: "doc-42".to_string(),
-            source: neo4rs::Error::AuthenticationError(UNIQUE.to_string()),
-        };
-        let display = format!("{err}");
-        assert!(display.contains("doc-42"));
-        assert!(
-            !display.contains(UNIQUE),
-            "Display must not duplicate inner source (Kazlauskas G6); got: {display}"
-        );
-    }
-
-    #[test]
-    fn completeness_error_checks_failed_display_has_counts_and_details() {
-        let err = CompletenessError::ChecksFailed {
+    fn completeness_error_missing_nodes_display_enumerates_ids() {
+        let err = CompletenessError::MissingNodes {
             doc_id: "doc-7".to_string(),
-            failed_count: 2,
-            total_count: 5,
-            details: "entity_foo: expected 10 got 8; qdrant_point_count: expected 15 got 12"
-                .to_string(),
+            missing_count: 2,
+            total: 39,
+            ids: "person-marie-awad, doc-awad:para:42".to_string(),
         };
         let display = format!("{err}");
         assert!(display.contains("doc-7"));
-        assert!(display.contains("2 of 5"));
-        assert!(display.contains("entity_foo"));
-        assert!(display.contains("qdrant_point_count"));
+        assert!(display.contains("2 of 39"));
+        assert!(display.contains("person-marie-awad"));
+        assert!(display.contains("doc-awad:para:42"));
+    }
+
+    #[test]
+    fn completeness_error_missing_document_node_display() {
+        let err = CompletenessError::MissingDocumentNode {
+            doc_id: "doc-42".to_string(),
+        };
+        assert!(format!("{err}").contains("doc-42"));
     }
 
     #[test]

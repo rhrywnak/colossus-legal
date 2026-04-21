@@ -1,187 +1,214 @@
-//! Helper functions for the completeness check endpoint.
+//! Helpers for the entity-level completeness verification.
 //!
-//! Extracted from `completeness.rs` to keep it under 300 lines.
-//! Contains Neo4j query helpers and comparison logic.
+//! ## Shift from counts to entity existence
 //!
-//! Each Cypher helper exists in two flavors:
-//! - `*_by_graph(&Graph, ...)` — the underlying query, returning raw
-//!   `neo4rs::Error`. Used by the pipeline `Completeness` step which has
-//!   an `AppContext` (not `AppState`).
-//! - `*` — the HTTP-handler variant, a thin wrapper around `*_by_graph`
-//!   that takes `&AppState` and wraps the error into `AppError::Internal`.
+//! The previous design compared `extraction_items` counts against Neo4j
+//! node counts and Qdrant point counts. That model is unsound for any
+//! document whose entities are shared with another document: `MERGE` in
+//! [`create_party_nodes`](super::ingest_helpers::create_party_nodes)
+//! collapses spelling variants into one node, so pipeline counts
+//! legitimately exceed Neo4j counts without indicating a bug.
+//!
+//! This module replaces that surface with entity-level verification:
+//! for each approved item we compute the expected Neo4j id (the same id
+//! Ingest would have written), batch-verify existence in Neo4j, and then
+//! batch-verify a Qdrant point for each found node. The result carries
+//! *which* ids are missing, not just counts.
+//!
+//! See `COMPLETENESS_VERIFICATION_REDESIGN_v1.md` §3 for the full data
+//! flow and pass/fail semantics.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use neo4rs::{query, Graph};
 
 use crate::error::AppError;
 use crate::repositories::pipeline_repository::ExtractionItemRecord;
-use crate::state::AppState;
+use crate::services::qdrant_service;
 
-use super::ingest_helpers::slug;
+use super::ingest_helpers::{slug, stable_entity_id};
 
-// ─── Cypher constants ──────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────
+// Expected-id computation
+// ─────────────────────────────────────────────────────────────────────
 
-const CYPHER_COUNT_NODES: &str = "MATCH (n)
-        WHERE n.source_document = $doc_id OR n.source_document_id = $doc_id
-        RETURN labels(n)[0] AS label, count(n) AS count
-        ORDER BY label";
-
-const CYPHER_COUNT_RELATIONSHIPS: &str = "MATCH (a)-[r]->(b)
-        WHERE a.source_document = $doc_id OR a.source_document_id = $doc_id
-        RETURN type(r) AS rel_type, count(r) AS count
-        ORDER BY rel_type";
-
-const CYPHER_FIND_ORPHANED: &str = "MATCH (n)
-        WHERE (n.source_document = $doc_id OR n.source_document_id = $doc_id)
-          AND NOT (n)--()
-        RETURN n.id AS id";
-
-// ─── `_by_graph` variants — raw `neo4rs::Error`, used by pipeline step ───
-
-/// Count Neo4j nodes by label, scoped to a document. Takes `&Graph`
-/// directly — for the pipeline step, which has `AppContext`, not
-/// `AppState`. Returns raw `neo4rs::Error`; callers wrap into their
-/// own error type.
-pub async fn count_neo4j_nodes_by_graph(
-    graph: &Graph,
-    doc_id: &str,
-) -> Result<HashMap<String, usize>, neo4rs::Error> {
-    let mut result = graph
-        .execute(query(CYPHER_COUNT_NODES).param("doc_id", doc_id))
-        .await?;
-    let mut counts = HashMap::new();
-    while let Some(row) = result.next().await? {
-        let label: String = row.get("label").unwrap_or_default();
-        let count: i64 = row.get("count").unwrap_or(0);
-        if !label.is_empty() {
-            counts.insert(label, count as usize);
-        }
-    }
-    Ok(counts)
-}
-
-/// Count Neo4j relationships by type, scoped to a document's outgoing
-/// nodes. `&Graph` variant — see `count_neo4j_nodes_by_graph`.
-pub async fn count_neo4j_relationships_by_graph(
-    graph: &Graph,
-    doc_id: &str,
-) -> Result<HashMap<String, usize>, neo4rs::Error> {
-    let mut result = graph
-        .execute(query(CYPHER_COUNT_RELATIONSHIPS).param("doc_id", doc_id))
-        .await?;
-    let mut counts = HashMap::new();
-    while let Some(row) = result.next().await? {
-        let rel_type: String = row.get("rel_type").unwrap_or_default();
-        let count: i64 = row.get("count").unwrap_or(0);
-        if !rel_type.is_empty() {
-            counts.insert(rel_type, count as usize);
-        }
-    }
-    Ok(counts)
-}
-
-/// Find orphaned nodes (no relationships at all) scoped to a document.
-/// `&Graph` variant — see `count_neo4j_nodes_by_graph`.
-pub async fn find_orphaned_nodes_by_graph(
-    graph: &Graph,
-    doc_id: &str,
-) -> Result<Vec<String>, neo4rs::Error> {
-    let mut result = graph
-        .execute(query(CYPHER_FIND_ORPHANED).param("doc_id", doc_id))
-        .await?;
-    let mut ids = Vec::new();
-    while let Some(row) = result.next().await? {
-        let id: String = row.get("id").unwrap_or_default();
-        if !id.is_empty() {
-            ids.push(id);
-        }
-    }
-    Ok(ids)
-}
-
-// ─── HTTP-handler variants — delegate to `_by_graph`, wrap into AppError ───
-
-/// Count Neo4j nodes by label, scoped to a document.
-pub async fn count_neo4j_nodes(
-    state: &AppState,
-    doc_id: &str,
-) -> Result<HashMap<String, usize>, AppError> {
-    count_neo4j_nodes_by_graph(&state.graph, doc_id)
-        .await
-        .map_err(|e| AppError::Internal {
-            message: format!("Neo4j node count error: {e}"),
-        })
-}
-
-/// Count Neo4j relationships by type, scoped to a document's outgoing nodes.
-pub async fn count_neo4j_relationships(
-    state: &AppState,
-    doc_id: &str,
-) -> Result<HashMap<String, usize>, AppError> {
-    count_neo4j_relationships_by_graph(&state.graph, doc_id)
-        .await
-        .map_err(|e| AppError::Internal {
-            message: format!("Neo4j rel count error: {e}"),
-        })
-}
-
-/// Find orphaned nodes (no relationships at all) scoped to a document.
-pub async fn find_orphaned_nodes(state: &AppState, doc_id: &str) -> Result<Vec<String>, AppError> {
-    find_orphaned_nodes_by_graph(&state.graph, doc_id)
-        .await
-        .map_err(|e| AppError::Internal {
-            message: format!("Neo4j orphan query error: {e}"),
-        })
-}
-
-/// Count unique party names per label (Person / Organization) across the
-/// approved items of a run.
+/// Compute the expected Neo4j node id for each approved extraction item.
 ///
-/// `create_party_nodes` MERGEs Party items on `slug(name)` in Neo4j, so 6
-/// raw Party items with 3 unique names produce 3 Person nodes. Comparing
-/// raw pipeline-item counts against Neo4j node counts therefore always
-/// fails the completeness check for shared parties (bug 9a).
+/// Party items (entity_type `"Person"` or `"Organization"` — the post-ingest
+/// labels after `update_item_entity_type` runs) use the MERGE key
+/// `create_party_nodes` writes: `person-{slug(name)}` or `org-{slug(name)}`.
+/// The name comes from `item_data.properties.party_name` with a fallback
+/// to `full_name`. Items missing both are skipped with a warning; the
+/// completeness check surfaces them as "unverifiable" rather than a hard
+/// failure — the data is malformed, not the ingest pipeline.
 ///
-/// This helper reproduces the MERGE-dedup key (lowercased slug of
-/// `party_name` → `full_name` → `"unknown"`) so the per-label comparison
-/// is apples-to-apples.
+/// Non-Party items delegate to [`stable_entity_id`] — the same function
+/// Ingest uses for `create_entity_node`. Bit-for-bit id match.
 ///
-/// Only labels that actually appear in `items` are present in the returned
-/// map — callers merge it into `pipeline_items` to override those entries.
-pub fn unique_party_counts(items: &[ExtractionItemRecord]) -> HashMap<String, usize> {
-    let mut by_label: HashMap<String, HashSet<String>> = HashMap::new();
+/// ## Blind spot (acknowledged in the design doc)
+///
+/// Cross-document name resolution in `create_party_nodes` can assign a
+/// party a Neo4j id *other* than `person-{slug(name)}` — typically a
+/// pre-existing node's id. This helper cannot reproduce resolution
+/// without re-running it, so such items will surface as "missing". A
+/// future improvement (storing `extraction_items.neo4j_id` at ingest
+/// time) removes the blind spot; the current approach trades complete
+/// coverage for a no-migration change.
+///
+/// Returns `(extraction_item.id, expected_neo4j_id)` pairs in input
+/// order, minus any skipped items.
+pub fn compute_expected_neo4j_ids(
+    items: &[ExtractionItemRecord],
+    doc_id: &str,
+) -> Vec<(i32, String)> {
+    let mut out: Vec<(i32, String)> = Vec::with_capacity(items.len());
     for item in items {
-        if item.entity_type != "Person" && item.entity_type != "Organization" {
-            continue;
+        match item.entity_type.as_str() {
+            "Person" | "Organization" => {
+                let props = &item.item_data["properties"];
+                let name = props["party_name"]
+                    .as_str()
+                    .or_else(|| props["full_name"].as_str());
+                let Some(name) = name else {
+                    tracing::warn!(
+                        item_id = item.id,
+                        entity_type = %item.entity_type,
+                        "completeness: skipping Party item with no party_name/full_name"
+                    );
+                    continue;
+                };
+                let prefix = if item.entity_type == "Organization" {
+                    "org"
+                } else {
+                    "person"
+                };
+                out.push((item.id, format!("{prefix}-{}", slug(name))));
+            }
+            _ => {
+                out.push((item.id, stable_entity_id(item, doc_id)));
+            }
         }
-        let props = &item.item_data["properties"];
-        let name = props["party_name"]
-            .as_str()
-            .or_else(|| props["full_name"].as_str())
-            .unwrap_or("unknown");
-        by_label
-            .entry(item.entity_type.clone())
-            .or_default()
-            .insert(slug(name));
     }
-    by_label.into_iter().map(|(k, v)| (k, v.len())).collect()
+    out
 }
+
+// ─────────────────────────────────────────────────────────────────────
+// Neo4j verification
+// ─────────────────────────────────────────────────────────────────────
+
+/// Batch-verify a set of expected node ids against the Neo4j graph.
+///
+/// Single Cypher query with `UNWIND` + `OPTIONAL MATCH` so one round
+/// trip covers every id. `OPTIONAL MATCH` returns a row for every input
+/// regardless of match, so we can identify misses by iterating rows
+/// where `found = false`.
+///
+/// Returns the ids that were NOT found. An empty input list returns an
+/// empty result without making a query.
+pub async fn verify_neo4j_nodes(
+    graph: &Graph,
+    expected_ids: &[String],
+) -> Result<Vec<String>, AppError> {
+    if expected_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let cypher = "UNWIND $ids AS expected_id \
+                  OPTIONAL MATCH (n {id: expected_id}) \
+                  RETURN expected_id, n IS NOT NULL AS found";
+    let mut result = graph
+        .execute(query(cypher).param("ids", expected_ids.to_vec()))
+        .await
+        .map_err(|e| AppError::Internal {
+            message: format!("Neo4j verify query failed: {e}"),
+        })?;
+
+    let mut missing: Vec<String> = Vec::new();
+    while let Some(row) = result.next().await.map_err(|e| AppError::Internal {
+        message: format!("Neo4j verify row fetch failed: {e}"),
+    })? {
+        let id: String = row.get("expected_id").unwrap_or_default();
+        let found: bool = row.get("found").unwrap_or(false);
+        if !found {
+            missing.push(id);
+        }
+    }
+    Ok(missing)
+}
+
+/// Verify the Document node exists in Neo4j for this document.
+///
+/// Ingest writes `d.source_document_id = doc_id` on the Document node.
+/// Absence here is a FAIL — the document's entire graph is gone.
+pub async fn document_node_exists(graph: &Graph, doc_id: &str) -> Result<bool, AppError> {
+    let cypher = "MATCH (d:Document {source_document_id: $doc_id}) RETURN count(d) AS n";
+    let mut result = graph
+        .execute(query(cypher).param("doc_id", doc_id))
+        .await
+        .map_err(|e| AppError::Internal {
+            message: format!("Neo4j Document node query failed: {e}"),
+        })?;
+    let row = result
+        .next()
+        .await
+        .map_err(|e| AppError::Internal {
+            message: format!("Neo4j Document node row fetch failed: {e}"),
+        })?
+        .ok_or_else(|| AppError::Internal {
+            message: "Neo4j Document node query returned no row".to_string(),
+        })?;
+    let n: i64 = row.get("n").unwrap_or(0);
+    Ok(n > 0)
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Qdrant verification
+// ─────────────────────────────────────────────────────────────────────
+
+/// Batch-verify that a set of Neo4j node ids have Qdrant points.
+///
+/// Scrolls Qdrant with a single `node_id IN [...]` filter via
+/// [`qdrant_service::scroll_node_ids_in`], then does a set difference
+/// against the input list to identify node ids with no point.
+///
+/// Missing points are a WARN, not a FAIL — re-indexing repairs them.
+pub async fn verify_qdrant_points(
+    http_client: &reqwest::Client,
+    qdrant_url: &str,
+    node_ids: &[String],
+) -> Result<Vec<String>, AppError> {
+    if node_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let present: HashSet<String> =
+        qdrant_service::scroll_node_ids_in(http_client, qdrant_url, node_ids)
+            .await
+            .map_err(|e| AppError::Internal {
+                message: format!("Qdrant scroll failed: {e}"),
+            })?;
+    let mut missing: Vec<String> = Vec::new();
+    for id in node_ids {
+        if !present.contains(id) {
+            missing.push(id.clone());
+        }
+    }
+    Ok(missing)
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Tests
+// ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn make_item(id: i32, entity_type: &str, party_name: &str) -> ExtractionItemRecord {
+    fn make_item(id: i32, entity_type: &str, properties: serde_json::Value) -> ExtractionItemRecord {
         ExtractionItemRecord {
             id,
             run_id: 1,
             document_id: "doc-test".to_string(),
             entity_type: entity_type.to_string(),
-            item_data: serde_json::json!({
-                "label": "test",
-                "properties": { "party_name": party_name }
-            }),
+            item_data: serde_json::json!({ "label": "test", "properties": properties }),
             verbatim_quote: None,
             grounding_status: None,
             grounded_page: None,
@@ -193,54 +220,66 @@ mod tests {
         }
     }
 
+    const DOC_ID: &str = "doc-awad-v-catholic-family-complaint-11-1-13";
+
     #[test]
-    fn unique_party_counts_dedups_by_slugged_name() {
-        // 6 Party items with 3 distinct names — case and whitespace differ
-        // but slug() normalizes them so they collapse to 3 unique Persons.
-        let items = vec![
-            make_item(1, "Person", "Marie Awad"),
-            make_item(2, "Person", "MARIE AWAD"),
-            make_item(3, "Person", "John Smith"),
-            make_item(4, "Person", "john smith"),
-            make_item(5, "Person", "Jane Doe"),
-            make_item(6, "Person", "jane  doe"),
-        ];
-        let counts = unique_party_counts(&items);
-        assert_eq!(counts.get("Person").copied(), Some(3));
-        assert!(counts.get("Organization").is_none());
+    fn compute_ids_non_party_uses_stable_entity_id() {
+        let item = make_item(
+            1,
+            "ComplaintAllegation",
+            serde_json::json!({ "paragraph_number": "42" }),
+        );
+        let ids = compute_expected_neo4j_ids(std::slice::from_ref(&item), DOC_ID);
+        assert_eq!(ids.len(), 1);
+        assert_eq!(ids[0].0, 1);
+        // stable_entity_id for ComplaintAllegation returns {doc_slug}:para:{n}
+        assert!(
+            ids[0].1.ends_with(":para:42"),
+            "expected `:para:42` suffix, got: {}",
+            ids[0].1
+        );
     }
 
     #[test]
-    fn unique_party_counts_separates_person_and_organization() {
-        let items = vec![
-            make_item(1, "Person", "Marie Awad"),
-            make_item(2, "Organization", "Catholic Family Services"),
-            make_item(3, "Organization", "catholic family services"),
-        ];
-        let counts = unique_party_counts(&items);
-        assert_eq!(counts.get("Person").copied(), Some(1));
-        assert_eq!(counts.get("Organization").copied(), Some(1));
+    fn compute_ids_person_uses_name_slug() {
+        let person = make_item(
+            1,
+            "Person",
+            serde_json::json!({ "party_name": "Marie Awad" }),
+        );
+        let org = make_item(
+            2,
+            "Organization",
+            serde_json::json!({ "party_name": "Catholic Family Services" }),
+        );
+        let ids = compute_expected_neo4j_ids(&[person, org], DOC_ID);
+        assert_eq!(ids.len(), 2);
+        assert_eq!(ids[0].1, "person-marie-awad");
+        // Note: prefix is "org-" (not "organization-") because that's
+        // what create_party_nodes actually writes.
+        assert_eq!(ids[1].1, "org-catholic-family-services");
     }
 
     #[test]
-    fn unique_party_counts_ignores_non_party_entity_types() {
-        let items = vec![
-            make_item(1, "ComplaintAllegation", "not a party"),
-            make_item(2, "LegalCount", "also not a party"),
-        ];
-        let counts = unique_party_counts(&items);
-        assert!(counts.is_empty());
+    fn compute_ids_person_falls_back_to_full_name() {
+        // Some schemas use `full_name` instead of `party_name`.
+        let item = make_item(
+            1,
+            "Person",
+            serde_json::json!({ "full_name": "Marie Awad" }),
+        );
+        let ids = compute_expected_neo4j_ids(std::slice::from_ref(&item), DOC_ID);
+        assert_eq!(ids.len(), 1);
+        assert_eq!(ids[0].1, "person-marie-awad");
     }
 
     #[test]
-    fn unique_party_counts_falls_back_to_full_name() {
-        // Schemas may use `full_name` instead of `party_name`.
-        let mut item = make_item(1, "Person", "ignored");
-        item.item_data = serde_json::json!({
-            "label": "test",
-            "properties": { "full_name": "Marie Awad" }
-        });
-        let counts = unique_party_counts(std::slice::from_ref(&item));
-        assert_eq!(counts.get("Person").copied(), Some(1));
+    fn compute_ids_skips_person_with_no_name() {
+        let item = make_item(1, "Person", serde_json::json!({ "role": "plaintiff" }));
+        let ids = compute_expected_neo4j_ids(std::slice::from_ref(&item), DOC_ID);
+        assert!(
+            ids.is_empty(),
+            "Party item missing both party_name and full_name must be skipped"
+        );
     }
 }

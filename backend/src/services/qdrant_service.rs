@@ -409,6 +409,74 @@ pub async fn get_existing_point_ids(
     Ok(existing_ids)
 }
 
+/// Scroll Qdrant for the subset of `node_id`s that have a point.
+///
+/// Used by the completeness-verification step to answer the question
+/// "which of these expected entity ids actually made it into Qdrant?".
+/// Filters on the `node_id` payload field (indexed in
+/// [`ensure_collection`]) using Qdrant's `match.any` operator so one
+/// request covers every id. Pagination is via the cursor-based scroll
+/// API, exactly like [`get_existing_point_ids`].
+///
+/// Returns the set of input ids that have at least one point. The
+/// caller does a set difference against the input list to identify
+/// missing nodes. An empty input returns an empty set without making
+/// any HTTP requests.
+pub async fn scroll_node_ids_in(
+    client: &reqwest::Client,
+    qdrant_url: &str,
+    node_ids: &[String],
+) -> Result<HashSet<String>, QdrantError> {
+    if node_ids.is_empty() {
+        return Ok(HashSet::new());
+    }
+
+    let url = format!("{qdrant_url}/collections/{COLLECTION_NAME}/points/scroll");
+    let mut found: HashSet<String> = HashSet::new();
+    let mut offset: Option<serde_json::Value> = None;
+
+    loop {
+        // One Qdrant request: paginated scroll with a single filter
+        // matching any node_id in the input list. Only the node_id
+        // payload field is returned; vectors are excluded.
+        let mut body = serde_json::json!({
+            "limit": 500,
+            "with_payload": { "include": ["node_id"] },
+            "with_vector": false,
+            "filter": {
+                "must": [
+                    { "key": "node_id", "match": { "any": node_ids } }
+                ]
+            }
+        });
+
+        if let Some(ref off) = offset {
+            body["offset"] = off.clone();
+        }
+
+        let resp = client.post(&url).json(&body).send().await?;
+        if !resp.status().is_success() {
+            let status = resp.status().as_u16();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(QdrantError::Api { status, body: text });
+        }
+
+        let data: ScrollResponse = resp.json().await?;
+        for point in &data.result.points {
+            if let Some(node_id) = point.payload.get("node_id").and_then(|v| v.as_str()) {
+                found.insert(node_id.to_string());
+            }
+        }
+
+        match data.result.next_page_offset {
+            Some(ref npo) if !npo.is_null() => offset = Some(npo.clone()),
+            _ => break,
+        }
+    }
+
+    Ok(found)
+}
+
 /// Response shape for Qdrant's scroll API.
 #[derive(Deserialize)]
 struct ScrollResponse {
