@@ -64,7 +64,6 @@ const DocumentWorkspaceTabs: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const isAdmin = user?.permissions.is_admin ?? false;
-  const [deleting, setDeleting] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
   // Core state
@@ -184,22 +183,21 @@ const DocumentWorkspaceTabs: React.FC = () => {
         )}
         {isAdmin && (
           <button
-            disabled={deleting}
             style={{
               marginLeft: "auto",
               padding: "0.3rem 0.75rem",
               fontSize: "0.78rem",
               fontWeight: 600,
               color: "#fff",
-              backgroundColor: deleting ? "#94a3b8" : "#dc2626",
+              backgroundColor: "#dc2626",
               border: "none",
               borderRadius: "4px",
-              cursor: deleting ? "not-allowed" : "pointer",
+              cursor: "pointer",
               fontFamily: "inherit",
             }}
             onClick={() => setShowDeleteDialog(true)}
           >
-            {deleting ? "Deleting..." : "Delete"}
+            Delete
           </button>
         )}
       </div>
@@ -253,15 +251,8 @@ const DocumentWorkspaceTabs: React.FC = () => {
           itemCount={items?.length ?? 0}
           onCancel={() => setShowDeleteDialog(false)}
           onConfirm={async (reason) => {
-            setShowDeleteDialog(false);
-            setDeleting(true);
-            try {
-              await deleteDocument(doc.id, reason);
-              navigate("/documents");
-            } catch (e) {
-              setError(e instanceof Error ? e.message : "Delete failed");
-              setDeleting(false);
-            }
+            await deleteDocument(doc.id, reason);
+            navigate("/documents");
           }}
         />
       )}

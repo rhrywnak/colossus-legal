@@ -484,7 +484,18 @@ export async function deleteDocument(docId: string, reason?: string): Promise<vo
     options.body = JSON.stringify({ reason });
   }
   const res = await authFetch(`${PIPELINE_BASE}/documents/${docId}`, options);
-  if (!res.ok) throw new Error(`Delete failed: ${res.status}`);
+  if (!res.ok) {
+    let message = `Delete failed (${res.status})`;
+    try {
+      const body = await res.json();
+      if (body.message) {
+        message = body.message;
+      }
+    } catch {
+      // Response wasn't JSON — use the generic message
+    }
+    throw new Error(message);
+  }
 }
 
 // ── Upload ─────────────────────────────────────────
