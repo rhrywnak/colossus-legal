@@ -188,6 +188,21 @@ pub enum ExtractTextError {
     #[error("PDF text extraction failed: {message}")]
     PdfExtractionFailed { message: String },
 
+    /// Emitted when the per-page loop completes but every page stored zero
+    /// characters. Historically the pipeline continued into LlmExtract on
+    /// empty text, wasting LLM spend and producing a "complete" document
+    /// with zero entities. Failing here stops the pipeline and surfaces
+    /// an actionable error to the user.
+    #[error(
+        "No usable text extracted from {page_count} pages of document '{doc_id}' \
+         (OCR available: {ocr_available})"
+    )]
+    NoUsableText {
+        doc_id: String,
+        page_count: usize,
+        ocr_available: bool,
+    },
+
     #[error("OCR tools unavailable")]
     OcrToolsMissing {
         #[source]
@@ -333,13 +348,18 @@ impl ExtractText {
         }
 
         // [5] Surya OCR service availability (non-fatal — scanned pages just won't OCR).
-        let ocr_available = ocr::check_surya_available(&context.http_client).await.is_ok();
-        if !ocr_available {
-            tracing::warn!(
-                doc_id = %doc_id,
-                "Surya OCR service unavailable; scanned pages will have no text"
-            );
-        }
+        let ocr_available = match ocr::check_surya_available(&context.http_client).await {
+            Ok(()) => true,
+            Err(e) => {
+                tracing::warn!(
+                    doc_id = %doc_id,
+                    error = %e,
+                    "Surya OCR service not available — scanned pages will fail if no native text exists. \
+                     Fix: ensure SURYA_OCR_URL points to a running Surya service."
+                );
+                false
+            }
+        };
 
         // [5b] Batch-OCR scanned pages via Surya service (one HTTP call for all pages).
         //      Unlike the legacy per-page tesseract path, Surya processes the whole
@@ -440,6 +460,19 @@ impl ExtractText {
             .map_err(|e| ExtractTextError::DbWrite {
                 message: format!("insert_document_text page {}: {e}", page.page_number),
             })?;
+        }
+
+        // [6b] Fail fast if ALL pages have zero usable text. This means either
+        //      (a) the document is entirely scanned and OCR failed/was unavailable,
+        //      or (b) the PDF has no extractable content. Continuing would waste
+        //      LLM API spend on empty input and produce a "complete" document
+        //      with zero entities. The failure surfaces in pipeline_steps.error_message.
+        if total_chars == 0 {
+            return Err(ExtractTextError::NoUsableText {
+                doc_id: doc_id.to_string(),
+                page_count,
+                ocr_available,
+            });
         }
 
         // [7] Auto-detect document type when current type is "auto" / "unknown".

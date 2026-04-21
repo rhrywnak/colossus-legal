@@ -91,7 +91,12 @@ pub(crate) async fn run_extract_text(
     let ocr_available = match ocr::check_surya_available(&state.http_client).await {
         Ok(()) => true,
         Err(e) => {
-            tracing::warn!("Surya OCR service not available, scanned pages will have no text: {e}");
+            tracing::warn!(
+                doc_id = %doc_id,
+                error = %e,
+                "Surya OCR service not available — scanned pages will fail if no native text exists. \
+                 Fix: ensure SURYA_OCR_URL points to a running Surya service."
+            );
             false
         }
     };
@@ -186,6 +191,24 @@ pub(crate) async fn run_extract_text(
         .map_err(|e| AppError::Internal {
             message: format!("Failed to insert text for page {}: {e}", page.page_number),
         })?;
+    }
+
+    // 5b. Fail fast if ALL pages have zero usable text. Continuing would waste
+    //     LLM API spend on empty input and produce a "complete" document with
+    //     zero entities. Typically this means Surya was unavailable on a scanned
+    //     PDF or the PDF has no extractable content at all.
+    if total_chars == 0 {
+        return Err(AppError::Internal {
+            message: format!(
+                "No usable text extracted from {page_count} pages of document '{doc_id}'. \
+                 OCR was {}. Check SURYA_OCR_URL configuration and ensure the Surya service is running.",
+                if ocr_available {
+                    "available but returned empty text"
+                } else {
+                    "not available"
+                }
+            ),
+        });
     }
 
     // 6. Auto-detect document type if current type is "auto" or "unknown"

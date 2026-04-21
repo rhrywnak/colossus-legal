@@ -276,7 +276,12 @@ pub async fn ocr_full_document_surya(
         .timeout(std::time::Duration::from_secs(300))
         .send()
         .await
-        .map_err(|e| OcrError::SuryaError(format!("Surya request failed: {e}")))?;
+        .map_err(|e| {
+            OcrError::SuryaError(format!(
+                "Surya OCR request to {url} failed: {e}. \
+                 Verify the service is running and can accept PDF uploads."
+            ))
+        })?;
 
     if !response.status().is_success() {
         let status = response.status();
@@ -306,8 +311,13 @@ pub async fn ocr_full_document_surya(
 /// Uses a short 5-second timeout so a dead service fails fast and the
 /// caller can degrade gracefully (log warning, skip OCR for scanned pages).
 pub async fn check_surya_available(http_client: &reqwest::Client) -> Result<(), OcrError> {
-    let surya_url = std::env::var("SURYA_OCR_URL")
-        .map_err(|_| OcrError::SuryaError("SURYA_OCR_URL env var not set".to_string()))?;
+    let surya_url = std::env::var("SURYA_OCR_URL").map_err(|_| {
+        OcrError::SuryaError(
+            "SURYA_OCR_URL env var not set. Set it to the Surya OCR service URL \
+             (e.g. http://192.168.1.100:8340) in the container environment."
+                .to_string(),
+        )
+    })?;
 
     let url = format!("{}/health", surya_url.trim_end_matches('/'));
     let response = http_client
@@ -315,7 +325,12 @@ pub async fn check_surya_available(http_client: &reqwest::Client) -> Result<(), 
         .timeout(std::time::Duration::from_secs(5))
         .send()
         .await
-        .map_err(|e| OcrError::SuryaError(format!("Surya health check failed: {e}")))?;
+        .map_err(|e| {
+            OcrError::SuryaError(format!(
+                "Surya OCR service unreachable at {url}. Error: {e}. \
+                 Verify the service is running and the URL is correct."
+            ))
+        })?;
 
     if !response.status().is_success() {
         return Err(OcrError::SuryaError(format!(
