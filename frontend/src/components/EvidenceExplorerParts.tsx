@@ -9,13 +9,26 @@ import { STRENGTH_COLORS, getStrengthStyle } from "../utils/strengthColors";
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 export type CountGroup = {
+  /** Display name for the count (from LegalCount.name / Neo4j title). */
   countName: string;
-  numeral: string;
-  legalBasis: string;
-  paragraphs: string;
+  /** Stable LegalCount id, or null for the synthetic "Other" bucket. */
+  countId: string | null;
+  /**
+   * `LegalCount.count_number` — the schema-required integer (I=1, II=2, …).
+   * `0` for the "Other" bucket so it sorts last and suppresses the numeral.
+   */
+  countNumber: number;
   allegations: AllegationDto[];
-  provenCount: number;
 };
+
+const ROMAN_NUMERALS: Record<number, string> = {
+  1: "I", 2: "II", 3: "III", 4: "IV", 5: "V", 6: "VI", 7: "VII", 8: "VIII",
+};
+
+function toNumeral(countNumber: number): string {
+  if (countNumber <= 0) return "";
+  return ROMAN_NUMERALS[countNumber] ?? String(countNumber);
+}
 
 // ─── CountSection ────────────────────────────────────────────────────────────
 
@@ -37,11 +50,12 @@ type CountSectionProps = {
 export const CountSection: React.FC<CountSectionProps> = ({
   group, collapsed, onToggleCollapse, expandedIds, loadingIds, chainCache, onToggleAllegation, strengthMap,
 }) => {
-  const title = group.numeral
-    ? `COUNT ${group.numeral}: ${group.countName}`
+  const numeral = toNumeral(group.countNumber);
+  const title = numeral
+    ? `COUNT ${numeral}: ${group.countName}`
     : group.countName;
 
-  // Compute per-count strength breakdown
+  // Compute per-count strength breakdown.
   const strengthCounts = { strong: 0, moderate: 0, weak: 0, gap: 0 };
   for (const a of group.allegations) {
     const s = strengthMap.get(a.id);
@@ -50,6 +64,10 @@ export const CountSection: React.FC<CountSectionProps> = ({
     }
   }
   const total = group.allegations.length;
+  // "With evidence" = anything the strength analysis didn't classify as a gap.
+  // This replaces an earlier `evidence_status === "PROVEN"` filter on a field
+  // the schema never defines and no code populates.
+  const withEvidenceCount = total - strengthCounts.gap;
 
   return (
     <div style={{
@@ -66,12 +84,10 @@ export const CountSection: React.FC<CountSectionProps> = ({
           <span style={{ fontSize: "0.8rem", color: COLORS.textSecondary }}>{collapsed ? "▶" : "▼"}</span>
           <span style={{ fontSize: "1.15rem", fontWeight: 700, color: COLORS.textPrimary }}>{title}</span>
         </div>
-        {group.numeral && (
+        {numeral && (
           <div style={{ fontSize: "0.82rem", color: COLORS.textSecondary, marginTop: "0.25rem", marginLeft: "1.3rem" }}>
-            {group.legalBasis}
-            {group.paragraphs && <> &middot; Complaint &para;{group.paragraphs}</>}
-            {" "}&middot; {group.allegations.length} allegation{group.allegations.length !== 1 ? "s" : ""}
-            {" "}&middot; {group.provenCount} supported
+            {group.allegations.length} allegation{group.allegations.length !== 1 ? "s" : ""}
+            {" "}&middot; {withEvidenceCount} with evidence
           </div>
         )}
 

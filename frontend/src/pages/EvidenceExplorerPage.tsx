@@ -2,62 +2,64 @@ import React, { useEffect, useMemo, useState } from "react";
 import { getAllegations, AllegationDto } from "../services/allegations";
 import { getEvidenceChain, EvidenceChainResponse } from "../services/evidenceChain";
 import { getAnalysis, AllegationStrength } from "../services/analysisApi";
+import { LegalCountInfo } from "../services/caseSummary";
 import { useCase } from "../context/CaseContext";
 import { COLORS } from "../components/EvidenceChainParts";
 import { CountGroup, CountSection } from "../components/EvidenceExplorerParts";
 import InfoPopup from "../components/InfoPopup";
 
-// ─── Count metadata (hardcoded — not in API yet) ────────────────────────────
+const OTHER_BUCKET_NAME = "Other Allegations";
 
-const COUNT_METADATA: Record<string, { numeral: string; legal_basis: string; paragraphs: string }> = {
-  "Breach of Fiduciary Duty": { numeral: "I", legal_basis: "MCL 700.1212", paragraphs: "72-85" },
-  "Fraud": { numeral: "II", legal_basis: "Common Law", paragraphs: "86-100" },
-  "Declaratory Relief (Ultra Vires)": { numeral: "III", legal_basis: "MCL 450.178 / MCL 700.1212", paragraphs: "101-114" },
-  "Abuse of Process": { numeral: "IV", legal_basis: "Common Law", paragraphs: "115-126" },
-};
+/**
+ * Group allegations by legal count, seeded from the full `legal_count_details`
+ * list (so counts with zero SUPPORTS-linked allegations still render a card)
+ * and bucketed on stable `legal_count_ids` (LegalCount.id — immune to LLM
+ * title drift, unlike the previous title-based map). Allegations without a
+ * matching count id fall through to the "Other Allegations" bucket.
+ */
+function groupByCount(
+  allegations: AllegationDto[],
+  legalCountDetails: LegalCountInfo[],
+): CountGroup[] {
+  const byId = new Map<string, CountGroup>();
+  for (const lc of legalCountDetails) {
+    byId.set(lc.id, {
+      countName: lc.name || `Count ${lc.count_number}`,
+      countId: lc.id,
+      countNumber: lc.count_number,
+      allegations: [],
+    });
+  }
 
-const NUMERAL_ORDER: Record<string, number> = { I: 1, II: 2, III: 3, IV: 4 };
-
-/** Group allegations by legal count. Allegations in multiple counts appear in each. */
-function groupByCount(allegations: AllegationDto[]): CountGroup[] {
-  const map = new Map<string, AllegationDto[]>();
   const other: AllegationDto[] = [];
-
   for (const a of allegations) {
-    const counts = a.legal_counts ?? [];
-    if (counts.length === 0) {
-      other.push(a);
-    } else {
-      for (const c of counts) {
-        if (!map.has(c)) map.set(c, []);
-        map.get(c)!.push(a);
+    const ids = a.legal_count_ids ?? [];
+    let bucketed = false;
+    for (const id of ids) {
+      const group = byId.get(id);
+      if (group) {
+        group.allegations.push(a);
+        bucketed = true;
       }
+    }
+    if (!bucketed) {
+      other.push(a);
     }
   }
 
-  const groups: CountGroup[] = Array.from(map.entries())
-    .map(([name, list]) => {
-      const meta = COUNT_METADATA[name] ?? { numeral: "?", legal_basis: "", paragraphs: "" };
-      const sorted = list.sort((a, b) => a.id.localeCompare(b.id));
-      return {
-        countName: name,
-        numeral: meta.numeral,
-        legalBasis: meta.legal_basis,
-        paragraphs: meta.paragraphs,
-        allegations: sorted,
-        provenCount: sorted.filter((a) => a.evidence_status?.toUpperCase() === "PROVEN").length,
-      };
-    })
-    .sort((a, b) => (NUMERAL_ORDER[a.numeral] ?? 99) - (NUMERAL_ORDER[b.numeral] ?? 99));
+  const groups: CountGroup[] = Array.from(byId.values())
+    .map((g) => ({
+      ...g,
+      allegations: g.allegations.sort((a, b) => a.id.localeCompare(b.id)),
+    }))
+    .sort((a, b) => a.countNumber - b.countNumber);
 
   if (other.length > 0) {
     groups.push({
-      countName: "Other Allegations",
-      numeral: "",
-      legalBasis: "",
-      paragraphs: "",
+      countName: OTHER_BUCKET_NAME,
+      countId: null,
+      countNumber: 0,
       allegations: other.sort((a, b) => a.id.localeCompare(b.id)),
-      provenCount: other.filter((a) => a.evidence_status?.toUpperCase() === "PROVEN").length,
     });
   }
 
@@ -99,10 +101,12 @@ const EvidenceExplorerPage: React.FC = () => {
     return () => { active = false; };
   }, []);
 
-  // caseData accessed to ensure CaseContext is connected
-  void caseData;
+  const legalCountDetails = caseData?.legal_count_details ?? [];
 
-  const countGroups = useMemo(() => groupByCount(allegations), [allegations]);
+  const countGroups = useMemo(
+    () => groupByCount(allegations, legalCountDetails),
+    [allegations, legalCountDetails],
+  );
 
   const handleToggle = async (allegationId: string) => {
     if (expandedIds.has(allegationId)) {
