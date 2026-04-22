@@ -80,14 +80,30 @@ pub struct ExtractionRunRecord {
 
 // ── Functions ────────────────────────────────────────────────────
 
-/// Insert an extraction run record. Returns the auto-generated run ID.
-/// Initial status is "RUNNING".
+/// Upsert an extraction run record on `(document_id, pass_number)`.
+/// Returns the run's id.
+///
+/// ## Self-idempotency (R5)
+///
+/// A prior FAILED or stuck-RUNNING attempt leaves an extraction_runs row
+/// that no longer represents anything actionable. Without this upsert,
+/// a retry would hit the `extraction_runs_doc_pass_unique` constraint
+/// (see migration `20260422113610_add_unique_constraint_on_extraction_runs_document_and_pass.sql`).
+/// On conflict we reset every INSERT-time column so the reused row
+/// represents the *current* attempt, preserving the synthetic id so
+/// downstream callers (`store_entities_and_relationships`,
+/// `complete_extraction_run`, chunk bookkeeping) keep working unchanged.
+/// Children of the reused run are wiped separately by
+/// [`reset_extraction_run_children`] — call it after this function in
+/// the step so the slate is clean before new items / chunks get
+/// inserted.
 ///
 /// ## F3 Reproducibility
 ///
-/// The new parameters capture everything needed to reproduce an extraction:
-/// the assembled prompt, template/rules file hashes, the schema content,
-/// and model parameters. All are optional so older code paths still compile.
+/// The F3 parameters capture everything needed to reproduce an
+/// extraction: the assembled prompt, template/rules file hashes, the
+/// schema content, and model parameters. All are optional so older code
+/// paths still compile.
 #[allow(clippy::too_many_arguments)]
 pub async fn insert_extraction_run(
     pool: &PgPool,
@@ -120,6 +136,37 @@ pub async fn insert_extraction_run(
                $1, $2, $3, $4, NOW(), '{}'::jsonb, 'RUNNING',
                $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
            )
+           ON CONFLICT ON CONSTRAINT extraction_runs_doc_pass_unique DO UPDATE SET
+               -- Identify the new attempt: reset lifecycle columns.
+               status = 'RUNNING',
+               started_at = NOW(),
+               completed_at = NULL,
+               raw_output = '{}'::jsonb,
+               input_tokens = NULL,
+               output_tokens = NULL,
+               cost_usd = NULL,
+               -- Overwrite current-attempt metadata with the new values.
+               model_name = EXCLUDED.model_name,
+               schema_version = EXCLUDED.schema_version,
+               assembled_prompt = EXCLUDED.assembled_prompt,
+               template_name = EXCLUDED.template_name,
+               template_hash = EXCLUDED.template_hash,
+               rules_name = EXCLUDED.rules_name,
+               rules_hash = EXCLUDED.rules_hash,
+               schema_hash = EXCLUDED.schema_hash,
+               schema_content = EXCLUDED.schema_content,
+               temperature = EXCLUDED.temperature,
+               max_tokens_requested = EXCLUDED.max_tokens_requested,
+               admin_instructions = EXCLUDED.admin_instructions,
+               prior_context = EXCLUDED.prior_context,
+               -- Chunk stats / config snapshot get filled in later in
+               -- the step; clear any stale values from the prior attempt.
+               chunk_count = NULL,
+               chunks_succeeded = NULL,
+               chunks_failed = NULL,
+               chunks_pruned_nodes = NULL,
+               chunks_pruned_relationships = NULL,
+               processing_config = NULL
            RETURNING id"#,
     )
     .bind(document_id)
@@ -140,6 +187,53 @@ pub async fn insert_extraction_run(
     .fetch_one(pool)
     .await?;
     Ok(row)
+}
+
+/// Wipe child rows of an extraction_runs row so a reused run_id starts
+/// clean. Idempotent: a brand-new run has no children, so every DELETE
+/// affects zero rows.
+///
+/// Must be called after [`insert_extraction_run`] in the step path to
+/// make re-running LlmExtract truly self-idempotent (R5). Without this,
+/// items / relationships / chunks from a prior failed attempt would
+/// coexist with rows from the current attempt under the same run_id.
+///
+/// Runs in a transaction so a partial delete doesn't leave orphans
+/// behind. FK-safe order:
+///   review_edit_history -> extraction_relationships
+///                       -> extraction_items
+///                       -> extraction_chunks
+pub async fn reset_extraction_run_children(
+    pool: &PgPool,
+    run_id: i32,
+) -> Result<(), PipelineRepoError> {
+    let mut txn = pool.begin().await?;
+
+    sqlx::query(
+        "DELETE FROM review_edit_history \
+         WHERE item_id IN (SELECT id FROM extraction_items WHERE run_id = $1)",
+    )
+    .bind(run_id)
+    .execute(&mut *txn)
+    .await?;
+
+    sqlx::query("DELETE FROM extraction_relationships WHERE run_id = $1")
+        .bind(run_id)
+        .execute(&mut *txn)
+        .await?;
+
+    sqlx::query("DELETE FROM extraction_items WHERE run_id = $1")
+        .bind(run_id)
+        .execute(&mut *txn)
+        .await?;
+
+    sqlx::query("DELETE FROM extraction_chunks WHERE extraction_run_id = $1")
+        .bind(run_id)
+        .execute(&mut *txn)
+        .await?;
+
+    txn.commit().await?;
+    Ok(())
 }
 
 /// Update an extraction run with results (completed or failed).

@@ -306,6 +306,16 @@ impl LlmExtract {
             message: format!("{e}"),
         })?;
 
+        // 7b. If the run row was reused via ON CONFLICT DO UPDATE (prior
+        //     FAILED or stuck-RUNNING attempt), wipe its children so new
+        //     items / chunks / relationships don't coexist with stale
+        //     ones under the same run_id. No-op for a fresh row (R5).
+        extraction::reset_extraction_run_children(db, run_id)
+            .await
+            .map_err(|e| LlmExtractError::InsertRunFailed {
+                message: format!("reset_extraction_run_children: {e}"),
+            })?;
+
         // 8. Cancel check before acquiring semaphore.
         if cancel.is_cancelled().await {
             mark_run_failed(db, run_id, "Cancelled before extraction").await;
