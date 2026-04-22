@@ -10,13 +10,16 @@
 //! dramatically better relationship quality than asking it to do both at
 //! once.
 //!
-//! ## Why a free function instead of a `Step` impl?
+//! ## Free-function orchestrator + thin `Step` adapter
 //!
-//! Task 3 owns wiring pass 2 into the pipeline FSM. Until that lands,
-//! pass 2 is invoked out-of-band (e.g., an API handler or an admin CLI),
-//! so exposing a `Step<DocProcessing>` would falsely advertise FSM
-//! integration that doesn't exist yet. A free function returning the
-//! relationship count keeps the surface honest.
+//! [`run_pass2_extraction`] is the free-function orchestrator — it's what
+//! an API handler or admin CLI calls when triggering pass 2 directly. The
+//! [`LlmExtractPass2`] struct is the FSM-facing adapter: its [`Step`]
+//! impl delegates to the same orchestrator and returns the FSM edge to
+//! Verify, so the Worker can advance the job transparently. Keeping the
+//! two layers separate means out-of-band callers don't carry FSM
+//! artifacts, and the Step impl doesn't carry FSM-unaware signature
+//! cruft.
 //!
 //! ## Rust Learning: sibling-module helper reuse with `pub(crate)`
 //!
@@ -29,10 +32,13 @@
 
 use std::error::Error;
 
+use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 
 use colossus_pipeline::cancel::CancellationToken;
 use colossus_pipeline::progress::ProgressReporter;
+use colossus_pipeline::{Step, StepResult};
 
 use crate::pipeline::config::{resolve_config, ProcessingProfile};
 use crate::pipeline::context::AppContext;
@@ -44,9 +50,68 @@ use crate::pipeline::steps::llm_extract::{
 use crate::pipeline::steps::llm_extract_helpers::{
     call_with_rate_limit_retry, mark_run_failed, parse_chunk_response,
 };
+use crate::pipeline::steps::verify::Verify;
+use crate::pipeline::task::DocProcessing;
 use crate::repositories::pipeline_repository::{
     self, extraction, extraction::Pass1Entity, models,
 };
+
+// ── FSM step adapter ────────────────────────────────────────────
+
+/// The LlmExtractPass2 step variant's payload.
+///
+/// Carries only the document id; pass-2 resolves everything else
+/// (profile, template, model, pass-1 entities) from storage at execute
+/// time via [`run_pass2_extraction`]. The Worker reaches this step when
+/// pass 1 routes to it via `llm_extract::next_step_after_pass1` — i.e.
+/// whenever `resolved.run_pass2 == true`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct LlmExtractPass2 {
+    pub document_id: String,
+}
+
+#[async_trait]
+impl Step<DocProcessing> for LlmExtractPass2 {
+    async fn execute(
+        self,
+        db: &PgPool,
+        context: &AppContext,
+        cancel: &CancellationToken,
+        progress: &ProgressReporter,
+    ) -> Result<StepResult<DocProcessing>, Box<dyn Error + Send + Sync>> {
+        run_pass2_extraction(&self.document_id, db, context, cancel, progress).await?;
+        Ok(StepResult::Next(DocProcessing::Verify(Verify {
+            document_id: self.document_id,
+        })))
+    }
+
+    async fn on_cancel(
+        self,
+        db: &PgPool,
+        _context: &AppContext,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        // Scope the cleanup to pass-2 rows only so a mid-pass-2 cancel
+        // never clobbers the COMPLETED pass-1 run (which is pass 2's
+        // input). A pass-2 COMPLETED row is left intact — its
+        // relationships are the authoritative output and the orchestrator's
+        // idempotency check will short-circuit future retries.
+        if let Err(e) = sqlx::query(
+            "DELETE FROM extraction_runs \
+             WHERE document_id = $1 AND pass_number = 2 \
+               AND status IN ('RUNNING', 'FAILED')",
+        )
+        .bind(&self.document_id)
+        .execute(db)
+        .await
+        {
+            tracing::warn!(
+                doc_id = %self.document_id, error = %e,
+                "LlmExtractPass2::on_cancel: delete of RUNNING/FAILED pass-2 runs failed (non-fatal)"
+            );
+        }
+        Ok(())
+    }
+}
 
 // ── Public entry point ──────────────────────────────────────────
 
@@ -392,5 +457,33 @@ mod tests {
             document_id: "doc-abc".into(),
         };
         assert!(e.to_string().contains("doc-abc"));
+    }
+
+    #[test]
+    fn llm_extract_pass2_struct_round_trips_through_serde() {
+        // pipeline_jobs.current_step_payload round-trips the step struct
+        // through JSON — a missing derive would surface here first.
+        let a = LlmExtractPass2 {
+            document_id: "doc-rt".into(),
+        };
+        let j = serde_json::to_string(&a).unwrap();
+        let b: LlmExtractPass2 = serde_json::from_str(&j).unwrap();
+        assert_eq!(a.document_id, b.document_id);
+    }
+
+    #[test]
+    fn llm_extract_pass2_step_uses_trait_default_retry_settings() {
+        // Pass 2 matches pass 1's retry policy: zero Worker-level retries.
+        // The LLM call's internal rate-limit retry (MAX_RETRIES_PER_CHUNK)
+        // handles the transient-failure class we care about.
+        assert_eq!(
+            <LlmExtractPass2 as Step<DocProcessing>>::DEFAULT_RETRY_LIMIT,
+            0
+        );
+        assert_eq!(
+            <LlmExtractPass2 as Step<DocProcessing>>::DEFAULT_RETRY_DELAY_SECS,
+            0
+        );
+        assert!(<LlmExtractPass2 as Step<DocProcessing>>::DEFAULT_TIMEOUT_SECS.is_none());
     }
 }

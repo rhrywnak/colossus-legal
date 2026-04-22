@@ -38,7 +38,7 @@ use crate::pipeline::context::AppContext;
 use crate::pipeline::steps::{
     auto_approve::AutoApprove, cleanup::cleanup_all, completeness::Completeness,
     extract_text::ExtractText, index::Index, ingest::Ingest, llm_extract::LlmExtract,
-    verify::Verify,
+    llm_extract_pass2::LlmExtractPass2, verify::Verify,
 };
 
 /// The colossus-legal document-processing pipeline task.
@@ -50,6 +50,10 @@ use crate::pipeline::steps::{
 pub enum DocProcessing {
     ExtractText(ExtractText),
     LlmExtract(LlmExtract),
+    /// Optional second-pass relationship extraction. The Worker only
+    /// reaches this variant when the resolved profile has
+    /// `run_pass2: true`; pass-1 routes directly to `Verify` otherwise.
+    LlmExtractPass2(LlmExtractPass2),
     Verify(Verify),
     AutoApprove(AutoApprove),
     Ingest(Ingest),
@@ -59,11 +63,15 @@ pub enum DocProcessing {
 
 /// Permitted (from, to) transitions for the DocProcessing FSM.
 ///
-/// ExtractText → LlmExtract → Verify → AutoApprove → Ingest → Index → Completeness.
-/// No branches, no backward edges, no self-loops.
+/// ExtractText → LlmExtract → [LlmExtractPass2 →] Verify → AutoApprove → Ingest → Index → Completeness.
+/// `LlmExtract → Verify` stays valid because pass 1 still routes
+/// directly to Verify whenever `run_pass2` is `false` (default). The
+/// pass-2 branch is opt-in per profile.
 const VALID_TRANSITIONS: &[(&str, &str)] = &[
     ("ExtractText", "LlmExtract"),
+    ("LlmExtract", "LlmExtractPass2"),
     ("LlmExtract", "Verify"),
+    ("LlmExtractPass2", "Verify"),
     ("Verify", "AutoApprove"),
     ("AutoApprove", "Ingest"),
     ("Ingest", "Index"),
@@ -78,6 +86,7 @@ impl Task for DocProcessing {
         match self {
             DocProcessing::ExtractText(_) => step_name_of::<ExtractText>(),
             DocProcessing::LlmExtract(_) => step_name_of::<LlmExtract>(),
+            DocProcessing::LlmExtractPass2(_) => step_name_of::<LlmExtractPass2>(),
             DocProcessing::Verify(_) => step_name_of::<Verify>(),
             DocProcessing::AutoApprove(_) => step_name_of::<AutoApprove>(),
             DocProcessing::Ingest(_) => step_name_of::<Ingest>(),
@@ -116,6 +125,9 @@ impl Task for DocProcessing {
         match self {
             DocProcessing::ExtractText(step) => step.execute(db, context, cancel, progress).await,
             DocProcessing::LlmExtract(step) => step.execute(db, context, cancel, progress).await,
+            DocProcessing::LlmExtractPass2(step) => {
+                step.execute(db, context, cancel, progress).await
+            }
             DocProcessing::Verify(step) => step.execute(db, context, cancel, progress).await,
             DocProcessing::AutoApprove(step) => step.execute(db, context, cancel, progress).await,
             DocProcessing::Ingest(step) => step.execute(db, context, cancel, progress).await,
@@ -135,6 +147,7 @@ impl Task for DocProcessing {
         match self {
             DocProcessing::ExtractText(step) => step.on_cancel(db, context).await,
             DocProcessing::LlmExtract(step) => step.on_cancel(db, context).await,
+            DocProcessing::LlmExtractPass2(step) => step.on_cancel(db, context).await,
             DocProcessing::Verify(step) => step.on_cancel(db, context).await,
             DocProcessing::AutoApprove(step) => step.on_cancel(db, context).await,
             DocProcessing::Ingest(step) => step.on_cancel(db, context).await,
@@ -154,6 +167,7 @@ impl Task for DocProcessing {
         let document_id = match &self {
             DocProcessing::ExtractText(s) => s.document_id.clone(),
             DocProcessing::LlmExtract(s) => s.document_id.clone(),
+            DocProcessing::LlmExtractPass2(s) => s.document_id.clone(),
             DocProcessing::Verify(s) => s.document_id.clone(),
             DocProcessing::AutoApprove(s) => s.document_id.clone(),
             DocProcessing::Ingest(s) => s.document_id.clone(),
@@ -176,9 +190,10 @@ mod tests {
     use super::*;
 
     const DOC_ID: &str = "test-doc";
-    const STEP_NAMES: [&str; 7] = [
+    const STEP_NAMES: [&str; 8] = [
         "ExtractText",
         "LlmExtract",
+        "LlmExtractPass2",
         "Verify",
         "AutoApprove",
         "Ingest",
@@ -193,6 +208,11 @@ mod tests {
     }
     fn make_llm_extract() -> DocProcessing {
         DocProcessing::LlmExtract(LlmExtract {
+            document_id: DOC_ID.to_string(),
+        })
+    }
+    fn make_llm_extract_pass2() -> DocProcessing {
+        DocProcessing::LlmExtractPass2(LlmExtractPass2 {
             document_id: DOC_ID.to_string(),
         })
     }
@@ -224,9 +244,10 @@ mod tests {
 
     #[test]
     fn current_step_name_returns_last_component_for_each_variant() {
-        let cases: [(DocProcessing, &'static str); 7] = [
+        let cases: [(DocProcessing, &'static str); 8] = [
             (make_extract_text(), "ExtractText"),
             (make_llm_extract(), "LlmExtract"),
+            (make_llm_extract_pass2(), "LlmExtractPass2"),
             (make_verify(), "Verify"),
             (make_auto_approve(), "AutoApprove"),
             (make_ingest(), "Ingest"),
@@ -267,8 +288,10 @@ mod tests {
 
     #[test]
     fn validate_transition_rejects_backward_edges() {
-        let backward: [(&str, &str); 6] = [
+        let backward: [(&str, &str); 8] = [
             ("LlmExtract", "ExtractText"),
+            ("LlmExtractPass2", "LlmExtract"),
+            ("Verify", "LlmExtractPass2"),
             ("Verify", "LlmExtract"),
             ("AutoApprove", "Verify"),
             ("Ingest", "AutoApprove"),
@@ -282,6 +305,39 @@ mod tests {
                 "backward edge {from} -> {to} should be rejected, got {result:?}"
             );
         }
+    }
+
+    #[test]
+    fn validate_transition_accepts_llm_extract_to_pass2() {
+        // Gated by profile.run_pass2 at runtime; the FSM must permit the
+        // edge so pass 1's next_step_after_pass1 helper can route here.
+        assert!(DocProcessing::validate_transition("LlmExtract", "LlmExtractPass2").is_ok());
+    }
+
+    #[test]
+    fn validate_transition_accepts_llm_extract_to_verify_when_pass2_disabled() {
+        // The flag-off branch (the default) must still be valid so
+        // behaviour is identical to pre-pass-2 for profiles that omit
+        // run_pass2 or set it to false.
+        assert!(DocProcessing::validate_transition("LlmExtract", "Verify").is_ok());
+    }
+
+    #[test]
+    fn validate_transition_accepts_pass2_to_verify() {
+        assert!(DocProcessing::validate_transition("LlmExtractPass2", "Verify").is_ok());
+    }
+
+    #[test]
+    fn validate_transition_rejects_pass2_skipping_verify() {
+        // Pass 2 must never be the step that routes straight to
+        // AutoApprove — the Verify gate runs between all extraction
+        // passes and the approval stage, by design.
+        assert!(
+            matches!(
+                DocProcessing::validate_transition("LlmExtractPass2", "AutoApprove"),
+                Err(PipelineError::InvalidTransition { .. })
+            )
+        );
     }
 
     #[test]
@@ -301,7 +357,7 @@ mod tests {
         );
     }
 
-    /// Compile-time exhaustiveness check. If an 8th variant is ever added to
+    /// Compile-time exhaustiveness check. If a 9th variant is ever added to
     /// `DocProcessing`, this match (and every other match in task.rs) will
     /// fail to compile, forcing the author to update dispatch everywhere.
     /// The function is never called — its presence alone is the assertion.
@@ -310,6 +366,7 @@ mod tests {
         match t {
             DocProcessing::ExtractText(_) => "et",
             DocProcessing::LlmExtract(_) => "le",
+            DocProcessing::LlmExtractPass2(_) => "l2",
             DocProcessing::Verify(_) => "vr",
             DocProcessing::AutoApprove(_) => "aa",
             DocProcessing::Ingest(_) => "in",

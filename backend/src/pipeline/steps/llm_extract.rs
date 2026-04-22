@@ -25,6 +25,7 @@ use crate::pipeline::providers::provider_for_model;
 use crate::pipeline::steps::llm_extract_helpers::{
     call_with_rate_limit_retry, mark_run_failed, parse_chunk_response,
 };
+use crate::pipeline::steps::llm_extract_pass2::LlmExtractPass2;
 use crate::pipeline::steps::verify::Verify;
 use crate::pipeline::task::DocProcessing;
 use crate::repositories::pipeline_repository::{self, documents, extraction, models};
@@ -145,11 +146,16 @@ impl Step<DocProcessing> for LlmExtract {
         db: &PgPool,
         _context: &AppContext,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        // Best-effort: wipe any RUNNING/FAILED runs this step left behind.
-        // A COMPLETED run is left intact — its rows are the authoritative
-        // output and the idempotency check will short-circuit future retries.
+        // Best-effort: wipe any RUNNING/FAILED *pass-1* runs this step
+        // left behind. Scoped by pass_number = 1 so a pass-1 cancel never
+        // clobbers a prior FAILED pass-2 row (pass 2 has its own Step
+        // with its own on_cancel). A COMPLETED run is left intact — its
+        // rows are the authoritative output and the idempotency check
+        // will short-circuit future retries.
         if let Err(e) = sqlx::query(
-            "DELETE FROM extraction_runs WHERE document_id = $1 AND status IN ('RUNNING', 'FAILED')",
+            "DELETE FROM extraction_runs \
+             WHERE document_id = $1 AND pass_number = 1 \
+               AND status IN ('RUNNING', 'FAILED')",
         )
         .bind(&self.document_id)
         .execute(db)
@@ -157,7 +163,7 @@ impl Step<DocProcessing> for LlmExtract {
         {
             tracing::warn!(
                 doc_id = %self.document_id, error = %e,
-                "LlmExtract::on_cancel: delete of RUNNING/FAILED runs failed (non-fatal)"
+                "LlmExtract::on_cancel: delete of RUNNING/FAILED pass-1 runs failed (non-fatal)"
             );
         }
         Ok(())
@@ -197,24 +203,47 @@ impl LlmExtract {
         cancel: &CancellationToken,
         progress: &ProgressReporter,
     ) -> Result<StepResult<DocProcessing>, Box<dyn Error + Send + Sync>> {
-        // 1. Idempotency: short-circuit if a COMPLETED run already exists.
-        if extraction_already_complete(db, &self.document_id).await? {
-            tracing::info!(
-                document_id = %self.document_id,
-                "Completed extraction run exists, skipping"
-            );
-            return Ok(StepResult::Next(DocProcessing::Verify(Verify {
-                document_id: self.document_id.clone(),
-            })));
-        }
-
-        // 2. Pipeline config + document + schema + text pages.
+        // 1. Resolve config FIRST. We need `resolved.run_pass2` available
+        //    at the idempotency check so the short-circuit path can route
+        //    through the right next step (LlmExtractPass2 vs Verify). The
+        //    reads here are cheap — one DB row each, one YAML read — so
+        //    doing them on the short-circuit path is a fair trade for
+        //    FSM correctness.
         let pipe_config = pipeline_repository::get_pipeline_config(db, &self.document_id)
             .await?
             .ok_or_else(|| LlmExtractError::NoPipelineConfig {
                 document_id: self.document_id.clone(),
             })?;
 
+        let overrides =
+            pipeline_repository::get_pipeline_config_overrides(db, &self.document_id).await?;
+        let profile_name = overrides
+            .profile_name
+            .clone()
+            .unwrap_or_else(|| default_profile_name_from_schema(&pipe_config.schema_file));
+        let profile = ProcessingProfile::load(&context.profile_dir, &profile_name)
+            .map_err(|e| LlmExtractError::ProfileLoadFailed { message: e })?;
+        let resolved = resolve_config(&profile, &overrides);
+
+        // 2. Idempotency: short-circuit if a COMPLETED *pass-1* run
+        //    already exists. Filtered by pass_number = 1 so a prior
+        //    pass-2 COMPLETED row doesn't falsely mask an incomplete
+        //    pass-1 (the ON CONFLICT upsert in insert_extraction_run
+        //    keys on (document_id, pass_number), so both passes can
+        //    coexist as separate rows).
+        if pass1_already_complete(db, &self.document_id).await? {
+            tracing::info!(
+                document_id = %self.document_id,
+                run_pass2 = resolved.run_pass2,
+                "Completed pass-1 extraction_run exists, skipping"
+            );
+            return Ok(StepResult::Next(next_step_after_pass1(
+                &resolved,
+                &self.document_id,
+            )));
+        }
+
+        // 3. Document + schema + text pages.
         let _doc = pipeline_repository::get_document(db, &self.document_id)
             .await?
             .ok_or_else(|| LlmExtractError::DocumentNotFound {
@@ -243,17 +272,6 @@ impl LlmExtract {
             .map(|p| format!("--- Page {} ---\n{}", p.page_number, p.text_content))
             .collect::<Vec<_>>()
             .join("\n\n");
-
-        // 3. Resolve three-level config hierarchy.
-        let overrides =
-            pipeline_repository::get_pipeline_config_overrides(db, &self.document_id).await?;
-        let profile_name = overrides
-            .profile_name
-            .clone()
-            .unwrap_or_else(|| default_profile_name_from_schema(&pipe_config.schema_file));
-        let profile = ProcessingProfile::load(&context.profile_dir, &profile_name)
-            .map_err(|e| LlmExtractError::ProfileLoadFailed { message: e })?;
-        let resolved = resolve_config(&profile, &overrides);
 
         // 4. Look up the model row and construct a provider for this document.
         let model_record = models::get_active_model_by_id(db, &resolved.model)
@@ -472,9 +490,10 @@ impl LlmExtract {
             "system_prompt_file": resolved.system_prompt_file,
         }));
 
-        Ok(StepResult::Next(DocProcessing::Verify(Verify {
-            document_id: self.document_id.clone(),
-        })))
+        Ok(StepResult::Next(next_step_after_pass1(
+            &resolved,
+            &self.document_id,
+        )))
     }
 }
 
@@ -871,20 +890,50 @@ async fn run_chunked_extraction(
 
 // ── Small helpers ───────────────────────────────────────────────
 
-/// True if a COMPLETED extraction_run already exists for this document.
-async fn extraction_already_complete(
+/// True if a COMPLETED pass-1 extraction_run already exists for this
+/// document.
+///
+/// Scoped by `pass_number = 1` because pass 2 has its own run row
+/// under the same document_id. The prior unfiltered version would
+/// false-positive once pass 2 landed, incorrectly short-circuiting
+/// pass 1 when only pass 2 was COMPLETED (impossible in practice, but
+/// also the wrong semantics for the retry-after-pass-2-failure case).
+async fn pass1_already_complete(
     db: &PgPool,
     document_id: &str,
 ) -> Result<bool, sqlx::Error> {
     let existing: Option<i32> = sqlx::query_scalar(
         "SELECT id FROM extraction_runs \
-         WHERE document_id = $1 AND status = 'COMPLETED' \
+         WHERE document_id = $1 AND pass_number = 1 AND status = 'COMPLETED' \
          ORDER BY id DESC LIMIT 1",
     )
     .bind(document_id)
     .fetch_optional(db)
     .await?;
     Ok(existing.is_some())
+}
+
+/// Pick the next FSM step after a successful (or already-COMPLETED)
+/// pass 1.
+///
+/// When the resolved profile has `run_pass2: true`, routes through
+/// `LlmExtractPass2`; otherwise returns directly to `Verify`. Shared
+/// between the idempotency short-circuit and the success path so both
+/// branches agree on the FSM edge — otherwise a retry of an already-
+/// completed pass 1 (with `run_pass2 = true`) would bypass pass 2.
+pub(crate) fn next_step_after_pass1(
+    resolved: &ResolvedConfig,
+    document_id: &str,
+) -> DocProcessing {
+    if resolved.run_pass2 {
+        DocProcessing::LlmExtractPass2(LlmExtractPass2 {
+            document_id: document_id.to_string(),
+        })
+    } else {
+        DocProcessing::Verify(Verify {
+            document_id: document_id.to_string(),
+        })
+    }
 }
 
 /// Fall back to deriving a profile name from the schema filename.
@@ -1127,5 +1176,49 @@ mod tests {
             overrides_applied: vec![],
         };
         assert_eq!(resolve_max_tokens(&r), 12345);
+    }
+
+    /// Helper: a minimal ResolvedConfig used by next_step_after_pass1 tests.
+    fn resolved_with_run_pass2(flag: bool) -> ResolvedConfig {
+        ResolvedConfig {
+            profile_name: "complaint".into(),
+            model: "m".into(),
+            template_file: "t".into(),
+            template_hash: None,
+            pass2_template_file: Some("pass2_complaint.md".into()),
+            system_prompt_file: None,
+            system_prompt_hash: None,
+            schema_file: "s".into(),
+            chunking_mode: "full".into(),
+            chunk_size: None,
+            chunk_overlap: None,
+            max_tokens: 8000,
+            temperature: 0.0,
+            auto_approve_grounded: true,
+            run_pass2: flag,
+            overrides_applied: vec![],
+        }
+    }
+
+    #[test]
+    fn next_step_after_pass1_routes_to_pass2_when_flag_set() {
+        let r = resolved_with_run_pass2(true);
+        match next_step_after_pass1(&r, "doc-x") {
+            DocProcessing::LlmExtractPass2(step) => {
+                assert_eq!(step.document_id, "doc-x");
+            }
+            other => panic!("expected LlmExtractPass2, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn next_step_after_pass1_routes_to_verify_when_flag_unset() {
+        let r = resolved_with_run_pass2(false);
+        match next_step_after_pass1(&r, "doc-y") {
+            DocProcessing::Verify(step) => {
+                assert_eq!(step.document_id, "doc-y");
+            }
+            other => panic!("expected Verify, got {other:?}"),
+        }
     }
 }
