@@ -458,6 +458,23 @@ impl Ingest {
             message: format!("update_document_write_counts: {source}"),
         })?;
 
+        // 14c. R1: persist the extraction-item → Neo4j-node-id lineage.
+        //      `pg_to_neo4j` carries the post-resolver, post-MERGE id for
+        //      every item — including Party entities matched to
+        //      pre-existing shared nodes. Completeness reads this column
+        //      directly; without it, resolver-matched Parties surface as
+        //      false-positive "missing" on verification.
+        let mappings: Vec<(i32, String)> = pg_to_neo4j
+            .iter()
+            .map(|(id, neo4j_id)| (*id, neo4j_id.clone()))
+            .collect();
+        pipeline_repository::batch_update_neo4j_node_ids(db, &mappings)
+            .await
+            .map_err(|source| IngestError::Helper {
+                doc_id: doc_id.to_string(),
+                message: format!("batch_update_neo4j_node_ids: {source}"),
+            })?;
+
         // 15. Sync entity_type for Party → Person/Organization
         let mut entity_type_updates = 0usize;
         for item in &items {

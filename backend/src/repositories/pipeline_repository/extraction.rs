@@ -22,6 +22,10 @@ pub struct ExtractionItemRecord {
     pub reviewed_at: Option<chrono::DateTime<chrono::Utc>>,
     pub review_notes: Option<String>,
     pub graph_status: String,
+    /// Actual Neo4j node id written by Ingest (post-resolver, post-MERGE).
+    /// `None` for legacy rows from before the R1 migration — completeness
+    /// falls back to recomputing the id from item_data in that case.
+    pub neo4j_node_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
@@ -231,6 +235,40 @@ pub async fn update_item_grounding(
     .bind(item_id)
     .execute(pool)
     .await?;
+    Ok(())
+}
+
+/// Batch-persist the extraction-item → Neo4j-node-id lineage after Ingest.
+///
+/// The `pg_to_neo4j` HashMap inside `run_ingest` carries the actual
+/// Neo4j node id that was CREATE'd or MERGE'd for each extraction item
+/// — including the resolver-assigned id for cross-document Party
+/// matches. Without persistence, that mapping is discarded and
+/// completeness has to re-derive it (and cannot, for resolved Parties).
+///
+/// Runs the UPDATEs inside a single sqlx transaction: either every row
+/// is updated or none is, so a partial failure doesn't leave the table
+/// half-written. A failure after the Neo4j commit is safe to retry —
+/// the UPDATE is idempotent (same id, same target) so a second call
+/// with the same mappings is a no-op difference.
+///
+/// R1 from `PIPELINE_CODEBASE_AUDIT.md §8`.
+pub async fn batch_update_neo4j_node_ids(
+    pool: &PgPool,
+    mappings: &[(i32, String)],
+) -> Result<(), PipelineRepoError> {
+    if mappings.is_empty() {
+        return Ok(());
+    }
+    let mut txn = pool.begin().await?;
+    for (item_id, neo4j_id) in mappings {
+        sqlx::query("UPDATE extraction_items SET neo4j_node_id = $1 WHERE id = $2")
+            .bind(neo4j_id)
+            .bind(item_id)
+            .execute(&mut *txn)
+            .await?;
+    }
+    txn.commit().await?;
     Ok(())
 }
 

@@ -1,0 +1,18 @@
+-- add_neo4j_node_id_to_extraction_items: Add neo4j node id to extraction items
+--
+-- Created: 2026-04-21 21:28:06
+-- Target: pipeline database
+--
+-- R1 from PIPELINE_CODEBASE_AUDIT.md §8. Persist the extraction-item →
+-- Neo4j-node-id lineage so the completeness step can verify without
+-- recomputing. Recomputation is the root cause of false-positive
+-- "missing node" reports for Party entities that went through
+-- cross-document resolution (e.g. the `person-mr-dalek` case on
+-- doc-jeffrey-humphrey-affidavit).
+--
+-- Ingest populates this column after its Neo4j transaction commits,
+-- using the in-memory `pg_to_neo4j: HashMap<i32, String>` that already
+-- carries the final (resolver-or-fallback) node id for every item.
+-- Completeness reads the column directly; a NULL falls back to the
+-- existing recomputation path for rows written before this migration.
+ALTER TABLE extraction_items ADD COLUMN IF NOT EXISTS neo4j_node_id VARCHAR(255);

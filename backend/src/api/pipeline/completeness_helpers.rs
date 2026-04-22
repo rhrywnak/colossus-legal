@@ -63,6 +63,15 @@ pub fn compute_expected_neo4j_ids(
 ) -> Vec<(i32, String)> {
     let mut out: Vec<(i32, String)> = Vec::with_capacity(items.len());
     for item in items {
+        // R1: prefer the persisted Neo4j id when Ingest recorded it.
+        // This is the only branch that handles resolver-matched Parties
+        // correctly — the recomputation paths below can't reproduce the
+        // resolver's cross-document assignment.
+        if let Some(ref neo4j_id) = item.neo4j_node_id {
+            out.push((item.id, neo4j_id.clone()));
+            continue;
+        }
+        // Fallback for legacy rows ingested before the R1 migration.
         match item.entity_type.as_str() {
             "Person" | "Organization" => {
                 let props = &item.item_data["properties"];
@@ -217,6 +226,7 @@ mod tests {
             reviewed_at: None,
             review_notes: None,
             graph_status: "written".to_string(),
+            neo4j_node_id: None,
         }
     }
 
@@ -281,5 +291,23 @@ mod tests {
             ids.is_empty(),
             "Party item missing both party_name and full_name must be skipped"
         );
+    }
+
+    #[test]
+    fn compute_ids_uses_persisted_neo4j_node_id_when_present() {
+        // R1: the persisted id short-circuits every recomputation branch.
+        // Critical for resolver-matched Parties — the name would naively
+        // slug to "person-mr-dalek", but the resolver assigned
+        // "person-dalek" (from a different document). The persisted id
+        // wins.
+        let mut item = make_item(
+            42,
+            "Person",
+            serde_json::json!({ "party_name": "Mr. Dalek" }),
+        );
+        item.neo4j_node_id = Some("person-dalek".to_string());
+        let ids = compute_expected_neo4j_ids(std::slice::from_ref(&item), DOC_ID);
+        assert_eq!(ids.len(), 1);
+        assert_eq!(ids[0], (42, "person-dalek".to_string()));
     }
 }

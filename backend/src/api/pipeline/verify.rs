@@ -527,6 +527,7 @@ mod tests {
             reviewed_by: None,
             reviewed_at: None,
             review_notes: None,
+            neo4j_node_id: None,
             graph_status: "pending".to_string(),
         }
     }

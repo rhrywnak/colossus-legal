@@ -286,6 +286,21 @@ pub(crate) async fn run_ingest(
         message: format!("Failed to update write counts: {e}"),
     })?;
 
+    // 14a-R1. Persist the extraction-item → Neo4j-node-id lineage.
+    //         `pg_to_neo4j` carries the post-resolver, post-MERGE id for
+    //         every item. Completeness reads this column directly instead
+    //         of recomputing; the recomputation path can't reproduce
+    //         resolver-assigned ids for Party entities.
+    let mappings: Vec<(i32, String)> = pg_to_neo4j
+        .iter()
+        .map(|(id, neo4j_id)| (*id, neo4j_id.clone()))
+        .collect();
+    pipeline_repository::batch_update_neo4j_node_ids(&state.pipeline_pool, &mappings)
+        .await
+        .map_err(|e| AppError::Internal {
+            message: format!("Failed to persist neo4j_node_id lineage: {e}"),
+        })?;
+
     // 14b. Sync extraction_items.entity_type with the actual Neo4j label.
     //
     // Generic pattern: if the label written to Neo4j differs from the
