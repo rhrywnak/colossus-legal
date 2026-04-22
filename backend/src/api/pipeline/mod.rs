@@ -83,6 +83,7 @@ pub fn router() -> Router<AppState> {
         .route("/documents/:id", delete(delete_document))
         .route("/documents/:id/extract-text", post(extract_text))
         .route("/documents/:id/process", post(process::process_handler))
+        .route("/documents/:id/cancel", post(process::cancel_handler))
         .route("/documents/:id/verify", post(verify_handler))
         .route("/documents/:id/ingest", post(ingest_handler))
         .route("/documents/:id/index", post(index_handler))
