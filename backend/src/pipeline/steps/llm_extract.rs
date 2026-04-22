@@ -53,14 +53,14 @@ pub enum LlmExtractError {
     #[error("No pipeline_config row for document '{document_id}'")]
     NoPipelineConfig { document_id: String },
 
-    #[error("Failed to load schema '{schema_file}'")]
+    #[error("Failed to load schema '{schema_file}': {source}")]
     SchemaLoadFailed {
         schema_file: String,
         #[source]
         source: colossus_extract::PipelineError,
     },
 
-    #[error("Prompt assembly failed")]
+    #[error("Prompt assembly failed: {source}")]
     PromptBuildFailed {
         #[source]
         source: colossus_extract::PipelineError,
@@ -69,7 +69,7 @@ pub enum LlmExtractError {
     #[error("Document '{document_id}' has no extracted text pages")]
     NoTextPages { document_id: String },
 
-    #[error("LLM call failed")]
+    #[error("LLM call failed: {source}")]
     LlmCallFailed {
         #[source]
         source: colossus_extract::PipelineError,
@@ -934,7 +934,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn llm_extract_error_display_g6_compliance() {
+    fn llm_extract_error_display_policy() {
+        // Variants without a source keep G6: Display must not mention
+        // "source" or thiserror's "Caused by" chain decoration.
         let e1 = LlmExtractError::DocumentNotFound {
             document_id: "doc-x".to_string(),
         };
@@ -942,16 +944,24 @@ mod tests {
         assert!(!s1.contains("Caused by"), "G6 violation: {s1}");
         assert!(!s1.contains("source"), "G6 violation: {s1}");
 
+        // G6 exception: SchemaLoadFailed, PromptBuildFailed, and
+        // LlmCallFailed intentionally interpolate `{source}` so the
+        // underlying cause survives the framework's .to_string() into
+        // pipeline_jobs.error / pipeline_steps.error_message. Without
+        // this, the audit log only shows "LLM call failed" with no hint
+        // at the Anthropic 400, timeout, or schema parse error below it.
         let inner = "UNIQUE_INNER_PROVIDER_TOKEN";
         let e2 = LlmExtractError::LlmCallFailed {
             source: colossus_extract::PipelineError::LlmProvider(inner.to_string()),
         };
         let s2 = e2.to_string();
         assert!(
-            !s2.contains(inner),
-            "Display must not interpolate source text (G6); got: {s2}"
+            s2.contains(inner),
+            "LlmCallFailed Display must surface source text; got: {s2}"
         );
-        assert!(!s2.contains("Caused by"), "G6 violation: {s2}");
+        // thiserror's "Caused by" chain only appears in Debug; Display
+        // stays a single line even with `{source}` interpolation.
+        assert!(!s2.contains("Caused by"), "unexpected chain decoration: {s2}");
     }
 
     #[test]
