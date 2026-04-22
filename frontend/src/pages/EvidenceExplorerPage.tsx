@@ -8,14 +8,16 @@ import { COLORS } from "../components/EvidenceChainParts";
 import { CountGroup, CountSection } from "../components/EvidenceExplorerParts";
 import InfoPopup from "../components/InfoPopup";
 
-const OTHER_BUCKET_NAME = "Other Allegations";
+const OTHER_BUCKET_NAME = "Jurisdictional & Procedural";
 
 /**
  * Group allegations by legal count, seeded from the full `legal_count_details`
  * list (so counts with zero SUPPORTS-linked allegations still render a card)
  * and bucketed on stable `legal_count_ids` (LegalCount.id — immune to LLM
  * title drift, unlike the previous title-based map). Allegations without a
- * matching count id fall through to the "Other Allegations" bucket.
+ * matching count id fall through to the "Jurisdictional & Procedural" bucket
+ * — typically early-paragraph jurisdiction / venue / parties recitals that
+ * don't SUPPORTS any specific legal count.
  */
 function groupByCount(
   allegations: AllegationDto[],

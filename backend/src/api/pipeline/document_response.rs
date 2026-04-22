@@ -71,11 +71,22 @@ fn compute_can_view(status: &str, is_admin: bool) -> bool {
 }
 
 /// Map pipeline status to a display group for frontend filtering/sorting.
+///
+/// Only `COMPLETED` and `PUBLISHED` qualify as "completed" — every
+/// earlier status the pipeline writes mid-run (`EXTRACTED`, `VERIFIED`,
+/// `INGESTED`, `INDEXED`) stays in the `"processing"` bucket. The
+/// frontend polls the documents list every 3s while `status_group ==
+/// "processing"` (`DocumentWorkspaceTabs.tsx`), so classifying a
+/// mid-pipeline status as terminal stops the polling interval before
+/// the later steps (Index, Completeness) can be observed. This caused
+/// the "Index never updates" UI bug: Ingest's `status = INGESTED` write
+/// flipped the group to `"completed"` while Index + Completeness were
+/// still queued.
 pub fn compute_status_group(status: &str) -> &'static str {
     match status {
         "NEW" | "UPLOADED" => "new",
-        "PROCESSING" => "processing",
-        "EXTRACTED" | "VERIFIED" | "INGESTED" | "INDEXED" | "COMPLETED" | "PUBLISHED" => "completed",
+        "PROCESSING" | "EXTRACTED" | "VERIFIED" | "INGESTED" | "INDEXED" => "processing",
+        "COMPLETED" | "PUBLISHED" => "completed",
         "FAILED" => "failed",
         "CANCELLED" => "cancelled",
         _ => "unknown",
@@ -106,23 +117,28 @@ mod tests {
     }
 
     #[test]
-    fn test_status_group_extracted() {
-        assert_eq!(compute_status_group("EXTRACTED"), "completed");
+    fn test_status_group_extracted_is_processing() {
+        // Mid-pipeline status: frontend must keep polling through Verify,
+        // AutoApprove, Ingest, Index, Completeness.
+        assert_eq!(compute_status_group("EXTRACTED"), "processing");
     }
 
     #[test]
-    fn test_status_group_verified() {
-        assert_eq!(compute_status_group("VERIFIED"), "completed");
+    fn test_status_group_verified_is_processing() {
+        assert_eq!(compute_status_group("VERIFIED"), "processing");
     }
 
     #[test]
-    fn test_status_group_ingested() {
-        assert_eq!(compute_status_group("INGESTED"), "completed");
+    fn test_status_group_ingested_is_processing() {
+        // Ingest writes INGESTED while Index + Completeness still need to
+        // run. Keep polling until Completeness writes PUBLISHED.
+        assert_eq!(compute_status_group("INGESTED"), "processing");
     }
 
     #[test]
-    fn test_status_group_indexed() {
-        assert_eq!(compute_status_group("INDEXED"), "completed");
+    fn test_status_group_indexed_is_processing() {
+        // Index writes INDEXED while Completeness still needs to run.
+        assert_eq!(compute_status_group("INDEXED"), "processing");
     }
 
     #[test]

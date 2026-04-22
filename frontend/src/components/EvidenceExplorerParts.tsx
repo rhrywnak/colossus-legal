@@ -51,9 +51,14 @@ export const CountSection: React.FC<CountSectionProps> = ({
   group, collapsed, onToggleCollapse, expandedIds, loadingIds, chainCache, onToggleAllegation, strengthMap,
 }) => {
   const numeral = toNumeral(group.countNumber);
-  const title = numeral
-    ? `COUNT ${numeral}: ${group.countName}`
-    : group.countName;
+  // LLM-authored LegalCount.name often already begins with "COUNT I –".
+  // Only prepend the numeral when the label doesn't already carry it,
+  // otherwise the card title reads "COUNT I: COUNT I – BREACH ...".
+  const labelStartsWithCount = /^\s*count\b/i.test(group.countName);
+  const title =
+    numeral && !labelStartsWithCount
+      ? `COUNT ${numeral}: ${group.countName}`
+      : group.countName;
 
   // Compute per-count strength breakdown.
   const strengthCounts = { strong: 0, moderate: 0, weak: 0, gap: 0 };
