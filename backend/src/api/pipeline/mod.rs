@@ -53,7 +53,7 @@ pub use upload::upload_document;
 pub use verify::verify_handler;
 
 use axum::{
-    extract::State,
+    extract::{DefaultBodyLimit, State},
     routing::{delete, get, post, put},
     Json, Router,
 };
@@ -77,7 +77,12 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route(
             "/documents",
-            get(list_documents_handler).post(upload_document),
+            get(list_documents_handler)
+                .post(upload_document)
+                // Scoped to this route so a runaway JSON body on a
+                // different endpoint still hits axum's 2 MB default
+                // ceiling. MAX_FILE_SIZE is the single source of truth.
+                .layer(DefaultBodyLimit::max(MAX_FILE_SIZE)),
         )
         .route("/documents/errors", get(errors::errors_handler))
         .route("/documents/:id", delete(delete_document))
@@ -211,8 +216,22 @@ async fn list_documents_handler(
     }))
 }
 
-/// Maximum upload size: 50 MB.
-pub(crate) const MAX_FILE_SIZE: usize = 50 * 1024 * 1024;
+/// Maximum upload size: 100 MB.
+///
+/// Used in two places that must stay in sync:
+///
+/// 1. As the [`DefaultBodyLimit`] ceiling on the upload routes in
+///    [`router`]. Axum 0.7's built-in default is 2 MB, which silently
+///    rejected legitimate PDF uploads with a misleading
+///    "Error parsing multipart/form-data request" message before the
+///    per-file check below ever ran. We raise the framework limit to
+///    the same threshold the handler enforces explicitly so both
+///    guards trip at the same size.
+/// 2. As the explicit per-file check inside `upload_document` —
+///    surfaces a user-friendly "File too large" error for files at or
+///    just over the ceiling (the framework limit covers pathological
+///    gigabytes-at-a-time cases with a terser axum error).
+pub(crate) const MAX_FILE_SIZE: usize = 100 * 1024 * 1024;
 
 // ── Shared Response DTOs ─────────────────────────────────────────
 
@@ -254,4 +273,19 @@ pub(crate) fn require_field(name: &str, value: Option<String>) -> Result<String,
         message: format!("Missing required field: '{name}'"),
         details: serde_json::json!({}),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn max_file_size_is_100mb() {
+        // Pin the advertised upload ceiling. If this changes, the
+        // DefaultBodyLimit layer on /documents and /admin/upload tracks
+        // it automatically — but the frontend's client-side validation
+        // and any operator documentation may also need updating, so
+        // breaking this test is a deliberate coordination point.
+        assert_eq!(MAX_FILE_SIZE, 100 * 1024 * 1024);
+    }
 }

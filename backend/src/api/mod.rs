@@ -1,5 +1,5 @@
 use axum::{
-    extract::State,
+    extract::{DefaultBodyLimit, State},
     http::StatusCode,
     routing::{get, patch, post, put},
     Json, Router,
@@ -108,7 +108,15 @@ pub fn router() -> Router<AppState> {
             "/admin/qa-entries",
             get(admin_qa::list_all_entries).delete(admin_qa::bulk_delete_entries),
         )
-        .route("/admin/upload", post(admin_upload::upload_file))
+        // Raise axum's 2 MB default body limit so PDF uploads up to
+        // the handler's MAX_FILE_SIZE ceiling reach the handler. Scoped
+        // to this route only — other admin endpoints keep the tighter
+        // default as a safety net against runaway bodies.
+        .route(
+            "/admin/upload",
+            post(admin_upload::upload_file)
+                .layer(DefaultBodyLimit::max(pipeline::MAX_FILE_SIZE)),
+        )
         .route("/admin/audit/health", get(admin_audit_health::audit_health))
         .route("/admin/status", get(admin_status::get_status))
         .route(
