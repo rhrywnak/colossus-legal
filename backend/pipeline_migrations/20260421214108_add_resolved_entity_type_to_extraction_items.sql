@@ -1,0 +1,18 @@
+-- add_resolved_entity_type_to_extraction_items: Add resolved entity type to extraction items
+--
+-- Created: 2026-04-21 21:41:08
+-- Target: pipeline database
+--
+-- R4 from PIPELINE_CODEBASE_AUDIT.md §8. Source-data immutability:
+-- preserve the LLM's original `entity_type` ("Party") and store Ingest's
+-- resolved Neo4j label ("Person" or "Organization") in a separate
+-- nullable column. Callers that need the effective label read
+-- COALESCE(resolved_entity_type, entity_type).
+--
+-- Legacy rows from before this migration keep the old mutated
+-- `entity_type` value ("Person"/"Organization" from `update_item_entity_type`
+-- overwriting in the pre-R4 code path). Those rows will have
+-- resolved_entity_type = NULL and the COALESCE will fall back to
+-- `entity_type`, producing the same effective label as before — no
+-- behavior change for legacy data.
+ALTER TABLE extraction_items ADD COLUMN IF NOT EXISTS resolved_entity_type VARCHAR(100);

@@ -349,7 +349,13 @@ impl Ingest {
         let mut entity_type_counts: HashMap<String, usize> = HashMap::new();
         let mut entity_seq: HashMap<String, usize> = HashMap::new();
 
-        for item in items.iter().filter(|i| i.entity_type != "Party") {
+        // R4: inverse of the create_party_nodes filter — exclude Party
+        // and its post-ingest resolved forms so non-Party entity creation
+        // doesn't double-write what create_party_nodes already handled.
+        for item in items
+            .iter()
+            .filter(|i| !matches!(i.entity_type.as_str(), "Party" | "Person" | "Organization"))
+        {
             let seq = entity_seq.entry(item.entity_type.clone()).or_insert(0);
             *seq += 1;
 

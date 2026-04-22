@@ -528,6 +528,7 @@ mod tests {
             reviewed_at: None,
             review_notes: None,
             neo4j_node_id: None,
+            resolved_entity_type: None,
             graph_status: "pending".to_string(),
         }
     }

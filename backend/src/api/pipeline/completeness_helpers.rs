@@ -227,6 +227,7 @@ mod tests {
             review_notes: None,
             graph_status: "written".to_string(),
             neo4j_node_id: None,
+            resolved_entity_type: None,
         }
     }
 

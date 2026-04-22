@@ -187,7 +187,15 @@ pub async fn create_party_nodes(
     let mut seen: HashSet<String> = HashSet::new();
     let (mut persons, mut orgs) = (0usize, 0usize);
 
-    for item in items.iter().filter(|i| i.entity_type == "Party") {
+    // R4: accept items whose effective entity_type is Party or its
+    // resolved forms. Fresh items carry "Party" (from the LLM); rows
+    // seen after Ingest's `update_item_entity_type` call carry the
+    // COALESCE'd resolved label. Extending the filter keeps the step
+    // idempotent across those states.
+    for item in items
+        .iter()
+        .filter(|i| matches!(i.entity_type.as_str(), "Party" | "Person" | "Organization"))
+    {
         let props = &item.item_data["properties"];
         // Support both property naming conventions across schemas
         let name = props["party_name"]
@@ -574,6 +582,7 @@ mod tests {
             review_notes: None,
             graph_status: "written".to_string(),
             neo4j_node_id: None,
+            resolved_entity_type: None,
         }
     }
 

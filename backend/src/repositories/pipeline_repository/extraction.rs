@@ -26,7 +26,29 @@ pub struct ExtractionItemRecord {
     /// `None` for legacy rows from before the R1 migration — completeness
     /// falls back to recomputing the id from item_data in that case.
     pub neo4j_node_id: Option<String>,
+    /// Ingest-determined Neo4j label (e.g. `"Person"` / `"Organization"`
+    /// for Party items). `None` before Ingest runs or for legacy rows
+    /// from before the R4 migration. `entity_type` on this struct is
+    /// populated from `COALESCE(resolved_entity_type, entity_type)` at
+    /// SELECT time, so callers who want the *effective* label read
+    /// `entity_type`; only callers that specifically want the resolved-
+    /// only value read this column.
+    pub resolved_entity_type: Option<String>,
 }
+
+/// Shared SELECT column list for every `query_as::<_, ExtractionItemRecord>`
+/// call site. The `entity_type` column is projected through
+/// `COALESCE(resolved_entity_type, entity_type)` so the struct field
+/// always carries the effective label — preserving the external API
+/// shape while the underlying column stays immutable (R4). The raw
+/// `resolved_entity_type` column is also returned for callers that
+/// need the resolved-only value.
+const ITEM_SELECT_COLUMNS: &str =
+    "id, run_id, document_id, \
+     COALESCE(resolved_entity_type, entity_type) AS entity_type, \
+     item_data, verbatim_quote, grounding_status, grounded_page, \
+     review_status, reviewed_by, reviewed_at, review_notes, \
+     graph_status, neo4j_node_id, resolved_entity_type";
 
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct ExtractionRelationshipRecord {
@@ -209,14 +231,15 @@ pub async fn get_items_with_quotes(
     pool: &PgPool,
     document_id: &str,
 ) -> Result<Vec<ExtractionItemRecord>, PipelineRepoError> {
-    let rows = sqlx::query_as::<_, ExtractionItemRecord>(
-        "SELECT * FROM extraction_items
-         WHERE document_id = $1 AND verbatim_quote IS NOT NULL AND verbatim_quote != ''
-         ORDER BY id",
-    )
-    .bind(document_id)
-    .fetch_all(pool)
-    .await?;
+    let sql = format!(
+        "SELECT {ITEM_SELECT_COLUMNS} FROM extraction_items \
+         WHERE document_id = $1 AND verbatim_quote IS NOT NULL AND verbatim_quote != '' \
+         ORDER BY id"
+    );
+    let rows = sqlx::query_as::<_, ExtractionItemRecord>(&sql)
+        .bind(document_id)
+        .fetch_all(pool)
+        .await?;
     Ok(rows)
 }
 
@@ -272,16 +295,22 @@ pub async fn batch_update_neo4j_node_ids(
     Ok(())
 }
 
-/// Update the entity_type for an extraction item.
+/// Record the Neo4j label Ingest wrote for an extraction item.
 ///
-/// Used after ingest when the Neo4j label written differs from the
-/// original pipeline entity_type (e.g., Party → Person or Organization).
+/// R4 (PIPELINE_CODEBASE_AUDIT.md §8): writes to `resolved_entity_type`,
+/// leaving the LLM's original `entity_type` immutable. Readers that want
+/// the effective label see it through `ExtractionItemRecord.entity_type`,
+/// which every SELECT projects via `COALESCE(resolved_entity_type, entity_type)`.
+///
+/// The function name is retained from the pre-R4 code so existing call
+/// sites in `pipeline/steps/ingest.rs` and `api/pipeline/ingest.rs`
+/// don't need to change. Only the SQL body moves to the new column.
 pub async fn update_item_entity_type(
     pool: &PgPool,
     item_id: i32,
     new_entity_type: &str,
 ) -> Result<(), PipelineRepoError> {
-    sqlx::query("UPDATE extraction_items SET entity_type = $1 WHERE id = $2")
+    sqlx::query("UPDATE extraction_items SET resolved_entity_type = $1 WHERE id = $2")
         .bind(new_entity_type)
         .bind(item_id)
         .execute(pool)
@@ -294,12 +323,14 @@ pub async fn get_all_items(
     pool: &PgPool,
     document_id: &str,
 ) -> Result<Vec<ExtractionItemRecord>, PipelineRepoError> {
-    let rows = sqlx::query_as::<_, ExtractionItemRecord>(
-        "SELECT * FROM extraction_items WHERE document_id = $1 ORDER BY entity_type, id",
-    )
-    .bind(document_id)
-    .fetch_all(pool)
-    .await?;
+    let sql = format!(
+        "SELECT {ITEM_SELECT_COLUMNS} FROM extraction_items \
+         WHERE document_id = $1 ORDER BY entity_type, id"
+    );
+    let rows = sqlx::query_as::<_, ExtractionItemRecord>(&sql)
+        .bind(document_id)
+        .fetch_all(pool)
+        .await?;
     Ok(rows)
 }
 
@@ -328,15 +359,16 @@ pub async fn get_approved_items_for_document(
     document_id: &str,
     run_id: i32,
 ) -> Result<Vec<ExtractionItemRecord>, PipelineRepoError> {
-    let rows = sqlx::query_as::<_, ExtractionItemRecord>(
-        "SELECT * FROM extraction_items
-         WHERE run_id = $1 AND document_id = $2 AND review_status = 'approved'
-         ORDER BY id",
-    )
-    .bind(run_id)
-    .bind(document_id)
-    .fetch_all(pool)
-    .await?;
+    let sql = format!(
+        "SELECT {ITEM_SELECT_COLUMNS} FROM extraction_items \
+         WHERE run_id = $1 AND document_id = $2 AND review_status = 'approved' \
+         ORDER BY id"
+    );
+    let rows = sqlx::query_as::<_, ExtractionItemRecord>(&sql)
+        .bind(run_id)
+        .bind(document_id)
+        .fetch_all(pool)
+        .await?;
     Ok(rows)
 }
 
@@ -391,12 +423,13 @@ pub async fn get_items_for_run(
     pool: &PgPool,
     run_id: i32,
 ) -> Result<Vec<ExtractionItemRecord>, PipelineRepoError> {
-    let rows = sqlx::query_as::<_, ExtractionItemRecord>(
-        "SELECT * FROM extraction_items WHERE run_id = $1 ORDER BY id",
-    )
-    .bind(run_id)
-    .fetch_all(pool)
-    .await?;
+    let sql = format!(
+        "SELECT {ITEM_SELECT_COLUMNS} FROM extraction_items WHERE run_id = $1 ORDER BY id"
+    );
+    let rows = sqlx::query_as::<_, ExtractionItemRecord>(&sql)
+        .bind(run_id)
+        .fetch_all(pool)
+        .await?;
     Ok(rows)
 }
 
