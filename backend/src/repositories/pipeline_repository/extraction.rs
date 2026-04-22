@@ -466,6 +466,39 @@ pub async fn get_approved_items_for_document(
     Ok(rows)
 }
 
+/// Get approved extraction relationships for a document across every
+/// COMPLETED extraction run (pass 1 + pass 2).
+///
+/// Ingest needs relationships from BOTH passes: pass-1 relationships
+/// live under pass-1's `run_id`, pass-2 relationships under pass-2's.
+/// Filtering by a single `run_id` loses half the graph once pass 2 is
+/// enabled. Endpoints must still resolve to an approved item via the
+/// inner joins — pass-2 relationships reference pass-1 items, and
+/// those items carry the review_status the caller wants to respect.
+///
+/// The join against `extraction_runs` scopes to COMPLETED runs so a
+/// partial / failed retry's orphan relationships never leak into Neo4j.
+pub async fn get_approved_relationships_for_document_all_passes(
+    pool: &PgPool,
+    document_id: &str,
+) -> Result<Vec<ExtractionRelationshipRecord>, PipelineRepoError> {
+    let rows = sqlx::query_as::<_, ExtractionRelationshipRecord>(
+        "SELECT r.* FROM extraction_relationships r
+         JOIN extraction_runs rn ON rn.id = r.run_id
+         JOIN extraction_items fi ON fi.id = r.from_item_id
+         JOIN extraction_items ti ON ti.id = r.to_item_id
+         WHERE r.document_id = $1
+           AND rn.status = 'COMPLETED'
+           AND fi.review_status = 'approved'
+           AND ti.review_status = 'approved'
+         ORDER BY r.id",
+    )
+    .bind(document_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
 /// Get approved extraction relationships for a document's latest completed run.
 ///
 /// Only returns relationships where both endpoints (from_item_id, to_item_id)
@@ -490,17 +523,26 @@ pub async fn get_approved_relationships_for_document(
     Ok(rows)
 }
 
-/// Get the latest COMPLETED extraction run ID for a document.
+/// Get the latest COMPLETED **pass-1** extraction run ID for a document.
 ///
-/// Returns `None` if no completed run exists. Used by the ingest handler
-/// to find which run's items to write into Neo4j.
+/// Returns `None` if no completed pass-1 run exists.
+///
+/// Pass-2 runs are intentionally excluded: every downstream caller
+/// (ingest, completeness, items listing) uses this id to filter
+/// `extraction_items`, and pass 2 writes no items (only relationships,
+/// referencing pass-1 items by DB id). Before pass 2 existed, there was
+/// at most one COMPLETED run per doc so the pass_number filter was
+/// redundant. After Task 3 wired pass 2 into the FSM, leaving the
+/// filter off caused ingest to pick up the pass-2 `run_id`, return
+/// zero items for that run, and then fail when pass-2 relationships
+/// referenced pass-1 items that had never been written to Neo4j.
 pub async fn get_latest_completed_run(
     pool: &PgPool,
     document_id: &str,
 ) -> Result<Option<i32>, PipelineRepoError> {
     let row = sqlx::query_scalar::<_, i32>(
         "SELECT id FROM extraction_runs
-         WHERE document_id = $1 AND status = 'COMPLETED'
+         WHERE document_id = $1 AND pass_number = 1 AND status = 'COMPLETED'
          ORDER BY id DESC LIMIT 1",
     )
     .bind(document_id)
@@ -1045,6 +1087,15 @@ mod tests {
     fn pass2_helper_signatures_are_stable() {
         let _l = load_pass1_entities;
         let _s = store_pass2_relationships;
+    }
+
+    /// Compile-only: pin the all-passes relationships signature. Ingest
+    /// depends on `doc_id` keying (not `run_id`) to unify pass-1 and
+    /// pass-2 relationships — a silent refactor back to run_id filtering
+    /// would reintroduce the "No Neo4j ID for from_item_id N" bug.
+    #[test]
+    fn all_passes_relationships_signature_is_stable() {
+        let _f = get_approved_relationships_for_document_all_passes;
     }
 
     fn item_record_with(

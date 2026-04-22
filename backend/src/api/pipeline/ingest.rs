@@ -120,12 +120,17 @@ pub(crate) async fn run_ingest(
                 message: format!("DB error: {e}"),
             })?;
 
-    let relationships =
-        pipeline_repository::get_approved_relationships_for_document(&state.pipeline_pool, run_id)
-            .await
-            .map_err(|e| AppError::Internal {
-                message: format!("DB error: {e}"),
-            })?;
+    // Union pass-1 and pass-2 relationships. run_id here targets pass 1
+    // (items live there); filtering by it would drop every pass-2
+    // relationship for a 2-pass profile.
+    let relationships = pipeline_repository::get_approved_relationships_for_document_all_passes(
+        &state.pipeline_pool,
+        doc_id,
+    )
+    .await
+    .map_err(|e| AppError::Internal {
+        message: format!("DB error: {e}"),
+    })?;
 
     tracing::info!(
         doc_id = %doc_id, run_id, items = items.len(),

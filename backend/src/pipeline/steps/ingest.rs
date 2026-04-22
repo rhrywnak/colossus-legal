@@ -235,12 +235,17 @@ impl Ingest {
                 message: format!("get_approved_items: {source}"),
             })?;
 
+        // Union pass-1 and pass-2 relationships. The run_id above is
+        // scoped to pass 1 (that's where items live), so filtering
+        // relationships by it would drop every pass-2 relationship on
+        // the floor — breaking Ingest the first time a 2-pass profile
+        // reaches this step.
         let relationships =
-            pipeline_repository::get_approved_relationships_for_document(db, run_id)
+            pipeline_repository::get_approved_relationships_for_document_all_passes(db, doc_id)
                 .await
                 .map_err(|source| IngestError::Helper {
                     doc_id: doc_id.to_string(),
-                    message: format!("get_approved_relationships: {source}"),
+                    message: format!("get_approved_relationships_all_passes: {source}"),
                 })?;
 
         tracing::info!(
