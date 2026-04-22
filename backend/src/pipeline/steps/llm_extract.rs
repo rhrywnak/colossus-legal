@@ -36,7 +36,7 @@ use crate::repositories::pipeline_repository::{self, documents, extraction, mode
 const DEFAULT_CHUNK_MAX_TOKENS: u32 = 8000;
 
 /// Chunking-mode string recognised for single-call (no chunking) extraction.
-const CHUNKING_MODE_FULL: &str = "full";
+pub(crate) const CHUNKING_MODE_FULL: &str = "full";
 
 // ── Error type ──────────────────────────────────────────────────
 
@@ -102,6 +102,18 @@ pub enum LlmExtractError {
 
     #[error("Failed to construct LLM provider: {message}")]
     ProviderConstructionFailed { message: String },
+
+    #[error("Profile '{profile_name}' has no pass2_template_file")]
+    NoPass2Template { profile_name: String },
+
+    #[error(
+        "Pass 2 requires chunking_mode = 'full' (got '{mode}'). Relationship \
+         extraction needs whole-document context."
+    )]
+    InvalidPass2ChunkingMode { mode: String },
+
+    #[error("No COMPLETED pass-1 extraction_run found for document '{document_id}'")]
+    NoCompletedPass1 { document_id: String },
 }
 
 // ── Step struct ─────────────────────────────────────────────────
@@ -880,7 +892,7 @@ async fn extraction_already_complete(
 /// Legacy rows in `pipeline_config` may not have a `profile_name` set yet.
 /// `complaint_v2.yaml` → `complaint`. This keeps migration-era documents
 /// processable without forcing a backfill.
-fn default_profile_name_from_schema(schema_file: &str) -> String {
+pub(crate) fn default_profile_name_from_schema(schema_file: &str) -> String {
     schema_file
         .trim_end_matches(".yaml")
         .trim_end_matches("_v2")
@@ -892,7 +904,7 @@ fn default_profile_name_from_schema(schema_file: &str) -> String {
 /// Priority: `ResolvedConfig.max_tokens` (from profile) → `LLM_MAX_TOKENS`
 /// env var → [`DEFAULT_CHUNK_MAX_TOKENS`]. Values ≤ 0 in the profile are
 /// treated as unset.
-fn resolve_max_tokens(resolved: &ResolvedConfig) -> u32 {
+pub(crate) fn resolve_max_tokens(resolved: &ResolvedConfig) -> u32 {
     if resolved.max_tokens > 0 {
         return resolved.max_tokens as u32;
     }
@@ -906,7 +918,7 @@ fn resolve_max_tokens(resolved: &ResolvedConfig) -> u32 {
 ///
 /// Returns `None` if either rate is missing on the model record — the
 /// downstream UI treats `None` as "unknown cost" rather than zero.
-fn compute_cost(
+pub(crate) fn compute_cost(
     model: &crate::repositories::pipeline_repository::LlmModelRecord,
     input_tokens: i64,
     output_tokens: i64,
@@ -928,7 +940,7 @@ fn compute_cost(
 ///
 /// Best-effort: a snapshot-write failure is logged but does not fail
 /// extraction — the merged entities have already been committed.
-async fn write_processing_config_snapshot(
+pub(crate) async fn write_processing_config_snapshot(
     db: &PgPool,
     run_id: i32,
     resolved: &ResolvedConfig,
@@ -969,7 +981,7 @@ async fn write_processing_config_snapshot(
 ///
 /// Used to fingerprint the loaded prompt template so the audit snapshot
 /// can prove *exactly* which template version produced a given run.
-fn sha2_hex(input: &str) -> String {
+pub(crate) fn sha2_hex(input: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(input.as_bytes());
     format!("{:x}", hasher.finalize())
@@ -1101,6 +1113,7 @@ mod tests {
             model: "m".into(),
             template_file: "t".into(),
             template_hash: None,
+            pass2_template_file: None,
             system_prompt_file: None,
             system_prompt_hash: None,
             schema_file: "s".into(),

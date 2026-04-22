@@ -37,6 +37,17 @@ pub struct ProcessingProfile {
     pub template_file: String,
     #[serde(default)]
     pub system_prompt_file: Option<String>,
+    /// Pass-2 relationship-extraction prompt template.
+    ///
+    /// When present, the manually-invoked pass 2 path reads
+    /// `{template_dir}/{pass2_template_file}` and substitutes the
+    /// pass-1 entity list into `{{entities_json}}`. Absent for profiles
+    /// that only run the single-pass extraction. Task 3 will use the
+    /// `run_pass2` flag to decide when to invoke pass 2 automatically;
+    /// for now this field is only consulted when the pass-2 entry
+    /// point is triggered directly.
+    #[serde(default)]
+    pub pass2_template_file: Option<String>,
 
     // Model — must match an id in the llm_models table
     pub extraction_model: String,
@@ -137,6 +148,12 @@ pub struct ResolvedConfig {
     pub model: String,
     pub template_file: String,
     pub template_hash: Option<String>,
+    /// Pass-2 relationship-extraction prompt template filename, if the
+    /// profile declares one. Resolved from
+    /// `ProcessingProfile.pass2_template_file` — per-document overrides
+    /// are not plumbed for this field (it's a profile-level authoring
+    /// concern, not an operator knob).
+    pub pass2_template_file: Option<String>,
     pub system_prompt_file: Option<String>,
     /// SHA-256 of the loaded system prompt file. `None` when
     /// `system_prompt_file` is absent. Populated at runtime after the file
@@ -269,6 +286,7 @@ pub fn resolve_config(
         model,
         template_file,
         template_hash: None, // Set at runtime after loading the file
+        pass2_template_file: profile.pass2_template_file.clone(),
         system_prompt_file,
         system_prompt_hash: None, // Set at runtime after loading the file
         schema_file: profile.schema_file.clone(),
@@ -369,6 +387,7 @@ extraction_model: claude-sonnet-4-6
             temperature: 0.0,
             auto_approve_grounded: true,
             run_pass2: false,
+            pass2_template_file: None,
             is_default: false,
         };
         let overrides = PipelineConfigOverrides::default();
@@ -403,6 +422,7 @@ extraction_model: claude-sonnet-4-6
             temperature: 0.0,
             auto_approve_grounded: true,
             run_pass2: false,
+            pass2_template_file: None,
             is_default: false,
         };
         let overrides = PipelineConfigOverrides::default();
@@ -433,6 +453,58 @@ extraction_model: claude-sonnet-4-6
     }
 
     #[test]
+    fn resolve_surfaces_pass2_template_file_from_profile() {
+        // The resolver must pass pass2_template_file through so the manually-
+        // invoked pass-2 path can locate the relationship-extraction prompt.
+        // No per-document override is plumbed — it's a profile-level concern.
+        let profile = ProcessingProfile {
+            name: "complaint".into(),
+            display_name: "Complaint".into(),
+            description: String::new(),
+            schema_file: "complaint_v2.yaml".into(),
+            template_file: "pass1_complaint.md".into(),
+            system_prompt_file: None,
+            pass2_template_file: Some("pass2_complaint.md".into()),
+            extraction_model: "claude-sonnet-4-6".into(),
+            synthesis_model: None,
+            chunking_mode: "full".into(),
+            chunk_size: None,
+            chunk_overlap: None,
+            max_tokens: 32000,
+            temperature: 0.0,
+            auto_approve_grounded: true,
+            run_pass2: true,
+            is_default: false,
+        };
+        let overrides = PipelineConfigOverrides::default();
+        let resolved = resolve_config(&profile, &overrides);
+        assert_eq!(
+            resolved.pass2_template_file.as_deref(),
+            Some("pass2_complaint.md"),
+            "resolver must surface profile.pass2_template_file"
+        );
+    }
+
+    #[test]
+    fn pass2_template_file_is_none_when_profile_omits_it() {
+        // Profiles that predate pass 2 support must still load — the YAML
+        // field is optional and defaults to None without an explicit value.
+        let yaml = r#"
+name: legacy
+display_name: Legacy
+schema_file: s.yaml
+template_file: t.md
+extraction_model: claude-sonnet-4-6
+"#;
+        let f = write_temp_profile(yaml);
+        let profile = ProcessingProfile::from_file(f.path()).unwrap();
+        assert!(profile.pass2_template_file.is_none());
+
+        let resolved = resolve_config(&profile, &PipelineConfigOverrides::default());
+        assert!(resolved.pass2_template_file.is_none());
+    }
+
+    #[test]
     fn resolve_with_overrides() {
         let profile = ProcessingProfile {
             name: "complaint".into(),
@@ -450,6 +522,7 @@ extraction_model: claude-sonnet-4-6
             temperature: 0.0,
             auto_approve_grounded: true,
             run_pass2: false,
+            pass2_template_file: None,
             is_default: false,
         };
         let overrides = PipelineConfigOverrides {
@@ -477,6 +550,7 @@ extraction_model: claude-sonnet-4-6
             model: "claude-sonnet-4-6".into(),
             template_file: "pass1_complaint.md".into(),
             template_hash: Some("abc123".into()),
+            pass2_template_file: None,
             system_prompt_file: None,
             system_prompt_hash: None,
             schema_file: "complaint_v2.yaml".into(),

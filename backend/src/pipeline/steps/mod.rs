@@ -12,4 +12,5 @@ pub mod index;
 pub mod ingest;
 pub mod llm_extract;
 pub mod llm_extract_helpers;
+pub mod llm_extract_pass2;
 pub mod verify;
