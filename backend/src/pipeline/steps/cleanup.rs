@@ -86,11 +86,18 @@ pub enum CleanupError {
 // ─────────────────────────────────────────────────────────────────────────
 
 /// Counts of Neo4j nodes removed, split by which `source_document*`
-/// property matched.
+/// property matched, plus a count of shared nodes whose
+/// `source_documents` array had the doc_id stripped without being
+/// deleted (R7).
 #[derive(Debug, Default, Clone, Serialize)]
 pub struct Neo4jCleanupReport {
     pub nodes_by_source_document: i64,
     pub nodes_by_source_document_id: i64,
+    /// Number of nodes NOT owned by `doc_id` (scalar `source_document`
+    /// points elsewhere) that had `doc_id` removed from their
+    /// `source_documents` array. Only Party nodes (Person/Organization)
+    /// carry this array today — see `ingest_helpers::create_party_nodes`.
+    pub shared_nodes_updated: i64,
 }
 
 /// Count of Qdrant vectors removed from the evidence collection.
@@ -123,6 +130,12 @@ pub struct CleanupReport {
 /// property matches the given document id. Runs two DETACH DELETE queries
 /// and reports per-property counts.
 ///
+/// After the deletes, sweeps `source_documents` arrays on shared Party
+/// nodes that were NOT deleted (because another document owns the scalar
+/// `source_document`) and removes `doc_id` from those arrays (R7 /
+/// PIPELINE_CODEBASE_AUDIT.md §4.4). This keeps stale doc ids from
+/// lingering after re-process / delete.
+///
 /// Idempotent: re-running on a doc_id with no matching nodes returns a
 /// zero-valued report.
 pub async fn cleanup_neo4j(
@@ -133,10 +146,53 @@ pub async fn cleanup_neo4j(
         delete_nodes_by_property(graph, document_id, NEO4J_SOURCE_DOCUMENT_PROP).await?;
     let by_source_document_id =
         delete_nodes_by_property(graph, document_id, NEO4J_SOURCE_DOCUMENT_ID_PROP).await?;
+    // Must run *after* the DETACH DELETEs above — the sweep relies on
+    // nodes owned by `document_id` (scalar match) being gone so it only
+    // touches surviving shared nodes. Reordering would require re-adding
+    // an `AND n.source_document <> $doc_id` guard to the Cypher below.
+    let shared_nodes_updated =
+        strip_source_document_from_arrays(graph, document_id).await?;
     Ok(Neo4jCleanupReport {
         nodes_by_source_document: by_source_document,
         nodes_by_source_document_id: by_source_document_id,
+        shared_nodes_updated,
     })
+}
+
+/// Strip `document_id` from every `source_documents` array in the graph.
+///
+/// Runs after the `cleanup_neo4j` DETACH DELETE passes, so the only
+/// nodes that still match are shared Party nodes whose scalar
+/// `source_document` points to a different doc — their
+/// `source_documents` array carries the re-processed doc id as a stale
+/// reference. The list comprehension removes every occurrence of
+/// `$doc_id`; the array is left as `[]` if that was the last entry.
+async fn strip_source_document_from_arrays(
+    graph: &Graph,
+    document_id: &str,
+) -> Result<i64, CleanupError> {
+    let cypher = "MATCH (n) \
+                  WHERE $doc_id IN n.source_documents \
+                  SET n.source_documents = [x IN n.source_documents WHERE x <> $doc_id] \
+                  RETURN count(n) AS updated";
+    let mut result = graph
+        .execute(neo4rs::query(cypher).param("doc_id", document_id))
+        .await
+        .map_err(|source| CleanupError::Neo4j {
+            doc_id: document_id.to_string(),
+            source,
+        })?;
+    let updated = match result.next().await {
+        Ok(Some(row)) => row.get::<i64>("updated").unwrap_or(0),
+        Ok(None) => 0,
+        Err(source) => {
+            return Err(CleanupError::Neo4j {
+                doc_id: document_id.to_string(),
+                source,
+            })
+        }
+    };
+    Ok(updated)
 }
 
 /// Execute a single property-scoped DETACH DELETE and return the reported
@@ -350,6 +406,7 @@ mod tests {
         let r = CleanupReport::default();
         assert_eq!(r.neo4j.nodes_by_source_document, 0);
         assert_eq!(r.neo4j.nodes_by_source_document_id, 0);
+        assert_eq!(r.neo4j.shared_nodes_updated, 0);
         assert_eq!(r.qdrant.vectors_deleted, 0);
         assert!(r.postgres.tables_cleared.is_empty());
     }
@@ -405,6 +462,7 @@ mod tests {
             neo4j: Neo4jCleanupReport {
                 nodes_by_source_document: 5,
                 nodes_by_source_document_id: 1,
+                shared_nodes_updated: 3,
             },
             qdrant: QdrantCleanupReport {
                 vectors_deleted: 12,
@@ -420,6 +478,7 @@ mod tests {
         assert!(obj.contains_key("postgres"), "missing postgres key: {json}");
         assert_eq!(json["neo4j"]["nodes_by_source_document"], 5);
         assert_eq!(json["neo4j"]["nodes_by_source_document_id"], 1);
+        assert_eq!(json["neo4j"]["shared_nodes_updated"], 3);
         assert_eq!(json["qdrant"]["vectors_deleted"], 12);
         assert_eq!(json["postgres"]["tables_cleared"][0][0], "extraction_items");
         assert_eq!(json["postgres"]["tables_cleared"][0][1], 7);
