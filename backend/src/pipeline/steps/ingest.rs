@@ -132,7 +132,7 @@ impl Step<DocProcessing> for Ingest {
         db: &PgPool,
         context: &AppContext,
         cancel: &CancellationToken,
-        _progress: &ProgressReporter,
+        progress: &ProgressReporter,
     ) -> Result<StepResult<DocProcessing>, Box<dyn Error + Send + Sync>> {
         let start = Instant::now();
         let doc_id = self.document_id.clone();
@@ -165,6 +165,11 @@ impl Step<DocProcessing> for Ingest {
             total_rels = stats.total_rels,
             "Ingest step complete"
         );
+
+        progress.set_step_result(serde_json::json!({
+            "entities_written": stats.total_nodes,
+            "relationships_written": stats.total_rels,
+        }));
 
         Ok(StepResult::Next(DocProcessing::Index(Index {
             document_id: self.document_id,

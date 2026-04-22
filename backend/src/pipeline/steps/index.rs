@@ -122,7 +122,7 @@ impl Step<DocProcessing> for Index {
         db: &PgPool,
         context: &AppContext,
         cancel: &CancellationToken,
-        _progress: &ProgressReporter,
+        progress: &ProgressReporter,
     ) -> Result<StepResult<DocProcessing>, Box<dyn Error + Send + Sync>> {
         let start = Instant::now();
         let doc_id = self.document_id.clone();
@@ -144,6 +144,10 @@ impl Step<DocProcessing> for Index {
             embedded_count = stats.embedded_count,
             "Index step complete"
         );
+
+        progress.set_step_result(serde_json::json!({
+            "points_indexed": stats.embedded_count,
+        }));
 
         Ok(StepResult::Next(DocProcessing::Completeness(
             Completeness {

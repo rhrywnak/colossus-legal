@@ -405,6 +405,19 @@ impl LlmExtract {
             "Extraction complete"
         );
 
+        progress.set_step_result(serde_json::json!({
+            "entity_count": entity_count,
+            "relationship_count": rel_count,
+            "input_tokens": outcome.total_input_tokens,
+            "output_tokens": outcome.total_output_tokens,
+            "chunk_count": outcome.chunk_count,
+            "chunks_succeeded": outcome.chunks_succeeded,
+            "chunks_failed": outcome.chunks_failed,
+            "profile": resolved.profile_name,
+            "model": resolved.model,
+            "chunking_mode": resolved.chunking_mode,
+        }));
+
         Ok(StepResult::Next(DocProcessing::Verify(Verify {
             document_id: self.document_id.clone(),
         })))

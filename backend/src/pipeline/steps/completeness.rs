@@ -138,7 +138,7 @@ impl Step<DocProcessing> for Completeness {
         db: &PgPool,
         context: &AppContext,
         cancel: &CancellationToken,
-        _progress: &ProgressReporter,
+        progress: &ProgressReporter,
     ) -> Result<StepResult<DocProcessing>, Box<dyn Error + Send + Sync>> {
         let start = Instant::now();
         let doc_id = self.document_id.clone();
@@ -159,6 +159,13 @@ impl Step<DocProcessing> for Completeness {
             points_missing = stats.points_missing,
             "Completeness step complete — document PUBLISHED"
         );
+
+        progress.set_step_result(serde_json::json!({
+            "total_items": stats.total_items,
+            "nodes_verified": stats.nodes_verified,
+            "points_verified": stats.points_verified,
+            "points_missing": stats.points_missing,
+        }));
 
         Ok(StepResult::Done)
     }

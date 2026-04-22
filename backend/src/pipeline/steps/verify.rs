@@ -91,7 +91,7 @@ impl Step<DocProcessing> for Verify {
         db: &PgPool,
         context: &AppContext,
         cancel: &CancellationToken,
-        _progress: &ProgressReporter,
+        progress: &ProgressReporter,
     ) -> Result<StepResult<DocProcessing>, Box<dyn Error + Send + Sync>> {
         let start = Instant::now();
 
@@ -133,6 +133,19 @@ impl Step<DocProcessing> for Verify {
             grounding_pct = result.grounding_pct,
             "Verify step complete"
         );
+
+        progress.set_step_result(serde_json::json!({
+            "grounded": result.exact + result.normalized,
+            "ungrounded": result.not_found + result.missing_quote,
+            "total": result.total_items,
+            "exact": result.exact,
+            "normalized": result.normalized,
+            "not_found": result.not_found,
+            "derived": result.derived,
+            "unverified": result.unverified,
+            "missing_quote": result.missing_quote,
+            "grounding_pct": result.grounding_pct,
+        }));
 
         Ok(StepResult::Next(DocProcessing::AutoApprove(AutoApprove {
             document_id: self.document_id,

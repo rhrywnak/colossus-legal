@@ -78,7 +78,7 @@ impl Step<DocProcessing> for AutoApprove {
         db: &PgPool,
         _context: &AppContext,
         cancel: &CancellationToken,
-        _progress: &ProgressReporter,
+        progress: &ProgressReporter,
     ) -> Result<StepResult<DocProcessing>, Box<dyn Error + Send + Sync>> {
         let start = Instant::now();
         let doc_id = self.document_id.clone();
@@ -155,6 +155,11 @@ impl Step<DocProcessing> for AutoApprove {
             approved_count,
             "AutoApprove step complete"
         );
+
+        progress.set_step_result(serde_json::json!({
+            "approved": approved_count,
+            "pending_review": remaining_pending,
+        }));
 
         Ok(StepResult::Next(DocProcessing::Ingest(Ingest {
             document_id: self.document_id,

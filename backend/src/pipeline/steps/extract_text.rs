@@ -511,6 +511,15 @@ impl ExtractText {
             "ExtractText complete"
         );
 
+        progress.set_step_result(serde_json::json!({
+            "page_count": page_count,
+            "total_chars": total_chars,
+            "pages_native": pages_native,
+            "pages_ocr": pages_ocr,
+            "detected_type": detected_type,
+            "ocr_engine": cfg.ocr_engine,
+        }));
+
         // [9] Advance to LlmExtract.
         Ok(StepResult::Next(DocProcessing::LlmExtract(LlmExtract {
             document_id: self.document_id.clone(),
