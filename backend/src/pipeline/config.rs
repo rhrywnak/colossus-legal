@@ -138,6 +138,11 @@ pub struct ResolvedConfig {
     pub template_file: String,
     pub template_hash: Option<String>,
     pub system_prompt_file: Option<String>,
+    /// SHA-256 of the loaded system prompt file. `None` when
+    /// `system_prompt_file` is absent. Populated at runtime after the file
+    /// is loaded so the audit snapshot can prove exactly which system
+    /// prompt was sent to the provider.
+    pub system_prompt_hash: Option<String>,
     pub schema_file: String,
     pub chunking_mode: String,
     pub chunk_size: Option<i32>,
@@ -265,6 +270,7 @@ pub fn resolve_config(
         template_file,
         template_hash: None, // Set at runtime after loading the file
         system_prompt_file,
+        system_prompt_hash: None, // Set at runtime after loading the file
         schema_file: profile.schema_file.clone(),
         chunking_mode,
         chunk_size,
@@ -377,6 +383,56 @@ extraction_model: claude-sonnet-4-6
     }
 
     #[test]
+    fn resolve_surfaces_system_prompt_file_from_profile() {
+        // Guard against regression of the silent-ignore bug fixed alongside
+        // this test: the resolver must pass system_prompt_file through so the
+        // step can load it and route through invoke_with_system.
+        let profile = ProcessingProfile {
+            name: "complaint".into(),
+            display_name: "Complaint".into(),
+            description: String::new(),
+            schema_file: "complaint_v2.yaml".into(),
+            template_file: "pass1_complaint.md".into(),
+            system_prompt_file: Some("legal_extraction_system.md".into()),
+            extraction_model: "claude-sonnet-4-6".into(),
+            synthesis_model: None,
+            chunking_mode: "full".into(),
+            chunk_size: None,
+            chunk_overlap: None,
+            max_tokens: 32000,
+            temperature: 0.0,
+            auto_approve_grounded: true,
+            run_pass2: false,
+            is_default: false,
+        };
+        let overrides = PipelineConfigOverrides::default();
+        let resolved = resolve_config(&profile, &overrides);
+        assert_eq!(
+            resolved.system_prompt_file.as_deref(),
+            Some("legal_extraction_system.md"),
+            "resolver must surface profile.system_prompt_file when no override"
+        );
+        assert!(
+            resolved.system_prompt_hash.is_none(),
+            "hash is set by the step after loading, not by the resolver"
+        );
+
+        // Per-doc override wins.
+        let overrides = PipelineConfigOverrides {
+            system_prompt_file: Some("custom_system.md".into()),
+            ..Default::default()
+        };
+        let resolved = resolve_config(&profile, &overrides);
+        assert_eq!(
+            resolved.system_prompt_file.as_deref(),
+            Some("custom_system.md")
+        );
+        assert!(resolved
+            .overrides_applied
+            .contains(&"system_prompt_file".to_string()));
+    }
+
+    #[test]
     fn resolve_with_overrides() {
         let profile = ProcessingProfile {
             name: "complaint".into(),
@@ -422,6 +478,7 @@ extraction_model: claude-sonnet-4-6
             template_file: "pass1_complaint.md".into(),
             template_hash: Some("abc123".into()),
             system_prompt_file: None,
+            system_prompt_hash: None,
             schema_file: "complaint_v2.yaml".into(),
             chunking_mode: "full".into(),
             chunk_size: None,

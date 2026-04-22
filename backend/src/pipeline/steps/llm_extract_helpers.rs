@@ -26,8 +26,20 @@ pub(crate) const MAX_RETRIES_PER_CHUNK: u32 = 3;
 ///
 /// The `chunk_idx` / `chunk_total` pair is used only for logging and
 /// progress payloads. For full-document calls, pass `(0, 1)`.
+///
+/// When `system` is `Some`, the call routes through
+/// [`LlmProvider::invoke_with_system`] so providers with a native
+/// system-prompt field (Anthropic Messages API) populate it instead of
+/// concatenating system+user into a single prompt.
+///
+/// Each argument carries a distinct, orthogonal concern (provider handle,
+/// system prompt, user prompt, max tokens, cancellation, progress sink,
+/// chunk position); grouping them into a struct at this boundary just
+/// moves the complexity up to each call site. Holding at 8 args.
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn call_with_rate_limit_retry(
     provider: &dyn LlmProvider,
+    system: Option<&str>,
     prompt: &str,
     max_tokens: u32,
     cancel: &CancellationToken,
@@ -37,7 +49,11 @@ pub(crate) async fn call_with_rate_limit_retry(
 ) -> Result<LlmResponse, PipelineError> {
     let mut attempt = 0u32;
     loop {
-        match provider.invoke(prompt, max_tokens).await {
+        let result = match system {
+            Some(s) => provider.invoke_with_system(s, prompt, max_tokens).await,
+            None => provider.invoke(prompt, max_tokens).await,
+        };
+        match result {
             Ok(response) => return Ok(response),
             Err(PipelineError::RateLimited { retry_after_secs }) => {
                 attempt += 1;

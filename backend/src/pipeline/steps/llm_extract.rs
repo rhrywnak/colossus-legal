@@ -258,6 +258,27 @@ impl LlmExtract {
             .map_err(|e| format!("Failed to read template '{template_path}': {e}"))?;
         let template_hash = sha2_hex(&template_text);
 
+        // 5b. Load system prompt if the resolved config names one. The
+        //     provider's native system field wins when populated (Anthropic
+        //     Messages API treats system as a separate instruction layer);
+        //     concatenating into the user prompt would lose that distinction.
+        //     Read failure surfaces as ProfileLoadFailed so the audit log
+        //     names the missing file, matching the template-load convention.
+        let system_prompt: Option<String> = match &resolved.system_prompt_file {
+            Some(filename) => {
+                let path = format!("{}/{}", context.system_prompt_dir, filename);
+                let text = std::fs::read_to_string(&path).map_err(|e| {
+                    LlmExtractError::ProfileLoadFailed {
+                        message: format!("Failed to read system prompt '{path}': {e}"),
+                    }
+                })?;
+                Some(text)
+            }
+            None => None,
+        };
+        let system_prompt_hash: Option<String> =
+            system_prompt.as_deref().map(sha2_hex);
+
         // 6. Choose an effective max_tokens.
         let max_tokens = resolve_max_tokens(&resolved);
 
@@ -299,11 +320,13 @@ impl LlmExtract {
             .map_err(|_| LlmExtractError::SemaphoreClosed)?;
 
         // 10. Dispatch on chunking_mode.
+        let system_prompt_ref = system_prompt.as_deref();
         let outcome = if resolved.chunking_mode == CHUNKING_MODE_FULL {
             run_full_document_extraction(RunArgs {
                 db,
                 document_id: &self.document_id,
                 llm_provider: &*llm_provider,
+                system_prompt: system_prompt_ref,
                 template_text: &template_text,
                 schema_json: &schema_json,
                 full_text: &full_text,
@@ -319,6 +342,7 @@ impl LlmExtract {
                     db,
                     document_id: &self.document_id,
                     llm_provider: &*llm_provider,
+                    system_prompt: system_prompt_ref,
                     template_text: &template_text,
                     schema_json: &schema_json,
                     full_text: &full_text,
@@ -376,7 +400,14 @@ impl LlmExtract {
                 })?;
 
         // 12. Write processing_config JSONB snapshot (best-effort).
-        write_processing_config_snapshot(db, run_id, &resolved, &template_hash).await;
+        write_processing_config_snapshot(
+            db,
+            run_id,
+            &resolved,
+            &template_hash,
+            system_prompt_hash.as_deref(),
+        )
+        .await;
 
         // 13. Final progress + step complete.
         documents::update_processing_progress(
@@ -416,6 +447,7 @@ impl LlmExtract {
             "profile": resolved.profile_name,
             "model": resolved.model,
             "chunking_mode": resolved.chunking_mode,
+            "system_prompt_file": resolved.system_prompt_file,
         }));
 
         Ok(StepResult::Next(DocProcessing::Verify(Verify {
@@ -434,6 +466,10 @@ struct RunArgs<'a> {
     db: &'a PgPool,
     document_id: &'a str,
     llm_provider: &'a dyn LlmProvider,
+    /// Optional system prompt body. When `Some`, routed through
+    /// [`LlmProvider::invoke_with_system`] so providers with native system
+    /// support (Anthropic) populate the top-level `system` field.
+    system_prompt: Option<&'a str>,
     template_text: &'a str,
     schema_json: &'a str,
     full_text: &'a str,
@@ -522,6 +558,7 @@ async fn run_full_document_extraction(
 
     let response = call_with_rate_limit_retry(
         args.llm_provider,
+        args.system_prompt,
         &prompt,
         args.max_tokens,
         args.cancel,
@@ -646,6 +683,7 @@ async fn run_chunked_extraction(
 
         let llm_result = call_with_rate_limit_retry(
             args.llm_provider,
+            args.system_prompt,
             &prompt,
             args.max_tokens,
             args.cancel,
@@ -885,9 +923,11 @@ async fn write_processing_config_snapshot(
     run_id: i32,
     resolved: &ResolvedConfig,
     template_hash: &str,
+    system_prompt_hash: Option<&str>,
 ) {
     let mut resolved_with_hash = resolved.clone();
     resolved_with_hash.template_hash = Some(template_hash.to_string());
+    resolved_with_hash.system_prompt_hash = system_prompt_hash.map(str::to_string);
 
     let config_json = match serde_json::to_value(&resolved_with_hash) {
         Ok(v) => v,
@@ -1052,6 +1092,7 @@ mod tests {
             template_file: "t".into(),
             template_hash: None,
             system_prompt_file: None,
+            system_prompt_hash: None,
             schema_file: "s".into(),
             chunking_mode: "chunked".into(),
             chunk_size: None,
