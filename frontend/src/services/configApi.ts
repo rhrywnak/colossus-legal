@@ -479,6 +479,24 @@ export async function patchDocumentConfig(
   await discardBody(res);
 }
 
+/**
+ * Read the per-document overrides persisted on `pipeline_config`.
+ *
+ * Returns the same shape the PATCH endpoint accepts — every field is
+ * optional. Used by the Configuration Panel to seed its initial state so
+ * profile values auto-populated at upload time (e.g., `chunking_mode: "full"`
+ * from a profile YAML) show up in the UI immediately.
+ */
+export async function getDocumentConfig(
+  documentId: string,
+): Promise<PatchConfigInput> {
+  const res = await authFetch(
+    `${CONFIG_BASE}/documents/${encodeURIComponent(documentId)}/config`,
+  );
+  if (!res.ok) await throwFromResponse(res, "getDocumentConfig");
+  return res.json();
+}
+
 // ── Prompt Preview ─────────────────────────────────────────────
 
 export async function previewPrompt(

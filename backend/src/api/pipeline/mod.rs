@@ -54,7 +54,7 @@ pub use verify::verify_handler;
 
 use axum::{
     extract::State,
-    routing::{delete, get, patch, post, put},
+    routing::{delete, get, post, put},
     Json, Router,
 };
 use serde::Serialize;
@@ -171,7 +171,8 @@ pub fn router() -> Router<AppState> {
         .route("/documents/:id/assign", put(users::assign_reviewer_handler))
         .route(
             "/documents/:id/config",
-            patch(config_handler::patch_config_handler),
+            get(config_handler::get_config_handler)
+                .patch(config_handler::patch_config_handler),
         )
         .route("/documents/:id/file", get(file::file_handler))
 }

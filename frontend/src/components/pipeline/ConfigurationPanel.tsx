@@ -12,6 +12,7 @@
  */
 import React, { useEffect, useState } from "react";
 import {
+  getDocumentConfig,
   getProfile,
   listModels,
   listProfiles,
@@ -193,6 +194,81 @@ interface Overrides {
 
 const CHUNKING_MODES = ["chunked", "full"] as const;
 
+/**
+ * Seed the panel's `overrides` state from the per-document pipeline_config
+ * row, skipping any field whose value matches the currently-loaded profile.
+ *
+ * At upload time the backend auto-populates pipeline_config from the
+ * matched profile, so a freshly-uploaded doc's DB values equal the
+ * profile's values. Marking every matching field as "modified" would be
+ * wrong — `isModified()` means "user has overridden the profile". Only
+ * fields whose DB value genuinely differs from the profile belong here.
+ *
+ * `system_prompt_file` is in the DB payload but not tracked by this panel
+ * (no UI surface yet); it's ignored. `schema_file` is tracked in the
+ * panel's `Overrides` but has no corresponding pipeline_config column, so
+ * the DB payload never sets it.
+ */
+function diffConfigFromProfile(
+  docConfig: PatchConfigInput | null,
+  profile: ProcessingProfile,
+): Overrides {
+  if (!docConfig) return {};
+  const out: Overrides = {};
+  if (docConfig.profile_name != null && docConfig.profile_name !== profile.name) {
+    out.profile_name = docConfig.profile_name;
+  }
+  if (
+    docConfig.extraction_model != null &&
+    docConfig.extraction_model !== profile.extraction_model
+  ) {
+    out.extraction_model = docConfig.extraction_model;
+  }
+  if (
+    docConfig.template_file != null &&
+    docConfig.template_file !== profile.template_file
+  ) {
+    out.template_file = docConfig.template_file;
+  }
+  if (
+    docConfig.chunking_mode != null &&
+    docConfig.chunking_mode !== profile.chunking_mode
+  ) {
+    out.chunking_mode = docConfig.chunking_mode;
+  }
+  if (
+    docConfig.chunk_size != null &&
+    docConfig.chunk_size !== profile.chunk_size
+  ) {
+    out.chunk_size = docConfig.chunk_size;
+  }
+  if (
+    docConfig.chunk_overlap != null &&
+    docConfig.chunk_overlap !== profile.chunk_overlap
+  ) {
+    out.chunk_overlap = docConfig.chunk_overlap;
+  }
+  if (
+    docConfig.max_tokens != null &&
+    docConfig.max_tokens !== profile.max_tokens
+  ) {
+    out.max_tokens = docConfig.max_tokens;
+  }
+  if (
+    docConfig.temperature != null &&
+    docConfig.temperature !== profile.temperature
+  ) {
+    out.temperature = docConfig.temperature;
+  }
+  if (
+    docConfig.run_pass2 != null &&
+    docConfig.run_pass2 !== profile.run_pass2
+  ) {
+    out.run_pass2 = docConfig.run_pass2;
+  }
+  return out;
+}
+
 // ── Component ───────────────────────────────────────────────────
 
 /**
@@ -286,13 +362,14 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
       setLoading(true);
       setLoadError(null);
       try {
-        const [profile, allProfiles, modelsResp, templatesResp, schemasResp] =
+        const [profile, allProfiles, modelsResp, templatesResp, schemasResp, docConfig] =
           await Promise.all([
             loadProfile(),
             listProfiles().catch(() => ({ profiles: [] })),
             listModels().catch(() => ({ models: [] })),
             listTemplates().catch(() => ({ templates: [] })),
             listSchemas().catch(() => ({ schemas: [] })),
+            getDocumentConfig(documentId).catch(() => null),
           ]);
         if (cancelled) return;
         setBaseProfile(profile);
@@ -300,6 +377,9 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
         setModels(modelsResp.models.filter((m) => m.is_active));
         setTemplates(templatesResp.templates);
         setSchemas(schemasResp.schemas);
+        if (profile) {
+          setOverrides(diffConfigFromProfile(docConfig, profile));
+        }
       } catch (e) {
         if (cancelled) return;
         setLoadError(e instanceof Error ? e.message : "Failed to load configuration");
@@ -311,7 +391,7 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [documentType]);
+  }, [documentType, documentId]);
 
   /**
    * Handle profile change — switch the base profile and clear other overrides
