@@ -55,7 +55,7 @@ use crate::pipeline::context::AppContext;
 use crate::pipeline::steps::cleanup::{cleanup_neo4j, CleanupError};
 use crate::pipeline::steps::index::Index;
 use crate::pipeline::task::DocProcessing;
-use crate::repositories::pipeline_repository::{self, steps};
+use crate::repositories::pipeline_repository;
 
 /// Ingest step state.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -70,8 +70,6 @@ pub struct Ingest {
 struct IngestStats {
     total_nodes: usize,
     total_rels: usize,
-    person_count: usize,
-    org_count: usize,
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -143,22 +141,6 @@ impl Step<DocProcessing> for Ingest {
             return Err("Cancelled before ingest".into());
         }
 
-        let step_id = steps::record_step_start(
-            db,
-            &doc_id,
-            "ingest",
-            "pipeline",
-            &serde_json::json!({}),
-        )
-        .await
-        .unwrap_or_else(|e| {
-            tracing::warn!(
-                doc_id = %doc_id, error = %e,
-                "Ingest: record_step_start failed (non-fatal)"
-            );
-            0
-        });
-
         // Pre-run cleanup: wipe any prior partial Neo4j state for this
         // doc_id before opening the write transaction. Makes retry safe
         // even though the underlying helpers use CREATE rather than MERGE.
@@ -183,22 +165,6 @@ impl Step<DocProcessing> for Ingest {
             total_rels = stats.total_rels,
             "Ingest step complete"
         );
-
-        if step_id != 0 {
-            let summary = serde_json::json!({
-                "total_nodes": stats.total_nodes,
-                "total_rels": stats.total_rels,
-                "person_count": stats.person_count,
-                "org_count": stats.org_count,
-            });
-            if let Err(e) = steps::record_step_complete(db, step_id, duration_secs, &summary).await
-            {
-                tracing::warn!(
-                    doc_id = %doc_id, step_id, error = %e,
-                    "Ingest: record_step_complete failed (non-fatal)"
-                );
-            }
-        }
 
         Ok(StepResult::Next(DocProcessing::Index(Index {
             document_id: self.document_id,
@@ -518,8 +484,6 @@ impl Ingest {
         Ok(IngestStats {
             total_nodes,
             total_rels,
-            person_count,
-            org_count,
         })
     }
 }

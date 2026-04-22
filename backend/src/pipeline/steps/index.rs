@@ -54,7 +54,7 @@ use crate::pipeline::steps::cleanup::{cleanup_qdrant, CleanupError};
 use crate::pipeline::steps::completeness::Completeness;
 use crate::pipeline::task::DocProcessing;
 use crate::repositories::embedding_repository;
-use crate::repositories::pipeline_repository::{self, steps};
+use crate::repositories::pipeline_repository;
 use crate::services::embedding_text::build_embedding_text;
 use crate::services::qdrant_service::{self, QdrantPoint};
 
@@ -69,8 +69,6 @@ pub struct Index {
 #[derive(Debug)]
 struct IndexStats {
     embedded_count: usize,
-    node_count: usize,
-    by_type: HashMap<String, usize>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -133,22 +131,6 @@ impl Step<DocProcessing> for Index {
             return Err("Cancelled before indexing".into());
         }
 
-        let step_id = steps::record_step_start(
-            db,
-            &doc_id,
-            "index",
-            "pipeline",
-            &serde_json::json!({}),
-        )
-        .await
-        .unwrap_or_else(|e| {
-            tracing::warn!(
-                doc_id = %doc_id, error = %e,
-                "Index: record_step_start failed (non-fatal)"
-            );
-            0
-        });
-
         let stats = self.run_index(db, context, &doc_id).await?;
 
         if cancel.is_cancelled().await {
@@ -162,22 +144,6 @@ impl Step<DocProcessing> for Index {
             embedded_count = stats.embedded_count,
             "Index step complete"
         );
-
-        if step_id != 0 {
-            let summary = serde_json::json!({
-                "embedded_count": stats.embedded_count,
-                "node_count": stats.node_count,
-                "by_type": stats.by_type,
-                "collection": QDRANT_COLLECTION_NAME,
-            });
-            if let Err(e) = steps::record_step_complete(db, step_id, duration_secs, &summary).await
-            {
-                tracing::warn!(
-                    doc_id = %doc_id, step_id, error = %e,
-                    "Index: record_step_complete failed (non-fatal)"
-                );
-            }
-        }
 
         Ok(StepResult::Next(DocProcessing::Completeness(
             Completeness {
@@ -357,8 +323,6 @@ impl Index {
 
         Ok(IndexStats {
             embedded_count,
-            node_count: nodes.len(),
-            by_type,
         })
     }
 }

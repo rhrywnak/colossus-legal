@@ -45,7 +45,7 @@ use crate::error::AppError;
 use crate::models::document_status::STATUS_PUBLISHED;
 use crate::pipeline::context::AppContext;
 use crate::pipeline::task::DocProcessing;
-use crate::repositories::pipeline_repository::{self, steps};
+use crate::repositories::pipeline_repository;
 
 /// Completeness step state.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -60,10 +60,8 @@ pub struct Completeness {
 struct CompletenessStats {
     total_items: usize,
     nodes_verified: usize,
-    nodes_missing: usize,
     points_verified: usize,
     points_missing: usize,
-    document_node: bool,
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -149,77 +147,20 @@ impl Step<DocProcessing> for Completeness {
             return Err("Cancelled before completeness check".into());
         }
 
-        let step_id = steps::record_step_start(
-            db,
-            &doc_id,
-            "completeness",
-            "pipeline",
-            &serde_json::json!({}),
-        )
-        .await
-        .unwrap_or_else(|e| {
-            tracing::warn!(
-                doc_id = %doc_id, error = %e,
-                "Completeness: record_step_start failed (non-fatal)"
-            );
-            0
-        });
-
-        let result = self.run_completeness(db, context, &doc_id).await;
+        let stats = self.run_completeness(db, context, &doc_id).await?;
         let duration_secs = start.elapsed().as_secs_f64();
 
-        match result {
-            Ok(stats) => {
-                tracing::info!(
-                    doc_id = %doc_id,
-                    duration_secs,
-                    total_items = stats.total_items,
-                    nodes_verified = stats.nodes_verified,
-                    points_verified = stats.points_verified,
-                    points_missing = stats.points_missing,
-                    "Completeness step complete — document PUBLISHED"
-                );
+        tracing::info!(
+            doc_id = %doc_id,
+            duration_secs,
+            total_items = stats.total_items,
+            nodes_verified = stats.nodes_verified,
+            points_verified = stats.points_verified,
+            points_missing = stats.points_missing,
+            "Completeness step complete — document PUBLISHED"
+        );
 
-                if step_id != 0 {
-                    let summary = serde_json::json!({
-                        "total_items": stats.total_items,
-                        "nodes_verified": stats.nodes_verified,
-                        "nodes_missing": stats.nodes_missing,
-                        "points_verified": stats.points_verified,
-                        "points_missing": stats.points_missing,
-                        "document_node": stats.document_node,
-                    });
-                    if let Err(e) =
-                        steps::record_step_complete(db, step_id, duration_secs, &summary).await
-                    {
-                        tracing::warn!(
-                            doc_id = %doc_id, step_id, error = %e,
-                            "Completeness: record_step_complete failed (non-fatal)"
-                        );
-                    }
-                }
-
-                Ok(StepResult::Done)
-            }
-            Err(e) => {
-                // Flip pipeline_steps.status from 'running' to 'failed'
-                // so Execution History shows the step as failed rather
-                // than stuck in-flight. Non-fatal — original error still
-                // propagates regardless of whether the UPDATE succeeds.
-                if step_id != 0 {
-                    let err_msg = e.to_string();
-                    if let Err(rec_err) =
-                        steps::record_step_failure(db, step_id, duration_secs, &err_msg).await
-                    {
-                        tracing::warn!(
-                            doc_id = %doc_id, step_id, error = %rec_err,
-                            "Completeness: record_step_failure failed (non-fatal)"
-                        );
-                    }
-                }
-                Err(Box::new(e) as Box<dyn Error + Send + Sync>)
-            }
-        }
+        Ok(StepResult::Done)
     }
 
     // on_cancel: read-only step, no partial state → trait-default no-op.
@@ -334,10 +275,8 @@ impl Completeness {
         Ok(CompletenessStats {
             total_items,
             nodes_verified,
-            nodes_missing: 0,
             points_verified,
             points_missing: points_missing.len(),
-            document_node,
         })
     }
 }

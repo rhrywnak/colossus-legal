@@ -20,7 +20,7 @@ use colossus_pipeline::{Step, StepResult};
 use crate::pipeline::context::AppContext;
 use crate::pipeline::steps::ingest::Ingest;
 use crate::pipeline::task::DocProcessing;
-use crate::repositories::pipeline_repository::{self, documents, review, steps};
+use crate::repositories::pipeline_repository::{self, documents, review};
 
 /// AutoApprove step state.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -86,22 +86,6 @@ impl Step<DocProcessing> for AutoApprove {
         if cancel.is_cancelled().await {
             return Err("Cancelled before auto-approve".into());
         }
-
-        let step_id = steps::record_step_start(
-            db,
-            &doc_id,
-            "auto_approve",
-            "pipeline",
-            &serde_json::json!({}),
-        )
-        .await
-        .unwrap_or_else(|e| {
-            tracing::warn!(
-                doc_id = %doc_id, error = %e,
-                "AutoApprove: record_step_start failed (non-fatal)"
-            );
-            0
-        });
 
         // Guard: confirm the document exists.
         pipeline_repository::get_document(db, &doc_id)
@@ -171,20 +155,6 @@ impl Step<DocProcessing> for AutoApprove {
             approved_count,
             "AutoApprove step complete"
         );
-
-        if step_id != 0 {
-            let summary = serde_json::json!({
-                "approved_count": approved_count,
-                "remaining_pending": remaining_pending,
-            });
-            if let Err(e) = steps::record_step_complete(db, step_id, duration_secs, &summary).await
-            {
-                tracing::warn!(
-                    doc_id = %doc_id, step_id, error = %e,
-                    "AutoApprove: record_step_complete failed (non-fatal)"
-                );
-            }
-        }
 
         Ok(StepResult::Next(DocProcessing::Ingest(Ingest {
             document_id: self.document_id,

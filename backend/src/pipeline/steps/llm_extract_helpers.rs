@@ -13,7 +13,7 @@ use colossus_extract::{LlmProvider, LlmResponse, PipelineError};
 use colossus_pipeline::cancel::CancellationToken;
 use colossus_pipeline::progress::ProgressReporter;
 
-use crate::repositories::pipeline_repository::{extraction, steps};
+use crate::repositories::pipeline_repository::extraction;
 
 /// Maximum retry attempts per LLM call on rate-limit (429) errors.
 pub(crate) const MAX_RETRIES_PER_CHUNK: u32 = 3;
@@ -166,28 +166,6 @@ pub(crate) async fn mark_run_failed(db: &PgPool, run_id: i32, reason: &str) {
     .await
     {
         tracing::warn!(run_id, error = %e, reason, "mark_run_failed: DB write failed (non-fatal)");
-    }
-}
-
-/// Log-and-ignore writer that records a step failure via the repository.
-///
-/// Same rationale as [`mark_run_failed`]: don't let a secondary write
-/// error shadow the primary extraction failure.
-pub(crate) async fn mark_step_failed(
-    db: &PgPool,
-    step_id: i32,
-    step_start: std::time::Instant,
-    error_message: &str,
-) {
-    if let Err(e) = steps::record_step_failure(
-        db,
-        step_id,
-        step_start.elapsed().as_secs_f64(),
-        error_message,
-    )
-    .await
-    {
-        tracing::warn!(step_id, error = %e, "mark_step_failed: DB write failed (non-fatal)");
     }
 }
 

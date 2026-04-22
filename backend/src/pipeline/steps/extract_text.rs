@@ -63,7 +63,7 @@ use crate::api::pipeline::upload::schema_for_document_type;
 use crate::pipeline::context::AppContext;
 use crate::pipeline::steps::llm_extract::LlmExtract;
 use crate::pipeline::task::DocProcessing;
-use crate::repositories::pipeline_repository::{self, steps};
+use crate::repositories::pipeline_repository;
 
 // ── OcrConfig ───────────────────────────────────────────────────
 
@@ -280,21 +280,7 @@ impl ExtractText {
         cancel: &CancellationToken,
         progress: &ProgressReporter,
     ) -> Result<StepResult<DocProcessing>, ExtractTextError> {
-        let start = std::time::Instant::now();
         let doc_id = self.document_id.as_str();
-
-        // [1] Legacy pipeline_steps write — transitional, see module doc.
-        let step_id = steps::record_step_start(
-            db,
-            doc_id,
-            "extract_text",
-            "pipeline",
-            &serde_json::json!({}),
-        )
-        .await
-        .map_err(|e| ExtractTextError::DbWrite {
-            message: format!("record_step_start: {e}"),
-        })?;
 
         if cancel.is_cancelled().await {
             return Err(ExtractTextError::Cancelled);
@@ -505,7 +491,7 @@ impl ExtractText {
             );
         }
 
-        // [8] Progress + legacy pipeline_steps complete.
+        // [8] Progress reporting.
         let summary = serde_json::json!({
             "page_count": page_count,
             "total_chars": total_chars,
@@ -513,19 +499,10 @@ impl ExtractText {
             "pages_ocr": pages_ocr,
             "detected_type": detected_type,
         });
-        if let Err(e) = progress.report(summary.clone()).await {
+        if let Err(e) = progress.report(summary).await {
             tracing::warn!(
                 doc_id = %doc_id, error = %e,
                 "ExtractText: progress.report failed (non-fatal)"
-            );
-        }
-
-        if let Err(e) =
-            steps::record_step_complete(db, step_id, start.elapsed().as_secs_f64(), &summary).await
-        {
-            tracing::warn!(
-                doc_id = %doc_id, step_id, error = %e,
-                "ExtractText: record_step_complete failed (legacy table; non-fatal)"
             );
         }
 

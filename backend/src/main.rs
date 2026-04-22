@@ -38,6 +38,7 @@ use colossus_legal_backend::{
     database,
     neo4j::{check_neo4j, create_neo4j_graph},
     pipeline::context::{AppContext, AppContextDeps},
+    pipeline::step_recorder::PgStepRecorder,
     pipeline::task::DocProcessing,
     prompt_loader,
     state::{AppState, EntityTypeInfo, RelationshipTypeInfo, SchemaMetadata},
@@ -203,11 +204,13 @@ async fn run_serve(config: AppConfig, graph: neo4rs::Graph, http_client: reqwest
     );
 
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let step_recorder = Arc::new(PgStepRecorder::new(pipeline_pool.clone()));
     let worker = Worker::<DocProcessing>::new(
         pipeline_pool.clone(),
         app_context.clone(),
         worker_config,
         shutdown_rx,
+        step_recorder,
     );
     let worker_handle: tokio::task::JoinHandle<()> = tokio::spawn(async move {
         match worker.run().await {

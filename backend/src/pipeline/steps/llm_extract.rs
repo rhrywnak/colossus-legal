@@ -23,11 +23,11 @@ use crate::pipeline::config::{resolve_config, ProcessingProfile, ResolvedConfig}
 use crate::pipeline::context::AppContext;
 use crate::pipeline::providers::provider_for_model;
 use crate::pipeline::steps::llm_extract_helpers::{
-    call_with_rate_limit_retry, mark_run_failed, mark_step_failed, parse_chunk_response,
+    call_with_rate_limit_retry, mark_run_failed, parse_chunk_response,
 };
 use crate::pipeline::steps::verify::Verify;
 use crate::pipeline::task::DocProcessing;
-use crate::repositories::pipeline_repository::{self, documents, extraction, models, steps};
+use crate::repositories::pipeline_repository::{self, documents, extraction, models};
 
 // ── Constants ───────────────────────────────────────────────────
 
@@ -185,16 +185,6 @@ impl LlmExtract {
         cancel: &CancellationToken,
         progress: &ProgressReporter,
     ) -> Result<StepResult<DocProcessing>, Box<dyn Error + Send + Sync>> {
-        let step_start = Instant::now();
-        let step_id = steps::record_step_start(
-            db,
-            &self.document_id,
-            "LlmExtract",
-            "worker",
-            &serde_json::json!({}),
-        )
-        .await?;
-
         // 1. Idempotency: short-circuit if a COMPLETED run already exists.
         if extraction_already_complete(db, &self.document_id).await? {
             tracing::info!(
@@ -321,8 +311,6 @@ impl LlmExtract {
                 cancel,
                 progress,
                 run_id,
-                step_id,
-                step_start,
             })
             .await?
         } else {
@@ -338,8 +326,6 @@ impl LlmExtract {
                     cancel,
                     progress,
                     run_id,
-                    step_id,
-                    step_start,
                 },
                 &resolved,
             )
@@ -406,26 +392,6 @@ impl LlmExtract {
         .await
         .ok();
 
-        steps::record_step_complete(
-            db,
-            step_id,
-            step_start.elapsed().as_secs_f64(),
-            &serde_json::json!({
-                "entity_count": entity_count,
-                "relationship_count": rel_count,
-                "chunk_count": outcome.chunk_count,
-                "chunks_succeeded": outcome.chunks_succeeded,
-                "chunks_failed": outcome.chunks_failed,
-                "input_tokens": outcome.total_input_tokens,
-                "output_tokens": outcome.total_output_tokens,
-                "profile": resolved.profile_name,
-                "model": resolved.model,
-                "chunking_mode": resolved.chunking_mode,
-            }),
-        )
-        .await
-        .ok();
-
         tracing::info!(
             document_id = %self.document_id,
             entities = entity_count,
@@ -462,8 +428,6 @@ struct RunArgs<'a> {
     cancel: &'a CancellationToken,
     progress: &'a ProgressReporter,
     run_id: i32,
-    step_id: i32,
-    step_start: Instant,
 }
 
 // ── Full-document extraction ────────────────────────────────────
@@ -523,7 +487,6 @@ async fn run_full_document_extraction(
     } else {
         let msg = "Template has no {{document_text}} or {{chunk_text}} placeholder";
         mark_run_failed(args.db, args.run_id, msg).await;
-        mark_step_failed(args.db, args.step_id, args.step_start, msg).await;
         return Err(msg.into());
     };
 
@@ -568,7 +531,6 @@ async fn run_full_document_extraction(
         Ok(v) => v,
         Err(e) => {
             mark_run_failed(args.db, args.run_id, &format!("{e}")).await;
-            mark_step_failed(args.db, args.step_id, args.step_start, &format!("{e}")).await;
             return Err(e);
         }
     };
@@ -644,13 +606,6 @@ async fn run_chunked_extraction(
     for (i, chunk) in chunks.iter().enumerate() {
         if args.cancel.is_cancelled().await {
             mark_run_failed(args.db, args.run_id, "Cancelled during extraction").await;
-            mark_step_failed(
-                args.db,
-                args.step_id,
-                args.step_start,
-                "Cancelled during extraction",
-            )
-            .await;
             return Err("Cancelled during extraction".into());
         }
 
@@ -827,7 +782,6 @@ async fn run_chunked_extraction(
     if chunks_succeeded == 0 {
         let msg = format!("All {} chunks failed extraction", chunks.len());
         mark_run_failed(args.db, args.run_id, &msg).await;
-        mark_step_failed(args.db, args.step_id, args.step_start, &msg).await;
         return Err(msg.into());
     }
 
