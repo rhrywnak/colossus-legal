@@ -64,23 +64,44 @@ impl AnalysisRepository {
     }
 
     /// Fetch gap analysis data
+    ///
+    /// Counts evidence for each `ComplaintAllegation` via two paths,
+    /// union-deduped:
+    ///
+    ///   - Legacy path: `Evidence <-[:RELIES_ON]- MotionClaim -[:PROVES]-> ComplaintAllegation`
+    ///     (motions that cite specific evidence to prove an allegation).
+    ///   - Pass-2 cross-doc path: any node emitting a direct
+    ///     `-[:CORROBORATES]->` edge into the allegation (e.g.,
+    ///     `SwornStatement`, `Admission`, `CourtRuling`).
+    ///
+    /// `CONTRADICTS` edges are deliberately excluded — they're
+    /// counter-evidence, not supporting evidence, and shouldn't move
+    /// an allegation from "gap" to "strong." The leaf variables carry
+    /// no label filter so pass-2 node types that aren't labeled
+    /// `:Evidence` still count.
     async fn fetch_gap_analysis(&self) -> Result<GapAnalysis, AnalysisRepositoryError> {
         let mut allegations: Vec<AllegationStrength> = Vec::new();
 
-        // Query allegations with evidence counts via MotionClaim relationships
-        // Path: Evidence <-[:RELIES_ON]- MotionClaim -[:PROVES]-> ComplaintAllegation
         let mut result = self
             .graph
             .execute(query(
                 "MATCH (a:ComplaintAllegation)
-                 OPTIONAL MATCH (a)<-[:PROVES]-(mc:MotionClaim)-[:RELIES_ON]->(e:Evidence)
-                 WITH a, collect(DISTINCT e) AS evidence_list
+                 OPTIONAL MATCH (a)<-[:PROVES]-(mc:MotionClaim)-[:RELIES_ON]->(e1)
+                 OPTIONAL MATCH (a)<-[:CORROBORATES]-(e2)
+                 WITH a,
+                      collect(DISTINCT e1) AS motion_ev,
+                      collect(DISTINCT e2) AS direct_ev
+                 WITH a,
+                      [x IN motion_ev WHERE x IS NOT NULL] AS mev,
+                      [x IN direct_ev WHERE x IS NOT NULL] AS dev
+                 WITH a,
+                      mev + [x IN dev WHERE NOT x IN mev] AS evidence_list
                  RETURN a.id AS id,
                         a.allegation AS allegation,
                         a.paragraph AS paragraph,
                         a.evidence_status AS evidence_status,
                         size(evidence_list) AS evidence_count,
-                        [e IN evidence_list | e.title][0..5] AS evidence_titles
+                        [e IN evidence_list | coalesce(e.title, e.label, e.summary, e.id)][0..5] AS evidence_titles
                  ORDER BY size(evidence_list) DESC, a.id",
             ))
             .await?;
@@ -190,19 +211,35 @@ impl AnalysisRepository {
     }
 
     /// Fetch evidence coverage by document
+    ///
+    /// `evidence_count` stays scoped to `:Evidence`-labeled nodes
+    /// (pass-1 / motion-based evidence) so the denominator matches the
+    /// historical definition of "evidence in this document." The
+    /// `linked_count` numerator recognizes linkage via either the
+    /// legacy MotionClaim path or a direct pass-2 CORROBORATES edge
+    /// so an Evidence node cited by a cross-doc corroboration still
+    /// counts as "linked to an allegation."
+    ///
+    /// Non-`:Evidence` cross-doc nodes (e.g. affidavit `SwornStatement`,
+    /// discovery `Admission`) are still outside this metric — that
+    /// would require broadening the definition of "evidence" itself,
+    /// which is out of scope for this fix.
     async fn fetch_evidence_coverage(&self) -> Result<EvidenceCoverage, AnalysisRepositoryError> {
         let mut by_document: Vec<DocumentCoverage> = Vec::new();
 
-        // Get coverage per document
         let mut result = self
             .graph
             .execute(query(
                 "MATCH (d:Document)
                  OPTIONAL MATCH (e:Evidence)-[:CONTAINED_IN]->(d)
-                 OPTIONAL MATCH (e)<-[:RELIES_ON]-(mc:MotionClaim)-[:PROVES]->(a:ComplaintAllegation)
+                 OPTIONAL MATCH (e)<-[:RELIES_ON]-(:MotionClaim)-[:PROVES]->(a1:ComplaintAllegation)
+                 OPTIONAL MATCH (e)-[:CORROBORATES]->(a2:ComplaintAllegation)
                  WITH d,
                       count(DISTINCT e) AS evidence_count,
-                      count(DISTINCT CASE WHEN a IS NOT NULL THEN e END) AS linked_count
+                      count(DISTINCT CASE
+                          WHEN a1 IS NOT NULL OR a2 IS NOT NULL THEN e
+                          ELSE NULL
+                      END) AS linked_count
                  RETURN d.id AS document_id,
                         d.title AS document_title,
                         evidence_count,
