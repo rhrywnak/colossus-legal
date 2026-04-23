@@ -349,27 +349,100 @@ impl Ingest {
                 .or_insert(0) += 1;
         }
 
-        // 10. Create extraction relationships
+        // 10a. Resolve cross-document relationship endpoints.
+        //      Pass 2 may emit relationships whose `from_item_id` /
+        //      `to_item_id` reference items owned by a DIFFERENT
+        //      document (e.g., a discovery response's CORROBORATES
+        //      edge into a complaint's ComplaintAllegation). Those
+        //      items are not in the local `items` vec, so
+        //      `pg_to_neo4j` — built above from locals only —
+        //      wouldn't resolve them. Look up their stored
+        //      `extraction_items.neo4j_node_id` (populated by their
+        //      own source-doc Ingest) and keep the results in a
+        //      SEPARATE map: merging into `pg_to_neo4j` would cause
+        //      `batch_update_neo4j_node_ids` to re-write the same
+        //      values and `all_node_ids` / CONTAINED_IN to
+        //      incorrectly attach cross-doc nodes to this document.
+        let mut cross_doc_endpoints: HashSet<i32> = HashSet::new();
+        for rel in &relationships {
+            if !pg_to_neo4j.contains_key(&rel.from_item_id) {
+                cross_doc_endpoints.insert(rel.from_item_id);
+            }
+            if !pg_to_neo4j.contains_key(&rel.to_item_id) {
+                cross_doc_endpoints.insert(rel.to_item_id);
+            }
+        }
+        let cross_doc_ids: Vec<i32> = cross_doc_endpoints.into_iter().collect();
+        let cross_doc_neo4j_ids: HashMap<i32, String> =
+            pipeline_repository::lookup_neo4j_node_ids(db, &cross_doc_ids)
+                .await
+                .map_err(|source| IngestError::Helper {
+                    doc_id: doc_id.to_string(),
+                    message: format!("lookup_neo4j_node_ids: {source}"),
+                })?
+                .into_iter()
+                .collect();
+
+        // Look up source document ids for any endpoint we still can't
+        // resolve — the error message names the owning document so
+        // operators can distinguish "dangling reference" from
+        // "cross-doc target not yet ingested."
+        let unresolved_ids: Vec<i32> = cross_doc_ids
+            .iter()
+            .copied()
+            .filter(|id| !cross_doc_neo4j_ids.contains_key(id))
+            .collect();
+        let unresolved_doc_ids: HashMap<i32, String> =
+            pipeline_repository::lookup_item_document_ids(db, &unresolved_ids)
+                .await
+                .map_err(|source| IngestError::Helper {
+                    doc_id: doc_id.to_string(),
+                    message: format!("lookup_item_document_ids: {source}"),
+                })?
+                .into_iter()
+                .collect();
+
+        // Small helper to produce the enriched error suffix at the
+        // unresolved-endpoint failure point. Closure rather than fn so
+        // it can capture the lookup maps by reference.
+        let describe_missing = |item_id: i32| -> String {
+            match unresolved_doc_ids.get(&item_id) {
+                Some(src_doc) if src_doc == doc_id => {
+                    " [owned by this document, neo4j_node_id missing]".to_string()
+                }
+                Some(src_doc) => format!(
+                    " [owned by document '{src_doc}', neo4j_node_id missing — source Ingest may have failed]"
+                ),
+                None => " [item not found in extraction_items — dangling reference]".to_string(),
+            }
+        };
+
+        // 10b. Create extraction relationships
         let mut rel_type_counts: HashMap<String, usize> = HashMap::new();
 
         for rel in &relationships {
-            let from_neo =
-                pg_to_neo4j
-                    .get(&rel.from_item_id)
-                    .ok_or_else(|| IngestError::Helper {
-                        doc_id: doc_id.to_string(),
-                        message: format!(
-                            "No Neo4j ID for from_item_id {} (rel type {})",
-                            rel.from_item_id, rel.relationship_type
-                        ),
-                    })?;
-            let to_neo = pg_to_neo4j
-                .get(&rel.to_item_id)
+            let from_neo = pg_to_neo4j
+                .get(&rel.from_item_id)
+                .or_else(|| cross_doc_neo4j_ids.get(&rel.from_item_id))
                 .ok_or_else(|| IngestError::Helper {
                     doc_id: doc_id.to_string(),
                     message: format!(
-                        "No Neo4j ID for to_item_id {} (rel type {})",
-                        rel.to_item_id, rel.relationship_type
+                        "No Neo4j ID for from_item_id {} (rel type {}){}",
+                        rel.from_item_id,
+                        rel.relationship_type,
+                        describe_missing(rel.from_item_id)
+                    ),
+                })?;
+            let to_neo = pg_to_neo4j
+                .get(&rel.to_item_id)
+                .or_else(|| cross_doc_neo4j_ids.get(&rel.to_item_id))
+                .ok_or_else(|| IngestError::Helper {
+                    doc_id: doc_id.to_string(),
+                    message: format!(
+                        "No Neo4j ID for to_item_id {} (rel type {}){}",
+                        rel.to_item_id,
+                        rel.relationship_type,
+                        describe_missing(rel.to_item_id)
                     ),
                 })?;
 

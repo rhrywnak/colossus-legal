@@ -389,6 +389,61 @@ pub async fn batch_update_neo4j_node_ids(
     Ok(())
 }
 
+/// Look up the Neo4j node id for a batch of `extraction_items.id` values.
+///
+/// Used by Ingest to resolve cross-document relationship endpoints —
+/// when pass 2 writes a relationship whose `from_item_id` or
+/// `to_item_id` references an item owned by a different document, that
+/// item was already ingested on its own run and its `neo4j_node_id`
+/// column carries the canonical post-MERGE id. This helper returns only
+/// rows where `neo4j_node_id IS NOT NULL`; missing rows (either the
+/// item doesn't exist, or its source doc never finished Ingest) are
+/// silently dropped so the caller's own "No Neo4j ID for ..." error
+/// still fires and names the offending id.
+///
+/// Empty input → empty output, no query issued.
+pub async fn lookup_neo4j_node_ids(
+    pool: &PgPool,
+    item_ids: &[i32],
+) -> Result<Vec<(i32, String)>, PipelineRepoError> {
+    if item_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let rows: Vec<(i32, String)> = sqlx::query_as(
+        "SELECT id, neo4j_node_id FROM extraction_items \
+         WHERE id = ANY($1) AND neo4j_node_id IS NOT NULL",
+    )
+    .bind(item_ids)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
+/// Return the `document_id` owner of a batch of `extraction_items.id`
+/// values.
+///
+/// Used by Ingest to enrich the "No Neo4j ID for …" error message:
+/// when an endpoint can't be resolved via either the local map or the
+/// cross-doc lookup, naming the source document makes it immediately
+/// clear whether the problem is a dangling ref, an un-ingested
+/// complaint, or something stranger. Missing rows are silently dropped
+/// — the caller treats absence as "item not in PG at all."
+pub async fn lookup_item_document_ids(
+    pool: &PgPool,
+    item_ids: &[i32],
+) -> Result<Vec<(i32, String)>, PipelineRepoError> {
+    if item_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let rows: Vec<(i32, String)> = sqlx::query_as(
+        "SELECT id, document_id FROM extraction_items WHERE id = ANY($1)",
+    )
+    .bind(item_ids)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
 /// Record the Neo4j label Ingest wrote for an extraction item.
 ///
 /// R4 (PIPELINE_CODEBASE_AUDIT.md §8): writes to `resolved_entity_type`,
@@ -1535,6 +1590,14 @@ mod tests {
         let e = cross_doc(99, "unknown-001", "UnknownType", props.clone());
         let v = e.to_prompt_value();
         assert_eq!(v["properties"], props);
+    }
+
+    /// Compile-only: pin the cross-doc endpoint lookup helpers. Ingest
+    /// depends on both to resolve pass-2 cross-document relationships.
+    #[test]
+    fn cross_doc_endpoint_lookups_signatures_are_stable() {
+        let _a = lookup_neo4j_node_ids;
+        let _b = lookup_item_document_ids;
     }
 
     #[test]
