@@ -1,6 +1,6 @@
 [package]
 name = "colossus-legal-backend"
-version = "2.0.0-beta.103"
+version = "2.0.0-beta.104"
 edition = "2021"
 
 [dependencies]
