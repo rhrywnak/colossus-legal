@@ -193,14 +193,29 @@ pub enum ExtractTextError {
     /// empty text, wasting LLM spend and producing a "complete" document
     /// with zero entities. Failing here stops the pipeline and surfaces
     /// an actionable error to the user.
+    ///
+    /// The display breaks down native-vs-OCR-vs-scanned page counts and,
+    /// when an OCR call was attempted and failed, appends the underlying
+    /// Surya error. Prior to this, OCR failures were silent-swallowed
+    /// into a tracing warning — operators got "OCR available: true" with
+    /// no indication that the actual OCR request had 413'd or timed out.
     #[error(
-        "No usable text extracted from {page_count} pages of document '{doc_id}' \
-         (OCR available: {ocr_available})"
+        "No usable text extracted from {page_count} pages of document \
+         '{doc_id}'. native_pages={pages_native}, ocr_pages={pages_ocr}, \
+         scanned_pages={scanned_count}. OCR available: {ocr_available}{ocr_error_suffix}"
     )]
     NoUsableText {
         doc_id: String,
         page_count: usize,
+        pages_native: usize,
+        pages_ocr: usize,
+        scanned_count: usize,
         ocr_available: bool,
+        /// Pre-formatted trailer like `", OCR failure: Surya returned 413 ..."`
+        /// or empty string when OCR didn't fail (or wasn't attempted).
+        /// Built at the call site so this variant stays independent of
+        /// the `OcrError` enum.
+        ocr_error_suffix: String,
     },
 
     #[error("OCR tools unavailable")]
@@ -232,7 +247,13 @@ pub struct ExtractText {
 impl Step<DocProcessing> for ExtractText {
     const DEFAULT_RETRY_LIMIT: i32 = 2;
     const DEFAULT_RETRY_DELAY_SECS: u64 = 5;
-    const DEFAULT_TIMEOUT_SECS: Option<u64> = Some(180);
+    // Headroom over the 300s reqwest timeout in `ocr::ocr_full_document_surya`
+    // plus multipart upload, PDF extraction, and per-page DB writes. Keeping
+    // the step timeout shorter than the OCR call timeout (the prior 180s
+    // value) caused the Worker to kill the step mid-OCR on large scanned
+    // PDFs, manifesting as a spurious step "Timeout" error and wasted GPU
+    // time on every retry.
+    const DEFAULT_TIMEOUT_SECS: Option<u64> = Some(600);
 
     async fn execute(
         self,
@@ -359,6 +380,13 @@ impl ExtractText {
             .map(|p| p.page_number)
             .collect();
 
+        // Capture any OCR failure reason so the final error surface can
+        // name it. The prior behavior logged and dropped the error, so
+        // operators saw "OCR available: true" even when the actual OCR
+        // request 413'd or timed out — misleading and hard to triage
+        // without digging into backend logs.
+        let mut ocr_error_detail: Option<String> = None;
+
         let surya_results: std::collections::HashMap<u32, String> =
             if !scanned_page_numbers.is_empty() && ocr_available {
                 match ocr::ocr_full_document_surya(
@@ -383,10 +411,12 @@ impl ExtractText {
                             .collect()
                     }
                     Err(e) => {
+                        let msg = format!("{e}");
                         tracing::warn!(
-                            doc_id = %doc_id, error = %e,
+                            doc_id = %doc_id, error = %msg,
                             "Surya OCR failed — scanned pages will have no usable text"
                         );
+                        ocr_error_detail = Some(msg);
                         std::collections::HashMap::new()
                     }
                 }
@@ -454,10 +484,18 @@ impl ExtractText {
         //      LLM API spend on empty input and produce a "complete" document
         //      with zero entities. The failure surfaces in pipeline_steps.error_message.
         if total_chars == 0 {
+            let ocr_error_suffix = ocr_error_detail
+                .as_deref()
+                .map(|e| format!(", OCR failure: {e}"))
+                .unwrap_or_default();
             return Err(ExtractTextError::NoUsableText {
                 doc_id: doc_id.to_string(),
                 page_count,
+                pages_native,
+                pages_ocr,
+                scanned_count: scanned_page_numbers.len(),
                 ocr_available,
+                ocr_error_suffix,
             });
         }
 
@@ -593,10 +631,63 @@ mod tests {
     };
 
     #[test]
-    fn timeout_is_180() {
+    fn timeout_is_600() {
+        // Must stay strictly greater than the 300s reqwest timeout in
+        // `ocr::ocr_full_document_surya`, or the step is killed mid-OCR
+        // on large scanned PDFs. See the docstring on the constant for
+        // context on the prior 180s value.
         assert_eq!(
             <ExtractText as Step<DocProcessing>>::DEFAULT_TIMEOUT_SECS,
-            Some(180)
+            Some(600)
+        );
+    }
+
+    // ── NoUsableText formatting ───────────────────────────────────
+
+    #[test]
+    fn no_usable_text_display_without_ocr_failure_is_clean() {
+        // Happy-path display: a PDF with no extractable content and no
+        // OCR attempted should NOT include an "OCR failure" trailer.
+        let e = ExtractTextError::NoUsableText {
+            doc_id: "doc-abc".into(),
+            page_count: 10,
+            pages_native: 10,
+            pages_ocr: 0,
+            scanned_count: 0,
+            ocr_available: true,
+            ocr_error_suffix: String::new(),
+        };
+        let s = format!("{e}");
+        assert!(s.contains("doc-abc"));
+        assert!(s.contains("native_pages=10"));
+        assert!(s.contains("ocr_pages=0"));
+        assert!(s.contains("scanned_pages=0"));
+        assert!(
+            !s.contains("OCR failure"),
+            "no OCR was attempted — must not claim an OCR failure; got: {s}"
+        );
+    }
+
+    #[test]
+    fn no_usable_text_display_threads_ocr_error_detail() {
+        // Regression guard: the prior silent-swallow behaviour emitted
+        // "OCR available: true" with no hint at why OCR actually failed.
+        // The new variant must surface the underlying Surya error.
+        let e = ExtractTextError::NoUsableText {
+            doc_id: "doc-george".into(),
+            page_count: 35,
+            pages_native: 0,
+            pages_ocr: 0,
+            scanned_count: 35,
+            ocr_available: true,
+            ocr_error_suffix: ", OCR failure: Surya returned 413: Payload Too Large".into(),
+        };
+        let s = format!("{e}");
+        assert!(s.contains("doc-george"));
+        assert!(s.contains("scanned_pages=35"));
+        assert!(
+            s.contains("Surya returned 413"),
+            "Surya error must survive into the user-facing message; got: {s}"
         );
     }
 
