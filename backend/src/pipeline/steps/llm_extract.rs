@@ -1160,6 +1160,7 @@ mod tests {
         let r = ResolvedConfig {
             profile_name: "p".into(),
             model: "m".into(),
+            pass2_model: None,
             template_file: "t".into(),
             template_hash: None,
             pass2_template_file: None,
@@ -1183,6 +1184,7 @@ mod tests {
         ResolvedConfig {
             profile_name: "complaint".into(),
             model: "m".into(),
+            pass2_model: None,
             template_file: "t".into(),
             template_hash: None,
             pass2_template_file: Some("pass2_complaint.md".into()),

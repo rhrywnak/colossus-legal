@@ -389,6 +389,7 @@ pub async fn get_pipeline_config(
 struct PipelineConfigOverridesRow {
     profile_name: Option<String>,
     extraction_model: Option<String>,
+    pass2_extraction_model: Option<String>,
     template_file: Option<String>,
     system_prompt_file: Option<String>,
     chunking_mode: Option<String>,
@@ -413,7 +414,8 @@ pub async fn get_pipeline_config_overrides(
     document_id: &str,
 ) -> Result<PipelineConfigOverrides, PipelineRepoError> {
     let row: Option<PipelineConfigOverridesRow> = sqlx::query_as(
-        "SELECT profile_name, extraction_model, template_file, system_prompt_file, \
+        "SELECT profile_name, extraction_model, pass2_extraction_model, \
+                template_file, system_prompt_file, \
                 chunking_mode, chunk_size, chunk_overlap, max_tokens, \
                 temperature::float8 AS temperature, run_pass2 \
          FROM pipeline_config WHERE document_id = $1",
@@ -426,6 +428,7 @@ pub async fn get_pipeline_config_overrides(
         Some(r) => PipelineConfigOverrides {
             profile_name: r.profile_name,
             extraction_model: r.extraction_model,
+            pass2_extraction_model: r.pass2_extraction_model,
             template_file: r.template_file,
             system_prompt_file: r.system_prompt_file,
             chunking_mode: r.chunking_mode,
@@ -460,6 +463,7 @@ pub async fn patch_pipeline_config_overrides(
     // Short-circuit when there is nothing to update.
     let any_field = overrides.profile_name.is_some()
         || overrides.extraction_model.is_some()
+        || overrides.pass2_extraction_model.is_some()
         || overrides.template_file.is_some()
         || overrides.system_prompt_file.is_some()
         || overrides.chunking_mode.is_some()
@@ -485,19 +489,21 @@ pub async fn patch_pipeline_config_overrides(
         "UPDATE pipeline_config SET \
            profile_name = COALESCE($2, profile_name), \
            extraction_model = COALESCE($3, extraction_model), \
-           template_file = COALESCE($4, template_file), \
-           system_prompt_file = COALESCE($5, system_prompt_file), \
-           chunking_mode = COALESCE($6, chunking_mode), \
-           chunk_size = COALESCE($7, chunk_size), \
-           chunk_overlap = COALESCE($8, chunk_overlap), \
-           max_tokens = COALESCE($9, max_tokens), \
-           temperature = COALESCE($10::numeric, temperature), \
-           run_pass2 = COALESCE($11, run_pass2) \
+           pass2_extraction_model = COALESCE($4, pass2_extraction_model), \
+           template_file = COALESCE($5, template_file), \
+           system_prompt_file = COALESCE($6, system_prompt_file), \
+           chunking_mode = COALESCE($7, chunking_mode), \
+           chunk_size = COALESCE($8, chunk_size), \
+           chunk_overlap = COALESCE($9, chunk_overlap), \
+           max_tokens = COALESCE($10, max_tokens), \
+           temperature = COALESCE($11::numeric, temperature), \
+           run_pass2 = COALESCE($12, run_pass2) \
          WHERE document_id = $1",
     )
     .bind(document_id)
     .bind(&overrides.profile_name)
     .bind(&overrides.extraction_model)
+    .bind(&overrides.pass2_extraction_model)
     .bind(&overrides.template_file)
     .bind(&overrides.system_prompt_file)
     .bind(&overrides.chunking_mode)

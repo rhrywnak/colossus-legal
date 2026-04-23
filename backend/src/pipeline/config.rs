@@ -51,6 +51,16 @@ pub struct ProcessingProfile {
 
     // Model — must match an id in the llm_models table
     pub extraction_model: String,
+    /// Pass-2 relationship-extraction model override.
+    ///
+    /// Pass 2 does a fundamentally different job from pass 1 (reasoning
+    /// over an entity list to identify relationships vs. parsing raw
+    /// text to extract entities). Operators often want a stronger /
+    /// different model for that task. When absent, pass 2 reuses the
+    /// `extraction_model` value. When present, must match an id in the
+    /// `llm_models` table.
+    #[serde(default)]
+    pub pass2_extraction_model: Option<String>,
     #[serde(default)]
     pub synthesis_model: Option<String>,
 
@@ -146,6 +156,10 @@ impl ProcessingProfile {
 pub struct ResolvedConfig {
     pub profile_name: String,
     pub model: String,
+    /// Pass-2 model id resolved from override → profile. `None` means
+    /// pass 2 falls back to `model` (the pass-1 model). Consulted only
+    /// by `run_pass2_extraction`.
+    pub pass2_model: Option<String>,
     pub template_file: String,
     pub template_hash: Option<String>,
     /// Pass-2 relationship-extraction prompt template filename, if the
@@ -180,6 +194,11 @@ pub struct ResolvedConfig {
 pub struct PipelineConfigOverrides {
     pub profile_name: Option<String>,
     pub extraction_model: Option<String>,
+    /// Per-document pass-2 model override. `None` means "use the
+    /// profile's `pass2_extraction_model` (or fall back to the pass-1
+    /// model)." Populated from the `pass2_extraction_model` column on
+    /// `pipeline_config`.
+    pub pass2_extraction_model: Option<String>,
     pub template_file: Option<String>,
     pub system_prompt_file: Option<String>,
     pub chunking_mode: Option<String>,
@@ -240,6 +259,14 @@ pub fn resolve_config(
         None => profile.extraction_model.clone(),
     };
 
+    // Pass-2 model: per-doc override wins; otherwise profile's
+    // `pass2_extraction_model`; otherwise `None` (caller falls back to
+    // pass-1 `model`).
+    let pass2_model = match &overrides.pass2_extraction_model {
+        Some(v) => { applied.push("pass2_extraction_model".to_string()); Some(v.clone()) }
+        None => profile.pass2_extraction_model.clone(),
+    };
+
     let template_file = match &overrides.template_file {
         Some(v) => { applied.push("template_file".to_string()); v.clone() }
         None => profile.template_file.clone(),
@@ -284,6 +311,7 @@ pub fn resolve_config(
         profile_name: overrides.profile_name.clone()
             .unwrap_or_else(|| profile.name.clone()),
         model,
+        pass2_model,
         template_file,
         template_hash: None, // Set at runtime after loading the file
         pass2_template_file: profile.pass2_template_file.clone(),
@@ -379,6 +407,7 @@ extraction_model: claude-sonnet-4-6
             template_file: "pass1_complaint.md".into(),
             system_prompt_file: None,
             extraction_model: "claude-sonnet-4-6".into(),
+            pass2_extraction_model: None,
             synthesis_model: None,
             chunking_mode: "full".into(),
             chunk_size: None,
@@ -414,6 +443,7 @@ extraction_model: claude-sonnet-4-6
             template_file: "pass1_complaint.md".into(),
             system_prompt_file: Some("legal_extraction_system.md".into()),
             extraction_model: "claude-sonnet-4-6".into(),
+            pass2_extraction_model: None,
             synthesis_model: None,
             chunking_mode: "full".into(),
             chunk_size: None,
@@ -466,6 +496,7 @@ extraction_model: claude-sonnet-4-6
             system_prompt_file: None,
             pass2_template_file: Some("pass2_complaint.md".into()),
             extraction_model: "claude-sonnet-4-6".into(),
+            pass2_extraction_model: None,
             synthesis_model: None,
             chunking_mode: "full".into(),
             chunk_size: None,
@@ -483,6 +514,76 @@ extraction_model: claude-sonnet-4-6
             Some("pass2_complaint.md"),
             "resolver must surface profile.pass2_template_file"
         );
+    }
+
+    #[test]
+    fn resolve_surfaces_pass2_extraction_model_from_profile() {
+        // Profile-level default flows through.
+        let yaml = r#"
+name: complaint
+display_name: Complaint
+schema_file: complaint_v2.yaml
+template_file: pass1_complaint.md
+extraction_model: claude-sonnet-4-6
+pass2_extraction_model: claude-opus-4-7
+"#;
+        let f = write_temp_profile(yaml);
+        let profile = ProcessingProfile::from_file(f.path()).unwrap();
+        assert_eq!(
+            profile.pass2_extraction_model.as_deref(),
+            Some("claude-opus-4-7")
+        );
+        let resolved = resolve_config(&profile, &PipelineConfigOverrides::default());
+        assert_eq!(resolved.pass2_model.as_deref(), Some("claude-opus-4-7"));
+        assert!(
+            resolved.overrides_applied.is_empty(),
+            "no per-doc override was set, applied list must be empty"
+        );
+    }
+
+    #[test]
+    fn resolve_per_doc_pass2_model_override_wins_and_is_recorded() {
+        let yaml = r#"
+name: complaint
+display_name: Complaint
+schema_file: complaint_v2.yaml
+template_file: pass1_complaint.md
+extraction_model: claude-sonnet-4-6
+pass2_extraction_model: claude-opus-4-7
+"#;
+        let f = write_temp_profile(yaml);
+        let profile = ProcessingProfile::from_file(f.path()).unwrap();
+        let overrides = PipelineConfigOverrides {
+            pass2_extraction_model: Some("claude-opus-4-6".into()),
+            ..Default::default()
+        };
+        let resolved = resolve_config(&profile, &overrides);
+        assert_eq!(resolved.pass2_model.as_deref(), Some("claude-opus-4-6"));
+        assert!(
+            resolved
+                .overrides_applied
+                .contains(&"pass2_extraction_model".to_string()),
+            "per-doc overrides must be tracked in overrides_applied"
+        );
+    }
+
+    #[test]
+    fn pass2_model_is_none_when_neither_profile_nor_override_sets_it() {
+        // Back-compat: pre-pass-2 profiles must keep working. When
+        // nothing provides a pass-2 model, the resolver returns None so
+        // run_pass2_extraction falls back to the pass-1 model.
+        let yaml = r#"
+name: legacy
+display_name: Legacy
+schema_file: s.yaml
+template_file: t.md
+extraction_model: claude-sonnet-4-6
+"#;
+        let f = write_temp_profile(yaml);
+        let profile = ProcessingProfile::from_file(f.path()).unwrap();
+        assert!(profile.pass2_extraction_model.is_none());
+        let resolved = resolve_config(&profile, &PipelineConfigOverrides::default());
+        assert!(resolved.pass2_model.is_none());
     }
 
     #[test]
@@ -514,6 +615,7 @@ extraction_model: claude-sonnet-4-6
             template_file: "pass1_complaint.md".into(),
             system_prompt_file: None,
             extraction_model: "claude-sonnet-4-6".into(),
+            pass2_extraction_model: None,
             synthesis_model: None,
             chunking_mode: "full".into(),
             chunk_size: None,
@@ -548,6 +650,7 @@ extraction_model: claude-sonnet-4-6
         let config = ResolvedConfig {
             profile_name: "complaint".into(),
             model: "claude-sonnet-4-6".into(),
+            pass2_model: None,
             template_file: "pass1_complaint.md".into(),
             template_hash: Some("abc123".into()),
             pass2_template_file: None,

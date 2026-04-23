@@ -182,6 +182,8 @@ export interface ConfigurationPanelProps {
 interface Overrides {
   profile_name?: string;
   extraction_model?: string;
+  /** Pass-2 relationship-extraction model. `undefined` means "unchanged". */
+  pass2_extraction_model?: string;
   template_file?: string;
   schema_file?: string;
   chunking_mode?: string;
@@ -223,6 +225,12 @@ function diffConfigFromProfile(
     docConfig.extraction_model !== profile.extraction_model
   ) {
     out.extraction_model = docConfig.extraction_model;
+  }
+  if (
+    docConfig.pass2_extraction_model != null &&
+    docConfig.pass2_extraction_model !== profile.pass2_extraction_model
+  ) {
+    out.pass2_extraction_model = docConfig.pass2_extraction_model;
   }
   if (
     docConfig.template_file != null &&
@@ -426,9 +434,19 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
   const effective = (() => {
     const p = baseProfile;
     if (!p) return null;
+    // Pass-2 model resolution mirrors the backend's fall-back chain:
+    //   user override → profile's pass2_extraction_model → pass-1 model.
+    // If a user picks a model here it becomes an override; leaving it
+    // alone keeps backend behavior consistent with the profile default.
+    const pass1Model = overrides.extraction_model ?? p.extraction_model;
+    const pass2Model =
+      overrides.pass2_extraction_model
+        ?? p.pass2_extraction_model
+        ?? pass1Model;
     return {
       name: overrides.profile_name ?? p.name,
-      extraction_model: overrides.extraction_model ?? p.extraction_model,
+      extraction_model: pass1Model,
+      pass2_extraction_model: pass2Model,
       template_file: overrides.template_file ?? p.template_file,
       schema_file: overrides.schema_file ?? p.schema_file,
       chunking_mode: overrides.chunking_mode ?? p.chunking_mode,
@@ -476,6 +494,9 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
     const out: PatchConfigInput = {};
     if (overrides.profile_name !== undefined) out.profile_name = overrides.profile_name;
     if (overrides.extraction_model !== undefined) out.extraction_model = overrides.extraction_model;
+    if (overrides.pass2_extraction_model !== undefined) {
+      out.pass2_extraction_model = overrides.pass2_extraction_model;
+    }
     if (overrides.template_file !== undefined) out.template_file = overrides.template_file;
     if (overrides.schema_file !== undefined) {
       // schema_file is not yet a pipeline_config override column — skip it
@@ -686,15 +707,55 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
             Pass 2
             {isModified("run_pass2") && <span style={modifiedBadge}>modified</span>}
           </label>
-          <label style={{ fontSize: "0.82rem", color: "#334155" }}>
-            <input
-              type="checkbox"
-              checked={effective.run_pass2}
-              onChange={(e) => setOverride("run_pass2", e.target.checked)}
-              style={{ marginRight: "0.4rem" }}
-            />
-            Enable synthesis pass
-          </label>
+          <div>
+            <label style={{ fontSize: "0.82rem", color: "#334155" }}>
+              <input
+                type="checkbox"
+                checked={effective.run_pass2}
+                onChange={(e) => setOverride("run_pass2", e.target.checked)}
+                style={{ marginRight: "0.4rem" }}
+              />
+              Enable synthesis pass
+            </label>
+            {effective.run_pass2 && (
+              <div style={{ marginTop: "0.5rem" }}>
+                <label
+                  style={
+                    isModified("pass2_extraction_model")
+                      ? { ...fieldLabelModified, marginBottom: "0.25rem" }
+                      : { ...fieldLabel, marginBottom: "0.25rem" }
+                  }
+                >
+                  Pass 2 Model
+                  {isModified("pass2_extraction_model") && (
+                    <span style={modifiedBadge}>modified</span>
+                  )}
+                </label>
+                <select
+                  style={inputStyle}
+                  value={effective.pass2_extraction_model}
+                  onChange={(e) =>
+                    setOverride("pass2_extraction_model", e.target.value)
+                  }
+                >
+                  {models.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.display_name}
+                    </option>
+                  ))}
+                </select>
+                <div
+                  style={{
+                    marginTop: "0.25rem",
+                    fontSize: "0.75rem",
+                    color: "#64748b",
+                  }}
+                >
+                  Defaults to the Pass 1 model when the profile doesn't set one.
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         <div style={btnRow}>

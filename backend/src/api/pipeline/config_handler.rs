@@ -32,6 +32,8 @@ pub struct PatchConfigInput {
     #[serde(default)]
     pub extraction_model: Option<String>,
     #[serde(default)]
+    pub pass2_extraction_model: Option<String>,
+    #[serde(default)]
     pub template_file: Option<String>,
     #[serde(default)]
     pub system_prompt_file: Option<String>,
@@ -54,6 +56,7 @@ impl From<PatchConfigInput> for PipelineConfigOverrides {
         PipelineConfigOverrides {
             profile_name: input.profile_name,
             extraction_model: input.extraction_model,
+            pass2_extraction_model: input.pass2_extraction_model,
             template_file: input.template_file,
             system_prompt_file: input.system_prompt_file,
             chunking_mode: input.chunking_mode,
@@ -106,6 +109,7 @@ pub async fn get_config_handler(
     Ok(Json(PatchConfigInput {
         profile_name: overrides.profile_name,
         extraction_model: overrides.extraction_model,
+        pass2_extraction_model: overrides.pass2_extraction_model,
         template_file: overrides.template_file,
         system_prompt_file: overrides.system_prompt_file,
         chunking_mode: overrides.chunking_mode,

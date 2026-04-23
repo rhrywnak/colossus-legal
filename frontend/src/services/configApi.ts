@@ -70,6 +70,8 @@ export interface ProcessingProfile {
   template_file: string;
   system_prompt_file: string | null;
   extraction_model: string;
+  /** Pass-2 relationship-extraction model; null means reuse `extraction_model`. */
+  pass2_extraction_model: string | null;
   synthesis_model: string | null;
   chunking_mode: string;
   chunk_size: number | null;
@@ -135,6 +137,13 @@ export interface UpdateFileInput {
 export interface PatchConfigInput {
   profile_name?: string;
   extraction_model?: string;
+  /**
+   * Pass-2 relationship-extraction model override. `undefined` keeps
+   * the existing column value; an explicit model id switches pass 2
+   * to that model. When left null across both profile and override,
+   * pass 2 falls back to `extraction_model`.
+   */
+  pass2_extraction_model?: string | null;
   template_file?: string;
   system_prompt_file?: string | null;
   chunking_mode?: string;

@@ -214,11 +214,25 @@ pub async fn run_pass2_extraction(
         .into());
     }
 
-    // 7. Look up the model row and construct its provider.
-    let model_record = models::get_active_model_by_id(db, &resolved.model)
+    // 7. Look up the model row and construct its provider. Pass 2 uses
+    //    `resolved.pass2_model` when set (operator can pick a stronger
+    //    relationship-reasoning model), otherwise falls back to the
+    //    pass-1 `model` for backward compatibility.
+    let pass2_model_id = resolved
+        .pass2_model
+        .clone()
+        .unwrap_or_else(|| resolved.model.clone());
+    tracing::info!(
+        document_id,
+        pass2_model = %pass2_model_id,
+        pass1_model = %resolved.model,
+        using_pass2_override = resolved.pass2_model.is_some(),
+        "Pass 2: resolved model"
+    );
+    let model_record = models::get_active_model_by_id(db, &pass2_model_id)
         .await?
         .ok_or_else(|| LlmExtractError::ModelNotFound {
-            model_id: resolved.model.clone(),
+            model_id: pass2_model_id.clone(),
         })?;
     let llm_provider = provider_for_model(&model_record)
         .map_err(|message| LlmExtractError::ProviderConstructionFailed { message })?;
@@ -308,7 +322,10 @@ pub async fn run_pass2_extraction(
         db,
         document_id,
         2,
-        &resolved.model,
+        // Record the model actually used for pass 2, not the pass-1
+        // model — otherwise the audit log disagrees with the Anthropic /
+        // vLLM request that produced this run's output.
+        &pass2_model_id,
         &schema.version,
         Some(&prompt),
         Some(pass2_template_file.as_str()),
@@ -421,7 +438,9 @@ pub async fn run_pass2_extraction(
             "input_tokens": input_tokens,
             "output_tokens": output_tokens,
             "profile": resolved.profile_name,
-            "model": resolved.model,
+            // Report the pass-2-specific model so the UI reflects what
+            // actually ran (may differ from pass-1's `resolved.model`).
+            "model": pass2_model_id,
             "pass2_template_file": pass2_template_file,
         }));
 
