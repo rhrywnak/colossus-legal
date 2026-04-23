@@ -939,13 +939,18 @@ pub(crate) fn next_step_after_pass1(
 /// Fall back to deriving a profile name from the schema filename.
 ///
 /// Legacy rows in `pipeline_config` may not have a `profile_name` set yet.
-/// `complaint_v2.yaml` → `complaint`. This keeps migration-era documents
-/// processable without forcing a backfill.
+/// Strips `.yaml` and any trailing `_v<digits>` version suffix, so
+/// `complaint_v2.yaml` → `complaint` and `motion_v4.yaml` → `motion`.
+/// This keeps migration-era documents processable without forcing a backfill.
 pub(crate) fn default_profile_name_from_schema(schema_file: &str) -> String {
-    schema_file
-        .trim_end_matches(".yaml")
-        .trim_end_matches("_v2")
-        .to_string()
+    let base = schema_file.trim_end_matches(".yaml");
+    if let Some(idx) = base.rfind("_v") {
+        let suffix = &base[idx + 2..];
+        if !suffix.is_empty() && suffix.bytes().all(|b| b.is_ascii_digit()) {
+            return base[..idx].to_string();
+        }
+    }
+    base.to_string()
 }
 
 /// Resolve an effective `max_tokens` for LLM calls.
@@ -1140,10 +1145,40 @@ mod tests {
     }
 
     #[test]
-    fn default_profile_name_strips_yaml_and_v2() {
+    fn default_profile_name_strips_yaml_and_version() {
+        // v2 (legacy) and v4 (current) must both reduce to the base name.
         assert_eq!(default_profile_name_from_schema("complaint_v2.yaml"), "complaint");
+        assert_eq!(default_profile_name_from_schema("complaint_v4.yaml"), "complaint");
+        assert_eq!(
+            default_profile_name_from_schema("discovery_response_v4.yaml"),
+            "discovery_response"
+        );
+        assert_eq!(default_profile_name_from_schema("motion_v4.yaml"), "motion");
+        assert_eq!(default_profile_name_from_schema("brief_v4.yaml"), "brief");
+        assert_eq!(default_profile_name_from_schema("affidavit_v4.yaml"), "affidavit");
+        assert_eq!(
+            default_profile_name_from_schema("court_ruling_v4.yaml"),
+            "court_ruling"
+        );
+        // Multi-digit versions.
+        assert_eq!(
+            default_profile_name_from_schema("some_future_v12.yaml"),
+            "some_future"
+        );
+        // No version suffix → passthrough of the stem.
         assert_eq!(default_profile_name_from_schema("brief.yaml"), "brief");
+        assert_eq!(
+            default_profile_name_from_schema("no_version.yaml"),
+            "no_version"
+        );
         assert_eq!(default_profile_name_from_schema("custom"), "custom");
+        // `_v` not followed by digits must NOT be stripped (e.g. a name that
+        // happens to end in `_v`).
+        assert_eq!(default_profile_name_from_schema("weird_v.yaml"), "weird_v");
+        assert_eq!(
+            default_profile_name_from_schema("weird_vbeta.yaml"),
+            "weird_vbeta"
+        );
     }
 
     #[test]

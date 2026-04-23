@@ -209,11 +209,16 @@ pub async fn preview_prompt(
 ///
 /// Mirrors `pipeline::steps::llm_extract::default_profile_name_from_schema`
 /// so preview and the real extraction path agree on the implicit profile.
+/// Strips `.yaml` and any trailing `_v<digits>` version suffix.
 fn default_profile_name_from_schema(schema_file: &str) -> String {
-    schema_file
-        .trim_end_matches(".yaml")
-        .trim_end_matches("_v2")
-        .to_string()
+    let base = schema_file.trim_end_matches(".yaml");
+    if let Some(idx) = base.rfind("_v") {
+        let suffix = &base[idx + 2..];
+        if !suffix.is_empty() && suffix.bytes().all(|b| b.is_ascii_digit()) {
+            return base[..idx].to_string();
+        }
+    }
+    base.to_string()
 }
 
 /// Layer preview-only overrides from the request body onto a resolved config.

@@ -38,27 +38,29 @@ use super::{field_text, require_field, UploadDocumentResponse, MAX_FILE_SIZE};
 /// Mirrors the two private copies in `pipeline::steps::llm_extract` and
 /// `api::pipeline::config_endpoints::preview` so upload-time pre-population
 /// picks the same profile the extraction step would load at run time.
-/// Example: `"complaint_v2.yaml"` → `"complaint"`.
+/// Strips `.yaml` and any trailing `_v<digits>` version suffix.
+/// Examples: `"complaint_v2.yaml"` → `"complaint"`, `"motion_v4.yaml"` → `"motion"`.
 fn default_profile_name_from_schema(schema_file: &str) -> String {
-    schema_file
-        .trim_end_matches(".yaml")
-        .trim_end_matches("_v2")
-        .to_string()
+    let base = schema_file.trim_end_matches(".yaml");
+    if let Some(idx) = base.rfind("_v") {
+        let suffix = &base[idx + 2..];
+        if !suffix.is_empty() && suffix.bytes().all(|b| b.is_ascii_digit()) {
+            return base[..idx].to_string();
+        }
+    }
+    base.to_string()
 }
 
 pub fn schema_for_document_type(document_type: &str) -> &'static str {
     match document_type {
-        "complaint" => "complaint_v2.yaml",
-        "discovery_response" => "discovery_response.yaml",
-        "motion" | "brief" | "motion_brief" => "motion.yaml",
-        "affidavit" => "affidavit.yaml",
-        "court_ruling" => "court_ruling.yaml",
-        // "auto" and "unknown" default to complaint schema because this
-        // system's primary document type is a legal complaint. When type
-        // is unknown at upload time, using the complaint schema is safer
-        // than the generic schema because complaint_v2.yaml extracts
-        // the specific legal structures the application needs.
-        _ => "complaint_v2.yaml",
+        "complaint" => "complaint_v4.yaml",
+        "discovery_response" => "discovery_response_v4.yaml",
+        "motion" => "motion_v4.yaml",
+        "brief" => "brief_v4.yaml",
+        "motion_brief" => "motion_v4.yaml",
+        "affidavit" => "affidavit_v4.yaml",
+        "court_ruling" => "court_ruling_v4.yaml",
+        _ => "complaint_v4.yaml",
     }
 }
 
@@ -408,13 +410,11 @@ mod tests {
     /// updated explicitly, not silently broken).
 
     #[test]
-    fn test_complaint_maps_to_v2_schema() {
-        // This is the bug that cost $0.44 to discover in production.
-        // complaint_v2.yaml (not complaint.yaml) is the correct schema.
+    fn test_complaint_maps_to_v4_schema() {
         assert_eq!(
             schema_for_document_type("complaint"),
-            "complaint_v2.yaml",
-            "Complaint must use complaint_v2.yaml — complaint.yaml is outdated"
+            "complaint_v4.yaml",
+            "Complaint must use complaint_v4.yaml"
         );
     }
 
@@ -424,41 +424,41 @@ mod tests {
         // processes legal complaints as its primary document type.
         assert_eq!(
             schema_for_document_type("auto"),
-            "complaint_v2.yaml",
+            "complaint_v4.yaml",
             "Auto-detect defaults to complaint schema for this system"
         );
     }
 
     #[test]
     fn test_unknown_maps_to_complaint_schema() {
-        assert_eq!(schema_for_document_type("unknown"), "complaint_v2.yaml");
+        assert_eq!(schema_for_document_type("unknown"), "complaint_v4.yaml");
     }
 
     #[test]
     fn test_discovery_response_schema() {
         assert_eq!(
             schema_for_document_type("discovery_response"),
-            "discovery_response.yaml"
+            "discovery_response_v4.yaml"
         );
     }
 
     #[test]
     fn test_motion_schema() {
-        assert_eq!(schema_for_document_type("motion"), "motion.yaml");
-        assert_eq!(schema_for_document_type("brief"), "motion.yaml");
-        assert_eq!(schema_for_document_type("motion_brief"), "motion.yaml");
+        assert_eq!(schema_for_document_type("motion"), "motion_v4.yaml");
+        assert_eq!(schema_for_document_type("brief"), "brief_v4.yaml");
+        assert_eq!(schema_for_document_type("motion_brief"), "motion_v4.yaml");
     }
 
     #[test]
     fn test_affidavit_schema() {
-        assert_eq!(schema_for_document_type("affidavit"), "affidavit.yaml");
+        assert_eq!(schema_for_document_type("affidavit"), "affidavit_v4.yaml");
     }
 
     #[test]
     fn test_court_ruling_schema() {
         assert_eq!(
             schema_for_document_type("court_ruling"),
-            "court_ruling.yaml"
+            "court_ruling_v4.yaml"
         );
     }
 
@@ -467,8 +467,8 @@ mod tests {
         // Any unrecognized document type defaults to complaint schema.
         // This prevents general_legal.yaml from being used, which produces
         // generic Statement/Party entities instead of legal-specific ones.
-        assert_eq!(schema_for_document_type("garbage"), "complaint_v2.yaml");
-        assert_eq!(schema_for_document_type(""), "complaint_v2.yaml");
+        assert_eq!(schema_for_document_type("garbage"), "complaint_v4.yaml");
+        assert_eq!(schema_for_document_type(""), "complaint_v4.yaml");
     }
 
     #[test]
