@@ -647,6 +647,37 @@ pub async fn get_grounded_relationships_for_document(
 
 // ── Entity + relationship storage (LLM-extraction result writer) ───
 
+/// Resolve a relationship's endpoint + type fields, tolerating either
+/// of the two conventions LLMs emit in practice.
+///
+/// The schema-compliant shape the templates specify is
+/// `{from_entity, to_entity, relationship_type}` and that wins when
+/// both conventions are present in the same object. The short form
+/// `{from, to, type}` is Opus's natural JSON style and was causing
+/// every relationship to be silently dropped on pass 2 before this
+/// helper existed — every `get("from_entity")` returned `None`, the
+/// fallback empty string failed `id_map` lookup, and the
+/// skip-and-log branch fired for every row. Accepting both in one
+/// place keeps the store functions aligned on one tolerance policy.
+fn resolve_relationship_fields(rel: &serde_json::Value) -> (&str, &str, &str) {
+    let from = rel
+        .get("from_entity")
+        .or_else(|| rel.get("from"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let to = rel
+        .get("to_entity")
+        .or_else(|| rel.get("to"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let rtype = rel
+        .get("relationship_type")
+        .or_else(|| rel.get("type"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("UNKNOWN");
+    (from, to, rtype)
+}
+
 /// Store the entities and relationships contained in a raw LLM response into
 /// `extraction_items` and `extraction_relationships` for a given run.
 ///
@@ -736,8 +767,7 @@ pub async fn store_entities_and_relationships(
 
     if let Some(rels) = parsed.get("relationships").and_then(|v| v.as_array()) {
         for rel in rels {
-            let from_key = rel.get("from_entity").and_then(|v| v.as_str()).unwrap_or("");
-            let to_key = rel.get("to_entity").and_then(|v| v.as_str()).unwrap_or("");
+            let (from_key, to_key, relationship_type) = resolve_relationship_fields(rel);
 
             let (Some(&from_id), Some(&to_id)) = (id_map.get(from_key), id_map.get(to_key))
             else {
@@ -748,11 +778,6 @@ pub async fn store_entities_and_relationships(
                 );
                 continue;
             };
-
-            let relationship_type = rel
-                .get("relationship_type")
-                .and_then(|v| v.as_str())
-                .unwrap_or("UNKNOWN");
 
             let properties = rel.get("properties");
 
@@ -1115,11 +1140,7 @@ pub async fn store_pass2_relationships(
     let mut rel_count: usize = 0;
     if let Some(rels) = parsed.get("relationships").and_then(|v| v.as_array()) {
         for rel in rels {
-            let from_key = rel
-                .get("from_entity")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let to_key = rel.get("to_entity").and_then(|v| v.as_str()).unwrap_or("");
+            let (from_key, to_key, relationship_type) = resolve_relationship_fields(rel);
 
             let (Some(&from_id), Some(&to_id)) = (id_map.get(from_key), id_map.get(to_key))
             else {
@@ -1130,11 +1151,6 @@ pub async fn store_pass2_relationships(
                 );
                 continue;
             };
-
-            let relationship_type = rel
-                .get("relationship_type")
-                .and_then(|v| v.as_str())
-                .unwrap_or("UNKNOWN");
 
             let properties = rel.get("properties");
 
@@ -1529,5 +1545,71 @@ mod tests {
         // change to a different literal would break the id_map lookup
         // in store_pass2_relationships — pin it.
         assert_eq!(CROSS_DOC_ID_PREFIX, "ctx:");
+    }
+
+    // ── resolve_relationship_fields ───────────────────────────────
+
+    #[test]
+    fn resolve_rel_fields_accepts_schema_compliant_form() {
+        // The canonical shape the templates specify. Must keep working
+        // — pass 1 on Sonnet produces this today.
+        let rel = serde_json::json!({
+            "from_entity": "allegation-007",
+            "to_entity": "count-001",
+            "relationship_type": "SUPPORTS",
+        });
+        let (from, to, rtype) = resolve_relationship_fields(&rel);
+        assert_eq!(from, "allegation-007");
+        assert_eq!(to, "count-001");
+        assert_eq!(rtype, "SUPPORTS");
+    }
+
+    #[test]
+    fn resolve_rel_fields_accepts_short_form() {
+        // Opus's natural JSON style. Before the helper, every pass-2
+        // relationship in this shape was silently dropped — the bug
+        // this change fixes.
+        let rel = serde_json::json!({
+            "from": "admission-003",
+            "to": "ctx:allegation-014",
+            "type": "CORROBORATES",
+        });
+        let (from, to, rtype) = resolve_relationship_fields(&rel);
+        assert_eq!(from, "admission-003");
+        assert_eq!(to, "ctx:allegation-014");
+        assert_eq!(rtype, "CORROBORATES");
+    }
+
+    #[test]
+    fn resolve_rel_fields_long_form_wins_on_collision() {
+        // An LLM could emit both forms in the same object (unlikely
+        // but possible). The schema-compliant long form wins so the
+        // behaviour matches the documented template shape.
+        let rel = serde_json::json!({
+            "from": "short-a",
+            "from_entity": "long-a",
+            "to": "short-b",
+            "to_entity": "long-b",
+            "type": "SHORT_TYPE",
+            "relationship_type": "LONG_TYPE",
+        });
+        let (from, to, rtype) = resolve_relationship_fields(&rel);
+        assert_eq!(from, "long-a");
+        assert_eq!(to, "long-b");
+        assert_eq!(rtype, "LONG_TYPE");
+    }
+
+    #[test]
+    fn resolve_rel_fields_empty_when_neither_form_present() {
+        // Defensive: a relationship with neither convention falls
+        // through to empty endpoints, which the caller's id_map
+        // lookup fails on and logs as "unresolved endpoints". The
+        // `UNKNOWN` fallback for the type matches the pre-helper
+        // behaviour so the audit trail stays stable.
+        let rel = serde_json::json!({ "properties": { "note": "x" } });
+        let (from, to, rtype) = resolve_relationship_fields(&rel);
+        assert_eq!(from, "");
+        assert_eq!(to, "");
+        assert_eq!(rtype, "UNKNOWN");
     }
 }
