@@ -53,7 +53,9 @@ use crate::pipeline::steps::llm_extract_helpers::{
 use crate::pipeline::steps::verify::Verify;
 use crate::pipeline::task::DocProcessing;
 use crate::repositories::pipeline_repository::{
-    self, extraction, extraction::Pass1Entity, models,
+    self, extraction,
+    extraction::{CrossDocEntity, Pass1Entity},
+    models,
 };
 
 // ── FSM step adapter ────────────────────────────────────────────
@@ -241,23 +243,55 @@ pub async fn run_pass2_extraction(
     };
     let system_prompt_hash: Option<String> = system_prompt.as_deref().map(sha2_hex);
 
-    // 9. Render entities for the prompt and build the LLM-id → item_id map.
-    let entities_prompt: Vec<serde_json::Value> =
-        entities.iter().map(Pass1Entity::to_prompt_value).collect();
+    // 9a. Load cross-document context from previously PUBLISHED docs.
+    //     ComplaintAllegation / LegalCount / Party entities surface here
+    //     so the pass-2 LLM can author CORROBORATES, CONTRADICTS, and
+    //     other cross-document relationship types against a discovery
+    //     response's admissions/denials, a court ruling's holdings, etc.
+    //     Ids are prefixed (`ctx:...`) to prevent collisions with the
+    //     current doc's local pass-1 ids.
+    let cross_doc_entities =
+        extraction::load_cross_document_context(db, document_id).await?;
+    tracing::info!(
+        document_id,
+        local_entities = entities.len(),
+        cross_doc_entities = cross_doc_entities.len(),
+        "Pass 2: loaded entities for prompt"
+    );
+
+    // 9b. Render entities for the prompt and build the LLM-id → item_id map.
+    //     Local entities come first so the LLM's attention order favors
+    //     this document's own entities; cross-doc entities follow with a
+    //     `source_document` field making their provenance explicit.
+    let mut entities_prompt: Vec<serde_json::Value> = Vec::with_capacity(
+        entities.len() + cross_doc_entities.len(),
+    );
+    entities_prompt.extend(entities.iter().map(Pass1Entity::to_prompt_value));
+    entities_prompt.extend(cross_doc_entities.iter().map(CrossDocEntity::to_prompt_value));
     let entities_json = serde_json::to_string_pretty(&entities_prompt)?;
-    let id_map: std::collections::HashMap<String, i32> = entities
+
+    let mut id_map: std::collections::HashMap<String, i32> = entities
         .iter()
         .filter(|e| !e.id.is_empty())
         .map(|e| (e.id.clone(), e.item_id))
         .collect();
+    for c in &cross_doc_entities {
+        id_map.insert(c.prefixed_id.clone(), c.item_id);
+    }
 
-    // 10. Placeholder substitution. We do NOT fill {{global_rules}} /
-    //     {{admin_instructions}} / {{context}} — pass 1's current path
-    //     leaves them unfilled too, and this task is scoped to mirror
-    //     pass 1's substitution behavior.
+    // 10. Placeholder substitution. `{{context}}` is substituted with
+    //     the empty string defensively — today's pass-2 templates don't
+    //     carry the placeholder (they expect cross-doc entities merged
+    //     into `{{entities_json}}`, which we do above), but a future
+    //     template that adds `{{context}}` shouldn't leak literal
+    //     `{{context}}` into the assembled prompt.
+    //     `{{global_rules}}` / `{{admin_instructions}}` are still
+    //     intentionally unfilled — mirroring pass-1's current behavior;
+    //     that gap is tracked separately.
     let prompt = template_text
         .replace("{{schema_json}}", &schema_json)
         .replace("{{entities_json}}", &entities_json)
+        .replace("{{context}}", "")
         .replace("{{document_text}}", &full_text);
 
     let max_tokens = resolve_max_tokens(&resolved);
@@ -382,6 +416,8 @@ pub async fn run_pass2_extraction(
         .set_step_result(serde_json::json!({
             "pass": 2,
             "relationship_count": rel_count,
+            "local_entities": entities.len(),
+            "cross_doc_entities": cross_doc_entities.len(),
             "input_tokens": input_tokens,
             "output_tokens": output_tokens,
             "profile": resolved.profile_name,
