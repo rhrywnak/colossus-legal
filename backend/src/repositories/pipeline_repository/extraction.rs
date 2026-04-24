@@ -497,12 +497,86 @@ pub async fn get_all_relationships(
     Ok(rows)
 }
 
+/// Items approved (or edited) but not yet written to Neo4j.
+///
+/// Delta ingest selects this set: rows whose user decision says "write
+/// this to the graph" (`approved`/`edited`) but whose `neo4j_node_id`
+/// column is still NULL. Scoped to a single document — cross-document
+/// deltas are a separate concern (Phase 3b).
+///
+/// Case-insensitive on `review_status` to stay consistent with other
+/// `review_repo` queries that lowercase for comparison.
+pub async fn get_items_pending_graph_write(
+    pool: &PgPool,
+    document_id: &str,
+) -> Result<Vec<ExtractionItemRecord>, PipelineRepoError> {
+    let sql = format!(
+        "SELECT {ITEM_SELECT_COLUMNS} FROM extraction_items \
+         WHERE document_id = $1 \
+           AND LOWER(review_status) IN ('approved', 'edited') \
+           AND neo4j_node_id IS NULL \
+         ORDER BY id"
+    );
+    let rows = sqlx::query_as::<_, ExtractionItemRecord>(&sql)
+        .bind(document_id)
+        .fetch_all(pool)
+        .await?;
+    Ok(rows)
+}
+
+/// Count items awaiting graph write (same predicate as
+/// `get_items_pending_graph_write`). Powers the UI's "Write N approved
+/// items to graph" button visibility and label.
+pub async fn count_items_pending_graph_write(
+    pool: &PgPool,
+    document_id: &str,
+) -> Result<i64, PipelineRepoError> {
+    let n = sqlx::query_scalar::<_, i64>(
+        "SELECT count(*) FROM extraction_items \
+         WHERE document_id = $1 \
+           AND LOWER(review_status) IN ('approved', 'edited') \
+           AND neo4j_node_id IS NULL",
+    )
+    .bind(document_id)
+    .fetch_one(pool)
+    .await?;
+    Ok(n)
+}
+
+/// Seed map for delta ingest: every item in the document that already
+/// has a Neo4j node id. Returned as `(extraction_items.id, neo4j_node_id)`
+/// tuples; callers typically collect into a `HashMap<i32, String>`.
+///
+/// Used by `run_ingest_delta` to pre-populate `pg_to_neo4j` so that
+/// relationships between newly-written and previously-written items
+/// resolve correctly. Without this seed, relationships would incorrectly
+/// fall through to the cross-document lookup path even for same-document
+/// edges.
+pub async fn get_existing_item_neo4j_map(
+    pool: &PgPool,
+    document_id: &str,
+) -> Result<Vec<(i32, String)>, PipelineRepoError> {
+    let rows: Vec<(i32, String)> = sqlx::query_as(
+        "SELECT id, neo4j_node_id FROM extraction_items \
+         WHERE document_id = $1 AND neo4j_node_id IS NOT NULL",
+    )
+    .bind(document_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
 /// Get approved extraction items for a document's latest completed run.
 ///
-/// Only returns items where review_status = 'approved'. Used by ingest
-/// (to write only approved items to Neo4j) and completeness (to count
-/// only approved items for comparison). Unapproved items are intentionally
-/// excluded from the knowledge graph.
+/// Returns items where review_status is `approved` OR `edited`. Used by
+/// ingest (to write items to Neo4j) and completeness (to count items for
+/// comparison). `edited` is accepted because `review_repo::edit_item`
+/// transitions manually-corrected items to that terminal state; they are
+/// semantically approved-with-edits and must reach the graph. Omitting
+/// `edited` here silently drops user corrections — the P2 bug tracked in
+/// Phase 2's R1 finding.
+///
+/// `rejected`, `pending`, and NULL are intentionally excluded.
 pub async fn get_approved_items_for_document(
     pool: &PgPool,
     document_id: &str,
@@ -510,7 +584,8 @@ pub async fn get_approved_items_for_document(
 ) -> Result<Vec<ExtractionItemRecord>, PipelineRepoError> {
     let sql = format!(
         "SELECT {ITEM_SELECT_COLUMNS} FROM extraction_items \
-         WHERE run_id = $1 AND document_id = $2 AND review_status = 'approved' \
+         WHERE run_id = $1 AND document_id = $2 \
+           AND review_status IN ('approved', 'edited') \
          ORDER BY id"
     );
     let rows = sqlx::query_as::<_, ExtractionItemRecord>(&sql)

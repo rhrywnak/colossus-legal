@@ -68,22 +68,27 @@ pub fn stable_entity_id(item: &ExtractionItemRecord, doc_id: &str) -> String {
 
     match item.entity_type.as_str() {
         "ComplaintAllegation" => {
-            // Prefer paragraph_number as string; fall back to u64 representation.
-            let para = item.item_data["properties"]["paragraph_number"]
+            // Paragraph reference priority:
+            //   1. `paragraph_number` (v2/v3 schemas) — string or integer
+            //   2. `paragraph_ref`    (v4 schemas)    — string or integer
+            //   3. Hash of allegation body text — first `summary` (v2/v3),
+            //      then `allegation_text` (v4). Without this fallback, v4
+            //      documents whose paragraph fields are missing would all
+            //      collapse to the empty-string hash `hash-e3b0c442`,
+            //      MERGEing every allegation into a single Neo4j node.
+            let props = &item.item_data["properties"];
+            let para = props["paragraph_number"]
                 .as_str()
                 .map(|s| s.to_string())
-                .or_else(|| {
-                    item.item_data["properties"]["paragraph_number"]
-                        .as_u64()
-                        .map(|n| n.to_string())
-                })
+                .or_else(|| props["paragraph_number"].as_u64().map(|n| n.to_string()))
+                .or_else(|| props["paragraph_ref"].as_str().map(|s| s.to_string()))
+                .or_else(|| props["paragraph_ref"].as_u64().map(|n| n.to_string()))
                 .unwrap_or_else(|| {
-                    // If paragraph_number is missing, use a hash of the summary
-                    // to avoid all missing-number allegations colliding on "unknown".
-                    let summary = item.item_data["properties"]["summary"]
+                    let body = props["summary"]
                         .as_str()
+                        .or_else(|| props["allegation_text"].as_str())
                         .unwrap_or("");
-                    let hash = format!("{:x}", Sha256::digest(summary.as_bytes()));
+                    let hash = format!("{:x}", Sha256::digest(body.as_bytes()));
                     format!("hash-{}", &hash[..8])
                 });
             format!("{}:para:{}", doc_slug, para)
@@ -466,14 +471,22 @@ pub async fn create_provenance_relationships(
     items: &[ExtractionItemRecord],
     pg_to_neo4j: &HashMap<i32, String>,
 ) -> Result<usize, AppError> {
-    // Build a lookup: paragraph_number → extraction_item.id
-    // Handles both string and integer paragraph_number values.
+    // Build a lookup: paragraph key → extraction_item.id.
+    // Accepts both `paragraph_number` (v2/v3) and `paragraph_ref` (v4),
+    // and both string and integer shapes, so Harm provenance refs can
+    // resolve regardless of which schema the ComplaintAllegation was
+    // extracted under.
     let mut para_to_item_id: HashMap<String, i32> = HashMap::new();
     for item in items {
-        if let Some(para) = item.item_data["properties"]["paragraph_number"].as_str() {
-            para_to_item_id.insert(para.to_string(), item.id);
-        } else if let Some(para) = item.item_data["properties"]["paragraph_number"].as_i64() {
-            para_to_item_id.insert(para.to_string(), item.id);
+        let props = &item.item_data["properties"];
+        let para = props["paragraph_number"]
+            .as_str()
+            .map(|s| s.to_string())
+            .or_else(|| props["paragraph_number"].as_i64().map(|n| n.to_string()))
+            .or_else(|| props["paragraph_ref"].as_str().map(|s| s.to_string()))
+            .or_else(|| props["paragraph_ref"].as_i64().map(|n| n.to_string()));
+        if let Some(para) = para {
+            para_to_item_id.insert(para, item.id);
         }
     }
 
@@ -740,5 +753,104 @@ mod tests {
         assert_eq!(slug("MARIE AWAD"), slug("marie awad"));
         assert_eq!(slug("Marie Awad"), "marie-awad");
         assert_eq!(slug("Catholic Family Services"), "catholic-family-services");
+    }
+
+    // ── P1 regression: v4 schema compatibility ────────────────────
+    //
+    // v4 ComplaintAllegation uses `paragraph_ref` and `allegation_text`
+    // where v2/v3 used `paragraph_number` and `summary`. stable_entity_id
+    // must read both vocabularies; otherwise every v4 allegation with
+    // absent paragraph_number falls to the empty-string hash and they
+    // all MERGE into one node.
+
+    #[test]
+    fn test_stable_id_v4_paragraph_ref_string() {
+        // v4 ComplaintAllegation with paragraph_ref as string.
+        let item = make_item(
+            "ComplaintAllegation",
+            serde_json::json!({ "paragraph_ref": "42", "allegation_text": "test" }),
+        );
+        let id = stable_entity_id(&item, DOC_ID);
+        assert!(
+            id.ends_with(":para:42"),
+            "v4 paragraph_ref (string) must produce :para:42, got: {id}"
+        );
+    }
+
+    #[test]
+    fn test_stable_id_v4_paragraph_ref_numeric() {
+        // v4 ComplaintAllegation with paragraph_ref as JSON number.
+        let item = make_item(
+            "ComplaintAllegation",
+            serde_json::json!({ "paragraph_ref": 42, "allegation_text": "test" }),
+        );
+        let id = stable_entity_id(&item, DOC_ID);
+        assert!(
+            id.ends_with(":para:42"),
+            "v4 paragraph_ref (numeric) must produce :para:42, got: {id}"
+        );
+    }
+
+    #[test]
+    fn test_stable_id_v2_paragraph_number_still_wins_over_v4() {
+        // If both fields are present (unlikely in practice), prefer
+        // paragraph_number so the v2/v3 id shape is preserved for
+        // migration-era documents.
+        let item = make_item(
+            "ComplaintAllegation",
+            serde_json::json!({
+                "paragraph_number": "7",
+                "paragraph_ref": "42",
+            }),
+        );
+        let id = stable_entity_id(&item, DOC_ID);
+        assert!(
+            id.ends_with(":para:7"),
+            "paragraph_number must take precedence over paragraph_ref, got: {id}"
+        );
+    }
+
+    #[test]
+    fn test_stable_id_v4_allegation_text_fallback_when_no_paragraph() {
+        // Neither paragraph field present; fall back to allegation_text
+        // hash rather than the empty-string hash. Two allegations with
+        // different text must produce different ids.
+        let a = make_item(
+            "ComplaintAllegation",
+            serde_json::json!({ "allegation_text": "Defendant fired plaintiff." }),
+        );
+        let b = make_item(
+            "ComplaintAllegation",
+            serde_json::json!({ "allegation_text": "Defendant withheld wages." }),
+        );
+        let id_a = stable_entity_id(&a, DOC_ID);
+        let id_b = stable_entity_id(&b, DOC_ID);
+        assert_ne!(
+            id_a, id_b,
+            "v4 allegations with different text must not collide via empty-hash fallback"
+        );
+        // And they should not be the empty-string hash sentinel.
+        let empty_hash = format!(
+            "{}:para:hash-{}",
+            slug(DOC_ID),
+            &format!("{:x}", Sha256::digest(b"".as_slice()))[..8]
+        );
+        assert_ne!(id_a, empty_hash, "allegation_text fallback produced empty-hash collision");
+    }
+
+    #[test]
+    fn test_stable_id_v2_summary_fallback_still_works() {
+        // Regression: v2 items with only `summary` (no paragraph_number)
+        // must still hash on summary, not fall through to allegation_text.
+        let item = make_item(
+            "ComplaintAllegation",
+            serde_json::json!({ "summary": "v2 body text" }),
+        );
+        let id = stable_entity_id(&item, DOC_ID);
+        let expected_hash = &format!("{:x}", Sha256::digest(b"v2 body text"))[..8];
+        assert!(
+            id.ends_with(&format!(":para:hash-{expected_hash}")),
+            "v2 summary hash should drive the id; got {id}"
+        );
     }
 }

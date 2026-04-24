@@ -57,6 +57,14 @@ pub struct ReviewSummary {
     pub rejected: i64,
     pub edited: i64,
     pub total: i64,
+    /// Count of items approved/edited in PG that have not yet been written
+    /// to Neo4j (i.e., `neo4j_node_id IS NULL`). Non-zero only on post-
+    /// ingest documents — on pre-ingest docs the Ingest step writes
+    /// everything in one shot, so this is always 0.
+    ///
+    /// Drives the "Write N approved items to graph" button in the Review
+    /// panel after Phase 3 lands. Zero means no delta work pending.
+    pub pending_graph_write: i64,
 }
 
 #[derive(Debug, Serialize)]
@@ -156,9 +164,27 @@ async fn load_category_map(state: &AppState, doc_id: &str) -> HashMap<String, En
         .collect()
 }
 
-/// Check if a document status means items are locked (post-ingest).
+/// Check if a document status is post-ingest (Neo4j has been written).
 fn is_post_ingest(status: &str) -> bool {
     matches!(status, "INGESTED" | "INDEXED" | "PUBLISHED" | "COMPLETED")
+}
+
+/// Item-level review statuses that are locked once the document is post-ingest.
+///
+/// - `approved`: item was written to Neo4j by Ingest; flipping it back without
+///   reverting the graph would leave Neo4j and Postgres inconsistent.
+/// - `rejected`: preserves existing UX — `check_not_post_ingest` in
+///   `review.rs` gates `unreject` on post-ingest documents, so surfacing an
+///   unreject button here would just produce a 409.
+///
+/// `pending` and `edited` are intentionally NOT locked:
+/// - `pending` items were never ingested — safe to approve/reject/edit.
+/// - `edited` items are excluded from the Ingest SQL filter
+///   (`get_approved_items_for_document` matches `review_status = 'approved'`
+///   only), so they too are not in Neo4j. Leaving them unlocked lets the
+///   user finish the edit → approve flow post-publish.
+fn is_post_ingest_locked_status(review_status: &str) -> bool {
+    matches!(review_status.to_lowercase().as_str(), "approved" | "rejected")
 }
 
 /// GET /api/admin/pipeline/documents/:id/items
@@ -189,7 +215,7 @@ pub async fn list_items_handler(
         .ok_or_else(|| AppError::NotFound {
             message: format!("Document '{doc_id}' not found"),
         })?;
-    let locked = is_post_ingest(&document.status);
+    let doc_is_post_ingest = is_post_ingest(&document.status);
 
     // Load category map from schema
     let category_map = load_category_map(&state, &doc_id).await;
@@ -250,13 +276,29 @@ pub async fn list_items_handler(
             .await
             .unwrap_or(0);
 
-    // Enrich items with category, available_actions, locked, and legacy booleans
+    // Pending graph writes (approved/edited in PG, not yet in Neo4j).
+    // Only meaningful on post-ingest documents; skip the query otherwise
+    // to keep pre-ingest list responses cheap.
+    let pending_graph_write = if doc_is_post_ingest {
+        pipeline_repository::count_items_pending_graph_write(&state.pipeline_pool, &doc_id)
+            .await
+            .unwrap_or(0)
+    } else {
+        0
+    };
+
+    // Enrich items with category, available_actions, locked, and legacy booleans.
+    // `locked` is per-item: the doc must be post-ingest AND the item's review
+    // status must be in the lock set (approved/rejected). Pending/edited items
+    // remain actionable on post-ingest docs so the user can finish review.
     let enriched_items: Vec<ReviewItemResponse> = items
         .into_iter()
         .map(|item| {
             let category = category_map
                 .get(&item.entity_type)
                 .unwrap_or(&EntityCategory::Evidence);
+            let locked =
+                doc_is_post_ingest && is_post_ingest_locked_status(&item.review_status);
             let actions = compute_available_actions(category, &item.review_status, locked);
             let can_approve = actions.iter().any(|a| a == "approve" || a == "confirm");
             let can_reject = actions.iter().any(|a| a == "reject");
@@ -289,6 +331,7 @@ pub async fn list_items_handler(
             rejected: rejected_count,
             edited: edited_count,
             total: total_all,
+            pending_graph_write,
         },
         total,
         page,
@@ -374,6 +417,117 @@ mod tests {
     #[test]
     fn compute_item_actions_locked_approved() {
         let actions = compute_available_actions(&EntityCategory::Evidence, "approved", true);
+        assert!(actions.is_empty());
+    }
+
+    // ── Post-ingest lock set ─────────────────────────────────────
+
+    #[test]
+    fn post_ingest_lock_set_contains_approved_and_rejected() {
+        assert!(is_post_ingest_locked_status("approved"));
+        assert!(is_post_ingest_locked_status("rejected"));
+    }
+
+    #[test]
+    fn post_ingest_lock_set_excludes_pending_and_edited() {
+        // Pending items were never ingested — they must stay actionable
+        // on PUBLISHED docs so the user can review what the pipeline couldn't
+        // auto-approve.
+        assert!(!is_post_ingest_locked_status("pending"));
+        assert!(!is_post_ingest_locked_status(""));
+        // Edited items are excluded from get_approved_items_for_document
+        // (SQL filters review_status = 'approved' only), so they are NOT in
+        // Neo4j even on a "published" doc. Treat them like pending.
+        assert!(!is_post_ingest_locked_status("edited"));
+    }
+
+    #[test]
+    fn post_ingest_lock_set_is_case_insensitive() {
+        assert!(is_post_ingest_locked_status("APPROVED"));
+        assert!(is_post_ingest_locked_status("Rejected"));
+    }
+
+    #[test]
+    fn post_ingest_lock_set_rejects_unknown_status() {
+        // Defensive: unknown statuses shouldn't accidentally count as locked.
+        assert!(!is_post_ingest_locked_status("garbage"));
+        assert!(!is_post_ingest_locked_status("in_review"));
+    }
+
+    // ── is_post_ingest (document-level) ──────────────────────────
+
+    #[test]
+    fn is_post_ingest_true_for_ingested_indexed_published_completed() {
+        assert!(is_post_ingest("INGESTED"));
+        assert!(is_post_ingest("INDEXED"));
+        assert!(is_post_ingest("PUBLISHED"));
+        assert!(is_post_ingest("COMPLETED"));
+    }
+
+    #[test]
+    fn is_post_ingest_false_for_pre_ingest_statuses() {
+        assert!(!is_post_ingest("NEW"));
+        assert!(!is_post_ingest("EXTRACTED"));
+        assert!(!is_post_ingest("VERIFIED"));
+        assert!(!is_post_ingest("TEXT_EXTRACTED"));
+    }
+
+    // ── Integration: (doc_status, review_status) → effective lock ─
+    //
+    // These exercise the exact expression the handler builds:
+    //   locked = doc_is_post_ingest && is_post_ingest_locked_status(rs)
+    // Table-driven so the matrix is visible in one place.
+
+    #[test]
+    fn effective_lock_matrix() {
+        #[derive(Debug)]
+        struct Case {
+            doc_status: &'static str,
+            review_status: &'static str,
+            expect_locked: bool,
+        }
+        let cases = [
+            // Pre-ingest docs — nothing is locked regardless of item status.
+            Case { doc_status: "VERIFIED", review_status: "pending",  expect_locked: false },
+            Case { doc_status: "VERIFIED", review_status: "approved", expect_locked: false },
+            Case { doc_status: "VERIFIED", review_status: "rejected", expect_locked: false },
+            Case { doc_status: "VERIFIED", review_status: "edited",   expect_locked: false },
+            // Post-ingest docs — approved and rejected lock, pending and edited do not.
+            Case { doc_status: "PUBLISHED", review_status: "pending",  expect_locked: false },
+            Case { doc_status: "PUBLISHED", review_status: "approved", expect_locked: true  },
+            Case { doc_status: "PUBLISHED", review_status: "rejected", expect_locked: true  },
+            Case { doc_status: "PUBLISHED", review_status: "edited",   expect_locked: false },
+            Case { doc_status: "INGESTED",  review_status: "pending",  expect_locked: false },
+            Case { doc_status: "INGESTED",  review_status: "approved", expect_locked: true  },
+        ];
+        for c in cases {
+            let locked = is_post_ingest(c.doc_status) && is_post_ingest_locked_status(c.review_status);
+            assert_eq!(
+                locked, c.expect_locked,
+                "case {:?}: expected locked={}, got {}", c, c.expect_locked, locked
+            );
+        }
+    }
+
+    #[test]
+    fn pending_on_published_gets_pending_actions() {
+        // Full path: a pending Evidence item on a PUBLISHED document must
+        // offer approve/reject/edit. This is the fix for Roman's 57 stuck
+        // ComplaintAllegations.
+        let locked = is_post_ingest("PUBLISHED") && is_post_ingest_locked_status("pending");
+        assert!(!locked);
+        let actions = compute_available_actions(&EntityCategory::Evidence, "pending", locked);
+        assert!(actions.contains(&"approve".to_string()));
+        assert!(actions.contains(&"reject".to_string()));
+        assert!(actions.contains(&"edit".to_string()));
+    }
+
+    #[test]
+    fn approved_on_published_gets_no_actions() {
+        // Regression guard: already-ingested items stay read-only.
+        let locked = is_post_ingest("PUBLISHED") && is_post_ingest_locked_status("approved");
+        assert!(locked);
+        let actions = compute_available_actions(&EntityCategory::Evidence, "approved", locked);
         assert!(actions.is_empty());
     }
 }

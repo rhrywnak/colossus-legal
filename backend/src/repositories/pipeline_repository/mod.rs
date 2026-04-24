@@ -219,6 +219,34 @@ pub async fn update_document_write_counts(
     Ok(())
 }
 
+/// Additive counterpart to `update_document_write_counts` for delta ingest.
+///
+/// Delta runs top up the graph with newly-approved items; the counts
+/// shown in the UI should reflect cumulative totals across the original
+/// Ingest plus every subsequent delta. Use `COALESCE` so a NULL starting
+/// value (unlikely but possible) degrades to zero rather than leaving
+/// the row unchanged.
+pub async fn add_document_write_counts(
+    pool: &PgPool,
+    document_id: &str,
+    delta_entities: i32,
+    delta_relationships: i32,
+) -> Result<(), PipelineRepoError> {
+    sqlx::query(
+        "UPDATE documents \
+         SET entities_written = COALESCE(entities_written, 0) + $2, \
+             relationships_written = COALESCE(relationships_written, 0) + $3, \
+             updated_at = NOW() \
+         WHERE id = $1",
+    )
+    .bind(document_id)
+    .bind(delta_entities)
+    .bind(delta_relationships)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 /// Update document status and set updated_at to now.
 pub async fn update_document_status(
     pool: &PgPool,

@@ -27,6 +27,43 @@ use super::ingest_helpers::{
 };
 use super::ingest_resolver::{self, ResolutionSummary};
 
+/// Acquire a PostgreSQL session-scoped advisory lock keyed on `doc_id`.
+///
+/// Prevents two ingest operations (full, delta, or mixed) from racing
+/// on the same document. Returns `true` on successful acquisition; the
+/// caller must call `release_ingest_lock` when done. `false` means
+/// another session holds the lock — fail fast with a 409.
+///
+/// Session-scoped (`pg_try_advisory_lock`, not xact-scoped) because the
+/// lock must span multiple sqlx calls including the Neo4j txn commit,
+/// not a single PG transaction.
+async fn try_acquire_ingest_lock(
+    pool: &sqlx::PgPool,
+    doc_id: &str,
+) -> Result<bool, AppError> {
+    let acquired: bool = sqlx::query_scalar("SELECT pg_try_advisory_lock(hashtext($1)::bigint)")
+        .bind(doc_id)
+        .fetch_one(pool)
+        .await
+        .map_err(|e| AppError::Internal {
+            message: format!("Advisory lock query failed: {e}"),
+        })?;
+    Ok(acquired)
+}
+
+/// Release the session-scoped advisory lock taken by
+/// `try_acquire_ingest_lock`. Best-effort: logs on failure but does not
+/// propagate errors (the lock auto-releases when the session ends).
+async fn release_ingest_lock(pool: &sqlx::PgPool, doc_id: &str) {
+    if let Err(e) = sqlx::query("SELECT pg_advisory_unlock(hashtext($1)::bigint)")
+        .bind(doc_id)
+        .execute(pool)
+        .await
+    {
+        tracing::warn!(doc_id, error = %e, "Failed to release ingest advisory lock");
+    }
+}
+
 // ── Response DTOs ───────────────────────────────────────────────
 
 #[derive(Debug, Serialize)]
@@ -66,13 +103,61 @@ pub struct RelCounts {
     pub total: usize,
 }
 
+/// Response DTO for delta ingest — written as a superset of
+/// [`IngestResponse`] fields that mean something in the delta case.
+///
+/// `items_already_in_graph` reports how many approved items were skipped
+/// because they already had a `neo4j_node_id`. Non-zero means previous
+/// Ingest (full or delta) runs wrote them; this run correctly treated
+/// them as existing state.
+///
+/// `index_response` is populated when the inline Index run succeeds;
+/// absent if indexing was skipped or failed softly (logged as a warn,
+/// not propagated — delta's primary invariant is Neo4j correctness).
+#[derive(Debug, Serialize)]
+pub struct IngestDeltaResponse {
+    pub document_id: String,
+    pub status: String,
+    pub neo4j_document_id: String,
+    pub nodes_written: NodeCounts,
+    pub relationships_written: RelCounts,
+    pub items_already_in_graph: usize,
+    pub skipped_relationships: usize,
+    pub duration_secs: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub index_response: Option<super::index::IndexResponse>,
+}
+
 // ── Handler ─────────────────────────────────────────────────────
 
 /// Core logic for graph ingest — callable from handler AND process endpoint.
 ///
 /// Writes approved extraction items to Neo4j with entity resolution.
 /// Does NOT check document status — caller is responsible for validation.
+///
+/// Serialises with other ingest operations on the same document via a
+/// PostgreSQL session-scoped advisory lock. Concurrent callers receive
+/// an `AppError::Conflict` rather than racing on Neo4j writes.
 pub(crate) async fn run_ingest(
+    state: &AppState,
+    doc_id: &str,
+    username: &str,
+) -> Result<IngestResponse, AppError> {
+    if !try_acquire_ingest_lock(&state.pipeline_pool, doc_id).await? {
+        return Err(AppError::Conflict {
+            message: format!("Another ingest is running for document '{doc_id}'"),
+            details: serde_json::json!({ "document_id": doc_id }),
+        });
+    }
+    let result = run_ingest_locked(state, doc_id, username).await;
+    release_ingest_lock(&state.pipeline_pool, doc_id).await;
+    result
+}
+
+/// Inner body of `run_ingest` — runs with the advisory lock already held.
+/// Never call this directly; always go through `run_ingest` so the lock
+/// lifetime is correct.
+async fn run_ingest_locked(
     state: &AppState,
     doc_id: &str,
     username: &str,
@@ -426,6 +511,475 @@ pub async fn ingest_handler(
     }
 
     let result = run_ingest(&state, &doc_id, &user.username).await?;
+    Ok(Json(result))
+}
+
+// ── Delta ingest ────────────────────────────────────────────────
+
+/// Core logic for delta (incremental) graph ingest — writes only items
+/// whose `neo4j_node_id` is NULL into the already-populated graph.
+///
+/// Skips `cleanup_neo4j`. Seeds `pg_to_neo4j` from `get_existing_item_neo4j_map`
+/// so same-document relationships between new and existing items resolve
+/// without falling through to the cross-document lookup path.
+/// Cross-document pass-2 edges originating from other documents are NOT
+/// swept here — that's Phase 3b.
+///
+/// Status-preserving: does NOT update `documents.status`. The caller
+/// (post-ingest doc) stays at its current status.
+///
+/// Serialised with full `run_ingest` and other delta calls via the shared
+/// advisory lock.
+pub(crate) async fn run_ingest_delta(
+    state: &AppState,
+    doc_id: &str,
+    username: &str,
+) -> Result<IngestDeltaResponse, AppError> {
+    if !try_acquire_ingest_lock(&state.pipeline_pool, doc_id).await? {
+        return Err(AppError::Conflict {
+            message: format!("Another ingest is running for document '{doc_id}'"),
+            details: serde_json::json!({ "document_id": doc_id }),
+        });
+    }
+    let result = run_ingest_delta_locked(state, doc_id, username).await;
+    release_ingest_lock(&state.pipeline_pool, doc_id).await;
+    result
+}
+
+/// Inner body of `run_ingest_delta` — lock already held.
+async fn run_ingest_delta_locked(
+    state: &AppState,
+    doc_id: &str,
+    username: &str,
+) -> Result<IngestDeltaResponse, AppError> {
+    let start = std::time::Instant::now();
+
+    let step_id = steps::record_step_start(
+        &state.pipeline_pool,
+        doc_id,
+        "ingest_delta",
+        username,
+        &serde_json::json!({}),
+    )
+    .await
+    .map_err(|e| AppError::Internal {
+        message: format!("Step logging: {e}"),
+    })?;
+
+    // 1. Fetch document — must exist
+    let document = pipeline_repository::get_document(&state.pipeline_pool, doc_id)
+        .await
+        .map_err(|e| AppError::Internal {
+            message: format!("DB error: {e}"),
+        })?
+        .ok_or_else(|| AppError::NotFound {
+            message: format!("Document '{doc_id}' not found"),
+        })?;
+
+    // 2. Items awaiting graph write (approved/edited, neo4j_node_id NULL).
+    //    If empty → early return; no txn, no work.
+    let delta_items =
+        pipeline_repository::get_items_pending_graph_write(&state.pipeline_pool, doc_id)
+            .await
+            .map_err(|e| AppError::Internal {
+                message: format!("DB error: {e}"),
+            })?;
+
+    // Existing map (all items in this doc that already have a neo4j id).
+    // Needed for relationship endpoint resolution AND for the skipped
+    // count in the response.
+    let existing_map_rows =
+        pipeline_repository::get_existing_item_neo4j_map(&state.pipeline_pool, doc_id)
+            .await
+            .map_err(|e| AppError::Internal {
+                message: format!("DB error: {e}"),
+            })?;
+    let items_already_in_graph = existing_map_rows.len();
+
+    if delta_items.is_empty() {
+        tracing::info!(
+            doc_id = %doc_id,
+            items_already_in_graph,
+            "Delta ingest: no items pending graph write — no-op"
+        );
+        let duration = start.elapsed().as_secs_f64();
+        steps::record_step_complete(
+            &state.pipeline_pool,
+            step_id,
+            duration,
+            &serde_json::json!({
+                "nodes_written": 0,
+                "relationships_written": 0,
+                "items_already_in_graph": items_already_in_graph,
+                "skipped_relationships": 0,
+            }),
+        )
+        .await
+        .ok();
+        return Ok(IngestDeltaResponse {
+            document_id: doc_id.to_string(),
+            status: document.status,
+            neo4j_document_id: super::ingest_helpers::slug(doc_id),
+            nodes_written: NodeCounts {
+                document: 0,
+                person: 0,
+                organization: 0,
+                by_type: HashMap::new(),
+                total: 0,
+            },
+            relationships_written: RelCounts {
+                by_type: HashMap::new(),
+                contained_in: 0,
+                total: 0,
+            },
+            items_already_in_graph,
+            skipped_relationships: 0,
+            duration_secs: duration,
+            index_response: None,
+        });
+    }
+
+    // 3. Fetch all approved relationships across both passes. We'll
+    //    skip any whose endpoints can't be resolved (still-PENDING
+    //    items, or cross-doc endpoints we haven't written yet).
+    let relationships = pipeline_repository::get_approved_relationships_for_document_all_passes(
+        &state.pipeline_pool,
+        doc_id,
+    )
+    .await
+    .map_err(|e| AppError::Internal {
+        message: format!("DB error: {e}"),
+    })?;
+
+    tracing::info!(
+        doc_id = %doc_id,
+        delta_items = delta_items.len(),
+        rels = relationships.len(),
+        items_already_in_graph,
+        "Delta ingest: fetched extraction data"
+    );
+
+    // 4. Entity resolution against existing Neo4j Parties.
+    let existing_parties = ingest_resolver::fetch_existing_parties(&state.graph).await?;
+    let (resolution_map, _resolution_summary) =
+        ingest_resolver::resolve_parties(&delta_items, &existing_parties).await?;
+
+    // 5. Open Neo4j txn.
+    let mut txn = state
+        .graph
+        .start_txn()
+        .await
+        .map_err(|e| AppError::Internal {
+            message: format!("Failed to start Neo4j transaction: {e}"),
+        })?;
+
+    // pg_to_neo4j starts with EVERY already-written item on this doc,
+    // so same-doc relationships between new and old items resolve.
+    let mut pg_to_neo4j: HashMap<i32, String> = existing_map_rows.into_iter().collect();
+    let mut newly_written_node_ids: Vec<String> = Vec::new();
+
+    // 6. MERGE the Document node (idempotent — no-op update on a
+    //    document that already exists in Neo4j).
+    let doc_type = document.document_type.clone();
+    let doc_neo4j_id =
+        create_document_node(&mut txn, doc_id, &document.title, &doc_type).await?;
+
+    // 7. Party nodes (MERGE). create_party_nodes filters the Party
+    //    family itself; it iterates `delta_items` so only new Parties
+    //    are processed. Existing parties already resolved from
+    //    resolution_map → MERGE is a no-op.
+    let mut pg_to_label: HashMap<i32, String> = HashMap::new();
+    // Snapshot current pg_to_neo4j keys so we can identify which Party
+    // IDs create_party_nodes added (existing ones are unchanged).
+    let keys_before_parties: std::collections::HashSet<i32> =
+        pg_to_neo4j.keys().copied().collect();
+    let (person_count, org_count) = create_party_nodes(
+        &mut txn,
+        &delta_items,
+        doc_id,
+        &mut pg_to_neo4j,
+        &mut pg_to_label,
+        &resolution_map,
+    )
+    .await?;
+    {
+        let mut seen = std::collections::HashSet::new();
+        for (id, neo_id) in pg_to_neo4j.iter() {
+            if !keys_before_parties.contains(id) && seen.insert(neo_id.clone()) {
+                newly_written_node_ids.push(neo_id.clone());
+            }
+        }
+    }
+
+    // 8. Non-Party delta entity nodes.
+    let mut entity_type_counts: HashMap<String, usize> = HashMap::new();
+    let mut entity_seq: HashMap<String, usize> = HashMap::new();
+    for item in delta_items
+        .iter()
+        .filter(|i| !matches!(i.entity_type.as_str(), "Party" | "Person" | "Organization"))
+    {
+        let seq = entity_seq.entry(item.entity_type.clone()).or_insert(0);
+        *seq += 1;
+        let neo4j_id = create_entity_node(&mut txn, item, doc_id, *seq).await?;
+        pg_to_neo4j.insert(item.id, neo4j_id.clone());
+        newly_written_node_ids.push(neo4j_id);
+        *entity_type_counts
+            .entry(item.entity_type.clone())
+            .or_insert(0) += 1;
+    }
+
+    // 9. Cross-document endpoint resolution. Any relationship endpoint
+    //    not in local pg_to_neo4j (which now includes all same-doc
+    //    written items, old and new) is looked up in
+    //    extraction_items.neo4j_node_id.
+    let mut cross_doc_endpoints: std::collections::HashSet<i32> =
+        std::collections::HashSet::new();
+    for rel in &relationships {
+        if !pg_to_neo4j.contains_key(&rel.from_item_id) {
+            cross_doc_endpoints.insert(rel.from_item_id);
+        }
+        if !pg_to_neo4j.contains_key(&rel.to_item_id) {
+            cross_doc_endpoints.insert(rel.to_item_id);
+        }
+    }
+    let cross_doc_ids: Vec<i32> = cross_doc_endpoints.into_iter().collect();
+    let cross_doc_neo4j_ids: HashMap<i32, String> =
+        pipeline_repository::lookup_neo4j_node_ids(&state.pipeline_pool, &cross_doc_ids)
+            .await
+            .map_err(|e| AppError::Internal {
+                message: format!("lookup_neo4j_node_ids: {e}"),
+            })?
+            .into_iter()
+            .collect();
+
+    // 10. Relationships. MERGE is idempotent for existing+existing
+    //     edges; skip any relationship whose endpoint can't be
+    //     resolved from either local or cross-doc maps (happens for
+    //     pass-2 edges whose other endpoint is still PENDING).
+    let mut rel_type_counts: HashMap<String, usize> = HashMap::new();
+    let mut skipped_relationships = 0usize;
+    for rel in &relationships {
+        let from_neo = pg_to_neo4j
+            .get(&rel.from_item_id)
+            .or_else(|| cross_doc_neo4j_ids.get(&rel.from_item_id));
+        let to_neo = pg_to_neo4j
+            .get(&rel.to_item_id)
+            .or_else(|| cross_doc_neo4j_ids.get(&rel.to_item_id));
+        match (from_neo, to_neo) {
+            (Some(from), Some(to)) => {
+                create_ingest_relationship(&mut txn, from, to, &rel.relationship_type).await?;
+                *rel_type_counts
+                    .entry(rel.relationship_type.clone())
+                    .or_insert(0) += 1;
+            }
+            _ => {
+                skipped_relationships += 1;
+                tracing::debug!(
+                    doc_id = %doc_id,
+                    from = rel.from_item_id,
+                    to = rel.to_item_id,
+                    rel_type = %rel.relationship_type,
+                    "Delta ingest skipped relationship — endpoint unresolved (PENDING?)"
+                );
+            }
+        }
+    }
+
+    // 11. Provenance DERIVED_FROM — the para_to_item_id builder scans
+    //     the delta items. It won't find already-written ComplaintAllegations
+    //     by that path, so we pass ALL items (delta + existing) for the
+    //     map build but pg_to_neo4j already has the full set.
+    //
+    //     To get already-written ComplaintAllegations' properties for
+    //     the map build, we'd need another query. For Phase 3 v1,
+    //     provenance only resolves when the Harm AND its referenced
+    //     allegations are in the same delta batch. This is usually the
+    //     case (bulk-approve all pending items at once); flagged as a
+    //     Phase 3b tightening.
+    let derived_from_count =
+        create_provenance_relationships(&mut txn, &delta_items, &pg_to_neo4j).await?;
+    if derived_from_count > 0 {
+        *rel_type_counts
+            .entry("DERIVED_FROM".to_string())
+            .or_insert(0) += derived_from_count;
+    }
+
+    // 12. CONTAINED_IN for newly-written nodes only.
+    let contained_in_count =
+        create_contained_in_relationships(&mut txn, &newly_written_node_ids, &doc_neo4j_id)
+            .await?;
+
+    // 13. Commit.
+    txn.commit().await.map_err(|e| AppError::Internal {
+        message: format!("Neo4j transaction commit failed: {e}"),
+    })?;
+
+    let entity_node_total: usize = entity_type_counts.values().sum();
+    let delta_nodes_total = person_count + org_count + entity_node_total;
+    let rel_type_total: usize = rel_type_counts.values().sum();
+    let delta_rels_total = rel_type_total + contained_in_count;
+
+    // 14. Additive write counts. Preserves the original ingest totals
+    //     and adds the delta contribution.
+    pipeline_repository::add_document_write_counts(
+        &state.pipeline_pool,
+        doc_id,
+        delta_nodes_total as i32,
+        delta_rels_total as i32,
+    )
+    .await
+    .map_err(|e| AppError::Internal {
+        message: format!("Failed to update write counts: {e}"),
+    })?;
+
+    // 15. Persist neo4j_node_id lineage for newly-written items.
+    //     Already-mapped items in pg_to_neo4j were seeded from the DB;
+    //     writing them back is a no-op identity update.
+    let mappings: Vec<(i32, String)> = pg_to_neo4j
+        .iter()
+        .map(|(id, neo4j_id)| (*id, neo4j_id.clone()))
+        .collect();
+    pipeline_repository::batch_update_neo4j_node_ids(&state.pipeline_pool, &mappings)
+        .await
+        .map_err(|e| AppError::Internal {
+            message: format!("Failed to persist neo4j_node_id lineage: {e}"),
+        })?;
+
+    // 16. Sync resolved_entity_type for any Party → Person/Organization
+    //     in the delta set.
+    for item in &delta_items {
+        if let Some(actual_label) = pg_to_label.get(&item.id) {
+            if actual_label != &item.entity_type {
+                pipeline_repository::update_item_entity_type(
+                    &state.pipeline_pool,
+                    item.id,
+                    actual_label,
+                )
+                .await
+                .map_err(|e| AppError::Internal {
+                    message: format!("update_item_entity_type (item {}): {e}", item.id),
+                })?;
+            }
+        }
+    }
+
+    // 17. Inline Index trigger. Uses run_index_core (status-agnostic)
+    //     so a PUBLISHED/COMPLETED document isn't regressed to INDEXED.
+    //     Soft-fail: log on error but don't propagate — the primary
+    //     invariant (Neo4j state correct) is already satisfied.
+    let index_response = match super::index::run_index_core(state, doc_id, username).await {
+        Ok(r) => Some(r),
+        Err(e) => {
+            tracing::warn!(
+                doc_id = %doc_id,
+                error = ?e,
+                "Delta ingest: inline Index failed — items in graph but not re-indexed. Run Index manually."
+            );
+            None
+        }
+    };
+
+    let duration = start.elapsed().as_secs_f64();
+
+    tracing::info!(
+        doc_id = %doc_id,
+        delta_nodes_total,
+        delta_rels_total,
+        items_already_in_graph,
+        skipped_relationships,
+        duration_secs = format!("{duration:.2}"),
+        "Delta ingest complete"
+    );
+
+    log_admin_action(
+        &state.audit_repo,
+        username,
+        "pipeline.document.ingest_delta",
+        Some("document"),
+        Some(doc_id),
+        Some(serde_json::json!({
+            "nodes": delta_nodes_total,
+            "relationships": delta_rels_total,
+            "items_already_in_graph": items_already_in_graph,
+            "skipped_relationships": skipped_relationships,
+        })),
+    )
+    .await;
+
+    steps::record_step_complete(
+        &state.pipeline_pool,
+        step_id,
+        duration,
+        &serde_json::json!({
+            "nodes_written": delta_nodes_total,
+            "relationships_written": delta_rels_total,
+            "items_already_in_graph": items_already_in_graph,
+            "skipped_relationships": skipped_relationships,
+            "derived_from": derived_from_count,
+        }),
+    )
+    .await
+    .ok();
+
+    Ok(IngestDeltaResponse {
+        document_id: doc_id.to_string(),
+        status: document.status,
+        neo4j_document_id: doc_neo4j_id,
+        nodes_written: NodeCounts {
+            document: 0,
+            person: person_count,
+            organization: org_count,
+            by_type: entity_type_counts,
+            total: delta_nodes_total,
+        },
+        relationships_written: RelCounts {
+            by_type: rel_type_counts,
+            contained_in: contained_in_count,
+            total: delta_rels_total,
+        },
+        items_already_in_graph,
+        skipped_relationships,
+        duration_secs: duration,
+        index_response,
+    })
+}
+
+/// POST /api/admin/pipeline/documents/:id/ingest-delta
+///
+/// HTTP handler — thin wrapper around `run_ingest_delta`.
+/// Requires admin auth and a post-ingest document status.
+pub async fn ingest_delta_handler(
+    user: AuthUser,
+    State(state): State<AppState>,
+    Path(doc_id): Path<String>,
+) -> Result<Json<IngestDeltaResponse>, AppError> {
+    require_admin(&user)?;
+    tracing::info!(user = %user.username, doc_id = %doc_id, "POST ingest-delta");
+
+    let document = pipeline_repository::get_document(&state.pipeline_pool, &doc_id)
+        .await
+        .map_err(|e| AppError::Internal {
+            message: format!("DB error: {e}"),
+        })?
+        .ok_or_else(|| AppError::NotFound {
+            message: format!("Document '{doc_id}' not found"),
+        })?;
+
+    // Delta ingest is meaningful only after a full ingest has run.
+    if !matches!(
+        document.status.as_str(),
+        "INGESTED" | "INDEXED" | "PUBLISHED" | "COMPLETED"
+    ) {
+        return Err(AppError::Conflict {
+            message: format!(
+                "Cannot run delta ingest: status is '{}', expected INGESTED | INDEXED | PUBLISHED | COMPLETED",
+                document.status
+            ),
+            details: serde_json::json!({ "status": document.status }),
+        });
+    }
+
+    let result = run_ingest_delta(&state, &doc_id, &user.username).await?;
     Ok(Json(result))
 }
 

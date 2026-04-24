@@ -47,7 +47,7 @@ pub use delete::delete_document;
 pub use extract_text::extract_text;
 pub use history::history_handler;
 pub use index::index_handler;
-pub use ingest::ingest_handler;
+pub use ingest::{ingest_delta_handler, ingest_handler};
 pub use report::report_handler;
 pub use upload::upload_document;
 pub use verify::verify_handler;
@@ -91,6 +91,7 @@ pub fn router() -> Router<AppState> {
         .route("/documents/:id/cancel", post(process::cancel_handler))
         .route("/documents/:id/verify", post(verify_handler))
         .route("/documents/:id/ingest", post(ingest_handler))
+        .route("/documents/:id/ingest-delta", post(ingest_delta_handler))
         .route("/documents/:id/index", post(index_handler))
         .route("/documents/:id/completeness", get(completeness_handler))
         .route("/documents/:id/report", get(report_handler))

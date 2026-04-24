@@ -58,11 +58,15 @@ pub struct IndexResponse {
 
 // ── Handler ─────────────────────────────────────────────────────
 
-/// Core logic for vector indexing — callable from handler AND process endpoint.
+/// Status-agnostic core: embed all Neo4j nodes for a document and
+/// upsert to Qdrant. Does NOT update `documents.status`.
 ///
-/// Embeds all Neo4j nodes for a document and upserts to Qdrant.
-/// Does NOT check document status — caller is responsible for validation.
-pub(crate) async fn run_index(
+/// Callers:
+/// - `run_index` wraps this and updates status to `INDEXED` afterward
+///   (the full-pipeline path).
+/// - `ingest::run_ingest_delta` calls this directly to avoid flipping a
+///   PUBLISHED/COMPLETED document backward to `INDEXED`.
+pub(crate) async fn run_index_core(
     state: &AppState,
     doc_id: &str,
     username: &str,
@@ -204,13 +208,6 @@ pub(crate) async fn run_index(
             message: format!("Qdrant upsert error: {e}"),
         })?;
 
-    // 9. Update pipeline document status → INDEXED
-    pipeline_repository::update_document_status(&state.pipeline_pool, doc_id, "INDEXED")
-        .await
-        .map_err(|e| AppError::Internal {
-            message: format!("Failed to update document status: {e}"),
-        })?;
-
     let duration = start.elapsed().as_secs_f64();
     tracing::info!(
         doc_id = %doc_id, embedded_count, duration_secs = format!("{duration:.2}"),
@@ -245,6 +242,25 @@ pub(crate) async fn run_index(
         duration_secs: duration,
         errors,
     })
+}
+
+/// Full-pipeline wrapper: run the core embedding/upsert logic, then
+/// flip `documents.status` to `INDEXED` so the FSM can advance.
+///
+/// Delta ingest must NOT call this — it would regress a published doc's
+/// status. Delta calls `run_index_core` directly.
+pub(crate) async fn run_index(
+    state: &AppState,
+    doc_id: &str,
+    username: &str,
+) -> Result<IndexResponse, AppError> {
+    let result = run_index_core(state, doc_id, username).await?;
+    pipeline_repository::update_document_status(&state.pipeline_pool, doc_id, "INDEXED")
+        .await
+        .map_err(|e| AppError::Internal {
+            message: format!("Failed to update document status: {e}"),
+        })?;
+    Ok(result)
 }
 
 /// POST /api/admin/pipeline/documents/:id/index

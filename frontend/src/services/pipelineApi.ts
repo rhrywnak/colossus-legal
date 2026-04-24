@@ -151,7 +151,8 @@ export interface ExtractionItem {
   available_actions?: string[];
   /** Graph write status: 'pending', 'written', 'flagged' */
   graph_status?: string;
-  /** True if the document is post-ingest (items locked). */
+  /** True if this item is already written to the graph and cannot be modified.
+   *  Per-item: pending/edited items remain actionable even on PUBLISHED docs. */
   locked?: boolean;
 }
 
@@ -161,6 +162,31 @@ export interface ReviewSummary {
   rejected: number;
   edited: number;
   total: number;
+  /** Items approved/edited in PG but not yet written to Neo4j.
+   *  Non-zero only on post-ingest docs — drives the delta-ingest button. */
+  pending_graph_write: number;
+}
+
+export interface IngestDeltaResponse {
+  document_id: string;
+  status: string;
+  neo4j_document_id: string;
+  nodes_written: {
+    document: number;
+    person: number;
+    organization: number;
+    by_type: Record<string, number>;
+    total: number;
+  };
+  relationships_written: {
+    by_type: Record<string, number>;
+    contained_in: number;
+    total: number;
+  };
+  items_already_in_graph: number;
+  skipped_relationships: number;
+  duration_secs: number;
+  index_response?: unknown;
 }
 
 export interface ItemsResponse {
@@ -448,6 +474,21 @@ export async function bulkApprove(docId: string, filter: "grounded" | "all"): Pr
     ...LONG_TIMEOUT,
   });
   if (!res.ok) throw new Error(`Bulk approve failed: ${res.status}`);
+  return res.json();
+}
+
+/** Delta ingest — writes newly-approved items on a published document
+ *  into Neo4j without disturbing existing state. Triggers an inline
+ *  Index re-run so Qdrant stays consistent. Long-running. */
+export async function ingestDelta(docId: string): Promise<IngestDeltaResponse> {
+  const res = await authFetch(`${PIPELINE_BASE}/documents/${docId}/ingest-delta`, {
+    method: "POST",
+    ...LONG_TIMEOUT,
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`Delta ingest failed: ${res.status}${body ? ` — ${body}` : ""}`);
+  }
   return res.json();
 }
 

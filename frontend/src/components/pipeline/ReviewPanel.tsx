@@ -10,7 +10,7 @@ import PdfViewer from "../shared/PdfViewer";
 import { useResizablePanes } from "../../hooks/useResizablePanes";
 import {
   fetchDocumentItems, approveItem, rejectItem, editItem, bulkApprove,
-  unapproveItem, unrejectItem,
+  unapproveItem, unrejectItem, ingestDelta,
   ExtractionItem, ReviewSummary,
 } from "../../services/pipelineApi";
 import { getColor } from "../../hooks/useSchema";
@@ -171,8 +171,11 @@ const ReviewPanel: React.FC<ReviewPanelProps> = ({ documentId, pdfUrl }) => {
   }, [items]);
   const hasFoundation = foundationItems.length > 0;
 
-  // Check global locked state
-  const allLocked = items.length > 0 && items.every((it) => it.locked === true);
+  // Any locked items? Drives the "some items are read-only" context note.
+  // Unlike the old allLocked flag, this does NOT hide the bulk-approve button
+  // or the per-item actions — those are gated by the backend's per-item
+  // `locked` field so pending items stay actionable on PUBLISHED docs.
+  const anyLocked = items.some((it) => it.locked === true);
 
   const selectedItem = items.find((it) => it.id === selectedId) ?? null;
   const highlightText = selectedItem?.verbatim_quote ?? null;
@@ -221,6 +224,8 @@ const ReviewPanel: React.FC<ReviewPanelProps> = ({ documentId, pdfUrl }) => {
   };
 
   const [bulkMsg, setBulkMsg] = useState<string | null>(null);
+  const [deltaBusy, setDeltaBusy] = useState(false);
+  const [deltaMsg, setDeltaMsg] = useState<string | null>(null);
 
   const handleBulkApprove = async () => {
     setBulkMsg(null);
@@ -235,6 +240,25 @@ const ReviewPanel: React.FC<ReviewPanelProps> = ({ documentId, pdfUrl }) => {
         setBulkMsg(`Approved all ${result.approved_count} items.`);
       }
     } catch { /* silent */ }
+  };
+
+  const handleIngestDelta = async () => {
+    setDeltaBusy(true);
+    setDeltaMsg(null);
+    try {
+      const result = await ingestDelta(documentId);
+      await loadItems();
+      const nodes = result.nodes_written.total;
+      const rels = result.relationships_written.total;
+      const skipped = result.skipped_relationships;
+      const base = `Wrote ${nodes} node${nodes === 1 ? "" : "s"} and ${rels} relationship${rels === 1 ? "" : "s"} to graph.`;
+      const extra = skipped > 0 ? ` ${skipped} relationship${skipped === 1 ? "" : "s"} deferred (endpoint still pending).` : "";
+      setDeltaMsg(base + extra);
+    } catch (e) {
+      setDeltaMsg(e instanceof Error ? e.message : "Delta ingest failed");
+    } finally {
+      setDeltaBusy(false);
+    }
   };
 
   if (loading && items.length === 0) {
@@ -252,11 +276,13 @@ const ReviewPanel: React.FC<ReviewPanelProps> = ({ documentId, pdfUrl }) => {
     }}>
       {/* Left pane: items list */}
       <div style={{ width: `${splitPercent}%`, overflow: "auto", padding: "0.75rem", backgroundColor: "#fafbfc" }}>
-        {/* Locked banner */}
-        {allLocked && (
+        {/* Soft context note — shows when some items are already in the graph.
+            Pending items remain actionable; only approved/rejected items are
+            read-only post-ingest. */}
+        {anyLocked && (
           <div style={{ padding: "0.5rem 0.75rem", marginBottom: "0.5rem", borderRadius: "6px",
-            backgroundColor: "#fef3c7", border: "1px solid #fde68a", fontSize: "0.76rem", color: "#92400e" }}>
-            Items are locked (post-ingest). To modify, revert ingest from the Processing tab.
+            backgroundColor: "#eff6ff", border: "1px solid #bfdbfe", fontSize: "0.76rem", color: "#1e40af" }}>
+            Items already written to the graph are read-only. Pending items can still be approved, rejected, or edited. To modify ingested items, revert ingest from the Processing tab.
           </div>
         )}
 
@@ -280,13 +306,32 @@ const ReviewPanel: React.FC<ReviewPanelProps> = ({ documentId, pdfUrl }) => {
           </span>
           <span style={{ fontSize: "0.76rem", color: "#166534" }}>{approved} approved</span>
           <span style={{ fontSize: "0.76rem", color: "#991b1b" }}>{rejected} rejected</span>
-          {!allLocked && (
-            <button style={actionBtn("#ecfdf5", "#047857", "#a7f3d0")} onClick={handleBulkApprove}>
-              Approve All Grounded
-            </button>
-          )}
+          {/* Bulk approve is always available — the backend filters the
+              update to pending items only, so on PUBLISHED docs this only
+              affects the still-reviewable set, not the ingested ones. */}
+          <button style={actionBtn("#ecfdf5", "#047857", "#a7f3d0")} onClick={handleBulkApprove}>
+            Approve All Grounded
+          </button>
           {bulkMsg && (
             <span style={{ fontSize: "0.72rem", color: "#047857", fontStyle: "italic" }}>{bulkMsg}</span>
+          )}
+          {/* Delta ingest — visible only when there are approved/edited
+              items still missing from Neo4j. Backend returns this count
+              as summary.pending_graph_write. */}
+          {(summary?.pending_graph_write ?? 0) > 0 && (
+            <button
+              style={{ ...actionBtn("#eff6ff", "#1d4ed8", "#bfdbfe"), opacity: deltaBusy ? 0.6 : 1 }}
+              onClick={handleIngestDelta}
+              disabled={deltaBusy}
+              title="Write approved items that aren't yet in the graph"
+            >
+              {deltaBusy
+                ? "Writing to graph…"
+                : `Write ${summary?.pending_graph_write} approved item${(summary?.pending_graph_write ?? 0) === 1 ? "" : "s"} to graph`}
+            </button>
+          )}
+          {deltaMsg && (
+            <span style={{ fontSize: "0.72rem", color: "#1d4ed8", fontStyle: "italic" }}>{deltaMsg}</span>
           )}
         </div>
 
