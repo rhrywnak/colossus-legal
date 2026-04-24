@@ -14,6 +14,7 @@ import {
   ExtractionItem, ReviewSummary,
 } from "../../services/pipelineApi";
 import { getColor } from "../../hooks/useSchema";
+import { formatItemProperties } from "../../utils/itemProperties";
 
 interface ReviewPanelProps {
   documentId: string;
@@ -370,11 +371,19 @@ const ReviewPanel: React.FC<ReviewPanelProps> = ({ documentId, pdfUrl }) => {
               onClick={() => handleSelect(item)}
             >
               <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.25rem", flexWrap: "wrap" }}>
-                <span style={{
-                  display: "inline-block", padding: "0.1rem 0.4rem", borderRadius: "4px",
-                  fontSize: "0.66rem", fontWeight: 600, color: "#fff",
-                  backgroundColor: getColor(item.entity_type),
-                }}>{item.entity_type}</span>
+                {(() => {
+                  // Show the post-ingest label ("Person"/"Organization") when
+                  // Ingest has resolved a Party. Schema-driven category lookup
+                  // still runs on `entity_type` (the LLM label) upstream.
+                  const displayType = item.resolved_entity_type ?? item.entity_type;
+                  return (
+                    <span style={{
+                      display: "inline-block", padding: "0.1rem 0.4rem", borderRadius: "4px",
+                      fontSize: "0.66rem", fontWeight: 600, color: "#fff",
+                      backgroundColor: getColor(displayType),
+                    }}>{displayType}</span>
+                  );
+                })()}
                 {item.category && CATEGORY_BADGE[item.category] && (
                   <span style={CATEGORY_BADGE[item.category]}>{item.category}</span>
                 )}
@@ -387,6 +396,25 @@ const ReviewPanel: React.FC<ReviewPanelProps> = ({ documentId, pdfUrl }) => {
                 )}
                 <GroundingIndicator status={item.grounding_status} />
               </div>
+
+              {(() => {
+                const props = formatItemProperties(item);
+                if (props.length === 0) return null;
+                return (
+                  <div style={{
+                    display: "flex", flexWrap: "wrap", gap: "0.7rem",
+                    fontSize: "0.72rem", color: "#475569",
+                    marginBottom: "0.35rem", lineHeight: 1.4,
+                  }}>
+                    {props.map((p) => (
+                      <span key={p.label}>
+                        <strong style={{ color: "#334155", fontWeight: 600 }}>{p.label}:</strong>{" "}
+                        {p.value}
+                      </span>
+                    ))}
+                  </div>
+                );
+              })()}
 
               {item.verbatim_quote && (
                 <div style={{ fontSize: "0.74rem", color: "#64748b", fontStyle: "italic", lineHeight: 1.4,

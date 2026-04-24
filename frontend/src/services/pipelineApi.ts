@@ -129,7 +129,18 @@ export interface DocumentActions {
 
 export interface ExtractionItem {
   id: number;
+  /**
+   * Immutable LLM-assigned label (e.g. always "Party" for parties).
+   * Keep this for schema lookups keyed by the LLM label.
+   */
   entity_type: string;
+  /**
+   * Effective Neo4j label set by Ingest — "Person" / "Organization" for
+   * resolved parties, null for anything Ingest didn't touch. UI code
+   * that needs the post-resolution type should use
+   * `resolved_entity_type ?? entity_type`.
+   */
+  resolved_entity_type?: string | null;
   label: string;
   verbatim_quote: string | null;
   grounding_status: string | null;

@@ -30,7 +30,7 @@ export type DecompositionResponse = {
 };
 
 // =============================================================================
-// Endpoint 2: GET /allegations/:id/detail — Deep dive into one allegation
+// Endpoint 2: GET /api/allegations/:id/detail — Deep dive into one allegation
 // =============================================================================
 
 export type AllegationInfo = {
@@ -121,7 +121,7 @@ export async function getAllegationDetail(
   allegationId: string
 ): Promise<AllegationDetailResponse> {
   const response = await authFetch(
-    `${API_BASE_URL}/allegations/${encodeURIComponent(allegationId)}/detail`
+    `${API_BASE_URL}/api/allegations/${encodeURIComponent(allegationId)}/detail`
   );
 
   if (!response.ok) {

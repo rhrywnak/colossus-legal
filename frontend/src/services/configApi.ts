@@ -152,6 +152,11 @@ export interface PatchConfigInput {
   max_tokens?: number | null;
   temperature?: number | null;
   run_pass2?: boolean;
+  /**
+   * GET-only: base schema file for this document's pipeline_config row.
+   * The PATCH handler ignores this field — posting it has no effect.
+   */
+  schema_file?: string | null;
 }
 
 // ── Types: Prompt Preview ──────────────────────────────────────

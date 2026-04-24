@@ -31,10 +31,18 @@ fn grounded_statuses_vec() -> Vec<String> {
 
 /// A flattened extraction item row for the review panel.
 /// Pulls `label` and `properties` out of the JSONB `item_data` column.
+///
+/// `entity_type` stays pinned to the LLM's immutable label (always
+/// `"Party"` for Party items, even after Ingest resolves them) because
+/// the schema-driven category lookup in `items.rs` keys on that value.
+/// `resolved_entity_type` carries the Neo4j label Ingest chose
+/// (`"Person"` / `"Organization"`) so the UI can render the effective
+/// type and the People & Links tab can filter on it.
 #[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct ReviewItemRow {
     pub id: i32,
     pub entity_type: String,
+    pub resolved_entity_type: Option<String>,
     pub label: Option<String>,
     pub verbatim_quote: Option<String>,
     pub grounding_status: Option<String>,
@@ -66,13 +74,14 @@ pub async fn list_items(
     offset: i64,
 ) -> Result<Vec<ReviewItemRow>, sqlx::Error> {
     sqlx::query_as::<_, ReviewItemRow>(
-        "SELECT id, entity_type, item_data->>'label' AS label, verbatim_quote,
+        "SELECT id, entity_type, resolved_entity_type,
+                item_data->>'label' AS label, verbatim_quote,
                 grounding_status, grounded_page, review_status, reviewed_by,
                 reviewed_at, review_notes, item_data->'properties' AS properties
          FROM extraction_items
          WHERE run_id = $1
            AND ($2::text IS NULL OR review_status = $2)
-           AND ($3::text IS NULL OR entity_type = $3)
+           AND ($3::text IS NULL OR COALESCE(resolved_entity_type, entity_type) = $3)
            AND ($4::text IS NULL OR grounding_status = $4)
          ORDER BY id
          LIMIT $5 OFFSET $6",
@@ -99,7 +108,7 @@ pub async fn count_items(
         "SELECT count(*) FROM extraction_items
          WHERE run_id = $1
            AND ($2::text IS NULL OR review_status = $2)
-           AND ($3::text IS NULL OR entity_type = $3)
+           AND ($3::text IS NULL OR COALESCE(resolved_entity_type, entity_type) = $3)
            AND ($4::text IS NULL OR grounding_status = $4)",
     )
     .bind(run_id)

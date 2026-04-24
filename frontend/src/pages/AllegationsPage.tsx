@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { displayStatus } from "../utils/legalTerms";
+import { toCountNumeral } from "../utils/countFormat";
+import { useCase } from "../context/CaseContext";
 import {
   getAllegations,
   AllegationDto,
@@ -23,6 +25,15 @@ function getStatusStyle(status: string | undefined) {
 const AllegationsPage: React.FC = () => {
   const [searchParams] = useSearchParams();
   const countFilter = searchParams.get("count");
+  const { caseData } = useCase();
+
+  // Resolve the human-readable count for the current ?count= filter.
+  // Undefined if no filter is set, or if the filter id doesn't match any
+  // LegalCount (stale URL, different case loaded).
+  const activeCount = useMemo(() => {
+    if (!countFilter || !caseData) return undefined;
+    return caseData.legal_count_details.find((lc) => lc.id === countFilter);
+  }, [countFilter, caseData]);
 
   const [allegations, setAllegations] = useState<AllegationDto[]>([]);
   const [summary, setSummary] = useState<AllegationSummary>({
@@ -114,8 +125,19 @@ const AllegationsPage: React.FC = () => {
           }}
         >
           <span style={{ color: "#1e40af", fontWeight: 500 }}>
-            Showing allegations supporting: <strong>{countFilter}</strong>
-            {" "}({displayedAllegations.length} of {total})
+            {activeCount ? (
+              <>
+                <strong>
+                  Count {toCountNumeral(activeCount.count_number)} —{" "}
+                  {activeCount.name}
+                </strong>
+                {" "}({displayedAllegations.length} {displayedAllegations.length === 1 ? "allegation" : "allegations"})
+              </>
+            ) : caseData ? (
+              <>Filtered view ({displayedAllegations.length} of {total})</>
+            ) : (
+              <>Loading count…</>
+            )}
           </span>
           <Link
             to="/allegations"

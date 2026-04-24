@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import {
   getAllegationDetail,
   AllegationDetailResponse,
@@ -28,7 +28,21 @@ function getStatusStyle(status: string) {
 
 const AllegationDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const allegationId = id ?? "";
+
+  // Smart back: prefer browser history, fall back to Evidence Explorer if
+  // this page was loaded directly (e.g. shared link, bookmark). React
+  // Router tracks history index in the state object; a fresh tab starts
+  // at 0 and has nowhere to go back to.
+  const goBack = () => {
+    const idx = (window.history.state as { idx?: number } | null)?.idx ?? 0;
+    if (idx > 0) {
+      navigate(-1);
+    } else {
+      navigate("/explorer");
+    }
+  };
 
   const [data, setData] = useState<AllegationDetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -79,9 +93,9 @@ const AllegationDetailPage: React.FC = () => {
     return (
       <div style={{ padding: "1rem" }}>
         <p style={{ color: "#6b7280" }}>Allegation not found.</p>
-        <Link to="/decomposition" style={backLinkStyle}>
-          Back to Decomposition
-        </Link>
+        <button type="button" onClick={goBack} style={backButtonStyle}>
+          &larr; Back
+        </button>
       </div>
     );
   }
@@ -100,9 +114,9 @@ const AllegationDetailPage: React.FC = () => {
       >
         {error}
         <div style={{ marginTop: "0.5rem" }}>
-          <Link to="/decomposition" style={backLinkStyle}>
-            Back to Decomposition
-          </Link>
+          <button type="button" onClick={goBack} style={backButtonStyle}>
+            &larr; Back
+          </button>
         </div>
       </div>
     );
@@ -369,10 +383,15 @@ const AllegationDetailPage: React.FC = () => {
 // Styles
 // ---------------------------------------------------------------------------
 
-const backLinkStyle: React.CSSProperties = {
+const backButtonStyle: React.CSSProperties = {
   color: "#2563eb",
   textDecoration: "none",
   fontSize: "0.9rem",
+  background: "none",
+  border: "none",
+  padding: 0,
+  cursor: "pointer",
+  fontFamily: "inherit",
 };
 
 const sectionHeaderStyle: React.CSSProperties = {

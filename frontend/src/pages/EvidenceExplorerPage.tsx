@@ -110,6 +110,18 @@ const EvidenceExplorerPage: React.FC = () => {
     [allegations, legalCountDetails],
   );
 
+  // Seed every count as collapsed the first time we learn what the groups
+  // are. Leaving the set empty meant every card was open on load, which
+  // pushed the evidence below the fold — users had to scroll past four
+  // fully-expanded cards before they could pick one. We only seed once
+  // (`size === 0`) so the user's expand/collapse choices survive any
+  // subsequent re-renders of `countGroups`.
+  useEffect(() => {
+    if (countGroups.length > 0 && collapsedCounts.size === 0) {
+      setCollapsedCounts(new Set(countGroups.map((g) => g.countName)));
+    }
+  }, [countGroups, collapsedCounts.size]);
+
   const handleToggle = async (allegationId: string) => {
     if (expandedIds.has(allegationId)) {
       setExpandedIds((prev) => { const n = new Set(prev); n.delete(allegationId); return n; });

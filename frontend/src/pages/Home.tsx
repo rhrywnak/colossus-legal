@@ -2,17 +2,9 @@ import React, { useState } from "react";
 import { Link } from "react-router-dom";
 import { useCase } from "../context/CaseContext";
 import { HarmDto, getHarms } from "../services/harms";
+import { toCountLabel } from "../utils/countFormat";
 
 // ─── Static data ─────────────────────────────────────────────────────────────
-
-const ROMAN_NUMERALS: Record<number, string> = {
-  1: "I", 2: "II", 3: "III", 4: "IV", 5: "V", 6: "VI", 7: "VII", 8: "VIII",
-};
-
-const toCountLabel = (countNumber: number): string => {
-  const numeral = ROMAN_NUMERALS[countNumber] || String(countNumber);
-  return `COUNT ${numeral}`;
-};
 
 // TODO: Fetch descriptions from LegalCount.description in Neo4j once the field
 // is populated. For now these are hardcoded summaries from the complaint.
@@ -165,14 +157,13 @@ const Home: React.FC = () => {
                     {COUNT_DESCRIPTIONS[lc.id] || ""}
                   </div>
                 </div>
-                {/* TODO: Replace hardcoded "Supported" with a status field from LegalCount nodes once available */}
                 <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexShrink: 0, marginLeft: "1rem" }}>
                   <span style={{
-                    padding: "0.22rem 0.55rem", borderRadius: "5px", fontSize: "0.68rem",
-                    fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.03em",
-                    backgroundColor: "#ecfdf5", color: "#047857", whiteSpace: "nowrap",
+                    padding: "0.22rem 0.55rem", borderRadius: "5px", fontSize: "0.72rem",
+                    fontWeight: 600, letterSpacing: "0.02em",
+                    backgroundColor: "#eff6ff", color: "#1d4ed8", whiteSpace: "nowrap",
                   }}>
-                    Supported
+                    {lc.allegation_count} {lc.allegation_count === 1 ? "allegation" : "allegations"}
                   </span>
                   <span style={{ color: "#cbd5e1", fontSize: "0.9rem" }}>{"\u2192"}</span>
                 </div>

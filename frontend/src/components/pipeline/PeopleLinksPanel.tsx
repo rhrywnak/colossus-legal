@@ -47,13 +47,19 @@ const PeopleLinksPanel: React.FC<PeopleLinksPanelProps> = ({ documentId, items, 
 
     const map = new Map<string, EntityGroup>();
     for (const item of items) {
-      if (!PEOPLE_TYPES.has(item.entity_type)) continue;
-      const key = `${item.entity_type}::${item.label}`;
+      // Party items get resolved to Person/Organization by the Ingest step,
+      // which writes the resolved label to `resolved_entity_type` while
+      // leaving the immutable `entity_type` as "Party". Filter on the
+      // resolved label when present so this tab actually shows people
+      // after ingest.
+      const effectiveType = item.resolved_entity_type ?? item.entity_type;
+      if (!PEOPLE_TYPES.has(effectiveType)) continue;
+      const key = `${effectiveType}::${item.label}`;
       const existing = map.get(key);
       if (existing) {
         existing.count++;
       } else {
-        map.set(key, { label: item.label, entityType: item.entity_type, count: 1 });
+        map.set(key, { label: item.label, entityType: effectiveType, count: 1 });
       }
     }
 

@@ -40,6 +40,14 @@ impl AllegationRepository {
     ///
     /// Uses `labels(n)[0] = $label` instead of hardcoded node labels so
     /// the query works with any allegation/count label the schema produces.
+    ///
+    /// # Ordering
+    /// Rows come back in document order — primary key is `toInteger(a.paragraph)`
+    /// so paragraph "2" precedes paragraph "10" (lexicographic sorts put "10"
+    /// first). Paragraphs with non-numeric suffixes (e.g. "15(a)") return
+    /// `null` from `toInteger`, which Cypher sorts last; the secondary
+    /// `a.paragraph` key keeps those grouped in lexicographic order among
+    /// themselves, and `a.id` is a stable tiebreaker.
     pub async fn list_allegations(&self) -> Result<AllegationsResponse, AllegationRepositoryError> {
         let mut allegations: Vec<AllegationDto> = Vec::new();
 
@@ -61,7 +69,7 @@ impl AllegationRepository {
                             a.severity AS severity,
                             legal_count_ids,
                             legal_counts
-                     ORDER BY a.id",
+                     ORDER BY toInteger(a.paragraph), a.paragraph, a.id",
                 )
                 .param("allegation_label", "ComplaintAllegation")
                 .param("count_label", "LegalCount"),

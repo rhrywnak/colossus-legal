@@ -12,7 +12,7 @@
  * reprocess) to ensure the parent reloads document state. Without this
  * call, the UI shows stale status indefinitely.
  */
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import ConfigurationPanel from "./ConfigurationPanel";
 import ExecutionHistory from "./ExecutionHistory";
 import ReprocessDialog from "./ReprocessDialog";
@@ -22,6 +22,7 @@ import {
   PipelineDocument,
   PipelineStep,
 } from "../../services/pipelineApi";
+import { getDocumentConfig, PatchConfigInput } from "../../services/configApi";
 
 // ── Styles ──────────────────────────────────────────────────────
 
@@ -138,6 +139,24 @@ const ProcessingPanel: React.FC<ProcessingPanelProps> = ({
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [showReprocess, setShowReprocess] = useState(false);
+  const [completedConfig, setCompletedConfig] = useState<PatchConfigInput | null>(null);
+
+  // Pull the effective profile / template / schema for the Completed card
+  // once the document has a config row. Fetch only after processing is
+  // past the point where pipeline_config is written; 404s for legacy docs
+  // are swallowed. Re-fetch if the document id changes.
+  useEffect(() => {
+    const statusGroup = doc.status_group ?? "new";
+    if (statusGroup !== "completed" && statusGroup !== "failed") {
+      setCompletedConfig(null);
+      return;
+    }
+    let cancelled = false;
+    getDocumentConfig(doc.id)
+      .then((cfg) => { if (!cancelled) setCompletedConfig(cfg); })
+      .catch(() => { if (!cancelled) setCompletedConfig(null); });
+    return () => { cancelled = true; };
+  }, [doc.id, doc.status_group]);
 
   // No internal polling — the parent (DocumentWorkspaceTabs) owns polling
   // and passes updated document props every 3s during PROCESSING.
@@ -327,10 +346,21 @@ const ProcessingPanel: React.FC<ProcessingPanelProps> = ({
           {modelDisplay && (
             <div style={summaryLine}>Model: {modelDisplay}</div>
           )}
-          <div style={{ ...mutedText, marginTop: "0.3rem" }}>
-            Full run configuration (profile, template, schema, OCR engine) will appear
-            after the next backend update.
-          </div>
+          {completedConfig?.profile_name && (
+            <div style={summaryLine}>Profile: {completedConfig.profile_name}</div>
+          )}
+          {completedConfig?.template_file && (
+            <div style={summaryLine}>Template: {completedConfig.template_file}</div>
+          )}
+          {completedConfig?.schema_file && (
+            <div style={summaryLine}>Schema: {completedConfig.schema_file}</div>
+          )}
+          {completedConfig?.extraction_model &&
+            completedConfig.extraction_model !== doc.model_name && (
+              <div style={summaryLine}>
+                Extraction model: {completedConfig.extraction_model}
+              </div>
+            )}
         </div>
 
         {reprocessButton()}

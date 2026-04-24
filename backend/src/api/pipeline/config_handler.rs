@@ -25,6 +25,12 @@ use crate::state::AppState;
 /// column value. Passing `null` would currently be deserialised the same
 /// as omission (the column stays). Explicit-clear semantics can be added
 /// later if needed.
+///
+/// `schema_file` is a GET-only field — sourced from the base
+/// `pipeline_config.schema_file` column (not an override) so the Process
+/// tab's completed card can show which schema a run used. The PATCH
+/// handler's `From<PatchConfigInput> for PipelineConfigOverrides` does
+/// not propagate `schema_file`, so posting it has no effect.
 #[derive(Debug, Default, Deserialize, Serialize)]
 pub struct PatchConfigInput {
     #[serde(default)]
@@ -49,6 +55,9 @@ pub struct PatchConfigInput {
     pub temperature: Option<f64>,
     #[serde(default)]
     pub run_pass2: Option<bool>,
+    /// GET-only: base `pipeline_config.schema_file`. PATCH ignores this.
+    #[serde(default)]
+    pub schema_file: Option<String>,
 }
 
 impl From<PatchConfigInput> for PipelineConfigOverrides {
@@ -86,16 +95,14 @@ pub async fn get_config_handler(
 ) -> Result<Json<PatchConfigInput>, AppError> {
     require_admin(&user)?;
 
-    let exists = pipeline_repository::get_pipeline_config(&state.pipeline_pool, &doc_id)
+    let base_config = pipeline_repository::get_pipeline_config(&state.pipeline_pool, &doc_id)
         .await
         .map_err(|e| AppError::Internal {
             message: format!("Failed to read pipeline_config: {e}"),
-        })?;
-    if exists.is_none() {
-        return Err(AppError::NotFound {
+        })?
+        .ok_or_else(|| AppError::NotFound {
             message: format!("No pipeline_config for document '{doc_id}'"),
-        });
-    }
+        })?;
 
     let overrides = pipeline_repository::get_pipeline_config_overrides(
         &state.pipeline_pool,
@@ -118,6 +125,7 @@ pub async fn get_config_handler(
         max_tokens: overrides.max_tokens,
         temperature: overrides.temperature,
         run_pass2: overrides.run_pass2,
+        schema_file: Some(base_config.schema_file),
     }))
 }
 
