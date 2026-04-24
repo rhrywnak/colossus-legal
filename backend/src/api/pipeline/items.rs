@@ -137,7 +137,16 @@ fn category_to_string(cat: &EntityCategory) -> &'static str {
 }
 
 /// Load entity category map from schema. Returns empty map on failure
-/// (all items default to Evidence).
+/// (all items default to Evidence at the consumer site).
+///
+/// Also audits the raw YAML for entity types that omit the `category`
+/// field. `colossus_extract::EntityTypeConfig` marks `category` as
+/// `#[serde(default)]`, so a missing key deserializes to
+/// `EntityCategory::Evidence` without complaint — every Party, Claim,
+/// and Allegation then surfaces in the Review UI with an "evidence" tag.
+/// Re-parsing as `serde_yaml::Value` lets us detect the omission and
+/// emit a loud ERROR log naming the schema file and entity type, so the
+/// gap is visible instead of silently mis-tagging items.
 async fn load_category_map(state: &AppState, doc_id: &str) -> HashMap<String, EntityCategory> {
     let pipe_config =
         match pipeline_repository::get_pipeline_config(&state.pipeline_pool, doc_id).await {
@@ -149,6 +158,7 @@ async fn load_category_map(state: &AppState, doc_id: &str) -> HashMap<String, En
         "{}/{}",
         state.config.extraction_schema_dir, pipe_config.schema_file
     );
+
     let schema = match colossus_extract::ExtractionSchema::from_file(Path::new(&schema_path)) {
         Ok(s) => s,
         Err(e) => {
@@ -157,11 +167,70 @@ async fn load_category_map(state: &AppState, doc_id: &str) -> HashMap<String, En
         }
     };
 
+    audit_schema_for_missing_category(&schema_path, &pipe_config.schema_file);
+
     schema
         .entity_types
         .iter()
         .map(|et| (et.name.clone(), et.category.clone()))
         .collect()
+}
+
+/// Log an ERROR for every entity type in the schema YAML that omits
+/// the `category` field.
+///
+/// The serde default (`Evidence`) makes the omission indistinguishable
+/// from a legitimate `category: evidence`, which hid the v4-schema gap
+/// where Party / Claim / Allegation were silently re-categorized as
+/// Evidence. Runs once per `load_category_map` call — the schema file
+/// is small and this endpoint is admin-only.
+fn audit_schema_for_missing_category(schema_path: &str, schema_file: &str) {
+    let content = match std::fs::read_to_string(schema_path) {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!(
+                schema_file = %schema_file,
+                error = %e,
+                "Could not re-read schema file for category audit — skipping audit",
+            );
+            return;
+        }
+    };
+
+    let yaml_value: serde_yaml::Value = match serde_yaml::from_str(&content) {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!(
+                schema_file = %schema_file,
+                error = %e,
+                "Could not parse schema YAML for category audit — skipping audit",
+            );
+            return;
+        }
+    };
+
+    let Some(entity_types) = yaml_value.get("entity_types").and_then(|v| v.as_sequence())
+    else {
+        return;
+    };
+
+    for et in entity_types {
+        if et.get("category").is_some() {
+            continue;
+        }
+        let name = et
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("<unnamed>");
+        tracing::error!(
+            entity_type = %name,
+            schema_file = %schema_file,
+            "Schema entity type is missing required `category` field — \
+             deserialization silently defaulted to Evidence. Add one of \
+             `category: foundation|structural|evidence|reference` to the \
+             entity type in the schema YAML.",
+        );
+    }
 }
 
 /// Check if a document status is post-ingest (Neo4j has been written).
