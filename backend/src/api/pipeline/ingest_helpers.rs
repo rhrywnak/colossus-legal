@@ -16,6 +16,10 @@ use neo4rs::query;
 use sha2::{Digest, Sha256};
 
 use crate::error::AppError;
+use crate::models::document_status::{
+    ENTITY_COMPLAINT_ALLEGATION, ENTITY_HARM, ENTITY_LEGAL_COUNT, ENTITY_ORGANIZATION,
+    ENTITY_PERSON, PARTY_SUBTYPES, REL_CONTAINED_IN, STATUS_INGESTED,
+};
 use crate::repositories::pipeline_repository::ExtractionItemRecord;
 
 use super::ingest_resolver::ResolutionMap;
@@ -67,7 +71,7 @@ pub fn stable_entity_id(item: &ExtractionItemRecord, doc_id: &str) -> String {
     let doc_slug = slug(doc_id);
 
     match item.entity_type.as_str() {
-        "ComplaintAllegation" => {
+        ENTITY_COMPLAINT_ALLEGATION => {
             // Paragraph reference priority:
             //   1. `paragraph_number` (v2/v3 schemas) — string or integer
             //   2. `paragraph_ref`    (v4 schemas)    — string or integer
@@ -93,7 +97,7 @@ pub fn stable_entity_id(item: &ExtractionItemRecord, doc_id: &str) -> String {
                 });
             format!("{}:para:{}", doc_slug, para)
         }
-        "LegalCount" => {
+        ENTITY_LEGAL_COUNT => {
             let count = item.item_data["properties"]["count_number"]
                 .as_u64()
                 .map(|n| n.to_string())
@@ -111,7 +115,7 @@ pub fn stable_entity_id(item: &ExtractionItemRecord, doc_id: &str) -> String {
                 });
             format!("{}:count:{}", doc_slug, count)
         }
-        "Harm" => {
+        ENTITY_HARM => {
             let harm_type = item.item_data["properties"]["harm_type"]
                 .as_str()
                 .unwrap_or("");
@@ -154,17 +158,18 @@ pub async fn create_document_node(
              ON CREATE SET d.title = $title, \
                            d.source_document_id = $source_id, \
                            d.doc_type = $doc_type, \
-                           d.status = 'INGESTED', \
+                           d.status = $status, \
                            d.ingested_at = datetime() \
              ON MATCH SET  d.title = $title, \
                            d.doc_type = $doc_type, \
-                           d.status = 'INGESTED', \
+                           d.status = $status, \
                            d.updated_at = datetime()",
         )
         .param("id", neo4j_id.as_str())
         .param("title", title)
         .param("source_id", doc_id)
-        .param("doc_type", doc_type),
+        .param("doc_type", doc_type)
+        .param("status", STATUS_INGESTED),
     )
     .await
     .map_err(|e| AppError::Internal {
@@ -199,7 +204,7 @@ pub async fn create_party_nodes(
     // idempotent across those states.
     for item in items
         .iter()
-        .filter(|i| matches!(i.entity_type.as_str(), "Party" | "Person" | "Organization"))
+        .filter(|i| PARTY_SUBTYPES.contains(&i.entity_type.as_str()))
     {
         let props = &item.item_data["properties"];
         // Support both property naming conventions across schemas
@@ -215,7 +220,7 @@ pub async fn create_party_nodes(
             .unwrap_or("individual");
 
         let is_org = party_type == "organization" || party_type.to_lowercase().contains("org");
-        let label = if is_org { "Organization" } else { "Person" };
+        let label = if is_org { ENTITY_ORGANIZATION } else { ENTITY_PERSON };
 
         // Look up resolved ID from the resolution map
         let neo4j_id = resolution_map
@@ -569,7 +574,7 @@ pub async fn create_contained_in_relationships(
     doc_neo4j_id: &str,
 ) -> Result<usize, AppError> {
     for node_id in node_ids {
-        create_ingest_relationship(txn, node_id, doc_neo4j_id, "CONTAINED_IN").await?;
+        create_ingest_relationship(txn, node_id, doc_neo4j_id, REL_CONTAINED_IN).await?;
     }
     Ok(node_ids.len())
 }

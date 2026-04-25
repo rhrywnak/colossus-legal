@@ -16,6 +16,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::auth::{require_admin, AuthUser};
 use crate::error::AppError;
+use crate::models::document_status::{
+    REVIEW_STATUS_APPROVED, REVIEW_STATUS_EDITED, REVIEW_STATUS_PENDING, REVIEW_STATUS_REJECTED,
+    STATUS_COMPLETED, STATUS_INDEXED, STATUS_INGESTED, STATUS_PUBLISHED,
+};
 use crate::repositories::pipeline_repository::{self, review as review_repo};
 use crate::state::AppState;
 
@@ -97,7 +101,7 @@ fn compute_available_actions(
     let mut actions = Vec::new();
 
     // Primary actions based on category (only for pending items)
-    if status == "pending" || status.is_empty() {
+    if status == REVIEW_STATUS_PENDING || status.is_empty() {
         match category {
             EntityCategory::Foundation => {
                 actions.push("confirm".to_string());
@@ -116,10 +120,10 @@ fn compute_available_actions(
     }
 
     // Reversibility actions
-    if status == "approved" || status == "edited" {
+    if status == REVIEW_STATUS_APPROVED || status == REVIEW_STATUS_EDITED {
         actions.push("unapprove".to_string());
     }
-    if status == "rejected" {
+    if status == REVIEW_STATUS_REJECTED {
         actions.push("unreject".to_string());
     }
 
@@ -235,7 +239,10 @@ fn audit_schema_for_missing_category(schema_path: &str, schema_file: &str) {
 
 /// Check if a document status is post-ingest (Neo4j has been written).
 fn is_post_ingest(status: &str) -> bool {
-    matches!(status, "INGESTED" | "INDEXED" | "PUBLISHED" | "COMPLETED")
+    matches!(
+        status,
+        STATUS_INGESTED | STATUS_INDEXED | STATUS_PUBLISHED | STATUS_COMPLETED
+    )
 }
 
 /// Item-level review statuses that are locked once the document is post-ingest.
@@ -253,7 +260,10 @@ fn is_post_ingest(status: &str) -> bool {
 ///   only), so they too are not in Neo4j. Leaving them unlocked lets the
 ///   user finish the edit → approve flow post-publish.
 fn is_post_ingest_locked_status(review_status: &str) -> bool {
-    matches!(review_status.to_lowercase().as_str(), "approved" | "rejected")
+    matches!(
+        review_status.to_lowercase().as_str(),
+        REVIEW_STATUS_APPROVED | REVIEW_STATUS_REJECTED
+    )
 }
 
 /// GET /api/admin/pipeline/documents/:id/items
@@ -328,22 +338,42 @@ pub async fn list_items_handler(
     let total_all = review_repo::count_items(&state.pipeline_pool, run_id, None, None, None)
         .await
         .unwrap_or(0);
-    let pending_count =
-        review_repo::count_items(&state.pipeline_pool, run_id, Some("pending"), None, None)
-            .await
-            .unwrap_or(0);
-    let approved_count =
-        review_repo::count_items(&state.pipeline_pool, run_id, Some("approved"), None, None)
-            .await
-            .unwrap_or(0);
-    let rejected_count =
-        review_repo::count_items(&state.pipeline_pool, run_id, Some("rejected"), None, None)
-            .await
-            .unwrap_or(0);
-    let edited_count =
-        review_repo::count_items(&state.pipeline_pool, run_id, Some("edited"), None, None)
-            .await
-            .unwrap_or(0);
+    let pending_count = review_repo::count_items(
+        &state.pipeline_pool,
+        run_id,
+        Some(REVIEW_STATUS_PENDING),
+        None,
+        None,
+    )
+    .await
+    .unwrap_or(0);
+    let approved_count = review_repo::count_items(
+        &state.pipeline_pool,
+        run_id,
+        Some(REVIEW_STATUS_APPROVED),
+        None,
+        None,
+    )
+    .await
+    .unwrap_or(0);
+    let rejected_count = review_repo::count_items(
+        &state.pipeline_pool,
+        run_id,
+        Some(REVIEW_STATUS_REJECTED),
+        None,
+        None,
+    )
+    .await
+    .unwrap_or(0);
+    let edited_count = review_repo::count_items(
+        &state.pipeline_pool,
+        run_id,
+        Some(REVIEW_STATUS_EDITED),
+        None,
+        None,
+    )
+    .await
+    .unwrap_or(0);
 
     // Pending graph writes (approved/edited in PG, not yet in Neo4j).
     // Only meaningful on post-ingest documents; skip the query otherwise

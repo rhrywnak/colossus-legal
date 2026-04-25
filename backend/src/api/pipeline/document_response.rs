@@ -7,6 +7,11 @@
 use serde::Serialize;
 
 use crate::auth::AuthUser;
+use crate::models::document_status::{
+    STATUS_CANCELLED, STATUS_COMPLETED, STATUS_EXTRACTED, STATUS_FAILED, STATUS_INDEXED,
+    STATUS_INGESTED, STATUS_NEW, STATUS_PROCESSING, STATUS_PUBLISHED, STATUS_UPLOADED,
+    STATUS_VERIFIED,
+};
 use crate::repositories::pipeline_repository::DocumentRecord;
 
 /// Document response with computed fields.
@@ -48,13 +53,13 @@ pub fn enrich_document(doc: DocumentRecord, user: &AuthUser) -> DocumentResponse
 /// Compute which tabs a user can see for a document in its current state.
 fn compute_visible_tabs(status: &str, _is_admin: bool) -> Vec<&'static str> {
     match status {
-        "NEW" | "UPLOADED" => vec!["document", "processing"],
-        "PROCESSING" => vec!["document", "processing"],
-        "EXTRACTED" | "VERIFIED" => vec!["document", "content", "processing"],
-        "INGESTED" | "INDEXED" | "COMPLETED" | "PUBLISHED" => {
+        STATUS_NEW | STATUS_UPLOADED => vec!["document", "processing"],
+        STATUS_PROCESSING => vec!["document", "processing"],
+        STATUS_EXTRACTED | STATUS_VERIFIED => vec!["document", "content", "processing"],
+        STATUS_INGESTED | STATUS_INDEXED | STATUS_COMPLETED | STATUS_PUBLISHED => {
             vec!["document", "content", "processing", "review", "people"]
         }
-        "FAILED" | "CANCELLED" => vec!["document", "processing"],
+        STATUS_FAILED | STATUS_CANCELLED => vec!["document", "processing"],
         _ => vec!["document", "processing"],
     }
 }
@@ -66,7 +71,12 @@ fn compute_can_view(status: &str, is_admin: bool) -> bool {
     }
     matches!(
         status,
-        "EXTRACTED" | "VERIFIED" | "INGESTED" | "INDEXED" | "COMPLETED" | "PUBLISHED"
+        STATUS_EXTRACTED
+            | STATUS_VERIFIED
+            | STATUS_INGESTED
+            | STATUS_INDEXED
+            | STATUS_COMPLETED
+            | STATUS_PUBLISHED
     )
 }
 
@@ -84,11 +94,12 @@ fn compute_can_view(status: &str, is_admin: bool) -> bool {
 /// still queued.
 pub fn compute_status_group(status: &str) -> &'static str {
     match status {
-        "NEW" | "UPLOADED" => "new",
-        "PROCESSING" | "EXTRACTED" | "VERIFIED" | "INGESTED" | "INDEXED" => "processing",
-        "COMPLETED" | "PUBLISHED" => "completed",
-        "FAILED" => "failed",
-        "CANCELLED" => "cancelled",
+        STATUS_NEW | STATUS_UPLOADED => "new",
+        STATUS_PROCESSING | STATUS_EXTRACTED | STATUS_VERIFIED | STATUS_INGESTED
+        | STATUS_INDEXED => "processing",
+        STATUS_COMPLETED | STATUS_PUBLISHED => "completed",
+        STATUS_FAILED => "failed",
+        STATUS_CANCELLED => "cancelled",
         _ => "unknown",
     }
 }

@@ -30,20 +30,18 @@ pub const NEO4J_SOURCE_DOCUMENT_ID_PROP: &str = "source_document_id";
 /// Maximum accepted upload size in bytes (50 MB).
 pub const MAX_UPLOAD_SIZE_BYTES: u64 = 50 * 1024 * 1024;
 
-/// Document status: newly uploaded, awaiting processing.
-pub const DOC_STATUS_NEW: &str = "NEW";
+// ── Document statuses ───────────────────────────────────────────
+//
+// The authoritative definitions live in `crate::models::document_status`.
+// These `DOC_STATUS_*` aliases preserve the names existing pipeline
+// callers compile against; new code should import the `STATUS_*` names
+// directly from `models::document_status`.
 
-/// Document status: actively being processed by the pipeline.
-pub const DOC_STATUS_PROCESSING: &str = "PROCESSING";
-
-/// Document status: processing completed successfully.
-pub const DOC_STATUS_COMPLETED: &str = "COMPLETED";
-
-/// Document status: processing failed; see pipeline_events for the reason.
-pub const DOC_STATUS_FAILED: &str = "FAILED";
-
-/// Document status: processing was cancelled before completion.
-pub const DOC_STATUS_CANCELLED: &str = "CANCELLED";
+pub use crate::models::document_status::STATUS_CANCELLED as DOC_STATUS_CANCELLED;
+pub use crate::models::document_status::STATUS_COMPLETED as DOC_STATUS_COMPLETED;
+pub use crate::models::document_status::STATUS_FAILED as DOC_STATUS_FAILED;
+pub use crate::models::document_status::STATUS_NEW as DOC_STATUS_NEW;
+pub use crate::models::document_status::STATUS_PROCESSING as DOC_STATUS_PROCESSING;
 
 #[cfg(test)]
 mod tests {

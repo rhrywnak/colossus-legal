@@ -40,6 +40,7 @@ use colossus_pipeline::cancel::CancellationToken;
 use colossus_pipeline::progress::ProgressReporter;
 use colossus_pipeline::{Step, StepResult};
 
+use crate::models::document_status::{RUN_STATUS_COMPLETED, RUN_STATUS_FAILED, RUN_STATUS_RUNNING};
 use crate::pipeline::config::{resolve_config, ProcessingProfile};
 use crate::pipeline::context::AppContext;
 use crate::pipeline::providers::provider_for_model;
@@ -100,9 +101,11 @@ impl Step<DocProcessing> for LlmExtractPass2 {
         if let Err(e) = sqlx::query(
             "DELETE FROM extraction_runs \
              WHERE document_id = $1 AND pass_number = 2 \
-               AND status IN ('RUNNING', 'FAILED')",
+               AND status IN ($2, $3)",
         )
         .bind(&self.document_id)
+        .bind(RUN_STATUS_RUNNING)
+        .bind(RUN_STATUS_FAILED)
         .execute(db)
         .await
         {
@@ -412,7 +415,7 @@ pub async fn run_pass2_extraction(
         Some(input_tokens as i32),
         Some(output_tokens as i32),
         cost_usd,
-        "COMPLETED",
+        RUN_STATUS_COMPLETED,
     )
     .await
     .map_err(|e| LlmExtractError::CompleteRunFailed {
@@ -470,10 +473,11 @@ async fn pass2_already_complete(
 ) -> Result<bool, sqlx::Error> {
     let existing: Option<i32> = sqlx::query_scalar(
         "SELECT id FROM extraction_runs \
-         WHERE document_id = $1 AND pass_number = 2 AND status = 'COMPLETED' \
+         WHERE document_id = $1 AND pass_number = 2 AND status = $2 \
          ORDER BY id DESC LIMIT 1",
     )
     .bind(document_id)
+    .bind(RUN_STATUS_COMPLETED)
     .fetch_optional(db)
     .await?;
     Ok(existing.is_some())

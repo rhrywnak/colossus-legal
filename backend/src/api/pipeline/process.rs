@@ -36,6 +36,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::auth::{require_admin, AuthUser};
 use crate::error::AppError;
+use crate::models::document_status::STATUS_PROCESSING;
 use crate::repositories::audit_repository::log_admin_action;
 use crate::repositories::pipeline_repository;
 use crate::state::AppState;
@@ -132,7 +133,7 @@ pub async fn process_handler(
     if let Err(e) = pipeline_repository::update_document_status(
         &state.pipeline_pool,
         &doc_id,
-        "PROCESSING",
+        STATUS_PROCESSING,
     )
     .await
     {
@@ -163,7 +164,7 @@ pub async fn process_handler(
 
     Ok(Json(ProcessResponse {
         document_id: doc_id,
-        status: "PROCESSING".to_string(),
+        status: STATUS_PROCESSING.to_string(),
         message: "Pipeline job submitted".to_string(),
         job_id: Some(job_id.to_string()),
     }))

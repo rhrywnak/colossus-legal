@@ -8,6 +8,9 @@ use sqlx::PgPool;
 
 use crate::auth::{require_admin, AuthUser};
 use crate::error::AppError;
+use crate::models::document_status::{
+    RUN_STATUS_COMPLETED, STATUS_COMPLETED, STEP_STATUS_COMPLETED, STEP_STATUS_FAILED,
+};
 use crate::state::AppState;
 
 use super::state_machine::PIPELINE_STEPS;
@@ -94,8 +97,9 @@ async fn query_documents_by_status(pool: &PgPool) -> Result<HashMap<String, i64>
 
 async fn query_total_cost(pool: &PgPool) -> Result<f64, AppError> {
     let row: (Option<f64>,) = sqlx::query_as(
-        "SELECT COALESCE(SUM(cost_usd::float8), 0.0) FROM extraction_runs WHERE status = 'COMPLETED'",
+        "SELECT COALESCE(SUM(cost_usd::float8), 0.0) FROM extraction_runs WHERE status = $1",
     )
+    .bind(RUN_STATUS_COMPLETED)
     .fetch_one(pool)
     .await
     .map_err(|e| AppError::Internal { message: format!("Cost query: {e}") })?;
@@ -106,9 +110,10 @@ async fn query_avg_grounding_rate(pool: &PgPool) -> Result<f64, AppError> {
     let row: (Option<f64>,) = sqlx::query_as(
         "SELECT AVG((result_summary->>'grounding_rate')::float)
          FROM pipeline_steps
-         WHERE step_name = 'verify' AND status = 'completed'
+         WHERE step_name = 'verify' AND status = $1
            AND result_summary->>'grounding_rate' IS NOT NULL",
     )
+    .bind(STEP_STATUS_COMPLETED)
     .fetch_one(pool)
     .await
     .map_err(|e| AppError::Internal {
@@ -136,9 +141,10 @@ async fn query_step_performance(
                 AVG(duration_secs) as avg_duration,
                 MIN(duration_secs) as min_duration,
                 MAX(duration_secs) as max_duration,
-                COUNT(*) FILTER (WHERE status = 'failed') as failure_count
+                COUNT(*) FILTER (WHERE status = $1) as failure_count
          FROM pipeline_steps GROUP BY step_name",
     )
+    .bind(STEP_STATUS_FAILED)
     .fetch_all(pool)
     .await
     .map_err(|e| AppError::Internal {
@@ -182,10 +188,11 @@ async fn query_estimates(pool: &PgPool) -> Result<EstimatesResponse, AppError> {
     // Count completed and total documents
     let counts: (i64, i64) = sqlx::query_as(
         "SELECT
-            COUNT(*) FILTER (WHERE status = 'COMPLETED') AS completed,
+            COUNT(*) FILTER (WHERE status = $1) AS completed,
             COUNT(*) AS total
          FROM documents",
     )
+    .bind(STATUS_COMPLETED)
     .fetch_one(pool)
     .await
     .map_err(|e| AppError::Internal {
@@ -212,26 +219,31 @@ async fn query_estimates(pool: &PgPool) -> Result<EstimatesResponse, AppError> {
             SELECT er.document_id, SUM(er.cost_usd::float8) AS doc_cost
             FROM extraction_runs er
             JOIN documents d ON d.id = er.document_id
-            WHERE d.status = 'COMPLETED' AND er.cost_usd IS NOT NULL
+            WHERE d.status = $1 AND er.cost_usd IS NOT NULL
             GROUP BY er.document_id
         ) sub",
     )
+    .bind(STATUS_COMPLETED)
     .fetch_one(pool)
     .await
     .map_err(|e| AppError::Internal {
         message: format!("Estimates cost query: {e}"),
     })?;
 
-    // Avg total duration per published document (sum of all step durations)
+    // Avg total duration per published document (sum of all step durations).
+    // `documents.status` is UPPERCASE, `pipeline_steps.status` is lowercase —
+    // bind separate constants so the casing convention can't drift.
     let avg_duration: (Option<f64>,) = sqlx::query_as(
         "SELECT AVG(doc_duration) FROM (
             SELECT document_id, SUM(duration_secs) AS doc_duration
             FROM pipeline_steps ps
             JOIN documents d ON d.id = ps.document_id
-            WHERE d.status = 'COMPLETED' AND ps.status = 'completed'
+            WHERE d.status = $1 AND ps.status = $2
             GROUP BY ps.document_id
         ) sub",
     )
+    .bind(STATUS_COMPLETED)
+    .bind(STEP_STATUS_COMPLETED)
     .fetch_one(pool)
     .await
     .map_err(|e| AppError::Internal {

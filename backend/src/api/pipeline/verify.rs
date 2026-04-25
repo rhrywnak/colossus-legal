@@ -28,6 +28,7 @@ use serde::Serialize;
 
 use super::canonical_verifier::{find_in_canonical_text, CanonicalMatchType};
 use crate::auth::{require_admin, AuthUser};
+use crate::models::document_status::{STATUS_EXTRACTED, STATUS_VERIFIED};
 use crate::error::AppError;
 use crate::repositories::audit_repository::log_admin_action;
 use crate::repositories::pipeline_repository::{self, steps, ExtractionItemRecord};
@@ -241,7 +242,7 @@ pub(crate) async fn run_verify(
     }
 
     // 12. Update document status
-    pipeline_repository::update_document_status(&state.pipeline_pool, doc_id, "VERIFIED")
+    pipeline_repository::update_document_status(&state.pipeline_pool, doc_id, STATUS_VERIFIED)
         .await
         .map_err(|e| AppError::Internal {
             message: format!("Failed to update status: {e}"),
@@ -295,7 +296,7 @@ pub(crate) async fn run_verify(
 
     Ok(VerifyResponse {
         document_id: doc_id.to_string(),
-        status: "VERIFIED".to_string(),
+        status: STATUS_VERIFIED.to_string(),
         total_items: total,
         grounded_exact: exact,
         grounded_normalized: normalized,
@@ -330,10 +331,10 @@ pub async fn verify_handler(
             message: format!("Document '{doc_id}' not found"),
         })?;
 
-    if document.status != "EXTRACTED" && document.status != "VERIFIED" {
+    if document.status != STATUS_EXTRACTED && document.status != STATUS_VERIFIED {
         return Err(AppError::Conflict {
             message: format!(
-                "Cannot verify: status is '{}', expected 'EXTRACTED'",
+                "Cannot verify: status is '{}', expected '{STATUS_EXTRACTED}'",
                 document.status
             ),
             details: serde_json::json!({ "status": document.status }),

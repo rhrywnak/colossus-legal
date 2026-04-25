@@ -14,6 +14,9 @@ use serde::Serialize;
 
 use crate::auth::{require_admin, AuthUser};
 use crate::error::AppError;
+use crate::models::document_status::{
+    REL_CONTAINED_IN, STATUS_INDEXED, STATUS_INGESTED, STATUS_PUBLISHED,
+};
 use crate::repositories::audit_repository::log_admin_action;
 use crate::repositories::pipeline_repository::{self, steps};
 use crate::state::AppState;
@@ -72,11 +75,11 @@ pub async fn validate_graph_handler(
 
     if !matches!(
         document.status.as_str(),
-        "INGESTED" | "INDEXED" | "PUBLISHED"
+        STATUS_INGESTED | STATUS_INDEXED | STATUS_PUBLISHED
     ) {
         return Err(AppError::Conflict {
             message: format!(
-                "Cannot validate graph: status is '{}', expected INGESTED or later",
+                "Cannot validate graph: status is '{}', expected {STATUS_INGESTED} or later",
                 document.status
             ),
             details: serde_json::json!({"status": document.status}),
@@ -293,14 +296,16 @@ async fn find_orphan_nodes(
     graph: &neo4rs::Graph,
     document_id: &str,
 ) -> Result<Vec<String>, AppError> {
-    let cypher = "MATCH (n) \
+    let cypher = format!(
+        "MATCH (n) \
          WHERE (n.source_document = $doc_id OR n.source_document_id = $doc_id) \
            AND NOT n:Document \
          WITH n \
-         WHERE ALL(r IN [(n)-[rel]-() | type(rel)] WHERE r = 'CONTAINED_IN') \
-         RETURN n.id AS id";
+         WHERE ALL(r IN [(n)-[rel]-() | type(rel)] WHERE r = '{REL_CONTAINED_IN}') \
+         RETURN n.id AS id"
+    );
     let mut result = graph
-        .execute(query(cypher).param("doc_id", document_id))
+        .execute(query(&cypher).param("doc_id", document_id))
         .await
         .map_err(|e| AppError::Internal {
             message: format!("Neo4j orphan query: {e}"),
@@ -322,13 +327,15 @@ async fn find_unlinked_nodes(
     graph: &neo4rs::Graph,
     document_id: &str,
 ) -> Result<Vec<String>, AppError> {
-    let cypher = "MATCH (n) \
+    let cypher = format!(
+        "MATCH (n) \
          WHERE (n.source_document = $doc_id OR n.source_document_id = $doc_id) \
            AND NOT n:Document \
-           AND NOT (n)-[:CONTAINED_IN]->(:Document) \
-         RETURN n.id AS id";
+           AND NOT (n)-[:{REL_CONTAINED_IN}]->(:Document) \
+         RETURN n.id AS id"
+    );
     let mut result = graph
-        .execute(query(cypher).param("doc_id", document_id))
+        .execute(query(&cypher).param("doc_id", document_id))
         .await
         .map_err(|e| AppError::Internal {
             message: format!("Neo4j unlinked query: {e}"),

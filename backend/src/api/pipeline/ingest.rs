@@ -17,6 +17,10 @@ use serde::Serialize;
 
 use crate::auth::{require_admin, AuthUser};
 use crate::error::AppError;
+use crate::models::document_status::{
+    PARTY_SUBTYPES, STATUS_COMPLETED, STATUS_INDEXED, STATUS_INGESTED, STATUS_PUBLISHED,
+    STATUS_VERIFIED,
+};
 use crate::repositories::audit_repository::log_admin_action;
 use crate::repositories::pipeline_repository::{self, steps};
 use crate::state::AppState;
@@ -291,7 +295,7 @@ async fn run_ingest_locked(
     // double-write what create_party_nodes already handled.
     for item in items
         .iter()
-        .filter(|i| !matches!(i.entity_type.as_str(), "Party" | "Person" | "Organization"))
+        .filter(|i| !PARTY_SUBTYPES.contains(&i.entity_type.as_str()))
     {
         let seq = entity_seq.entry(item.entity_type.clone()).or_insert(0);
         *seq += 1;
@@ -362,7 +366,7 @@ async fn run_ingest_locked(
     let total_rels = rel_total + contained_in;
 
     // 14. Update pipeline document status → INGESTED
-    pipeline_repository::update_document_status(&state.pipeline_pool, doc_id, "INGESTED")
+    pipeline_repository::update_document_status(&state.pipeline_pool, doc_id, STATUS_INGESTED)
         .await
         .map_err(|e| AppError::Internal {
             message: format!("Failed to update document status: {e}"),
@@ -459,7 +463,7 @@ async fn run_ingest_locked(
     })).await.ok();
     Ok(IngestResponse {
         document_id: doc_id.to_string(),
-        status: "INGESTED".to_string(),
+        status: STATUS_INGESTED.to_string(),
         neo4j_document_id: doc_neo4j_id,
         nodes_created: NodeCounts {
             document: 1,
@@ -500,10 +504,10 @@ pub async fn ingest_handler(
             message: format!("Document '{doc_id}' not found"),
         })?;
 
-    if document.status != "VERIFIED" {
+    if document.status != STATUS_VERIFIED {
         return Err(AppError::Conflict {
             message: format!(
-                "Cannot ingest: status is '{}', expected 'VERIFIED'",
+                "Cannot ingest: status is '{}', expected '{STATUS_VERIFIED}'",
                 document.status
             ),
             details: serde_json::json!({ "status": document.status }),
@@ -716,7 +720,7 @@ async fn run_ingest_delta_locked(
     let mut entity_seq: HashMap<String, usize> = HashMap::new();
     for item in delta_items
         .iter()
-        .filter(|i| !matches!(i.entity_type.as_str(), "Party" | "Person" | "Organization"))
+        .filter(|i| !PARTY_SUBTYPES.contains(&i.entity_type.as_str()))
     {
         let seq = entity_seq.entry(item.entity_type.clone()).or_insert(0);
         *seq += 1;
@@ -968,11 +972,11 @@ pub async fn ingest_delta_handler(
     // Delta ingest is meaningful only after a full ingest has run.
     if !matches!(
         document.status.as_str(),
-        "INGESTED" | "INDEXED" | "PUBLISHED" | "COMPLETED"
+        STATUS_INGESTED | STATUS_INDEXED | STATUS_PUBLISHED | STATUS_COMPLETED
     ) {
         return Err(AppError::Conflict {
             message: format!(
-                "Cannot run delta ingest: status is '{}', expected INGESTED | INDEXED | PUBLISHED | COMPLETED",
+                "Cannot run delta ingest: status is '{}', expected {STATUS_INGESTED} | {STATUS_INDEXED} | {STATUS_PUBLISHED} | {STATUS_COMPLETED}",
                 document.status
             ),
             details: serde_json::json!({ "status": document.status }),

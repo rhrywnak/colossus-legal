@@ -28,6 +28,7 @@ use neo4rs::{query, Graph};
 use serde::Serialize;
 
 use crate::error::AppError;
+use crate::models::document_status::{ENTITY_ORGANIZATION, ENTITY_PARTY, ENTITY_PERSON};
 use crate::repositories::pipeline_repository::ExtractionItemRecord;
 
 use super::ingest_helpers::slug;
@@ -78,7 +79,7 @@ pub async fn fetch_existing_parties(graph: &Graph) -> Result<Vec<KnownEntity>, A
         let role: String = row.get("role").unwrap_or_default();
         if !id.is_empty() {
             known.push(KnownEntity {
-                entity_type: "Person".to_string(),
+                entity_type: ENTITY_PERSON.to_string(),
                 id,
                 label: name.clone(),
                 properties: serde_json::json!({"name": name, "role": role}),
@@ -104,7 +105,7 @@ pub async fn fetch_existing_parties(graph: &Graph) -> Result<Vec<KnownEntity>, A
         let role: String = row.get("role").unwrap_or_default();
         if !id.is_empty() {
             known.push(KnownEntity {
-                entity_type: "Organization".to_string(),
+                entity_type: ENTITY_ORGANIZATION.to_string(),
                 id,
                 label: name.clone(),
                 properties: serde_json::json!({"name": name, "role": role}),
@@ -151,7 +152,7 @@ pub async fn resolve_parties(
     // Build ExtractedEntity list from Party items only
     let party_entities: Vec<ExtractedEntity> = items
         .iter()
-        .filter(|i| i.entity_type == "Party")
+        .filter(|i| i.entity_type == ENTITY_PARTY)
         .map(to_extracted_entity)
         .collect();
 

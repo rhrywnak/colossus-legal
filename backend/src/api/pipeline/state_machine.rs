@@ -13,6 +13,9 @@ use serde::Serialize;
 
 use crate::auth::{require_admin, AuthUser};
 use crate::error::AppError;
+use crate::models::document_status::{
+    STATUS_CANCELLED, STATUS_COMPLETED, STATUS_FAILED, STATUS_NEW, STATUS_PROCESSING,
+};
 use crate::repositories::pipeline_repository::{self, steps};
 use crate::state::AppState;
 
@@ -82,7 +85,7 @@ fn get_available_actions(
     _total_items: i64,
 ) -> Vec<AvailableAction> {
     match document_status {
-        "NEW" => vec![
+        STATUS_NEW => vec![
             make_action(
                 "process",
                 "Process Document",
@@ -102,7 +105,7 @@ fn get_available_actions(
                 "/documents/{id}",
             ),
         ],
-        "PROCESSING" => vec![make_action(
+        STATUS_PROCESSING => vec![make_action(
             "cancel",
             "Cancel",
             "POST",
@@ -111,7 +114,7 @@ fn get_available_actions(
             "Cancel processing",
             "/documents/{id}/cancel",
         )],
-        "COMPLETED" => vec![
+        STATUS_COMPLETED => vec![
             make_action(
                 "reprocess",
                 "Re-process",
@@ -131,7 +134,7 @@ fn get_available_actions(
                 "/documents/{id}",
             ),
         ],
-        "FAILED" => vec![
+        STATUS_FAILED => vec![
             make_action(
                 "reprocess",
                 "Re-process",
@@ -151,7 +154,7 @@ fn get_available_actions(
                 "/documents/{id}",
             ),
         ],
-        "CANCELLED" => vec![
+        STATUS_CANCELLED => vec![
             make_action(
                 "reprocess",
                 "Re-process",
@@ -177,9 +180,9 @@ fn get_available_actions(
 
 fn delete_confirmation_level(status: &str) -> &'static str {
     match status {
-        "NEW" => "simple",
-        "FAILED" | "CANCELLED" => "moderate",
-        "COMPLETED" | "PROCESSING" => "strict",
+        STATUS_NEW => "simple",
+        STATUS_FAILED | STATUS_CANCELLED => "moderate",
+        STATUS_COMPLETED | STATUS_PROCESSING => "strict",
         _ => "strict",
     }
 }

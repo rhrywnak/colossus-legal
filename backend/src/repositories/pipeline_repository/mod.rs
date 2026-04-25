@@ -19,6 +19,9 @@ pub mod users;
 pub use extraction::*;
 pub use models::LlmModelRecord;
 
+use crate::models::document_status::{
+    RUN_STATUS_COMPLETED, STATUS_NEW, STEP_STATUS_FAILED,
+};
 use crate::pipeline::config::PipelineConfigOverrides;
 
 use serde::{Deserialize, Serialize};
@@ -155,13 +158,14 @@ pub async fn insert_document(
 ) -> Result<(), PipelineRepoError> {
     sqlx::query(
         r#"INSERT INTO documents (id, title, file_path, file_hash, document_type, status)
-           VALUES ($1, $2, $3, $4, $5, 'NEW')"#,
+           VALUES ($1, $2, $3, $4, $5, $6)"#,
     )
     .bind(id)
     .bind(title)
     .bind(file_path)
     .bind(file_hash)
     .bind(document_type)
+    .bind(STATUS_NEW)
     .execute(pool)
     .await?;
     Ok(())
@@ -307,23 +311,25 @@ pub async fn list_all_documents(pool: &PgPool) -> Result<Vec<DocumentRecord>, Pi
          LEFT JOIN (
              SELECT document_id, SUM(cost_usd::float8) AS total_cost_usd
              FROM extraction_runs
-             WHERE status = 'COMPLETED' AND cost_usd IS NOT NULL
+             WHERE status = $1 AND cost_usd IS NOT NULL
              GROUP BY document_id
          ) cost ON cost.document_id = d.id
          LEFT JOIN (
              SELECT document_id, true AS has_failed
              FROM pipeline_steps
-             WHERE status = 'failed'
+             WHERE status = $2
              GROUP BY document_id
          ) err ON err.document_id = d.id
          LEFT JOIN LATERAL (
              SELECT model_name, chunk_count, chunks_succeeded, chunks_failed
              FROM extraction_runs
-             WHERE document_id = d.id AND status = 'COMPLETED'
+             WHERE document_id = d.id AND status = $1
              ORDER BY id DESC LIMIT 1
          ) run ON true
          ORDER BY d.created_at DESC",
     )
+    .bind(RUN_STATUS_COMPLETED)
+    .bind(STEP_STATUS_FAILED)
     .fetch_all(pool)
     .await?;
     Ok(rows)
@@ -354,24 +360,26 @@ pub async fn get_document(
          LEFT JOIN (
              SELECT document_id, SUM(cost_usd::float8) AS total_cost_usd
              FROM extraction_runs
-             WHERE status = 'COMPLETED' AND cost_usd IS NOT NULL AND document_id = $1
+             WHERE status = $2 AND cost_usd IS NOT NULL AND document_id = $1
              GROUP BY document_id
          ) cost ON cost.document_id = d.id
          LEFT JOIN (
              SELECT document_id, true AS has_failed
              FROM pipeline_steps
-             WHERE status = 'failed' AND document_id = $1
+             WHERE status = $3 AND document_id = $1
              GROUP BY document_id
          ) err ON err.document_id = d.id
          LEFT JOIN LATERAL (
              SELECT model_name, chunk_count, chunks_succeeded, chunks_failed
              FROM extraction_runs
-             WHERE document_id = $1 AND status = 'COMPLETED'
+             WHERE document_id = $1 AND status = $2
              ORDER BY id DESC LIMIT 1
          ) run ON true
          WHERE d.id = $1",
     )
     .bind(document_id)
+    .bind(RUN_STATUS_COMPLETED)
+    .bind(STEP_STATUS_FAILED)
     .fetch_optional(pool)
     .await?;
     Ok(row)

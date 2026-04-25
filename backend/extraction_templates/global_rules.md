@@ -1,5 +1,0 @@
-- Every verbatim_quote must be an exact substring of the document text
-- Do not paraphrase — use the document's actual words
-- Output must be valid JSON with no markdown fences
-- If unsure about an entity, include it and note uncertainty in properties
-- Extract exhaustively — it is better to extract too much than too little

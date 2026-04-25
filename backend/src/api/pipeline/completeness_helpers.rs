@@ -23,6 +23,7 @@ use std::collections::HashSet;
 use neo4rs::{query, Graph};
 
 use crate::error::AppError;
+use crate::models::document_status::{ENTITY_ORGANIZATION, ENTITY_PERSON};
 use crate::repositories::pipeline_repository::ExtractionItemRecord;
 use crate::services::qdrant_service;
 
@@ -73,7 +74,7 @@ pub fn compute_expected_neo4j_ids(
         }
         // Fallback for legacy rows ingested before the R1 migration.
         match item.entity_type.as_str() {
-            "Person" | "Organization" => {
+            ENTITY_PERSON | ENTITY_ORGANIZATION => {
                 let props = &item.item_data["properties"];
                 let name = props["party_name"]
                     .as_str()
@@ -86,7 +87,7 @@ pub fn compute_expected_neo4j_ids(
                     );
                     continue;
                 };
-                let prefix = if item.entity_type == "Organization" {
+                let prefix = if item.entity_type == ENTITY_ORGANIZATION {
                     "org"
                 } else {
                     "person"

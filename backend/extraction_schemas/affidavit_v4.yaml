@@ -1,0 +1,109 @@
+# Extraction schema for affidavits — DATA_MODEL_v4 aligned
+# Property names match PROD Neo4j Evidence nodes.
+document_type: affidavit
+version: "4.0"
+description: "Sworn affidavit — produces Evidence nodes from each sworn statement"
+entity_types:
+  - name: Party
+    grounding_mode: name_match
+    category: reference
+    description: "A person or organization mentioned in the affidavit"
+    properties:
+      - name: party_name
+        type: string
+        required: true
+        description: "Full legal name as it appears in the document"
+      - name: role
+        type: string
+        required: true
+        description: "affiant, witness, plaintiff, defendant, attorney, third_party, caregiver, decedent"
+      - name: party_type
+        type: string
+        required: true
+        description: "person or organization"
+  - name: Evidence
+    grounding_mode: verbatim
+    category: evidence
+    description: "A sworn statement from a numbered paragraph in the affidavit."
+    properties:
+      - name: title
+        type: string
+        required: true
+        description: "Short descriptive title, e.g. 'Humphrey: Emil Was Completely Competent'"
+      - name: answer
+        type: string
+        required: true
+        description: "The substance of the sworn statement"
+      - name: page_number
+        type: integer
+        required: true
+        description: "Page number where this statement appears"
+      - name: paragraph
+        type: string
+        description: "Paragraph number in the affidavit"
+      - name: kind
+        type: string
+        required: true
+        description: "Always 'testimonial' for affidavits"
+      - name: evidence_strength
+        type: string
+        required: true
+        description: "Always 'sworn_testimony'"
+      - name: statement_type
+        type: string
+        required: true
+        description: "sworn_testimony, factual_assertion, or expert_opinion"
+      - name: significance
+        type: string
+        description: "Why this matters. Use prefixes: CRITICAL:, CORROBORATES:, REBUTS:"
+      - name: weight
+        type: integer
+        description: "1-10 importance"
+      - name: statement_date
+        type: string
+        description: "Date the affidavit was signed/notarized"
+      - name: event_date
+        type: string
+        description: "Date of the event being described"
+      - name: pattern_tags
+        type: string
+        description: "Comma-separated trial-prep patterns"
+relationship_types:
+  - name: STATED_BY
+    description: "Links this evidence to the affiant. EVERY Evidence must have exactly one STATED_BY."
+  - name: ABOUT
+    description: "Links this evidence to the party it concerns."
+  - name: CONTAINED_IN
+    description: "Links this evidence to the source Document."
+  - name: CORROBORATES
+    description: "This sworn statement independently confirms a factual claim from another document (typically a complaint allegation)."
+  - name: CONTRADICTS
+    description: "The SAME person said something in this document that conflicts with what they said in another document. Impeachment evidence."
+  - name: REBUTS
+    description: "This affiant's statement directly counters what a DIFFERENT person claimed in another document."
+valid_patterns:
+  - from: Evidence
+    relationship: STATED_BY
+    to: Party
+  - from: Evidence
+    relationship: ABOUT
+    to: Party
+  - from: Evidence
+    relationship: CORROBORATES
+    to: ComplaintAllegation
+  - from: Evidence
+    relationship: CORROBORATES
+    to: Evidence
+  - from: Evidence
+    relationship: CONTRADICTS
+    to: Evidence
+  - from: Evidence
+    relationship: REBUTS
+    to: Evidence
+extraction_rules:
+  - "Extract EVERY substantive numbered paragraph as a separate Evidence node"
+  - "Skip purely procedural paragraphs unless they contain case-relevant facts"
+  - "Every verbatim_quote must be an exact substring of the document text"
+  - "Always set kind='testimonial' and evidence_strength='sworn_testimony'"
+  - "The STATED_BY party is ALWAYS the affiant"
+  - "When two affidavits contain identical language, tag with 'coordination'"

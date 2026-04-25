@@ -50,7 +50,7 @@ use crate::api::pipeline::ingest_helpers::{
     create_ingest_relationship, create_party_nodes, create_provenance_relationships,
 };
 use crate::api::pipeline::ingest_resolver;
-use crate::models::document_status::STATUS_INGESTED;
+use crate::models::document_status::{PARTY_SUBTYPES, STATUS_INGESTED};
 use crate::pipeline::context::AppContext;
 use crate::pipeline::steps::cleanup::{cleanup_neo4j, CleanupError};
 use crate::pipeline::steps::index::Index;
@@ -330,7 +330,7 @@ impl Ingest {
         // doesn't double-write what create_party_nodes already handled.
         for item in items
             .iter()
-            .filter(|i| !matches!(i.entity_type.as_str(), "Party" | "Person" | "Organization"))
+            .filter(|i| !PARTY_SUBTYPES.contains(&i.entity_type.as_str()))
         {
             let seq = entity_seq.entry(item.entity_type.clone()).or_insert(0);
             *seq += 1;

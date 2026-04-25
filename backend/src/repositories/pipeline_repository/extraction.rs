@@ -3,6 +3,11 @@
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 
+use crate::models::document_status::{
+    ENTITY_COMPLAINT_ALLEGATION, ENTITY_LEGAL_COUNT, PARTY_SUBTYPES, REVIEW_STATUS_APPROVED,
+    RUN_STATUS_COMPLETED, RUN_STATUS_RUNNING, STATUS_PUBLISHED,
+};
+
 use super::PipelineRepoError;
 
 // ── Record types ─────────────────────────────────────────────────
@@ -133,12 +138,12 @@ pub async fn insert_extraction_run(
                temperature, max_tokens_requested,
                admin_instructions, prior_context
            ) VALUES (
-               $1, $2, $3, $4, NOW(), '{}'::jsonb, 'RUNNING',
+               $1, $2, $3, $4, NOW(), '{}'::jsonb, $16,
                $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
            )
            ON CONFLICT ON CONSTRAINT extraction_runs_doc_pass_unique DO UPDATE SET
                -- Identify the new attempt: reset lifecycle columns.
-               status = 'RUNNING',
+               status = $16,
                started_at = NOW(),
                completed_at = NULL,
                raw_output = '{}'::jsonb,
@@ -184,6 +189,7 @@ pub async fn insert_extraction_run(
     .bind(max_tokens_requested)
     .bind(admin_instructions)
     .bind(prior_context)
+    .bind(RUN_STATUS_RUNNING)
     .fetch_one(pool)
     .await?;
     Ok(row)
@@ -618,12 +624,14 @@ pub async fn get_approved_relationships_for_document_all_passes(
          JOIN extraction_items fi ON fi.id = r.from_item_id
          JOIN extraction_items ti ON ti.id = r.to_item_id
          WHERE r.document_id = $1
-           AND rn.status = 'COMPLETED'
-           AND fi.review_status = 'approved'
-           AND ti.review_status = 'approved'
+           AND rn.status = $2
+           AND fi.review_status = $3
+           AND ti.review_status = $3
          ORDER BY r.id",
     )
     .bind(document_id)
+    .bind(RUN_STATUS_COMPLETED)
+    .bind(REVIEW_STATUS_APPROVED)
     .fetch_all(pool)
     .await?;
     Ok(rows)
@@ -672,10 +680,11 @@ pub async fn get_latest_completed_run(
 ) -> Result<Option<i32>, PipelineRepoError> {
     let row = sqlx::query_scalar::<_, i32>(
         "SELECT id FROM extraction_runs
-         WHERE document_id = $1 AND pass_number = 1 AND status = 'COMPLETED'
+         WHERE document_id = $1 AND pass_number = 1 AND status = $2
          ORDER BY id DESC LIMIT 1",
     )
     .bind(document_id)
+    .bind(RUN_STATUS_COMPLETED)
     .fetch_optional(pool)
     .await?;
     Ok(row)
@@ -1028,10 +1037,11 @@ pub async fn load_pass1_entities(
 ) -> Result<Vec<Pass1Entity>, PipelineRepoError> {
     let run_id: Option<i32> = sqlx::query_scalar(
         "SELECT id FROM extraction_runs \
-         WHERE document_id = $1 AND pass_number = 1 AND status = 'COMPLETED' \
+         WHERE document_id = $1 AND pass_number = 1 AND status = $2 \
          ORDER BY id DESC LIMIT 1",
     )
     .bind(document_id)
+    .bind(RUN_STATUS_COMPLETED)
     .fetch_optional(pool)
     .await?;
 
@@ -1063,11 +1073,11 @@ pub const CROSS_DOC_ID_PREFIX: &str = "ctx:";
 /// every other item SELECT — otherwise post-Ingest Party rows would
 /// fail the filter and drop out of the context.
 const CROSS_DOC_ENTITY_TYPES: &[&str] = &[
-    "Party",
-    "Person",
-    "Organization",
-    "LegalCount",
-    "ComplaintAllegation",
+    crate::models::document_status::ENTITY_PARTY,
+    crate::models::document_status::ENTITY_PERSON,
+    crate::models::document_status::ENTITY_ORGANIZATION,
+    crate::models::document_status::ENTITY_LEGAL_COUNT,
+    crate::models::document_status::ENTITY_COMPLAINT_ALLEGATION,
 ];
 
 /// An entity loaded from another PUBLISHED document's pass-1 run for
@@ -1193,9 +1203,9 @@ fn filter_properties_for_prompt(
     properties: &serde_json::Value,
 ) -> serde_json::Value {
     let keep: &[&str] = match entity_type {
-        "ComplaintAllegation" => &["paragraph_number", "summary"],
-        "LegalCount" => &["count_number", "legal_basis", "description"],
-        "Party" | "Person" | "Organization" => &["full_name", "role", "entity_kind"],
+        ENTITY_COMPLAINT_ALLEGATION => &["paragraph_number", "summary"],
+        ENTITY_LEGAL_COUNT => &["count_number", "legal_basis", "description"],
+        t if PARTY_SUBTYPES.contains(&t) => &["full_name", "role", "entity_kind"],
         _ => return properties.clone(),
     };
     let src = match properties.as_object() {
@@ -1235,15 +1245,18 @@ pub async fn load_cross_document_context(
          JOIN extraction_runs runs ON runs.id = i.run_id \
          JOIN documents docs ON docs.id = i.document_id \
          WHERE i.document_id <> $1 \
-           AND docs.status = 'PUBLISHED' \
+           AND docs.status = $3 \
            AND runs.pass_number = 1 \
-           AND runs.status = 'COMPLETED' \
-           AND i.review_status = 'approved' \
+           AND runs.status = $4 \
+           AND i.review_status = $5 \
            AND COALESCE(i.resolved_entity_type, i.entity_type) = ANY($2) \
          ORDER BY i.document_id, i.id",
     )
     .bind(current_document_id)
     .bind(CROSS_DOC_ENTITY_TYPES)
+    .bind(STATUS_PUBLISHED)
+    .bind(RUN_STATUS_COMPLETED)
+    .bind(REVIEW_STATUS_APPROVED)
     .fetch_all(pool)
     .await?;
 

@@ -21,6 +21,11 @@
 
 use neo4rs::Graph;
 
+use crate::models::document_status::{
+    ENTITY_COMPLAINT_ALLEGATION, ENTITY_DOCUMENT, ENTITY_HARM, ENTITY_LEGAL_COUNT,
+    ENTITY_ORGANIZATION, ENTITY_PERSON,
+};
+
 /// Run all Neo4j schema constraints at application startup.
 ///
 /// Safe to call repeatedly — all constraints use IF NOT EXISTS.
@@ -33,41 +38,24 @@ use neo4rs::Graph;
 /// Without these constraints, concurrent ingest operations could produce
 /// duplicate nodes.
 pub async fn run_graph_migrations(graph: &Graph) {
-    let constraints = [
-        (
-            "Document",
-            "CREATE CONSTRAINT document_id_unique IF NOT EXISTS \
-             FOR (n:Document) REQUIRE (n.id) IS UNIQUE",
-        ),
-        (
-            "Person",
-            "CREATE CONSTRAINT person_id_unique IF NOT EXISTS \
-             FOR (n:Person) REQUIRE (n.id) IS UNIQUE",
-        ),
-        (
-            "Organization",
-            "CREATE CONSTRAINT organization_id_unique IF NOT EXISTS \
-             FOR (n:Organization) REQUIRE (n.id) IS UNIQUE",
-        ),
-        (
-            "ComplaintAllegation",
-            "CREATE CONSTRAINT complaint_allegation_id_unique IF NOT EXISTS \
-             FOR (n:ComplaintAllegation) REQUIRE (n.id) IS UNIQUE",
-        ),
-        (
-            "LegalCount",
-            "CREATE CONSTRAINT legal_count_id_unique IF NOT EXISTS \
-             FOR (n:LegalCount) REQUIRE (n.id) IS UNIQUE",
-        ),
-        (
-            "Harm",
-            "CREATE CONSTRAINT harm_id_unique IF NOT EXISTS \
-             FOR (n:Harm) REQUIRE (n.id) IS UNIQUE",
-        ),
+    // (Neo4j label, constraint name). Constraint names are persisted in the
+    // database, so changing one is a migration; pair them with the label
+    // explicitly rather than deriving from PascalCase to keep this stable.
+    let constraints: &[(&str, &str)] = &[
+        (ENTITY_DOCUMENT, "document_id_unique"),
+        (ENTITY_PERSON, "person_id_unique"),
+        (ENTITY_ORGANIZATION, "organization_id_unique"),
+        (ENTITY_COMPLAINT_ALLEGATION, "complaint_allegation_id_unique"),
+        (ENTITY_LEGAL_COUNT, "legal_count_id_unique"),
+        (ENTITY_HARM, "harm_id_unique"),
     ];
 
-    for (label, cypher) in &constraints {
-        match graph.run(neo4rs::query(cypher)).await {
+    for (label, constraint_name) in constraints {
+        let cypher = format!(
+            "CREATE CONSTRAINT {constraint_name} IF NOT EXISTS \
+             FOR (n:{label}) REQUIRE (n.id) IS UNIQUE"
+        );
+        match graph.run(neo4rs::query(&cypher)).await {
             Ok(_) => tracing::info!(
                 label = %label,
                 "Neo4j constraint created or already exists"

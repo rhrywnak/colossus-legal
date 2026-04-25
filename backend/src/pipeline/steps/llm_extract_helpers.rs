@@ -177,7 +177,7 @@ pub(crate) async fn mark_run_failed(db: &PgPool, run_id: i32, reason: &str) {
         None,
         None,
         None,
-        "FAILED",
+        crate::models::document_status::RUN_STATUS_FAILED,
     )
     .await
     {

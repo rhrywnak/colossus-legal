@@ -19,6 +19,9 @@ use serde::Deserialize;
 
 use crate::auth::{require_admin, AuthUser};
 use crate::error::AppError;
+use crate::models::document_status::{
+    STATUS_COMPLETED, STATUS_INDEXED, STATUS_INGESTED, STATUS_PUBLISHED,
+};
 use crate::repositories::pipeline_repository;
 use crate::services::qdrant_service;
 use crate::state::AppState;
@@ -62,9 +65,9 @@ pub async fn delete_document(
     let reason = body.and_then(|b| b.0.reason);
 
     // Published documents require a reason
-    if previous_status == "PUBLISHED" && reason.is_none() {
+    if previous_status == STATUS_PUBLISHED && reason.is_none() {
         return Err(AppError::BadRequest {
-            message: "Reason is required when deleting a PUBLISHED document".to_string(),
+            message: format!("Reason is required when deleting a {STATUS_PUBLISHED} document"),
             details: serde_json::json!({ "status": previous_status }),
         });
     }
@@ -93,7 +96,7 @@ pub async fn delete_document(
     // 4. Neo4j cleanup (best-effort, for documents that have been ingested)
     let needs_graph_cleanup = matches!(
         previous_status.as_str(),
-        "COMPLETED" | "PUBLISHED" | "INGESTED" | "INDEXED"
+        STATUS_COMPLETED | STATUS_PUBLISHED | STATUS_INGESTED | STATUS_INDEXED
     );
     if needs_graph_cleanup {
         cleanup_neo4j(&state, &document_id).await;
@@ -102,7 +105,7 @@ pub async fn delete_document(
     // 5. Qdrant cleanup (best-effort, for documents that have been indexed)
     let needs_vector_cleanup = matches!(
         previous_status.as_str(),
-        "COMPLETED" | "PUBLISHED" | "INDEXED"
+        STATUS_COMPLETED | STATUS_PUBLISHED | STATUS_INDEXED
     );
     if needs_vector_cleanup {
         cleanup_qdrant(&state, &document_id).await;

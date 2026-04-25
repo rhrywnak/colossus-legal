@@ -17,6 +17,7 @@ use serde::Serialize;
 
 use crate::auth::{require_admin, AuthUser};
 use crate::error::AppError;
+use crate::models::document_status::{STATUS_INDEXED, STATUS_PUBLISHED};
 use crate::repositories::audit_repository::log_admin_action;
 use crate::repositories::pipeline_repository::{self, steps};
 use crate::state::AppState;
@@ -274,15 +275,15 @@ async fn run_completeness_impl(
     // 10. Transition to PUBLISHED on a pass (or warn — warnings are
     //     non-blocking). Only when not already PUBLISHED to avoid an
     //     unnecessary write.
-    let published = if status != "fail" && document.status != "PUBLISHED" {
-        pipeline_repository::update_document_status(&state.pipeline_pool, doc_id, "PUBLISHED")
+    let published = if status != "fail" && document.status != STATUS_PUBLISHED {
+        pipeline_repository::update_document_status(&state.pipeline_pool, doc_id, STATUS_PUBLISHED)
             .await
             .map_err(|e| AppError::Internal {
                 message: format!("Failed to update status: {e}"),
             })?;
         tracing::info!(
             doc_id = %doc_id, status,
-            "Completeness {status} — status → PUBLISHED"
+            "Completeness {status} — status → {STATUS_PUBLISHED}"
         );
         true
     } else {
@@ -340,10 +341,10 @@ pub async fn completeness_handler(
             message: format!("Document '{doc_id}' not found"),
         })?;
 
-    if document.status != "INDEXED" && document.status != "PUBLISHED" {
+    if document.status != STATUS_INDEXED && document.status != STATUS_PUBLISHED {
         return Err(AppError::Conflict {
             message: format!(
-                "Cannot check completeness: status is '{}', expected 'INDEXED'",
+                "Cannot check completeness: status is '{}', expected '{STATUS_INDEXED}'",
                 document.status
             ),
             details: serde_json::json!({ "status": document.status }),

@@ -17,6 +17,7 @@ use axum::{
 
 use crate::auth::{require_admin, AuthUser};
 use crate::error::AppError;
+use crate::models::document_status::{STATUS_TEXT_EXTRACTED, STATUS_UPLOADED};
 use crate::repositories::audit_repository::log_admin_action;
 use crate::repositories::pipeline_repository::{self, steps};
 use crate::state::AppState;
@@ -303,7 +304,7 @@ pub(crate) async fn run_extract_text(
 
     Ok(ExtractTextResponse {
         document_id: doc_id.to_string(),
-        status: "TEXT_EXTRACTED".to_string(),
+        status: STATUS_TEXT_EXTRACTED.to_string(),
         page_count,
         total_chars,
     })
@@ -331,10 +332,10 @@ pub async fn extract_text(
             message: format!("Document '{doc_id}' not found"),
         })?;
 
-    if document.status != "UPLOADED" && document.status != "TEXT_EXTRACTED" {
+    if document.status != STATUS_UPLOADED && document.status != STATUS_TEXT_EXTRACTED {
         return Err(AppError::Conflict {
             message: format!(
-                "Cannot extract text: document status is '{}', expected 'UPLOADED' or 'TEXT_EXTRACTED'",
+                "Cannot extract text: document status is '{}', expected '{STATUS_UPLOADED}' or '{STATUS_TEXT_EXTRACTED}'",
                 document.status
             ),
             details: serde_json::json!({ "status": document.status }),
@@ -346,7 +347,7 @@ pub async fn extract_text(
     // extract_text handler is the standalone admin endpoint, not the automated pipeline.
     // When called directly, we set TEXT_EXTRACTED status here — the orchestrator pattern.
     // run_extract_text no longer sets this status itself (see comment in run_extract_text).
-    pipeline_repository::update_document_status(&state.pipeline_pool, &doc_id, "TEXT_EXTRACTED")
+    pipeline_repository::update_document_status(&state.pipeline_pool, &doc_id, STATUS_TEXT_EXTRACTED)
         .await
         .map_err(|e| AppError::Internal {
             message: format!("Failed to update status: {e}"),

@@ -1,0 +1,153 @@
+# Extraction schema for complaints — DATA_MODEL_v4 aligned
+#
+# Property names match PROD Neo4j and existing pipeline code.
+# grounding_mode controls how the Verify step validates each entity type.
+# verbatim_quote is NOT a schema property — it's a top-level entity field
+# handled by the template output format and the parser.
+
+document_type: complaint
+version: "4.0"
+description: "Civil complaint — the foundation document that defines the case structure"
+
+entity_types:
+  - name: Party
+    grounding_mode: name_match
+    category: reference
+    description: "A person or organization named in the complaint. Extract EVERY named individual and organization."
+    properties:
+      - name: party_name
+        type: string
+        required: true
+        description: "Full legal name as it appears in the document"
+      - name: role
+        type: string
+        required: true
+        description: "plaintiff, defendant, third_party, witness, attorney, judge, decedent, interested_party, guardian_ad_litem, personal_representative"
+      - name: party_type
+        type: string
+        required: true
+        description: "person or organization"
+      - name: aliases
+        type: string
+        description: "Other names or references used for this party, comma-separated"
+
+  - name: ComplaintAllegation
+    grounding_mode: verbatim
+    category: evidence
+    description: "A specific factual allegation from a numbered paragraph in the complaint"
+    properties:
+      - name: paragraph_number
+        type: string
+        required: true
+        description: "Paragraph number(s), e.g. '16' or '16-18'"
+      - name: summary
+        type: string
+        required: true
+        description: "One-sentence summary of what is alleged"
+      - name: category
+        type: string
+        description: "financial, procedural, defamation, fiduciary, conversion, abuse_of_process"
+      - name: severity
+        type: integer
+        description: "1-10 scale of severity (10 = most severe)"
+      - name: applies_to
+        type: string
+        description: "Name of the party this allegation is against"
+      - name: amount
+        type: string
+        description: "Dollar amount if specified"
+      - name: event_date
+        type: string
+        description: "Date of the alleged conduct if mentioned"
+
+  - name: LegalCount
+    grounding_mode: heading_match
+    category: foundation
+    description: "A cause of action (count) asserted in the complaint"
+    properties:
+      - name: count_name
+        type: string
+        required: true
+        description: "Name of the count, e.g. 'Breach of Fiduciary Duty'"
+      - name: count_number
+        type: integer
+        required: true
+        description: "Count number (I=1, II=2, III=3, IV=4)"
+      - name: legal_basis
+        type: string
+        required: true
+        description: "Legal statute or common law basis"
+      - name: paragraphs
+        type: string
+        description: "Complaint paragraph range for this count, e.g. '86-100'"
+      - name: key_elements
+        type: string
+        description: "Elements plaintiff must prove for this count"
+      - name: damages_claimed
+        type: string
+        description: "Damages sought, e.g. 'Exceeding $25,000'"
+      - name: applies_to
+        type: string
+        description: "Defendants this count applies to"
+
+  - name: Harm
+    grounding_mode: derived
+    category: foundation
+    provenance_required: true
+    description: "A specific harm or damage suffered by the plaintiff. Harms are derived from multiple allegations — they are not direct quotes."
+    properties:
+      - name: description
+        type: string
+        required: true
+        description: "Description of the harm"
+      - name: category
+        type: string
+        required: true
+        description: "financial_direct, financial_estate, reputational"
+      - name: subcategory
+        type: string
+        description: "sanction, incompetence, unnecessary_cost, character_attack, discriminatory"
+      - name: amount
+        type: string
+        description: "Dollar amount if quantifiable"
+      - name: harm_type
+        type: string
+        description: "Type: financial, reputational, emotional, procedural"
+      - name: date
+        type: string
+        description: "When the harm occurred"
+
+relationship_types:
+  - name: SUPPORTS
+    description: "This allegation supports this legal count"
+  - name: ABOUT
+    description: "This allegation is about (against) this party"
+  - name: CAUSED_BY
+    description: "This harm was caused by this allegation/misconduct"
+  - name: DAMAGES_FOR
+    description: "This harm supports damages for this legal count"
+
+valid_patterns:
+  - from: ComplaintAllegation
+    relationship: SUPPORTS
+    to: LegalCount
+  - from: ComplaintAllegation
+    relationship: ABOUT
+    to: Party
+  - from: Harm
+    relationship: CAUSED_BY
+    to: ComplaintAllegation
+  - from: Harm
+    relationship: DAMAGES_FOR
+    to: LegalCount
+
+extraction_rules:
+  - "Extract EVERY numbered paragraph as a separate ComplaintAllegation — do not skip or merge paragraphs"
+  - "Every verbatim_quote MUST be an exact substring of the document text — copy the text exactly"
+  - "Every ComplaintAllegation must link to at least one LegalCount via SUPPORTS"
+  - "Every ComplaintAllegation must identify which party it is ABOUT"
+  - "Extract ALL parties including attorneys, judges, witnesses, and non-party individuals"
+  - "Extract ALL legal counts (causes of action) with their statutory basis"
+  - "Extract ALL harms with dollar amounts where specified"
+  - "For Harm entities, include a provenance array linking to supporting paragraph numbers"
+  - "Paragraphs that incorporate earlier paragraphs by reference should still be extracted separately"

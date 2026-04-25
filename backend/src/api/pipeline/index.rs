@@ -35,6 +35,7 @@ use serde::Serialize;
 
 use crate::auth::{require_admin, AuthUser};
 use crate::error::AppError;
+use crate::models::document_status::{STATUS_INDEXED, STATUS_INGESTED};
 use crate::repositories::audit_repository::log_admin_action;
 use crate::repositories::embedding_repository;
 use crate::repositories::pipeline_repository::{self, steps};
@@ -235,7 +236,7 @@ pub(crate) async fn run_index_core(
     // 10. Return summary
     Ok(IndexResponse {
         document_id: doc_id.to_string(),
-        status: "INDEXED".to_string(),
+        status: STATUS_INDEXED.to_string(),
         nodes_embedded: embedded_count,
         nodes_by_type,
         qdrant_collection: "colossus_evidence".to_string(),
@@ -255,7 +256,7 @@ pub(crate) async fn run_index(
     username: &str,
 ) -> Result<IndexResponse, AppError> {
     let result = run_index_core(state, doc_id, username).await?;
-    pipeline_repository::update_document_status(&state.pipeline_pool, doc_id, "INDEXED")
+    pipeline_repository::update_document_status(&state.pipeline_pool, doc_id, STATUS_INDEXED)
         .await
         .map_err(|e| AppError::Internal {
             message: format!("Failed to update document status: {e}"),
@@ -285,10 +286,10 @@ pub async fn index_handler(
             message: format!("Document '{doc_id}' not found"),
         })?;
 
-    if document.status != "INGESTED" {
+    if document.status != STATUS_INGESTED {
         return Err(AppError::Conflict {
             message: format!(
-                "Cannot index: status is '{}', expected 'INGESTED'",
+                "Cannot index: status is '{}', expected '{STATUS_INGESTED}'",
                 document.status
             ),
             details: serde_json::json!({ "status": document.status }),

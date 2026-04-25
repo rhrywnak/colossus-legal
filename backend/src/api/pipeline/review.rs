@@ -10,6 +10,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::auth::{require_admin, AuthUser};
 use crate::error::AppError;
+use crate::models::document_status::{
+    REVIEW_STATUS_APPROVED, REVIEW_STATUS_EDITED, REVIEW_STATUS_PENDING, REVIEW_STATUS_REJECTED,
+    STATUS_COMPLETED, STATUS_INDEXED, STATUS_INGESTED, STATUS_PUBLISHED, STATUS_TEXT_EXTRACTED,
+    STATUS_VERIFIED,
+};
 use crate::repositories::audit_repository::log_admin_action;
 use crate::repositories::pipeline_repository::{self, review as review_repo, steps};
 use crate::state::AppState;
@@ -122,7 +127,7 @@ pub async fn approve_handler(
         item_id,
         "review_status",
         Some(&current.review_status),
-        Some("approved"),
+        Some(REVIEW_STATUS_APPROVED),
         &user.username,
     )
     .await
@@ -207,7 +212,7 @@ pub async fn reject_handler(
         item_id,
         "review_status",
         Some(&current.review_status),
-        Some("rejected"),
+        Some(REVIEW_STATUS_REJECTED),
         &user.username,
     )
     .await
@@ -358,10 +363,10 @@ pub async fn unapprove_handler(
             message: format!("Item {item_id} not found"),
         })?;
 
-    if current.review_status != "approved" && current.review_status != "edited" {
+    if current.review_status != REVIEW_STATUS_APPROVED && current.review_status != REVIEW_STATUS_EDITED {
         return Err(AppError::BadRequest {
             message: format!(
-                "Cannot unapprove: item status is '{}', expected 'approved' or 'edited'",
+                "Cannot unapprove: item status is '{}', expected '{REVIEW_STATUS_APPROVED}' or '{REVIEW_STATUS_EDITED}'",
                 current.review_status
             ),
             details: serde_json::json!({"review_status": current.review_status}),
@@ -382,7 +387,7 @@ pub async fn unapprove_handler(
         item_id,
         "review_status",
         Some(&current.review_status),
-        Some("pending"),
+        Some(REVIEW_STATUS_PENDING),
         &user.username,
     )
     .await
@@ -428,10 +433,10 @@ pub async fn unreject_handler(
             message: format!("Item {item_id} not found"),
         })?;
 
-    if current.review_status != "rejected" {
+    if current.review_status != REVIEW_STATUS_REJECTED {
         return Err(AppError::BadRequest {
             message: format!(
-                "Cannot unreject: item status is '{}', expected 'rejected'",
+                "Cannot unreject: item status is '{}', expected '{REVIEW_STATUS_REJECTED}'",
                 current.review_status
             ),
             details: serde_json::json!({"review_status": current.review_status}),
@@ -451,8 +456,8 @@ pub async fn unreject_handler(
         &state.pipeline_pool,
         item_id,
         "review_status",
-        Some("rejected"),
-        Some("pending"),
+        Some(REVIEW_STATUS_REJECTED),
+        Some(REVIEW_STATUS_PENDING),
         &user.username,
     )
     .await
@@ -490,11 +495,11 @@ pub async fn revert_ingest_handler(
 
     if !matches!(
         document.status.as_str(),
-        "INGESTED" | "INDEXED" | "PUBLISHED"
+        STATUS_INGESTED | STATUS_INDEXED | STATUS_PUBLISHED
     ) {
         return Err(AppError::Conflict {
             message: format!(
-                "Cannot revert ingest: status is '{}', expected INGESTED, INDEXED, or PUBLISHED",
+                "Cannot revert ingest: status is '{}', expected {STATUS_INGESTED}, {STATUS_INDEXED}, or {STATUS_PUBLISHED}",
                 document.status
             ),
             details: serde_json::json!({"status": document.status}),
@@ -505,7 +510,7 @@ pub async fn revert_ingest_handler(
     super::delete::cleanup_neo4j(&state, &doc_id).await;
 
     // Reset status to VERIFIED
-    pipeline_repository::update_document_status(&state.pipeline_pool, &doc_id, "VERIFIED")
+    pipeline_repository::update_document_status(&state.pipeline_pool, &doc_id, STATUS_VERIFIED)
         .await
         .map_err(|e| AppError::Internal {
             message: format!("Failed to update status: {e}"),
@@ -525,7 +530,7 @@ pub async fn revert_ingest_handler(
 
     Ok(Json(RevertIngestResponse {
         document_id: doc_id,
-        status: "VERIFIED".to_string(),
+        status: STATUS_VERIFIED.to_string(),
         message: "Ingest reverted. Items unlocked for re-review.".to_string(),
     }))
 }
@@ -556,11 +561,11 @@ pub async fn reprocess_handler(
 
     if !matches!(
         document.status.as_str(),
-        "INGESTED" | "INDEXED" | "PUBLISHED"
+        STATUS_INGESTED | STATUS_INDEXED | STATUS_PUBLISHED
     ) {
         return Err(AppError::Conflict {
             message: format!(
-                "Cannot reprocess: status is '{}', expected INGESTED, INDEXED, or PUBLISHED",
+                "Cannot reprocess: status is '{}', expected {STATUS_INGESTED}, {STATUS_INDEXED}, or {STATUS_PUBLISHED}",
                 document.status
             ),
             details: serde_json::json!({"status": document.status}),
@@ -635,7 +640,8 @@ pub async fn reprocess_handler(
         message: format!("Delete pipeline_steps: {e}"),
     })?;
 
-    sqlx::query("UPDATE documents SET status = 'TEXT_EXTRACTED', updated_at = NOW() WHERE id = $1")
+    sqlx::query("UPDATE documents SET status = $1, updated_at = NOW() WHERE id = $2")
+        .bind(STATUS_TEXT_EXTRACTED)
         .bind(&doc_id)
         .execute(&mut *txn)
         .await
@@ -664,7 +670,7 @@ pub async fn reprocess_handler(
 
     Ok(Json(ReprocessResponse {
         document_id: doc_id,
-        status: "TEXT_EXTRACTED".to_string(),
+        status: STATUS_TEXT_EXTRACTED.to_string(),
         message: "Document reset for re-extraction. Select schema and run Analyze Content."
             .to_string(),
     }))
@@ -779,7 +785,7 @@ async fn check_not_post_ingest(
 
     if matches!(
         document.status.as_str(),
-        "INGESTED" | "INDEXED" | "PUBLISHED" | "COMPLETED"
+        STATUS_INGESTED | STATUS_INDEXED | STATUS_PUBLISHED | STATUS_COMPLETED
     ) {
         return Err(AppError::Conflict {
             message: format!(
