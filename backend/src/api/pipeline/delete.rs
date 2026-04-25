@@ -302,13 +302,24 @@ pub(super) async fn cleanup_neo4j(state: &AppState, document_id: &str) {
         .await
     {
         Ok(mut result) => {
-            let removed: i64 = result
-                .next()
-                .await
-                .ok()
-                .flatten()
-                .and_then(|row| row.get("removed").ok())
-                .unwrap_or(0);
+            let removed: i64 = match result.next().await {
+                Ok(Some(row)) => row.get("removed").unwrap_or(0),
+                Ok(None) => {
+                    tracing::warn!(
+                        document_id = %document_id,
+                        "Neo4j delete (source_document) returned no result row"
+                    );
+                    0
+                }
+                Err(e) => {
+                    tracing::error!(
+                        document_id = %document_id,
+                        error = %e,
+                        "Failed to read Neo4j delete count — deletion may have succeeded but count is unknown"
+                    );
+                    0
+                }
+            };
             tracing::info!(doc_id = %document_id, removed, "Neo4j: deleted nodes by source_document");
         }
         Err(e) => {
@@ -326,13 +337,24 @@ pub(super) async fn cleanup_neo4j(state: &AppState, document_id: &str) {
         .await
     {
         Ok(mut result) => {
-            let removed: i64 = result
-                .next()
-                .await
-                .ok()
-                .flatten()
-                .and_then(|row| row.get("removed").ok())
-                .unwrap_or(0);
+            let removed: i64 = match result.next().await {
+                Ok(Some(row)) => row.get("removed").unwrap_or(0),
+                Ok(None) => {
+                    tracing::warn!(
+                        document_id = %document_id,
+                        "Neo4j delete (source_document_id) returned no result row"
+                    );
+                    0
+                }
+                Err(e) => {
+                    tracing::error!(
+                        document_id = %document_id,
+                        error = %e,
+                        "Failed to read Neo4j delete count — deletion may have succeeded but count is unknown"
+                    );
+                    0
+                }
+            };
             if removed > 0 {
                 tracing::info!(doc_id = %document_id, removed, "Neo4j: deleted nodes by source_document_id");
             }

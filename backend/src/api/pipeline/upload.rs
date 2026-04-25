@@ -352,7 +352,7 @@ pub async fn upload_document(
     )
     .await
     {
-        steps::record_step_complete(
+        if let Err(e) = steps::record_step_complete(
             &state.pipeline_pool,
             step_id,
             start.elapsed().as_secs_f64(),
@@ -364,7 +364,14 @@ pub async fn upload_document(
             }),
         )
         .await
-        .ok();
+        {
+            tracing::error!(
+                document_id = %doc_id,
+                step_id = step_id,
+                error = %e,
+                "Failed to record upload step completion — audit trail gap"
+            );
+        }
     }
 
     log_admin_action(

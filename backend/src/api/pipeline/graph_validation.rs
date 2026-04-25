@@ -108,14 +108,21 @@ pub async fn validate_graph_handler(
     )
     .await;
 
-    steps::record_step_complete(
+    if let Err(e) = steps::record_step_complete(
         &state.pipeline_pool,
         step_id,
         start.elapsed().as_secs_f64(),
         &serde_json::json!({"passed": passed, "failed": failed, "warnings": warnings}),
     )
     .await
-    .ok();
+    {
+        tracing::error!(
+            document_id = %doc_id,
+            step_id = step_id,
+            error = %e,
+            "Failed to record validate_graph step completion — audit trail gap"
+        );
+    }
 
     Ok(Json(result))
 }
@@ -281,13 +288,26 @@ async fn count_nodes_by_label(
         .map_err(|e| AppError::Internal {
             message: format!("Neo4j count {label}: {e}"),
         })?;
-    let count: i64 = result
-        .next()
-        .await
-        .ok()
-        .flatten()
-        .and_then(|row| row.get("cnt").ok())
-        .unwrap_or(0);
+    let count: i64 = match result.next().await {
+        Ok(Some(row)) => row.get("cnt").unwrap_or(0),
+        Ok(None) => {
+            tracing::warn!(
+                document_id = %document_id,
+                label = %label,
+                "Neo4j count query returned no result row"
+            );
+            0
+        }
+        Err(e) => {
+            tracing::error!(
+                document_id = %document_id,
+                label = %label,
+                error = %e,
+                "Failed to read Neo4j count — graph validation result is unreliable"
+            );
+            0
+        }
+    };
     Ok(count as usize)
 }
 
@@ -378,13 +398,30 @@ async fn compute_relationship_coverage(
         .map_err(|e| AppError::Internal {
             message: format!("Neo4j coverage query {from_label}-{rel_type}->{to_label}: {e}"),
         })?;
-    let linked: i64 = result
-        .next()
-        .await
-        .ok()
-        .flatten()
-        .and_then(|row| row.get("linked").ok())
-        .unwrap_or(0);
+    let linked: i64 = match result.next().await {
+        Ok(Some(row)) => row.get("linked").unwrap_or(0),
+        Ok(None) => {
+            tracing::warn!(
+                document_id = %document_id,
+                from_label = %from_label,
+                rel_type = %rel_type,
+                to_label = %to_label,
+                "Neo4j coverage query returned no result row"
+            );
+            0
+        }
+        Err(e) => {
+            tracing::error!(
+                document_id = %document_id,
+                from_label = %from_label,
+                rel_type = %rel_type,
+                to_label = %to_label,
+                error = %e,
+                "Failed to read Neo4j coverage count — graph validation result is unreliable"
+            );
+            0
+        }
+    };
 
     Ok((linked as f64 / total as f64 * 100.0) as u32)
 }

@@ -66,6 +66,7 @@ pub(crate) async fn call_with_rate_limit_retry(
                     )));
                 }
 
+                // best-effort progress update
                 progress
                     .report(serde_json::json!({
                         "status": "rate_limited",

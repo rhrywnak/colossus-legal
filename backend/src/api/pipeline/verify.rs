@@ -280,7 +280,7 @@ pub(crate) async fn run_verify(
     } else {
         0.0
     };
-    steps::record_step_complete(
+    if let Err(e) = steps::record_step_complete(
         &state.pipeline_pool,
         step_id,
         start.elapsed().as_secs_f64(),
@@ -292,7 +292,14 @@ pub(crate) async fn run_verify(
         }),
     )
     .await
-    .ok();
+    {
+        tracing::error!(
+            document_id = %doc_id,
+            step_id = step_id,
+            error = %e,
+            "Failed to record verify step completion — audit trail gap"
+        );
+    }
 
     Ok(VerifyResponse {
         document_id: doc_id.to_string(),

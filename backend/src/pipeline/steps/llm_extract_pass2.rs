@@ -366,6 +366,7 @@ pub async fn run_pass2_extraction(
         .map_err(|_| LlmExtractError::SemaphoreClosed)?;
 
     // 13. LLM call with rate-limit retry.
+    // best-effort progress update
     progress
         .report(serde_json::json!({ "status": "extracting", "mode": "pass2_full" }))
         .await

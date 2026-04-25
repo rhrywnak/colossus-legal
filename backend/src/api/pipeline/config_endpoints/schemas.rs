@@ -36,6 +36,12 @@ pub struct SchemaInfo {
     pub description: String,
     pub entity_type_count: usize,
     pub entity_types: Vec<String>,
+    /// Parse error message, if the schema file failed to load.
+    /// Present only for invalid schemas — the frontend should display
+    /// these with a warning indicator so the operator knows the file
+    /// needs attention.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 /// GET /api/admin/pipeline/schemas — list available extraction schemas.
@@ -73,10 +79,23 @@ pub async fn list_schemas(
                     description: schema.description,
                     entity_type_count: entity_types.len(),
                     entity_types,
+                    error: None,
                 });
             }
             Err(e) => {
-                tracing::warn!(file = %filename, error = %e, "Skipping invalid schema file");
+                // Surface invalid schemas to the operator instead of silently
+                // dropping them — the file exists on disk so it should appear
+                // in the dropdown with a parse-error description.
+                tracing::warn!(file = %filename, error = %e, "Invalid schema file");
+                schemas.push(SchemaInfo {
+                    filename,
+                    document_type: String::new(),
+                    version: String::new(),
+                    description: format!("Parse error: {e}"),
+                    entity_type_count: 0,
+                    entity_types: vec![],
+                    error: Some(format!("{e}")),
+                });
             }
         }
     }

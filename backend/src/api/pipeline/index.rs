@@ -228,10 +228,18 @@ pub(crate) async fn run_index_core(
     )
     .await;
 
-    steps::record_step_complete(
+    if let Err(e) = steps::record_step_complete(
         &state.pipeline_pool, step_id, duration,
         &serde_json::json!({"nodes_embedded": embedded_count, "collection": "colossus_evidence", "errors": &errors}),
-    ).await.ok();
+    ).await
+    {
+        tracing::error!(
+            document_id = %doc_id,
+            step_id = step_id,
+            error = %e,
+            "Failed to record index step completion — audit trail gap"
+        );
+    }
 
     // 10. Return summary
     Ok(IndexResponse {

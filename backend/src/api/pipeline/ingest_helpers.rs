@@ -558,8 +558,25 @@ pub async fn create_provenance_relationships(
                     message: format!("Failed to create DERIVED_FROM {from_neo}->{to_neo}: {e}"),
                 })?;
 
-            if result.next(&mut *txn).await.ok().flatten().is_some() {
-                count += 1;
+            match result.next(&mut *txn).await {
+                Ok(Some(_)) => count += 1,
+                Ok(None) => {
+                    tracing::warn!(
+                        from = %from_neo,
+                        to = %to_neo,
+                        ref_type = %ref_type,
+                        "DERIVED_FROM MERGE returned no row — relationship not counted"
+                    );
+                }
+                Err(e) => {
+                    tracing::error!(
+                        from = %from_neo,
+                        to = %to_neo,
+                        ref_type = %ref_type,
+                        error = %e,
+                        "Failed to read DERIVED_FROM MERGE result — count may be incomplete"
+                    );
+                }
             }
         }
     }

@@ -456,11 +456,19 @@ async fn run_ingest_locked(
     )
     .await;
 
-    steps::record_step_complete(&state.pipeline_pool, step_id, duration, &serde_json::json!({
+    if let Err(e) = steps::record_step_complete(&state.pipeline_pool, step_id, duration, &serde_json::json!({
         "nodes_created": total_nodes, "relationships_created": total_rels,
         "derived_from": derived_from_count,
         "matched_existing": resolution_summary.matched_existing, "created_new": resolution_summary.created_new,
-    })).await.ok();
+    })).await
+    {
+        tracing::error!(
+            document_id = %doc_id,
+            step_id = step_id,
+            error = %e,
+            "Failed to record ingest step completion — audit trail gap"
+        );
+    }
     Ok(IngestResponse {
         document_id: doc_id.to_string(),
         status: STATUS_INGESTED.to_string(),
@@ -607,7 +615,7 @@ async fn run_ingest_delta_locked(
             "Delta ingest: no items pending graph write — no-op"
         );
         let duration = start.elapsed().as_secs_f64();
-        steps::record_step_complete(
+        if let Err(e) = steps::record_step_complete(
             &state.pipeline_pool,
             step_id,
             duration,
@@ -619,7 +627,14 @@ async fn run_ingest_delta_locked(
             }),
         )
         .await
-        .ok();
+        {
+            tracing::error!(
+                document_id = %doc_id,
+                step_id = step_id,
+                error = %e,
+                "Failed to record ingest_delta no-op step completion — audit trail gap"
+            );
+        }
         return Ok(IngestDeltaResponse {
             document_id: doc_id.to_string(),
             status: document.status,
@@ -910,7 +925,7 @@ async fn run_ingest_delta_locked(
     )
     .await;
 
-    steps::record_step_complete(
+    if let Err(e) = steps::record_step_complete(
         &state.pipeline_pool,
         step_id,
         duration,
@@ -923,7 +938,14 @@ async fn run_ingest_delta_locked(
         }),
     )
     .await
-    .ok();
+    {
+        tracing::error!(
+            document_id = %doc_id,
+            step_id = step_id,
+            error = %e,
+            "Failed to record ingest_delta step completion — audit trail gap"
+        );
+    }
 
     Ok(IngestDeltaResponse {
         document_id: doc_id.to_string(),

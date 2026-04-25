@@ -416,9 +416,15 @@ impl LlmExtract {
             outcome.chunks_succeeded,
             outcome.chunks_failed,
         ) {
-            extraction::update_run_chunk_stats(db, run_id, total, ok, failed)
-                .await
-                .ok();
+            if let Err(e) =
+                extraction::update_run_chunk_stats(db, run_id, total, ok, failed).await
+            {
+                tracing::error!(
+                    run_id = run_id,
+                    error = %e,
+                    "Failed to write chunk stats to extraction run — audit data incomplete"
+                );
+            }
         }
 
         extraction::complete_extraction_run(
@@ -453,6 +459,7 @@ impl LlmExtract {
         .await;
 
         // 13. Final progress + step complete.
+        // best-effort progress update
         documents::update_processing_progress(
             db,
             &self.document_id,
@@ -542,6 +549,7 @@ struct RunArgs<'a> {
 async fn run_full_document_extraction(
     args: RunArgs<'_>,
 ) -> Result<ExtractionOutcome, Box<dyn Error + Send + Sync>> {
+    // best-effort progress update
     args.progress
         .report(serde_json::json!({
             "status": "extracting",
@@ -550,6 +558,7 @@ async fn run_full_document_extraction(
         .await
         .ok();
 
+    // best-effort progress update
     documents::update_processing_progress(
         args.db,
         args.document_id,
@@ -684,6 +693,7 @@ async fn run_chunked_extraction(
     let mut total_input_tokens: i64 = 0;
     let mut total_output_tokens: i64 = 0;
 
+    // best-effort progress update
     documents::update_processing_progress(
         args.db,
         args.document_id,
@@ -703,6 +713,7 @@ async fn run_chunked_extraction(
             return Err("Cancelled during extraction".into());
         }
 
+        // best-effort progress update
         args.progress
             .report(serde_json::json!({
                 "status": "extracting",
@@ -765,7 +776,7 @@ async fn run_chunked_extraction(
                         }
 
                         chunks_succeeded += 1;
-                        extraction::complete_extraction_chunk(
+                        if let Err(e) = extraction::complete_extraction_chunk(
                             args.db,
                             chunk_id,
                             "success",
@@ -777,7 +788,14 @@ async fn run_chunked_extraction(
                             None,
                         )
                         .await
-                        .ok();
+                        {
+                            tracing::error!(
+                                run_id = args.run_id,
+                                chunk_id = %chunk_id,
+                                error = %e,
+                                "Failed to record successful chunk completion — audit data incomplete"
+                            );
+                        }
 
                         tracing::info!(
                             chunk = i,
@@ -788,6 +806,7 @@ async fn run_chunked_extraction(
 
                         let percent =
                             ((chunks_succeeded as f64 / chunks.len() as f64) * 100.0) as i32;
+                        // best-effort progress update
                         documents::update_processing_progress(
                             args.db,
                             args.document_id,
@@ -808,7 +827,7 @@ async fn run_chunked_extraction(
                             error = %parse_err,
                             "Chunk parse failed after repair attempt"
                         );
-                        extraction::complete_extraction_chunk(
+                        if let Err(e) = extraction::complete_extraction_chunk(
                             args.db,
                             chunk_id,
                             "failed",
@@ -820,10 +839,18 @@ async fn run_chunked_extraction(
                             Some(&format!("Parse error: {parse_err}")),
                         )
                         .await
-                        .ok();
+                        {
+                            tracing::error!(
+                                run_id = args.run_id,
+                                chunk_id = %chunk_id,
+                                error = %e,
+                                "Failed to record failed (parse) chunk completion — audit data incomplete"
+                            );
+                        }
 
                         let processed = chunks_succeeded + chunks_failed;
                         let percent = ((processed as f64 / chunks.len() as f64) * 100.0) as i32;
+                        // best-effort progress update
                         documents::update_processing_progress(
                             args.db,
                             args.document_id,
@@ -842,7 +869,7 @@ async fn run_chunked_extraction(
             Err(call_err) => {
                 chunks_failed += 1;
                 tracing::warn!(chunk = i, error = %call_err, "Chunk LLM call failed");
-                extraction::complete_extraction_chunk(
+                if let Err(e) = extraction::complete_extraction_chunk(
                     args.db,
                     chunk_id,
                     "failed",
@@ -854,10 +881,18 @@ async fn run_chunked_extraction(
                     Some(&format!("{call_err}")),
                 )
                 .await
-                .ok();
+                {
+                    tracing::error!(
+                        run_id = args.run_id,
+                        chunk_id = %chunk_id,
+                        error = %e,
+                        "Failed to record failed (LLM call) chunk completion — audit data incomplete"
+                    );
+                }
 
                 let processed = chunks_succeeded + chunks_failed;
                 let percent = ((processed as f64 / chunks.len() as f64) * 100.0) as i32;
+                // best-effort progress update
                 documents::update_processing_progress(
                     args.db,
                     args.document_id,

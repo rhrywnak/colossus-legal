@@ -105,7 +105,7 @@ impl Step<DocProcessing> for Verify {
             return Err("Cancelled after verify".into());
         }
 
-        // UI progress (non-critical).
+        // best-effort progress update
         documents::update_processing_progress(
             db,
             &self.document_id,

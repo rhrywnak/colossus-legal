@@ -130,7 +130,7 @@ impl Step<DocProcessing> for AutoApprove {
             );
         }
 
-        // UI progress (non-critical).
+        // best-effort progress update
         documents::update_processing_progress(
             db,
             &doc_id,

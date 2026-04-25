@@ -293,14 +293,21 @@ pub(crate) async fn run_extract_text(
     )
     .await;
 
-    steps::record_step_complete(
+    if let Err(e) = steps::record_step_complete(
         &state.pipeline_pool,
         step_id,
         start.elapsed().as_secs_f64(),
         &step_summary,
     )
     .await
-    .ok();
+    {
+        tracing::error!(
+            document_id = %doc_id,
+            step_id = step_id,
+            error = %e,
+            "Failed to record extract_text step completion — audit trail gap"
+        );
+    }
 
     Ok(ExtractTextResponse {
         document_id: doc_id.to_string(),

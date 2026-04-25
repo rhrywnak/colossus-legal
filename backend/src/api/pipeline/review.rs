@@ -122,7 +122,7 @@ pub async fn approve_handler(
     })?;
 
     // Record history
-    review_repo::insert_edit_history(
+    if let Err(e) = review_repo::insert_edit_history(
         &state.pipeline_pool,
         item_id,
         "review_status",
@@ -131,7 +131,13 @@ pub async fn approve_handler(
         &user.username,
     )
     .await
-    .ok();
+    {
+        tracing::error!(
+            item_id = item_id,
+            error = %e,
+            "Failed to write edit history (approve) — audit trail gap"
+        );
+    }
 
     Ok(Json(ReviewResponse {
         id: result.id,
@@ -207,7 +213,7 @@ pub async fn reject_handler(
             })?;
 
     // Record history
-    review_repo::insert_edit_history(
+    if let Err(e) = review_repo::insert_edit_history(
         &state.pipeline_pool,
         item_id,
         "review_status",
@@ -216,7 +222,13 @@ pub async fn reject_handler(
         &user.username,
     )
     .await
-    .ok();
+    {
+        tracing::error!(
+            item_id = item_id,
+            error = %e,
+            "Failed to write edit history (reject) — audit trail gap"
+        );
+    }
 
     // Cascade warning for structural entities
     let cascade_warning = if *category == EntityCategory::Structural {
@@ -286,7 +298,7 @@ pub async fn edit_handler(
 
     // Record history for each changed field
     if current.review_status != result.review_status {
-        review_repo::insert_edit_history(
+        if let Err(e) = review_repo::insert_edit_history(
             &state.pipeline_pool,
             item_id,
             "review_status",
@@ -295,10 +307,16 @@ pub async fn edit_handler(
             &user.username,
         )
         .await
-        .ok();
+        {
+            tracing::error!(
+                item_id = item_id,
+                error = %e,
+                "Failed to write edit history (edit/review_status) — audit trail gap"
+            );
+        }
     }
     if body.grounded_page.is_some() {
-        review_repo::insert_edit_history(
+        if let Err(e) = review_repo::insert_edit_history(
             &state.pipeline_pool,
             item_id,
             "grounded_page",
@@ -307,10 +325,16 @@ pub async fn edit_handler(
             &user.username,
         )
         .await
-        .ok();
+        {
+            tracing::error!(
+                item_id = item_id,
+                error = %e,
+                "Failed to write edit history (edit/grounded_page) — audit trail gap"
+            );
+        }
     }
     if let Some(ref quote) = body.verbatim_quote {
-        review_repo::insert_edit_history(
+        if let Err(e) = review_repo::insert_edit_history(
             &state.pipeline_pool,
             item_id,
             "verbatim_quote",
@@ -319,7 +343,13 @@ pub async fn edit_handler(
             &user.username,
         )
         .await
-        .ok();
+        {
+            tracing::error!(
+                item_id = item_id,
+                error = %e,
+                "Failed to write edit history (edit/verbatim_quote) — audit trail gap"
+            );
+        }
     }
 
     Ok(Json(ReviewResponse {
@@ -382,7 +412,7 @@ pub async fn unapprove_handler(
             message: "Unapprove returned no rows — race condition?".to_string(),
         })?;
 
-    review_repo::insert_edit_history(
+    if let Err(e) = review_repo::insert_edit_history(
         &state.pipeline_pool,
         item_id,
         "review_status",
@@ -391,7 +421,13 @@ pub async fn unapprove_handler(
         &user.username,
     )
     .await
-    .ok();
+    {
+        tracing::error!(
+            item_id = item_id,
+            error = %e,
+            "Failed to write edit history (unapprove) — audit trail gap"
+        );
+    }
 
     Ok(Json(ReviewResponse {
         id: result.id,
@@ -452,7 +488,7 @@ pub async fn unreject_handler(
             message: "Unreject returned no rows — race condition?".to_string(),
         })?;
 
-    review_repo::insert_edit_history(
+    if let Err(e) = review_repo::insert_edit_history(
         &state.pipeline_pool,
         item_id,
         "review_status",
@@ -461,7 +497,13 @@ pub async fn unreject_handler(
         &user.username,
     )
     .await
-    .ok();
+    {
+        tracing::error!(
+            item_id = item_id,
+            error = %e,
+            "Failed to write edit history (unreject) — audit trail gap"
+        );
+    }
 
     Ok(Json(ReviewResponse {
         id: result.id,
@@ -725,7 +767,7 @@ pub async fn bulk_approve_handler(
     )
     .await
     {
-        steps::record_step_complete(
+        if let Err(e) = steps::record_step_complete(
             &state.pipeline_pool,
             sid,
             0.0,
@@ -736,7 +778,14 @@ pub async fn bulk_approve_handler(
             }),
         )
         .await
-        .ok();
+        {
+            tracing::error!(
+                document_id = %doc_id,
+                step_id = sid,
+                error = %e,
+                "Failed to record bulk_approve step completion — audit trail gap"
+            );
+        }
     }
 
     Ok(Json(BulkApproveResponse {

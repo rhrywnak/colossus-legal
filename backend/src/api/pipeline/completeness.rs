@@ -112,7 +112,7 @@ pub(crate) async fn run_completeness(
 
     match result {
         Ok(response) => {
-            steps::record_step_complete(
+            if let Err(e) = steps::record_step_complete(
                 &state.pipeline_pool,
                 step_id,
                 duration_secs,
@@ -128,7 +128,13 @@ pub(crate) async fn run_completeness(
                 }),
             )
             .await
-            .ok();
+            {
+                tracing::error!(
+                    step_id = step_id,
+                    error = %e,
+                    "Failed to record completeness step completion — audit trail gap"
+                );
+            }
             Ok(response)
         }
         Err(e) => {
