@@ -363,7 +363,10 @@ pub async fn run_pass2_extraction(
         .llm_semaphore
         .acquire()
         .await
-        .map_err(|_| LlmExtractError::SemaphoreClosed)?;
+        .map_err(|e| {
+            tracing::debug!(error = %e, "Semaphore acquire failed");
+            LlmExtractError::SemaphoreClosed
+        })?;
 
     // 13. LLM call with rate-limit retry.
     // best-effort progress update

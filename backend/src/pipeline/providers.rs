@@ -46,7 +46,12 @@ pub fn provider_for_model(model: &LlmModelRecord) -> Result<Box<dyn LlmProvider>
 
     match model.provider.as_str() {
         "anthropic" => {
-            let api_key = std::env::var(ANTHROPIC_API_KEY_ENV).map_err(|_| {
+            let api_key = std::env::var(ANTHROPIC_API_KEY_ENV).map_err(|e| {
+                tracing::warn!(
+                    var = ANTHROPIC_API_KEY_ENV,
+                    error = %e,
+                    "API key env var not set"
+                );
                 format!("{ANTHROPIC_API_KEY_ENV} is not set — required for anthropic provider")
             })?;
             // Extraction pipeline: temperature = Some(0.0) for deterministic

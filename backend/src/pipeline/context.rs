@@ -21,6 +21,12 @@ use reqwest::Client;
 use sqlx::PgPool;
 use tokio::sync::Semaphore;
 
+/// Default number of concurrent LLM calls the pipeline worker will make.
+///
+/// Kept low to avoid rate-limiting from API providers. Configurable via the
+/// `PIPELINE_LLM_CONCURRENCY` env var.
+const DEFAULT_LLM_CONCURRENCY: usize = 2;
+
 /// Required dependencies for constructing an [`AppContext`].
 ///
 /// Grouping the required fields into a struct eliminates the silent-swap
@@ -156,10 +162,10 @@ impl AppContext {
         let embedding_provider = colossus_extract::providers::embedding_provider_from_env()
             .map_err(|e| format!("Failed to build embedding provider: {e}"))?;
 
-        let llm_concurrency = std::env::var("PIPELINE_LLM_CONCURRENCY")
+        let llm_concurrency: usize = std::env::var("PIPELINE_LLM_CONCURRENCY")
             .ok()
-            .and_then(|v| v.parse::<usize>().ok())
-            .unwrap_or(2);
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(DEFAULT_LLM_CONCURRENCY);
 
         Ok(Self {
             pipeline_pool: deps.pipeline_pool,

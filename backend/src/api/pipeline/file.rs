@@ -66,8 +66,16 @@ pub async fn file_handler(
 
     let file = File::open(&full_path)
         .await
-        .map_err(|_| AppError::NotFound {
-            message: "File not found on disk".to_string(),
+        .map_err(|e| {
+            tracing::error!(
+                document_id = %document_id,
+                path = %full_path,
+                error = %e,
+                "Failed to open document PDF on disk"
+            );
+            AppError::NotFound {
+                message: "File not found on disk".to_string(),
+            }
         })?;
 
     // 4. Stream response with PDF headers
@@ -82,7 +90,15 @@ pub async fn file_handler(
             format!("inline; filename=\"{file_path}\""),
         )
         .body(body)
-        .map_err(|_| AppError::Internal {
-            message: "Failed to build response".to_string(),
+        .map_err(|e| {
+            tracing::error!(
+                document_id = %document_id,
+                path = %full_path,
+                error = %e,
+                "Failed to build PDF response"
+            );
+            AppError::Internal {
+                message: "Failed to build response".to_string(),
+            }
         })
 }

@@ -20,7 +20,7 @@ use colossus_pipeline::progress::ProgressReporter;
 use colossus_pipeline::{Step, StepResult};
 
 use crate::models::document_status::{RUN_STATUS_COMPLETED, RUN_STATUS_FAILED, RUN_STATUS_RUNNING};
-use crate::pipeline::config::{resolve_config, ProcessingProfile, ResolvedConfig};
+use crate::pipeline::config::{resolve_config, ProcessingProfile, ResolvedConfig, SystemDefaults};
 use crate::pipeline::context::AppContext;
 use crate::pipeline::providers::provider_for_model;
 use crate::pipeline::steps::llm_extract_helpers::{
@@ -360,7 +360,10 @@ impl LlmExtract {
             .llm_semaphore
             .acquire()
             .await
-            .map_err(|_| LlmExtractError::SemaphoreClosed)?;
+            .map_err(|e| {
+                tracing::debug!(error = %e, "Semaphore acquire failed");
+                LlmExtractError::SemaphoreClosed
+            })?;
 
         // 10. Dispatch on chunking_mode.
         let system_prompt_ref = system_prompt.as_deref();
@@ -671,8 +674,14 @@ async fn run_chunked_extraction(
     args: RunArgs<'_>,
     resolved: &ResolvedConfig,
 ) -> Result<ExtractionOutcome, Box<dyn Error + Send + Sync>> {
-    let chunk_size = resolved.chunk_size.unwrap_or(8000).max(1) as usize;
-    let chunk_overlap = resolved.chunk_overlap.unwrap_or(500).max(0) as usize;
+    let chunk_size = resolved
+        .chunk_size
+        .unwrap_or(SystemDefaults::chunk_size())
+        .max(1) as usize;
+    let chunk_overlap = resolved
+        .chunk_overlap
+        .unwrap_or(SystemDefaults::chunk_overlap())
+        .max(0) as usize;
     let chunks = FixedSizeSplitter::with_config(chunk_size, chunk_overlap).split(args.full_text);
     if chunks.is_empty() {
         return Err("Splitter produced zero chunks from non-empty text".into());

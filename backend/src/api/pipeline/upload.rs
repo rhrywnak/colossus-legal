@@ -22,45 +22,59 @@ use crate::state::AppState;
 
 use super::{field_text, require_field, UploadDocumentResponse, MAX_FILE_SIZE};
 
-/// Map a document type name to its extraction schema filename.
+/// Schema filename used when a document's processing profile cannot be loaded.
 ///
-/// This is the single authoritative mapping between document types and
-/// schemas. Used by both upload (to set initial pipeline_config) and
-/// extract_text (to update pipeline_config after auto-detection).
+/// Profile YAMLs are the source of truth for `schema_file`. This constant is
+/// only consulted on a profile-load failure (missing file, parse error) so
+/// the upload doesn't 500 — the operator still sees a `tracing::warn!` and
+/// can fix the profile.
+pub const FALLBACK_SCHEMA_FILE: &str = "complaint_v4.yaml";
+
+/// Derive the processing profile name from the document type.
 ///
-/// ## Why this function exists
+/// This is the single mapping from document classification to profile.
+/// Profile YAML files contain all operational parameters (schema, template,
+/// model, chunking) — no other mapping table should exist in code. Adding
+/// a new document type means adding an entry here AND a sibling profile YAML.
 ///
-/// Previously, the mapping existed in two places (upload.rs and a comment
-/// in extract_text.rs) and they were inconsistent. Centralizing it here
-/// ensures both use the same mapping and both are updated when schemas change.
-/// Derive the default processing-profile name from a schema filename.
+/// ## Rust Learning: `&'static str`
 ///
-/// Mirrors the two private copies in `pipeline::steps::llm_extract` and
-/// `api::pipeline::config_endpoints::preview` so upload-time pre-population
-/// picks the same profile the extraction step would load at run time.
-/// Strips `.yaml` and any trailing `_v<digits>` version suffix.
-/// Examples: `"complaint_v2.yaml"` → `"complaint"`, `"motion_v4.yaml"` → `"motion"`.
-fn default_profile_name_from_schema(schema_file: &str) -> String {
-    let base = schema_file.trim_end_matches(".yaml");
-    if let Some(idx) = base.rfind("_v") {
-        let suffix = &base[idx + 2..];
-        if !suffix.is_empty() && suffix.bytes().all(|b| b.is_ascii_digit()) {
-            return base[..idx].to_string();
-        }
+/// Returning `&'static str` means these strings live for the entire program.
+/// They're embedded in the binary at compile time. This is efficient for
+/// small lookup tables that never change at runtime.
+pub fn profile_name_for_document_type(document_type: &str) -> &'static str {
+    match document_type {
+        "complaint" => "complaint",
+        "discovery_response" => "discovery_response",
+        "motion" | "motion_brief" => "motion",
+        "brief" => "brief",
+        "affidavit" => "affidavit",
+        "court_ruling" => "court_ruling",
+        _ => "default",
     }
-    base.to_string()
 }
 
-pub fn schema_for_document_type(document_type: &str) -> &'static str {
-    match document_type {
-        "complaint" => "complaint_v4.yaml",
-        "discovery_response" => "discovery_response_v4.yaml",
-        "motion" => "motion_v4.yaml",
-        "brief" => "brief_v4.yaml",
-        "motion_brief" => "motion_v4.yaml",
-        "affidavit" => "affidavit_v4.yaml",
-        "court_ruling" => "court_ruling_v4.yaml",
-        _ => "complaint_v4.yaml",
+/// Resolve the schema filename for a document type by consulting the
+/// document's processing profile YAML.
+///
+/// Used by upload (initial config) and extract_text (after auto-detection).
+/// Profile-load failure is non-fatal: returns [`FALLBACK_SCHEMA_FILE`] with a
+/// `tracing::warn!` so the operator sees the problem without the upload
+/// failing 500.
+pub fn schema_file_for_document_type(profile_dir: &str, document_type: &str) -> String {
+    let profile_name = profile_name_for_document_type(document_type);
+    match ProcessingProfile::load(profile_dir, profile_name) {
+        Ok(p) => p.schema_file,
+        Err(e) => {
+            tracing::warn!(
+                document_type,
+                profile = profile_name,
+                fallback = FALLBACK_SCHEMA_FILE,
+                error = %e,
+                "Failed to load profile to derive schema_file — using fallback"
+            );
+            FALLBACK_SCHEMA_FILE.to_string()
+        }
     }
 }
 
@@ -123,12 +137,33 @@ pub async fn upload_document(
     let doc_id = require_field("id", doc_id)?;
     let title = require_field("title", title)?;
     let document_type = document_type.unwrap_or_else(|| "auto".to_string());
-    // Schema file selection: use client-provided value if present,
-    // otherwise derive from document type. The extract handler will
-    // also select the schema based on document_type, so this is mainly
-    // for recording the intended schema in pipeline_config.
-    let schema_file =
-        schema_file.unwrap_or_else(|| schema_for_document_type(&document_type).to_string());
+
+    // Load the processing profile early so we can read `schema_file` from
+    // the profile YAML (the single source of truth) rather than a parallel
+    // hardcoded map. The same loaded profile is reused below to pre-populate
+    // the per-document override columns, avoiding a duplicate disk read.
+    let profile_name = profile_name_for_document_type(&document_type);
+    let profile = match ProcessingProfile::load(&state.config.processing_profile_dir, profile_name)
+    {
+        Ok(p) => Some(p),
+        Err(e) => {
+            tracing::warn!(
+                document_type = %document_type,
+                profile = profile_name,
+                error = %e,
+                "Profile load failed at upload — falling back for schema_file and skipping override pre-population"
+            );
+            None
+        }
+    };
+
+    // Schema file selection priority: client-provided > profile YAML > fallback.
+    let schema_file = schema_file.unwrap_or_else(|| {
+        profile
+            .as_ref()
+            .map(|p| p.schema_file.clone())
+            .unwrap_or_else(|| FALLBACK_SCHEMA_FILE.to_string())
+    });
     let file_data = file_data.ok_or_else(|| AppError::BadRequest {
         message: "No 'file' field in multipart upload".to_string(),
         details: serde_json::json!({}),
@@ -298,44 +333,33 @@ pub async fn upload_document(
     // Problem 4: pre-populate the per-document override columns from the
     // matched processing profile. The Configuration Panel reads those
     // columns — without this, it shows compiled defaults until the user
-    // manually overrides each dropdown. Profile-load failure is non-fatal:
-    // the extraction step will re-attempt and fail loudly if the profile
-    // truly does not exist.
-    let profile_name = default_profile_name_from_schema(&config_input.schema_file);
-    match ProcessingProfile::load(&state.config.processing_profile_dir, &profile_name) {
-        Ok(profile) => {
-            let overrides = PipelineConfigOverrides {
-                profile_name: Some(profile.name.clone()),
-                extraction_model: Some(profile.extraction_model.clone()),
-                pass2_extraction_model: profile.pass2_extraction_model.clone(),
-                template_file: Some(profile.template_file.clone()),
-                system_prompt_file: profile.system_prompt_file.clone(),
-                chunking_mode: Some(profile.chunking_mode.clone()),
-                chunk_size: profile.chunk_size,
-                chunk_overlap: profile.chunk_overlap,
-                max_tokens: Some(profile.max_tokens),
-                temperature: Some(profile.temperature),
-                run_pass2: Some(profile.run_pass2),
-            };
-            if let Err(e) = pipeline_repository::patch_pipeline_config_overrides(
-                &state.pipeline_pool,
-                &doc_id,
-                &overrides,
-            )
-            .await
-            {
-                tracing::warn!(
-                    doc_id = %doc_id, error = %e,
-                    "Failed to persist profile overrides at upload (non-fatal) — \
-                     Configuration Panel may show compiled defaults until user edits"
-                );
-            }
-        }
-        Err(e) => {
+    // manually overrides each dropdown. Reuse the profile loaded above;
+    // a None here means the load failed and we already warned.
+    if let Some(profile) = profile.as_ref() {
+        let overrides = PipelineConfigOverrides {
+            profile_name: Some(profile.name.clone()),
+            extraction_model: Some(profile.extraction_model.clone()),
+            pass2_extraction_model: profile.pass2_extraction_model.clone(),
+            template_file: Some(profile.template_file.clone()),
+            system_prompt_file: profile.system_prompt_file.clone(),
+            chunking_mode: Some(profile.chunking_mode.clone()),
+            chunk_size: profile.chunk_size,
+            chunk_overlap: profile.chunk_overlap,
+            max_tokens: Some(profile.max_tokens),
+            temperature: Some(profile.temperature),
+            run_pass2: Some(profile.run_pass2),
+        };
+        if let Err(e) = pipeline_repository::patch_pipeline_config_overrides(
+            &state.pipeline_pool,
+            &doc_id,
+            &overrides,
+        )
+        .await
+        {
             tracing::warn!(
-                doc_id = %doc_id, profile = %profile_name, error = %e,
-                "Profile load failed at upload (non-fatal) — Configuration Panel \
-                 will show compiled defaults; extraction will re-attempt load"
+                doc_id = %doc_id, error = %e,
+                "Failed to persist profile overrides at upload (non-fatal) — \
+                 Configuration Panel may show compiled defaults until user edits"
             );
         }
     }
@@ -409,79 +433,66 @@ pub async fn upload_document(
 mod tests {
     use super::*;
 
-    // ── schema_for_document_type tests ──────────────────────────
-
-    /// These tests document the authoritative mapping between document
-    /// types and schema files. If a schema file is renamed, these tests
-    /// will fail — which is the correct behavior (the mapping must be
-    /// updated explicitly, not silently broken).
+    // ── profile_name_for_document_type tests ────────────────────
+    //
+    // The profile name is the only document-type→config mapping that
+    // lives in code; everything else (schema, template, model, chunking)
+    // comes from the profile YAML. These tests lock in the document-type
+    // strings the frontend sends.
 
     #[test]
-    fn test_complaint_maps_to_v4_schema() {
+    fn test_complaint_profile_name() {
+        assert_eq!(profile_name_for_document_type("complaint"), "complaint");
+    }
+
+    #[test]
+    fn test_discovery_response_profile_name() {
         assert_eq!(
-            schema_for_document_type("complaint"),
-            "complaint_v4.yaml",
-            "Complaint must use complaint_v4.yaml"
+            profile_name_for_document_type("discovery_response"),
+            "discovery_response"
         );
     }
 
     #[test]
-    fn test_auto_maps_to_complaint_schema() {
-        // "auto" documents default to complaint schema because this system
-        // processes legal complaints as its primary document type.
+    fn test_motion_and_motion_brief_share_profile() {
+        // motion_brief reuses the motion profile — both filings have the
+        // same extraction surface.
+        assert_eq!(profile_name_for_document_type("motion"), "motion");
+        assert_eq!(profile_name_for_document_type("motion_brief"), "motion");
+    }
+
+    #[test]
+    fn test_brief_profile_name() {
+        assert_eq!(profile_name_for_document_type("brief"), "brief");
+    }
+
+    #[test]
+    fn test_affidavit_profile_name() {
+        assert_eq!(profile_name_for_document_type("affidavit"), "affidavit");
+    }
+
+    #[test]
+    fn test_court_ruling_profile_name() {
         assert_eq!(
-            schema_for_document_type("auto"),
-            "complaint_v4.yaml",
-            "Auto-detect defaults to complaint schema for this system"
+            profile_name_for_document_type("court_ruling"),
+            "court_ruling"
         );
     }
 
     #[test]
-    fn test_unknown_maps_to_complaint_schema() {
-        assert_eq!(schema_for_document_type("unknown"), "complaint_v4.yaml");
+    fn test_auto_and_unknown_fall_back_to_default_profile() {
+        // "auto" means the document type hasn't been classified yet;
+        // anything unknown also routes to the default profile so a
+        // mistyped doc_type doesn't 500 the upload.
+        assert_eq!(profile_name_for_document_type("auto"), "default");
+        assert_eq!(profile_name_for_document_type("unknown"), "default");
+        assert_eq!(profile_name_for_document_type("garbage"), "default");
+        assert_eq!(profile_name_for_document_type(""), "default");
     }
 
     #[test]
-    fn test_discovery_response_schema() {
-        assert_eq!(
-            schema_for_document_type("discovery_response"),
-            "discovery_response_v4.yaml"
-        );
-    }
-
-    #[test]
-    fn test_motion_schema() {
-        assert_eq!(schema_for_document_type("motion"), "motion_v4.yaml");
-        assert_eq!(schema_for_document_type("brief"), "brief_v4.yaml");
-        assert_eq!(schema_for_document_type("motion_brief"), "motion_v4.yaml");
-    }
-
-    #[test]
-    fn test_affidavit_schema() {
-        assert_eq!(schema_for_document_type("affidavit"), "affidavit_v4.yaml");
-    }
-
-    #[test]
-    fn test_court_ruling_schema() {
-        assert_eq!(
-            schema_for_document_type("court_ruling"),
-            "court_ruling_v4.yaml"
-        );
-    }
-
-    #[test]
-    fn test_completely_unknown_type_defaults_to_complaint() {
-        // Any unrecognized document type defaults to complaint schema.
-        // This prevents general_legal.yaml from being used, which produces
-        // generic Statement/Party entities instead of legal-specific ones.
-        assert_eq!(schema_for_document_type("garbage"), "complaint_v4.yaml");
-        assert_eq!(schema_for_document_type(""), "complaint_v4.yaml");
-    }
-
-    #[test]
-    fn test_schema_mapping_is_exhaustive() {
-        // Verify all known document types return a .yaml file.
-        // This test catches typos in schema filenames.
+    fn test_profile_name_mapping_is_exhaustive() {
+        // Every known document type returns a non-empty profile name.
         let known_types = [
             "complaint",
             "discovery_response",
@@ -494,16 +505,10 @@ mod tests {
             "unknown",
         ];
         for doc_type in &known_types {
-            let schema = schema_for_document_type(doc_type);
+            let name = profile_name_for_document_type(doc_type);
             assert!(
-                schema.ends_with(".yaml"),
-                "Schema for '{}' must end with .yaml, got: {}",
-                doc_type,
-                schema
-            );
-            assert!(
-                !schema.is_empty(),
-                "Schema for '{}' must not be empty",
+                !name.is_empty(),
+                "Profile name for '{}' must not be empty",
                 doc_type
             );
         }

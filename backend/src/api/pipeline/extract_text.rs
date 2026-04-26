@@ -227,10 +227,15 @@ pub(crate) async fn run_extract_text(
         // When document type was auto-detected, also update pipeline_config
         // to use the correct schema for the detected type.
         // This ensures pipeline_config.schema_file is always consistent with
-        // documents.document_type after extract_text runs.
-        let detected_schema = super::upload::schema_for_document_type(detected_type);
+        // documents.document_type after extract_text runs. The schema is
+        // read from the detected type's profile YAML — same source of truth
+        // upload uses.
+        let detected_schema = super::upload::schema_file_for_document_type(
+            &state.config.processing_profile_dir,
+            detected_type,
+        );
         sqlx::query("UPDATE pipeline_config SET schema_file = $1 WHERE document_id = $2")
-            .bind(detected_schema)
+            .bind(&detected_schema)
             .bind(doc_id)
             .execute(&state.pipeline_pool)
             .await
@@ -238,7 +243,7 @@ pub(crate) async fn run_extract_text(
                 message: format!("Failed to update pipeline_config schema_file: {e}"),
             })?;
         tracing::info!(
-            doc_id = %doc_id, detected_type, schema = detected_schema,
+            doc_id = %doc_id, detected_type, schema = %detected_schema,
             "Updated pipeline_config.schema_file after auto-detection"
         );
     }

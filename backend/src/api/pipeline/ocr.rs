@@ -232,7 +232,8 @@ pub async fn ocr_full_document_surya(
     pdf_path: &str,
     page_numbers: Option<&[u32]>,
 ) -> Result<SuryaOcrResponse, OcrError> {
-    let surya_url = std::env::var("SURYA_OCR_URL").map_err(|_| {
+    let surya_url = std::env::var("SURYA_OCR_URL").map_err(|e| {
+        tracing::warn!(var = "SURYA_OCR_URL", error = %e, "OCR env var not set");
         OcrError::SuryaError(
             "SURYA_OCR_URL env var not set — cannot reach Surya OCR service".to_string(),
         )
@@ -270,10 +271,23 @@ pub async fn ocr_full_document_surya(
         form = form.text("pages", pages_str);
     }
 
+    // OCR request timeout in seconds. Scanned PDFs with many pages can
+    // take several minutes; the default (300s) matches the general
+    // pipeline drain timeout. Override via PIPELINE_OCR_TIMEOUT_SECS.
+    //
+    // ## Rust Learning: lazy evaluation with `unwrap_or`
+    // The default `300` here is a literal — `unwrap_or` is fine. For
+    // expensive defaults use `unwrap_or_else(|| ...)` so the closure
+    // only runs when the env var is unset.
+    let ocr_timeout_secs: u64 = std::env::var("PIPELINE_OCR_TIMEOUT_SECS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(300);
+
     let response = http_client
         .post(&url)
         .multipart(form)
-        .timeout(std::time::Duration::from_secs(300))
+        .timeout(std::time::Duration::from_secs(ocr_timeout_secs))
         .send()
         .await
         .map_err(|e| {
@@ -311,7 +325,8 @@ pub async fn ocr_full_document_surya(
 /// Uses a short 5-second timeout so a dead service fails fast and the
 /// caller can degrade gracefully (log warning, skip OCR for scanned pages).
 pub async fn check_surya_available(http_client: &reqwest::Client) -> Result<(), OcrError> {
-    let surya_url = std::env::var("SURYA_OCR_URL").map_err(|_| {
+    let surya_url = std::env::var("SURYA_OCR_URL").map_err(|e| {
+        tracing::warn!(var = "SURYA_OCR_URL", error = %e, "OCR env var not set");
         OcrError::SuryaError(
             "SURYA_OCR_URL env var not set. Set it to the Surya OCR service URL \
              (e.g. http://192.168.1.100:8340) in the container environment."
@@ -320,6 +335,8 @@ pub async fn check_surya_available(http_client: &reqwest::Client) -> Result<(), 
     })?;
 
     let url = format!("{}/health", surya_url.trim_end_matches('/'));
+    // Health check timeout — intentionally short; a healthy OCR service
+    // responds within milliseconds.
     let response = http_client
         .get(&url)
         .timeout(std::time::Duration::from_secs(5))

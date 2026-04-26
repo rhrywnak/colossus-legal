@@ -59,7 +59,7 @@ use colossus_pipeline::{Step, StepResult};
 
 use crate::api::pipeline::extract_text::detect_document_type;
 use crate::api::pipeline::ocr::{self, OcrError};
-use crate::api::pipeline::upload::schema_for_document_type;
+use crate::api::pipeline::upload::schema_file_for_document_type;
 use crate::pipeline::context::AppContext;
 use crate::pipeline::steps::llm_extract::LlmExtract;
 use crate::pipeline::task::DocProcessing;
@@ -513,9 +513,10 @@ impl ExtractText {
                 message: format!("update documents.document_type: {e}"),
             })?;
 
-            let detected_schema = schema_for_document_type(detected_type);
+            let detected_schema =
+                schema_file_for_document_type(&context.profile_dir, detected_type);
             sqlx::query("UPDATE pipeline_config SET schema_file = $1 WHERE document_id = $2")
-                .bind(detected_schema)
+                .bind(&detected_schema)
                 .bind(doc_id)
                 .execute(db)
                 .await
@@ -524,7 +525,7 @@ impl ExtractText {
                 })?;
 
             tracing::info!(
-                doc_id = %doc_id, detected_type, schema = detected_schema,
+                doc_id = %doc_id, detected_type, schema = %detected_schema,
                 "ExtractText: auto-detected type"
             );
         }
