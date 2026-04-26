@@ -60,6 +60,9 @@ pub enum VerifyError {
     #[error("No canonical text found for document '{doc_id}' — was ExtractText run?")]
     NoCanonicalText { doc_id: String },
 
+    #[error("Failed to load grounding modes for document '{doc_id}': {message}")]
+    GroundingModes { doc_id: String, message: String },
+
     #[error("Database operation failed for document '{doc_id}'")]
     Db { doc_id: String, message: String },
 }
@@ -177,11 +180,16 @@ impl Verify {
                 doc_id: doc_id.to_string(),
             })?;
 
-        // 2. Load grounding modes. Empty-on-failure fallback is the one
-        //    place in this step where a graceful degradation is intentional,
-        //    mirroring the HTTP handler's behavior for backward compatibility.
+        // 2. Load grounding modes. Failure is fatal: without the schema
+        //    we'd default every entity to Verbatim, silently corrupting
+        //    Party / LegalCount / Harm grounding.
         let grounding_modes: HashMap<String, GroundingMode> =
-            verify_api::load_grounding_modes(db, &context.schema_dir, doc_id).await;
+            verify_api::load_grounding_modes(db, &context.schema_dir, doc_id)
+                .await
+                .map_err(|message| VerifyError::GroundingModes {
+                    doc_id: doc_id.to_string(),
+                    message,
+                })?;
 
         // 3. Fetch all items.
         let items = pipeline_repository::get_all_items(db, doc_id)

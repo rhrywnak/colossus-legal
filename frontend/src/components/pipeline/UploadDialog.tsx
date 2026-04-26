@@ -91,25 +91,21 @@ const UploadDialog: React.FC<Props> = ({ open, onClose, onSuccess, complaintExis
     setError(null);
     setUploading(true);
 
-    // Resolve the selected option into the correct document_type +
-    // schema filename. The <option value=...> is the schema's filename
-    // (e.g. "motion.yaml"), so we look it up here to recover both:
-    //   - documentType: the schema's `document_type` field (e.g. "motion")
-    //   - schemaFile:   the filename itself (e.g. "motion.yaml")
-    // When the user picks "Auto-detect", there is no matching SchemaInfo,
-    // so we fall through to `documentType: "auto"` and omit schemaFile —
-    // the backend's auto-detect path handles it from there.
+    // Resolve the selected option into the document_type the backend
+    // expects. The <option value=...> is the schema's filename (e.g.
+    // "motion.yaml"); we look it up to recover the schema's
+    // `document_type` field. The backend derives schema_file from the
+    // matching processing profile — we no longer send schema_file from
+    // the client.
     const selectedSchema = schemas.find(
       (s) => s.filename === schema || s.document_type === schema,
     );
     const documentType = selectedSchema?.document_type ?? schema;
-    const schemaFile =
-      selectedSchema?.filename ?? (schema === "auto" ? undefined : schema);
 
     try {
       const id = `doc-${slugify(file.name)}`;
       const title = titleize(file.name);
-      const doc = await uploadDocument(file, { id, title, documentType, schemaFile });
+      const doc = await uploadDocument(file, { id, title, documentType });
       setUploading(false);
       onSuccess();
       navigate(`/documents/${doc.id}?tab=processing`);

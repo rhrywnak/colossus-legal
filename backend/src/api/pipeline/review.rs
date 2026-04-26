@@ -1,9 +1,6 @@
 //! Review action handlers: approve, reject, edit, bulk approve,
 //! unapprove, unreject, revert-ingest, and item history.
 
-use std::collections::HashMap;
-use std::path::Path;
-
 use axum::{extract::Path as AxumPath, extract::State, Json};
 use colossus_extract::EntityCategory;
 use serde::{Deserialize, Serialize};
@@ -18,6 +15,8 @@ use crate::models::document_status::{
 use crate::repositories::audit_repository::log_admin_action;
 use crate::repositories::pipeline_repository::{self, review as review_repo, steps};
 use crate::state::AppState;
+
+use super::items::load_category_map;
 
 // ── Request DTOs ────────────────────────────────────────────────
 
@@ -177,7 +176,18 @@ pub async fn reject_handler(
             message: format!("Item {item_id} not found"),
         })?;
 
-    let category_map = load_category_map(&state, &type_info.document_id).await;
+    // Load category map. Failure is fatal: defaulting to Evidence
+    // would let a Foundation entity slip past the rejection guard.
+    let category_map =
+        load_category_map(&state, &type_info.document_id)
+            .await
+            .map_err(|e| {
+                tracing::error!(
+                    document_id = %type_info.document_id, error = %e,
+                    "reject_handler cannot enforce category guard without category map"
+                );
+                AppError::Internal { message: e }
+            })?;
     let category = category_map
         .get(&type_info.entity_type)
         .unwrap_or(&EntityCategory::Evidence);
@@ -847,24 +857,3 @@ async fn check_not_post_ingest(
     Ok(())
 }
 
-/// Load entity category map from schema. Returns empty map on failure.
-async fn load_category_map(state: &AppState, doc_id: &str) -> HashMap<String, EntityCategory> {
-    let pipe_config =
-        match pipeline_repository::get_pipeline_config(&state.pipeline_pool, doc_id).await {
-            Ok(Some(cfg)) => cfg,
-            _ => return HashMap::new(),
-        };
-
-    let schema_path = format!(
-        "{}/{}",
-        state.config.extraction_schema_dir, pipe_config.schema_file
-    );
-    match colossus_extract::ExtractionSchema::from_file(Path::new(&schema_path)) {
-        Ok(schema) => schema
-            .entity_types
-            .iter()
-            .map(|et| (et.name.clone(), et.category.clone()))
-            .collect(),
-        Err(_) => HashMap::new(),
-    }
-}

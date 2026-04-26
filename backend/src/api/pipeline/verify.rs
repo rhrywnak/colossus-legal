@@ -83,14 +83,22 @@ pub(crate) async fn run_verify(
             message: format!("Document '{doc_id}' not found"),
         })?;
 
-    // 2. Load extraction schema for grounding mode lookup.
-    //    If schema loading fails, fall back to treating everything as Verbatim.
+    // 2. Load extraction schema for grounding mode lookup. Failure is
+    //    fatal: without the schema we'd default every entity to Verbatim,
+    //    silently corrupting Party / LegalCount / Harm grounding.
     let grounding_modes = load_grounding_modes(
         &state.pipeline_pool,
         &state.config.extraction_schema_dir,
         doc_id,
     )
-    .await;
+    .await
+    .map_err(|e| {
+        tracing::error!(
+            document_id = %doc_id, error = %e,
+            "Verify cannot proceed without grounding modes"
+        );
+        AppError::Internal { message: e }
+    })?;
 
     // 4. Fetch ALL items (not just those with quotes)
     let items = pipeline_repository::get_all_items(&state.pipeline_pool, doc_id)
@@ -453,24 +461,35 @@ pub(crate) fn categorize_items_for_grounding(
     }
 }
 
-/// Load grounding modes from the extraction schema.
+/// Load grounding modes from the extraction schema for a document.
 ///
-/// Returns an empty map on failure (all items default to Verbatim).
-/// This ensures backward compatibility for documents uploaded before F2.
+/// Returns a map of entity_type → GroundingMode. Fails if the schema
+/// cannot be loaded — callers must handle the error rather than
+/// silently degrading to Verbatim for all entities.
+///
+/// ## Why Result instead of an empty-HashMap fallback
+///
+/// Returning Result forces every caller to decide what to do when the
+/// schema is missing. The prior code returned an empty HashMap, which
+/// silently changed behavior: every entity defaulted to Verbatim mode,
+/// and Party entities (with no `verbatim_quote`) got stuck at
+/// `missing_quote` with no error visible to the user.
 pub(crate) async fn load_grounding_modes(
     pool: &sqlx::PgPool,
     extraction_schema_dir: &str,
     doc_id: &str,
-) -> HashMap<String, GroundingMode> {
+) -> Result<HashMap<String, GroundingMode>, String> {
     let pipe_config = match pipeline_repository::get_pipeline_config(pool, doc_id).await {
         Ok(Some(cfg)) => cfg,
         Ok(None) => {
-            tracing::warn!(doc_id = %doc_id, "No pipeline config found — defaulting all items to Verbatim");
-            return HashMap::new();
+            return Err(format!(
+                "No pipeline_config found for document '{doc_id}' — cannot determine grounding modes"
+            ));
         }
         Err(e) => {
-            tracing::warn!(doc_id = %doc_id, error = %e, "Failed to load pipeline config — defaulting all items to Verbatim");
-            return HashMap::new();
+            return Err(format!(
+                "Failed to load pipeline_config for '{doc_id}': {e}"
+            ));
         }
     };
 
@@ -478,19 +497,18 @@ pub(crate) async fn load_grounding_modes(
     let schema = match colossus_extract::ExtractionSchema::from_file(Path::new(&schema_path)) {
         Ok(s) => s,
         Err(e) => {
-            tracing::warn!(
-                doc_id = %doc_id, schema = %pipe_config.schema_file, error = %e,
-                "Failed to load extraction schema — defaulting all items to Verbatim"
-            );
-            return HashMap::new();
+            return Err(format!(
+                "Failed to load schema '{}' for document '{doc_id}': {e}",
+                pipe_config.schema_file
+            ));
         }
     };
 
-    schema
+    Ok(schema
         .entity_types
         .iter()
         .map(|et| (et.name.clone(), et.grounding_mode.clone()))
-        .collect()
+        .collect())
 }
 
 /// Extract a name label from an item for NameMatch grounding.

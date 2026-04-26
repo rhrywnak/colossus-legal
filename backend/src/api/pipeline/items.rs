@@ -140,8 +140,13 @@ fn category_to_string(cat: &EntityCategory) -> &'static str {
     }
 }
 
-/// Load entity category map from schema. Returns empty map on failure
-/// (all items default to Evidence at the consumer site).
+/// Load entity category map from the document's extraction schema.
+///
+/// Returns a map of entity_type → EntityCategory. Fails if the schema
+/// cannot be loaded — callers must handle the error rather than
+/// silently degrading to `Evidence` for every entity (which would
+/// drive the Review UI to show wrong action sets: Foundation entities
+/// would surface "approve/reject" instead of "confirm/edit").
 ///
 /// Also audits the raw YAML for entity types that omit the `category`
 /// field. `colossus_extract::EntityTypeConfig` marks `category` as
@@ -151,12 +156,31 @@ fn category_to_string(cat: &EntityCategory) -> &'static str {
 /// Re-parsing as `serde_yaml::Value` lets us detect the omission and
 /// emit a loud ERROR log naming the schema file and entity type, so the
 /// gap is visible instead of silently mis-tagging items.
-async fn load_category_map(state: &AppState, doc_id: &str) -> HashMap<String, EntityCategory> {
-    let pipe_config =
-        match pipeline_repository::get_pipeline_config(&state.pipeline_pool, doc_id).await {
-            Ok(Some(cfg)) => cfg,
-            _ => return HashMap::new(),
-        };
+///
+/// Shared with `review.rs` — the prior duplicate implementation had the
+/// same silent-empty-HashMap fallback bug and is gone.
+pub(crate) async fn load_category_map(
+    state: &AppState,
+    doc_id: &str,
+) -> Result<HashMap<String, EntityCategory>, String> {
+    let pipe_config = match pipeline_repository::get_pipeline_config(
+        &state.pipeline_pool,
+        doc_id,
+    )
+    .await
+    {
+        Ok(Some(cfg)) => cfg,
+        Ok(None) => {
+            return Err(format!(
+                "No pipeline_config found for document '{doc_id}' — cannot determine entity categories"
+            ));
+        }
+        Err(e) => {
+            return Err(format!(
+                "Failed to load pipeline_config for '{doc_id}': {e}"
+            ));
+        }
+    };
 
     let schema_path = format!(
         "{}/{}",
@@ -166,18 +190,20 @@ async fn load_category_map(state: &AppState, doc_id: &str) -> HashMap<String, En
     let schema = match colossus_extract::ExtractionSchema::from_file(Path::new(&schema_path)) {
         Ok(s) => s,
         Err(e) => {
-            tracing::warn!(doc_id = %doc_id, error = %e, "Failed to load schema for category lookup — defaulting to Evidence");
-            return HashMap::new();
+            return Err(format!(
+                "Failed to load schema '{}' for document '{doc_id}': {e}",
+                pipe_config.schema_file
+            ));
         }
     };
 
     audit_schema_for_missing_category(&schema_path, &pipe_config.schema_file);
 
-    schema
+    Ok(schema
         .entity_types
         .iter()
         .map(|et| (et.name.clone(), et.category.clone()))
-        .collect()
+        .collect())
 }
 
 /// Log an ERROR for every entity type in the schema YAML that omits
@@ -296,8 +322,17 @@ pub async fn list_items_handler(
         })?;
     let doc_is_post_ingest = is_post_ingest(&document.status);
 
-    // Load category map from schema
-    let category_map = load_category_map(&state, &doc_id).await;
+    // Load category map from schema. Failure is fatal: an empty map
+    // would default every item to Evidence and surface wrong action
+    // sets (e.g. Foundation entities offering approve/reject instead
+    // of confirm/edit).
+    let category_map = load_category_map(&state, &doc_id).await.map_err(|e| {
+        tracing::error!(
+            document_id = %doc_id, error = %e,
+            "list_items cannot proceed without category map"
+        );
+        AppError::Internal { message: e }
+    })?;
 
     let page = params.page.unwrap_or(1).max(1);
     let per_page = params.per_page.unwrap_or(50).min(200);

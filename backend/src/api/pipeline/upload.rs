@@ -99,7 +99,6 @@ pub async fn upload_document(
     let mut doc_id: Option<String> = None;
     let mut title: Option<String> = None;
     let mut document_type: Option<String> = None;
-    let mut schema_file: Option<String> = None;
     let mut pass1_model: Option<String> = None;
     let mut pass2_model: Option<String> = None;
     let mut admin_instructions: Option<String> = None;
@@ -125,7 +124,6 @@ pub async fn upload_document(
             "id" => doc_id = Some(field_text(&name, field).await?),
             "title" => title = Some(field_text(&name, field).await?),
             "document_type" => document_type = Some(field_text(&name, field).await?),
-            "schema_file" => schema_file = Some(field_text(&name, field).await?),
             "pass1_model" => pass1_model = Some(field_text(&name, field).await?),
             "pass2_model" => pass2_model = Some(field_text(&name, field).await?),
             "admin_instructions" => admin_instructions = Some(field_text(&name, field).await?),
@@ -157,13 +155,20 @@ pub async fn upload_document(
         }
     };
 
-    // Schema file selection priority: client-provided > profile YAML > fallback.
-    let schema_file = schema_file.unwrap_or_else(|| {
-        profile
-            .as_ref()
-            .map(|p| p.schema_file.clone())
-            .unwrap_or_else(|| FALLBACK_SCHEMA_FILE.to_string())
-    });
+    // Schema file — derived exclusively from the processing profile.
+    // The frontend no longer sends this field; the profile YAML is the
+    // single source of truth for which schema a document_type uses.
+    let schema_file = profile
+        .as_ref()
+        .map(|p| p.schema_file.clone())
+        .unwrap_or_else(|| {
+            tracing::warn!(
+                document_type = %document_type,
+                fallback = FALLBACK_SCHEMA_FILE,
+                "No profile loaded — using fallback schema"
+            );
+            FALLBACK_SCHEMA_FILE.to_string()
+        });
     let file_data = file_data.ok_or_else(|| AppError::BadRequest {
         message: "No 'file' field in multipart upload".to_string(),
         details: serde_json::json!({}),
