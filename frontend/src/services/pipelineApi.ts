@@ -248,6 +248,10 @@ export interface SchemaInfo {
   description: string;
   entity_type_count: number;
   entity_types: string[];
+  /** Parse error message — present only when the YAML failed to load.
+   *  When set, document_type/version are empty and the UI should
+   *  surface the filename + error instead of a blank entry. */
+  error?: string;
 }
 
 export interface ModelInfo {

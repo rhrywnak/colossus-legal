@@ -81,6 +81,14 @@ relationship_types:
     description: "The SAME person said something in this document that conflicts with what they said in another document. Impeachment evidence."
   - name: REBUTS
     description: "This affiant's statement directly counters what a DIFFERENT person claimed in another document."
+#
+# valid_patterns enumerates LOCAL (within-document) connections only.
+# Cross-document relationships authored by pass-2 extraction
+# (Evidence -CORROBORATES-> ComplaintAllegation, REBUTS into a foreign
+# Evidence, etc.) target entities owned by other documents and cannot
+# be expressed here — `ExtractionSchema::validate()` only knows about
+# entity types declared in this file. The relationship_types section
+# above already documents the cross-document semantics for the LLM.
 valid_patterns:
   - from: Evidence
     relationship: STATED_BY
@@ -88,9 +96,6 @@ valid_patterns:
   - from: Evidence
     relationship: ABOUT
     to: Party
-  - from: Evidence
-    relationship: CORROBORATES
-    to: ComplaintAllegation
   - from: Evidence
     relationship: CORROBORATES
     to: Evidence

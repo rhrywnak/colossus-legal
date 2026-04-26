@@ -155,6 +155,18 @@ const UploadDialog: React.FC<Props> = ({ open, onClose, onSuccess, complaintExis
           {schemas
             .filter(s => s.filename !== "complaint.yaml") // exclude obsolete v1
             .map((s) => {
+              // Parse-failed schemas come back with empty document_type and
+              // a non-empty `error`. Surface them with the filename so the
+              // operator can see WHICH schema is broken instead of a blank
+              // dropdown line, and disable them so they can't be picked.
+              const parseFailed = !!s.error || !s.document_type;
+              if (parseFailed) {
+                return (
+                  <option key={s.filename} value={s.filename} disabled>
+                    {`${s.filename} — parse error`}
+                  </option>
+                );
+              }
               // Check if multiple schemas share the same document_type
               const sameType = schemas.filter(x => x.document_type === s.document_type);
               const label = sameType.length > 1
