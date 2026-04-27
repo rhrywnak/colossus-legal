@@ -663,26 +663,47 @@ async fn build_chat_providers(
 // Schema metadata loading
 // ---------------------------------------------------------------------------
 
+/// Default schema filename used when `STARTUP_SCHEMA_FILE` env var is unset.
+const DEFAULT_STARTUP_SCHEMA_FILE: &str = "general_legal.yaml";
+
+/// Sentinel `document_type` returned in `SchemaMetadata` when the startup
+/// schema file is missing or fails to parse. Lets `GET /api/schema` respond
+/// 200 with empty entity/relationship lists instead of the backend refusing
+/// to start.
+const MISSING_SCHEMA_DOCUMENT_TYPE: &str = "none";
+
 /// Load extraction schema YAML and extract entity/relationship type metadata.
 ///
-/// ## Rust Learning: expect() at startup
-///
-/// We use `expect()` here because this runs once during startup. If the schema
-/// file is missing or malformed, the server should fail fast with a clear error
-/// rather than starting in a broken state.
+/// Reads the filename from the `STARTUP_SCHEMA_FILE` env var, defaulting to
+/// `general_legal.yaml`. If the file is missing or fails to parse, logs a
+/// WARNING and returns an empty `SchemaMetadata` with `document_type` set
+/// to the [`MISSING_SCHEMA_DOCUMENT_TYPE`] sentinel — beta 206 crashed
+/// because the prior implementation panicked on a missing file, and the
+/// multi-schema world (complaint_v4.yaml, affidavit_v4.yaml, …) makes the
+/// single-file startup load architecturally transitional.
 fn load_schema_metadata(config: &AppConfig) -> SchemaMetadata {
     use colossus_extract::ExtractionSchema;
     use std::path::Path;
 
-    let schema_path = Path::new(&config.extraction_schema_dir).join("general_legal.yaml");
+    let schema_filename = std::env::var("STARTUP_SCHEMA_FILE")
+        .unwrap_or_else(|_| DEFAULT_STARTUP_SCHEMA_FILE.to_string());
+    let schema_path = Path::new(&config.extraction_schema_dir).join(&schema_filename);
 
-    let extraction_schema = ExtractionSchema::from_file(&schema_path).unwrap_or_else(|e| {
-        panic!(
-            "Failed to load extraction schema from {}: {:?}",
-            schema_path.display(),
-            e
-        )
-    });
+    let extraction_schema = match ExtractionSchema::from_file(&schema_path) {
+        Ok(schema) => schema,
+        Err(e) => {
+            tracing::warn!(
+                error = ?e,
+                schema_path = %schema_path.display(),
+                "Failed to load startup extraction schema — serving empty schema metadata"
+            );
+            return SchemaMetadata {
+                document_type: MISSING_SCHEMA_DOCUMENT_TYPE.to_string(),
+                entity_types: vec![],
+                relationship_types: vec![],
+            };
+        }
+    };
 
     let entity_types: Vec<EntityTypeInfo> = extraction_schema
         .entity_types

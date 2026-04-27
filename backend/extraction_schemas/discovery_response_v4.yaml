@@ -1,0 +1,100 @@
+document_type: discovery_response
+description: "Sworn responses to interrogatories, requests for admissions, or other discovery requests. Each question-answer pair is a separate Evidence entity. The respondent's answers are sworn — admissions are binding, evasive answers suggest concealment."
+
+entity_types:
+  - name: Party
+    grounding_mode: name_match
+    category: reference
+    description: "A person or organization mentioned in the discovery response — the respondent, the requesting party, and all persons or organizations referenced in the answers"
+    properties:
+      - name: party_name
+        type: string
+        required: true
+        description: "Full legal name as it appears in the document"
+      - name: role
+        type: string
+        required: true
+        description: "Role in the case: respondent, plaintiff, defendant, attorney, witness, third_party, organization"
+      - name: party_type
+        type: string
+        description: "'person' or 'organization'"
+      - name: aliases
+        type: string
+        description: "Comma-separated alternative names or references used in the document"
+
+  - name: Evidence
+    grounding_mode: verbatim
+    category: evidence
+    description: "A single interrogatory question-answer pair, request for admission response, or other discovery response item. Each numbered item is a separate Evidence entity."
+    properties:
+      - name: title
+        type: string
+        required: true
+        description: "Short descriptive title summarizing the substance of this Q&A (e.g., 'Phillips denies knowledge of CFS-Court contract')"
+      - name: question
+        type: string
+        required: true
+        description: "The interrogatory question or request, summarized if very long but preserving the essential ask"
+      - name: answer
+        type: string
+        required: true
+        description: "The sworn response, captured verbatim or near-verbatim. Include the full substance including any objections."
+      - name: paragraph
+        type: string
+        required: true
+        description: "The interrogatory number or request identifier (e.g., 'Q1', 'Q73', 'RFA 9')"
+      - name: page_number
+        type: integer
+        description: "Page number where this Q&A appears"
+      - name: kind
+        type: string
+        description: "Always 'testimonial' for discovery responses"
+      - name: evidence_strength
+        type: string
+        description: "Legal weight classification: 'sworn_party_admission' for admissions, 'sworn_party_denial' for denials, 'sworn_party_evasion' for evasive responses"
+      - name: statement_type
+        type: string
+        required: true
+        description: "Classification of the response: 'admission' (fact acknowledged), 'denial' (fact contested), 'evasive' (non-answer, deflection, 'documents speak for themselves'), 'partial_admission' (admits some facts while denying others), 'objection' (legal objection raised, may or may not include a substantive answer), 'referral' (refers to another interrogatory or document)"
+      - name: significance
+        type: string
+        description: "Why this Q&A matters for the case — what it proves, contradicts, or reveals"
+      - name: pattern_tags
+        type: string
+        description: "Comma-separated trial-prep pattern tags: selective_enforcement, disparagement, financial_misconduct, secrecy, evasive_responses, lies_under_oath, coordination, conflict_of_interest, due_process_violation"
+
+relationship_types:
+  - name: STATED_BY
+    description: "Links Evidence to the Party who gave the sworn response. Always the respondent (the party who signed the verification), NOT the attorney who prepared the response."
+  - name: ABOUT
+    description: "Links Evidence to the Party or parties the question concerns. A question about the respondent's dealings with another person creates ABOUT relationships to both parties discussed."
+  - name: CORROBORATES
+    description: "Links Evidence to a ComplaintAllegation from the complaint when the sworn response independently confirms the same facts alleged in the complaint. Cross-document relationship — the ComplaintAllegation exists in a different document's extraction."
+  - name: CONTRADICTS
+    description: "Links Evidence to another Evidence entity when the SAME speaker made a conflicting statement in a different document. Cross-document relationship."
+  - name: REBUTS
+    description: "Links Evidence to another Evidence entity when a DIFFERENT speaker's statement counters this response. Cross-document relationship."
+
+valid_patterns:
+  - from: Evidence
+    relationship: STATED_BY
+    to: Party
+  - from: Evidence
+    relationship: ABOUT
+    to: Party
+  - from: Evidence
+    relationship: CONTRADICTS
+    to: Evidence
+  - from: Evidence
+    relationship: REBUTS
+    to: Evidence
+
+extraction_rules:
+  - "Every verbatim_quote must be an exact substring of the document text — copy from the answer, not the question"
+  - "Extract EVERY numbered Q&A pair as a separate Evidence entity — do not skip any, even evasive or objection-only responses"
+  - "For multi-part questions (with sub-items a, b, c...), extract as ONE Evidence entity with the full question and full answer"
+  - "The respondent is ALWAYS the STATED_BY party, even when the answer was prepared by counsel"
+  - "Classify statement_type carefully: 'admission' only when the respondent clearly acknowledges a fact; 'evasive' when they deflect, say 'documents speak for themselves', or 'see prior interrogatory' without substance"
+  - "Assign pattern_tags when the response reveals selective treatment, evasion, disparagement, or financial misconduct"
+  - "Do NOT extract the caption, verification block, or attorney signature as entities"
+  - "Preserve the interrogatory number exactly as it appears (e.g., Q73, not 73)"
