@@ -7,6 +7,7 @@
 //! Design: DOC_PROCESSING_CONFIG_DESIGN_v2.md Sections 3.1, 3.2.2, 3.7.
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::Path;
 
 // ── Processing Profile ──────────────────────────────────────────
@@ -71,6 +72,35 @@ pub struct ProcessingProfile {
     pub chunk_size: Option<i32>,
     #[serde(default)]
     pub chunk_overlap: Option<i32>,
+
+    /// Flexible chunking parameters for the intelligent-chunking pipeline.
+    ///
+    /// Holds keys like `mode`, `strategy`, `units_per_chunk`, `unit_overlap`,
+    /// `request_timeout_secs` — the exact set is owned by Group 2's
+    /// `ConfigAccess` reader, not by the type system here. Storing
+    /// `serde_json::Value` instead of typed fields keeps this struct
+    /// schema-free so adding a new chunking knob never requires a struct
+    /// change in colossus-legal — only a new key in YAML and a new reader
+    /// in colossus-extract.
+    ///
+    /// ## Rust Learning: `#[serde(default)]` on a `HashMap` field
+    ///
+    /// When YAML profiles authored before this field existed are loaded,
+    /// `serde_yaml` calls `HashMap::default()` (which produces an empty
+    /// map) to fill in the missing key. Without `#[serde(default)]`
+    /// deserialization would *fail* with "missing field `chunking_config`",
+    /// breaking every legacy profile in storage. The empty-map default
+    /// is also the natural "use all defaults" sentinel.
+    #[serde(default)]
+    pub chunking_config: HashMap<String, serde_json::Value>,
+
+    /// Flexible cross-document context parameters used by pass 2.
+    ///
+    /// Same shape and rationale as `chunking_config` — keys like
+    /// `traversal_depth` and `always_include_foundation` live here so
+    /// Group 2 can introduce new pass-2 knobs without struct churn.
+    #[serde(default)]
+    pub context_config: HashMap<String, serde_json::Value>,
 
     // LLM parameters
     #[serde(default = "default_max_tokens")]
@@ -178,6 +208,17 @@ pub struct ResolvedConfig {
     pub chunking_mode: String,
     pub chunk_size: Option<i32>,
     pub chunk_overlap: Option<i32>,
+    /// Resolved chunking parameters — the merged result of the profile's
+    /// `chunking_config` and any per-document override map.
+    /// Serialized to JSONB in `extraction_runs.processing_config` as part
+    /// of the audit trail for what knobs were used on this document.
+    #[serde(default)]
+    pub chunking_config: HashMap<String, serde_json::Value>,
+    /// Resolved cross-document context parameters — same merge semantics
+    /// as `chunking_config`. Consumed by pass 2 for graph-based relevance
+    /// filtering.
+    #[serde(default)]
+    pub context_config: HashMap<String, serde_json::Value>,
     pub max_tokens: i32,
     pub temperature: f64,
     pub auto_approve_grounded: bool,
@@ -207,6 +248,25 @@ pub struct PipelineConfigOverrides {
     pub max_tokens: Option<i32>,
     pub temperature: Option<f64>,
     pub run_pass2: Option<bool>,
+    /// Per-document chunking config override — merged on top of the
+    /// profile's `chunking_config` at the *key level*.
+    ///
+    /// ## Rust Learning: `Option<HashMap<…>>` vs. plain `HashMap<…>`
+    ///
+    /// We need to distinguish three states:
+    ///   - `None`           — no override provided; use the profile's map verbatim.
+    ///   - `Some(empty)`    — override exists but contains no entries; merge result equals the profile's map.
+    ///   - `Some(non-empty)`— extend/overwrite the profile's map with these entries.
+    ///
+    /// A bare `HashMap` would collapse the first two cases together —
+    /// every document would look like it had an override, and the
+    /// `overrides_applied` audit list would always include
+    /// `"chunking_config"`. Wrapping in `Option` preserves the
+    /// "no override" signal that the audit trail depends on.
+    pub chunking_config: Option<HashMap<String, serde_json::Value>>,
+    /// Per-document context config override. Same `Option` rationale as
+    /// `chunking_config` above.
+    pub context_config: Option<HashMap<String, serde_json::Value>>,
 }
 
 /// System-wide defaults used when no profile or override provides a value.
@@ -307,6 +367,36 @@ pub fn resolve_config(
         None => profile.run_pass2,
     };
 
+    // ## Rust Learning: `HashMap::extend()` is upsert
+    //
+    // `extend()` walks an iterator of `(K, V)` pairs and inserts each
+    // into the map — if the key already exists, the value is *overwritten*;
+    // if not, it's inserted. That is exactly the merge semantics we want:
+    // start with the profile's full config, then let the per-document
+    // override change individual keys without having to re-state every
+    // other key. The alternative — replacing the whole map — would force
+    // every override to repeat the entire chunking config just to nudge
+    // one parameter.
+    let chunking_config = match &overrides.chunking_config {
+        Some(overrides_map) => {
+            applied.push("chunking_config".to_string());
+            let mut merged = profile.chunking_config.clone();
+            merged.extend(overrides_map.iter().map(|(k, v)| (k.clone(), v.clone())));
+            merged
+        }
+        None => profile.chunking_config.clone(),
+    };
+
+    let context_config = match &overrides.context_config {
+        Some(overrides_map) => {
+            applied.push("context_config".to_string());
+            let mut merged = profile.context_config.clone();
+            merged.extend(overrides_map.iter().map(|(k, v)| (k.clone(), v.clone())));
+            merged
+        }
+        None => profile.context_config.clone(),
+    };
+
     ResolvedConfig {
         profile_name: overrides.profile_name.clone()
             .unwrap_or_else(|| profile.name.clone()),
@@ -321,6 +411,8 @@ pub fn resolve_config(
         chunking_mode,
         chunk_size,
         chunk_overlap,
+        chunking_config,
+        context_config,
         max_tokens,
         temperature,
         auto_approve_grounded: profile.auto_approve_grounded,
@@ -412,6 +504,8 @@ extraction_model: claude-sonnet-4-6
             chunking_mode: "full".into(),
             chunk_size: None,
             chunk_overlap: None,
+            chunking_config: HashMap::new(),
+            context_config: HashMap::new(),
             max_tokens: 32000,
             temperature: 0.0,
             auto_approve_grounded: true,
@@ -448,6 +542,8 @@ extraction_model: claude-sonnet-4-6
             chunking_mode: "full".into(),
             chunk_size: None,
             chunk_overlap: None,
+            chunking_config: HashMap::new(),
+            context_config: HashMap::new(),
             max_tokens: 32000,
             temperature: 0.0,
             auto_approve_grounded: true,
@@ -501,6 +597,8 @@ extraction_model: claude-sonnet-4-6
             chunking_mode: "full".into(),
             chunk_size: None,
             chunk_overlap: None,
+            chunking_config: HashMap::new(),
+            context_config: HashMap::new(),
             max_tokens: 32000,
             temperature: 0.0,
             auto_approve_grounded: true,
@@ -620,6 +718,8 @@ extraction_model: claude-sonnet-4-6
             chunking_mode: "full".into(),
             chunk_size: None,
             chunk_overlap: None,
+            chunking_config: HashMap::new(),
+            context_config: HashMap::new(),
             max_tokens: 32000,
             temperature: 0.0,
             auto_approve_grounded: true,
@@ -660,6 +760,8 @@ extraction_model: claude-sonnet-4-6
             chunking_mode: "full".into(),
             chunk_size: None,
             chunk_overlap: None,
+            chunking_config: HashMap::new(),
+            context_config: HashMap::new(),
             max_tokens: 32000,
             temperature: 0.0,
             auto_approve_grounded: true,
@@ -670,5 +772,294 @@ extraction_model: claude-sonnet-4-6
         assert_eq!(json["profile_name"], "complaint");
         assert_eq!(json["overrides_applied"][0], "temperature");
         // This JSON is what gets stored in extraction_runs.processing_config
+    }
+
+    // ── chunking_config / context_config (Phase 1b Group 1) ──────────
+
+    #[test]
+    fn load_profile_with_chunking_config() {
+        let yaml = r#"
+name: discovery_response
+display_name: Discovery Response
+schema_file: discovery_response_v4.yaml
+template_file: pass1_discovery_response_v4.md
+extraction_model: claude-sonnet-4-6
+chunking_config:
+  mode: structured
+  strategy: qa_pair
+  units_per_chunk: 25
+  unit_overlap: 0
+  request_timeout_secs: 1800
+context_config:
+  traversal_depth: 2
+  always_include_foundation: true
+"#;
+        let f = write_temp_profile(yaml);
+        let profile = ProcessingProfile::from_file(f.path()).unwrap();
+
+        // chunking_config is a HashMap — verify keys exist and values are correct types
+        assert_eq!(
+            profile.chunking_config.get("mode").and_then(|v| v.as_str()),
+            Some("structured")
+        );
+        assert_eq!(
+            profile.chunking_config.get("strategy").and_then(|v| v.as_str()),
+            Some("qa_pair")
+        );
+        assert_eq!(
+            profile.chunking_config.get("units_per_chunk").and_then(|v| v.as_i64()),
+            Some(25)
+        );
+        assert_eq!(
+            profile
+                .chunking_config
+                .get("request_timeout_secs")
+                .and_then(|v| v.as_i64()),
+            Some(1800)
+        );
+
+        // context_config
+        assert_eq!(
+            profile.context_config.get("traversal_depth").and_then(|v| v.as_i64()),
+            Some(2)
+        );
+        assert_eq!(
+            profile
+                .context_config
+                .get("always_include_foundation")
+                .and_then(|v| v.as_bool()),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn load_profile_without_chunking_config_gets_empty_maps() {
+        // Backward compatibility: profiles authored before these fields
+        // existed must still deserialize. `#[serde(default)]` on the
+        // HashMap fields produces empty maps when the YAML keys are absent.
+        let yaml = r#"
+name: complaint
+display_name: Complaint
+schema_file: complaint_v2.yaml
+template_file: pass1_complaint.md
+extraction_model: claude-sonnet-4-6
+chunking_mode: full
+"#;
+        let f = write_temp_profile(yaml);
+        let profile = ProcessingProfile::from_file(f.path()).unwrap();
+
+        assert!(
+            profile.chunking_config.is_empty(),
+            "expected empty chunking_config for legacy profile"
+        );
+        assert!(
+            profile.context_config.is_empty(),
+            "expected empty context_config for legacy profile"
+        );
+        // Legacy field still works
+        assert_eq!(profile.chunking_mode, "full");
+    }
+
+    #[test]
+    fn resolve_config_includes_chunking_config() {
+        let mut chunking_config = HashMap::new();
+        chunking_config.insert("mode".to_string(), serde_json::json!("structured"));
+        chunking_config.insert("strategy".to_string(), serde_json::json!("qa_pair"));
+        chunking_config.insert("units_per_chunk".to_string(), serde_json::json!(25));
+
+        let profile = ProcessingProfile {
+            name: "discovery".into(),
+            display_name: "Discovery".into(),
+            description: String::new(),
+            schema_file: "disc.yaml".into(),
+            template_file: "disc.md".into(),
+            system_prompt_file: None,
+            pass2_template_file: None,
+            extraction_model: "claude-sonnet-4-6".into(),
+            pass2_extraction_model: None,
+            synthesis_model: None,
+            chunking_mode: "full".into(),
+            chunk_size: None,
+            chunk_overlap: None,
+            chunking_config: chunking_config.clone(),
+            context_config: HashMap::new(),
+            max_tokens: 32000,
+            temperature: 0.0,
+            auto_approve_grounded: true,
+            run_pass2: false,
+            is_default: false,
+        };
+        let overrides = PipelineConfigOverrides::default();
+        let resolved = resolve_config(&profile, &overrides);
+
+        assert_eq!(
+            resolved.chunking_config.get("mode").and_then(|v| v.as_str()),
+            Some("structured")
+        );
+        assert_eq!(
+            resolved.chunking_config.get("units_per_chunk").and_then(|v| v.as_i64()),
+            Some(25)
+        );
+        assert!(resolved.context_config.is_empty());
+        // chunking_config was NOT overridden — should not appear in overrides_applied
+        assert!(!resolved
+            .overrides_applied
+            .contains(&"chunking_config".to_string()));
+    }
+
+    #[test]
+    fn resolve_config_merges_chunking_config_overrides() {
+        // Verifies the key-level merge contract: per-document override
+        // changes one knob (units_per_chunk) without having to re-state the
+        // rest of the config (mode, strategy). This is the crux of why
+        // `Option<HashMap<...>>` + `extend()` is the right shape — a
+        // whole-map replacement would force every override to enumerate
+        // every key the profile already set.
+        let mut profile_config = HashMap::new();
+        profile_config.insert("mode".to_string(), serde_json::json!("structured"));
+        profile_config.insert("strategy".to_string(), serde_json::json!("qa_pair"));
+        profile_config.insert("units_per_chunk".to_string(), serde_json::json!(25));
+
+        let profile = ProcessingProfile {
+            name: "discovery".into(),
+            display_name: "Discovery".into(),
+            description: String::new(),
+            schema_file: "disc.yaml".into(),
+            template_file: "disc.md".into(),
+            system_prompt_file: None,
+            pass2_template_file: None,
+            extraction_model: "claude-sonnet-4-6".into(),
+            pass2_extraction_model: None,
+            synthesis_model: None,
+            chunking_mode: "full".into(),
+            chunk_size: None,
+            chunk_overlap: None,
+            chunking_config: profile_config,
+            context_config: HashMap::new(),
+            max_tokens: 32000,
+            temperature: 0.0,
+            auto_approve_grounded: true,
+            run_pass2: false,
+            is_default: false,
+        };
+
+        // Per-document override changes units_per_chunk but NOT mode or strategy
+        let mut override_config = HashMap::new();
+        override_config.insert("units_per_chunk".to_string(), serde_json::json!(15));
+
+        let overrides = PipelineConfigOverrides {
+            chunking_config: Some(override_config),
+            ..Default::default()
+        };
+        let resolved = resolve_config(&profile, &overrides);
+
+        // units_per_chunk was overridden
+        assert_eq!(
+            resolved.chunking_config.get("units_per_chunk").and_then(|v| v.as_i64()),
+            Some(15)
+        );
+        // mode and strategy carried through from profile
+        assert_eq!(
+            resolved.chunking_config.get("mode").and_then(|v| v.as_str()),
+            Some("structured")
+        );
+        assert_eq!(
+            resolved.chunking_config.get("strategy").and_then(|v| v.as_str()),
+            Some("qa_pair")
+        );
+        // Tracked as overridden
+        assert!(resolved
+            .overrides_applied
+            .contains(&"chunking_config".to_string()));
+    }
+
+    #[test]
+    fn resolved_config_with_chunking_config_serializes() {
+        let mut chunking_config = HashMap::new();
+        chunking_config.insert("mode".to_string(), serde_json::json!("structured"));
+        chunking_config.insert("strategy".to_string(), serde_json::json!("qa_pair"));
+
+        let config = ResolvedConfig {
+            profile_name: "discovery".into(),
+            model: "claude-sonnet-4-6".into(),
+            pass2_model: None,
+            template_file: "disc.md".into(),
+            template_hash: None,
+            pass2_template_file: None,
+            system_prompt_file: None,
+            system_prompt_hash: None,
+            schema_file: "disc.yaml".into(),
+            chunking_mode: "full".into(),
+            chunk_size: None,
+            chunk_overlap: None,
+            chunking_config,
+            context_config: HashMap::new(),
+            max_tokens: 32000,
+            temperature: 0.0,
+            auto_approve_grounded: true,
+            run_pass2: false,
+            overrides_applied: vec![],
+        };
+
+        let json = serde_json::to_value(&config).unwrap();
+
+        // chunking_config appears in the JSON (this is what gets stored in
+        // extraction_runs.processing_config — the audit trail).
+        assert_eq!(json["chunking_config"]["mode"], "structured");
+        assert_eq!(json["chunking_config"]["strategy"], "qa_pair");
+        // Empty context_config still serializes as an object, not omitted.
+        // This matters for the audit trail: a downstream consumer can rely
+        // on the key being present and reading `{}` rather than handling
+        // both "missing" and "empty" states.
+        assert!(json["context_config"].is_object());
+    }
+
+    #[test]
+    fn profile_preserves_unknown_chunking_config_keys() {
+        // ## Rust Learning: forward-compatibility via `serde_json::Value`
+        //
+        // `HashMap<String, serde_json::Value>` accepts any valid JSON-shaped
+        // value as the map value. When future YAML profiles introduce keys
+        // we haven't coded a reader for yet, those keys round-trip
+        // through deserialization untouched — they aren't rejected (which
+        // would break old colossus-legal builds reading new profiles), and
+        // they aren't silently dropped (which would lose user intent on
+        // re-serialize). This is the property that lets Group 2 add new
+        // chunking knobs without coordinated releases of colossus-legal.
+        let yaml = r#"
+name: future_proof
+display_name: Future Proof
+schema_file: test.yaml
+template_file: test.md
+extraction_model: claude-sonnet-4-6
+chunking_config:
+  mode: structured
+  strategy: qa_pair
+  future_key_we_dont_know_about_yet: 42
+  another_unknown: "hello"
+"#;
+        let f = write_temp_profile(yaml);
+        let profile = ProcessingProfile::from_file(f.path()).unwrap();
+
+        // Known keys work
+        assert_eq!(
+            profile.chunking_config.get("mode").and_then(|v| v.as_str()),
+            Some("structured")
+        );
+        // Unknown keys are preserved — not rejected, not silently dropped
+        assert_eq!(
+            profile
+                .chunking_config
+                .get("future_key_we_dont_know_about_yet")
+                .and_then(|v| v.as_i64()),
+            Some(42)
+        );
+        assert_eq!(
+            profile
+                .chunking_config
+                .get("another_unknown")
+                .and_then(|v| v.as_str()),
+            Some("hello")
+        );
     }
 }

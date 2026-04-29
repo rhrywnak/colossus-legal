@@ -674,7 +674,7 @@ checksum = "1d07550c9036bf2ae0c684c4297d503f838287c83c53686d05370d0e139ae570"
 [[package]]
 name = "colossus-auth"
 version = "0.1.0"
-source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.12.1#ec9d9b9e8fb8c6ea9383df619e58dae925a41852"
+source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.13.0#4580400140f5dcd4b22b78c0798acd18adce3cea"
 dependencies = [
  "async-trait",
  "axum",
@@ -685,11 +685,12 @@ dependencies = [
 
 [[package]]
 name = "colossus-extract"
-version = "0.4.3"
-source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.12.1#ec9d9b9e8fb8c6ea9383df619e58dae925a41852"
+version = "0.5.0"
+source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.13.0#4580400140f5dcd4b22b78c0798acd18adce3cea"
 dependencies = [
  "async-trait",
  "fastembed",
+ "regex",
  "reqwest 0.12.28",
  "schemars",
  "serde",
@@ -705,7 +706,7 @@ dependencies = [
 [[package]]
 name = "colossus-graph"
 version = "0.1.0"
-source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.12.1#ec9d9b9e8fb8c6ea9383df619e58dae925a41852"
+source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.13.0#4580400140f5dcd4b22b78c0798acd18adce3cea"
 dependencies = [
  "neo4rs",
  "serde",
@@ -760,7 +761,7 @@ dependencies = [
 [[package]]
 name = "colossus-pdf"
 version = "0.2.0"
-source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.12.1#ec9d9b9e8fb8c6ea9383df619e58dae925a41852"
+source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.13.0#4580400140f5dcd4b22b78c0798acd18adce3cea"
 dependencies = [
  "pdf_oxide",
  "serde",
@@ -773,7 +774,7 @@ dependencies = [
 [[package]]
 name = "colossus-pipeline"
 version = "0.1.0"
-source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.12.1#ec9d9b9e8fb8c6ea9383df619e58dae925a41852"
+source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.13.0#4580400140f5dcd4b22b78c0798acd18adce3cea"
 dependencies = [
  "async-trait",
  "chrono",
@@ -790,7 +791,7 @@ dependencies = [
 [[package]]
 name = "colossus-rag"
 version = "0.5.1"
-source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.12.1#ec9d9b9e8fb8c6ea9383df619e58dae925a41852"
+source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.13.0#4580400140f5dcd4b22b78c0798acd18adce3cea"
 dependencies = [
  "async-trait",
  "colossus-extract",

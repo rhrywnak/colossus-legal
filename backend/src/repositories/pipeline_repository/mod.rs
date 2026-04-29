@@ -473,6 +473,12 @@ pub async fn get_pipeline_config_overrides(
             max_tokens: r.max_tokens,
             temperature: r.temperature,
             run_pass2: r.run_pass2,
+            // pipeline_config columns for chunking_config/context_config
+            // arrive in Group 3's migration. Until then, no per-document
+            // override is read here — `resolve_config` falls through to the
+            // profile's map.
+            chunking_config: None,
+            context_config: None,
         },
         None => PipelineConfigOverrides::default(),
     })

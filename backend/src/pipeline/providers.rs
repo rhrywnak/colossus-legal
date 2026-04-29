@@ -57,11 +57,16 @@ pub fn provider_for_model(model: &LlmModelRecord) -> Result<Box<dyn LlmProvider>
             // Extraction pipeline: temperature = Some(0.0) for deterministic
             // output. The Chat endpoint builds its own providers with
             // temperature = None for natural variation — see main.rs.
+            //
+            // `request_timeout_secs = None` → use the provider's built-in
+            // default (600s in colossus-extract v0.13.0). The configurable
+            // per-request timeout will be threaded through in Phase 1d.
             let provider = AnthropicProvider::new(
                 api_key,
                 model.id.clone(),
                 max_tokens_default,
                 Some(0.0),
+                None,
             )
             .map_err(|e| format!("AnthropicProvider::new failed: {e}"))?;
             Ok(Box::new(provider))
@@ -74,9 +79,16 @@ pub fn provider_for_model(model: &LlmModelRecord) -> Result<Box<dyn LlmProvider>
                 )
             })?;
             let api_key = std::env::var(VLLM_API_KEY_ENV).ok();
-            let provider =
-                VllmProvider::new(endpoint, model.id.clone(), api_key, max_tokens_default)
-                    .map_err(|e| format!("VllmProvider::new failed: {e}"))?;
+            // `request_timeout_secs = None` → provider default. See note on
+            // the Anthropic branch above; same rationale applies.
+            let provider = VllmProvider::new(
+                endpoint,
+                model.id.clone(),
+                api_key,
+                max_tokens_default,
+                None,
+            )
+            .map_err(|e| format!("VllmProvider::new failed: {e}"))?;
             Ok(Box::new(provider))
         }
         other => Err(format!(

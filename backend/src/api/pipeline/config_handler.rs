@@ -74,6 +74,11 @@ impl From<PatchConfigInput> for PipelineConfigOverrides {
             max_tokens: input.max_tokens,
             temperature: input.temperature,
             run_pass2: input.run_pass2,
+            // PATCH input does not yet carry chunking_config/context_config —
+            // the input DTO will gain those fields in Group 3 alongside the
+            // pipeline_config column migration.
+            chunking_config: None,
+            context_config: None,
         }
     }
 }

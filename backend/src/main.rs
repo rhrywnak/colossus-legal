@@ -638,6 +638,7 @@ async fn build_chat_providers(
             model.id.clone(),
             CHAT_MAX_TOKENS,
             None, // natural variation for chat
+            None, // request_timeout_secs: provider default (600s)
         ) {
             Ok(provider) => {
                 map.insert(model.id.clone(), Arc::new(provider) as Arc<dyn LlmProvider>);

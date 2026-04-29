@@ -353,6 +353,10 @@ pub async fn upload_document(
             max_tokens: Some(profile.max_tokens),
             temperature: Some(profile.temperature),
             run_pass2: Some(profile.run_pass2),
+            // No per-document chunking/context overrides at upload time;
+            // the per-doc override path is the PATCH /config endpoint.
+            chunking_config: None,
+            context_config: None,
         };
         if let Err(e) = pipeline_repository::patch_pipeline_config_overrides(
             &state.pipeline_pool,
