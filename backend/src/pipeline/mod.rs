@@ -1,5 +1,6 @@
 //! Pipeline module: application-level constants and (future) step logic.
 
+pub mod chunking_strategies;
 pub mod config;
 pub mod constants;
 pub mod context;

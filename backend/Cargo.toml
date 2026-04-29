@@ -57,3 +57,12 @@ sqlx = { version = "0.8", features = [
     "chrono",
     "migrate",
 ] }
+
+[dev-dependencies]
+# Used by chunking_strategies tests to validate that strategy-emitted
+# boundary_pattern strings are valid regular expressions and match the
+# expected document structures (e.g. ORDER / FINDINGS OF FACT / OPINION
+# headings in court rulings). Strategies themselves only emit the regex
+# *string* — runtime compilation lives in colossus-extract — so `regex`
+# is a test-only dependency here.
+regex = "1"
