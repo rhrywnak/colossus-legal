@@ -93,7 +93,13 @@ const detailRowStyle: React.CSSProperties = {
   fontSize: "0.78rem",
 };
 
-const CHUNKING_MODES = ["chunked", "full"] as const;
+const CHUNKING_MODES = ["full", "structured", "chunked"] as const;
+
+const CHUNKING_MODE_LABELS: Record<(typeof CHUNKING_MODES)[number], string> = {
+  full: "Full document",
+  structured: "Structured",
+  chunked: "Legacy Chunked",
+};
 
 // ── Helpers ─────────────────────────────────────────────────────
 
@@ -396,7 +402,7 @@ const AdminProfiles: React.FC = () => {
               >
                 {CHUNKING_MODES.map((m) => (
                   <option key={m} value={m}>
-                    {m}
+                    {CHUNKING_MODE_LABELS[m]}
                   </option>
                 ))}
               </select>

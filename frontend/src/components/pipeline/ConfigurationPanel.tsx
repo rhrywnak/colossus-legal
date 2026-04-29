@@ -194,7 +194,13 @@ interface Overrides {
   run_pass2?: boolean;
 }
 
-const CHUNKING_MODES = ["chunked", "full"] as const;
+const CHUNKING_MODES = ["full", "structured", "chunked"] as const;
+
+const CHUNKING_MODE_LABELS: Record<(typeof CHUNKING_MODES)[number], string> = {
+  full: "Full document",
+  structured: "Structured",
+  chunked: "Legacy Chunked",
+};
 
 /**
  * Seed the panel's `overrides` state from the per-document pipeline_config
@@ -671,7 +677,7 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
           >
             {CHUNKING_MODES.map((m) => (
               <option key={m} value={m}>
-                {m === "full" ? "Full document" : "Chunked"}
+                {CHUNKING_MODE_LABELS[m]}
               </option>
             ))}
           </select>
