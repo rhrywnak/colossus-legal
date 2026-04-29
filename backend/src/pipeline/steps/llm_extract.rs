@@ -227,6 +227,20 @@ impl LlmExtract {
             .map_err(|e| LlmExtractError::ProfileLoadFailed { message: e })?;
         let resolved = resolve_config(&profile, &overrides);
 
+        tracing::info!(
+            target: "structured_debug",
+            document_id = %self.document_id,
+            profile_name = %resolved.profile_name,
+            profile_chunking_mode = %profile.chunking_mode,
+            profile_chunking_config_mode = ?profile.chunking_config.get("mode"),
+            profile_chunking_config_keys = ?profile.chunking_config.keys().collect::<Vec<_>>(),
+            resolved_chunking_mode = %resolved.chunking_mode,
+            resolved_chunking_config_mode = ?resolved.chunking_config.get("mode"),
+            resolved_chunking_config = ?resolved.chunking_config,
+            overrides_applied = ?resolved.overrides_applied,
+            "STRUCTURED-DEBUG: Q2 — after resolve_config"
+        );
+
         // 2. Idempotency: short-circuit if a COMPLETED *pass-1* run
         //    already exists. Filtered by pass_number = 1 so a prior
         //    pass-2 COMPLETED row doesn't falsely mask an incomplete
@@ -379,6 +393,14 @@ impl LlmExtract {
         // legacy path rather than failing the run outright.
         let system_prompt_ref = system_prompt.as_deref();
         let effective_mode = resolve_effective_mode(&resolved);
+        tracing::info!(
+            target: "structured_debug",
+            document_id = %self.document_id,
+            effective_mode = %effective_mode,
+            resolved_chunking_mode = %resolved.chunking_mode,
+            resolved_chunking_config_mode = ?resolved.chunking_config.get("mode"),
+            "STRUCTURED-DEBUG: Q4 — effective_mode at dispatch"
+        );
         let outcome = match effective_mode.as_str() {
             CHUNKING_MODE_FULL => {
                 run_full_document_extraction(RunArgs {
@@ -1419,8 +1441,22 @@ pub(crate) fn resolve_effective_mode(resolved: &ResolvedConfig) -> String {
         .get("mode")
         .and_then(|v| v.as_str())
     {
+        tracing::info!(
+            target: "structured_debug",
+            branch = "chunking_config_mode_wins",
+            mode_from_map = mode,
+            legacy_chunking_mode = %resolved.chunking_mode,
+            "STRUCTURED-DEBUG: Q3 — resolve_effective_mode took map branch"
+        );
         return mode.to_string();
     }
+    tracing::info!(
+        target: "structured_debug",
+        branch = "fallback_to_legacy_chunking_mode",
+        legacy_chunking_mode = %resolved.chunking_mode,
+        chunking_config_keys = ?resolved.chunking_config.keys().collect::<Vec<_>>(),
+        "STRUCTURED-DEBUG: Q3 — resolve_effective_mode fell through to legacy field"
+    );
     resolved.chunking_mode.clone()
 }
 

@@ -460,7 +460,7 @@ pub async fn get_pipeline_config_overrides(
     .fetch_optional(db)
     .await?;
 
-    Ok(match row {
+    let result = match row {
         Some(r) => PipelineConfigOverrides {
             profile_name: r.profile_name,
             extraction_model: r.extraction_model,
@@ -481,7 +481,18 @@ pub async fn get_pipeline_config_overrides(
             context_config: None,
         },
         None => PipelineConfigOverrides::default(),
-    })
+    };
+
+    tracing::info!(
+        target: "structured_debug",
+        document_id,
+        overrides_chunking_mode = ?result.chunking_mode,
+        overrides_profile_name = ?result.profile_name,
+        overrides_chunking_config = ?result.chunking_config,
+        "STRUCTURED-DEBUG: Q1 — overrides read from pipeline_config"
+    );
+
+    Ok(result)
 }
 
 /// Partially update the per-document override columns on `pipeline_config`.
