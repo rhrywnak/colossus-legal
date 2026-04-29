@@ -14,12 +14,15 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 
-use colossus_extract::{FixedSizeSplitter, LlmProvider, TextSplitter};
+use colossus_extract::{
+    FixedSizeSplitter, LlmProvider, StructureAwareSplitter, TextChunk, TextSplitter,
+};
 use colossus_pipeline::cancel::CancellationToken;
 use colossus_pipeline::progress::ProgressReporter;
 use colossus_pipeline::{Step, StepResult};
 
 use crate::models::document_status::{RUN_STATUS_COMPLETED, RUN_STATUS_FAILED, RUN_STATUS_RUNNING};
+use crate::pipeline::chunking_strategies::resolve_chunking_config;
 use crate::pipeline::config::{resolve_config, ProcessingProfile, ResolvedConfig, SystemDefaults};
 use crate::pipeline::context::AppContext;
 use crate::pipeline::providers::provider_for_model;
@@ -365,26 +368,24 @@ impl LlmExtract {
                 LlmExtractError::SemaphoreClosed
             })?;
 
-        // 10. Dispatch on chunking_mode.
+        // 10. Dispatch on the effective chunking mode.
+        //
+        // ## Rust Learning: Open-set dispatch via `match` on `&str`
+        //
+        // We match on a `String`-derived `&str` rather than a typed
+        // enum so the set of modes can grow without breaking changes
+        // elsewhere. The default arm catches anything unrecognized
+        // ("chunked" *and* any unknown value) and routes it through
+        // the legacy FixedSizeSplitter path. That is the safest
+        // backward-compat behavior: a profile that ships a future mode
+        // string ("parallel", "multi_pass", ...) before this binary
+        // knows what it means still produces extraction output via the
+        // legacy path rather than failing the run outright.
         let system_prompt_ref = system_prompt.as_deref();
-        let outcome = if resolved.chunking_mode == CHUNKING_MODE_FULL {
-            run_full_document_extraction(RunArgs {
-                db,
-                document_id: &self.document_id,
-                llm_provider: &*llm_provider,
-                system_prompt: system_prompt_ref,
-                template_text: &template_text,
-                schema_json: &schema_json,
-                full_text: &full_text,
-                max_tokens,
-                cancel,
-                progress,
-                run_id,
-            })
-            .await?
-        } else {
-            run_chunked_extraction(
-                RunArgs {
+        let effective_mode = resolve_effective_mode(&resolved);
+        let outcome = match effective_mode.as_str() {
+            CHUNKING_MODE_FULL => {
+                run_full_document_extraction(RunArgs {
                     db,
                     document_id: &self.document_id,
                     llm_provider: &*llm_provider,
@@ -396,10 +397,48 @@ impl LlmExtract {
                     cancel,
                     progress,
                     run_id,
-                },
-                &resolved,
-            )
-            .await?
+                })
+                .await?
+            }
+            "structured" => {
+                run_structured_extraction(
+                    RunArgs {
+                        db,
+                        document_id: &self.document_id,
+                        llm_provider: &*llm_provider,
+                        system_prompt: system_prompt_ref,
+                        template_text: &template_text,
+                        schema_json: &schema_json,
+                        full_text: &full_text,
+                        max_tokens,
+                        cancel,
+                        progress,
+                        run_id,
+                    },
+                    &resolved,
+                )
+                .await?
+            }
+            _ => {
+                // "chunked" and any unknown value → legacy FixedSizeSplitter path.
+                run_chunked_extraction(
+                    RunArgs {
+                        db,
+                        document_id: &self.document_id,
+                        llm_provider: &*llm_provider,
+                        system_prompt: system_prompt_ref,
+                        template_text: &template_text,
+                        schema_json: &schema_json,
+                        full_text: &full_text,
+                        max_tokens,
+                        cancel,
+                        progress,
+                        run_id,
+                    },
+                    &resolved,
+                )
+                .await?
+            }
         };
 
         // 11. Merge and finalize the run.
@@ -661,40 +700,39 @@ async fn run_full_document_extraction(
     })
 }
 
-// ── Chunked extraction ──────────────────────────────────────────
+// ── Chunked / structured shared loop ────────────────────────────
 
-/// Perform extraction over text chunks with per-chunk observability.
+/// Drive the LLM extraction loop over a pre-split list of text chunks.
 ///
-/// Splits the full document text using `FixedSizeSplitter` with the
-/// resolved chunk_size / chunk_overlap, then iterates each chunk with
-/// rate-limit retry, JSON repair fallback, and per-chunk progress
-/// reporting. A chunk failure is logged and counted but does not abort
-/// the run unless *every* chunk fails.
-async fn run_chunked_extraction(
-    args: RunArgs<'_>,
-    resolved: &ResolvedConfig,
+/// Both the legacy `run_chunked_extraction` (FixedSizeSplitter) and the
+/// new `run_structured_extraction` (StructureAwareSplitter) feed chunks
+/// into this helper. Everything that is splitter-agnostic — cancel
+/// checks, progress emits, prompt assembly, rate-limit retry, parse
+/// fallback, per-chunk audit-trail rows, accumulator math, and the
+/// "all chunks failed" terminal check — lives here.
+///
+/// ## Rust Learning: Shared helper beats duplicated branches
+///
+/// We could have copy-pasted this ~200-line loop into both extraction
+/// functions. Two arguments against:
+///
+/// 1. **Single point of truth.** Group 2b-ii will replace the
+///    `.extend()` accumulator with `ChunkMerger` for proper dedup.
+///    Doing that change in one place beats doing it in two and
+///    risking a subtle divergence.
+/// 2. **Refactoring is cheap when the shape already fits.** The loop
+///    only references `args.*` fields plus six local accumulators —
+///    it is not entangled with how the chunks were *produced*. The
+///    chunk **production** (splitter setup + emptiness check + the
+///    splitter-specific tracing line) stays in each caller.
+///
+/// The caller is responsible for guaranteeing `!chunks.is_empty()` and
+/// for emitting any splitter-specific tracing before invoking this
+/// helper. This helper assumes there is at least one chunk to process.
+async fn extract_chunks_loop(
+    args: &RunArgs<'_>,
+    chunks: &[TextChunk],
 ) -> Result<ExtractionOutcome, Box<dyn Error + Send + Sync>> {
-    let chunk_size = resolved
-        .chunk_size
-        .unwrap_or(SystemDefaults::chunk_size())
-        .max(1) as usize;
-    let chunk_overlap = resolved
-        .chunk_overlap
-        .unwrap_or(SystemDefaults::chunk_overlap())
-        .max(0) as usize;
-    let chunks = FixedSizeSplitter::with_config(chunk_size, chunk_overlap).split(args.full_text);
-    if chunks.is_empty() {
-        return Err("Splitter produced zero chunks from non-empty text".into());
-    }
-    tracing::info!(
-        document_id = %args.document_id,
-        chunk_count = chunks.len(),
-        full_text_len = args.full_text.len(),
-        chunk_size,
-        chunk_overlap,
-        "Split document into chunks for extraction"
-    );
-
     let mut all_entities: Vec<serde_json::Value> = Vec::new();
     let mut all_relationships: Vec<serde_json::Value> = Vec::new();
     let mut chunks_succeeded: i32 = 0;
@@ -935,6 +973,91 @@ async fn run_chunked_extraction(
     })
 }
 
+// ── Chunked extraction (legacy, FixedSizeSplitter) ──────────────
+
+/// Perform extraction over fixed-size text chunks with per-chunk
+/// observability.
+///
+/// Splits the full document text using `FixedSizeSplitter` with the
+/// resolved `chunk_size` / `chunk_overlap`, then delegates to
+/// [`extract_chunks_loop`]. A chunk failure is logged and counted but
+/// does not abort the run unless *every* chunk fails.
+async fn run_chunked_extraction(
+    args: RunArgs<'_>,
+    resolved: &ResolvedConfig,
+) -> Result<ExtractionOutcome, Box<dyn Error + Send + Sync>> {
+    let chunk_size = resolved
+        .chunk_size
+        .unwrap_or(SystemDefaults::chunk_size())
+        .max(1) as usize;
+    let chunk_overlap = resolved
+        .chunk_overlap
+        .unwrap_or(SystemDefaults::chunk_overlap())
+        .max(0) as usize;
+    let chunks = FixedSizeSplitter::with_config(chunk_size, chunk_overlap).split(args.full_text);
+    if chunks.is_empty() {
+        return Err("Splitter produced zero chunks from non-empty text".into());
+    }
+    tracing::info!(
+        document_id = %args.document_id,
+        chunk_count = chunks.len(),
+        full_text_len = args.full_text.len(),
+        chunk_size,
+        chunk_overlap,
+        "Split document into chunks for extraction"
+    );
+
+    extract_chunks_loop(&args, &chunks).await
+}
+
+// ── Structured extraction (StructureAwareSplitter) ──────────────
+
+/// Perform extraction over structure-aware chunks (atomic units like
+/// numbered Q&A pairs or paragraphs grouped according to a strategy).
+///
+/// Resolves the effective chunking config (strategy defaults + profile
+/// overrides + per-doc overrides — the three-layer merge handled by
+/// [`resolve_chunking_config`]), constructs a [`StructureAwareSplitter`]
+/// from that map, and delegates to [`extract_chunks_loop`]. The merge
+/// at the end of the loop currently uses `.extend()` (blind
+/// concatenation); Group 2b-ii will replace that with `ChunkMerger` for
+/// proper deduplication.
+async fn run_structured_extraction(
+    args: RunArgs<'_>,
+    resolved: &ResolvedConfig,
+) -> Result<ExtractionOutcome, Box<dyn Error + Send + Sync>> {
+    // Three-layer config merge: strategy defaults underneath, profile
+    // YAML in the middle, per-document overrides on top. The first two
+    // are applied here; the third was already merged into
+    // `resolved.chunking_config` by `resolve_config()` in `config.rs`.
+    let effective_config = resolve_chunking_config(&resolved.chunking_config);
+
+    // `StructureAwareSplitter::from_config` consumes the map and reads
+    // boundary_pattern / response_marker / units_per_chunk /
+    // unit_overlap from it via the `ConfigAccess` extension trait.
+    // Unknown keys are preserved but ignored by the splitter — they may
+    // be consumed by other pipeline components downstream.
+    let splitter = StructureAwareSplitter::from_config(effective_config.clone());
+    let chunks = splitter.split(args.full_text);
+    if chunks.is_empty() {
+        return Err("StructureAwareSplitter produced zero chunks from non-empty text".into());
+    }
+
+    tracing::info!(
+        document_id = %args.document_id,
+        mode = "structured",
+        strategy = effective_config
+            .get("strategy")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown"),
+        chunk_count = chunks.len(),
+        full_text_len = args.full_text.len(),
+        "Structure-aware splitting complete"
+    );
+
+    extract_chunks_loop(&args, &chunks).await
+}
+
 // ── Small helpers ───────────────────────────────────────────────
 
 /// True if a COMPLETED pass-1 extraction_run already exists for this
@@ -1087,6 +1210,44 @@ pub(crate) fn sha2_hex(input: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(input.as_bytes());
     format!("{:x}", hasher.finalize())
+}
+
+/// Determine the effective chunking mode from a resolved configuration.
+///
+/// ## Rust Learning: Two sources, one decision
+///
+/// The pipeline has two ways to specify chunking mode:
+///
+/// 1. **Legacy:** `resolved.chunking_mode` — a typed `String` field with
+///    values `"full"` or `"chunked"`. Predates the intelligent-chunking
+///    work; profiles authored before Phase 1b only have this field.
+/// 2. **New:** `resolved.chunking_config["mode"]` — a key inside the
+///    flexible config map; values `"full"`, `"chunked"`, or
+///    `"structured"`. Phase 1b profiles use this exclusively.
+///
+/// **The map-based mode wins when present.** Old profiles (no
+/// `chunking_config` block at all) fall through to the legacy field
+/// untouched. New profiles (which always set `chunking_config.mode`)
+/// route through the new dispatch unconditionally. This is the
+/// migration strategy: both shapes coexist, the new one takes
+/// precedence, and no profile YAML needs to be edited at the cutover.
+///
+/// We return `String` rather than an enum because the set of modes is
+/// intentionally open — adding a future mode (`"parallel"`, `"multi_pass"`)
+/// is a profile-YAML edit and a new match arm at the dispatch site, not
+/// an enum variant addition with corresponding API breaks. The dispatch
+/// site's default arm catches anything unknown and routes it to the
+/// legacy chunked path, which is a safer failure mode than rejecting
+/// unrecognized profiles outright.
+fn resolve_effective_mode(resolved: &ResolvedConfig) -> String {
+    if let Some(mode) = resolved
+        .chunking_config
+        .get("mode")
+        .and_then(|v| v.as_str())
+    {
+        return mode.to_string();
+    }
+    resolved.chunking_mode.clone()
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -1309,5 +1470,51 @@ mod tests {
             }
             other => panic!("expected Verify, got {other:?}"),
         }
+    }
+
+    // ── resolve_effective_mode (Phase 1b Group 2b-i) ─────────────
+
+    #[test]
+    fn resolve_effective_mode_prefers_chunking_config() {
+        // Both layers set: the new chunking_config["mode"] must win
+        // over the legacy chunking_mode field. This is the migration
+        // contract — once a profile adopts the new map shape, the new
+        // value is authoritative.
+        let mut resolved = resolved_with_run_pass2(false);
+        resolved.chunking_mode = "full".to_string();
+        resolved
+            .chunking_config
+            .insert("mode".to_string(), serde_json::json!("structured"));
+
+        assert_eq!(resolve_effective_mode(&resolved), "structured");
+    }
+
+    #[test]
+    fn resolve_effective_mode_falls_back_to_legacy() {
+        // chunking_config exists (non-empty) but has no "mode" key —
+        // e.g. a profile that only declares strategy/units knobs and
+        // expects the legacy chunking_mode field to drive dispatch.
+        let mut resolved = resolved_with_run_pass2(false);
+        resolved.chunking_mode = "full".to_string();
+        resolved
+            .chunking_config
+            .insert("strategy".to_string(), serde_json::json!("qa_pair"));
+
+        assert_eq!(resolve_effective_mode(&resolved), "full");
+    }
+
+    #[test]
+    fn resolve_effective_mode_empty_config_uses_legacy() {
+        // Pre-Phase-1b profile: chunking_config is empty (default
+        // HashMap::new() from #[serde(default)]) — fall through to the
+        // typed chunking_mode field exactly as the legacy dispatch did.
+        let mut resolved = resolved_with_run_pass2(false);
+        resolved.chunking_mode = "chunked".to_string();
+        // chunking_config left empty by the helper — assert that
+        // explicitly so a future helper change doesn't silently
+        // invalidate this preconditions.
+        assert!(resolved.chunking_config.is_empty());
+
+        assert_eq!(resolve_effective_mode(&resolved), "chunked");
     }
 }
