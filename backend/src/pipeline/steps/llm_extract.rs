@@ -113,12 +113,6 @@ pub enum LlmExtractError {
     #[error("Profile '{profile_name}' has no pass2_template_file")]
     NoPass2Template { profile_name: String },
 
-    #[error(
-        "Pass 2 requires chunking_mode = 'full' (got '{mode}'). Relationship \
-         extraction needs whole-document context."
-    )]
-    InvalidPass2ChunkingMode { mode: String },
-
     #[error("No COMPLETED pass-1 extraction_run found for document '{document_id}'")]
     NoCompletedPass1 { document_id: String },
 }
@@ -1419,7 +1413,7 @@ pub(crate) fn sha2_hex(input: &str) -> String {
 /// site's default arm catches anything unknown and routes it to the
 /// legacy chunked path, which is a safer failure mode than rejecting
 /// unrecognized profiles outright.
-fn resolve_effective_mode(resolved: &ResolvedConfig) -> String {
+pub(crate) fn resolve_effective_mode(resolved: &ResolvedConfig) -> String {
     if let Some(mode) = resolved
         .chunking_config
         .get("mode")

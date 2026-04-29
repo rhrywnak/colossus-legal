@@ -45,8 +45,8 @@ use crate::pipeline::config::{resolve_config, ProcessingProfile};
 use crate::pipeline::context::AppContext;
 use crate::pipeline::providers::provider_for_model;
 use crate::pipeline::steps::llm_extract::{
-    compute_cost, default_profile_name_from_schema, resolve_max_tokens, sha2_hex,
-    write_processing_config_snapshot, LlmExtractError, CHUNKING_MODE_FULL,
+    compute_cost, default_profile_name_from_schema, resolve_effective_mode, resolve_max_tokens,
+    sha2_hex, write_processing_config_snapshot, LlmExtractError,
 };
 use crate::pipeline::steps::llm_extract_helpers::{
     call_with_rate_limit_retry, mark_run_failed, parse_chunk_response,
@@ -125,9 +125,11 @@ impl Step<DocProcessing> for LlmExtractPass2 {
 /// Preconditions:
 /// - A COMPLETED pass-1 extraction_run must exist for this document.
 /// - The resolved profile must declare `pass2_template_file`.
-/// - `chunking_mode` must be `"full"` — relationship extraction needs
-///   whole-document context, so chunked dispatch is intentionally
-///   refused rather than silently degraded.
+///
+/// Pass 2 is mode-agnostic: it always loads the full document text from
+/// `document_text` (stored by ExtractText, before any chunking) and the
+/// merged pass-1 entities, then makes a single LLM call. Pass 1's
+/// chunking mode (`full` / `chunked` / `structured`) does not affect it.
 ///
 /// Returns the number of relationships stored. Returns `0` (and does no
 /// work) when a pass-2 run is already COMPLETED for this document — the
@@ -201,12 +203,18 @@ pub async fn run_pass2_extraction(
             profile_name: resolved.profile_name.clone(),
         }
     })?;
-    if resolved.chunking_mode != CHUNKING_MODE_FULL {
-        return Err(LlmExtractError::InvalidPass2ChunkingMode {
-            mode: resolved.chunking_mode.clone(),
-        }
-        .into());
-    }
+    // Pass 2 always operates on the full document text loaded above,
+    // independent of how pass 1 chunked. Log the effective pass-1 mode so
+    // operators can see which pass-1 path produced the entities feeding
+    // this pass-2 run.
+    let effective_mode = resolve_effective_mode(&resolved);
+    tracing::info!(
+        document_id,
+        chunking_mode = %resolved.chunking_mode,
+        effective_mode = %effective_mode,
+        "Pass 2 running with full document text (Pass 1 used '{}' mode)",
+        effective_mode
+    );
 
     // 6. Load pass-1 entities. Empty ⇒ no COMPLETED pass-1 run exists.
     let entities = extraction::load_pass1_entities(db, document_id).await?;
@@ -502,16 +510,6 @@ mod tests {
         let s = e.to_string();
         assert!(s.contains("complaint"), "should name the profile: {s}");
         assert!(!s.contains("Caused by"), "G6 violation: {s}");
-    }
-
-    #[test]
-    fn invalid_pass2_chunking_mode_names_the_bad_mode() {
-        let e = LlmExtractError::InvalidPass2ChunkingMode {
-            mode: "chunked".into(),
-        };
-        let s = e.to_string();
-        assert!(s.contains("chunked"), "should name the offending mode: {s}");
-        assert!(s.contains("full"), "should name the required mode: {s}");
     }
 
     #[test]
