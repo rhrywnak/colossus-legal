@@ -28,3 +28,17 @@ export const toCountLabel = (countNumber: number): string => {
 // like "Count I — Breach of Fiduciary Duty".
 export const toCountNumeral = (countNumber: number): string =>
   ROMAN_NUMERALS[countNumber] ?? String(countNumber);
+
+// LLM-extracted LegalCount.title values often arrive as
+// "Count I — Breach of Fiduciary Duty". When a card already shows the
+// numeral in a separate label, strip the redundant prefix so the title
+// reads just "Breach of Fiduciary Duty". Re-extraction would clean the
+// data at the source, but until then this is a render-time fix.
+const COUNT_PREFIX_PATTERN = /^\s*count\s+(?:[ivxlcdm]+|\d+)\s*[—–\-:]\s*/i;
+
+export const stripCountPrefix = (name: string): string => {
+  const stripped = name.replace(COUNT_PREFIX_PATTERN, "");
+  // Degenerate input like "Count I — " strips to empty. Fall back to
+  // the original so the card never renders blank.
+  return stripped.trim().length > 0 ? stripped : name;
+};

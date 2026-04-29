@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { Link } from "react-router-dom";
 import { useCase } from "../context/CaseContext";
 import { HarmDto, getHarms } from "../services/harms";
-import { toCountLabel } from "../utils/countFormat";
+import { stripCountPrefix, toCountLabel } from "../utils/countFormat";
 
 // ─── Static data ─────────────────────────────────────────────────────────────
 
@@ -151,7 +151,7 @@ const Home: React.FC = () => {
                     {toCountLabel(lc.count_number)}
                   </div>
                   <div style={{ fontSize: "0.92rem", fontWeight: 600, color: "#0f172a", marginBottom: "0.3rem", lineHeight: 1.3 }}>
-                    {lc.name}
+                    {stripCountPrefix(lc.name)}
                   </div>
                   <div style={{ fontSize: "0.8rem", color: "#475569", lineHeight: 1.45, fontFamily: "'Georgia', serif" }}>
                     {COUNT_DESCRIPTIONS[lc.id] || ""}
