@@ -793,10 +793,36 @@ async fn extract_chunks_loop(
             .await
             .ok();
 
-        let chunk_id =
-            extraction::insert_extraction_chunk(args.db, args.run_id, i as i32, &chunk.text)
-                .await
-                .map_err(|e| format!("Failed to insert chunk record: {e}"))?;
+        // ## Rust Learning: defensive `unwrap_or_else` on a guaranteed-OK call
+        //
+        // `serde_json::to_value` only fails when the input's `Serialize`
+        // impl emits something invalid (e.g., a non-string map key, a
+        // non-finite float). `HashMap<String, serde_json::Value>` cannot
+        // produce either — the keys are already `String`, the values are
+        // already `Value` — so this `to_value` call is structurally
+        // guaranteed to succeed today. We still pattern-match defensively
+        // so a future change to `TextChunk.metadata`'s value type can't
+        // silently drop the audit row's metadata field. The fallback
+        // emits a JSON empty-object so the JSONB column always receives
+        // a valid object value, never NULL or junk.
+        let chunk_metadata_json = serde_json::to_value(&chunk.metadata).unwrap_or_else(|e| {
+            tracing::warn!(
+                chunk_index = i,
+                error = %e,
+                "Failed to serialize chunk metadata (non-fatal, using empty object)"
+            );
+            serde_json::json!({})
+        });
+
+        let chunk_id = extraction::insert_extraction_chunk(
+            args.db,
+            args.run_id,
+            i as i32,
+            &chunk.text,
+            &chunk_metadata_json,
+        )
+        .await
+        .map_err(|e| format!("Failed to insert chunk record: {e}"))?;
 
         let chunk_start = Instant::now();
 
@@ -1748,5 +1774,77 @@ mod tests {
             .collect();
 
         assert!(dedup_types.is_empty());
+    }
+
+    // ── chunk_metadata audit + processing_config audit (Phase 1b Group 3) ─
+
+    #[test]
+    fn chunk_metadata_serializes_to_json() {
+        // Verify that a populated TextChunk-style metadata map round-trips
+        // through serde_json::to_value into a JSON object preserving keys
+        // and value types. This is the contract the audit-row write
+        // depends on.
+        use std::collections::HashMap;
+
+        let mut metadata: HashMap<String, serde_json::Value> = HashMap::new();
+        metadata.insert("unit_range".to_string(), serde_json::json!([0, 24]));
+        metadata.insert("unit_count".to_string(), serde_json::json!(25));
+        metadata.insert("preamble_included".to_string(), serde_json::json!(true));
+        metadata.insert(
+            "boundary_pattern_used".to_string(),
+            serde_json::json!(r"^\d+\.\s"),
+        );
+
+        let json = serde_json::to_value(&metadata).expect("HashMap<String, Value> always serializes");
+
+        assert!(json.is_object());
+        assert_eq!(json["unit_count"], 25);
+        assert_eq!(json["preamble_included"], true);
+        assert_eq!(json["unit_range"][0], 0);
+        assert_eq!(json["unit_range"][1], 24);
+        assert_eq!(json["boundary_pattern_used"], r"^\d+\.\s");
+    }
+
+    #[test]
+    fn empty_chunk_metadata_serializes_to_empty_object() {
+        // FixedSizeSplitter and the "full" path produce chunks with empty
+        // metadata. Empty must serialize to `{}` (a valid JSON object),
+        // not `null` — the JSONB column should always receive a valid
+        // object so downstream readers don't have to handle the
+        // missing-vs-empty distinction.
+        use std::collections::HashMap;
+
+        let metadata: HashMap<String, serde_json::Value> = HashMap::new();
+        let json = serde_json::to_value(&metadata).expect("empty HashMap always serializes");
+
+        assert!(json.is_object());
+        assert_eq!(json.as_object().expect("just verified is_object").len(), 0);
+    }
+
+    #[test]
+    fn resolved_config_includes_chunking_config_in_json() {
+        // Task 1b-9 verification: ResolvedConfig's derive(Serialize) +
+        // #[serde(default)] on the new fields means write_processing_config_snapshot
+        // automatically emits chunking_config and context_config into the
+        // extraction_runs.processing_config JSONB column. No code change
+        // was needed in write_processing_config_snapshot — this test
+        // pins the contract so a future struct edit can't silently drop
+        // the fields from the audit snapshot.
+        let mut resolved = resolved_with_run_pass2(false);
+        resolved
+            .chunking_config
+            .insert("mode".to_string(), serde_json::json!("structured"));
+        resolved
+            .chunking_config
+            .insert("strategy".to_string(), serde_json::json!("qa_pair"));
+        resolved
+            .context_config
+            .insert("traversal_depth".to_string(), serde_json::json!(2));
+
+        let json = serde_json::to_value(&resolved).expect("ResolvedConfig serializes");
+
+        assert_eq!(json["chunking_config"]["mode"], "structured");
+        assert_eq!(json["chunking_config"]["strategy"], "qa_pair");
+        assert_eq!(json["context_config"]["traversal_depth"], 2);
     }
 }

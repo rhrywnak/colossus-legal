@@ -1,0 +1,36 @@
+-- add_chunk_metadata_column: store splitter-emitted structural metadata per chunk.
+--
+-- Created: 2026-04-28 21:32:18
+-- Target: pipeline database
+-- Design: INTELLIGENT_CHUNKING_DESIGN_v2.md Section 7.3
+--
+-- The new column captures the StructureAwareSplitter's `TextChunk.metadata`
+-- map: unit ranges, atomic-unit identifiers, preamble flags, fallback
+-- reasons, the boundary pattern that fired, and anything else the splitter
+-- chooses to emit per chunk. The FixedSizeSplitter currently emits an
+-- empty map; future splitters will populate it.
+--
+-- ## Why JSONB instead of typed columns?
+--
+-- We don't yet know every metadata field future splitters will want to
+-- record. JSONB absorbs new keys without a migration — adding "fallback
+-- reason" or "merge candidate" fields to a chunk's audit becomes a single
+-- splitter-side change, not a database round-trip. This is the "assume
+-- we missed something" principle applied to schema design: the fields
+-- we'd codify today would be the wrong fields tomorrow, and locking
+-- them in via columns just creates a steady stream of small migrations.
+--
+-- The trade-off — JSONB is opaque to the query planner and can't be
+-- range-scanned cheaply — is acceptable here because this column is
+-- audit/debug payload, not a hot-path query target. If a specific key
+-- becomes hot (e.g., "find every chunk that fell back to single-chunk
+-- mode"), we can add a GIN index or a generated column at that point.
+--
+-- Nullable: legacy rows from before this migration have no metadata to
+-- backfill. New rows from FixedSizeSplitter / "full" mode write `{}`,
+-- never NULL — but a nullable column lets the column read back NULL
+-- for those legacy rows without a backfill UPDATE.
+--
+-- IF NOT EXISTS keeps the migration idempotent across re-runs.
+ALTER TABLE extraction_chunks
+    ADD COLUMN IF NOT EXISTS chunk_metadata JSONB;

@@ -1352,22 +1352,32 @@ pub async fn update_graph_status_for_run(
 ///
 /// Called at the start of each chunk's processing. Status starts as 'pending'
 /// and is updated to 'success' or 'failed' by `complete_extraction_chunk`.
+///
+/// `chunk_metadata` is the splitter's per-chunk metadata map (atomic-unit
+/// range, identifiers, preamble flags, fallback reason, boundary pattern,
+/// etc.) serialised as JSONB. Written once at insert because the value is
+/// immutable for the chunk's lifetime — it describes the chunk's structural
+/// origin, not its extraction outcome. FixedSizeSplitter currently emits
+/// `{}`; the StructureAwareSplitter populates it.
 pub async fn insert_extraction_chunk(
     pool: &PgPool,
     run_id: i32,
     chunk_index: i32,
     chunk_text: &str,
+    chunk_metadata: &serde_json::Value,
 ) -> Result<uuid::Uuid, PipelineRepoError> {
     let id = uuid::Uuid::new_v4();
     sqlx::query(
         r#"INSERT INTO extraction_chunks
-           (id, extraction_run_id, chunk_index, chunk_text, status, created_at)
-           VALUES ($1, $2, $3, $4, 'pending', NOW())"#,
+           (id, extraction_run_id, chunk_index, chunk_text, chunk_metadata,
+            status, created_at)
+           VALUES ($1, $2, $3, $4, $5, 'pending', NOW())"#,
     )
     .bind(id)
     .bind(run_id)
     .bind(chunk_index)
     .bind(chunk_text)
+    .bind(chunk_metadata)
     .execute(pool)
     .await?;
     Ok(id)
