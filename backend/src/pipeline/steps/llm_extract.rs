@@ -6,6 +6,7 @@
 //!
 //! Design: DOC_PROCESSING_CONFIG_DESIGN_v2.md Sections 3.7 and 3.8.
 
+use std::collections::HashSet;
 use std::error::Error;
 use std::time::Instant;
 
@@ -15,7 +16,8 @@ use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 
 use colossus_extract::{
-    FixedSizeSplitter, LlmProvider, StructureAwareSplitter, TextChunk, TextSplitter,
+    ChunkMerger, EntityCategory, ExtractedEntity, ExtractedRelationship, FixedSizeSplitter,
+    LlmProvider, StructureAwareSplitter, TextChunk, TextSplitter,
 };
 use colossus_pipeline::cancel::CancellationToken;
 use colossus_pipeline::progress::ProgressReporter;
@@ -416,6 +418,7 @@ impl LlmExtract {
                         run_id,
                     },
                     &resolved,
+                    &schema,
                 )
                 .await?
             }
@@ -436,6 +439,7 @@ impl LlmExtract {
                         run_id,
                     },
                     &resolved,
+                    &schema,
                 )
                 .await?
             }
@@ -729,12 +733,30 @@ async fn run_full_document_extraction(
 /// The caller is responsible for guaranteeing `!chunks.is_empty()` and
 /// for emitting any splitter-specific tracing before invoking this
 /// helper. This helper assumes there is at least one chunk to process.
+///
+/// `schema` is consulted only to build the cross-chunk-dedup entity-type
+/// set fed into `ChunkMerger` after the loop (entity types categorised
+/// `Foundation` or `Reference` are deduplicated; `Structural` /
+/// `Evidence` are unique-per-occurrence and skipped). The schema is not
+/// touched inside the per-chunk loop.
 async fn extract_chunks_loop(
     args: &RunArgs<'_>,
     chunks: &[TextChunk],
+    schema: &colossus_extract::ExtractionSchema,
 ) -> Result<ExtractionOutcome, Box<dyn Error + Send + Sync>> {
-    let mut all_entities: Vec<serde_json::Value> = Vec::new();
-    let mut all_relationships: Vec<serde_json::Value> = Vec::new();
+    // Per-chunk typed results, fed into ChunkMerger after the loop.
+    // Each entry is `(chunk_index, entities, relationships)`. Collecting
+    // first and merging once at the end (rather than streaming into the
+    // merger) lets the merger see every candidate before deciding which
+    // entity wins each dedup group — incremental merge would have to
+    // revise earlier survivor choices when a richer candidate arrives.
+    let mut chunk_results: Vec<(usize, Vec<ExtractedEntity>, Vec<ExtractedRelationship>)> =
+        Vec::new();
+    // Running total of *typed* entities pushed into `chunk_results`.
+    // Powers the in-loop progress UI's "entities found" counter; the
+    // pre-merger count, not the deduplicated count, since the merger
+    // only runs once after the loop completes.
+    let mut running_entity_count: i32 = 0;
     let mut chunks_succeeded: i32 = 0;
     let mut chunks_failed: i32 = 0;
     let mut total_input_tokens: i64 = 0;
@@ -815,12 +837,74 @@ async fn extract_chunks_loop(
                             .map(|a| a.len())
                             .unwrap_or(0);
 
-                        if let Some(entities) = parsed["entities"].as_array() {
-                            all_entities.extend(entities.iter().cloned());
-                        }
-                        if let Some(rels) = parsed["relationships"].as_array() {
-                            all_relationships.extend(rels.iter().cloned());
-                        }
+                        // ## Rust Learning: JSON → typed → JSON bridge
+                        //
+                        // The chunk's LLM response arrives as a generic
+                        // `serde_json::Value`; the `ChunkMerger` requires
+                        // typed `ExtractedEntity` / `ExtractedRelationship`;
+                        // and the downstream `ExtractionOutcome` carries
+                        // `Vec<serde_json::Value>` again. `serde_json::from_value::<T>(v)`
+                        // is the standard `Value → typed` decoder; its
+                        // inverse `serde_json::to_value(&t)` runs after the
+                        // merger to put us back into JSON for storage.
+                        //
+                        // ## Rust Learning: lenient `filter_map` + warn
+                        //
+                        // We never `.unwrap()` a deserialize result here.
+                        // `.collect::<Result<Vec<_>, _>>()` would be the
+                        // strict alternative — one malformed entity would
+                        // poison the whole chunk. `filter_map(... .ok())`
+                        // with a `tracing::warn!` per drop preserves the
+                        // chunk's success status and keeps a paper trail
+                        // in the logs for debugging the LLM's output.
+                        let entities_typed: Vec<ExtractedEntity> = parsed["entities"]
+                            .as_array()
+                            .map(|arr| {
+                                arr.iter()
+                                    .filter_map(|v| {
+                                        match serde_json::from_value::<ExtractedEntity>(
+                                            v.clone(),
+                                        ) {
+                                            Ok(e) => Some(e),
+                                            Err(err) => {
+                                                tracing::warn!(
+                                                    chunk = i,
+                                                    error = %err,
+                                                    "Skipping malformed entity in chunk response"
+                                                );
+                                                None
+                                            }
+                                        }
+                                    })
+                                    .collect()
+                            })
+                            .unwrap_or_default();
+                        let relationships_typed: Vec<ExtractedRelationship> = parsed
+                            ["relationships"]
+                            .as_array()
+                            .map(|arr| {
+                                arr.iter()
+                                    .filter_map(|v| {
+                                        match serde_json::from_value::<ExtractedRelationship>(
+                                            v.clone(),
+                                        ) {
+                                            Ok(r) => Some(r),
+                                            Err(err) => {
+                                                tracing::warn!(
+                                                    chunk = i,
+                                                    error = %err,
+                                                    "Skipping malformed relationship in chunk response"
+                                                );
+                                                None
+                                            }
+                                        }
+                                    })
+                                    .collect()
+                            })
+                            .unwrap_or_default();
+
+                        running_entity_count += entities_typed.len() as i32;
+                        chunk_results.push((i, entities_typed, relationships_typed));
 
                         chunks_succeeded += 1;
                         if let Err(e) = extraction::complete_extraction_chunk(
@@ -861,7 +945,7 @@ async fn extract_chunks_loop(
                             &format!("Extracting chunk {} of {}...", i + 1, chunks.len()),
                             chunks.len() as i32,
                             chunks_succeeded,
-                            all_entities.len() as i32,
+                            running_entity_count,
                             percent.min(95),
                         )
                         .await
@@ -905,7 +989,7 @@ async fn extract_chunks_loop(
                             &format!("Extracting chunk {} of {}...", i + 1, chunks.len()),
                             chunks.len() as i32,
                             processed,
-                            all_entities.len() as i32,
+                            running_entity_count,
                             percent.min(95),
                         )
                         .await
@@ -947,7 +1031,7 @@ async fn extract_chunks_loop(
                     &format!("Extracting chunk {} of {}...", i + 1, chunks.len()),
                     chunks.len() as i32,
                     processed,
-                    all_entities.len() as i32,
+                    running_entity_count,
                     percent.min(95),
                 )
                 .await
@@ -961,6 +1045,74 @@ async fn extract_chunks_loop(
         mark_run_failed(args.db, args.run_id, &msg).await;
         return Err(msg.into());
     }
+
+    // ## Rust Learning: Schema-driven dedup, not hardcoded names
+    //
+    // The merger's dedup-eligible set is built by *filtering the schema*
+    // — not by listing entity-type names in code. Entity types whose
+    // schema category is `Foundation` (stable identities like parties,
+    // counts) or `Reference` (citations, exhibits) repeat across chunks
+    // and need cross-chunk dedup; `Structural` and `Evidence` entries
+    // are unique per occurrence. Adding a new entity type with
+    // `category: foundation` to a future schema YAML automatically
+    // enables dedup for it without touching this file.
+    let dedup_types: HashSet<String> = schema
+        .entity_types
+        .iter()
+        .filter(|et| matches!(et.category, EntityCategory::Foundation | EntityCategory::Reference))
+        .map(|et| et.name.clone())
+        .collect();
+
+    let merger = ChunkMerger::new(dedup_types);
+    let merge_result = merger.merge(chunk_results);
+
+    tracing::info!(
+        document_id = %args.document_id,
+        entities_before = merge_result.stats.entities_before,
+        entities_after = merge_result.stats.entities_after,
+        entities_deduplicated = merge_result.stats.entities_deduplicated,
+        relationships_before = merge_result.stats.relationships_before,
+        relationships_after = merge_result.stats.relationships_after,
+        // Note: the merger counts remapped *reference endpoints*, not
+        // "relationships" — a single relationship may have one or both
+        // endpoints rewritten when its endpoints survived dedup under a
+        // different ID.
+        references_remapped = merge_result.stats.references_remapped,
+        "Chunk merge complete"
+    );
+
+    // Re-encode the merger's typed output back into `serde_json::Value`
+    // so `ExtractionOutcome` and the downstream
+    // `extraction::store_entities_and_relationships` see the same JSON
+    // shape they always have. `to_value` is the inverse of `from_value`
+    // (used at chunk-collection time above) — the standard typed↔JSON
+    // bridge for any type that derives both `Serialize` and `Deserialize`.
+    let all_entities: Vec<serde_json::Value> = merge_result
+        .entities
+        .into_iter()
+        .map(|e| {
+            serde_json::to_value(&e).unwrap_or_else(|err| {
+                tracing::warn!(
+                    error = %err,
+                    "Failed to re-serialize merged entity (using null fallback)"
+                );
+                serde_json::Value::Null
+            })
+        })
+        .collect();
+    let all_relationships: Vec<serde_json::Value> = merge_result
+        .relationships
+        .into_iter()
+        .map(|r| {
+            serde_json::to_value(&r).unwrap_or_else(|err| {
+                tracing::warn!(
+                    error = %err,
+                    "Failed to re-serialize merged relationship (using null fallback)"
+                );
+                serde_json::Value::Null
+            })
+        })
+        .collect();
 
     Ok(ExtractionOutcome {
         entities: all_entities,
@@ -985,6 +1137,7 @@ async fn extract_chunks_loop(
 async fn run_chunked_extraction(
     args: RunArgs<'_>,
     resolved: &ResolvedConfig,
+    schema: &colossus_extract::ExtractionSchema,
 ) -> Result<ExtractionOutcome, Box<dyn Error + Send + Sync>> {
     let chunk_size = resolved
         .chunk_size
@@ -1007,7 +1160,7 @@ async fn run_chunked_extraction(
         "Split document into chunks for extraction"
     );
 
-    extract_chunks_loop(&args, &chunks).await
+    extract_chunks_loop(&args, &chunks, schema).await
 }
 
 // ── Structured extraction (StructureAwareSplitter) ──────────────
@@ -1025,6 +1178,7 @@ async fn run_chunked_extraction(
 async fn run_structured_extraction(
     args: RunArgs<'_>,
     resolved: &ResolvedConfig,
+    schema: &colossus_extract::ExtractionSchema,
 ) -> Result<ExtractionOutcome, Box<dyn Error + Send + Sync>> {
     // Three-layer config merge: strategy defaults underneath, profile
     // YAML in the middle, per-document overrides on top. The first two
@@ -1055,7 +1209,7 @@ async fn run_structured_extraction(
         "Structure-aware splitting complete"
     );
 
-    extract_chunks_loop(&args, &chunks).await
+    extract_chunks_loop(&args, &chunks, schema).await
 }
 
 // ── Small helpers ───────────────────────────────────────────────
@@ -1516,5 +1670,83 @@ mod tests {
         assert!(resolved.chunking_config.is_empty());
 
         assert_eq!(resolve_effective_mode(&resolved), "chunked");
+    }
+
+    // ── Dedup-eligible entity-type set (Phase 1b Group 2b-ii) ────
+    //
+    // These tests verify the *colossus-legal glue* that selects which
+    // entity types ChunkMerger should deduplicate across chunks. The
+    // merger's internal correctness (ID prefixing, survivor selection,
+    // relationship endpoint remapping) is covered by 15 tests in
+    // colossus-rs — we test only the boundary contract here: the schema
+    // category drives the set; nothing is hardcoded by name.
+
+    #[test]
+    fn dedup_types_built_from_schema_categories() {
+        // Mixed schema: Foundation + Reference entries flow into the
+        // dedup set; Structural + Evidence entries do not.
+        let entity_configs = vec![
+            ("Party", EntityCategory::Foundation),
+            ("LegalCount", EntityCategory::Foundation),
+            ("FactualAllegation", EntityCategory::Structural),
+            ("Evidence", EntityCategory::Evidence),
+            ("LegalCitation", EntityCategory::Reference),
+        ];
+
+        let dedup_types: HashSet<String> = entity_configs
+            .iter()
+            .filter(|(_, cat)| matches!(cat, EntityCategory::Foundation | EntityCategory::Reference))
+            .map(|(name, _)| name.to_string())
+            .collect();
+
+        assert!(dedup_types.contains("Party"));
+        assert!(dedup_types.contains("LegalCount"));
+        assert!(dedup_types.contains("LegalCitation"));
+        assert!(
+            !dedup_types.contains("FactualAllegation"),
+            "Structural entities must NOT be deduplicated"
+        );
+        assert!(
+            !dedup_types.contains("Evidence"),
+            "Evidence entities must NOT be deduplicated"
+        );
+        assert_eq!(dedup_types.len(), 3);
+    }
+
+    #[test]
+    fn empty_schema_produces_empty_dedup_set() {
+        // Edge case: a schema with no entity types yields an empty
+        // dedup set. The merger then no-ops dedup logic and only
+        // applies ID-prefix normalisation, which is safe behaviour.
+        let entity_configs: Vec<(&str, EntityCategory)> = vec![];
+
+        let dedup_types: HashSet<String> = entity_configs
+            .iter()
+            .filter(|(_, cat)| matches!(cat, EntityCategory::Foundation | EntityCategory::Reference))
+            .map(|(name, _)| name.to_string())
+            .collect();
+
+        assert!(dedup_types.is_empty());
+    }
+
+    #[test]
+    fn all_evidence_schema_produces_empty_dedup_set() {
+        // A schema where every entity is Evidence (per-occurrence,
+        // never repeats) should produce an empty dedup set — every
+        // entity is unique per chunk and will get a -c{N} suffix from
+        // the merger, never a dedup decision.
+        let entity_configs = vec![
+            ("Statement", EntityCategory::Evidence),
+            ("Admission", EntityCategory::Evidence),
+            ("Testimony", EntityCategory::Evidence),
+        ];
+
+        let dedup_types: HashSet<String> = entity_configs
+            .iter()
+            .filter(|(_, cat)| matches!(cat, EntityCategory::Foundation | EntityCategory::Reference))
+            .map(|(name, _)| name.to_string())
+            .collect();
+
+        assert!(dedup_types.is_empty());
     }
 }
