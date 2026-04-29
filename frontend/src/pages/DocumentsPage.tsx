@@ -73,7 +73,6 @@ const DocumentsPage: React.FC = () => {
   const isAdmin = user?.permissions.is_admin ?? false;
 
   const [documents, setDocuments] = useState<PipelineDocument[]>([]);
-  const [complaintExists, setComplaintExists] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
@@ -90,7 +89,6 @@ const DocumentsPage: React.FC = () => {
     try {
       const result = await fetchPipelineDocuments();
       setDocuments(result.documents);
-      setComplaintExists(result.complaint_exists);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load documents");
@@ -179,7 +177,6 @@ const DocumentsPage: React.FC = () => {
           open={uploadOpen}
           onClose={() => setUploadOpen(false)}
           onSuccess={() => { setUploadOpen(false); loadData(); }}
-          complaintExists={complaintExists}
         />
       )}
 

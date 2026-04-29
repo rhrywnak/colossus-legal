@@ -6,7 +6,6 @@ interface Props {
   open: boolean;
   onClose: () => void;
   onSuccess: () => void;
-  complaintExists?: boolean;
 }
 
 const MAX_SIZE = 50 * 1024 * 1024;
@@ -58,21 +57,30 @@ function capitalize(s: string): string {
   return s.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
 }
 
-const UploadDialog: React.FC<Props> = ({ open, onClose, onSuccess, complaintExists = true }) => {
+const UploadDialog: React.FC<Props> = ({ open, onClose, onSuccess }) => {
   const navigate = useNavigate();
   const fileRef = useRef<HTMLInputElement>(null);
   const [schemas, setSchemas] = useState<SchemaInfo[]>([]);
   const [file, setFile] = useState<File | null>(null);
-  const [schema, setSchema] = useState("auto");
+  const [schema, setSchema] = useState("");
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
 
   useEffect(() => {
     if (open) {
-      fetchSchemas().then(setSchemas).catch(() => setSchemas([]));
+      fetchSchemas()
+        .then(setSchemas)
+        .catch((e) => {
+          setSchemas([]);
+          setError(
+            e instanceof Error
+              ? `Failed to load document types: ${e.message}`
+              : "Failed to load document types",
+          );
+        });
       setFile(null);
-      setSchema("auto");
+      setSchema("");
       setError(null);
     }
   }, [open]);
@@ -145,42 +153,32 @@ const UploadDialog: React.FC<Props> = ({ open, onClose, onSuccess, complaintExis
         </div>
 
         <div style={labelStyle}>Document Type</div>
-        {!complaintExists && (
-          <div style={{ padding: "0.5rem 0.75rem", backgroundColor: "#fffbeb", border: "1px solid #fde68a", borderRadius: "6px", color: "#92400e", fontSize: "0.76rem", marginBottom: "0.5rem" }}>
-            A Complaint must be uploaded first. Other document types will be available after.
-          </div>
-        )}
-        <select style={selectStyle} value={complaintExists ? schema : "complaint_v2.yaml"} onChange={(e) => setSchema(e.target.value)}>
-          {complaintExists && <option value="auto">Auto-detect</option>}
-          {schemas
-            .filter(s => s.filename !== "complaint.yaml") // exclude obsolete v1
-            .map((s) => {
-              // Parse-failed schemas come back with empty document_type and
-              // a non-empty `error`. Surface them with the filename so the
-              // operator can see WHICH schema is broken instead of a blank
-              // dropdown line, and disable them so they can't be picked.
-              const parseFailed = !!s.error || !s.document_type;
-              if (parseFailed) {
-                return (
-                  <option key={s.filename} value={s.filename} disabled>
-                    {`${s.filename} — parse error`}
-                  </option>
-                );
-              }
-              // Check if multiple schemas share the same document_type
-              const sameType = schemas.filter(x => x.document_type === s.document_type);
-              const label = sameType.length > 1
-                ? `${capitalize(s.document_type)} (v${s.version})`
-                : capitalize(s.document_type);
-              const isComplaint = s.document_type === "complaint";
-              const disabled = !complaintExists && !isComplaint;
+        <select style={selectStyle} value={schema} onChange={(e) => setSchema(e.target.value)}>
+          <option value="" disabled>Select document type...</option>
+          {schemas.map((s) => {
+            // Parse-failed schemas come back with empty document_type and
+            // a non-empty `error`. Surface them with the filename so the
+            // operator can see WHICH schema is broken instead of a blank
+            // dropdown line, and disable them so they can't be picked.
+            const parseFailed = !!s.error || !s.document_type;
+            if (parseFailed) {
               return (
-                <option key={s.filename} value={s.filename} disabled={disabled}>
-                  {label}{disabled ? " (upload Complaint first)" : ""}
+                <option key={s.filename} value={s.filename} disabled>
+                  {`${s.filename} — parse error`}
                 </option>
               );
-            })
-          }
+            }
+            // Disambiguate when multiple schemas share the same document_type.
+            const sameType = schemas.filter(x => x.document_type === s.document_type);
+            const label = sameType.length > 1
+              ? `${capitalize(s.document_type)} (v${s.version})`
+              : capitalize(s.document_type);
+            return (
+              <option key={s.filename} value={s.filename}>
+                {label}
+              </option>
+            );
+          })}
         </select>
 
         {error && (
