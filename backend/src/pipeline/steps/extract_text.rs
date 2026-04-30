@@ -182,11 +182,11 @@ pub enum ExtractTextError {
     #[error("document not found: {doc_id}")]
     DocumentNotFound { doc_id: String },
 
-    #[error("PDF file not found on disk: {path}")]
-    PdfNotFound { path: String },
+    #[error("Document file not found on disk: {path}")]
+    FileNotFound { path: String },
 
-    #[error("PDF text extraction failed: {message}")]
-    PdfExtractionFailed { message: String },
+    #[error("Text extraction failed: {message}")]
+    ExtractionFailed { message: String },
 
     /// Emitted when the per-page loop completes but every page stored zero
     /// characters. Historically the pipeline continued into LlmExtract on
@@ -323,166 +323,312 @@ impl ExtractText {
             document.file_path
         );
         if !tokio::fs::try_exists(&full_path).await.unwrap_or(false) {
-            return Err(ExtractTextError::PdfNotFound { path: full_path });
+            return Err(ExtractTextError::FileNotFound { path: full_path });
         }
 
         // [3] Resolve OcrConfig (step_config → env → defaults).
+        //
+        // Resolved unconditionally — DOCX/TXT extraction doesn't consume
+        // OcrConfig, but `cfg` shows up in the structured log line below
+        // (one tracing event per step) so we keep the read regardless of
+        // format. The DB cost is one query.
         let cfg = OcrConfig::resolve(db, doc_id).await;
         tracing::info!(
             doc_id = %doc_id, ?cfg,
             "ExtractText: resolved OCR config"
         );
 
-        // [4] Extract PDF text in a blocking thread (colossus-pdf is sync).
-        let pdf_path = full_path.clone();
-        let pages = tokio::task::spawn_blocking(
-            move || -> Result<Vec<colossus_pdf::PageText>, String> {
-                let mut extractor = colossus_pdf::PdfTextExtractor::open(&pdf_path)
-                    .map_err(|e| format!("open: {e}"))?;
-                extractor
-                    .extract_all_pages()
-                    .map_err(|e| format!("extract_all_pages: {e}"))
-            },
-        )
-        .await
-        .map_err(|e| ExtractTextError::PdfExtractionFailed {
-            message: format!("spawn_blocking join: {e}"),
-        })?
-        .map_err(|e| ExtractTextError::PdfExtractionFailed { message: e })?;
-
-        if cancel.is_cancelled().await {
-            return Err(ExtractTextError::Cancelled);
-        }
-
-        // [5] Surya OCR service availability (non-fatal — scanned pages just won't OCR).
-        let ocr_available = match ocr::check_surya_available(&context.http_client).await {
-            Ok(()) => true,
-            Err(e) => {
-                tracing::warn!(
-                    doc_id = %doc_id,
-                    error = %e,
-                    "Surya OCR service not available — scanned pages will fail if no native text exists. \
-                     Fix: ensure SURYA_OCR_URL points to a running Surya service."
-                );
-                false
-            }
-        };
-
-        // [5b] Batch-OCR scanned pages via Surya service (one HTTP call for all pages).
-        //      Unlike the legacy per-page tesseract path, Surya processes the whole
-        //      PDF in a single GPU batch. We collect page numbers that fall below
-        //      the char threshold, then pull text out of the response by page number.
-        let scanned_page_numbers: Vec<u32> = pages
-            .iter()
-            .filter(|p| {
-                p.text.chars().filter(|c| !c.is_whitespace()).count() < cfg.char_threshold
-            })
-            .map(|p| p.page_number)
-            .collect();
-
-        // Capture any OCR failure reason so the final error surface can
-        // name it. The prior behavior logged and dropped the error, so
-        // operators saw "OCR available: true" even when the actual OCR
-        // request 413'd or timed out — misleading and hard to triage
-        // without digging into backend logs.
-        let mut ocr_error_detail: Option<String> = None;
-
-        let surya_results: std::collections::HashMap<u32, String> =
-            if !scanned_page_numbers.is_empty() && ocr_available {
-                match ocr::ocr_full_document_surya(
-                    &context.http_client,
-                    &full_path,
-                    Some(&scanned_page_numbers),
-                )
-                .await
-                {
-                    Ok(response) => {
-                        tracing::info!(
-                            doc_id = %doc_id,
-                            pages_ocr = response.pages_processed,
-                            elapsed = response.elapsed_secs,
-                            "Surya OCR returned {} pages",
-                            response.pages.len()
-                        );
-                        response
-                            .pages
-                            .into_iter()
-                            .map(|p| (p.page_number, p.text))
-                            .collect()
-                    }
+        // [4] Determine the document format for extractor routing.
+        //
+        // Primary source: the `original_format` column set at upload time
+        // by format detection (magic bytes). Fallback for pre-migration
+        // documents: detect from the file on disk. Final fallback: assume
+        // PDF (the only format supported before multi-format ingestion).
+        //
+        // ## Rust Learning: `Option::unwrap_or_else` with a closure
+        //
+        // `unwrap_or_else` takes a closure that runs only if the Option is
+        // None. Unlike `unwrap_or` (which evaluates its argument eagerly),
+        // the closure here avoids running `detect_format` when the DB
+        // value is present. This is the idiomatic Rust pattern for "try
+        // the fast path first, fall back to a computation if needed."
+        let doc_format = document
+            .original_format
+            .as_deref()
+            .map(String::from)
+            .unwrap_or_else(|| {
+                match colossus_pdf::detect_format(std::path::Path::new(&full_path)) {
+                    Ok(fmt) => match fmt {
+                        colossus_pdf::DocumentFormat::Pdf => "pdf".to_string(),
+                        colossus_pdf::DocumentFormat::Docx => "docx".to_string(),
+                        colossus_pdf::DocumentFormat::PlainText => "txt".to_string(),
+                    },
                     Err(e) => {
-                        let msg = format!("{e}");
                         tracing::warn!(
-                            doc_id = %doc_id, error = %msg,
-                            "Surya OCR failed — scanned pages will have no usable text"
+                            doc_id = %doc_id,
+                            error = %e,
+                            "Format detection failed in ExtractText — assuming PDF"
                         );
-                        ocr_error_detail = Some(msg);
-                        std::collections::HashMap::new()
+                        "pdf".to_string()
                     }
                 }
-            } else {
-                std::collections::HashMap::new()
-            };
+            });
 
-        // [6] Per-page loop: OCR fallback when native extraction is too
-        //     sparse; insert into document_text (ON CONFLICT handles
-        //     idempotency). First-page text is captured for auto-detect.
-        let page_count = pages.len();
+        tracing::info!(
+            doc_id = %doc_id, format = %doc_format,
+            "ExtractText: routing by format"
+        );
+
+        // [5] Shared accumulators populated by whichever extraction path
+        //     runs. Declared here so the post-extraction sections (zero-text
+        //     fail-fast, auto-detect, progress) read them in either path.
+        //
+        // `ocr_error_detail` and `scanned_count` only get populated by the
+        // PDF branch — DOCX/TXT extractors never go through OCR.
+        let page_count: usize;
         let mut total_chars: usize = 0;
         let mut pages_native: usize = 0;
         let mut pages_ocr: usize = 0;
         let mut first_page_text = String::new();
+        let mut ocr_error_detail: Option<String> = None;
+        let mut scanned_count: usize = 0;
+        // Always available for the NoUsableText error so the caller can see
+        // OCR availability even when OCR was never attempted (DOCX/TXT case).
+        let mut ocr_available = false;
 
-        for page in &pages {
+        // Recommended normalization rules from colossus-pdf. Computed once
+        // and borrowed on each per-page `normalize_text` call so the rule
+        // set isn't reallocated for every page.
+        let normalize_rules = colossus_pdf::NormalizationRule::all();
+
+        if doc_format == "pdf" {
+            // ── PDF extraction path (existing behavior + normalize) ──────
+
+            // [PDF-1] Extract PDF text in a blocking thread (colossus-pdf is sync).
+            let pdf_path = full_path.clone();
+            let pages = tokio::task::spawn_blocking(
+                move || -> Result<Vec<colossus_pdf::PageText>, String> {
+                    let mut extractor = colossus_pdf::PdfTextExtractor::open(&pdf_path)
+                        .map_err(|e| format!("open: {e}"))?;
+                    extractor
+                        .extract_all_pages()
+                        .map_err(|e| format!("extract_all_pages: {e}"))
+                },
+            )
+            .await
+            .map_err(|e| ExtractTextError::ExtractionFailed {
+                message: format!("pdf spawn_blocking join: {e}"),
+            })?
+            .map_err(|e| ExtractTextError::ExtractionFailed {
+                message: format!("pdf {e}"),
+            })?;
+
             if cancel.is_cancelled().await {
                 return Err(ExtractTextError::Cancelled);
             }
 
-            let non_ws = page.text.chars().filter(|c| !c.is_whitespace()).count();
-            let text_to_store = if non_ws < cfg.char_threshold {
-                if let Some(surya_text) = surya_results.get(&page.page_number) {
-                    if !surya_text.trim().is_empty() {
-                        pages_ocr += 1;
-                        surya_text.clone()
+            // [PDF-2] Surya OCR service availability (non-fatal — scanned pages just won't OCR).
+            ocr_available = match ocr::check_surya_available(&context.http_client).await {
+                Ok(()) => true,
+                Err(e) => {
+                    tracing::warn!(
+                        doc_id = %doc_id,
+                        error = %e,
+                        "Surya OCR service not available — scanned pages will fail if no native text exists. \
+                         Fix: ensure SURYA_OCR_URL points to a running Surya service."
+                    );
+                    false
+                }
+            };
+
+            // [PDF-3] Batch-OCR scanned pages via Surya service (one HTTP call for all pages).
+            //         Unlike the legacy per-page tesseract path, Surya processes the whole
+            //         PDF in a single GPU batch. We collect page numbers that fall below
+            //         the char threshold, then pull text out of the response by page number.
+            let scanned_page_numbers: Vec<u32> = pages
+                .iter()
+                .filter(|p| {
+                    p.text.chars().filter(|c| !c.is_whitespace()).count() < cfg.char_threshold
+                })
+                .map(|p| p.page_number)
+                .collect();
+            scanned_count = scanned_page_numbers.len();
+
+            let surya_results: std::collections::HashMap<u32, String> =
+                if !scanned_page_numbers.is_empty() && ocr_available {
+                    match ocr::ocr_full_document_surya(
+                        &context.http_client,
+                        &full_path,
+                        Some(&scanned_page_numbers),
+                    )
+                    .await
+                    {
+                        Ok(response) => {
+                            tracing::info!(
+                                doc_id = %doc_id,
+                                pages_ocr = response.pages_processed,
+                                elapsed = response.elapsed_secs,
+                                "Surya OCR returned {} pages",
+                                response.pages.len()
+                            );
+                            response
+                                .pages
+                                .into_iter()
+                                .map(|p| (p.page_number, p.text))
+                                .collect()
+                        }
+                        Err(e) => {
+                            let msg = format!("{e}");
+                            tracing::warn!(
+                                doc_id = %doc_id, error = %msg,
+                                "Surya OCR failed — scanned pages will have no usable text"
+                            );
+                            ocr_error_detail = Some(msg);
+                            std::collections::HashMap::new()
+                        }
+                    }
+                } else {
+                    std::collections::HashMap::new()
+                };
+
+            // [PDF-4] Per-page loop: OCR fallback when native extraction is too
+            //         sparse; normalize; insert into document_text (ON CONFLICT
+            //         handles idempotency). First-page text is captured for
+            //         auto-detect.
+            page_count = pages.len();
+
+            for page in &pages {
+                if cancel.is_cancelled().await {
+                    return Err(ExtractTextError::Cancelled);
+                }
+
+                let non_ws = page.text.chars().filter(|c| !c.is_whitespace()).count();
+                let raw_text = if non_ws < cfg.char_threshold {
+                    if let Some(surya_text) = surya_results.get(&page.page_number) {
+                        if !surya_text.trim().is_empty() {
+                            pages_ocr += 1;
+                            surya_text.clone()
+                        } else {
+                            tracing::warn!(
+                                doc_id = %doc_id, page = page.page_number,
+                                "Surya returned empty text; keeping native"
+                            );
+                            pages_native += 1;
+                            page.text.clone()
+                        }
                     } else {
-                        tracing::warn!(
-                            doc_id = %doc_id, page = page.page_number,
-                            "Surya returned empty text; keeping native"
-                        );
                         pages_native += 1;
                         page.text.clone()
                     }
                 } else {
                     pages_native += 1;
                     page.text.clone()
+                };
+
+                // Apply text normalization to fix known artifacts (e.g.,
+                // "10.During" → "10. During" from PDF spacing). Runs on
+                // ALL text regardless of source (native or Surya OCR).
+                let text_to_store = colossus_pdf::normalize_text(&raw_text, &normalize_rules);
+
+                if page.page_number == 1 {
+                    first_page_text = text_to_store.clone();
                 }
-            } else {
-                pages_native += 1;
-                page.text.clone()
+                total_chars += text_to_store.len();
+
+                pipeline_repository::insert_document_text(
+                    db,
+                    doc_id,
+                    page.page_number as i32,
+                    &text_to_store,
+                )
+                .await
+                .map_err(|e| ExtractTextError::DbWrite {
+                    message: format!("insert_document_text page {}: {e}", page.page_number),
+                })?;
+            }
+        } else {
+            // ── DOCX / TXT extraction path ──────────────────────────────
+            //
+            // ## Rust Learning: trait objects via `extractor_for_format`
+            //
+            // `extractor_for_format` returns `Box<dyn DocumentExtractor>` —
+            // a heap-allocated trait object. The caller doesn't know (or
+            // care) whether it got a DocxExtractor or PlainTextExtractor.
+            // It calls `extractor.extract()` through dynamic dispatch
+            // (vtable lookup). This is the Strategy pattern implemented
+            // via Rust traits.
+
+            // Map the format string back to the colossus-pdf enum so we
+            // can construct the matching extractor.
+            let format_enum = match doc_format.as_str() {
+                "docx" => colossus_pdf::DocumentFormat::Docx,
+                "txt" => colossus_pdf::DocumentFormat::PlainText,
+                other => {
+                    return Err(ExtractTextError::ExtractionFailed {
+                        message: format!(
+                            "unsupported format '{other}' for document '{doc_id}' — \
+                             expected 'pdf', 'docx', or 'txt'"
+                        ),
+                    });
+                }
             };
 
-            if page.page_number == 1 {
-                first_page_text = text_to_store.clone();
-            }
-            total_chars += text_to_store.len();
+            let extractor = colossus_pdf::extractor_for_format(format_enum);
+            let extract_path = full_path.clone();
 
-            pipeline_repository::insert_document_text(
-                db,
-                doc_id,
-                page.page_number as i32,
-                &text_to_store,
-            )
+            // DocumentExtractor::extract is synchronous — run in
+            // spawn_blocking to avoid blocking the tokio runtime thread.
+            let extracted_pages = tokio::task::spawn_blocking(move || {
+                extractor.extract(std::path::Path::new(&extract_path))
+            })
             .await
-            .map_err(|e| ExtractTextError::DbWrite {
-                message: format!("insert_document_text page {}: {e}", page.page_number),
+            .map_err(|e| ExtractTextError::ExtractionFailed {
+                message: format!("{doc_format} spawn_blocking join: {e}"),
+            })?
+            .map_err(|e| ExtractTextError::ExtractionFailed {
+                message: format!("{doc_format} extract: {e}"),
             })?;
+
+            if cancel.is_cancelled().await {
+                return Err(ExtractTextError::Cancelled);
+            }
+
+            page_count = extracted_pages.len();
+            pages_native = page_count; // DOCX/TXT are always native — never OCR
+
+            for page in &extracted_pages {
+                if cancel.is_cancelled().await {
+                    return Err(ExtractTextError::Cancelled);
+                }
+
+                // Apply text normalization — same rules as PDF path.
+                let text_to_store =
+                    colossus_pdf::normalize_text(&page.text_content, &normalize_rules);
+
+                if page.page_number == 1 {
+                    first_page_text = text_to_store.clone();
+                }
+                total_chars += text_to_store.len();
+
+                pipeline_repository::insert_document_text(
+                    db,
+                    doc_id,
+                    page.page_number,
+                    &text_to_store,
+                )
+                .await
+                .map_err(|e| ExtractTextError::DbWrite {
+                    message: format!("insert_document_text page {}: {e}", page.page_number),
+                })?;
+            }
         }
 
-        // [6b] Fail fast if ALL pages have zero usable text. This means either
-        //      (a) the document is entirely scanned and OCR failed/was unavailable,
-        //      or (b) the PDF has no extractable content. Continuing would waste
-        //      LLM API spend on empty input and produce a "complete" document
-        //      with zero entities. The failure surfaces in pipeline_steps.error_message.
+        // [6b] Fail fast if ALL pages have zero usable text. For PDFs this means
+        //      either (a) the document is entirely scanned and OCR failed/was
+        //      unavailable, or (b) the PDF has no extractable content. For
+        //      DOCX/TXT it means the file was empty or the extractor returned
+        //      only whitespace. Continuing would waste LLM API spend on empty
+        //      input and produce a "complete" document with zero entities.
         if total_chars == 0 {
             let ocr_error_suffix = ocr_error_detail
                 .as_deref()
@@ -493,7 +639,7 @@ impl ExtractText {
                 page_count,
                 pages_native,
                 pages_ocr,
-                scanned_count: scanned_page_numbers.len(),
+                scanned_count,
                 ocr_available,
                 ocr_error_suffix,
             });
@@ -606,6 +752,29 @@ mod tests {
             doc_id: "doc-x".to_string(),
         };
         assert_eq!(format!("{e}"), "document not found: doc-x");
+    }
+
+    /// Regression guard: the file-not-found display string must be format-neutral
+    /// after multi-format ingestion. Prior wording said "PDF file not found",
+    /// which was misleading for .docx and .txt uploads.
+    #[test]
+    fn extract_text_error_file_not_found_display_says_document() {
+        let e = ExtractTextError::FileNotFound {
+            path: "/tmp/whatever.docx".to_string(),
+        };
+        let s = format!("{e}");
+        assert!(
+            s.contains("Document file not found"),
+            "Display must say 'Document file not found'; got: {s}"
+        );
+        assert!(
+            !s.contains("PDF"),
+            "Display must not mention 'PDF' for the format-neutral variant; got: {s}"
+        );
+        assert!(
+            s.contains("/tmp/whatever.docx"),
+            "Display must include the path; got: {s}"
+        );
     }
 
     #[test]
