@@ -120,6 +120,24 @@ pub struct DocumentRecord {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pages_needing_ocr: Option<Vec<i32>>,
     pub total_chars: Option<i32>,
+    // ── Document format (multi-format ingestion) ────────────────
+    //
+    // ## Rust Learning: Option<String> for nullable DB columns
+    //
+    // PostgreSQL columns declared without `NOT NULL` can contain NULL.
+    // sqlx's `FromRow` derive maps nullable columns to `Option<T>`.
+    // Existing documents uploaded before this migration have NULL for
+    // both fields — the `Option` wrapper lets us handle that gracefully
+    // instead of panicking on deserialization.
+    //
+    /// Detected MIME type from file content, e.g. "application/pdf".
+    /// NULL for documents uploaded before multi-format support.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mime_type: Option<String>,
+    /// Short format key for ExtractText routing: "pdf", "docx", or "txt".
+    /// NULL for documents uploaded before multi-format support.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub original_format: Option<String>,
 }
 
 /// A page of extracted text from the `document_text` table.
@@ -148,6 +166,13 @@ pub struct PipelineConfigRecord {
 // ── Document & config functions ──────────────────────────────────
 
 /// Insert a new document record. Status = "NEW".
+///
+/// 8 args is one over clippy's default; grouping the format fields into a
+/// dedicated struct would obscure the simple flat insert this function
+/// performs and add a layer of indirection at every call site for no
+/// readability gain. The lint is silenced locally rather than project-wide
+/// so other functions still get the warning.
+#[allow(clippy::too_many_arguments)]
 pub async fn insert_document(
     pool: &PgPool,
     id: &str,
@@ -155,10 +180,19 @@ pub async fn insert_document(
     file_path: &str,
     file_hash: &str,
     document_type: &str,
+    // ## Rust Learning: Option<&str> vs Option<String>
+    //
+    // We take `Option<&str>` (a borrowed reference) rather than
+    // `Option<String>` (an owned value) because the caller already
+    // has the string — no need to clone it just to pass it here.
+    // sqlx's `.bind()` accepts `Option<&str>` via its `Encode` trait
+    // implementation, so this works directly with the query builder.
+    mime_type: Option<&str>,
+    original_format: Option<&str>,
 ) -> Result<(), PipelineRepoError> {
     sqlx::query(
-        r#"INSERT INTO documents (id, title, file_path, file_hash, document_type, status)
-           VALUES ($1, $2, $3, $4, $5, $6)"#,
+        r#"INSERT INTO documents (id, title, file_path, file_hash, document_type, status, mime_type, original_format)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#,
     )
     .bind(id)
     .bind(title)
@@ -166,6 +200,8 @@ pub async fn insert_document(
     .bind(file_hash)
     .bind(document_type)
     .bind(STATUS_NEW)
+    .bind(mime_type)
+    .bind(original_format)
     .execute(pool)
     .await?;
     Ok(())
@@ -306,7 +342,8 @@ pub async fn list_all_documents(pool: &PgPool) -> Result<Vec<DocumentRecord>, Pi
                 run.chunks_succeeded AS run_chunks_succeeded,
                 run.chunks_failed AS run_chunks_failed,
                 d.content_type, d.page_count, d.text_pages, d.scanned_pages,
-                d.pages_needing_ocr, d.total_chars
+                d.pages_needing_ocr, d.total_chars,
+                d.mime_type, d.original_format
          FROM documents d
          LEFT JOIN (
              SELECT document_id, SUM(cost_usd::float8) AS total_cost_usd
@@ -355,7 +392,8 @@ pub async fn get_document(
                 run.chunks_succeeded AS run_chunks_succeeded,
                 run.chunks_failed AS run_chunks_failed,
                 d.content_type, d.page_count, d.text_pages, d.scanned_pages,
-                d.pages_needing_ocr, d.total_chars
+                d.pages_needing_ocr, d.total_chars,
+                d.mime_type, d.original_format
          FROM documents d
          LEFT JOIN (
              SELECT document_id, SUM(cost_usd::float8) AS total_cost_usd
@@ -482,15 +520,6 @@ pub async fn get_pipeline_config_overrides(
         },
         None => PipelineConfigOverrides::default(),
     };
-
-    tracing::info!(
-        target: "structured_debug",
-        document_id,
-        overrides_chunking_mode = ?result.chunking_mode,
-        overrides_profile_name = ?result.profile_name,
-        overrides_chunking_config = ?result.chunking_config,
-        "STRUCTURED-DEBUG: Q1 — overrides read from pipeline_config"
-    );
 
     Ok(result)
 }

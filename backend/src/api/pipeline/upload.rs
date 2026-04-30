@@ -251,7 +251,10 @@ pub async fn upload_document(
             message: format!("Failed to write file to disk: {e}"),
         })?;
 
-    // Insert document record
+    // Insert document record.
+    // Format detection (mime_type / original_format) is wired in Part 2 of
+    // the multi-format ingestion change — for now we pass None so the
+    // existing PDF-only path continues to behave as before.
     pipeline_repository::insert_document(
         &state.pipeline_pool,
         &doc_id,
@@ -259,6 +262,8 @@ pub async fn upload_document(
         &storage_filename,
         &file_hash,
         &document_type,
+        None,
+        None,
     )
     .await
     .map_err(|e| AppError::Internal {
