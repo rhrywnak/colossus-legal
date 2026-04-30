@@ -47,11 +47,16 @@ const btnUpload = (enabled: boolean): React.CSSProperties => ({
   color: "#ffffff", cursor: enabled ? "pointer" : "default", fontFamily: "inherit",
 });
 
+// Strip any of the supported extensions (.pdf, .docx, .txt) so the doc-ID
+// slug and display title don't carry the file extension regardless of which
+// format the user uploaded.
+const SUPPORTED_EXT_REGEX = /\.(pdf|docx|txt)$/i;
+
 function slugify(name: string): string {
-  return name.toLowerCase().replace(/\.pdf$/i, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  return name.toLowerCase().replace(SUPPORTED_EXT_REGEX, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 }
 function titleize(name: string): string {
-  return name.replace(/\.pdf$/i, "").replace(/[-_]+/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+  return name.replace(SUPPORTED_EXT_REGEX, "").replace(/[-_]+/g, " ").replace(/\b\w/g, c => c.toUpperCase());
 }
 function capitalize(s: string): string {
   return s.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
@@ -88,7 +93,14 @@ const UploadDialog: React.FC<Props> = ({ open, onClose, onSuccess }) => {
   if (!open) return null;
 
   const handleFile = (f: File) => {
-    if (!f.name.toLowerCase().endsWith(".pdf")) { setError("Only PDF files accepted"); return; }
+    // Mirror the backend's accepted-extension check (see upload.rs). Browser
+    // MIME detection is unreliable for .docx (sometimes blank) and .txt, so
+    // we filter on extension here and let the backend confirm format from
+    // magic bytes after upload.
+    if (!SUPPORTED_EXT_REGEX.test(f.name)) {
+      setError("Accepted formats: PDF, Word (.docx), and plain text (.txt)");
+      return;
+    }
     if (f.size > MAX_SIZE) { setError(`File too large (${(f.size / 1024 / 1024).toFixed(1)} MB, max 50 MB)`); return; }
     setFile(f);
     setError(null);
@@ -140,7 +152,7 @@ const UploadDialog: React.FC<Props> = ({ open, onClose, onSuccess }) => {
           onDragLeave={() => setDragging(false)}
           onDrop={(e) => { e.preventDefault(); setDragging(false); if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]); }}
         >
-          <input ref={fileRef} type="file" accept=".pdf" style={{ display: "none" }}
+          <input ref={fileRef} type="file" accept=".pdf,.docx,.txt" style={{ display: "none" }}
             onChange={(e) => { if (e.target.files?.[0]) handleFile(e.target.files[0]); }} />
           {file ? (
             <div>
@@ -148,7 +160,7 @@ const UploadDialog: React.FC<Props> = ({ open, onClose, onSuccess }) => {
               <div style={{ fontSize: "0.76rem", color: "#64748b" }}>{(file.size / 1024 / 1024).toFixed(1)} MB</div>
             </div>
           ) : (
-            <div style={{ color: "#64748b", fontSize: "0.84rem" }}>Drop PDF here or click to browse</div>
+            <div style={{ color: "#64748b", fontSize: "0.84rem" }}>Drop PDF, Word (.docx), or text (.txt) file here or click to browse</div>
           )}
         </div>
 
