@@ -1,7 +1,12 @@
-//! GET /documents/:id/file — Serve a pipeline document's PDF.
+//! GET /documents/:id/file — Serve a pipeline document's source file.
+//!
+//! Content-Type is set from the document's detected `mime_type`
+//! (PDF, DOCX, or plain text). Pre-multi-format documents have NULL
+//! `mime_type` and fall back to `application/pdf` so historical
+//! behaviour is preserved.
 //!
 //! Open to all authenticated users (not admin-only) so that
-//! non-admin users can view PDFs for published documents.
+//! non-admin users can view documents that have been published.
 
 use axum::{
     body::Body,
@@ -43,8 +48,17 @@ pub async fn file_handler(
             message: format!("Document '{document_id}' not found"),
         })?;
 
-    // 2. Validate file_path
+    // 2. Validate file_path. Also capture the detected MIME type so we can
+    //    serve .docx and .txt with the correct Content-Type instead of
+    //    forcing every download through `application/pdf`.
+    //
+    //    `mime_type` is NULL for documents uploaded before multi-format
+    //    support (migration 20260430103319). Falling back to
+    //    `application/pdf` preserves the prior behavior for those rows.
     let file_path = doc.file_path;
+    let content_type = doc
+        .mime_type
+        .unwrap_or_else(|| "application/pdf".to_string());
     if file_path.is_empty() {
         return Err(AppError::NotFound {
             message: "Document has no file".to_string(),
@@ -78,13 +92,13 @@ pub async fn file_handler(
             }
         })?;
 
-    // 4. Stream response with PDF headers
+    // 4. Stream response with the document's detected Content-Type.
     let stream = ReaderStream::new(file);
     let body = Body::from_stream(stream);
 
     Response::builder()
         .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, "application/pdf")
+        .header(header::CONTENT_TYPE, content_type.as_str())
         .header(
             header::CONTENT_DISPOSITION,
             format!("inline; filename=\"{file_path}\""),
@@ -95,7 +109,7 @@ pub async fn file_handler(
                 document_id = %document_id,
                 path = %full_path,
                 error = %e,
-                "Failed to build PDF response"
+                "Failed to build response"
             );
             AppError::Internal {
                 message: "Failed to build response".to_string(),
