@@ -311,6 +311,35 @@ impl LlmExtract {
         let system_prompt_hash: Option<String> =
             system_prompt.as_deref().map(sha2_hex);
 
+        // 5c. Load the global-rules fragment if the profile names one. Lives
+        //     in `template_dir` alongside the prompt templates because it IS
+        //     a template fragment (the rules are inlined into the prompt at
+        //     `{{global_rules}}`). Read failure is fatal — the profile
+        //     declared the rules file as required, so missing it is a
+        //     configuration error worth surfacing instead of silently
+        //     continuing without the rules.
+        //
+        // ## Rust Learning: `as_ref().map(...).transpose()`
+        //
+        // `as_ref()` borrows the `Option<String>` as `Option<&String>` so
+        // the closure can read the filename without consuming `resolved`.
+        // `.map(|f| std::fs::read_to_string(...))` produces
+        // `Option<Result<String, _>>`. `.transpose()` flips that into
+        // `Result<Option<String>, _>` so the `?` operator can short-circuit
+        // on read failure while keeping the outer "absent file is ok" path.
+        let global_rules: Option<String> = resolved
+            .global_rules_file
+            .as_ref()
+            .map(|filename| {
+                let path = format!("{}/{}", context.template_dir, filename);
+                std::fs::read_to_string(&path).map_err(|e| {
+                    LlmExtractError::ProfileLoadFailed {
+                        message: format!("Failed to read global rules '{path}': {e}"),
+                    }
+                })
+            })
+            .transpose()?;
+
         // 6. Choose an effective max_tokens.
         let max_tokens = resolve_max_tokens(&resolved);
 
@@ -378,6 +407,14 @@ impl LlmExtract {
         // knows what it means still produces extraction output via the
         // legacy path rather than failing the run outright.
         let system_prompt_ref = system_prompt.as_deref();
+        let global_rules_ref = global_rules.as_deref();
+        let admin_instructions_ref = pipe_config.admin_instructions.as_deref();
+        // `{{context}}` is reserved for a future prior-context renderer
+        // (driven by `pipe_config.prior_context_doc_ids`). For now it is
+        // always None — the helper substitutes empty string so the
+        // placeholder vanishes without leaking literal text. See
+        // RunArgs.context doc comment for the migration path.
+        let context_ref: Option<&str> = None;
         let effective_mode = resolve_effective_mode(&resolved);
         let outcome = match effective_mode.as_str() {
             CHUNKING_MODE_FULL => {
@@ -389,6 +426,9 @@ impl LlmExtract {
                     template_text: &template_text,
                     schema_json: &schema_json,
                     full_text: &full_text,
+                    global_rules: global_rules_ref,
+                    admin_instructions: admin_instructions_ref,
+                    context: context_ref,
                     max_tokens,
                     cancel,
                     progress,
@@ -406,6 +446,9 @@ impl LlmExtract {
                         template_text: &template_text,
                         schema_json: &schema_json,
                         full_text: &full_text,
+                        global_rules: global_rules_ref,
+                        admin_instructions: admin_instructions_ref,
+                        context: context_ref,
                         max_tokens,
                         cancel,
                         progress,
@@ -427,6 +470,9 @@ impl LlmExtract {
                         template_text: &template_text,
                         schema_json: &schema_json,
                         full_text: &full_text,
+                        global_rules: global_rules_ref,
+                        admin_instructions: admin_instructions_ref,
+                        context: context_ref,
                         max_tokens,
                         cancel,
                         progress,
@@ -564,6 +610,21 @@ struct RunArgs<'a> {
     template_text: &'a str,
     schema_json: &'a str,
     full_text: &'a str,
+    /// Global-rules fragment substituted at `{{global_rules}}` in the
+    /// template. `None` ⇒ substitute empty string (placeholder vanishes
+    /// from the prompt without leaking literal text). Loaded once at the
+    /// top of `run_llm_extract` from the profile's `global_rules_file`.
+    global_rules: Option<&'a str>,
+    /// Operator-supplied per-document instructions substituted at
+    /// `{{admin_instructions}}`. Sourced from `pipe_config.admin_instructions`.
+    /// `None` ⇒ substitute empty string.
+    admin_instructions: Option<&'a str>,
+    /// Cross-document prior context substituted at `{{context}}`. Currently
+    /// always `None` — the placeholder is replaced with empty string
+    /// defensively (matching pass-2's pattern at `llm_extract_pass2.rs:319`).
+    /// A future renderer for `pipe_config.prior_context_doc_ids` will
+    /// populate this without changing the substitution code.
+    context: Option<&'a str>,
     max_tokens: u32,
     cancel: &'a CancellationToken,
     progress: &'a ProgressReporter,
@@ -612,24 +673,25 @@ async fn run_full_document_extraction(
     .await
     .ok();
 
-    // Dynamic placeholder detection: use whichever of the two body
-    // placeholders the template actually references. `{{schema_json}}` is
-    // substituted unconditionally because the schema prompt fragment is
-    // expected in every extraction template.
-    let has_document_text = args.template_text.contains("{{document_text}}");
-    let has_chunk_text = args.template_text.contains("{{chunk_text}}");
-    let prompt = if has_document_text {
-        args.template_text
-            .replace("{{schema_json}}", args.schema_json)
-            .replace("{{document_text}}", args.full_text)
-    } else if has_chunk_text {
-        args.template_text
-            .replace("{{schema_json}}", args.schema_json)
-            .replace("{{chunk_text}}", args.full_text)
-    } else {
-        let msg = "Template has no {{document_text}} or {{chunk_text}} placeholder";
-        mark_run_failed(args.db, args.run_id, msg).await;
-        return Err(msg.into());
+    // Cross-mode symmetric prompt assembly. The full-document path uses
+    // the SAME helper as the chunked / structured paths so all three modes
+    // substitute exactly the same set of placeholders. Without this,
+    // `{{global_rules}}` and friends would silently leak as literal text
+    // in `full` mode while being substituted in the other modes — a
+    // subtle quality regression depending on which mode an operator picks.
+    let prompt = match assemble_chunk_prompt(
+        args.template_text,
+        args.schema_json,
+        args.full_text,
+        args.global_rules,
+        args.admin_instructions,
+        args.context,
+    ) {
+        Ok(p) => p,
+        Err(msg) => {
+            mark_run_failed(args.db, args.run_id, &msg).await;
+            return Err(msg.into());
+        }
     };
 
     // Persist the assembled prompt on the run for debugging / audit. The
@@ -700,61 +762,81 @@ async fn run_full_document_extraction(
 
 // ── Chunked / structured shared loop ────────────────────────────
 
-/// Assemble the per-chunk prompt by substituting `{{schema_json}}` and the
-/// chunk body into a template.
+/// Assemble a per-chunk prompt by substituting every placeholder the
+/// pass-1 templates expect.
 ///
-/// Mirrors the dual-aware substitution in [`run_full_document_extraction`]:
-/// templates may carry **either** `{{document_text}}` (preferred for
-/// full-document templates like `pass1_complaint_v4.md`) **or**
-/// `{{chunk_text}}` (the original chunked-mode placeholder). Whichever the
-/// template uses, the chunk's text is substituted into it.
+/// Substituted placeholders (in canonical order — `{{schema_json}}` first
+/// so any rule fragments inserted later that happen to reference it can
+/// pick it up; body placeholder last so accidental placeholder syntax in
+/// rule/instruction text doesn't get re-substituted):
 ///
-/// When both placeholders appear, `{{document_text}}` wins — matching the
-/// preference in `run_full_document_extraction`. When neither appears, the
-/// function returns an error so the caller can `mark_run_failed` and abort
-/// before sending a prompt the LLM can't act on.
+/// 1. `{{schema_json}}` — always; the loaded schema
+/// 2. `{{global_rules}}` — `global_rules` arg, empty string when `None`
+/// 3. `{{admin_instructions}}` — `admin_instructions` arg, empty when `None`
+/// 4. `{{context}}` — `context` arg, empty when `None`
+/// 5. **Either** `{{document_text}}` *or* `{{chunk_text}}` — whichever the
+///    template carries. `{{document_text}}` wins when both appear,
+///    matching [`run_full_document_extraction`]'s preference.
 ///
-/// ## Why this lives outside the per-chunk loop body
+/// When the template has *neither* `{{document_text}}` *nor* `{{chunk_text}}`
+/// the function returns an error so the caller can `mark_run_failed` and
+/// abort before sending a prompt the LLM can't act on. The other three
+/// placeholders are *not* required — a template that doesn't reference
+/// `{{global_rules}}` simply leaves the substitution as a no-op.
 ///
-/// Pulling the substitution into a pure function keeps it unit-testable
-/// without an LLM provider, a database, or a runtime. The previous inline
-/// version only substituted `{{chunk_text}}`, so a template using
-/// `{{document_text}}` (the canonical placeholder for pass-1 complaint
-/// extraction) silently sent the LLM a prompt with no document body and
-/// the literal four-word string `{{document_text}}` instead. Isolating
-/// the logic makes regression tests on this contract trivial.
+/// ## Rust Learning: empty-string substitution as the "absent" default
+///
+/// `Option::unwrap_or("")` collapses `None` and `Some("")` into the same
+/// substitution. That's deliberate — both mean "no rules / no
+/// instructions / no context to inject" from the LLM's perspective, and
+/// the placeholder must vanish either way (otherwise the literal
+/// `{{global_rules}}` leaks into the prompt). This is the same defensive
+/// pattern pass-2 uses for `{{context}}` at `llm_extract_pass2.rs:319`.
 ///
 /// ## Rust Learning: returning `Result<String, String>` for a small helper
 ///
-/// A full `thiserror` enum would be overkill for one error case ("no
-/// usable placeholder"). The caller wraps this `String` into the existing
-/// `Box<dyn Error + Send + Sync>` flow alongside `mark_run_failed`. The
-/// error message names *both* placeholders so an operator reading the
-/// `extraction_runs.error_message` column knows exactly what to fix in
-/// the template file.
+/// A full `thiserror` enum would be overkill for the one error case here
+/// ("no usable body placeholder"). The caller wraps the `String` into the
+/// existing `Box<dyn Error + Send + Sync>` flow alongside `mark_run_failed`,
+/// and the message names *both* placeholders so an operator reading the
+/// `extraction_runs.error_message` column knows exactly what to fix.
 fn assemble_chunk_prompt(
     template_text: &str,
     schema_json: &str,
     chunk_text: &str,
+    global_rules: Option<&str>,
+    admin_instructions: Option<&str>,
+    context: Option<&str>,
 ) -> Result<String, String> {
     let has_document_text = template_text.contains("{{document_text}}");
     let has_chunk_text = template_text.contains("{{chunk_text}}");
 
-    if has_document_text {
-        Ok(template_text
-            .replace("{{schema_json}}", schema_json)
-            .replace("{{document_text}}", chunk_text))
-    } else if has_chunk_text {
-        Ok(template_text
-            .replace("{{schema_json}}", schema_json)
-            .replace("{{chunk_text}}", chunk_text))
-    } else {
-        Err(
+    if !has_document_text && !has_chunk_text {
+        return Err(
             "Template has no {{document_text}} or {{chunk_text}} placeholder — \
              chunk body cannot be injected into the prompt"
                 .to_string(),
-        )
+        );
     }
+
+    // Substitute the three "always-substitute, empty when None" placeholders
+    // up front. Doing them before the body substitution avoids any chance
+    // that the chunk text itself (which can be arbitrary user content)
+    // could contain a literal `{{global_rules}}` etc. and get re-substituted.
+    let mut prompt = template_text
+        .replace("{{schema_json}}", schema_json)
+        .replace("{{global_rules}}", global_rules.unwrap_or(""))
+        .replace("{{admin_instructions}}", admin_instructions.unwrap_or(""))
+        .replace("{{context}}", context.unwrap_or(""));
+
+    if has_document_text {
+        prompt = prompt.replace("{{document_text}}", chunk_text);
+    } else {
+        // has_chunk_text is true here (proven above by the early return).
+        prompt = prompt.replace("{{chunk_text}}", chunk_text);
+    }
+
+    Ok(prompt)
 }
 
 /// Drive the LLM extraction loop over a pre-split list of text chunks.
@@ -879,12 +961,17 @@ async fn extract_chunks_loop(
 
         // Dual-aware placeholder substitution. Templates can carry either
         // `{{document_text}}` or `{{chunk_text}}`; failing to find one
-        // silently used to ship a prompt with no document body. We now
-        // fail fast and record the failure on the run row.
+        // silently used to ship a prompt with no document body. The
+        // helper also fills `{{global_rules}}`, `{{admin_instructions}}`,
+        // and `{{context}}` with empty-string fallbacks so the LLM never
+        // sees those literal tokens.
         let prompt = match assemble_chunk_prompt(
             args.template_text,
             args.schema_json,
             &chunk.text,
+            args.global_rules,
+            args.admin_instructions,
+            args.context,
         ) {
             Ok(p) => p,
             Err(msg) => {
@@ -1512,7 +1599,7 @@ mod tests {
         // Template uses {{document_text}} (e.g., pass1_complaint_v4.md).
         // The chunk's body must replace that placeholder verbatim.
         let template = "Schema: {{schema_json}}\n\nDoc:\n{{document_text}}";
-        let prompt = assemble_chunk_prompt(template, "<SCHEMA>", "<CHUNK BODY>")
+        let prompt = assemble_chunk_prompt(template, "<SCHEMA>", "<CHUNK BODY>", None, None, None)
             .expect("dual-aware substitution should succeed for {{document_text}}");
         assert!(
             prompt.contains("<CHUNK BODY>"),
@@ -1530,7 +1617,7 @@ mod tests {
         // Backward-compat: templates that already use {{chunk_text}}
         // (the original chunked-mode placeholder) keep working.
         let template = "Schema: {{schema_json}}\n\nChunk:\n{{chunk_text}}";
-        let prompt = assemble_chunk_prompt(template, "<SCHEMA>", "<CHUNK BODY>")
+        let prompt = assemble_chunk_prompt(template, "<SCHEMA>", "<CHUNK BODY>", None, None, None)
             .expect("substitution should succeed for {{chunk_text}}");
         assert!(prompt.contains("<CHUNK BODY>"));
         assert!(!prompt.contains("{{chunk_text}}"));
@@ -1542,7 +1629,7 @@ mod tests {
         // body anywhere — fail fast so the caller can mark_run_failed
         // before sending a useless prompt to the LLM.
         let template = "Schema: {{schema_json}}\n\nNo body placeholder anywhere.";
-        let err = assemble_chunk_prompt(template, "<SCHEMA>", "<CHUNK BODY>")
+        let err = assemble_chunk_prompt(template, "<SCHEMA>", "<CHUNK BODY>", None, None, None)
             .expect_err("a template with neither placeholder must error");
         assert!(
             err.contains("{{document_text}}") && err.contains("{{chunk_text}}"),
@@ -1558,7 +1645,7 @@ mod tests {
         // well-formed template should only have one body placeholder).
         let template =
             "Doc: {{document_text}}\n\nChunk: {{chunk_text}}\n\nSchema: {{schema_json}}";
-        let prompt = assemble_chunk_prompt(template, "<SCHEMA>", "<CHUNK BODY>")
+        let prompt = assemble_chunk_prompt(template, "<SCHEMA>", "<CHUNK BODY>", None, None, None)
             .expect("must succeed when at least one placeholder is present");
         assert!(
             prompt.contains("Doc: <CHUNK BODY>"),
@@ -1568,6 +1655,132 @@ mod tests {
             prompt.contains("Chunk: {{chunk_text}}"),
             "{{{{chunk_text}}}} stays literal when {{{{document_text}}}} wins; got: {prompt}"
         );
+    }
+
+    // ── Three additional pass-1 placeholders: global_rules,
+    //    admin_instructions, context. The Some(...) variants prove the
+    //    value lands in the prompt; the None variants prove the literal
+    //    placeholder doesn't leak.
+
+    #[test]
+    fn assemble_chunk_prompt_substitutes_global_rules_when_some() {
+        let template = "Rules:\n{{global_rules}}\n\nDoc: {{document_text}}";
+        let prompt = assemble_chunk_prompt(
+            template,
+            "<SCHEMA>",
+            "<CHUNK>",
+            Some("RULE-1; RULE-2"),
+            None,
+            None,
+        )
+        .expect("substitution must succeed");
+        assert!(
+            prompt.contains("RULE-1; RULE-2"),
+            "global_rules content must land in the prompt; got: {prompt}"
+        );
+        assert!(
+            !prompt.contains("{{global_rules}}"),
+            "literal placeholder must be gone; got: {prompt}"
+        );
+    }
+
+    #[test]
+    fn assemble_chunk_prompt_substitutes_global_rules_with_empty_when_none() {
+        // Template references {{global_rules}} but the profile didn't opt
+        // in — the placeholder must vanish (replaced with "") rather than
+        // leak as literal text into the LLM prompt.
+        let template = "Rules:\n{{global_rules}}\n\nDoc: {{document_text}}";
+        let prompt = assemble_chunk_prompt(template, "<SCHEMA>", "<CHUNK>", None, None, None)
+            .expect("substitution must succeed");
+        assert!(
+            !prompt.contains("{{global_rules}}"),
+            "absent global_rules must still strip the placeholder; got: {prompt}"
+        );
+    }
+
+    #[test]
+    fn assemble_chunk_prompt_substitutes_admin_instructions_when_some() {
+        let template =
+            "Admin: {{admin_instructions}}\n\nDoc: {{document_text}}";
+        let prompt = assemble_chunk_prompt(
+            template,
+            "<SCHEMA>",
+            "<CHUNK>",
+            None,
+            Some("Focus on dates"),
+            None,
+        )
+        .expect("substitution must succeed");
+        assert!(
+            prompt.contains("Focus on dates"),
+            "admin_instructions content must land in the prompt; got: {prompt}"
+        );
+        assert!(!prompt.contains("{{admin_instructions}}"));
+    }
+
+    #[test]
+    fn assemble_chunk_prompt_substitutes_admin_instructions_with_empty_when_none() {
+        let template =
+            "Admin: {{admin_instructions}}\n\nDoc: {{document_text}}";
+        let prompt = assemble_chunk_prompt(template, "<SCHEMA>", "<CHUNK>", None, None, None)
+            .expect("substitution must succeed");
+        assert!(
+            !prompt.contains("{{admin_instructions}}"),
+            "absent admin_instructions must still strip the placeholder; got: {prompt}"
+        );
+    }
+
+    #[test]
+    fn assemble_chunk_prompt_substitutes_context_with_empty_string() {
+        // Defensive empty-string substitution mirrors pass-2's pattern at
+        // llm_extract_pass2.rs:319. Pass-1 has no prior-context renderer
+        // yet, so context is always None — the placeholder must still
+        // vanish so it doesn't reach the LLM as literal text.
+        let template = "Context: {{context}}\n\nDoc: {{document_text}}";
+        let prompt = assemble_chunk_prompt(template, "<SCHEMA>", "<CHUNK>", None, None, None)
+            .expect("substitution must succeed");
+        assert!(
+            !prompt.contains("{{context}}"),
+            "context placeholder must vanish even when None; got: {prompt}"
+        );
+    }
+
+    #[test]
+    fn assemble_chunk_prompt_substitutes_all_three_alongside_body() {
+        // Integration-style: all three new placeholders + the body
+        // placeholder + schema, all substituted in one call.
+        let template = "\
+Schema:\n{{schema_json}}\n\n\
+Rules:\n{{global_rules}}\n\n\
+Admin:\n{{admin_instructions}}\n\n\
+Context:\n{{context}}\n\n\
+Doc:\n{{document_text}}";
+        let prompt = assemble_chunk_prompt(
+            template,
+            "<SCHEMA>",
+            "<CHUNK>",
+            Some("<RULES>"),
+            Some("<ADMIN>"),
+            Some("<CTX>"),
+        )
+        .expect("substitution must succeed");
+        for needle in [
+            "<SCHEMA>", "<RULES>", "<ADMIN>", "<CTX>", "<CHUNK>",
+        ] {
+            assert!(prompt.contains(needle), "missing {needle}; got: {prompt}");
+        }
+        for placeholder in [
+            "{{schema_json}}",
+            "{{global_rules}}",
+            "{{admin_instructions}}",
+            "{{context}}",
+            "{{document_text}}",
+        ] {
+            assert!(
+                !prompt.contains(placeholder),
+                "literal {placeholder} must be gone; got: {prompt}"
+            );
+        }
     }
 
     #[test]
@@ -1722,6 +1935,7 @@ mod tests {
             pass2_template_file: None,
             system_prompt_file: None,
             system_prompt_hash: None,
+            global_rules_file: None,
             schema_file: "s".into(),
             chunking_mode: "chunked".into(),
             chunk_size: None,
@@ -1748,6 +1962,7 @@ mod tests {
             pass2_template_file: Some("pass2_complaint.md".into()),
             system_prompt_file: None,
             system_prompt_hash: None,
+            global_rules_file: None,
             schema_file: "s".into(),
             chunking_mode: "full".into(),
             chunk_size: None,

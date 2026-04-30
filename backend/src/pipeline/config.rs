@@ -38,6 +38,21 @@ pub struct ProcessingProfile {
     pub template_file: String,
     #[serde(default)]
     pub system_prompt_file: Option<String>,
+    /// Global-rules fragment file appended to the prompt at the
+    /// `{{global_rules}}` placeholder. When absent, the placeholder is
+    /// substituted with the empty string so legacy profiles that don't
+    /// opt in to global rules continue to work without leaking literal
+    /// `{{global_rules}}` text into the LLM prompt.
+    ///
+    /// ## Rust Learning: `#[serde(default)]` on `Option<String>`
+    ///
+    /// Marks the field as optional in YAML deserialization. Profiles
+    /// authored before this field existed deserialize cleanly — serde
+    /// fills in `None` rather than failing with "missing field". The
+    /// substitution code reads `Option<&str>` and treats `None` as
+    /// "skip this rule fragment, substitute empty."
+    #[serde(default)]
+    pub global_rules_file: Option<String>,
     /// Pass-2 relationship-extraction prompt template.
     ///
     /// When present, the manually-invoked pass 2 path reads
@@ -204,6 +219,12 @@ pub struct ResolvedConfig {
     /// is loaded so the audit snapshot can prove exactly which system
     /// prompt was sent to the provider.
     pub system_prompt_hash: Option<String>,
+    /// Global-rules fragment filename resolved from the profile. Same
+    /// shape and semantics as `system_prompt_file` — `None` means the
+    /// profile didn't opt in to global rules; the substitution code
+    /// uses an empty string in that case so the placeholder doesn't
+    /// leak as literal text.
+    pub global_rules_file: Option<String>,
     pub schema_file: String,
     pub chunking_mode: String,
     pub chunk_size: Option<i32>,
@@ -407,6 +428,10 @@ pub fn resolve_config(
         pass2_template_file: profile.pass2_template_file.clone(),
         system_prompt_file,
         system_prompt_hash: None, // Set at runtime after loading the file
+        // Global rules are profile-level only — no per-document override path.
+        // Operators change them by editing the profile YAML; per-document
+        // tweaking didn't seem worth the override-column surface area.
+        global_rules_file: profile.global_rules_file.clone(),
         schema_file: profile.schema_file.clone(),
         chunking_mode,
         chunk_size,
@@ -498,6 +523,7 @@ extraction_model: claude-sonnet-4-6
             schema_file: "complaint_v2.yaml".into(),
             template_file: "pass1_complaint.md".into(),
             system_prompt_file: None,
+            global_rules_file: None,
             extraction_model: "claude-sonnet-4-6".into(),
             pass2_extraction_model: None,
             synthesis_model: None,
@@ -536,6 +562,7 @@ extraction_model: claude-sonnet-4-6
             schema_file: "complaint_v2.yaml".into(),
             template_file: "pass1_complaint.md".into(),
             system_prompt_file: Some("legal_extraction_system.md".into()),
+            global_rules_file: None,
             extraction_model: "claude-sonnet-4-6".into(),
             pass2_extraction_model: None,
             synthesis_model: None,
@@ -590,6 +617,7 @@ extraction_model: claude-sonnet-4-6
             schema_file: "complaint_v2.yaml".into(),
             template_file: "pass1_complaint.md".into(),
             system_prompt_file: None,
+            global_rules_file: None,
             pass2_template_file: Some("pass2_complaint.md".into()),
             extraction_model: "claude-sonnet-4-6".into(),
             pass2_extraction_model: None,
@@ -712,6 +740,7 @@ extraction_model: claude-sonnet-4-6
             schema_file: "complaint_v2.yaml".into(),
             template_file: "pass1_complaint.md".into(),
             system_prompt_file: None,
+            global_rules_file: None,
             extraction_model: "claude-sonnet-4-6".into(),
             pass2_extraction_model: None,
             synthesis_model: None,
@@ -756,6 +785,7 @@ extraction_model: claude-sonnet-4-6
             pass2_template_file: None,
             system_prompt_file: None,
             system_prompt_hash: None,
+            global_rules_file: None,
             schema_file: "complaint_v2.yaml".into(),
             chunking_mode: "full".into(),
             chunk_size: None,
@@ -874,6 +904,7 @@ chunking_mode: full
             schema_file: "disc.yaml".into(),
             template_file: "disc.md".into(),
             system_prompt_file: None,
+            global_rules_file: None,
             pass2_template_file: None,
             extraction_model: "claude-sonnet-4-6".into(),
             pass2_extraction_model: None,
@@ -927,6 +958,7 @@ chunking_mode: full
             schema_file: "disc.yaml".into(),
             template_file: "disc.md".into(),
             system_prompt_file: None,
+            global_rules_file: None,
             pass2_template_file: None,
             extraction_model: "claude-sonnet-4-6".into(),
             pass2_extraction_model: None,
@@ -988,6 +1020,7 @@ chunking_mode: full
             pass2_template_file: None,
             system_prompt_file: None,
             system_prompt_hash: None,
+            global_rules_file: None,
             schema_file: "disc.yaml".into(),
             chunking_mode: "full".into(),
             chunk_size: None,
