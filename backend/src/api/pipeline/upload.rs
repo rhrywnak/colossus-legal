@@ -203,9 +203,24 @@ pub async fn upload_document(
     }
 
     let original_name = file_name.unwrap_or_else(|| format!("{doc_id}.pdf"));
-    if !original_name.to_lowercase().ends_with(".pdf") {
+
+    // Validate file extension — accept PDF, Word, and plain text.
+    //
+    // ## Rust Learning: `matches!` macro for multi-pattern boolean checks
+    //
+    // `matches!(value, pattern1 | pattern2 | pattern3)` is syntactic sugar
+    // for a match expression that returns bool. Much cleaner than chaining
+    // `|| lower.ends_with(".pdf") || lower.ends_with(".docx")` etc.
+    // The `rsplit('.').next()` idiom extracts the extension by splitting
+    // from the right — correctly handles names like "document.v2.pdf".
+    let lower_name = original_name.to_lowercase();
+    let valid_extension = matches!(
+        lower_name.rsplit('.').next(),
+        Some("pdf") | Some("docx") | Some("txt")
+    );
+    if !valid_extension {
         return Err(AppError::BadRequest {
-            message: "Only .pdf files are accepted".to_string(),
+            message: "Unsupported file type. Accepted formats: .pdf, .docx, .txt".to_string(),
             details: serde_json::json!({ "filename": original_name }),
         });
     }
@@ -213,8 +228,17 @@ pub async fn upload_document(
     // Compute SHA-256 hash
     let file_hash = format!("{:x}", Sha256::digest(&file_data));
 
-    // Save PDF to disk using the document ID as filename (avoids collisions).
-    let storage_filename = format!("{doc_id}.pdf");
+    // Preserve the original file extension in the stored filename so
+    // that ExtractText can detect the format from the file on disk.
+    //
+    // ## Rust Learning: why not just store the format in the DB?
+    //
+    // We DO store it in the DB (original_format column). But the
+    // filename extension serves as a secondary signal — and
+    // `detect_format` reads magic bytes from the actual file, so
+    // even a wrong extension won't break extraction. Belt and suspenders.
+    let extension = lower_name.rsplit('.').next().unwrap_or("pdf");
+    let storage_filename = format!("{doc_id}.{extension}");
 
     // Prevent path traversal
     if doc_id.contains("..") || doc_id.contains('/') || doc_id.contains('\\') {
@@ -251,10 +275,66 @@ pub async fn upload_document(
             message: format!("Failed to write file to disk: {e}"),
         })?;
 
-    // Insert document record.
-    // Format detection (mime_type / original_format) is wired in Part 2 of
-    // the multi-format ingestion change — for now we pass None so the
-    // existing PDF-only path continues to behave as before.
+    // Detect the document's actual format from file content (magic bytes).
+    // This is more reliable than trusting the file extension — a misnamed
+    // file is detected correctly because mimetype-detector reads the file
+    // header, not the name.
+    //
+    // ## Rust Learning: `colossus_pdf::detect_format`
+    //
+    // Returns a `DocumentFormat` enum (Pdf, Docx, PlainText). Internally
+    // uses the `mimetype-detector` crate which reads the first few bytes
+    // of the file (magic bytes / file signature). A .docx file is actually
+    // a ZIP archive containing XML — the detector reads the ZIP header and
+    // OOXML content types to identify it correctly.
+    let (detected_mime, detected_format) =
+        match colossus_pdf::detect_format(std::path::Path::new(&dest_path)) {
+            Ok(format) => {
+                // ## Rust Learning: matching on an enum to derive two related values
+                //
+                // We need both the MIME type string (for the DB column) and the
+                // short format key (for ExtractText routing). A single match on
+                // DocumentFormat gives us both without repeating the branching logic.
+                let (mime, fmt) = match format {
+                    colossus_pdf::DocumentFormat::Pdf => ("application/pdf", "pdf"),
+                    colossus_pdf::DocumentFormat::Docx => (
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        "docx",
+                    ),
+                    colossus_pdf::DocumentFormat::PlainText => ("text/plain", "txt"),
+                };
+                (mime.to_string(), fmt.to_string())
+            }
+            Err(e) => {
+                // Fall back to extension-based detection if magic byte detection
+                // fails (e.g., empty file, unrecognized header). Log the error
+                // so operators can investigate, but don't fail the upload.
+                tracing::warn!(
+                    doc_id = %doc_id,
+                    error = %e,
+                    extension = %extension,
+                    "Format detection failed — falling back to file extension"
+                );
+                let (mime, fmt) = match extension {
+                    "docx" => (
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        "docx",
+                    ),
+                    "txt" => ("text/plain", "txt"),
+                    _ => ("application/pdf", "pdf"),
+                };
+                (mime.to_string(), fmt.to_string())
+            }
+        };
+
+    tracing::info!(
+        doc_id = %doc_id,
+        mime_type = %detected_mime,
+        format = %detected_format,
+        "Detected document format"
+    );
+
+    // Insert document record with detected format metadata.
     pipeline_repository::insert_document(
         &state.pipeline_pool,
         &doc_id,
@@ -262,60 +342,64 @@ pub async fn upload_document(
         &storage_filename,
         &file_hash,
         &document_type,
-        None,
-        None,
+        Some(&detected_mime),
+        Some(&detected_format),
     )
     .await
     .map_err(|e| AppError::Internal {
         message: format!("Failed to insert document: {e}"),
     })?;
 
-    // Classify PDF content — this populates text/scanned/mixed, per-page
-    // OCR flags, and character counts. Failures are logged but MUST NOT
-    // block the upload: the default `content_type = 'unknown'` stays on
-    // the row and ExtractText handles discovery the hard way at processing
-    // time. Design: PDF_CONTENT_CLASSIFICATION_DESIGN_v2.md Phase B.
-    let classification = match colossus_pdf::PdfTextExtractor::open(&dest_path) {
-        Ok(mut extractor) => match extractor.classify() {
-            Ok(c) => Some(c),
+    // PDF content classification — only meaningful for PDF files.
+    // DOCX and TXT files don't have scanned vs text-based pages.
+    if detected_format == "pdf" {
+        // Classify PDF content — this populates text/scanned/mixed, per-page
+        // OCR flags, and character counts. Failures are logged but MUST NOT
+        // block the upload: the default `content_type = 'unknown'` stays on
+        // the row and ExtractText handles discovery the hard way at processing
+        // time. Design: PDF_CONTENT_CLASSIFICATION_DESIGN_v2.md Phase B.
+        let classification = match colossus_pdf::PdfTextExtractor::open(&dest_path) {
+            Ok(mut extractor) => match extractor.classify() {
+                Ok(c) => Some(c),
+                Err(e) => {
+                    tracing::warn!(
+                        doc_id = %doc_id, error = %e,
+                        "PDF classification failed, defaulting to unknown"
+                    );
+                    None
+                }
+            },
             Err(e) => {
                 tracing::warn!(
                     doc_id = %doc_id, error = %e,
-                    "PDF classification failed, defaulting to unknown"
+                    "Failed to open PDF for classification"
                 );
                 None
             }
-        },
-        Err(e) => {
-            tracing::warn!(
-                doc_id = %doc_id, error = %e,
-                "Failed to open PDF for classification"
-            );
-            None
-        }
-    };
+        };
 
-    if let Some(ref c) = classification {
-        let pages_ocr: Vec<i32> = c.pages_needing_ocr.iter().map(|&p| p as i32).collect();
-        if let Err(e) = sqlx::query(
-            "UPDATE documents SET content_type = $1, page_count = $2, \
-             text_pages = $3, scanned_pages = $4, pages_needing_ocr = $5, \
-             total_chars = $6 WHERE id = $7",
-        )
-        .bind(c.content_type.as_str())
-        .bind(c.page_count as i32)
-        .bind(c.text_pages as i32)
-        .bind(c.scanned_pages as i32)
-        .bind(&pages_ocr)
-        .bind(c.total_chars as i32)
-        .bind(&doc_id)
-        .execute(&state.pipeline_pool)
-        .await
-        {
-            tracing::warn!(
-                doc_id = %doc_id, error = %e,
-                "Failed to store PDF classification — upload succeeds, content_type stays 'unknown'"
-            );
+        if let Some(ref c) = classification {
+            let pages_ocr: Vec<i32> = c.pages_needing_ocr.iter().map(|&p| p as i32).collect();
+            if let Err(e) = sqlx::query(
+                "UPDATE documents SET content_type = $1, page_count = $2, \
+                 text_pages = $3, scanned_pages = $4, pages_needing_ocr = $5, \
+                 total_chars = $6 WHERE id = $7",
+            )
+            .bind(c.content_type.as_str())
+            .bind(c.page_count as i32)
+            .bind(c.text_pages as i32)
+            .bind(c.scanned_pages as i32)
+            .bind(&pages_ocr)
+            .bind(c.total_chars as i32)
+            .bind(&doc_id)
+            .execute(&state.pipeline_pool)
+            .await
+            {
+                tracing::warn!(
+                    doc_id = %doc_id, error = %e,
+                    "Failed to store PDF classification — upload succeeds, content_type stays 'unknown'"
+                );
+            }
         }
     }
 
