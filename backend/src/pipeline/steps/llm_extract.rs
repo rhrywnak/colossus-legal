@@ -700,6 +700,63 @@ async fn run_full_document_extraction(
 
 // ── Chunked / structured shared loop ────────────────────────────
 
+/// Assemble the per-chunk prompt by substituting `{{schema_json}}` and the
+/// chunk body into a template.
+///
+/// Mirrors the dual-aware substitution in [`run_full_document_extraction`]:
+/// templates may carry **either** `{{document_text}}` (preferred for
+/// full-document templates like `pass1_complaint_v4.md`) **or**
+/// `{{chunk_text}}` (the original chunked-mode placeholder). Whichever the
+/// template uses, the chunk's text is substituted into it.
+///
+/// When both placeholders appear, `{{document_text}}` wins — matching the
+/// preference in `run_full_document_extraction`. When neither appears, the
+/// function returns an error so the caller can `mark_run_failed` and abort
+/// before sending a prompt the LLM can't act on.
+///
+/// ## Why this lives outside the per-chunk loop body
+///
+/// Pulling the substitution into a pure function keeps it unit-testable
+/// without an LLM provider, a database, or a runtime. The previous inline
+/// version only substituted `{{chunk_text}}`, so a template using
+/// `{{document_text}}` (the canonical placeholder for pass-1 complaint
+/// extraction) silently sent the LLM a prompt with no document body and
+/// the literal four-word string `{{document_text}}` instead. Isolating
+/// the logic makes regression tests on this contract trivial.
+///
+/// ## Rust Learning: returning `Result<String, String>` for a small helper
+///
+/// A full `thiserror` enum would be overkill for one error case ("no
+/// usable placeholder"). The caller wraps this `String` into the existing
+/// `Box<dyn Error + Send + Sync>` flow alongside `mark_run_failed`. The
+/// error message names *both* placeholders so an operator reading the
+/// `extraction_runs.error_message` column knows exactly what to fix in
+/// the template file.
+fn assemble_chunk_prompt(
+    template_text: &str,
+    schema_json: &str,
+    chunk_text: &str,
+) -> Result<String, String> {
+    let has_document_text = template_text.contains("{{document_text}}");
+    let has_chunk_text = template_text.contains("{{chunk_text}}");
+
+    if has_document_text {
+        Ok(template_text
+            .replace("{{schema_json}}", schema_json)
+            .replace("{{document_text}}", chunk_text))
+    } else if has_chunk_text {
+        Ok(template_text
+            .replace("{{schema_json}}", schema_json)
+            .replace("{{chunk_text}}", chunk_text))
+    } else {
+        Err(
+            "Template has no {{document_text}} or {{chunk_text}} placeholder — \
+             chunk body cannot be injected into the prompt"
+                .to_string(),
+        )
+    }
+}
+
 /// Drive the LLM extraction loop over a pre-split list of text chunks.
 ///
 /// Both the legacy `run_chunked_extraction` (FixedSizeSplitter) and the
@@ -820,10 +877,21 @@ async fn extract_chunks_loop(
 
         let chunk_start = Instant::now();
 
-        let prompt = args
-            .template_text
-            .replace("{{schema_json}}", args.schema_json)
-            .replace("{{chunk_text}}", &chunk.text);
+        // Dual-aware placeholder substitution. Templates can carry either
+        // `{{document_text}}` or `{{chunk_text}}`; failing to find one
+        // silently used to ship a prompt with no document body. We now
+        // fail fast and record the failure on the run row.
+        let prompt = match assemble_chunk_prompt(
+            args.template_text,
+            args.schema_json,
+            &chunk.text,
+        ) {
+            Ok(p) => p,
+            Err(msg) => {
+                mark_run_failed(args.db, args.run_id, &msg).await;
+                return Err(msg.into());
+            }
+        };
 
         let llm_result = call_with_rate_limit_retry(
             args.llm_provider,
@@ -1431,6 +1499,76 @@ pub(crate) fn resolve_effective_mode(resolved: &ResolvedConfig) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── assemble_chunk_prompt ────────────────────────────────────
+    //
+    // These tests pin down the dual-aware placeholder contract that
+    // chunked + structured modes rely on. Regressions on these tests
+    // mean the LLM is being sent a prompt with no document body —
+    // exactly the silent-truncation bug they were written to prevent.
+
+    #[test]
+    fn assemble_chunk_prompt_substitutes_document_text() {
+        // Template uses {{document_text}} (e.g., pass1_complaint_v4.md).
+        // The chunk's body must replace that placeholder verbatim.
+        let template = "Schema: {{schema_json}}\n\nDoc:\n{{document_text}}";
+        let prompt = assemble_chunk_prompt(template, "<SCHEMA>", "<CHUNK BODY>")
+            .expect("dual-aware substitution should succeed for {{document_text}}");
+        assert!(
+            prompt.contains("<CHUNK BODY>"),
+            "chunk body must appear in the prompt; got: {prompt}"
+        );
+        assert!(
+            !prompt.contains("{{document_text}}"),
+            "the placeholder must be replaced, not left literal; got: {prompt}"
+        );
+        assert!(prompt.contains("<SCHEMA>"));
+    }
+
+    #[test]
+    fn assemble_chunk_prompt_substitutes_chunk_text() {
+        // Backward-compat: templates that already use {{chunk_text}}
+        // (the original chunked-mode placeholder) keep working.
+        let template = "Schema: {{schema_json}}\n\nChunk:\n{{chunk_text}}";
+        let prompt = assemble_chunk_prompt(template, "<SCHEMA>", "<CHUNK BODY>")
+            .expect("substitution should succeed for {{chunk_text}}");
+        assert!(prompt.contains("<CHUNK BODY>"));
+        assert!(!prompt.contains("{{chunk_text}}"));
+    }
+
+    #[test]
+    fn assemble_chunk_prompt_fails_on_missing_both() {
+        // A template missing both placeholders cannot inject the chunk
+        // body anywhere — fail fast so the caller can mark_run_failed
+        // before sending a useless prompt to the LLM.
+        let template = "Schema: {{schema_json}}\n\nNo body placeholder anywhere.";
+        let err = assemble_chunk_prompt(template, "<SCHEMA>", "<CHUNK BODY>")
+            .expect_err("a template with neither placeholder must error");
+        assert!(
+            err.contains("{{document_text}}") && err.contains("{{chunk_text}}"),
+            "error must name BOTH placeholders so the operator knows what's missing; got: {err}"
+        );
+    }
+
+    #[test]
+    fn assemble_chunk_prompt_prefers_document_text_when_both_present() {
+        // Symmetry with run_full_document_extraction: when a template
+        // somehow carries both placeholders, {{document_text}} wins.
+        // {{chunk_text}} stays unsubstituted (a degenerate case — a
+        // well-formed template should only have one body placeholder).
+        let template =
+            "Doc: {{document_text}}\n\nChunk: {{chunk_text}}\n\nSchema: {{schema_json}}";
+        let prompt = assemble_chunk_prompt(template, "<SCHEMA>", "<CHUNK BODY>")
+            .expect("must succeed when at least one placeholder is present");
+        assert!(
+            prompt.contains("Doc: <CHUNK BODY>"),
+            "{{{{document_text}}}} must be the substituted slot; got: {prompt}"
+        );
+        assert!(
+            prompt.contains("Chunk: {{chunk_text}}"),
+            "{{{{chunk_text}}}} stays literal when {{{{document_text}}}} wins; got: {prompt}"
+        );
+    }
 
     #[test]
     fn llm_extract_error_display_policy() {
