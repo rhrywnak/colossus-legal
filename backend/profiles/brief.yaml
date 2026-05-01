@@ -1,0 +1,42 @@
+# brief_v2.yaml
+# Processing profile for legal briefs, motions, and supporting memoranda.
+# Uses structured chunking with section_heading strategy because briefs
+# use uppercase section headings (Roman numerals, all-caps titles).
+# Large briefs (30+ pages) produce hallucinations and bad verbatim quotes
+# when processed as full documents — structured chunking is required.
+
+name: brief
+display_name: Appellate Brief
+description: >
+  Legal brief, motion, or supporting memorandum filed with a court.
+  Structured chunking splits at uppercase section headings to maintain
+  argument coherence while keeping chunks focused for extraction quality.
+
+schema_file: brief_v4.yaml
+
+template_file: pass1_brief_v4.md
+global_rules_file: global_rules_v4.md
+pass2_template_file: pass2_brief_v4.md
+system_prompt_file: legal_extraction_system.md
+
+extraction_model: claude-sonnet-4-6
+synthesis_model: null
+
+chunking_mode: structured
+chunk_size: 8000
+chunk_overlap: 500
+
+max_tokens: 32000
+temperature: 0.0
+
+auto_approve_grounded: true
+run_pass2: true
+
+is_default: false
+
+chunking_config:
+  mode: structured
+  strategy: section_heading
+  units_per_chunk: 5
+  unit_overlap: 0
+  request_timeout_secs: 1800

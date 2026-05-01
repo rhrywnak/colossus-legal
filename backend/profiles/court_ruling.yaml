@@ -1,0 +1,41 @@
+# court_ruling_v2.yaml
+# Processing profile for court rulings, opinions, orders, and judgments.
+# Uses structured chunking with section_heading strategy because court
+# rulings use uppercase section headings (LEGAL ANALYSIS, FINDINGS OF FACT,
+# ORDER, OPINION AND ORDER, etc.).
+
+name: court_ruling
+display_name: Court Ruling
+description: >
+  Court ruling, opinion, order, or judgment issued by a judge.
+  Structured chunking splits at uppercase section headings to maintain
+  legal analysis coherence while keeping chunks focused for extraction quality.
+
+schema_file: court_ruling_v4.yaml
+
+template_file: pass1_court_ruling_v4.md
+global_rules_file: global_rules_v4.md
+pass2_template_file: pass2_court_ruling_v4.md
+system_prompt_file: legal_extraction_system.md
+
+extraction_model: claude-sonnet-4-6
+synthesis_model: null
+
+chunking_mode: structured
+chunk_size: 8000
+chunk_overlap: 500
+
+max_tokens: 32000
+temperature: 0.0
+
+auto_approve_grounded: true
+run_pass2: true
+
+is_default: false
+
+chunking_config:
+  mode: structured
+  strategy: section_heading
+  units_per_chunk: 5
+  unit_overlap: 0
+  request_timeout_secs: 1800

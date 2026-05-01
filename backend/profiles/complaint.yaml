@@ -1,0 +1,40 @@
+# complaint.yaml
+# Processing profile for legal complaints — the initiating document
+# of a civil lawsuit. Uses full-document extraction (no chunking)
+# because complaints are typically 7K-10K tokens and fit in a single
+# LLM call. Chunking splits count headings from their allegations.
+
+name: complaint
+display_name: Complaint
+description: >
+  Legal complaint — the initiating document of a civil lawsuit.
+  Full-document extraction preserves count/allegation relationships.
+
+# Schema — references file in EXTRACTION_SCHEMA_DIR
+schema_file: complaint_v4.yaml
+
+# Prompts — reference files in EXTRACTION_TEMPLATE_DIR and SYSTEM_PROMPT_DIR
+template_file: pass1_complaint_v4.md
+global_rules_file: global_rules_v4.md
+pass2_template_file: pass2_complaint_v4.md
+system_prompt_file: legal_extraction_system.md
+
+# Model — must match an id in the llm_models table
+extraction_model: claude-sonnet-4-6
+synthesis_model: null
+
+# Chunking
+chunking_mode: full
+chunk_size: null
+chunk_overlap: null
+
+# LLM parameters
+max_tokens: 32000
+temperature: 0.0
+
+# Behavior
+auto_approve_grounded: true
+run_pass2: true
+
+# Whether this is the default profile for unknown document types
+is_default: false

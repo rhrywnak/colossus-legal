@@ -1,0 +1,119 @@
+# Extraction schema for court rulings — DATA_MODEL_v4 aligned
+#
+# Court rulings contain judicial findings, legal conclusions, and orders.
+# These carry special weight because they represent the COURT'S OWN
+# determinations — not party arguments or witness testimony.
+#
+# Entity types: Party and Evidence only.
+# Evidence entities use evidence_strength: "court_finding" which carries
+# judicial authority higher than any party statement or sworn testimony.
+#
+# Property names match PROD Neo4j and existing pipeline code.
+# verbatim_quote is NOT a schema property — it's a top-level entity field.
+
+document_type: court_ruling
+version: "4.0"
+description: "Court ruling — opinion, order, or judgment issued by a judge"
+
+entity_types:
+  - name: Party
+    grounding_mode: name_match
+    category: reference
+    description: "A person or organization mentioned in the ruling. Extract EVERY named individual and organization."
+    properties:
+      - name: party_name
+        type: string
+        required: true
+        description: "Full legal name as it appears in the document"
+      - name: role
+        type: string
+        required: true
+        description: "plaintiff, defendant, judge, attorney, witness, personal_representative, fiduciary, interested_party, guardian_ad_litem, petitioner, respondent, appellant, appellee"
+      - name: party_type
+        type: string
+        required: true
+        description: "person or organization"
+      - name: aliases
+        type: string
+        description: "Other names or references used for this party, comma-separated"
+
+  - name: Evidence
+    grounding_mode: verbatim
+    category: evidence
+    description: "A specific finding of fact, legal conclusion, characterization, or court order from the ruling. Court findings carry judicial authority — they are the court's own determinations."
+    properties:
+      - name: evidence_number
+        type: integer
+        required: true
+        description: "Sequential number for this evidence item"
+      - name: summary
+        type: string
+        required: true
+        description: "One-sentence summary of the finding, conclusion, or order"
+      - name: kind
+        type: string
+        required: true
+        description: "documentary"
+      - name: evidence_strength
+        type: string
+        required: true
+        description: "court_finding (ALWAYS use court_finding for court rulings — these carry judicial authority)"
+      - name: statement_type
+        type: string
+        required: true
+        description: "court_finding (factual determination by the court), legal_conclusion (legal determination by the court), court_order (directive/order by the court), characterization (court's characterization of a party's conduct)"
+      - name: stated_by
+        type: string
+        description: "Name of the judge who issued this ruling"
+      - name: about
+        type: string
+        description: "Name of the party this finding/order is about"
+      - name: significance
+        type: string
+        description: "Why this finding matters for trial preparation"
+      - name: pattern_tags
+        type: string
+        description: "Comma-separated tags: judicial_bias, selective_enforcement, disparagement, unsupported_finding, procedural_irregularity, disproportionate_penalty"
+      - name: legal_basis
+        type: string
+        description: "Statute, rule, or case law cited as basis for this finding or order"
+      - name: amount
+        type: string
+        description: "Dollar amount if specified in the finding or order"
+      - name: page_ref
+        type: string
+        description: "Page number(s) where this finding appears"
+
+relationship_types:
+  - name: STATED_BY
+    description: "This finding/order was made by this judge"
+  - name: ABOUT
+    description: "This finding/order is about this party"
+  - name: CORROBORATES
+    description: "This court finding confirms a complaint allegation or evidence from another document"
+  - name: CONTRADICTS
+    description: "This court finding conflicts with a statement from another document"
+
+valid_patterns:
+  - from: Evidence
+    relationship: STATED_BY
+    to: Party
+  - from: Evidence
+    relationship: ABOUT
+    to: Party
+  - from: Evidence
+    relationship: CORROBORATES
+    to: Evidence
+  - from: Evidence
+    relationship: CONTRADICTS
+    to: Evidence
+
+extraction_rules:
+  - "Extract EVERY distinct factual finding, legal conclusion, and court order as a separate Evidence entity"
+  - "Every verbatim_quote MUST be an exact substring of the document text — copy the text exactly"
+  - "Court rulings carry judicial authority — evidence_strength is ALWAYS 'court_finding'"
+  - "Watch for characterizations of parties by the court — these reveal potential judicial bias"
+  - "Watch for different standards applied to different parties — tag as selective_enforcement"
+  - "Extract ALL parties including the judge, all named parties, and referenced third parties"
+  - "Note specific dollar amounts, statutes cited, and case law referenced"
+  - "Extract court orders as Evidence with statement_type='court_order'"

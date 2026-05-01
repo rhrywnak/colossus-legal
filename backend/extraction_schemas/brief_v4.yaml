@@ -1,0 +1,152 @@
+# Extraction schema for legal briefs — DATA_MODEL_v4 aligned
+#
+# Briefs are written legal arguments filed with the court. They are NOT sworn.
+# They contain legal arguments (MotionClaim), factual assertions and
+# characterizations (Evidence), and references to parties (Party).
+#
+# Characterizations are the highest priority — every instance where the brief
+# labels, dismisses, or disparages the opposing party's claims.
+#
+# Property names match PROD Neo4j and existing pipeline code.
+# verbatim_quote is NOT a schema property — it's a top-level entity field.
+
+document_type: brief
+version: "4.0"
+description: "Legal brief — written legal argument filed with the court (NOT sworn testimony)"
+
+entity_types:
+  - name: Party
+    grounding_mode: name_match
+    category: reference
+    description: "A person or organization mentioned in the brief. Extract EVERY named individual and organization."
+    properties:
+      - name: party_name
+        type: string
+        required: true
+        description: "Full legal name as it appears in the document"
+      - name: role
+        type: string
+        required: true
+        description: "plaintiff, defendant, movant, respondent, attorney, judge, witness, third_party, personal_representative, fiduciary"
+      - name: party_type
+        type: string
+        required: true
+        description: "person or organization"
+      - name: aliases
+        type: string
+        description: "Other names or references used for this party, comma-separated"
+
+  - name: MotionClaim
+    grounding_mode: derived
+    category: evidence
+    description: "A synthesized legal argument, position, or claim made in the brief. MotionClaims capture the brief's legal reasoning and positions — they are summaries, not verbatim quotes."
+    properties:
+      - name: claim_number
+        type: integer
+        required: true
+        description: "Sequential number for this claim"
+      - name: summary
+        type: string
+        required: true
+        description: "One-sentence summary of the legal argument or position"
+      - name: category
+        type: string
+        required: true
+        description: "legal_argument, factual_assertion, characterization, admission, evidence_summary, procedural_request"
+      - name: section
+        type: string
+        description: "Section of the brief this claim appears in (e.g., 'Statement of Facts', 'Legal Argument', 'Relief Requested')"
+      - name: applies_to
+        type: string
+        description: "Name of the party this claim is about or directed at"
+      - name: relief_sought
+        type: string
+        description: "What relief or action this claim supports, if applicable"
+
+  - name: Evidence
+    grounding_mode: verbatim
+    category: evidence
+    description: "A specific factual claim, characterization, or assertion made in the brief with exact quoted text. Evidence entities capture what the brief SAYS — the specific language used."
+    properties:
+      - name: evidence_number
+        type: integer
+        required: true
+        description: "Sequential number for this evidence item"
+      - name: summary
+        type: string
+        required: true
+        description: "One-sentence summary of what is stated"
+      - name: kind
+        type: string
+        required: true
+        description: "documentary"
+      - name: evidence_strength
+        type: string
+        required: true
+        description: "party_statement (briefs are NOT sworn — always use party_statement)"
+      - name: statement_type
+        type: string
+        required: true
+        description: "factual_assertion, characterization, admission, legal_argument, misrepresentation"
+      - name: stated_by
+        type: string
+        description: "Name of the party or attorney making this statement"
+      - name: about
+        type: string
+        description: "Name of the party this statement is about"
+      - name: significance
+        type: string
+        description: "Why this statement matters for trial preparation"
+      - name: pattern_tags
+        type: string
+        description: "Comma-separated tags: disparagement, selective_enforcement, misrepresentation, evasion, admission_against_interest, concealment"
+      - name: exhibit_ref
+        type: string
+        description: "Exhibit or document referenced to support this statement, if any"
+      - name: page_ref
+        type: string
+        description: "Page number(s) where this statement appears"
+
+relationship_types:
+  - name: STATED_BY
+    description: "This evidence/claim was stated by this party"
+  - name: ABOUT
+    description: "This evidence/claim is about this party"
+  - name: SUPPORTS_CLAIM
+    description: "This evidence supports this motion claim"
+  - name: CITES_EXHIBIT
+    description: "This evidence or claim references this exhibit"
+  - name: CORROBORATES
+    description: "This evidence corroborates a complaint allegation or evidence from another document"
+  - name: CONTRADICTS
+    description: "This evidence contradicts a statement from another document"
+
+valid_patterns:
+  - from: Evidence
+    relationship: STATED_BY
+    to: Party
+  - from: Evidence
+    relationship: ABOUT
+    to: Party
+  - from: MotionClaim
+    relationship: ABOUT
+    to: Party
+  - from: Evidence
+    relationship: SUPPORTS_CLAIM
+    to: MotionClaim
+  - from: Evidence
+    relationship: CORROBORATES
+    to: Evidence
+  - from: Evidence
+    relationship: CONTRADICTS
+    to: Evidence
+
+extraction_rules:
+  - "Extract EVERY factual assertion and characterization as an Evidence entity with a verbatim_quote"
+  - "Every verbatim_quote MUST be an exact substring of the document text — copy the text exactly"
+  - "Briefs are NOT sworn — evidence_strength is ALWAYS 'party_statement'"
+  - "CHARACTERIZATIONS are the highest priority — extract every instance where the brief labels, dismisses, or disparages claims"
+  - "Extract legal arguments and positions as MotionClaim entities (these are summaries, not verbatim quotes)"
+  - "Tag patterns: disparagement, selective_enforcement, misrepresentation, evasion, admission_against_interest, concealment"
+  - "Note exhibit references — these connect the brief's claims to documentary evidence"
+  - "Extract ALL parties including attorneys, judges, and referenced third parties"
