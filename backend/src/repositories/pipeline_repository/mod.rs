@@ -26,6 +26,7 @@ use crate::pipeline::config::PipelineConfigOverrides;
 
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
+use std::collections::HashMap;
 
 // ── Error type ───────────────────────────────────────────────────
 
@@ -35,6 +36,22 @@ pub enum PipelineRepoError {
     Database(String),
     #[error("Document not found: {0}")]
     NotFound(String),
+    /// JSONB column on a `pipeline_config` row decoded from the database
+    /// but failed to deserialize into the expected typed shape.
+    ///
+    /// Reserved for cases where the SQL succeeded (the row exists, the
+    /// column is well-formed JSON) but the JSON's *shape* doesn't match
+    /// what the application expects — e.g., `chunking_config` is a
+    /// JSONB number instead of an object map. The error message names
+    /// the offending document_id and column so an auditor can find the
+    /// bad row directly.
+    ///
+    /// Distinct from `Database` so callers can decide whether to retry
+    /// (Database errors may be transient; Deserialization errors are
+    /// data-shape bugs and a retry won't help) and so audit/alerting
+    /// can prioritise this class differently.
+    #[error("Deserialization error: {0}")]
+    Deserialization(String),
 }
 
 impl From<sqlx::Error> for PipelineRepoError {
@@ -472,6 +489,14 @@ struct PipelineConfigOverridesRow {
     max_tokens: Option<i32>,
     temperature: Option<f64>,
     run_pass2: Option<bool>,
+    /// Raw JSONB from the new override columns. We deliberately stay
+    /// at `serde_json::Value` here (rather than `Json<HashMap<...>>`)
+    /// so the converter can attach the document_id to a typed
+    /// `Deserialization` error if the JSON's shape doesn't match the
+    /// expected map. `Json<T>`'s decode error wouldn't carry that
+    /// context and would silently surface as a generic sqlx error.
+    chunking_config: Option<serde_json::Value>,
+    context_config: Option<serde_json::Value>,
 }
 
 /// Read per-document override columns from `pipeline_config`.
@@ -491,7 +516,8 @@ pub async fn get_pipeline_config_overrides(
         "SELECT profile_name, extraction_model, pass2_extraction_model, \
                 template_file, system_prompt_file, \
                 chunking_mode, chunk_size, chunk_overlap, max_tokens, \
-                temperature::float8 AS temperature, run_pass2 \
+                temperature::float8 AS temperature, run_pass2, \
+                chunking_config, context_config \
          FROM pipeline_config WHERE document_id = $1",
     )
     .bind(document_id)
@@ -499,29 +525,102 @@ pub async fn get_pipeline_config_overrides(
     .await?;
 
     let result = match row {
-        Some(r) => PipelineConfigOverrides {
-            profile_name: r.profile_name,
-            extraction_model: r.extraction_model,
-            pass2_extraction_model: r.pass2_extraction_model,
-            template_file: r.template_file,
-            system_prompt_file: r.system_prompt_file,
-            chunking_mode: r.chunking_mode,
-            chunk_size: r.chunk_size,
-            chunk_overlap: r.chunk_overlap,
-            max_tokens: r.max_tokens,
-            temperature: r.temperature,
-            run_pass2: r.run_pass2,
-            // pipeline_config columns for chunking_config/context_config
-            // arrive in Group 3's migration. Until then, no per-document
-            // override is read here — `resolve_config` falls through to the
-            // profile's map.
-            chunking_config: None,
-            context_config: None,
-        },
+        Some(r) => {
+            // Decode the two JSONB override maps with no-silent-fails:
+            // a malformed body raises `Deserialization` carrying the
+            // document_id and column so an auditor can locate the bad
+            // row directly. `None` (NULL column) means "no override;
+            // resolve_config will fall back to the profile's map."
+            let chunking_config = decode_jsonb_map(
+                document_id,
+                "chunking_config",
+                r.chunking_config,
+            )?;
+            let context_config = decode_jsonb_map(
+                document_id,
+                "context_config",
+                r.context_config,
+            )?;
+            PipelineConfigOverrides {
+                profile_name: r.profile_name,
+                extraction_model: r.extraction_model,
+                pass2_extraction_model: r.pass2_extraction_model,
+                template_file: r.template_file,
+                system_prompt_file: r.system_prompt_file,
+                chunking_mode: r.chunking_mode,
+                chunk_size: r.chunk_size,
+                chunk_overlap: r.chunk_overlap,
+                max_tokens: r.max_tokens,
+                temperature: r.temperature,
+                run_pass2: r.run_pass2,
+                chunking_config,
+                context_config,
+            }
+        }
         None => PipelineConfigOverrides::default(),
     };
 
     Ok(result)
+}
+
+/// Decode an `Option<serde_json::Value>` from a `pipeline_config` JSONB
+/// column into the typed override shape (`Option<HashMap<String, Value>>`).
+///
+/// The two override columns (`chunking_config`, `context_config`) share
+/// this exact shape, so the conversion is factored out. NULL → `Ok(None)`
+/// (no override). A non-NULL value that doesn't deserialize into a map →
+/// `Err(Deserialization)` with both `document_id` and `column` named in
+/// the message — never silent `None`. The application layer treats `None`
+/// as "inherit from profile"; a silent fall-through on bad data would
+/// mask a corrupted row as a working one.
+///
+/// ## Rust Learning: factor on shape, not on column name
+///
+/// We pass the column name as a `&str` argument rather than writing two
+/// near-identical decoders or templating the function over a const. The
+/// caller already knows the column it's reading; threading it through
+/// gives the error message all the context it needs without a generic
+/// const-name parameter.
+/// True when the `PipelineConfigOverrides` payload carries at least one
+/// non-`None` field — i.e. the PATCH actually requests a change.
+///
+/// Factored out of `patch_pipeline_config_overrides` so the contract
+/// can be unit-tested. The risk this guards against: a future field
+/// added to `PipelineConfigOverrides` whose `is_some()` clause is
+/// forgotten here would produce a silent no-op for any PATCH that
+/// touches only that new field. The
+/// `patch_with_only_chunking_config_does_not_short_circuit` test below
+/// pins that down for the chunking_config path; analogous tests should
+/// be added when a future field is introduced.
+fn has_any_override(overrides: &PipelineConfigOverrides) -> bool {
+    overrides.profile_name.is_some()
+        || overrides.extraction_model.is_some()
+        || overrides.pass2_extraction_model.is_some()
+        || overrides.template_file.is_some()
+        || overrides.system_prompt_file.is_some()
+        || overrides.chunking_mode.is_some()
+        || overrides.chunk_size.is_some()
+        || overrides.chunk_overlap.is_some()
+        || overrides.max_tokens.is_some()
+        || overrides.temperature.is_some()
+        || overrides.run_pass2.is_some()
+        || overrides.chunking_config.is_some()
+        || overrides.context_config.is_some()
+}
+
+fn decode_jsonb_map(
+    document_id: &str,
+    column: &str,
+    raw: Option<serde_json::Value>,
+) -> Result<Option<HashMap<String, serde_json::Value>>, PipelineRepoError> {
+    match raw {
+        None => Ok(None),
+        Some(v) => serde_json::from_value(v).map(Some).map_err(|e| {
+            PipelineRepoError::Deserialization(format!(
+                "pipeline_config.{column} for document_id={document_id} is not a valid map: {e}"
+            ))
+        }),
+    }
 }
 
 /// Partially update the per-document override columns on `pipeline_config`.
@@ -542,18 +641,11 @@ pub async fn patch_pipeline_config_overrides(
     document_id: &str,
     overrides: &PipelineConfigOverrides,
 ) -> Result<(), PipelineRepoError> {
-    // Short-circuit when there is nothing to update.
-    let any_field = overrides.profile_name.is_some()
-        || overrides.extraction_model.is_some()
-        || overrides.pass2_extraction_model.is_some()
-        || overrides.template_file.is_some()
-        || overrides.system_prompt_file.is_some()
-        || overrides.chunking_mode.is_some()
-        || overrides.chunk_size.is_some()
-        || overrides.chunk_overlap.is_some()
-        || overrides.max_tokens.is_some()
-        || overrides.temperature.is_some()
-        || overrides.run_pass2.is_some();
+    // Short-circuit when there is nothing to update. Factored out so a
+    // unit test can pin down the contract: every overridable field on
+    // `PipelineConfigOverrides` MUST contribute to this check, or a
+    // PATCH whose only field is the missing one would silently no-op.
+    let any_field = has_any_override(overrides);
     if !any_field {
         let existing: Option<String> =
             sqlx::query_scalar("SELECT document_id FROM pipeline_config WHERE document_id = $1")
@@ -567,6 +659,40 @@ pub async fn patch_pipeline_config_overrides(
         };
     }
 
+    // Convert the typed `Option<HashMap<...>>` overrides into the JSONB
+    // shape sqlx wants for binding. Two states matter:
+    //   - `None` here → bind NULL → COALESCE keeps the existing column
+    //     value (the "no override on this PATCH" path).
+    //   - `Some(map)` → bind the JSON body → COALESCE picks the new
+    //     value (full whole-map replacement at the COLUMN level — the
+    //     key-level merge on top of the profile happens later, at
+    //     resolve_config time).
+    //
+    // `serde_json::to_value` over `HashMap<String, Value>` cannot fail
+    // structurally (string keys, JSON-shaped values both round-trip
+    // by construction). If a future change introduces a type that can
+    // fail to serialize (e.g., `f64` with `NaN`), add a Serialization
+    // variant to PipelineRepoError and propagate the error here. For
+    // now, an `unwrap_or_else` would be a "this path is unreachable"
+    // statement — we use `?` via `transpose()` so the type checker
+    // proves the same thing without an unwrap.
+    let chunking_config_json = overrides
+        .chunking_config
+        .as_ref()
+        .map(serde_json::to_value)
+        .transpose()
+        .map_err(|e| PipelineRepoError::Database(format!(
+            "structurally-impossible serialize of chunking_config for document_id={document_id}: {e}"
+        )))?;
+    let context_config_json = overrides
+        .context_config
+        .as_ref()
+        .map(serde_json::to_value)
+        .transpose()
+        .map_err(|e| PipelineRepoError::Database(format!(
+            "structurally-impossible serialize of context_config for document_id={document_id}: {e}"
+        )))?;
+
     let result = sqlx::query(
         "UPDATE pipeline_config SET \
            profile_name = COALESCE($2, profile_name), \
@@ -579,7 +705,9 @@ pub async fn patch_pipeline_config_overrides(
            chunk_overlap = COALESCE($9, chunk_overlap), \
            max_tokens = COALESCE($10, max_tokens), \
            temperature = COALESCE($11::numeric, temperature), \
-           run_pass2 = COALESCE($12, run_pass2) \
+           run_pass2 = COALESCE($12, run_pass2), \
+           chunking_config = COALESCE($13, chunking_config), \
+           context_config = COALESCE($14, context_config) \
          WHERE document_id = $1",
     )
     .bind(document_id)
@@ -594,6 +722,8 @@ pub async fn patch_pipeline_config_overrides(
     .bind(overrides.max_tokens)
     .bind(overrides.temperature)
     .bind(overrides.run_pass2)
+    .bind(chunking_config_json)
+    .bind(context_config_json)
     .execute(db)
     .await?;
 
@@ -623,4 +753,165 @@ pub async fn update_pipeline_config(
     .execute(pool)
     .await?;
     Ok(())
+}
+
+// ── Tests ───────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── decode_jsonb_map: round-trip + error semantics ──────────────
+    //
+    // The conversion from raw JSONB (`Option<serde_json::Value>`) to
+    // the typed `Option<HashMap<String, Value>>` is the core of the
+    // read-path's no-silent-fail contract. These tests pin it down
+    // without needing a live database.
+
+    #[test]
+    fn decode_jsonb_map_returns_none_when_column_is_null() {
+        // The "no override; inherit from profile" path. Must be `Ok(None)`,
+        // never an error and never a silent default-empty-map.
+        let result = decode_jsonb_map("doc-x", "chunking_config", None);
+        assert!(matches!(result, Ok(None)));
+    }
+
+    #[test]
+    fn decode_jsonb_map_returns_typed_map_for_well_formed_json() {
+        let raw = serde_json::json!({"units_per_chunk": 3, "strategy": "qa_pair"});
+        let result = decode_jsonb_map("doc-x", "chunking_config", Some(raw))
+            .expect("well-formed JSONB must decode");
+        let map = result.expect("decoded map must be Some");
+        assert_eq!(map.get("units_per_chunk").and_then(|v| v.as_i64()), Some(3));
+        assert_eq!(map.get("strategy").and_then(|v| v.as_str()), Some("qa_pair"));
+    }
+
+    #[test]
+    fn decode_jsonb_map_errors_on_non_object_jsonb() {
+        // Spec test #3: malformed JSONB (here: a JSON number where an
+        // object is required) must NOT silently become None. Returns
+        // PipelineRepoError::Deserialization with both the document_id
+        // and the column name in the message so an auditor can find
+        // the row directly.
+        let raw = serde_json::json!(42);
+        let err = decode_jsonb_map("doc-malformed", "chunking_config", Some(raw))
+            .expect_err("non-object JSONB must error, not silently None");
+        match err {
+            PipelineRepoError::Deserialization(msg) => {
+                assert!(
+                    msg.contains("doc-malformed"),
+                    "error must name the document_id; got: {msg}"
+                );
+                assert!(
+                    msg.contains("chunking_config"),
+                    "error must name the column; got: {msg}"
+                );
+            }
+            other => panic!("expected Deserialization, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn decode_jsonb_map_errors_on_jsonb_array_instead_of_object() {
+        // Variant of the prior test: an array decoding into a map is
+        // also a shape mismatch. The spec wants any non-object value
+        // surfaced as Deserialization, not silent None.
+        let raw = serde_json::json!(["not", "a", "map"]);
+        let err = decode_jsonb_map("doc-y", "context_config", Some(raw))
+            .expect_err("JSON array must error when a map is expected");
+        assert!(matches!(err, PipelineRepoError::Deserialization(_)));
+    }
+
+    // ── has_any_override: pins the short-circuit contract ──────────
+
+    #[test]
+    fn has_any_override_returns_false_for_empty_overrides() {
+        assert!(!has_any_override(&PipelineConfigOverrides::default()));
+    }
+
+    /// Spec decision #4: a PATCH whose only field is `chunking_config`
+    /// must NOT short-circuit. Pre-Instruction-C, `any_field` did not
+    /// include `chunking_config.is_some()` in its OR — so this test
+    /// would have returned `false` and the UPDATE would have silently
+    /// no-op'd, leaving the operator's override unpersisted.
+    #[test]
+    fn patch_with_only_chunking_config_does_not_short_circuit() {
+        let mut over = HashMap::new();
+        over.insert("units_per_chunk".to_string(), serde_json::json!(3));
+        let overrides = PipelineConfigOverrides {
+            chunking_config: Some(over),
+            ..Default::default()
+        };
+        assert!(
+            has_any_override(&overrides),
+            "chunking_config override must trigger the UPDATE path"
+        );
+    }
+
+    /// Same as above but for context_config.
+    #[test]
+    fn patch_with_only_context_config_does_not_short_circuit() {
+        let mut over = HashMap::new();
+        over.insert("traversal_depth".to_string(), serde_json::json!(5));
+        let overrides = PipelineConfigOverrides {
+            context_config: Some(over),
+            ..Default::default()
+        };
+        assert!(has_any_override(&overrides));
+    }
+
+    /// `Some(empty_map)` is the explicit "I want to override but with
+    /// no keys" signal — it IS a real override (operationally distinct
+    /// from None, see PipelineConfigOverrides::chunking_config doc) and
+    /// must trigger the UPDATE so the COLUMN gets set to `'{}'::jsonb`.
+    #[test]
+    fn patch_with_only_empty_chunking_config_map_still_persists() {
+        let overrides = PipelineConfigOverrides {
+            chunking_config: Some(HashMap::new()),
+            ..Default::default()
+        };
+        assert!(
+            has_any_override(&overrides),
+            "Some(empty) is still an override and must reach the UPDATE"
+        );
+    }
+
+    // ── Live-DB integration tests (#[ignore]) ─────────────────────
+    //
+    // The repository's other CRUD paths are not unit-tested with a
+    // live database in this codebase. Round-tripping the new JSONB
+    // columns through PostgreSQL is exercised in DEV via the SQL
+    // verification block in this commit's instruction (see
+    // /home/roman/Downloads/CC_INSTRUCTION_C_chunking_context_config_overrides.md).
+    // Marking the spec's requested DB tests as `#[ignore]` here so they
+    // surface in `cargo test -- --ignored` for any future contributor
+    // who sets up a test DB fixture, but they don't gate the normal
+    // test run that has no PG connection.
+
+    #[ignore = "requires a live test database fixture (none in repo today)"]
+    #[test]
+    fn pipeline_config_chunking_override_round_trips_through_db() {
+        // Stub: insert pipeline_config with chunking_config = Some(map),
+        // call get_pipeline_config_overrides, assert deep equality.
+        // Implement when a #[fixture]-style PG pool helper lands.
+    }
+
+    #[ignore = "requires a live test database fixture (none in repo today)"]
+    #[test]
+    fn pipeline_config_chunking_null_round_trips_through_db_as_none() {
+        // Stub: insert with NULL chunking_config column, read back,
+        // assert PipelineConfigOverrides.chunking_config == None.
+    }
+
+    #[ignore = "requires a live test database fixture (none in repo today)"]
+    #[test]
+    fn pipeline_config_malformed_chunking_jsonb_returns_deserialization_error() {
+        // Stub: write a JSONB number into the chunking_config column
+        // via raw SQL (bypassing the typed write path), then call
+        // get_pipeline_config_overrides — expect
+        // PipelineRepoError::Deserialization carrying the document_id.
+        // The pure-unit test `decode_jsonb_map_errors_on_non_object_jsonb`
+        // above already covers this contract at the conversion layer;
+        // this stub exists for the future end-to-end verification.
+    }
 }

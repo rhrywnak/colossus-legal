@@ -453,6 +453,62 @@ impl SystemDefaults {
     }
 }
 
+/// Merge a per-document map override onto the profile's map, with
+/// **per-key** audit-trail granularity.
+///
+/// The two map-shaped overrides on `pipeline_config` (`chunking_config`,
+/// `context_config`) share this exact merge contract:
+///
+/// 1. **No override (`None`)** → return the profile's map verbatim.
+///    Nothing pushed to `applied`.
+/// 2. **Override (`Some(map)`)** → return `profile_map.extend(override_map)`
+///    so override KEYS replace profile keys at the *key level* (an
+///    operator overriding `units_per_chunk` doesn't have to re-state
+///    every other key in the map).
+///
+/// Audit trail granularity: for each key in the override map whose value
+/// **differs** from the profile's value (or that the profile doesn't
+/// have at all), push `"{audit_label}.{key}"` to `applied`. Keys whose
+/// override value matches the profile's value are NOT pushed — they
+/// are no-ops at the resolved-config level, and the audit log should
+/// reflect what *actually changed*. This is finer than the previous
+/// behaviour, which pushed the bare label `"chunking_config"` whenever
+/// any override was present (ambiguous about which sub-key changed).
+///
+/// ## Rust Learning: `&serde_json::Value`'s `==` is structural
+///
+/// Two `Value`s compare equal under `==` when their JSON shapes are
+/// identical (recursively). That is the right notion of "different
+/// from the profile" for audit purposes — `5` overridden with `5` is
+/// not really a change, but `5` overridden with `5.0` IS a change
+/// because the JSON types differ (and a downstream reader could behave
+/// differently). Number-type-coercion is the JSON spec's problem, not
+/// ours.
+fn merge_map_override(
+    profile_map: &HashMap<String, serde_json::Value>,
+    override_map: Option<&HashMap<String, serde_json::Value>>,
+    audit_label: &str,
+    applied: &mut Vec<String>,
+) -> HashMap<String, serde_json::Value> {
+    match override_map {
+        None => profile_map.clone(),
+        Some(over) => {
+            for (k, v) in over.iter() {
+                let differs = match profile_map.get(k) {
+                    None => true,            // key absent in profile — override adds it
+                    Some(profile_v) => profile_v != v,
+                };
+                if differs {
+                    applied.push(format!("{audit_label}.{k}"));
+                }
+            }
+            let mut merged = profile_map.clone();
+            merged.extend(over.iter().map(|(k, v)| (k.clone(), v.clone())));
+            merged
+        }
+    }
+}
+
 /// Resolve the three-level configuration hierarchy for a document.
 ///
 /// Priority: per-document override → profile → system default.
@@ -530,25 +586,19 @@ pub fn resolve_config(
     // other key. The alternative — replacing the whole map — would force
     // every override to repeat the entire chunking config just to nudge
     // one parameter.
-    let chunking_config = match &overrides.chunking_config {
-        Some(overrides_map) => {
-            applied.push("chunking_config".to_string());
-            let mut merged = profile.chunking_config.clone();
-            merged.extend(overrides_map.iter().map(|(k, v)| (k.clone(), v.clone())));
-            merged
-        }
-        None => profile.chunking_config.clone(),
-    };
+    let chunking_config = merge_map_override(
+        &profile.chunking_config,
+        overrides.chunking_config.as_ref(),
+        "chunking_config",
+        &mut applied,
+    );
 
-    let context_config = match &overrides.context_config {
-        Some(overrides_map) => {
-            applied.push("context_config".to_string());
-            let mut merged = profile.context_config.clone();
-            merged.extend(overrides_map.iter().map(|(k, v)| (k.clone(), v.clone())));
-            merged
-        }
-        None => profile.context_config.clone(),
-    };
+    let context_config = merge_map_override(
+        &profile.context_config,
+        overrides.context_config.as_ref(),
+        "context_config",
+        &mut applied,
+    );
 
     ResolvedConfig {
         profile_name: overrides.profile_name.clone()
@@ -1151,10 +1201,33 @@ chunking_mode: full
             resolved.chunking_config.get("strategy").and_then(|v| v.as_str()),
             Some("qa_pair")
         );
-        // Tracked as overridden
-        assert!(resolved
+        // Tracked as overridden — per-key granularity (Gap 1's audit
+        // refinement). The bare `"chunking_config"` whole-map label is
+        // gone; the audit now records exactly which sub-key changed so
+        // a downstream reader of `processing_config.overrides_applied`
+        // sees `["chunking_config.units_per_chunk"]` instead of an
+        // ambiguous `["chunking_config"]`.
+        assert!(
+            resolved
+                .overrides_applied
+                .contains(&"chunking_config.units_per_chunk".to_string()),
+            "expected per-key entry; got: {:?}",
+            resolved.overrides_applied
+        );
+        assert!(
+            !resolved
+                .overrides_applied
+                .contains(&"chunking_config".to_string()),
+            "the bare whole-map label must NOT appear; got: {:?}",
+            resolved.overrides_applied
+        );
+        // mode and strategy were not in the override map → no entry for them.
+        assert!(!resolved
             .overrides_applied
-            .contains(&"chunking_config".to_string()));
+            .contains(&"chunking_config.mode".to_string()));
+        assert!(!resolved
+            .overrides_applied
+            .contains(&"chunking_config.strategy".to_string()));
     }
 
     #[test]
@@ -1399,6 +1472,161 @@ synthesis_model: claude-opus-4-7
         assert!(
             yaml_count >= 7,
             "expected at least 7 profile YAMLs, found {yaml_count}"
+        );
+    }
+
+    // ── chunking_config / context_config merge semantics (Gap 1) ────
+    //
+    // The merge contract — `extend()` over the profile's map with
+    // override keys winning — is exercised by
+    // `resolve_config_merges_chunking_config_overrides` (above).
+    // The tests below pin down the boundary cases the spec calls out.
+
+    /// Helper: a minimal profile with a known chunking_config so the
+    /// merge tests don't have to repeat 20 lines of fixture each time.
+    fn profile_with_chunking_config(
+        chunking_config: HashMap<String, serde_json::Value>,
+    ) -> ProcessingProfile {
+        ProcessingProfile {
+            name: "discovery".into(),
+            display_name: "Discovery".into(),
+            description: String::new(),
+            schema_file: "disc.yaml".into(),
+            template_file: "disc.md".into(),
+            system_prompt_file: None,
+            global_rules_file: None,
+            pass2_template_file: None,
+            extraction_model: "claude-sonnet-4-6".into(),
+            pass2_extraction_model: None,
+            chunking_mode: "full".into(),
+            chunk_size: None,
+            chunk_overlap: None,
+            chunking_config,
+            context_config: HashMap::new(),
+            max_tokens: 32000,
+            temperature: 0.0,
+            auto_approve_grounded: true,
+            run_pass2: false,
+            is_default: false,
+            profile_hash: String::new(),
+        }
+    }
+
+    // Test #5: profile {} + override {strategy: qa_pair} → {strategy: qa_pair}
+    #[test]
+    fn merge_empty_profile_with_override_yields_override_only() {
+        let mut over = HashMap::new();
+        over.insert("strategy".to_string(), serde_json::json!("qa_pair"));
+        let profile = profile_with_chunking_config(HashMap::new());
+        let overrides = PipelineConfigOverrides {
+            chunking_config: Some(over),
+            ..Default::default()
+        };
+        let resolved = resolve_config(&profile, &overrides);
+        assert_eq!(resolved.chunking_config.len(), 1);
+        assert_eq!(
+            resolved.chunking_config.get("strategy").and_then(|v| v.as_str()),
+            Some("qa_pair")
+        );
+        // Per-key audit: strategy was added → recorded.
+        assert!(resolved
+            .overrides_applied
+            .contains(&"chunking_config.strategy".to_string()));
+    }
+
+    // Test #6: profile {fields} + override None → resolved == profile
+    #[test]
+    fn merge_with_no_override_yields_profile_map_verbatim() {
+        let mut p = HashMap::new();
+        p.insert("strategy".to_string(), serde_json::json!("section_heading"));
+        p.insert("units_per_chunk".to_string(), serde_json::json!(5));
+        let profile = profile_with_chunking_config(p.clone());
+        let resolved = resolve_config(&profile, &PipelineConfigOverrides::default());
+        assert_eq!(resolved.chunking_config, p);
+        // No override → no `chunking_config.*` audit entries.
+        assert!(!resolved
+            .overrides_applied
+            .iter()
+            .any(|s| s.starts_with("chunking_config")));
+    }
+
+    // Test #7: profile {fields} + override Some({}) → resolved == profile,
+    // and the empty-but-present override does NOT count as a change.
+    #[test]
+    fn merge_with_empty_override_map_is_a_noop() {
+        let mut p = HashMap::new();
+        p.insert("strategy".to_string(), serde_json::json!("section_heading"));
+        p.insert("units_per_chunk".to_string(), serde_json::json!(5));
+        let profile = profile_with_chunking_config(p.clone());
+        let overrides = PipelineConfigOverrides {
+            chunking_config: Some(HashMap::new()),
+            ..Default::default()
+        };
+        let resolved = resolve_config(&profile, &overrides);
+        assert_eq!(
+            resolved.chunking_config, p,
+            "empty override map adds nothing to the profile's map"
+        );
+        // Empty override has no keys → no per-key entries.
+        assert!(!resolved
+            .overrides_applied
+            .iter()
+            .any(|s| s.starts_with("chunking_config")));
+    }
+
+    // Test #8: same shape for context_config (sanity-checks the helper
+    // is parametric in the audit_label, not chunking_config-specific).
+    #[test]
+    fn merge_works_for_context_config_with_distinct_audit_label() {
+        let mut p = HashMap::new();
+        p.insert("traversal_depth".to_string(), serde_json::json!(2));
+        let profile = ProcessingProfile {
+            context_config: p,
+            ..profile_with_chunking_config(HashMap::new())
+        };
+        let mut over = HashMap::new();
+        over.insert("traversal_depth".to_string(), serde_json::json!(5));
+        let overrides = PipelineConfigOverrides {
+            context_config: Some(over),
+            ..Default::default()
+        };
+        let resolved = resolve_config(&profile, &overrides);
+        assert_eq!(
+            resolved.context_config.get("traversal_depth").and_then(|v| v.as_i64()),
+            Some(5)
+        );
+        // Audit uses the `context_config.` prefix, not `chunking_config.`.
+        assert!(resolved
+            .overrides_applied
+            .contains(&"context_config.traversal_depth".to_string()));
+        assert!(!resolved
+            .overrides_applied
+            .iter()
+            .any(|s| s.starts_with("chunking_config")));
+    }
+
+    // Test #11: override that matches the profile's value is a no-op
+    // for the audit trail (only differing keys count).
+    #[test]
+    fn override_matching_profile_value_is_not_recorded() {
+        let mut p = HashMap::new();
+        p.insert("units_per_chunk".to_string(), serde_json::json!(5));
+        let profile = profile_with_chunking_config(p);
+        let mut over = HashMap::new();
+        // Same value as the profile — operationally a no-op.
+        over.insert("units_per_chunk".to_string(), serde_json::json!(5));
+        let overrides = PipelineConfigOverrides {
+            chunking_config: Some(over),
+            ..Default::default()
+        };
+        let resolved = resolve_config(&profile, &overrides);
+        assert!(
+            !resolved
+                .overrides_applied
+                .iter()
+                .any(|s| s.starts_with("chunking_config")),
+            "matching-value override must not be recorded; got: {:?}",
+            resolved.overrides_applied
         );
     }
 }

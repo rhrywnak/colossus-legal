@@ -442,8 +442,14 @@ pub async fn upload_document(
             max_tokens: Some(profile.max_tokens),
             temperature: Some(profile.temperature),
             run_pass2: Some(profile.run_pass2),
-            // No per-document chunking/context overrides at upload time;
-            // the per-doc override path is the PATCH /config endpoint.
+            // Leave `chunking_config` and `context_config` as None at
+            // upload time so the document inherits live from the
+            // profile at resolve time. Seeding with the profile's
+            // current values would freeze a snapshot here, which
+            // would *prevent* future profile YAML edits from
+            // affecting this document — confusing semantics.
+            // The PATCH /config endpoint is the per-document
+            // override path operators use to deviate from the profile.
             chunking_config: None,
             context_config: None,
         };
