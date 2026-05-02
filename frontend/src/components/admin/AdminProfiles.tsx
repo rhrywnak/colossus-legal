@@ -112,7 +112,6 @@ function blankProfile(): ProcessingProfile {
     template_file: "",
     system_prompt_file: null,
     extraction_model: "",
-    synthesis_model: null,
     chunking_mode: "chunked",
     chunk_size: null,
     chunk_overlap: null,

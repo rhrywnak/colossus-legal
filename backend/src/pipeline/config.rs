@@ -7,6 +7,7 @@
 //! Design: DOC_PROCESSING_CONFIG_DESIGN_v2.md Sections 3.1, 3.2.2, 3.7.
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -77,8 +78,6 @@ pub struct ProcessingProfile {
     /// `llm_models` table.
     #[serde(default)]
     pub pass2_extraction_model: Option<String>,
-    #[serde(default)]
-    pub synthesis_model: Option<String>,
 
     // Chunking
     #[serde(default = "default_chunking_mode")]
@@ -131,6 +130,38 @@ pub struct ProcessingProfile {
 
     #[serde(default)]
     pub is_default: bool,
+
+    /// SHA-256 of the YAML body as it was on disk at load time.
+    ///
+    /// Lowercase hex, populated by [`ProcessingProfile::from_file`] /
+    /// [`ProcessingProfile::from_yaml_str`] *after* reading the body and
+    /// *before* deserialization. Two runs against the same `name` but
+    /// different YAML content are distinguishable in the audit log via
+    /// this hash (see [`ResolvedConfig::profile_hash`] and
+    /// AUDIT_PIPELINE_CONFIG_GAPS.md Gap 4).
+    ///
+    /// `#[serde(default)]` so YAML on disk that doesn't carry the field
+    /// (every shipped profile, since this is a runtime-derived value)
+    /// still parses cleanly. The default is the empty string; the loader
+    /// then *overwrites* it with the real hash. A reader who somehow
+    /// receives a serialized `ProcessingProfile` without going through
+    /// the loader gets the empty string — operationally equivalent to
+    /// "unknown source" and an obvious sentinel in any audit query.
+    #[serde(default)]
+    pub profile_hash: String,
+}
+
+/// SHA-256 hex digest of a UTF-8 string, lowercase.
+///
+/// Local to `config.rs` so the profile-loading code doesn't have to pull
+/// in the `pub(crate)` helper from `pipeline::steps::llm_extract`. Keeps
+/// the dependency direction one-way: steps depend on config, config does
+/// not depend on steps. Both helpers compute the same value (verified by
+/// the round-trip test below).
+fn sha2_hex_yaml(input: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(input.as_bytes());
+    format!("{:x}", hasher.finalize())
 }
 
 fn default_chunking_mode() -> String {
@@ -151,11 +182,34 @@ impl ProcessingProfile {
     /// Returns a descriptive error if the file doesn't exist, can't be
     /// read, or contains invalid YAML. The error message includes the
     /// file path so the caller knows which profile failed.
+    ///
+    /// The SHA-256 of the **raw YAML body** (before deserialization) is
+    /// computed and stored on the returned struct's `profile_hash` field.
+    /// Audit reproducibility: two runs against the same profile filename
+    /// but a content-edited YAML are distinguishable from the audit log
+    /// alone — Gap 4 in AUDIT_PIPELINE_CONFIG_GAPS.md.
     pub fn from_file(path: &Path) -> Result<Self, String> {
         let content = std::fs::read_to_string(path)
             .map_err(|e| format!("Failed to read profile '{}': {e}", path.display()))?;
-        let profile: Self = serde_yaml::from_str(&content)
-            .map_err(|e| format!("Failed to parse profile '{}': {e}", path.display()))?;
+        Self::from_yaml_str(&content)
+            .map_err(|e| format!("Failed to parse profile '{}': {e}", path.display()))
+    }
+
+    /// Parse a profile from an in-memory YAML string and compute its hash.
+    ///
+    /// Same semantics as [`from_file`] for the hash — the input string
+    /// IS the source of truth, so its SHA-256 is the profile's
+    /// fingerprint. Useful for tests that don't want to touch the
+    /// filesystem and for any future call site that materialises a
+    /// profile from a non-disk source (e.g. an admin-API PUT body).
+    ///
+    /// Returns a `String` error so the caller can format the path /
+    /// origin into a useful message; this function only knows about the
+    /// YAML body.
+    pub fn from_yaml_str(yaml: &str) -> Result<Self, String> {
+        let mut profile: Self = serde_yaml::from_str(yaml)
+            .map_err(|e| format!("invalid YAML: {e}"))?;
+        profile.profile_hash = sha2_hex_yaml(yaml);
         Ok(profile)
     }
 
@@ -186,6 +240,34 @@ impl ProcessingProfile {
     }
 }
 
+// ── Cross-document context record ───────────────────────────────
+
+/// One cross-document entity that contributed to a Pass-2 prompt.
+///
+/// Pass-2 prompts mix the document's own Pass-1 entities with entities
+/// from previously PUBLISHED documents (the "cross-doc context"). This
+/// record captures the minimum identity for one such cross-doc entity so
+/// the audit trail can prove exactly which other-document entities
+/// informed a Pass-2 run. Without it, a replay against a now-larger pool
+/// of PUBLISHED documents would silently use a different context, and an
+/// auditor would have no way to detect the divergence (Gap 3 in
+/// AUDIT_PIPELINE_CONFIG_GAPS.md).
+///
+/// Three fields chosen to be the smallest set that lets a reader uniquely
+/// re-locate the source entity:
+///
+/// * `document_id` — `documents.id` of the source document.
+/// * `prefixed_id` — the `ctx:`-prefixed id used in the Pass-2 prompt's
+///   `entities_json` (so an auditor can string-match against the
+///   `assembled_prompt` column).
+/// * `item_id` — `extraction_items.id` for direct DB join.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CrossDocContextRecord {
+    pub document_id: String,
+    pub prefixed_id: String,
+    pub item_id: i32,
+}
+
 // ── Resolved Config ─────────────────────────────────────────────
 
 /// The fully resolved extraction configuration for a single document.
@@ -200,6 +282,19 @@ impl ProcessingProfile {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResolvedConfig {
     pub profile_name: String,
+    /// SHA-256 of the YAML body the resolver saw at load time. Copied
+    /// from [`ProcessingProfile::profile_hash`] in `resolve_config`.
+    /// Two runs against the same `profile_name` but a content-edited
+    /// YAML are distinguishable from the database via this hash —
+    /// AUDIT_PIPELINE_CONFIG_GAPS.md Gap 4.
+    pub profile_hash: String,
+    /// 1 or 2 — which extraction pass this snapshot describes. Set at
+    /// snapshot-write time, not at resolve time. A reader can
+    /// `SELECT processing_config->>'effective_pass'` to disambiguate
+    /// without joining on the row's `pass_number` column. Default
+    /// `1` from the resolver; Pass-2 overwrites in
+    /// `write_processing_config_snapshot`.
+    pub effective_pass: u8,
     pub model: String,
     /// Pass-2 model id resolved from override → profile. `None` means
     /// pass 2 falls back to `model` (the pass-1 model). Consulted only
@@ -261,6 +356,27 @@ pub struct ResolvedConfig {
     pub auto_approve_grounded: bool,
     pub run_pass2: bool,
     pub overrides_applied: Vec<String>,
+
+    /// Pass-2 only. List of `(document_id, prefixed_id, item_id)`
+    /// triples for every cross-document entity that ended up in the
+    /// Pass-2 prompt's `entities_json`. Empty on Pass-1 rows. The same
+    /// data is also written to `extraction_runs.prior_context` as a
+    /// JSON string for full reproducibility — duplicated deliberately
+    /// so a JSONB-only audit query does not need to parse the TEXT
+    /// column.
+    ///
+    /// `#[serde(default)]` so old Pass-1 snapshots that predate this
+    /// field deserialize cleanly (default = empty vec, which is also
+    /// the correct semantic for any non-Pass-2 row).
+    #[serde(default)]
+    pub pass2_cross_doc_entities: Vec<CrossDocContextRecord>,
+
+    /// Pass-2 only. Sorted unique list of `document_id`s that
+    /// contributed at least one entity to the Pass-2 prompt. Empty on
+    /// Pass-1 rows. Useful for cheap "which prior runs informed this
+    /// Pass-2?" queries without parsing the full entity list above.
+    #[serde(default)]
+    pub pass2_source_document_ids: Vec<String>,
 }
 
 /// Per-document overrides from the pipeline_config table.
@@ -437,6 +553,14 @@ pub fn resolve_config(
     ResolvedConfig {
         profile_name: overrides.profile_name.clone()
             .unwrap_or_else(|| profile.name.clone()),
+        // The profile YAML body's hash flows straight through. Per-document
+        // overrides cannot change it — the YAML body is the YAML body.
+        profile_hash: profile.profile_hash.clone(),
+        // Default to Pass-1. The Pass-2 step's
+        // `write_processing_config_snapshot` overwrites to `2` at snapshot
+        // time. Storing the value in the snapshot (rather than relying on
+        // the row's `pass_number` column) makes JSONB self-describing.
+        effective_pass: 1,
         model,
         pass2_model,
         template_file,
@@ -462,6 +586,10 @@ pub fn resolve_config(
         auto_approve_grounded: profile.auto_approve_grounded,
         run_pass2,
         overrides_applied: applied,
+        // Empty by default. Pass-2 fills these in via SnapshotRuntimeFields
+        // before the snapshot is written; Pass-1 leaves them empty.
+        pass2_cross_doc_entities: Vec::new(),
+        pass2_source_document_ids: Vec::new(),
     }
 }
 
@@ -545,7 +673,6 @@ extraction_model: claude-sonnet-4-6
             global_rules_file: None,
             extraction_model: "claude-sonnet-4-6".into(),
             pass2_extraction_model: None,
-            synthesis_model: None,
             chunking_mode: "full".into(),
             chunk_size: None,
             chunk_overlap: None,
@@ -557,6 +684,7 @@ extraction_model: claude-sonnet-4-6
             run_pass2: false,
             pass2_template_file: None,
             is_default: false,
+            profile_hash: String::new(),
         };
         let overrides = PipelineConfigOverrides::default();
         let resolved = resolve_config(&profile, &overrides);
@@ -584,7 +712,6 @@ extraction_model: claude-sonnet-4-6
             global_rules_file: None,
             extraction_model: "claude-sonnet-4-6".into(),
             pass2_extraction_model: None,
-            synthesis_model: None,
             chunking_mode: "full".into(),
             chunk_size: None,
             chunk_overlap: None,
@@ -596,6 +723,7 @@ extraction_model: claude-sonnet-4-6
             run_pass2: false,
             pass2_template_file: None,
             is_default: false,
+            profile_hash: String::new(),
         };
         let overrides = PipelineConfigOverrides::default();
         let resolved = resolve_config(&profile, &overrides);
@@ -640,7 +768,6 @@ extraction_model: claude-sonnet-4-6
             pass2_template_file: Some("pass2_complaint.md".into()),
             extraction_model: "claude-sonnet-4-6".into(),
             pass2_extraction_model: None,
-            synthesis_model: None,
             chunking_mode: "full".into(),
             chunk_size: None,
             chunk_overlap: None,
@@ -651,6 +778,7 @@ extraction_model: claude-sonnet-4-6
             auto_approve_grounded: true,
             run_pass2: true,
             is_default: false,
+            profile_hash: String::new(),
         };
         let overrides = PipelineConfigOverrides::default();
         let resolved = resolve_config(&profile, &overrides);
@@ -762,7 +890,6 @@ extraction_model: claude-sonnet-4-6
             global_rules_file: None,
             extraction_model: "claude-sonnet-4-6".into(),
             pass2_extraction_model: None,
-            synthesis_model: None,
             chunking_mode: "full".into(),
             chunk_size: None,
             chunk_overlap: None,
@@ -774,6 +901,7 @@ extraction_model: claude-sonnet-4-6
             run_pass2: false,
             pass2_template_file: None,
             is_default: false,
+            profile_hash: String::new(),
         };
         let overrides = PipelineConfigOverrides {
             template_file: Some("custom_template.md".into()),
@@ -797,6 +925,8 @@ extraction_model: claude-sonnet-4-6
     fn resolved_config_serializes_to_json() {
         let config = ResolvedConfig {
             profile_name: "complaint".into(),
+            profile_hash: String::new(),
+            effective_pass: 1,
             model: "claude-sonnet-4-6".into(),
             pass2_model: None,
             template_file: "pass1_complaint.md".into(),
@@ -817,6 +947,8 @@ extraction_model: claude-sonnet-4-6
             auto_approve_grounded: true,
             run_pass2: false,
             overrides_applied: vec!["temperature".into()],
+            pass2_cross_doc_entities: Vec::new(),
+            pass2_source_document_ids: Vec::new(),
         };
         let json = serde_json::to_value(&config).unwrap();
         assert_eq!(json["profile_name"], "complaint");
@@ -928,7 +1060,6 @@ chunking_mode: full
             pass2_template_file: None,
             extraction_model: "claude-sonnet-4-6".into(),
             pass2_extraction_model: None,
-            synthesis_model: None,
             chunking_mode: "full".into(),
             chunk_size: None,
             chunk_overlap: None,
@@ -939,6 +1070,7 @@ chunking_mode: full
             auto_approve_grounded: true,
             run_pass2: false,
             is_default: false,
+            profile_hash: String::new(),
         };
         let overrides = PipelineConfigOverrides::default();
         let resolved = resolve_config(&profile, &overrides);
@@ -982,7 +1114,6 @@ chunking_mode: full
             pass2_template_file: None,
             extraction_model: "claude-sonnet-4-6".into(),
             pass2_extraction_model: None,
-            synthesis_model: None,
             chunking_mode: "full".into(),
             chunk_size: None,
             chunk_overlap: None,
@@ -993,6 +1124,7 @@ chunking_mode: full
             auto_approve_grounded: true,
             run_pass2: false,
             is_default: false,
+            profile_hash: String::new(),
         };
 
         // Per-document override changes units_per_chunk but NOT mode or strategy
@@ -1033,6 +1165,8 @@ chunking_mode: full
 
         let config = ResolvedConfig {
             profile_name: "discovery".into(),
+            profile_hash: String::new(),
+            effective_pass: 1,
             model: "claude-sonnet-4-6".into(),
             pass2_model: None,
             template_file: "disc.md".into(),
@@ -1053,6 +1187,8 @@ chunking_mode: full
             auto_approve_grounded: true,
             run_pass2: false,
             overrides_applied: vec![],
+            pass2_cross_doc_entities: Vec::new(),
+            pass2_source_document_ids: Vec::new(),
         };
 
         let json = serde_json::to_value(&config).unwrap();
@@ -1114,6 +1250,155 @@ chunking_config:
                 .get("another_unknown")
                 .and_then(|v| v.as_str()),
             Some("hello")
+        );
+    }
+
+    // ── profile_hash (Gap 4) ─────────────────────────────────────────
+    //
+    // The hash is computed over the YAML body the loader saw, not over
+    // the deserialised struct. That is the property an audit needs:
+    // editing a comment, a whitespace, or a value all change the hash.
+
+    #[test]
+    fn from_yaml_str_populates_a_non_empty_profile_hash() {
+        let yaml = r#"
+name: complaint
+display_name: Complaint
+schema_file: complaint_v4.yaml
+template_file: pass1_complaint_v4.md
+extraction_model: claude-sonnet-4-6
+"#;
+        let p = ProcessingProfile::from_yaml_str(yaml).unwrap();
+        assert!(!p.profile_hash.is_empty(), "hash must be populated");
+        // 64 hex chars from sha256 → matches the contract.
+        assert_eq!(p.profile_hash.len(), 64);
+        assert!(
+            p.profile_hash.chars().all(|c| c.is_ascii_hexdigit()),
+            "hash must be lowercase hex digits"
+        );
+    }
+
+    #[test]
+    fn identical_yaml_bodies_produce_identical_profile_hashes() {
+        let yaml = r#"
+name: complaint
+display_name: Complaint
+schema_file: complaint_v4.yaml
+template_file: pass1_complaint_v4.md
+extraction_model: claude-sonnet-4-6
+"#;
+        let a = ProcessingProfile::from_yaml_str(yaml).unwrap();
+        let b = ProcessingProfile::from_yaml_str(yaml).unwrap();
+        assert_eq!(a.profile_hash, b.profile_hash);
+    }
+
+    #[test]
+    fn editing_yaml_changes_the_profile_hash() {
+        // Two YAMLs that produce the SAME deserialised struct values but
+        // differ in their raw bytes (here: a comment-only edit). The
+        // hash must differ — the audit needs to detect any change to
+        // the body, including ones that don't materially affect runtime
+        // behaviour. This is the "operationally meaningless" edit the
+        // hash protects against being silently lost in the audit log.
+        let original = r#"# original comment
+name: complaint
+display_name: Complaint
+schema_file: complaint_v4.yaml
+template_file: pass1_complaint_v4.md
+extraction_model: claude-sonnet-4-6
+"#;
+        let edited = r#"# edited comment — different bytes, same struct values
+name: complaint
+display_name: Complaint
+schema_file: complaint_v4.yaml
+template_file: pass1_complaint_v4.md
+extraction_model: claude-sonnet-4-6
+"#;
+        let a = ProcessingProfile::from_yaml_str(original).unwrap();
+        let b = ProcessingProfile::from_yaml_str(edited).unwrap();
+        // Same struct values (only the comment changed)…
+        assert_eq!(a.name, b.name);
+        assert_eq!(a.extraction_model, b.extraction_model);
+        // …but the hashes must diverge so the audit can detect the edit.
+        assert_ne!(
+            a.profile_hash, b.profile_hash,
+            "a comment-only edit to the YAML body must change the hash"
+        );
+    }
+
+    #[test]
+    fn resolve_config_copies_profile_hash_into_resolved() {
+        let yaml = r#"
+name: complaint
+display_name: Complaint
+schema_file: complaint_v4.yaml
+template_file: pass1_complaint_v4.md
+extraction_model: claude-sonnet-4-6
+"#;
+        let p = ProcessingProfile::from_yaml_str(yaml).unwrap();
+        let r = resolve_config(&p, &PipelineConfigOverrides::default());
+        assert_eq!(r.profile_hash, p.profile_hash);
+        assert_eq!(r.effective_pass, 1, "resolver default is pass 1");
+        assert!(r.pass2_cross_doc_entities.is_empty());
+        assert!(r.pass2_source_document_ids.is_empty());
+    }
+
+    // ── synthesis_model deletion (Gap 10) ────────────────────────────
+
+    #[test]
+    fn yaml_with_legacy_synthesis_model_still_parses() {
+        // Backward compat: an operator running an older YAML on disk
+        // (one that still has `synthesis_model:`) must keep working.
+        // The line is silently ignored because ProcessingProfile does
+        // NOT use `#[serde(deny_unknown_fields)]`.
+        let yaml = r#"
+name: complaint
+display_name: Complaint
+schema_file: complaint_v4.yaml
+template_file: pass1_complaint_v4.md
+extraction_model: claude-sonnet-4-6
+synthesis_model: claude-opus-4-7
+"#;
+        let p = ProcessingProfile::from_yaml_str(yaml)
+            .expect("YAML with legacy synthesis_model must still parse");
+        assert_eq!(p.name, "complaint");
+        // synthesis_model is gone from the struct — there's no field to
+        // assert. The success of from_yaml_str is the test.
+        let _ = p;
+    }
+
+    #[test]
+    fn no_profile_yaml_on_disk_carries_synthesis_model() {
+        // Read every YAML in backend/profiles/ and assert none of them
+        // contains the literal substring "synthesis_model:". Catches a
+        // future operator who copy-pastes an old profile and forgets
+        // to drop the line; without the assertion, the line would parse
+        // silently (forward-compat by design) but we want disk and code
+        // to stay aligned.
+        let entries = std::fs::read_dir(
+            // Cargo runs tests from the package root (backend/).
+            "profiles",
+        )
+        .expect("backend/profiles/ must exist");
+        let mut yaml_count = 0;
+        for entry in entries {
+            let entry = entry.unwrap();
+            let path = entry.path();
+            if path.extension().and_then(|s| s.to_str()) != Some("yaml") {
+                continue;
+            }
+            yaml_count += 1;
+            let body = std::fs::read_to_string(&path)
+                .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+            assert!(
+                !body.contains("synthesis_model:"),
+                "{} still carries `synthesis_model:` — drop the line",
+                path.display()
+            );
+        }
+        assert!(
+            yaml_count >= 7,
+            "expected at least 7 profile YAMLs, found {yaml_count}"
         );
     }
 }

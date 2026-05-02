@@ -529,13 +529,20 @@ impl LlmExtract {
                 })?;
 
         // 12. Write processing_config JSONB snapshot (best-effort).
+        // Pass-1 snapshot: empty cross-doc slices (the runtime fields
+        // are Pass-2-only audit data).
         write_processing_config_snapshot(
             db,
             run_id,
             &resolved,
-            &template_hash,
-            system_prompt_hash.as_deref(),
-            global_rules_hash.as_deref(),
+            SnapshotRuntimeFields {
+                effective_pass: 1,
+                template_hash: &template_hash,
+                system_prompt_hash: system_prompt_hash.as_deref(),
+                global_rules_hash: global_rules_hash.as_deref(),
+                pass2_cross_doc_entities: &[],
+                pass2_source_document_ids: &[],
+            },
         )
         .await;
 
@@ -1484,32 +1491,100 @@ pub(crate) fn compute_cost(
     }
 }
 
+/// Runtime-discovered values that the snapshot helper folds into the
+/// JSONB body before serialising.
+///
+/// `ResolvedConfig` itself is fully populated by `resolve_config` — it
+/// is the *resolved-from-profile-and-overrides* shape, deliberately
+/// kept clean of values that don't exist until extraction has actually
+/// run (file hashes, the cross-doc entities that ended up in the Pass-2
+/// prompt, the discriminator naming this row's pass). Bundling those
+/// runtime fields into one struct keeps
+/// [`write_processing_config_snapshot`]'s call sites readable; the only
+/// two callers (Pass-1 and Pass-2 steps) build one of these and pass it
+/// as a single argument.
+///
+/// All references are `'a`-scoped — the struct is short-lived (built
+/// per-run, consumed once) so no owned-data alternative is justified.
+///
+/// ## Rust Learning: `&'a [T]` in a struct
+///
+/// A borrowed slice in a struct field requires a named lifetime so the
+/// compiler can prove the borrowed data outlives every use of the
+/// struct. Naming the lifetime `'a` here lets all field borrows share
+/// one lifetime — the call site builds the struct from locals that all
+/// live at least as long as the snapshot await, so `'a` collapses to
+/// "the local scope of the call" and we never have to spell it out.
+pub(crate) struct SnapshotRuntimeFields<'a> {
+    /// Which pass this snapshot describes. `1` for Pass-1, `2` for Pass-2.
+    /// Lands in `processing_config.effective_pass`. On Pass-2 it also
+    /// triggers the model/template overwrite below.
+    pub effective_pass: u8,
+    pub template_hash: &'a str,
+    pub system_prompt_hash: Option<&'a str>,
+    pub global_rules_hash: Option<&'a str>,
+    /// Pass-2 only. Empty slice on Pass-1.
+    pub pass2_cross_doc_entities: &'a [crate::pipeline::config::CrossDocContextRecord],
+    /// Pass-2 only. Empty slice on Pass-1.
+    pub pass2_source_document_ids: &'a [String],
+}
+
 /// Write the resolved configuration snapshot to
 /// `extraction_runs.processing_config`.
 ///
 /// Best-effort: a snapshot-write failure is logged but does not fail
 /// extraction — the merged entities have already been committed.
 ///
-/// `global_rules_hash` carries the SHA-256 of the rules fragment loaded
-/// at runtime (see [`load_global_rules`]). It mirrors the same
-/// runtime-overwrite pattern as `template_hash` and `system_prompt_hash`
-/// — the resolver leaves the field as `None`, the step computes it
-/// after reading the file, and this snapshot is the single place the
-/// value lands in JSONB.
+/// **Mutations apply only to the clone, never to the input `resolved`
+/// reference.** The function takes `&ResolvedConfig` (immutable borrow),
+/// clones it as the very first step, and mutates the clone before
+/// serialisation. The caller's resolver state is therefore preserved
+/// even though the snapshot may legitimately swap fields (e.g. on
+/// Pass-2, `model` is overwritten with `pass2_model`). This matters for
+/// Pass-1's success path, which keeps using `resolved` after the
+/// snapshot returns: if we mutated the input, a Pass-2 follow-up that
+/// also reads `resolved.model` would see the wrong value.
+///
+/// On `effective_pass == 2`, the clone's `model` is overwritten with
+/// `resolved.pass2_model.clone().unwrap_or_else(|| resolved.model.clone())`
+/// (matches the runtime fallback at the LLM call site) and
+/// `template_file` is overwritten with `resolved.pass2_template_file`
+/// when set. `template_hash` always comes from the runtime parameter —
+/// the caller passes the Pass-2 template's hash on a Pass-2 row and the
+/// Pass-1 template's hash on a Pass-1 row.
 pub(crate) async fn write_processing_config_snapshot(
     db: &PgPool,
     run_id: i32,
     resolved: &ResolvedConfig,
-    template_hash: &str,
-    system_prompt_hash: Option<&str>,
-    global_rules_hash: Option<&str>,
+    runtime: SnapshotRuntimeFields<'_>,
 ) {
-    let mut resolved_with_hash = resolved.clone();
-    resolved_with_hash.template_hash = Some(template_hash.to_string());
-    resolved_with_hash.system_prompt_hash = system_prompt_hash.map(str::to_string);
-    resolved_with_hash.global_rules_hash = global_rules_hash.map(str::to_string);
+    // Clone first, mutate the clone. See function doc for why.
+    let mut snapshot = resolved.clone();
+    snapshot.effective_pass = runtime.effective_pass;
+    snapshot.template_hash = Some(runtime.template_hash.to_string());
+    snapshot.system_prompt_hash = runtime.system_prompt_hash.map(str::to_string);
+    snapshot.global_rules_hash = runtime.global_rules_hash.map(str::to_string);
+    snapshot.pass2_cross_doc_entities = runtime.pass2_cross_doc_entities.to_vec();
+    snapshot.pass2_source_document_ids = runtime.pass2_source_document_ids.to_vec();
 
-    let config_json = match serde_json::to_value(&resolved_with_hash) {
+    if runtime.effective_pass == 2 {
+        // Pass-2 snapshot: the JSONB's `model` and `template_file` must
+        // describe the Pass-2 LLM call, not the Pass-1 metadata that
+        // `ResolvedConfig` carries by default. Mirror the runtime
+        // fallback at `llm_extract_pass2.rs` (pass2_model → model).
+        snapshot.model = resolved
+            .pass2_model
+            .clone()
+            .unwrap_or_else(|| resolved.model.clone());
+        if let Some(p2_tmpl) = &resolved.pass2_template_file {
+            snapshot.template_file = p2_tmpl.clone();
+        }
+        // template_hash is already set above from the runtime parameter
+        // — on Pass-2 the caller passes the Pass-2 template's hash, so
+        // it is already correct.
+    }
+
+    let config_json = match serde_json::to_value(&snapshot) {
         Ok(v) => v,
         Err(e) => {
             tracing::warn!(
@@ -2079,6 +2154,8 @@ Doc:\n{{document_text}}";
     fn resolve_max_tokens_prefers_profile_value() {
         let r = ResolvedConfig {
             profile_name: "p".into(),
+            profile_hash: String::new(),
+            effective_pass: 1,
             model: "m".into(),
             pass2_model: None,
             template_file: "t".into(),
@@ -2099,6 +2176,8 @@ Doc:\n{{document_text}}";
             auto_approve_grounded: true,
             run_pass2: false,
             overrides_applied: vec![],
+            pass2_cross_doc_entities: Vec::new(),
+            pass2_source_document_ids: Vec::new(),
         };
         assert_eq!(resolve_max_tokens(&r), 12345);
     }
@@ -2107,6 +2186,8 @@ Doc:\n{{document_text}}";
     fn resolved_with_run_pass2(flag: bool) -> ResolvedConfig {
         ResolvedConfig {
             profile_name: "complaint".into(),
+            profile_hash: String::new(),
+            effective_pass: 1,
             model: "m".into(),
             pass2_model: None,
             template_file: "t".into(),
@@ -2127,6 +2208,8 @@ Doc:\n{{document_text}}";
             auto_approve_grounded: true,
             run_pass2: flag,
             overrides_applied: vec![],
+            pass2_cross_doc_entities: Vec::new(),
+            pass2_source_document_ids: Vec::new(),
         }
     }
 
@@ -2346,5 +2429,249 @@ Doc:\n{{document_text}}";
         assert_eq!(json["chunking_config"]["mode"], "structured");
         assert_eq!(json["chunking_config"]["strategy"], "qa_pair");
         assert_eq!(json["context_config"]["traversal_depth"], 2);
+    }
+
+    // ── snapshot-shaping (Gap 11): effective_pass + Pass-2 model/template overwrite
+    //
+    // The DB-write path lives inside `write_processing_config_snapshot`,
+    // but the *shape* of the snapshot — the clone-and-mutate logic that
+    // applies before serialization — is the testable invariant. This
+    // helper performs exactly that shaping (no DB) so the tests can
+    // assert the JSONB shape without requiring a live PgPool.
+    fn snapshot_for_test(
+        resolved: &ResolvedConfig,
+        runtime: SnapshotRuntimeFields<'_>,
+    ) -> serde_json::Value {
+        let mut snapshot = resolved.clone();
+        snapshot.effective_pass = runtime.effective_pass;
+        snapshot.template_hash = Some(runtime.template_hash.to_string());
+        snapshot.system_prompt_hash = runtime.system_prompt_hash.map(str::to_string);
+        snapshot.global_rules_hash = runtime.global_rules_hash.map(str::to_string);
+        snapshot.pass2_cross_doc_entities = runtime.pass2_cross_doc_entities.to_vec();
+        snapshot.pass2_source_document_ids = runtime.pass2_source_document_ids.to_vec();
+        if runtime.effective_pass == 2 {
+            snapshot.model = resolved
+                .pass2_model
+                .clone()
+                .unwrap_or_else(|| resolved.model.clone());
+            if let Some(p2_tmpl) = &resolved.pass2_template_file {
+                snapshot.template_file = p2_tmpl.clone();
+            }
+        }
+        serde_json::to_value(&snapshot).expect("snapshot serialises")
+    }
+
+    /// Build a `ResolvedConfig` with both Pass-1 and Pass-2 fields set
+    /// so the snapshot-shape tests can show the swap.
+    fn resolved_with_both_passes() -> ResolvedConfig {
+        ResolvedConfig {
+            profile_name: "complaint".into(),
+            profile_hash: "deadbeef".into(),
+            effective_pass: 1,
+            model: "claude-sonnet-4-6".into(),
+            pass2_model: Some("claude-opus-4-7".into()),
+            template_file: "pass1_complaint.md".into(),
+            template_hash: None,
+            pass2_template_file: Some("pass2_complaint.md".into()),
+            system_prompt_file: None,
+            system_prompt_hash: None,
+            global_rules_file: None,
+            global_rules_hash: None,
+            schema_file: "complaint_v4.yaml".into(),
+            chunking_mode: "full".into(),
+            chunk_size: None,
+            chunk_overlap: None,
+            chunking_config: std::collections::HashMap::new(),
+            context_config: std::collections::HashMap::new(),
+            max_tokens: 32000,
+            temperature: 0.0,
+            auto_approve_grounded: true,
+            run_pass2: true,
+            overrides_applied: vec![],
+            pass2_cross_doc_entities: Vec::new(),
+            pass2_source_document_ids: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn snapshot_effective_pass_1_keeps_pass1_model_and_template() {
+        let resolved = resolved_with_both_passes();
+        let json = snapshot_for_test(
+            &resolved,
+            SnapshotRuntimeFields {
+                effective_pass: 1,
+                template_hash: "p1_hash",
+                system_prompt_hash: None,
+                global_rules_hash: None,
+                pass2_cross_doc_entities: &[],
+                pass2_source_document_ids: &[],
+            },
+        );
+        assert_eq!(json["effective_pass"], 1);
+        assert_eq!(json["model"], "claude-sonnet-4-6");
+        assert_eq!(json["template_file"], "pass1_complaint.md");
+        assert_eq!(json["template_hash"], "p1_hash");
+        // Pass-2 fields still flow through (the resolver fills them) but
+        // are not used by the LLM call on a Pass-1 row — they describe
+        // what *will* run on the Pass-2 row, if any.
+        assert_eq!(json["pass2_model"], "claude-opus-4-7");
+    }
+
+    #[test]
+    fn snapshot_effective_pass_2_overwrites_model_and_template() {
+        // Gap 11: a JSONB-only audit query against a Pass-2 row used to
+        // return Pass-1 values. The snapshot helper now overwrites
+        // `model` and `template_file` with the Pass-2 values when
+        // `effective_pass = 2` so the JSONB matches what actually ran.
+        let resolved = resolved_with_both_passes();
+        let json = snapshot_for_test(
+            &resolved,
+            SnapshotRuntimeFields {
+                effective_pass: 2,
+                template_hash: "p2_hash",
+                system_prompt_hash: None,
+                global_rules_hash: None,
+                pass2_cross_doc_entities: &[],
+                pass2_source_document_ids: &[],
+            },
+        );
+        assert_eq!(json["effective_pass"], 2);
+        assert_eq!(
+            json["model"], "claude-opus-4-7",
+            "Pass-2 snapshot must record the Pass-2 model, not Pass-1's"
+        );
+        assert_eq!(
+            json["template_file"], "pass2_complaint.md",
+            "Pass-2 snapshot must record the Pass-2 template filename"
+        );
+        assert_eq!(json["template_hash"], "p2_hash");
+    }
+
+    #[test]
+    fn snapshot_effective_pass_2_falls_back_to_pass1_model_when_pass2_unset() {
+        // Mirrors the runtime fallback at the LLM call site: when the
+        // profile/override didn't set pass2_model, Pass-2 actually runs
+        // on the Pass-1 model. The snapshot must reflect that — same id
+        // recorded twice (in `model` and in `pass2_model = null`).
+        let mut resolved = resolved_with_both_passes();
+        resolved.pass2_model = None;
+        // Drop pass2_template_file too so the fallback path for templates
+        // is exercised: when no Pass-2 template is configured, the
+        // snapshot keeps the Pass-1 template_file (consistent with the
+        // runtime, which would not have reached this code without one).
+        let json = snapshot_for_test(
+            &resolved,
+            SnapshotRuntimeFields {
+                effective_pass: 2,
+                template_hash: "p1_or_p2_hash",
+                system_prompt_hash: None,
+                global_rules_hash: None,
+                pass2_cross_doc_entities: &[],
+                pass2_source_document_ids: &[],
+            },
+        );
+        assert_eq!(json["effective_pass"], 2);
+        assert_eq!(
+            json["model"], "claude-sonnet-4-6",
+            "with pass2_model=None, Pass-2 snapshot must fall back to Pass-1 model"
+        );
+        assert!(json["pass2_model"].is_null());
+    }
+
+    // ── 2B: cross-doc entity recording
+
+    #[test]
+    fn cross_doc_context_record_round_trips_through_serde_json() {
+        let r = crate::pipeline::config::CrossDocContextRecord {
+            document_id: "doc-abc".into(),
+            prefixed_id: "ctx:party-001".into(),
+            item_id: 42,
+        };
+        let j = serde_json::to_value(&r).unwrap();
+        assert_eq!(j["document_id"], "doc-abc");
+        assert_eq!(j["prefixed_id"], "ctx:party-001");
+        assert_eq!(j["item_id"], 42);
+        let back: crate::pipeline::config::CrossDocContextRecord =
+            serde_json::from_value(j).unwrap();
+        assert_eq!(back, r);
+    }
+
+    #[test]
+    fn snapshot_pass2_with_empty_cross_doc_serialises_empty_arrays() {
+        // A Pass-2 run with no PUBLISHED prior context still produces
+        // the two array fields, both empty. They must be `[]` in JSONB
+        // (not absent) so a downstream reader can rely on the keys
+        // existing on every Pass-2 row.
+        let resolved = resolved_with_both_passes();
+        let json = snapshot_for_test(
+            &resolved,
+            SnapshotRuntimeFields {
+                effective_pass: 2,
+                template_hash: "h",
+                system_prompt_hash: None,
+                global_rules_hash: None,
+                pass2_cross_doc_entities: &[],
+                pass2_source_document_ids: &[],
+            },
+        );
+        assert!(json["pass2_cross_doc_entities"].is_array());
+        assert_eq!(
+            json["pass2_cross_doc_entities"].as_array().unwrap().len(),
+            0
+        );
+        assert!(json["pass2_source_document_ids"].is_array());
+        assert_eq!(
+            json["pass2_source_document_ids"].as_array().unwrap().len(),
+            0
+        );
+    }
+
+    #[test]
+    fn snapshot_pass2_with_cross_doc_records_lands_in_jsonb() {
+        // The records the step builds must round-trip into the snapshot
+        // JSONB intact. `pass2_source_document_ids` is the caller's
+        // sorted/deduped list — the snapshot helper does not re-sort,
+        // it just writes what it's given. (The sort/dedup invariant is
+        // tested separately at the step layer where it is built.)
+        let resolved = resolved_with_both_passes();
+        let records = vec![
+            crate::pipeline::config::CrossDocContextRecord {
+                document_id: "doc-A".into(),
+                prefixed_id: "ctx:party-001".into(),
+                item_id: 10,
+            },
+            crate::pipeline::config::CrossDocContextRecord {
+                document_id: "doc-A".into(),
+                prefixed_id: "ctx:party-002".into(),
+                item_id: 11,
+            },
+            crate::pipeline::config::CrossDocContextRecord {
+                document_id: "doc-B".into(),
+                prefixed_id: "ctx:count-001".into(),
+                item_id: 20,
+            },
+        ];
+        let source_docs: Vec<String> = vec!["doc-A".into(), "doc-B".into()];
+        let json = snapshot_for_test(
+            &resolved,
+            SnapshotRuntimeFields {
+                effective_pass: 2,
+                template_hash: "h",
+                system_prompt_hash: None,
+                global_rules_hash: None,
+                pass2_cross_doc_entities: &records,
+                pass2_source_document_ids: &source_docs,
+            },
+        );
+        assert_eq!(
+            json["pass2_cross_doc_entities"].as_array().unwrap().len(),
+            3
+        );
+        assert_eq!(json["pass2_cross_doc_entities"][0]["document_id"], "doc-A");
+        assert_eq!(json["pass2_cross_doc_entities"][2]["item_id"], 20);
+        let ids = json["pass2_source_document_ids"].as_array().unwrap();
+        assert_eq!(ids.len(), 2);
+        assert_eq!(ids[0], "doc-A");
+        assert_eq!(ids[1], "doc-B");
     }
 }

@@ -42,12 +42,13 @@ use colossus_pipeline::progress::ProgressReporter;
 use colossus_pipeline::{Step, StepResult};
 
 use crate::models::document_status::{RUN_STATUS_COMPLETED, RUN_STATUS_FAILED, RUN_STATUS_RUNNING};
-use crate::pipeline::config::{resolve_config, ProcessingProfile};
+use crate::pipeline::config::{resolve_config, CrossDocContextRecord, ProcessingProfile};
 use crate::pipeline::context::AppContext;
 use crate::pipeline::providers::provider_for_model;
 use crate::pipeline::steps::llm_extract::{
     compute_cost, default_profile_name_from_schema, load_global_rules, resolve_effective_mode,
     resolve_max_tokens, sha2_hex, write_processing_config_snapshot, LlmExtractError,
+    SnapshotRuntimeFields,
 };
 use crate::pipeline::steps::llm_extract_helpers::{
     call_with_rate_limit_retry, mark_run_failed, parse_chunk_response,
@@ -297,6 +298,63 @@ pub async fn run_pass2_extraction(
         "Pass 2: loaded entities for prompt"
     );
 
+    // 9a-bis. Reproducibility record of the cross-document entities that
+    //     will be inlined into the Pass-2 prompt. Built BEFORE the prompt
+    //     assembly so any future filtering between load and prompt-build
+    //     would force this code to be moved alongside it (the audit log
+    //     must reflect what actually went into the prompt — Gap 3 in
+    //     AUDIT_PIPELINE_CONFIG_GAPS.md). Today there is no filtering, so
+    //     `cross_doc_entities` IS the prompt input set.
+    //
+    // Two parallel structures:
+    //   - `cross_doc_records`: full triples written into JSONB and into
+    //     the `prior_context` TEXT column (full reproducibility).
+    //   - `pass2_source_document_ids`: sorted unique list of contributing
+    //     document_ids (cheap "which prior runs informed this Pass-2"
+    //     queries without parsing the full triple list).
+    let cross_doc_records: Vec<CrossDocContextRecord> = cross_doc_entities
+        .iter()
+        .map(|c| CrossDocContextRecord {
+            document_id: c.source_document_id.clone(),
+            prefixed_id: c.prefixed_id.clone(),
+            item_id: c.item_id,
+        })
+        .collect();
+    let mut pass2_source_document_ids: Vec<String> = cross_doc_entities
+        .iter()
+        .map(|c| c.source_document_id.clone())
+        .collect();
+    pass2_source_document_ids.sort();
+    pass2_source_document_ids.dedup();
+
+    // Compact JSON encoding for the `extraction_runs.prior_context` TEXT
+    // column. `serde_json::to_string` (not `to_string_pretty`) — saves
+    // bytes on large cross-doc sets and the column is opaque to humans
+    // anyway (the JSONB sub-field is the queryable copy).
+    // Empty cross-doc set → `None` so the column stays NULL rather than
+    // storing the literal string `"[]"` (a NULL is the unambiguous
+    // "nothing to record" signal in the audit log).
+    let prior_context_json: Option<String> = if cross_doc_records.is_empty() {
+        None
+    } else {
+        match serde_json::to_string(&cross_doc_records) {
+            Ok(s) => Some(s),
+            Err(e) => {
+                // Serialisation failure on a Vec<CrossDocContextRecord>
+                // would mean a serde-derive bug — none of the fields can
+                // produce a non-finite float or a non-string map key.
+                // Log + degrade to NULL rather than abort; the snapshot
+                // JSONB still carries the structured copy if it succeeds.
+                tracing::warn!(
+                    document_id,
+                    error = %e,
+                    "Failed to serialize prior_context (non-fatal — JSONB sub-field still written)"
+                );
+                None
+            }
+        }
+    };
+
     // 9b. Render entities for the prompt and build the LLM-id → item_id map.
     //     Local entities come first so the LLM's attention order favors
     //     this document's own entities; cross-doc entities follow with a
@@ -370,7 +428,10 @@ pub async fn run_pass2_extraction(
         Some(resolved.temperature),
         Some(max_tokens as i32),
         pipe_config.admin_instructions.as_deref(),
-        None,
+        // F3 audit: prior_context is the JSON-encoded list of cross-doc
+        // entities actually injected into the Pass-2 prompt. Previously
+        // always NULL. AUDIT_PIPELINE_CONFIG_GAPS.md Gap 3.
+        prior_context_json.as_deref(),
     )
     .await
     .map_err(|e| LlmExtractError::InsertRunFailed {
@@ -457,13 +518,24 @@ pub async fn run_pass2_extraction(
     })?;
 
     // 16. Processing-config snapshot (best-effort).
+    // Pass-2 snapshot: effective_pass = 2 triggers the snapshot helper
+    // to overwrite `model` / `template_file` with their Pass-2 values
+    // (Gap 11 in AUDIT_PIPELINE_CONFIG_GAPS.md). Cross-doc records and
+    // the source-doc list are captured here too — same data also lives
+    // in `extraction_runs.prior_context` as a TEXT JSON for the bytes-
+    // exact reproducibility column.
     write_processing_config_snapshot(
         db,
         run_id,
         &resolved,
-        &template_hash,
-        system_prompt_hash.as_deref(),
-        global_rules_hash.as_deref(),
+        SnapshotRuntimeFields {
+            effective_pass: 2,
+            template_hash: &template_hash,
+            system_prompt_hash: system_prompt_hash.as_deref(),
+            global_rules_hash: global_rules_hash.as_deref(),
+            pass2_cross_doc_entities: &cross_doc_records,
+            pass2_source_document_ids: &pass2_source_document_ids,
+        },
     )
     .await;
 

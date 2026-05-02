@@ -72,7 +72,6 @@ export interface ProcessingProfile {
   extraction_model: string;
   /** Pass-2 relationship-extraction model; null means reuse `extraction_model`. */
   pass2_extraction_model: string | null;
-  synthesis_model: string | null;
   chunking_mode: string;
   chunk_size: number | null;
   chunk_overlap: number | null;

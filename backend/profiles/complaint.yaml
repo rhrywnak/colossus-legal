@@ -21,7 +21,6 @@ system_prompt_file: legal_extraction_system.md
 
 # Model — must match an id in the llm_models table
 extraction_model: claude-sonnet-4-6
-synthesis_model: null
 
 # Chunking
 chunking_mode: full

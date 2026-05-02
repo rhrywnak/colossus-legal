@@ -20,7 +20,6 @@ pass2_template_file: pass2_brief_v4.md
 system_prompt_file: legal_extraction_system.md
 
 extraction_model: claude-sonnet-4-6
-synthesis_model: null
 
 chunking_mode: structured
 chunk_size: 8000
