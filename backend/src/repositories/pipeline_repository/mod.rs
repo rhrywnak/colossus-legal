@@ -12,12 +12,18 @@
 pub mod documents;
 pub mod extraction;
 pub mod models;
+pub mod report_queries;
 pub mod review;
 pub mod steps;
 pub mod users;
 
 pub use extraction::*;
 pub use models::LlmModelRecord;
+pub use report_queries::{
+    PerPassRunMetadata, RelationshipTypeCount, get_extraction_runs_with_processing_config,
+    get_per_pass_entity_breakdown, get_per_pass_relationship_breakdown,
+    get_relationship_breakdown_by_type,
+};
 
 use crate::models::document_status::{
     RUN_STATUS_COMPLETED, STATUS_NEW, STEP_STATUS_FAILED,

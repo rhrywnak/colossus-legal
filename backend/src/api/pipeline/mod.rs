@@ -34,6 +34,7 @@ mod metrics;
 pub(crate) mod ocr;
 mod process;
 pub mod report;
+pub mod report_data;
 mod review;
 pub mod state_machine;
 pub(crate) mod upload;
@@ -48,7 +49,7 @@ pub use extract_text::extract_text;
 pub use history::history_handler;
 pub use index::index_handler;
 pub use ingest::{ingest_delta_handler, ingest_handler};
-pub use report::report_handler;
+pub use report::{report_handler, report_json_handler};
 pub use upload::upload_document;
 pub use verify::verify_handler;
 
@@ -95,6 +96,11 @@ pub fn router() -> Router<AppState> {
         .route("/documents/:id/index", post(index_handler))
         .route("/documents/:id/completeness", get(completeness_handler))
         .route("/documents/:id/report", get(report_handler))
+        // JSON sibling for programmatic verification (jq, scripts,
+        // dashboards). Same data path as the HTML route — see
+        // report.rs ReportBundle. Audit: AUDIT_PIPELINE_CONFIG_GAPS.md
+        // gap 14 / Instruction E.
+        .route("/documents/:id/report.json", get(report_json_handler))
         .route(
             "/documents/:id/actions",
             get(state_machine::get_document_actions),
