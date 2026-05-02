@@ -111,15 +111,21 @@ function blankProfile(): ProcessingProfile {
     schema_file: "",
     template_file: "",
     system_prompt_file: null,
+    global_rules_file: null,
+    pass2_template_file: null,
     extraction_model: "",
+    pass2_extraction_model: null,
     chunking_mode: "chunked",
     chunk_size: null,
     chunk_overlap: null,
+    chunking_config: {},
+    context_config: {},
     max_tokens: 8000,
     temperature: 0.0,
     auto_approve_grounded: true,
     run_pass2: false,
     is_default: false,
+    profile_hash: "",  // empty sentinel; backend computes the real hash on save via from_yaml_str
   };
 }
 

@@ -10,7 +10,7 @@
  * wired in this task — the backend `/process` endpoint doesn't yet accept
  * override payload. The UI makes this explicit so users aren't misled.
  */
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   getDocumentConfig,
   getProfile,
@@ -20,13 +20,21 @@ import {
   listTemplates,
   LlmModel,
   patchDocumentConfig,
-  PatchConfigInput,
   previewPrompt,
   ProcessingProfile,
   PromptPreviewResponse,
   SchemaInfo,
   TemplateInfo,
 } from "../../services/configApi";
+import {
+  buildPatchInput,
+  diffConfigFromProfile,
+  isMapKeyModified,
+  Overrides,
+  resolveClientSide,
+  TOOLTIPS,
+  truncateHash,
+} from "./configurationPanelHelpers";
 
 // ── Styles ──────────────────────────────────────────────────────
 
@@ -151,6 +159,85 @@ const previewTextarea: React.CSSProperties = {
   resize: "vertical",
 };
 
+const subKeyEditorContainer: React.CSSProperties = {
+  marginTop: "0.85rem",
+  padding: "0.6rem 0.75rem",
+  border: "1px solid #e2e8f0",
+  borderRadius: "6px",
+  backgroundColor: "#fafbfc",
+};
+const subKeyEditorHeader: React.CSSProperties = {
+  fontSize: "0.78rem",
+  fontWeight: 600,
+  color: "#334155",
+  marginBottom: "0.4rem",
+};
+const subKeyRow: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "minmax(140px, auto) 1fr auto",
+  alignItems: "center",
+  columnGap: "0.6rem",
+  rowGap: "0.4rem",
+};
+const resetBtn: React.CSSProperties = {
+  padding: "0.15rem 0.5rem",
+  fontSize: "0.72rem",
+  border: "1px solid #cbd5e1",
+  borderRadius: "4px",
+  backgroundColor: "#ffffff",
+  color: "#64748b",
+  cursor: "pointer",
+  fontFamily: "inherit",
+};
+const resetBtnHidden: React.CSSProperties = {
+  ...resetBtn,
+  visibility: "hidden",
+};
+const resolvedSectionStyle: React.CSSProperties = {
+  marginTop: "1rem",
+  border: "1px solid #e2e8f0",
+  borderRadius: "6px",
+  backgroundColor: "#fafbfc",
+};
+const resolvedSummaryStyle: React.CSSProperties = {
+  padding: "0.5rem 0.75rem",
+  cursor: "pointer",
+  fontSize: "0.82rem",
+  fontWeight: 600,
+  color: "#334155",
+  userSelect: "none",
+};
+const resolvedBodyStyle: React.CSSProperties = {
+  padding: "0.6rem 0.85rem",
+  borderTop: "1px solid #e2e8f0",
+  fontSize: "0.78rem",
+  color: "#334155",
+  lineHeight: 1.5,
+};
+const resolvedKey: React.CSSProperties = {
+  display: "inline-block",
+  minWidth: "150px",
+  color: "#64748b",
+};
+const resolvedHashStyle: React.CSSProperties = {
+  fontFamily: "ui-monospace, Menlo, monospace",
+  fontSize: "0.74rem",
+  color: "#0f172a",
+  padding: "0 0.25rem",
+  backgroundColor: "#f1f5f9",
+  borderRadius: "3px",
+};
+const resolvedMapStyle: React.CSSProperties = {
+  margin: "0.25rem 0 0.6rem 0.5rem",
+  padding: "0.4rem 0.6rem",
+  backgroundColor: "#ffffff",
+  border: "1px solid #e2e8f0",
+  borderRadius: "4px",
+  fontFamily: "ui-monospace, Menlo, monospace",
+  fontSize: "0.74rem",
+  whiteSpace: "pre-wrap" as const,
+};
+
 // ── Types ───────────────────────────────────────────────────────
 
 export interface ConfigurationPanelProps {
@@ -175,25 +262,6 @@ export interface ConfigurationPanelProps {
   busy?: boolean;
 }
 
-/**
- * Override fields tracked in local state. Only the subset the UI exposes —
- * matches the editable dropdowns / inputs below.
- */
-interface Overrides {
-  profile_name?: string;
-  extraction_model?: string;
-  /** Pass-2 relationship-extraction model. `undefined` means "unchanged". */
-  pass2_extraction_model?: string;
-  template_file?: string;
-  schema_file?: string;
-  chunking_mode?: string;
-  chunk_size?: number | null;
-  chunk_overlap?: number | null;
-  max_tokens?: number;
-  temperature?: number;
-  run_pass2?: boolean;
-}
-
 const CHUNKING_MODES = ["full", "structured", "chunked"] as const;
 
 const CHUNKING_MODE_LABELS: Record<(typeof CHUNKING_MODES)[number], string> = {
@@ -201,87 +269,6 @@ const CHUNKING_MODE_LABELS: Record<(typeof CHUNKING_MODES)[number], string> = {
   structured: "Structured",
   chunked: "Legacy Chunked",
 };
-
-/**
- * Seed the panel's `overrides` state from the per-document pipeline_config
- * row, skipping any field whose value matches the currently-loaded profile.
- *
- * At upload time the backend auto-populates pipeline_config from the
- * matched profile, so a freshly-uploaded doc's DB values equal the
- * profile's values. Marking every matching field as "modified" would be
- * wrong — `isModified()` means "user has overridden the profile". Only
- * fields whose DB value genuinely differs from the profile belong here.
- *
- * `system_prompt_file` is in the DB payload but not tracked by this panel
- * (no UI surface yet); it's ignored. `schema_file` is tracked in the
- * panel's `Overrides` but has no corresponding pipeline_config column, so
- * the DB payload never sets it.
- */
-function diffConfigFromProfile(
-  docConfig: PatchConfigInput | null,
-  profile: ProcessingProfile,
-): Overrides {
-  if (!docConfig) return {};
-  const out: Overrides = {};
-  if (docConfig.profile_name != null && docConfig.profile_name !== profile.name) {
-    out.profile_name = docConfig.profile_name;
-  }
-  if (
-    docConfig.extraction_model != null &&
-    docConfig.extraction_model !== profile.extraction_model
-  ) {
-    out.extraction_model = docConfig.extraction_model;
-  }
-  if (
-    docConfig.pass2_extraction_model != null &&
-    docConfig.pass2_extraction_model !== profile.pass2_extraction_model
-  ) {
-    out.pass2_extraction_model = docConfig.pass2_extraction_model;
-  }
-  if (
-    docConfig.template_file != null &&
-    docConfig.template_file !== profile.template_file
-  ) {
-    out.template_file = docConfig.template_file;
-  }
-  if (
-    docConfig.chunking_mode != null &&
-    docConfig.chunking_mode !== profile.chunking_mode
-  ) {
-    out.chunking_mode = docConfig.chunking_mode;
-  }
-  if (
-    docConfig.chunk_size != null &&
-    docConfig.chunk_size !== profile.chunk_size
-  ) {
-    out.chunk_size = docConfig.chunk_size;
-  }
-  if (
-    docConfig.chunk_overlap != null &&
-    docConfig.chunk_overlap !== profile.chunk_overlap
-  ) {
-    out.chunk_overlap = docConfig.chunk_overlap;
-  }
-  if (
-    docConfig.max_tokens != null &&
-    docConfig.max_tokens !== profile.max_tokens
-  ) {
-    out.max_tokens = docConfig.max_tokens;
-  }
-  if (
-    docConfig.temperature != null &&
-    docConfig.temperature !== profile.temperature
-  ) {
-    out.temperature = docConfig.temperature;
-  }
-  if (
-    docConfig.run_pass2 != null &&
-    docConfig.run_pass2 !== profile.run_pass2
-  ) {
-    out.run_pass2 = docConfig.run_pass2;
-  }
-  return out;
-}
 
 // ── Component ───────────────────────────────────────────────────
 
@@ -322,6 +309,211 @@ const contentInfoStyle: React.CSSProperties = {
   backgroundColor: "#f8fafc",
   border: "1px solid #e2e8f0",
   borderRadius: "6px",
+};
+
+// ── Sub-components ──────────────────────────────────────────────
+
+/**
+ * Editor for one of the profile's `Record<string, unknown>` config
+ * maps (chunking_config or context_config). One labeled input per
+ * key the profile declares; type-aware (number for numeric defaults,
+ * checkbox for booleans, text otherwise).
+ *
+ * The `mode` sub-key is rendered read-only when present — operators
+ * change the chunking mode via the main "Chunking" dropdown above
+ * (which dual-writes both the legacy `chunking_mode` field and
+ * `chunking_config.mode`). Letting them edit `mode` here would be a
+ * second-class entry path that drifts from the dropdown.
+ *
+ * ## Rust Learning analogue
+ *
+ * `Record<string, unknown>` is TS's parallel to Rust's
+ * `HashMap<String, serde_json::Value>` — the value type is "anything
+ * JSON-shaped." We narrow at render time based on the *profile's*
+ * default type for each key (the operator can't change the type).
+ */
+const SubKeyEditor: React.FC<{
+  label: string;
+  profileMap: Record<string, unknown>;
+  overrideMap: Record<string, unknown> | undefined;
+  onSetKey: (key: string, value: unknown) => void;
+  onClearKey: (key: string) => void;
+}> = ({ label, profileMap, overrideMap, onSetKey, onClearKey }) => {
+  const keys = Object.keys(profileMap).sort();
+  return (
+    <div style={subKeyEditorContainer}>
+      <div style={subKeyEditorHeader}>{label}</div>
+      <div style={subKeyRow}>
+        {keys.map((key) => {
+          const isOverridden =
+            overrideMap !== undefined &&
+            Object.prototype.hasOwnProperty.call(overrideMap, key);
+          const profileValue = profileMap[key];
+          const effectiveValue = isOverridden ? overrideMap![key] : profileValue;
+          const labelStyle: React.CSSProperties = isOverridden
+            ? fieldLabelModified
+            : fieldLabel;
+
+          // The legacy "mode" sub-key is owned by the main Chunking
+          // dropdown (which dual-writes). Render read-only here so
+          // operators have one clear entry path.
+          const isReadOnlyMode = key === "mode";
+
+          // Pick widget shape from the *profile's* value type.
+          const isNumber = typeof profileValue === "number";
+          const isBool = typeof profileValue === "boolean";
+
+          return (
+            <React.Fragment key={key}>
+              <label style={labelStyle}>
+                {key}
+                {isOverridden && !isReadOnlyMode && (
+                  <span style={modifiedBadge}>modified</span>
+                )}
+              </label>
+              {isReadOnlyMode ? (
+                <input
+                  style={{ ...inputStyle, opacity: 0.6, cursor: "not-allowed" }}
+                  type="text"
+                  value={String(effectiveValue ?? "")}
+                  readOnly
+                  disabled
+                  aria-label={`${key} (set via Chunking dropdown above)`}
+                  title="Edit via the Chunking dropdown above (kept in sync with the legacy chunking_mode field)."
+                />
+              ) : isBool ? (
+                <input
+                  type="checkbox"
+                  aria-label={key}
+                  checked={Boolean(effectiveValue)}
+                  onChange={(e) => onSetKey(key, e.target.checked)}
+                />
+              ) : isNumber ? (
+                <input
+                  style={inputStyle}
+                  type="number"
+                  step={1}
+                  aria-label={key}
+                  value={Number(effectiveValue ?? 0)}
+                  onChange={(e) => onSetKey(key, Number(e.target.value))}
+                />
+              ) : (
+                <input
+                  style={inputStyle}
+                  type="text"
+                  aria-label={key}
+                  value={String(effectiveValue ?? "")}
+                  onChange={(e) => onSetKey(key, e.target.value)}
+                />
+              )}
+              {isReadOnlyMode ? (
+                <span style={resetBtnHidden} aria-hidden="true">
+                  Reset
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  style={isOverridden ? resetBtn : resetBtnHidden}
+                  onClick={() => onClearKey(key)}
+                  title={TOOLTIPS.resetSubKey}
+                  aria-label={`Reset ${key} to profile default`}
+                  disabled={!isOverridden}
+                >
+                  Reset
+                </button>
+              )}
+            </React.Fragment>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+/**
+ * Collapsed-by-default audit-trail section. Shows the fully-resolved
+ * view of what will run (per [`resolveClientSide`]) including content
+ * hashes for audit reproducibility — Gap 4 / Gap 5 / Gap 11
+ * fingerprints surface here so an operator can verify before
+ * processing.
+ *
+ * Hashes display as the leading 8 hex chars with the full value on a
+ * `title` tooltip — operators don't usually need the full 64 chars,
+ * but they're one hover away when they do.
+ */
+const ResolvedConfigSection: React.FC<{
+  resolved: import("./configurationPanelHelpers").ResolvedView;
+}> = ({ resolved }) => {
+  const formatMap = (m: Record<string, unknown>): string =>
+    Object.keys(m).length === 0 ? "(empty)" : JSON.stringify(m, null, 2);
+  return (
+    <details style={resolvedSectionStyle}>
+      <summary style={resolvedSummaryStyle} title={TOOLTIPS.resolvedSection}>
+        Resolved Configuration (audit-trail view)
+      </summary>
+      <div style={resolvedBodyStyle}>
+        <div>
+          <span style={resolvedKey}>profile_name:</span>
+          {resolved.profile_name}{" "}
+          <span style={resolvedHashStyle} title={resolved.profile_hash}>
+            {truncateHash(resolved.profile_hash) || "(no hash)"}
+          </span>
+        </div>
+        <div>
+          <span style={resolvedKey}>pass1_template:</span>
+          {resolved.template_file}
+        </div>
+        <div>
+          <span style={resolvedKey}>pass2_template:</span>
+          {resolved.run_pass2
+            ? resolved.pass2_template_file ?? "(none — Pass 2 will fail)"
+            : "(Pass 2 disabled)"}
+        </div>
+        <div>
+          <span style={resolvedKey}>system_prompt:</span>
+          {resolved.system_prompt_file ?? "(none)"}
+        </div>
+        <div>
+          <span style={resolvedKey}>global_rules:</span>
+          {resolved.global_rules_file ?? "(none)"}
+        </div>
+        <div>
+          <span style={resolvedKey}>schema:</span>
+          {resolved.schema_file}
+        </div>
+        <div>
+          <span style={resolvedKey}>pass1_model:</span>
+          {resolved.model}
+        </div>
+        <div>
+          <span style={resolvedKey}>pass2_model:</span>
+          {resolved.run_pass2
+            ? resolved.pass2_model ?? `${resolved.model} (reuses Pass-1)`
+            : "(Pass 2 disabled)"}
+        </div>
+        <div>
+          <span style={resolvedKey}>chunking_mode:</span>
+          {resolved.chunking_mode}
+        </div>
+        <div>
+          <span style={resolvedKey}>chunking_config:</span>
+        </div>
+        <div style={resolvedMapStyle}>{formatMap(resolved.chunking_config)}</div>
+        <div>
+          <span style={resolvedKey}>context_config:</span>
+        </div>
+        <div style={resolvedMapStyle}>{formatMap(resolved.context_config)}</div>
+        <div>
+          <span style={resolvedKey}>max_tokens:</span>
+          {resolved.max_tokens}
+        </div>
+        <div>
+          <span style={resolvedKey}>temperature:</span>
+          {resolved.temperature}
+        </div>
+      </div>
+    </details>
+  );
 };
 
 const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
@@ -437,41 +629,82 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
   const isModified = <K extends keyof Overrides>(key: K): boolean =>
     overrides[key] !== undefined;
 
-  const effective = (() => {
-    const p = baseProfile;
-    if (!p) return null;
-    // Pass-2 model resolution mirrors the backend's fall-back chain:
-    //   user override → profile's pass2_extraction_model → pass-1 model.
-    // If a user picks a model here it becomes an override; leaving it
-    // alone keeps backend behavior consistent with the profile default.
-    const pass1Model = overrides.extraction_model ?? p.extraction_model;
-    const pass2Model =
-      overrides.pass2_extraction_model
-        ?? p.pass2_extraction_model
-        ?? pass1Model;
-    return {
-      name: overrides.profile_name ?? p.name,
-      extraction_model: pass1Model,
-      pass2_extraction_model: pass2Model,
-      template_file: overrides.template_file ?? p.template_file,
-      schema_file: overrides.schema_file ?? p.schema_file,
-      chunking_mode: overrides.chunking_mode ?? p.chunking_mode,
-      chunk_size:
-        overrides.chunk_size !== undefined
-          ? overrides.chunk_size
-          : p.chunk_size,
-      chunk_overlap:
-        overrides.chunk_overlap !== undefined
-          ? overrides.chunk_overlap
-          : p.chunk_overlap,
-      max_tokens: overrides.max_tokens ?? p.max_tokens,
-      temperature:
-        overrides.temperature !== undefined
-          ? overrides.temperature
-          : p.temperature,
-      run_pass2: overrides.run_pass2 ?? p.run_pass2,
-    };
-  })();
+  /**
+   * Set a single sub-key of the chunking_config override map.
+   *
+   * The operator edits, say, `units_per_chunk = 3` in the sub-key
+   * editor. We add the entry to `overrides.chunking_config` so it
+   * round-trips into the PATCH payload and the backend's resolver
+   * sees a per-document override on just that key (other keys still
+   * inherit from the profile).
+   */
+  const setChunkingSubKey = (key: string, value: unknown) => {
+    setOverrides((cur) => ({
+      ...cur,
+      chunking_config: { ...(cur.chunking_config ?? {}), [key]: value },
+    }));
+  };
+
+  /**
+   * Clear a single sub-key from the chunking_config override map —
+   * the panel's "Reset to profile default" button.
+   *
+   * If clearing this key empties the map, we leave the empty `{}`
+   * behind in `Overrides`; `buildPatchInput` sends `null` in that
+   * case so the column resets to NULL (full re-inherit from the
+   * profile). The empty-vs-undefined distinction matches the
+   * backend's three-state contract documented on
+   * `PipelineConfigOverrides.chunking_config`.
+   *
+   * ## Why this dance instead of `null` per-key
+   *
+   * The PATCH endpoint uses COALESCE to preserve unchanged columns,
+   * which means there's no JSON-Merge-Patch-style "delete this key"
+   * primitive. To clear a single key while preserving others, the
+   * panel must compute the new full override map and send it whole.
+   * Tracked as tech debt; eventual fix is RFC 7396 JSON Merge Patch.
+   */
+  const clearChunkingSubKey = (key: string) => {
+    setOverrides((cur) => {
+      const map = { ...(cur.chunking_config ?? {}) };
+      delete map[key];
+      return { ...cur, chunking_config: map };
+    });
+  };
+
+  /**
+   * Chunking-mode dropdown handler — dual-write to both the legacy
+   * `chunking_mode` field and the newer `chunking_config.mode` key.
+   *
+   * Why the duplicate write: the runtime resolver
+   * (`backend/src/pipeline/steps/llm_extract.rs:resolve_effective_mode`)
+   * prefers `chunking_config["mode"]` when present, falling back to
+   * `chunking_mode`. If we wrote only the legacy field, the runtime
+   * could silently disagree with the operator's selection (Gap 7 in
+   * the audit). Writing both keeps them in lockstep until a future
+   * cleanup removes the legacy `chunking_mode` column entirely.
+   */
+  const setChunkingMode = (mode: string) => {
+    setOverrides((cur) => ({
+      ...cur,
+      chunking_mode: mode,
+      chunking_config: { ...(cur.chunking_config ?? {}), mode },
+    }));
+  };
+
+  /**
+   * The fully resolved view of `profile + overrides` — what would
+   * actually run if the operator clicks Process now. Memoised so the
+   * audit-trail section and the field widgets read from the same
+   * value.
+   *
+   * `null` when no profile loaded — the "no profile" branch below
+   * handles that case.
+   */
+  const resolved = useMemo(
+    () => (baseProfile ? resolveClientSide(baseProfile, overrides) : null),
+    [baseProfile, overrides],
+  );
 
   const runPreview = async () => {
     setPreviewBusy(true);
@@ -481,7 +714,9 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
         document_id: documentId,
         profile_name: overrides.profile_name,
         template_file: overrides.template_file,
-        schema_file: overrides.schema_file,
+        // Schema is profile-level (Gap 8 — disabled UI); pass the
+        // profile's value so the preview matches what will run.
+        schema_file: baseProfile?.schema_file,
       });
       setPreview(resp);
     } catch (e) {
@@ -491,35 +726,9 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
     }
   };
 
-  /**
-   * Build the PATCH payload from the user-tracked overrides. Only fields
-   * the user actually changed are included — the server treats omitted
-   * fields as "preserve existing column value".
-   */
-  const buildPatchInput = (): PatchConfigInput => {
-    const out: PatchConfigInput = {};
-    if (overrides.profile_name !== undefined) out.profile_name = overrides.profile_name;
-    if (overrides.extraction_model !== undefined) out.extraction_model = overrides.extraction_model;
-    if (overrides.pass2_extraction_model !== undefined) {
-      out.pass2_extraction_model = overrides.pass2_extraction_model;
-    }
-    if (overrides.template_file !== undefined) out.template_file = overrides.template_file;
-    if (overrides.schema_file !== undefined) {
-      // schema_file is not yet a pipeline_config override column — skip it
-      // silently; schema switching must go via the profile.
-    }
-    if (overrides.chunking_mode !== undefined) out.chunking_mode = overrides.chunking_mode;
-    if (overrides.chunk_size !== undefined) out.chunk_size = overrides.chunk_size;
-    if (overrides.chunk_overlap !== undefined) out.chunk_overlap = overrides.chunk_overlap;
-    if (overrides.max_tokens !== undefined) out.max_tokens = overrides.max_tokens;
-    if (overrides.temperature !== undefined) out.temperature = overrides.temperature;
-    if (overrides.run_pass2 !== undefined) out.run_pass2 = overrides.run_pass2;
-    return out;
-  };
-
   const saveAndProcess = async () => {
     setSaveError(null);
-    const payload = buildPatchInput();
+    const payload = buildPatchInput(overrides);
     const hasChanges = Object.keys(payload).length > 0;
     if (hasChanges) {
       setSaving(true);
@@ -555,7 +764,7 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
     );
   }
 
-  if (!baseProfile || !effective) {
+  if (!baseProfile || !resolved) {
     return (
       <div style={containerStyle}>
         <div style={headerStyle}>Processing Configuration</div>
@@ -608,7 +817,8 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
           </label>
           <select
             style={inputStyle}
-            value={effective.name}
+            aria-label="Profile"
+            value={resolved.profile_name}
             onChange={(e) => switchProfile(e.target.value)}
           >
             {profiles.map((p) => (
@@ -624,7 +834,8 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
           </label>
           <select
             style={inputStyle}
-            value={effective.extraction_model}
+            aria-label="Pass-1 extraction model"
+            value={resolved.model}
             onChange={(e) => setOverride("extraction_model", e.target.value)}
           >
             {models.map((m) => (
@@ -640,7 +851,8 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
           </label>
           <select
             style={inputStyle}
-            value={effective.template_file}
+            aria-label="Pass-1 template"
+            value={resolved.template_file}
             onChange={(e) => setOverride("template_file", e.target.value)}
           >
             {templates.map((t) => (
@@ -650,20 +862,37 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
             ))}
           </select>
 
-          <label style={isModified("schema_file") ? fieldLabelModified : fieldLabel}>
-            Schema
-            {isModified("schema_file") && <span style={modifiedBadge}>modified</span>}
-          </label>
+          {/*
+           * Schema dropdown — disabled per Gap 8 in
+           * AUDIT_PIPELINE_CONFIG_GAPS.md. Pre-Instruction-D the
+           * widget rendered editable but the PATCH builder silently
+           * dropped the value — a lie about acceptance. Now disabled
+           * with a tooltip explaining the profile-level constraint.
+           */}
+          <label style={fieldLabel}>Schema</label>
           <select
-            style={inputStyle}
-            value={effective.schema_file}
-            onChange={(e) => setOverride("schema_file", e.target.value)}
+            style={{ ...inputStyle, opacity: 0.6, cursor: "not-allowed" }}
+            aria-label="Schema (read-only — profile-level only)"
+            value={resolved.schema_file}
+            disabled
+            title={TOOLTIPS.schemaFileDisabled}
+            onChange={() => {
+              /* disabled — no-op */
+            }}
           >
             {schemas.map((s) => (
               <option key={s.filename} value={s.filename}>
                 {s.filename}
               </option>
             ))}
+            {/* The profile's schema_file may not be in the dropdown's
+                option list when the schemas API hasn't loaded yet or
+                when the profile references a schema that has been
+                renamed. Add it as a fallback option so the disabled
+                widget always displays the correct value. */}
+            {!schemas.some((s) => s.filename === resolved.schema_file) && (
+              <option value={resolved.schema_file}>{resolved.schema_file}</option>
+            )}
           </select>
 
           <label style={isModified("chunking_mode") ? fieldLabelModified : fieldLabel}>
@@ -672,8 +901,9 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
           </label>
           <select
             style={inputStyle}
-            value={effective.chunking_mode}
-            onChange={(e) => setOverride("chunking_mode", e.target.value)}
+            aria-label="Chunking mode"
+            value={resolved.chunking_mode}
+            onChange={(e) => setChunkingMode(e.target.value)}
           >
             {CHUNKING_MODES.map((m) => (
               <option key={m} value={m}>
@@ -689,7 +919,10 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
           <input
             style={inputStyle}
             type="number"
-            value={effective.max_tokens}
+            min={1}
+            step={1}
+            aria-label="Max output tokens per LLM call"
+            value={resolved.max_tokens}
             onChange={(e) =>
               setOverride("max_tokens", Number(e.target.value) || 0)
             }
@@ -703,7 +936,10 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
             style={inputStyle}
             type="number"
             step="0.1"
-            value={effective.temperature ?? 0}
+            min={0}
+            max={2}
+            aria-label="LLM temperature"
+            value={resolved.temperature ?? 0}
             onChange={(e) =>
               setOverride("temperature", Number(e.target.value) || 0)
             }
@@ -717,13 +953,14 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
             <label style={{ fontSize: "0.82rem", color: "#334155" }}>
               <input
                 type="checkbox"
-                checked={effective.run_pass2}
+                checked={resolved.run_pass2}
                 onChange={(e) => setOverride("run_pass2", e.target.checked)}
                 style={{ marginRight: "0.4rem" }}
+                aria-label="Enable Pass 2 synthesis"
               />
               Enable synthesis pass
             </label>
-            {effective.run_pass2 && (
+            {resolved.run_pass2 && (
               <div style={{ marginTop: "0.5rem" }}>
                 <label
                   style={
@@ -739,7 +976,8 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
                 </label>
                 <select
                   style={inputStyle}
-                  value={effective.pass2_extraction_model}
+                  aria-label="Pass-2 extraction model"
+                  value={resolved.pass2_model ?? resolved.model}
                   onChange={(e) =>
                     setOverride("pass2_extraction_model", e.target.value)
                   }
@@ -759,10 +997,97 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
                 >
                   Defaults to the Pass 1 model when the profile doesn't set one.
                 </div>
+
+                {/*
+                 * Pass-2 template — read-only display per Gap 2 +
+                 * Roman's Path 2 decision. The profile sets the
+                 * Pass-2 template; per-document override is
+                 * deliberately not plumbed (would require migration
+                 * + repo plumbing — separate instruction if needed).
+                 * Visibility was the audit's stated concern.
+                 */}
+                <label
+                  style={{ ...fieldLabel, marginTop: "0.6rem", marginBottom: "0.25rem" }}
+                >
+                  Pass 2 Template
+                </label>
+                <input
+                  style={{ ...inputStyle, opacity: 0.6, cursor: "not-allowed" }}
+                  type="text"
+                  readOnly
+                  disabled
+                  aria-label="Pass-2 template (read-only — profile-level only)"
+                  title={TOOLTIPS.pass2TemplateReadOnly}
+                  value={resolved.pass2_template_file ?? "(none configured)"}
+                />
+                <div
+                  style={{
+                    marginTop: "0.25rem",
+                    fontSize: "0.75rem",
+                    color: "#64748b",
+                  }}
+                >
+                  Set by the profile. To change, edit the profile YAML
+                  or use a different profile.
+                </div>
               </div>
             )}
           </div>
         </div>
+
+        {/*
+         * §2C: chunking_config sub-key editor.
+         *
+         * Renders one input per key the profile's chunking_config
+         * declares. Each input is type-aware (number for numeric
+         * defaults, text otherwise). A "modified" badge appears next
+         * to a sub-key when its value differs from the profile's
+         * value; a "Reset" button clears that sub-key's override.
+         *
+         * Hidden when the profile's chunking_config is empty (no
+         * keys to override). The context_config editor below it
+         * follows the same pattern.
+         */}
+        {Object.keys(baseProfile.chunking_config).length > 0 && (
+          <SubKeyEditor
+            label="Chunking parameters"
+            profileMap={baseProfile.chunking_config}
+            overrideMap={overrides.chunking_config}
+            onSetKey={setChunkingSubKey}
+            onClearKey={clearChunkingSubKey}
+          />
+        )}
+
+        {Object.keys(baseProfile.context_config).length > 0 && (
+          <SubKeyEditor
+            label="Context parameters"
+            profileMap={baseProfile.context_config}
+            overrideMap={overrides.context_config}
+            onSetKey={(k, v) =>
+              setOverrides((cur) => ({
+                ...cur,
+                context_config: { ...(cur.context_config ?? {}), [k]: v },
+              }))
+            }
+            onClearKey={(k) =>
+              setOverrides((cur) => {
+                const map = { ...(cur.context_config ?? {}) };
+                delete map[k];
+                return { ...cur, context_config: map };
+              })
+            }
+          />
+        )}
+
+        {/*
+         * §2F: Resolved Configuration audit-trail section.
+         *
+         * Collapsed by default. Shows the fully-merged view of what
+         * will run, including profile/template/rules content hashes
+         * for audit reproducibility. Operators expand it to verify
+         * the resolved view before clicking Process.
+         */}
+        <ResolvedConfigSection resolved={resolved} />
 
         <div style={btnRow}>
           <button

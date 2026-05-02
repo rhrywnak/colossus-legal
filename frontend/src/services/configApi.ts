@@ -69,17 +69,56 @@ export interface ProcessingProfile {
   schema_file: string;
   template_file: string;
   system_prompt_file: string | null;
+  /**
+   * Global-rules fragment filename (e.g. `global_rules_v4.md`). Loaded
+   * from `template_dir` and substituted into Pass-1 / Pass-2 prompts at
+   * the `{{global_rules}}` placeholder. Null means the profile didn't
+   * configure rules. Audit-displayed read-only — no per-document
+   * override path on the backend by design.
+   */
+  global_rules_file: string | null;
+  /**
+   * Pass-2 relationship-extraction prompt template filename. Surfaced
+   * read-only in the Configuration Panel so operators know which Pass-2
+   * template will run; per the audit (Gap 2), the override path is
+   * deliberately profile-only — operators change Pass-2 templates by
+   * editing the profile YAML, not per-document.
+   */
+  pass2_template_file: string | null;
   extraction_model: string;
   /** Pass-2 relationship-extraction model; null means reuse `extraction_model`. */
   pass2_extraction_model: string | null;
   chunking_mode: string;
   chunk_size: number | null;
   chunk_overlap: number | null;
+  /**
+   * Flexible chunking parameters (`mode`, `strategy`, `units_per_chunk`,
+   * `unit_overlap`, `request_timeout_secs`, ...). The full key set is
+   * profile-author-defined; the backend resolver merges per-document
+   * overrides at the *key* level. Empty object on profiles that don't
+   * configure structured/strategy-aware chunking.
+   */
+  chunking_config: Record<string, unknown>;
+  /**
+   * Flexible cross-document context parameters (`traversal_depth`,
+   * `always_include_foundation`, ...). Same shape and merge semantics
+   * as `chunking_config`.
+   */
+  context_config: Record<string, unknown>;
   max_tokens: number;
   temperature: number;
   auto_approve_grounded: boolean;
   run_pass2: boolean;
   is_default: boolean;
+  /**
+   * SHA-256 hex of the profile's YAML body at load time. Always
+   * present (the backend's `from_yaml_str` populates it). Audit-trail
+   * fingerprint — two runs against the same `name` but different YAML
+   * content are distinguishable in `extraction_runs.processing_config`
+   * via this hash. The Configuration Panel displays the leading
+   * eight characters with the full value on a tooltip.
+   */
+  profile_hash: string;
 }
 
 export interface ProfilesResponse {
@@ -151,6 +190,25 @@ export interface PatchConfigInput {
   max_tokens?: number | null;
   temperature?: number | null;
   run_pass2?: boolean;
+  /**
+   * Per-document `chunking_config` override map. Sent as the full
+   * desired value: the backend writes this directly to the
+   * `pipeline_config.chunking_config` JSONB column. Sub-key clearing
+   * therefore requires sending the full updated map (omitting the
+   * cleared keys); sending an explicit `null` resets the override
+   * entirely so the document re-inherits from the profile at resolve
+   * time.
+   *
+   * The backend's resolver does the per-key merge against the profile's
+   * map — the override sent here is the *override* map, not a merged
+   * map. See backend `resolve_config` and `merge_map_override`.
+   */
+  chunking_config?: Record<string, unknown> | null;
+  /**
+   * Per-document `context_config` override map. Same shape and
+   * semantics as `chunking_config`.
+   */
+  context_config?: Record<string, unknown> | null;
   /**
    * GET-only: base schema file for this document's pipeline_config row.
    * The PATCH handler ignores this field — posting it has no effect.
