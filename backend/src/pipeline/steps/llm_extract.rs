@@ -8,6 +8,7 @@
 
 use std::collections::HashSet;
 use std::error::Error;
+use std::path::Path;
 use std::time::Instant;
 
 use async_trait::async_trait;
@@ -311,39 +312,26 @@ impl LlmExtract {
         let system_prompt_hash: Option<String> =
             system_prompt.as_deref().map(sha2_hex);
 
-        // 5c. Load the global-rules fragment if the profile names one. Lives
-        //     in `template_dir` alongside the prompt templates because it IS
-        //     a template fragment (the rules are inlined into the prompt at
-        //     `{{global_rules}}`). Read failure is fatal — the profile
-        //     declared the rules file as required, so missing it is a
-        //     configuration error worth surfacing instead of silently
-        //     continuing without the rules.
-        //
-        // ## Rust Learning: `as_ref().map(...).transpose()`
-        //
-        // `as_ref()` borrows the `Option<String>` as `Option<&String>` so
-        // the closure can read the filename without consuming `resolved`.
-        // `.map(|f| std::fs::read_to_string(...))` produces
-        // `Option<Result<String, _>>`. `.transpose()` flips that into
-        // `Result<Option<String>, _>` so the `?` operator can short-circuit
-        // on read failure while keeping the outer "absent file is ok" path.
-        let global_rules: Option<String> = resolved
-            .global_rules_file
-            .as_ref()
-            .map(|filename| {
-                let path = format!("{}/{}", context.template_dir, filename);
-                std::fs::read_to_string(&path).map_err(|e| {
-                    LlmExtractError::ProfileLoadFailed {
-                        message: format!("Failed to read global rules '{path}': {e}"),
-                    }
-                })
-            })
-            .transpose()?;
+        // 5c. Load the global-rules fragment if the profile names one and
+        //     compute its SHA-256 for the F3 audit columns. Read failure is
+        //     fatal — the profile declared the rules file as required, so
+        //     missing it is a configuration error worth surfacing instead
+        //     of silently continuing without the rules. See
+        //     [`load_global_rules`] for the full case table (no-file vs
+        //     empty-file vs nonempty-file vs missing-file).
+        let (global_rules_text, global_rules_hash) = load_global_rules(
+            Path::new(&context.template_dir),
+            resolved.global_rules_file.as_deref(),
+        )?;
 
         // 6. Choose an effective max_tokens.
         let max_tokens = resolve_max_tokens(&resolved);
 
         // 7. Insert the extraction_runs row.
+        // F3 audit: pass `rules_name` and `rules_hash` from the resolved
+        // profile and the loaded fragment. Both columns existed since
+        // migration 20260410 but were always NULL until this fix —
+        // AUDIT_PIPELINE_CONFIG_GAPS.md Gap 5.
         let run_id = extraction::insert_extraction_run(
             db,
             &self.document_id,
@@ -353,8 +341,8 @@ impl LlmExtract {
             None,
             Some(resolved.template_file.as_str()),
             Some(&template_hash),
-            None,
-            None,
+            resolved.global_rules_file.as_deref(),
+            global_rules_hash.as_deref(),
             None,
             Some(&serde_json::to_value(&schema)?),
             Some(resolved.temperature),
@@ -407,7 +395,13 @@ impl LlmExtract {
         // knows what it means still produces extraction output via the
         // legacy path rather than failing the run outright.
         let system_prompt_ref = system_prompt.as_deref();
-        let global_rules_ref = global_rules.as_deref();
+        // The assembler treats `None` and `Some("")` identically (both
+        // collapse to an empty substitution); pass `None` when no rules
+        // file was configured so the audit comment in `assemble_chunk_prompt`
+        // about "no rule fragment to inject" stays accurate.
+        let global_rules_ref: Option<&str> = global_rules_hash
+            .as_ref()
+            .map(|_| global_rules_text.as_str());
         let admin_instructions_ref = pipe_config.admin_instructions.as_deref();
         // `{{context}}` is reserved for a future prior-context renderer
         // (driven by `pipe_config.prior_context_doc_ids`). For now it is
@@ -541,6 +535,7 @@ impl LlmExtract {
             &resolved,
             &template_hash,
             system_prompt_hash.as_deref(),
+            global_rules_hash.as_deref(),
         )
         .await;
 
@@ -1494,16 +1489,25 @@ pub(crate) fn compute_cost(
 ///
 /// Best-effort: a snapshot-write failure is logged but does not fail
 /// extraction — the merged entities have already been committed.
+///
+/// `global_rules_hash` carries the SHA-256 of the rules fragment loaded
+/// at runtime (see [`load_global_rules`]). It mirrors the same
+/// runtime-overwrite pattern as `template_hash` and `system_prompt_hash`
+/// — the resolver leaves the field as `None`, the step computes it
+/// after reading the file, and this snapshot is the single place the
+/// value lands in JSONB.
 pub(crate) async fn write_processing_config_snapshot(
     db: &PgPool,
     run_id: i32,
     resolved: &ResolvedConfig,
     template_hash: &str,
     system_prompt_hash: Option<&str>,
+    global_rules_hash: Option<&str>,
 ) {
     let mut resolved_with_hash = resolved.clone();
     resolved_with_hash.template_hash = Some(template_hash.to_string());
     resolved_with_hash.system_prompt_hash = system_prompt_hash.map(str::to_string);
+    resolved_with_hash.global_rules_hash = global_rules_hash.map(str::to_string);
 
     let config_json = match serde_json::to_value(&resolved_with_hash) {
         Ok(v) => v,
@@ -1529,6 +1533,77 @@ pub(crate) async fn write_processing_config_snapshot(
             "Failed to write processing_config snapshot (non-fatal)"
         );
     }
+}
+
+/// Load the profile's `global_rules_file` and compute its SHA-256.
+///
+/// "Global rules" is a Markdown fragment (e.g. `global_rules_v4.md`) that
+/// every profile may share. Pass-1 and Pass-2 prompts substitute the
+/// fragment's content at the `{{global_rules}}` placeholder. The hash
+/// is recorded in `extraction_runs.rules_hash` and in the
+/// `processing_config` JSONB snapshot so two runs against different
+/// versions of the same rules file are distinguishable from the
+/// database alone (audit reproducibility — Gap 5 in
+/// AUDIT_PIPELINE_CONFIG_GAPS.md).
+///
+/// Three input cases survive into the audit log:
+///
+/// * `file_name = None` — the profile didn't configure a rules file.
+///   Returns `("".to_string(), None)`. The empty string makes the
+///   `{{global_rules}}` substitution vanish; the `None` hash makes
+///   `rules_hash` NULL in the DB so an auditor can tell "no file" from
+///   "empty file."
+///
+/// * `file_name = Some(_)` and the file is empty (0 bytes) — the
+///   operator deliberately neutralised the rules. Returns
+///   `("".to_string(), Some(sha256("")))`. The hash proves the file
+///   existed and was empty, distinguishing this run from a no-rules run.
+///
+/// * `file_name = Some(_)` and the file has content — the normal case.
+///   Returns `(content, Some(sha256(content)))`.
+///
+/// A configured-but-missing file (the profile points at a path that
+/// doesn't exist on disk) returns
+/// `Err(LlmExtractError::ProfileLoadFailed)`. Failing fast prevents a
+/// silent extraction-without-rules; an auditor reading
+/// `extraction_runs.error_message` sees the exact path that couldn't
+/// be loaded.
+///
+/// ## Rust Learning: returning `Result<(_, _), _>` instead of two helpers
+///
+/// We could split this into a `load_global_rules` and a separate
+/// `hash_global_rules`, but the two are always called together — every
+/// caller that needs the content also needs the hash for audit. Bundling
+/// them in a tuple eliminates one source of "did I forget to hash?"
+/// drift across call sites.
+///
+/// ## Rust Learning: `&Path` vs `&str` for directory parameters
+///
+/// `&Path` is the idiomatic Rust type for filesystem paths. Callers can
+/// pass either a `PathBuf` (`&pb`) or a `&str` (via `Path::new(s)`),
+/// and the function gets the platform-correct path-joining behaviour
+/// from `Path::join` for free. A `&str` parameter would force every
+/// caller to use `format!("{dir}/{file}")` with a literal `/` separator
+/// — fine on Linux/Mac, wrong on Windows.
+pub(crate) fn load_global_rules(
+    template_dir: &Path,
+    file_name: Option<&str>,
+) -> Result<(String, Option<String>), LlmExtractError> {
+    let Some(name) = file_name else {
+        // No rules file configured. The substitution gets the empty
+        // string; `rules_hash` stays NULL in the audit log so an
+        // auditor can tell "no file" from "empty file."
+        return Ok((String::new(), None));
+    };
+
+    let path = template_dir.join(name);
+    let content = std::fs::read_to_string(&path).map_err(|e| {
+        LlmExtractError::ProfileLoadFailed {
+            message: format!("Failed to read global rules '{}': {e}", path.display()),
+        }
+    })?;
+    let hash = sha2_hex(&content);
+    Ok((content, Some(hash)))
 }
 
 /// SHA-256 hex digest of a UTF-8 string.
@@ -1783,6 +1858,82 @@ Doc:\n{{document_text}}";
         }
     }
 
+    // ── load_global_rules ────────────────────────────────────────
+    //
+    // Four cases the helper must distinguish in the audit log:
+    //
+    //   1. file_name = None              → ("", None)
+    //   2. file_name = Some(empty file)  → ("", Some(sha256("")))
+    //   3. file_name = Some(real file)   → (content, Some(sha256(content)))
+    //   4. file_name = Some(missing)     → Err(ProfileLoadFailed)
+    //
+    // The tests use `tempfile::tempdir()` so they don't rely on any
+    // absolute path on disk and don't need a live database.
+
+    #[test]
+    fn load_global_rules_returns_empty_and_none_when_file_is_unconfigured() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let (content, hash) = load_global_rules(dir.path(), None)
+            .expect("None file_name must be Ok");
+        assert_eq!(content, "", "no-file case must yield empty content");
+        assert!(hash.is_none(), "no-file case must yield None hash");
+    }
+
+    #[test]
+    fn load_global_rules_hashes_empty_file_distinctly_from_none() {
+        // The audit must distinguish "no rules configured" from
+        // "rules configured but empty." The first returns None hash;
+        // the second returns Some(sha256("")).
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("empty_rules.md");
+        std::fs::write(&path, "").expect("write empty file");
+        let (content, hash) = load_global_rules(dir.path(), Some("empty_rules.md"))
+            .expect("empty file must be Ok");
+        assert_eq!(content, "", "empty file must yield empty content");
+        assert_eq!(
+            hash.as_deref(),
+            Some(sha2_hex("").as_str()),
+            "empty-file case must hash the empty string so an auditor can \
+             tell empty-file runs from no-file runs"
+        );
+    }
+
+    #[test]
+    fn load_global_rules_returns_content_and_hash_for_real_file() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let body = "## Extraction Rules\n- always cite verbatim\n";
+        let path = dir.path().join("rules_v4.md");
+        std::fs::write(&path, body).expect("write file");
+        let (content, hash) = load_global_rules(dir.path(), Some("rules_v4.md"))
+            .expect("real file must be Ok");
+        assert_eq!(content, body, "content round-trips byte-for-byte");
+        assert_eq!(
+            hash.as_deref(),
+            Some(sha2_hex(body).as_str()),
+            "hash must match sha2_hex of the loaded body"
+        );
+    }
+
+    #[test]
+    fn load_global_rules_errors_when_configured_file_is_missing() {
+        // A configured-but-missing file is an operator-misconfiguration
+        // bug, not a "default to no rules" case. Failing fast surfaces
+        // the bad path in the audit log instead of silently extracting
+        // with no rules.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let err = load_global_rules(dir.path(), Some("does_not_exist.md"))
+            .expect_err("missing file must be Err");
+        match err {
+            LlmExtractError::ProfileLoadFailed { message } => {
+                assert!(
+                    message.contains("does_not_exist.md"),
+                    "error must name the missing path; got: {message}"
+                );
+            }
+            other => panic!("expected ProfileLoadFailed, got {other:?}"),
+        }
+    }
+
     #[test]
     fn llm_extract_error_display_policy() {
         // Variants without a source keep G6: Display must not mention
@@ -1936,6 +2087,7 @@ Doc:\n{{document_text}}";
             system_prompt_file: None,
             system_prompt_hash: None,
             global_rules_file: None,
+            global_rules_hash: None,
             schema_file: "s".into(),
             chunking_mode: "chunked".into(),
             chunk_size: None,
@@ -1963,6 +2115,7 @@ Doc:\n{{document_text}}";
             system_prompt_file: None,
             system_prompt_hash: None,
             global_rules_file: None,
+            global_rules_hash: None,
             schema_file: "s".into(),
             chunking_mode: "full".into(),
             chunk_size: None,

@@ -225,6 +225,22 @@ pub struct ResolvedConfig {
     /// uses an empty string in that case so the placeholder doesn't
     /// leak as literal text.
     pub global_rules_file: Option<String>,
+    /// SHA-256 of the resolved global-rules file content at runtime.
+    ///
+    /// Populated by the extraction step *after* loading the file (the
+    /// resolver returns `None` here; the runtime overwrites it before
+    /// serialising the snapshot, mirroring `template_hash` and
+    /// `system_prompt_hash`).
+    ///
+    /// Three states matter for audit:
+    ///
+    /// * `None` — `global_rules_file` was `None` (no rules configured).
+    /// * `Some(sha256(""))` — the file existed but was empty (deliberately
+    ///   neutralised or mid-edit). An empty-rules run is operationally
+    ///   different from a no-rules run; keeping the hash distinguishes
+    ///   them in the JSONB audit trail.
+    /// * `Some(sha256(content))` — normal case.
+    pub global_rules_hash: Option<String>,
     pub schema_file: String,
     pub chunking_mode: String,
     pub chunk_size: Option<i32>,
@@ -432,6 +448,9 @@ pub fn resolve_config(
         // Operators change them by editing the profile YAML; per-document
         // tweaking didn't seem worth the override-column surface area.
         global_rules_file: profile.global_rules_file.clone(),
+        // Filled at runtime by the extraction step after loading the rules
+        // file (parallel to `template_hash` and `system_prompt_hash`).
+        global_rules_hash: None,
         schema_file: profile.schema_file.clone(),
         chunking_mode,
         chunk_size,
@@ -786,6 +805,7 @@ extraction_model: claude-sonnet-4-6
             system_prompt_file: None,
             system_prompt_hash: None,
             global_rules_file: None,
+            global_rules_hash: None,
             schema_file: "complaint_v2.yaml".into(),
             chunking_mode: "full".into(),
             chunk_size: None,
@@ -1021,6 +1041,7 @@ chunking_mode: full
             system_prompt_file: None,
             system_prompt_hash: None,
             global_rules_file: None,
+            global_rules_hash: None,
             schema_file: "disc.yaml".into(),
             chunking_mode: "full".into(),
             chunk_size: None,

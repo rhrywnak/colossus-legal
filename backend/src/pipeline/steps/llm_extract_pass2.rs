@@ -31,6 +31,7 @@
 //! not part of the public API, just shared across sibling step modules.
 
 use std::error::Error;
+use std::path::Path;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -45,8 +46,8 @@ use crate::pipeline::config::{resolve_config, ProcessingProfile};
 use crate::pipeline::context::AppContext;
 use crate::pipeline::providers::provider_for_model;
 use crate::pipeline::steps::llm_extract::{
-    compute_cost, default_profile_name_from_schema, resolve_effective_mode, resolve_max_tokens,
-    sha2_hex, write_processing_config_snapshot, LlmExtractError,
+    compute_cost, default_profile_name_from_schema, load_global_rules, resolve_effective_mode,
+    resolve_max_tokens, sha2_hex, write_processing_config_snapshot, LlmExtractError,
 };
 use crate::pipeline::steps::llm_extract_helpers::{
     call_with_rate_limit_retry, mark_run_failed, parse_chunk_response,
@@ -268,6 +269,18 @@ pub async fn run_pass2_extraction(
     };
     let system_prompt_hash: Option<String> = system_prompt.as_deref().map(sha2_hex);
 
+    // 8b. Load the global-rules fragment (if the profile names one) and
+    //     compute its SHA-256. The Pass-2 prompt substitutes the content
+    //     at `{{global_rules}}`, mirroring Pass-1. The hash lands in
+    //     `extraction_runs.rules_hash` and `processing_config` JSONB so
+    //     two Pass-2 runs against different rules versions are
+    //     distinguishable from the database alone (Gap 5 in
+    //     AUDIT_PIPELINE_CONFIG_GAPS.md, fixed by this commit).
+    let (global_rules_text, global_rules_hash) = load_global_rules(
+        Path::new(&context.template_dir),
+        resolved.global_rules_file.as_deref(),
+    )?;
+
     // 9a. Load cross-document context from previously PUBLISHED docs.
     //     ComplaintAllegation / LegalCount / Party entities surface here
     //     so the pass-2 LLM can author CORROBORATES, CONTRADICTS, and
@@ -304,20 +317,26 @@ pub async fn run_pass2_extraction(
         id_map.insert(c.prefixed_id.clone(), c.item_id);
     }
 
-    // 10. Placeholder substitution. `{{context}}` is substituted with
-    //     the empty string defensively — today's pass-2 templates don't
-    //     carry the placeholder (they expect cross-doc entities merged
-    //     into `{{entities_json}}`, which we do above), but a future
-    //     template that adds `{{context}}` shouldn't leak literal
-    //     `{{context}}` into the assembled prompt.
-    //     `{{global_rules}}` / `{{admin_instructions}}` are still
-    //     intentionally unfilled — mirroring pass-1's current behavior;
-    //     that gap is tracked separately.
-    let prompt = template_text
-        .replace("{{schema_json}}", &schema_json)
-        .replace("{{entities_json}}", &entities_json)
-        .replace("{{context}}", "")
-        .replace("{{document_text}}", &full_text);
+    // 10. Placeholder substitution via the shared `assemble_pass2_prompt`
+    //     helper. Substitutes `{{global_rules}}` and
+    //     `{{admin_instructions}}` (previously left as literal placeholders
+    //     in every pass-2 prompt — Gap 6 in AUDIT_PIPELINE_CONFIG_GAPS.md).
+    //     `{{context}}` is still substituted with the empty string here;
+    //     pass-2 inlines cross-doc entities into `{{entities_json}}`
+    //     above, and a future renderer for `pipe_config.prior_context_doc_ids`
+    //     would populate this without changing the substitution code.
+    let global_rules_ref: Option<&str> = global_rules_hash
+        .as_ref()
+        .map(|_| global_rules_text.as_str());
+    let prompt = assemble_pass2_prompt(
+        &template_text,
+        &schema_json,
+        &entities_json,
+        &full_text,
+        global_rules_ref,
+        pipe_config.admin_instructions.as_deref(),
+        None,
+    );
 
     let max_tokens = resolve_max_tokens(&resolved);
 
@@ -341,8 +360,11 @@ pub async fn run_pass2_extraction(
         Some(&prompt),
         Some(pass2_template_file.as_str()),
         Some(&template_hash),
-        None,
-        None,
+        // F3 audit: rules_name + rules_hash. Previously NULL; populated
+        // here so a Pass-2 run is reproducible from the DB alone (Gap 5
+        // in AUDIT_PIPELINE_CONFIG_GAPS.md).
+        resolved.global_rules_file.as_deref(),
+        global_rules_hash.as_deref(),
         None,
         Some(&serde_json::to_value(&schema)?),
         Some(resolved.temperature),
@@ -441,6 +463,7 @@ pub async fn run_pass2_extraction(
         &resolved,
         &template_hash,
         system_prompt_hash.as_deref(),
+        global_rules_hash.as_deref(),
     )
     .await;
 
@@ -472,6 +495,61 @@ pub async fn run_pass2_extraction(
 }
 
 // ── Helpers ─────────────────────────────────────────────────────
+
+/// Substitute every placeholder a Pass-2 template references and return
+/// the assembled prompt.
+///
+/// Pass-2 templates (the `pass2_*_v4.md` files) reference six
+/// placeholders. Five of them are required for any meaningful run; the
+/// sixth (`{{admin_instructions}}`) only appears in
+/// `pass2_discovery_response_v4.md` today but is substituted
+/// unconditionally so a future template can opt in without a code
+/// change. The substitution order matches Pass-1's `assemble_chunk_prompt`:
+/// schema first so any rule fragment that references it picks it up;
+/// body placeholders last so accidental placeholder syntax inside user
+/// content (rules / instructions / context / entity labels) cannot get
+/// re-substituted.
+///
+/// Substituted placeholders (in order):
+///
+/// 1. `{{schema_json}}` — always
+/// 2. `{{entities_json}}` — always (the merged Pass-1 + cross-doc list)
+/// 3. `{{global_rules}}` — empty string when `None` so the literal
+///    placeholder doesn't leak as text. Mirrors Pass-1 (Gap 6 in
+///    AUDIT_PIPELINE_CONFIG_GAPS.md, fixed by this commit).
+/// 4. `{{admin_instructions}}` — empty string when `None`. Same
+///    rationale.
+/// 5. `{{context}}` — empty string when `None`. Pass-2 does not yet
+///    render cross-document prior context here (the cross-doc entities
+///    are inlined into `entities_json` instead); the placeholder is
+///    substituted defensively.
+/// 6. `{{document_text}}` — always; the full document body.
+///
+/// ## Rust Learning: `Option::unwrap_or("")` vs. branching
+///
+/// Each `Option<&str>` argument flattens through `.unwrap_or("")` so
+/// `None` and `Some("")` collapse to the same substitution. That is the
+/// audited behaviour: both mean "no rules / no instructions / no context
+/// to inject" from the LLM's perspective, and the placeholder must
+/// vanish either way (otherwise the literal `{{...}}` leaks into the
+/// prompt). Pass-1's `assemble_chunk_prompt` uses the same idiom.
+fn assemble_pass2_prompt(
+    template_text: &str,
+    schema_json: &str,
+    entities_json: &str,
+    document_text: &str,
+    global_rules: Option<&str>,
+    admin_instructions: Option<&str>,
+    context: Option<&str>,
+) -> String {
+    template_text
+        .replace("{{schema_json}}", schema_json)
+        .replace("{{entities_json}}", entities_json)
+        .replace("{{global_rules}}", global_rules.unwrap_or(""))
+        .replace("{{admin_instructions}}", admin_instructions.unwrap_or(""))
+        .replace("{{context}}", context.unwrap_or(""))
+        .replace("{{document_text}}", document_text)
+}
 
 /// Has a COMPLETED `pass_number = 2` extraction_run landed for this document?
 ///
@@ -546,5 +624,135 @@ mod tests {
             0
         );
         assert!(<LlmExtractPass2 as Step<DocProcessing>>::DEFAULT_TIMEOUT_SECS.is_none());
+    }
+
+    // ── assemble_pass2_prompt ────────────────────────────────────
+    //
+    // These tests pin down the placeholder contract introduced by
+    // AUDIT_PIPELINE_CONFIG_GAPS.md Gaps 5/6: Pass-2 templates that
+    // reference `{{global_rules}}` and `{{admin_instructions}}` must
+    // get those placeholders substituted, not leaked as literal text.
+    // Every shipped pass2_*_v4.md template references {{global_rules}};
+    // pass2_discovery_response_v4.md also references {{admin_instructions}}.
+
+    #[test]
+    fn assemble_pass2_prompt_substitutes_global_rules_when_some() {
+        let template = "Rules:\n{{global_rules}}\n\nDoc: {{document_text}}";
+        let prompt = assemble_pass2_prompt(
+            template,
+            "<SCHEMA>",
+            "<ENTITIES>",
+            "<DOC BODY>",
+            Some("RULE-A; RULE-B"),
+            None,
+            None,
+        );
+        assert!(
+            prompt.contains("RULE-A; RULE-B"),
+            "global_rules content must land in the prompt; got: {prompt}"
+        );
+        assert!(
+            !prompt.contains("{{global_rules}}"),
+            "literal placeholder must be gone; got: {prompt}"
+        );
+    }
+
+    #[test]
+    fn assemble_pass2_prompt_substitutes_global_rules_with_empty_when_none() {
+        // Template references the placeholder but the profile didn't
+        // configure rules — substitution must collapse to empty string,
+        // not leak the literal token to the LLM.
+        let template = "Rules:\n{{global_rules}}\n\nDoc: {{document_text}}";
+        let prompt = assemble_pass2_prompt(
+            template,
+            "<SCHEMA>",
+            "<ENTITIES>",
+            "<DOC>",
+            None,
+            None,
+            None,
+        );
+        assert!(
+            !prompt.contains("{{global_rules}}"),
+            "absent global_rules must still strip the placeholder; got: {prompt}"
+        );
+    }
+
+    #[test]
+    fn assemble_pass2_prompt_substitutes_admin_instructions_when_some() {
+        let template = "Admin: {{admin_instructions}}\n\nDoc: {{document_text}}";
+        let prompt = assemble_pass2_prompt(
+            template,
+            "<SCHEMA>",
+            "<ENTITIES>",
+            "<DOC>",
+            None,
+            Some("Focus on dates"),
+            None,
+        );
+        assert!(
+            prompt.contains("Focus on dates"),
+            "admin_instructions content must land in the prompt; got: {prompt}"
+        );
+        assert!(!prompt.contains("{{admin_instructions}}"));
+    }
+
+    #[test]
+    fn assemble_pass2_prompt_substitutes_admin_instructions_with_empty_when_none() {
+        let template = "Admin: {{admin_instructions}}\n\nDoc: {{document_text}}";
+        let prompt = assemble_pass2_prompt(
+            template,
+            "<SCHEMA>",
+            "<ENTITIES>",
+            "<DOC>",
+            None,
+            None,
+            None,
+        );
+        assert!(
+            !prompt.contains("{{admin_instructions}}"),
+            "absent admin_instructions must still strip the placeholder; got: {prompt}"
+        );
+    }
+
+    #[test]
+    fn assemble_pass2_prompt_substitutes_every_placeholder_alongside_body() {
+        // Integration-style: schema + entities + global_rules +
+        // admin_instructions + context + body, all substituted in one call.
+        // Mirrors `assemble_chunk_prompt`'s end-to-end test in pass-1.
+        let template = "\
+Schema:\n{{schema_json}}\n\n\
+Entities:\n{{entities_json}}\n\n\
+Rules:\n{{global_rules}}\n\n\
+Admin:\n{{admin_instructions}}\n\n\
+Context:\n{{context}}\n\n\
+Doc:\n{{document_text}}";
+        let prompt = assemble_pass2_prompt(
+            template,
+            "<SCHEMA>",
+            "<ENTITIES>",
+            "<DOC>",
+            Some("<RULES>"),
+            Some("<ADMIN>"),
+            Some("<CTX>"),
+        );
+        for needle in [
+            "<SCHEMA>", "<ENTITIES>", "<RULES>", "<ADMIN>", "<CTX>", "<DOC>",
+        ] {
+            assert!(prompt.contains(needle), "missing {needle}; got: {prompt}");
+        }
+        for placeholder in [
+            "{{schema_json}}",
+            "{{entities_json}}",
+            "{{global_rules}}",
+            "{{admin_instructions}}",
+            "{{context}}",
+            "{{document_text}}",
+        ] {
+            assert!(
+                !prompt.contains(placeholder),
+                "literal {placeholder} must be gone; got: {prompt}"
+            );
+        }
     }
 }
