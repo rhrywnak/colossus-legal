@@ -42,6 +42,21 @@ pub struct AppConfig {
     /// Deployment environment name (e.g. "dev", "prod").
     /// Read from COLOSSUS_ENVIRONMENT, defaults to "unknown".
     pub environment: String,
+    /// Optional case-specific subject name to pre-select in the Bias Explorer's
+    /// "About" filter on first page render.
+    ///
+    /// Read from `CASE_DEFAULT_SUBJECT_NAME`. The backend matches this against
+    /// the subject list returned to the frontend and surfaces the matching
+    /// subject's id as `AvailableFilters.default_subject_id`. The match is
+    /// exact (case-sensitive), to avoid surprises when two case-specific
+    /// names share a prefix.
+    ///
+    /// `None` is a first-class state: when the env var is unset we expose
+    /// no default at all, the frontend renders "All subjects", and a
+    /// `console.warn` notes the absence. We deliberately do not hardcode a
+    /// fallback name here — case-specific data lives in configuration, never
+    /// in code (Standing Rule 2).
+    pub case_default_subject_name: Option<String>,
 }
 
 impl AppConfig {
@@ -107,6 +122,14 @@ impl AppConfig {
         let environment =
             std::env::var("COLOSSUS_ENVIRONMENT").unwrap_or_else(|_| "unknown".to_string());
 
+        // CASE_DEFAULT_SUBJECT_NAME — optional. We use `.ok()` rather than
+        // `unwrap_or` because we need to distinguish "unset" (no default
+        // applied, frontend stays at All subjects) from "set to empty
+        // string" (which we treat as unset below to keep the wire contract
+        // simple — see `Some(name) if !name.trim().is_empty()` in the
+        // bias handler).
+        let case_default_subject_name = std::env::var("CASE_DEFAULT_SUBJECT_NAME").ok();
+
         Ok(Self {
             neo4j_uri,
             neo4j_user,
@@ -127,6 +150,7 @@ impl AppConfig {
             system_prompt_dir,
             prompts_dir,
             environment,
+            case_default_subject_name,
         })
     }
 }

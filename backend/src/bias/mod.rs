@@ -16,8 +16,11 @@
 //! ## Module layout
 //!
 //! - `dto` — request and response DTOs (no business logic).
-//! - `repository` — Cypher queries and result mapping; the only place that
-//!   talks to Neo4j for bias-related reads.
+//! - `repository` — Cypher queries and the orchestration layer; the only
+//!   place that talks to Neo4j for bias-related reads.
+//! - `aggregation` — pure row-collapsing logic (no I/O) used by the
+//!   repository to dedupe (Evidence, ABOUT-subject) rows into one
+//!   `BiasInstance` per Evidence with a sorted, deduplicated about list.
 //! - `handlers` — Axum HTTP handlers; the only place that talks to clients.
 //! - `tests` — pure unit tests for serialization and helpers (no live Neo4j).
 //!
@@ -29,6 +32,7 @@
 //! shared bits into a generic helper. Building that helper today would
 //! design against a use case we haven't seen.
 
+pub mod aggregation;
 pub mod dto;
 pub mod handlers;
 pub mod repository;

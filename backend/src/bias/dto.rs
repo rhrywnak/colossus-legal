@@ -26,18 +26,29 @@ use serde::{Deserialize, Serialize};
 
 /// Response payload for `GET /api/bias/available-filters`.
 ///
-/// Tells the frontend which dropdown values to render. Both lists are
-/// derived from the data — there is no compile-time list of pattern tags
-/// or actor names anywhere in the codebase. (Standing Rule 2.)
+/// Tells the frontend which dropdown values to render. All lists are
+/// derived from the data — there is no compile-time list of pattern tags,
+/// actor names, or subject names anywhere in the codebase. (Standing Rule 2.)
 ///
-/// `actors` is sorted by `tagged_statement_count` descending, then by name
-/// ascending; `pattern_tags` is sorted alphabetically. The repository
-/// guarantees this ordering, so the frontend can render directly without
-/// re-sorting.
+/// `actors` and `subjects` are sorted by `tagged_statement_count`
+/// descending, then by name ascending; `pattern_tags` is sorted
+/// alphabetically. The repository guarantees this ordering, so the
+/// frontend can render directly without re-sorting.
+///
+/// `default_subject_id` is the id of the subject whose name matches
+/// `CASE_DEFAULT_SUBJECT_NAME` (case-sensitive exact match). The frontend
+/// uses it to pre-select the "About" dropdown on first render. `None`
+/// means "no default" — either the env var is unset or no subject matches.
+/// We expose this as a server-resolved id rather than asking the frontend
+/// to match a name string, so case-specific data stays out of the JS
+/// bundle (Standing Rule 2 again).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AvailableFilters {
     pub actors: Vec<ActorOption>,
     pub pattern_tags: Vec<String>,
+    pub subjects: Vec<ActorOption>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_subject_id: Option<String>,
 }
 
 /// One actor that has at least one tagged Evidence statement.
@@ -89,6 +100,14 @@ pub struct BiasQueryFilters {
     /// all patterns.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pattern_tag: Option<String>,
+
+    /// Filter to Evidence whose `[:ABOUT]->(subject)` includes the given
+    /// subject id. `None` = all subjects. The Cypher uses an EXISTS
+    /// subquery so this filter does not constrain which ABOUT subjects
+    /// appear on the rendered card — it only decides whether the card is
+    /// included at all.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subject_id: Option<String>,
     // FUTURE: pub date_from: Option<NaiveDate>,
     // FUTURE: pub date_to: Option<NaiveDate>,
     // FUTURE: pub document_ids: Option<Vec<String>>,
@@ -98,12 +117,21 @@ pub struct BiasQueryFilters {
 /// Response payload for `POST /api/bias/query`.
 ///
 /// `applied_filters` echoes the filter object back so the UI can render
-/// "Showing N instances matching {actor=X, pattern=Y}" without having to
-/// remember what it sent. (It also disambiguates server-side coercion —
-/// e.g., trimming whitespace — should we add any.)
+/// the current filter state without having to remember what it sent.
+/// (It also disambiguates server-side coercion — e.g., trimming whitespace
+/// — should we add any.)
+///
+/// `total_count` is the count of `instances` (the filtered list).
+/// `total_unfiltered` is the count of all tagged Evidence in the graph
+/// regardless of filters; the frontend uses both to render
+/// "Filtered: X of Y instances". Keeping them as separate fields means
+/// the wire shape stays observable: a request that matches everything in
+/// a small graph (X == Y, no filter applied) is distinguishable from a
+/// request that happens to filter down to the full set.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BiasQueryResult {
     pub total_count: i64,
+    pub total_unfiltered: i64,
     pub instances: Vec<BiasInstance>,
     pub applied_filters: BiasQueryFilters,
 }

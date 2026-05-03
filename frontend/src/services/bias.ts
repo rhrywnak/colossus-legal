@@ -28,11 +28,17 @@ export type ActorOption = {
 export type AvailableFilters = {
     actors: ActorOption[];
     pattern_tags: string[];
+    subjects: ActorOption[];
+    /** Server-resolved id of the subject named CASE_DEFAULT_SUBJECT_NAME.
+     *  Absent when the env var is unset or no subject matches. The page
+     *  applies it as the initial value of the "About" filter. */
+    default_subject_id?: string;
 };
 
 export type BiasQueryFilters = {
     actor_id?: string;
     pattern_tag?: string;
+    subject_id?: string;
 };
 
 export type DocumentRef = {
@@ -54,6 +60,11 @@ export type BiasInstance = {
 
 export type BiasQueryResult = {
     total_count: number;
+    /** Count of all tagged Evidence regardless of filters. The frontend
+     *  uses this to render "Filtered: X of Y" — distinct from total_count
+     *  so a graph that happens to filter to 100% of items still shows
+     *  Y separately. */
+    total_unfiltered: number;
     instances: BiasInstance[];
     applied_filters: BiasQueryFilters;
 };

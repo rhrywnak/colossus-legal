@@ -1,9 +1,10 @@
 // Bias Explorer — page shell.
 //
 // Owns:
-//   - the filter state (actor_id, pattern_tag)
+//   - the filter state (actor_id, pattern_tag, subject_id)
 //   - one fetch for available dropdown values (on mount)
 //   - one fetch per filter change for the result list
+//   - one-shot application of the server-supplied default subject
 //   - error / loading rendering
 //   - the slot where view components plug in
 //
@@ -12,11 +13,12 @@
 // render with a tab switcher that selects between sibling components — all
 // reading from the same `result` and `filters` props.
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 
 import BiasByActorView from "./BiasByActorView";
 import BiasExplorerFilters from "./BiasExplorerFilters";
 import { getAvailableFilters, runBiasQuery } from "./api";
+import { applyDefaultSubject } from "./defaultSubject";
 import type {
     AvailableFilters,
     BiasQueryFilters,
@@ -102,6 +104,12 @@ const BiasExplorer: React.FC = () => {
     const [queryError, setQueryError] = useState<string | null>(null);
     const [queryLoading, setQueryLoading] = useState(false);
 
+    // One-shot guard for the default-subject effect. We need to apply the
+    // server's default exactly once — not after the user clears it. A useRef
+    // is more obvious here than a dependency-array trick, and survives
+    // React-strict-mode's double-invocation of effects in development.
+    const defaultsAppliedRef = useRef(false);
+
     // Load dropdown contents once on mount.
     const loadAvailable = useCallback(() => {
         setAvailableError(null);
@@ -116,6 +124,20 @@ const BiasExplorer: React.FC = () => {
     useEffect(() => {
         loadAvailable();
     }, [loadAvailable]);
+
+    // First time `available` resolves, apply the server-supplied default
+    // subject (if any). Subsequent renders — including after the user
+    // clears filters — must NOT re-apply it.
+    useEffect(() => {
+        if (!available || defaultsAppliedRef.current) {
+            return;
+        }
+        defaultsAppliedRef.current = true;
+        const initialSubject = applyDefaultSubject(available);
+        if (initialSubject) {
+            setFilters((prev) => ({ ...prev, subject_id: initialSubject }));
+        }
+    }, [available]);
 
     // Re-run the query whenever filters change. The empty-object request
     // (no filters) is a valid first-load state and returns all instances.
@@ -139,11 +161,17 @@ const BiasExplorer: React.FC = () => {
         setFilters(next);
     };
 
+    // Clearing resets ALL three filters — including the About default.
+    // After a clear, the user has to manually re-select Marie (or any
+    // subject) to filter again. This matches the v2 spec §5.3.
     const clearFilters = () => {
         setFilters({});
     };
 
-    const hasAnyFilter = filters.actor_id != null || filters.pattern_tag != null;
+    const hasAnyFilter =
+        filters.actor_id != null
+        || filters.pattern_tag != null
+        || filters.subject_id != null;
 
     // ── Render ──
 
@@ -181,8 +209,13 @@ const BiasExplorer: React.FC = () => {
 
     // Empty graph (no tagged Evidence at all). Distinct observable per
     // Standing Rule 1 — separate from "no matches for these filters".
+    // Now that subjects exist as a third filter dimension, a graph with
+    // actors but no ABOUT edges still has tagged data; we only treat the
+    // graph as truly empty when ALL three lists are empty.
     const noTaggedDataAtAll =
-        available.actors.length === 0 && available.pattern_tags.length === 0;
+        available.actors.length === 0
+        && available.pattern_tags.length === 0
+        && available.subjects.length === 0;
 
     return (
         <div style={pageStyle}>
@@ -195,7 +228,10 @@ const BiasExplorer: React.FC = () => {
                 available={available}
                 filters={filters}
                 onChange={onFiltersChange}
+                onClearAll={clearFilters}
                 resultCount={result?.total_count ?? null}
+                totalUnfiltered={result?.total_unfiltered ?? null}
+                hasAnyFilter={hasAnyFilter}
                 loading={queryLoading}
             />
 

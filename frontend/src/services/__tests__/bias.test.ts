@@ -71,6 +71,31 @@ describe("bias service", () => {
             expect(init.body).toBe(JSON.stringify(filters));
         });
 
+        it("includes subject_id in the body when provided", async () => {
+            const filters = { subject_id: "person-marie" };
+            const fetchMock = vi.fn().mockResolvedValue({
+                ok: true,
+                status: 200,
+                statusText: "OK",
+                json: async () => ({
+                    total_count: 47,
+                    total_unfiltered: 231,
+                    instances: [],
+                    applied_filters: filters,
+                }),
+            });
+            // @ts-ignore
+            global.fetch = fetchMock;
+
+            await runBiasQuery(filters);
+
+            const init = fetchMock.mock.calls[0][1] as RequestInit;
+            expect(init.body).toBe(JSON.stringify(filters));
+            // Sanity-check the parsed body contains the new field.
+            const parsed = JSON.parse(init.body as string);
+            expect(parsed.subject_id).toBe("person-marie");
+        });
+
         it("posts an empty filter object as {} when no filters are set", async () => {
             const fetchMock = vi.fn().mockResolvedValue({
                 ok: true,

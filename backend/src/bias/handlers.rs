@@ -21,8 +21,14 @@ use super::repository::{BiasRepository, BiasRepositoryError};
 
 /// `GET /api/bias/available-filters`
 ///
-/// Returns the actor list and pattern-tag list used to populate the
-/// Bias Explorer dropdowns. Called once on page mount.
+/// Returns the actor list, pattern-tag list, subject list, and the
+/// server-resolved default-subject id used to populate the Bias Explorer
+/// dropdowns. Called once on page mount.
+///
+/// The default-subject id is resolved here from `CASE_DEFAULT_SUBJECT_NAME`
+/// (an Ansible-managed env var) rather than letting the frontend match
+/// names — this keeps case-specific data (the plaintiff's name) out of
+/// the JS bundle (Standing Rule 2).
 ///
 /// The endpoint is intentionally safe to call by any authenticated user —
 /// it only reads names and counts, not statement content. An anonymous
@@ -38,8 +44,9 @@ pub async fn get_available_filters(
     }
 
     let repo = BiasRepository::new(state.graph.clone());
+    let default_name = state.config.case_default_subject_name.as_deref();
 
-    match repo.available_filters().await {
+    match repo.available_filters(default_name).await {
         Ok(filters) => Ok(Json(filters)),
         Err(e) => {
             // ## Rust Learning: structured tracing fields
@@ -72,6 +79,7 @@ pub async fn post_bias_query(
         tracing::info!(
             actor_id = ?filters.actor_id,
             pattern_tag = ?filters.pattern_tag,
+            subject_id = ?filters.subject_id,
             "{} POST /api/bias/query",
             u.username
         );
@@ -80,8 +88,9 @@ pub async fn post_bias_query(
     let repo = BiasRepository::new(state.graph.clone());
 
     match repo.run_query(&filters).await {
-        Ok((total_count, instances)) => Ok(Json(BiasQueryResult {
+        Ok((total_count, total_unfiltered, instances)) => Ok(Json(BiasQueryResult {
             total_count,
+            total_unfiltered,
             instances,
             applied_filters: filters,
         })),
@@ -90,6 +99,7 @@ pub async fn post_bias_query(
                 operation = "bias.run_query",
                 actor_id = ?filters.actor_id,
                 pattern_tag = ?filters.pattern_tag,
+                subject_id = ?filters.subject_id,
                 error = ?e,
                 "Failed to run bias query"
             );

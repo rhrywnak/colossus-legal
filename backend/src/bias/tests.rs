@@ -6,10 +6,11 @@
 
 use serde_json::json;
 
+use super::aggregation::parse_pattern_tags;
 use super::dto::{
     ActorOption, AvailableFilters, BiasInstance, BiasQueryFilters, BiasQueryResult, DocumentRef,
 };
-use super::repository::parse_pattern_tags;
+use super::repository::resolve_default_subject_id;
 
 // ─── parse_pattern_tags ─────────────────────────────────────────────────────
 
@@ -45,9 +46,10 @@ fn bias_query_filters_serializes_omitting_none_fields() {
     let filters = BiasQueryFilters {
         actor_id: None,
         pattern_tag: Some("disparagement".to_string()),
+        subject_id: None,
     };
     let value = serde_json::to_value(&filters).unwrap();
-    // actor_id absent (skip_serializing_if), pattern_tag present.
+    // actor_id and subject_id absent (skip_serializing_if), pattern_tag present.
     assert_eq!(value, json!({ "pattern_tag": "disparagement" }));
 }
 
@@ -96,6 +98,8 @@ fn available_filters_round_trips_with_actor_types() {
             },
         ],
         pattern_tags: vec!["disparagement".into(), "secrecy".into()],
+        subjects: vec![],
+        default_subject_id: None,
     };
 
     let value = serde_json::to_value(&filters).unwrap();
@@ -105,6 +109,8 @@ fn available_filters_round_trips_with_actor_types() {
     assert_eq!(back.actors[0].actor_type, "Person");
     assert_eq!(back.actors[1].actor_type, "Organization");
     assert_eq!(back.pattern_tags, vec!["disparagement", "secrecy"]);
+    assert!(back.subjects.is_empty());
+    assert!(back.default_subject_id.is_none());
 }
 
 // ─── BiasInstance / DocumentRef field-skipping ──────────────────────────────
@@ -179,15 +185,164 @@ fn document_ref_omits_document_type_when_none() {
 fn bias_query_result_echoes_applied_filters() {
     let result = BiasQueryResult {
         total_count: 3,
+        total_unfiltered: 248,
         instances: Vec::new(),
         applied_filters: BiasQueryFilters {
             actor_id: Some("person-jeffrey".into()),
             pattern_tag: Some("lies_under_oath".into()),
+            subject_id: None,
         },
     };
     let value = serde_json::to_value(&result).unwrap();
     assert_eq!(value["applied_filters"]["actor_id"], "person-jeffrey");
     assert_eq!(value["applied_filters"]["pattern_tag"], "lies_under_oath");
     assert_eq!(value["total_count"], 3);
+    assert_eq!(value["total_unfiltered"], 248);
     assert_eq!(value["instances"], json!([]));
+}
+
+// ─── v2: subject_id, subjects, total_unfiltered ─────────────────────────────
+
+#[test]
+fn bias_query_filters_serializes_subject_id_when_set() {
+    let filters = BiasQueryFilters {
+        actor_id: None,
+        pattern_tag: None,
+        subject_id: Some("person-marie".to_string()),
+    };
+    let value = serde_json::to_value(&filters).unwrap();
+    // actor_id and pattern_tag are absent (skip_serializing_if), subject_id present.
+    assert_eq!(value, json!({ "subject_id": "person-marie" }));
+}
+
+#[test]
+fn bias_query_filters_omits_subject_id_when_none() {
+    // Standing Rule 1: distinct states are observable in JSON.
+    // None must be omitted (not serialized as `null`) so a future
+    // multi-select form factor that genuinely sends `subject_id: null`
+    // remains distinguishable.
+    let filters = BiasQueryFilters::default();
+    let value = serde_json::to_value(&filters).unwrap();
+    assert!(value.get("subject_id").is_none());
+}
+
+#[test]
+fn bias_query_filters_deserializes_with_only_subject_id() {
+    let parsed: BiasQueryFilters =
+        serde_json::from_value(json!({ "subject_id": "person-marie" })).unwrap();
+    assert!(parsed.actor_id.is_none());
+    assert!(parsed.pattern_tag.is_none());
+    assert_eq!(parsed.subject_id.as_deref(), Some("person-marie"));
+}
+
+#[test]
+fn available_filters_response_includes_subjects_field() {
+    let filters = AvailableFilters {
+        actors: vec![],
+        pattern_tags: vec![],
+        subjects: vec![ActorOption {
+            id: "person-marie".into(),
+            name: "Marie Awad".into(),
+            actor_type: "Person".into(),
+            tagged_statement_count: 47,
+        }],
+        default_subject_id: Some("person-marie".into()),
+    };
+    let value = serde_json::to_value(&filters).unwrap();
+    assert!(value["subjects"].is_array());
+    assert_eq!(value["subjects"][0]["id"], "person-marie");
+    assert_eq!(value["subjects"][0]["name"], "Marie Awad");
+    assert_eq!(value["default_subject_id"], "person-marie");
+}
+
+#[test]
+fn available_filters_omits_default_subject_id_when_none() {
+    let filters = AvailableFilters {
+        actors: vec![],
+        pattern_tags: vec![],
+        subjects: vec![],
+        default_subject_id: None,
+    };
+    let value = serde_json::to_value(&filters).unwrap();
+    assert!(
+        value.get("default_subject_id").is_none(),
+        "default_subject_id must be skip_serializing_if when None"
+    );
+}
+
+#[test]
+fn bias_query_result_serializes_total_unfiltered() {
+    let result = BiasQueryResult {
+        total_count: 47,
+        total_unfiltered: 231,
+        instances: Vec::new(),
+        applied_filters: BiasQueryFilters::default(),
+    };
+    let value = serde_json::to_value(&result).unwrap();
+    assert_eq!(value["total_count"], 47);
+    assert_eq!(value["total_unfiltered"], 231);
+}
+
+// ─── resolve_default_subject_id helper ──────────────────────────────────────
+
+fn make_subject(id: &str, name: &str, count: i64) -> ActorOption {
+    ActorOption {
+        id: id.to_string(),
+        name: name.to_string(),
+        actor_type: "Person".to_string(),
+        tagged_statement_count: count,
+    }
+}
+
+#[test]
+fn resolve_default_subject_id_returns_id_on_exact_match() {
+    let subjects = vec![
+        make_subject("person-george", "George Phillips", 114),
+        make_subject("person-marie", "Marie Awad", 47),
+    ];
+    let resolved = resolve_default_subject_id(&subjects, Some("Marie Awad"));
+    assert_eq!(resolved.as_deref(), Some("person-marie"));
+}
+
+#[test]
+fn resolve_default_subject_id_returns_none_when_name_unset() {
+    let subjects = vec![make_subject("person-marie", "Marie Awad", 47)];
+    let resolved = resolve_default_subject_id(&subjects, None);
+    assert!(resolved.is_none());
+}
+
+#[test]
+fn resolve_default_subject_id_treats_blank_name_as_unset() {
+    // Empty / whitespace-only env value behaves like "unset" so an
+    // accidentally-empty Ansible variable does not silently "match"
+    // anything in the subjects list.
+    let subjects = vec![make_subject("person-marie", "Marie Awad", 47)];
+    assert!(resolve_default_subject_id(&subjects, Some("")).is_none());
+    assert!(resolve_default_subject_id(&subjects, Some("   ")).is_none());
+}
+
+#[test]
+fn resolve_default_subject_id_returns_none_when_no_match() {
+    let subjects = vec![make_subject("person-george", "George Phillips", 114)];
+    let resolved = resolve_default_subject_id(&subjects, Some("Marie Awad"));
+    assert!(resolved.is_none());
+}
+
+#[test]
+fn resolve_default_subject_id_is_case_sensitive() {
+    let subjects = vec![make_subject("person-marie", "Marie Awad", 47)];
+    // Lowercase variant must not match.
+    assert!(resolve_default_subject_id(&subjects, Some("marie awad")).is_none());
+}
+
+#[test]
+fn resolve_default_subject_id_picks_first_when_multiple_match() {
+    // Subjects are pre-sorted by tagged_count DESC, so "first" means
+    // highest-count match. We assert the helper picks that one.
+    let subjects = vec![
+        make_subject("person-marie-a", "Marie Awad", 47),
+        make_subject("person-marie-b", "Marie Awad", 12),
+    ];
+    let resolved = resolve_default_subject_id(&subjects, Some("Marie Awad"));
+    assert_eq!(resolved.as_deref(), Some("person-marie-a"));
 }

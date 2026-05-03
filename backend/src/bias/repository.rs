@@ -15,12 +15,11 @@
 //! `trim` so leading/trailing whitespace and accidental empty tokens
 //! never surface to the UI.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
-
-use neo4rs::{query, Graph, Row};
+use neo4rs::{query, Graph};
 use thiserror::Error;
 
-use super::dto::{ActorOption, AvailableFilters, BiasInstance, BiasQueryFilters, DocumentRef};
+use super::aggregation::{AggregationState, BiasRow};
+use super::dto::{ActorOption, AvailableFilters, BiasInstance, BiasQueryFilters};
 
 // ─── Error ──────────────────────────────────────────────────────────────────
 
@@ -64,26 +63,54 @@ impl BiasRepository {
 
     /// Return the dropdown contents for the Bias Explorer filter bar.
     ///
-    /// Two separate queries run against Neo4j:
+    /// Three separate queries run against Neo4j and resolve concurrently:
     ///
     /// 1. Actors that STATED_BY at least one tagged Evidence node, with
     ///    per-actor counts. Sorted by count DESC, then name ASC, so the
     ///    most active actor appears first in the dropdown.
     /// 2. Distinct, trimmed pattern tags across all tagged Evidence nodes.
     ///    Sorted alphabetically.
+    /// 3. Subjects that are the target of an ABOUT edge from a tagged
+    ///    Evidence node, with per-subject counts. Same ordering as actors.
     ///
-    /// Both queries hardcode the schema labels (`Evidence`) and edges
-    /// (`STATED_BY`) — that is consistent with the rest of the
+    /// After the three fetches, `default_subject_name` (sourced from the
+    /// `CASE_DEFAULT_SUBJECT_NAME` env var) is matched against the
+    /// subjects list to compute `default_subject_id`. Doing the match
+    /// server-side keeps case-specific data — the plaintiff's name —
+    /// out of the JS bundle (Standing Rule 2).
+    ///
+    /// All Cypher hardcodes the schema labels (`Evidence`) and edges
+    /// (`STATED_BY`, `ABOUT`) — that is consistent with the rest of the
     /// repositories and reflects the data model contract; the prohibition
     /// on hardcoding applies to environment-specific values, not to the
     /// graph's own type names.
-    pub async fn available_filters(&self) -> Result<AvailableFilters, BiasRepositoryError> {
-        let actors = self.fetch_actors_with_tagged_statements().await?;
-        let pattern_tags = self.fetch_distinct_pattern_tags().await?;
+    ///
+    /// ## Rust Learning: `tokio::try_join!` for fail-fast parallelism
+    ///
+    /// `try_join!` polls multiple futures concurrently; when any of them
+    /// returns `Err`, the macro returns that error and drops the others.
+    /// We use it (rather than the non-fallible `join!`) so a Neo4j outage
+    /// surfaces as a single error from this function instead of three
+    /// independent failures. The futures don't compete for the same
+    /// connection — `neo4rs::Graph` has an internal connection pool and
+    /// hands out a fresh session per `.execute()` call.
+    pub async fn available_filters(
+        &self,
+        default_subject_name: Option<&str>,
+    ) -> Result<AvailableFilters, BiasRepositoryError> {
+        let (actors, pattern_tags, subjects) = tokio::try_join!(
+            self.fetch_actors_with_tagged_statements(),
+            self.fetch_distinct_pattern_tags(),
+            self.fetch_subjects_with_tagged_statements(),
+        )?;
+
+        let default_subject_id = resolve_default_subject_id(&subjects, default_subject_name);
 
         Ok(AvailableFilters {
             actors,
             pattern_tags,
+            subjects,
+            default_subject_id,
         })
     }
 
@@ -135,6 +162,70 @@ impl BiasRepository {
         Ok(actors)
     }
 
+    /// Cypher: every subject that is the target of an ABOUT edge from a
+    /// tagged Evidence node, with how many distinct Evidence nodes are
+    /// "about" them.
+    ///
+    /// The shape mirrors `fetch_actors_with_tagged_statements` (same
+    /// `ActorOption` shape, same sort order) so the frontend can render
+    /// the About dropdown identically to the Speaker dropdown. The
+    /// difference is the relationship traversed (`[:ABOUT]` instead of
+    /// `[:STATED_BY]`) and `count(DISTINCT e)` — a single Evidence may
+    /// have multiple ABOUT targets, and we want each Evidence counted
+    /// once per subject, not once per ABOUT edge.
+    async fn fetch_subjects_with_tagged_statements(
+        &self,
+    ) -> Result<Vec<ActorOption>, BiasRepositoryError> {
+        let cypher = "
+            MATCH (e:Evidence)-[:ABOUT]->(subject)
+            WHERE e.pattern_tags IS NOT NULL AND e.pattern_tags <> ''
+            WITH subject, count(DISTINCT e) AS tagged_count
+            RETURN subject.id AS id,
+                   subject.name AS name,
+                   labels(subject)[0] AS actor_type,
+                   tagged_count
+            ORDER BY tagged_count DESC, subject.name ASC
+        ";
+
+        let mut result = self.graph.execute(query(cypher)).await?;
+        let mut subjects: Vec<ActorOption> = Vec::new();
+
+        while let Some(row) = result.next().await? {
+            let id: String = row.get("id").unwrap_or_default();
+            let name: String = row.get("name").unwrap_or_default();
+            let actor_type: String = row.get("actor_type").unwrap_or_default();
+            let tagged_statement_count: i64 = row.get("tagged_count").unwrap_or(0);
+
+            subjects.push(ActorOption {
+                id,
+                name,
+                actor_type,
+                tagged_statement_count,
+            });
+        }
+
+        Ok(subjects)
+    }
+
+    /// Count the unfiltered total of tagged Evidence nodes in the graph.
+    ///
+    /// Used by the "Filtered: X of Y" counter so the user knows how many
+    /// total instances exist regardless of current filter selections.
+    /// Cheap because Neo4j caches a single label-and-property scan.
+    async fn count_total_unfiltered(&self) -> Result<i64, BiasRepositoryError> {
+        let cypher = "
+            MATCH (e:Evidence)
+            WHERE e.pattern_tags IS NOT NULL AND e.pattern_tags <> ''
+            RETURN count(e) AS total_unfiltered
+        ";
+
+        let mut result = self.graph.execute(query(cypher)).await?;
+        if let Some(row) = result.next().await? {
+            return Ok(row.get::<i64>("total_unfiltered").unwrap_or(0));
+        }
+        Ok(0)
+    }
+
     /// Cypher: distinct trimmed pattern tags across all tagged Evidence.
     ///
     /// `split(e.pattern_tags, ',')` returns a list of raw tokens. `UNWIND`
@@ -165,12 +256,31 @@ impl BiasRepository {
         Ok(tags)
     }
 
-    /// Run the structured bias query with optional actor and pattern filters.
+    /// Run the structured bias query with optional actor, pattern, and
+    /// subject filters, and report the total unfiltered count alongside.
     ///
-    /// The query is parameterised — values flow in via `query.param(...)` so
-    /// neither `actor_id` nor `pattern_tag` is ever interpolated into the
-    /// Cypher string. That is what makes the endpoint safe against Cypher
-    /// injection.
+    /// The filtered query and the total-unfiltered count run **concurrently**
+    /// via `tokio::try_join!` (see the `available_filters` doc comment for
+    /// the rationale). Both queries hit the same Neo4j instance through
+    /// the pooled `Graph` handle.
+    ///
+    /// The filter Cypher is parameterised — values flow in via
+    /// `query.param(...)` so none of `actor_id`, `pattern_tag`, or
+    /// `subject_id` is ever interpolated into the Cypher string. That is
+    /// what makes the endpoint safe against Cypher injection.
+    ///
+    /// ## Why `EXISTS { ... }` for the subject filter
+    ///
+    /// The OPTIONAL MATCH `(e)-[:ABOUT]->(subject)` below pulls **every**
+    /// ABOUT subject for display on each card. If we filtered subjects
+    /// with a constraining MATCH (e.g. `MATCH (e)-[:ABOUT]->(target {id: $subject_id})`),
+    /// the displayed `about` list would silently shrink to just the
+    /// matching subject — Marie's name would appear on the card, but
+    /// Phillips and CFS, who the same Evidence is also about, would
+    /// vanish from the rendered "About:" line. EXISTS is a presence
+    /// check that does not bind into the result, so the displayed
+    /// subjects stay complete. (Standing Rule 1: "Marie present alongside
+    /// other subjects" must remain observable.)
     ///
     /// ## Result aggregation
     ///
@@ -181,9 +291,27 @@ impl BiasRepository {
     /// keeps the query simple and avoids `collect()` semantics interacting
     /// poorly with multiple OPTIONAL MATCHes.)
     ///
-    /// `total_count` is the deduped count of distinct Evidence nodes, not
-    /// the raw row count.
+    /// `total_count` is the deduped count of distinct Evidence nodes the
+    /// filter matched. `total_unfiltered` is the count of all tagged
+    /// Evidence regardless of filters.
     pub async fn run_query(
+        &self,
+        filters: &BiasQueryFilters,
+    ) -> Result<(i64, i64, Vec<BiasInstance>), BiasRepositoryError> {
+        let (filtered, total_unfiltered) = tokio::try_join!(
+            self.execute_filtered_query(filters),
+            self.count_total_unfiltered(),
+        )?;
+        let (total_count, instances) = filtered;
+        Ok((total_count, total_unfiltered, instances))
+    }
+
+    /// Execute just the filtered Cypher and return `(total_count, instances)`.
+    ///
+    /// Split out from `run_query` so the parallel total-unfiltered count
+    /// can run alongside it under `tokio::try_join!`. Carries no public
+    /// surface — `run_query` is the only caller.
+    async fn execute_filtered_query(
         &self,
         filters: &BiasQueryFilters,
     ) -> Result<(i64, Vec<BiasInstance>), BiasRepositoryError> {
@@ -195,6 +323,12 @@ impl BiasRepository {
             WITH e, actor
             WHERE $pattern_tag IS NULL
                OR ANY(t IN split(e.pattern_tags, ',') WHERE trim(t) = $pattern_tag)
+            WITH e, actor
+            WHERE $subject_id IS NULL
+               OR EXISTS {
+                    MATCH (e)-[:ABOUT]->(s)
+                    WHERE s.id = $subject_id
+               }
             OPTIONAL MATCH (e)-[:ABOUT]->(subject)
             OPTIONAL MATCH (e)-[:CONTAINED_IN]->(d:Document)
             RETURN
@@ -222,7 +356,8 @@ impl BiasRepository {
         // rely on (`$actor_id IS NULL OR ...`).
         let q = query(cypher)
             .param("actor_id", filters.actor_id.as_deref())
-            .param("pattern_tag", filters.pattern_tag.as_deref());
+            .param("pattern_tag", filters.pattern_tag.as_deref())
+            .param("subject_id", filters.subject_id.as_deref());
 
         let mut result = self.graph.execute(q).await?;
         let mut state = AggregationState::new();
@@ -239,158 +374,58 @@ impl BiasRepository {
     }
 }
 
-// ─── Row aggregation ─────────────────────────────────────────────────────────
-
-/// One row from `run_query`'s Cypher, in extracted-but-unaggregated form.
-///
-/// The Cypher returns one row per (Evidence, ABOUT-subject) pair. We collect
-/// each row into this flat struct, then `AggregationState::absorb` merges
-/// rows that share an evidence_id into a single `BiasInstance`.
-struct BiasRow {
-    evidence_id: String,
-    title: String,
-    verbatim_quote: Option<String>,
-    page_number: Option<i64>,
-    pattern_tags_raw: Option<String>,
-    actor_id: String,
-    actor_name: String,
-    actor_type: String,
-    subject: Option<ActorOption>,
-    document: Option<DocumentRef>,
-}
-
-impl BiasRow {
-    /// Map a single neo4rs Row to a `BiasRow`, returning None when the row
-    /// has no usable evidence_id (the only field whose absence makes the
-    /// row meaningless).
-    fn from_row(row: &Row) -> Option<Self> {
-        let evidence_id: String = row.get("evidence_id").unwrap_or_default();
-        if evidence_id.is_empty() {
-            tracing::warn!("bias.run_query: skipped row with empty evidence_id");
-            return None;
-        }
-        let document_id: Option<String> = row.get("document_id").ok();
-        let document = document_id.map(|id| DocumentRef {
-            id,
-            title: row.get::<String>("document_title").unwrap_or_default(),
-            document_type: row.get::<String>("document_type").ok(),
-        });
-
-        let subject = match (
-            row.get::<String>("subject_id").ok(),
-            row.get::<String>("subject_name").ok(),
-            row.get::<String>("subject_type").ok(),
-        ) {
-            (Some(id), Some(name), Some(actor_type)) => Some(ActorOption {
-                id,
-                name,
-                actor_type,
-                tagged_statement_count: 0,
-            }),
-            _ => None,
-        };
-
-        Some(Self {
-            evidence_id,
-            title: row.get("title").unwrap_or_default(),
-            verbatim_quote: row.get("verbatim_quote").ok(),
-            page_number: row.get("page_number").ok(),
-            pattern_tags_raw: row.get("pattern_tags_raw").ok(),
-            actor_id: row.get("actor_id").unwrap_or_default(),
-            actor_name: row.get("actor_name").unwrap_or_default(),
-            actor_type: row.get("actor_type").unwrap_or_default(),
-            subject,
-            document,
-        })
-    }
-}
-
-/// Aggregation state for `run_query`.
-///
-/// Keeps a sort-ordered map of evidence_id → BiasInstance plus a per-evidence
-/// dedupe set so that an Evidence with multiple ABOUT edges produces exactly
-/// one entry with each subject listed once.
-struct AggregationState {
-    /// Sorted by `(actor_name, document_title, page_number, evidence_id)`
-    /// to mirror the Cypher's ORDER BY.
-    by_evidence: BTreeMap<SortKey, BiasInstance>,
-    /// Subject ids already merged into each evidence_id's `about` list.
-    seen_about: HashMap<String, HashSet<String>>,
-}
-
-type SortKey = (String, String, i64, String);
-
-impl AggregationState {
-    fn new() -> Self {
-        Self {
-            by_evidence: BTreeMap::new(),
-            seen_about: HashMap::new(),
-        }
-    }
-
-    fn absorb(&mut self, row: BiasRow) {
-        let sort_key: SortKey = (
-            row.actor_name.clone(),
-            row.document
-                .as_ref()
-                .map(|d| d.title.clone())
-                .unwrap_or_default(),
-            row.page_number.unwrap_or(0),
-            row.evidence_id.clone(),
-        );
-
-        let evidence_id = row.evidence_id.clone();
-        let entry = self
-            .by_evidence
-            .entry(sort_key)
-            .or_insert_with(|| BiasInstance {
-                evidence_id: row.evidence_id,
-                title: row.title,
-                verbatim_quote: row.verbatim_quote,
-                page_number: row.page_number,
-                pattern_tags: parse_pattern_tags(row.pattern_tags_raw.as_deref().unwrap_or("")),
-                stated_by: Some(ActorOption {
-                    id: row.actor_id,
-                    name: row.actor_name,
-                    actor_type: row.actor_type,
-                    // Per-card surface doesn't show counts; this stays at 0.
-                    tagged_statement_count: 0,
-                }),
-                about: Vec::new(),
-                document: row.document,
-            });
-
-        if let Some(subject) = row.subject {
-            let dedupe = self.seen_about.entry(evidence_id).or_default();
-            if dedupe.insert(subject.id.clone()) {
-                entry.about.push(subject);
-            }
-        }
-    }
-
-    fn finish(self) -> (i64, Vec<BiasInstance>) {
-        let instances: Vec<BiasInstance> = self.by_evidence.into_values().collect();
-        let total = instances.len() as i64;
-        (total, instances)
-    }
-}
-
 // ─── Pure helpers (no I/O — easy to unit-test) ──────────────────────────────
 
-/// Parse a comma-separated pattern_tags string into a clean `Vec<String>`.
+/// Resolve the default-subject id from a list of subjects and an optional
+/// configured name.
 ///
-/// - Splits on `,`
-/// - Trims each token of leading/trailing whitespace
-/// - Drops empty tokens (common when extraction emits `"a, , b"` or trailing
-///   commas)
-/// - Preserves ordering so the UI can display tags in the order the
-///   extraction template authored them
+/// - `name = None` (env var unset) → `None`. The frontend renders
+///   "All subjects" as the default.
+/// - `name = Some("")` after trimming → `None` (treat empty config the
+///   same as unset).
+/// - `name = Some(n)` and exactly one subject in the list has
+///   `subject.name == n` → `Some(subject.id)`.
+/// - `name = Some(n)` and **multiple** subjects share that name → return
+///   the first match (the input is sorted by `tagged_count DESC`, then by
+///   name) and emit a `tracing::warn!` so the duplicate is observable.
+/// - `name = Some(n)` and no subject matches → `None`, plus a
+///   `tracing::warn!` noting the configured name was not found in the
+///   current data. (Standing Rule 1: configured-but-missing must be
+///   distinguishable from unset.)
 ///
-/// This is the same transformation `available_filters` does in Cypher, but
-/// applied per-Evidence-node when building `BiasInstance.pattern_tags`.
-pub(crate) fn parse_pattern_tags(raw: &str) -> Vec<String> {
-    raw.split(',')
-        .map(|t| t.trim().to_string())
-        .filter(|t| !t.is_empty())
-        .collect()
+/// Match is case-sensitive exact equality. Case-insensitive matching
+/// would be friendlier but would create surprises when two case-specific
+/// names share a prefix differing only in case — exact-match keeps the
+/// contract obvious.
+pub(crate) fn resolve_default_subject_id(
+    subjects: &[ActorOption],
+    name: Option<&str>,
+) -> Option<String> {
+    let configured = match name {
+        Some(n) if !n.trim().is_empty() => n,
+        _ => return None,
+    };
+
+    let matches: Vec<&ActorOption> = subjects.iter().filter(|s| s.name == configured).collect();
+
+    match matches.as_slice() {
+        [] => {
+            tracing::warn!(
+                configured_name = configured,
+                "bias.available_filters: CASE_DEFAULT_SUBJECT_NAME did not match any subject; \
+                 frontend will default to All subjects"
+            );
+            None
+        }
+        [only] => Some(only.id.clone()),
+        many => {
+            tracing::warn!(
+                configured_name = configured,
+                duplicates = many.len(),
+                "bias.available_filters: CASE_DEFAULT_SUBJECT_NAME matched multiple subjects; \
+                 picking first by sort order"
+            );
+            Some(many[0].id.clone())
+        }
+    }
 }

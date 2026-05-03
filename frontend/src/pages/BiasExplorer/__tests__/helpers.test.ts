@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { groupByActor } from "../BiasByActorView";
-import { formatTagLabel } from "../BiasExplorerFilters";
-import type { BiasInstance } from "../types";
+import { formatFilteredCounter, formatTagLabel } from "../BiasExplorerFilters";
+import { applyDefaultSubject } from "../defaultSubject";
+import type { AvailableFilters, BiasInstance } from "../types";
 
 describe("formatTagLabel", () => {
     it("converts snake_case to Title Case with spaces", () => {
@@ -73,5 +74,73 @@ describe("groupByActor", () => {
 
     it("returns an empty array for an empty input", () => {
         expect(groupByActor([])).toEqual([]);
+    });
+});
+
+describe("formatFilteredCounter", () => {
+    it("renders 'Filtered: X of Y' when a filter is active", () => {
+        expect(formatFilteredCounter(47, 231, true)).toBe(
+            "Filtered: 47 of 231 instances",
+        );
+    });
+
+    it("renders 'Showing all Y' when no filter is active", () => {
+        expect(formatFilteredCounter(231, 231, false)).toBe(
+            "Showing all 231 instances",
+        );
+    });
+
+    it("uses singular noun when total is 1", () => {
+        expect(formatFilteredCounter(1, 1, false)).toBe("Showing all 1 instance");
+        expect(formatFilteredCounter(0, 1, true)).toBe(
+            "Filtered: 0 of 1 instance",
+        );
+    });
+
+    it("drives wording by intent flag, not numerical equality", () => {
+        // X equals Y but a filter is active — must read 'Filtered: ...' so
+        // the user sees the filter is in force, not 'Showing all'.
+        expect(formatFilteredCounter(231, 231, true)).toBe(
+            "Filtered: 231 of 231 instances",
+        );
+    });
+});
+
+describe("applyDefaultSubject", () => {
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    function makeAvailable(over: Partial<AvailableFilters>): AvailableFilters {
+        return {
+            actors: [],
+            pattern_tags: [],
+            subjects: [],
+            ...over,
+        };
+    }
+
+    it("returns the server-supplied default_subject_id when present", () => {
+        const result = applyDefaultSubject(
+            makeAvailable({ default_subject_id: "person-marie" }),
+        );
+        expect(result).toBe("person-marie");
+    });
+
+    it("returns null and warns when no default is supplied", () => {
+        const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+        const result = applyDefaultSubject(makeAvailable({}));
+        expect(result).toBeNull();
+        expect(warnSpy).toHaveBeenCalledTimes(1);
+        expect(warnSpy.mock.calls[0][0]).toMatch(/no default subject/i);
+    });
+
+    it("treats empty-string default_subject_id as no default", () => {
+        const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+        const result = applyDefaultSubject(
+            makeAvailable({ default_subject_id: "" }),
+        );
+        expect(result).toBeNull();
+        expect(warnSpy).toHaveBeenCalledTimes(1);
     });
 });
