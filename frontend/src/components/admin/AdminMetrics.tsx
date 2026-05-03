@@ -78,12 +78,16 @@ const AdminMetrics: React.FC = () => {
 
   const completed = metrics.documents_by_status["COMPLETED"] ?? 0;
 
-  // Build ordered step rows from backend-provided label and order
+  // Build ordered step rows from backend-provided label and order.
+  // `StepMetrics` (pipelineApi.ts:234) declares both `label: string`
+  // and `order: number` as required, so the spread alone supplies
+  // them. The earlier `label: perf.label || key` and
+  // `order: perf.order ?? 99` lines were shadowed dead code (the
+  // spread on the next line overwrote them); removed to clear the
+  // TS2783 duplicate-key errors surfaced by `npm run typecheck`.
   const stepRows = Object.entries(metrics.step_performance)
     .map(([key, perf]) => ({
       key,
-      label: perf.label || key,
-      order: perf.order ?? 99,
       ...perf,
     }))
     .sort((a, b) => a.order - b.order);
