@@ -140,6 +140,8 @@ async fn create_claim_rejects_empty_title() -> TestResult<()> {
             entity_types: vec![],
             relationship_types: vec![],
         },
+        chat_providers: std::collections::HashMap::new(),
+        default_chat_model: String::new(),
     };
 
     let payload = ClaimCreateRequest {
@@ -181,6 +183,8 @@ async fn create_claim_rejects_invalid_status() -> TestResult<()> {
             entity_types: vec![],
             relationship_types: vec![],
         },
+        chat_providers: std::collections::HashMap::new(),
+        default_chat_model: String::new(),
     };
 
     let payload = ClaimCreateRequest {
@@ -222,6 +226,8 @@ async fn get_claim_returns_404_when_missing() -> TestResult<()> {
             entity_types: vec![],
             relationship_types: vec![],
         },
+        chat_providers: std::collections::HashMap::new(),
+        default_chat_model: String::new(),
     };
 
     let response = get_claim(
@@ -273,6 +279,8 @@ async fn update_claim_rejects_invalid_status() -> TestResult<()> {
             entity_types: vec![],
             relationship_types: vec![],
         },
+        chat_providers: std::collections::HashMap::new(),
+        default_chat_model: String::new(),
     };
 
     let payload = ClaimUpdateRequest {
@@ -320,6 +328,8 @@ async fn happy_path_create_and_get_claim() -> TestResult<()> {
             entity_types: vec![],
             relationship_types: vec![],
         },
+        chat_providers: std::collections::HashMap::new(),
+        default_chat_model: String::new(),
     };
 
     let payload = ClaimCreateRequest {

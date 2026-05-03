@@ -74,6 +74,8 @@ async fn setup_app() -> TestResult<Router> {
             entity_types: vec![],
             relationship_types: vec![],
         },
+        chat_providers: std::collections::HashMap::new(),
+        default_chat_model: String::new(),
     };
     Ok(router().with_state(state))
 }

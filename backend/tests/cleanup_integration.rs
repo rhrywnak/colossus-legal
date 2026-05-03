@@ -57,6 +57,13 @@ impl LlmProvider for PanicLlm {
     fn model_name(&self) -> &str {
         "panic-llm"
     }
+    fn provider_name(&self) -> &str {
+        // Mirrors model_name; the cleanup tests don't hit the LLM
+        // (invoke panics), so the provider-name string only matters
+        // for any code path that logs the provider on its way to a
+        // non-LLM operation. "panic-llm" is the unambiguous sentinel.
+        "panic-llm"
+    }
     fn cost_per_input_token(&self) -> Option<f64> {
         None
     }
@@ -107,6 +114,14 @@ async fn live_context() -> TestResult<colossus_legal_backend::pipeline::context:
         http_client,
         schema_dir: config.extraction_schema_dir.clone(),
         template_dir: config.extraction_template_dir.clone(),
+        // Both directories are real production paths from `AppConfig`
+        // (see config.rs:39, 41). Cleanup tests only exercise on_cancel
+        // / on_delete hooks that don't load profile or system-prompt
+        // files, so these values are never read at test time — but the
+        // `AppContext` struct now requires them, so we populate them
+        // from the same source production does.
+        profile_dir: config.processing_profile_dir.clone(),
+        system_prompt_dir: config.system_prompt_dir.clone(),
         document_storage_path: config.document_storage_path.clone(),
         llm_provider: Arc::new(PanicLlm) as Arc<dyn LlmProvider>,
         embedding_provider: Arc::new(PanicEmbedding) as Arc<dyn EmbeddingProvider>,
