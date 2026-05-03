@@ -810,6 +810,15 @@ fn assemble_chunk_prompt(
     admin_instructions: Option<&str>,
     context: Option<&str>,
 ) -> Result<String, String> {
+    // Strip AUTHORING_NOTE comment blocks before substitution. These
+    // are human-template-author meta-text (e.g., "do not put `{{...}}`
+    // tokens in prose"). Keeping them out of the substitution layer
+    // means an authoring note that itself carries placeholder-shaped
+    // text never reaches the `.replace()` chain. See
+    // [`strip_authoring_comments`] for the marker contract.
+    let stripped = strip_authoring_comments(template_text);
+    let template_text = stripped.as_str();
+
     let has_document_text = template_text.contains("{{document_text}}");
     let has_chunk_text = template_text.contains("{{chunk_text}}");
 
@@ -1681,6 +1690,96 @@ pub(crate) fn load_global_rules(
     Ok((content, Some(hash)))
 }
 
+/// Strip every `<!-- AUTHORING_NOTE ... -->` block from a template.
+///
+/// Returns the template with each AUTHORING_NOTE-marked HTML comment
+/// removed (along with any trailing newline immediately following the
+/// comment, so the strip site doesn't leave a blank line behind).
+/// Regular `<!-- ... -->` comments without the AUTHORING_NOTE marker
+/// are preserved verbatim — the marker is the explicit "this comment
+/// is for human template authors only; do not ship to the LLM" signal.
+///
+/// ## Why this exists
+///
+/// Approach 2 of Instruction F adds an "authoring rules" comment block
+/// to every Pass-2 template explaining the substitution convention
+/// (placeholders only on their own lines, no `{{...}}` in prose). The
+/// raw `.replace()` substitution path doesn't strip HTML comments, so
+/// without this helper the authoring meta-text would land in the
+/// LLM-bound prompt — a different flavour of the same prompt-corruption
+/// silent divergence we eliminated in Instructions A through E.
+///
+/// **Apply BEFORE the `.replace()` chain** in both
+/// [`assemble_chunk_prompt`] (Pass-1) and `assemble_pass2_prompt`
+/// (Pass-2) so the contract is consistent across passes. A test for
+/// this property pins the order: an AUTHORING_NOTE block whose body
+/// itself contains placeholder syntax must never have those
+/// placeholders reach the substitution layer.
+///
+/// ## Marker convention
+///
+/// `<!-- AUTHORING_NOTE` (the literal characters with a single space)
+/// followed by anything, then `-->` to close. The match is greedy
+/// for content but anchored on `<!-- AUTHORING_NOTE` so plain
+/// `<!--AUTHORING_NOTE_OTHER...-->` does not accidentally match.
+///
+/// An unterminated `<!-- AUTHORING_NOTE ...` (no closing `-->`) is
+/// preserved verbatim — losing every byte after the open marker
+/// would be a bigger silent failure than leaving the malformed
+/// markup visible. The regression test for templates would catch
+/// such a malformation in CI.
+///
+/// ## Rust Learning: hand-rolled scanner avoids a prod regex dep
+///
+/// `regex` lives in `[dev-dependencies]` for the chunking-strategy
+/// boundary-pattern tests; promoting it to `[dependencies]` for one
+/// fixed pattern would expand the production trust graph for no
+/// reason. The scan is straightforward: `find` on the open marker,
+/// `find` on `-->` from the matched position, push the bytes
+/// outside the match, repeat. Linear time over the template.
+pub(crate) fn strip_authoring_comments(template: &str) -> String {
+    const OPEN: &str = "<!-- AUTHORING_NOTE";
+    const CLOSE: &str = "-->";
+
+    let mut out = String::with_capacity(template.len());
+    let mut rest = template;
+    loop {
+        match rest.find(OPEN) {
+            None => {
+                out.push_str(rest);
+                return out;
+            }
+            Some(start) => {
+                // Push everything up to the open marker.
+                out.push_str(&rest[..start]);
+                let after_open = &rest[start + OPEN.len()..];
+                match after_open.find(CLOSE) {
+                    None => {
+                        // Unterminated AUTHORING_NOTE — preserve the
+                        // remainder verbatim. Losing every byte after
+                        // the open marker would be a bigger silent
+                        // failure than leaving the malformed markup
+                        // visible to whoever inspects the prompt. The
+                        // disk-scan regression test would catch a
+                        // template in this state in CI.
+                        out.push_str(&rest[start..]);
+                        return out;
+                    }
+                    Some(end) => {
+                        // Skip past the close marker and any single
+                        // trailing newline so the strip site doesn't
+                        // accumulate blank lines.
+                        rest = &after_open[end + CLOSE.len()..];
+                        if let Some(stripped) = rest.strip_prefix('\n') {
+                            rest = stripped;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// SHA-256 hex digest of a UTF-8 string.
 ///
 /// Used to fingerprint the loaded prompt template so the audit snapshot
@@ -2007,6 +2106,209 @@ Doc:\n{{document_text}}";
             }
             other => panic!("expected ProfileLoadFailed, got {other:?}"),
         }
+    }
+
+    // ── strip_authoring_comments ──────────────────────────────────
+    //
+    // The five tests Roman specified in his Step 1 approval. They
+    // pin down the contract: AUTHORING_NOTE blocks are removed,
+    // regular HTML comments are preserved, and the strip happens
+    // BEFORE substitution so the body of an AUTHORING_NOTE never
+    // reaches the `.replace()` chain.
+
+    #[test]
+    fn strip_authoring_comments_removes_a_single_block() {
+        let input = "<!-- AUTHORING_NOTE\nrules go here\n-->\n# Heading\n\nbody";
+        let out = strip_authoring_comments(input);
+        assert_eq!(out, "# Heading\n\nbody");
+    }
+
+    #[test]
+    fn strip_authoring_comments_removes_multiple_blocks_in_one_template() {
+        let input = "\
+<!-- AUTHORING_NOTE
+first block
+-->
+# Heading
+
+middle text
+
+<!-- AUTHORING_NOTE
+second block
+-->
+trailing text";
+        let out = strip_authoring_comments(input);
+        assert!(
+            !out.contains("AUTHORING_NOTE"),
+            "all AUTHORING_NOTE markers must be gone; got:\n{out}"
+        );
+        assert!(out.contains("# Heading"));
+        assert!(out.contains("middle text"));
+        assert!(out.contains("trailing text"));
+        assert!(!out.contains("first block"));
+        assert!(!out.contains("second block"));
+    }
+
+    #[test]
+    fn strip_authoring_comments_preserves_non_authoring_text_byte_for_byte() {
+        // A template with no AUTHORING_NOTE blocks must round-trip
+        // unchanged. Pins the "do nothing when there's nothing to
+        // do" contract.
+        let input = "# Heading\n\n## Subheading\n\nBody text with {{placeholder}} and prose.\n";
+        let out = strip_authoring_comments(input);
+        assert_eq!(out, input);
+    }
+
+    #[test]
+    fn strip_authoring_comments_preserves_a_regular_html_comment() {
+        // A normal `<!-- ... -->` comment without the AUTHORING_NOTE
+        // marker is NOT stripped — the marker is the explicit
+        // "this is for human authors only" signal. Without the
+        // marker, the comment stays.
+        let input = "<!-- regular comment -->\n# Heading\n\nbody";
+        let out = strip_authoring_comments(input);
+        assert!(
+            out.contains("<!-- regular comment -->"),
+            "regular HTML comment must survive; got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn strip_authoring_comments_strips_block_with_placeholder_shaped_content_inside() {
+        // The most important test: an AUTHORING_NOTE block whose
+        // *body* contains `{{...}}` tokens must be stripped in full
+        // before any substitution happens. Confirms the
+        // strip-before-replace ordering — if the helper ran AFTER
+        // replace, the `{{context}}` inside the note would have
+        // been substituted into prose like "Therefore: prose
+        // references to "the context block" or "the schema" must
+        // NOT use the literal  or {{schema_json}} syntax", which
+        // is corrupted text shipped to the LLM. With the strip
+        // running first, the entire note (placeholders included)
+        // is removed before any `.replace()` call sees it.
+        let input = "\
+<!-- AUTHORING_NOTE
+do not put {{context}} or {{schema_json}} in prose
+-->
+# Real Content
+
+The real prompt body.";
+        let out = strip_authoring_comments(input);
+        assert!(
+            !out.contains("AUTHORING_NOTE"),
+            "marker must be gone; got:\n{out}"
+        );
+        assert!(
+            !out.contains("{{context}}"),
+            "placeholder syntax inside the AUTHORING_NOTE block must be \
+             stripped along with the rest of the block; got:\n{out}"
+        );
+        assert!(
+            !out.contains("{{schema_json}}"),
+            "same — both placeholder tokens inside the note must be gone"
+        );
+        assert!(out.contains("# Real Content"));
+        assert!(out.contains("The real prompt body."));
+    }
+
+    /// Roman's Step 1 directive G #1: every Pass-2 template on disk
+    /// must carry the AUTHORING_NOTE block at the top. Catches a
+    /// future template author who copy-pastes from a non-Pass-2
+    /// template and forgets the block.
+    #[test]
+    fn every_pass2_template_on_disk_has_authoring_note_at_top() {
+        // Cargo runs tests from the package root (backend/).
+        let entries = std::fs::read_dir("extraction_templates")
+            .expect("backend/extraction_templates/ must exist");
+        let mut pass2_count = 0;
+        for entry in entries {
+            let entry = entry.unwrap();
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if !name.starts_with("pass2_") || !name.ends_with("_v4.md") {
+                continue;
+            }
+            pass2_count += 1;
+            let body = std::fs::read_to_string(&path)
+                .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+            assert!(
+                body.starts_with("<!-- AUTHORING_NOTE"),
+                "{name} must start with the AUTHORING_NOTE block per the \
+                 convention established in commit-of-instruction-F"
+            );
+        }
+        assert!(
+            pass2_count >= 5,
+            "expected at least 5 Pass-2 v4 templates, found {pass2_count}"
+        );
+    }
+
+    /// Roman's Step 1 directive G #2 (extended to all v4 templates):
+    /// every placeholder string in every shipped pass*_v4.md must
+    /// appear ONLY on a line where it is the only non-whitespace
+    /// content. If a future author embeds `{{context}}` inside a
+    /// prose sentence, this test catches it before the prompt
+    /// corruption ships. AUTHORING_NOTE blocks are stripped before
+    /// the scan because they legitimately reference placeholder
+    /// tokens (per the rules they document).
+    #[test]
+    fn no_pass_template_carries_inline_prose_placeholder_tokens() {
+        const PLACEHOLDERS: &[&str] = &[
+            "{{schema_json}}",
+            "{{entities_json}}",
+            "{{global_rules}}",
+            "{{admin_instructions}}",
+            "{{context}}",
+            "{{document_text}}",
+            "{{chunk_text}}",
+        ];
+        let entries = std::fs::read_dir("extraction_templates")
+            .expect("backend/extraction_templates/ must exist");
+        let mut scanned = 0;
+        for entry in entries {
+            let entry = entry.unwrap();
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().into_owned();
+            // Match `pass1_..._v4.md` and `pass2_..._v4.md`. Other
+            // markdown files in the directory (universal templates,
+            // legacy versions) aren't covered by the v4 contract.
+            if !(name.starts_with("pass1_") || name.starts_with("pass2_"))
+                || !name.ends_with("_v4.md")
+            {
+                continue;
+            }
+            scanned += 1;
+            let raw = std::fs::read_to_string(&path)
+                .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+            // Strip authoring notes first — they reference tokens
+            // legitimately as part of their documentation.
+            let body = strip_authoring_comments(&raw);
+            for (line_no, line) in body.lines().enumerate() {
+                for ph in PLACEHOLDERS {
+                    if line.contains(ph) {
+                        // Allowed shape: line is exactly the
+                        // placeholder, possibly with surrounding
+                        // whitespace. Anything else is the bug.
+                        assert_eq!(
+                            line.trim(),
+                            *ph,
+                            "{name} line {ln} contains the placeholder {ph} \
+                             inline within prose: {line:?}. The substitution \
+                             layer would silently corrupt this line. Either \
+                             move the token to its own line or rewrite the \
+                             prose to use plain English (see the AUTHORING_NOTE \
+                             block at the top of every Pass-2 template).",
+                            ln = line_no + 1,
+                        );
+                    }
+                }
+            }
+        }
+        assert!(
+            scanned >= 10,
+            "expected at least 10 v4 templates (5 pass-1 + 5 pass-2), \
+             scanned {scanned}"
+        );
     }
 
     #[test]

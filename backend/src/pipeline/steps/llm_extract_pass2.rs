@@ -47,8 +47,8 @@ use crate::pipeline::context::AppContext;
 use crate::pipeline::providers::provider_for_model;
 use crate::pipeline::steps::llm_extract::{
     compute_cost, default_profile_name_from_schema, load_global_rules, resolve_effective_mode,
-    resolve_max_tokens, sha2_hex, write_processing_config_snapshot, LlmExtractError,
-    SnapshotRuntimeFields,
+    resolve_max_tokens, sha2_hex, strip_authoring_comments, write_processing_config_snapshot,
+    LlmExtractError, SnapshotRuntimeFields,
 };
 use crate::pipeline::steps::llm_extract_helpers::{
     call_with_rate_limit_retry, mark_run_failed, parse_chunk_response,
@@ -614,7 +614,12 @@ fn assemble_pass2_prompt(
     admin_instructions: Option<&str>,
     context: Option<&str>,
 ) -> String {
-    template_text
+    // Strip AUTHORING_NOTE comment blocks BEFORE the substitution
+    // chain. Mirrors `assemble_chunk_prompt` (Pass-1) so the contract
+    // is consistent across passes — see [`strip_authoring_comments`]
+    // for the marker convention and the "before substitution" rule.
+    let stripped = strip_authoring_comments(template_text);
+    stripped
         .replace("{{schema_json}}", schema_json)
         .replace("{{entities_json}}", entities_json)
         .replace("{{global_rules}}", global_rules.unwrap_or(""))
@@ -824,6 +829,108 @@ Doc:\n{{document_text}}";
             assert!(
                 !prompt.contains(placeholder),
                 "literal {placeholder} must be gone; got: {prompt}"
+            );
+        }
+    }
+
+    /// Roman's Step 1 directive G #3: behavioural test that the
+    /// strip-then-substitute order delivers a correct prompt for a
+    /// template with both an AUTHORING_NOTE block (which references
+    /// placeholders in its body — that's the documentation it carries)
+    /// AND legitimate placeholder lines AND prose that names the
+    /// substitution targets without using `{{...}}` syntax.
+    ///
+    /// Confirms three properties at once:
+    ///
+    ///   1. The AUTHORING_NOTE block is stripped — its body never
+    ///      reaches the LLM, even though it contains `{{context}}`
+    ///      and `{{schema_json}}` text that would otherwise be
+    ///      replaced.
+    ///   2. Prose phrases like "the cross-document context block
+    ///      below" survive intact — the substitution doesn't touch
+    ///      them because they don't contain `{{...}}` tokens.
+    ///   3. The actual placeholder lines (`{{context}}`,
+    ///      `{{document_text}}`, etc.) are substituted with the
+    ///      provided values.
+    ///
+    /// Regression-test for the original Instruction-F bug:
+    /// pass2_discovery_response_v4.md had four prose lines that
+    /// LITERALLY contained `{{context}}` (now rewritten to "the
+    /// cross-document context block below"). This test pins the
+    /// fix.
+    #[test]
+    fn assemble_pass2_prompt_strips_authoring_note_and_preserves_prose_references() {
+        let template = "\
+<!-- AUTHORING_NOTE
+Authors: do not put {{context}} or {{schema_json}} in prose; they get substituted.
+-->
+# Pass 2 Template
+
+Review the complaint allegations provided in the cross-document context block below. \
+For each Evidence entity, decide if it CORROBORATES the allegation.
+
+## Entities from Pass 1
+
+{{entities_json}}
+
+## Schema
+
+{{schema_json}}
+
+## Context
+
+{{context}}
+
+## Document Text
+
+{{document_text}}";
+        let prompt = assemble_pass2_prompt(
+            template,
+            "<SCHEMA_BODY>",
+            "<ENTITIES_BODY>",
+            "<DOC_BODY>",
+            None,
+            None,
+            Some("<CTX_BODY>"),
+        );
+
+        // (1) AUTHORING_NOTE block fully stripped — neither the marker
+        // nor the placeholder-shaped prose inside it should remain.
+        assert!(
+            !prompt.contains("AUTHORING_NOTE"),
+            "AUTHORING_NOTE marker must be stripped; got:\n{prompt}"
+        );
+        assert!(
+            !prompt.contains("Authors: do not put"),
+            "the AUTHORING_NOTE body must be stripped; got:\n{prompt}"
+        );
+
+        // (2) Prose phrase survives — the substitution layer doesn't
+        // touch text that doesn't contain `{{...}}` tokens. This is
+        // the property that broke in the original bug.
+        assert!(
+            prompt.contains("Review the complaint allegations provided in \
+                the cross-document context block below."),
+            "the prose reference to the context block must survive intact; \
+             got:\n{prompt}"
+        );
+
+        // (3) Real placeholders are substituted with the provided values.
+        assert!(prompt.contains("<SCHEMA_BODY>"));
+        assert!(prompt.contains("<ENTITIES_BODY>"));
+        assert!(prompt.contains("<CTX_BODY>"));
+        assert!(prompt.contains("<DOC_BODY>"));
+
+        // (4) No raw placeholder syntax leaks into the final prompt.
+        for placeholder in [
+            "{{schema_json}}",
+            "{{entities_json}}",
+            "{{context}}",
+            "{{document_text}}",
+        ] {
+            assert!(
+                !prompt.contains(placeholder),
+                "literal {placeholder} must be gone; got:\n{prompt}"
             );
         }
     }

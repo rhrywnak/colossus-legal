@@ -1,3 +1,10 @@
+<!-- AUTHORING_NOTE
+TEMPLATE AUTHORING RULES:
+- Substitution placeholders ({{schema_json}}, {{entities_json}}, {{global_rules}}, {{admin_instructions}}, {{context}}, {{document_text}}) are replaced via raw string substitution.
+- Therefore: prose references to "the context block" or "the schema" must NOT use the literal {{context}} or {{schema_json}} syntax — they would be replaced too.
+- Use plain English in prose. Reserve the {{...}} syntax for actual substitution sites.
+- This block is stripped before the prompt reaches the LLM (see strip_authoring_comments in llm_extract.rs); humans editing this file see it, the model never does.
+-->
 # Discovery Response Extraction — Pass 2: Relationships
 
 ## Stage 1: Who You Are and What You're Doing
@@ -103,7 +110,7 @@ Where party-001 is the respondent.
 
 **Direction:** FROM the Evidence entity TO a ComplaintAllegation from the complaint.
 
-**This is a cross-document relationship.** The ComplaintAllegation entities exist in the complaint's extraction, not in this document's extraction. You will be given the complaint's allegations as context (see {{context}} section). Use those IDs.
+**This is a cross-document relationship.** The ComplaintAllegation entities exist in the complaint's extraction, not in this document's extraction. You will be given the complaint's allegations as context (see the cross-document context block below). Use those IDs.
 
 **What CORROBORATES means:** The sworn response in this discovery document independently confirms the same facts alleged in the complaint. The test:
 
@@ -148,7 +155,7 @@ Complaint ¶54: "Defendants sought to sanction Plaintiff... while not seeking sa
 
 **What CONTRADICTS means:** The SAME person said something in this document that conflicts with what they said in another document. This is critical — it's evidence of inconsistency or dishonesty.
 
-**Cross-document context:** You will receive entities from other processed documents via {{context}}. Look for Evidence where the same respondent made a statement that conflicts with an answer in this discovery response.
+**Cross-document context:** You will receive entities from other processed documents via the cross-document context block below. Look for Evidence where the same respondent made a statement that conflicts with an answer in this discovery response.
 
 **If no cross-document context is available:** Skip CONTRADICTS relationships. Do NOT guess about what other documents contain.
 
@@ -181,7 +188,7 @@ For each Evidence entity, read the question and answer:
 
 ### Step 4: Create CORROBORATES relationships (if complaint context available)
 
-Review the complaint allegations provided in {{context}}. For each Evidence entity:
+Review the complaint allegations provided in the cross-document context block below. For each Evidence entity:
 - Is this a sworn admission? → Check if it confirms any complaint allegation.
 - Is this an evasive response? → Does the evasion implicitly confirm an allegation?
 - Is this a partial admission? → Does the admitted part support an allegation?
@@ -190,7 +197,7 @@ Apply the test: "Does this sworn answer confirm, support, or provide evidence fo
 
 ### Step 5: Create CONTRADICTS and REBUTS (if cross-document context available)
 
-If entities from other documents are provided in {{context}}, look for:
+If entities from other documents are provided in the cross-document context block below, look for:
 - Same speaker, conflicting statements → CONTRADICTS
 - Different speaker, opposing claims → REBUTS
 

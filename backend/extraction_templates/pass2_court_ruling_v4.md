@@ -1,3 +1,10 @@
+<!-- AUTHORING_NOTE
+TEMPLATE AUTHORING RULES:
+- Substitution placeholders ({{schema_json}}, {{entities_json}}, {{global_rules}}, {{admin_instructions}}, {{context}}, {{document_text}}) are replaced via raw string substitution.
+- Therefore: prose references to "the context block" or "the schema" must NOT use the literal {{context}} or {{schema_json}} syntax — they would be replaced too.
+- Use plain English in prose. Reserve the {{...}} syntax for actual substitution sites.
+- This block is stripped before the prompt reaches the LLM (see strip_authoring_comments in llm_extract.rs); humans editing this file see it, the model never does.
+-->
 # Court Ruling Relationship Extraction — Pass 2: Relationships Only
 
 ## Your Role
