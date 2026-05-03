@@ -6,6 +6,7 @@ use axum::{
 };
 
 use crate::auth::{me_handler, AuthUser, MeResponse};
+use crate::bias::handlers as bias_handlers;
 use crate::repositories::pipeline_repository::users as known_users;
 use crate::state::AppState;
 
@@ -140,6 +141,14 @@ pub fn router() -> Router<AppState> {
             post(admin_page_ground::ground_pages),
         )
         .nest("/admin/pipeline", pipeline::router())
+        // Bias Explorer — non-admin authenticated reads.
+        // Routes live in `crate::bias::handlers` (the bias module owns its
+        // own DTOs, repository, and handlers as a self-contained feature).
+        .route(
+            "/bias/available-filters",
+            get(bias_handlers::get_available_filters),
+        )
+        .route("/bias/query", post(bias_handlers::post_bias_query))
         .route("/search", post(search::semantic_search))
         .route("/ask", post(ask::ask_the_case))
         .route("/chat/models", get(chat_models::list_chat_models))

@@ -1,6 +1,7 @@
 // Library entry point for shared modules (services, models, etc.)
 pub mod api;
 pub mod auth;
+pub mod bias;
 pub mod cli;
 pub mod config;
 pub mod database;

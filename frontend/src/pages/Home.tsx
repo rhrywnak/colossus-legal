@@ -181,6 +181,7 @@ const Home: React.FC = () => {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "0.65rem" }}>
           {[
             { name: "Evidence Explorer", desc: "Browse proof chains with verbatim quotes and page numbers", stat: `${caseData.evidence_total} sworn statements and exhibits`, path: "/explorer" },
+            { name: "Bias Analysis", desc: "Track patterns of bias, disparagement, and misconduct across all case documents", stat: "By actor and pattern", path: "/bias-explorer" },
             { name: "Documents", desc: "Briefs, motions, discovery responses, and court orders", stat: `${caseData.documents_total} court filings`, path: "/documents" },
             { name: "Contradictions", desc: "Impeachment evidence from sworn testimony", stat: "Where Phillips contradicted himself", path: "/contradictions" },
             { name: "Damages", desc: "Financial and reputational damages with evidence links", stat: `${formatCurrency(caseData.damages_total)} in documented harm`, path: "/damages", hasInfo: true },
