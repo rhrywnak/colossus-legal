@@ -112,6 +112,13 @@ pub const ENTITY_LEGAL_COUNT: &str = "LegalCount";
 pub const ENTITY_HARM: &str = "Harm";
 pub const ENTITY_EVIDENCE: &str = "Evidence";
 pub const ENTITY_DOCUMENT: &str = "Document";
+pub const ENTITY_ELEMENT: &str = "Element";
+pub const ENTITY_THEMATIC_ALLEGATION: &str = "ThematicAllegation";
+pub const ENTITY_COURT: &str = "Court";
+pub const ENTITY_PROCEEDING: &str = "Proceeding";
+pub const ENTITY_PROCEDURAL_EVENT: &str = "ProceduralEvent";
+pub const ENTITY_ROLE: &str = "Role";
+pub const ENTITY_ASSERTION: &str = "Assertion";
 
 /// Entity-type discriminators that resolve from the generic `Party`
 /// type into a concrete `Person` or `Organization` during ingest.
@@ -206,6 +213,13 @@ mod tests {
         assert!(ENTITY_HARM.starts_with(char::is_uppercase));
         assert!(ENTITY_EVIDENCE.starts_with(char::is_uppercase));
         assert!(ENTITY_DOCUMENT.starts_with(char::is_uppercase));
+        assert!(ENTITY_ELEMENT.starts_with(char::is_uppercase));
+        assert!(ENTITY_THEMATIC_ALLEGATION.starts_with(char::is_uppercase));
+        assert!(ENTITY_COURT.starts_with(char::is_uppercase));
+        assert!(ENTITY_PROCEEDING.starts_with(char::is_uppercase));
+        assert!(ENTITY_PROCEDURAL_EVENT.starts_with(char::is_uppercase));
+        assert!(ENTITY_ROLE.starts_with(char::is_uppercase));
+        assert!(ENTITY_ASSERTION.starts_with(char::is_uppercase));
     }
 
     #[test]
