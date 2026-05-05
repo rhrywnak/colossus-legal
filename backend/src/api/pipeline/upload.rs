@@ -477,8 +477,7 @@ pub async fn upload_document(
             profile_name: Some(profile.name.clone()),
             extraction_model: Some(profile.extraction_model.clone()),
             pass2_extraction_model: profile.pass2_extraction_model.clone(),
-            // WI-FIX-1: column added; upload-time population deferred to WI-FIX-3.
-            pass2_template_file: None,
+            pass2_template_file: profile.pass2_template_file.clone(),
             template_file: Some(profile.template_file.clone()),
             system_prompt_file: profile.system_prompt_file.clone(),
             chunking_mode: Some(profile.chunking_mode.clone()),

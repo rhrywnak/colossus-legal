@@ -187,6 +187,10 @@ pub fn router() -> Router<AppState> {
             get(config_handler::get_config_handler)
                 .patch(config_handler::patch_config_handler),
         )
+        .route(
+            "/documents/:id/resolved-config",
+            get(config_handler::get_resolved_config_handler),
+        )
         .route("/documents/:id/file", get(file::file_handler))
 }
 

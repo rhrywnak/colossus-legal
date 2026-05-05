@@ -16,7 +16,9 @@ use std::collections::HashMap;
 
 use crate::auth::{require_admin, AuthUser};
 use crate::error::AppError;
-use crate::pipeline::config::PipelineConfigOverrides;
+use crate::pipeline::config::{
+    resolve_config, PipelineConfigOverrides, ProcessingProfile, ResolvedConfig,
+};
 use crate::repositories::pipeline_repository::{self, PipelineRepoError};
 use crate::state::AppState;
 
@@ -58,6 +60,11 @@ pub struct PatchConfigInput {
     pub extraction_model: Option<String>,
     #[serde(default)]
     pub pass2_extraction_model: Option<String>,
+    /// Per-document Pass 2 (synthesis) template override. Populated from
+    /// the `pass2_template_file` column on `pipeline_config`. `None`
+    /// means "use the profile default."
+    #[serde(default)]
+    pub pass2_template_file: Option<String>,
     #[serde(default)]
     pub template_file: Option<String>,
     #[serde(default)]
@@ -96,8 +103,7 @@ impl From<PatchConfigInput> for PipelineConfigOverrides {
             profile_name: input.profile_name,
             extraction_model: input.extraction_model,
             pass2_extraction_model: input.pass2_extraction_model,
-            // WI-FIX-1: column added; PATCH-input field deferred to WI-FIX-3.
-            pass2_template_file: None,
+            pass2_template_file: input.pass2_template_file,
             template_file: input.template_file,
             system_prompt_file: input.system_prompt_file,
             chunking_mode: input.chunking_mode,
@@ -151,6 +157,7 @@ pub async fn get_config_handler(
         profile_name: overrides.profile_name,
         extraction_model: overrides.extraction_model,
         pass2_extraction_model: overrides.pass2_extraction_model,
+        pass2_template_file: overrides.pass2_template_file,
         template_file: overrides.template_file,
         system_prompt_file: overrides.system_prompt_file,
         chunking_mode: overrides.chunking_mode,
@@ -203,6 +210,93 @@ pub async fn patch_config_handler(
     })?;
 
     Ok(Json(serde_json::json!({"updated": true})))
+}
+
+/// Compose the resolved-config payload: run [`resolve_config`] on the
+/// profile + overrides, then overwrite `schema_file` with the
+/// authoritative base value from `pipeline_config.schema_file`.
+///
+/// ## Why the schema_file overwrite
+///
+/// `resolve_config()` reads `schema_file` from the profile (since
+/// `PipelineConfigOverrides` does not carry a `schema_file` field — by
+/// architectural design, schema_file is the *base* `pipeline_config`
+/// column, not an override). When the profile loaded for resolution
+/// doesn't match the document's actual configuration (the bug we lived
+/// through with v4 vs v5 complaints sharing `document_type=complaint`),
+/// the resolved schema_file would be the profile's default, not the
+/// document's persisted value.
+///
+/// The fix: after `resolve_config` runs, surface the persisted base
+/// value as the authoritative schema_file in the resolved payload.
+/// This preserves the base-vs-override architectural distinction
+/// without expanding `PipelineConfigOverrides`.
+fn build_resolved_config_payload(
+    profile: &ProcessingProfile,
+    overrides: &PipelineConfigOverrides,
+    base_schema_file: &str,
+) -> ResolvedConfig {
+    let mut resolved = resolve_config(profile, overrides);
+    resolved.schema_file = base_schema_file.to_string();
+    resolved
+}
+
+/// GET /api/admin/pipeline/documents/:id/resolved-config — return the
+/// fully resolved config a runtime extraction would use.
+///
+/// This is the backend authority for the audit-trail panel in the UI.
+/// It replaces the broken client-side approach that matched profiles by
+/// `document_type` (which fails when multiple schemas share a
+/// document_type — e.g., v4 and v5 complaints both have
+/// `document_type=complaint`).
+///
+/// Reads `pipeline_config` (for the persisted base values and
+/// `profile_name`), loads the named profile from disk, runs
+/// [`resolve_config`], overwrites `schema_file` with the persisted
+/// base, and returns `ResolvedConfig` as JSON.
+///
+/// Errors:
+/// - 404 if no `pipeline_config` row exists for the document.
+/// - 404 if the row exists but has no `profile_name` (a malformed row;
+///   uploads always populate it).
+/// - 500 if the profile YAML fails to load (missing file, parse error).
+pub async fn get_resolved_config_handler(
+    user: AuthUser,
+    State(state): State<AppState>,
+    AxumPath(doc_id): AxumPath<String>,
+) -> Result<Json<ResolvedConfig>, AppError> {
+    require_admin(&user)?;
+
+    let base_config = pipeline_repository::get_pipeline_config(&state.pipeline_pool, &doc_id)
+        .await
+        .map_err(|e| AppError::Internal {
+            message: format!("Failed to read pipeline_config: {e}"),
+        })?
+        .ok_or_else(|| AppError::NotFound {
+            message: format!("No pipeline_config for document '{doc_id}'"),
+        })?;
+
+    let overrides = pipeline_repository::get_pipeline_config_overrides(
+        &state.pipeline_pool,
+        &doc_id,
+    )
+    .await
+    .map_err(|e| AppError::Internal {
+        message: format!("Failed to read pipeline_config overrides: {e}"),
+    })?;
+
+    let profile_name = overrides.profile_name.as_deref().ok_or_else(|| AppError::NotFound {
+        message: format!("Document '{doc_id}' has no profile_name on its pipeline_config row"),
+    })?;
+
+    let profile = ProcessingProfile::load(&state.config.processing_profile_dir, profile_name)
+        .map_err(|e| AppError::Internal {
+            message: format!("Failed to load profile '{profile_name}': {e}"),
+        })?;
+
+    let resolved = build_resolved_config_payload(&profile, &overrides, &base_config.schema_file);
+
+    Ok(Json(resolved))
 }
 
 // ── Tests ───────────────────────────────────────────────────────
@@ -294,5 +388,60 @@ mod tests {
         let overrides: PipelineConfigOverrides = input.into();
         assert_eq!(overrides.chunking_config.as_ref(), Some(&chunking));
         assert_eq!(overrides.context_config.as_ref(), Some(&context));
+    }
+
+    // Catches the v5 deployment bug end-to-end at the resolved-config
+    // payload level: profile says v4 (simulating the frontend-style
+    // "match profile by document_type" failure mode where the wrong
+    // profile gets loaded), pipeline_config has v5 base schema_file +
+    // v5 pass2_template_file override (set by upload from the actual
+    // v5 profile). The resolved payload must surface v5 for both fields.
+    //
+    // Before WI-FIX-2 + WI-FIX-3: pass2_template_file would be v4
+    // (resolve_config ignored the override) and schema_file would be v4
+    // (resolve_config read from profile, ignoring the persisted base).
+    // Now both surface as v5.
+    #[test]
+    fn resolved_config_returns_v5_values_when_pipeline_config_has_v5_overrides() {
+        // Profile YAML simulates the wrong-profile-loaded scenario:
+        // labelled v5 but with v4 internals. The fields the bug was
+        // about (schema_file, pass2_template_file) are v4 here.
+        let yaml = r#"
+name: complaint_v5
+display_name: "Complaint v5 (test fixture)"
+schema_file: complaint_v4.yaml
+template_file: pass1_complaint_v4.md
+pass2_template_file: pass2_complaint_v4.md
+extraction_model: claude-sonnet-4-6
+"#;
+        let profile = ProcessingProfile::from_yaml_str(yaml).unwrap();
+
+        // Overrides reflect what upload populated from the *actual*
+        // v5 profile: pass2_template_file is v5 (the override
+        // mechanism's job).
+        let overrides = PipelineConfigOverrides {
+            profile_name: Some("complaint_v5".into()),
+            pass2_template_file: Some("pass2_complaint_v5.md".into()),
+            ..Default::default()
+        };
+
+        // Base pipeline_config.schema_file is v5 (set at upload from
+        // the actual v5 profile, persisted in the NOT NULL column).
+        let base_schema_file = "complaint_v5.yaml";
+
+        let resolved = build_resolved_config_payload(&profile, &overrides, base_schema_file);
+
+        assert_eq!(
+            resolved.schema_file, "complaint_v5.yaml",
+            "resolved schema_file must come from the persisted base \
+             pipeline_config.schema_file, not from the profile that \
+             happened to be loaded"
+        );
+        assert_eq!(
+            resolved.pass2_template_file.as_deref(),
+            Some("pass2_complaint_v5.md"),
+            "resolved pass2_template_file must come from the per-document \
+             override, not from the profile default"
+        );
     }
 }
