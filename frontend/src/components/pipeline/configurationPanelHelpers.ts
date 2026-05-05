@@ -18,6 +18,7 @@ import type {
   PatchConfigInput,
   ProcessingProfile,
 } from "../../services/configApi";
+import type { ResolvedView } from "../../services/pipelineApi";
 
 // ── Types ───────────────────────────────────────────────────────────
 
@@ -321,7 +322,7 @@ export function buildPatchInput(overrides: Overrides): PatchConfigInput {
  * the override replace profile values; keys absent in the override
  * fall through from the profile.
  */
-function mergeMap(
+export function mergeMap(
   profileMap: Record<string, unknown>,
   overrideMap: Record<string, unknown> | undefined,
 ): Record<string, unknown> {
@@ -329,4 +330,56 @@ function mergeMap(
     return { ...profileMap };
   }
   return { ...profileMap, ...overrideMap };
+}
+
+/**
+ * Overlay pending `Overrides` on top of the backend-fetched
+ * [`ResolvedView`]. Returns the *effective* view: what the runtime
+ * would use right now if the operator clicked Process before any save.
+ *
+ * The form-field dropdowns and the audit-trail panel both read from
+ * this view. The backend's `resolved` is the persisted base; the
+ * panel-local `overrides` carry the operator's pending edits.
+ *
+ * ## Why this exists
+ *
+ * Pre-WI-FIX-4, [`resolveClientSide`] was doing two jobs: (1) merging
+ * profile defaults with overrides for form-field display, and (2)
+ * computing the audit-trail resolved view. WI-FIX-4 moved (2) to the
+ * backend `/resolved-config` endpoint, but accidentally dropped (1)
+ * — every dropdown read `resolved.X` (the persisted, post-save state)
+ * with no view of pending edits, so picks visibly reverted.
+ *
+ * This function restores (1), now layered on top of the backend's
+ * authoritative `resolved` rather than recomputing from the profile.
+ *
+ * ## Field-name shifts
+ *
+ * Two fields use different names in `Overrides` vs `ResolvedView`:
+ *   - `overrides.extraction_model`        → `resolved.model`
+ *   - `overrides.pass2_extraction_model`  → `resolved.pass2_model`
+ *
+ * Every other overridable field shares the same name across both types.
+ */
+export function mergeOverridesIntoResolved(
+  resolved: ResolvedView,
+  overrides: Overrides,
+): ResolvedView {
+  return {
+    ...resolved,
+    profile_name: overrides.profile_name ?? resolved.profile_name,
+    model: overrides.extraction_model ?? resolved.model,
+    pass2_model: overrides.pass2_extraction_model ?? resolved.pass2_model,
+    template_file: overrides.template_file ?? resolved.template_file,
+    pass2_template_file:
+      overrides.pass2_template_file ?? resolved.pass2_template_file,
+    chunking_mode: overrides.chunking_mode ?? resolved.chunking_mode,
+    chunk_size: overrides.chunk_size ?? resolved.chunk_size,
+    chunk_overlap: overrides.chunk_overlap ?? resolved.chunk_overlap,
+    max_tokens: overrides.max_tokens ?? resolved.max_tokens,
+    temperature: overrides.temperature ?? resolved.temperature,
+    run_pass2: overrides.run_pass2 ?? resolved.run_pass2,
+    chunking_config: mergeMap(resolved.chunking_config, overrides.chunking_config),
+    context_config: mergeMap(resolved.context_config, overrides.context_config),
+  };
 }

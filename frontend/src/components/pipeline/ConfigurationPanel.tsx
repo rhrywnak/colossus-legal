@@ -10,7 +10,7 @@
  * wired in this task — the backend `/process` endpoint doesn't yet accept
  * override payload. The UI makes this explicit so users aren't misled.
  */
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   getDocumentConfig,
   getProfile,
@@ -30,6 +30,7 @@ import {
   buildPatchInput,
   diffConfigFromProfile,
   isMapKeyModified,
+  mergeOverridesIntoResolved,
   Overrides,
   TOOLTIPS,
   truncateHash,
@@ -731,6 +732,22 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
     };
   }, [documentId, resolvedReloadKey]);
 
+  /**
+   * The *effective* view: backend-fetched `resolved` overlaid with
+   * pending `overrides`. Form fields and the audit-trail panel both
+   * read from this so that picking a dropdown value updates the
+   * displayed value immediately (the `overrides` change → `useMemo`
+   * recomputes → re-render). Without this, dropdowns would only see
+   * the persisted state and visibly revert when the user picks.
+   *
+   * `null` when the initial `/resolved-config` fetch hasn't completed.
+   * Logic in [`mergeOverridesIntoResolved`].
+   */
+  const effective = useMemo<ResolvedView | null>(
+    () => (resolved ? mergeOverridesIntoResolved(resolved, overrides) : null),
+    [resolved, overrides],
+  );
+
   const runPreview = async () => {
     setPreviewBusy(true);
     setPreviewError(null);
@@ -804,7 +821,7 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
     );
   }
 
-  if (!baseProfile || !resolved) {
+  if (!baseProfile || !resolved || !effective) {
     return (
       <div style={containerStyle}>
         <div style={headerStyle}>Processing Configuration</div>
@@ -858,7 +875,7 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
           <select
             style={inputStyle}
             aria-label="Profile"
-            value={resolved.profile_name}
+            value={effective.profile_name}
             onChange={(e) => switchProfile(e.target.value)}
           >
             {profiles.map((p) => (
@@ -875,7 +892,7 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
           <select
             style={inputStyle}
             aria-label="Pass-1 extraction model"
-            value={resolved.model}
+            value={effective.model}
             onChange={(e) => setOverride("extraction_model", e.target.value)}
           >
             {models.map((m) => (
@@ -892,7 +909,7 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
           <select
             style={inputStyle}
             aria-label="Pass-1 template"
-            value={resolved.template_file}
+            value={effective.template_file}
             onChange={(e) => setOverride("template_file", e.target.value)}
           >
             {templates.map((t) => (
@@ -942,7 +959,7 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
           <select
             style={inputStyle}
             aria-label="Chunking mode"
-            value={resolved.chunking_mode}
+            value={effective.chunking_mode}
             onChange={(e) => setChunkingMode(e.target.value)}
           >
             {CHUNKING_MODES.map((m) => (
@@ -962,7 +979,7 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
             min={1}
             step={1}
             aria-label="Max output tokens per LLM call"
-            value={resolved.max_tokens}
+            value={effective.max_tokens}
             onChange={(e) =>
               setOverride("max_tokens", Number(e.target.value) || 0)
             }
@@ -979,7 +996,7 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
             min={0}
             max={2}
             aria-label="LLM temperature"
-            value={resolved.temperature ?? 0}
+            value={effective.temperature ?? 0}
             onChange={(e) =>
               setOverride("temperature", Number(e.target.value) || 0)
             }
@@ -1017,7 +1034,7 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
                 <select
                   style={inputStyle}
                   aria-label="Pass-2 extraction model"
-                  value={resolved.pass2_model ?? resolved.model}
+                  value={effective.pass2_model ?? effective.model}
                   onChange={(e) =>
                     setOverride("pass2_extraction_model", e.target.value)
                   }
@@ -1053,7 +1070,7 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
                 <select
                   style={inputStyle}
                   aria-label="Pass-2 template"
-                  value={resolved.pass2_template_file ?? ""}
+                  value={effective.pass2_template_file ?? ""}
                   onChange={(e) =>
                     setOverride("pass2_template_file", e.target.value)
                   }
@@ -1121,7 +1138,7 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
          * for audit reproducibility. Operators expand it to verify
          * the resolved view before clicking Process.
          */}
-        <ResolvedConfigSection resolved={resolved} />
+        <ResolvedConfigSection resolved={effective} />
 
         <div style={btnRow}>
           <button

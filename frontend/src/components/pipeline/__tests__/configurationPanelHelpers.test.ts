@@ -17,6 +17,7 @@ import {
   diffConfigFromProfile,
   diffMapFromProfile,
   isMapKeyModified,
+  mergeOverridesIntoResolved,
   Overrides,
   truncateHash,
 } from "../configurationPanelHelpers";
@@ -24,6 +25,7 @@ import type {
   PatchConfigInput,
   ProcessingProfile,
 } from "../../../services/configApi";
+import type { ResolvedView } from "../../../services/pipelineApi";
 
 // ── Test fixtures ──────────────────────────────────────────────────
 
@@ -229,6 +231,148 @@ describe("buildPatchInput chunking_config / context_config", () => {
     const overrides = { temperature: 0.1 } as Overrides;
     const out = buildPatchInput(overrides);
     expect("schema_file" in out).toBe(false);
+  });
+});
+
+// ── mergeOverridesIntoResolved (WI-FIX-5 form-field display merge) ──
+//
+// These tests are the regression suite for the WI-FIX-4 bug. WI-FIX-4
+// replaced the client-side resolveClientSide(profile, overrides) with a
+// backend fetch (`/resolved-config`), but accidentally dropped the
+// form-field display merge — every dropdown read `value={resolved.X}`
+// (the persisted state from backend), so picking a new value visibly
+// reverted because `resolved` only refreshed on mount or post-save.
+//
+// `mergeOverridesIntoResolved` restores that merge as a pure helper so
+// the panel's `effective = useMemo(() => merge(resolved, overrides))`
+// drives the dropdown bindings. Each test below would FAIL if the
+// merge function were buggy (e.g., if it returned `resolved.X` without
+// honoring `overrides.X` first).
+
+function makeResolved(overrides: Partial<ResolvedView> = {}): ResolvedView {
+  return {
+    profile_name: "complaint_v5",
+    profile_hash: "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+    model: "claude-sonnet-4-6",
+    pass2_model: null,
+    template_file: "pass1_complaint_v5.md",
+    pass2_template_file: "pass2_complaint_v5.md",
+    system_prompt_file: "legal_extraction_system.md",
+    global_rules_file: null,
+    schema_file: "complaint_v5.yaml",
+    chunking_mode: "full",
+    chunk_size: null,
+    chunk_overlap: null,
+    chunking_config: { mode: "full", strategy: "section_heading" },
+    context_config: {},
+    max_tokens: 32000,
+    temperature: 0,
+    run_pass2: true,
+    ...overrides,
+  };
+}
+
+describe("mergeOverridesIntoResolved", () => {
+  it("returns resolved unchanged when no overrides are set", () => {
+    // Sanity: empty overrides should be a no-op merge. If this fails,
+    // the merge function is corrupting fields it shouldn't touch.
+    const resolved = makeResolved();
+    const out = mergeOverridesIntoResolved(resolved, {});
+    expect(out).toEqual(resolved);
+  });
+
+  it("template_file override wins over resolved (THE WI-FIX-4 BUG)", () => {
+    // This is the exact regression test for the bug. Before WI-FIX-5,
+    // ConfigurationPanel's dropdown read `value={resolved.template_file}`,
+    // so even when overrides.template_file was set, the dropdown showed
+    // the persisted value. Asserting that the merge surfaces the
+    // override is the direct test.
+    const resolved = makeResolved({ template_file: "pass1_complaint_v4.md" });
+    const overrides: Overrides = { template_file: "pass1_custom.md" };
+    const out = mergeOverridesIntoResolved(resolved, overrides);
+    expect(out.template_file).toBe("pass1_custom.md");
+  });
+
+  it("pass2_template_file override wins (the field WI-FIX-4 added)", () => {
+    // The Pass 2 Template field was the new editable dropdown in
+    // WI-FIX-4 — and it suffered the same silent-revert bug. This
+    // test pins the override-wins behavior for it.
+    const resolved = makeResolved({
+      pass2_template_file: "pass2_complaint_v4.md",
+    });
+    const overrides: Overrides = { pass2_template_file: "pass2_custom.md" };
+    const out = mergeOverridesIntoResolved(resolved, overrides);
+    expect(out.pass2_template_file).toBe("pass2_custom.md");
+  });
+
+  it("extraction_model override surfaces as effective.model (name shift)", () => {
+    // Field-name shift catch: Overrides.extraction_model maps onto
+    // ResolvedView.model. If the merge wired the wrong source/target,
+    // this test fails. (e.g. `overrides.model` would be undefined and
+    // resolved.model would win — silent regression.)
+    const resolved = makeResolved({ model: "claude-sonnet-4-6" });
+    const overrides: Overrides = { extraction_model: "claude-opus-4-7" };
+    const out = mergeOverridesIntoResolved(resolved, overrides);
+    expect(out.model).toBe("claude-opus-4-7");
+  });
+
+  it("pass2_extraction_model override surfaces as effective.pass2_model (name shift)", () => {
+    // Same name-shift catch for the Pass 2 model.
+    const resolved = makeResolved({ pass2_model: "claude-opus-4-7" });
+    const overrides: Overrides = {
+      pass2_extraction_model: "claude-opus-4-6",
+    };
+    const out = mergeOverridesIntoResolved(resolved, overrides);
+    expect(out.pass2_model).toBe("claude-opus-4-6");
+  });
+
+  it("scalar fields fall back to resolved when override is undefined", () => {
+    // The mirror of the override-wins case. With no override, the
+    // resolved value must be preserved — otherwise persisted state
+    // would silently disappear from the form on every render.
+    const resolved = makeResolved({
+      template_file: "pass1_complaint_v5.md",
+      max_tokens: 32000,
+      chunking_mode: "full",
+    });
+    const out = mergeOverridesIntoResolved(resolved, {});
+    expect(out.template_file).toBe("pass1_complaint_v5.md");
+    expect(out.max_tokens).toBe(32000);
+    expect(out.chunking_mode).toBe("full");
+  });
+
+  it("chunking_config override merges per-key onto resolved (not whole-map replace)", () => {
+    // The map-merge contract from the original mergeMap helper:
+    // override KEYS replace, non-overridden keys fall through. This is
+    // the same per-key semantic the chunking_config sub-key editor
+    // depends on. A whole-map replace would lose keys the operator
+    // didn't touch.
+    const resolved = makeResolved({
+      chunking_config: {
+        mode: "structured",
+        strategy: "section_heading",
+        units_per_chunk: 5,
+      },
+    });
+    const overrides: Overrides = {
+      chunking_config: { units_per_chunk: 3 },
+    };
+    const out = mergeOverridesIntoResolved(resolved, overrides);
+    expect(out.chunking_config.units_per_chunk).toBe(3);
+    expect(out.chunking_config.strategy).toBe("section_heading");
+    expect(out.chunking_config.mode).toBe("structured");
+  });
+
+  it("schema_file is unchanged regardless of merge (no override path)", () => {
+    // Per WI-FIX-3 Decision 1 Option C, schema_file is the persisted
+    // base column with no override path. Even if a future caller
+    // smuggled a schema_file key into Overrides (the type doesn't allow
+    // it, but the runtime doesn't enforce), the merge must not surface
+    // it as an override. This test pins the absence of that path.
+    const resolved = makeResolved({ schema_file: "complaint_v5.yaml" });
+    const overrides = {} as Overrides; // empty — no schema_file path
+    const out = mergeOverridesIntoResolved(resolved, overrides);
+    expect(out.schema_file).toBe("complaint_v5.yaml");
   });
 });
 
