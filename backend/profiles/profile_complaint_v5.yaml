@@ -27,7 +27,6 @@ system_prompt_file: legal_extraction_system.md
 # v5 case-structuring is a low-frequency, high-stakes operation (runs once
 # per case); model cost is dwarfed by the value of correct case structure.
 extraction_model: claude-sonnet-4-6
-synthesis_model: null  # null = use extraction_model for Pass 2
 
 # Chunking — complaints are typically 20-50 pages and fit in a single LLM
 # context. Use full mode by default. If a future complaint is too large,

@@ -487,6 +487,7 @@ struct PipelineConfigOverridesRow {
     profile_name: Option<String>,
     extraction_model: Option<String>,
     pass2_extraction_model: Option<String>,
+    pass2_template_file: Option<String>,
     template_file: Option<String>,
     system_prompt_file: Option<String>,
     chunking_mode: Option<String>,
@@ -520,7 +521,7 @@ pub async fn get_pipeline_config_overrides(
 ) -> Result<PipelineConfigOverrides, PipelineRepoError> {
     let row: Option<PipelineConfigOverridesRow> = sqlx::query_as(
         "SELECT profile_name, extraction_model, pass2_extraction_model, \
-                template_file, system_prompt_file, \
+                pass2_template_file, template_file, system_prompt_file, \
                 chunking_mode, chunk_size, chunk_overlap, max_tokens, \
                 temperature::float8 AS temperature, run_pass2, \
                 chunking_config, context_config \
@@ -551,6 +552,7 @@ pub async fn get_pipeline_config_overrides(
                 profile_name: r.profile_name,
                 extraction_model: r.extraction_model,
                 pass2_extraction_model: r.pass2_extraction_model,
+                pass2_template_file: r.pass2_template_file,
                 template_file: r.template_file,
                 system_prompt_file: r.system_prompt_file,
                 chunking_mode: r.chunking_mode,
@@ -602,6 +604,7 @@ fn has_any_override(overrides: &PipelineConfigOverrides) -> bool {
     overrides.profile_name.is_some()
         || overrides.extraction_model.is_some()
         || overrides.pass2_extraction_model.is_some()
+        || overrides.pass2_template_file.is_some()
         || overrides.template_file.is_some()
         || overrides.system_prompt_file.is_some()
         || overrides.chunking_mode.is_some()
@@ -704,22 +707,24 @@ pub async fn patch_pipeline_config_overrides(
            profile_name = COALESCE($2, profile_name), \
            extraction_model = COALESCE($3, extraction_model), \
            pass2_extraction_model = COALESCE($4, pass2_extraction_model), \
-           template_file = COALESCE($5, template_file), \
-           system_prompt_file = COALESCE($6, system_prompt_file), \
-           chunking_mode = COALESCE($7, chunking_mode), \
-           chunk_size = COALESCE($8, chunk_size), \
-           chunk_overlap = COALESCE($9, chunk_overlap), \
-           max_tokens = COALESCE($10, max_tokens), \
-           temperature = COALESCE($11::numeric, temperature), \
-           run_pass2 = COALESCE($12, run_pass2), \
-           chunking_config = COALESCE($13, chunking_config), \
-           context_config = COALESCE($14, context_config) \
+           pass2_template_file = COALESCE($5, pass2_template_file), \
+           template_file = COALESCE($6, template_file), \
+           system_prompt_file = COALESCE($7, system_prompt_file), \
+           chunking_mode = COALESCE($8, chunking_mode), \
+           chunk_size = COALESCE($9, chunk_size), \
+           chunk_overlap = COALESCE($10, chunk_overlap), \
+           max_tokens = COALESCE($11, max_tokens), \
+           temperature = COALESCE($12::numeric, temperature), \
+           run_pass2 = COALESCE($13, run_pass2), \
+           chunking_config = COALESCE($14, chunking_config), \
+           context_config = COALESCE($15, context_config) \
          WHERE document_id = $1",
     )
     .bind(document_id)
     .bind(&overrides.profile_name)
     .bind(&overrides.extraction_model)
     .bind(&overrides.pass2_extraction_model)
+    .bind(&overrides.pass2_template_file)
     .bind(&overrides.template_file)
     .bind(&overrides.system_prompt_file)
     .bind(&overrides.chunking_mode)
@@ -919,5 +924,17 @@ mod tests {
         // The pure-unit test `decode_jsonb_map_errors_on_non_object_jsonb`
         // above already covers this contract at the conversion layer;
         // this stub exists for the future end-to-end verification.
+    }
+
+    #[ignore = "requires a live test database fixture (none in repo today)"]
+    #[test]
+    fn pass2_template_override_round_trips_through_pipeline_config() {
+        // Stub: insert pipeline_config row, then patch with
+        // pass2_template_file = Some("pass2_custom.md"), call
+        // get_pipeline_config_overrides, assert the override round-trips.
+        // Catches: a future migration that drops the column, a
+        // repository change that forgets to update SELECT or UPDATE,
+        // or a `.bind()` ordering bug.
+        // Implement when a #[fixture]-style PG pool helper lands.
     }
 }

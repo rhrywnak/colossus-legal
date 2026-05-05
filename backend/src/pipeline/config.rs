@@ -393,6 +393,12 @@ pub struct PipelineConfigOverrides {
     /// model)." Populated from the `pass2_extraction_model` column on
     /// `pipeline_config`.
     pub pass2_extraction_model: Option<String>,
+    /// Per-document pass-2 template override. `None` means "use the
+    /// profile's `pass2_template_file`." Populated from the
+    /// `pass2_template_file` column on `pipeline_config` (added in
+    /// migration 20260505134618_add_pass2_template_file_and_schema_override.sql).
+    /// Mirrors the `pass2_extraction_model` override pattern.
+    pub pass2_template_file: Option<String>,
     pub template_file: Option<String>,
     pub system_prompt_file: Option<String>,
     pub chunking_mode: Option<String>,

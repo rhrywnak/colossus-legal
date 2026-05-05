@@ -96,6 +96,8 @@ impl From<PatchConfigInput> for PipelineConfigOverrides {
             profile_name: input.profile_name,
             extraction_model: input.extraction_model,
             pass2_extraction_model: input.pass2_extraction_model,
+            // WI-FIX-1: column added; PATCH-input field deferred to WI-FIX-3.
+            pass2_template_file: None,
             template_file: input.template_file,
             system_prompt_file: input.system_prompt_file,
             chunking_mode: input.chunking_mode,
