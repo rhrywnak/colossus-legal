@@ -1,0 +1,58 @@
+# Processing profile for the case-structuring pipeline (v5)
+#
+# This profile drives the case-structuring pipeline (per memory rule #5):
+# the pipeline that runs once per case on the complaint document and
+# produces the structural backbone (Case/Party/LegalCount/Element/
+# Allegation/ThematicAllegation) all supporting documents anchor to.
+#
+# Distinct from profile_complaint.yaml (the v4 profile), which remains
+# in the repo as the active profile until v5 is validated and cut over.
+# Co-existence per Roman's standing rule.
+
+name: complaint_v5
+display_name: "Civil Complaint (v5 — case-structuring pipeline)"
+description: "Foundation document for the case-structuring pipeline. Produces Case/Party/LegalCount/Element/Allegation/ThematicAllegation/Harm — the structural backbone all supporting documents anchor to."
+
+# Schema — points to v5 schema YAML in EXTRACTION_SCHEMA_DIR
+schema_file: complaint_v5.yaml
+
+# Templates — points to v5 templates in EXTRACTION_TEMPLATE_DIR
+template_file: pass1_complaint_v5.md
+pass2_template_file: pass2_complaint_v5.md
+
+# System prompt — same as v4 (general legal extraction persona)
+system_prompt_file: legal_extraction_system.md
+
+# Models — Pass 1 and Pass 2 both run on the strongest available model.
+# v5 case-structuring is a low-frequency, high-stakes operation (runs once
+# per case); model cost is dwarfed by the value of correct case structure.
+extraction_model: claude-sonnet-4-6
+synthesis_model: null  # null = use extraction_model for Pass 2
+
+# Chunking — complaints are typically 20-50 pages and fit in a single LLM
+# context. Use full mode by default. If a future complaint is too large,
+# operator overrides at upload time via chunking_config_overrides.
+chunking_mode: full
+chunk_size: null
+chunk_overlap: null
+
+# LLM parameters
+max_tokens: 32000
+temperature: 0.0
+
+# Behavior
+auto_approve_grounded: true   # auto-verify the ~96.6% (memory rule #2);
+                              # residue goes to Review tab for Roman approval
+run_pass2: true               # case-structuring requires both passes
+
+# Pipeline routing — case-structuring vs evidence-anchoring
+# This is the v5 addition that distinguishes the two pipelines per
+# memory rule #5. Today this field is informational; downstream code
+# may use it to route to different ingest mappers, completeness rules,
+# or post-processing steps.
+pipeline_type: case_structuring
+
+# Default flag — false because v4 profile_complaint.yaml remains the
+# default for the document_type=complaint until v5 is validated and
+# the cutover happens via WI-8 final step.
+is_default: false
