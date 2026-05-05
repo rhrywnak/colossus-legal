@@ -1,0 +1,277 @@
+# Extraction schema for complaints — DATA_MODEL_v5 aligned (case-structuring pipeline)
+#
+# The complaint is the FOUNDATION document of the case. This schema drives
+# the case-structuring pipeline (per memory rule #5): it produces the
+# structural backbone (Case/Party/LegalCount/Element/Allegation/ThematicAllegation)
+# that all supporting documents anchor to.
+#
+# Key v5 changes from v4:
+#   - ComplaintAllegation renamed to Allegation, with new `kind` property
+#     (common_allegation | count_section) auto-derived from paragraph_number
+#   - Element added — per-Count proof requirements; descriptions are Penzien's
+#     pleading text from the Count-section paragraphs (NOT external M Civ JI
+#     or case-law text per memory rule #23)
+#   - ThematicAllegation added — navigational layer; ~18 themes per Awad
+#   - LegalCount gains legal_theory, paragraph_range, statutory_anchor,
+#     damages_claimed properties
+#   - Relationships: SUPPORTS replaced by HAS_ELEMENT + PROVES_ELEMENT
+#     (element-level granularity); ANCHORED_IN, PART_OF, PAIRED_WITH added;
+#     THEME_SUPPORTS NOT extracted (derived in queries)
+#
+# Property names match PROD Neo4j and existing pipeline code.
+# verbatim_quote / verbatim_text remain top-level entity fields, not properties.
+
+document_type: complaint
+version: "5.0"
+description: "Civil complaint — foundation document for the case-structuring pipeline. Produces the structural backbone all supporting documents anchor to."
+
+entity_types:
+  - name: Party
+    grounding_mode: name_match
+    category: reference
+    description: "A person or organization named in the complaint. Extract EVERY named individual and organization."
+    properties:
+      - name: party_name
+        type: string
+        required: true
+        description: "Full legal name as it appears in the document"
+      - name: role
+        type: string
+        required: true
+        description: "plaintiff, defendant, third_party, witness, attorney, judge, decedent, interested_party, guardian_ad_litem, personal_representative"
+      - name: party_type
+        type: string
+        required: true
+        description: "person or organization"
+      - name: aliases
+        type: string
+        description: "Other names or references used for this party, comma-separated"
+
+  - name: LegalCount
+    grounding_mode: heading_match
+    category: foundation
+    description: "A cause of action (count) asserted in the complaint"
+    properties:
+      - name: count_name
+        type: string
+        required: true
+        description: "Name of the count, e.g. 'Breach of Fiduciary Duty'"
+      - name: count_number
+        type: integer
+        required: true
+        description: "Count number (I=1, II=2, III=3, IV=4)"
+      - name: legal_basis
+        type: string
+        required: true
+        description: "Legal statute or common law basis"
+      - name: legal_theory
+        type: string
+        required: true
+        description: "Short identifier for the legal theory, e.g. 'breach_of_fiduciary_duty', 'conversion', 'statutory_conversion', 'civil_conspiracy'. Used for cross-case taxonomy."
+      - name: paragraph_range
+        type: string
+        required: true
+        description: "Complaint paragraph range for this count's section, e.g. '72-85'. The Count section is where elements are declared."
+      - name: statutory_anchor
+        type: string
+        description: "Statute citation when applicable, e.g. 'MCL 600.2919a' for statutory conversion. Empty for common-law counts."
+      - name: damages_claimed
+        type: string
+        required: true
+        description: "Damages sought under this count, e.g. 'Compensatory and punitive damages exceeding $25,000'"
+      - name: applies_to
+        type: string
+        description: "Defendants this count applies to"
+
+  - name: Element
+    grounding_mode: verbatim
+    category: foundation
+    description: "A specific thing the plaintiff must prove for a LegalCount. Sourced from the Count-section paragraphs where Penzien declares each element. The verbatim_text is Penzien's pleading text from the anchoring paragraph(s) — not external M Civ JI text or case-law text."
+    properties:
+      - name: element_name
+        type: string
+        required: true
+        description: "Short descriptive name for the element, e.g. 'fiduciary_relationship', 'breach_of_duty', 'damages'. Used for navigation."
+      - name: parent_count_id
+        type: string
+        required: true
+        description: "ID of the LegalCount this Element belongs to. Used to reconstruct HAS_ELEMENT relationships in Pass 2."
+      - name: anchor_paragraph_numbers
+        type: string
+        required: true
+        description: "Paragraph number(s) in the complaint's Count section where Penzien declares this element, comma-separated, e.g. '74' or '74,75'. Used to reconstruct ANCHORED_IN relationships in Pass 2."
+      - name: order_in_count
+        type: integer
+        description: "Sequential position of this element within its Count (1, 2, 3, ...). Optional but useful for display."
+
+  - name: Allegation
+    grounding_mode: verbatim
+    category: evidence
+    description: "A factual claim from a numbered paragraph in the complaint. Renamed from v4's ComplaintAllegation. Includes the new `kind` property distinguishing common-allegation paragraphs (factual narrative) from count-section paragraphs (element-declaring)."
+    properties:
+      - name: paragraph_number
+        type: string
+        required: true
+        description: "Paragraph number(s), e.g. '16' or '16-18'"
+      - name: kind
+        type: string
+        required: true
+        description: "common_allegation (factual narrative paragraphs, typically before Counts) or count_section (paragraphs within a Count section that declare elements or restate facts)"
+      - name: summary
+        type: string
+        required: true
+        description: "One-sentence summary of what is alleged"
+      - name: category
+        type: string
+        description: "financial, procedural, defamation, fiduciary, conversion, abuse_of_process"
+      - name: severity
+        type: integer
+        description: "1-10 scale of severity (10 = most severe)"
+      - name: applies_to
+        type: string
+        description: "Name of the party this allegation is against"
+      - name: amount
+        type: string
+        description: "Dollar amount if specified"
+      - name: event_date
+        type: string
+        description: "Date of the alleged conduct if mentioned"
+
+  - name: ThematicAllegation
+    grounding_mode: derived
+    category: foundation
+    description: "A navigational theme grouping multiple Allegations. Themes match how Chuck and Marie think about the case at the strategic level (e.g., 'Fraudulent Funeral Expense Claims', 'Pattern of Spurious Accusations'). Pass 1 proposes themes by analyzing the allegation cluster; Roman approves via Review tab."
+    provenance_required: true
+    properties:
+      - name: title
+        type: string
+        required: true
+        description: "Short descriptive title, e.g. 'Fraudulent Funeral Expense Claims'"
+      - name: description
+        type: string
+        description: "Longer explanation of the theme's significance to the case"
+      - name: paragraph_numbers
+        type: string
+        required: true
+        description: "Comma-separated list of Allegation paragraph numbers belonging to this theme. Used to reconstruct PART_OF relationships in Pass 2."
+
+  - name: Harm
+    grounding_mode: derived
+    category: foundation
+    provenance_required: true
+    description: "A specific harm or damage suffered by the plaintiff. Harms are derived from multiple allegations — they are not direct quotes."
+    properties:
+      - name: description
+        type: string
+        required: true
+        description: "Description of the harm"
+      - name: kind
+        type: string
+        required: true
+        description: "economic, non_economic, punitive, treble_damages, injunctive_relief, declaratory_relief"
+      - name: subcategory
+        type: string
+        description: "sanction, incompetence, unnecessary_cost, character_attack, discriminatory"
+      - name: amount
+        type: string
+        description: "Dollar amount if quantifiable"
+      - name: date
+        type: string
+        description: "When the harm occurred"
+
+relationship_types:
+  - name: HAS_ELEMENT
+    description: "LegalCount has Element. Reconstructed from Element.parent_count_id in Pass 2."
+  - name: ANCHORED_IN
+    description: "Element anchored in Allegation (the Count-section paragraph where Penzien declares the element). Reconstructed from Element.anchor_paragraph_numbers in Pass 2."
+  - name: PROVES_ELEMENT
+    description: "Allegation proves Element (replaces v4's flat SUPPORTS at element-level granularity). Pass 2 reasons about which Allegations help prove which Elements."
+  - name: PART_OF
+    description: "Allegation is part of ThematicAllegation. Reconstructed from ThematicAllegation.paragraph_numbers in Pass 2."
+  - name: PAIRED_WITH
+    description: "Allegation paired with Allegation (structural pleading pairs Penzien drafted deliberately, e.g. ¶45 false claim ↔ ¶46 record showing actual figure). Property `as` carries rebuttal | clarification | extension."
+  - name: ABOUT
+    description: "Allegation is about (against) this party"
+  - name: CAUSED_BY
+    description: "Harm was caused by this Allegation/misconduct"
+  - name: DAMAGES_FOR
+    description: "Harm supports damages for this LegalCount"
+  - name: SUFFERED_BY
+    description: "Harm suffered by this Party"
+  - name: EVIDENCED_BY
+    description: "Harm evidenced by this Allegation (broader than CAUSED_BY)"
+
+valid_patterns:
+  - from: LegalCount
+    relationship: HAS_ELEMENT
+    to: Element
+  - from: Element
+    relationship: ANCHORED_IN
+    to: Allegation
+  - from: Allegation
+    relationship: PROVES_ELEMENT
+    to: Element
+  - from: Allegation
+    relationship: PART_OF
+    to: ThematicAllegation
+  - from: Allegation
+    relationship: PAIRED_WITH
+    to: Allegation
+  - from: Allegation
+    relationship: ABOUT
+    to: Party
+  - from: Harm
+    relationship: CAUSED_BY
+    to: Allegation
+  - from: Harm
+    relationship: DAMAGES_FOR
+    to: LegalCount
+  - from: Harm
+    relationship: SUFFERED_BY
+    to: Party
+  - from: Harm
+    relationship: EVIDENCED_BY
+    to: Allegation
+
+extraction_rules:
+  - "Extract EVERY numbered paragraph as a separate Allegation — do not skip or merge paragraphs"
+  - "Set Allegation.kind to count_section when paragraph_number falls within any LegalCount.paragraph_range, otherwise common_allegation"
+  - "Every verbatim_quote MUST be an exact substring of the document text — copy the text exactly"
+  - "Every Element's verbatim_text is Penzien's pleading text from the anchoring paragraph — NOT M Civ JI text, NOT case-law text, NOT a paraphrase"
+  - "Every Allegation must identify which party it is ABOUT (in Pass 2)"
+  - "Extract ALL parties including attorneys, judges, witnesses, and non-party individuals"
+  - "Extract ALL legal counts (causes of action) with statutory_anchor when applicable and paragraph_range required"
+  - "Extract ALL Elements from each Count section by identifying the paragraphs where Penzien declares what must be proven"
+  - "Extract ThematicAllegations by clustering Allegations into ~10–20 thematic groupings; provenance lists the constituent paragraph numbers"
+  - "Extract ALL harms with dollar amounts where specified"
+  - "Paragraphs that incorporate earlier paragraphs by reference should still be extracted as Allegations with kind=count_section, but they will not produce new PROVES_ELEMENT relationships in Pass 2"
+
+completeness_rules:
+  - type: entity_count
+    entity: Party
+    min: 2
+    message: "Expected at least plaintiff + defendant"
+  - type: entity_count
+    entity: LegalCount
+    min: 1
+    message: "No legal counts found — extraction likely failed"
+  - type: entity_count
+    entity: Element
+    min: 1
+    message: "No Elements extracted — Count sections were not parsed for element-declaring paragraphs"
+  - type: relationship_exists
+    from: LegalCount
+    relationship: HAS_ELEMENT
+    to: Element
+    min_percentage: 100
+    message: "Every LegalCount must have at least one Element"
+  - type: relationship_exists
+    from: Allegation
+    relationship: PROVES_ELEMENT
+    to: Element
+    min_percentage: 50
+    message: "Less than 50% of Allegations link to an Element via PROVES_ELEMENT"
+  - type: entity_count
+    entity: ThematicAllegation
+    min: 5
+    message: "Fewer than 5 ThematicAllegations — clustering likely too sparse for navigation"
