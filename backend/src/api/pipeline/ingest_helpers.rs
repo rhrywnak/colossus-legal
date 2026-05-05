@@ -17,8 +17,9 @@ use sha2::{Digest, Sha256};
 
 use crate::error::AppError;
 use crate::models::document_status::{
-    ENTITY_COMPLAINT_ALLEGATION, ENTITY_HARM, ENTITY_LEGAL_COUNT, ENTITY_ORGANIZATION,
-    ENTITY_PERSON, PARTY_SUBTYPES, REL_CONTAINED_IN, STATUS_INGESTED,
+    ENTITY_COMPLAINT_ALLEGATION, ENTITY_ELEMENT, ENTITY_HARM, ENTITY_LEGAL_COUNT,
+    ENTITY_ORGANIZATION, ENTITY_PERSON, ENTITY_THEMATIC_ALLEGATION, PARTY_SUBTYPES,
+    REL_CONTAINED_IN, STATUS_INGESTED,
 };
 use crate::repositories::pipeline_repository::ExtractionItemRecord;
 
@@ -125,6 +126,63 @@ pub fn stable_entity_id(item: &ExtractionItemRecord, doc_id: &str) -> String {
             let hash_input = format!("{}{}{}", doc_id, harm_type, description);
             let hash = format!("{:x}", Sha256::digest(hash_input.as_bytes()));
             format!("{}:harm:{}", doc_slug, &hash[..8])
+        }
+        ENTITY_ELEMENT => {
+            // Stable ID derived from parent_count_id + anchor_paragraph_numbers + element_name.
+            // These three are the identifying properties; verbatim_text and order_in_count
+            // are descriptive and editable without changing identity.
+            let props = &item.item_data["properties"];
+            let parent = props["parent_count_id"].as_str().unwrap_or("");
+            let anchors = props["anchor_paragraph_numbers"].as_str().unwrap_or("");
+            let element_name = props["element_name"].as_str().unwrap_or("");
+
+            // Fallback: if all three identifying properties are empty, hash item_data.
+            // Without this fallback, malformed extractions would all collapse to the
+            // same MERGE key (the empty-string hash), MERGEing every Element into a
+            // single Neo4j node — same defensive pattern as ComplaintAllegation arm.
+            if parent.is_empty() && anchors.is_empty() && element_name.is_empty() {
+                let data_str = serde_json::to_string(&item.item_data).unwrap_or_default();
+                let hash = format!("{:x}", Sha256::digest(data_str.as_bytes()));
+                return format!("{}:element:hash-{}", doc_slug, &hash[..8]);
+            }
+
+            // Normalize anchors: split on comma, trim, sort, rejoin. This makes
+            // "74,75" and "75, 74" produce the same ID.
+            let mut anchor_parts: Vec<&str> = anchors.split(',').map(str::trim).collect();
+            anchor_parts.sort();
+            let anchor_normalized = anchor_parts.join(",");
+
+            let key_input = format!("{}|{}|{}", parent, anchor_normalized, element_name);
+            let hash = format!("{:x}", Sha256::digest(key_input.as_bytes()));
+            format!("{}:element:{}", doc_slug, &hash[..8])
+        }
+        ENTITY_THEMATIC_ALLEGATION => {
+            // Stable ID derived from paragraph_numbers (the constituent allegation
+            // paragraphs). Title and description are descriptive — Roman may rename
+            // a theme during review without re-MERGEing.
+            //
+            // Two themes covering identical paragraph sets would collide. That's
+            // acceptable: if Pass 1 produces two themes for the same paragraph
+            // cluster, that's a quality issue surfaced as a duplicate in the Review
+            // tab, not silently ingested as two separate nodes.
+            let props = &item.item_data["properties"];
+            let paragraphs = props["paragraph_numbers"].as_str().unwrap_or("");
+
+            if paragraphs.is_empty() {
+                // Fallback: hash item_data. Same defensive pattern as Element arm.
+                let data_str = serde_json::to_string(&item.item_data).unwrap_or_default();
+                let hash = format!("{:x}", Sha256::digest(data_str.as_bytes()));
+                return format!("{}:theme:hash-{}", doc_slug, &hash[..8]);
+            }
+
+            // Normalize: split on comma, trim, sort numerically (or lexicographically
+            // if non-numeric), rejoin. Same pattern as Element arm's anchor handling.
+            let mut parts: Vec<&str> = paragraphs.split(',').map(str::trim).collect();
+            parts.sort();
+            let normalized = parts.join(",");
+
+            let hash = format!("{:x}", Sha256::digest(normalized.as_bytes()));
+            format!("{}:theme:{}", doc_slug, &hash[..8])
         }
         other => {
             // Unknown entity type — hash the full item_data for uniqueness.
@@ -873,6 +931,194 @@ mod tests {
         assert!(
             id.ends_with(&format!(":para:hash-{expected_hash}")),
             "v2 summary hash should drive the id; got {id}"
+        );
+    }
+
+    #[test]
+    fn stable_entity_id_element_uses_identifying_properties() {
+        let item = make_item(
+            "Element",
+            serde_json::json!({
+                "element_name": "breach_of_duty",
+                "parent_count_id": "count-001",
+                "anchor_paragraph_numbers": "74",
+                "order_in_count": 2,
+                "verbatim_text": "Original text"
+            }),
+        );
+
+        let id_v1 = stable_entity_id(&item, "doc-test");
+
+        // Edit verbatim_text and order_in_count — these are descriptive, not
+        // identifying. The MERGE key must NOT change.
+        let item_edited = make_item(
+            "Element",
+            serde_json::json!({
+                "element_name": "breach_of_duty",
+                "parent_count_id": "count-001",
+                "anchor_paragraph_numbers": "74",
+                "order_in_count": 3,
+                "verbatim_text": "Edited text"
+            }),
+        );
+
+        let id_v2 = stable_entity_id(&item_edited, "doc-test");
+
+        assert_eq!(
+            id_v1, id_v2,
+            "Element ID must be stable across edits to descriptive properties"
+        );
+        assert!(
+            id_v1.starts_with("doc-test:element:"),
+            "Element ID must use 'element' prefix, got: {id_v1}"
+        );
+    }
+
+    #[test]
+    fn stable_entity_id_element_changes_on_identity_edits() {
+        let item_a = make_item(
+            "Element",
+            serde_json::json!({
+                "element_name": "breach_of_duty",
+                "parent_count_id": "count-001",
+                "anchor_paragraph_numbers": "74"
+            }),
+        );
+
+        let item_b = make_item(
+            "Element",
+            serde_json::json!({
+                "element_name": "fiduciary_relationship",
+                "parent_count_id": "count-001",
+                "anchor_paragraph_numbers": "74"
+            }),
+        );
+
+        assert_ne!(
+            stable_entity_id(&item_a, "doc-test"),
+            stable_entity_id(&item_b, "doc-test"),
+            "Different element_name must produce different IDs"
+        );
+    }
+
+    #[test]
+    fn stable_entity_id_element_normalizes_anchor_order() {
+        let item_a = make_item(
+            "Element",
+            serde_json::json!({
+                "element_name": "damages",
+                "parent_count_id": "count-001",
+                "anchor_paragraph_numbers": "74,75"
+            }),
+        );
+
+        let item_b = make_item(
+            "Element",
+            serde_json::json!({
+                "element_name": "damages",
+                "parent_count_id": "count-001",
+                "anchor_paragraph_numbers": "75, 74"
+            }),
+        );
+
+        assert_eq!(
+            stable_entity_id(&item_a, "doc-test"),
+            stable_entity_id(&item_b, "doc-test"),
+            "Anchor paragraph order/whitespace must not affect the ID"
+        );
+    }
+
+    #[test]
+    fn stable_entity_id_element_falls_back_when_props_empty() {
+        let item = make_item(
+            "Element",
+            serde_json::json!({
+                "verbatim_text": "Some text",
+            }),
+        );
+
+        let id = stable_entity_id(&item, "doc-test");
+
+        assert!(
+            id.starts_with("doc-test:element:hash-"),
+            "Empty identifying props must trigger hash fallback, got: {id}"
+        );
+    }
+
+    #[test]
+    fn stable_entity_id_thematic_allegation_uses_paragraph_numbers() {
+        let item = make_item(
+            "ThematicAllegation",
+            serde_json::json!({
+                "title": "Pattern of Unauthorized Withdrawals",
+                "description": "Original description",
+                "paragraph_numbers": "8,10,12"
+            }),
+        );
+
+        let id_v1 = stable_entity_id(&item, "doc-test");
+
+        // Rename and re-describe — paragraph_numbers unchanged. ID must persist.
+        let item_renamed = make_item(
+            "ThematicAllegation",
+            serde_json::json!({
+                "title": "Withdrawal Pattern (renamed)",
+                "description": "Edited description",
+                "paragraph_numbers": "8,10,12"
+            }),
+        );
+
+        let id_v2 = stable_entity_id(&item_renamed, "doc-test");
+
+        assert_eq!(
+            id_v1, id_v2,
+            "ThematicAllegation ID must be stable across title/description edits"
+        );
+        assert!(
+            id_v1.starts_with("doc-test:theme:"),
+            "ThematicAllegation ID must use 'theme' prefix, got: {id_v1}"
+        );
+    }
+
+    #[test]
+    fn stable_entity_id_thematic_allegation_normalizes_paragraph_order() {
+        let item_a = make_item(
+            "ThematicAllegation",
+            serde_json::json!({
+                "title": "Theme A",
+                "paragraph_numbers": "8,10,12"
+            }),
+        );
+
+        let item_b = make_item(
+            "ThematicAllegation",
+            serde_json::json!({
+                "title": "Theme A",
+                "paragraph_numbers": "12, 8, 10"
+            }),
+        );
+
+        assert_eq!(
+            stable_entity_id(&item_a, "doc-test"),
+            stable_entity_id(&item_b, "doc-test"),
+            "paragraph_numbers order/whitespace must not affect the ID"
+        );
+    }
+
+    #[test]
+    fn stable_entity_id_thematic_allegation_falls_back_when_paragraphs_empty() {
+        let item = make_item(
+            "ThematicAllegation",
+            serde_json::json!({
+                "title": "Empty theme",
+            }),
+        );
+
+        let id = stable_entity_id(&item, "doc-test");
+
+        assert!(
+            id.starts_with("doc-test:theme:hash-"),
+            "Empty paragraph_numbers must trigger hash fallback, got: {id}"
         );
     }
 }
