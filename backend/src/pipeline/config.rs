@@ -547,6 +547,16 @@ pub fn resolve_config(
         None => profile.template_file.clone(),
     };
 
+    // Pass-2 template: per-doc override wins; otherwise the profile's
+    // `pass2_template_file`. Mirrors the `pass2_extraction_model` arm
+    // above. Both source and target are `Option<String>` (a profile may
+    // omit pass-2 entirely), so the override path wraps the cloned
+    // value in `Some(...)` to match.
+    let pass2_template_file = match &overrides.pass2_template_file {
+        Some(v) => { applied.push("pass2_template_file".to_string()); Some(v.clone()) }
+        None => profile.pass2_template_file.clone(),
+    };
+
     let system_prompt_file = match &overrides.system_prompt_file {
         Some(v) => { applied.push("system_prompt_file".to_string()); Some(v.clone()) }
         None => profile.system_prompt_file.clone(),
@@ -621,7 +631,7 @@ pub fn resolve_config(
         pass2_model,
         template_file,
         template_hash: None, // Set at runtime after loading the file
-        pass2_template_file: profile.pass2_template_file.clone(),
+        pass2_template_file,
         system_prompt_file,
         system_prompt_hash: None, // Set at runtime after loading the file
         // Global rules are profile-level only — no per-document override path.
@@ -893,6 +903,73 @@ pass2_extraction_model: claude-opus-4-7
                 .overrides_applied
                 .contains(&"pass2_extraction_model".to_string()),
             "per-doc overrides must be tracked in overrides_applied"
+        );
+    }
+
+    #[test]
+    fn resolve_config_pass2_template_override_wins_over_profile_default() {
+        // Setup: profile says use pass2_complaint_v4.md; override says
+        // use pass2_complaint_v5.md. The bug we lived through was that
+        // resolve_config returned the profile value, ignoring the override.
+        // This test catches that regression.
+        let yaml = r#"
+name: complaint
+display_name: Complaint
+schema_file: complaint_v4.yaml
+template_file: pass1_complaint_v4.md
+pass2_template_file: pass2_complaint_v4.md
+extraction_model: claude-sonnet-4-6
+"#;
+        let f = write_temp_profile(yaml);
+        let profile = ProcessingProfile::from_file(f.path()).unwrap();
+        let overrides = PipelineConfigOverrides {
+            pass2_template_file: Some("pass2_complaint_v5.md".into()),
+            ..Default::default()
+        };
+        let resolved = resolve_config(&profile, &overrides);
+        assert_eq!(
+            resolved.pass2_template_file.as_deref(),
+            Some("pass2_complaint_v5.md"),
+            "resolve_config() must honor pass2_template_file override; profile default must NOT win"
+        );
+        assert!(
+            resolved
+                .overrides_applied
+                .contains(&"pass2_template_file".to_string()),
+            "applied audit-trail must record that the override was used"
+        );
+    }
+
+    #[test]
+    fn resolve_config_pass2_template_falls_back_to_profile_when_no_override() {
+        // The mirror case: when no override is set, the profile default
+        // must be used. This is the backward-compat path that today's
+        // bug avoided by always taking the profile default.
+        let yaml = r#"
+name: complaint
+display_name: Complaint
+schema_file: complaint_v4.yaml
+template_file: pass1_complaint_v4.md
+pass2_template_file: pass2_complaint_v4.md
+extraction_model: claude-sonnet-4-6
+"#;
+        let f = write_temp_profile(yaml);
+        let profile = ProcessingProfile::from_file(f.path()).unwrap();
+        let overrides = PipelineConfigOverrides {
+            pass2_template_file: None,
+            ..Default::default()
+        };
+        let resolved = resolve_config(&profile, &overrides);
+        assert_eq!(
+            resolved.pass2_template_file.as_deref(),
+            Some("pass2_complaint_v4.md"),
+            "resolve_config() must fall back to profile default when no override is set"
+        );
+        assert!(
+            !resolved
+                .overrides_applied
+                .contains(&"pass2_template_file".to_string()),
+            "applied audit-trail must NOT record an override that wasn't applied"
         );
     }
 
