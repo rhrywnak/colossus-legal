@@ -44,6 +44,8 @@ export interface Overrides {
   extraction_model?: string;
   /** Pass-2 relationship-extraction model. `undefined` means "unchanged". */
   pass2_extraction_model?: string;
+  /** Pass-2 template override. `undefined` means "use the profile's pass2_template_file." */
+  pass2_template_file?: string;
   template_file?: string;
   chunking_mode?: string;
   chunk_size?: number | null;
@@ -61,57 +63,6 @@ export interface Overrides {
   context_config?: Record<string, unknown>;
 }
 
-/**
- * The resolved view of `profile + overrides`, as if Pass-1 were about
- * to run with these settings.
- *
- * ## Tech debt — deliberate duplication
- *
- * This is a TypeScript reimplementation of the backend's
- * `resolve_config` (`backend/src/pipeline/config.rs`). The panel needs
- * the resolved view (audit-trail section, "modified" badges) before
- * any extraction has run, so server-side resolution would require an
- * extra round-trip per state change. We duplicate the logic
- * client-side with these caveats:
- *
- * 1. **Silent drift risk.** If the backend resolver ever gains new
- *    fields or new merge semantics and this code isn't updated,
- *    the panel will display a different "resolved view" than what
- *    actually runs. The audit-trail section visibly compares against
- *    `processing_config` in `extraction_runs` — a divergence will
- *    surface there, not silently.
- * 2. **TODO: replace with `GET /config/resolved` endpoint when
- *    implemented.** That endpoint would have the backend compute the
- *    resolved view and return it; the panel would render the response
- *    directly. Tracked as tech debt; out of scope for Instruction D.
- *
- * Field set deliberately mirrors the audit-trail data the panel
- * displays: scalar values plus the merged maps. Pass-2 model fallback
- * matches the runtime: `pass2_model = override → profile → null`,
- * with the LLM call at runtime falling back to the Pass-1 model when
- * `pass2_model` is null. The audit-trail section formats null as
- * "(reuses Pass-1 model)" for the operator.
- */
-export interface ResolvedView {
-  profile_name: string;
-  profile_hash: string;
-  model: string;
-  pass2_model: string | null;
-  template_file: string;
-  pass2_template_file: string | null;
-  system_prompt_file: string | null;
-  global_rules_file: string | null;
-  schema_file: string;
-  chunking_mode: string;
-  chunk_size: number | null;
-  chunk_overlap: number | null;
-  chunking_config: Record<string, unknown>;
-  context_config: Record<string, unknown>;
-  max_tokens: number;
-  temperature: number;
-  run_pass2: boolean;
-}
-
 // ── Tooltip constants ──────────────────────────────────────────────
 //
 // Centralised so the JSX doesn't carry literal strings. Enables i18n
@@ -120,8 +71,6 @@ export interface ResolvedView {
 export const TOOLTIPS = {
   schemaFileDisabled:
     "Schema is profile-level. To use a different schema, change the profile or edit the profile YAML. Changing schema mid-pipeline can produce items that don't match the verification path.",
-  pass2TemplateReadOnly:
-    "Pass-2 template is set by the profile and cannot be overridden per-document. To change it, edit the profile YAML or use a different profile.",
   resetSubKey:
     "Reset this sub-key to the profile default.",
   resolvedSection:
@@ -330,6 +279,9 @@ export function buildPatchInput(overrides: Overrides): PatchConfigInput {
   if (overrides.pass2_extraction_model !== undefined) {
     out.pass2_extraction_model = overrides.pass2_extraction_model;
   }
+  if (overrides.pass2_template_file !== undefined) {
+    out.pass2_template_file = overrides.pass2_template_file;
+  }
   if (overrides.template_file !== undefined) {
     out.template_file = overrides.template_file;
   }
@@ -377,53 +329,4 @@ function mergeMap(
     return { ...profileMap };
   }
   return { ...profileMap, ...overrideMap };
-}
-
-/**
- * Compute the resolved-view: what configuration *will* run for this
- * document if the operator clicks Process now.
- *
- * Mirrors backend `resolve_config`. See [`ResolvedView`] for the
- * deliberate-duplication tech debt note.
- *
- * Two callers in the panel:
- *   1. The existing field widgets (Model dropdown, etc.) read scalar
- *      fields off this to render the "effective" value.
- *   2. The new "Resolved Configuration" audit-trail section reads
- *      everything off this to display the full-fidelity view.
- *
- * Pass-2 model resolution mirrors the backend fallback chain:
- *   override → profile.pass2_extraction_model → null
- * The runtime LLM call further falls back to the Pass-1 model when
- * `pass2_model` is null; that further fallback is presentation-layer,
- * shown by the audit section as "(reuses Pass-1 model)".
- */
-export function resolveClientSide(
-  profile: ProcessingProfile,
-  overrides: Overrides,
-): ResolvedView {
-  const model = overrides.extraction_model ?? profile.extraction_model;
-  const pass2_model =
-    overrides.pass2_extraction_model ?? profile.pass2_extraction_model ?? null;
-  return {
-    profile_name: overrides.profile_name ?? profile.name,
-    profile_hash: profile.profile_hash,
-    model,
-    pass2_model,
-    template_file: overrides.template_file ?? profile.template_file,
-    // No per-document override path for these — profile-level only.
-    pass2_template_file: profile.pass2_template_file,
-    system_prompt_file: profile.system_prompt_file,
-    global_rules_file: profile.global_rules_file,
-    // No per-document override path for schema_file (Gap 8 — disabled UI).
-    schema_file: profile.schema_file,
-    chunking_mode: overrides.chunking_mode ?? profile.chunking_mode,
-    chunk_size: overrides.chunk_size ?? profile.chunk_size,
-    chunk_overlap: overrides.chunk_overlap ?? profile.chunk_overlap,
-    chunking_config: mergeMap(profile.chunking_config, overrides.chunking_config),
-    context_config: mergeMap(profile.context_config, overrides.context_config),
-    max_tokens: overrides.max_tokens ?? profile.max_tokens,
-    temperature: overrides.temperature ?? profile.temperature,
-    run_pass2: overrides.run_pass2 ?? profile.run_pass2,
-  };
 }

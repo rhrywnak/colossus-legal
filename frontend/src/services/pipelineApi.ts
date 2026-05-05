@@ -580,3 +580,66 @@ export async function uploadDocument(
   const data = await res.json();
   return data.document;
 }
+
+// ── Resolved config ────────────────────────────────────────────────
+
+/**
+ * The fully resolved view of `profile + per-document overrides`, as
+ * returned by `GET /api/admin/pipeline/documents/:id/resolved-config`.
+ *
+ * The backend computes this by reading `pipeline_config` (for the
+ * persisted base values and `profile_name`) and the matching profile
+ * YAML, then running `resolve_config()`. The audit-trail panel renders
+ * this directly — no client-side merge logic involved.
+ *
+ * Field set deliberately mirrors the audit-trail data the panel
+ * displays: scalar values plus the merged maps. Pass-2 model fallback
+ * matches the runtime: `pass2_model = override → profile → null`,
+ * with the LLM call at runtime falling back to the Pass-1 model when
+ * `pass2_model` is null. The audit-trail section formats null as
+ * "(reuses Pass-1 model)" for the operator.
+ *
+ * Backend shape: `backend/src/pipeline/config.rs::ResolvedConfig`
+ * (the JSON serialization of that struct). This TS type is a SUBSET —
+ * any additional backend-only fields (e.g., `pass2_cross_doc_entities`,
+ * `*_hash` runtime fingerprints) are silently ignored at parse time.
+ */
+export interface ResolvedView {
+  profile_name: string;
+  profile_hash: string;
+  model: string;
+  pass2_model: string | null;
+  template_file: string;
+  pass2_template_file: string | null;
+  system_prompt_file: string | null;
+  global_rules_file: string | null;
+  schema_file: string;
+  chunking_mode: string;
+  chunk_size: number | null;
+  chunk_overlap: number | null;
+  chunking_config: Record<string, unknown>;
+  context_config: Record<string, unknown>;
+  max_tokens: number;
+  temperature: number;
+  run_pass2: boolean;
+}
+
+/**
+ * Fetches the fully resolved config for a document from the backend.
+ *
+ * The backend computes this by reading `pipeline_config` + the matching
+ * profile (looked up by `profile_name` from `pipeline_config`, NOT by
+ * `document_type` — that lookup was the bug behind the v5 audit-trail
+ * panel showing v4 values when v4 and v5 schemas shared a document_type).
+ *
+ * Use this instead of any client-side `resolve` computation. Per memory
+ * rule #11, the backend is the authority for what the runtime will use.
+ */
+export async function fetchResolvedConfig(documentId: string): Promise<ResolvedView> {
+  const res = await authFetch(`${PIPELINE_BASE}/documents/${documentId}/resolved-config`);
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Resolved-config fetch failed (${res.status}): ${body}`);
+  }
+  return await res.json();
+}

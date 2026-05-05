@@ -10,7 +10,7 @@
  * wired in this task — the backend `/process` endpoint doesn't yet accept
  * override payload. The UI makes this explicit so users aren't misled.
  */
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   getDocumentConfig,
   getProfile,
@@ -31,10 +31,10 @@ import {
   diffConfigFromProfile,
   isMapKeyModified,
   Overrides,
-  resolveClientSide,
   TOOLTIPS,
   truncateHash,
 } from "./configurationPanelHelpers";
+import { fetchResolvedConfig, ResolvedView } from "../../services/pipelineApi";
 
 // ── Styles ──────────────────────────────────────────────────────
 
@@ -432,7 +432,8 @@ const SubKeyEditor: React.FC<{
 
 /**
  * Collapsed-by-default audit-trail section. Shows the fully-resolved
- * view of what will run (per [`resolveClientSide`]) including content
+ * view of what will run, fetched from `GET /resolved-config` (the
+ * backend authority — see [`fetchResolvedConfig`]). Includes content
  * hashes for audit reproducibility — Gap 4 / Gap 5 / Gap 11
  * fingerprints surface here so an operator can verify before
  * processing.
@@ -442,7 +443,7 @@ const SubKeyEditor: React.FC<{
  * but they're one hover away when they do.
  */
 const ResolvedConfigSection: React.FC<{
-  resolved: import("./configurationPanelHelpers").ResolvedView;
+  resolved: ResolvedView;
 }> = ({ resolved }) => {
   const formatMap = (m: Record<string, unknown>): string =>
     Object.keys(m).length === 0 ? "(empty)" : JSON.stringify(m, null, 2);
@@ -694,17 +695,41 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
 
   /**
    * The fully resolved view of `profile + overrides` — what would
-   * actually run if the operator clicks Process now. Memoised so the
-   * audit-trail section and the field widgets read from the same
-   * value.
+   * actually run if the operator clicks Process now. Fetched from the
+   * backend (`GET /resolved-config`) so the panel renders exactly what
+   * the runtime will use, instead of duplicating `resolve_config` logic
+   * client-side. The audit-trail section and the field widgets read
+   * from the same value.
    *
-   * `null` when no profile loaded — the "no profile" branch below
-   * handles that case.
+   * Re-fetched on three triggers:
+   *   1. documentId changes (component mount / navigation)
+   *   2. saveAndProcess() succeeds (post-PATCH freshness)
+   *   3. resolvedReloadKey is bumped manually (escape hatch for
+   *      future flows that mutate config outside the panel)
    */
-  const resolved = useMemo(
-    () => (baseProfile ? resolveClientSide(baseProfile, overrides) : null),
-    [baseProfile, overrides],
-  );
+  const [resolved, setResolved] = useState<ResolvedView | null>(null);
+  const [resolvedError, setResolvedError] = useState<string | null>(null);
+  const [resolvedReloadKey, setResolvedReloadKey] = useState(0);
+
+  useEffect(() => {
+    if (!documentId) return;
+    let cancelled = false;
+    setResolvedError(null);
+    fetchResolvedConfig(documentId)
+      .then((r) => {
+        if (!cancelled) setResolved(r);
+      })
+      .catch((e) => {
+        if (!cancelled) {
+          setResolvedError(
+            e instanceof Error ? e.message : "Failed to load resolved config",
+          );
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [documentId, resolvedReloadKey]);
 
   const runPreview = async () => {
     setPreviewBusy(true);
@@ -740,6 +765,10 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
         return;
       }
       setSaving(false);
+      // PATCH succeeded — bump the reload key so the audit-trail panel
+      // re-fetches the resolved view from the backend with the new
+      // override values reflected.
+      setResolvedReloadKey((k) => k + 1);
     }
     await onProcess();
   };
@@ -759,6 +788,17 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
         <div style={headerStyle}>Processing Configuration</div>
         <div style={bodyStyle}>
           <div style={errorBox}>{loadError}</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (resolvedError) {
+    return (
+      <div style={containerStyle}>
+        <div style={headerStyle}>Processing Configuration</div>
+        <div style={bodyStyle}>
+          <div style={errorBox}>{resolvedError}</div>
         </div>
       </div>
     );
@@ -998,38 +1038,32 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
                   Defaults to the Pass 1 model when the profile doesn't set one.
                 </div>
 
-                {/*
-                 * Pass-2 template — read-only display per Gap 2 +
-                 * Roman's Path 2 decision. The profile sets the
-                 * Pass-2 template; per-document override is
-                 * deliberately not plumbed (would require migration
-                 * + repo plumbing — separate instruction if needed).
-                 * Visibility was the audit's stated concern.
-                 */}
                 <label
-                  style={{ ...fieldLabel, marginTop: "0.6rem", marginBottom: "0.25rem" }}
-                >
-                  Pass 2 Template
-                </label>
-                <input
-                  style={{ ...inputStyle, opacity: 0.6, cursor: "not-allowed" }}
-                  type="text"
-                  readOnly
-                  disabled
-                  aria-label="Pass-2 template (read-only — profile-level only)"
-                  title={TOOLTIPS.pass2TemplateReadOnly}
-                  value={resolved.pass2_template_file ?? "(none configured)"}
-                />
-                <div
                   style={{
-                    marginTop: "0.25rem",
-                    fontSize: "0.75rem",
-                    color: "#64748b",
+                    ...(isModified("pass2_template_file") ? fieldLabelModified : fieldLabel),
+                    marginTop: "0.6rem",
+                    marginBottom: "0.25rem",
                   }}
                 >
-                  Set by the profile. To change, edit the profile YAML
-                  or use a different profile.
-                </div>
+                  Pass 2 Template
+                  {isModified("pass2_template_file") && (
+                    <span style={modifiedBadge}>modified</span>
+                  )}
+                </label>
+                <select
+                  style={inputStyle}
+                  aria-label="Pass-2 template"
+                  value={resolved.pass2_template_file ?? ""}
+                  onChange={(e) =>
+                    setOverride("pass2_template_file", e.target.value)
+                  }
+                >
+                  {templates.map((t) => (
+                    <option key={t.filename} value={t.filename}>
+                      {t.filename}
+                    </option>
+                  ))}
+                </select>
               </div>
             )}
           </div>

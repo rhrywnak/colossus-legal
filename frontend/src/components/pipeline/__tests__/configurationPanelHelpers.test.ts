@@ -9,7 +9,6 @@
  * What's covered here:
  *   - diffConfigFromProfile per-key chunking_config / context_config
  *   - buildPatchInput map → null transition on cleared overrides
- *   - resolveClientSide map merge + Pass-2 model fallback
  *   - truncateHash boundary cases
  */
 import { describe, it, expect } from "vitest";
@@ -19,7 +18,6 @@ import {
   diffMapFromProfile,
   isMapKeyModified,
   Overrides,
-  resolveClientSide,
   truncateHash,
 } from "../configurationPanelHelpers";
 import type {
@@ -234,77 +232,3 @@ describe("buildPatchInput chunking_config / context_config", () => {
   });
 });
 
-// ── resolveClientSide (mirror of backend resolve_config) ────────────
-
-describe("resolveClientSide", () => {
-  it("returns the profile's values when no overrides are set", () => {
-    const profile = makeProfile();
-    const r = resolveClientSide(profile, {});
-    expect(r.profile_name).toBe(profile.name);
-    expect(r.profile_hash).toBe(profile.profile_hash);
-    expect(r.model).toBe(profile.extraction_model);
-    expect(r.template_file).toBe(profile.template_file);
-    expect(r.pass2_template_file).toBe(profile.pass2_template_file);
-    expect(r.global_rules_file).toBe(profile.global_rules_file);
-    expect(r.schema_file).toBe(profile.schema_file);
-    expect(r.chunking_mode).toBe(profile.chunking_mode);
-    expect(r.chunking_config).toEqual(profile.chunking_config);
-    expect(r.context_config).toEqual({});
-    expect(r.max_tokens).toBe(profile.max_tokens);
-    expect(r.run_pass2).toBe(profile.run_pass2);
-  });
-
-  it("merges chunking_config override KEYS onto profile keys", () => {
-    const profile = makeProfile();
-    const overrides: Overrides = {
-      chunking_config: { units_per_chunk: 3 },
-    };
-    const r = resolveClientSide(profile, overrides);
-    // Overridden key
-    expect(r.chunking_config.units_per_chunk).toBe(3);
-    // Non-overridden keys carried through from profile
-    expect(r.chunking_config.strategy).toBe("section_heading");
-    expect(r.chunking_config.unit_overlap).toBe(0);
-    expect(r.chunking_config.request_timeout_secs).toBe(1800);
-  });
-
-  it("falls back pass2_model: override → profile → null", () => {
-    // Override absent, profile absent → null
-    const r1 = resolveClientSide(
-      makeProfile({ pass2_extraction_model: null }),
-      {},
-    );
-    expect(r1.pass2_model).toBeNull();
-
-    // Override absent, profile present → profile
-    const r2 = resolveClientSide(
-      makeProfile({ pass2_extraction_model: "claude-opus-4-7" }),
-      {},
-    );
-    expect(r2.pass2_model).toBe("claude-opus-4-7");
-
-    // Override present → override wins
-    const r3 = resolveClientSide(
-      makeProfile({ pass2_extraction_model: "claude-opus-4-7" }),
-      { pass2_extraction_model: "claude-opus-4-6" },
-    );
-    expect(r3.pass2_model).toBe("claude-opus-4-6");
-  });
-
-  it("scalar overrides win over profile for model / template / mode", () => {
-    const profile = makeProfile();
-    const overrides: Overrides = {
-      extraction_model: "claude-opus-4-7",
-      template_file: "custom_template.md",
-      chunking_mode: "full",
-    };
-    const r = resolveClientSide(profile, overrides);
-    expect(r.model).toBe("claude-opus-4-7");
-    expect(r.template_file).toBe("custom_template.md");
-    expect(r.chunking_mode).toBe("full");
-    // Profile-only fields untouched
-    expect(r.schema_file).toBe(profile.schema_file);
-    expect(r.global_rules_file).toBe(profile.global_rules_file);
-    expect(r.pass2_template_file).toBe(profile.pass2_template_file);
-  });
-});

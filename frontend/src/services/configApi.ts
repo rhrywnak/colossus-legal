@@ -182,6 +182,13 @@ export interface PatchConfigInput {
    * pass 2 falls back to `extraction_model`.
    */
   pass2_extraction_model?: string | null;
+  /**
+   * Pass-2 template override. `undefined` keeps the existing column
+   * value; an explicit filename switches the Pass-2 template for this
+   * document. Mirrors the `pass2_template_file` field WI-FIX-3 added
+   * to the backend's `PatchConfigInput`.
+   */
+  pass2_template_file?: string;
   template_file?: string;
   system_prompt_file?: string | null;
   chunking_mode?: string;
