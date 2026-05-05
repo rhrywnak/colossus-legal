@@ -558,13 +558,16 @@ export async function deleteDocument(docId: string, reason?: string): Promise<vo
 
 export async function uploadDocument(
   file: File,
-  params: { id: string; title: string; documentType: string }
+  params: { id: string; title: string; documentType: string; profileVersion?: string }
 ): Promise<PipelineDocument> {
   const formData = new FormData();
   formData.append("file", file);
   formData.append("id", params.id);
   formData.append("title", params.title);
   formData.append("document_type", params.documentType);
+  if (params.profileVersion) {
+    formData.append("profile_version", params.profileVersion);
+  }
   // schema_file is no longer sent — backend derives it from the processing profile.
   const res = await authFetch(`${PIPELINE_BASE}/documents`, {
     method: "POST",

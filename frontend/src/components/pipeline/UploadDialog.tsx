@@ -122,10 +122,16 @@ const UploadDialog: React.FC<Props> = ({ open, onClose, onSuccess }) => {
     );
     const documentType = selectedSchema?.document_type ?? schema;
 
+    // When the selected schema is a v5+ schema, route to the versioned profile.
+    // The backend reads this as a multipart `profile_version` field; when absent,
+    // it falls through to the unversioned default profile (backward-compat).
+    const profileVersion =
+      selectedSchema?.version?.startsWith("5.") ? "v5" : undefined;
+
     try {
       const id = `doc-${slugify(file.name)}`;
       const title = titleize(file.name);
-      const doc = await uploadDocument(file, { id, title, documentType });
+      const doc = await uploadDocument(file, { id, title, documentType, profileVersion });
       setUploading(false);
       onSuccess();
       navigate(`/documents/${doc.id}?tab=processing`);
