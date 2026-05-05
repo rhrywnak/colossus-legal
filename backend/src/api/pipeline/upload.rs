@@ -54,6 +54,34 @@ pub fn profile_name_for_document_type(document_type: &str) -> &'static str {
     }
 }
 
+/// Derive the processing profile name from document type and optional version.
+///
+/// When a `version` is supplied and recognized, this routes to a versioned
+/// profile name (e.g., `("complaint", Some("v5"))` → `"complaint_v5"`).
+/// When `version` is `None` or unrecognized, falls through to the unversioned
+/// mapping in [`profile_name_for_document_type`].
+///
+/// The unversioned function is left intact as the default path. This versioned
+/// variant is opt-in via the `profile_version` multipart field on upload.
+///
+/// ## Why versioned profiles co-exist
+///
+/// Per Roman's standing rule, v5 schema and templates live alongside v4 in
+/// the repo. The system default remains v4 until v5 is validated. Per-upload
+/// version selection lets the v5 pipeline run on specific documents without
+/// affecting unrelated uploads.
+pub fn profile_name_for_document_type_versioned(
+    document_type: &str,
+    version: Option<&str>,
+) -> &'static str {
+    match (document_type, version) {
+        ("complaint", Some("v5")) => "complaint_v5",
+        // Future versioned profiles register here. Each entry needs a sibling
+        // profile YAML at /mnt/data/legal-docs/profiles/{name}.yaml on DEV.
+        _ => profile_name_for_document_type(document_type),
+    }
+}
+
 /// Resolve the schema filename for a document type by consulting the
 /// document's processing profile YAML.
 ///
@@ -102,6 +130,7 @@ pub async fn upload_document(
     let mut pass1_model: Option<String> = None;
     let mut pass2_model: Option<String> = None;
     let mut admin_instructions: Option<String> = None;
+    let mut profile_version: Option<String> = None;
 
     while let Some(field) = multipart
         .next_field()
@@ -127,6 +156,7 @@ pub async fn upload_document(
             "pass1_model" => pass1_model = Some(field_text(&name, field).await?),
             "pass2_model" => pass2_model = Some(field_text(&name, field).await?),
             "admin_instructions" => admin_instructions = Some(field_text(&name, field).await?),
+            "profile_version" => profile_version = Some(field_text(&name, field).await?),
             _ => { /* ignore unknown fields */ }
         }
     }
@@ -140,7 +170,20 @@ pub async fn upload_document(
     // the profile YAML (the single source of truth) rather than a parallel
     // hardcoded map. The same loaded profile is reused below to pre-populate
     // the per-document override columns, avoiding a duplicate disk read.
-    let profile_name = profile_name_for_document_type(&document_type);
+    let profile_name = profile_name_for_document_type_versioned(
+        &document_type,
+        profile_version.as_deref(),
+    );
+
+    if let Some(v) = profile_version.as_deref() {
+        tracing::info!(
+            document_type = %document_type,
+            profile_version = %v,
+            resolved_profile = %profile_name,
+            "Upload specified profile_version"
+        );
+    }
+
     let profile = match ProcessingProfile::load(&state.config.processing_profile_dir, profile_name)
     {
         Ok(p) => Some(p),
@@ -616,5 +659,63 @@ mod tests {
                 doc_type
             );
         }
+    }
+
+    // ── profile_name_for_document_type_versioned tests ──────────
+    //
+    // The versioned variant is opt-in via the `profile_version` multipart
+    // field. When a recognized version is supplied, it routes to a versioned
+    // profile name; otherwise it falls through to the unversioned mapping.
+
+    #[test]
+    fn test_versioned_complaint_v5_returns_complaint_v5_profile() {
+        assert_eq!(
+            profile_name_for_document_type_versioned("complaint", Some("v5")),
+            "complaint_v5"
+        );
+    }
+
+    #[test]
+    fn test_versioned_complaint_no_version_returns_default_profile() {
+        assert_eq!(
+            profile_name_for_document_type_versioned("complaint", None),
+            "complaint"
+        );
+    }
+
+    #[test]
+    fn test_versioned_complaint_unknown_version_falls_through() {
+        // An unrecognized version must not route to a non-existent profile.
+        // Falling through to the unversioned default is the safe behavior.
+        assert_eq!(
+            profile_name_for_document_type_versioned("complaint", Some("v99")),
+            "complaint"
+        );
+    }
+
+    #[test]
+    fn test_versioned_other_document_types_ignore_version() {
+        // Versions are only meaningful where a versioned profile exists. For
+        // unversioned document types, version is silently dropped.
+        assert_eq!(
+            profile_name_for_document_type_versioned("affidavit", Some("v5")),
+            "affidavit"
+        );
+        assert_eq!(
+            profile_name_for_document_type_versioned("motion", Some("v5")),
+            "motion"
+        );
+    }
+
+    #[test]
+    fn test_versioned_unknown_document_type_returns_default() {
+        assert_eq!(
+            profile_name_for_document_type_versioned("garbage", Some("v5")),
+            "default"
+        );
+        assert_eq!(
+            profile_name_for_document_type_versioned("garbage", None),
+            "default"
+        );
     }
 }
