@@ -210,6 +210,36 @@ relationship_types:
   - name: EVIDENCED_BY
     description: "Harm evidenced by this Allegation (broader than CAUSED_BY)"
 
+# Required provenance properties applied to every relationship written to
+# Neo4j (per LEGAL_DATA_MODEL_v5_1.md §5.4). These are populated by the
+# ingest stage at write time, not by the LLM extractor — they describe
+# WHEN and BY WHICH RUN an edge was created so cross-document or
+# cross-run debugging can trace any relationship back to its source.
+#
+# Format note: extraction_run_id is "run-{i32}" for pipeline-extracted
+# relationships, "manual-{user_id}-{ts}" for hand-authored, "repair-{...}"
+# for repair runs. Using a prefixed string instead of a raw integer keeps
+# the value self-describing in Cypher queries and reserves namespace for
+# non-pipeline sources.
+#
+# This block is documentation-grade for v5.1 — runtime enforcement lives
+# in the Rust ingest helpers (validate_relationship_provenance). A
+# YAML-driven startup validator will follow with the Configuration
+# Registry work (PIPELINE_CONFIGURATION_REGISTRY_DESIGN_v1.md).
+relationship_properties:
+  - name: source_document_id
+    type: string
+    required: true
+    description: "ID of the Document whose extraction produced this relationship"
+  - name: extraction_run_id
+    type: string
+    required: true
+    description: "Identifier of the specific pipeline run that created this relationship (format: 'run-{i32}' for pipeline-extracted, 'manual-{user_id}-{ts}' for hand-authored, 'repair-{...}' for repair runs)"
+  - name: created_at
+    type: timestamp
+    required: true
+    description: "When the relationship was first created (Cypher datetime() at write time; preserved on subsequent re-ingests via coalesce)"
+
 valid_patterns:
   - from: LegalCount
     relationship: HAS_ELEMENT

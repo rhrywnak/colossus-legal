@@ -285,7 +285,6 @@ impl Ingest {
         // PG item ID → Neo4j node ID / label
         let mut pg_to_neo4j: HashMap<i32, String> = HashMap::new();
         let mut pg_to_label: HashMap<i32, String> = HashMap::new();
-        let mut all_node_ids: Vec<String> = Vec::new();
 
         // 7. Create Document node
         let doc_neo4j_id =
@@ -311,16 +310,6 @@ impl Ingest {
             message: format!("create_party_nodes: {e:?}"),
         })?;
 
-        // Collect unique party IDs for CONTAINED_IN
-        {
-            let mut seen = HashSet::new();
-            for neo_id in pg_to_neo4j.values() {
-                if seen.insert(neo_id.clone()) {
-                    all_node_ids.push(neo_id.clone());
-                }
-            }
-        }
-
         // 9. Create non-Party entity nodes
         let mut entity_type_counts: HashMap<String, usize> = HashMap::new();
         let mut entity_seq: HashMap<String, usize> = HashMap::new();
@@ -343,10 +332,29 @@ impl Ingest {
                 })?;
 
             pg_to_neo4j.insert(item.id, neo4j_id.clone());
-            all_node_ids.push(neo4j_id);
             *entity_type_counts
                 .entry(item.entity_type.clone())
                 .or_insert(0) += 1;
+        }
+
+        // 9b. Pair each Neo4j node id with the originating extraction
+        //     item's run_id for the v5.1 CONTAINED_IN writer (per §5.4).
+        //     Iterate items (not pg_to_neo4j.values()) because items
+        //     carry run_id; pg_to_neo4j does not. Dedup on neo4j_id so
+        //     Party MERGE deduplication doesn't double-emit
+        //     CONTAINED_IN. First-seen run_id wins on dedup; all Party
+        //     items in this pipeline-step batch share the same Pass-1
+        //     run_id, so the choice is operationally inert.
+        let mut all_nodes_with_runs: Vec<(String, i32)> = Vec::new();
+        {
+            let mut seen: HashSet<String> = HashSet::new();
+            for item in &items {
+                if let Some(neo_id) = pg_to_neo4j.get(&item.id) {
+                    if seen.insert(neo_id.clone()) {
+                        all_nodes_with_runs.push((neo_id.clone(), item.run_id));
+                    }
+                }
+            }
         }
 
         // 10a. Resolve cross-document relationship endpoints.
@@ -446,12 +454,24 @@ impl Ingest {
                     ),
                 })?;
 
-            create_ingest_relationship(&mut txn, from_neo, to_neo, &rel.relationship_type)
-                .await
-                .map_err(|e| IngestError::Helper {
-                    doc_id: doc_id.to_string(),
-                    message: format!("create_ingest_relationship: {e:?}"),
-                })?;
+            // v5.1 §5.4: per-edge `extraction_run_id` is the relationship
+            // row's own `run_id` (Pass-1 rels carry the Pass-1 id; Pass-2
+            // rels carry the Pass-2 id). Pre-format the prefix here at
+            // the call site — the writer is run-id-agnostic.
+            let extraction_run_id = format!("run-{}", rel.run_id);
+            create_ingest_relationship(
+                &mut txn,
+                from_neo,
+                to_neo,
+                &rel.relationship_type,
+                doc_id,
+                &extraction_run_id,
+            )
+            .await
+            .map_err(|e| IngestError::Helper {
+                doc_id: doc_id.to_string(),
+                message: format!("create_ingest_relationship: {e:?}"),
+            })?;
 
             *rel_type_counts
                 .entry(rel.relationship_type.clone())
@@ -459,21 +479,26 @@ impl Ingest {
         }
 
         // 11. DERIVED_FROM relationships from provenance
-        let derived_from_count = create_provenance_relationships(&mut txn, &items, &pg_to_neo4j)
-            .await
-            .map_err(|e| IngestError::Helper {
-                doc_id: doc_id.to_string(),
-                message: format!("create_provenance_relationships: {e:?}"),
-            })?;
-
-        // 12. CONTAINED_IN relationships
-        let contained_in_count =
-            create_contained_in_relationships(&mut txn, &all_node_ids, &doc_neo4j_id)
+        let derived_from_count =
+            create_provenance_relationships(&mut txn, &items, &pg_to_neo4j, doc_id)
                 .await
                 .map_err(|e| IngestError::Helper {
                     doc_id: doc_id.to_string(),
-                    message: format!("create_contained_in_relationships: {e:?}"),
+                    message: format!("create_provenance_relationships: {e:?}"),
                 })?;
+
+        // 12. CONTAINED_IN relationships
+        let contained_in_count = create_contained_in_relationships(
+            &mut txn,
+            &all_nodes_with_runs,
+            &doc_neo4j_id,
+            doc_id,
+        )
+        .await
+        .map_err(|e| IngestError::Helper {
+            doc_id: doc_id.to_string(),
+            message: format!("create_contained_in_relationships: {e:?}"),
+        })?;
 
         // 13. Commit Neo4j txn
         txn.commit().await.map_err(|source| IngestError::Neo4j {

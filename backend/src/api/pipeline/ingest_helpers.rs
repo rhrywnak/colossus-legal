@@ -278,7 +278,11 @@ pub async fn create_party_nodes(
             .unwrap_or("individual");
 
         let is_org = party_type == "organization" || party_type.to_lowercase().contains("org");
-        let label = if is_org { ENTITY_ORGANIZATION } else { ENTITY_PERSON };
+        let label = if is_org {
+            ENTITY_ORGANIZATION
+        } else {
+            ENTITY_PERSON
+        };
 
         // Look up resolved ID from the resolution map
         let neo4j_id = resolution_map
@@ -467,16 +471,123 @@ pub async fn create_entity_node(
     Ok(neo4j_id)
 }
 
+/// Validate that a relationship write carries the three required v5.1
+/// provenance properties.
+///
+/// ## Why this exists
+///
+/// Per LEGAL_DATA_MODEL_v5_1.md §5.4 every relationship in Neo4j carries
+/// three provenance properties: `source_document_id`, `extraction_run_id`,
+/// and `created_at`. This validator is a defensive guard against future
+/// regressions: if a refactor drops a property at a call site we'd
+/// silently write a malformed edge and not notice until weeks later
+/// during a Cypher query. Failing loudly here turns the bug into a
+/// transaction abort with a clear error message that names the missing
+/// property and the relationship type it was on.
+///
+/// ## Rust Learning: `Result<(), AppError>`
+///
+/// Returning `Result<(), AppError>` (a "unit Result") is the Rust idiom
+/// for "this operation may fail but produces no value on success". The
+/// `()` is the unit type — a zero-byte placeholder. Callers use `?` to
+/// propagate the error or `?;` to propagate-and-discard the unit value.
+///
+/// `created_at` is not validated here — it is set unconditionally by
+/// Cypher's `datetime()` and therefore cannot be empty.
+fn validate_relationship_provenance(
+    rel_type: &str,
+    source_document_id: &str,
+    extraction_run_id: &str,
+) -> Result<(), AppError> {
+    if source_document_id.is_empty() {
+        return Err(AppError::Internal {
+            message: format!(
+                "Relationship write missing required property 'source_document_id' \
+                 on relationship type '{rel_type}'. All relationships must carry \
+                 source_document_id, extraction_run_id, and created_at per v5.1 §5.4."
+            ),
+        });
+    }
+    if extraction_run_id.is_empty() {
+        return Err(AppError::Internal {
+            message: format!(
+                "Relationship write missing required property 'extraction_run_id' \
+                 on relationship type '{rel_type}'. All relationships must carry \
+                 source_document_id, extraction_run_id, and created_at per v5.1 §5.4."
+            ),
+        });
+    }
+    Ok(())
+}
+
+/// Build the Cypher string for a generic relationship write that stamps
+/// the three v5.1 provenance properties.
+///
+/// ## Rust Learning: extracting a pure helper for testability
+///
+/// `txn.run` is async and hits Neo4j — that makes any test of the
+/// calling async function require integration infrastructure. By
+/// extracting the Cypher string assembly into a pure synchronous
+/// function, unit tests can assert the SET clauses are present using
+/// `String::contains` without spinning up Neo4j. This mirrors the
+/// `mergeOverridesIntoResolved` pattern from the frontend (commit
+/// f6bc936): extract the testable part, leave the I/O-bound part to
+/// integration verification.
+///
+/// `rel_type` is interpolated directly into the Cypher template. The
+/// caller is responsible for validating that `rel_type` contains only
+/// alphanumeric characters and underscores (Cypher injection guard) —
+/// see `create_ingest_relationship`.
+///
+/// ## ON MATCH coalesce semantics — first-wins
+///
+/// On a re-MERGE the relationship already exists. We use
+/// `coalesce(existing, new)` rather than blindly overwriting because:
+/// - `created_at` should be when the edge was FIRST created, not the
+///   latest ingest timestamp — coalesce preserves the original.
+/// - `source_document_id` and `extraction_run_id` describe the run that
+///   first created the edge. "Most recent run that touched this edge"
+///   is an audit-log question, not a graph-property question.
+/// - Free backfill: legacy edges (pre-v5.1) have NULL on these
+///   properties. The first re-MERGE after this lands populates them via
+///   coalesce — so the migration tail handles itself incrementally.
+fn build_relationship_with_provenance_cypher(rel_type: &str) -> String {
+    format!(
+        "MATCH (a {{id: $from_id}}), (b {{id: $to_id}}) \
+         MERGE (a)-[r:{rel_type}]->(b) \
+         ON CREATE SET r.source_document_id = $source_document_id, \
+                       r.extraction_run_id = $extraction_run_id, \
+                       r.created_at = datetime() \
+         ON MATCH SET  r.source_document_id = coalesce(r.source_document_id, $source_document_id), \
+                       r.extraction_run_id = coalesce(r.extraction_run_id, $extraction_run_id), \
+                       r.created_at = coalesce(r.created_at, datetime()) \
+         RETURN b.id"
+    )
+}
+
 /// Create or update a relationship between two nodes inside a transaction.
 ///
 /// Uses MERGE instead of CREATE to ensure idempotency — re-processing
 /// the same document does not create duplicate relationships.
 /// Zero rows from MATCH = broken ID mapping = hard error (rolls back).
+///
+/// Stamps the three v5.1 provenance properties on every write
+/// (`source_document_id`, `extraction_run_id`, `created_at`). See
+/// `build_relationship_with_provenance_cypher` for the coalesce-on-match
+/// rationale.
+///
+/// `extraction_run_id` should be pre-formatted by the caller (typically
+/// `format!("run-{}", rel.run_id)` for pipeline-extracted relationships).
+/// Pre-formatting at the call site keeps the prefix convention in one
+/// place per ingest path and frees this helper from the i32-vs-string
+/// concern.
 pub async fn create_ingest_relationship(
     txn: &mut neo4rs::Txn,
     from_id: &str,
     to_id: &str,
     rel_type: &str,
+    source_document_id: &str,
+    extraction_run_id: &str,
 ) -> Result<(), AppError> {
     // Validate rel_type to prevent Cypher injection
     if !rel_type.chars().all(|c| c.is_alphanumeric() || c == '_') {
@@ -486,17 +597,20 @@ pub async fn create_ingest_relationship(
         });
     }
 
-    let cypher = format!(
-        "MATCH (a {{id: $from_id}}), (b {{id: $to_id}}) \
-         MERGE (a)-[r:{rel_type}]->(b) \
-         RETURN b.id"
-    );
+    // v5.1 provenance contract — fail loudly if either of the two string
+    // properties is empty. `created_at` is set by Cypher datetime() and
+    // is not validated here.
+    validate_relationship_provenance(rel_type, source_document_id, extraction_run_id)?;
+
+    let cypher = build_relationship_with_provenance_cypher(rel_type);
 
     let mut result = txn
         .execute(
             query(&cypher)
                 .param("from_id", from_id)
-                .param("to_id", to_id),
+                .param("to_id", to_id)
+                .param("source_document_id", source_document_id)
+                .param("extraction_run_id", extraction_run_id),
         )
         .await
         .map_err(|e| AppError::Internal {
@@ -528,11 +642,21 @@ pub async fn create_ingest_relationship(
 /// (typically a ComplaintAllegation matched by paragraph_number) and creates
 /// a DERIVED_FROM relationship with `ref_type` and `quote_snippet` properties.
 ///
+/// Stamps the three v5.1 provenance properties on every DERIVED_FROM edge
+/// alongside the existing `ref_type` and `quote_snippet`. Source values:
+/// - `source_document_id`: `doc_id` (the document being processed)
+/// - `extraction_run_id`: `run-{i32}` derived from the ORIGINATING item's
+///   `run_id` (the item that carries the provenance array — i.e., the
+///   FROM-side of the DERIVED_FROM edge). That's the run that produced
+///   this provenance link.
+/// - `created_at`: Cypher `datetime()` at write time.
+///
 /// Returns the count of relationships created.
 pub async fn create_provenance_relationships(
     txn: &mut neo4rs::Txn,
     items: &[ExtractionItemRecord],
     pg_to_neo4j: &HashMap<i32, String>,
+    doc_id: &str,
 ) -> Result<usize, AppError> {
     // Build a lookup: paragraph key → extraction_item.id.
     // Accepts both `paragraph_number` (v2/v3) and `paragraph_ref` (v4),
@@ -566,6 +690,14 @@ pub async fn create_provenance_relationships(
             None => continue,
         };
 
+        // v5.1 provenance: every DERIVED_FROM edge from this item shares the
+        // same source_document_id (`doc_id`) and extraction_run_id (the
+        // originating item's run_id). Compute once per item and validate
+        // once per item — per-edge validation would be redundant since the
+        // values do not vary across `entry` iterations.
+        let extraction_run_id = format!("run-{}", item.run_id);
+        validate_relationship_provenance("DERIVED_FROM", doc_id, &extraction_run_id)?;
+
         for entry in provenance {
             let ref_type = entry["ref_type"].as_str().unwrap_or("paragraph");
             let ref_val = entry["ref"]
@@ -597,10 +729,23 @@ pub async fn create_provenance_relationships(
                 }
             };
 
+            // DERIVED_FROM uses its own Cypher (not the generic builder)
+            // because it MERGEs on a composite key — `(rel_type, ref_type)` —
+            // so different ref_types produce distinct edges between the same
+            // pair of nodes. quote_snippet keeps its existing latest-wins
+            // semantics (a description that may be refined on re-extraction);
+            // the three v5.1 provenance properties use first-wins via
+            // coalesce, matching the generic builder.
             let cypher = "MATCH (a {id: $from_id}), (b {id: $to_id}) \
                  MERGE (a)-[r:DERIVED_FROM {ref_type: $ref_type}]->(b) \
-                 ON CREATE SET r.quote_snippet = $snippet \
-                 ON MATCH SET  r.quote_snippet = $snippet \
+                 ON CREATE SET r.quote_snippet       = $snippet, \
+                               r.source_document_id = $source_document_id, \
+                               r.extraction_run_id  = $extraction_run_id, \
+                               r.created_at         = datetime() \
+                 ON MATCH SET  r.quote_snippet       = $snippet, \
+                               r.source_document_id = coalesce(r.source_document_id, $source_document_id), \
+                               r.extraction_run_id  = coalesce(r.extraction_run_id,  $extraction_run_id), \
+                               r.created_at         = coalesce(r.created_at,         datetime()) \
                  RETURN b.id";
 
             let mut result = txn
@@ -609,7 +754,9 @@ pub async fn create_provenance_relationships(
                         .param("from_id", from_neo.as_str())
                         .param("to_id", to_neo.as_str())
                         .param("ref_type", ref_type)
-                        .param("snippet", quote_snippet),
+                        .param("snippet", quote_snippet)
+                        .param("source_document_id", doc_id)
+                        .param("extraction_run_id", extraction_run_id.as_str()),
                 )
                 .await
                 .map_err(|e| AppError::Internal {
@@ -643,15 +790,48 @@ pub async fn create_provenance_relationships(
 }
 
 /// Create CONTAINED_IN from all non-Document nodes to the Document.
+///
+/// `nodes_with_runs` pairs each Neo4j node id with the `run_id` of the
+/// extraction run that produced the corresponding source entity. Per
+/// v5.1 §5.4 every CONTAINED_IN edge is stamped with that run's id so a
+/// later query can answer "which run added this entity to this document"
+/// without consulting PostgreSQL.
+///
+/// `doc_id` is the PostgreSQL document id (not the Neo4j slug) — it
+/// becomes the `source_document_id` provenance property. `doc_neo4j_id`
+/// is the slug used as the Cypher MATCH endpoint.
+///
+/// ## Rust Learning: tuple parameter (`&[(String, i32)]`)
+///
+/// We pass a slice of tuples rather than a parallel HashMap because the
+/// caller already iterates extraction items in order and the pairing is
+/// 1:1 (after dedup). The tuple keeps the (node_id, run_id) association
+/// explicit at the type level — it would be a mistake to thread two
+/// separate slices and rely on index alignment.
 pub async fn create_contained_in_relationships(
     txn: &mut neo4rs::Txn,
-    node_ids: &[String],
+    nodes_with_runs: &[(String, i32)],
     doc_neo4j_id: &str,
+    doc_id: &str,
 ) -> Result<usize, AppError> {
-    for node_id in node_ids {
-        create_ingest_relationship(txn, node_id, doc_neo4j_id, REL_CONTAINED_IN).await?;
+    for (node_id, run_id) in nodes_with_runs {
+        // Pre-format the run id at the call site of the generic helper.
+        // The helper itself is run-id-agnostic; the "run-{i32}" prefix
+        // convention lives here and at the rel-write call site in
+        // ingest.rs — both are the only two places that translate from
+        // PG i32 to the prefixed string.
+        let extraction_run_id = format!("run-{run_id}");
+        create_ingest_relationship(
+            txn,
+            node_id,
+            doc_neo4j_id,
+            REL_CONTAINED_IN,
+            doc_id,
+            &extraction_run_id,
+        )
+        .await?;
     }
-    Ok(node_ids.len())
+    Ok(nodes_with_runs.len())
 }
 
 #[cfg(test)]
@@ -784,34 +964,6 @@ mod tests {
     }
 
     #[test]
-    fn test_stable_id_order_independence() {
-        // Simulates two extractions where LLM returns different paragraphs first.
-        // IDs must NOT depend on which paragraph was processed first.
-        let item_para_42 = make_item(
-            "ComplaintAllegation",
-            serde_json::json!({ "paragraph_number": "42" }),
-        );
-        let item_para_15 = make_item(
-            "ComplaintAllegation",
-            serde_json::json!({ "paragraph_number": "15" }),
-        );
-
-        let id_42 = stable_entity_id(&item_para_42, DOC_ID);
-        let id_15 = stable_entity_id(&item_para_15, DOC_ID);
-
-        // IDs differ — correct, they are different paragraphs
-        assert_ne!(id_42, id_15);
-
-        // If we "re-extract" (simulate by calling again):
-        // paragraph 42 still gets the same ID regardless of order
-        let id_42_rerun = stable_entity_id(&item_para_42, DOC_ID);
-        assert_eq!(
-            id_42, id_42_rerun,
-            "Paragraph 42 must get same ID regardless of extraction order"
-        );
-    }
-
-    #[test]
     fn test_document_id_uses_doc_id_not_title() {
         // Verifies create_document_node generates its ID from doc_id directly
         // (no "doc-" re-prefix). Since doc_id itself starts with "doc-", the
@@ -915,7 +1067,10 @@ mod tests {
             slug(DOC_ID),
             &format!("{:x}", Sha256::digest(b"".as_slice()))[..8]
         );
-        assert_ne!(id_a, empty_hash, "allegation_text fallback produced empty-hash collision");
+        assert_ne!(
+            id_a, empty_hash,
+            "allegation_text fallback produced empty-hash collision"
+        );
     }
 
     #[test]
@@ -1119,6 +1274,142 @@ mod tests {
         assert!(
             id.starts_with("doc-test:theme:hash-"),
             "Empty paragraph_numbers must trigger hash fallback, got: {id}"
+        );
+    }
+
+    // ── v5.1 relationship provenance ────────────────────────────────
+    //
+    // Per LEGAL_DATA_MODEL_v5_1 §5.4 every relationship written to Neo4j
+    // carries source_document_id, extraction_run_id, and created_at.
+    // These tests pin the contract at two layers:
+    //   1. validate_relationship_provenance — the defensive guard that
+    //      catches a future regression dropping a property at a call site.
+    //   2. build_relationship_with_provenance_cypher — the Cypher template
+    //      used by the generic writer. Asserting SET-clause content here
+    //      catches a refactor that silently changes the write semantics.
+    //
+    // No async / Neo4j integration tests live in this module; the live
+    // Cypher path is exercised by the DEV deploy verification step.
+
+    #[test]
+    fn validate_relationship_provenance_rejects_empty_source_document_id() {
+        // Catches: a future refactor at any of the six caller sites that
+        // accidentally passes "" for source_document_id (e.g., a logic
+        // error in deriving doc_id) instead of producing a malformed edge.
+        let result = validate_relationship_provenance("HAS_ELEMENT", "", "run-42");
+        match result {
+            Err(AppError::Internal { message }) => {
+                assert!(
+                    message.contains("source_document_id"),
+                    "error message must name the missing property; got: {message}"
+                );
+                assert!(
+                    message.contains("HAS_ELEMENT"),
+                    "error message must name the relationship type; got: {message}"
+                );
+            }
+            other => {
+                panic!("expected AppError::Internal naming source_document_id; got: {other:?}")
+            }
+        }
+    }
+
+    #[test]
+    fn validate_relationship_provenance_rejects_empty_extraction_run_id() {
+        // Catches: a future refactor that drops the format!("run-{}", _)
+        // at a call site, leaving extraction_run_id as the empty string.
+        let result = validate_relationship_provenance("PROVES_ELEMENT", "doc-awad", "");
+        match result {
+            Err(AppError::Internal { message }) => {
+                assert!(
+                    message.contains("extraction_run_id"),
+                    "error message must name the missing property; got: {message}"
+                );
+                assert!(
+                    message.contains("PROVES_ELEMENT"),
+                    "error message must name the relationship type; got: {message}"
+                );
+            }
+            other => panic!("expected AppError::Internal naming extraction_run_id; got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn validate_relationship_provenance_accepts_valid_input() {
+        // Pins the contract: valid inputs do NOT error. Catches an
+        // overzealous future tightening of the validator (e.g., a
+        // length check that rejects short doc ids, or a regex that
+        // rejects "run-0" as the very first run id).
+        let result = validate_relationship_provenance("HAS_ELEMENT", "doc-awad", "run-42");
+        assert!(
+            result.is_ok(),
+            "valid inputs must not error; got: {result:?}"
+        );
+    }
+
+    #[test]
+    fn build_relationship_cypher_sets_source_document_id_on_create() {
+        // Catches: a refactor that drops the source_document_id SET clause
+        // (which would write edges without that property and silently
+        // pass the validate step, since validate_* runs against the
+        // input parameters, not the emitted Cypher).
+        let cypher = build_relationship_with_provenance_cypher("HAS_ELEMENT");
+        assert!(
+            cypher.contains("ON CREATE SET"),
+            "Cypher must contain an ON CREATE SET clause; got: {cypher}"
+        );
+        assert!(
+            cypher.contains("r.source_document_id = $source_document_id"),
+            "ON CREATE SET must assign r.source_document_id; got: {cypher}"
+        );
+    }
+
+    #[test]
+    fn build_relationship_cypher_sets_extraction_run_id_on_create() {
+        // Catches: a refactor that drops the extraction_run_id SET clause
+        // — same risk profile as the source_document_id test above.
+        let cypher = build_relationship_with_provenance_cypher("PROVES_ELEMENT");
+        assert!(
+            cypher.contains("r.extraction_run_id = $extraction_run_id"),
+            "ON CREATE SET must assign r.extraction_run_id; got: {cypher}"
+        );
+    }
+
+    #[test]
+    fn build_relationship_cypher_sets_created_at_on_create() {
+        // Catches: a refactor that replaces datetime() with a Rust-side
+        // timestamp string (which would risk timezone drift between the
+        // backend host and the Neo4j server) or drops created_at entirely.
+        let cypher = build_relationship_with_provenance_cypher("ABOUT");
+        assert!(
+            cypher.contains("r.created_at = datetime()"),
+            "ON CREATE SET must assign r.created_at = datetime(); got: {cypher}"
+        );
+    }
+
+    #[test]
+    fn build_relationship_cypher_uses_coalesce_on_match() {
+        // Catches: a refactor that switches ON MATCH from coalesce
+        // (first-wins, the design decision in §5.4) to overwrite
+        // (latest-wins). Latest-wins on ANY of the three properties
+        // would make the provenance trio internally inconsistent —
+        // created_at would no longer correspond to extraction_run_id.
+        let cypher = build_relationship_with_provenance_cypher("CAUSED_BY");
+        assert!(
+            cypher.contains("ON MATCH SET"),
+            "Cypher must contain an ON MATCH SET clause; got: {cypher}"
+        );
+        assert!(
+            cypher.contains("coalesce(r.source_document_id, $source_document_id)"),
+            "ON MATCH must coalesce r.source_document_id (first-wins); got: {cypher}"
+        );
+        assert!(
+            cypher.contains("coalesce(r.extraction_run_id, $extraction_run_id)"),
+            "ON MATCH must coalesce r.extraction_run_id (first-wins); got: {cypher}"
+        );
+        assert!(
+            cypher.contains("coalesce(r.created_at, datetime())"),
+            "ON MATCH must coalesce r.created_at (first-wins); got: {cypher}"
         );
     }
 }

@@ -41,10 +41,7 @@ use super::ingest_resolver::{self, ResolutionSummary};
 /// Session-scoped (`pg_try_advisory_lock`, not xact-scoped) because the
 /// lock must span multiple sqlx calls including the Neo4j txn commit,
 /// not a single PG transaction.
-async fn try_acquire_ingest_lock(
-    pool: &sqlx::PgPool,
-    doc_id: &str,
-) -> Result<bool, AppError> {
+async fn try_acquire_ingest_lock(pool: &sqlx::PgPool, doc_id: &str) -> Result<bool, AppError> {
     let acquired: bool = sqlx::query_scalar("SELECT pg_try_advisory_lock(hashtext($1)::bigint)")
         .bind(doc_id)
         .fetch_one(pool)
@@ -253,8 +250,6 @@ async fn run_ingest_locked(
 
     // PG item ID → Neo4j node ID mapping (populated during node creation)
     let mut pg_to_neo4j: HashMap<i32, String> = HashMap::new();
-    // Collect all non-Document node IDs for CONTAINED_IN relationships
-    let mut all_node_ids: Vec<String> = Vec::new();
 
     // 8. Create Document node
     let doc_type = document.document_type.clone();
@@ -274,15 +269,6 @@ async fn run_ingest_locked(
         &resolution_map,
     )
     .await?;
-    // Collect unique party node IDs for CONTAINED_IN
-    {
-        let mut seen = std::collections::HashSet::new();
-        for neo_id in pg_to_neo4j.values() {
-            if seen.insert(neo_id.clone()) {
-                all_node_ids.push(neo_id.clone());
-            }
-        }
-    }
 
     // 10. Create all non-Party entity nodes using the generic function.
     //     Each entity_type from the extraction schema becomes the Neo4j label.
@@ -303,14 +289,37 @@ async fn run_ingest_locked(
         let neo4j_id = create_entity_node(&mut txn, item, doc_id, *seq).await?;
 
         pg_to_neo4j.insert(item.id, neo4j_id.clone());
-        all_node_ids.push(neo4j_id);
 
         *entity_type_counts
             .entry(item.entity_type.clone())
             .or_insert(0) += 1;
     }
 
+    // 10b. Pair each Neo4j node id with the `run_id` of the originating
+    //      extraction item so the v5.1 CONTAINED_IN writer can stamp the
+    //      correct `extraction_run_id`. We iterate items once (not
+    //      pg_to_neo4j) because items carry run_id; pg_to_neo4j does not.
+    //      Dedup on neo4j_id because Party MERGE deduplicates multiple
+    //      "Marie Awad" items into one Person node — first-seen run_id
+    //      wins. All Party items in this batch share the same Pass-1
+    //      run_id, so the choice is operationally inert.
+    let mut all_nodes_with_runs: Vec<(String, i32)> = Vec::new();
+    {
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for item in &items {
+            if let Some(neo_id) = pg_to_neo4j.get(&item.id) {
+                if seen.insert(neo_id.clone()) {
+                    all_nodes_with_runs.push((neo_id.clone(), item.run_id));
+                }
+            }
+        }
+    }
+
     // 11. Create extraction relationships (STATED_BY, ABOUT, SUPPORTS, etc.)
+    //     Each relationship row carries its own `run_id` (FK to extraction_runs
+    //     in PG) — Pass-1 rels carry the Pass-1 run id, Pass-2 rels carry the
+    //     Pass-2 run id. Pre-format here as `run-{i32}` (the prefix convention
+    //     lives at the call site, not in the writer).
     let mut rel_type_counts: HashMap<String, usize> = HashMap::new();
 
     for rel in &relationships {
@@ -331,7 +340,16 @@ async fn run_ingest_locked(
                 ),
             })?;
 
-        create_ingest_relationship(&mut txn, from_neo, to_neo, &rel.relationship_type).await?;
+        let extraction_run_id = format!("run-{}", rel.run_id);
+        create_ingest_relationship(
+            &mut txn,
+            from_neo,
+            to_neo,
+            &rel.relationship_type,
+            doc_id,
+            &extraction_run_id,
+        )
+        .await?;
 
         *rel_type_counts
             .entry(rel.relationship_type.clone())
@@ -340,7 +358,7 @@ async fn run_ingest_locked(
 
     // 11b. Create DERIVED_FROM relationships from provenance data
     let derived_from_count =
-        create_provenance_relationships(&mut txn, &items, &pg_to_neo4j).await?;
+        create_provenance_relationships(&mut txn, &items, &pg_to_neo4j, doc_id).await?;
     if derived_from_count > 0 {
         tracing::info!(doc_id = %doc_id, derived_from_count, "Created DERIVED_FROM provenance relationships");
         *rel_type_counts
@@ -350,7 +368,8 @@ async fn run_ingest_locked(
 
     // 12. Create CONTAINED_IN relationships (all nodes → Document)
     let contained_in =
-        create_contained_in_relationships(&mut txn, &all_node_ids, &doc_neo4j_id).await?;
+        create_contained_in_relationships(&mut txn, &all_nodes_with_runs, &doc_neo4j_id, doc_id)
+            .await?;
 
     // 13. Commit transaction
     txn.commit().await.map_err(|e| AppError::Internal {
@@ -695,23 +714,17 @@ async fn run_ingest_delta_locked(
     // pg_to_neo4j starts with EVERY already-written item on this doc,
     // so same-doc relationships between new and old items resolve.
     let mut pg_to_neo4j: HashMap<i32, String> = existing_map_rows.into_iter().collect();
-    let mut newly_written_node_ids: Vec<String> = Vec::new();
 
     // 6. MERGE the Document node (idempotent — no-op update on a
     //    document that already exists in Neo4j).
     let doc_type = document.document_type.clone();
-    let doc_neo4j_id =
-        create_document_node(&mut txn, doc_id, &document.title, &doc_type).await?;
+    let doc_neo4j_id = create_document_node(&mut txn, doc_id, &document.title, &doc_type).await?;
 
     // 7. Party nodes (MERGE). create_party_nodes filters the Party
     //    family itself; it iterates `delta_items` so only new Parties
     //    are processed. Existing parties already resolved from
     //    resolution_map → MERGE is a no-op.
     let mut pg_to_label: HashMap<i32, String> = HashMap::new();
-    // Snapshot current pg_to_neo4j keys so we can identify which Party
-    // IDs create_party_nodes added (existing ones are unchanged).
-    let keys_before_parties: std::collections::HashSet<i32> =
-        pg_to_neo4j.keys().copied().collect();
     let (person_count, org_count) = create_party_nodes(
         &mut txn,
         &delta_items,
@@ -721,14 +734,6 @@ async fn run_ingest_delta_locked(
         &resolution_map,
     )
     .await?;
-    {
-        let mut seen = std::collections::HashSet::new();
-        for (id, neo_id) in pg_to_neo4j.iter() {
-            if !keys_before_parties.contains(id) && seen.insert(neo_id.clone()) {
-                newly_written_node_ids.push(neo_id.clone());
-            }
-        }
-    }
 
     // 8. Non-Party delta entity nodes.
     let mut entity_type_counts: HashMap<String, usize> = HashMap::new();
@@ -741,18 +746,42 @@ async fn run_ingest_delta_locked(
         *seq += 1;
         let neo4j_id = create_entity_node(&mut txn, item, doc_id, *seq).await?;
         pg_to_neo4j.insert(item.id, neo4j_id.clone());
-        newly_written_node_ids.push(neo4j_id);
         *entity_type_counts
             .entry(item.entity_type.clone())
             .or_insert(0) += 1;
+    }
+
+    // 8b. Pair each newly-written Neo4j node id with the originating
+    //     delta item's run_id for the v5.1 CONTAINED_IN writer.
+    //
+    //     `delta_items` is the set of items with `neo4j_node_id IS NULL`
+    //     in PG — disjoint by query design from the existing_map_rows
+    //     used to seed pg_to_neo4j. Iterating delta_items here therefore
+    //     enumerates exactly the nodes written in this delta call,
+    //     including cross-document Parties whose underlying Person node
+    //     pre-existed (the CONTAINED_IN edge is brand-new for *this*
+    //     document even when the Party node is not).
+    //
+    //     Dedup on neo4j_id matches the post-Party-MERGE behavior (two
+    //     "Marie Awad" delta items dedup to one Person → one
+    //     CONTAINED_IN edge with the first-seen item's run_id).
+    let mut newly_written_nodes_with_runs: Vec<(String, i32)> = Vec::new();
+    {
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for item in &delta_items {
+            if let Some(neo_id) = pg_to_neo4j.get(&item.id) {
+                if seen.insert(neo_id.clone()) {
+                    newly_written_nodes_with_runs.push((neo_id.clone(), item.run_id));
+                }
+            }
+        }
     }
 
     // 9. Cross-document endpoint resolution. Any relationship endpoint
     //    not in local pg_to_neo4j (which now includes all same-doc
     //    written items, old and new) is looked up in
     //    extraction_items.neo4j_node_id.
-    let mut cross_doc_endpoints: std::collections::HashSet<i32> =
-        std::collections::HashSet::new();
+    let mut cross_doc_endpoints: std::collections::HashSet<i32> = std::collections::HashSet::new();
     for rel in &relationships {
         if !pg_to_neo4j.contains_key(&rel.from_item_id) {
             cross_doc_endpoints.insert(rel.from_item_id);
@@ -786,7 +815,16 @@ async fn run_ingest_delta_locked(
             .or_else(|| cross_doc_neo4j_ids.get(&rel.to_item_id));
         match (from_neo, to_neo) {
             (Some(from), Some(to)) => {
-                create_ingest_relationship(&mut txn, from, to, &rel.relationship_type).await?;
+                let extraction_run_id = format!("run-{}", rel.run_id);
+                create_ingest_relationship(
+                    &mut txn,
+                    from,
+                    to,
+                    &rel.relationship_type,
+                    doc_id,
+                    &extraction_run_id,
+                )
+                .await?;
                 *rel_type_counts
                     .entry(rel.relationship_type.clone())
                     .or_insert(0) += 1;
@@ -816,7 +854,7 @@ async fn run_ingest_delta_locked(
     //     case (bulk-approve all pending items at once); flagged as a
     //     Phase 3b tightening.
     let derived_from_count =
-        create_provenance_relationships(&mut txn, &delta_items, &pg_to_neo4j).await?;
+        create_provenance_relationships(&mut txn, &delta_items, &pg_to_neo4j, doc_id).await?;
     if derived_from_count > 0 {
         *rel_type_counts
             .entry("DERIVED_FROM".to_string())
@@ -824,9 +862,13 @@ async fn run_ingest_delta_locked(
     }
 
     // 12. CONTAINED_IN for newly-written nodes only.
-    let contained_in_count =
-        create_contained_in_relationships(&mut txn, &newly_written_node_ids, &doc_neo4j_id)
-            .await?;
+    let contained_in_count = create_contained_in_relationships(
+        &mut txn,
+        &newly_written_nodes_with_runs,
+        &doc_neo4j_id,
+        doc_id,
+    )
+    .await?;
 
     // 13. Commit.
     txn.commit().await.map_err(|e| AppError::Internal {
