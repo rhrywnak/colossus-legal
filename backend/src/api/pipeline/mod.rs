@@ -33,6 +33,7 @@ mod items;
 mod metrics;
 pub(crate) mod ocr;
 mod process;
+pub(crate) mod recompute_derived;
 pub mod report;
 pub mod report_data;
 mod review;
@@ -91,6 +92,10 @@ pub fn router() -> Router<AppState> {
         .route("/documents/:id/process", post(process::process_handler))
         .route("/documents/:id/cancel", post(process::cancel_handler))
         .route("/documents/:id/verify", post(verify_handler))
+        .route(
+            "/documents/:id/recompute-derived-grounding",
+            post(recompute_derived::recompute_derived_grounding_handler),
+        )
         .route("/documents/:id/ingest", post(ingest_handler))
         .route("/documents/:id/ingest-delta", post(ingest_delta_handler))
         .route("/documents/:id/index", post(index_handler))
@@ -135,10 +140,7 @@ pub fn router() -> Router<AppState> {
             "/models/:id",
             put(config_endpoints::update_model).delete(config_endpoints::delete_model),
         )
-        .route(
-            "/models/:id/toggle",
-            put(config_endpoints::toggle_model),
-        )
+        .route("/models/:id/toggle", put(config_endpoints::toggle_model))
         .route(
             "/profiles",
             get(config_endpoints::list_profiles).post(config_endpoints::create_profile),
@@ -171,8 +173,7 @@ pub fn router() -> Router<AppState> {
         )
         .route(
             "/system-prompts",
-            get(config_endpoints::list_system_prompts)
-                .post(config_endpoints::create_system_prompt),
+            get(config_endpoints::list_system_prompts).post(config_endpoints::create_system_prompt),
         )
         .route(
             "/system-prompts/:filename",
@@ -184,8 +185,7 @@ pub fn router() -> Router<AppState> {
         .route("/documents/:id/assign", put(users::assign_reviewer_handler))
         .route(
             "/documents/:id/config",
-            get(config_handler::get_config_handler)
-                .patch(config_handler::patch_config_handler),
+            get(config_handler::get_config_handler).patch(config_handler::patch_config_handler),
         )
         .route(
             "/documents/:id/resolved-config",

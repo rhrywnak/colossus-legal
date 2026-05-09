@@ -26,10 +26,31 @@ use axum::{extract::Path as AxumPath, extract::State, Json};
 use colossus_extract::GroundingMode;
 use serde::Serialize;
 
+/// Per-entity-type verification config drawn from the schema.
+///
+/// ## Rust Learning: composite config struct
+///
+/// Replaces the bare `HashMap<String, GroundingMode>` returned by the
+/// pre-v5.1 `load_grounding_modes` with a struct that also carries
+/// `provenance_required`. That flag is parsed by `colossus_extract` from
+/// the schema YAML but was previously read by no one — the runtime side
+/// of the contract was missing, which is exactly the kind of silent
+/// schema/code drift v5.1 closes for derived entities.
+///
+/// We could have plumbed two parallel maps (`HashMap<_, GroundingMode>`
+/// and `HashMap<_, bool>`) but a struct keeps the two fields paired at
+/// the type level — there's no risk of one map having a key the other
+/// is missing.
+#[derive(Debug, Clone)]
+pub(crate) struct EntityVerificationConfig {
+    pub mode: GroundingMode,
+    pub provenance_required: bool,
+}
+
 use super::canonical_verifier::{find_in_canonical_text, CanonicalMatchType};
 use crate::auth::{require_admin, AuthUser};
-use crate::models::document_status::{STATUS_EXTRACTED, STATUS_VERIFIED};
 use crate::error::AppError;
+use crate::models::document_status::{STATUS_EXTRACTED, STATUS_VERIFIED};
 use crate::repositories::audit_repository::log_admin_action;
 use crate::repositories::pipeline_repository::{self, steps, ExtractionItemRecord};
 use crate::state::AppState;
@@ -43,7 +64,13 @@ pub struct VerifyResponse {
     pub grounded_normalized: usize,
     pub not_found: usize,
     pub skipped_no_quote: usize,
+    /// Derived-mode items whose provenance validated successfully.
     pub derived: usize,
+    /// Derived-mode items that failed v5.1 §5.4 provenance validation
+    /// (missing provenance array, empty array, dangling paragraph
+    /// reference, or null `item_data`). Each carries a diagnostic
+    /// `verification_reason` in `extraction_items.verification_reason`.
+    pub derived_invalid: usize,
     pub unverified: usize,
     pub name_matched: usize,
     pub heading_matched: usize,
@@ -83,10 +110,12 @@ pub(crate) async fn run_verify(
             message: format!("Document '{doc_id}' not found"),
         })?;
 
-    // 2. Load extraction schema for grounding mode lookup. Failure is
-    //    fatal: without the schema we'd default every entity to Verbatim,
-    //    silently corrupting Party / LegalCount / Harm grounding.
-    let grounding_modes = load_grounding_modes(
+    // 2. Load extraction schema for grounding mode + provenance_required
+    //    lookup. Failure is fatal: without the schema we'd default every
+    //    entity to Verbatim, silently corrupting Party / LegalCount / Harm
+    //    grounding. (v5.1 also reads provenance_required from this config
+    //    so the derived-validation step can apply the schema's rule.)
+    let grounding_config = load_grounding_config(
         &state.pipeline_pool,
         &state.config.extraction_schema_dir,
         doc_id,
@@ -95,7 +124,7 @@ pub(crate) async fn run_verify(
     .map_err(|e| {
         tracing::error!(
             document_id = %doc_id, error = %e,
-            "Verify cannot proceed without grounding modes"
+            "Verify cannot proceed without grounding config"
         );
         AppError::Internal { message: e }
     })?;
@@ -116,7 +145,9 @@ pub(crate) async fn run_verify(
 
     if document_text_rows.is_empty() {
         return Err(AppError::Internal {
-            message: format!("No canonical text found for document '{doc_id}'. Was ExtractText run?"),
+            message: format!(
+                "No canonical text found for document '{doc_id}'. Was ExtractText run?"
+            ),
         });
     }
 
@@ -128,7 +159,7 @@ pub(crate) async fn run_verify(
 
     // 6. Categorize items by grounding mode using the extracted pure function.
     //    Then build combined snippets for PageGrounder.
-    let categorization = categorize_items_for_grounding(&items, &grounding_modes);
+    let categorization = categorize_items_for_grounding(&items, &grounding_config);
 
     let mut snippets: Vec<String> = Vec::new();
     let mut snippet_items: Vec<SnippetMeta> = Vec::new();
@@ -198,6 +229,7 @@ pub(crate) async fn run_verify(
             meta.item_id,
             status_str,
             page,
+            None,
         )
         .await
         .map_err(|e| AppError::Internal {
@@ -205,13 +237,56 @@ pub(crate) async fn run_verify(
         })?;
     }
 
-    // 9. Update derived items
+    // 9. Validate derived-mode items per v5.1 §5.4. Pre-v5.1, every
+    //    item routed to the derived bucket got blanket-stamped
+    //    'derived' regardless of whether its provenance array was
+    //    present, non-empty, or referenced real Allegations. That
+    //    silently passed malformed entities through to the green-flag
+    //    state — exactly the no-silent-failures violation v5.1 closes.
+    //
+    //    Now: build a paragraph_number → item_id lookup from the
+    //    Allegations in the same document, then validate each derived
+    //    item against it. Valid → 'derived' (NULL reason); invalid →
+    //    'derived_invalid' with a durable diagnostic reason.
+    let para_to_item_id = build_para_to_item_id(&items);
+    let mut derived_invalid_count = 0usize;
+    let mut derived_valid_count = 0usize;
     for item_id in &derived_items {
-        pipeline_repository::update_item_grounding(&state.pipeline_pool, *item_id, "derived", None)
-            .await
-            .map_err(|e| AppError::Internal {
-                message: format!("Failed to update derived item {item_id}: {e}"),
-            })?;
+        // `unwrap` here is safe: derived_items came from items, and
+        // items is the source vector — the id MUST exist. The
+        // alternative (filter_map / log-and-skip) would mask a real
+        // invariant violation; per Rule 1 we panic rather than write
+        // a malformed status.
+        let item = items
+            .iter()
+            .find(|i| i.id == *item_id)
+            .expect("derived_item_ids only contains ids drawn from items");
+        let provenance_required = grounding_config
+            .get(&item.entity_type)
+            .map(|c| c.provenance_required)
+            .unwrap_or(false);
+        let validation = validate_derived_provenance(item, &para_to_item_id, provenance_required);
+        let (status_str, reason) = match validation {
+            DerivedValidation::Valid => {
+                derived_valid_count += 1;
+                ("derived", None)
+            }
+            DerivedValidation::Invalid(r) => {
+                derived_invalid_count += 1;
+                ("derived_invalid", Some(r))
+            }
+        };
+        pipeline_repository::update_item_grounding(
+            &state.pipeline_pool,
+            *item_id,
+            status_str,
+            None,
+            reason.as_deref(),
+        )
+        .await
+        .map_err(|e| AppError::Internal {
+            message: format!("Failed to update derived item {item_id}: {e}"),
+        })?;
     }
 
     // 10. Update none-mode items
@@ -220,6 +295,7 @@ pub(crate) async fn run_verify(
             &state.pipeline_pool,
             *item_id,
             "unverified",
+            None,
             None,
         )
         .await
@@ -242,6 +318,7 @@ pub(crate) async fn run_verify(
             *item_id,
             "missing_quote",
             None,
+            None,
         )
         .await
         .map_err(|e| AppError::Internal {
@@ -256,13 +333,18 @@ pub(crate) async fn run_verify(
             message: format!("Failed to update status: {e}"),
         })?;
 
-    let derived_count = derived_items.len();
+    // `derived_count` here means VALID derived items only — invalid
+    // derived items are tallied separately in `derived_invalid_count`
+    // (written to grounding_status='derived_invalid' above) and excluded
+    // from the auto-approve `GROUNDED_STATUSES` list per Roman's Q1A.
+    let derived_count = derived_valid_count;
     let unverified_count = none_items.len();
     let skipped_count = missing_quote_items.len();
 
     tracing::info!(
         doc_id = %doc_id, exact, normalized, not_found,
-        derived = derived_count, unverified = unverified_count,
+        derived = derived_count, derived_invalid = derived_invalid_count,
+        unverified = unverified_count,
         name_matched, heading_matched, skipped = skipped_count,
         "Verification complete"
     );
@@ -275,7 +357,8 @@ pub(crate) async fn run_verify(
         Some(doc_id),
         Some(serde_json::json!({
             "exact": exact, "normalized": normalized, "not_found": not_found,
-            "derived": derived_count, "unverified": unverified_count,
+            "derived": derived_count, "derived_invalid": derived_invalid_count,
+            "unverified": unverified_count,
             "name_matched": name_matched, "heading_matched": heading_matched,
             "skipped_no_quote": skipped_count,
         })),
@@ -295,7 +378,8 @@ pub(crate) async fn run_verify(
         &serde_json::json!({
             "grounding_rate": grounding_rate,
             "exact": exact, "normalized": normalized, "not_found": not_found,
-            "derived": derived_count, "unverified": unverified_count,
+            "derived": derived_count, "derived_invalid": derived_invalid_count,
+            "unverified": unverified_count,
             "name_matched": name_matched, "heading_matched": heading_matched,
         }),
     )
@@ -318,6 +402,7 @@ pub(crate) async fn run_verify(
         not_found,
         skipped_no_quote: skipped_count,
         derived: derived_count,
+        derived_invalid: derived_invalid_count,
         unverified: unverified_count,
         name_matched,
         heading_matched,
@@ -400,11 +485,21 @@ pub(crate) struct GroundingCategorization {
 
 /// Categorize extraction items by grounding mode.
 ///
-/// Pure function — no IO, no database. Takes items and their grounding modes
-/// from the schema, returns categorized lists ready for the grounding step.
+/// Pure function — no IO, no database. Takes items and the schema's
+/// per-entity verification config, returns categorized lists ready for
+/// the grounding step.
+///
+/// ## Provenance validation is NOT done here
+///
+/// `derived_item_ids` only carries the bucket assignment. The actual
+/// validation (does the item have a non-empty provenance array? do the
+/// refs resolve to real Allegations?) lives in
+/// `validate_derived_provenance` and is called by `run_verify` after
+/// this categorization completes. Splitting the two keeps each function
+/// pure with one job: this one routes by mode, the other validates.
 pub(crate) fn categorize_items_for_grounding(
     items: &[ExtractionItemRecord],
-    grounding_modes: &HashMap<String, GroundingMode>,
+    grounding_config: &HashMap<String, EntityVerificationConfig>,
 ) -> GroundingCategorization {
     let mut verbatim_items = Vec::new();
     let mut name_match_items = Vec::new();
@@ -414,8 +509,13 @@ pub(crate) fn categorize_items_for_grounding(
     let mut missing_quote_item_ids = Vec::new();
 
     for item in items {
-        let mode = grounding_modes
+        // FOLLOWUP-verify-silent-default: this `unwrap_or(&Verbatim)` is
+        // a silent fallback and violates Rule 1 — it should hard-error
+        // with the unmapped entity_type and the loaded schema file.
+        // Out of scope for the v5.1 fix; tracked separately.
+        let mode = grounding_config
             .get(&item.entity_type)
+            .map(|c| &c.mode)
             .unwrap_or(&GroundingMode::Verbatim);
 
         match mode {
@@ -461,11 +561,12 @@ pub(crate) fn categorize_items_for_grounding(
     }
 }
 
-/// Load grounding modes from the extraction schema for a document.
+/// Load per-entity verification config (grounding mode + provenance_required)
+/// from the extraction schema for a document.
 ///
-/// Returns a map of entity_type → GroundingMode. Fails if the schema
-/// cannot be loaded — callers must handle the error rather than
-/// silently degrading to Verbatim for all entities.
+/// Returns a map of `entity_type → EntityVerificationConfig`. Fails if
+/// the schema cannot be loaded — callers must handle the error rather
+/// than silently degrading to Verbatim for all entities.
 ///
 /// ## Why Result instead of an empty-HashMap fallback
 ///
@@ -474,16 +575,24 @@ pub(crate) fn categorize_items_for_grounding(
 /// silently changed behavior: every entity defaulted to Verbatim mode,
 /// and Party entities (with no `verbatim_quote`) got stuck at
 /// `missing_quote` with no error visible to the user.
-pub(crate) async fn load_grounding_modes(
+///
+/// ## v5.1 change
+///
+/// Previously `load_grounding_modes` returned only `GroundingMode`. The
+/// schema's `provenance_required: bool` (set on every Derived entity in
+/// `complaint_v5.yaml`) was parsed by `colossus_extract` but read
+/// nowhere in the verifier. The renamed function returns both fields so
+/// `validate_derived_provenance` can apply the schema's rule.
+pub(crate) async fn load_grounding_config(
     pool: &sqlx::PgPool,
     extraction_schema_dir: &str,
     doc_id: &str,
-) -> Result<HashMap<String, GroundingMode>, String> {
+) -> Result<HashMap<String, EntityVerificationConfig>, String> {
     let pipe_config = match pipeline_repository::get_pipeline_config(pool, doc_id).await {
         Ok(Some(cfg)) => cfg,
         Ok(None) => {
             return Err(format!(
-                "No pipeline_config found for document '{doc_id}' — cannot determine grounding modes"
+                "No pipeline_config found for document '{doc_id}' — cannot determine grounding config"
             ));
         }
         Err(e) => {
@@ -507,8 +616,162 @@ pub(crate) async fn load_grounding_modes(
     Ok(schema
         .entity_types
         .iter()
-        .map(|et| (et.name.clone(), et.grounding_mode.clone()))
+        .map(|et| {
+            (
+                et.name.clone(),
+                EntityVerificationConfig {
+                    mode: et.grounding_mode.clone(),
+                    provenance_required: et.provenance_required,
+                },
+            )
+        })
         .collect())
+}
+
+/// Outcome of `validate_derived_provenance` for a single derived-mode item.
+///
+/// ## Rust Learning: custom enum vs `Result<(), String>`
+///
+/// We could have used `Result<(), String>` here (Ok = valid, Err = the
+/// reason). The custom enum names the success/failure cases at the call
+/// site (`DerivedValidation::Valid` / `DerivedValidation::Invalid`)
+/// instead of relying on the reader to know that "Err" means "invalid"
+/// in this domain. `Result` is for fallible operations; this is a pure
+/// classification — the function never *errors*, it always returns one
+/// of two well-defined classifications.
+pub(crate) enum DerivedValidation {
+    Valid,
+    /// Carries the diagnostic `verification_reason` to persist on the
+    /// extraction_items row. Roman's Q2 specifies the exact strings —
+    /// they surface in the Review tab UI as forensic notes, so wording
+    /// is contractual, not stylistic.
+    Invalid(String),
+}
+
+/// Build a `paragraph_number → item_id` lookup from the document's
+/// Allegations.
+///
+/// ## Why filter to Allegation only
+///
+/// The instruction wording in CC Instruction 2 §2B is "at least one
+/// entry in `provenance` references an Allegation whose
+/// `paragraph_number` exists in the document." LegalCount carries
+/// `paragraph_range`, Element carries `anchor_paragraph_numbers`,
+/// ThematicAllegation carries `paragraph_numbers` (plural). None of
+/// those should match a Harm's `provenance.ref` lookup — only paragraph
+/// numbers from genuine Allegations should resolve. Filtering at map
+/// build time enforces that without polluting the validation function.
+///
+/// ## Polymorphism (Q5)
+///
+/// Reads both `paragraph_number` (v2/v3/v5 schema) and `paragraph_ref`
+/// (v4 alias), and accepts either string or integer JSON shape. Same
+/// pattern as `ingest_helpers::create_provenance_relationships` so the
+/// verifier and ingest agree on what counts as a paragraph reference.
+pub(crate) fn build_para_to_item_id(items: &[ExtractionItemRecord]) -> HashMap<String, i32> {
+    let mut map: HashMap<String, i32> = HashMap::new();
+    for item in items.iter().filter(|i| i.entity_type == "Allegation") {
+        let props = &item.item_data["properties"];
+        let para = props["paragraph_number"]
+            .as_str()
+            .map(|s| s.to_string())
+            .or_else(|| props["paragraph_number"].as_i64().map(|n| n.to_string()))
+            .or_else(|| props["paragraph_ref"].as_str().map(|s| s.to_string()))
+            .or_else(|| props["paragraph_ref"].as_i64().map(|n| n.to_string()));
+        if let Some(para) = para {
+            map.insert(para, item.id);
+        }
+    }
+    map
+}
+
+/// Validate provenance for a single derived-mode item per v5.1 §5.4.
+///
+/// Pure function — no IO, no database. Caller has already established
+/// that this item is in the derived bucket; this function decides
+/// Valid vs Invalid(reason) based on the item's `item_data.provenance`
+/// array and the document's Allegation paragraph map.
+///
+/// ## Strict-mode reading (Roman's Q1A)
+///
+/// Reads ONLY `item_data.provenance` (top-level on item_data, alongside
+/// `properties`). Does NOT fall back to `item_data.properties.provenance`
+/// or to entity-type-specific alternatives like
+/// `properties.paragraph_numbers`. Schema/template/data disagreements
+/// (e.g., the May-5 ThematicAllegations have no provenance array because
+/// `pass1_complaint_v5.md` does not request one) surface loudly here as
+/// `Invalid` — the fix lives upstream in the template/schema, not in a
+/// permissive verifier.
+///
+/// ## `provenance_required: false` semantics (Roman's Q2 / PCA Q2)
+///
+/// When `provenance_required` is false on the entity type's schema,
+/// this function still requires every entry to resolve (no laxer
+/// "at-least-one-entry-resolves" path). Roman's directive: "Laxer
+/// semantics get designed when a real caller needs them; do not
+/// pre-build a permissive path." In v5 today, every Derived entity has
+/// `provenance_required: true`, so this is a future-facing decision.
+pub(crate) fn validate_derived_provenance(
+    item: &ExtractionItemRecord,
+    para_to_item_id: &HashMap<String, i32>,
+    _provenance_required: bool,
+) -> DerivedValidation {
+    // Step 1 — NULL item_data sentinel (matches the Harm id 5106
+    // anomaly Roman flagged in the Q6 results).
+    if item.item_data.is_null() {
+        return DerivedValidation::Invalid("item_data is null".to_string());
+    }
+
+    // Step 2 — read top-level provenance array (Q1A strict).
+    let provenance = match item.item_data.get("provenance").and_then(|p| p.as_array()) {
+        Some(arr) => arr,
+        None => {
+            // Step 3 — ThematicAllegation gets a schema/template-gap-aware
+            // message because the symptom is systemic and the followup
+            // is named in the wording. Other derived types get a
+            // generic message — for them, missing provenance is a
+            // per-item bug, not a known template gap.
+            if item.entity_type == "ThematicAllegation" {
+                return DerivedValidation::Invalid(
+                    "no provenance array — schema/template gap (see FOLLOWUP-template-thematic-provenance)".to_string(),
+                );
+            }
+            return DerivedValidation::Invalid("no provenance array".to_string());
+        }
+    };
+
+    // Step 4 — empty array.
+    if provenance.is_empty() {
+        return DerivedValidation::Invalid("empty provenance array".to_string());
+    }
+
+    // Step 5 — every entry must have a `ref` field that resolves to an
+    // Allegation in the same document. Polymorphism mirrors
+    // `build_para_to_item_id` — string OR integer for `ref`.
+    for entry in provenance {
+        let ref_val = entry.get("ref").and_then(|v| {
+            v.as_str()
+                .map(|s| s.to_string())
+                .or_else(|| v.as_i64().map(|n| n.to_string()))
+        });
+
+        let ref_val = match ref_val {
+            Some(v) => v,
+            None => {
+                return DerivedValidation::Invalid(
+                    "provenance entry missing 'ref' field".to_string(),
+                );
+            }
+        };
+
+        if !para_to_item_id.contains_key(&ref_val) {
+            return DerivedValidation::Invalid(format!(
+                "provenance references paragraph {ref_val} which is not extracted as an Allegation"
+            ));
+        }
+    }
+
+    DerivedValidation::Valid
 }
 
 /// Extract a name label from an item for NameMatch grounding.
@@ -559,13 +822,27 @@ mod tests {
         }
     }
 
-    fn complaint_grounding_modes() -> HashMap<String, GroundingMode> {
-        // Mirrors the complaint_v2.yaml grounding modes
+    fn cfg(mode: GroundingMode, provenance_required: bool) -> EntityVerificationConfig {
+        EntityVerificationConfig {
+            mode,
+            provenance_required,
+        }
+    }
+
+    fn complaint_grounding_modes() -> HashMap<String, EntityVerificationConfig> {
+        // Mirrors the complaint_v2.yaml grounding modes (provenance_required
+        // tracks the schema: Harm Derived → true, others false).
         let mut modes = HashMap::new();
-        modes.insert("Party".to_string(), GroundingMode::NameMatch);
-        modes.insert("LegalCount".to_string(), GroundingMode::HeadingMatch);
-        modes.insert("ComplaintAllegation".to_string(), GroundingMode::Verbatim);
-        modes.insert("Harm".to_string(), GroundingMode::Derived);
+        modes.insert("Party".to_string(), cfg(GroundingMode::NameMatch, false));
+        modes.insert(
+            "LegalCount".to_string(),
+            cfg(GroundingMode::HeadingMatch, false),
+        );
+        modes.insert(
+            "ComplaintAllegation".to_string(),
+            cfg(GroundingMode::Verbatim, false),
+        );
+        modes.insert("Harm".to_string(), cfg(GroundingMode::Derived, true));
         modes
     }
 
@@ -636,8 +913,8 @@ mod tests {
         ];
         // general_legal modes — Statement is Verbatim, Party is NameMatch
         let mut modes = HashMap::new();
-        modes.insert("Statement".to_string(), GroundingMode::Verbatim);
-        modes.insert("Party".to_string(), GroundingMode::NameMatch);
+        modes.insert("Statement".to_string(), cfg(GroundingMode::Verbatim, false));
+        modes.insert("Party".to_string(), cfg(GroundingMode::NameMatch, false));
 
         let cat = categorize_items_for_grounding(&items, &modes);
         // Statement without quote → missing_quote (verbatim mode, no quote)
@@ -646,5 +923,314 @@ mod tests {
         assert_eq!(cat.missing_quote_item_ids, vec![1, 2]);
         assert!(cat.verbatim_items.is_empty());
         assert!(cat.name_match_items.is_empty());
+    }
+
+    // ── v5.1 derived-provenance validation ────────────────────────
+    //
+    // Per LEGAL_DATA_MODEL_v5_1 §5.4 and CC Instruction 2 the verifier
+    // must validate that derived-mode items actually carry a non-empty
+    // `provenance` array whose entries reference real Allegations in
+    // the same document. The four-string vocabulary below is contractual
+    // — the strings surface in the Review tab UI as forensic notes, so
+    // the assertions hold the wording rather than just shape.
+
+    fn make_item_with_data(
+        id: i32,
+        entity_type: &str,
+        item_data: serde_json::Value,
+    ) -> ExtractionItemRecord {
+        let mut rec = make_item(id, entity_type, None);
+        rec.item_data = item_data;
+        rec
+    }
+
+    fn allegation_with_paragraph(id: i32, paragraph: &str) -> ExtractionItemRecord {
+        make_item_with_data(
+            id,
+            "Allegation",
+            serde_json::json!({
+                "label": format!("Para {paragraph}"),
+                "properties": { "paragraph_number": paragraph, "summary": "x" },
+            }),
+        )
+    }
+
+    #[test]
+    fn validate_derived_returns_valid_when_provenance_resolves() {
+        // Catches: a regression that always returns Invalid (tautology
+        // — would silently turn every derived item invalid), or one
+        // that flips Valid/Invalid in the match arms.
+        let allegation = allegation_with_paragraph(101, "8");
+        let harm = make_item_with_data(
+            201,
+            "Harm",
+            serde_json::json!({
+                "properties": { "kind": "economic", "description": "loss" },
+                "provenance": [
+                    { "ref_type": "paragraph", "ref": "8", "quote_snippet": "..." }
+                ],
+            }),
+        );
+        // build_para_to_item_id filters to entity_type=="Allegation",
+        // so only Allegations need to be in the slice. Avoiding the clone
+        // also keeps `harm` movable into validate_derived_provenance.
+        let map = build_para_to_item_id(&[allegation]);
+        match validate_derived_provenance(&harm, &map, true) {
+            DerivedValidation::Valid => {}
+            DerivedValidation::Invalid(r) => panic!("expected Valid; got Invalid({r})"),
+        }
+    }
+
+    #[test]
+    fn validate_derived_returns_invalid_when_item_data_is_null() {
+        // Catches: dropped null-check; would otherwise crash on
+        // item_data["provenance"] indexing or silently treat null as
+        // "no provenance" with the wrong reason string. The May-5 Awad
+        // dataset has exactly one such row (Harm id 5106).
+        let harm = ExtractionItemRecord {
+            item_data: serde_json::Value::Null,
+            ..make_item(201, "Harm", None)
+        };
+        let map = HashMap::new();
+        match validate_derived_provenance(&harm, &map, true) {
+            DerivedValidation::Invalid(r) => assert_eq!(r, "item_data is null"),
+            DerivedValidation::Valid => panic!("expected Invalid for null item_data"),
+        }
+    }
+
+    #[test]
+    fn validate_derived_returns_invalid_when_thematic_allegation_has_no_provenance() {
+        // Catches: a refactor that drops the entity-type-aware reason
+        // string for ThematicAllegation. The schema/template-gap message
+        // names the followup tracker, so the diagnostic in the Review
+        // tab points the operator at the upstream fix instead of looking
+        // like a per-item bug.
+        let theme = make_item_with_data(
+            301,
+            "ThematicAllegation",
+            serde_json::json!({
+                "properties": { "title": "T", "paragraph_numbers": "8,10" },
+            }),
+        );
+        let map = HashMap::new();
+        match validate_derived_provenance(&theme, &map, true) {
+            DerivedValidation::Invalid(r) => assert_eq!(
+                r,
+                "no provenance array — schema/template gap (see FOLLOWUP-template-thematic-provenance)"
+            ),
+            DerivedValidation::Valid => panic!("expected Invalid for ThematicAllegation"),
+        }
+    }
+
+    #[test]
+    fn validate_derived_returns_invalid_when_other_derived_type_has_no_provenance() {
+        // Catches: the catch-all branch being deleted or merged into the
+        // ThematicAllegation arm. A Harm without a provenance array gets
+        // the generic message — for Harm, missing provenance is a
+        // per-item bug, not a known template gap.
+        let harm = make_item_with_data(
+            401,
+            "Harm",
+            serde_json::json!({ "properties": { "kind": "economic" } }),
+        );
+        let map = HashMap::new();
+        match validate_derived_provenance(&harm, &map, true) {
+            DerivedValidation::Invalid(r) => assert_eq!(r, "no provenance array"),
+            DerivedValidation::Valid => panic!("expected Invalid for Harm with no provenance"),
+        }
+    }
+
+    #[test]
+    fn validate_derived_returns_invalid_when_provenance_array_is_empty() {
+        // Catches: an off-by-one that treats `provenance: []` as "no
+        // provenance array". Distinguishing the two is what
+        // `verification_reason` is for — empty array means the LLM
+        // emitted the field but found nothing to put in it; missing
+        // array means the template never asked.
+        let harm = make_item_with_data(
+            501,
+            "Harm",
+            serde_json::json!({
+                "properties": { "kind": "economic" },
+                "provenance": []
+            }),
+        );
+        let map = HashMap::new();
+        match validate_derived_provenance(&harm, &map, true) {
+            DerivedValidation::Invalid(r) => assert_eq!(r, "empty provenance array"),
+            DerivedValidation::Valid => panic!("expected Invalid for empty provenance"),
+        }
+    }
+
+    #[test]
+    fn validate_derived_returns_invalid_when_ref_missing_from_map() {
+        // Catches: a regression that skips the resolution step or builds
+        // the map across all entity_types (would silently match LegalCount
+        // paragraph_range or Element anchor_paragraph_numbers — both wrong).
+        let allegation = allegation_with_paragraph(101, "8");
+        let harm = make_item_with_data(
+            601,
+            "Harm",
+            serde_json::json!({
+                "properties": { "kind": "economic" },
+                "provenance": [{ "ref": "99" }]
+            }),
+        );
+        // build_para_to_item_id filters to entity_type=="Allegation",
+        // so only Allegations need to be in the slice. Avoiding the clone
+        // also keeps `harm` movable into validate_derived_provenance.
+        let map = build_para_to_item_id(&[allegation]);
+        match validate_derived_provenance(&harm, &map, true) {
+            DerivedValidation::Invalid(r) => assert_eq!(
+                r,
+                "provenance references paragraph 99 which is not extracted as an Allegation"
+            ),
+            DerivedValidation::Valid => panic!("expected Invalid for dangling paragraph 99"),
+        }
+    }
+
+    #[test]
+    fn validate_derived_returns_invalid_when_provenance_entry_missing_ref() {
+        // Catches: a refactor that silently skips entries with no `ref`
+        // field instead of failing the whole item. Roman's Q1
+        // (PCA round 2) said exactly: "add as fifth canonical string.
+        // Use exactly: 'provenance entry missing ref field'. Do not
+        // fold into existing strings."
+        let harm = make_item_with_data(
+            701,
+            "Harm",
+            serde_json::json!({
+                "properties": { "kind": "economic" },
+                "provenance": [{ "quote_snippet": "no ref here" }]
+            }),
+        );
+        let map = HashMap::new();
+        match validate_derived_provenance(&harm, &map, true) {
+            DerivedValidation::Invalid(r) => assert_eq!(r, "provenance entry missing 'ref' field"),
+            DerivedValidation::Valid => panic!("expected Invalid for entry missing ref"),
+        }
+    }
+
+    #[test]
+    fn validate_derived_polymorphic_paragraph_ref_string_and_integer() {
+        // Catches: dropped polymorphism on either side. The map MUST
+        // accept paragraph_number as integer (some extractors emit
+        // numeric); the validator MUST accept ref as integer too.
+        // Q5 of the PCA — same rule as ingest_helpers.
+        let allegation = make_item_with_data(
+            101,
+            "Allegation",
+            serde_json::json!({
+                "label": "Para 8",
+                "properties": { "paragraph_number": 8 }, // integer
+            }),
+        );
+        let harm = make_item_with_data(
+            801,
+            "Harm",
+            serde_json::json!({
+                "properties": { "kind": "economic" },
+                "provenance": [{ "ref": 8 }] // integer
+            }),
+        );
+        // build_para_to_item_id filters to entity_type=="Allegation",
+        // so only Allegations need to be in the slice. Avoiding the clone
+        // also keeps `harm` movable into validate_derived_provenance.
+        let map = build_para_to_item_id(&[allegation]);
+        assert!(
+            map.contains_key("8"),
+            "build_para_to_item_id must coerce integer paragraph_number to string"
+        );
+        match validate_derived_provenance(&harm, &map, true) {
+            DerivedValidation::Valid => {}
+            DerivedValidation::Invalid(r) => panic!(
+                "polymorphic integer ref must validate against string-keyed map; got Invalid({r})"
+            ),
+        }
+    }
+
+    #[test]
+    fn validate_derived_provenance_required_rejects_one_dangling_among_valid() {
+        // Catches: a refactor that adopts at-least-one-resolves
+        // semantics. Roman's Q2 said stricter even when
+        // provenance_required=false — every entry must resolve.
+        let allegation = allegation_with_paragraph(101, "8");
+        let harm = make_item_with_data(
+            901,
+            "Harm",
+            serde_json::json!({
+                "properties": { "kind": "economic" },
+                "provenance": [
+                    { "ref": "8" },   // resolves
+                    { "ref": "99" }   // dangles
+                ]
+            }),
+        );
+        // build_para_to_item_id filters to entity_type=="Allegation",
+        // so only Allegations need to be in the slice. Avoiding the clone
+        // also keeps `harm` movable into validate_derived_provenance.
+        let map = build_para_to_item_id(&[allegation]);
+        match validate_derived_provenance(&harm, &map, true) {
+            DerivedValidation::Invalid(r) => assert!(
+                r.contains("99"),
+                "expected dangling-paragraph reason naming 99; got: {r}"
+            ),
+            DerivedValidation::Valid => {
+                panic!("every-entry-must-resolve semantics: a single dangling ref must invalidate")
+            }
+        }
+    }
+
+    #[test]
+    fn build_para_to_item_id_only_indexes_allegations() {
+        // Catches: a refactor that drops the entity_type filter and
+        // pollutes the map with LegalCount paragraph_range or Element
+        // anchor_paragraph_numbers values. Instruction wording is
+        // "references an Allegation" — strict.
+        let allegation = allegation_with_paragraph(101, "8");
+        let count_with_para = make_item_with_data(
+            201,
+            "LegalCount",
+            serde_json::json!({
+                "properties": { "paragraph_number": "999" }, // would pollute if filter dropped
+            }),
+        );
+        let element_with_para = make_item_with_data(
+            301,
+            "Element",
+            serde_json::json!({
+                "properties": { "paragraph_number": "888" },
+            }),
+        );
+        let map = build_para_to_item_id(&[allegation, count_with_para, element_with_para]);
+        assert_eq!(map.get("8"), Some(&101));
+        assert!(
+            !map.contains_key("999"),
+            "LegalCount must not appear in the para→item map"
+        );
+        assert!(
+            !map.contains_key("888"),
+            "Element must not appear in the para→item map"
+        );
+    }
+
+    #[test]
+    fn build_para_to_item_id_handles_paragraph_ref_v4_alias() {
+        // Catches: the v4-compatibility chain getting trimmed to v5
+        // canonical (paragraph_number) only. CC Instruction 2 Q5
+        // explicitly mandated polymorphism.
+        let allegation_v4 = make_item_with_data(
+            101,
+            "Allegation",
+            serde_json::json!({
+                "properties": { "paragraph_ref": "42", "allegation_text": "x" },
+            }),
+        );
+        let map = build_para_to_item_id(&[allegation_v4]);
+        assert_eq!(
+            map.get("42"),
+            Some(&101),
+            "v4 paragraph_ref alias must be indexed under its string value"
+        );
     }
 }

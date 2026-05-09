@@ -48,8 +48,7 @@ pub struct ExtractionItemRecord {
 /// shape while the underlying column stays immutable (R4). The raw
 /// `resolved_entity_type` column is also returned for callers that
 /// need the resolved-only value.
-const ITEM_SELECT_COLUMNS: &str =
-    "id, run_id, document_id, \
+const ITEM_SELECT_COLUMNS: &str = "id, run_id, document_id, \
      COALESCE(resolved_entity_type, entity_type) AS entity_type, \
      item_data, verbatim_quote, grounding_status, grounded_page, \
      review_status, reviewed_by, reviewed_at, review_notes, \
@@ -343,18 +342,39 @@ pub async fn get_items_with_quotes(
     Ok(rows)
 }
 
-/// Update grounding status and page number for an extraction item.
+/// Update grounding status, page number, and verification reason for an
+/// extraction item.
+///
+/// `verification_reason` is the diagnostic string written alongside
+/// `grounding_status='derived_invalid'` (per v5.1 §5.4 derived-provenance
+/// validation). For every other status path the caller passes `None`,
+/// which clears any stale reason from a prior verify run. This is
+/// intentional: a transition `derived_invalid → derived` (after a
+/// re-extraction with the missing provenance now present) must not
+/// leave the prior failure reason behind to mislead the next reviewer.
+///
+/// ## Rust Learning: `Option<&str>` vs `&str`
+///
+/// `Option<&str>` lets the caller pass either a borrowed string slice
+/// or `None`. sqlx's `Encode` impl on `Option<T>` writes the SQL `NULL`
+/// literal when the value is `None`, so the column ends up NULL on
+/// `None` and TEXT-valued on `Some`. No runtime indirection — the
+/// `Option` is just a sum type the encoder pattern-matches at bind time.
 pub async fn update_item_grounding(
     pool: &PgPool,
     item_id: i32,
     grounding_status: &str,
     grounded_page: Option<i32>,
+    verification_reason: Option<&str>,
 ) -> Result<(), PipelineRepoError> {
     sqlx::query(
-        "UPDATE extraction_items SET grounding_status = $1, grounded_page = $2 WHERE id = $3",
+        "UPDATE extraction_items \
+         SET grounding_status = $1, grounded_page = $2, verification_reason = $3 \
+         WHERE id = $4",
     )
     .bind(grounding_status)
     .bind(grounded_page)
+    .bind(verification_reason)
     .bind(item_id)
     .execute(pool)
     .await?;
@@ -441,12 +461,11 @@ pub async fn lookup_item_document_ids(
     if item_ids.is_empty() {
         return Ok(Vec::new());
     }
-    let rows: Vec<(i32, String)> = sqlx::query_as(
-        "SELECT id, document_id FROM extraction_items WHERE id = ANY($1)",
-    )
-    .bind(item_ids)
-    .fetch_all(pool)
-    .await?;
+    let rows: Vec<(i32, String)> =
+        sqlx::query_as("SELECT id, document_id FROM extraction_items WHERE id = ANY($1)")
+            .bind(item_ids)
+            .fetch_all(pool)
+            .await?;
     Ok(rows)
 }
 
@@ -698,9 +717,8 @@ pub async fn get_items_for_run(
     pool: &PgPool,
     run_id: i32,
 ) -> Result<Vec<ExtractionItemRecord>, PipelineRepoError> {
-    let sql = format!(
-        "SELECT {ITEM_SELECT_COLUMNS} FROM extraction_items WHERE run_id = $1 ORDER BY id"
-    );
+    let sql =
+        format!("SELECT {ITEM_SELECT_COLUMNS} FROM extraction_items WHERE run_id = $1 ORDER BY id");
     let rows = sqlx::query_as::<_, ExtractionItemRecord>(&sql)
         .bind(run_id)
         .fetch_all(pool)
@@ -908,8 +926,7 @@ pub async fn store_entities_and_relationships(
         for rel in rels {
             let (from_key, to_key, relationship_type) = resolve_relationship_fields(rel);
 
-            let (Some(&from_id), Some(&to_id)) = (id_map.get(from_key), id_map.get(to_key))
-            else {
+            let (Some(&from_id), Some(&to_id)) = (id_map.get(from_key), id_map.get(to_key)) else {
                 tracing::warn!(
                     run_id, document_id,
                     from = %from_key, to = %to_key,
@@ -1185,10 +1202,10 @@ impl CrossDocEntity {
             "source_document_type".into(),
             serde_json::Value::String(self.source_document_type.clone()),
         );
-        obj.insert("properties".into(), filter_properties_for_prompt(
-            &self.entity_type,
-            &self.properties,
-        ));
+        obj.insert(
+            "properties".into(),
+            filter_properties_for_prompt(&self.entity_type, &self.properties),
+        );
         serde_json::Value::Object(obj)
     }
 }
@@ -1285,8 +1302,7 @@ pub async fn store_pass2_relationships(
         for rel in rels {
             let (from_key, to_key, relationship_type) = resolve_relationship_fields(rel);
 
-            let (Some(&from_id), Some(&to_id)) = (id_map.get(from_key), id_map.get(to_key))
-            else {
+            let (Some(&from_id), Some(&to_id)) = (id_map.get(from_key), id_map.get(to_key)) else {
                 tracing::warn!(
                     run_id, document_id,
                     from = %from_key, to = %to_key,

@@ -35,3 +35,7 @@ backend/.env.local
 
 # Linux desktop entry files (e.g., from Neo4j Desktop install)
 *.desktop
+
+# Working artifacts for the codebase test audit (Roman decides later
+# whether these stay in the repo or move elsewhere).
+backend/test_audit/

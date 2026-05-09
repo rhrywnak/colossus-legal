@@ -19,6 +19,17 @@ use sqlx::PgPool;
 /// `bulk_approve`, `count_pending`, and `count_ungrounded_pending` all bind
 /// this const into their SQL via `= ANY(...)`, so this is the single source
 /// of truth — add a new status here and every query picks it up.
+///
+/// ## v5.1: `derived_invalid` is intentionally NOT in this list
+///
+/// `derived_invalid` is the v5.1 §5.4 status for derived-mode items that
+/// failed provenance validation (no provenance array, dangling reference,
+/// or null `item_data`). Excluding it from `GROUNDED_STATUSES` is the
+/// load-bearing decision: invalid items must NOT auto-approve, must NOT
+/// be counted as grounded in the review-panel summary, and must remain
+/// visible in `count_ungrounded_pending` so the operator sees the
+/// failure. The diagnostic reason lives in `extraction_items.verification_reason`
+/// and surfaces in the Review tab UI.
 pub(crate) const GROUNDED_STATUSES: &[&str] =
     &["exact", "normalized", "derived", "unverified", "manual"];
 
@@ -47,6 +58,11 @@ pub struct ReviewItemRow {
     pub verbatim_quote: Option<String>,
     pub grounding_status: Option<String>,
     pub grounded_page: Option<i32>,
+    /// Diagnostic reason persisted alongside `grounding_status='derived_invalid'`.
+    /// Surfaces in the Review tab UI so reviewers see WHY a derived item
+    /// was rejected without grepping logs. Populated only by the v5.1
+    /// `validate_derived_provenance` path; NULL for every other status.
+    pub verification_reason: Option<String>,
     pub review_status: String,
     pub reviewed_by: Option<String>,
     pub reviewed_at: Option<chrono::DateTime<chrono::Utc>>,
@@ -76,7 +92,8 @@ pub async fn list_items(
     sqlx::query_as::<_, ReviewItemRow>(
         "SELECT id, entity_type, resolved_entity_type,
                 item_data->>'label' AS label, verbatim_quote,
-                grounding_status, grounded_page, review_status, reviewed_by,
+                grounding_status, grounded_page, verification_reason,
+                review_status, reviewed_by,
                 reviewed_at, review_notes, item_data->'properties' AS properties
          FROM extraction_items
          WHERE run_id = $1
@@ -426,6 +443,17 @@ mod tests {
         // missing_quote means the LLM didn't supply a verbatim quote at all.
         // User must review.
         assert!(!GROUNDED_STATUSES.contains(&"missing_quote"));
+    }
+
+    #[test]
+    fn grounded_statuses_exclude_derived_invalid() {
+        // v5.1 §5.4: derived_invalid items failed provenance validation
+        // (missing/empty array, dangling reference, or null item_data).
+        // They MUST NOT auto-approve — Roman's Q1A explicitly excluded
+        // them from this list. Catches a future refactor that mass-adds
+        // statuses to GROUNDED_STATUSES and accidentally includes
+        // derived_invalid, losing the no-auto-approval guarantee.
+        assert!(!GROUNDED_STATUSES.contains(&"derived_invalid"));
     }
 
     #[test]

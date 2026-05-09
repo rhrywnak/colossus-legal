@@ -17,7 +17,9 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 
-use colossus_extract::GroundingMode;
+use crate::api::pipeline::verify::{
+    build_para_to_item_id, validate_derived_provenance, DerivedValidation, EntityVerificationConfig,
+};
 use colossus_pipeline::cancel::CancellationToken;
 use colossus_pipeline::progress::ProgressReporter;
 use colossus_pipeline::{Step, StepResult};
@@ -73,7 +75,12 @@ struct VerifyResult {
     exact: usize,
     normalized: usize,
     not_found: usize,
+    /// Derived-mode items whose v5.1 §5.4 provenance validation passed.
     derived: usize,
+    /// Derived-mode items that failed v5.1 §5.4 provenance validation
+    /// (`grounding_status='derived_invalid'`, with diagnostic in
+    /// `verification_reason`).
+    derived_invalid: usize,
     unverified: usize,
     missing_quote: usize,
     grounding_pct: f64,
@@ -145,6 +152,7 @@ impl Step<DocProcessing> for Verify {
             "normalized": result.normalized,
             "not_found": result.not_found,
             "derived": result.derived,
+            "derived_invalid": result.derived_invalid,
             "unverified": result.unverified,
             "missing_quote": result.missing_quote,
             "grounding_pct": result.grounding_pct,
@@ -180,11 +188,12 @@ impl Verify {
                 doc_id: doc_id.to_string(),
             })?;
 
-        // 2. Load grounding modes. Failure is fatal: without the schema
-        //    we'd default every entity to Verbatim, silently corrupting
+        // 2. Load grounding config (mode + provenance_required per
+        //    entity_type). Failure is fatal: without the schema we'd
+        //    default every entity to Verbatim, silently corrupting
         //    Party / LegalCount / Harm grounding.
-        let grounding_modes: HashMap<String, GroundingMode> =
-            verify_api::load_grounding_modes(db, &context.schema_dir, doc_id)
+        let grounding_config: HashMap<String, EntityVerificationConfig> =
+            verify_api::load_grounding_config(db, &context.schema_dir, doc_id)
                 .await
                 .map_err(|message| VerifyError::GroundingModes {
                     doc_id: doc_id.to_string(),
@@ -220,7 +229,7 @@ impl Verify {
             .collect();
 
         // 6. Categorize items by grounding mode.
-        let categorization = verify_api::categorize_items_for_grounding(&items, &grounding_modes);
+        let categorization = verify_api::categorize_items_for_grounding(&items, &grounding_config);
 
         // 7. Flatten verbatim/name/heading categories into parallel
         //    `snippets` and `snippet_items` vectors for PageGrounder.
@@ -268,7 +277,7 @@ impl Verify {
                     ("not_found", None)
                 }
             };
-            pipeline_repository::update_item_grounding(db, meta.item_id, status_str, page)
+            pipeline_repository::update_item_grounding(db, meta.item_id, status_str, page, None)
                 .await
                 .map_err(|e| VerifyError::Db {
                     doc_id: doc_id.to_string(),
@@ -276,19 +285,51 @@ impl Verify {
                 })?;
         }
 
-        // 10. Mark Derived-mode items (provenance-based, no PDF search).
+        // 10. Validate Derived-mode items per v5.1 §5.4. Mirrors the
+        //     api-side path in `api::pipeline::verify::run_verify`. The
+        //     two ingest entry points must produce identical state, so
+        //     the validation logic is shared via `validate_derived_provenance`.
+        let para_to_item_id = build_para_to_item_id(&items);
+        let mut derived_invalid_count = 0usize;
+        let mut derived_valid_count = 0usize;
         for item_id in &categorization.derived_item_ids {
-            pipeline_repository::update_item_grounding(db, *item_id, "derived", None)
-                .await
-                .map_err(|e| VerifyError::Db {
-                    doc_id: doc_id.to_string(),
-                    message: format!("update_item_grounding derived (item {item_id}): {e}"),
-                })?;
+            let item = items
+                .iter()
+                .find(|i| i.id == *item_id)
+                .expect("derived_item_ids only contains ids drawn from items");
+            let provenance_required = grounding_config
+                .get(&item.entity_type)
+                .map(|c| c.provenance_required)
+                .unwrap_or(false);
+            let validation =
+                validate_derived_provenance(item, &para_to_item_id, provenance_required);
+            let (status_str, reason) = match validation {
+                DerivedValidation::Valid => {
+                    derived_valid_count += 1;
+                    ("derived", None)
+                }
+                DerivedValidation::Invalid(r) => {
+                    derived_invalid_count += 1;
+                    ("derived_invalid", Some(r))
+                }
+            };
+            pipeline_repository::update_item_grounding(
+                db,
+                *item_id,
+                status_str,
+                None,
+                reason.as_deref(),
+            )
+            .await
+            .map_err(|e| VerifyError::Db {
+                doc_id: doc_id.to_string(),
+                message: format!("update_item_grounding derived (item {item_id}): {e}"),
+            })?;
         }
 
         // 11. Mark None-mode items (no grounding required).
         for item_id in &categorization.none_item_ids {
-            pipeline_repository::update_item_grounding(db, *item_id, "unverified", None)
+            pipeline_repository::update_item_grounding(db, *item_id, "unverified", None, None)
                 .await
                 .map_err(|e| VerifyError::Db {
                     doc_id: doc_id.to_string(),
@@ -305,7 +346,7 @@ impl Verify {
             );
         }
         for item_id in &categorization.missing_quote_item_ids {
-            pipeline_repository::update_item_grounding(db, *item_id, "missing_quote", None)
+            pipeline_repository::update_item_grounding(db, *item_id, "missing_quote", None, None)
                 .await
                 .map_err(|e| VerifyError::Db {
                     doc_id: doc_id.to_string(),
@@ -325,7 +366,13 @@ impl Verify {
             exact,
             normalized,
             not_found,
-            derived: categorization.derived_item_ids.len(),
+            // `derived` here is post-validation valid count, not the
+            // bucket size. Pre-v5.1 this would have read
+            // `categorization.derived_item_ids.len()` (every item in
+            // the bucket). Now invalid items are split out into
+            // `derived_invalid` and counted separately.
+            derived: derived_valid_count,
+            derived_invalid: derived_invalid_count,
             unverified: categorization.none_item_ids.len(),
             missing_quote: categorization.missing_quote_item_ids.len(),
             grounding_pct,
