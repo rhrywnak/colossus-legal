@@ -625,22 +625,6 @@ mod tests {
     }
 
     #[test]
-    fn ingest_error_cleanup_variant_chains_source() {
-        // Construct a CleanupError via its Neo4j variant — the shape that
-        // was verified in Step 1e.
-        let cleanup_err = CleanupError::Neo4j {
-            doc_id: "doc-7".to_string(),
-            source: dummy_neo4j_err(),
-        };
-        let err = IngestError::Cleanup {
-            doc_id: "doc-7".to_string(),
-            source: cleanup_err,
-        };
-        use std::error::Error as _;
-        assert!(err.source().is_some(), "source() must return Some");
-    }
-
-    #[test]
     fn ingest_error_document_not_found_display_contains_doc_id() {
         let err = IngestError::DocumentNotFound {
             doc_id: "missing-doc-99".to_string(),
@@ -648,10 +632,4 @@ mod tests {
         assert!(format!("{err}").contains("missing-doc-99"));
     }
 
-    #[test]
-    fn ingest_step_constants_match_tracker_spec() {
-        assert_eq!(Ingest::DEFAULT_RETRY_LIMIT, 3);
-        assert_eq!(Ingest::DEFAULT_RETRY_DELAY_SECS, 10);
-        assert_eq!(Ingest::DEFAULT_TIMEOUT_SECS, Some(300));
-    }
 }

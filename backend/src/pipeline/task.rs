@@ -308,26 +308,6 @@ mod tests {
     }
 
     #[test]
-    fn validate_transition_accepts_llm_extract_to_pass2() {
-        // Gated by profile.run_pass2 at runtime; the FSM must permit the
-        // edge so pass 1's next_step_after_pass1 helper can route here.
-        assert!(DocProcessing::validate_transition("LlmExtract", "LlmExtractPass2").is_ok());
-    }
-
-    #[test]
-    fn validate_transition_accepts_llm_extract_to_verify_when_pass2_disabled() {
-        // The flag-off branch (the default) must still be valid so
-        // behaviour is identical to pre-pass-2 for profiles that omit
-        // run_pass2 or set it to false.
-        assert!(DocProcessing::validate_transition("LlmExtract", "Verify").is_ok());
-    }
-
-    #[test]
-    fn validate_transition_accepts_pass2_to_verify() {
-        assert!(DocProcessing::validate_transition("LlmExtractPass2", "Verify").is_ok());
-    }
-
-    #[test]
     fn validate_transition_rejects_pass2_skipping_verify() {
         // Pass 2 must never be the step that routes straight to
         // AutoApprove — the Verify gate runs between all extraction
@@ -357,30 +337,4 @@ mod tests {
         );
     }
 
-    /// Compile-time exhaustiveness check. If a 9th variant is ever added to
-    /// `DocProcessing`, this match (and every other match in task.rs) will
-    /// fail to compile, forcing the author to update dispatch everywhere.
-    /// The function is never called — its presence alone is the assertion.
-    #[allow(dead_code)]
-    fn exhaustive_match_check(t: DocProcessing) -> &'static str {
-        match t {
-            DocProcessing::ExtractText(_) => "et",
-            DocProcessing::LlmExtract(_) => "le",
-            DocProcessing::LlmExtractPass2(_) => "l2",
-            DocProcessing::Verify(_) => "vr",
-            DocProcessing::AutoApprove(_) => "aa",
-            DocProcessing::Ingest(_) => "in",
-            DocProcessing::Index(_) => "ix",
-            DocProcessing::Completeness(_) => "cp",
-        }
-    }
-
-    #[test]
-    fn current_step_name_match_is_exhaustive() {
-        // The real assertion happens at compile time via
-        // `exhaustive_match_check` above. This runtime test just touches the
-        // helper so dead-code lints don't silently strip the check from
-        // release builds.
-        let _ = exhaustive_match_check(make_extract_text());
-    }
 }

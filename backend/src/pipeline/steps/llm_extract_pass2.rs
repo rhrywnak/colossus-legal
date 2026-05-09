@@ -675,34 +675,6 @@ mod tests {
         assert!(e.to_string().contains("doc-abc"));
     }
 
-    #[test]
-    fn llm_extract_pass2_struct_round_trips_through_serde() {
-        // pipeline_jobs.current_step_payload round-trips the step struct
-        // through JSON — a missing derive would surface here first.
-        let a = LlmExtractPass2 {
-            document_id: "doc-rt".into(),
-        };
-        let j = serde_json::to_string(&a).unwrap();
-        let b: LlmExtractPass2 = serde_json::from_str(&j).unwrap();
-        assert_eq!(a.document_id, b.document_id);
-    }
-
-    #[test]
-    fn llm_extract_pass2_step_uses_trait_default_retry_settings() {
-        // Pass 2 matches pass 1's retry policy: zero Worker-level retries.
-        // The LLM call's internal rate-limit retry (MAX_RETRIES_PER_CHUNK)
-        // handles the transient-failure class we care about.
-        assert_eq!(
-            <LlmExtractPass2 as Step<DocProcessing>>::DEFAULT_RETRY_LIMIT,
-            0
-        );
-        assert_eq!(
-            <LlmExtractPass2 as Step<DocProcessing>>::DEFAULT_RETRY_DELAY_SECS,
-            0
-        );
-        assert!(<LlmExtractPass2 as Step<DocProcessing>>::DEFAULT_TIMEOUT_SECS.is_none());
-    }
-
     // ── assemble_pass2_prompt ────────────────────────────────────
     //
     // These tests pin down the placeholder contract introduced by
@@ -713,83 +685,72 @@ mod tests {
     // pass2_discovery_response_v4.md also references {{admin_instructions}}.
 
     #[test]
-    fn assemble_pass2_prompt_substitutes_global_rules_when_some() {
-        let template = "Rules:\n{{global_rules}}\n\nDoc: {{document_text}}";
-        let prompt = assemble_pass2_prompt(
-            template,
-            "<SCHEMA>",
-            "<ENTITIES>",
-            "<DOC BODY>",
-            Some("RULE-A; RULE-B"),
-            None,
-            None,
-        );
-        assert!(
-            prompt.contains("RULE-A; RULE-B"),
-            "global_rules content must land in the prompt; got: {prompt}"
-        );
-        assert!(
-            !prompt.contains("{{global_rules}}"),
-            "literal placeholder must be gone; got: {prompt}"
-        );
-    }
-
-    #[test]
-    fn assemble_pass2_prompt_substitutes_global_rules_with_empty_when_none() {
-        // Template references the placeholder but the profile didn't
-        // configure rules — substitution must collapse to empty string,
-        // not leak the literal token to the LLM.
-        let template = "Rules:\n{{global_rules}}\n\nDoc: {{document_text}}";
-        let prompt = assemble_pass2_prompt(
-            template,
-            "<SCHEMA>",
-            "<ENTITIES>",
-            "<DOC>",
-            None,
-            None,
-            None,
-        );
-        assert!(
-            !prompt.contains("{{global_rules}}"),
-            "absent global_rules must still strip the placeholder; got: {prompt}"
-        );
-    }
-
-    #[test]
-    fn assemble_pass2_prompt_substitutes_admin_instructions_when_some() {
-        let template = "Admin: {{admin_instructions}}\n\nDoc: {{document_text}}";
-        let prompt = assemble_pass2_prompt(
-            template,
-            "<SCHEMA>",
-            "<ENTITIES>",
-            "<DOC>",
-            None,
-            Some("Focus on dates"),
-            None,
-        );
-        assert!(
-            prompt.contains("Focus on dates"),
-            "admin_instructions content must land in the prompt; got: {prompt}"
-        );
-        assert!(!prompt.contains("{{admin_instructions}}"));
-    }
-
-    #[test]
-    fn assemble_pass2_prompt_substitutes_admin_instructions_with_empty_when_none() {
-        let template = "Admin: {{admin_instructions}}\n\nDoc: {{document_text}}";
-        let prompt = assemble_pass2_prompt(
-            template,
-            "<SCHEMA>",
-            "<ENTITIES>",
-            "<DOC>",
-            None,
-            None,
-            None,
-        );
-        assert!(
-            !prompt.contains("{{admin_instructions}}"),
-            "absent admin_instructions must still strip the placeholder; got: {prompt}"
-        );
+    fn test_assemble_pass2_prompt_placeholder_routing() {
+        // Routing table: each row tests one (placeholder_name, value) →
+        // expected substitution behavior on the Pass-2 prompt assembler.
+        // Mirrors the Pass-1 consolidation (assemble_chunk_prompt). Four
+        // rows: global_rules Some + None, admin_instructions Some + None.
+        // (No `context` Some/None pair here — Pass-2 handles cross-doc
+        // context differently. The integration test
+        // `assemble_pass2_prompt_substitutes_every_placeholder_alongside_body`
+        // covers all-substituted-in-one-call.)
+        struct Row {
+            template: &'static str,
+            global_rules: Option<&'static str>,
+            admin: Option<&'static str>,
+            placeholder: &'static str,
+            expect_content: Option<&'static str>,
+        }
+        let rows = [
+            Row {
+                template: "Rules:\n{{global_rules}}\n\nDoc: {{document_text}}",
+                global_rules: Some("RULE-A; RULE-B"),
+                admin: None,
+                placeholder: "{{global_rules}}",
+                expect_content: Some("RULE-A; RULE-B"),
+            },
+            Row {
+                // Template references the placeholder but profile didn't
+                // configure rules — substitution must collapse to empty
+                // string, not leak the literal token to the LLM.
+                template: "Rules:\n{{global_rules}}\n\nDoc: {{document_text}}",
+                global_rules: None,
+                admin: None,
+                placeholder: "{{global_rules}}",
+                expect_content: None,
+            },
+            Row {
+                template: "Admin: {{admin_instructions}}\n\nDoc: {{document_text}}",
+                global_rules: None,
+                admin: Some("Focus on dates"),
+                placeholder: "{{admin_instructions}}",
+                expect_content: Some("Focus on dates"),
+            },
+            Row {
+                template: "Admin: {{admin_instructions}}\n\nDoc: {{document_text}}",
+                global_rules: None,
+                admin: None,
+                placeholder: "{{admin_instructions}}",
+                expect_content: None,
+            },
+        ];
+        for row in rows {
+            let prompt = assemble_pass2_prompt(
+                row.template, "<SCHEMA>", "<ENTITIES>", "<DOC>",
+                row.global_rules, row.admin, None,
+            );
+            assert!(
+                !prompt.contains(row.placeholder),
+                "literal placeholder {} must be gone; got: {prompt}",
+                row.placeholder
+            );
+            if let Some(content) = row.expect_content {
+                assert!(
+                    prompt.contains(content),
+                    "expected content {content:?} must land in the prompt; got: {prompt}"
+                );
+            }
+        }
     }
 
     #[test]

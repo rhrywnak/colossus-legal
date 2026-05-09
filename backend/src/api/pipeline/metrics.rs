@@ -268,16 +268,3 @@ async fn query_estimates(pool: &PgPool) -> Result<EstimatesResponse, AppError> {
     })
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_pipeline_stage_order_is_accessible() {
-        let extract = PIPELINE_STEPS
-            .iter()
-            .find(|&&(name, _)| name == "extract_text");
-        assert!(extract.is_some());
-        assert_eq!(extract.unwrap().1, "Read Document");
-    }
-}

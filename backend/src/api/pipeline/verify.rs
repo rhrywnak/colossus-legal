@@ -847,58 +847,59 @@ mod tests {
     }
 
     #[test]
-    fn test_complaint_allegation_with_quote_goes_to_verbatim() {
-        let items = vec![make_item(
-            1,
-            "ComplaintAllegation",
-            Some("Defendant fired plaintiff."),
-        )];
+    fn test_categorize_items_for_grounding_routing() {
+        // Routing table: (entity_type, has_quote) → which categorization
+        // bucket the item lands in. Each row preserves a documented
+        // contract from the source tests:
+        //
+        // - ComplaintAllegation + quote → verbatim_items (canonical happy path)
+        // - ComplaintAllegation - quote → missing_quote_item_ids
+        //   (the bug that stranded 211 items: LLM produced no quotes)
+        // - Party (with name) → name_match_items
+        // - Harm → derived_item_ids
+        // - UnknownType → missing_quote (silent default to Verbatim;
+        //   FOLLOWUP-verify-silent-default tracks the rule-1 violation)
         let modes = complaint_grounding_modes();
-        let cat = categorize_items_for_grounding(&items, &modes);
-        assert_eq!(cat.verbatim_items.len(), 1);
-        assert_eq!(cat.verbatim_items[0].0, 1);
-        assert_eq!(cat.verbatim_items[0].1, "Defendant fired plaintiff.");
-        assert!(cat.missing_quote_item_ids.is_empty());
-    }
 
-    #[test]
-    fn test_complaint_allegation_without_quote_goes_to_missing() {
-        // This is the bug: 211 items went to missing_quote because LLM
-        // did not produce verbatim quotes. Test documents the expectation.
-        let items = vec![make_item(1, "ComplaintAllegation", None)];
-        let modes = complaint_grounding_modes();
-        let cat = categorize_items_for_grounding(&items, &modes);
-        assert!(cat.verbatim_items.is_empty());
-        assert_eq!(cat.missing_quote_item_ids, vec![1]);
-    }
-
-    #[test]
-    fn test_party_goes_to_name_match() {
-        let mut item = make_item(2, "Party", None);
-        item.item_data = serde_json::json!({"properties": {"full_name": "Marie Awad"}});
-        let items = vec![item];
-        let modes = complaint_grounding_modes();
-        let cat = categorize_items_for_grounding(&items, &modes);
-        assert_eq!(cat.name_match_items.len(), 1);
-        assert!(cat.missing_quote_item_ids.is_empty());
-    }
-
-    #[test]
-    fn test_harm_goes_to_derived() {
-        let items = vec![make_item(3, "Harm", None)];
-        let modes = complaint_grounding_modes();
-        let cat = categorize_items_for_grounding(&items, &modes);
-        assert_eq!(cat.derived_item_ids, vec![3]);
-    }
-
-    #[test]
-    fn test_unknown_entity_type_defaults_to_verbatim() {
-        // Items with entity_type not in the schema default to Verbatim.
-        // Without a quote they go to missing_quote.
-        let items = vec![make_item(4, "UnknownType", None)];
-        let modes = complaint_grounding_modes();
-        let cat = categorize_items_for_grounding(&items, &modes);
-        assert_eq!(cat.missing_quote_item_ids, vec![4]);
+        // Case 1: ComplaintAllegation with quote → verbatim
+        {
+            let items = vec![make_item(1, "ComplaintAllegation", Some("Defendant fired plaintiff."))];
+            let cat = categorize_items_for_grounding(&items, &modes);
+            assert_eq!(cat.verbatim_items.len(), 1, "ComplaintAllegation+quote → verbatim");
+            assert_eq!(cat.verbatim_items[0].0, 1);
+            assert_eq!(cat.verbatim_items[0].1, "Defendant fired plaintiff.");
+            assert!(cat.missing_quote_item_ids.is_empty());
+        }
+        // Case 2: ComplaintAllegation without quote → missing_quote
+        {
+            let items = vec![make_item(2, "ComplaintAllegation", None)];
+            let cat = categorize_items_for_grounding(&items, &modes);
+            assert!(cat.verbatim_items.is_empty(), "ComplaintAllegation-quote → not verbatim");
+            assert_eq!(cat.missing_quote_item_ids, vec![2]);
+        }
+        // Case 3: Party with name → name_match
+        {
+            let mut item = make_item(3, "Party", None);
+            item.item_data = serde_json::json!({"properties": {"full_name": "Marie Awad"}});
+            let cat = categorize_items_for_grounding(&[item], &modes);
+            assert_eq!(cat.name_match_items.len(), 1, "Party+name → name_match");
+            assert!(cat.missing_quote_item_ids.is_empty());
+        }
+        // Case 4: Harm → derived
+        {
+            let items = vec![make_item(4, "Harm", None)];
+            let cat = categorize_items_for_grounding(&items, &modes);
+            assert_eq!(cat.derived_item_ids, vec![4], "Harm → derived");
+        }
+        // Case 5: UnknownType → missing_quote (silent default to Verbatim)
+        {
+            let items = vec![make_item(5, "UnknownType", None)];
+            let cat = categorize_items_for_grounding(&items, &modes);
+            assert_eq!(
+                cat.missing_quote_item_ids, vec![5],
+                "UnknownType (silent-default Verbatim) without quote → missing_quote"
+            );
+        }
     }
 
     #[test]
@@ -956,119 +957,57 @@ mod tests {
     }
 
     #[test]
-    fn validate_derived_returns_valid_when_provenance_resolves() {
-        // Catches: a regression that always returns Invalid (tautology
-        // — would silently turn every derived item invalid), or one
-        // that flips Valid/Invalid in the match arms.
-        let allegation = allegation_with_paragraph(101, "8");
-        let harm = make_item_with_data(
-            201,
-            "Harm",
-            serde_json::json!({
-                "properties": { "kind": "economic", "description": "loss" },
-                "provenance": [
-                    { "ref_type": "paragraph", "ref": "8", "quote_snippet": "..." }
-                ],
-            }),
-        );
-        // build_para_to_item_id filters to entity_type=="Allegation",
-        // so only Allegations need to be in the slice. Avoiding the clone
-        // also keeps `harm` movable into validate_derived_provenance.
-        let map = build_para_to_item_id(&[allegation]);
-        match validate_derived_provenance(&harm, &map, true) {
-            DerivedValidation::Valid => {}
-            DerivedValidation::Invalid(r) => panic!("expected Valid; got Invalid({r})"),
-        }
-    }
+    fn test_validate_derived_returns_invalid_with_exact_reason() {
+        // Routing table: (item fixture, expected reason string).
+        // Pins all six canonical diagnostic strings v5.1 §5.4 emits.
+        // Each row's docstring documents what regression it catches.
 
-    #[test]
-    fn validate_derived_returns_invalid_when_item_data_is_null() {
-        // Catches: dropped null-check; would otherwise crash on
-        // item_data["provenance"] indexing or silently treat null as
-        // "no provenance" with the wrong reason string. The May-5 Awad
-        // dataset has exactly one such row (Harm id 5106).
-        let harm = ExtractionItemRecord {
+        // Build a paragraph map pre-populated with paragraph 8 so the
+        // dangling-ref case can fire by passing ref "99".
+        let allegation = allegation_with_paragraph(101, "8");
+        let para_map = build_para_to_item_id(&[allegation]);
+
+        // Case 1: NULL item_data — May-5 Awad Harm id 5106 anomaly.
+        // Catches a dropped null-check that would crash on indexing or
+        // silently treat null as "no provenance" with the wrong reason.
+        let null_harm = ExtractionItemRecord {
             item_data: serde_json::Value::Null,
             ..make_item(201, "Harm", None)
         };
-        let map = HashMap::new();
-        match validate_derived_provenance(&harm, &map, true) {
-            DerivedValidation::Invalid(r) => assert_eq!(r, "item_data is null"),
-            DerivedValidation::Valid => panic!("expected Invalid for null item_data"),
-        }
-    }
 
-    #[test]
-    fn validate_derived_returns_invalid_when_thematic_allegation_has_no_provenance() {
-        // Catches: a refactor that drops the entity-type-aware reason
-        // string for ThematicAllegation. The schema/template-gap message
-        // names the followup tracker, so the diagnostic in the Review
-        // tab points the operator at the upstream fix instead of looking
-        // like a per-item bug.
-        let theme = make_item_with_data(
+        // Case 2: ThematicAllegation with no provenance key — entity-type-aware
+        // schema/template-gap message points the operator at the followup
+        // tracker instead of making it look like a per-item bug.
+        let theme_no_prov = make_item_with_data(
             301,
             "ThematicAllegation",
-            serde_json::json!({
-                "properties": { "title": "T", "paragraph_numbers": "8,10" },
-            }),
+            serde_json::json!({ "properties": { "title": "T", "paragraph_numbers": "8,10" } }),
         );
-        let map = HashMap::new();
-        match validate_derived_provenance(&theme, &map, true) {
-            DerivedValidation::Invalid(r) => assert_eq!(
-                r,
-                "no provenance array — schema/template gap (see FOLLOWUP-template-thematic-provenance)"
-            ),
-            DerivedValidation::Valid => panic!("expected Invalid for ThematicAllegation"),
-        }
-    }
 
-    #[test]
-    fn validate_derived_returns_invalid_when_other_derived_type_has_no_provenance() {
-        // Catches: the catch-all branch being deleted or merged into the
-        // ThematicAllegation arm. A Harm without a provenance array gets
-        // the generic message — for Harm, missing provenance is a
-        // per-item bug, not a known template gap.
-        let harm = make_item_with_data(
+        // Case 3: Other derived type (Harm) with no provenance key — the
+        // catch-all branch's generic message. For Harm, missing provenance
+        // is a per-item bug, not a known template gap.
+        let harm_no_prov = make_item_with_data(
             401,
             "Harm",
             serde_json::json!({ "properties": { "kind": "economic" } }),
         );
-        let map = HashMap::new();
-        match validate_derived_provenance(&harm, &map, true) {
-            DerivedValidation::Invalid(r) => assert_eq!(r, "no provenance array"),
-            DerivedValidation::Valid => panic!("expected Invalid for Harm with no provenance"),
-        }
-    }
 
-    #[test]
-    fn validate_derived_returns_invalid_when_provenance_array_is_empty() {
-        // Catches: an off-by-one that treats `provenance: []` as "no
-        // provenance array". Distinguishing the two is what
-        // `verification_reason` is for — empty array means the LLM
-        // emitted the field but found nothing to put in it; missing
-        // array means the template never asked.
-        let harm = make_item_with_data(
+        // Case 4: provenance: [] — distinguishing empty-array from
+        // missing-key is what `verification_reason` is for. The empty
+        // array means the LLM emitted the field but found nothing to
+        // put in it; missing means the template never asked.
+        let harm_empty_prov = make_item_with_data(
             501,
             "Harm",
-            serde_json::json!({
-                "properties": { "kind": "economic" },
-                "provenance": []
-            }),
+            serde_json::json!({ "properties": { "kind": "economic" }, "provenance": [] }),
         );
-        let map = HashMap::new();
-        match validate_derived_provenance(&harm, &map, true) {
-            DerivedValidation::Invalid(r) => assert_eq!(r, "empty provenance array"),
-            DerivedValidation::Valid => panic!("expected Invalid for empty provenance"),
-        }
-    }
 
-    #[test]
-    fn validate_derived_returns_invalid_when_ref_missing_from_map() {
-        // Catches: a regression that skips the resolution step or builds
-        // the map across all entity_types (would silently match LegalCount
+        // Case 5: provenance entry refs a paragraph that's not in the map.
+        // Catches a regression that skips resolution or builds the map
+        // across all entity_types (would silently match LegalCount
         // paragraph_range or Element anchor_paragraph_numbers — both wrong).
-        let allegation = allegation_with_paragraph(101, "8");
-        let harm = make_item_with_data(
+        let harm_dangling_ref = make_item_with_data(
             601,
             "Harm",
             serde_json::json!({
@@ -1076,27 +1015,12 @@ mod tests {
                 "provenance": [{ "ref": "99" }]
             }),
         );
-        // build_para_to_item_id filters to entity_type=="Allegation",
-        // so only Allegations need to be in the slice. Avoiding the clone
-        // also keeps `harm` movable into validate_derived_provenance.
-        let map = build_para_to_item_id(&[allegation]);
-        match validate_derived_provenance(&harm, &map, true) {
-            DerivedValidation::Invalid(r) => assert_eq!(
-                r,
-                "provenance references paragraph 99 which is not extracted as an Allegation"
-            ),
-            DerivedValidation::Valid => panic!("expected Invalid for dangling paragraph 99"),
-        }
-    }
 
-    #[test]
-    fn validate_derived_returns_invalid_when_provenance_entry_missing_ref() {
-        // Catches: a refactor that silently skips entries with no `ref`
-        // field instead of failing the whole item. Roman's Q1
-        // (PCA round 2) said exactly: "add as fifth canonical string.
-        // Use exactly: 'provenance entry missing ref field'. Do not
-        // fold into existing strings."
-        let harm = make_item_with_data(
+        // Case 6: provenance entry missing 'ref' field. Roman's Q1
+        // (PCA round 2): "add as fifth canonical string. Use exactly:
+        // 'provenance entry missing ref field'. Do not fold into existing
+        // strings."
+        let harm_missing_ref = make_item_with_data(
             701,
             "Harm",
             serde_json::json!({
@@ -1104,10 +1028,28 @@ mod tests {
                 "provenance": [{ "quote_snippet": "no ref here" }]
             }),
         );
-        let map = HashMap::new();
-        match validate_derived_provenance(&harm, &map, true) {
-            DerivedValidation::Invalid(r) => assert_eq!(r, "provenance entry missing 'ref' field"),
-            DerivedValidation::Valid => panic!("expected Invalid for entry missing ref"),
+
+        let cases = [
+            (&null_harm, "item_data is null"),
+            (&theme_no_prov, "no provenance array — schema/template gap (see FOLLOWUP-template-thematic-provenance)"),
+            (&harm_no_prov, "no provenance array"),
+            (&harm_empty_prov, "empty provenance array"),
+            (&harm_dangling_ref, "provenance references paragraph 99 which is not extracted as an Allegation"),
+            (&harm_missing_ref, "provenance entry missing 'ref' field"),
+        ];
+
+        for (item, expected_reason) in cases {
+            match validate_derived_provenance(item, &para_map, true) {
+                DerivedValidation::Invalid(r) => assert_eq!(
+                    r, *expected_reason,
+                    "item id {} should produce reason {expected_reason:?}; got: {r:?}",
+                    item.id
+                ),
+                DerivedValidation::Valid => panic!(
+                    "item id {} expected Invalid({expected_reason:?}); got Valid",
+                    item.id
+                ),
+            }
         }
     }
 

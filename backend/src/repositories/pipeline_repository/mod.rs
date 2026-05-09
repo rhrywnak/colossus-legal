@@ -899,42 +899,4 @@ mod tests {
     // who sets up a test DB fixture, but they don't gate the normal
     // test run that has no PG connection.
 
-    #[ignore = "requires a live test database fixture (none in repo today)"]
-    #[test]
-    fn pipeline_config_chunking_override_round_trips_through_db() {
-        // Stub: insert pipeline_config with chunking_config = Some(map),
-        // call get_pipeline_config_overrides, assert deep equality.
-        // Implement when a #[fixture]-style PG pool helper lands.
-    }
-
-    #[ignore = "requires a live test database fixture (none in repo today)"]
-    #[test]
-    fn pipeline_config_chunking_null_round_trips_through_db_as_none() {
-        // Stub: insert with NULL chunking_config column, read back,
-        // assert PipelineConfigOverrides.chunking_config == None.
-    }
-
-    #[ignore = "requires a live test database fixture (none in repo today)"]
-    #[test]
-    fn pipeline_config_malformed_chunking_jsonb_returns_deserialization_error() {
-        // Stub: write a JSONB number into the chunking_config column
-        // via raw SQL (bypassing the typed write path), then call
-        // get_pipeline_config_overrides — expect
-        // PipelineRepoError::Deserialization carrying the document_id.
-        // The pure-unit test `decode_jsonb_map_errors_on_non_object_jsonb`
-        // above already covers this contract at the conversion layer;
-        // this stub exists for the future end-to-end verification.
-    }
-
-    #[ignore = "requires a live test database fixture (none in repo today)"]
-    #[test]
-    fn pass2_template_override_round_trips_through_pipeline_config() {
-        // Stub: insert pipeline_config row, then patch with
-        // pass2_template_file = Some("pass2_custom.md"), call
-        // get_pipeline_config_overrides, assert the override round-trips.
-        // Catches: a future migration that drops the column, a
-        // repository change that forgets to update SELECT or UPDATE,
-        // or a `.bind()` ordering bug.
-        // Implement when a #[fixture]-style PG pool helper lands.
-    }
 }

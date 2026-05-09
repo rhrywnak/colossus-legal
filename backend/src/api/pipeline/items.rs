@@ -481,77 +481,77 @@ mod tests {
     use super::*;
 
     #[test]
-    fn compute_item_actions_pending() {
-        let actions = compute_available_actions(&EntityCategory::Evidence, "pending", false);
-        assert!(actions.contains(&"approve".to_string()));
-        assert!(actions.contains(&"reject".to_string()));
-        assert!(actions.contains(&"edit".to_string()));
-    }
-
-    #[test]
-    fn compute_item_actions_empty() {
-        let actions = compute_available_actions(&EntityCategory::Evidence, "", false);
-        assert!(actions.contains(&"approve".to_string()));
-        assert!(actions.contains(&"reject".to_string()));
-        assert!(actions.contains(&"edit".to_string()));
-    }
-
-    #[test]
-    fn compute_item_actions_approved() {
-        let actions = compute_available_actions(&EntityCategory::Evidence, "approved", false);
-        assert!(!actions.contains(&"approve".to_string()));
-        assert!(!actions.contains(&"reject".to_string()));
-        assert!(actions.contains(&"unapprove".to_string()));
-    }
-
-    #[test]
-    fn compute_item_actions_rejected() {
-        let actions = compute_available_actions(&EntityCategory::Evidence, "rejected", false);
-        assert!(!actions.contains(&"approve".to_string()));
-        assert!(actions.contains(&"unreject".to_string()));
-    }
-
-    #[test]
-    fn compute_item_actions_edited() {
-        let actions = compute_available_actions(&EntityCategory::Evidence, "edited", false);
-        assert!(actions.contains(&"unapprove".to_string()));
-    }
-
-    #[test]
-    fn compute_item_actions_case_insensitive() {
-        let actions = compute_available_actions(&EntityCategory::Evidence, "Pending", false);
-        assert!(actions.contains(&"approve".to_string()));
-        let actions = compute_available_actions(&EntityCategory::Evidence, "PENDING", false);
-        assert!(actions.contains(&"approve".to_string()));
-    }
-
-    #[test]
-    fn compute_item_actions_foundation_pending() {
-        let actions = compute_available_actions(&EntityCategory::Foundation, "pending", false);
-        assert!(actions.contains(&"confirm".to_string()));
-        assert!(actions.contains(&"edit".to_string()));
-        assert!(!actions.contains(&"approve".to_string()));
-        assert!(!actions.contains(&"reject".to_string()));
-    }
-
-    #[test]
-    fn compute_item_actions_reference_pending() {
-        let actions = compute_available_actions(&EntityCategory::Reference, "pending", false);
-        assert!(actions.contains(&"approve".to_string()));
-        assert!(actions.contains(&"reject".to_string()));
-        assert!(!actions.contains(&"edit".to_string()));
-    }
-
-    #[test]
-    fn compute_item_actions_locked() {
-        let actions = compute_available_actions(&EntityCategory::Evidence, "pending", true);
-        assert!(actions.is_empty());
-    }
-
-    #[test]
-    fn compute_item_actions_locked_approved() {
-        let actions = compute_available_actions(&EntityCategory::Evidence, "approved", true);
-        assert!(actions.is_empty());
+    fn test_compute_available_actions_routing() {
+        // Routing table: (category, status, locked) → set of expected
+        // action strings, plus a set of explicitly-disallowed actions.
+        // Each row preserves the original test's contract:
+        //
+        // - Evidence/pending → approve+reject+edit
+        // - Evidence/"" → approve+reject+edit (empty = pending fallback)
+        // - Evidence/approved → unapprove (NOT approve/reject)
+        // - Evidence/rejected → unreject (NOT approve)
+        // - Evidence/edited → unapprove
+        // - Evidence/"Pending" / "PENDING" → approve (case-insensitive)
+        // - Foundation/pending → confirm+edit (NOT approve/reject)
+        // - Reference/pending → approve+reject (NOT edit)
+        // - Evidence/pending+locked → empty
+        // - Evidence/approved+locked → empty
+        struct Case {
+            category: EntityCategory,
+            status: &'static str,
+            locked: bool,
+            must_contain: &'static [&'static str],
+            must_not_contain: &'static [&'static str],
+        }
+        let cases = [
+            Case { category: EntityCategory::Evidence, status: "pending", locked: false,
+                   must_contain: &["approve", "reject", "edit"], must_not_contain: &[] },
+            Case { category: EntityCategory::Evidence, status: "", locked: false,
+                   must_contain: &["approve", "reject", "edit"], must_not_contain: &[] },
+            Case { category: EntityCategory::Evidence, status: "approved", locked: false,
+                   must_contain: &["unapprove"], must_not_contain: &["approve", "reject"] },
+            Case { category: EntityCategory::Evidence, status: "rejected", locked: false,
+                   must_contain: &["unreject"], must_not_contain: &["approve"] },
+            Case { category: EntityCategory::Evidence, status: "edited", locked: false,
+                   must_contain: &["unapprove"], must_not_contain: &[] },
+            Case { category: EntityCategory::Evidence, status: "Pending", locked: false,
+                   must_contain: &["approve"], must_not_contain: &[] },
+            Case { category: EntityCategory::Evidence, status: "PENDING", locked: false,
+                   must_contain: &["approve"], must_not_contain: &[] },
+            Case { category: EntityCategory::Foundation, status: "pending", locked: false,
+                   must_contain: &["confirm", "edit"], must_not_contain: &["approve", "reject"] },
+            Case { category: EntityCategory::Reference, status: "pending", locked: false,
+                   must_contain: &["approve", "reject"], must_not_contain: &["edit"] },
+            Case { category: EntityCategory::Evidence, status: "pending", locked: true,
+                   must_contain: &[], must_not_contain: &["approve", "reject", "edit", "unapprove", "unreject"] },
+            Case { category: EntityCategory::Evidence, status: "approved", locked: true,
+                   must_contain: &[], must_not_contain: &["approve", "reject", "edit", "unapprove", "unreject"] },
+        ];
+        for c in &cases {
+            let actions = compute_available_actions(&c.category, c.status, c.locked);
+            for needed in c.must_contain {
+                assert!(
+                    actions.contains(&needed.to_string()),
+                    "({:?}, {:?}, locked={}) must contain {needed:?}; got: {:?}",
+                    c.category, c.status, c.locked, actions
+                );
+            }
+            for forbidden in c.must_not_contain {
+                assert!(
+                    !actions.contains(&forbidden.to_string()),
+                    "({:?}, {:?}, locked={}) must NOT contain {forbidden:?}; got: {:?}",
+                    c.category, c.status, c.locked, actions
+                );
+            }
+            // Locked variants are fully empty — pin that explicitly.
+            if c.locked {
+                assert!(
+                    actions.is_empty(),
+                    "({:?}, {:?}, locked=true) must produce empty action set; got: {:?}",
+                    c.category, c.status, actions
+                );
+            }
+        }
     }
 
     // ── Post-ingest lock set ─────────────────────────────────────

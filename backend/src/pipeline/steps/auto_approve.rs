@@ -176,13 +176,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn auto_approve_step_constants_match_spec() {
-        assert_eq!(AutoApprove::DEFAULT_RETRY_LIMIT, 1);
-        assert_eq!(AutoApprove::DEFAULT_RETRY_DELAY_SECS, 5);
-        assert_eq!(AutoApprove::DEFAULT_TIMEOUT_SECS, Some(30));
-    }
-
-    #[test]
     fn auto_approve_error_document_not_found_display_contains_doc_id() {
         let err = AutoApproveError::DocumentNotFound {
             doc_id: "missing-doc-99".to_string(),

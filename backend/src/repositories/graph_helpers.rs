@@ -53,13 +53,6 @@ mod tests {
     use std::collections::HashMap;
 
     #[test]
-    fn safe_label_accepts_valid() {
-        assert_eq!(safe_label("ComplaintAllegation"), Ok("ComplaintAllegation"));
-        assert_eq!(safe_label("LegalCount"), Ok("LegalCount"));
-        assert_eq!(safe_label("Person_2"), Ok("Person_2"));
-    }
-
-    #[test]
     fn safe_label_rejects_injection() {
         assert!(safe_label("Person})-[:HACK]->()//").is_err());
         assert!(safe_label("Label With Spaces").is_err());

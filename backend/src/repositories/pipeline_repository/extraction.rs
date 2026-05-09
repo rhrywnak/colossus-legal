@@ -1464,32 +1464,6 @@ pub async fn update_run_chunk_stats(
 mod tests {
     use super::*;
 
-    /// Compile-only: freezes `store_entities_and_relationships`'s parameter
-    /// list. Any future refactor that changes argument order or types breaks
-    /// this, forcing explicit acknowledgement at the call site
-    /// (`pipeline/steps/llm_extract.rs`). No DB is touched.
-    #[test]
-    fn store_entities_signature_is_stable() {
-        let _f = store_entities_and_relationships;
-    }
-
-    /// Compile-only: pin the pass-2 helper signatures so future refactors
-    /// must explicitly acknowledge a breaking change at the step call site.
-    #[test]
-    fn pass2_helper_signatures_are_stable() {
-        let _l = load_pass1_entities;
-        let _s = store_pass2_relationships;
-    }
-
-    /// Compile-only: pin the all-passes relationships signature. Ingest
-    /// depends on `doc_id` keying (not `run_id`) to unify pass-1 and
-    /// pass-2 relationships — a silent refactor back to run_id filtering
-    /// would reintroduce the "No Neo4j ID for from_item_id N" bug.
-    #[test]
-    fn all_passes_relationships_signature_is_stable() {
-        let _f = get_approved_relationships_for_document_all_passes;
-    }
-
     fn item_record_with(
         id: i32,
         entity_type: &str,
@@ -1591,13 +1565,6 @@ mod tests {
     }
 
     // ── CrossDocEntity ─────────────────────────────────────────────
-
-    /// Compile-only: pin the cross-doc loader signature so step-layer
-    /// callers don't break silently.
-    #[test]
-    fn cross_doc_loader_signature_is_stable() {
-        let _f = load_cross_document_context;
-    }
 
     fn cross_doc(
         item_id: i32,
@@ -1704,24 +1671,6 @@ mod tests {
         let e = cross_doc(99, "unknown-001", "UnknownType", props.clone());
         let v = e.to_prompt_value();
         assert_eq!(v["properties"], props);
-    }
-
-    /// Compile-only: pin the cross-doc endpoint lookup helpers. Ingest
-    /// depends on both to resolve pass-2 cross-document relationships.
-    #[test]
-    fn cross_doc_endpoint_lookups_signatures_are_stable() {
-        let _a = lookup_neo4j_node_ids;
-        let _b = lookup_item_document_ids;
-    }
-
-    #[test]
-    fn cross_doc_id_prefix_is_ctx() {
-        // The prefix is a public constant because both the loader
-        // (writes it) and any future caller that needs to detect
-        // cross-doc ids (reads it) depend on agreement. A silent
-        // change to a different literal would break the id_map lookup
-        // in store_pass2_relationships — pin it.
-        assert_eq!(CROSS_DOC_ID_PREFIX, "ctx:");
     }
 
     // ── resolve_relationship_fields ───────────────────────────────

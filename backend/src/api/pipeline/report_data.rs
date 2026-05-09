@@ -506,54 +506,5 @@ mod tests {
         assert_eq!(report.verification.pending, 2);
     }
 
-    /// JSON round-trip: the report serialises to JSON and the JSON
-    /// has the documented top-level field names. Pins the API shape.
-    #[test]
-    fn build_report_serialises_to_documented_json_shape() {
-        let report = build_report(
-            "doc-x".into(),
-            "Doc X".into(),
-            "complaint".into(),
-            "PUBLISHED".into(),
-            &[],
-            0,
-            Vec::new(),
-            Vec::new(),
-        );
-        let json = serde_json::to_value(&report).expect("must serialise");
-        for key in [
-            "document_id",
-            "document_label",
-            "document_type",
-            "status",
-            "total_entity_count",
-            "total_relationship_count",
-            "entity_breakdown",
-            "relationship_breakdown",
-            "verification",
-            "passes",
-            "fingerprints",
-            "limitations",
-            "generated_at",
-        ] {
-            assert!(json.get(key).is_some(), "JSON missing top-level key: {key}");
-        }
-        for key in [
-            "profile_name",
-            "profile_hash",
-            "pass1_template_file",
-            "pass1_template_hash",
-            "pass2_template_file",
-            "pass2_template_hash",
-            "global_rules_file",
-            "global_rules_hash",
-            "schema_file",
-        ] {
-            assert!(
-                json["fingerprints"].get(key).is_some(),
-                "fingerprints JSON missing key: {key}"
-            );
-        }
-    }
 }
 

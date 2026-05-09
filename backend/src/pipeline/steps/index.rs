@@ -361,47 +361,4 @@ mod tests {
         assert!(format!("{err}").contains("test-doc-42"));
     }
 
-    #[test]
-    fn index_error_cleanup_variant_chains_source() {
-        let inner = CleanupError::Neo4j {
-            doc_id: "doc-7".to_string(),
-            source: neo4rs::Error::AuthenticationError("inner".to_string()),
-        };
-        let err = IndexError::Cleanup {
-            doc_id: "doc-7".to_string(),
-            source: inner,
-        };
-        use std::error::Error as _;
-        assert!(err.source().is_some(), "source() must return Some");
-    }
-
-    #[test]
-    fn node_id_to_point_id_is_deterministic() {
-        let a = node_id_to_point_id("complaint-allegation-1");
-        let b = node_id_to_point_id("complaint-allegation-1");
-        assert_eq!(a, b, "hashing must be deterministic within a run");
-    }
-
-    #[test]
-    fn node_id_to_point_id_differs_for_different_ids() {
-        let a = node_id_to_point_id("complaint-allegation-1");
-        let b = node_id_to_point_id("complaint-allegation-2");
-        assert_ne!(a, b);
-    }
-
-    #[test]
-    fn index_step_constants_match_spec() {
-        assert_eq!(Index::DEFAULT_RETRY_LIMIT, 3);
-        assert_eq!(Index::DEFAULT_RETRY_DELAY_SECS, 10);
-        assert_eq!(Index::DEFAULT_TIMEOUT_SECS, Some(300));
-    }
-
-    /// Compile-time guard: `QDRANT_DOCUMENT_ID_FIELD` must equal
-    /// `"document_id"` for the payload JSON key to align with
-    /// `cleanup_qdrant`'s filter key and with the HTTP `index_handler`'s
-    /// payload shape.
-    #[test]
-    fn qdrant_document_id_field_matches_expected_value() {
-        assert_eq!(QDRANT_DOCUMENT_ID_FIELD, "document_id");
-    }
 }

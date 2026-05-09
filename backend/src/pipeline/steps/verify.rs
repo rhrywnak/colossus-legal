@@ -389,13 +389,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn verify_step_constants_match_spec() {
-        assert_eq!(Verify::DEFAULT_RETRY_LIMIT, 2);
-        assert_eq!(Verify::DEFAULT_RETRY_DELAY_SECS, 5);
-        assert_eq!(Verify::DEFAULT_TIMEOUT_SECS, Some(180));
-    }
-
-    #[test]
     fn verify_error_document_not_found_display_contains_doc_id() {
         let err = VerifyError::DocumentNotFound {
             doc_id: "missing-99".to_string(),

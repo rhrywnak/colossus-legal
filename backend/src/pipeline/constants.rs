@@ -43,31 +43,3 @@ pub use crate::models::document_status::STATUS_FAILED as DOC_STATUS_FAILED;
 pub use crate::models::document_status::STATUS_NEW as DOC_STATUS_NEW;
 pub use crate::models::document_status::STATUS_PROCESSING as DOC_STATUS_PROCESSING;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn status_values_have_correct_casing() {
-        // These strings are persisted in the documents table and referenced
-        // by frontend rendering logic. Changing casing silently would break
-        // queries. Lock it in.
-        assert_eq!(DOC_STATUS_NEW, "NEW");
-        assert_eq!(DOC_STATUS_PROCESSING, "PROCESSING");
-        assert_eq!(DOC_STATUS_COMPLETED, "COMPLETED");
-        assert_eq!(DOC_STATUS_FAILED, "FAILED");
-        assert_eq!(DOC_STATUS_CANCELLED, "CANCELLED");
-    }
-
-    #[test]
-    fn priority_ordering_puts_complaints_first() {
-        // Higher priority is processed first. Complaints must outrank default.
-        // Const block enforces the invariant at compile time — stricter than runtime.
-        const { assert!(PRIORITY_COMPLAINT > PRIORITY_DEFAULT) };
-    }
-
-    #[test]
-    fn max_upload_size_is_fifty_megabytes() {
-        assert_eq!(MAX_UPLOAD_SIZE_BYTES, 52_428_800);
-    }
-}

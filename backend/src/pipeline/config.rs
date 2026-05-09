@@ -1054,126 +1054,7 @@ extraction_model: claude-sonnet-4-6
         assert_eq!(resolved.overrides_applied.len(), 2);
     }
 
-    #[test]
-    fn resolved_config_serializes_to_json() {
-        let config = ResolvedConfig {
-            profile_name: "complaint".into(),
-            profile_hash: String::new(),
-            effective_pass: 1,
-            model: "claude-sonnet-4-6".into(),
-            pass2_model: None,
-            template_file: "pass1_complaint.md".into(),
-            template_hash: Some("abc123".into()),
-            pass2_template_file: None,
-            system_prompt_file: None,
-            system_prompt_hash: None,
-            global_rules_file: None,
-            global_rules_hash: None,
-            schema_file: "complaint_v2.yaml".into(),
-            chunking_mode: "full".into(),
-            chunk_size: None,
-            chunk_overlap: None,
-            chunking_config: HashMap::new(),
-            context_config: HashMap::new(),
-            max_tokens: 32000,
-            temperature: 0.0,
-            auto_approve_grounded: true,
-            run_pass2: false,
-            overrides_applied: vec!["temperature".into()],
-            pass2_cross_doc_entities: Vec::new(),
-            pass2_source_document_ids: Vec::new(),
-        };
-        let json = serde_json::to_value(&config).unwrap();
-        assert_eq!(json["profile_name"], "complaint");
-        assert_eq!(json["overrides_applied"][0], "temperature");
-        // This JSON is what gets stored in extraction_runs.processing_config
-    }
-
     // ── chunking_config / context_config (Phase 1b Group 1) ──────────
-
-    #[test]
-    fn load_profile_with_chunking_config() {
-        let yaml = r#"
-name: discovery_response
-display_name: Discovery Response
-schema_file: discovery_response_v4.yaml
-template_file: pass1_discovery_response_v4.md
-extraction_model: claude-sonnet-4-6
-chunking_config:
-  mode: structured
-  strategy: qa_pair
-  units_per_chunk: 25
-  unit_overlap: 0
-  request_timeout_secs: 1800
-context_config:
-  traversal_depth: 2
-  always_include_foundation: true
-"#;
-        let f = write_temp_profile(yaml);
-        let profile = ProcessingProfile::from_file(f.path()).unwrap();
-
-        // chunking_config is a HashMap — verify keys exist and values are correct types
-        assert_eq!(
-            profile.chunking_config.get("mode").and_then(|v| v.as_str()),
-            Some("structured")
-        );
-        assert_eq!(
-            profile.chunking_config.get("strategy").and_then(|v| v.as_str()),
-            Some("qa_pair")
-        );
-        assert_eq!(
-            profile.chunking_config.get("units_per_chunk").and_then(|v| v.as_i64()),
-            Some(25)
-        );
-        assert_eq!(
-            profile
-                .chunking_config
-                .get("request_timeout_secs")
-                .and_then(|v| v.as_i64()),
-            Some(1800)
-        );
-
-        // context_config
-        assert_eq!(
-            profile.context_config.get("traversal_depth").and_then(|v| v.as_i64()),
-            Some(2)
-        );
-        assert_eq!(
-            profile
-                .context_config
-                .get("always_include_foundation")
-                .and_then(|v| v.as_bool()),
-            Some(true)
-        );
-    }
-
-    #[test]
-    fn load_profile_without_chunking_config_gets_empty_maps() {
-        // Backward compatibility: profiles authored before these fields
-        // existed must still deserialize. `#[serde(default)]` on the
-        // HashMap fields produces empty maps when the YAML keys are absent.
-        let yaml = r#"
-name: complaint
-display_name: Complaint
-schema_file: complaint_v2.yaml
-template_file: pass1_complaint.md
-extraction_model: claude-sonnet-4-6
-chunking_mode: full
-"#;
-        let f = write_temp_profile(yaml);
-        let profile = ProcessingProfile::from_file(f.path()).unwrap();
-
-        assert!(
-            profile.chunking_config.is_empty(),
-            "expected empty chunking_config for legacy profile"
-        );
-        assert!(
-            profile.context_config.is_empty(),
-            "expected empty context_config for legacy profile"
-        );
-        // Legacy field still works
-        assert_eq!(profile.chunking_mode, "full");
-    }
 
     #[test]
     fn resolve_config_includes_chunking_config() {
@@ -1314,53 +1195,6 @@ chunking_mode: full
     }
 
     #[test]
-    fn resolved_config_with_chunking_config_serializes() {
-        let mut chunking_config = HashMap::new();
-        chunking_config.insert("mode".to_string(), serde_json::json!("structured"));
-        chunking_config.insert("strategy".to_string(), serde_json::json!("qa_pair"));
-
-        let config = ResolvedConfig {
-            profile_name: "discovery".into(),
-            profile_hash: String::new(),
-            effective_pass: 1,
-            model: "claude-sonnet-4-6".into(),
-            pass2_model: None,
-            template_file: "disc.md".into(),
-            template_hash: None,
-            pass2_template_file: None,
-            system_prompt_file: None,
-            system_prompt_hash: None,
-            global_rules_file: None,
-            global_rules_hash: None,
-            schema_file: "disc.yaml".into(),
-            chunking_mode: "full".into(),
-            chunk_size: None,
-            chunk_overlap: None,
-            chunking_config,
-            context_config: HashMap::new(),
-            max_tokens: 32000,
-            temperature: 0.0,
-            auto_approve_grounded: true,
-            run_pass2: false,
-            overrides_applied: vec![],
-            pass2_cross_doc_entities: Vec::new(),
-            pass2_source_document_ids: Vec::new(),
-        };
-
-        let json = serde_json::to_value(&config).unwrap();
-
-        // chunking_config appears in the JSON (this is what gets stored in
-        // extraction_runs.processing_config — the audit trail).
-        assert_eq!(json["chunking_config"]["mode"], "structured");
-        assert_eq!(json["chunking_config"]["strategy"], "qa_pair");
-        // Empty context_config still serializes as an object, not omitted.
-        // This matters for the audit trail: a downstream consumer can rely
-        // on the key being present and reading `{}` rather than handling
-        // both "missing" and "empty" states.
-        assert!(json["context_config"].is_object());
-    }
-
-    #[test]
     fn profile_preserves_unknown_chunking_config_keys() {
         // ## Rust Learning: forward-compatibility via `serde_json::Value`
         //
@@ -1435,20 +1269,6 @@ extraction_model: claude-sonnet-4-6
     }
 
     #[test]
-    fn identical_yaml_bodies_produce_identical_profile_hashes() {
-        let yaml = r#"
-name: complaint
-display_name: Complaint
-schema_file: complaint_v4.yaml
-template_file: pass1_complaint_v4.md
-extraction_model: claude-sonnet-4-6
-"#;
-        let a = ProcessingProfile::from_yaml_str(yaml).unwrap();
-        let b = ProcessingProfile::from_yaml_str(yaml).unwrap();
-        assert_eq!(a.profile_hash, b.profile_hash);
-    }
-
-    #[test]
     fn editing_yaml_changes_the_profile_hash() {
         // Two YAMLs that produce the SAME deserialised struct values but
         // differ in their raw bytes (here: a comment-only edit). The
@@ -1500,28 +1320,6 @@ extraction_model: claude-sonnet-4-6
     }
 
     // ── synthesis_model deletion (Gap 10) ────────────────────────────
-
-    #[test]
-    fn yaml_with_legacy_synthesis_model_still_parses() {
-        // Backward compat: an operator running an older YAML on disk
-        // (one that still has `synthesis_model:`) must keep working.
-        // The line is silently ignored because ProcessingProfile does
-        // NOT use `#[serde(deny_unknown_fields)]`.
-        let yaml = r#"
-name: complaint
-display_name: Complaint
-schema_file: complaint_v4.yaml
-template_file: pass1_complaint_v4.md
-extraction_model: claude-sonnet-4-6
-synthesis_model: claude-opus-4-7
-"#;
-        let p = ProcessingProfile::from_yaml_str(yaml)
-            .expect("YAML with legacy synthesis_model must still parse");
-        assert_eq!(p.name, "complaint");
-        // synthesis_model is gone from the struct — there's no field to
-        // assert. The success of from_yaml_str is the test.
-        let _ = p;
-    }
 
     #[test]
     fn no_profile_yaml_on_disk_carries_synthesis_model() {

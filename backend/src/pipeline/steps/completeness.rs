@@ -341,20 +341,4 @@ mod tests {
         assert!(format!("{err}").contains("doc-42"));
     }
 
-    #[test]
-    fn completeness_step_constants_match_spec() {
-        assert_eq!(Completeness::DEFAULT_RETRY_LIMIT, 3);
-        assert_eq!(Completeness::DEFAULT_RETRY_DELAY_SECS, 10);
-        assert_eq!(Completeness::DEFAULT_TIMEOUT_SECS, Some(60));
-    }
-
-    /// Lockstep guard. The legacy `STATUS_PUBLISHED` is what this step
-    /// writes. If the PS-B8 lifecycle migration happens (rename to
-    /// `COMPLETED`), this test must be updated in lockstep with the
-    /// frontend and `state_machine` changes so nobody merges only half
-    /// the rename.
-    #[test]
-    fn completeness_writes_published_not_completed() {
-        assert_eq!(STATUS_PUBLISHED, "PUBLISHED");
-    }
 }

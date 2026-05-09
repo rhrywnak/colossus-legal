@@ -405,55 +405,48 @@ mod tests {
     // sync risk.
 
     #[test]
-    fn grounded_statuses_include_derived() {
-        // v2 Harm entities have grounding_mode=derived → grounding_status='derived'.
-        // They must auto-approve — this was the bug that stranded 8 Harms on DEV.
-        assert!(GROUNDED_STATUSES.contains(&"derived"));
-    }
-
-    #[test]
-    fn grounded_statuses_include_unverified() {
-        // Entities with grounding_mode=none get grounding_status='unverified'.
-        // The schema said grounding wasn't required — they must auto-approve.
-        assert!(GROUNDED_STATUSES.contains(&"unverified"));
-    }
-
-    #[test]
-    fn grounded_statuses_include_manual() {
-        // edit_item sets grounding_status='manual' when the user supplies a page.
-        // Manually grounded items must auto-approve.
-        assert!(GROUNDED_STATUSES.contains(&"manual"));
-    }
-
-    #[test]
-    fn grounded_statuses_still_include_exact_and_normalized() {
-        assert!(GROUNDED_STATUSES.contains(&"exact"));
-        assert!(GROUNDED_STATUSES.contains(&"normalized"));
-    }
-
-    #[test]
-    fn grounded_statuses_exclude_not_found() {
-        // not_found means the LLM's quote wasn't in the PDF — genuine
-        // extraction failure, user must review.
-        assert!(!GROUNDED_STATUSES.contains(&"not_found"));
-    }
-
-    #[test]
-    fn grounded_statuses_exclude_missing_quote() {
-        // missing_quote means the LLM didn't supply a verbatim quote at all.
-        // User must review.
-        assert!(!GROUNDED_STATUSES.contains(&"missing_quote"));
-    }
-
-    #[test]
-    fn grounded_statuses_exclude_derived_invalid() {
-        // v5.1 §5.4: derived_invalid items failed provenance validation
-        // (missing/empty array, dangling reference, or null item_data).
-        // They MUST NOT auto-approve — Roman's Q1A explicitly excluded
-        // them from this list. Catches a future refactor that mass-adds
-        // statuses to GROUNDED_STATUSES and accidentally includes
-        // derived_invalid, losing the no-auto-approval guarantee.
-        assert!(!GROUNDED_STATUSES.contains(&"derived_invalid"));
+    fn test_grounded_statuses_membership() {
+        // Routing table: status string → expected_in_set. Each row pins
+        // a specific design decision documented in the source tests:
+        //
+        // - "derived"        → in: v2 Harm entities have grounding_mode=
+        //                     derived → grounding_status='derived'. Must
+        //                     auto-approve. Was the bug that stranded
+        //                     8 Harms on DEV.
+        // - "unverified"     → in: schema-mode=none entities get
+        //                     'unverified'. Schema said grounding wasn't
+        //                     required — must auto-approve.
+        // - "manual"         → in: edit_item sets 'manual' when the user
+        //                     supplies a page; manually grounded items
+        //                     must auto-approve.
+        // - "exact"          → in: regression baseline (verbatim hit).
+        // - "normalized"     → in: regression baseline (normalized hit).
+        // - "not_found"      → out: LLM quote not in PDF — extraction
+        //                     failure, user must review.
+        // - "missing_quote"  → out: LLM didn't supply a verbatim quote
+        //                     at all — user must review.
+        // - "derived_invalid"→ out (v5.1 §5.4): items that failed
+        //                     provenance validation (missing/empty
+        //                     array, dangling reference, or null
+        //                     item_data) MUST NOT auto-approve. Roman's
+        //                     Q1A explicitly excluded them.
+        let cases = [
+            ("derived", true),
+            ("unverified", true),
+            ("manual", true),
+            ("exact", true),
+            ("normalized", true),
+            ("not_found", false),
+            ("missing_quote", false),
+            ("derived_invalid", false),
+        ];
+        for (status, expected_in_set) in cases {
+            assert_eq!(
+                GROUNDED_STATUSES.contains(&status),
+                expected_in_set,
+                "GROUNDED_STATUSES.contains({status:?}) should be {expected_in_set}"
+            );
+        }
     }
 
     #[test]

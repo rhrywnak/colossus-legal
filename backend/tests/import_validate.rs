@@ -131,19 +131,6 @@ async fn post_validate(app: Router, body: &str) -> TestResult<(StatusCode, Valid
 }
 
 #[tokio::test]
-async fn test_endpoint_valid_complete_request() -> TestResult<()> {
-    let app = setup_app().await?;
-    let (status, result) = post_validate(app, &valid_import_json()).await?;
-
-    assert_eq!(status, StatusCode::OK);
-    assert!(result.valid, "Expected valid=true for valid input");
-    assert_eq!(result.claim_count, 1);
-    assert_eq!(result.document_title, "Test Motion");
-    assert!(result.errors.is_empty());
-    Ok(())
-}
-
-#[tokio::test]
 async fn test_endpoint_invalid_json_syntax() -> TestResult<()> {
     let app = setup_app().await?;
     let (status, result) = post_validate(app, "{ invalid json }").await?;

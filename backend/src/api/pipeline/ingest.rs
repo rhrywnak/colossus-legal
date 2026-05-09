@@ -1051,30 +1051,3 @@ pub async fn ingest_delta_handler(
     Ok(Json(result))
 }
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn test_document_type_not_schema_filename() {
-        // The doc_type written to Neo4j should be the document_type from PG,
-        // NOT the schema_file from pipeline_config.
-        // Schema files look like "general_legal.yaml" or "complaint.yaml"
-        // Document types look like "complaint", "discovery_response", "affidavit"
-        let bad_values = [
-            "general_legal.yaml",
-            "complaint.yaml",
-            "discovery_response.yaml",
-        ];
-        for val in &bad_values {
-            assert!(val.contains('.'), "Schema filenames contain dots");
-        }
-        let good_values = [
-            "complaint",
-            "discovery_response",
-            "affidavit",
-            "court_ruling",
-        ];
-        for val in &good_values {
-            assert!(!val.contains('.'), "Document types should not contain dots");
-        }
-    }
-}

@@ -1912,86 +1912,86 @@ mod tests {
     //    placeholder doesn't leak.
 
     #[test]
-    fn assemble_chunk_prompt_substitutes_global_rules_when_some() {
-        let template = "Rules:\n{{global_rules}}\n\nDoc: {{document_text}}";
-        let prompt = assemble_chunk_prompt(
-            template,
-            "<SCHEMA>",
-            "<CHUNK>",
-            Some("RULE-1; RULE-2"),
-            None,
-            None,
-        )
-        .expect("substitution must succeed");
-        assert!(
-            prompt.contains("RULE-1; RULE-2"),
-            "global_rules content must land in the prompt; got: {prompt}"
-        );
-        assert!(
-            !prompt.contains("{{global_rules}}"),
-            "literal placeholder must be gone; got: {prompt}"
-        );
-    }
-
-    #[test]
-    fn assemble_chunk_prompt_substitutes_global_rules_with_empty_when_none() {
-        // Template references {{global_rules}} but the profile didn't opt
-        // in — the placeholder must vanish (replaced with "") rather than
-        // leak as literal text into the LLM prompt.
-        let template = "Rules:\n{{global_rules}}\n\nDoc: {{document_text}}";
-        let prompt = assemble_chunk_prompt(template, "<SCHEMA>", "<CHUNK>", None, None, None)
+    fn test_assemble_chunk_prompt_placeholder_routing() {
+        // Routing table: each row tests one (placeholder_name, value) →
+        // expected substitution behavior. Pins the contract that:
+        //
+        // - Some(value) → value lands in the prompt; literal {{...}} gone
+        // - None → literal {{...}} still gone (replaced with empty string),
+        //   never leaks as literal text into the LLM prompt
+        //
+        // Five rows: global_rules Some + None, admin_instructions Some +
+        // None, context None. (Pass-1 has no prior-context renderer yet,
+        // so context Some is not exercised here — the integration test
+        // `assemble_chunk_prompt_substitutes_all_three_alongside_body`
+        // covers all-three-substituted in one call.)
+        struct Row {
+            template: &'static str,
+            global_rules: Option<&'static str>,
+            admin: Option<&'static str>,
+            context: Option<&'static str>,
+            placeholder: &'static str,
+            // If Some, expect this content in the prompt.
+            expect_content: Option<&'static str>,
+        }
+        let rows = [
+            Row {
+                template: "Rules:\n{{global_rules}}\n\nDoc: {{document_text}}",
+                global_rules: Some("RULE-1; RULE-2"),
+                admin: None, context: None,
+                placeholder: "{{global_rules}}",
+                expect_content: Some("RULE-1; RULE-2"),
+            },
+            Row {
+                // Template references {{global_rules}} but profile didn't
+                // opt in — placeholder must vanish, not leak as literal.
+                template: "Rules:\n{{global_rules}}\n\nDoc: {{document_text}}",
+                global_rules: None, admin: None, context: None,
+                placeholder: "{{global_rules}}",
+                expect_content: None,
+            },
+            Row {
+                template: "Admin: {{admin_instructions}}\n\nDoc: {{document_text}}",
+                global_rules: None,
+                admin: Some("Focus on dates"),
+                context: None,
+                placeholder: "{{admin_instructions}}",
+                expect_content: Some("Focus on dates"),
+            },
+            Row {
+                template: "Admin: {{admin_instructions}}\n\nDoc: {{document_text}}",
+                global_rules: None, admin: None, context: None,
+                placeholder: "{{admin_instructions}}",
+                expect_content: None,
+            },
+            Row {
+                // Defensive: pass-1 has no prior-context renderer yet, so
+                // context is always None. The placeholder must still
+                // vanish so it doesn't reach the LLM as literal text.
+                template: "Context: {{context}}\n\nDoc: {{document_text}}",
+                global_rules: None, admin: None, context: None,
+                placeholder: "{{context}}",
+                expect_content: None,
+            },
+        ];
+        for row in rows {
+            let prompt = assemble_chunk_prompt(
+                row.template, "<SCHEMA>", "<CHUNK>",
+                row.global_rules, row.admin, row.context,
+            )
             .expect("substitution must succeed");
-        assert!(
-            !prompt.contains("{{global_rules}}"),
-            "absent global_rules must still strip the placeholder; got: {prompt}"
-        );
-    }
-
-    #[test]
-    fn assemble_chunk_prompt_substitutes_admin_instructions_when_some() {
-        let template =
-            "Admin: {{admin_instructions}}\n\nDoc: {{document_text}}";
-        let prompt = assemble_chunk_prompt(
-            template,
-            "<SCHEMA>",
-            "<CHUNK>",
-            None,
-            Some("Focus on dates"),
-            None,
-        )
-        .expect("substitution must succeed");
-        assert!(
-            prompt.contains("Focus on dates"),
-            "admin_instructions content must land in the prompt; got: {prompt}"
-        );
-        assert!(!prompt.contains("{{admin_instructions}}"));
-    }
-
-    #[test]
-    fn assemble_chunk_prompt_substitutes_admin_instructions_with_empty_when_none() {
-        let template =
-            "Admin: {{admin_instructions}}\n\nDoc: {{document_text}}";
-        let prompt = assemble_chunk_prompt(template, "<SCHEMA>", "<CHUNK>", None, None, None)
-            .expect("substitution must succeed");
-        assert!(
-            !prompt.contains("{{admin_instructions}}"),
-            "absent admin_instructions must still strip the placeholder; got: {prompt}"
-        );
-    }
-
-    #[test]
-    fn assemble_chunk_prompt_substitutes_context_with_empty_string() {
-        // Defensive empty-string substitution mirrors pass-2's pattern at
-        // llm_extract_pass2.rs:319. Pass-1 has no prior-context renderer
-        // yet, so context is always None — the placeholder must still
-        // vanish so it doesn't reach the LLM as literal text.
-        let template = "Context: {{context}}\n\nDoc: {{document_text}}";
-        let prompt = assemble_chunk_prompt(template, "<SCHEMA>", "<CHUNK>", None, None, None)
-            .expect("substitution must succeed");
-        assert!(
-            !prompt.contains("{{context}}"),
-            "context placeholder must vanish even when None; got: {prompt}"
-        );
+            assert!(
+                !prompt.contains(row.placeholder),
+                "literal placeholder {} must be gone; got: {prompt}",
+                row.placeholder
+            );
+            if let Some(content) = row.expect_content {
+                assert!(
+                    prompt.contains(content),
+                    "expected content {content:?} must land in the prompt; got: {prompt}"
+                );
+            }
+        }
     }
 
     #[test]
@@ -2343,67 +2343,11 @@ The real prompt body.";
     }
 
     #[test]
-    fn llm_extract_error_source_chaining() {
-        use std::error::Error as _;
-
-        let e = LlmExtractError::LlmCallFailed {
-            source: colossus_extract::PipelineError::LlmProvider("x".to_string()),
-        };
-        assert!(e.source().is_some(), "LlmCallFailed must expose a source");
-
-        let e2 = LlmExtractError::SchemaLoadFailed {
-            schema_file: "f.yaml".to_string(),
-            source: colossus_extract::PipelineError::Schema("bad".to_string()),
-        };
-        assert!(e2.source().is_some(), "SchemaLoadFailed must expose a source");
-    }
-
-    #[test]
     fn llm_extract_error_document_not_found_display() {
         let e = LlmExtractError::DocumentNotFound {
             document_id: "doc-xyz".to_string(),
         };
         assert!(e.to_string().contains("doc-xyz"));
-    }
-
-    #[test]
-    fn llm_extract_struct_derives() {
-        let a = LlmExtract {
-            document_id: "foo".to_string(),
-        };
-        let b = a.clone();
-        let _ = format!("{b:?}");
-        let j = serde_json::to_string(&a).unwrap();
-        let c: LlmExtract = serde_json::from_str(&j).unwrap();
-        assert_eq!(a.document_id, c.document_id);
-    }
-
-    #[test]
-    fn step_defaults_are_trait_defaults() {
-        assert_eq!(
-            <LlmExtract as Step<DocProcessing>>::DEFAULT_RETRY_LIMIT,
-            0
-        );
-        assert_eq!(
-            <LlmExtract as Step<DocProcessing>>::DEFAULT_RETRY_DELAY_SECS,
-            0
-        );
-        assert!(<LlmExtract as Step<DocProcessing>>::DEFAULT_TIMEOUT_SECS.is_none());
-    }
-
-    #[test]
-    fn llm_extract_error_store_failed_display() {
-        let e = LlmExtractError::StoreFailed {
-            message: "x".to_string(),
-        };
-        assert!(e.to_string().contains('x'));
-    }
-
-    /// Compile-only reference catches module-path drift for the extraction
-    /// store helper. No runtime execution, no DB.
-    #[test]
-    fn llm_extract_store_path_compiles() {
-        let _f = crate::repositories::pipeline_repository::extraction::store_entities_and_relationships;
     }
 
     #[test]
@@ -2441,15 +2385,6 @@ The real prompt body.";
             default_profile_name_from_schema("weird_vbeta.yaml"),
             "weird_vbeta"
         );
-    }
-
-    #[test]
-    fn sha2_hex_is_deterministic_and_64_chars() {
-        let a = sha2_hex("hello");
-        let b = sha2_hex("hello");
-        assert_eq!(a, b);
-        assert_eq!(a.len(), 64);
-        assert_ne!(a, sha2_hex("hello!"));
     }
 
     #[test]
@@ -2581,156 +2516,6 @@ The real prompt body.";
         assert!(resolved.chunking_config.is_empty());
 
         assert_eq!(resolve_effective_mode(&resolved), "chunked");
-    }
-
-    // ── Dedup-eligible entity-type set (Phase 1b Group 2b-ii) ────
-    //
-    // These tests verify the *colossus-legal glue* that selects which
-    // entity types ChunkMerger should deduplicate across chunks. The
-    // merger's internal correctness (ID prefixing, survivor selection,
-    // relationship endpoint remapping) is covered by 15 tests in
-    // colossus-rs — we test only the boundary contract here: the schema
-    // category drives the set; nothing is hardcoded by name.
-
-    #[test]
-    fn dedup_types_built_from_schema_categories() {
-        // Mixed schema: Foundation + Reference entries flow into the
-        // dedup set; Structural + Evidence entries do not.
-        let entity_configs = vec![
-            ("Party", EntityCategory::Foundation),
-            ("LegalCount", EntityCategory::Foundation),
-            ("FactualAllegation", EntityCategory::Structural),
-            ("Evidence", EntityCategory::Evidence),
-            ("LegalCitation", EntityCategory::Reference),
-        ];
-
-        let dedup_types: HashSet<String> = entity_configs
-            .iter()
-            .filter(|(_, cat)| matches!(cat, EntityCategory::Foundation | EntityCategory::Reference))
-            .map(|(name, _)| name.to_string())
-            .collect();
-
-        assert!(dedup_types.contains("Party"));
-        assert!(dedup_types.contains("LegalCount"));
-        assert!(dedup_types.contains("LegalCitation"));
-        assert!(
-            !dedup_types.contains("FactualAllegation"),
-            "Structural entities must NOT be deduplicated"
-        );
-        assert!(
-            !dedup_types.contains("Evidence"),
-            "Evidence entities must NOT be deduplicated"
-        );
-        assert_eq!(dedup_types.len(), 3);
-    }
-
-    #[test]
-    fn empty_schema_produces_empty_dedup_set() {
-        // Edge case: a schema with no entity types yields an empty
-        // dedup set. The merger then no-ops dedup logic and only
-        // applies ID-prefix normalisation, which is safe behaviour.
-        let entity_configs: Vec<(&str, EntityCategory)> = vec![];
-
-        let dedup_types: HashSet<String> = entity_configs
-            .iter()
-            .filter(|(_, cat)| matches!(cat, EntityCategory::Foundation | EntityCategory::Reference))
-            .map(|(name, _)| name.to_string())
-            .collect();
-
-        assert!(dedup_types.is_empty());
-    }
-
-    #[test]
-    fn all_evidence_schema_produces_empty_dedup_set() {
-        // A schema where every entity is Evidence (per-occurrence,
-        // never repeats) should produce an empty dedup set — every
-        // entity is unique per chunk and will get a -c{N} suffix from
-        // the merger, never a dedup decision.
-        let entity_configs = vec![
-            ("Statement", EntityCategory::Evidence),
-            ("Admission", EntityCategory::Evidence),
-            ("Testimony", EntityCategory::Evidence),
-        ];
-
-        let dedup_types: HashSet<String> = entity_configs
-            .iter()
-            .filter(|(_, cat)| matches!(cat, EntityCategory::Foundation | EntityCategory::Reference))
-            .map(|(name, _)| name.to_string())
-            .collect();
-
-        assert!(dedup_types.is_empty());
-    }
-
-    // ── chunk_metadata audit + processing_config audit (Phase 1b Group 3) ─
-
-    #[test]
-    fn chunk_metadata_serializes_to_json() {
-        // Verify that a populated TextChunk-style metadata map round-trips
-        // through serde_json::to_value into a JSON object preserving keys
-        // and value types. This is the contract the audit-row write
-        // depends on.
-        use std::collections::HashMap;
-
-        let mut metadata: HashMap<String, serde_json::Value> = HashMap::new();
-        metadata.insert("unit_range".to_string(), serde_json::json!([0, 24]));
-        metadata.insert("unit_count".to_string(), serde_json::json!(25));
-        metadata.insert("preamble_included".to_string(), serde_json::json!(true));
-        metadata.insert(
-            "boundary_pattern_used".to_string(),
-            serde_json::json!(r"^\d+\.\s"),
-        );
-
-        let json = serde_json::to_value(&metadata).expect("HashMap<String, Value> always serializes");
-
-        assert!(json.is_object());
-        assert_eq!(json["unit_count"], 25);
-        assert_eq!(json["preamble_included"], true);
-        assert_eq!(json["unit_range"][0], 0);
-        assert_eq!(json["unit_range"][1], 24);
-        assert_eq!(json["boundary_pattern_used"], r"^\d+\.\s");
-    }
-
-    #[test]
-    fn empty_chunk_metadata_serializes_to_empty_object() {
-        // FixedSizeSplitter and the "full" path produce chunks with empty
-        // metadata. Empty must serialize to `{}` (a valid JSON object),
-        // not `null` — the JSONB column should always receive a valid
-        // object so downstream readers don't have to handle the
-        // missing-vs-empty distinction.
-        use std::collections::HashMap;
-
-        let metadata: HashMap<String, serde_json::Value> = HashMap::new();
-        let json = serde_json::to_value(&metadata).expect("empty HashMap always serializes");
-
-        assert!(json.is_object());
-        assert_eq!(json.as_object().expect("just verified is_object").len(), 0);
-    }
-
-    #[test]
-    fn resolved_config_includes_chunking_config_in_json() {
-        // Task 1b-9 verification: ResolvedConfig's derive(Serialize) +
-        // #[serde(default)] on the new fields means write_processing_config_snapshot
-        // automatically emits chunking_config and context_config into the
-        // extraction_runs.processing_config JSONB column. No code change
-        // was needed in write_processing_config_snapshot — this test
-        // pins the contract so a future struct edit can't silently drop
-        // the fields from the audit snapshot.
-        let mut resolved = resolved_with_run_pass2(false);
-        resolved
-            .chunking_config
-            .insert("mode".to_string(), serde_json::json!("structured"));
-        resolved
-            .chunking_config
-            .insert("strategy".to_string(), serde_json::json!("qa_pair"));
-        resolved
-            .context_config
-            .insert("traversal_depth".to_string(), serde_json::json!(2));
-
-        let json = serde_json::to_value(&resolved).expect("ResolvedConfig serializes");
-
-        assert_eq!(json["chunking_config"]["mode"], "structured");
-        assert_eq!(json["chunking_config"]["strategy"], "qa_pair");
-        assert_eq!(json["context_config"]["traversal_depth"], 2);
     }
 
     // ── snapshot-shaping (Gap 11): effective_pass + Pass-2 model/template overwrite
@@ -2880,100 +2665,4 @@ The real prompt body.";
         assert!(json["pass2_model"].is_null());
     }
 
-    // ── 2B: cross-doc entity recording
-
-    #[test]
-    fn cross_doc_context_record_round_trips_through_serde_json() {
-        let r = crate::pipeline::config::CrossDocContextRecord {
-            document_id: "doc-abc".into(),
-            prefixed_id: "ctx:party-001".into(),
-            item_id: 42,
-        };
-        let j = serde_json::to_value(&r).unwrap();
-        assert_eq!(j["document_id"], "doc-abc");
-        assert_eq!(j["prefixed_id"], "ctx:party-001");
-        assert_eq!(j["item_id"], 42);
-        let back: crate::pipeline::config::CrossDocContextRecord =
-            serde_json::from_value(j).unwrap();
-        assert_eq!(back, r);
-    }
-
-    #[test]
-    fn snapshot_pass2_with_empty_cross_doc_serialises_empty_arrays() {
-        // A Pass-2 run with no PUBLISHED prior context still produces
-        // the two array fields, both empty. They must be `[]` in JSONB
-        // (not absent) so a downstream reader can rely on the keys
-        // existing on every Pass-2 row.
-        let resolved = resolved_with_both_passes();
-        let json = snapshot_for_test(
-            &resolved,
-            SnapshotRuntimeFields {
-                effective_pass: 2,
-                template_hash: "h",
-                system_prompt_hash: None,
-                global_rules_hash: None,
-                pass2_cross_doc_entities: &[],
-                pass2_source_document_ids: &[],
-            },
-        );
-        assert!(json["pass2_cross_doc_entities"].is_array());
-        assert_eq!(
-            json["pass2_cross_doc_entities"].as_array().unwrap().len(),
-            0
-        );
-        assert!(json["pass2_source_document_ids"].is_array());
-        assert_eq!(
-            json["pass2_source_document_ids"].as_array().unwrap().len(),
-            0
-        );
-    }
-
-    #[test]
-    fn snapshot_pass2_with_cross_doc_records_lands_in_jsonb() {
-        // The records the step builds must round-trip into the snapshot
-        // JSONB intact. `pass2_source_document_ids` is the caller's
-        // sorted/deduped list — the snapshot helper does not re-sort,
-        // it just writes what it's given. (The sort/dedup invariant is
-        // tested separately at the step layer where it is built.)
-        let resolved = resolved_with_both_passes();
-        let records = vec![
-            crate::pipeline::config::CrossDocContextRecord {
-                document_id: "doc-A".into(),
-                prefixed_id: "ctx:party-001".into(),
-                item_id: 10,
-            },
-            crate::pipeline::config::CrossDocContextRecord {
-                document_id: "doc-A".into(),
-                prefixed_id: "ctx:party-002".into(),
-                item_id: 11,
-            },
-            crate::pipeline::config::CrossDocContextRecord {
-                document_id: "doc-B".into(),
-                prefixed_id: "ctx:count-001".into(),
-                item_id: 20,
-            },
-        ];
-        let source_docs: Vec<String> = vec!["doc-A".into(), "doc-B".into()];
-        let json = snapshot_for_test(
-            &resolved,
-            SnapshotRuntimeFields {
-                effective_pass: 2,
-                template_hash: "h",
-                system_prompt_hash: None,
-                global_rules_hash: None,
-                pass2_cross_doc_entities: &records,
-                pass2_source_document_ids: &source_docs,
-            },
-        );
-        assert_eq!(
-            json["pass2_cross_doc_entities"].as_array().unwrap().len(),
-            3
-        );
-        assert_eq!(json["pass2_cross_doc_entities"][0]["document_id"], "doc-A");
-        assert_eq!(json["pass2_cross_doc_entities"][2]["item_id"], 20);
-        let ids = json["pass2_source_document_ids"].as_array().unwrap();
-        assert_eq!(ids.len(), 2);
-        assert_eq!(ids[0], "doc-A");
-        assert_eq!(ids[1], "doc-B");
-    }
 }

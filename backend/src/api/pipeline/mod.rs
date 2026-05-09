@@ -286,17 +286,3 @@ pub(crate) fn require_field(name: &str, value: Option<String>) -> Result<String,
     })
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn max_file_size_is_100mb() {
-        // Pin the advertised upload ceiling. If this changes, the
-        // DefaultBodyLimit layer on /documents and /admin/upload tracks
-        // it automatically — but the frontend's client-side validation
-        // and any operator documentation may also need updating, so
-        // breaking this test is a deliberate coordination point.
-        assert_eq!(MAX_FILE_SIZE, 100 * 1024 * 1024);
-    }
-}

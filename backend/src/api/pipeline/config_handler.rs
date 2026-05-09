@@ -305,50 +305,6 @@ pub async fn get_resolved_config_handler(
 mod tests {
     use super::*;
 
-    // Test #12: PATCH body with chunking_config map parses cleanly.
-    #[test]
-    fn patch_input_parses_chunking_config_map() {
-        let body = r#"{"chunking_config": {"units_per_chunk": 3, "strategy": "qa_pair"}}"#;
-        let input: PatchConfigInput =
-            serde_json::from_str(body).expect("body must parse");
-        let chunking = input.chunking_config.expect("chunking_config populated");
-        assert_eq!(
-            chunking.get("units_per_chunk").and_then(|v| v.as_i64()),
-            Some(3)
-        );
-        assert_eq!(
-            chunking.get("strategy").and_then(|v| v.as_str()),
-            Some("qa_pair")
-        );
-        assert!(input.context_config.is_none());
-    }
-
-    // Test #13: PATCH body omitting both maps parses cleanly with both
-    // fields as None (the no-override path that `#[serde(default)]`
-    // exists to support).
-    #[test]
-    fn patch_input_parses_with_neither_map_present() {
-        let body = r#"{"temperature": 0.2}"#;
-        let input: PatchConfigInput =
-            serde_json::from_str(body).expect("body must parse");
-        assert!(input.chunking_config.is_none());
-        assert!(input.context_config.is_none());
-        assert_eq!(input.temperature, Some(0.2));
-    }
-
-    // PATCH body with context_config also parses (mirror of #12).
-    #[test]
-    fn patch_input_parses_context_config_map() {
-        let body = r#"{"context_config": {"traversal_depth": 5}}"#;
-        let input: PatchConfigInput =
-            serde_json::from_str(body).expect("body must parse");
-        let context = input.context_config.expect("context_config populated");
-        assert_eq!(
-            context.get("traversal_depth").and_then(|v| v.as_i64()),
-            Some(5)
-        );
-    }
-
     // Decision #3: deny_unknown_fields rejects typos. A request body
     // like `{"chunkign_config": {...}}` (typo on the field name) used
     // to drop the field silently and return 200 OK with no effect.

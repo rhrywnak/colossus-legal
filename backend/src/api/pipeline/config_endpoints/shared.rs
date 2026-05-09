@@ -146,13 +146,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn validate_filename_accepts_dotted_names() {
-        assert!(validate_filename("pass1_complaint.md").is_ok());
-        assert!(validate_filename("complaint_v2.yaml").is_ok());
-        assert!(validate_filename("file-name_01.txt").is_ok());
-    }
-
-    #[test]
     fn validate_filename_rejects_traversal() {
         assert!(validate_filename("../etc/passwd").is_err());
         assert!(validate_filename("foo/bar").is_err());

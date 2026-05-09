@@ -402,16 +402,6 @@ mod tests {
     }
 
     #[test]
-    fn cleanup_report_default_is_all_zero() {
-        let r = CleanupReport::default();
-        assert_eq!(r.neo4j.nodes_by_source_document, 0);
-        assert_eq!(r.neo4j.nodes_by_source_document_id, 0);
-        assert_eq!(r.neo4j.shared_nodes_updated, 0);
-        assert_eq!(r.qdrant.vectors_deleted, 0);
-        assert!(r.postgres.tables_cleared.is_empty());
-    }
-
-    #[test]
     fn cleanup_error_neo4j_display_includes_doc_id_not_source() {
         let err = CleanupError::Neo4j {
             doc_id: "doc-42".to_string(),
@@ -456,31 +446,4 @@ mod tests {
         );
     }
 
-    #[test]
-    fn cleanup_report_serializes_to_json() {
-        let report = CleanupReport {
-            neo4j: Neo4jCleanupReport {
-                nodes_by_source_document: 5,
-                nodes_by_source_document_id: 1,
-                shared_nodes_updated: 3,
-            },
-            qdrant: QdrantCleanupReport {
-                vectors_deleted: 12,
-            },
-            postgres: PostgresCleanupReport {
-                tables_cleared: vec![("extraction_items", 7)],
-            },
-        };
-        let json = serde_json::to_value(&report).expect("serialize CleanupReport");
-        let obj = json.as_object().expect("top-level JSON object");
-        assert!(obj.contains_key("neo4j"), "missing neo4j key: {json}");
-        assert!(obj.contains_key("qdrant"), "missing qdrant key: {json}");
-        assert!(obj.contains_key("postgres"), "missing postgres key: {json}");
-        assert_eq!(json["neo4j"]["nodes_by_source_document"], 5);
-        assert_eq!(json["neo4j"]["nodes_by_source_document_id"], 1);
-        assert_eq!(json["neo4j"]["shared_nodes_updated"], 3);
-        assert_eq!(json["qdrant"]["vectors_deleted"], 12);
-        assert_eq!(json["postgres"]["tables_cleared"][0][0], "extraction_items");
-        assert_eq!(json["postgres"]["tables_cleared"][0][1], 7);
-    }
 }

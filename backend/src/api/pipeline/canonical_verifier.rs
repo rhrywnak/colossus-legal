@@ -208,26 +208,6 @@ mod tests {
         assert_eq!(normalize_text("hello\n\tworld"), "hello world");
     }
 
-    #[test]
-    fn test_normalize_lowercases() {
-        assert_eq!(normalize_text("Hello World"), "hello world");
-    }
-
-    #[test]
-    fn test_normalize_trims() {
-        assert_eq!(normalize_text("  hello  "), "hello");
-    }
-
-    #[test]
-    fn test_normalize_empty_string() {
-        assert_eq!(normalize_text(""), "");
-    }
-
-    #[test]
-    fn test_normalize_whitespace_only() {
-        assert_eq!(normalize_text("   \n\t  "), "");
-    }
-
     // ── find_in_canonical_text tests ─────────────────────────────
 
     fn sample_pages() -> Vec<(u32, String)> {

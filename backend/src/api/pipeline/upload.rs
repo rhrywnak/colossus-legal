@@ -589,53 +589,35 @@ mod tests {
     // strings the frontend sends.
 
     #[test]
-    fn test_complaint_profile_name() {
-        assert_eq!(profile_name_for_document_type("complaint"), "complaint");
-    }
-
-    #[test]
-    fn test_discovery_response_profile_name() {
-        assert_eq!(
-            profile_name_for_document_type("discovery_response"),
-            "discovery_response"
-        );
-    }
-
-    #[test]
-    fn test_motion_and_motion_brief_share_profile() {
-        // motion_brief reuses the motion profile — both filings have the
-        // same extraction surface.
-        assert_eq!(profile_name_for_document_type("motion"), "motion");
-        assert_eq!(profile_name_for_document_type("motion_brief"), "motion");
-    }
-
-    #[test]
-    fn test_brief_profile_name() {
-        assert_eq!(profile_name_for_document_type("brief"), "brief");
-    }
-
-    #[test]
-    fn test_affidavit_profile_name() {
-        assert_eq!(profile_name_for_document_type("affidavit"), "affidavit");
-    }
-
-    #[test]
-    fn test_court_ruling_profile_name() {
-        assert_eq!(
-            profile_name_for_document_type("court_ruling"),
-            "court_ruling"
-        );
-    }
-
-    #[test]
-    fn test_auto_and_unknown_fall_back_to_default_profile() {
-        // "auto" means the document type hasn't been classified yet;
-        // anything unknown also routes to the default profile so a
-        // mistyped doc_type doesn't 500 the upload.
-        assert_eq!(profile_name_for_document_type("auto"), "default");
-        assert_eq!(profile_name_for_document_type("unknown"), "default");
-        assert_eq!(profile_name_for_document_type("garbage"), "default");
-        assert_eq!(profile_name_for_document_type(""), "default");
+    fn test_profile_name_for_document_type_routing() {
+        // Routing table: document type string → profile name.
+        // - "complaint", "discovery_response", "brief", "affidavit",
+        //   "court_ruling" map to themselves.
+        // - "motion" and "motion_brief" both map to "motion" (motion_brief
+        //   reuses the motion profile — same extraction surface).
+        // - "auto" means the document type hasn't been classified yet;
+        //   anything unknown also routes to "default" so a mistyped
+        //   doc_type doesn't 500 the upload.
+        let cases = [
+            ("complaint", "complaint"),
+            ("discovery_response", "discovery_response"),
+            ("motion", "motion"),
+            ("motion_brief", "motion"), // alias to motion profile
+            ("brief", "brief"),
+            ("affidavit", "affidavit"),
+            ("court_ruling", "court_ruling"),
+            ("auto", "default"),
+            ("unknown", "default"),
+            ("garbage", "default"),
+            ("", "default"),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(
+                profile_name_for_document_type(input),
+                expected,
+                "profile_name_for_document_type({input:?}) should be {expected:?}"
+            );
+        }
     }
 
     #[test]
@@ -669,54 +651,31 @@ mod tests {
     // profile name; otherwise it falls through to the unversioned mapping.
 
     #[test]
-    fn test_versioned_complaint_v5_returns_complaint_v5_profile() {
-        assert_eq!(
-            profile_name_for_document_type_versioned("complaint", Some("v5")),
-            "complaint_v5"
-        );
-    }
-
-    #[test]
-    fn test_versioned_complaint_no_version_returns_default_profile() {
-        assert_eq!(
-            profile_name_for_document_type_versioned("complaint", None),
-            "complaint"
-        );
-    }
-
-    #[test]
-    fn test_versioned_complaint_unknown_version_falls_through() {
-        // An unrecognized version must not route to a non-existent profile.
-        // Falling through to the unversioned default is the safe behavior.
-        assert_eq!(
-            profile_name_for_document_type_versioned("complaint", Some("v99")),
-            "complaint"
-        );
-    }
-
-    #[test]
-    fn test_versioned_other_document_types_ignore_version() {
-        // Versions are only meaningful where a versioned profile exists. For
-        // unversioned document types, version is silently dropped.
-        assert_eq!(
-            profile_name_for_document_type_versioned("affidavit", Some("v5")),
-            "affidavit"
-        );
-        assert_eq!(
-            profile_name_for_document_type_versioned("motion", Some("v5")),
-            "motion"
-        );
-    }
-
-    #[test]
-    fn test_versioned_unknown_document_type_returns_default() {
-        assert_eq!(
-            profile_name_for_document_type_versioned("garbage", Some("v5")),
-            "default"
-        );
-        assert_eq!(
-            profile_name_for_document_type_versioned("garbage", None),
-            "default"
-        );
+    fn test_profile_name_for_document_type_versioned_routing() {
+        // Routing table: (document type, optional version) → profile name.
+        // - (complaint, Some("v5")) → "complaint_v5" (versioned profile exists)
+        // - (complaint, None) → "complaint" (no version requested)
+        // - (complaint, Some("v99")) → "complaint" (unknown version falls
+        //   through; a non-existent versioned profile would 500 uploads)
+        // - (affidavit | motion, Some("v5")) → unversioned (version is silently
+        //   dropped for document types without a versioned profile)
+        // - (garbage, Some("v5")) → "default" (unknown doc type with version)
+        // - (garbage, None) → "default" (unknown doc type, no version)
+        let cases: &[(&str, Option<&str>, &str)] = &[
+            ("complaint", Some("v5"), "complaint_v5"),
+            ("complaint", None, "complaint"),
+            ("complaint", Some("v99"), "complaint"),
+            ("affidavit", Some("v5"), "affidavit"),
+            ("motion", Some("v5"), "motion"),
+            ("garbage", Some("v5"), "default"),
+            ("garbage", None, "default"),
+        ];
+        for (doc_type, version, expected) in cases {
+            assert_eq!(
+                profile_name_for_document_type_versioned(doc_type, *version),
+                *expected,
+                "profile_name_for_document_type_versioned({doc_type:?}, {version:?}) should be {expected:?}"
+            );
+        }
     }
 }

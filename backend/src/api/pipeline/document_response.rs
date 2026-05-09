@@ -113,124 +113,60 @@ mod tests {
     // --- status_group ---
 
     #[test]
-    fn test_status_group_new() {
-        assert_eq!(compute_status_group("NEW"), "new");
-    }
-
-    #[test]
-    fn test_status_group_uploaded() {
-        assert_eq!(compute_status_group("UPLOADED"), "new");
-    }
-
-    #[test]
-    fn test_status_group_processing() {
-        assert_eq!(compute_status_group("PROCESSING"), "processing");
-    }
-
-    #[test]
-    fn test_status_group_extracted_is_processing() {
-        // Mid-pipeline status: frontend must keep polling through Verify,
-        // AutoApprove, Ingest, Index, Completeness.
-        assert_eq!(compute_status_group("EXTRACTED"), "processing");
-    }
-
-    #[test]
-    fn test_status_group_verified_is_processing() {
-        assert_eq!(compute_status_group("VERIFIED"), "processing");
-    }
-
-    #[test]
-    fn test_status_group_ingested_is_processing() {
-        // Ingest writes INGESTED while Index + Completeness still need to
-        // run. Keep polling until Completeness writes PUBLISHED.
-        assert_eq!(compute_status_group("INGESTED"), "processing");
-    }
-
-    #[test]
-    fn test_status_group_indexed_is_processing() {
-        // Index writes INDEXED while Completeness still needs to run.
-        assert_eq!(compute_status_group("INDEXED"), "processing");
-    }
-
-    #[test]
-    fn test_status_group_completed() {
-        assert_eq!(compute_status_group("COMPLETED"), "completed");
-    }
-
-    #[test]
-    fn test_status_group_published() {
-        assert_eq!(compute_status_group("PUBLISHED"), "completed");
-    }
-
-    #[test]
-    fn test_status_group_failed() {
-        assert_eq!(compute_status_group("FAILED"), "failed");
-    }
-
-    #[test]
-    fn test_status_group_cancelled() {
-        assert_eq!(compute_status_group("CANCELLED"), "cancelled");
-    }
-
-    #[test]
-    fn test_status_group_unknown() {
-        assert_eq!(compute_status_group("GARBAGE"), "unknown");
+    fn test_status_group_routing_table() {
+        // Routing table: status string → display group. Mid-pipeline
+        // statuses (EXTRACTED/VERIFIED/INGESTED/INDEXED) MUST stay
+        // in "processing" — collapsing them to "completed" stops the
+        // 3s frontend poll before Index + Completeness can finish
+        // (the original "Index never updates" UI bug).
+        let cases = [
+            ("NEW", "new"),
+            ("UPLOADED", "new"),
+            ("PROCESSING", "processing"),
+            ("EXTRACTED", "processing"),  // mid-pipeline: keep polling
+            ("VERIFIED", "processing"),   // mid-pipeline: keep polling
+            ("INGESTED", "processing"),   // mid-pipeline: keep polling
+            ("INDEXED", "processing"),    // mid-pipeline: keep polling
+            ("COMPLETED", "completed"),
+            ("PUBLISHED", "completed"),
+            ("FAILED", "failed"),
+            ("CANCELLED", "cancelled"),
+            ("GARBAGE", "unknown"),       // fallback
+        ];
+        for (input, expected) in cases {
+            assert_eq!(
+                compute_status_group(input),
+                expected,
+                "compute_status_group({input:?}) should be {expected:?}"
+            );
+        }
     }
 
     // --- visible_tabs ---
 
     #[test]
-    fn test_visible_tabs_new() {
-        let tabs = compute_visible_tabs("NEW", false);
-        assert_eq!(tabs, vec!["document", "processing"]);
-    }
-
-    #[test]
-    fn test_visible_tabs_uploaded() {
-        let tabs = compute_visible_tabs("UPLOADED", false);
-        assert_eq!(tabs, vec!["document", "processing"]);
-    }
-
-    #[test]
-    fn test_visible_tabs_processing() {
-        let tabs = compute_visible_tabs("PROCESSING", false);
-        assert_eq!(tabs, vec!["document", "processing"]);
-    }
-
-    #[test]
-    fn test_visible_tabs_extracted() {
-        let tabs = compute_visible_tabs("EXTRACTED", false);
-        assert_eq!(tabs, vec!["document", "content", "processing"]);
-    }
-
-    #[test]
-    fn test_visible_tabs_ingested() {
-        let tabs = compute_visible_tabs("INGESTED", false);
-        assert_eq!(tabs, vec!["document", "content", "processing", "review", "people"]);
-    }
-
-    #[test]
-    fn test_visible_tabs_indexed() {
-        let tabs = compute_visible_tabs("INDEXED", false);
-        assert_eq!(tabs, vec!["document", "content", "processing", "review", "people"]);
-    }
-
-    #[test]
-    fn test_visible_tabs_published() {
-        let tabs = compute_visible_tabs("PUBLISHED", false);
-        assert_eq!(tabs, vec!["document", "content", "processing", "review", "people"]);
-    }
-
-    #[test]
-    fn test_visible_tabs_failed() {
-        let tabs = compute_visible_tabs("FAILED", false);
-        assert_eq!(tabs, vec!["document", "processing"]);
-    }
-
-    #[test]
-    fn test_visible_tabs_cancelled() {
-        let tabs = compute_visible_tabs("CANCELLED", false);
-        assert_eq!(tabs, vec!["document", "processing"]);
+    fn test_visible_tabs_per_status() {
+        // Routing table: status string → tab list (non-admin). The frontend
+        // reads this; renaming any tab here breaks the UI silently.
+        let cases: &[(&str, &[&str])] = &[
+            ("NEW",        &["document", "processing"]),
+            ("UPLOADED",   &["document", "processing"]),
+            ("PROCESSING", &["document", "processing"]),
+            ("EXTRACTED",  &["document", "content", "processing"]),
+            ("INGESTED",   &["document", "content", "processing", "review", "people"]),
+            ("INDEXED",    &["document", "content", "processing", "review", "people"]),
+            ("PUBLISHED",  &["document", "content", "processing", "review", "people"]),
+            ("FAILED",     &["document", "processing"]),
+            ("CANCELLED",  &["document", "processing"]),
+        ];
+        for (input, expected) in cases {
+            let tabs = compute_visible_tabs(input, false);
+            assert_eq!(
+                tabs.as_slice(),
+                *expected,
+                "compute_visible_tabs({input:?}, false) should be {expected:?}"
+            );
+        }
     }
 
     // --- can_view ---

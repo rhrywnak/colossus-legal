@@ -304,49 +304,32 @@ mod tests {
     // --- 5-status action tests ---
 
     #[test]
-    fn test_new_has_process_and_delete() {
-        let actions = get_available_actions("NEW", 0, 0);
-        assert_eq!(actions.len(), 2);
-        assert_eq!(actions[0].action, "process");
-        assert_eq!(actions[1].action, "delete");
-    }
-
-    #[test]
-    fn test_processing_has_cancel() {
-        let actions = get_available_actions("PROCESSING", 0, 0);
-        assert_eq!(actions.len(), 1);
-        assert_eq!(actions[0].action, "cancel");
-        assert!(actions[0].requires_confirmation);
-    }
-
-    #[test]
-    fn test_completed_has_reprocess_and_delete() {
-        let actions = get_available_actions("COMPLETED", 0, 0);
-        assert_eq!(actions.len(), 2);
-        assert_eq!(actions[0].action, "reprocess");
-        assert_eq!(actions[1].action, "delete");
-    }
-
-    #[test]
-    fn test_failed_has_reprocess_and_delete() {
-        let actions = get_available_actions("FAILED", 0, 0);
-        assert_eq!(actions.len(), 2);
-        assert_eq!(actions[0].action, "reprocess");
-        assert_eq!(actions[1].action, "delete");
-    }
-
-    #[test]
-    fn test_cancelled_has_reprocess_and_delete() {
-        let actions = get_available_actions("CANCELLED", 0, 0);
-        assert_eq!(actions.len(), 2);
-        assert_eq!(actions[0].action, "reprocess");
-        assert_eq!(actions[1].action, "delete");
-    }
-
-    #[test]
-    fn test_unknown_status_has_no_actions() {
-        let actions = get_available_actions("GARBAGE", 0, 0);
-        assert!(actions.is_empty());
+    fn test_get_available_actions_per_status() {
+        // Routing table: status → ordered list of expected action names.
+        // Plus PROCESSING's special requires_confirmation=true contract on cancel.
+        let cases: &[(&str, &[&str])] = &[
+            ("NEW",        &["process", "delete"]),
+            ("PROCESSING", &["cancel"]),
+            ("COMPLETED",  &["reprocess", "delete"]),
+            ("FAILED",     &["reprocess", "delete"]),
+            ("CANCELLED",  &["reprocess", "delete"]),
+            ("GARBAGE",    &[]),  // unknown-status fallback
+        ];
+        for (status, expected_names) in cases {
+            let actions = get_available_actions(status, 0, 0);
+            let actual_names: Vec<&str> = actions.iter().map(|a| a.action.as_str()).collect();
+            assert_eq!(
+                actual_names.as_slice(),
+                *expected_names,
+                "get_available_actions({status:?}) action names should be {expected_names:?}"
+            );
+        }
+        // PROCESSING's cancel action requires confirmation — separately pinned.
+        let processing = get_available_actions("PROCESSING", 0, 0);
+        assert!(
+            processing[0].requires_confirmation,
+            "PROCESSING/cancel must require confirmation"
+        );
     }
 
     // --- No dead ends ---
@@ -365,37 +348,25 @@ mod tests {
     // --- delete_confirmation_level tests ---
 
     #[test]
-    fn test_delete_confirmation_simple_for_new() {
-        assert_eq!(delete_confirmation_level("NEW"), "simple");
-    }
-
-    #[test]
-    fn test_delete_confirmation_moderate_for_failed() {
-        assert_eq!(delete_confirmation_level("FAILED"), "moderate");
-        assert_eq!(delete_confirmation_level("CANCELLED"), "moderate");
-    }
-
-    #[test]
-    fn test_delete_confirmation_strict_for_completed() {
-        assert_eq!(delete_confirmation_level("COMPLETED"), "strict");
-        assert_eq!(delete_confirmation_level("PROCESSING"), "strict");
-    }
-
-    // --- pipeline steps ---
-
-    #[test]
-    fn test_pipeline_steps_has_6_entries() {
-        assert_eq!(PIPELINE_STEPS.len(), 6);
-    }
-
-    #[test]
-    fn test_pipeline_steps_names() {
-        assert_eq!(PIPELINE_STEPS[0].0, "extract_text");
-        assert_eq!(PIPELINE_STEPS[1].0, "extract");
-        assert_eq!(PIPELINE_STEPS[2].0, "verify");
-        assert_eq!(PIPELINE_STEPS[3].0, "ingest");
-        assert_eq!(PIPELINE_STEPS[4].0, "index");
-        assert_eq!(PIPELINE_STEPS[5].0, "completeness");
+    fn test_delete_confirmation_level_routing() {
+        // Routing table: status → confirmation level. Five arms —
+        // NEW is "simple"; FAILED/CANCELLED are "moderate" (cleanup of
+        // a non-success run); COMPLETED/PROCESSING are "strict" (real
+        // data on disk, or a running job).
+        let cases = [
+            ("NEW", "simple"),
+            ("FAILED", "moderate"),
+            ("CANCELLED", "moderate"),
+            ("COMPLETED", "strict"),
+            ("PROCESSING", "strict"),
+        ];
+        for (status, expected) in cases {
+            assert_eq!(
+                delete_confirmation_level(status),
+                expected,
+                "delete_confirmation_level({status:?}) should be {expected:?}"
+            );
+        }
     }
 
     // --- endpoint tests ---

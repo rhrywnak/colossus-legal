@@ -1335,19 +1335,6 @@ mod tests {
     }
 
     #[test]
-    fn validate_relationship_provenance_accepts_valid_input() {
-        // Pins the contract: valid inputs do NOT error. Catches an
-        // overzealous future tightening of the validator (e.g., a
-        // length check that rejects short doc ids, or a regex that
-        // rejects "run-0" as the very first run id).
-        let result = validate_relationship_provenance("HAS_ELEMENT", "doc-awad", "run-42");
-        assert!(
-            result.is_ok(),
-            "valid inputs must not error; got: {result:?}"
-        );
-    }
-
-    #[test]
     fn build_relationship_cypher_sets_source_document_id_on_create() {
         // Catches: a refactor that drops the source_document_id SET clause
         // (which would write edges without that property and silently

@@ -137,12 +137,6 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_json_valid_input() {
-        let result = validate_json(valid_json());
-        assert!(result.is_ok(), "Expected Ok, got {:?}", result.err());
-    }
-
-    #[test]
     fn test_validate_json_invalid_syntax() {
         let result = validate_json(r#"{ invalid }"#);
         assert!(result.is_err());

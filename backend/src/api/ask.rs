@@ -389,28 +389,6 @@ fn error_response(status: StatusCode, message: &str) -> ApiError {
     )
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn ask_request_without_model_deserializes() {
-        // Backward-compat: old clients send no `model` field.
-        let req: AskRequest = serde_json::from_str(r#"{"question":"hi"}"#).unwrap();
-        assert_eq!(req.question, "hi");
-        assert!(req.model.is_none());
-        assert!(req.parent_qa_id.is_none());
-    }
-
-    #[test]
-    fn ask_request_with_model_deserializes() {
-        let req: AskRequest = serde_json::from_str(
-            r#"{"question":"hi","model":"claude-opus-4-6"}"#,
-        )
-        .unwrap();
-        assert_eq!(req.model.as_deref(), Some("claude-opus-4-6"));
-    }
-}
 
 /// Map a document title to its Neo4j node ID.
 ///

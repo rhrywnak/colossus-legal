@@ -540,106 +540,44 @@ mod tests {
     // ── detect_document_type tests ──────────────────────────────
 
     /// Document type detection uses keyword matching on first-page text.
-    /// These tests document every keyword and verify the priority order
-    /// (affidavit checked before brief, complaint checked last).
-
+    /// This routing-table test documents every keyword + the priority
+    /// order (affidavit checked before brief, complaint checked last).
     #[test]
-    fn test_detects_complaint() {
-        assert_eq!(
-            detect_document_type("STATE OF MICHIGAN\nCOMPLAINT\nPlaintiff vs Defendant"),
-            "complaint"
-        );
-        assert_eq!(
-            detect_document_type("VERIFIED COMPLAINT FOR DAMAGES"),
-            "complaint"
-        );
-    }
-
-    #[test]
-    fn test_detects_affidavit() {
-        assert_eq!(detect_document_type("AFFIDAVIT OF JOHN SMITH"), "affidavit");
-        // Affidavit takes priority over other keywords
-        assert_eq!(
-            detect_document_type("AFFIDAVIT IN SUPPORT OF MOTION FOR SUMMARY JUDGMENT"),
-            "affidavit"
-        );
-    }
-
-    #[test]
-    fn test_detects_discovery_response() {
-        assert_eq!(
-            detect_document_type("PLAINTIFF'S RESPONSES TO INTERROGATORIES"),
-            "discovery_response"
-        );
-        assert_eq!(
-            detect_document_type("REQUEST FOR ADMISSION NUMBER 1"),
-            "discovery_response"
-        );
-    }
-
-    #[test]
-    fn test_detects_motion() {
-        assert_eq!(
-            detect_document_type("MOTION FOR SUMMARY JUDGMENT"),
-            "motion"
-        );
-        assert_eq!(detect_document_type("MOTION TO DISMISS"), "motion");
-    }
-
-    #[test]
-    fn test_detects_court_ruling() {
-        assert_eq!(detect_document_type("OPINION AND ORDER"), "court_ruling");
-        assert_eq!(detect_document_type("ORDER OF THE COURT"), "court_ruling");
-        assert_eq!(
-            detect_document_type("COURT OF APPEALS STATE OF MICHIGAN"),
-            "court_ruling"
-        );
-    }
-
-    #[test]
-    fn test_detects_brief() {
-        assert_eq!(detect_document_type("APPELLANT'S BRIEF ON APPEAL"), "brief");
-        assert_eq!(detect_document_type("BRIEF IN SUPPORT OF MOTION"), "brief");
-        assert_eq!(detect_document_type("APPELLEE'S RESPONSE BRIEF"), "brief");
-    }
-
-    #[test]
-    fn test_unknown_when_no_keywords_match() {
-        assert_eq!(detect_document_type(""), "unknown");
-        assert_eq!(
-            detect_document_type("lorem ipsum dolor sit amet"),
-            "unknown"
-        );
-        assert_eq!(detect_document_type("EXHIBIT A"), "unknown");
-    }
-
-    #[test]
-    fn test_detection_is_case_insensitive() {
-        // The function uppercases input before matching, so lowercase input works.
-        assert_eq!(detect_document_type("complaint for damages"), "complaint");
-        assert_eq!(detect_document_type("affidavit of facts"), "affidavit");
-    }
-
-    #[test]
-    fn test_affidavit_priority_over_motion() {
-        // "AFFIDAVIT" should win over "MOTION FOR" if both appear.
-        // This documents the priority order of the if-else chain.
-        assert_eq!(
-            detect_document_type("AFFIDAVIT IN SUPPORT OF MOTION FOR SUMMARY JUDGMENT"),
-            "affidavit",
-            "Affidavit keyword takes priority over motion keyword"
-        );
-    }
-
-    #[test]
-    fn test_complaint_is_last_priority() {
-        // Complaint is the last check — other keywords take priority.
-        // A complaint that also says "COURT OF APPEALS" would be detected
-        // as court_ruling, not complaint. This is correct behavior.
-        assert_eq!(
-            detect_document_type("COURT OF APPEALS\nCOMPLAINT ON APPEAL"),
-            "court_ruling",
-            "Court ruling keyword takes priority over complaint keyword"
-        );
+    fn test_detect_document_type_routing() {
+        let cases: &[(&str, &str)] = &[
+            // Per-type happy paths.
+            ("STATE OF MICHIGAN\nCOMPLAINT\nPlaintiff vs Defendant", "complaint"),
+            ("VERIFIED COMPLAINT FOR DAMAGES", "complaint"),
+            ("AFFIDAVIT OF JOHN SMITH", "affidavit"),
+            ("PLAINTIFF'S RESPONSES TO INTERROGATORIES", "discovery_response"),
+            ("REQUEST FOR ADMISSION NUMBER 1", "discovery_response"),
+            ("MOTION FOR SUMMARY JUDGMENT", "motion"),
+            ("MOTION TO DISMISS", "motion"),
+            ("OPINION AND ORDER", "court_ruling"),
+            ("ORDER OF THE COURT", "court_ruling"),
+            ("COURT OF APPEALS STATE OF MICHIGAN", "court_ruling"),
+            ("APPELLANT'S BRIEF ON APPEAL", "brief"),
+            ("BRIEF IN SUPPORT OF MOTION", "brief"),
+            ("APPELLEE'S RESPONSE BRIEF", "brief"),
+            // Unknown fallback.
+            ("", "unknown"),
+            ("lorem ipsum dolor sit amet", "unknown"),
+            ("EXHIBIT A", "unknown"),
+            // Case-insensitivity: function uppercases input before matching.
+            ("complaint for damages", "complaint"),
+            ("affidavit of facts", "affidavit"),
+            // Priority order (the load-bearing contracts):
+            // - Affidavit beats motion.
+            ("AFFIDAVIT IN SUPPORT OF MOTION FOR SUMMARY JUDGMENT", "affidavit"),
+            // - Court ruling beats complaint (complaint is last in the chain).
+            ("COURT OF APPEALS\nCOMPLAINT ON APPEAL", "court_ruling"),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(
+                detect_document_type(input),
+                *expected,
+                "detect_document_type({input:?}) should be {expected:?}"
+            );
+        }
     }
 }

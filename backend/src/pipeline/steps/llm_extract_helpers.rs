@@ -193,45 +193,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_strip_fences_json_block() {
-        let input = "```json\n{\"entities\":[]}\n```";
-        assert_eq!(strip_markdown_fences(input), "{\"entities\":[]}");
-    }
-
-    #[test]
-    fn test_strip_fences_plain_block() {
-        let input = "```\n{\"entities\":[]}\n```";
-        assert_eq!(strip_markdown_fences(input), "{\"entities\":[]}");
-    }
-
-    #[test]
-    fn test_strip_fences_no_fences() {
-        let input = "{\"entities\":[]}";
-        assert_eq!(strip_markdown_fences(input), "{\"entities\":[]}");
-    }
-
-    #[test]
-    fn test_strip_fences_with_whitespace() {
-        let input = "  \n```json\n{\"a\":1}\n```\n  ";
-        assert_eq!(strip_markdown_fences(input), "{\"a\":1}");
-    }
-
-    #[test]
-    fn test_parse_valid_json() {
-        let input =
-            r#"{"entities": [{"id": "0", "entity_type": "Party"}], "relationships": []}"#;
-        let result = parse_chunk_response(input);
-        assert!(result.is_ok());
-        let val = result.unwrap();
-        assert!(val["entities"].is_array());
-        assert_eq!(val["entities"].as_array().unwrap().len(), 1);
-    }
-
-    #[test]
-    fn test_parse_fenced_json() {
-        let input = "```json\n{\"entities\": [], \"relationships\": []}\n```";
-        let result = parse_chunk_response(input);
-        assert!(result.is_ok());
+    fn test_strip_markdown_fences_routing() {
+        // Routing table: input → expected stripped output. Four rows
+        // covering all observed shapes:
+        // - ```json fenced
+        // - ``` plain fenced
+        // - no fences (passthrough)
+        // - whitespace-then-fences-then-whitespace (trim + strip)
+        let cases: &[(&str, &str)] = &[
+            ("```json\n{\"entities\":[]}\n```", "{\"entities\":[]}"),
+            ("```\n{\"entities\":[]}\n```", "{\"entities\":[]}"),
+            ("{\"entities\":[]}", "{\"entities\":[]}"),
+            ("  \n```json\n{\"a\":1}\n```\n  ", "{\"a\":1}"),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(
+                strip_markdown_fences(input),
+                *expected,
+                "strip_markdown_fences({input:?}) should be {expected:?}"
+            );
+        }
     }
 
     #[test]
@@ -256,9 +237,4 @@ mod tests {
         assert!(ensure_object(v).is_err());
     }
 
-    #[test]
-    fn ensure_object_accepts_object() {
-        let v = serde_json::json!({"entities": []});
-        assert!(ensure_object(v).is_ok());
-    }
 }

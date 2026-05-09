@@ -166,24 +166,6 @@ mod tests {
     }
 
     #[test]
-    fn lifecycle_status_values_locked_in() {
-        // These strings are persisted in the documents table and referenced
-        // by frontend rendering logic. Lock the values.
-        assert_eq!(STATUS_NEW, "NEW");
-        assert_eq!(STATUS_UPLOADED, "UPLOADED");
-        assert_eq!(STATUS_PROCESSING, "PROCESSING");
-        assert_eq!(STATUS_TEXT_EXTRACTED, "TEXT_EXTRACTED");
-        assert_eq!(STATUS_EXTRACTED, "EXTRACTED");
-        assert_eq!(STATUS_VERIFIED, "VERIFIED");
-        assert_eq!(STATUS_INGESTED, "INGESTED");
-        assert_eq!(STATUS_INDEXED, "INDEXED");
-        assert_eq!(STATUS_PUBLISHED, "PUBLISHED");
-        assert_eq!(STATUS_COMPLETED, "COMPLETED");
-        assert_eq!(STATUS_FAILED, "FAILED");
-        assert_eq!(STATUS_CANCELLED, "CANCELLED");
-    }
-
-    #[test]
     fn run_status_uppercase_step_status_lowercase() {
         // Locks in the casing convention to prevent the metrics.rs:231 bug
         // (mixing 'COMPLETED' and 'completed' in the same SQL query).

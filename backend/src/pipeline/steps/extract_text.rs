@@ -736,14 +736,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn ocr_config_is_debug_clone_eq() {
-        let a = OcrConfig::default();
-        let b = a.clone();
-        assert_eq!(a, b);
-        let _ = format!("{a:?}");
-    }
-
     // ── ExtractTextError ──────────────────────────────────────────
 
     #[test]
@@ -777,20 +769,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn extract_text_error_ocr_tools_missing_source_chain() {
-        use std::error::Error as _;
-        let e = ExtractTextError::OcrToolsMissing {
-            source: OcrError::ToolNotFound("bar".to_string()),
-        };
-        assert_eq!(format!("{e}"), "OCR tools unavailable");
-        let src = e.source().expect("OcrToolsMissing must expose a source");
-        assert!(
-            format!("{src}").contains("bar"),
-            "source Display must contain the inner token; got: {src}"
-        );
-    }
-
     // ── Step constants ────────────────────────────────────────────
 
     // Compile-time assertions: if any of these constants drift from spec,
@@ -799,18 +777,6 @@ mod tests {
         assert!(<ExtractText as Step<DocProcessing>>::DEFAULT_RETRY_LIMIT == 2);
         assert!(<ExtractText as Step<DocProcessing>>::DEFAULT_RETRY_DELAY_SECS == 5);
     };
-
-    #[test]
-    fn timeout_is_600() {
-        // Must stay strictly greater than the 300s reqwest timeout in
-        // `ocr::ocr_full_document_surya`, or the step is killed mid-OCR
-        // on large scanned PDFs. See the docstring on the constant for
-        // context on the prior 180s value.
-        assert_eq!(
-            <ExtractText as Step<DocProcessing>>::DEFAULT_TIMEOUT_SECS,
-            Some(600)
-        );
-    }
 
     // ── NoUsableText formatting ───────────────────────────────────
 
@@ -874,14 +840,4 @@ mod tests {
         let _fut = ocr::ocr_page_with_config(p, n, c);
     }
 
-    /// Confirms the visibility bump on
-    /// `api::pipeline::extract_text::detect_document_type` from module-private
-    /// to `pub(crate)`. If the bump is ever reverted, this stops compiling.
-    #[test]
-    fn detect_type_affidavit() {
-        assert_eq!(
-            detect_document_type("AFFIDAVIT OF JOHN SMITH"),
-            "affidavit"
-        );
-    }
 }

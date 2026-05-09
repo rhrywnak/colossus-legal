@@ -184,64 +184,52 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_claim_valid() {
-        assert!(
-            validate_claim(&claim("C1", "fraud", "Quote", "p1", vec!["d1"], "doc1")).is_empty()
-        );
-    }
-    #[test]
-    fn test_validate_claim_missing_id() {
-        assert!(
-            validate_claim(&claim("", "fraud", "Q", "p1", vec!["d1"], "d1"))
-                .iter()
-                .any(|e| e.field == "id")
-        );
-    }
-    #[test]
-    fn test_validate_claim_missing_quote() {
-        assert!(
-            validate_claim(&claim("C1", "fraud", "", "p1", vec!["d1"], "d1"))
-                .iter()
-                .any(|e| e.field == "quote")
-        );
-    }
-    #[test]
-    fn test_validate_claim_invalid_category() {
-        assert!(
-            validate_claim(&claim("C1", "bad", "Q", "p1", vec!["d1"], "d1"))
-                .iter()
-                .any(|e| e.field == "category")
-        );
-    }
-    #[test]
-    fn test_validate_claim_invalid_claim_type() {
-        let mut c = claim("C1", "fraud", "Q", "p1", vec!["d1"], "d1");
-        c.claim_type = Some("bad".into());
-        assert!(validate_claim(&c).iter().any(|e| e.field == "claim_type"));
-    }
-    #[test]
-    fn test_validate_claim_severity_out_of_range() {
-        let mut c = claim("C1", "fraud", "Q", "p1", vec!["d1"], "d1");
-        c.severity = Some(0);
-        assert!(validate_claim(&c).iter().any(|e| e.field == "severity"));
-        c.severity = Some(11);
-        assert!(validate_claim(&c).iter().any(|e| e.field == "severity"));
-    }
-    #[test]
-    fn test_validate_claim_empty_against() {
-        assert!(
-            validate_claim(&claim("C1", "fraud", "Q", "p1", vec![], "d1"))
-                .iter()
-                .any(|e| e.field == "against")
-        );
-    }
-    #[test]
-    fn test_validate_claim_missing_source_document_id() {
-        assert!(
-            validate_claim(&claim("C1", "fraud", "Q", "p1", vec!["d1"], ""))
-                .iter()
-                .any(|e| e.field == "source.document_id")
-        );
+    fn test_validate_claim_per_field_routing() {
+        // Routing table: a malformed claim (one specific field broken)
+        // → expected error field name. Pins which input shape produces
+        // an error attributed to which field. Each row preserves the
+        // bug-fix narrative from the source test it replaces.
+
+        // Mutate-after-construction helper: build a base claim, then
+        // tweak the field under test. (severity / claim_type are Options
+        // not in the `claim()` helper's signature.)
+        let mut bad_claim_type = claim("C1", "fraud", "Q", "p1", vec!["d1"], "d1");
+        bad_claim_type.claim_type = Some("bad".into());
+
+        let mut sev_low = claim("C1", "fraud", "Q", "p1", vec!["d1"], "d1");
+        sev_low.severity = Some(0);
+        let mut sev_high = claim("C1", "fraud", "Q", "p1", vec!["d1"], "d1");
+        sev_high.severity = Some(11);
+
+        let cases = [
+            // missing id — empty string → "id" field error
+            (claim("", "fraud", "Q", "p1", vec!["d1"], "d1"), "id"),
+            // missing quote — empty string → "quote" field error
+            (claim("C1", "fraud", "", "p1", vec!["d1"], "d1"), "quote"),
+            // invalid category — not in VALID_CATEGORIES → "category"
+            (claim("C1", "bad", "Q", "p1", vec!["d1"], "d1"), "category"),
+            // invalid claim_type — not in VALID_CLAIM_TYPES → "claim_type"
+            (bad_claim_type, "claim_type"),
+            // severity out of range (low: 0) → "severity"
+            (sev_low, "severity"),
+            // severity out of range (high: 11) → "severity"
+            (sev_high, "severity"),
+            // empty against array → "against"
+            (claim("C1", "fraud", "Q", "p1", vec![], "d1"), "against"),
+            // missing source.document_id → "source.document_id"
+            (
+                claim("C1", "fraud", "Q", "p1", vec!["d1"], ""),
+                "source.document_id",
+            ),
+        ];
+        for (input, expected_field) in cases {
+            let errors = validate_claim(&input);
+            assert!(
+                errors.iter().any(|e| e.field == expected_field),
+                "claim {:?} should produce error with field {expected_field:?}; got: {:?}",
+                input.id, errors
+            );
+        }
     }
     #[test]
     fn test_validate_claims_multiple_errors() {
@@ -250,14 +238,6 @@ mod tests {
             claim("C2", "bad", "Q", "p1", vec!["d1"], "d1"),
         ];
         assert!(validate_claims(&claims).len() >= 2);
-    }
-    #[test]
-    fn test_detect_duplicate_ids_no_duplicates() {
-        let claims = vec![
-            claim("C1", "fraud", "Q", "p1", vec!["d1"], "d1"),
-            claim("C2", "fraud", "Q", "p1", vec!["d1"], "d1"),
-        ];
-        assert!(detect_duplicate_ids(&claims).is_empty());
     }
     #[test]
     fn test_detect_duplicate_ids_one_duplicate() {

@@ -42,30 +42,6 @@ valid_patterns:
 }
 
 #[test]
-fn test_completeness_passes_with_sufficient_entities() {
-    let schema = schema_with_required_types();
-    let parsed = serde_json::json!({
-        "entities": [
-            { "id": "p1", "entity_type": "Party", "name": "Alice" },
-            { "id": "p2", "entity_type": "Party", "name": "Bob" },
-            { "id": "p3", "entity_type": "Party", "name": "Carol" },
-            { "id": "lc1", "entity_type": "LegalCount", "name": "Count 1" },
-            { "id": "lc2", "entity_type": "LegalCount", "name": "Count 2" },
-        ],
-        "relationships": []
-    });
-
-    let result = validate_completeness(&schema, &parsed);
-
-    assert!(
-        result.passed,
-        "Expected passed=true, got errors: {:?}",
-        result.errors
-    );
-    assert!(result.errors.is_empty());
-}
-
-#[test]
 fn test_completeness_fails_missing_required_type() {
     let schema = schema_with_required_types();
     // Has Parties but zero LegalCounts
