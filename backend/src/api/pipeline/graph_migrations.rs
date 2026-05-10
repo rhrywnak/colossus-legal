@@ -76,4 +76,41 @@ pub async fn run_graph_migrations(graph: &Graph) {
             ),
         }
     }
+
+    // v5.1 relationship-property indexes (LEGAL_DATA_MODEL_v5_1.md §8).
+    //
+    // These support traceability queries — "all relationships produced by
+    // extraction run X" and "all relationships originating from source
+    // document Y" — that back the verification UI work in the unified
+    // roadmap (step 5). Without an index, those lookups degrade to a full
+    // relationship scan; with the index, Neo4j picks a RelationshipIndexSeek.
+    //
+    // Same idempotency story as the constraints above (IF NOT EXISTS), and
+    // the same logging discipline so a startup failure is visible in the
+    // logs rather than silently degrading query performance later.
+    let rel_indexes: &[(&str, &str)] = &[
+        ("rel_extraction_run", "extraction_run_id"),
+        ("rel_source_document", "source_document_id"),
+    ];
+
+    for (index_name, property) in rel_indexes {
+        let cypher = format!(
+            "CREATE INDEX {index_name} IF NOT EXISTS \
+             FOR ()-[r]-() ON (r.{property})"
+        );
+        match graph.run(neo4rs::query(&cypher)).await {
+            Ok(_) => tracing::info!(
+                index = %index_name,
+                property = %property,
+                "Neo4j relationship index created or already exists"
+            ),
+            Err(e) => tracing::error!(
+                index = %index_name,
+                property = %property,
+                error = %e,
+                "Failed to create Neo4j relationship index — \
+                 traceability queries may degrade to relationship scans"
+            ),
+        }
+    }
 }
