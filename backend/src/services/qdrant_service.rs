@@ -521,4 +521,3 @@ async fn create_payload_index(
 
     Ok(())
 }
-

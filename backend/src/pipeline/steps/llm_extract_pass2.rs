@@ -146,7 +146,8 @@ pub async fn run_pass2_extraction(
     // 1. Idempotency: short-circuit on an existing COMPLETED pass-2 row.
     if pass2_already_complete(db, document_id).await? {
         tracing::info!(
-            document_id, "Pass 2 already COMPLETED for document, skipping"
+            document_id,
+            "Pass 2 already COMPLETED for document, skipping"
         );
         return Ok(0);
     }
@@ -165,13 +166,11 @@ pub async fn run_pass2_extraction(
         })?;
 
     let schema_path = format!("{}/{}", context.schema_dir, pipe_config.schema_file);
-    let schema = colossus_extract::ExtractionSchema::from_file(std::path::Path::new(
-        &schema_path,
-    ))
-    .map_err(|e| LlmExtractError::SchemaLoadFailed {
-        schema_file: pipe_config.schema_file.clone(),
-        source: e,
-    })?;
+    let schema = colossus_extract::ExtractionSchema::from_file(std::path::Path::new(&schema_path))
+        .map_err(|e| LlmExtractError::SchemaLoadFailed {
+            schema_file: pipe_config.schema_file.clone(),
+            source: e,
+        })?;
     let schema_json = serde_json::to_string_pretty(&schema)?;
 
     // 3. Full document text — pass 2 is always single-call.
@@ -189,8 +188,7 @@ pub async fn run_pass2_extraction(
         .join("\n\n");
 
     // 4. Resolve profile + overrides.
-    let overrides =
-        pipeline_repository::get_pipeline_config_overrides(db, document_id).await?;
+    let overrides = pipeline_repository::get_pipeline_config_overrides(db, document_id).await?;
     let profile_name = overrides
         .profile_name
         .clone()
@@ -200,11 +198,13 @@ pub async fn run_pass2_extraction(
     let resolved = resolve_config(&profile, &overrides);
 
     // 5. Enforce pass-2 preconditions on the resolved config.
-    let pass2_template_file = resolved.pass2_template_file.clone().ok_or_else(|| {
-        LlmExtractError::NoPass2Template {
-            profile_name: resolved.profile_name.clone(),
-        }
-    })?;
+    let pass2_template_file =
+        resolved
+            .pass2_template_file
+            .clone()
+            .ok_or_else(|| LlmExtractError::NoPass2Template {
+                profile_name: resolved.profile_name.clone(),
+            })?;
     // Pass 2 always operates on the full document text loaded above,
     // independent of how pass 1 chunked. Log the effective pass-1 mode so
     // operators can see which pass-1 path produced the entities feeding
@@ -259,11 +259,10 @@ pub async fn run_pass2_extraction(
     let system_prompt: Option<String> = match &resolved.system_prompt_file {
         Some(filename) => {
             let path = format!("{}/{}", context.system_prompt_dir, filename);
-            let text = std::fs::read_to_string(&path).map_err(|e| {
-                LlmExtractError::ProfileLoadFailed {
+            let text =
+                std::fs::read_to_string(&path).map_err(|e| LlmExtractError::ProfileLoadFailed {
                     message: format!("Failed to read system prompt '{path}': {e}"),
-                }
-            })?;
+                })?;
             Some(text)
         }
         None => None,
@@ -289,8 +288,7 @@ pub async fn run_pass2_extraction(
     //     response's admissions/denials, a court ruling's holdings, etc.
     //     Ids are prefixed (`ctx:...`) to prevent collisions with the
     //     current doc's local pass-1 ids.
-    let cross_doc_entities =
-        extraction::load_cross_document_context(db, document_id).await?;
+    let cross_doc_entities = extraction::load_cross_document_context(db, document_id).await?;
     tracing::info!(
         document_id,
         local_entities = entities.len(),
@@ -359,11 +357,14 @@ pub async fn run_pass2_extraction(
     //     Local entities come first so the LLM's attention order favors
     //     this document's own entities; cross-doc entities follow with a
     //     `source_document` field making their provenance explicit.
-    let mut entities_prompt: Vec<serde_json::Value> = Vec::with_capacity(
-        entities.len() + cross_doc_entities.len(),
-    );
+    let mut entities_prompt: Vec<serde_json::Value> =
+        Vec::with_capacity(entities.len() + cross_doc_entities.len());
     entities_prompt.extend(entities.iter().map(Pass1Entity::to_prompt_value));
-    entities_prompt.extend(cross_doc_entities.iter().map(CrossDocEntity::to_prompt_value));
+    entities_prompt.extend(
+        cross_doc_entities
+            .iter()
+            .map(CrossDocEntity::to_prompt_value),
+    );
     let entities_json = serde_json::to_string_pretty(&entities_prompt)?;
 
     let mut id_map: std::collections::HashMap<String, i32> = entities
@@ -450,14 +451,10 @@ pub async fn run_pass2_extraction(
         return Err("Cancelled before pass 2 extraction".into());
     }
 
-    let _llm_permit = context
-        .llm_semaphore
-        .acquire()
-        .await
-        .map_err(|e| {
-            tracing::debug!(error = %e, "Semaphore acquire failed");
-            LlmExtractError::SemaphoreClosed
-        })?;
+    let _llm_permit = context.llm_semaphore.acquire().await.map_err(|e| {
+        tracing::debug!(error = %e, "Semaphore acquire failed");
+        LlmExtractError::SemaphoreClosed
+    })?;
 
     // 13. LLM call with rate-limit retry.
     // best-effort progress update
@@ -539,20 +536,19 @@ pub async fn run_pass2_extraction(
     )
     .await;
 
-    progress
-        .set_step_result(serde_json::json!({
-            "pass": 2,
-            "relationship_count": rel_count,
-            "local_entities": entities.len(),
-            "cross_doc_entities": cross_doc_entities.len(),
-            "input_tokens": input_tokens,
-            "output_tokens": output_tokens,
-            "profile": resolved.profile_name,
-            // Report the pass-2-specific model so the UI reflects what
-            // actually ran (may differ from pass-1's `resolved.model`).
-            "model": pass2_model_id,
-            "pass2_template_file": pass2_template_file,
-        }));
+    progress.set_step_result(serde_json::json!({
+        "pass": 2,
+        "relationship_count": rel_count,
+        "local_entities": entities.len(),
+        "cross_doc_entities": cross_doc_entities.len(),
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "profile": resolved.profile_name,
+        // Report the pass-2-specific model so the UI reflects what
+        // actually ran (may differ from pass-1's `resolved.model`).
+        "model": pass2_model_id,
+        "pass2_template_file": pass2_template_file,
+    }));
 
     tracing::info!(
         document_id,
@@ -634,10 +630,7 @@ fn assemble_pass2_prompt(
 /// (`extraction_already_complete` in `llm_extract.rs`) matches any pass,
 /// which would false-positive here if pass 1 had completed but pass 2
 /// hadn't.
-async fn pass2_already_complete(
-    db: &PgPool,
-    document_id: &str,
-) -> Result<bool, sqlx::Error> {
+async fn pass2_already_complete(db: &PgPool, document_id: &str) -> Result<bool, sqlx::Error> {
     let existing: Option<i32> = sqlx::query_scalar(
         "SELECT id FROM extraction_runs \
          WHERE document_id = $1 AND pass_number = 2 AND status = $2 \
@@ -736,8 +729,13 @@ mod tests {
         ];
         for row in rows {
             let prompt = assemble_pass2_prompt(
-                row.template, "<SCHEMA>", "<ENTITIES>", "<DOC>",
-                row.global_rules, row.admin, None,
+                row.template,
+                "<SCHEMA>",
+                "<ENTITIES>",
+                "<DOC>",
+                row.global_rules,
+                row.admin,
+                None,
             );
             assert!(
                 !prompt.contains(row.placeholder),
@@ -775,7 +773,12 @@ Doc:\n{{document_text}}";
             Some("<CTX>"),
         );
         for needle in [
-            "<SCHEMA>", "<ENTITIES>", "<RULES>", "<ADMIN>", "<CTX>", "<DOC>",
+            "<SCHEMA>",
+            "<ENTITIES>",
+            "<RULES>",
+            "<ADMIN>",
+            "<CTX>",
+            "<DOC>",
         ] {
             assert!(prompt.contains(needle), "missing {needle}; got: {prompt}");
         }
@@ -870,8 +873,10 @@ For each Evidence entity, decide if it CORROBORATES the allegation.
         // touch text that doesn't contain `{{...}}` tokens. This is
         // the property that broke in the original bug.
         assert!(
-            prompt.contains("Review the complaint allegations provided in \
-                the cross-document context block below."),
+            prompt.contains(
+                "Review the complaint allegations provided in \
+                the cross-document context block below."
+            ),
             "the prose reference to the context block must survive intact; \
              got:\n{prompt}"
         );

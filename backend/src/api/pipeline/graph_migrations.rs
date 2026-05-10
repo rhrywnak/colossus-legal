@@ -46,7 +46,10 @@ pub async fn run_graph_migrations(graph: &Graph) {
         (ENTITY_DOCUMENT, "document_id_unique"),
         (ENTITY_PERSON, "person_id_unique"),
         (ENTITY_ORGANIZATION, "organization_id_unique"),
-        (ENTITY_COMPLAINT_ALLEGATION, "complaint_allegation_id_unique"),
+        (
+            ENTITY_COMPLAINT_ALLEGATION,
+            "complaint_allegation_id_unique",
+        ),
         (ENTITY_LEGAL_COUNT, "legal_count_id_unique"),
         (ENTITY_HARM, "harm_id_unique"),
         (ENTITY_ELEMENT, "element_id_unique"),

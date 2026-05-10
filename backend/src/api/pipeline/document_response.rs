@@ -123,15 +123,15 @@ mod tests {
             ("NEW", "new"),
             ("UPLOADED", "new"),
             ("PROCESSING", "processing"),
-            ("EXTRACTED", "processing"),  // mid-pipeline: keep polling
-            ("VERIFIED", "processing"),   // mid-pipeline: keep polling
-            ("INGESTED", "processing"),   // mid-pipeline: keep polling
-            ("INDEXED", "processing"),    // mid-pipeline: keep polling
+            ("EXTRACTED", "processing"), // mid-pipeline: keep polling
+            ("VERIFIED", "processing"),  // mid-pipeline: keep polling
+            ("INGESTED", "processing"),  // mid-pipeline: keep polling
+            ("INDEXED", "processing"),   // mid-pipeline: keep polling
             ("COMPLETED", "completed"),
             ("PUBLISHED", "completed"),
             ("FAILED", "failed"),
             ("CANCELLED", "cancelled"),
-            ("GARBAGE", "unknown"),       // fallback
+            ("GARBAGE", "unknown"), // fallback
         ];
         for (input, expected) in cases {
             assert_eq!(
@@ -149,15 +149,24 @@ mod tests {
         // Routing table: status string → tab list (non-admin). The frontend
         // reads this; renaming any tab here breaks the UI silently.
         let cases: &[(&str, &[&str])] = &[
-            ("NEW",        &["document", "processing"]),
-            ("UPLOADED",   &["document", "processing"]),
+            ("NEW", &["document", "processing"]),
+            ("UPLOADED", &["document", "processing"]),
             ("PROCESSING", &["document", "processing"]),
-            ("EXTRACTED",  &["document", "content", "processing"]),
-            ("INGESTED",   &["document", "content", "processing", "review", "people"]),
-            ("INDEXED",    &["document", "content", "processing", "review", "people"]),
-            ("PUBLISHED",  &["document", "content", "processing", "review", "people"]),
-            ("FAILED",     &["document", "processing"]),
-            ("CANCELLED",  &["document", "processing"]),
+            ("EXTRACTED", &["document", "content", "processing"]),
+            (
+                "INGESTED",
+                &["document", "content", "processing", "review", "people"],
+            ),
+            (
+                "INDEXED",
+                &["document", "content", "processing", "review", "people"],
+            ),
+            (
+                "PUBLISHED",
+                &["document", "content", "processing", "review", "people"],
+            ),
+            ("FAILED", &["document", "processing"]),
+            ("CANCELLED", &["document", "processing"]),
         ];
         for (input, expected) in cases {
             let tabs = compute_visible_tabs(input, false);

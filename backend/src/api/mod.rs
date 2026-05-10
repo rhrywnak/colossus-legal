@@ -27,9 +27,9 @@ pub mod admin_verify;
 pub mod allegations;
 pub mod analysis;
 pub mod ask;
-pub mod chat_models;
 pub mod case;
 pub mod case_summary;
+pub mod chat_models;
 pub mod claims;
 pub mod contradictions;
 pub mod decomposition;
@@ -115,8 +115,7 @@ pub fn router() -> Router<AppState> {
         // default as a safety net against runaway bodies.
         .route(
             "/admin/upload",
-            post(admin_upload::upload_file)
-                .layer(DefaultBodyLimit::max(pipeline::MAX_FILE_SIZE)),
+            post(admin_upload::upload_file).layer(DefaultBodyLimit::max(pipeline::MAX_FILE_SIZE)),
         )
         .route("/admin/audit/health", get(admin_audit_health::audit_health))
         .route("/admin/status", get(admin_status::get_status))

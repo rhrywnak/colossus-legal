@@ -150,8 +150,7 @@ pub async fn cleanup_neo4j(
     // nodes owned by `document_id` (scalar match) being gone so it only
     // touches surviving shared nodes. Reordering would require re-adding
     // an `AND n.source_document <> $doc_id` guard to the Cypher below.
-    let shared_nodes_updated =
-        strip_source_document_from_arrays(graph, document_id).await?;
+    let shared_nodes_updated = strip_source_document_from_arrays(graph, document_id).await?;
     Ok(Neo4jCleanupReport {
         nodes_by_source_document: by_source_document,
         nodes_by_source_document_id: by_source_document_id,
@@ -445,5 +444,4 @@ mod tests {
             "Partial Display must include doc_id, got: {display}"
         );
     }
-
 }

@@ -20,14 +20,12 @@ pub mod users;
 pub use extraction::*;
 pub use models::LlmModelRecord;
 pub use report_queries::{
-    PerPassRunMetadata, RelationshipTypeCount, get_extraction_runs_with_processing_config,
-    get_per_pass_entity_breakdown, get_per_pass_relationship_breakdown,
-    get_relationship_breakdown_by_type,
+    get_extraction_runs_with_processing_config, get_per_pass_entity_breakdown,
+    get_per_pass_relationship_breakdown, get_relationship_breakdown_by_type, PerPassRunMetadata,
+    RelationshipTypeCount,
 };
 
-use crate::models::document_status::{
-    RUN_STATUS_COMPLETED, STATUS_NEW, STEP_STATUS_FAILED,
-};
+use crate::models::document_status::{RUN_STATUS_COMPLETED, STATUS_NEW, STEP_STATUS_FAILED};
 use crate::pipeline::config::PipelineConfigOverrides;
 
 use serde::{Deserialize, Serialize};
@@ -538,16 +536,9 @@ pub async fn get_pipeline_config_overrides(
             // document_id and column so an auditor can locate the bad
             // row directly. `None` (NULL column) means "no override;
             // resolve_config will fall back to the profile's map."
-            let chunking_config = decode_jsonb_map(
-                document_id,
-                "chunking_config",
-                r.chunking_config,
-            )?;
-            let context_config = decode_jsonb_map(
-                document_id,
-                "context_config",
-                r.context_config,
-            )?;
+            let chunking_config =
+                decode_jsonb_map(document_id, "chunking_config", r.chunking_config)?;
+            let context_config = decode_jsonb_map(document_id, "context_config", r.context_config)?;
             PipelineConfigOverrides {
                 profile_name: r.profile_name,
                 extraction_model: r.extraction_model,
@@ -698,9 +689,11 @@ pub async fn patch_pipeline_config_overrides(
         .as_ref()
         .map(serde_json::to_value)
         .transpose()
-        .map_err(|e| PipelineRepoError::Database(format!(
+        .map_err(|e| {
+            PipelineRepoError::Database(format!(
             "structurally-impossible serialize of context_config for document_id={document_id}: {e}"
-        )))?;
+        ))
+        })?;
 
     let result = sqlx::query(
         "UPDATE pipeline_config SET \
@@ -794,7 +787,10 @@ mod tests {
             .expect("well-formed JSONB must decode");
         let map = result.expect("decoded map must be Some");
         assert_eq!(map.get("units_per_chunk").and_then(|v| v.as_i64()), Some(3));
-        assert_eq!(map.get("strategy").and_then(|v| v.as_str()), Some("qa_pair"));
+        assert_eq!(
+            map.get("strategy").and_then(|v| v.as_str()),
+            Some("qa_pair")
+        );
     }
 
     #[test]
@@ -898,5 +894,4 @@ mod tests {
     // surface in `cargo test -- --ignored` for any future contributor
     // who sets up a test DB fixture, but they don't gate the normal
     // test run that has no PG connection.
-
 }

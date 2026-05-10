@@ -162,8 +162,7 @@ pub async fn get_extraction_runs_with_processing_config(
         let cost_usd: Option<String> = row.try_get("cost_usd_text")?;
         let status: String = row.try_get("status")?;
         let started_at: chrono::DateTime<chrono::Utc> = row.try_get("started_at")?;
-        let completed_at: Option<chrono::DateTime<chrono::Utc>> =
-            row.try_get("completed_at")?;
+        let completed_at: Option<chrono::DateTime<chrono::Utc>> = row.try_get("completed_at")?;
         let processing_config: Option<serde_json::Value> = row.try_get("processing_config")?;
 
         // Decode the JSONB. Three states:
@@ -342,4 +341,3 @@ pub async fn get_per_pass_entity_breakdown(
     }
     Ok(out)
 }
-

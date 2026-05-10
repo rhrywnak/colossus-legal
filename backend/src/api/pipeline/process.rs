@@ -247,8 +247,9 @@ pub async fn cancel_handler(
     Ok(Json(ProcessResponse {
         document_id: doc_id,
         status: "CANCELLING".to_string(),
-        message: "Cancel requested. Document will transition to CANCELLED when the worker acknowledges.".to_string(),
+        message:
+            "Cancel requested. Document will transition to CANCELLED when the worker acknowledges."
+                .to_string(),
         job_id: Some(job.id.to_string()),
     }))
 }
-

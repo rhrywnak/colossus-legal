@@ -108,12 +108,12 @@ impl Step<DocProcessing> for AutoApprove {
 
         // Count remaining grounded+pending items (should be 0 immediately
         // after bulk_approve unless a race approved more in parallel).
-        let remaining_pending = review::count_pending(db, &doc_id)
-            .await
-            .map_err(|source| AutoApproveError::CountPendingFailed {
+        let remaining_pending = review::count_pending(db, &doc_id).await.map_err(|source| {
+            AutoApproveError::CountPendingFailed {
                 doc_id: doc_id.clone(),
                 source,
-            })?;
+            }
+        })?;
 
         if approved_count == 0 {
             tracing::warn!(

@@ -113,11 +113,11 @@ impl AppConfig {
         let extraction_config_dir =
             std::env::var("EXTRACTION_CONFIG_DIR").unwrap_or_else(|_| "./config".to_string());
 
-        let processing_profile_dir = std::env::var("PROCESSING_PROFILE_DIR")
-            .unwrap_or_else(|_| "./profiles".to_string());
+        let processing_profile_dir =
+            std::env::var("PROCESSING_PROFILE_DIR").unwrap_or_else(|_| "./profiles".to_string());
 
-        let system_prompt_dir = std::env::var("SYSTEM_PROMPT_DIR")
-            .unwrap_or_else(|_| "./system_prompts".to_string());
+        let system_prompt_dir =
+            std::env::var("SYSTEM_PROMPT_DIR").unwrap_or_else(|_| "./system_prompts".to_string());
 
         let environment =
             std::env::var("COLOSSUS_ENVIRONMENT").unwrap_or_else(|_| "unknown".to_string());

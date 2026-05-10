@@ -144,14 +144,12 @@ pub async fn get_config_handler(
             message: format!("No pipeline_config for document '{doc_id}'"),
         })?;
 
-    let overrides = pipeline_repository::get_pipeline_config_overrides(
-        &state.pipeline_pool,
-        &doc_id,
-    )
-    .await
-    .map_err(|e| AppError::Internal {
-        message: format!("Failed to read pipeline_config overrides: {e}"),
-    })?;
+    let overrides =
+        pipeline_repository::get_pipeline_config_overrides(&state.pipeline_pool, &doc_id)
+            .await
+            .map_err(|e| AppError::Internal {
+                message: format!("Failed to read pipeline_config overrides: {e}"),
+            })?;
 
     Ok(Json(PatchConfigInput {
         profile_name: overrides.profile_name,
@@ -186,28 +184,24 @@ pub async fn patch_config_handler(
 
     let overrides: PipelineConfigOverrides = input.into();
 
-    pipeline_repository::patch_pipeline_config_overrides(
-        &state.pipeline_pool,
-        &doc_id,
-        &overrides,
-    )
-    .await
-    .map_err(|e| match e {
-        PipelineRepoError::NotFound(id) => AppError::NotFound {
-            message: format!("No pipeline_config for document '{id}'"),
-        },
-        PipelineRepoError::Database(msg) => AppError::Internal {
-            message: format!("Failed to patch pipeline_config: {msg}"),
-        },
-        // The patch path never returns Deserialization today (the
-        // helper only writes JSONB, never reads it), but exhaustive
-        // matching on the enum keeps this arm honest if the path
-        // ever gains a read step. Treat as 500 — it's a server-side
-        // data-shape bug, not something the client can recover from.
-        PipelineRepoError::Deserialization(msg) => AppError::Internal {
-            message: format!("Failed to deserialize pipeline_config: {msg}"),
-        },
-    })?;
+    pipeline_repository::patch_pipeline_config_overrides(&state.pipeline_pool, &doc_id, &overrides)
+        .await
+        .map_err(|e| match e {
+            PipelineRepoError::NotFound(id) => AppError::NotFound {
+                message: format!("No pipeline_config for document '{id}'"),
+            },
+            PipelineRepoError::Database(msg) => AppError::Internal {
+                message: format!("Failed to patch pipeline_config: {msg}"),
+            },
+            // The patch path never returns Deserialization today (the
+            // helper only writes JSONB, never reads it), but exhaustive
+            // matching on the enum keeps this arm honest if the path
+            // ever gains a read step. Treat as 500 — it's a server-side
+            // data-shape bug, not something the client can recover from.
+            PipelineRepoError::Deserialization(msg) => AppError::Internal {
+                message: format!("Failed to deserialize pipeline_config: {msg}"),
+            },
+        })?;
 
     Ok(Json(serde_json::json!({"updated": true})))
 }
@@ -276,18 +270,19 @@ pub async fn get_resolved_config_handler(
             message: format!("No pipeline_config for document '{doc_id}'"),
         })?;
 
-    let overrides = pipeline_repository::get_pipeline_config_overrides(
-        &state.pipeline_pool,
-        &doc_id,
-    )
-    .await
-    .map_err(|e| AppError::Internal {
-        message: format!("Failed to read pipeline_config overrides: {e}"),
-    })?;
+    let overrides =
+        pipeline_repository::get_pipeline_config_overrides(&state.pipeline_pool, &doc_id)
+            .await
+            .map_err(|e| AppError::Internal {
+                message: format!("Failed to read pipeline_config overrides: {e}"),
+            })?;
 
-    let profile_name = overrides.profile_name.as_deref().ok_or_else(|| AppError::NotFound {
-        message: format!("Document '{doc_id}' has no profile_name on its pipeline_config row"),
-    })?;
+    let profile_name = overrides
+        .profile_name
+        .as_deref()
+        .ok_or_else(|| AppError::NotFound {
+            message: format!("Document '{doc_id}' has no profile_name on its pipeline_config row"),
+        })?;
 
     let profile = ProcessingProfile::load(&state.config.processing_profile_dir, profile_name)
         .map_err(|e| AppError::Internal {

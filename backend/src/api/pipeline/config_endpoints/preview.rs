@@ -83,7 +83,10 @@ pub async fn preview_prompt(
         })?;
     if pages.is_empty() {
         return Err(AppError::BadRequest {
-            message: format!("Document '{}' has no extracted text pages", input.document_id),
+            message: format!(
+                "Document '{}' has no extracted text pages",
+                input.document_id
+            ),
             details: serde_json::json!({"document_id": input.document_id}),
         });
     }
@@ -129,16 +132,12 @@ pub async fn preview_prompt(
     // 6. Load template + schema files.
     let template_path =
         std::path::Path::new(&state.config.extraction_template_dir).join(&resolved.template_file);
-    let template_text =
-        tokio::fs::read_to_string(&template_path)
-            .await
-            .map_err(|e| AppError::BadRequest {
-                message: format!(
-                    "Failed to read template '{}': {e}",
-                    resolved.template_file
-                ),
-                details: serde_json::json!({"field": "template_file"}),
-            })?;
+    let template_text = tokio::fs::read_to_string(&template_path)
+        .await
+        .map_err(|e| AppError::BadRequest {
+            message: format!("Failed to read template '{}': {e}", resolved.template_file),
+            details: serde_json::json!({"field": "template_file"}),
+        })?;
 
     let schema_path =
         std::path::Path::new(&state.config.extraction_schema_dir).join(&resolved.schema_file);
@@ -183,13 +182,8 @@ pub async fn preview_prompt(
 
     // 8. Token + cost estimates.
     let estimated_input_tokens = (assembled_prompt.len() as i64) / CHARS_PER_TOKEN;
-    let estimated_cost_usd = estimate_cost(
-        db,
-        &resolved.model,
-        estimated_input_tokens,
-        &mut notes,
-    )
-    .await;
+    let estimated_cost_usd =
+        estimate_cost(db, &resolved.model, estimated_input_tokens, &mut notes).await;
 
     Ok(Json(PromptPreviewResponse {
         profile_name: resolved.profile_name,

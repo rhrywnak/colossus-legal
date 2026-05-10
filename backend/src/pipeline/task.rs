@@ -312,12 +312,10 @@ mod tests {
         // Pass 2 must never be the step that routes straight to
         // AutoApprove — the Verify gate runs between all extraction
         // passes and the approval stage, by design.
-        assert!(
-            matches!(
-                DocProcessing::validate_transition("LlmExtractPass2", "AutoApprove"),
-                Err(PipelineError::InvalidTransition { .. })
-            )
-        );
+        assert!(matches!(
+            DocProcessing::validate_transition("LlmExtractPass2", "AutoApprove"),
+            Err(PipelineError::InvalidTransition { .. })
+        ));
     }
 
     #[test]
@@ -336,5 +334,4 @@ mod tests {
             "step-skip LlmExtract -> Ingest should be rejected, got {result:?}"
         );
     }
-
 }

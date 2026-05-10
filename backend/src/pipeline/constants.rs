@@ -42,4 +42,3 @@ pub use crate::models::document_status::STATUS_COMPLETED as DOC_STATUS_COMPLETED
 pub use crate::models::document_status::STATUS_FAILED as DOC_STATUS_FAILED;
 pub use crate::models::document_status::STATUS_NEW as DOC_STATUS_NEW;
 pub use crate::models::document_status::STATUS_PROCESSING as DOC_STATUS_PROCESSING;
-

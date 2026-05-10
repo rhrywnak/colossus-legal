@@ -135,9 +135,7 @@ pub async fn get_active_model_by_id(
     db: &PgPool,
     model_id: &str,
 ) -> Result<Option<LlmModelRecord>, sqlx::Error> {
-    let sql = format!(
-        "SELECT {SELECT_COLUMNS} FROM llm_models WHERE id = $1 AND is_active = true"
-    );
+    let sql = format!("SELECT {SELECT_COLUMNS} FROM llm_models WHERE id = $1 AND is_active = true");
     sqlx::query_as::<_, LlmModelRecord>(&sql)
         .bind(model_id)
         .fetch_optional(db)
@@ -165,9 +163,7 @@ pub async fn list_active_models(db: &PgPool) -> Result<Vec<LlmModelRecord>, sqlx
 /// models they previously deactivated. The client uses each row's
 /// `is_active` flag to render the toggle state.
 pub async fn list_all_models(db: &PgPool) -> Result<Vec<LlmModelRecord>, sqlx::Error> {
-    let sql = format!(
-        "SELECT {SELECT_COLUMNS} FROM llm_models ORDER BY display_name"
-    );
+    let sql = format!("SELECT {SELECT_COLUMNS} FROM llm_models ORDER BY display_name");
     sqlx::query_as::<_, LlmModelRecord>(&sql)
         .fetch_all(db)
         .await

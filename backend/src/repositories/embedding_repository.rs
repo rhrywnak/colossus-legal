@@ -286,8 +286,7 @@ pub async fn fetch_nodes_for_document(
                 d.source_document_id AS source_document";
     let doc_prop_keys = vec!["title", "document_type", "source_document"];
     all_nodes.extend(
-        run_node_query_with_param(graph, doc_cypher, &doc_prop_keys, "doc_id", document_id)
-            .await?,
+        run_node_query_with_param(graph, doc_cypher, &doc_prop_keys, "doc_id", document_id).await?,
     );
 
     // 2. Every non-Document entity contained in that Document. Works for

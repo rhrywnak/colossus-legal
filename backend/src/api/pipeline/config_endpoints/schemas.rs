@@ -70,8 +70,11 @@ pub async fn list_schemas(
         let filename = entry.file_name().to_string_lossy().to_string();
         match colossus_extract::ExtractionSchema::from_file(&path) {
             Ok(schema) => {
-                let entity_types: Vec<String> =
-                    schema.entity_types.iter().map(|et| et.name.clone()).collect();
+                let entity_types: Vec<String> = schema
+                    .entity_types
+                    .iter()
+                    .map(|et| et.name.clone())
+                    .collect();
                 schemas.push(SchemaInfo {
                     filename,
                     document_type: schema.document_type,

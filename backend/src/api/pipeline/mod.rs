@@ -285,4 +285,3 @@ pub(crate) fn require_field(name: &str, value: Option<String>) -> Result<String,
         details: serde_json::json!({}),
     })
 }
-

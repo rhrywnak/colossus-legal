@@ -163,11 +163,8 @@ pub(crate) async fn load_category_map(
     state: &AppState,
     doc_id: &str,
 ) -> Result<HashMap<String, EntityCategory>, String> {
-    let pipe_config = match pipeline_repository::get_pipeline_config(
-        &state.pipeline_pool,
-        doc_id,
-    )
-    .await
+    let pipe_config = match pipeline_repository::get_pipeline_config(&state.pipeline_pool, doc_id)
+        .await
     {
         Ok(Some(cfg)) => cfg,
         Ok(None) => {
@@ -239,8 +236,7 @@ fn audit_schema_for_missing_category(schema_path: &str, schema_file: &str) {
         }
     };
 
-    let Some(entity_types) = yaml_value.get("entity_types").and_then(|v| v.as_sequence())
-    else {
+    let Some(entity_types) = yaml_value.get("entity_types").and_then(|v| v.as_sequence()) else {
         return;
     };
 
@@ -431,8 +427,7 @@ pub async fn list_items_handler(
             let category = category_map
                 .get(&item.entity_type)
                 .unwrap_or(&EntityCategory::Evidence);
-            let locked =
-                doc_is_post_ingest && is_post_ingest_locked_status(&item.review_status);
+            let locked = doc_is_post_ingest && is_post_ingest_locked_status(&item.review_status);
             let actions = compute_available_actions(category, &item.review_status, locked);
             let can_approve = actions.iter().any(|a| a == "approve" || a == "confirm");
             let can_reject = actions.iter().any(|a| a == "reject");
@@ -504,28 +499,83 @@ mod tests {
             must_not_contain: &'static [&'static str],
         }
         let cases = [
-            Case { category: EntityCategory::Evidence, status: "pending", locked: false,
-                   must_contain: &["approve", "reject", "edit"], must_not_contain: &[] },
-            Case { category: EntityCategory::Evidence, status: "", locked: false,
-                   must_contain: &["approve", "reject", "edit"], must_not_contain: &[] },
-            Case { category: EntityCategory::Evidence, status: "approved", locked: false,
-                   must_contain: &["unapprove"], must_not_contain: &["approve", "reject"] },
-            Case { category: EntityCategory::Evidence, status: "rejected", locked: false,
-                   must_contain: &["unreject"], must_not_contain: &["approve"] },
-            Case { category: EntityCategory::Evidence, status: "edited", locked: false,
-                   must_contain: &["unapprove"], must_not_contain: &[] },
-            Case { category: EntityCategory::Evidence, status: "Pending", locked: false,
-                   must_contain: &["approve"], must_not_contain: &[] },
-            Case { category: EntityCategory::Evidence, status: "PENDING", locked: false,
-                   must_contain: &["approve"], must_not_contain: &[] },
-            Case { category: EntityCategory::Foundation, status: "pending", locked: false,
-                   must_contain: &["confirm", "edit"], must_not_contain: &["approve", "reject"] },
-            Case { category: EntityCategory::Reference, status: "pending", locked: false,
-                   must_contain: &["approve", "reject"], must_not_contain: &["edit"] },
-            Case { category: EntityCategory::Evidence, status: "pending", locked: true,
-                   must_contain: &[], must_not_contain: &["approve", "reject", "edit", "unapprove", "unreject"] },
-            Case { category: EntityCategory::Evidence, status: "approved", locked: true,
-                   must_contain: &[], must_not_contain: &["approve", "reject", "edit", "unapprove", "unreject"] },
+            Case {
+                category: EntityCategory::Evidence,
+                status: "pending",
+                locked: false,
+                must_contain: &["approve", "reject", "edit"],
+                must_not_contain: &[],
+            },
+            Case {
+                category: EntityCategory::Evidence,
+                status: "",
+                locked: false,
+                must_contain: &["approve", "reject", "edit"],
+                must_not_contain: &[],
+            },
+            Case {
+                category: EntityCategory::Evidence,
+                status: "approved",
+                locked: false,
+                must_contain: &["unapprove"],
+                must_not_contain: &["approve", "reject"],
+            },
+            Case {
+                category: EntityCategory::Evidence,
+                status: "rejected",
+                locked: false,
+                must_contain: &["unreject"],
+                must_not_contain: &["approve"],
+            },
+            Case {
+                category: EntityCategory::Evidence,
+                status: "edited",
+                locked: false,
+                must_contain: &["unapprove"],
+                must_not_contain: &[],
+            },
+            Case {
+                category: EntityCategory::Evidence,
+                status: "Pending",
+                locked: false,
+                must_contain: &["approve"],
+                must_not_contain: &[],
+            },
+            Case {
+                category: EntityCategory::Evidence,
+                status: "PENDING",
+                locked: false,
+                must_contain: &["approve"],
+                must_not_contain: &[],
+            },
+            Case {
+                category: EntityCategory::Foundation,
+                status: "pending",
+                locked: false,
+                must_contain: &["confirm", "edit"],
+                must_not_contain: &["approve", "reject"],
+            },
+            Case {
+                category: EntityCategory::Reference,
+                status: "pending",
+                locked: false,
+                must_contain: &["approve", "reject"],
+                must_not_contain: &["edit"],
+            },
+            Case {
+                category: EntityCategory::Evidence,
+                status: "pending",
+                locked: true,
+                must_contain: &[],
+                must_not_contain: &["approve", "reject", "edit", "unapprove", "unreject"],
+            },
+            Case {
+                category: EntityCategory::Evidence,
+                status: "approved",
+                locked: true,
+                must_contain: &[],
+                must_not_contain: &["approve", "reject", "edit", "unapprove", "unreject"],
+            },
         ];
         for c in &cases {
             let actions = compute_available_actions(&c.category, c.status, c.locked);
@@ -533,14 +583,20 @@ mod tests {
                 assert!(
                     actions.contains(&needed.to_string()),
                     "({:?}, {:?}, locked={}) must contain {needed:?}; got: {:?}",
-                    c.category, c.status, c.locked, actions
+                    c.category,
+                    c.status,
+                    c.locked,
+                    actions
                 );
             }
             for forbidden in c.must_not_contain {
                 assert!(
                     !actions.contains(&forbidden.to_string()),
                     "({:?}, {:?}, locked={}) must NOT contain {forbidden:?}; got: {:?}",
-                    c.category, c.status, c.locked, actions
+                    c.category,
+                    c.status,
+                    c.locked,
+                    actions
                 );
             }
             // Locked variants are fully empty — pin that explicitly.
@@ -548,7 +604,9 @@ mod tests {
                 assert!(
                     actions.is_empty(),
                     "({:?}, {:?}, locked=true) must produce empty action set; got: {:?}",
-                    c.category, c.status, actions
+                    c.category,
+                    c.status,
+                    actions
                 );
             }
         }
@@ -622,23 +680,65 @@ mod tests {
         }
         let cases = [
             // Pre-ingest docs — nothing is locked regardless of item status.
-            Case { doc_status: "VERIFIED", review_status: "pending",  expect_locked: false },
-            Case { doc_status: "VERIFIED", review_status: "approved", expect_locked: false },
-            Case { doc_status: "VERIFIED", review_status: "rejected", expect_locked: false },
-            Case { doc_status: "VERIFIED", review_status: "edited",   expect_locked: false },
+            Case {
+                doc_status: "VERIFIED",
+                review_status: "pending",
+                expect_locked: false,
+            },
+            Case {
+                doc_status: "VERIFIED",
+                review_status: "approved",
+                expect_locked: false,
+            },
+            Case {
+                doc_status: "VERIFIED",
+                review_status: "rejected",
+                expect_locked: false,
+            },
+            Case {
+                doc_status: "VERIFIED",
+                review_status: "edited",
+                expect_locked: false,
+            },
             // Post-ingest docs — approved and rejected lock, pending and edited do not.
-            Case { doc_status: "PUBLISHED", review_status: "pending",  expect_locked: false },
-            Case { doc_status: "PUBLISHED", review_status: "approved", expect_locked: true  },
-            Case { doc_status: "PUBLISHED", review_status: "rejected", expect_locked: true  },
-            Case { doc_status: "PUBLISHED", review_status: "edited",   expect_locked: false },
-            Case { doc_status: "INGESTED",  review_status: "pending",  expect_locked: false },
-            Case { doc_status: "INGESTED",  review_status: "approved", expect_locked: true  },
+            Case {
+                doc_status: "PUBLISHED",
+                review_status: "pending",
+                expect_locked: false,
+            },
+            Case {
+                doc_status: "PUBLISHED",
+                review_status: "approved",
+                expect_locked: true,
+            },
+            Case {
+                doc_status: "PUBLISHED",
+                review_status: "rejected",
+                expect_locked: true,
+            },
+            Case {
+                doc_status: "PUBLISHED",
+                review_status: "edited",
+                expect_locked: false,
+            },
+            Case {
+                doc_status: "INGESTED",
+                review_status: "pending",
+                expect_locked: false,
+            },
+            Case {
+                doc_status: "INGESTED",
+                review_status: "approved",
+                expect_locked: true,
+            },
         ];
         for c in cases {
-            let locked = is_post_ingest(c.doc_status) && is_post_ingest_locked_status(c.review_status);
+            let locked =
+                is_post_ingest(c.doc_status) && is_post_ingest_locked_status(c.review_status);
             assert_eq!(
                 locked, c.expect_locked,
-                "case {:?}: expected locked={}, got {}", c, c.expect_locked, locked
+                "case {:?}: expected locked={}, got {}",
+                c, c.expect_locked, locked
             );
         }
     }

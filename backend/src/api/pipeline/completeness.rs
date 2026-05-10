@@ -146,13 +146,9 @@ pub(crate) async fn run_completeness(
                 AppError::Conflict { message, .. } => message.clone(),
                 AppError::Internal { message } => message.clone(),
             };
-            if let Err(rec_err) = steps::record_step_failure(
-                &state.pipeline_pool,
-                step_id,
-                duration_secs,
-                &err_msg,
-            )
-            .await
+            if let Err(rec_err) =
+                steps::record_step_failure(&state.pipeline_pool, step_id, duration_secs, &err_msg)
+                    .await
             {
                 tracing::warn!(
                     doc_id = %doc_id, step_id, error = %rec_err,
@@ -254,7 +250,12 @@ async fn run_completeness_impl(
         },
         CompletenessCheck {
             name: "neo4j_node_exists".to_string(),
-            status: if nodes_missing.is_empty() { "pass" } else { "fail" }.to_string(),
+            status: if nodes_missing.is_empty() {
+                "pass"
+            } else {
+                "fail"
+            }
+            .to_string(),
             expected: expected_ids.len(),
             actual: nodes_verified,
             message: format!(
@@ -266,7 +267,12 @@ async fn run_completeness_impl(
         },
         CompletenessCheck {
             name: "qdrant_point_exists".to_string(),
-            status: if points_missing.is_empty() { "pass" } else { "warn" }.to_string(),
+            status: if points_missing.is_empty() {
+                "pass"
+            } else {
+                "warn"
+            }
+            .to_string(),
             expected: found_node_ids.len(),
             actual: points_verified,
             message: format!(

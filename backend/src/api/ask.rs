@@ -220,10 +220,7 @@ pub async fn ask_the_case(
 
     // Resolve the per-request synthesizer from the chat provider map.
     // Absent `model` field uses the server default. Unknown ids are 400.
-    let model_id = req
-        .model
-        .as_deref()
-        .unwrap_or(&state.default_chat_model);
+    let model_id = req.model.as_deref().unwrap_or(&state.default_chat_model);
     let provider = state.chat_providers.get(model_id).ok_or_else(|| {
         error_response(
             StatusCode::BAD_REQUEST,
@@ -388,7 +385,6 @@ fn error_response(status: StatusCode, message: &str) -> ApiError {
         }),
     )
 }
-
 
 /// Map a document title to its Neo4j node ID.
 ///

@@ -254,13 +254,12 @@ impl LlmExtract {
             })?;
 
         let schema_path = format!("{}/{}", context.schema_dir, pipe_config.schema_file);
-        let schema = colossus_extract::ExtractionSchema::from_file(std::path::Path::new(
-            &schema_path,
-        ))
-        .map_err(|e| LlmExtractError::SchemaLoadFailed {
-            schema_file: pipe_config.schema_file.clone(),
-            source: e,
-        })?;
+        let schema =
+            colossus_extract::ExtractionSchema::from_file(std::path::Path::new(&schema_path))
+                .map_err(|e| LlmExtractError::SchemaLoadFailed {
+                    schema_file: pipe_config.schema_file.clone(),
+                    source: e,
+                })?;
         let schema_json = serde_json::to_string_pretty(&schema)?;
 
         let pages = pipeline_repository::get_document_text(db, &self.document_id).await?;
@@ -309,8 +308,7 @@ impl LlmExtract {
             }
             None => None,
         };
-        let system_prompt_hash: Option<String> =
-            system_prompt.as_deref().map(sha2_hex);
+        let system_prompt_hash: Option<String> = system_prompt.as_deref().map(sha2_hex);
 
         // 5c. Load the global-rules fragment if the profile names one and
         //     compute its SHA-256 for the F3 audit columns. Read failure is
@@ -372,14 +370,10 @@ impl LlmExtract {
         }
 
         // 9. Acquire LLM semaphore for the duration of the extraction.
-        let _llm_permit = context
-            .llm_semaphore
-            .acquire()
-            .await
-            .map_err(|e| {
-                tracing::debug!(error = %e, "Semaphore acquire failed");
-                LlmExtractError::SemaphoreClosed
-            })?;
+        let _llm_permit = context.llm_semaphore.acquire().await.map_err(|e| {
+            tracing::debug!(error = %e, "Semaphore acquire failed");
+            LlmExtractError::SemaphoreClosed
+        })?;
 
         // 10. Dispatch on the effective chunking mode.
         //
@@ -496,8 +490,7 @@ impl LlmExtract {
             outcome.chunks_succeeded,
             outcome.chunks_failed,
         ) {
-            if let Err(e) =
-                extraction::update_run_chunk_stats(db, run_id, total, ok, failed).await
+            if let Err(e) = extraction::update_run_chunk_stats(db, run_id, total, ok, failed).await
             {
                 tracing::error!(
                     run_id = run_id,
@@ -724,16 +717,13 @@ async fn run_full_document_extraction(
         1,
     )
     .await
-    .map_err(|e| {
-        LlmExtractError::LlmCallFailed {
-            source: e,
-        }
-    })?;
+    .map_err(|e| LlmExtractError::LlmCallFailed { source: e })?;
 
-    let parsed = parse_chunk_response(&response.text).map_err(|e| -> Box<dyn Error + Send + Sync> {
-        let fail_msg = format!("Full-document parse failed: {e}");
-        Box::<dyn Error + Send + Sync>::from(fail_msg)
-    });
+    let parsed =
+        parse_chunk_response(&response.text).map_err(|e| -> Box<dyn Error + Send + Sync> {
+            let fail_msg = format!("Full-document parse failed: {e}");
+            Box::<dyn Error + Send + Sync>::from(fail_msg)
+        });
     let parsed = match parsed {
         Ok(v) => v,
         Err(e) => {
@@ -742,10 +732,7 @@ async fn run_full_document_extraction(
         }
     };
 
-    let entities = parsed["entities"]
-        .as_array()
-        .cloned()
-        .unwrap_or_default();
+    let entities = parsed["entities"].as_array().cloned().unwrap_or_default();
     let relationships = parsed["relationships"]
         .as_array()
         .cloned()
@@ -1014,10 +1001,8 @@ async fn extract_chunks_loop(
 
                 match parse_chunk_response(&response.text) {
                     Ok(parsed) => {
-                        let entity_count = parsed["entities"]
-                            .as_array()
-                            .map(|a| a.len())
-                            .unwrap_or(0);
+                        let entity_count =
+                            parsed["entities"].as_array().map(|a| a.len()).unwrap_or(0);
                         let rel_count = parsed["relationships"]
                             .as_array()
                             .map(|a| a.len())
@@ -1048,9 +1033,7 @@ async fn extract_chunks_loop(
                             .map(|arr| {
                                 arr.iter()
                                     .filter_map(|v| {
-                                        match serde_json::from_value::<ExtractedEntity>(
-                                            v.clone(),
-                                        ) {
+                                        match serde_json::from_value::<ExtractedEntity>(v.clone()) {
                                             Ok(e) => Some(e),
                                             Err(err) => {
                                                 tracing::warn!(
@@ -1245,7 +1228,12 @@ async fn extract_chunks_loop(
     let dedup_types: HashSet<String> = schema
         .entity_types
         .iter()
-        .filter(|et| matches!(et.category, EntityCategory::Foundation | EntityCategory::Reference))
+        .filter(|et| {
+            matches!(
+                et.category,
+                EntityCategory::Foundation | EntityCategory::Reference
+            )
+        })
         .map(|et| et.name.clone())
         .collect();
 
@@ -1408,10 +1396,7 @@ async fn run_structured_extraction(
 /// false-positive once pass 2 landed, incorrectly short-circuiting
 /// pass 1 when only pass 2 was COMPLETED (impossible in practice, but
 /// also the wrong semantics for the retry-after-pass-2-failure case).
-async fn pass1_already_complete(
-    db: &PgPool,
-    document_id: &str,
-) -> Result<bool, sqlx::Error> {
+async fn pass1_already_complete(db: &PgPool, document_id: &str) -> Result<bool, sqlx::Error> {
     let existing: Option<i32> = sqlx::query_scalar(
         "SELECT id FROM extraction_runs \
          WHERE document_id = $1 AND pass_number = 1 AND status = $2 \
@@ -1432,10 +1417,7 @@ async fn pass1_already_complete(
 /// between the idempotency short-circuit and the success path so both
 /// branches agree on the FSM edge — otherwise a retry of an already-
 /// completed pass 1 (with `run_pass2 = true`) would bypass pass 2.
-pub(crate) fn next_step_after_pass1(
-    resolved: &ResolvedConfig,
-    document_id: &str,
-) -> DocProcessing {
+pub(crate) fn next_step_after_pass1(resolved: &ResolvedConfig, document_id: &str) -> DocProcessing {
     if resolved.run_pass2 {
         DocProcessing::LlmExtractPass2(LlmExtractPass2 {
             document_id: document_id.to_string(),
@@ -1488,9 +1470,7 @@ pub(crate) fn compute_cost(
     input_tokens: i64,
     output_tokens: i64,
 ) -> Option<f64> {
-    let cost_in = model
-        .cost_per_input_token
-        .map(|c| c * input_tokens as f64);
+    let cost_in = model.cost_per_input_token.map(|c| c * input_tokens as f64);
     let cost_out = model
         .cost_per_output_token
         .map(|c| c * output_tokens as f64);
@@ -1681,11 +1661,10 @@ pub(crate) fn load_global_rules(
     };
 
     let path = template_dir.join(name);
-    let content = std::fs::read_to_string(&path).map_err(|e| {
-        LlmExtractError::ProfileLoadFailed {
+    let content =
+        std::fs::read_to_string(&path).map_err(|e| LlmExtractError::ProfileLoadFailed {
             message: format!("Failed to read global rules '{}': {e}", path.display()),
-        }
-    })?;
+        })?;
     let hash = sha2_hex(&content);
     Ok((content, Some(hash)))
 }
@@ -1892,8 +1871,7 @@ mod tests {
         // somehow carries both placeholders, {{document_text}} wins.
         // {{chunk_text}} stays unsubstituted (a degenerate case — a
         // well-formed template should only have one body placeholder).
-        let template =
-            "Doc: {{document_text}}\n\nChunk: {{chunk_text}}\n\nSchema: {{schema_json}}";
+        let template = "Doc: {{document_text}}\n\nChunk: {{chunk_text}}\n\nSchema: {{schema_json}}";
         let prompt = assemble_chunk_prompt(template, "<SCHEMA>", "<CHUNK BODY>", None, None, None)
             .expect("must succeed when at least one placeholder is present");
         assert!(
@@ -1938,7 +1916,8 @@ mod tests {
             Row {
                 template: "Rules:\n{{global_rules}}\n\nDoc: {{document_text}}",
                 global_rules: Some("RULE-1; RULE-2"),
-                admin: None, context: None,
+                admin: None,
+                context: None,
                 placeholder: "{{global_rules}}",
                 expect_content: Some("RULE-1; RULE-2"),
             },
@@ -1946,7 +1925,9 @@ mod tests {
                 // Template references {{global_rules}} but profile didn't
                 // opt in — placeholder must vanish, not leak as literal.
                 template: "Rules:\n{{global_rules}}\n\nDoc: {{document_text}}",
-                global_rules: None, admin: None, context: None,
+                global_rules: None,
+                admin: None,
+                context: None,
                 placeholder: "{{global_rules}}",
                 expect_content: None,
             },
@@ -1960,7 +1941,9 @@ mod tests {
             },
             Row {
                 template: "Admin: {{admin_instructions}}\n\nDoc: {{document_text}}",
-                global_rules: None, admin: None, context: None,
+                global_rules: None,
+                admin: None,
+                context: None,
                 placeholder: "{{admin_instructions}}",
                 expect_content: None,
             },
@@ -1969,15 +1952,21 @@ mod tests {
                 // context is always None. The placeholder must still
                 // vanish so it doesn't reach the LLM as literal text.
                 template: "Context: {{context}}\n\nDoc: {{document_text}}",
-                global_rules: None, admin: None, context: None,
+                global_rules: None,
+                admin: None,
+                context: None,
                 placeholder: "{{context}}",
                 expect_content: None,
             },
         ];
         for row in rows {
             let prompt = assemble_chunk_prompt(
-                row.template, "<SCHEMA>", "<CHUNK>",
-                row.global_rules, row.admin, row.context,
+                row.template,
+                "<SCHEMA>",
+                "<CHUNK>",
+                row.global_rules,
+                row.admin,
+                row.context,
             )
             .expect("substitution must succeed");
             assert!(
@@ -2013,9 +2002,7 @@ Doc:\n{{document_text}}";
             Some("<CTX>"),
         )
         .expect("substitution must succeed");
-        for needle in [
-            "<SCHEMA>", "<RULES>", "<ADMIN>", "<CTX>", "<CHUNK>",
-        ] {
+        for needle in ["<SCHEMA>", "<RULES>", "<ADMIN>", "<CTX>", "<CHUNK>"] {
             assert!(prompt.contains(needle), "missing {needle}; got: {prompt}");
         }
         for placeholder in [
@@ -2047,8 +2034,8 @@ Doc:\n{{document_text}}";
     #[test]
     fn load_global_rules_returns_empty_and_none_when_file_is_unconfigured() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let (content, hash) = load_global_rules(dir.path(), None)
-            .expect("None file_name must be Ok");
+        let (content, hash) =
+            load_global_rules(dir.path(), None).expect("None file_name must be Ok");
         assert_eq!(content, "", "no-file case must yield empty content");
         assert!(hash.is_none(), "no-file case must yield None hash");
     }
@@ -2061,8 +2048,8 @@ Doc:\n{{document_text}}";
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("empty_rules.md");
         std::fs::write(&path, "").expect("write empty file");
-        let (content, hash) = load_global_rules(dir.path(), Some("empty_rules.md"))
-            .expect("empty file must be Ok");
+        let (content, hash) =
+            load_global_rules(dir.path(), Some("empty_rules.md")).expect("empty file must be Ok");
         assert_eq!(content, "", "empty file must yield empty content");
         assert_eq!(
             hash.as_deref(),
@@ -2078,8 +2065,8 @@ Doc:\n{{document_text}}";
         let body = "## Extraction Rules\n- always cite verbatim\n";
         let path = dir.path().join("rules_v4.md");
         std::fs::write(&path, body).expect("write file");
-        let (content, hash) = load_global_rules(dir.path(), Some("rules_v4.md"))
-            .expect("real file must be Ok");
+        let (content, hash) =
+            load_global_rules(dir.path(), Some("rules_v4.md")).expect("real file must be Ok");
         assert_eq!(content, body, "content round-trips byte-for-byte");
         assert_eq!(
             hash.as_deref(),
@@ -2339,7 +2326,10 @@ The real prompt body.";
         );
         // thiserror's "Caused by" chain only appears in Debug; Display
         // stays a single line even with `{source}` interpolation.
-        assert!(!s2.contains("Caused by"), "unexpected chain decoration: {s2}");
+        assert!(
+            !s2.contains("Caused by"),
+            "unexpected chain decoration: {s2}"
+        );
     }
 
     #[test]
@@ -2353,15 +2343,24 @@ The real prompt body.";
     #[test]
     fn default_profile_name_strips_yaml_and_version() {
         // v2 (legacy) and v4 (current) must both reduce to the base name.
-        assert_eq!(default_profile_name_from_schema("complaint_v2.yaml"), "complaint");
-        assert_eq!(default_profile_name_from_schema("complaint_v4.yaml"), "complaint");
+        assert_eq!(
+            default_profile_name_from_schema("complaint_v2.yaml"),
+            "complaint"
+        );
+        assert_eq!(
+            default_profile_name_from_schema("complaint_v4.yaml"),
+            "complaint"
+        );
         assert_eq!(
             default_profile_name_from_schema("discovery_response_v4.yaml"),
             "discovery_response"
         );
         assert_eq!(default_profile_name_from_schema("motion_v4.yaml"), "motion");
         assert_eq!(default_profile_name_from_schema("brief_v4.yaml"), "brief");
-        assert_eq!(default_profile_name_from_schema("affidavit_v4.yaml"), "affidavit");
+        assert_eq!(
+            default_profile_name_from_schema("affidavit_v4.yaml"),
+            "affidavit"
+        );
         assert_eq!(
             default_profile_name_from_schema("court_ruling_v4.yaml"),
             "court_ruling"
@@ -2664,5 +2663,4 @@ The real prompt body.";
         );
         assert!(json["pass2_model"].is_null());
     }
-
 }

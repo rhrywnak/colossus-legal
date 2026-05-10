@@ -170,10 +170,8 @@ pub async fn upload_document(
     // the profile YAML (the single source of truth) rather than a parallel
     // hardcoded map. The same loaded profile is reused below to pre-populate
     // the per-document override columns, avoiding a duplicate disk read.
-    let profile_name = profile_name_for_document_type_versioned(
-        &document_type,
-        profile_version.as_deref(),
-    );
+    let profile_name =
+        profile_name_for_document_type_versioned(&document_type, profile_version.as_deref());
 
     if let Some(v) = profile_version.as_deref() {
         tracing::info!(

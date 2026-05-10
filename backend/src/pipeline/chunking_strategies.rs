@@ -162,10 +162,7 @@ mod tests {
             config.get("units_per_chunk").and_then(|v| v.as_i64()),
             Some(25)
         );
-        assert_eq!(
-            config.get("unit_overlap").and_then(|v| v.as_i64()),
-            Some(0)
-        );
+        assert_eq!(config.get("unit_overlap").and_then(|v| v.as_i64()), Some(0));
     }
 
     #[test]
@@ -287,10 +284,7 @@ mod tests {
         let effective = resolve_chunking_config(&profile_config);
 
         // Just the profile values, no strategy injection.
-        assert_eq!(
-            effective.get("mode").and_then(|v| v.as_str()),
-            Some("full")
-        );
+        assert_eq!(effective.get("mode").and_then(|v| v.as_str()), Some("full"));
         assert!(!effective.contains_key("boundary_pattern"));
     }
 

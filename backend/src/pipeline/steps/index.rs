@@ -325,9 +325,7 @@ impl Index {
                 message: format!("update_document_status: {e}"),
             })?;
 
-        Ok(IndexStats {
-            embedded_count,
-        })
+        Ok(IndexStats { embedded_count })
     }
 }
 
@@ -360,5 +358,4 @@ mod tests {
         };
         assert!(format!("{err}").contains("test-doc-42"));
     }
-
 }

@@ -102,7 +102,9 @@ async fn query_total_cost(pool: &PgPool) -> Result<f64, AppError> {
     .bind(RUN_STATUS_COMPLETED)
     .fetch_one(pool)
     .await
-    .map_err(|e| AppError::Internal { message: format!("Cost query: {e}") })?;
+    .map_err(|e| AppError::Internal {
+        message: format!("Cost query: {e}"),
+    })?;
     Ok(row.0.unwrap_or(0.0))
 }
 
@@ -267,4 +269,3 @@ async fn query_estimates(pool: &PgPool) -> Result<EstimatesResponse, AppError> {
         confidence,
     })
 }
-

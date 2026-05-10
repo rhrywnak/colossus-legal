@@ -18,9 +18,7 @@ use std::fmt::Write;
 
 use axum::{extract::Path, extract::State, response::Html, Json};
 
-use crate::api::pipeline::report_data::{
-    build_report, ConfigFingerprints, DocumentQualityReport,
-};
+use crate::api::pipeline::report_data::{build_report, ConfigFingerprints, DocumentQualityReport};
 use crate::auth::{require_admin, AuthUser};
 use crate::error::AppError;
 use crate::repositories::pipeline_repository::{
@@ -101,10 +99,7 @@ struct ReportBundle {
     passes: Vec<PerPassRunMetadata>,
 }
 
-async fn fetch_report_bundle(
-    state: &AppState,
-    doc_id: &str,
-) -> Result<ReportBundle, AppError> {
+async fn fetch_report_bundle(state: &AppState, doc_id: &str) -> Result<ReportBundle, AppError> {
     let document = pipeline_repository::get_document(&state.pipeline_pool, doc_id)
         .await
         .map_err(|e| AppError::Internal {
@@ -337,10 +332,26 @@ fn write_fingerprints_section(html: &mut String, fp: &ConfigFingerprints) {
     );
     write_fp_row(html, "profile_name", fp.profile_name.as_deref());
     write_fp_hash_row(html, "profile_hash", fp.profile_hash.as_deref());
-    write_fp_row(html, "pass1_template_file", fp.pass1_template_file.as_deref());
-    write_fp_hash_row(html, "pass1_template_hash", fp.pass1_template_hash.as_deref());
-    write_fp_row(html, "pass2_template_file", fp.pass2_template_file.as_deref());
-    write_fp_hash_row(html, "pass2_template_hash", fp.pass2_template_hash.as_deref());
+    write_fp_row(
+        html,
+        "pass1_template_file",
+        fp.pass1_template_file.as_deref(),
+    );
+    write_fp_hash_row(
+        html,
+        "pass1_template_hash",
+        fp.pass1_template_hash.as_deref(),
+    );
+    write_fp_row(
+        html,
+        "pass2_template_file",
+        fp.pass2_template_file.as_deref(),
+    );
+    write_fp_hash_row(
+        html,
+        "pass2_template_hash",
+        fp.pass2_template_hash.as_deref(),
+    );
     write_fp_row(html, "global_rules_file", fp.global_rules_file.as_deref());
     write_fp_hash_row(html, "global_rules_hash", fp.global_rules_hash.as_deref());
     write_fp_row(html, "schema_file", fp.schema_file.as_deref());
@@ -369,7 +380,10 @@ fn write_fp_hash_row(html: &mut String, label: &str, value: Option<&str>) {
 }
 
 fn write_per_pass_section(html: &mut String, passes: &[PerPassRunMetadata]) {
-    let _ = write!(html, "<div class=\"per-pass\">\n<h2>Per-Pass Run Metadata</h2>\n");
+    let _ = write!(
+        html,
+        "<div class=\"per-pass\">\n<h2>Per-Pass Run Metadata</h2>\n"
+    );
     for pass in passes {
         let _ = write!(
             html,
@@ -401,8 +415,16 @@ fn write_per_pass_section(html: &mut String, passes: &[PerPassRunMetadata]) {
         );
         write_fp_row(html, "template_file", pass.template_file.as_deref());
         write_fp_hash_row(html, "template_hash", pass.template_hash.as_deref());
-        write_fp_row(html, "system_prompt_file", pass.system_prompt_file.as_deref());
-        write_fp_hash_row(html, "system_prompt_hash", pass.system_prompt_hash.as_deref());
+        write_fp_row(
+            html,
+            "system_prompt_file",
+            pass.system_prompt_file.as_deref(),
+        );
+        write_fp_hash_row(
+            html,
+            "system_prompt_hash",
+            pass.system_prompt_hash.as_deref(),
+        );
         if pass.pass_number == 2 {
             write_fp_row(
                 html,
@@ -435,10 +457,7 @@ fn write_per_pass_section(html: &mut String, passes: &[PerPassRunMetadata]) {
     html.push_str("</div>\n");
 }
 
-fn write_relationship_breakdown_section(
-    html: &mut String,
-    breakdown: &[RelationshipTypeCount],
-) {
+fn write_relationship_breakdown_section(html: &mut String, breakdown: &[RelationshipTypeCount]) {
     let total: i64 = breakdown.iter().map(|r| r.count).sum();
     let _ = write!(
         html,

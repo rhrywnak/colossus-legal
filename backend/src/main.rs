@@ -254,8 +254,7 @@ async fn run_serve(config: AppConfig, graph: neo4rs::Graph, http_client: reqwest
     // the Chat default isn't in the provider map (typically because the
     // `llm_models` row is missing) so admin paths still work.
     let default_chat_provider = chat_providers.get(DEFAULT_CHAT_MODEL).cloned();
-    let rag_pipeline =
-        build_rag_pipeline(&config, &graph, &prompts, default_chat_provider).await;
+    let rag_pipeline = build_rag_pipeline(&config, &graph, &prompts, default_chat_provider).await;
 
     // Audit log repository — records every admin action for accountability.
     let audit_repo = colossus_legal_backend::repositories::audit_repository::AuditRepository::new(
@@ -487,14 +486,13 @@ async fn build_rag_pipeline(
             }
         },
     };
-    let embedding_provider =
-        match colossus_extract::providers::embedding_provider_from_env() {
-            Ok(p) => p,
-            Err(e) => {
-                tracing::error!("Failed to build embedding provider for RAG: {e}");
-                return None;
-            }
-        };
+    let embedding_provider = match colossus_extract::providers::embedding_provider_from_env() {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::error!("Failed to build embedding provider for RAG: {e}");
+            return None;
+        }
+    };
 
     // --- Router: rule-based with legal case aliases ---
     let router = RuleBasedRouter::legal_defaults();
@@ -608,9 +606,7 @@ async fn build_chat_providers(
     let api_key = match &config.anthropic_api_key {
         Some(k) => k.clone(),
         None => {
-            tracing::info!(
-                "ANTHROPIC_API_KEY not set; chat provider map will be empty"
-            );
+            tracing::info!("ANTHROPIC_API_KEY not set; chat provider map will be empty");
             return map;
         }
     };

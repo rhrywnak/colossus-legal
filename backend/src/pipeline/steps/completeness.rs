@@ -251,13 +251,10 @@ impl Completeness {
         }
 
         // 7. Batch Qdrant verification — WARN only.
-        let points_missing = verify_qdrant_points(
-            &context.http_client,
-            &context.qdrant_url,
-            &found_node_ids,
-        )
-        .await
-        .map_err(|e| helper_with_doc(doc_id, e))?;
+        let points_missing =
+            verify_qdrant_points(&context.http_client, &context.qdrant_url, &found_node_ids)
+                .await
+                .map_err(|e| helper_with_doc(doc_id, e))?;
         let points_verified = found_node_ids.len() - points_missing.len();
         if !points_missing.is_empty() {
             tracing::warn!(
@@ -340,5 +337,4 @@ mod tests {
         };
         assert!(format!("{err}").contains("doc-42"));
     }
-
 }

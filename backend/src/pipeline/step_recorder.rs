@@ -79,13 +79,8 @@ impl StepRecorder for PgStepRecorder {
         duration_secs: f64,
         error_message: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        steps::record_step_failure(
-            &self.pool,
-            step_handle as i32,
-            duration_secs,
-            error_message,
-        )
-        .await?;
+        steps::record_step_failure(&self.pool, step_handle as i32, duration_secs, error_message)
+            .await?;
         Ok(())
     }
 }

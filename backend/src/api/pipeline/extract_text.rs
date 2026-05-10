@@ -90,8 +90,8 @@ pub(crate) async fn run_extract_text(
         .original_format
         .as_deref()
         .map(String::from)
-        .unwrap_or_else(|| {
-            match colossus_pdf::detect_format(std::path::Path::new(&full_path)) {
+        .unwrap_or_else(
+            || match colossus_pdf::detect_format(std::path::Path::new(&full_path)) {
                 Ok(fmt) => match fmt {
                     colossus_pdf::DocumentFormat::Pdf => "pdf".to_string(),
                     colossus_pdf::DocumentFormat::Docx => "docx".to_string(),
@@ -105,8 +105,8 @@ pub(crate) async fn run_extract_text(
                     );
                     "pdf".to_string()
                 }
-            }
-        });
+            },
+        );
 
     tracing::info!(doc_id = %doc_id, format = %doc_format, "ExtractText: routing by format");
 
@@ -492,11 +492,15 @@ pub async fn extract_text(
     // extract_text handler is the standalone admin endpoint, not the automated pipeline.
     // When called directly, we set TEXT_EXTRACTED status here — the orchestrator pattern.
     // run_extract_text no longer sets this status itself (see comment in run_extract_text).
-    pipeline_repository::update_document_status(&state.pipeline_pool, &doc_id, STATUS_TEXT_EXTRACTED)
-        .await
-        .map_err(|e| AppError::Internal {
-            message: format!("Failed to update status: {e}"),
-        })?;
+    pipeline_repository::update_document_status(
+        &state.pipeline_pool,
+        &doc_id,
+        STATUS_TEXT_EXTRACTED,
+    )
+    .await
+    .map_err(|e| AppError::Internal {
+        message: format!("Failed to update status: {e}"),
+    })?;
 
     Ok(Json(result))
 }
@@ -546,10 +550,16 @@ mod tests {
     fn test_detect_document_type_routing() {
         let cases: &[(&str, &str)] = &[
             // Per-type happy paths.
-            ("STATE OF MICHIGAN\nCOMPLAINT\nPlaintiff vs Defendant", "complaint"),
+            (
+                "STATE OF MICHIGAN\nCOMPLAINT\nPlaintiff vs Defendant",
+                "complaint",
+            ),
             ("VERIFIED COMPLAINT FOR DAMAGES", "complaint"),
             ("AFFIDAVIT OF JOHN SMITH", "affidavit"),
-            ("PLAINTIFF'S RESPONSES TO INTERROGATORIES", "discovery_response"),
+            (
+                "PLAINTIFF'S RESPONSES TO INTERROGATORIES",
+                "discovery_response",
+            ),
             ("REQUEST FOR ADMISSION NUMBER 1", "discovery_response"),
             ("MOTION FOR SUMMARY JUDGMENT", "motion"),
             ("MOTION TO DISMISS", "motion"),
@@ -568,7 +578,10 @@ mod tests {
             ("affidavit of facts", "affidavit"),
             // Priority order (the load-bearing contracts):
             // - Affidavit beats motion.
-            ("AFFIDAVIT IN SUPPORT OF MOTION FOR SUMMARY JUDGMENT", "affidavit"),
+            (
+                "AFFIDAVIT IN SUPPORT OF MOTION FOR SUMMARY JUDGMENT",
+                "affidavit",
+            ),
             // - Court ruling beats complaint (complaint is last in the chain).
             ("COURT OF APPEALS\nCOMPLAINT ON APPEAL", "court_ruling"),
         ];

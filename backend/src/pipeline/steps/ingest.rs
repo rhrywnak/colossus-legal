@@ -631,5 +631,4 @@ mod tests {
         };
         assert!(format!("{err}").contains("missing-doc-99"));
     }
-
 }

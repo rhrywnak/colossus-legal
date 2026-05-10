@@ -212,9 +212,18 @@ mod tests {
 
     fn sample_pages() -> Vec<(u32, String)> {
         vec![
-            (1, "This is page one with Milton Higgs as plaintiff.".to_string()),
-            (2, "Page two discusses the defendant George Phillips.".to_string()),
-            (3, "Page three contains\nmulti-line\ntext about damages.".to_string()),
+            (
+                1,
+                "This is page one with Milton Higgs as plaintiff.".to_string(),
+            ),
+            (
+                2,
+                "Page two discusses the defendant George Phillips.".to_string(),
+            ),
+            (
+                3,
+                "Page three contains\nmulti-line\ntext about damages.".to_string(),
+            ),
         ]
     }
 
@@ -276,9 +285,7 @@ mod tests {
 
     #[test]
     fn test_exact_match_takes_priority_over_normalized() {
-        let pages = vec![
-            (1, "Milton Higgs is here.".to_string()),
-        ];
+        let pages = vec![(1, "Milton Higgs is here.".to_string())];
         let result = find_in_canonical_text("Milton Higgs", &pages);
         assert_eq!(result.match_type, CanonicalMatchType::Exact);
     }

@@ -1050,4 +1050,3 @@ pub async fn ingest_delta_handler(
     let result = run_ingest_delta(&state, &doc_id, &user.username).await?;
     Ok(Json(result))
 }
-

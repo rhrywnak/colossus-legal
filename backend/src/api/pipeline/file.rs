@@ -78,19 +78,17 @@ pub async fn file_handler(
         file_path
     );
 
-    let file = File::open(&full_path)
-        .await
-        .map_err(|e| {
-            tracing::error!(
-                document_id = %document_id,
-                path = %full_path,
-                error = %e,
-                "Failed to open document PDF on disk"
-            );
-            AppError::NotFound {
-                message: "File not found on disk".to_string(),
-            }
-        })?;
+    let file = File::open(&full_path).await.map_err(|e| {
+        tracing::error!(
+            document_id = %document_id,
+            path = %full_path,
+            error = %e,
+            "Failed to open document PDF on disk"
+        );
+        AppError::NotFound {
+            message: "File not found on disk".to_string(),
+        }
+    })?;
 
     // 4. Stream response with the document's detected Content-Type.
     let stream = ReaderStream::new(file);

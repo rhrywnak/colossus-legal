@@ -341,7 +341,10 @@ mod tests {
         );
         assert_eq!(report.passes.len(), 2);
         // profile_name / profile_hash come from Pass-1 (authoritative).
-        assert_eq!(report.fingerprints.profile_name.as_deref(), Some("complaint"));
+        assert_eq!(
+            report.fingerprints.profile_name.as_deref(),
+            Some("complaint")
+        );
         assert_eq!(
             report.fingerprints.profile_hash.as_deref(),
             Some("p1_profile_hash")
@@ -505,6 +508,4 @@ mod tests {
         assert_eq!(report.verification.not_found, 1);
         assert_eq!(report.verification.pending, 2);
     }
-
 }
-

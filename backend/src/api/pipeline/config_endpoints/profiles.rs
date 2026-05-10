@@ -204,7 +204,11 @@ pub async fn create_profile(
     validate_profile_name(&profile.name)?;
     validate_profile_references(&state, &profile).await?;
 
-    let path = profile_path(&state.config.processing_profile_dir, &profile.name, PROFILE_EXT);
+    let path = profile_path(
+        &state.config.processing_profile_dir,
+        &profile.name,
+        PROFILE_EXT,
+    );
     if tokio::fs::try_exists(&path).await.unwrap_or(false) {
         return Err(AppError::Conflict {
             message: format!("Profile '{}' already exists", profile.name),
@@ -291,7 +295,9 @@ async fn write_profile_yaml(
     let yaml = serde_yaml::to_string(profile).map_err(|e| AppError::Internal {
         message: format!("Failed to serialize profile: {e}"),
     })?;
-    tokio::fs::write(path, yaml).await.map_err(|e| AppError::Internal {
-        message: format!("Failed to write profile '{}': {e}", path.display()),
-    })
+    tokio::fs::write(path, yaml)
+        .await
+        .map_err(|e| AppError::Internal {
+            message: format!("Failed to write profile '{}': {e}", path.display()),
+        })
 }

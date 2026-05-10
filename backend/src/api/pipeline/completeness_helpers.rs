@@ -212,7 +212,11 @@ pub async fn verify_qdrant_points(
 mod tests {
     use super::*;
 
-    fn make_item(id: i32, entity_type: &str, properties: serde_json::Value) -> ExtractionItemRecord {
+    fn make_item(
+        id: i32,
+        entity_type: &str,
+        properties: serde_json::Value,
+    ) -> ExtractionItemRecord {
         ExtractionItemRecord {
             id,
             run_id: 1,

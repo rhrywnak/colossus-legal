@@ -863,9 +863,17 @@ mod tests {
 
         // Case 1: ComplaintAllegation with quote → verbatim
         {
-            let items = vec![make_item(1, "ComplaintAllegation", Some("Defendant fired plaintiff."))];
+            let items = vec![make_item(
+                1,
+                "ComplaintAllegation",
+                Some("Defendant fired plaintiff."),
+            )];
             let cat = categorize_items_for_grounding(&items, &modes);
-            assert_eq!(cat.verbatim_items.len(), 1, "ComplaintAllegation+quote → verbatim");
+            assert_eq!(
+                cat.verbatim_items.len(),
+                1,
+                "ComplaintAllegation+quote → verbatim"
+            );
             assert_eq!(cat.verbatim_items[0].0, 1);
             assert_eq!(cat.verbatim_items[0].1, "Defendant fired plaintiff.");
             assert!(cat.missing_quote_item_ids.is_empty());
@@ -874,7 +882,10 @@ mod tests {
         {
             let items = vec![make_item(2, "ComplaintAllegation", None)];
             let cat = categorize_items_for_grounding(&items, &modes);
-            assert!(cat.verbatim_items.is_empty(), "ComplaintAllegation-quote → not verbatim");
+            assert!(
+                cat.verbatim_items.is_empty(),
+                "ComplaintAllegation-quote → not verbatim"
+            );
             assert_eq!(cat.missing_quote_item_ids, vec![2]);
         }
         // Case 3: Party with name → name_match
@@ -896,7 +907,8 @@ mod tests {
             let items = vec![make_item(5, "UnknownType", None)];
             let cat = categorize_items_for_grounding(&items, &modes);
             assert_eq!(
-                cat.missing_quote_item_ids, vec![5],
+                cat.missing_quote_item_ids,
+                vec![5],
                 "UnknownType (silent-default Verbatim) without quote → missing_quote"
             );
         }

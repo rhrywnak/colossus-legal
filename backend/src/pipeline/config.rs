@@ -207,8 +207,8 @@ impl ProcessingProfile {
     /// origin into a useful message; this function only knows about the
     /// YAML body.
     pub fn from_yaml_str(yaml: &str) -> Result<Self, String> {
-        let mut profile: Self = serde_yaml::from_str(yaml)
-            .map_err(|e| format!("invalid YAML: {e}"))?;
+        let mut profile: Self =
+            serde_yaml::from_str(yaml).map_err(|e| format!("invalid YAML: {e}"))?;
         profile.profile_hash = sha2_hex_yaml(yaml);
         Ok(profile)
     }
@@ -501,7 +501,7 @@ fn merge_map_override(
         Some(over) => {
             for (k, v) in over.iter() {
                 let differs = match profile_map.get(k) {
-                    None => true,            // key absent in profile — override adds it
+                    None => true, // key absent in profile — override adds it
                     Some(profile_v) => profile_v != v,
                 };
                 if differs {
@@ -530,7 +530,10 @@ pub fn resolve_config(
     let mut applied = Vec::new();
 
     let model = match &overrides.extraction_model {
-        Some(v) => { applied.push("extraction_model".to_string()); v.clone() }
+        Some(v) => {
+            applied.push("extraction_model".to_string());
+            v.clone()
+        }
         None => profile.extraction_model.clone(),
     };
 
@@ -538,12 +541,18 @@ pub fn resolve_config(
     // `pass2_extraction_model`; otherwise `None` (caller falls back to
     // pass-1 `model`).
     let pass2_model = match &overrides.pass2_extraction_model {
-        Some(v) => { applied.push("pass2_extraction_model".to_string()); Some(v.clone()) }
+        Some(v) => {
+            applied.push("pass2_extraction_model".to_string());
+            Some(v.clone())
+        }
         None => profile.pass2_extraction_model.clone(),
     };
 
     let template_file = match &overrides.template_file {
-        Some(v) => { applied.push("template_file".to_string()); v.clone() }
+        Some(v) => {
+            applied.push("template_file".to_string());
+            v.clone()
+        }
         None => profile.template_file.clone(),
     };
 
@@ -553,42 +562,66 @@ pub fn resolve_config(
     // omit pass-2 entirely), so the override path wraps the cloned
     // value in `Some(...)` to match.
     let pass2_template_file = match &overrides.pass2_template_file {
-        Some(v) => { applied.push("pass2_template_file".to_string()); Some(v.clone()) }
+        Some(v) => {
+            applied.push("pass2_template_file".to_string());
+            Some(v.clone())
+        }
         None => profile.pass2_template_file.clone(),
     };
 
     let system_prompt_file = match &overrides.system_prompt_file {
-        Some(v) => { applied.push("system_prompt_file".to_string()); Some(v.clone()) }
+        Some(v) => {
+            applied.push("system_prompt_file".to_string());
+            Some(v.clone())
+        }
         None => profile.system_prompt_file.clone(),
     };
 
     let chunking_mode = match &overrides.chunking_mode {
-        Some(v) => { applied.push("chunking_mode".to_string()); v.clone() }
+        Some(v) => {
+            applied.push("chunking_mode".to_string());
+            v.clone()
+        }
         None => profile.chunking_mode.clone(),
     };
 
     let chunk_size = match overrides.chunk_size {
-        Some(v) => { applied.push("chunk_size".to_string()); Some(v) }
+        Some(v) => {
+            applied.push("chunk_size".to_string());
+            Some(v)
+        }
         None => profile.chunk_size,
     };
 
     let chunk_overlap = match overrides.chunk_overlap {
-        Some(v) => { applied.push("chunk_overlap".to_string()); Some(v) }
+        Some(v) => {
+            applied.push("chunk_overlap".to_string());
+            Some(v)
+        }
         None => profile.chunk_overlap,
     };
 
     let max_tokens = match overrides.max_tokens {
-        Some(v) => { applied.push("max_tokens".to_string()); v }
+        Some(v) => {
+            applied.push("max_tokens".to_string());
+            v
+        }
         None => profile.max_tokens,
     };
 
     let temperature = match overrides.temperature {
-        Some(v) => { applied.push("temperature".to_string()); v }
+        Some(v) => {
+            applied.push("temperature".to_string());
+            v
+        }
         None => profile.temperature,
     };
 
     let run_pass2 = match overrides.run_pass2 {
-        Some(v) => { applied.push("run_pass2".to_string()); v }
+        Some(v) => {
+            applied.push("run_pass2".to_string());
+            v
+        }
         None => profile.run_pass2,
     };
 
@@ -617,7 +650,9 @@ pub fn resolve_config(
     );
 
     ResolvedConfig {
-        profile_name: overrides.profile_name.clone()
+        profile_name: overrides
+            .profile_name
+            .clone()
             .unwrap_or_else(|| profile.name.clone()),
         // The profile YAML body's hash flows straight through. Per-document
         // overrides cannot change it — the YAML body is the YAML body.
@@ -1049,8 +1084,12 @@ extraction_model: claude-sonnet-4-6
         assert_eq!(resolved.chunking_mode, "full");
         assert_eq!(resolved.max_tokens, 32000);
         // Overrides tracked
-        assert!(resolved.overrides_applied.contains(&"template_file".to_string()));
-        assert!(resolved.overrides_applied.contains(&"temperature".to_string()));
+        assert!(resolved
+            .overrides_applied
+            .contains(&"template_file".to_string()));
+        assert!(resolved
+            .overrides_applied
+            .contains(&"temperature".to_string()));
         assert_eq!(resolved.overrides_applied.len(), 2);
     }
 
@@ -1090,11 +1129,17 @@ extraction_model: claude-sonnet-4-6
         let resolved = resolve_config(&profile, &overrides);
 
         assert_eq!(
-            resolved.chunking_config.get("mode").and_then(|v| v.as_str()),
+            resolved
+                .chunking_config
+                .get("mode")
+                .and_then(|v| v.as_str()),
             Some("structured")
         );
         assert_eq!(
-            resolved.chunking_config.get("units_per_chunk").and_then(|v| v.as_i64()),
+            resolved
+                .chunking_config
+                .get("units_per_chunk")
+                .and_then(|v| v.as_i64()),
             Some(25)
         );
         assert!(resolved.context_config.is_empty());
@@ -1153,16 +1198,25 @@ extraction_model: claude-sonnet-4-6
 
         // units_per_chunk was overridden
         assert_eq!(
-            resolved.chunking_config.get("units_per_chunk").and_then(|v| v.as_i64()),
+            resolved
+                .chunking_config
+                .get("units_per_chunk")
+                .and_then(|v| v.as_i64()),
             Some(15)
         );
         // mode and strategy carried through from profile
         assert_eq!(
-            resolved.chunking_config.get("mode").and_then(|v| v.as_str()),
+            resolved
+                .chunking_config
+                .get("mode")
+                .and_then(|v| v.as_str()),
             Some("structured")
         );
         assert_eq!(
-            resolved.chunking_config.get("strategy").and_then(|v| v.as_str()),
+            resolved
+                .chunking_config
+                .get("strategy")
+                .and_then(|v| v.as_str()),
             Some("qa_pair")
         );
         // Tracked as overridden — per-key granularity (Gap 1's audit
@@ -1406,7 +1460,10 @@ extraction_model: claude-sonnet-4-6
         let resolved = resolve_config(&profile, &overrides);
         assert_eq!(resolved.chunking_config.len(), 1);
         assert_eq!(
-            resolved.chunking_config.get("strategy").and_then(|v| v.as_str()),
+            resolved
+                .chunking_config
+                .get("strategy")
+                .and_then(|v| v.as_str()),
             Some("qa_pair")
         );
         // Per-key audit: strategy was added → recorded.
@@ -1473,7 +1530,10 @@ extraction_model: claude-sonnet-4-6
         };
         let resolved = resolve_config(&profile, &overrides);
         assert_eq!(
-            resolved.context_config.get("traversal_depth").and_then(|v| v.as_i64()),
+            resolved
+                .context_config
+                .get("traversal_depth")
+                .and_then(|v| v.as_i64()),
             Some(5)
         );
         // Audit uses the `context_config.` prefix, not `chunking_config.`.

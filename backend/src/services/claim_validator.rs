@@ -227,7 +227,8 @@ mod tests {
             assert!(
                 errors.iter().any(|e| e.field == expected_field),
                 "claim {:?} should produce error with field {expected_field:?}; got: {:?}",
-                input.id, errors
+                input.id,
+                errors
             );
         }
     }

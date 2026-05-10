@@ -839,5 +839,4 @@ mod tests {
         // the resulting future is immediately dropped, so no subprocesses run.
         let _fut = ocr::ocr_page_with_config(p, n, c);
     }
-
 }

@@ -218,10 +218,12 @@ mod tests {
     #[test]
     fn test_parse_repairable_json() {
         // Trailing comma is invalid JSON but llm_json can repair it.
-        let input =
-            r#"{"entities": [{"id": "0", "entity_type": "Party"},], "relationships": []}"#;
+        let input = r#"{"entities": [{"id": "0", "entity_type": "Party"},], "relationships": []}"#;
         let result = parse_chunk_response(input);
-        assert!(result.is_ok(), "Expected repair to succeed, got: {result:?}");
+        assert!(
+            result.is_ok(),
+            "Expected repair to succeed, got: {result:?}"
+        );
     }
 
     #[test]
@@ -236,5 +238,4 @@ mod tests {
         let v = serde_json::Value::String("hello".into());
         assert!(ensure_object(v).is_err());
     }
-
 }

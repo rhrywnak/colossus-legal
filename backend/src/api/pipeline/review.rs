@@ -178,16 +178,15 @@ pub async fn reject_handler(
 
     // Load category map. Failure is fatal: defaulting to Evidence
     // would let a Foundation entity slip past the rejection guard.
-    let category_map =
-        load_category_map(&state, &type_info.document_id)
-            .await
-            .map_err(|e| {
-                tracing::error!(
-                    document_id = %type_info.document_id, error = %e,
-                    "reject_handler cannot enforce category guard without category map"
-                );
-                AppError::Internal { message: e }
-            })?;
+    let category_map = load_category_map(&state, &type_info.document_id)
+        .await
+        .map_err(|e| {
+            tracing::error!(
+                document_id = %type_info.document_id, error = %e,
+                "reject_handler cannot enforce category guard without category map"
+            );
+            AppError::Internal { message: e }
+        })?;
     let category = category_map
         .get(&type_info.entity_type)
         .unwrap_or(&EntityCategory::Evidence);
@@ -403,7 +402,9 @@ pub async fn unapprove_handler(
             message: format!("Item {item_id} not found"),
         })?;
 
-    if current.review_status != REVIEW_STATUS_APPROVED && current.review_status != REVIEW_STATUS_EDITED {
+    if current.review_status != REVIEW_STATUS_APPROVED
+        && current.review_status != REVIEW_STATUS_EDITED
+    {
         return Err(AppError::BadRequest {
             message: format!(
                 "Cannot unapprove: item status is '{}', expected '{REVIEW_STATUS_APPROVED}' or '{REVIEW_STATUS_EDITED}'",
@@ -856,4 +857,3 @@ async fn check_not_post_ingest(
     }
     Ok(())
 }
-

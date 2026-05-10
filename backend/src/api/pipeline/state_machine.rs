@@ -308,12 +308,12 @@ mod tests {
         // Routing table: status → ordered list of expected action names.
         // Plus PROCESSING's special requires_confirmation=true contract on cancel.
         let cases: &[(&str, &[&str])] = &[
-            ("NEW",        &["process", "delete"]),
+            ("NEW", &["process", "delete"]),
             ("PROCESSING", &["cancel"]),
-            ("COMPLETED",  &["reprocess", "delete"]),
-            ("FAILED",     &["reprocess", "delete"]),
-            ("CANCELLED",  &["reprocess", "delete"]),
-            ("GARBAGE",    &[]),  // unknown-status fallback
+            ("COMPLETED", &["reprocess", "delete"]),
+            ("FAILED", &["reprocess", "delete"]),
+            ("CANCELLED", &["reprocess", "delete"]),
+            ("GARBAGE", &[]), // unknown-status fallback
         ];
         for (status, expected_names) in cases {
             let actions = get_available_actions(status, 0, 0);
