@@ -468,9 +468,7 @@ async fn build_rag_pipeline(
 
     // Preserve the legacy short-circuit: if no Anthropic API key is
     // configured, /ask has no synthesis backend and we build no pipeline.
-    if config.anthropic_api_key.is_none() {
-        return None;
-    }
+    config.anthropic_api_key.as_ref()?;
 
     // LLM provider for the pipeline's built-in synthesizer. Prefer the
     // Chat default provider (temperature = None, natural variation) so

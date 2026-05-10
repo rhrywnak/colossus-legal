@@ -397,7 +397,7 @@ mod tests {
     #[test]
     fn test_normalize_strips_invisible_characters() {
         // Soft hyphen, zero-width space, BOM all removed.
-        let s = format!("foo\u{00AD}bar\u{200B}baz\u{FEFF}qux");
+        let s = "foo\u{00AD}bar\u{200B}baz\u{FEFF}qux".to_string();
         assert_eq!(normalize_text(&s), "foobarbazqux");
     }
 

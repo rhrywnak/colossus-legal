@@ -177,7 +177,7 @@ mod tests {
         );
         // No response_marker for paragraphs — they don't have Q&A structure.
         assert!(
-            config.get("response_marker").is_none(),
+            !config.contains_key("response_marker"),
             "numbered_paragraph should not have a response_marker"
         );
         assert_eq!(
@@ -291,7 +291,7 @@ mod tests {
             effective.get("mode").and_then(|v| v.as_str()),
             Some("full")
         );
-        assert!(effective.get("boundary_pattern").is_none());
+        assert!(!effective.contains_key("boundary_pattern"));
     }
 
     #[test]

@@ -132,10 +132,6 @@ fn make_result(doc_title: &str, errors: Vec<ValidationError>) -> ValidationResul
 mod tests {
     use super::*;
 
-    fn valid_json() -> &'static str {
-        r#"{"schema_version":"2.1","extraction_metadata":{"extracted_at":"2025-12-20","extraction_model":"claude"},"source_document":{"id":"d1","title":"Doc","doc_type":"motion"},"case":{"id":"c1","name":"Case"},"parties":{"plaintiffs":[{"id":"p1","name":"P","role":"plaintiff"}],"defendants":[{"id":"d1","name":"D","role":"defendant"}]},"claims":[{"id":"CLAIM-001","category":"fraud","quote":"Test quote.","source":{"document_id":"d1"},"made_by":"p1","against":["d1"]}]}"#
-    }
-
     #[test]
     fn test_validate_json_invalid_syntax() {
         let result = validate_json(r#"{ invalid }"#);

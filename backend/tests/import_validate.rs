@@ -80,41 +80,6 @@ async fn setup_app() -> TestResult<Router> {
     Ok(router().with_state(state))
 }
 
-/// Valid import JSON with one claim.
-fn valid_import_json() -> String {
-    r#"{
-        "schema_version": "2.1",
-        "extraction_metadata": {
-            "extracted_at": "2025-12-23T00:00:00Z",
-            "extraction_model": "claude-opus"
-        },
-        "source_document": {
-            "id": "doc-001",
-            "title": "Test Motion",
-            "doc_type": "motion"
-        },
-        "case": {
-            "id": "case-001",
-            "name": "Test v. Test"
-        },
-        "parties": {
-            "plaintiffs": [{"id": "p1", "name": "Plaintiff", "role": "plaintiff"}],
-            "defendants": [{"id": "d1", "name": "Defendant", "role": "defendant"}]
-        },
-        "claims": [
-            {
-                "id": "CLAIM-001",
-                "category": "fraud",
-                "quote": "Test quote for claim",
-                "made_by": "p1",
-                "against": ["d1"],
-                "source": {"document_id": "doc-001"}
-            }
-        ]
-    }"#
-    .to_string()
-}
-
 /// Helper to make POST request and parse response.
 async fn post_validate(app: Router, body: &str) -> TestResult<(StatusCode, ValidationResult)> {
     let request = Request::builder()

@@ -4,12 +4,8 @@
 //! scope for this feature per the project's test policy (no live-fixture
 //! coverage in `cargo test --workspace`).
 
-use serde_json::json;
-
 use super::aggregation::parse_pattern_tags;
-use super::dto::{
-    ActorOption, AvailableFilters, BiasInstance, BiasQueryFilters, BiasQueryResult, DocumentRef,
-};
+use super::dto::ActorOption;
 use super::repository::resolve_default_subject_id;
 
 // ─── parse_pattern_tags ─────────────────────────────────────────────────────
