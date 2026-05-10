@@ -192,6 +192,8 @@ A navigational theme grouping multiple common-allegation paragraphs by subject m
 - `description`: Longer explanation of the theme's significance
 - `paragraph_numbers`: Comma-separated list of common-allegation paragraph numbers belonging to this theme
 
+ThematicAllegations do NOT have verbatim_quote — include a `provenance` array linking to the constituent common-allegation paragraphs. The provenance array must contain one entry per paragraph listed in `paragraph_numbers`, each with a `quote_snippet` showing why that paragraph belongs to this theme.
+
 **How to identify themes:**
 
 After extracting all common_allegation paragraphs, look for clusters with shared subject matter. Examples of theme types (generic — not case-specific):
@@ -245,7 +247,7 @@ Read every numbered paragraph in the Common Allegations section AND every number
 - Extract as an Allegation with the verbatim text of the paragraph
 
 ### Step 5: Cluster common_allegation paragraphs into ThematicAllegations
-After all Allegations are extracted, scan the common_allegation paragraphs and cluster them into 10–20 themes by shared subject matter. Each theme's `paragraph_numbers` lists the constituent paragraphs.
+After all Allegations are extracted, scan the common_allegation paragraphs and cluster them into 10–20 themes by shared subject matter. Each theme's `paragraph_numbers` lists the constituent paragraphs. Each theme's `provenance` array contains one entry per paragraph in `paragraph_numbers`, with a `quote_snippet` showing why that paragraph belongs to this theme.
 
 ### Step 6: Identify Harms
 Scan for descriptions of damages, injuries, or losses. Classify, quantify, and link via provenance to supporting paragraphs.
@@ -461,7 +463,11 @@ Correct extraction:
         "description": "Defendant repeatedly removed estate funds without court authorization across multiple months, representing a sustained pattern rather than an isolated incident.",
         "paragraph_numbers": "8,10"
       },
-      "verbatim_quote": null
+      "verbatim_quote": null,
+      "provenance": [
+        {"ref_type": "paragraph", "ref": "8", "quote_snippet": "withdrew $50,000 from the trust account without court authorization"},
+        {"ref_type": "paragraph", "ref": "10", "quote_snippet": "removing an additional $30,000 in undocumented transactions"}
+      ]
     },
     {
       "entity_type": "ThematicAllegation",
@@ -472,7 +478,10 @@ Correct extraction:
         "description": "Defendant refused to return funds or provide accounting when requested.",
         "paragraph_numbers": "9"
       },
-      "verbatim_quote": null
+      "verbatim_quote": null,
+      "provenance": [
+        {"ref_type": "paragraph", "ref": "9", "quote_snippet": "Despite repeated requests, Defendant refused to return the funds"}
+      ]
     },
     {
       "entity_type": "Harm",
@@ -559,6 +568,8 @@ Correct extraction:
 - [ ] Did I cluster the common_allegation paragraphs into 10–20 themes?
 - [ ] Does every common_allegation paragraph belong to at least one theme?
 - [ ] Did I avoid clustering count_section paragraphs into themes?
+- [ ] Does every ThematicAllegation have a `provenance` array with one entry per paragraph in `paragraph_numbers`?
+- [ ] Does every provenance entry include a `quote_snippet` showing why that paragraph belongs to this theme?
 
 **Harm checks:**
 - [ ] Did I extract harms with kind, amount where quantifiable, and provenance?
