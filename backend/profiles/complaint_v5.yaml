@@ -11,6 +11,7 @@
 
 name: complaint_v5
 display_name: "Civil Complaint (v5 — case-structuring pipeline)"
+document_type: complaint
 description: "Foundation document for the case-structuring pipeline. Produces Case/Party/LegalCount/Element/Allegation/ThematicAllegation/Harm — the structural backbone all supporting documents anchor to."
 
 # Schema — points to v5 schema YAML in EXTRACTION_SCHEMA_DIR

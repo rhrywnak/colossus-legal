@@ -128,6 +128,28 @@ pub struct ProcessingProfile {
     #[serde(default)]
     pub run_pass2: bool,
 
+    /// Document type this profile applies to.
+    ///
+    /// The directory-scanning selector (`select_profile_for_document_type`
+    /// in `api::pipeline::upload`) filters by this field to identify
+    /// candidate profiles for a given document type, then picks the one
+    /// with `is_default: true`.
+    ///
+    /// `None` means the profile is not associated with a specific document
+    /// type — used only by `default.yaml`, the fallback profile loaded when
+    /// no document-type-specific profile exists.
+    ///
+    /// ## Rust Learning: `Option<String>` + `#[serde(default)]`
+    ///
+    /// `Option<String>` lets serde deserialize a missing YAML key as `None`
+    /// when paired with `#[serde(default)]`. Without `#[serde(default)]`,
+    /// deserialization of a profile that omits `document_type` would fail
+    /// with "missing field". Distinguishing "field absent" (`None`) from
+    /// "field present and empty" (`Some("")`) is important here because
+    /// only `None` means "fallback profile, do not match by document_type".
+    #[serde(default)]
+    pub document_type: Option<String>,
+
     #[serde(default)]
     pub is_default: bool,
 
@@ -784,6 +806,7 @@ extraction_model: claude-sonnet-4-6
             auto_approve_grounded: true,
             run_pass2: false,
             pass2_template_file: None,
+            document_type: None,
             is_default: false,
             profile_hash: String::new(),
         };
@@ -823,6 +846,7 @@ extraction_model: claude-sonnet-4-6
             auto_approve_grounded: true,
             run_pass2: false,
             pass2_template_file: None,
+            document_type: None,
             is_default: false,
             profile_hash: String::new(),
         };
@@ -878,6 +902,7 @@ extraction_model: claude-sonnet-4-6
             temperature: 0.0,
             auto_approve_grounded: true,
             run_pass2: true,
+            document_type: None,
             is_default: false,
             profile_hash: String::new(),
         };
@@ -1068,6 +1093,7 @@ extraction_model: claude-sonnet-4-6
             auto_approve_grounded: true,
             run_pass2: false,
             pass2_template_file: None,
+            document_type: None,
             is_default: false,
             profile_hash: String::new(),
         };
@@ -1122,6 +1148,7 @@ extraction_model: claude-sonnet-4-6
             temperature: 0.0,
             auto_approve_grounded: true,
             run_pass2: false,
+            document_type: None,
             is_default: false,
             profile_hash: String::new(),
         };
@@ -1182,6 +1209,7 @@ extraction_model: claude-sonnet-4-6
             temperature: 0.0,
             auto_approve_grounded: true,
             run_pass2: false,
+            document_type: None,
             is_default: false,
             profile_hash: String::new(),
         };
@@ -1442,6 +1470,7 @@ extraction_model: claude-sonnet-4-6
             temperature: 0.0,
             auto_approve_grounded: true,
             run_pass2: false,
+            document_type: None,
             is_default: false,
             profile_hash: String::new(),
         }

@@ -7,6 +7,8 @@
 //! and the file bytes separately, then validate that all required fields were
 //! present after the loop completes.
 
+use std::path::Path;
+
 use axum::{
     extract::{Multipart, State},
     Json,
@@ -30,73 +32,259 @@ use super::{field_text, require_field, UploadDocumentResponse, MAX_FILE_SIZE};
 /// can fix the profile.
 pub const FALLBACK_SCHEMA_FILE: &str = "complaint_v4.yaml";
 
-/// Derive the processing profile name from the document type.
+/// Profile filename used when no profile in the directory declares the
+/// requested `document_type`. Loaded via [`ProcessingProfile::load`] which
+/// already appends `.yaml`, so this is the stem only.
+const FALLBACK_PROFILE_STEM: &str = "default";
+
+/// Errors emitted by [`select_profile_for_document_type`].
 ///
-/// This is the single mapping from document classification to profile.
-/// Profile YAML files contain all operational parameters (schema, template,
-/// model, chunking) — no other mapping table should exist in code. Adding
-/// a new document type means adding an entry here AND a sibling profile YAML.
+/// These represent configuration errors discovered at selection time —
+/// the kind that should fail an upload loudly so the operator fixes the
+/// profile YAMLs immediately, not silently degrade to a "best guess".
 ///
-/// ## Rust Learning: `&'static str`
+/// ## Rust Learning: `Debug` on a public error enum
 ///
-/// Returning `&'static str` means these strings live for the entire program.
-/// They're embedded in the binary at compile time. This is efficient for
-/// small lookup tables that never change at runtime.
-pub fn profile_name_for_document_type(document_type: &str) -> &'static str {
-    match document_type {
-        "complaint" => "complaint",
-        "discovery_response" => "discovery_response",
-        "motion" | "motion_brief" => "motion",
-        "brief" => "brief",
-        "affidavit" => "affidavit",
-        "court_ruling" => "court_ruling",
-        _ => "default",
+/// `#[derive(Debug)]` is the minimum a returnable error needs so
+/// callers can `?`-propagate it and use `{:?}` formatting in tests
+/// (see the `panic!` arms below). For human-facing messages we
+/// implement [`std::fmt::Display`] separately — different audiences,
+/// different formatting.
+#[derive(Debug)]
+pub enum ProfileSelectionError {
+    /// More than one profile claims `is_default: true` for the same
+    /// `document_type`. Exactly one default per document_type is the
+    /// invariant the operator must restore by editing the YAMLs.
+    MultipleDefaults {
+        document_type: String,
+        profile_names: Vec<String>,
+    },
+    /// One or more profiles match the `document_type` but none have
+    /// `is_default: true`. Without a default, selection is undefined —
+    /// the operator must mark exactly one profile as the default.
+    NoDefaultAmongMatches {
+        document_type: String,
+        profile_names: Vec<String>,
+    },
+    /// The profiles directory itself could not be read.
+    DirectoryReadError {
+        path: String,
+        source: std::io::Error,
+    },
+    /// A specific YAML file in the profiles directory failed to parse.
+    ProfileParseError { filename: String, error: String },
+}
+
+impl std::fmt::Display for ProfileSelectionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::MultipleDefaults {
+                document_type,
+                profile_names,
+            } => write!(
+                f,
+                "Multiple profiles set is_default: true for document_type='{document_type}': [{}]. Exactly one profile per document_type must be the default — edit the profile YAMLs to fix.",
+                profile_names.join(", ")
+            ),
+            Self::NoDefaultAmongMatches {
+                document_type,
+                profile_names,
+            } => write!(
+                f,
+                "Profiles match document_type='{document_type}' but none have is_default: true: [{}]. Mark exactly one as default.",
+                profile_names.join(", ")
+            ),
+            Self::DirectoryReadError { path, source } => {
+                write!(f, "Failed to read profiles directory '{path}': {source}")
+            }
+            Self::ProfileParseError { filename, error } => {
+                write!(f, "Failed to parse profile '{filename}': {error}")
+            }
+        }
     }
 }
 
-/// Derive the processing profile name from document type and optional version.
+impl std::error::Error for ProfileSelectionError {}
+
+/// Lift a [`ProfileSelectionError`] into an HTTP-500 [`AppError`].
 ///
-/// When a `version` is supplied and recognized, this routes to a versioned
-/// profile name (e.g., `("complaint", Some("v5"))` → `"complaint_v5"`).
-/// When `version` is `None` or unrecognized, falls through to the unversioned
-/// mapping in [`profile_name_for_document_type`].
+/// All four variants represent operator-visible misconfiguration the
+/// upload handler should surface immediately. The Display impl carries
+/// the human-readable detail; the JSON 500 body shows that string.
+impl From<ProfileSelectionError> for AppError {
+    fn from(err: ProfileSelectionError) -> Self {
+        AppError::Internal {
+            message: err.to_string(),
+        }
+    }
+}
+
+/// Selects the profile to use for a given `document_type` by scanning
+/// the profiles directory and respecting the YAML `is_default` flag.
 ///
-/// The unversioned function is left intact as the default path. This versioned
-/// variant is opt-in via the `profile_version` multipart field on upload.
+/// Algorithm:
+/// 1. Read every `*.yaml` file in `profile_dir` and parse it as a
+///    [`ProcessingProfile`].
+/// 2. Filter to profiles whose `document_type == Some(document_type)`.
+/// 3. Among matches, find the one(s) with `is_default == true`.
+/// 4. Exactly one match with `is_default: true` → return its filename
+///    stem (e.g., `"complaint_profile_v5_1"`).
+/// 5. Zero matches at all (no profile claims this document_type) →
+///    return `"default"` so the caller loads `default.yaml` via
+///    [`ProcessingProfile::load`].
+/// 6. Multiple `is_default: true` for the same document_type →
+///    [`ProfileSelectionError::MultipleDefaults`].
+/// 7. Matches exist but none are `is_default: true` →
+///    [`ProfileSelectionError::NoDefaultAmongMatches`].
 ///
-/// ## Why versioned profiles co-exist
+/// ## Why the filename stem (not the YAML `name:` field)?
 ///
-/// Per Roman's standing rule, v5 schema and templates live alongside v4 in
-/// the repo. The system default remains v4 until v5 is validated. Per-upload
-/// version selection lets the v5 pipeline run on specific documents without
-/// affecting unrelated uploads.
-pub fn profile_name_for_document_type_versioned(
+/// The returned string is passed to [`ProcessingProfile::load`] which
+/// loads `{stem}.yaml`. Returning the stem keeps the round trip cheap
+/// and lets a profile's display `name:` (e.g. `"complaint_v5_1"`) stay
+/// independent of its on-disk filename (e.g. `complaint_profile_v5_1.yaml`).
+///
+/// ## Why no caching?
+///
+/// Profile selection runs once per upload — single-digit times per day
+/// in production. Re-reading a small directory of YAML files on each call
+/// is in the noise compared to the LLM extraction that follows. Skipping
+/// a cache also means an operator can edit a profile YAML and have the
+/// next upload pick up the change without restarting the backend, which
+/// matches the existing [`ProcessingProfile::load`] behavior.
+///
+/// ## Rust Learning: `Result<String, ProfileSelectionError>` as the
+/// return type
+///
+/// Owned `String` (not `&'static str` like the old hardcoded match)
+/// lets the selector return values it computed at runtime — filename
+/// stems — without lifetime gymnastics. The cost is one allocation per
+/// successful selection; negligible at upload frequency.
+pub fn select_profile_for_document_type(
+    profile_dir: &Path,
     document_type: &str,
-    version: Option<&str>,
-) -> &'static str {
-    match (document_type, version) {
-        ("complaint", Some("v5")) => "complaint_v5",
-        // Future versioned profiles register here. Each entry needs a sibling
-        // profile YAML at /mnt/data/legal-docs/profiles/{name}.yaml on DEV.
-        _ => profile_name_for_document_type(document_type),
+) -> Result<String, ProfileSelectionError> {
+    let entries =
+        std::fs::read_dir(profile_dir).map_err(|e| ProfileSelectionError::DirectoryReadError {
+            path: profile_dir.display().to_string(),
+            source: e,
+        })?;
+
+    // (filename_stem, is_default) for every profile whose document_type
+    // matches the request. Vec rather than HashMap because order is only
+    // for the error variant's reproducibility — we need to report the
+    // conflicting filenames, not dedupe by name.
+    let mut matches: Vec<(String, bool)> = Vec::new();
+
+    for entry in entries {
+        // A directory read error on a single entry shouldn't abort
+        // selection — it could be a transient filesystem hiccup. Skip
+        // and continue; if no candidates are found we'll either fall
+        // back to "default" or surface a NoDefault error elsewhere.
+        let entry = match entry {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        let path = entry.path();
+
+        if path.extension().and_then(|s| s.to_str()) != Some("yaml") {
+            continue;
+        }
+
+        let stem = match path.file_stem().and_then(|s| s.to_str()) {
+            Some(s) => s.to_string(),
+            None => continue,
+        };
+
+        let filename = path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("<unknown>")
+            .to_string();
+
+        // A profile that fails to parse is a configuration error the
+        // operator must fix. Surface it loudly instead of skipping;
+        // a malformed YAML hiding among valid ones could otherwise
+        // cause silent selection-of-a-stale-profile.
+        let profile = ProcessingProfile::from_file(&path).map_err(|e| {
+            ProfileSelectionError::ProfileParseError {
+                filename: filename.clone(),
+                error: e,
+            }
+        })?;
+
+        if profile.document_type.as_deref() == Some(document_type) {
+            matches.push((stem, profile.is_default));
+        }
+    }
+
+    let defaults: Vec<String> = matches
+        .iter()
+        .filter(|(_, is_default)| *is_default)
+        .map(|(stem, _)| stem.clone())
+        .collect();
+
+    match defaults.len() {
+        // No profile is marked default. Either zero matches at all
+        // (legitimate "unknown document_type" → fall back to default.yaml)
+        // or one+ matches but none defaulted (operator forgot to set
+        // is_default: true after splitting profiles).
+        0 => {
+            if matches.is_empty() {
+                Ok(FALLBACK_PROFILE_STEM.to_string())
+            } else {
+                Err(ProfileSelectionError::NoDefaultAmongMatches {
+                    document_type: document_type.to_string(),
+                    profile_names: matches.into_iter().map(|(s, _)| s).collect(),
+                })
+            }
+        }
+        1 => Ok(defaults
+            .into_iter()
+            .next()
+            .expect("len == 1 verified above")),
+        _ => Err(ProfileSelectionError::MultipleDefaults {
+            document_type: document_type.to_string(),
+            profile_names: defaults,
+        }),
     }
 }
 
 /// Resolve the schema filename for a document type by consulting the
 /// document's processing profile YAML.
 ///
-/// Used by upload (initial config) and extract_text (after auto-detection).
-/// Profile-load failure is non-fatal: returns [`FALLBACK_SCHEMA_FILE`] with a
-/// `tracing::warn!` so the operator sees the problem without the upload
-/// failing 500.
+/// Used by extract_text (after auto-detection) to keep `pipeline_config.schema_file`
+/// in sync with `documents.document_type` once Pass-0 has determined the
+/// real type. Profile-selection or profile-load failure is non-fatal:
+/// returns [`FALLBACK_SCHEMA_FILE`] with a `tracing::warn!` so the
+/// pipeline step doesn't crash on a misconfigured corpus — the operator
+/// still sees the problem and can fix the profile.
+///
+/// The upload handler does NOT use this function on the fast path; it
+/// calls [`select_profile_for_document_type`] directly and propagates
+/// errors as 500. Errors at extract time should not propagate the same
+/// way — the document is already in the system and the step needs to
+/// keep going (with the fallback schema) rather than poison the pipeline.
 pub fn schema_file_for_document_type(profile_dir: &str, document_type: &str) -> String {
-    let profile_name = profile_name_for_document_type(document_type);
-    match ProcessingProfile::load(profile_dir, profile_name) {
+    let profile_name = match select_profile_for_document_type(Path::new(profile_dir), document_type)
+    {
+        Ok(name) => name,
+        Err(e) => {
+            tracing::warn!(
+                document_type,
+                fallback = FALLBACK_SCHEMA_FILE,
+                error = %e,
+                "Profile selection failed at extract time — using fallback schema"
+            );
+            return FALLBACK_SCHEMA_FILE.to_string();
+        }
+    };
+    match ProcessingProfile::load(profile_dir, &profile_name) {
         Ok(p) => p.schema_file,
         Err(e) => {
             tracing::warn!(
                 document_type,
-                profile = profile_name,
+                profile = %profile_name,
                 fallback = FALLBACK_SCHEMA_FILE,
                 error = %e,
                 "Failed to load profile to derive schema_file — using fallback"
@@ -166,29 +354,44 @@ pub async fn upload_document(
     let title = require_field("title", title)?;
     let document_type = document_type.unwrap_or_else(|| "auto".to_string());
 
-    // Load the processing profile early so we can read `schema_file` from
-    // the profile YAML (the single source of truth) rather than a parallel
-    // hardcoded map. The same loaded profile is reused below to pre-populate
-    // the per-document override columns, avoiding a duplicate disk read.
-    let profile_name =
-        profile_name_for_document_type_versioned(&document_type, profile_version.as_deref());
-
-    if let Some(v) = profile_version.as_deref() {
+    // Resolve the processing profile early so we can read `schema_file`
+    // from the profile YAML (the single source of truth) and reuse the
+    // loaded profile below to pre-populate the per-document override
+    // columns, avoiding a duplicate disk read.
+    //
+    // Selection rules:
+    //   - If `profile_version` was specified, treat it as an explicit
+    //     override and load `<document_type>_<version>.yaml` directly.
+    //     This is the user's "force a specific version" path; it does
+    //     not consult is_default.
+    //   - Otherwise scan the profiles directory, filter by document_type,
+    //     and pick the one with `is_default: true`. Loud error on
+    //     configuration ambiguity (multiple or zero defaults among
+    //     matches) — surfaces as a 500 via the `?` propagation.
+    let profile_name: String = if let Some(v) = profile_version.as_deref().filter(|s| !s.is_empty())
+    {
+        let name = format!("{document_type}_{v}");
         tracing::info!(
             document_type = %document_type,
             profile_version = %v,
-            resolved_profile = %profile_name,
-            "Upload specified profile_version"
+            resolved_profile = %name,
+            "Upload specified profile_version — using explicit override"
         );
-    }
+        name
+    } else {
+        select_profile_for_document_type(
+            Path::new(&state.config.processing_profile_dir),
+            &document_type,
+        )?
+    };
 
-    let profile = match ProcessingProfile::load(&state.config.processing_profile_dir, profile_name)
+    let profile = match ProcessingProfile::load(&state.config.processing_profile_dir, &profile_name)
     {
         Ok(p) => Some(p),
         Err(e) => {
             tracing::warn!(
                 document_type = %document_type,
-                profile = profile_name,
+                profile = %profile_name,
                 error = %e,
                 "Profile load failed at upload — falling back for schema_file and skipping override pre-population"
             );
@@ -578,102 +781,168 @@ pub async fn upload_document(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+    use tempfile::TempDir;
 
-    // ── profile_name_for_document_type tests ────────────────────
+    // ── select_profile_for_document_type tests ──────────────────────
     //
-    // The profile name is the only document-type→config mapping that
-    // lives in code; everything else (schema, template, model, chunking)
-    // comes from the profile YAML. These tests lock in the document-type
-    // strings the frontend sends.
+    // The selector replaces the previous hardcoded match statement.
+    // It scans the profiles directory, filters by `document_type`, and
+    // picks the one with `is_default: true`. These tests pin the four
+    // behaviors the upload handler relies on: pick-the-default,
+    // zero-matches-falls-back, multiple-defaults-errors,
+    // matches-but-no-default-errors.
 
+    /// Build a minimal valid profile YAML body. Only the fields the
+    /// selector cares about (`document_type`, `is_default`) and the
+    /// required fields the deserializer demands (`name`, `display_name`,
+    /// `schema_file`, `template_file`, `extraction_model`) are emitted —
+    /// every other field uses the `#[serde(default)]` defaults in
+    /// `ProcessingProfile`. Keeps test YAMLs small and the assertions
+    /// focused on selection behavior, not deserialization shape.
+    fn make_profile_yaml(name: &str, document_type: Option<&str>, is_default: bool) -> String {
+        let dt_line = match document_type {
+            Some(dt) => format!("document_type: {dt}\n"),
+            None => String::new(),
+        };
+        format!(
+            "name: {name}\n\
+             display_name: Test\n\
+             {dt_line}\
+             schema_file: x.yaml\n\
+             template_file: x.md\n\
+             extraction_model: claude-sonnet-4-6\n\
+             is_default: {is_default}\n"
+        )
+    }
+
+    fn write_profile(dir: &Path, filename: &str, content: &str) {
+        fs::write(dir.join(filename), content).expect("write profile YAML to tmp dir");
+    }
+
+    /// Headline test for this fix.
+    ///
+    /// Two complaint profiles co-exist: an older v5 (`is_default: false`)
+    /// and a newer v5.1 (`is_default: true`). The selector must pick
+    /// v5.1 — the one marked default — not v5.
+    ///
+    /// This test FAILS against the previous code (no
+    /// `select_profile_for_document_type` function existed); it PASSES
+    /// after this commit. Regressing the algorithm to filename-driven
+    /// selection would break this test.
     #[test]
-    fn test_profile_name_for_document_type_routing() {
-        // Routing table: document type string → profile name.
-        // - "complaint", "discovery_response", "brief", "affidavit",
-        //   "court_ruling" map to themselves.
-        // - "motion" and "motion_brief" both map to "motion" (motion_brief
-        //   reuses the motion profile — same extraction surface).
-        // - "auto" means the document type hasn't been classified yet;
-        //   anything unknown also routes to "default" so a mistyped
-        //   doc_type doesn't 500 the upload.
-        let cases = [
-            ("complaint", "complaint"),
-            ("discovery_response", "discovery_response"),
-            ("motion", "motion"),
-            ("motion_brief", "motion"), // alias to motion profile
-            ("brief", "brief"),
-            ("affidavit", "affidavit"),
-            ("court_ruling", "court_ruling"),
-            ("auto", "default"),
-            ("unknown", "default"),
-            ("garbage", "default"),
-            ("", "default"),
-        ];
-        for (input, expected) in cases {
-            assert_eq!(
-                profile_name_for_document_type(input),
-                expected,
-                "profile_name_for_document_type({input:?}) should be {expected:?}"
-            );
+    fn test_select_default_when_multiple_profiles_same_document_type() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path();
+        write_profile(
+            dir,
+            "complaint_v5.yaml",
+            &make_profile_yaml("complaint_v5", Some("complaint"), false),
+        );
+        write_profile(
+            dir,
+            "complaint_v5_1.yaml",
+            &make_profile_yaml("complaint_v5_1", Some("complaint"), true),
+        );
+
+        let result = select_profile_for_document_type(dir, "complaint")
+            .expect("selector should succeed when exactly one profile is the default");
+        assert_eq!(
+            result, "complaint_v5_1",
+            "is_default: true profile must win over is_default: false"
+        );
+    }
+
+    /// When no profile in the directory declares the requested
+    /// `document_type`, the selector returns `"default"` so the caller
+    /// loads `default.yaml`. This is the legitimate "unknown document
+    /// type" fallback path.
+    #[test]
+    fn test_select_zero_matches_returns_default() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path();
+        write_profile(
+            dir,
+            "motion.yaml",
+            &make_profile_yaml("motion", Some("motion"), true),
+        );
+        // default.yaml deliberately omits document_type — that's its role.
+        write_profile(
+            dir,
+            "default.yaml",
+            &make_profile_yaml("default", None, true),
+        );
+
+        let result = select_profile_for_document_type(dir, "complaint")
+            .expect("zero matches should return Ok(\"default\")");
+        assert_eq!(result, FALLBACK_PROFILE_STEM);
+    }
+
+    /// When two profiles claim `is_default: true` for the same
+    /// `document_type`, the selector refuses to guess and errors loudly.
+    /// The error carries both filenames so the operator can fix exactly
+    /// the right files.
+    #[test]
+    fn test_select_multiple_defaults_errors() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path();
+        write_profile(
+            dir,
+            "complaint_a.yaml",
+            &make_profile_yaml("complaint_a", Some("complaint"), true),
+        );
+        write_profile(
+            dir,
+            "complaint_b.yaml",
+            &make_profile_yaml("complaint_b", Some("complaint"), true),
+        );
+
+        let result = select_profile_for_document_type(dir, "complaint");
+        match result {
+            Err(ProfileSelectionError::MultipleDefaults {
+                document_type,
+                profile_names,
+            }) => {
+                assert_eq!(document_type, "complaint");
+                assert_eq!(profile_names.len(), 2);
+                let mut names = profile_names;
+                names.sort();
+                assert_eq!(names, vec!["complaint_a", "complaint_b"]);
+            }
+            other => panic!("expected MultipleDefaults, got {other:?}"),
         }
     }
 
+    /// When profiles match the document_type but none is marked
+    /// `is_default: true`, the selector errors loudly rather than
+    /// silently picking one. This catches the regression where adding
+    /// a new variant profile but forgetting to flip the old default
+    /// leaves the system without a defined choice.
     #[test]
-    fn test_profile_name_mapping_is_exhaustive() {
-        // Every known document type returns a non-empty profile name.
-        let known_types = [
-            "complaint",
-            "discovery_response",
-            "motion",
-            "brief",
-            "motion_brief",
-            "affidavit",
-            "court_ruling",
-            "auto",
-            "unknown",
-        ];
-        for doc_type in &known_types {
-            let name = profile_name_for_document_type(doc_type);
-            assert!(
-                !name.is_empty(),
-                "Profile name for '{}' must not be empty",
-                doc_type
-            );
-        }
-    }
+    fn test_select_matches_but_no_default_errors() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path();
+        write_profile(
+            dir,
+            "complaint_a.yaml",
+            &make_profile_yaml("complaint_a", Some("complaint"), false),
+        );
+        write_profile(
+            dir,
+            "complaint_b.yaml",
+            &make_profile_yaml("complaint_b", Some("complaint"), false),
+        );
 
-    // ── profile_name_for_document_type_versioned tests ──────────
-    //
-    // The versioned variant is opt-in via the `profile_version` multipart
-    // field. When a recognized version is supplied, it routes to a versioned
-    // profile name; otherwise it falls through to the unversioned mapping.
-
-    #[test]
-    fn test_profile_name_for_document_type_versioned_routing() {
-        // Routing table: (document type, optional version) → profile name.
-        // - (complaint, Some("v5")) → "complaint_v5" (versioned profile exists)
-        // - (complaint, None) → "complaint" (no version requested)
-        // - (complaint, Some("v99")) → "complaint" (unknown version falls
-        //   through; a non-existent versioned profile would 500 uploads)
-        // - (affidavit | motion, Some("v5")) → unversioned (version is silently
-        //   dropped for document types without a versioned profile)
-        // - (garbage, Some("v5")) → "default" (unknown doc type with version)
-        // - (garbage, None) → "default" (unknown doc type, no version)
-        let cases: &[(&str, Option<&str>, &str)] = &[
-            ("complaint", Some("v5"), "complaint_v5"),
-            ("complaint", None, "complaint"),
-            ("complaint", Some("v99"), "complaint"),
-            ("affidavit", Some("v5"), "affidavit"),
-            ("motion", Some("v5"), "motion"),
-            ("garbage", Some("v5"), "default"),
-            ("garbage", None, "default"),
-        ];
-        for (doc_type, version, expected) in cases {
-            assert_eq!(
-                profile_name_for_document_type_versioned(doc_type, *version),
-                *expected,
-                "profile_name_for_document_type_versioned({doc_type:?}, {version:?}) should be {expected:?}"
-            );
+        let result = select_profile_for_document_type(dir, "complaint");
+        match result {
+            Err(ProfileSelectionError::NoDefaultAmongMatches {
+                document_type,
+                profile_names,
+            }) => {
+                assert_eq!(document_type, "complaint");
+                assert_eq!(profile_names.len(), 2);
+            }
+            other => panic!("expected NoDefaultAmongMatches, got {other:?}"),
         }
     }
 }

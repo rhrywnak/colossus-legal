@@ -6,6 +6,7 @@
 
 name: complaint
 display_name: Complaint
+document_type: complaint
 description: >
   Legal complaint — the initiating document of a civil lawsuit.
   Full-document extraction preserves count/allegation relationships.

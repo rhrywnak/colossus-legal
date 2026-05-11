@@ -4,6 +4,7 @@
 
 name: motion
 display_name: Motion/Brief
+document_type: motion
 description: Legal motion or brief filed with the court.
 
 schema_file: motion_v4.yaml
@@ -25,4 +26,4 @@ temperature: 0.0
 auto_approve_grounded: true
 run_pass2: true
 
-is_default: false
+is_default: true

@@ -6,6 +6,7 @@
 
 name: court_ruling
 display_name: Court Ruling
+document_type: court_ruling
 description: >
   Court ruling, opinion, order, or judgment issued by a judge.
   Structured chunking splits at uppercase section headings to maintain
@@ -30,7 +31,7 @@ temperature: 0.0
 auto_approve_grounded: true
 run_pass2: true
 
-is_default: false
+is_default: true
 
 chunking_config:
   mode: structured

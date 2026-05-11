@@ -4,6 +4,7 @@
 
 name: affidavit
 display_name: Affidavit
+document_type: affidavit
 description: Sworn statement by a witness.
 
 schema_file: affidavit_v4.yaml
@@ -25,4 +26,4 @@ temperature: 0.0
 auto_approve_grounded: true
 run_pass2: true
 
-is_default: false
+is_default: true

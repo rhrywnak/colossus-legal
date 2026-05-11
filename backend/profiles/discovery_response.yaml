@@ -5,6 +5,7 @@
 
 name: discovery_response
 display_name: Discovery Response
+document_type: discovery_response
 description: Interrogatory or request for admission responses.
 
 schema_file: discovery_response_v4.yaml
@@ -26,4 +27,4 @@ temperature: 0.0
 auto_approve_grounded: true
 run_pass2: true
 
-is_default: false
+is_default: true
