@@ -324,7 +324,7 @@ Correct extraction:
     {
       "entity_type": "LegalCount",
       "id": "count-001",
-      "label": "Count I — Breach of Fiduciary Duty",
+      "label": "Breach of Fiduciary Duty",
       "properties": {
         "count_name": "Breach of Fiduciary Duty",
         "count_number": 1,
