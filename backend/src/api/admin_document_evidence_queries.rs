@@ -79,10 +79,10 @@ RETURN n.id AS id, 'Evidence' AS node_type,
 
 UNION ALL
 
-MATCH (n:ComplaintAllegation)-[:CONTAINED_IN]->(d:Document {id: $doc_id})
-RETURN n.id AS id, 'ComplaintAllegation' AS node_type,
-       n.allegation AS title, n.verbatim AS verbatim_quote,
-       toString(n.paragraph) AS page_number, n.evidence_status AS kind,
+MATCH (n:Allegation)-[:CONTAINED_IN]->(d:Document {id: $doc_id})
+RETURN n.id AS id, 'Allegation' AS node_type,
+       n.title AS title, n.verbatim_quote AS verbatim_quote,
+       toString(n.paragraph_number) AS page_number, n.kind AS kind,
        null AS weight, null AS speaker
 
 UNION ALL

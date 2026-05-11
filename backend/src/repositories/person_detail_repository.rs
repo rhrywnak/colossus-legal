@@ -65,7 +65,7 @@ const STATEMENTS_QUERY: &str = "
            e.significance AS significance,
            d.id AS doc_id, d.title AS doc_title,
            c.characterization AS char_label,
-           a.id AS allegation_id, a.allegation AS allegation_text,
+           a.id AS allegation_id, a.summary AS allegation_text,
            reb.id AS reb_id, reb.title AS reb_title,
            reb.verbatim_quote AS reb_quote,
            rp.name AS reb_by, rd.title AS reb_doc

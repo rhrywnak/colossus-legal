@@ -1,7 +1,7 @@
 //! Per-type Neo4j expansion queries for the graph expander (part 1).
 //!
 //! Contains shared helpers and expansion functions for the three most
-//! complex node types: Evidence, ComplaintAllegation, MotionClaim.
+//! complex node types: Evidence, Allegation, MotionClaim.
 //!
 //! ## Pattern: HashSet for deduplication
 //! A shared `&mut HashSet<String>` tracks node IDs already collected.
@@ -73,7 +73,7 @@ pub async fn expand_evidence(
         OPTIONAL MATCH (e)-[:STATED_BY]->(speaker)
         OPTIONAL MATCH (e)-[:ABOUT]->(subject)
         OPTIONAL MATCH (e)-[:CONTAINED_IN]->(doc:Document)
-        OPTIONAL MATCH (e)-[:CHARACTERIZES]->(allegation:ComplaintAllegation)
+        OPTIONAL MATCH (e)-[:CHARACTERIZES]->(allegation:Allegation)
         OPTIONAL MATCH (e)<-[:REBUTS]-(rebuttal:Evidence)
         OPTIONAL MATCH (e)-[:CONTRADICTS]-(contradiction:Evidence)
         RETURN e.id AS eid, e.title AS etitle, e.verbatim_quote AS equote,
@@ -82,7 +82,7 @@ pub async fn expand_evidence(
                subject.id AS subid, subject.name AS subname,
                doc.id AS did, doc.title AS dtitle, doc.document_type AS dtype,
                allegation.id AS aid, allegation.title AS atitle,
-               allegation.evidence_status AS astatus,
+               NULL AS astatus,
                rebuttal.id AS rid, rebuttal.title AS rtitle,
                contradiction.id AS cid, contradiction.title AS ctitle";
 
@@ -132,7 +132,7 @@ pub async fn expand_evidence(
         if let Some(n) = try_extract_node(
             &row,
             "aid",
-            "ComplaintAllegation",
+            "Allegation",
             &[("atitle", "title"), ("astatus", "evidence_status")],
             seen,
         ) {
@@ -157,10 +157,23 @@ pub async fn expand_evidence(
 }
 
 // ---------------------------------------------------------------------------
-// ComplaintAllegation expansion
+// Allegation expansion
 // ---------------------------------------------------------------------------
 
-/// Expand a ComplaintAllegation seed: claims, evidence, documents, counts, harms.
+/// Expand an Allegation seed: claims, evidence, documents, counts, harms.
+///
+/// v5.1 migration (parallel to the repositories migration in 2b51d38):
+///   - Label `:ComplaintAllegation` → `:Allegation`.
+///   - Direct `:SUPPORTS` edge → two-hop through Element via
+///     `:PROVES_ELEMENT` and `:HAS_ELEMENT`.
+///   - Property `a.evidence_status` dropped (NULL).
+///   - Property `a.allegation` (v4 prose) → `a.summary`.
+///   - `a.title` kept (v5.1 has the short-label property).
+///
+/// `RETURN DISTINCT` dedupes the cartesian fan-out from the two-hop
+/// (one Allegation proving multiple Elements of the same Count).
+/// Rust-side `seen: HashSet<String>` would catch it too, but Cypher-side
+/// dedup matches the migration discipline.
 pub async fn expand_allegation(
     graph: &Graph,
     id: &str,
@@ -169,15 +182,17 @@ pub async fn expand_allegation(
     let mut nodes = Vec::new();
     let mut rels = Vec::new();
 
-    let cypher = "MATCH (a:ComplaintAllegation {id: $id})
+    let cypher = "MATCH (a:Allegation {id: $id})
         OPTIONAL MATCH (claim:MotionClaim)-[:PROVES]->(a)
         OPTIONAL MATCH (claim)-[:RELIES_ON]->(evidence:Evidence)
         OPTIONAL MATCH (evidence)-[:CONTAINED_IN]->(doc:Document)
         OPTIONAL MATCH (evidence)-[:STATED_BY]->(speaker)
-        OPTIONAL MATCH (a)-[:SUPPORTS]->(count:LegalCount)
+        OPTIONAL MATCH (a)-[:PROVES_ELEMENT]->(el)
+                        <-[:HAS_ELEMENT]-(count:LegalCount)
         OPTIONAL MATCH (harm:Harm)-[:CAUSED_BY]->(a)
-        RETURN a.id AS aid, a.title AS atitle, a.evidence_status AS astatus,
-               a.allegation AS aalleg,
+        RETURN DISTINCT a.id AS aid, a.title AS atitle,
+               NULL AS astatus,
+               a.summary AS aalleg,
                claim.id AS cid, claim.title AS ctitle,
                evidence.id AS eid, evidence.title AS etitle,
                evidence.verbatim_quote AS equote,
@@ -192,7 +207,7 @@ pub async fn expand_allegation(
         if let Some(n) = try_extract_node(
             &row,
             "aid",
-            "ComplaintAllegation",
+            "Allegation",
             &[
                 ("atitle", "title"),
                 ("astatus", "evidence_status"),
@@ -276,7 +291,7 @@ pub async fn expand_motion_claim(
         OPTIONAL MATCH (m)-[:RELIES_ON]->(evidence:Evidence)
         OPTIONAL MATCH (evidence)-[:CONTAINED_IN]->(doc:Document)
         OPTIONAL MATCH (evidence)-[:STATED_BY]->(speaker)
-        OPTIONAL MATCH (m)-[:PROVES]->(allegation:ComplaintAllegation)
+        OPTIONAL MATCH (m)-[:PROVES]->(allegation:Allegation)
         OPTIONAL MATCH (m)-[:APPEARS_IN]->(motion_doc:Document)
         RETURN m.id AS mid, m.title AS mtitle, m.claim_text AS mtext,
                m.significance AS msig,
@@ -329,13 +344,7 @@ pub async fn expand_motion_claim(
         }
 
         let aid = get_str(&row, "aid");
-        if let Some(n) = try_extract_node(
-            &row,
-            "aid",
-            "ComplaintAllegation",
-            &[("atitle", "title")],
-            seen,
-        ) {
+        if let Some(n) = try_extract_node(&row, "aid", "Allegation", &[("atitle", "title")], seen) {
             rels.push(ExpandedRelationship::new(id, &aid, "PROVES"));
             nodes.push(n);
         }

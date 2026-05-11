@@ -23,7 +23,7 @@ pub async fn expand_harm(
     let mut rels = Vec::new();
 
     let cypher = "MATCH (h:Harm {id: $id})
-        OPTIONAL MATCH (h)-[:CAUSED_BY]->(allegation:ComplaintAllegation)
+        OPTIONAL MATCH (h)-[:CAUSED_BY]->(allegation:Allegation)
         OPTIONAL MATCH (h)-[:EVIDENCED_BY]->(evidence:Evidence)
         OPTIONAL MATCH (evidence)-[:CONTAINED_IN]->(doc:Document)
         OPTIONAL MATCH (h)-[:DAMAGES_FOR]->(count:LegalCount)
@@ -53,13 +53,7 @@ pub async fn expand_harm(
         }
 
         let aid = get_str(&row, "aid");
-        if let Some(n) = try_extract_node(
-            &row,
-            "aid",
-            "ComplaintAllegation",
-            &[("atitle", "title")],
-            seen,
-        ) {
+        if let Some(n) = try_extract_node(&row, "aid", "Allegation", &[("atitle", "title")], seen) {
             rels.push(ExpandedRelationship::new(id, &aid, "CAUSED_BY"));
             nodes.push(n);
         }

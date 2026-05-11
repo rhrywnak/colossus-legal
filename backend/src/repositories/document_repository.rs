@@ -204,8 +204,14 @@ impl DocumentRepository {
     /// List all documents with their evidence counts.
     ///
     /// Uses an OPTIONAL MATCH to count all content nodes linked via
-    /// CONTAINED_IN relationships (Evidence, ComplaintAllegation, LegalCount,
+    /// CONTAINED_IN relationships (Evidence, Allegation, LegalCount,
     /// Harm, MotionClaim). Documents with no linked nodes get count 0.
+    ///
+    /// v5.1 migration: `:ComplaintAllegation` → `:Allegation` in the
+    /// label-test predicate. Per the pure-v5.1 stance, no v4
+    /// back-compat — old `ComplaintAllegation` nodes (none in
+    /// production) would no longer count toward a document's
+    /// evidence_count.
     pub async fn list_documents_with_evidence_counts(
         &self,
     ) -> Result<Vec<(Document, i64)>, DocumentRepositoryError> {
@@ -214,7 +220,7 @@ impl DocumentRepository {
             .execute(query(
                 "MATCH (d:Document)
                  OPTIONAL MATCH (n)-[:CONTAINED_IN]->(d)
-                 WHERE n:Evidence OR n:ComplaintAllegation OR n:LegalCount OR n:Harm OR n:MotionClaim
+                 WHERE n:Evidence OR n:Allegation OR n:LegalCount OR n:Harm OR n:MotionClaim
                  RETURN d, count(n) AS evidence_count
                  ORDER BY d.created_at DESC",
             ))

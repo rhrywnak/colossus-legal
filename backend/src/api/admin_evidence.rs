@@ -267,15 +267,18 @@ pub async fn import_evidence(
             counts.rebuts += 1;
         }
 
-        // 4h. PROVES → ComplaintAllegation
+        // 4h. PROVES → Allegation
+        // v5.1 migration: target label renamed from ComplaintAllegation
+        // to Allegation. The relationship type and ingest semantics are
+        // unchanged.
         for allegation_id in &item.proves_allegations {
             create_relationship(
                 &mut txn, &item.id, allegation_id,
-                "Evidence", "ComplaintAllegation",
+                "Evidence", "Allegation",
                 "PROVES", None,
             ).await.map_err(|_| AppError::BadRequest {
                 message: format!(
-                    "ComplaintAllegation '{allegation_id}' not found — check proves_allegations[] for evidence '{}'",
+                    "Allegation '{allegation_id}' not found — check proves_allegations[] for evidence '{}'",
                     item.id
                 ),
                 details: json!({ "field": "proves_allegations", "evidence_id": item.id, "target_id": allegation_id }),

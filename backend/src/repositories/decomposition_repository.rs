@@ -58,22 +58,29 @@ impl From<colossus_graph::GraphAccessError> for DecompositionRepositoryError {
 // Query constants — separates "what to query" from "how to process results"
 // ─────────────────────────────────────────────────────────────────────────────
 
+// v5.1 migration:
+//   - `:ComplaintAllegation` → `:Allegation`.
+//   - Property `a.allegation` (v4 prose) → `a.summary`.
+//   - Property `a.evidence_status` dropped; returned as `NULL`.
+//   - `a.title` kept (v5.1 short-label field).
 const OVERVIEW_CHAR_QUERY: &str = "
-    MATCH (a:ComplaintAllegation)
+    MATCH (a:Allegation)
     OPTIONAL MATCH (charE:Evidence)-[c:CHARACTERIZES]->(a)
     OPTIONAL MATCH (charE)-[:STATED_BY]->(speaker:Person)
     OPTIONAL MATCH (rebE:Evidence)-[:REBUTS]->(charE)
     RETURN a.id AS id,
            a.title AS title,
-           a.allegation AS description,
-           a.evidence_status AS status,
+           a.summary AS description,
+           NULL AS status,
            collect(DISTINCT c.characterization) AS characterizations,
            collect(DISTINCT speaker.name) AS speakers,
            count(DISTINCT rebE) AS rebuttal_count
     ORDER BY a.id";
 
+// v5.1: `:ComplaintAllegation` → `:Allegation`. PROVES edge connects
+// directly to Allegation in both versions — no traversal change.
 const OVERVIEW_PROOF_QUERY: &str = "
-    MATCH (a:ComplaintAllegation)
+    MATCH (a:Allegation)
     OPTIONAL MATCH (mc:MotionClaim)-[:PROVES]->(a)
     RETURN a.id AS id,
            count(DISTINCT mc) AS proof_count
