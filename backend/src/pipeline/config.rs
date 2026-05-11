@@ -927,6 +927,40 @@ extraction_model: claude-sonnet-4-6
         );
     }
 
+    /// Disk/code consistency test (CLAUDE.md §21).
+    ///
+    /// Loads every `*.yaml` under `backend/extraction_schemas/` through
+    /// `colossus_extract::ExtractionSchema::from_file` and asserts each
+    /// parses cleanly. Catches future regressions where a new schema is
+    /// added (or an existing one edited) without the explicit
+    /// `required:` / `min_count:` fields that v0.15.0 demands — at CI
+    /// time instead of at first extraction attempt against the
+    /// misconfigured schema.
+    ///
+    /// The minimum-count assertion guards against an empty
+    /// `extraction_schemas/` directory passing trivially (e.g., if a
+    /// future refactor moved the schemas elsewhere and forgot to
+    /// update this test path).
+    ///
+    /// Path is relative to the package root (`backend/`), which is
+    /// `cargo test`'s default working directory.
+    #[test]
+    fn all_extraction_schemas_load_successfully() {
+        let schema_dir = std::path::Path::new("extraction_schemas");
+        let entries = std::fs::read_dir(schema_dir).expect("extraction_schemas dir must exist");
+        let mut count = 0;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|s| s.to_str()) == Some("yaml") {
+                colossus_extract::ExtractionSchema::from_file(&path).unwrap_or_else(|e| {
+                    panic!("Schema YAML {} failed to load: {}", path.display(), e)
+                });
+                count += 1;
+            }
+        }
+        assert!(count >= 9, "Expected at least 9 schema YAMLs, got {count}");
+    }
+
     #[test]
     fn resolve_no_overrides() {
         let profile = ProcessingProfile {
