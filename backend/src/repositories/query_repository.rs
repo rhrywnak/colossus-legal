@@ -138,7 +138,7 @@ fn get_all_definitions() -> Vec<QueryDefinition> {
             description: "High-value evidence that proves multiple claims",
             category: "Evidence Analysis",
             cypher: "MATCH (e:Evidence)<-[:RELIES_ON]-(m:MotionClaim)
-                           -[:PROVES]->(a:ComplaintAllegation)
+                           -[:PROVES]->(a:Allegation)
                      WITH e, count(DISTINCT a) AS allegation_count,
                           collect(DISTINCT a.id) AS allegations
                      WHERE allegation_count > 1

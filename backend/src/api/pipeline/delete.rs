@@ -280,7 +280,7 @@ async fn build_audit_snapshot(
 /// ## Property names across node types
 ///
 /// Different node types use different property names for the source document:
-/// - `source_document` — Person, Organization, ComplaintAllegation, Harm, LegalCount
+/// - `source_document` — Person, Organization, Allegation, Harm, LegalCount, Element
 /// - `source_document_id` — Document nodes
 ///
 /// Person/Org nodes can belong to multiple documents (via `source_documents` array).

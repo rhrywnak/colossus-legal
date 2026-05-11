@@ -85,7 +85,18 @@ impl AnalysisRepository {
         let mut result = self
             .graph
             .execute(query(
-                "MATCH (a:ComplaintAllegation)
+                // v5.1 migration:
+                //   - `:ComplaintAllegation` → `:Allegation`.
+                //   - Property `a.allegation` (v4 prose) → `a.summary`
+                //     (v5.1's one-sentence summary field).
+                //   - Property `a.paragraph` → `a.paragraph_number`.
+                //   - Property `a.evidence_status` dropped; returned as
+                //     `NULL` so `AllegationStrength.evidence_status`
+                //     (already Option) sees `None`.
+                //   - The evidence collection paths (MotionClaim PROVES,
+                //     CORROBORATES) connect directly to Allegation in
+                //     both v4 and v5.1 — no traversal change.
+                "MATCH (a:Allegation)
                  OPTIONAL MATCH (a)<-[:PROVES]-(mc:MotionClaim)-[:RELIES_ON]->(e1)
                  OPTIONAL MATCH (a)<-[:CORROBORATES]-(e2)
                  WITH a,
@@ -97,9 +108,9 @@ impl AnalysisRepository {
                  WITH a,
                       mev + [x IN dev WHERE NOT x IN mev] AS evidence_list
                  RETURN a.id AS id,
-                        a.allegation AS allegation,
-                        a.paragraph AS paragraph,
-                        a.evidence_status AS evidence_status,
+                        a.summary AS allegation,
+                        a.paragraph_number AS paragraph,
+                        NULL AS evidence_status,
                         size(evidence_list) AS evidence_count,
                         [e IN evidence_list | coalesce(e.title, e.label, e.summary, e.id)][0..5] AS evidence_titles
                  ORDER BY size(evidence_list) DESC, a.id",
@@ -230,10 +241,13 @@ impl AnalysisRepository {
         let mut result = self
             .graph
             .execute(query(
+                // v5.1: `:ComplaintAllegation` → `:Allegation`. Edges
+                // PROVES and CORROBORATES connect directly to Allegation
+                // in both versions — no traversal restructure.
                 "MATCH (d:Document)
                  OPTIONAL MATCH (e:Evidence)-[:CONTAINED_IN]->(d)
-                 OPTIONAL MATCH (e)<-[:RELIES_ON]-(:MotionClaim)-[:PROVES]->(a1:ComplaintAllegation)
-                 OPTIONAL MATCH (e)-[:CORROBORATES]->(a2:ComplaintAllegation)
+                 OPTIONAL MATCH (e)<-[:RELIES_ON]-(:MotionClaim)-[:PROVES]->(a1:Allegation)
+                 OPTIONAL MATCH (e)-[:CORROBORATES]->(a2:Allegation)
                  WITH d,
                       count(DISTINCT e) AS evidence_count,
                       count(DISTINCT CASE

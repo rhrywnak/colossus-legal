@@ -68,15 +68,28 @@ pub async fn fetch_all_embeddable_nodes(
             ],
         ),
         (
-            "MATCH (a:ComplaintAllegation)
-             RETURN a.id AS id, 'ComplaintAllegation' AS node_type,
+            // v5.1 migration:
+            //   - Label `:ComplaintAllegation` → `:Allegation`.
+            //   - Embedding namespace tag `'ComplaintAllegation'` →
+            //     `'Allegation'`. This invalidates the existing v4
+            //     namespace — every existing Allegation embedding must be
+            //     re-embedded after deploy. Roman authorized: pure v5.1
+            //     stance, no back-compat with the v4 namespace name.
+            //   - Property `a.allegation` (v4 prose) → `a.summary` (v5.1).
+            //   - Property `a.paragraph` → `a.paragraph_number`.
+            //   - Property `a.evidence_status` dropped (v5.1 has no
+            //     equivalent); returned as `NULL`.
+            //   - `a.title`, `a.category`, `a.severity`, `a.verbatim_quote`
+            //     are stable.
+            "MATCH (a:Allegation)
+             RETURN a.id AS id, 'Allegation' AS node_type,
                     a.title AS title,
-                    a.allegation AS allegation,
+                    a.summary AS allegation,
                     COALESCE(a.verbatim_quote, a.verbatim, '') AS verbatim_quote,
-                    a.evidence_status AS evidence_status,
+                    NULL AS evidence_status,
                     a.category AS category,
                     a.severity AS severity,
-                    a.paragraph AS paragraph",
+                    a.paragraph_number AS paragraph",
             vec![
                 "title",
                 "allegation",

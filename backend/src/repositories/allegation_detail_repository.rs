@@ -24,16 +24,24 @@ use crate::repositories::decomposition_repository::DecompositionRepositoryError;
 // Query constants
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Allegation info query — uses `labels(n)[0] = $label` instead of hardcoded
-/// `:ComplaintAllegation` and `:LegalCount`. SUPPORTS relationship is stable.
+/// Allegation info query.
+///
+/// v5.1 migration: `Allegation -[:SUPPORTS]-> LegalCount` (v4 direct edge)
+/// became `Allegation -[:PROVES_ELEMENT]-> Element <-[:HAS_ELEMENT]- LegalCount`
+/// (two-hop). Prose body field renamed `a.allegation` → `a.summary`;
+/// `a.evidence_status` was dropped. Cypher aliases preserve the wire field
+/// names so `AllegationInfo` is unchanged; `status` arrives as `null` and
+/// gets `unwrap_or_default()`-coerced to `""` in the row reader, which the
+/// frontend `getStatusStyle` falls back from to `DEFAULT_STATUS_COLOR`.
 const ALLEGATION_INFO_QUERY: &str = "
     MATCH (a) WHERE a.id = $id AND labels(a)[0] = $allegation_label
-    OPTIONAL MATCH (a)-[:SUPPORTS]->(lc)
+    OPTIONAL MATCH (a)-[:PROVES_ELEMENT]->(el)
+                    <-[:HAS_ELEMENT]-(lc)
       WHERE labels(lc)[0] = $count_label
     RETURN a.id AS id,
            a.title AS title,
-           a.allegation AS description,
-           a.evidence_status AS status,
+           a.summary AS description,
+           NULL AS status,
            collect(DISTINCT lc.title) AS legal_counts";
 
 /// Characterization query — relationship-anchored, label-agnostic for evidence
@@ -124,7 +132,7 @@ impl AllegationDetailRepository {
             .execute(
                 query(ALLEGATION_INFO_QUERY)
                     .param("id", allegation_id)
-                    .param("allegation_label", "ComplaintAllegation")
+                    .param("allegation_label", "Allegation")
                     .param("count_label", "LegalCount"),
             )
             .await?;
@@ -161,7 +169,7 @@ impl AllegationDetailRepository {
             .execute(
                 query(CHARACTERIZATION_QUERY)
                     .param("id", allegation_id)
-                    .param("allegation_label", "ComplaintAllegation"),
+                    .param("allegation_label", "Allegation"),
             )
             .await?;
 
@@ -215,7 +223,7 @@ impl AllegationDetailRepository {
             .execute(
                 query(PROOF_CLAIMS_QUERY)
                     .param("id", allegation_id)
-                    .param("allegation_label", "ComplaintAllegation"),
+                    .param("allegation_label", "Allegation"),
             )
             .await?;
 

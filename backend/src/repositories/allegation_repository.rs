@@ -1,8 +1,15 @@
 // Allegation repository — lists allegations with linked legal counts.
 //
-// Uses parameterized Cypher with `labels(n)[0] = $label` instead of
-// hardcoded `:ComplaintAllegation` and `:LegalCount` labels. The SUPPORTS
-// relationship type is stable across schema versions.
+// v5.1 migration: the direct `Allegation -[:SUPPORTS]-> LegalCount`
+// edge was removed in favor of the two-hop path through Element:
+// `Allegation -[:PROVES_ELEMENT]-> Element <-[:HAS_ELEMENT]- LegalCount`.
+// The label changed from `ComplaintAllegation` (v4) to `Allegation`
+// (v5/v5.1). Several Allegation property names changed too: `a.paragraph`
+// → `a.paragraph_number`, prose body moved from `a.allegation` to
+// `a.summary`, and `a.evidence_status` was dropped entirely. The Cypher
+// aliases below preserve the existing wire field names (`paragraph`,
+// `allegation`, `evidence_status`) so the frontend's `AllegationDto` is
+// unchanged.
 
 use neo4rs::{query, Graph};
 
@@ -56,22 +63,25 @@ impl AllegationRepository {
             .execute(
                 query(
                     "MATCH (a) WHERE labels(a)[0] = $allegation_label
-                     OPTIONAL MATCH (a)-[:SUPPORTS]->(c)
+                     OPTIONAL MATCH (a)-[:PROVES_ELEMENT]->(el)
+                                     <-[:HAS_ELEMENT]-(c)
                        WHERE labels(c)[0] = $count_label
                      WITH a, collect(DISTINCT c.id) AS legal_count_ids,
                           collect(DISTINCT c.title) AS legal_counts
                      RETURN a.id AS id,
-                            a.paragraph AS paragraph,
+                            a.paragraph_number AS paragraph,
                             a.title AS title,
-                            a.allegation AS allegation,
-                            a.evidence_status AS evidence_status,
+                            a.summary AS allegation,
+                            NULL AS evidence_status,
                             a.category AS category,
                             a.severity AS severity,
                             legal_count_ids,
                             legal_counts
-                     ORDER BY toInteger(a.paragraph), a.paragraph, a.id",
+                     ORDER BY toInteger(a.paragraph_number),
+                              a.paragraph_number,
+                              a.id",
                 )
-                .param("allegation_label", "ComplaintAllegation")
+                .param("allegation_label", "Allegation")
                 .param("count_label", "LegalCount"),
             )
             .await?;

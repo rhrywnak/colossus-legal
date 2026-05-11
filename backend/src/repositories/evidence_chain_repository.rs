@@ -41,14 +41,27 @@ impl EvidenceChainRepository {
         &self,
         allegation_id: &str,
     ) -> Result<Option<EvidenceChainResponse>, EvidenceChainRepositoryError> {
+        // v5.1 migration:
+        //   - Label `:ComplaintAllegation` → `:Allegation`.
+        //   - Direct `:SUPPORTS` edge to LegalCount → two-hop through Element
+        //     via `:PROVES_ELEMENT` and `:HAS_ELEMENT`.
+        //   - Property `a.paragraph` → `a.paragraph_number`.
+        //   - Property `a.evidence_status` dropped; returned as `NULL`.
+        //   - `a.title` kept — v5.1 has a `title` property (the LLM's short
+        //     label) and the frontend renders it as the node label.
+        // The `collect(DISTINCT c.title)` already deduplicates LegalCounts
+        // across the two-hop fan-out (one Allegation may prove multiple
+        // Elements of the same Count).
         let cypher = "
-            MATCH (a:ComplaintAllegation {id: $allegation_id})
-            OPTIONAL MATCH (a)-[:SUPPORTS]->(c:LegalCount)
+            MATCH (a:Allegation {id: $allegation_id})
+            OPTIONAL MATCH (a)-[:PROVES_ELEMENT]->(el)
+                            <-[:HAS_ELEMENT]-(c:LegalCount)
             OPTIONAL MATCH (m:MotionClaim)-[:PROVES]->(a)
             OPTIONAL MATCH (m)-[:RELIES_ON]->(e:Evidence)
             OPTIONAL MATCH (e)-[:CONTAINED_IN]->(d:Document)
-            RETURN a.id AS a_id, a.title AS a_title, a.paragraph AS a_paragraph,
-                   a.evidence_status AS a_status,
+            RETURN a.id AS a_id, a.title AS a_title,
+                   a.paragraph_number AS a_paragraph,
+                   NULL AS a_status,
                    collect(DISTINCT c.title) AS legal_counts,
                    m.id AS m_id, m.title AS m_title,
                    e.id AS e_id, e.title AS e_title, e.question AS e_question,

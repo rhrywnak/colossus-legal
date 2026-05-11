@@ -41,26 +41,50 @@ impl GraphRepository {
         let mut nodes_map: HashMap<String, GraphNode> = HashMap::new();
         let mut edges_set: HashSet<GraphEdge> = HashSet::new();
 
-        // Use different queries based on whether we're filtering by count_id
+        // v5.1 migration:
+        //   - `:ComplaintAllegation` → `:Allegation`.
+        //   - Direct `:SUPPORTS` edge → two-hop through Element via
+        //     `:PROVES_ELEMENT` and `:HAS_ELEMENT`.
+        //   - Property `a.evidence_status` dropped; returned as `NULL`
+        //     (the GraphNode `subtitle` field is `Option<String>` —
+        //     null degrades cleanly to "no subtitle").
+        //   - `a.title` kept (v5.1 has the property and the frontend
+        //     uses it as the node label).
+        //
+        // `RETURN DISTINCT` dedupes the cartesian fan-out from the
+        // two-hop: one Allegation proving multiple Elements of the same
+        // Count would otherwise produce multiple identical rows for the
+        // (a, c, m, e, d) tuple. Rust-side `HashSet<GraphEdge>` already
+        // dedupes the edges, but Cypher-side dedup keeps the wire
+        // transfer small and matches the agreed migration discipline.
+        //
+        // The rendered `relationship: "SUPPORTS"` label is the legal
+        // meaning (Allegation supports LegalCount) — the graph still
+        // displays this synthetic edge between Allegation and
+        // LegalCount, NOT the two intermediate edges through Element.
+        // Switching the rendered label to `PROVES_ELEMENT` would expose
+        // the implementation, not the user's mental model.
         let cypher = if count_id.is_some() {
             "MATCH (c:LegalCount {id: $count_id})
-             OPTIONAL MATCH (a:ComplaintAllegation)-[:SUPPORTS]->(c)
+             OPTIONAL MATCH (a:Allegation)-[:PROVES_ELEMENT]->(el)
+                             <-[:HAS_ELEMENT]-(c)
              OPTIONAL MATCH (m:MotionClaim)-[:PROVES]->(a)
              OPTIONAL MATCH (m)-[:RELIES_ON]->(e:Evidence)
              OPTIONAL MATCH (e)-[:CONTAINED_IN]->(d:Document)
-             RETURN c.id AS c_id, c.title AS c_title,
-                    a.id AS a_id, a.title AS a_title, a.evidence_status AS a_status,
+             RETURN DISTINCT c.id AS c_id, c.title AS c_title,
+                    a.id AS a_id, a.title AS a_title, NULL AS a_status,
                     m.id AS m_id, m.title AS m_title,
                     e.id AS e_id, e.title AS e_title,
                     d.id AS d_id, d.title AS d_title"
         } else {
             "MATCH (c:LegalCount)
-             OPTIONAL MATCH (a:ComplaintAllegation)-[:SUPPORTS]->(c)
+             OPTIONAL MATCH (a:Allegation)-[:PROVES_ELEMENT]->(el)
+                             <-[:HAS_ELEMENT]-(c)
              OPTIONAL MATCH (m:MotionClaim)-[:PROVES]->(a)
              OPTIONAL MATCH (m)-[:RELIES_ON]->(e:Evidence)
              OPTIONAL MATCH (e)-[:CONTAINED_IN]->(d:Document)
-             RETURN c.id AS c_id, c.title AS c_title,
-                    a.id AS a_id, a.title AS a_title, a.evidence_status AS a_status,
+             RETURN DISTINCT c.id AS c_id, c.title AS c_title,
+                    a.id AS a_id, a.title AS a_title, NULL AS a_status,
                     m.id AS m_id, m.title AS m_title,
                     e.id AS e_id, e.title AS e_title,
                     d.id AS d_id, d.title AS d_title"

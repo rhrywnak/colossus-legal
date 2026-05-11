@@ -201,10 +201,10 @@ impl CaseRepository {
             .filter_map(|s| s.replace(['$', ','], "").parse::<f64>().ok())
             .sum();
 
-        // Fetch ComplaintAllegation nodes and count proven in Rust.
-        // grounding_status of "exact" or "normalized" means the allegation is proven.
-        let allegations =
-            colossus_graph::get_nodes_by_label(&self.graph, "ComplaintAllegation").await?;
+        // v5.1: the Allegation label replaces v4's ComplaintAllegation.
+        // grounding_status of "exact" or "normalized" means the allegation
+        // is proven; same v4 semantics.
+        let allegations = colossus_graph::get_nodes_by_label(&self.graph, "Allegation").await?;
         let allegations_total = allegations.len() as i64;
         let allegations_proven = allegations
             .iter()

@@ -45,7 +45,7 @@ impl MotionClaimRepository {
             .graph
             .execute(query(
                 "MATCH (m:MotionClaim)
-                 OPTIONAL MATCH (m)-[:PROVES]->(a:ComplaintAllegation)
+                 OPTIONAL MATCH (m)-[:PROVES]->(a:Allegation)
                  OPTIONAL MATCH (m)-[:RELIES_ON]->(e:Evidence)
                  OPTIONAL MATCH (m)-[:APPEARS_IN]->(d:Document)
                  WITH m,

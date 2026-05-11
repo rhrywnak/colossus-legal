@@ -152,9 +152,11 @@ impl CaseSummaryRepository {
             .filter_map(|s| s.replace(['$', ','], "").parse::<f64>().ok())
             .sum();
 
-        // Fetch ComplaintAllegation nodes and count proven in Rust.
-        let allegations =
-            colossus_graph::get_nodes_by_label(&self.graph, "ComplaintAllegation").await?;
+        // Fetch Allegation nodes and count proven in Rust. v5.1 renamed
+        // the label from ComplaintAllegation to Allegation; the
+        // `grounding_status` property keeps its v4 semantics ("exact" /
+        // "normalized" = proven).
+        let allegations = colossus_graph::get_nodes_by_label(&self.graph, "Allegation").await?;
         let allegations_total = allegations.len() as i64;
         let allegations_proven = allegations
             .iter()
@@ -182,10 +184,19 @@ impl CaseSummaryRepository {
     }
 
     // ── Query 3: Legal count details (id, name, allegation count) ───────
-    // TODO: DAL Phase 2 — use colossus_graph once batch neighbor counting is available.
-    // Kept as raw Cypher because the SUPPORTS aggregation (count allegations per
-    // legal count) would require N+1 get_node_neighbors calls.
-
+    //
+    // v5.1 migration: the direct `Allegation -[:SUPPORTS]-> LegalCount`
+    // edge was removed in favor of the two-hop path through Element.
+    // `count(DISTINCT a)` is required (not bare `count(a)`) because one
+    // Allegation can prove multiple Elements of the same LegalCount —
+    // without DISTINCT, each such allegation would be counted once per
+    // Element it proves on that count, inflating the displayed
+    // allegations-per-count badge.
+    //
+    // TODO: DAL Phase 2 — use colossus_graph once batch neighbor
+    // counting is available. Kept as raw Cypher because the per-count
+    // aggregation through Element would otherwise require N+1
+    // get_node_neighbors calls.
     async fn get_legal_count_details(
         &self,
     ) -> Result<Vec<LegalCountInfo>, CaseSummaryRepositoryError> {
@@ -195,15 +206,16 @@ impl CaseSummaryRepository {
             .execute(
                 query(
                     "MATCH (lc) WHERE labels(lc)[0] = $count_label
-                     OPTIONAL MATCH (a)-[:SUPPORTS]->(lc)
+                     OPTIONAL MATCH (a)-[:PROVES_ELEMENT]->(el)
+                                     <-[:HAS_ELEMENT]-(lc)
                        WHERE labels(a)[0] = $allegation_label
                      RETURN lc.id AS id, lc.title AS name,
                             lc.count_number AS count_number,
-                            count(a) AS allegation_count
+                            count(DISTINCT a) AS allegation_count
                      ORDER BY lc.count_number",
                 )
                 .param("count_label", "LegalCount")
-                .param("allegation_label", "ComplaintAllegation"),
+                .param("allegation_label", "Allegation"),
             )
             .await?;
 
