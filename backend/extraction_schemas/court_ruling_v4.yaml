@@ -17,6 +17,8 @@ description: "Court ruling — opinion, order, or judgment issued by a judge"
 
 entity_types:
   - name: Party
+    required: true
+    min_count: 2
     grounding_mode: name_match
     category: reference
     description: "A person or organization mentioned in the ruling. Extract EVERY named individual and organization."
@@ -38,6 +40,8 @@ entity_types:
         description: "Other names or references used for this party, comma-separated"
 
   - name: Evidence
+    required: false
+    min_count: 0
     grounding_mode: verbatim
     category: evidence
     description: "A specific finding of fact, legal conclusion, characterization, or court order from the ruling. Court findings carry judicial authority — they are the court's own determinations."

@@ -3,6 +3,8 @@ description: "Sworn responses to interrogatories, requests for admissions, or ot
 
 entity_types:
   - name: Party
+    required: true
+    min_count: 2
     grounding_mode: name_match
     category: reference
     description: "A person or organization mentioned in the discovery response — the respondent, the requesting party, and all persons or organizations referenced in the answers"
@@ -23,6 +25,8 @@ entity_types:
         description: "Comma-separated alternative names or references used in the document"
 
   - name: Evidence
+    required: false
+    min_count: 0
     grounding_mode: verbatim
     category: evidence
     description: "A single interrogatory question-answer pair, request for admission response, or other discovery response item. Each numbered item is a separate Evidence entity."

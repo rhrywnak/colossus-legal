@@ -11,6 +11,8 @@ description: "Civil complaint — the foundation document that defines the case 
 
 entity_types:
   - name: Party
+    required: true
+    min_count: 2
     grounding_mode: name_match
     category: reference
     description: "A person or organization named in the complaint. Extract EVERY named individual and organization."
@@ -32,6 +34,8 @@ entity_types:
         description: "Other names or references used for this party, comma-separated"
 
   - name: ComplaintAllegation
+    required: true
+    min_count: 1
     grounding_mode: verbatim
     category: evidence
     description: "A specific factual allegation from a numbered paragraph in the complaint"
@@ -61,6 +65,8 @@ entity_types:
         description: "Date of the alleged conduct if mentioned"
 
   - name: LegalCount
+    required: true
+    min_count: 1
     grounding_mode: heading_match
     category: foundation
     description: "A cause of action (count) asserted in the complaint"
@@ -91,6 +97,8 @@ entity_types:
         description: "Defendants this count applies to"
 
   - name: Harm
+    required: true
+    min_count: 1
     grounding_mode: derived
     category: foundation
     provenance_required: true

@@ -38,6 +38,8 @@ description: "Civil complaint — foundation document for the case-structuring p
 
 entity_types:
   - name: Party
+    required: true
+    min_count: 2
     grounding_mode: name_match
     category: reference
     description: "A person or organization named in the complaint with a role in the case."
@@ -59,6 +61,8 @@ entity_types:
         description: "Other names or references used for this party, comma-separated"
 
   - name: LegalCount
+    required: true
+    min_count: 1
     grounding_mode: heading_match
     category: foundation
     description: "A cause of action (count) asserted in the complaint."
@@ -95,6 +99,8 @@ entity_types:
         description: "Defendants this count applies to (comma-separated)"
 
   - name: Element
+    required: false
+    min_count: 0
     grounding_mode: verbatim
     category: foundation
     description: "A specific thing the plaintiff must prove for a LegalCount. Sourced from the Count-section paragraphs where Penzien declares each element. The verbatim_quote is Penzien's pleading text from the anchoring paragraph(s) — NOT external M Civ JI or case-law text. The `verbatim_quote` field of an Element is the operative element formulation for this case."
@@ -116,6 +122,8 @@ entity_types:
         description: "Sequential position of this element within its Count (1, 2, 3, ...). Useful for display ordering."
 
   - name: Allegation
+    required: true
+    min_count: 1
     grounding_mode: verbatim
     category: evidence
     description: "A factual claim from a numbered paragraph in the complaint. Renamed from v4's ComplaintAllegation. Includes the new `kind` property distinguishing common-allegation paragraphs (factual narrative before any Count) from count-section paragraphs (within a Count, often restating or applying facts to elements)."
@@ -149,6 +157,8 @@ entity_types:
         description: "Date of the alleged conduct if mentioned"
 
   - name: ThematicAllegation
+    required: false
+    min_count: 0
     grounding_mode: derived
     category: foundation
     provenance_required: true
@@ -167,6 +177,8 @@ entity_types:
         description: "Comma-separated list of Allegation paragraph numbers belonging to this theme. Used to reconstruct PART_OF relationships in Pass 2."
 
   - name: Harm
+    required: true
+    min_count: 1
     grounding_mode: derived
     category: foundation
     provenance_required: true

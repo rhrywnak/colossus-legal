@@ -17,7 +17,9 @@ use sha2::{Digest, Sha256};
 
 use crate::auth::{require_admin, AuthUser};
 use crate::error::AppError;
-use crate::pipeline::config::{PipelineConfigOverrides, ProcessingProfile};
+use crate::pipeline::config::{
+    PipelineConfigOverrides, ProcessingProfile, ProcessingProfileLoadError,
+};
 use crate::repositories::audit_repository::log_admin_action;
 use crate::repositories::pipeline_repository::{self, steps, PipelineConfigInput};
 use crate::state::AppState;
@@ -253,44 +255,67 @@ pub fn select_profile_for_document_type(
 /// Resolve the schema filename for a document type by consulting the
 /// document's processing profile YAML.
 ///
-/// Used by extract_text (after auto-detection) to keep `pipeline_config.schema_file`
-/// in sync with `documents.document_type` once Pass-0 has determined the
-/// real type. Profile-selection or profile-load failure is non-fatal:
-/// returns [`FALLBACK_SCHEMA_FILE`] with a `tracing::warn!` so the
-/// pipeline step doesn't crash on a misconfigured corpus — the operator
-/// still sees the problem and can fix the profile.
+/// Used by extract_text (after auto-detection) to keep
+/// `pipeline_config.schema_file` in sync with `documents.document_type`
+/// once Pass-0 has determined the real type.
 ///
-/// The upload handler does NOT use this function on the fast path; it
-/// calls [`select_profile_for_document_type`] directly and propagates
-/// errors as 500. Errors at extract time should not propagate the same
-/// way — the document is already in the system and the step needs to
-/// keep going (with the fallback schema) rather than poison the pipeline.
-pub fn schema_file_for_document_type(profile_dir: &str, document_type: &str) -> String {
+/// ## Error policy — variant-discriminated
+///
+/// Silent-fallback audit defect #2.1 removed `ProcessingProfile::load`'s
+/// internal `default.yaml` fallback. This call site retains a narrowly-
+/// scoped fallback **only** for the `FileNotFound` variant, per the
+/// defect #2.3 deferral: removing that arm would break documents
+/// uploaded before profile selection was migrated. The other two
+/// variants of [`ProcessingProfileLoadError`] (`IoError`, `ParseError`)
+/// represent real corruption — an unreadable file or malformed YAML —
+/// and MUST propagate to the caller. Silently substituting
+/// `FALLBACK_SCHEMA_FILE` for those would mask the underlying defect.
+///
+/// Selection-side errors ([`ProfileSelectionError`]) are still wrapped
+/// in a fallback at this call site, intentionally — that's a separate
+/// audit defect (#2.3 broader) tracked for a later PR.
+///
+/// TODO(defect #2.3): remove the `FileNotFound` fallback once every
+/// active document in `pipeline_config` has a `profile_name` that
+/// resolves to an on-disk YAML.
+pub fn schema_file_for_document_type(
+    profile_dir: &str,
+    document_type: &str,
+) -> Result<String, ProcessingProfileLoadError> {
     let profile_name = match select_profile_for_document_type(Path::new(profile_dir), document_type)
     {
         Ok(name) => name,
         Err(e) => {
+            // Selection-side fallback (NOT in PR 1 scope — defect #2.3 broader).
             tracing::warn!(
                 document_type,
                 fallback = FALLBACK_SCHEMA_FILE,
                 error = %e,
                 "Profile selection failed at extract time — using fallback schema"
             );
-            return FALLBACK_SCHEMA_FILE.to_string();
+            return Ok(FALLBACK_SCHEMA_FILE.to_string());
         }
     };
     match ProcessingProfile::load(profile_dir, &profile_name) {
-        Ok(p) => p.schema_file,
-        Err(e) => {
+        Ok(p) => Ok(p.schema_file),
+        // TODO(defect #2.3): remove this FileNotFound fallback in a follow-up
+        // PR. Currently retained because this call site is in the extract-time
+        // auto-detection path and removing it would break documents that
+        // haven't yet been migrated to explicit profile selection.
+        Err(ProcessingProfileLoadError::FileNotFound { path }) => {
             tracing::warn!(
                 document_type,
-                profile = %profile_name,
+                requested_profile = %profile_name,
+                requested_path = %path,
                 fallback = FALLBACK_SCHEMA_FILE,
-                error = %e,
-                "Failed to load profile to derive schema_file — using fallback"
+                "Profile not found at expected path; using fallback schema (defect #2.3)"
             );
-            FALLBACK_SCHEMA_FILE.to_string()
+            Ok(FALLBACK_SCHEMA_FILE.to_string())
         }
+        // IoError / ParseError — propagate loudly. Either case represents a
+        // real configuration error (unreadable file, malformed YAML) that
+        // must not be silently swapped for FALLBACK_SCHEMA_FILE.
+        Err(other) => Err(other),
     }
 }
 
@@ -385,34 +410,20 @@ pub async fn upload_document(
         )?
     };
 
-    let profile = match ProcessingProfile::load(&state.config.processing_profile_dir, &profile_name)
-    {
-        Ok(p) => Some(p),
-        Err(e) => {
-            tracing::warn!(
-                document_type = %document_type,
-                profile = %profile_name,
-                error = %e,
-                "Profile load failed at upload — falling back for schema_file and skipping override pre-population"
-            );
-            None
-        }
-    };
+    // Per silent-fallback audit defect #2.1, the previous silent
+    // `profile = None` fallback is removed. A load failure here means
+    // the operator selected (or version-overrode to) a profile that
+    // doesn't exist, is unreadable, or has a malformed YAML — any of
+    // which is a configuration error the operator must fix. Propagate
+    // as 500 via the `From<ProcessingProfileLoadError> for AppError`
+    // impl in `error.rs`.
+    let profile = ProcessingProfile::load(&state.config.processing_profile_dir, &profile_name)?;
 
     // Schema file — derived exclusively from the processing profile.
-    // The frontend no longer sends this field; the profile YAML is the
-    // single source of truth for which schema a document_type uses.
-    let schema_file = profile
-        .as_ref()
-        .map(|p| p.schema_file.clone())
-        .unwrap_or_else(|| {
-            tracing::warn!(
-                document_type = %document_type,
-                fallback = FALLBACK_SCHEMA_FILE,
-                "No profile loaded — using fallback schema"
-            );
-            FALLBACK_SCHEMA_FILE.to_string()
-        });
+    // The profile load above succeeded (we propagated on error), so we
+    // can take the schema_file unconditionally; the previous "no profile
+    // loaded — fallback" branch is dead code after defect #2.1's fix.
+    let schema_file = profile.schema_file.clone();
     let file_data = file_data.ok_or_else(|| AppError::BadRequest {
         message: "No 'file' field in multipart upload".to_string(),
         details: serde_json::json!({}),
@@ -671,9 +682,11 @@ pub async fn upload_document(
     // Problem 4: pre-populate the per-document override columns from the
     // matched processing profile. The Configuration Panel reads those
     // columns — without this, it shows compiled defaults until the user
-    // manually overrides each dropdown. Reuse the profile loaded above;
-    // a None here means the load failed and we already warned.
-    if let Some(profile) = profile.as_ref() {
+    // manually overrides each dropdown. The profile load above
+    // succeeded (we propagated on error), so this is unconditional now;
+    // the previous `if let Some(...)` guard against the silent-fallback
+    // None case is dead code after defect #2.1's fix.
+    {
         let overrides = PipelineConfigOverrides {
             profile_name: Some(profile.name.clone()),
             extraction_model: Some(profile.extraction_model.clone()),

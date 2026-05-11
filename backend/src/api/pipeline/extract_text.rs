@@ -366,7 +366,7 @@ pub(crate) async fn run_extract_text(
         let detected_schema = super::upload::schema_file_for_document_type(
             &state.config.processing_profile_dir,
             detected_type,
-        );
+        )?;
         sqlx::query("UPDATE pipeline_config SET schema_file = $1 WHERE document_id = $2")
             .bind(&detected_schema)
             .bind(doc_id)

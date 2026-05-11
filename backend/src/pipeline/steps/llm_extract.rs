@@ -116,6 +116,31 @@ pub enum LlmExtractError {
 
     #[error("No COMPLETED pass-1 extraction_run found for document '{document_id}'")]
     NoCompletedPass1 { document_id: String },
+
+    /// A merged entity could not be re-serialized to JSON. Per silent-
+    /// fallback audit defect #2.9, this used to be a `tracing::warn!`
+    /// followed by `serde_json::Value::Null` substitution — corrupting
+    /// the audit output (DB rows labelled `entity_type: "unknown"` with
+    /// no content) while the run still completed as COMPLETED. Failing
+    /// the run is the correct behavior: re-serialization should never
+    /// fail for well-typed merger output, so this firing indicates a
+    /// programming bug that must be surfaced (e.g., a NaN float in a
+    /// property value reached the entity).
+    #[error("Failed to serialize merged entity at index {entity_index}: {source}")]
+    EntitySerializationFailed {
+        entity_index: usize,
+        #[source]
+        source: serde_json::Error,
+    },
+
+    /// A merged relationship could not be re-serialized to JSON.
+    /// Same rationale as `EntitySerializationFailed`; defect #2.9.
+    #[error("Failed to serialize merged relationship at index {rel_index}: {source}")]
+    RelationshipSerializationFailed {
+        rel_index: usize,
+        #[source]
+        source: serde_json::Error,
+    },
 }
 
 // ── Step struct ─────────────────────────────────────────────────
@@ -224,8 +249,19 @@ impl LlmExtract {
             .profile_name
             .clone()
             .unwrap_or_else(|| default_profile_name_from_schema(&pipe_config.schema_file));
-        let profile = ProcessingProfile::load(&context.profile_dir, &profile_name)
-            .map_err(|e| LlmExtractError::ProfileLoadFailed { message: e })?;
+        let profile =
+            ProcessingProfile::load(&context.profile_dir, &profile_name).map_err(|e| {
+                // Per silent-fallback audit defect #2.1, `::load` now returns
+                // `ProcessingProfileLoadError` (a typed enum with FileNotFound /
+                // IoError / ParseError variants) instead of a `String`. Stringify
+                // here to preserve the existing `ProfileLoadFailed { message }`
+                // shape — downstream tests and audit logs depend on `message`
+                // being a flat string. The Display impl on the source error
+                // includes the path and the chained cause.
+                LlmExtractError::ProfileLoadFailed {
+                    message: e.to_string(),
+                }
+            })?;
         let resolved = resolve_config(&profile, &overrides);
 
         // 2. Idempotency: short-circuit if a COMPLETED *pass-1* run
@@ -1261,32 +1297,39 @@ async fn extract_chunks_loop(
     // shape they always have. `to_value` is the inverse of `from_value`
     // (used at chunk-collection time above) — the standard typed↔JSON
     // bridge for any type that derives both `Serialize` and `Deserialize`.
+    //
+    // Per silent-fallback audit defect #2.9: per-item `to_value` failures
+    // used to substitute `serde_json::Value::Null` (with a warn log),
+    // corrupting the audit output while letting the run complete as
+    // COMPLETED. The store path then inserted those nulls into
+    // `extraction_items` rows labelled `entity_type: "unknown"`, visible
+    // to operators in the Review tab. The collect-into-Result pattern
+    // below propagates the first serialization failure as a typed step
+    // error, which marks the run FAILED and surfaces the underlying
+    // serde_json::Error (e.g., a NaN float that reached an entity
+    // property) to the operator. Re-running after the bug is fixed is
+    // cheap; silently storing nulls is not.
     let all_entities: Vec<serde_json::Value> = merge_result
         .entities
         .into_iter()
-        .map(|e| {
-            serde_json::to_value(&e).unwrap_or_else(|err| {
-                tracing::warn!(
-                    error = %err,
-                    "Failed to re-serialize merged entity (using null fallback)"
-                );
-                serde_json::Value::Null
+        .enumerate()
+        .map(|(entity_index, e)| {
+            serde_json::to_value(&e).map_err(|source| LlmExtractError::EntitySerializationFailed {
+                entity_index,
+                source,
             })
         })
-        .collect();
+        .collect::<Result<Vec<_>, _>>()?;
     let all_relationships: Vec<serde_json::Value> = merge_result
         .relationships
         .into_iter()
-        .map(|r| {
-            serde_json::to_value(&r).unwrap_or_else(|err| {
-                tracing::warn!(
-                    error = %err,
-                    "Failed to re-serialize merged relationship (using null fallback)"
-                );
-                serde_json::Value::Null
+        .enumerate()
+        .map(|(rel_index, r)| {
+            serde_json::to_value(&r).map_err(|source| {
+                LlmExtractError::RelationshipSerializationFailed { rel_index, source }
             })
         })
-        .collect();
+        .collect::<Result<Vec<_>, _>>()?;
 
     Ok(ExtractionOutcome {
         entities: all_entities,
@@ -2662,5 +2705,59 @@ The real prompt body.";
             "with pass2_model=None, Pass-2 snapshot must fall back to Pass-1 model"
         );
         assert!(json["pass2_model"].is_null());
+    }
+
+    /// Display test for the new entity/relationship serialization error
+    /// variants added per silent-fallback audit defect #2.9. The variants
+    /// replace a pre-existing `unwrap_or_else(Null)` pattern that silently
+    /// stored JSON nulls into `extraction_items`; the new variants
+    /// propagate `?` and mark the run FAILED.
+    ///
+    /// End-to-end testing — constructing an `ExtractedEntity` whose
+    /// `serde_json::to_value` actually fails — requires a custom mock
+    /// because `ExtractedEntity`'s properties use `HashMap<String,
+    /// serde_json::Value>` and `serde_json::Number::from_f64(NaN)`
+    /// returns `None` rather than producing a NaN that propagates to
+    /// serialization. Documented as a follow-up: a focused integration
+    /// test would require either (a) a custom failing-serializer type
+    /// in colossus_extract or (b) a `#[cfg(test)]`-gated `Serialize` impl
+    /// on a test wrapper. The variant-level Display test below pins the
+    /// error-message shape so audit logs from a real production failure
+    /// remain useful when the test pyramid catches up.
+    #[test]
+    fn entity_and_relationship_serialization_errors_have_useful_display() {
+        // serde_json::Error doesn't expose a public constructor; produce
+        // one by deserializing invalid JSON.
+        let source: serde_json::Error =
+            serde_json::from_str::<serde_json::Value>("not json").unwrap_err();
+        let err = LlmExtractError::EntitySerializationFailed {
+            entity_index: 7,
+            source,
+        };
+        let msg = err.to_string();
+        assert!(
+            msg.contains("entity"),
+            "Display should mention 'entity': {msg}"
+        );
+        assert!(
+            msg.contains("7"),
+            "Display should include the entity index: {msg}"
+        );
+
+        let source: serde_json::Error =
+            serde_json::from_str::<serde_json::Value>("not json").unwrap_err();
+        let err = LlmExtractError::RelationshipSerializationFailed {
+            rel_index: 13,
+            source,
+        };
+        let msg = err.to_string();
+        assert!(
+            msg.contains("relationship"),
+            "Display should mention 'relationship': {msg}"
+        );
+        assert!(
+            msg.contains("13"),
+            "Display should include the relationship index: {msg}"
+        );
     }
 }

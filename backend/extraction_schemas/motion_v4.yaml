@@ -1,0 +1,125 @@
+# Extraction schema for motions — DATA_MODEL_v4 aligned
+# Property names match PROD Neo4j Evidence and MotionClaim nodes.
+
+document_type: motion
+version: "4.0"
+description: "Legal motion — produces MotionClaim and Evidence nodes"
+
+entity_types:
+  - name: Party
+    required: true
+    min_count: 2
+    grounding_mode: name_match
+    description: "A person or organization mentioned in the motion"
+    properties:
+      - name: party_name
+        type: string
+        required: true
+        description: "Full legal name"
+      - name: role
+        type: string
+        required: true
+        description: "movant, respondent, plaintiff, defendant, attorney, witness, judge"
+      - name: party_type
+        type: string
+        required: true
+        description: "person or organization"
+
+  - name: MotionClaim
+    required: true
+    min_count: 1
+    grounding_mode: derived
+    description: "A synthesized legal argument or position taken in the motion"
+    properties:
+      - name: title
+        type: string
+        required: true
+        description: "Short descriptive title"
+      - name: claim_text
+        type: string
+        required: true
+        description: "The argument being made"
+      - name: category
+        type: string
+        required: true
+        description: "admission, factual_allegation, legal_argument, characterization, evidence_summary"
+      - name: significance
+        type: string
+        required: true
+        description: "Why this matters. Use prefixes: CRITICAL:, SELECTIVE:, PROVES:"
+      - name: made_by
+        type: string
+        description: "Name of the party making this argument"
+      - name: page_number
+        type: integer
+        description: "Page where this argument appears"
+
+  - name: Evidence
+    required: false
+    min_count: 0
+    grounding_mode: verbatim
+    description: "A specific factual claim, admission, or characterization embedded in the motion."
+    properties:
+      - name: title
+        type: string
+        required: true
+        description: "Short descriptive title"
+      - name: answer
+        type: string
+        required: true
+        description: "The substance of the factual claim or characterization"
+      - name: page_number
+        type: integer
+        required: true
+        description: "Page number"
+      - name: kind
+        type: string
+        required: true
+        description: "Always 'documentary' for motions"
+      - name: evidence_strength
+        type: string
+        required: true
+        description: "'party_statement' for factual claims and characterizations"
+      - name: statement_type
+        type: string
+        required: true
+        description: "factual_assertion, characterization, admission, legal_argument"
+      - name: significance
+        type: string
+        description: "Why this matters"
+      - name: weight
+        type: integer
+        description: "1-10 importance"
+      - name: pattern_tags
+        type: string
+        description: "Comma-separated trial-prep patterns"
+
+relationship_types:
+  - name: STATED_BY
+    description: "Links evidence to the party who made the statement"
+  - name: ABOUT
+    description: "Links evidence to the party it concerns"
+  - name: CONTAINED_IN
+    description: "Links evidence or motion claim to the source document"
+  - name: APPEARS_IN
+    description: "Links a motion claim to the document it appears in"
+
+valid_patterns:
+  - from: Evidence
+    relationship: STATED_BY
+    to: Party
+  - from: Evidence
+    relationship: ABOUT
+    to: Party
+  - from: MotionClaim
+    relationship: APPEARS_IN
+    to: Party
+
+extraction_rules:
+  - "Extract MotionClaims for main legal arguments and positions"
+  - "Extract Evidence for specific factual claims, admissions, and characterizations"
+  - "Every verbatim_quote must be an exact substring of the document text"
+  - "Set evidence_strength='party_statement' — motions are NOT sworn"
+  - "When the motion characterizes Marie's claims, extract as Evidence with statement_type='characterization'"
+  - "The STATED_BY party is the movant"
+  - "Assign pattern_tags: characterizations = 'disparagement', sanctions = 'selective_enforcement'"

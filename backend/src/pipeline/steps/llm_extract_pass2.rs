@@ -193,8 +193,14 @@ pub async fn run_pass2_extraction(
         .profile_name
         .clone()
         .unwrap_or_else(|| default_profile_name_from_schema(&pipe_config.schema_file));
-    let profile = ProcessingProfile::load(&context.profile_dir, &profile_name)
-        .map_err(|e| LlmExtractError::ProfileLoadFailed { message: e })?;
+    let profile = ProcessingProfile::load(&context.profile_dir, &profile_name).map_err(|e| {
+        // Defect #2.1 fix: stringify the typed `ProcessingProfileLoadError`
+        // back into the existing `ProfileLoadFailed { message }` variant
+        // shape. Display preserves the path and underlying cause.
+        LlmExtractError::ProfileLoadFailed {
+            message: e.to_string(),
+        }
+    })?;
     let resolved = resolve_config(&profile, &overrides);
 
     // 5. Enforce pass-2 preconditions on the resolved config.

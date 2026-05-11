@@ -227,8 +227,25 @@ pub enum ExtractTextError {
     #[error("database write failed: {message}")]
     DbWrite { message: String },
 
+    /// Profile load failed during post-OCR `schema_file_for_document_type`
+    /// resolution. Distinguishes from `DbWrite` so operators can tell
+    /// whether the failure was at the DB layer or at config loading.
+    /// Wraps [`crate::pipeline::config::ProcessingProfileLoadError`] so
+    /// the original `path` and `source` are preserved in the chain.
+    #[error("profile load failed during ExtractText: {source}")]
+    ProfileLoad {
+        #[source]
+        source: crate::pipeline::config::ProcessingProfileLoadError,
+    },
+
     #[error("cancelled")]
     Cancelled,
+}
+
+impl From<crate::pipeline::config::ProcessingProfileLoadError> for ExtractTextError {
+    fn from(source: crate::pipeline::config::ProcessingProfileLoadError) -> Self {
+        Self::ProfileLoad { source }
+    }
 }
 
 // ── Step struct ─────────────────────────────────────────────────
@@ -660,7 +677,7 @@ impl ExtractText {
             })?;
 
             let detected_schema =
-                schema_file_for_document_type(&context.profile_dir, detected_type);
+                schema_file_for_document_type(&context.profile_dir, detected_type)?;
             sqlx::query("UPDATE pipeline_config SET schema_file = $1 WHERE document_id = $2")
                 .bind(&detected_schema)
                 .bind(doc_id)

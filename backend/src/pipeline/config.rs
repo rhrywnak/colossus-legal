@@ -198,6 +198,52 @@ fn default_true() -> bool {
     true
 }
 
+/// Error variants returned by [`ProcessingProfile::load`].
+///
+/// Before silent-fallback audit defect #2.1 was fixed, `::load` silently
+/// substituted `default.yaml` when the requested profile file was missing.
+/// That fallback masked the (filename stem ≠ YAML `name:`) divergence
+/// introduced by the v5.1 complaint profile — the worker and preview
+/// path both fed the YAML `name:` back to `::load` as if it were a
+/// filename stem, the substitute file didn't exist, and silently the
+/// system extracted against `default.yaml` instead. Loud failure surfaces
+/// the misconfiguration to the operator immediately.
+///
+/// ## Rust Learning: `thiserror` + structured fields
+///
+/// The `#[derive(thiserror::Error)]` macro generates `impl Display` and
+/// `impl Error` from the `#[error("...")]` format strings. Structured
+/// fields (`path`, `source`) flow through `Display` substitution AND are
+/// available to programmatic callers via match arms — letting the
+/// `schema_file_for_document_type` site distinguish FileNotFound from
+/// IoError without parsing the message string.
+#[derive(Debug, thiserror::Error)]
+pub enum ProcessingProfileLoadError {
+    /// The requested profile YAML file does not exist on disk.
+    ///
+    /// Per defect #2.3 (deferred), one caller (`schema_file_for_document_type`)
+    /// retains a fallback specifically for this variant. All other callers
+    /// propagate it loudly.
+    #[error("Profile file not found: {path}")]
+    FileNotFound { path: String },
+
+    /// The file exists but could not be read (permission denied, I/O fault, etc.).
+    #[error("Failed to read profile file '{path}': {source}")]
+    IoError {
+        path: String,
+        #[source]
+        source: std::io::Error,
+    },
+
+    /// The file was read successfully but the YAML body is malformed.
+    #[error("Failed to parse profile YAML '{path}': {source}")]
+    ParseError {
+        path: String,
+        #[source]
+        source: serde_yaml::Error,
+    },
+}
+
 impl ProcessingProfile {
     /// Load a processing profile from a YAML file.
     ///
@@ -237,28 +283,54 @@ impl ProcessingProfile {
 
     /// Load a profile by name from the profile directory.
     ///
-    /// Appends ".yaml" to the name and looks in `profile_dir`.
-    /// If the named profile doesn't exist, tries "default.yaml".
-    /// If neither exists, returns an error.
-    pub fn load(profile_dir: &str, profile_name: &str) -> Result<Self, String> {
-        let primary = Path::new(profile_dir).join(format!("{profile_name}.yaml"));
-        if primary.exists() {
-            return Self::from_file(&primary);
+    /// Appends ".yaml" to the name and looks in `profile_dir`. Returns a
+    /// [`ProcessingProfileLoadError`] that distinguishes "file missing"
+    /// from "file unreadable" from "YAML malformed".
+    ///
+    /// **There is no silent fallback to `default.yaml` anymore** —
+    /// silent-fallback audit defect #2.1. Missing profiles must surface
+    /// as `FileNotFound` so callers can decide explicitly whether to
+    /// substitute, error, or do something else. The only caller that
+    /// retains a substitution today is
+    /// [`crate::api::pipeline::upload::schema_file_for_document_type`],
+    /// which discriminates strictly on the `FileNotFound` variant and
+    /// logs at WARN level; that substitution is tracked as defect #2.3
+    /// and will be removed in a follow-up PR. Every other caller
+    /// propagates the error to a user-visible surface.
+    ///
+    /// Computes the SHA-256 of the **raw YAML body** (before
+    /// deserialization) and stores it on the returned struct's
+    /// `profile_hash` field, same as [`Self::from_yaml_str`]. The hash
+    /// makes two runs against the same filename but content-edited YAML
+    /// distinguishable from the audit log alone.
+    pub fn load(profile_dir: &str, profile_name: &str) -> Result<Self, ProcessingProfileLoadError> {
+        let path = Path::new(profile_dir).join(format!("{profile_name}.yaml"));
+        let path_str = path.display().to_string();
+
+        // Existence check before read so we can return the precise
+        // `FileNotFound` variant — `std::fs::read_to_string` would
+        // collapse "missing" into the same `io::ErrorKind::NotFound`
+        // case that other I/O failures land in, and our discriminating
+        // caller would lose the ability to tell them apart.
+        if !path.exists() {
+            return Err(ProcessingProfileLoadError::FileNotFound { path: path_str });
         }
 
-        let fallback = Path::new(profile_dir).join("default.yaml");
-        if fallback.exists() {
-            tracing::warn!(
-                requested = profile_name,
-                "Profile not found, falling back to default.yaml"
-            );
-            return Self::from_file(&fallback);
-        }
+        let content = std::fs::read_to_string(&path).map_err(|source| {
+            ProcessingProfileLoadError::IoError {
+                path: path_str.clone(),
+                source,
+            }
+        })?;
 
-        Err(format!(
-            "Profile '{profile_name}' not found at '{}' and no default.yaml exists",
-            primary.display()
-        ))
+        let mut profile: Self = serde_yaml::from_str(&content).map_err(|source| {
+            ProcessingProfileLoadError::ParseError {
+                path: path_str,
+                source,
+            }
+        })?;
+        profile.profile_hash = sha2_hex_yaml(&content);
+        Ok(profile)
     }
 }
 
@@ -782,6 +854,77 @@ extraction_model: claude-sonnet-4-6
         let result = ProcessingProfile::from_file(f.path());
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Failed to parse profile"));
+    }
+
+    // ── ProcessingProfile::load strict-error tests ──────────────────
+    //
+    // Silent-fallback audit defect #2.1: ::load used to silently substitute
+    // `default.yaml` when the requested profile file was missing. These
+    // tests pin the new strict behavior — missing file → FileNotFound, NOT
+    // a successful load of default.yaml.
+
+    /// `::load("nonexistent")` must return `FileNotFound`, not panic and
+    /// not return some other variant. This is the variant the only-retained
+    /// fallback (`schema_file_for_document_type`) discriminates on, so
+    /// pinning the exact variant guards that contract.
+    #[test]
+    fn processing_profile_load_returns_err_on_missing_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let result = ProcessingProfile::load(
+            tmp.path().to_str().expect("temp dir path is UTF-8"),
+            "nonexistent",
+        );
+        assert!(
+            matches!(result, Err(ProcessingProfileLoadError::FileNotFound { .. })),
+            "expected FileNotFound, got {result:?}"
+        );
+    }
+
+    /// Even when `default.yaml` exists in the profile directory, requesting
+    /// a non-existent profile name must NOT silently return default.yaml's
+    /// content. This is the headline behavior change of defect #2.1's fix.
+    #[test]
+    fn processing_profile_load_no_longer_falls_back_to_default() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            tmp.path().join("default.yaml"),
+            "name: default\n\
+             display_name: Default\n\
+             schema_file: foo.yaml\n\
+             template_file: bar.md\n\
+             extraction_model: claude-sonnet-4-6\n\
+             is_default: true\n",
+        )
+        .unwrap();
+
+        let result = ProcessingProfile::load(
+            tmp.path().to_str().expect("temp dir path is UTF-8"),
+            "nonexistent",
+        );
+        assert!(
+            matches!(result, Err(ProcessingProfileLoadError::FileNotFound { .. })),
+            "Loading a nonexistent profile must NOT silently fall back to \
+             default.yaml; got {result:?}"
+        );
+    }
+
+    /// Malformed YAML in the requested file returns `ParseError`, NOT
+    /// `FileNotFound`. The two-variant distinction is what
+    /// `schema_file_for_document_type` uses to decide between "fallback
+    /// to FALLBACK_SCHEMA_FILE" (FileNotFound, defect #2.3 deferred) and
+    /// "propagate as 500" (ParseError, real corruption).
+    #[test]
+    fn processing_profile_load_returns_parse_error_on_malformed_yaml() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join("broken.yaml"), "not: [valid: yaml: {{{}}}").unwrap();
+        let result = ProcessingProfile::load(
+            tmp.path().to_str().expect("temp dir path is UTF-8"),
+            "broken",
+        );
+        assert!(
+            matches!(result, Err(ProcessingProfileLoadError::ParseError { .. })),
+            "expected ParseError, got {result:?}"
+        );
     }
 
     #[test]

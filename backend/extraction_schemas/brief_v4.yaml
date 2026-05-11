@@ -16,6 +16,8 @@ description: "Legal brief — written legal argument filed with the court (NOT s
 
 entity_types:
   - name: Party
+    required: true
+    min_count: 2
     grounding_mode: name_match
     category: reference
     description: "A person or organization mentioned in the brief. Extract EVERY named individual and organization."
@@ -37,6 +39,8 @@ entity_types:
         description: "Other names or references used for this party, comma-separated"
 
   - name: MotionClaim
+    required: true
+    min_count: 1
     grounding_mode: derived
     category: evidence
     description: "A synthesized legal argument, position, or claim made in the brief. MotionClaims capture the brief's legal reasoning and positions — they are summaries, not verbatim quotes."
@@ -64,6 +68,8 @@ entity_types:
         description: "What relief or action this claim supports, if applicable"
 
   - name: Evidence
+    required: false
+    min_count: 0
     grounding_mode: verbatim
     category: evidence
     description: "A specific factual claim, characterization, or assertion made in the brief with exact quoted text. Evidence entities capture what the brief SAYS — the specific language used."

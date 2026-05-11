@@ -1,0 +1,22 @@
+document_type: general_legal
+version: "1.0"
+description: "Fallback schema for unclassified documents"
+entity_types:
+  - name: Evidence
+    required: false
+    min_count: 0
+    grounding_mode: verbatim
+    category: evidence
+    description: "Generic evidence entity"
+    properties:
+      - name: title
+        type: string
+        required: true
+        description: "Title"
+      - name: answer
+        type: string
+        required: true
+        description: "Content"
+relationship_types: []
+valid_patterns: []
+extraction_rules: []

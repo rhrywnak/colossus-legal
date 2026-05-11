@@ -5,6 +5,8 @@ version: "4.0"
 description: "Sworn affidavit — produces Evidence nodes from each sworn statement"
 entity_types:
   - name: Party
+    required: true
+    min_count: 2
     grounding_mode: name_match
     category: reference
     description: "A person or organization mentioned in the affidavit"
@@ -22,6 +24,8 @@ entity_types:
         required: true
         description: "person or organization"
   - name: Evidence
+    required: false
+    min_count: 0
     grounding_mode: verbatim
     category: evidence
     description: "A sworn statement from a numbered paragraph in the affidavit."
