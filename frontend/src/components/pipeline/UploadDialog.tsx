@@ -122,11 +122,10 @@ const UploadDialog: React.FC<Props> = ({ open, onClose, onSuccess }) => {
     );
     const documentType = selectedSchema?.document_type ?? schema;
 
-    // When the selected schema is a v5+ schema, route to the versioned profile.
-    // The backend reads this as a multipart `profile_version` field; when absent,
-    // it falls through to the unversioned default profile (backward-compat).
-    const profileVersion =
-      selectedSchema?.version?.startsWith("5.") ? "v5" : undefined;
+    // Removed hardcoded v5 mapping. With the v0.15.0 directory-scan
+    // selector, backend picks the is_default profile per document_type.
+    // Future explicit version override requires a deliberate UI element.
+    const profileVersion = undefined;
 
     try {
       const id = `doc-${slugify(file.name)}`;
