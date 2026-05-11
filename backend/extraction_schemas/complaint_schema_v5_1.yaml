@@ -1,0 +1,272 @@
+# Extraction schema for civil complaints — v5.1 (case-structuring pipeline)
+#
+# v5.1 changes from v5:
+#   - ThematicAllegation entity REMOVED. LLM-extracted themes proved
+#     unreliable in practice (May 5: 13 mediocre themes, May 10: 9 themes
+#     that were single-allegation summaries rather than navigational
+#     clusters). Themes also competed with Harm extraction for prompt
+#     attention, producing fragility (May 10 run produced 0 Harms after
+#     theme extraction was strengthened). Editorial navigation, when
+#     needed, will be hand-curated in a future UI feature, not
+#     LLM-extracted.
+#   - PART_OF and THEME_SUPPORTS relationship types REMOVED (they linked
+#     Allegations to ThematicAllegations and ThematicAllegations to
+#     LegalCounts respectively).
+#   - Harm extraction STRENGTHENED in pass1 template via three hunting
+#     paths (Count damages paragraphs, common-allegation dollar amounts,
+#     non-economic injury language), legal taxonomy explanation, negative
+#     examples, and Count-anchored completeness checks.
+#   - Element provenance reconciled to `extracted` per
+#     LEGAL_DATA_MODEL_v5_1.md §0 (the May 5 ingest already implements
+#     this; the spec is now formally aligned).
+#   - Relationship-property requirements (source_document_id,
+#     extraction_run_id, created_at) per LEGAL_DATA_MODEL_v5_1.md §5.4.
+#     Already implemented at the ingest layer in beta.220 (commit
+#     be4f8cd) and validated in production: every relationship written
+#     carries all three properties.
+#
+# v5 entity backbone preserved: Party / LegalCount / Element /
+# Allegation / Harm. The proof matrix (Count → Element → Allegation →
+# Evidence) is unchanged.
+#
+# Property names match PROD Neo4j and existing pipeline code per memory
+# rule #14. verbatim_quote remains a top-level entity field, NOT a
+# schema property.
+
+document_type: complaint
+version: "5.1"
+description: "Civil complaint — foundation document for the case-structuring pipeline. Produces the structural backbone all supporting documents anchor to."
+
+entity_types:
+  - name: Party
+    grounding_mode: name_match
+    category: reference
+    description: "A person or organization named in the complaint with a role in the case."
+    properties:
+      - name: party_name
+        type: string
+        required: true
+        description: "Full legal name as it appears in the document"
+      - name: role
+        type: string
+        required: true
+        description: "plaintiff, defendant, third_party, witness, attorney, judge, decedent, interested_party, guardian_ad_litem, personal_representative"
+      - name: party_type
+        type: string
+        required: true
+        description: "person or organization"
+      - name: aliases
+        type: string
+        description: "Other names or references used for this party, comma-separated"
+
+  - name: LegalCount
+    grounding_mode: heading_match
+    category: foundation
+    description: "A cause of action (count) asserted in the complaint."
+    properties:
+      - name: count_name
+        type: string
+        required: true
+        description: "Name of the count, e.g. 'Breach of Fiduciary Duty'"
+      - name: count_number
+        type: integer
+        required: true
+        description: "Count number (I=1, II=2, III=3, IV=4)"
+      - name: legal_basis
+        type: string
+        required: true
+        description: "Legal statute or common law principle cited"
+      - name: legal_theory
+        type: string
+        required: true
+        description: "Short identifier for the legal theory: breach_of_fiduciary_duty, fraud, declaratory_relief, abuse_of_process, conversion, statutory_conversion, civil_conspiracy, negligence. Used for cross-case taxonomy."
+      - name: paragraph_range
+        type: string
+        required: true
+        description: "Complaint paragraph range for this count's section, e.g. '72-85'. Spans the entire Count from heading paragraph through final relief/damages paragraph."
+      - name: statutory_anchor
+        type: string
+        description: "Statute citation when applicable, e.g. 'MCL 700.1212' or 'MCL 600.2919a'. Empty for common-law counts."
+      - name: damages_claimed
+        type: string
+        required: true
+        description: "Damages sought under this count, e.g. 'exceeding $25,000'"
+      - name: applies_to
+        type: string
+        description: "Defendants this count applies to (comma-separated)"
+
+  - name: Element
+    grounding_mode: verbatim
+    category: foundation
+    description: "A specific thing the plaintiff must prove for a LegalCount. Sourced from the Count-section paragraphs where the drafter declares each element. The verbatim_quote is the drafter's pleading text from the anchoring paragraph(s) — NOT external M Civ JI or case-law text. The verbatim_quote field of an Element is the operative element formulation for this case."
+    properties:
+      - name: element_name
+        type: string
+        required: true
+        description: "Short descriptive name: duty, breach, causation, damages, misrepresentation, pattern, ulterior_purpose, etc. Used for navigation and grouping."
+      - name: parent_count_id
+        type: string
+        required: true
+        description: "ID of the LegalCount this Element belongs to (e.g., count-001). Used to reconstruct HAS_ELEMENT relationships in Pass 2."
+      - name: anchor_paragraph_numbers
+        type: string
+        required: true
+        description: "Paragraph number(s) in the complaint's Count section where the drafter declares this element, comma-separated, e.g. '74' or '74,76'. Used to reconstruct ANCHORED_IN relationships in Pass 2."
+      - name: order_in_count
+        type: integer
+        description: "Sequential position of this element within its Count (1, 2, 3, ...). Useful for display ordering."
+
+  - name: Allegation
+    grounding_mode: verbatim
+    category: evidence
+    description: "A factual claim from a numbered paragraph in the complaint. Includes the `kind` property distinguishing common-allegation paragraphs (factual narrative before any Count) from count-section paragraphs (within a Count, often restating or applying facts to elements)."
+    properties:
+      - name: paragraph_number
+        type: string
+        required: true
+        description: "Paragraph number, e.g. '16' or '16-18'"
+      - name: kind
+        type: string
+        required: true
+        description: "common_allegation (factual narrative paragraphs, before any Count) or count_section (paragraphs within a Count's paragraph_range)"
+      - name: summary
+        type: string
+        required: true
+        description: "One-sentence summary of what is alleged"
+      - name: category
+        type: string
+        description: "financial, procedural, defamation, fiduciary, conversion, abuse_of_process, fraud, negligence, breach_of_duty"
+      - name: severity
+        type: integer
+        description: "1-10 scale of severity (10 = most severe)"
+      - name: applies_to
+        type: string
+        description: "Name of the party/parties this allegation is against"
+      - name: amount
+        type: string
+        description: "Dollar amount if specified"
+      - name: event_date
+        type: string
+        description: "Date of the alleged conduct if mentioned"
+
+  - name: Harm
+    grounding_mode: derived
+    category: foundation
+    provenance_required: true
+    description: "A specific harm or damage suffered by the plaintiff. Harms are derived from the complaint's description of injuries, financial losses, and damages claims; they are not direct quotes."
+    properties:
+      - name: description
+        type: string
+        required: true
+        description: "Description of the harm — what was lost, suffered, or injured"
+      - name: kind
+        type: string
+        required: true
+        description: "economic, non_economic, punitive, treble_damages, injunctive_relief, declaratory_relief"
+      - name: subcategory
+        type: string
+        description: "sanction, incompetence, unnecessary_cost, character_attack, discriminatory"
+      - name: amount
+        type: string
+        description: "Dollar amount if quantifiable. Do NOT use the Count's blanket 'exceeding $25,000' jurisdictional amount as a specific Harm amount unless that paragraph is the only damages reference."
+      - name: date
+        type: string
+        description: "When the harm occurred"
+
+relationship_types:
+  - name: HAS_ELEMENT
+    description: "LegalCount has Element. Reconstructed mechanically from Element.parent_count_id in Pass 2 (no judgment)."
+  - name: ANCHORED_IN
+    description: "Element anchored in Allegation (the Count-section paragraph where the drafter declares the element). Reconstructed mechanically from Element.anchor_paragraph_numbers in Pass 2."
+  - name: PROVES_ELEMENT
+    description: "Allegation proves Element. Element-level granularity replacing v4's flat SUPPORTS. Pass 2 reasons about which Allegations help establish which specific Elements of which Counts. THE central reasoning relationship of v5."
+  - name: ABOUT
+    description: "Allegation is about (against, concerning) this party"
+  - name: CAUSED_BY
+    description: "Harm was caused by this Allegation/misconduct"
+  - name: DAMAGES_FOR
+    description: "Harm supports damages for this LegalCount"
+  - name: SUFFERED_BY
+    description: "Harm suffered by this Party"
+  - name: EVIDENCED_BY
+    description: "Harm evidenced by this Allegation (broader than CAUSED_BY)"
+
+# Required provenance properties applied to every relationship written to
+# Neo4j (per LEGAL_DATA_MODEL_v5_1.md §5.4). Populated by the ingest stage
+# at write time, not by the LLM extractor.
+#
+# Format: extraction_run_id is "run-{i32}" for pipeline-extracted
+# relationships, "manual-{user_id}-{ts}" for hand-authored, "repair-{...}"
+# for repair runs.
+#
+# Runtime enforcement lives in the Rust ingest helpers
+# (validate_relationship_provenance, beta.220 commit be4f8cd). Validated:
+# every relationship from the May 10 Awad complaint extraction (759 edges,
+# 10 types) carries all three properties.
+relationship_properties:
+  - name: source_document_id
+    type: string
+    required: true
+    description: "ID of the Document whose extraction produced this relationship"
+  - name: extraction_run_id
+    type: string
+    required: true
+    description: "Identifier of the specific pipeline run that created this relationship (format: 'run-{i32}' for pipeline-extracted, 'manual-{user_id}-{ts}' for hand-authored, 'repair-{...}' for repair runs)"
+  - name: created_at
+    type: timestamp
+    required: true
+    description: "When the relationship was first created (Cypher datetime() at write time; preserved on subsequent re-ingests via coalesce)"
+
+valid_patterns:
+  - from: LegalCount
+    relationship: HAS_ELEMENT
+    to: Element
+  - from: Element
+    relationship: ANCHORED_IN
+    to: Allegation
+  - from: Allegation
+    relationship: PROVES_ELEMENT
+    to: Element
+  - from: Allegation
+    relationship: ABOUT
+    to: Party
+  - from: Harm
+    relationship: CAUSED_BY
+    to: Allegation
+  - from: Harm
+    relationship: DAMAGES_FOR
+    to: LegalCount
+  - from: Harm
+    relationship: SUFFERED_BY
+    to: Party
+  - from: Harm
+    relationship: EVIDENCED_BY
+    to: Allegation
+
+extraction_rules:
+  - "Extract EVERY numbered paragraph (after the jurisdictional section) as a separate Allegation"
+  - "Set Allegation.kind to count_section when paragraph_number falls within any LegalCount.paragraph_range, otherwise common_allegation"
+  - "Every verbatim_quote MUST be an exact substring of the document text — copy the text exactly, character for character"
+  - "Every Element's verbatim_quote is the drafter's pleading text from the anchoring paragraph — NOT M Civ JI text, NOT case-law text, NOT a paraphrase, NOT external authority"
+  - "Extract ALL parties including attorneys, judges, witnesses, and non-party individuals named in the complaint"
+  - "Extract ALL legal counts (causes of action) with statutory_anchor when applicable; paragraph_range is required and spans the entire Count section"
+  - "Identify Elements by reading each Count section and finding the paragraphs where the drafter declares what must be proven (duty, breach, causation, damages, etc.). Each cluster of element-declaring paragraphs becomes one Element."
+  - "Extract ALL harms via three hunting paths (per pass1 template Step 5): each Count's damages paragraph + supporting factual paragraphs; each dollar-amount-bearing paragraph in common allegations; each pattern of non-economic injury in common allegations. Every Harm requires provenance."
+
+completeness_rules:
+  - type: entity_count
+    entity: Party
+    min: 2
+    message: "Expected at least plaintiff + defendant"
+  - type: entity_count
+    entity: LegalCount
+    min: 1
+    message: "No legal counts found — extraction failed"
+  - type: entity_count
+    entity: Element
+    min: 1
+    message: "No Elements extracted — Count sections were not parsed for element-declaring paragraphs"
+  - type: entity_count
+    entity: Harm
+    min: 1
+    message: "No Harms extracted — every civil complaint claims damages"

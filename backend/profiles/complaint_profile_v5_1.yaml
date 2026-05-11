@@ -1,0 +1,51 @@
+# Processing profile for the case-structuring pipeline (v5.1)
+#
+# v5.1 changes from v5:
+#   - Filenames follow the new convention: each filename is unique and
+#     self-describing (no reliance on directory context). Schema is
+#     complaint_schema_v5_1.yaml; templates are complaint_pass1_v5_1.md
+#     and complaint_pass2_v5_1.md.
+#   - ThematicAllegation removed from extraction (proved unreliable;
+#     editorial navigation will be hand-curated when needed).
+#   - Harm extraction strengthened in the Pass 1 template.
+#   - is_default: true — v5.1 is now the default profile for civil
+#     complaints, replacing the v4 bare-name profile.
+
+name: complaint_v5_1
+display_name: "Civil Complaint (v5.1 — case-structuring pipeline)"
+description: "Foundation document for the case-structuring pipeline. Produces Party / LegalCount / Element / Allegation / Harm — the structural backbone all supporting documents anchor to."
+
+# Schema — points to v5.1 schema YAML
+schema_file: complaint_schema_v5_1.yaml
+
+# Templates — points to v5.1 templates
+template_file: complaint_pass1_v5_1.md
+pass2_template_file: complaint_pass2_v5_1.md
+
+# System prompt — same as v4/v5 (general legal extraction persona)
+system_prompt_file: legal_extraction_system.md
+
+# Models — Pass 1 and Pass 2 both run on the strongest available model.
+# Case-structuring is a low-frequency, high-stakes operation; model cost
+# is dwarfed by the value of correct case structure.
+extraction_model: claude-opus-4-6
+
+# Chunking — complaints typically fit in a single LLM context.
+chunking_mode: full
+chunk_size: null
+chunk_overlap: null
+
+# LLM parameters
+max_tokens: 32000
+temperature: 0.0
+
+# Behavior
+auto_approve_grounded: true   # auto-verify the verbatim-grounded entities;
+                              # residue goes to Review tab
+run_pass2: true               # case-structuring requires both passes
+
+# Pipeline routing — case-structuring vs evidence-anchoring
+pipeline_type: case_structuring
+
+# Default flag — true. v5.1 is the active default for document_type=complaint.
+is_default: true
