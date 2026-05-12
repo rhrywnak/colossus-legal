@@ -105,6 +105,7 @@ fn compute_available_actions(
         match category {
             EntityCategory::Foundation => {
                 actions.push("confirm".to_string());
+                actions.push("reject".to_string());
                 actions.push("edit".to_string());
             }
             EntityCategory::Structural | EntityCategory::Evidence => {
@@ -552,8 +553,8 @@ mod tests {
                 category: EntityCategory::Foundation,
                 status: "pending",
                 locked: false,
-                must_contain: &["confirm", "edit"],
-                must_not_contain: &["approve", "reject"],
+                must_contain: &["confirm", "reject", "edit"],
+                must_not_contain: &["approve"],
             },
             Case {
                 category: EntityCategory::Reference,
