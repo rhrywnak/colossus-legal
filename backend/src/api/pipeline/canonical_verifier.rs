@@ -32,6 +32,43 @@ pub enum CanonicalMatchType {
     NotFound,
 }
 
+/// Strip a trailing page-number line from text for cross-page concatenation.
+///
+/// PDF text extraction embeds page numbers as standalone lines at page
+/// boundaries (e.g., page 3 text ends with `"...his checking\n3"`).
+/// These artifacts break substring matching when adjacent pages are
+/// concatenated. This function removes the last non-empty line if it
+/// consists entirely of digits (after trimming whitespace).
+///
+/// Returns a slice of the original text with the page-number line
+/// (and its preceding newline) removed, or the full text if no
+/// page-number line is found.
+fn strip_trailing_page_number(text: &str) -> &str {
+    let trimmed = text.trim_end();
+    if let Some(newline_pos) = trimmed.rfind('\n') {
+        let last_line = trimmed[newline_pos + 1..].trim();
+        if !last_line.is_empty() && last_line.chars().all(|c| c.is_ascii_digit()) {
+            return &trimmed[..newline_pos];
+        }
+    }
+    text
+}
+
+/// Strip a leading page-number line from text for cross-page concatenation.
+///
+/// Same rationale as `strip_trailing_page_number` but for the start
+/// of the next page (e.g., page 4 text starts with `"4\naccount on..."`).
+fn strip_leading_page_number(text: &str) -> &str {
+    let trimmed = text.trim_start();
+    if let Some(newline_pos) = trimmed.find('\n') {
+        let first_line = trimmed[..newline_pos].trim();
+        if !first_line.is_empty() && first_line.chars().all(|c| c.is_ascii_digit()) {
+            return &trimmed[newline_pos + 1..];
+        }
+    }
+    text
+}
+
 /// Search for a snippet in the canonical text representation.
 ///
 /// Tries exact match first (case-sensitive substring), then normalized
@@ -99,9 +136,14 @@ pub fn find_in_canonical_text(
     // in a legal filing. If that assumption is ever wrong, extending to
     // triplets is a one-line change to the window size.
     if document_pages.len() >= 2 {
-        // 3. Try exact match across adjacent page pairs
+        // 3. Try exact match across adjacent page pairs.
+        //    Strip embedded page-number lines from the boundary before
+        //    joining — PDF extraction often appends/prepends the page
+        //    number as a standalone digit line.
         for pair in document_pages.windows(2) {
-            let combined = format!("{} {}", pair[0].1, pair[1].1);
+            let clean_left = strip_trailing_page_number(&pair[0].1);
+            let clean_right = strip_leading_page_number(&pair[1].1);
+            let combined = format!("{} {}", clean_left.trim_end(), clean_right.trim_start());
             if combined.contains(snippet) {
                 return CanonicalGroundingResult {
                     match_type: CanonicalMatchType::Exact,
@@ -112,7 +154,9 @@ pub fn find_in_canonical_text(
 
         // 4. Try normalized match across adjacent page pairs
         for pair in document_pages.windows(2) {
-            let combined = format!("{} {}", pair[0].1, pair[1].1);
+            let clean_left = strip_trailing_page_number(&pair[0].1);
+            let clean_right = strip_leading_page_number(&pair[1].1);
+            let combined = format!("{} {}", clean_left.trim_end(), clean_right.trim_start());
             let normalized_combined = normalize_text(&combined);
             if normalized_combined.contains(&normalized_snippet) {
                 return CanonicalGroundingResult {
@@ -509,5 +553,55 @@ mod tests {
         let result = find_in_canonical_text(snippet, &pages);
         assert_eq!(result.match_type, CanonicalMatchType::Exact);
         assert_eq!(result.page_number, Some(5));
+    }
+
+    // ── page-number stripping tests ─────────────────────────────
+
+    #[test]
+    fn test_strip_trailing_page_number() {
+        let text = "his checking\n3";
+        assert_eq!(strip_trailing_page_number(text), "his checking");
+    }
+
+    #[test]
+    fn test_strip_trailing_page_number_with_whitespace() {
+        let text = "some content here\n  17  \n";
+        assert_eq!(strip_trailing_page_number(text), "some content here");
+    }
+
+    #[test]
+    fn test_strip_trailing_page_number_not_a_number() {
+        let text = "some content here\nsome text";
+        assert_eq!(strip_trailing_page_number(text), text);
+    }
+
+    #[test]
+    fn test_strip_trailing_page_number_mixed_line() {
+        let text_dot = "content\n3.";
+        assert_eq!(strip_trailing_page_number(text_dot), text_dot);
+
+        let text_prefix = "content\nPage 3";
+        assert_eq!(strip_trailing_page_number(text_prefix), text_prefix);
+
+        let text_range = "content\n3 of 17";
+        assert_eq!(strip_trailing_page_number(text_range), text_range);
+    }
+
+    #[test]
+    fn test_strip_leading_page_number() {
+        let text = "4\naccount on August 18, 2008";
+        assert_eq!(strip_leading_page_number(text), "account on August 18, 2008");
+    }
+
+    #[test]
+    fn test_cross_page_match_with_page_number_artifact() {
+        let pages = vec![
+            (3, "that Mr. Awad had deposited in his checking\n3".to_string()),
+            (4, "account on August 18, 2008 but had been removed".to_string()),
+        ];
+        let snippet = "his checking account on August 18, 2008";
+        let result = find_in_canonical_text(snippet, &pages);
+        assert_eq!(result.match_type, CanonicalMatchType::Exact);
+        assert_eq!(result.page_number, Some(3));
     }
 }
