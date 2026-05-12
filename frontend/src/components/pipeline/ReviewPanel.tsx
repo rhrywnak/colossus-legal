@@ -130,6 +130,7 @@ const ReviewPanel: React.FC<ReviewPanelProps> = ({ documentId, pdfUrl }) => {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editPage, setEditPage] = useState("");
   const [editQuote, setEditQuote] = useState("");
+  const [actionError, setActionError] = useState<string | null>(null);
 
   // Filters
   const [typeFilter, setTypeFilter] = useState("all");
@@ -199,21 +200,29 @@ const ReviewPanel: React.FC<ReviewPanelProps> = ({ documentId, pdfUrl }) => {
   };
 
   const handleApprove = async (id: number) => {
-    try { await approveItem(id); await loadItems(); } catch { /* silent */ }
+    setActionError(null);
+    try { await approveItem(id); await loadItems(); }
+    catch (e) { setActionError(e instanceof Error ? e.message : "Approve failed"); }
   };
 
   const handleReject = async (id: number) => {
     const reason = window.prompt("Rejection reason:");
     if (reason === null) return;
-    try { await rejectItem(id, reason); await loadItems(); } catch { /* silent */ }
+    setActionError(null);
+    try { await rejectItem(id, reason); await loadItems(); }
+    catch (e) { setActionError(e instanceof Error ? e.message : "Reject failed"); }
   };
 
   const handleUnapprove = async (id: number) => {
-    try { await unapproveItem(id); await loadItems(); } catch { /* silent */ }
+    setActionError(null);
+    try { await unapproveItem(id); await loadItems(); }
+    catch (e) { setActionError(e instanceof Error ? e.message : "Unapprove failed"); }
   };
 
   const handleUnreject = async (id: number) => {
-    try { await unrejectItem(id); await loadItems(); } catch { /* silent */ }
+    setActionError(null);
+    try { await unrejectItem(id); await loadItems(); }
+    catch (e) { setActionError(e instanceof Error ? e.message : "Unreject failed"); }
   };
 
   const startEdit = (item: ExtractionItem) => {
@@ -304,6 +313,17 @@ const ReviewPanel: React.FC<ReviewPanelProps> = ({ documentId, pdfUrl }) => {
               foundationItems.forEach((it) => { byType[it.entity_type] = (byType[it.entity_type] || 0) + 1; });
               return Object.entries(byType).map(([t, c]) => `${c} ${t}`).join(", ");
             })()}
+          </div>
+        )}
+
+        {actionError && (
+          <div style={{ padding: "0.4rem 0.6rem", marginBottom: "0.5rem", borderRadius: "6px",
+            backgroundColor: "#fef2f2", border: "1px solid #fecaca", fontSize: "0.76rem", color: "#991b1b",
+            display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span>{actionError}</span>
+            <button onClick={() => setActionError(null)}
+              style={{ background: "none", border: "none", cursor: "pointer", color: "#991b1b",
+                fontWeight: 600, fontSize: "0.8rem", fontFamily: "inherit" }}>&times;</button>
           </div>
         )}
 

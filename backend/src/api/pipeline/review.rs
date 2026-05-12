@@ -166,7 +166,7 @@ pub async fn reject_handler(
         });
     }
 
-    // Guard: check entity category — foundation entities cannot be rejected
+    // Look up entity category for the cascade warning on Structural entities.
     let type_info = review_repo::get_item_type_info(&state.pipeline_pool, item_id)
         .await
         .map_err(|e| AppError::Internal {
@@ -176,14 +176,12 @@ pub async fn reject_handler(
             message: format!("Item {item_id} not found"),
         })?;
 
-    // Load category map. Failure is fatal: defaulting to Evidence
-    // would let a Foundation entity slip past the rejection guard.
     let category_map = load_category_map(&state, &type_info.document_id)
         .await
         .map_err(|e| {
             tracing::error!(
                 document_id = %type_info.document_id, error = %e,
-                "reject_handler cannot enforce category guard without category map"
+                "reject_handler: failed to load category map for cascade warning"
             );
             AppError::Internal { message: e }
         })?;
@@ -191,12 +189,15 @@ pub async fn reject_handler(
         .get(&type_info.entity_type)
         .unwrap_or(&EntityCategory::Evidence);
 
-    if *category == EntityCategory::Foundation {
+    if !is_rejection_allowed(category) {
         return Err(AppError::BadRequest {
-            message: "Foundation entities cannot be rejected. Use 'edit' to correct, or fix the extraction.".to_string(),
+            message: format!(
+                "Rejection is not allowed for {:?} entities",
+                category
+            ),
             details: serde_json::json!({
                 "entity_type": type_info.entity_type,
-                "category": "foundation",
+                "category": format!("{:?}", category),
             }),
         });
     }
@@ -856,4 +857,65 @@ async fn check_not_post_ingest(
         });
     }
     Ok(())
+}
+
+// ── Rejection policy ───────────────────────────────────────────
+
+/// Whether an entity with the given category can be rejected.
+///
+/// All entity categories are rejectable — Foundation, Structural,
+/// Evidence, and Reference alike. This was not always the case:
+/// an earlier version blocked Foundation entities, but that made
+/// it impossible to remove bad Harms / LegalCounts / Elements
+/// without re-extracting the entire document.
+///
+/// ## Rust Learning: pure function as a policy gate
+///
+/// Extracting this decision into a pure function (no IO, no state)
+/// lets us test the rejection policy without needing a database or
+/// an Axum handler. The handler calls this before proceeding; tests
+/// call it directly with every category variant.
+pub(crate) fn is_rejection_allowed(_category: &EntityCategory) -> bool {
+    true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use colossus_extract::EntityCategory;
+
+    /// Verify that rejection is allowed for every entity category.
+    ///
+    /// This test would FAIL if a Foundation guard were re-introduced
+    /// (i.e., `is_rejection_allowed` returned false for Foundation).
+    /// It exists to prevent regression of the bug where the Reject
+    /// button rendered but the backend blocked the API call.
+    #[test]
+    fn test_rejection_allowed_for_all_categories() {
+        let categories = [
+            EntityCategory::Foundation,
+            EntityCategory::Structural,
+            EntityCategory::Evidence,
+            EntityCategory::Reference,
+        ];
+        for cat in &categories {
+            assert!(
+                is_rejection_allowed(cat),
+                "Rejection must be allowed for {:?} — all entity categories are rejectable",
+                cat
+            );
+        }
+    }
+
+    /// Foundation entities specifically must be rejectable.
+    /// This is the exact scenario that was broken: Harm, LegalCount,
+    /// and Element entities had a Reject button but clicking it
+    /// returned a 400 error that the frontend silently swallowed.
+    #[test]
+    fn test_rejection_allowed_for_foundation() {
+        assert!(
+            is_rejection_allowed(&EntityCategory::Foundation),
+            "Foundation entities (Harm, LegalCount, Element) must be rejectable"
+        );
+    }
 }
