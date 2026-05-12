@@ -233,7 +233,7 @@ const DocumentWorkspaceTabs: React.FC = () => {
       )}
 
       {activeTab === "review" && (
-        <ReviewPanel documentId={docId} pdfUrl={pdfUrl} />
+        <ReviewPanel documentId={docId} pdfUrl={pdfUrl} documentStatus={doc?.status} />
       )}
 
       {activeTab === "people" && (

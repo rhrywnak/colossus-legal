@@ -507,6 +507,40 @@ export async function ingestDelta(docId: string): Promise<IngestDeltaResponse> {
   return res.json();
 }
 
+export interface ReverifySyncResponse {
+  document_id: string;
+  verify_results: {
+    total_items: number;
+    exact: number;
+    normalized: number;
+    not_found: number;
+    derived: number;
+    derived_invalid: number;
+    unverified: number;
+    changed: number;
+  };
+  auto_approve_results: {
+    newly_approved: number;
+  };
+  ingest_delta_results?: {
+    written_to_graph: number;
+  };
+  partial_error?: string;
+  duration_secs: number;
+}
+
+export async function reverifySync(docId: string): Promise<ReverifySyncResponse> {
+  const res = await authFetch(`${PIPELINE_BASE}/documents/${encodeURIComponent(docId)}/reverify-sync`, {
+    method: "POST",
+    ...LONG_TIMEOUT,
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`Re-verify & Sync failed: ${res.status}${body ? ` — ${body}` : ""}`);
+  }
+  return res.json();
+}
+
 export async function unapproveItem(itemId: number): Promise<unknown> {
   const res = await authFetch(`${PIPELINE_BASE}/items/${itemId}/unapprove`, {
     method: "POST",
