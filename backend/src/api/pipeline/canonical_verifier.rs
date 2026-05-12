@@ -89,7 +89,41 @@ pub fn find_in_canonical_text(
         }
     }
 
-    // 3. Not found
+    // NOTE: Paragraphs in legal documents occasionally span a page boundary
+    // (e.g., a sentence starts on page 3 and finishes on page 4). Per-page
+    // search misses these because neither page contains the full snippet.
+    // We concatenate adjacent page pairs with a space separator and re-run
+    // both match tiers. A single space prevents word-merging at the boundary
+    // without introducing characters that would break normalized matching.
+    // Adjacent pairs are sufficient — a single paragraph won't span 3+ pages
+    // in a legal filing. If that assumption is ever wrong, extending to
+    // triplets is a one-line change to the window size.
+    if document_pages.len() >= 2 {
+        // 3. Try exact match across adjacent page pairs
+        for pair in document_pages.windows(2) {
+            let combined = format!("{} {}", pair[0].1, pair[1].1);
+            if combined.contains(snippet) {
+                return CanonicalGroundingResult {
+                    match_type: CanonicalMatchType::Exact,
+                    page_number: Some(pair[0].0),
+                };
+            }
+        }
+
+        // 4. Try normalized match across adjacent page pairs
+        for pair in document_pages.windows(2) {
+            let combined = format!("{} {}", pair[0].1, pair[1].1);
+            let normalized_combined = normalize_text(&combined);
+            if normalized_combined.contains(&normalized_snippet) {
+                return CanonicalGroundingResult {
+                    match_type: CanonicalMatchType::Normalized,
+                    page_number: Some(pair[0].0),
+                };
+            }
+        }
+    }
+
+    // 5. Not found
     CanonicalGroundingResult {
         match_type: CanonicalMatchType::NotFound,
         page_number: None,
@@ -416,5 +450,64 @@ mod tests {
     #[test]
     fn test_normalize_replaces_paragraph_marker() {
         assert_eq!(normalize_text("part one¶part two"), "part one part two");
+    }
+
+    // ── cross-page boundary tests ───────────────────────────────
+
+    #[test]
+    fn test_cross_page_exact_match() {
+        let pages = vec![
+            (3, "The guardianship proceeding involved allegations of".to_string()),
+            (4, "theft with regard to funds held in trust.".to_string()),
+        ];
+        let snippet = "involved allegations of theft with regard to funds";
+        let result = find_in_canonical_text(snippet, &pages);
+        assert_eq!(result.match_type, CanonicalMatchType::Exact);
+        assert_eq!(result.page_number, Some(3));
+    }
+
+    #[test]
+    fn test_cross_page_normalized_match() {
+        let pages = vec![
+            (5, "The defendant\u{2019}s counsel argued that the".to_string()),
+            (6, "fiduciary duty was not breached.".to_string()),
+        ];
+        let snippet = "defendant's counsel argued that the fiduciary duty";
+        let result = find_in_canonical_text(snippet, &pages);
+        assert_eq!(result.match_type, CanonicalMatchType::Normalized);
+        assert_eq!(result.page_number, Some(5));
+    }
+
+    #[test]
+    fn test_single_page_preferred_over_cross_page() {
+        let pages = vec![
+            (1, "The contract was signed by both parties on that date.".to_string()),
+            (2, "Both parties on that date agreed to the terms.".to_string()),
+        ];
+        let snippet = "Both parties on that date";
+        let result = find_in_canonical_text(snippet, &pages);
+        assert_eq!(result.match_type, CanonicalMatchType::Exact);
+        assert_eq!(result.page_number, Some(2));
+    }
+
+    #[test]
+    fn test_cross_page_with_one_page_only() {
+        let pages = vec![(1, "Only one page of text here.".to_string())];
+        let snippet = "text that spans nowhere because there is only one page";
+        let result = find_in_canonical_text(snippet, &pages);
+        assert_eq!(result.match_type, CanonicalMatchType::NotFound);
+        assert_eq!(result.page_number, None);
+    }
+
+    #[test]
+    fn test_cross_page_boundary_word_split() {
+        let pages = vec![
+            (5, "The guardianship proceeding involved allegations of".to_string()),
+            (6, "theft with regard to funds held by the trustee.".to_string()),
+        ];
+        let snippet = "guardianship proceeding involved allegations of theft with regard to funds";
+        let result = find_in_canonical_text(snippet, &pages);
+        assert_eq!(result.match_type, CanonicalMatchType::Exact);
+        assert_eq!(result.page_number, Some(5));
     }
 }
