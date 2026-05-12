@@ -172,30 +172,18 @@ const UploadDialog: React.FC<Props> = ({ open, onClose, onSuccess }) => {
         <div style={labelStyle}>Document Type</div>
         <select style={selectStyle} value={schema} onChange={(e) => setSchema(e.target.value)}>
           <option value="" disabled>Select document type...</option>
-          {schemas.map((s) => {
-            // Parse-failed schemas come back with empty document_type and
-            // a non-empty `error`. Surface them with the filename so the
-            // operator can see WHICH schema is broken instead of a blank
-            // dropdown line, and disable them so they can't be picked.
-            const parseFailed = !!s.error || !s.document_type;
-            if (parseFailed) {
+          {schemas
+            .filter((s) => !s.error && s.document_type)
+            .map((s) => {
+              const label = s.version
+                ? `${capitalize(s.document_type)} (v${s.version})`
+                : capitalize(s.document_type);
               return (
-                <option key={s.filename} value={s.filename} disabled>
-                  {`${s.filename} — parse error`}
+                <option key={s.filename} value={s.filename}>
+                  {label}
                 </option>
               );
-            }
-            // Disambiguate when multiple schemas share the same document_type.
-            const sameType = schemas.filter(x => x.document_type === s.document_type);
-            const label = sameType.length > 1
-              ? `${capitalize(s.document_type)} (v${s.version})`
-              : capitalize(s.document_type);
-            return (
-              <option key={s.filename} value={s.filename}>
-                {label}
-              </option>
-            );
-          })}
+            })}
         </select>
 
         {error && (
