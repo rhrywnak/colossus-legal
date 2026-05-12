@@ -35,6 +35,7 @@ pub(crate) mod ocr;
 mod process;
 pub(crate) mod recompute_derived;
 pub mod report;
+mod reverify_sync;
 pub mod report_data;
 mod review;
 pub mod state_machine;
@@ -98,6 +99,10 @@ pub fn router() -> Router<AppState> {
         )
         .route("/documents/:id/ingest", post(ingest_handler))
         .route("/documents/:id/ingest-delta", post(ingest_delta_handler))
+        .route(
+            "/documents/:id/reverify-sync",
+            post(reverify_sync::reverify_sync_handler),
+        )
         .route("/documents/:id/index", post(index_handler))
         .route("/documents/:id/completeness", get(completeness_handler))
         .route("/documents/:id/report", get(report_handler))

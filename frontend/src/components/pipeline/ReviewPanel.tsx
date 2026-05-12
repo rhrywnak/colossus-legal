@@ -10,8 +10,8 @@ import PdfViewer from "../shared/PdfViewer";
 import { useResizablePanes } from "../../hooks/useResizablePanes";
 import {
   fetchDocumentItems, approveItem, rejectItem, editItem, bulkApprove,
-  unapproveItem, unrejectItem, ingestDelta,
-  ExtractionItem, ReviewSummary,
+  unapproveItem, unrejectItem, ingestDelta, reverifySync,
+  ExtractionItem, ReviewSummary, ReverifySyncResponse,
 } from "../../services/pipelineApi";
 import { getColor } from "../../hooks/useSchema";
 import { formatItemProperties } from "../../utils/itemProperties";
@@ -19,6 +19,7 @@ import { formatItemProperties } from "../../utils/itemProperties";
 interface ReviewPanelProps {
   documentId: string;
   pdfUrl: string;
+  documentStatus?: string;
 }
 
 // ── Styles ──────────────────────────────────────────────────────
@@ -120,7 +121,9 @@ function getActions(item: ExtractionItem): string[] {
 
 // ── Component ───────────────────────────────────────────────────
 
-const ReviewPanel: React.FC<ReviewPanelProps> = ({ documentId, pdfUrl }) => {
+const REVERIFY_ALLOWED_STATUSES = new Set(["INGESTED", "INDEXED", "PUBLISHED", "COMPLETED"]);
+
+const ReviewPanel: React.FC<ReviewPanelProps> = ({ documentId, pdfUrl, documentStatus }) => {
   const [items, setItems] = useState<ExtractionItem[]>([]);
   const [summary, setSummary] = useState<ReviewSummary | null>(null);
   const [loading, setLoading] = useState(true);
@@ -130,6 +133,8 @@ const ReviewPanel: React.FC<ReviewPanelProps> = ({ documentId, pdfUrl }) => {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editPage, setEditPage] = useState("");
   const [editQuote, setEditQuote] = useState("");
+  const [reverifyBusy, setReverifyBusy] = useState(false);
+  const [reverifyResult, setReverifyResult] = useState<ReverifySyncResponse | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
   // Filters
@@ -278,6 +283,21 @@ const ReviewPanel: React.FC<ReviewPanelProps> = ({ documentId, pdfUrl }) => {
     }
   };
 
+  const handleReverifySync = async () => {
+    setReverifyBusy(true);
+    setReverifyResult(null);
+    setActionError(null);
+    try {
+      const result = await reverifySync(documentId);
+      setReverifyResult(result);
+      await loadItems();
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "Re-verify & Sync failed");
+    } finally {
+      setReverifyBusy(false);
+    }
+  };
+
   if (loading && items.length === 0) {
     return <div style={{ padding: "2rem", textAlign: "center", color: "#94a3b8" }}>Loading review items...</div>;
   }
@@ -361,7 +381,44 @@ const ReviewPanel: React.FC<ReviewPanelProps> = ({ documentId, pdfUrl }) => {
           {deltaMsg && (
             <span style={{ fontSize: "0.72rem", color: "#1d4ed8", fontStyle: "italic" }}>{deltaMsg}</span>
           )}
+          {documentStatus && REVERIFY_ALLOWED_STATUSES.has(documentStatus) && (
+            <button
+              style={{ ...actionBtn("#faf5ff", "#7c3aed", "#ddd6fe"), opacity: reverifyBusy ? 0.6 : 1 }}
+              onClick={handleReverifySync}
+              disabled={reverifyBusy}
+              title="Re-verify all items, auto-approve grounded items, and write to graph"
+            >
+              {reverifyBusy ? "Re-verifying…" : "Re-verify & Sync"}
+            </button>
+          )}
         </div>
+
+        {reverifyResult && (
+          <div style={{ padding: "0.5rem 0.75rem", marginBottom: "0.5rem", borderRadius: "6px",
+            backgroundColor: "#faf5ff", border: "1px solid #ddd6fe", fontSize: "0.76rem", color: "#5b21b6" }}>
+            <div style={{ fontWeight: 600, marginBottom: "0.2rem" }}>Re-verify & Sync complete</div>
+            <div>
+              Verified {reverifyResult.verify_results.total_items} items:
+              {" "}{reverifyResult.verify_results.exact} exact,
+              {" "}{reverifyResult.verify_results.normalized} normalized,
+              {" "}{reverifyResult.verify_results.derived} derived,
+              {" "}{reverifyResult.verify_results.not_found} not found.
+              {" "}<strong>{reverifyResult.verify_results.changed} changed</strong> from previous.
+            </div>
+            {reverifyResult.auto_approve_results.newly_approved > 0 && (
+              <div>{reverifyResult.auto_approve_results.newly_approved} newly approved.</div>
+            )}
+            {reverifyResult.ingest_delta_results && reverifyResult.ingest_delta_results.written_to_graph > 0 && (
+              <div>{reverifyResult.ingest_delta_results.written_to_graph} written to graph.</div>
+            )}
+            {reverifyResult.partial_error && (
+              <div style={{ color: "#991b1b", marginTop: "0.2rem" }}>Partial error: {reverifyResult.partial_error}</div>
+            )}
+            <button onClick={() => setReverifyResult(null)}
+              style={{ background: "none", border: "none", cursor: "pointer", color: "#7c3aed",
+                fontWeight: 600, fontSize: "0.72rem", fontFamily: "inherit", padding: 0, marginTop: "0.2rem" }}>Dismiss</button>
+          </div>
+        )}
 
         {/* Filters */}
         <div style={{ display: "flex", gap: "0.5rem", marginBottom: "0.75rem", flexWrap: "wrap" }}>
