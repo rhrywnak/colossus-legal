@@ -18,7 +18,8 @@ const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
 
 const DEFAULT_STATUS_COLOR = { bg: "#f3f4f6", text: "#374151" };
 
-function getStatusStyle(status: string) {
+function getStatusStyle(status: string | undefined) {
+  if (!status) return DEFAULT_STATUS_COLOR;
   return STATUS_COLORS[status.toUpperCase()] || DEFAULT_STATUS_COLOR;
 }
 
@@ -161,18 +162,20 @@ const AllegationDetailPage: React.FC = () => {
           >
             {allegation.id}
           </span>
-          <span
-            style={{
-              padding: "0.2rem 0.5rem",
-              backgroundColor: statusStyle.bg,
-              color: statusStyle.text,
-              borderRadius: "4px",
-              fontSize: "0.75rem",
-              fontWeight: 600,
-            }}
-          >
-            {allegation.status}
-          </span>
+          {allegation.status && (
+            <span
+              style={{
+                padding: "0.2rem 0.5rem",
+                backgroundColor: statusStyle.bg,
+                color: statusStyle.text,
+                borderRadius: "4px",
+                fontSize: "0.75rem",
+                fontWeight: 600,
+              }}
+            >
+              {allegation.status}
+            </span>
+          )}
           {allegation.legal_counts.map((count) => (
             <span key={count} style={legalCountTagStyle}>
               {count}

@@ -165,7 +165,7 @@ impl DecompositionRepository {
         proof_counts: &HashMap<String, i64>,
     ) -> (AllegationOverview, i64, i64, bool) {
         let id: String = row.get("id").unwrap_or_default();
-        let status: String = row.get("status").unwrap_or_default();
+        let status: Option<String> = row.get("status").ok();
 
         let characterizations: Vec<String> = row
             .get::<Vec<Option<String>>>("characterizations")
@@ -184,7 +184,7 @@ impl DecompositionRepository {
         let rebuttal_count: i64 = row.get("rebuttal_count").unwrap_or(0);
         let proof_count = proof_counts.get(&id).copied().unwrap_or(0);
         let char_count = characterizations.len() as i64;
-        let is_proven = status == "PROVEN";
+        let is_proven = status.as_deref() == Some("PROVEN");
 
         let overview = AllegationOverview {
             id,

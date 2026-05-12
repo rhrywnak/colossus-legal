@@ -38,7 +38,8 @@ pub struct AllegationOverview {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
 
-    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
 
     /// All labels George applied: ["frivolous", "false", "unfounded", ...]
     pub characterizations: Vec<String>,
@@ -79,7 +80,8 @@ pub struct AllegationInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
 
-    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
     pub legal_counts: Vec<String>,
 }
 

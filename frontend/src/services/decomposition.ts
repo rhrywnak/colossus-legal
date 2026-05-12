@@ -9,7 +9,7 @@ export type AllegationOverview = {
   id: string;
   title: string;
   description?: string;
-  status: string;
+  status?: string;
   characterizations: string[];
   characterized_by?: string;
   proof_count: number;
@@ -37,7 +37,7 @@ export type AllegationInfo = {
   id: string;
   title: string;
   description?: string;
-  status: string;
+  status?: string;
   legal_counts: string[];
 };
 
