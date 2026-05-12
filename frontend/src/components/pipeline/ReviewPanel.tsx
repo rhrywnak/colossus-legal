@@ -58,6 +58,13 @@ const cardBase: React.CSSProperties = {
   transition: "border-color 0.15s",
 };
 
+// Grounding statuses considered "verified" for filter purposes.
+// Mirrors backend GROUNDED_STATUSES in review.rs — items with these
+// statuses are approved/ingested and should not appear under "Not
+// verified". Any new status NOT in this set defaults to "Not verified"
+// (visible, not hidden).
+const VERIFIED_STATUSES = new Set(["exact", "normalized", "derived", "unverified", "manual"]);
+
 // ── Grounding indicator ─────────────────────────────────────────
 
 function GroundingIndicator({ status }: { status: string | null }) {
@@ -153,10 +160,10 @@ const ReviewPanel: React.FC<ReviewPanelProps> = ({ documentId, pdfUrl }) => {
       if (reviewFilter !== "all" && (it.review_status || "pending").toLowerCase() !== reviewFilter) return false;
       if (groundFilter === "grounded") {
         const gs = it.grounding_status || "";
-        if (gs !== "exact" && gs !== "normalized") return false;
+        if (!VERIFIED_STATUSES.has(gs)) return false;
       } else if (groundFilter === "ungrounded") {
         const gs = it.grounding_status || "";
-        if (gs === "exact" || gs === "normalized") return false;
+        if (VERIFIED_STATUSES.has(gs)) return false;
       }
       return true;
     });
