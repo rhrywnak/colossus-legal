@@ -687,10 +687,21 @@ pub(crate) fn build_para_to_item_id(items: &[ExtractionItemRecord]) -> HashMap<S
 
 /// Validate provenance for a single derived-mode item per v5.1 §5.4.
 ///
-/// Pure function — no IO, no database. Caller has already established
-/// that this item is in the derived bucket; this function decides
-/// Valid vs Invalid(reason) based on the item's `item_data.provenance`
-/// array and the document's Allegation paragraph map.
+/// Caller has already established that this item is in the derived
+/// bucket; this function decides Valid vs Invalid(reason) based on
+/// the item's `item_data.provenance` array and the document's
+/// Allegation paragraph map.
+///
+/// ## At-least-one-resolves semantics
+///
+/// If the provenance array has at least one entry whose `ref` field
+/// resolves to an extracted Allegation paragraph in the same document,
+/// the item is Valid. Entries with null/missing refs and entries
+/// whose refs don't match any extracted Allegation are logged with
+/// `tracing::warn!` and skipped — they are LLM noise, not fatal.
+///
+/// Only truly empty/missing provenance (no array, empty array, or
+/// every entry unresolvable) results in Invalid.
 ///
 /// ## Strict-mode reading (Roman's Q1A)
 ///
@@ -702,15 +713,6 @@ pub(crate) fn build_para_to_item_id(items: &[ExtractionItemRecord]) -> HashMap<S
 /// `pass1_complaint_v5.md` does not request one) surface loudly here as
 /// `Invalid` — the fix lives upstream in the template/schema, not in a
 /// permissive verifier.
-///
-/// ## `provenance_required: false` semantics (Roman's Q2 / PCA Q2)
-///
-/// When `provenance_required` is false on the entity type's schema,
-/// this function still requires every entry to resolve (no laxer
-/// "at-least-one-entry-resolves" path). Roman's directive: "Laxer
-/// semantics get designed when a real caller needs them; do not
-/// pre-build a permissive path." In v5 today, every Derived entity has
-/// `provenance_required: true`, so this is a future-facing decision.
 pub(crate) fn validate_derived_provenance(
     item: &ExtractionItemRecord,
     para_to_item_id: &HashMap<String, i32>,
@@ -745,10 +747,22 @@ pub(crate) fn validate_derived_provenance(
         return DerivedValidation::Invalid("empty provenance array".to_string());
     }
 
-    // Step 5 — every entry must have a `ref` field that resolves to an
-    // Allegation in the same document. Polymorphism mirrors
-    // `build_para_to_item_id` — string OR integer for `ref`.
-    for entry in provenance {
+    // Step 5 — at-least-one-resolves with tolerance for null refs
+    // and dangling refs. Each entry is inspected; null/missing refs
+    // and unresolved refs are logged as warnings and skipped. If at
+    // least one entry resolves, the item is Valid.
+    //
+    // ## Rust Learning: `entry.get("ref")` on serde_json::Value
+    //
+    // `serde_json::Value::get` returns `Option<&Value>`. When the
+    // JSON has `"ref": null`, `.get("ref")` returns `Some(Value::Null)`.
+    // The `.and_then(|v| v.as_str())` chain then returns `None` for
+    // null — same as a missing key. Both cases land in the null-ref
+    // warning branch.
+    let entity_label = item.item_data["label"].as_str().unwrap_or("unknown");
+    let mut resolved_count = 0usize;
+
+    for (idx, entry) in provenance.iter().enumerate() {
         let ref_val = entry.get("ref").and_then(|v| {
             v.as_str()
                 .map(|s| s.to_string())
@@ -758,20 +772,41 @@ pub(crate) fn validate_derived_provenance(
         let ref_val = match ref_val {
             Some(v) => v,
             None => {
-                return DerivedValidation::Invalid(
-                    "provenance entry missing 'ref' field".to_string(),
+                tracing::warn!(
+                    entity_type = %item.entity_type,
+                    item_id = item.id,
+                    document_id = %item.document_id,
+                    label = %entity_label,
+                    provenance_index = idx,
+                    "provenance entry has null/missing ref — skipping"
                 );
+                continue;
             }
         };
 
-        if !para_to_item_id.contains_key(&ref_val) {
-            return DerivedValidation::Invalid(format!(
-                "provenance references paragraph {ref_val} which is not extracted as an Allegation"
-            ));
+        if para_to_item_id.contains_key(&ref_val) {
+            resolved_count += 1;
+        } else {
+            tracing::warn!(
+                entity_type = %item.entity_type,
+                item_id = item.id,
+                document_id = %item.document_id,
+                label = %entity_label,
+                provenance_index = idx,
+                paragraph_ref = %ref_val,
+                "provenance references paragraph {} which is not an extracted Allegation — skipping",
+                ref_val
+            );
         }
     }
 
-    DerivedValidation::Valid
+    if resolved_count > 0 {
+        DerivedValidation::Valid
+    } else {
+        DerivedValidation::Invalid(
+            "no provenance entries resolved to extracted Allegations".to_string(),
+        )
+    }
 }
 
 /// Extract a name label from an item for NameMatch grounding.
@@ -1015,10 +1050,11 @@ mod tests {
             serde_json::json!({ "properties": { "kind": "economic" }, "provenance": [] }),
         );
 
-        // Case 5: provenance entry refs a paragraph that's not in the map.
-        // Catches a regression that skips resolution or builds the map
-        // across all entity_types (would silently match LegalCount
-        // paragraph_range or Element anchor_paragraph_numbers — both wrong).
+        // Case 5: provenance entry refs a paragraph that's not in the map
+        // and it's the ONLY entry. With at-least-one-resolves semantics,
+        // a sole dangling ref still produces Invalid because nothing
+        // resolved. The per-entry detail goes to tracing::warn!; the
+        // DB reason is the summary.
         let harm_dangling_ref = make_item_with_data(
             601,
             "Harm",
@@ -1028,10 +1064,9 @@ mod tests {
             }),
         );
 
-        // Case 6: provenance entry missing 'ref' field. Roman's Q1
-        // (PCA round 2): "add as fifth canonical string. Use exactly:
-        // 'provenance entry missing ref field'. Do not fold into existing
-        // strings."
+        // Case 6: provenance entry missing 'ref' field (sole entry).
+        // Null ref is logged and skipped; with no entries resolving,
+        // the summary reason fires.
         let harm_missing_ref = make_item_with_data(
             701,
             "Harm",
@@ -1046,8 +1081,8 @@ mod tests {
             (&theme_no_prov, "no provenance array — schema/template gap (see FOLLOWUP-template-thematic-provenance)"),
             (&harm_no_prov, "no provenance array"),
             (&harm_empty_prov, "empty provenance array"),
-            (&harm_dangling_ref, "provenance references paragraph 99 which is not extracted as an Allegation"),
-            (&harm_missing_ref, "provenance entry missing 'ref' field"),
+            (&harm_dangling_ref, "no provenance entries resolved to extracted Allegations"),
+            (&harm_missing_ref, "no provenance entries resolved to extracted Allegations"),
         ];
 
         for (item, expected_reason) in cases {
@@ -1104,10 +1139,10 @@ mod tests {
     }
 
     #[test]
-    fn validate_derived_provenance_required_rejects_one_dangling_among_valid() {
-        // Catches: a refactor that adopts at-least-one-resolves
-        // semantics. Roman's Q2 said stricter even when
-        // provenance_required=false — every entry must resolve.
+    fn validate_derived_tolerates_one_dangling_among_valid() {
+        // At-least-one-resolves semantics: if ref "8" resolves, the
+        // dangling ref "99" is logged as a warning and skipped. The
+        // overall item is Valid because at least one entry resolved.
         let allegation = allegation_with_paragraph(101, "8");
         let harm = make_item_with_data(
             901,
@@ -1116,21 +1151,15 @@ mod tests {
                 "properties": { "kind": "economic" },
                 "provenance": [
                     { "ref": "8" },   // resolves
-                    { "ref": "99" }   // dangles
+                    { "ref": "99" }   // dangles — logged, skipped
                 ]
             }),
         );
-        // build_para_to_item_id filters to entity_type=="Allegation",
-        // so only Allegations need to be in the slice. Avoiding the clone
-        // also keeps `harm` movable into validate_derived_provenance.
         let map = build_para_to_item_id(&[allegation]);
         match validate_derived_provenance(&harm, &map, true) {
-            DerivedValidation::Invalid(r) => assert!(
-                r.contains("99"),
-                "expected dangling-paragraph reason naming 99; got: {r}"
-            ),
-            DerivedValidation::Valid => {
-                panic!("every-entry-must-resolve semantics: a single dangling ref must invalidate")
+            DerivedValidation::Valid => {}
+            DerivedValidation::Invalid(r) => {
+                panic!("at-least-one-resolves: ref 8 resolves, so item should be Valid; got Invalid({r})")
             }
         }
     }
@@ -1166,6 +1195,87 @@ mod tests {
             !map.contains_key("888"),
             "Element must not appear in the para→item map"
         );
+    }
+
+    #[test]
+    fn validate_derived_partial_null_provenance_tolerant() {
+        // Awad Harm id 5777 scenario: first entry resolves, second
+        // has null ref (LLM garbage). At-least-one resolves → Valid.
+        let allegation = allegation_with_paragraph(101, "68");
+        let harm = make_item_with_data(
+            5777,
+            "Harm",
+            serde_json::json!({
+                "label": "Economic harm — guardianship funds",
+                "properties": { "kind": "economic" },
+                "provenance": [
+                    { "ref": "68", "ref_type": "paragraph", "quote_snippet": "additional funds existed..." },
+                    { "ref": null, "ref_type": "paragraph" }
+                ]
+            }),
+        );
+        let map = build_para_to_item_id(&[allegation]);
+        match validate_derived_provenance(&harm, &map, true) {
+            DerivedValidation::Valid => {}
+            DerivedValidation::Invalid(r) => {
+                panic!("partial null provenance: ref 68 resolves, null ref skipped; expected Valid, got Invalid({r})")
+            }
+        }
+    }
+
+    #[test]
+    fn validate_derived_all_null_refs_invalid() {
+        // Every provenance entry has a null/missing ref — nothing
+        // resolves, so the item is Invalid.
+        let allegation = allegation_with_paragraph(101, "8");
+        let harm = make_item_with_data(
+            802,
+            "Harm",
+            serde_json::json!({
+                "properties": { "kind": "economic" },
+                "provenance": [
+                    { "ref": null, "ref_type": "paragraph" },
+                    { "quote_snippet": "no ref field at all" }
+                ]
+            }),
+        );
+        let map = build_para_to_item_id(&[allegation]);
+        match validate_derived_provenance(&harm, &map, true) {
+            DerivedValidation::Invalid(r) => assert_eq!(
+                r, "no provenance entries resolved to extracted Allegations",
+                "all-null-refs should produce the no-resolved summary reason; got: {r}"
+            ),
+            DerivedValidation::Valid => {
+                panic!("all null refs: nothing resolved, must be Invalid")
+            }
+        }
+    }
+
+    #[test]
+    fn validate_derived_null_and_dangling_mix_invalid() {
+        // Mix of null ref and non-null dangling ref — neither resolves.
+        let allegation = allegation_with_paragraph(101, "8");
+        let harm = make_item_with_data(
+            803,
+            "Harm",
+            serde_json::json!({
+                "properties": { "kind": "economic" },
+                "provenance": [
+                    { "ref": null },
+                    { "ref": "99" }
+                ]
+            }),
+        );
+        let map = build_para_to_item_id(&[allegation]);
+        match validate_derived_provenance(&harm, &map, true) {
+            DerivedValidation::Invalid(r) => assert_eq!(
+                r, "no provenance entries resolved to extracted Allegations",
+                "null + dangling: nothing resolved; got: {r}"
+            ),
+            DerivedValidation::Valid => {
+                panic!("null + dangling (no resolves): must be Invalid")
+            }
+        }
     }
 
     #[test]
