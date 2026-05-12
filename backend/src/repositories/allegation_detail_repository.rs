@@ -153,7 +153,7 @@ impl AllegationDetailRepository {
             id: row.get("id").unwrap_or_default(),
             title: row.get("title").unwrap_or_default(),
             description: row.get("description").ok(),
-            status: row.get("status").unwrap_or_default(),
+            status: row.get("status").ok(),
             legal_counts,
         }))
     }
