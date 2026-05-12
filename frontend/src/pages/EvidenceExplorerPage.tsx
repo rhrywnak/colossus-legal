@@ -8,16 +8,16 @@ import { COLORS } from "../components/EvidenceChainParts";
 import { CountGroup, CountSection } from "../components/EvidenceExplorerParts";
 import InfoPopup from "../components/InfoPopup";
 
-const OTHER_BUCKET_NAME = "Jurisdictional & Procedural";
+const UNASSIGNED_BUCKET_NAME = "Unassigned";
 
 /**
- * Group allegations by legal count, seeded from the full `legal_count_details`
- * list (so counts with zero SUPPORTS-linked allegations still render a card)
- * and bucketed on stable `legal_count_ids` (LegalCount.id — immune to LLM
- * title drift, unlike the previous title-based map). Allegations without a
- * matching count id fall through to the "Jurisdictional & Procedural" bucket
- * — typically early-paragraph jurisdiction / venue / parties recitals that
- * don't SUPPORTS any specific legal count.
+ * Group allegations by legal count, seeded from `legal_count_details`
+ * (so counts with zero allegations still render a card). The backend now
+ * assigns each allegation a deterministic section via paragraph number
+ * ranges: "common-allegations" for ¶7-71, real LegalCount IDs for the
+ * four Counts. The "common-allegations" group is created dynamically
+ * here since it isn't a real LegalCount node. Allegations with no
+ * recognized section fall into "Unassigned" (should be rare/empty).
  */
 function groupByCount(
   allegations: AllegationDto[],
@@ -38,6 +38,14 @@ function groupByCount(
     const ids = a.legal_count_ids ?? [];
     let bucketed = false;
     for (const id of ids) {
+      if (id === "common-allegations" && !byId.has(id)) {
+        byId.set(id, {
+          countName: "Common Allegations",
+          countId: "common-allegations",
+          countNumber: 0,
+          allegations: [],
+        });
+      }
       const group = byId.get(id);
       if (group) {
         group.allegations.push(a);
@@ -58,9 +66,9 @@ function groupByCount(
 
   if (other.length > 0) {
     groups.push({
-      countName: OTHER_BUCKET_NAME,
+      countName: UNASSIGNED_BUCKET_NAME,
       countId: null,
-      countNumber: 0,
+      countNumber: 999,
       allegations: other.sort((a, b) => a.id.localeCompare(b.id)),
     });
   }
