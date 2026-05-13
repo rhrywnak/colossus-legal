@@ -51,7 +51,7 @@ pub async fn list_schemas(
 ) -> Result<Json<SchemasResponse>, AppError> {
     require_admin(&user)?;
 
-    let schema_dir = &state.config.extraction_schema_dir;
+    let schema_dir = state.registry.schema_dir();
     let mut schemas = Vec::new();
 
     let mut entries = tokio::fs::read_dir(schema_dir)
@@ -116,7 +116,7 @@ pub async fn get_schema(
     require_admin(&user)?;
     validate_filename(&filename)?;
 
-    let path = std::path::Path::new(&state.config.extraction_schema_dir).join(&filename);
+    let path = state.registry.schema_path(&filename);
     if !tokio::fs::try_exists(&path).await.unwrap_or(false) {
         return Err(AppError::NotFound {
             message: format!("Schema '{filename}' not found"),
@@ -147,7 +147,7 @@ pub async fn create_schema(
     validate_filename(&input.filename)?;
     require_extension(&input.filename, SCHEMA_EXT)?;
 
-    let path = std::path::Path::new(&state.config.extraction_schema_dir).join(&input.filename);
+    let path = state.registry.schema_path(&input.filename);
     if tokio::fs::try_exists(&path).await.unwrap_or(false) {
         return Err(AppError::Conflict {
             message: format!("Schema '{}' already exists", input.filename),
@@ -179,7 +179,7 @@ pub async fn update_schema(
     require_admin(&user)?;
     validate_filename(&filename)?;
 
-    let path = std::path::Path::new(&state.config.extraction_schema_dir).join(&filename);
+    let path = state.registry.schema_path(&filename);
     if !tokio::fs::try_exists(&path).await.unwrap_or(false) {
         return Err(AppError::NotFound {
             message: format!("Schema '{filename}' not found"),
@@ -212,14 +212,14 @@ pub async fn delete_schema(
     require_admin(&user)?;
     validate_filename(&filename)?;
 
-    let path = std::path::Path::new(&state.config.extraction_schema_dir).join(&filename);
+    let path = state.registry.schema_path(&filename);
     if !tokio::fs::try_exists(&path).await.unwrap_or(false) {
         return Err(AppError::NotFound {
             message: format!("Schema '{filename}' not found"),
         });
     }
 
-    let referencing = profiles_referencing(&state.config.processing_profile_dir, &filename)
+    let referencing = profiles_referencing(state.registry.profile_dir(), &filename)
         .await
         .map_err(|e| AppError::Internal {
             message: format!("Failed to scan profile directory: {e}"),

@@ -284,9 +284,11 @@ pub async fn get_resolved_config_handler(
             message: format!("Document '{doc_id}' has no profile_name on its pipeline_config row"),
         })?;
 
-    let profile = ProcessingProfile::load(&state.config.processing_profile_dir, profile_name)
-        .map_err(|e| AppError::Internal {
-            message: format!("Failed to load profile '{profile_name}': {e}"),
+    let profile =
+        ProcessingProfile::load(state.registry.profile_dir(), profile_name).map_err(|e| {
+            AppError::Internal {
+                message: format!("Failed to load profile '{profile_name}': {e}"),
+            }
         })?;
 
     let resolved = build_resolved_config_payload(&profile, &overrides, &base_config.schema_file);

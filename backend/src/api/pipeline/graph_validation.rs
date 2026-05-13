@@ -438,10 +438,7 @@ async fn load_schema(state: &AppState, doc_id: &str) -> Result<ExtractionSchema,
             message: format!("No pipeline config for '{doc_id}'"),
         })?;
 
-    let schema_path = format!(
-        "{}/{}",
-        state.config.extraction_schema_dir, pipe_config.schema_file
-    );
+    let schema_path = state.registry.schema_path(&pipe_config.schema_file);
     ExtractionSchema::from_file(Path::new(&schema_path)).map_err(|e| AppError::Internal {
         message: format!("Failed to load schema '{}': {e}", pipe_config.schema_file),
     })

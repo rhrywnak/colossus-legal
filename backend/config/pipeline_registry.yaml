@@ -1,0 +1,74 @@
+# pipeline_registry.yaml — Pipeline Configuration Registry
+#
+# Single source of truth for the Colossus-Legal extraction pipeline.
+# Maps document types to their processing-profile YAML files and names
+# the four directories the pipeline reads from.
+#
+# The backend reads this file's path from the PIPELINE_REGISTRY_FILE
+# env var at startup. When that env var is unset the backend falls back
+# to the four legacy directory env vars (deprecated; see registry.rs).
+#
+# Editing this file is the supported way to:
+#   - Add a new document type → profile mapping
+#   - Rename a profile YAML file
+#   - Reorder the dropdown that the upload UI shows
+#
+# Edits take effect on the next backend restart. The startup validator
+# rejects this file if any referenced profile YAML is missing, two
+# entries share a `name`, or fewer/more than one entry is marked
+# `is_default`. See PipelineRegistry::validate in registry.rs for the
+# full list of invariants.
+#
+# Production paths below match the Ansible-managed layout under
+# /data/documents on the colossus-legal hosts. Override per environment
+# by editing PIPELINE_REGISTRY_FILE to point at a host-local copy.
+
+directories:
+  profiles: /data/documents/profiles
+  schemas: /data/documents/extraction_schemas
+  templates: /data/documents/extraction_templates
+  system_prompts: /data/documents/system_prompts
+
+document_types:
+  - name: complaint
+    display_name: "Complaint (v5.1)"
+    profile_file: complaint_v5_1.yaml
+    description: "Initiating document of a civil lawsuit — case-structuring pipeline"
+    sort_order: 1
+
+  - name: discovery_response
+    display_name: "Discovery Response (v5.1)"
+    profile_file: discovery_response.yaml
+    description: "Sworn interrogatory responses and requests for admission — evidence-anchoring pipeline"
+    sort_order: 2
+
+  - name: affidavit
+    display_name: "Affidavit"
+    profile_file: affidavit.yaml
+    description: "Sworn statement by a witness"
+    sort_order: 3
+
+  - name: brief
+    display_name: "Legal Brief"
+    profile_file: brief.yaml
+    description: "Written legal argument filed with the court"
+    sort_order: 4
+
+  - name: court_ruling
+    display_name: "Court Ruling"
+    profile_file: court_ruling.yaml
+    description: "Court opinion, order, or ruling"
+    sort_order: 5
+
+  - name: motion
+    display_name: "Motion"
+    profile_file: motion.yaml
+    description: "Motion filed with the court (procedural request)"
+    sort_order: 6
+
+  - name: default
+    display_name: "Other / Unknown"
+    profile_file: default.yaml
+    description: "Fallback for document types without a specific profile"
+    is_default: true
+    sort_order: 99

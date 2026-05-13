@@ -49,7 +49,7 @@ pub async fn list_templates(
 ) -> Result<Json<TemplatesResponse>, AppError> {
     require_admin(&user)?;
 
-    let template_dir = &state.config.extraction_template_dir;
+    let template_dir = state.registry.template_dir();
     let mut templates = Vec::new();
 
     let mut entries = tokio::fs::read_dir(template_dir)
@@ -91,7 +91,7 @@ pub async fn get_template(
     require_admin(&user)?;
     validate_filename(&filename)?;
 
-    let path = std::path::Path::new(&state.config.extraction_template_dir).join(&filename);
+    let path = state.registry.template_path(&filename);
     if !tokio::fs::try_exists(&path).await.unwrap_or(false) {
         return Err(AppError::NotFound {
             message: format!("Template '{filename}' not found"),
@@ -125,7 +125,7 @@ pub async fn create_template(
     validate_filename(&input.filename)?;
     require_extension(&input.filename, TEMPLATE_EXT)?;
 
-    let path = std::path::Path::new(&state.config.extraction_template_dir).join(&input.filename);
+    let path = state.registry.template_path(&input.filename);
     if tokio::fs::try_exists(&path).await.unwrap_or(false) {
         return Err(AppError::Conflict {
             message: format!("Template '{}' already exists", input.filename),
@@ -159,7 +159,7 @@ pub async fn update_template(
     require_admin(&user)?;
     validate_filename(&filename)?;
 
-    let path = std::path::Path::new(&state.config.extraction_template_dir).join(&filename);
+    let path = state.registry.template_path(&filename);
     if !tokio::fs::try_exists(&path).await.unwrap_or(false) {
         return Err(AppError::NotFound {
             message: format!("Template '{filename}' not found"),
@@ -194,14 +194,14 @@ pub async fn delete_template(
     require_admin(&user)?;
     validate_filename(&filename)?;
 
-    let path = std::path::Path::new(&state.config.extraction_template_dir).join(&filename);
+    let path = state.registry.template_path(&filename);
     if !tokio::fs::try_exists(&path).await.unwrap_or(false) {
         return Err(AppError::NotFound {
             message: format!("Template '{filename}' not found"),
         });
     }
 
-    let referencing = profiles_referencing(&state.config.processing_profile_dir, &filename)
+    let referencing = profiles_referencing(state.registry.profile_dir(), &filename)
         .await
         .map_err(|e| AppError::Internal {
             message: format!("Failed to scan profile directory: {e}"),

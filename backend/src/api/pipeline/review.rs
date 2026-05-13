@@ -191,10 +191,7 @@ pub async fn reject_handler(
 
     if !is_rejection_allowed(category) {
         return Err(AppError::BadRequest {
-            message: format!(
-                "Rejection is not allowed for {:?} entities",
-                category
-            ),
+            message: format!("Rejection is not allowed for {:?} entities", category),
             details: serde_json::json!({
                 "entity_type": type_info.entity_type,
                 "category": format!("{:?}", category),

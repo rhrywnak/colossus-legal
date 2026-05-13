@@ -165,7 +165,7 @@ pub async fn run_pass2_extraction(
             document_id: document_id.to_string(),
         })?;
 
-    let schema_path = format!("{}/{}", context.schema_dir, pipe_config.schema_file);
+    let schema_path = context.registry.schema_path(&pipe_config.schema_file);
     let schema = colossus_extract::ExtractionSchema::from_file(std::path::Path::new(&schema_path))
         .map_err(|e| LlmExtractError::SchemaLoadFailed {
             schema_file: pipe_config.schema_file.clone(),
@@ -193,14 +193,15 @@ pub async fn run_pass2_extraction(
         .profile_name
         .clone()
         .unwrap_or_else(|| default_profile_name_from_schema(&pipe_config.schema_file));
-    let profile = ProcessingProfile::load(&context.profile_dir, &profile_name).map_err(|e| {
-        // Defect #2.1 fix: stringify the typed `ProcessingProfileLoadError`
-        // back into the existing `ProfileLoadFailed { message }` variant
-        // shape. Display preserves the path and underlying cause.
-        LlmExtractError::ProfileLoadFailed {
-            message: e.to_string(),
-        }
-    })?;
+    let profile =
+        ProcessingProfile::load(context.registry.profile_dir(), &profile_name).map_err(|e| {
+            // Defect #2.1 fix: stringify the typed `ProcessingProfileLoadError`
+            // back into the existing `ProfileLoadFailed { message }` variant
+            // shape. Display preserves the path and underlying cause.
+            LlmExtractError::ProfileLoadFailed {
+                message: e.to_string(),
+            }
+        })?;
     let resolved = resolve_config(&profile, &overrides);
 
     // 5. Enforce pass-2 preconditions on the resolved config.
@@ -257,14 +258,14 @@ pub async fn run_pass2_extraction(
         .map_err(|message| LlmExtractError::ProviderConstructionFailed { message })?;
 
     // 8. Load pass-2 template + optional system prompt.
-    let template_path = format!("{}/{}", context.template_dir, pass2_template_file);
+    let template_path = context.registry.template_path(&pass2_template_file);
     let template_text = std::fs::read_to_string(&template_path)
         .map_err(|e| format!("Failed to read pass-2 template '{template_path}': {e}"))?;
     let template_hash = sha2_hex(&template_text);
 
     let system_prompt: Option<String> = match &resolved.system_prompt_file {
         Some(filename) => {
-            let path = format!("{}/{}", context.system_prompt_dir, filename);
+            let path = context.registry.system_prompt_path(filename);
             let text =
                 std::fs::read_to_string(&path).map_err(|e| LlmExtractError::ProfileLoadFailed {
                     message: format!("Failed to read system prompt '{path}': {e}"),
@@ -283,7 +284,7 @@ pub async fn run_pass2_extraction(
     //     distinguishable from the database alone (Gap 5 in
     //     AUDIT_PIPELINE_CONFIG_GAPS.md, fixed by this commit).
     let (global_rules_text, global_rules_hash) = load_global_rules(
-        Path::new(&context.template_dir),
+        Path::new(context.registry.template_dir()),
         resolved.global_rules_file.as_deref(),
     )?;
 

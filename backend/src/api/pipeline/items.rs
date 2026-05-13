@@ -180,10 +180,7 @@ pub(crate) async fn load_category_map(
         }
     };
 
-    let schema_path = format!(
-        "{}/{}",
-        state.config.extraction_schema_dir, pipe_config.schema_file
-    );
+    let schema_path = state.registry.schema_path(&pipe_config.schema_file);
 
     let schema = match colossus_extract::ExtractionSchema::from_file(Path::new(&schema_path)) {
         Ok(s) => s,

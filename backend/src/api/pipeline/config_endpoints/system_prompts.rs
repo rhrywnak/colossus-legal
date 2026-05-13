@@ -46,7 +46,7 @@ pub async fn list_system_prompts(
 ) -> Result<Json<SystemPromptsResponse>, AppError> {
     require_admin(&user)?;
 
-    let dir = &state.config.system_prompt_dir;
+    let dir = state.registry.system_prompt_dir();
     let mut out = Vec::new();
 
     let mut entries = match tokio::fs::read_dir(dir).await {
@@ -98,7 +98,7 @@ pub async fn get_system_prompt(
     require_admin(&user)?;
     validate_filename(&filename)?;
 
-    let path = std::path::Path::new(&state.config.system_prompt_dir).join(&filename);
+    let path = state.registry.system_prompt_path(&filename);
     if !tokio::fs::try_exists(&path).await.unwrap_or(false) {
         return Err(AppError::NotFound {
             message: format!("System prompt '{filename}' not found"),
@@ -129,7 +129,7 @@ pub async fn create_system_prompt(
     validate_filename(&input.filename)?;
     require_extension(&input.filename, SYSTEM_PROMPT_EXT)?;
 
-    let path = std::path::Path::new(&state.config.system_prompt_dir).join(&input.filename);
+    let path = state.registry.system_prompt_path(&input.filename);
     if tokio::fs::try_exists(&path).await.unwrap_or(false) {
         return Err(AppError::Conflict {
             message: format!("System prompt '{}' already exists", input.filename),
@@ -161,7 +161,7 @@ pub async fn update_system_prompt(
     require_admin(&user)?;
     validate_filename(&filename)?;
 
-    let path = std::path::Path::new(&state.config.system_prompt_dir).join(&filename);
+    let path = state.registry.system_prompt_path(&filename);
     if !tokio::fs::try_exists(&path).await.unwrap_or(false) {
         return Err(AppError::NotFound {
             message: format!("System prompt '{filename}' not found"),
@@ -194,14 +194,14 @@ pub async fn delete_system_prompt(
     require_admin(&user)?;
     validate_filename(&filename)?;
 
-    let path = std::path::Path::new(&state.config.system_prompt_dir).join(&filename);
+    let path = state.registry.system_prompt_path(&filename);
     if !tokio::fs::try_exists(&path).await.unwrap_or(false) {
         return Err(AppError::NotFound {
             message: format!("System prompt '{filename}' not found"),
         });
     }
 
-    let referencing = profiles_referencing(&state.config.processing_profile_dir, &filename)
+    let referencing = profiles_referencing(state.registry.profile_dir(), &filename)
         .await
         .map_err(|e| AppError::Internal {
             message: format!("Failed to scan profile directory: {e}"),

@@ -115,19 +115,16 @@ pub(crate) async fn run_verify(
     //    entity to Verbatim, silently corrupting Party / LegalCount / Harm
     //    grounding. (v5.1 also reads provenance_required from this config
     //    so the derived-validation step can apply the schema's rule.)
-    let grounding_config = load_grounding_config(
-        &state.pipeline_pool,
-        &state.config.extraction_schema_dir,
-        doc_id,
-    )
-    .await
-    .map_err(|e| {
-        tracing::error!(
-            document_id = %doc_id, error = %e,
-            "Verify cannot proceed without grounding config"
-        );
-        AppError::Internal { message: e }
-    })?;
+    let grounding_config =
+        load_grounding_config(&state.pipeline_pool, state.registry.schema_dir(), doc_id)
+            .await
+            .map_err(|e| {
+                tracing::error!(
+                    document_id = %doc_id, error = %e,
+                    "Verify cannot proceed without grounding config"
+                );
+                AppError::Internal { message: e }
+            })?;
 
     // 4. Fetch ALL items (not just those with quotes)
     let items = pipeline_repository::get_all_items(&state.pipeline_pool, doc_id)

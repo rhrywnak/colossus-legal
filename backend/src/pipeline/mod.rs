@@ -5,6 +5,7 @@ pub mod config;
 pub mod constants;
 pub mod context;
 pub mod providers;
+pub mod registry;
 pub mod step_recorder;
 pub mod steps;
 pub mod task;

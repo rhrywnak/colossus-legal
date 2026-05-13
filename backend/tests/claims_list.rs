@@ -138,6 +138,9 @@ async fn get_claims_returns_non_empty_when_data_exists() -> TestResult<()> {
         },
         chat_providers: std::collections::HashMap::new(),
         default_chat_model: String::new(),
+        registry: std::sync::Arc::new(
+            colossus_legal_backend::pipeline::registry::PipelineRegistry::stub_for_tests(),
+        ),
     };
     let response = list_claims(None, State(state)).await.into_response();
 
@@ -193,6 +196,9 @@ async fn get_claims_returns_empty_when_no_data() -> TestResult<()> {
         },
         chat_providers: std::collections::HashMap::new(),
         default_chat_model: String::new(),
+        registry: std::sync::Arc::new(
+            colossus_legal_backend::pipeline::registry::PipelineRegistry::stub_for_tests(),
+        ),
     };
     let response = list_claims(None, State(state)).await.into_response();
 

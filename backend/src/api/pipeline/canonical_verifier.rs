@@ -501,7 +501,10 @@ mod tests {
     #[test]
     fn test_cross_page_exact_match() {
         let pages = vec![
-            (3, "The guardianship proceeding involved allegations of".to_string()),
+            (
+                3,
+                "The guardianship proceeding involved allegations of".to_string(),
+            ),
             (4, "theft with regard to funds held in trust.".to_string()),
         ];
         let snippet = "involved allegations of theft with regard to funds";
@@ -513,7 +516,10 @@ mod tests {
     #[test]
     fn test_cross_page_normalized_match() {
         let pages = vec![
-            (5, "The defendant\u{2019}s counsel argued that the".to_string()),
+            (
+                5,
+                "The defendant\u{2019}s counsel argued that the".to_string(),
+            ),
             (6, "fiduciary duty was not breached.".to_string()),
         ];
         let snippet = "defendant's counsel argued that the fiduciary duty";
@@ -525,8 +531,14 @@ mod tests {
     #[test]
     fn test_single_page_preferred_over_cross_page() {
         let pages = vec![
-            (1, "The contract was signed by both parties on that date.".to_string()),
-            (2, "Both parties on that date agreed to the terms.".to_string()),
+            (
+                1,
+                "The contract was signed by both parties on that date.".to_string(),
+            ),
+            (
+                2,
+                "Both parties on that date agreed to the terms.".to_string(),
+            ),
         ];
         let snippet = "Both parties on that date";
         let result = find_in_canonical_text(snippet, &pages);
@@ -546,8 +558,14 @@ mod tests {
     #[test]
     fn test_cross_page_boundary_word_split() {
         let pages = vec![
-            (5, "The guardianship proceeding involved allegations of".to_string()),
-            (6, "theft with regard to funds held by the trustee.".to_string()),
+            (
+                5,
+                "The guardianship proceeding involved allegations of".to_string(),
+            ),
+            (
+                6,
+                "theft with regard to funds held by the trustee.".to_string(),
+            ),
         ];
         let snippet = "guardianship proceeding involved allegations of theft with regard to funds";
         let result = find_in_canonical_text(snippet, &pages);
@@ -590,14 +608,23 @@ mod tests {
     #[test]
     fn test_strip_leading_page_number() {
         let text = "4\naccount on August 18, 2008";
-        assert_eq!(strip_leading_page_number(text), "account on August 18, 2008");
+        assert_eq!(
+            strip_leading_page_number(text),
+            "account on August 18, 2008"
+        );
     }
 
     #[test]
     fn test_cross_page_match_with_page_number_artifact() {
         let pages = vec![
-            (3, "that Mr. Awad had deposited in his checking\n3".to_string()),
-            (4, "account on August 18, 2008 but had been removed".to_string()),
+            (
+                3,
+                "that Mr. Awad had deposited in his checking\n3".to_string(),
+            ),
+            (
+                4,
+                "account on August 18, 2008 but had been removed".to_string(),
+            ),
         ];
         let snippet = "his checking account on August 18, 2008";
         let result = find_in_canonical_text(snippet, &pages);

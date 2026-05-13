@@ -119,10 +119,12 @@ pub async fn preview_prompt(
         .unwrap_or_else(|| default_profile_name_from_schema(&pipe_config.schema_file));
 
     // 4. Load profile.
-    let profile = ProcessingProfile::load(&state.config.processing_profile_dir, &profile_name)
-        .map_err(|e| AppError::BadRequest {
-            message: format!("Failed to load profile '{profile_name}': {e}"),
-            details: serde_json::json!({"profile_name": profile_name}),
+    let profile =
+        ProcessingProfile::load(state.registry.profile_dir(), &profile_name).map_err(|e| {
+            AppError::BadRequest {
+                message: format!("Failed to load profile '{profile_name}': {e}"),
+                details: serde_json::json!({"profile_name": profile_name}),
+            }
         })?;
 
     // 5. Resolve three-level hierarchy, then layer input overrides on top.
@@ -130,8 +132,7 @@ pub async fn preview_prompt(
     apply_preview_overrides(&mut resolved, &input, &mut notes);
 
     // 6. Load template + schema files.
-    let template_path =
-        std::path::Path::new(&state.config.extraction_template_dir).join(&resolved.template_file);
+    let template_path = state.registry.template_path(&resolved.template_file);
     let template_text = tokio::fs::read_to_string(&template_path)
         .await
         .map_err(|e| AppError::BadRequest {
@@ -139,14 +140,12 @@ pub async fn preview_prompt(
             details: serde_json::json!({"field": "template_file"}),
         })?;
 
-    let schema_path =
-        std::path::Path::new(&state.config.extraction_schema_dir).join(&resolved.schema_file);
-    let schema = colossus_extract::ExtractionSchema::from_file(&schema_path).map_err(|e| {
-        AppError::BadRequest {
+    let schema_path = state.registry.schema_path(&resolved.schema_file);
+    let schema = colossus_extract::ExtractionSchema::from_file(std::path::Path::new(&schema_path))
+        .map_err(|e| AppError::BadRequest {
             message: format!("Failed to load schema '{}': {e}", resolved.schema_file),
             details: serde_json::json!({"field": "schema_file"}),
-        }
-    })?;
+        })?;
     let schema_json = serde_json::to_string_pretty(&schema).map_err(|e| AppError::Internal {
         message: format!("Failed to serialize schema: {e}"),
     })?;

@@ -118,6 +118,9 @@ async fn create_document_rejects_empty_title() -> TestResult<()> {
         },
         chat_providers: std::collections::HashMap::new(),
         default_chat_model: String::new(),
+        registry: std::sync::Arc::new(
+            colossus_legal_backend::pipeline::registry::PipelineRegistry::stub_for_tests(),
+        ),
     };
 
     let payload = base_create_payload("", "pdf");
@@ -157,6 +160,9 @@ async fn create_document_rejects_invalid_doc_type() -> TestResult<()> {
         },
         chat_providers: std::collections::HashMap::new(),
         default_chat_model: String::new(),
+        registry: std::sync::Arc::new(
+            colossus_legal_backend::pipeline::registry::PipelineRegistry::stub_for_tests(),
+        ),
     };
 
     let payload = base_create_payload("Valid Title", "invalid-type");
@@ -196,6 +202,9 @@ async fn create_document_rejects_invalid_created_at() -> TestResult<()> {
         },
         chat_providers: std::collections::HashMap::new(),
         default_chat_model: String::new(),
+        registry: std::sync::Arc::new(
+            colossus_legal_backend::pipeline::registry::PipelineRegistry::stub_for_tests(),
+        ),
     };
 
     let mut payload = base_create_payload("Valid Title", "pdf");
@@ -236,6 +245,9 @@ async fn get_document_returns_404_when_missing() -> TestResult<()> {
         },
         chat_providers: std::collections::HashMap::new(),
         default_chat_model: String::new(),
+        registry: std::sync::Arc::new(
+            colossus_legal_backend::pipeline::registry::PipelineRegistry::stub_for_tests(),
+        ),
     };
 
     let response = get_document(
@@ -277,6 +289,9 @@ async fn update_document_rejects_invalid_doc_type() -> TestResult<()> {
         },
         chat_providers: std::collections::HashMap::new(),
         default_chat_model: String::new(),
+        registry: std::sync::Arc::new(
+            colossus_legal_backend::pipeline::registry::PipelineRegistry::stub_for_tests(),
+        ),
     };
 
     let payload = base_create_payload("Title", "pdf");
@@ -340,6 +355,9 @@ async fn update_document_returns_404_when_missing() -> TestResult<()> {
         },
         chat_providers: std::collections::HashMap::new(),
         default_chat_model: String::new(),
+        registry: std::sync::Arc::new(
+            colossus_legal_backend::pipeline::registry::PipelineRegistry::stub_for_tests(),
+        ),
     };
 
     let update_payload = DocumentUpdateRequest {
@@ -393,6 +411,9 @@ async fn happy_path_create_get_update_document() -> TestResult<()> {
         },
         chat_providers: std::collections::HashMap::new(),
         default_chat_model: String::new(),
+        registry: std::sync::Arc::new(
+            colossus_legal_backend::pipeline::registry::PipelineRegistry::stub_for_tests(),
+        ),
     };
 
     let mut payload = base_create_payload("Happy Title", "pdf");

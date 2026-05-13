@@ -21,6 +21,8 @@ use reqwest::Client;
 use sqlx::PgPool;
 use tokio::sync::Semaphore;
 
+use crate::pipeline::registry::PipelineRegistry;
+
 /// Default number of concurrent LLM calls the pipeline worker will make.
 ///
 /// Kept low to avoid rate-limiting from API providers. Configurable via the
@@ -43,8 +45,7 @@ const DEFAULT_LLM_CONCURRENCY: usize = 2;
 ///     graph,
 ///     qdrant_url,
 ///     http_client,
-///     schema_dir,
-///     template_dir,
+///     registry,
 ///     document_storage_path,
 /// })?;
 /// ```
@@ -63,23 +64,18 @@ pub struct AppContextDeps {
     /// One pooled client is re-used across all steps.
     pub http_client: Client,
 
-    /// Directory containing the YAML extraction schemas
-    /// (e.g. `/data/documents/extraction_schemas`).
-    pub schema_dir: String,
-
-    /// Directory containing the prompt templates
-    /// (e.g. `/data/documents/extraction_templates`).
-    pub template_dir: String,
-
     /// Filesystem root for document storage
     /// (e.g. `/data/documents`).
     pub document_storage_path: String,
 
-    /// Path to the processing-profile YAML directory.
-    pub profile_dir: String,
-
-    /// Path to the system-prompt directory.
-    pub system_prompt_dir: String,
+    /// Pipeline configuration registry. Replaces the four previously-
+    /// independent directory env vars (`PROCESSING_PROFILE_DIR`,
+    /// `EXTRACTION_SCHEMA_DIR`, `EXTRACTION_TEMPLATE_DIR`,
+    /// `SYSTEM_PROMPT_DIR`). Step code calls
+    /// `context.registry.{profile,schema,template,system_prompt}_path(filename)`
+    /// to resolve a file's full path; the same registry also owns the
+    /// document_type → profile mapping consumed by the upload route.
+    pub registry: Arc<PipelineRegistry>,
 }
 
 /// Per-job pipeline execution context.
@@ -105,22 +101,18 @@ pub struct AppContext {
     /// Shared HTTP client.
     pub http_client: Client,
 
-    /// Path to the extraction-schema directory.
-    pub schema_dir: String,
-
-    /// Path to the prompt-template directory.
-    pub template_dir: String,
-
     /// Filesystem root for document storage.
     pub document_storage_path: String,
 
-    /// Path to the processing-profile YAML directory.
-    /// Profiles are YAML files on mounted storage, not database rows.
-    /// Loaded per-request — editing a YAML file takes effect immediately.
-    pub profile_dir: String,
-
-    /// Path to the system-prompt directory.
-    pub system_prompt_dir: String,
+    /// Pipeline configuration registry — the authoritative source of
+    /// directory layout and document-type → profile mappings. Step
+    /// implementations use `context.registry.profile_path(filename)`
+    /// (and the schema / template / system_prompt variants) instead
+    /// of joining the previously-individual directory strings. The
+    /// `Arc` wrapping is identical to how providers are shared — one
+    /// instance constructed at startup, reference-counted across all
+    /// concurrent step executions.
+    pub registry: Arc<PipelineRegistry>,
 
     /// LLM provider (Anthropic or vLLM).
     /// Constructed from `LLM_PROVIDER` env var at startup.
@@ -172,11 +164,8 @@ impl AppContext {
             graph: deps.graph,
             qdrant_url: deps.qdrant_url,
             http_client: deps.http_client,
-            schema_dir: deps.schema_dir,
-            template_dir: deps.template_dir,
             document_storage_path: deps.document_storage_path,
-            profile_dir: deps.profile_dir,
-            system_prompt_dir: deps.system_prompt_dir,
+            registry: deps.registry,
             llm_provider,
             embedding_provider,
             llm_semaphore: Arc::new(Semaphore::new(llm_concurrency)),

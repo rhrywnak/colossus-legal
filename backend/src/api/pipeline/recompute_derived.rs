@@ -118,19 +118,16 @@ pub(crate) async fn run_recompute_derived(
     // 1. Load the schema's verification config — same call the regular
     //    verify path uses. This is a Result-returning fn, so the failure
     //    mode is loud, not silent (matches CLAUDE.md Rule 1).
-    let grounding_config = load_grounding_config(
-        &state.pipeline_pool,
-        &state.config.extraction_schema_dir,
-        doc_id,
-    )
-    .await
-    .map_err(|e| {
-        tracing::error!(
-            document_id = %doc_id, error = %e,
-            "Recompute cannot proceed without grounding config"
-        );
-        AppError::Internal { message: e }
-    })?;
+    let grounding_config =
+        load_grounding_config(&state.pipeline_pool, state.registry.schema_dir(), doc_id)
+            .await
+            .map_err(|e| {
+                tracing::error!(
+                    document_id = %doc_id, error = %e,
+                    "Recompute cannot proceed without grounding config"
+                );
+                AppError::Internal { message: e }
+            })?;
 
     // 2. Pull every extraction_item for this document. We need ALL items
     //    (not just derived) because `build_para_to_item_id` indexes the

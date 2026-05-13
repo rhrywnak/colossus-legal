@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 
 use crate::config::AppConfig;
+use crate::pipeline::registry::PipelineRegistry;
 use crate::repositories::audit_repository::AuditRepository;
 
 /// Shared application state injected into every Axum handler.
@@ -74,6 +75,16 @@ pub struct AppState {
     /// `chat_providers` if the corresponding `llm_models` row is missing
     /// or inactive — the `/ask` handler surfaces that as a 400.
     pub default_chat_model: String,
+
+    /// Pipeline configuration registry — the authoritative directory
+    /// layout and document-type → profile mapping. Loaded once at
+    /// startup from `PIPELINE_REGISTRY_FILE` (or the legacy env-var
+    /// fallback). Handlers use the registry's path methods
+    /// (`registry.profile_path(...)`, etc.) instead of joining
+    /// `config.processing_profile_dir` + a filename — same logical
+    /// operation, but with the registry the directory layout can
+    /// move without recompiling the backend.
+    pub registry: Arc<PipelineRegistry>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

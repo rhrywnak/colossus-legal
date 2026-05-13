@@ -141,8 +141,7 @@ pub async fn reverify_sync_handler(
         .map(|item| (item.id, item.grounding_status.clone()))
         .collect();
 
-    let verify_response =
-        super::verify::run_verify(&state, &doc_id, &user.username).await?;
+    let verify_response = super::verify::run_verify(&state, &doc_id, &user.username).await?;
 
     // Count how many items changed grounding_status.
     let after_items = pipeline_repository::get_all_items(&state.pipeline_pool, &doc_id)

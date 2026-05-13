@@ -142,6 +142,9 @@ async fn create_claim_rejects_empty_title() -> TestResult<()> {
         },
         chat_providers: std::collections::HashMap::new(),
         default_chat_model: String::new(),
+        registry: std::sync::Arc::new(
+            colossus_legal_backend::pipeline::registry::PipelineRegistry::stub_for_tests(),
+        ),
     };
 
     let payload = ClaimCreateRequest {
@@ -185,6 +188,9 @@ async fn create_claim_rejects_invalid_status() -> TestResult<()> {
         },
         chat_providers: std::collections::HashMap::new(),
         default_chat_model: String::new(),
+        registry: std::sync::Arc::new(
+            colossus_legal_backend::pipeline::registry::PipelineRegistry::stub_for_tests(),
+        ),
     };
 
     let payload = ClaimCreateRequest {
@@ -228,6 +234,9 @@ async fn get_claim_returns_404_when_missing() -> TestResult<()> {
         },
         chat_providers: std::collections::HashMap::new(),
         default_chat_model: String::new(),
+        registry: std::sync::Arc::new(
+            colossus_legal_backend::pipeline::registry::PipelineRegistry::stub_for_tests(),
+        ),
     };
 
     let response = get_claim(
@@ -281,6 +290,9 @@ async fn update_claim_rejects_invalid_status() -> TestResult<()> {
         },
         chat_providers: std::collections::HashMap::new(),
         default_chat_model: String::new(),
+        registry: std::sync::Arc::new(
+            colossus_legal_backend::pipeline::registry::PipelineRegistry::stub_for_tests(),
+        ),
     };
 
     let payload = ClaimUpdateRequest {
@@ -330,6 +342,9 @@ async fn happy_path_create_and_get_claim() -> TestResult<()> {
         },
         chat_providers: std::collections::HashMap::new(),
         default_chat_model: String::new(),
+        registry: std::sync::Arc::new(
+            colossus_legal_backend::pipeline::registry::PipelineRegistry::stub_for_tests(),
+        ),
     };
 
     let payload = ClaimCreateRequest {

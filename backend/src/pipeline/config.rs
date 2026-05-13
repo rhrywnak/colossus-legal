@@ -32,6 +32,20 @@ pub struct ProcessingProfile {
     #[serde(default)]
     pub description: String,
 
+    /// Profile version for display purposes (e.g. `"5.1"`, `"2.0"`).
+    ///
+    /// Display-only. The audit trail uses `profile_hash` (the SHA-256
+    /// of the YAML body) as the canonical fingerprint — see
+    /// [`ResolvedConfig::profile_hash`] and Gap 4 in
+    /// AUDIT_PIPELINE_CONFIG_GAPS.md. A version field would silently
+    /// drift from the hash on any content edit that didn't bump it.
+    ///
+    /// `#[serde(default)]` so profiles authored before this field
+    /// existed deserialize as `""`; the YAML body is unchanged and
+    /// the hash is unchanged.
+    #[serde(default)]
+    pub version: String,
+
     // Schema
     pub schema_file: String,
 
@@ -986,6 +1000,7 @@ extraction_model: claude-sonnet-4-6
             document_type: None,
             is_default: false,
             profile_hash: String::new(),
+            version: String::new(),
         };
         let overrides = PipelineConfigOverrides::default();
         let resolved = resolve_config(&profile, &overrides);
@@ -1026,6 +1041,7 @@ extraction_model: claude-sonnet-4-6
             document_type: None,
             is_default: false,
             profile_hash: String::new(),
+            version: String::new(),
         };
         let overrides = PipelineConfigOverrides::default();
         let resolved = resolve_config(&profile, &overrides);
@@ -1082,6 +1098,7 @@ extraction_model: claude-sonnet-4-6
             document_type: None,
             is_default: false,
             profile_hash: String::new(),
+            version: String::new(),
         };
         let overrides = PipelineConfigOverrides::default();
         let resolved = resolve_config(&profile, &overrides);
@@ -1273,6 +1290,7 @@ extraction_model: claude-sonnet-4-6
             document_type: None,
             is_default: false,
             profile_hash: String::new(),
+            version: String::new(),
         };
         let overrides = PipelineConfigOverrides {
             template_file: Some("custom_template.md".into()),
@@ -1328,6 +1346,7 @@ extraction_model: claude-sonnet-4-6
             document_type: None,
             is_default: false,
             profile_hash: String::new(),
+            version: String::new(),
         };
         let overrides = PipelineConfigOverrides::default();
         let resolved = resolve_config(&profile, &overrides);
@@ -1389,6 +1408,7 @@ extraction_model: claude-sonnet-4-6
             document_type: None,
             is_default: false,
             profile_hash: String::new(),
+            version: String::new(),
         };
 
         // Per-document override changes units_per_chunk but NOT mode or strategy
@@ -1650,6 +1670,7 @@ extraction_model: claude-sonnet-4-6
             document_type: None,
             is_default: false,
             profile_hash: String::new(),
+            version: String::new(),
         }
     }
 

@@ -249,8 +249,8 @@ impl LlmExtract {
             .profile_name
             .clone()
             .unwrap_or_else(|| default_profile_name_from_schema(&pipe_config.schema_file));
-        let profile =
-            ProcessingProfile::load(&context.profile_dir, &profile_name).map_err(|e| {
+        let profile = ProcessingProfile::load(context.registry.profile_dir(), &profile_name)
+            .map_err(|e| {
                 // Per silent-fallback audit defect #2.1, `::load` now returns
                 // `ProcessingProfileLoadError` (a typed enum with FileNotFound /
                 // IoError / ParseError variants) instead of a `String`. Stringify
@@ -289,7 +289,7 @@ impl LlmExtract {
                 document_id: self.document_id.clone(),
             })?;
 
-        let schema_path = format!("{}/{}", context.schema_dir, pipe_config.schema_file);
+        let schema_path = context.registry.schema_path(&pipe_config.schema_file);
         let schema =
             colossus_extract::ExtractionSchema::from_file(std::path::Path::new(&schema_path))
                 .map_err(|e| LlmExtractError::SchemaLoadFailed {
@@ -321,7 +321,7 @@ impl LlmExtract {
             .map_err(|message| LlmExtractError::ProviderConstructionFailed { message })?;
 
         // 5. Load template and hash it.
-        let template_path = format!("{}/{}", context.template_dir, resolved.template_file);
+        let template_path = context.registry.template_path(&resolved.template_file);
         let template_text = std::fs::read_to_string(&template_path)
             .map_err(|e| format!("Failed to read template '{template_path}': {e}"))?;
         let template_hash = sha2_hex(&template_text);
@@ -334,7 +334,7 @@ impl LlmExtract {
         //     names the missing file, matching the template-load convention.
         let system_prompt: Option<String> = match &resolved.system_prompt_file {
             Some(filename) => {
-                let path = format!("{}/{}", context.system_prompt_dir, filename);
+                let path = context.registry.system_prompt_path(filename);
                 let text = std::fs::read_to_string(&path).map_err(|e| {
                     LlmExtractError::ProfileLoadFailed {
                         message: format!("Failed to read system prompt '{path}': {e}"),
@@ -354,7 +354,7 @@ impl LlmExtract {
         //     [`load_global_rules`] for the full case table (no-file vs
         //     empty-file vs nonempty-file vs missing-file).
         let (global_rules_text, global_rules_hash) = load_global_rules(
-            Path::new(&context.template_dir),
+            Path::new(context.registry.template_dir()),
             resolved.global_rules_file.as_deref(),
         )?;
 

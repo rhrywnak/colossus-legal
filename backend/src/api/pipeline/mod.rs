@@ -19,6 +19,7 @@ mod config_handler;
 pub(crate) mod constants;
 mod delete;
 mod document_response;
+mod document_types;
 mod errors;
 pub(crate) mod extract_text;
 mod file;
@@ -35,8 +36,8 @@ pub(crate) mod ocr;
 mod process;
 pub(crate) mod recompute_derived;
 pub mod report;
-mod reverify_sync;
 pub mod report_data;
+mod reverify_sync;
 mod review;
 pub mod state_machine;
 pub(crate) mod upload;
@@ -197,6 +198,9 @@ pub fn router() -> Router<AppState> {
             get(config_handler::get_resolved_config_handler),
         )
         .route("/documents/:id/file", get(file::file_handler))
+        // Document-type catalog backed by the pipeline registry. Drives
+        // the upload dialog's "Document Type" dropdown.
+        .route("/document-types", get(document_types::list_document_types))
 }
 
 /// GET /documents — list all pipeline documents with computed fields.

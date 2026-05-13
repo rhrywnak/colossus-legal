@@ -167,7 +167,7 @@ pub async fn delete_model(
 ) -> Result<Json<serde_json::Value>, AppError> {
     require_admin(&user)?;
 
-    let referencing = profiles_referencing(&state.config.processing_profile_dir, &model_id)
+    let referencing = profiles_referencing(state.registry.profile_dir(), &model_id)
         .await
         .map_err(|e| AppError::Internal {
             message: format!("Failed to scan profile directory: {e}"),

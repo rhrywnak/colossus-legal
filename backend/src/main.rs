@@ -38,6 +38,7 @@ use colossus_legal_backend::{
     database,
     neo4j::{check_neo4j, create_neo4j_graph},
     pipeline::context::{AppContext, AppContextDeps},
+    pipeline::registry::PipelineRegistry,
     pipeline::step_recorder::PgStepRecorder,
     pipeline::task::DocProcessing,
     prompt_loader,
@@ -158,6 +159,23 @@ async fn run_serve(config: AppConfig, graph: neo4rs::Graph, http_client: reqwest
     let pg_pool = db.main_pool;
     let pipeline_pool = db.pipeline_pool;
 
+    // --- Load the pipeline configuration registry ---
+    //
+    // Single source of truth for the four directory paths and the
+    // document-type → profile mapping. Reads PIPELINE_REGISTRY_FILE;
+    // falls back to the four legacy env vars with a deprecation
+    // warning when unset. Validation runs inside from_env() and
+    // refuses to start the binary on any invariant violation —
+    // missing directory, missing profile file, duplicate name, etc.
+    let registry = PipelineRegistry::from_env()
+        .expect("Failed to load pipeline registry — see error above for the failing invariant");
+    let registry = Arc::new(registry);
+    tracing::info!(
+        document_type_count = registry.document_types.len(),
+        profiles_dir = %registry.profile_dir(),
+        "Pipeline registry loaded"
+    );
+
     // --- Build AppContext for pipeline step execution ---
     //
     // AppContext holds the LLM provider, embedding provider, semaphore,
@@ -170,11 +188,8 @@ async fn run_serve(config: AppConfig, graph: neo4rs::Graph, http_client: reqwest
         graph: graph.clone(),
         qdrant_url: config.qdrant_url.clone(),
         http_client: http_client.clone(),
-        schema_dir: config.extraction_schema_dir.clone(),
-        template_dir: config.extraction_template_dir.clone(),
         document_storage_path: config.document_storage_path.clone(),
-        profile_dir: config.processing_profile_dir.clone(),
-        system_prompt_dir: config.system_prompt_dir.clone(),
+        registry: registry.clone(),
     })
     .expect("Failed to build AppContext from env");
 
@@ -266,7 +281,7 @@ async fn run_serve(config: AppConfig, graph: neo4rs::Graph, http_client: reqwest
     // The schema defines what entity types and relationship types exist.
     // This metadata is served to the frontend via GET /api/schema and used
     // by the query layer to understand the graph structure.
-    let schema_metadata = load_schema_metadata(&config);
+    let schema_metadata = load_schema_metadata(&registry);
 
     // Construct the embedding provider from environment variables.
     // See colossus_extract::providers for EMBEDDING_PROVIDER semantics.
@@ -289,6 +304,7 @@ async fn run_serve(config: AppConfig, graph: neo4rs::Graph, http_client: reqwest
         schema_metadata,
         chat_providers,
         default_chat_model: DEFAULT_CHAT_MODEL.to_string(),
+        registry,
     };
 
     // Ensure the Qdrant collection exists with the correct dimensions.
@@ -676,13 +692,13 @@ const MISSING_SCHEMA_DOCUMENT_TYPE: &str = "none";
 /// because the prior implementation panicked on a missing file, and the
 /// multi-schema world (complaint_v4.yaml, affidavit_v4.yaml, …) makes the
 /// single-file startup load architecturally transitional.
-fn load_schema_metadata(config: &AppConfig) -> SchemaMetadata {
+fn load_schema_metadata(registry: &PipelineRegistry) -> SchemaMetadata {
     use colossus_extract::ExtractionSchema;
     use std::path::Path;
 
     let schema_filename = std::env::var("STARTUP_SCHEMA_FILE")
         .unwrap_or_else(|_| DEFAULT_STARTUP_SCHEMA_FILE.to_string());
-    let schema_path = Path::new(&config.extraction_schema_dir).join(&schema_filename);
+    let schema_path = Path::new(&registry.schema_path(&schema_filename)).to_path_buf();
 
     let extraction_schema = match ExtractionSchema::from_file(&schema_path) {
         Ok(schema) => schema,

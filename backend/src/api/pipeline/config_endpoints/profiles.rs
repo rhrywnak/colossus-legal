@@ -98,8 +98,7 @@ async fn validate_profile_references(
         });
     }
 
-    let schema_path =
-        std::path::Path::new(&state.config.extraction_schema_dir).join(&profile.schema_file);
+    let schema_path = state.registry.schema_path(&profile.schema_file);
     if !tokio::fs::try_exists(&schema_path).await.unwrap_or(false) {
         return Err(AppError::BadRequest {
             message: format!(
@@ -110,8 +109,7 @@ async fn validate_profile_references(
         });
     }
 
-    let template_path =
-        std::path::Path::new(&state.config.extraction_template_dir).join(&profile.template_file);
+    let template_path = state.registry.template_path(&profile.template_file);
     if !tokio::fs::try_exists(&template_path).await.unwrap_or(false) {
         return Err(AppError::BadRequest {
             message: format!(
@@ -136,7 +134,7 @@ pub async fn list_profiles(
 ) -> Result<Json<ProfilesResponse>, AppError> {
     require_admin(&user)?;
 
-    let dir = &state.config.processing_profile_dir;
+    let dir = state.registry.profile_dir();
     let mut profiles = Vec::new();
 
     let mut entries = tokio::fs::read_dir(dir)
@@ -177,7 +175,7 @@ pub async fn get_profile(
     require_admin(&user)?;
     validate_profile_name(&name)?;
 
-    let path = profile_path(&state.config.processing_profile_dir, &name, PROFILE_EXT);
+    let path = profile_path(state.registry.profile_dir(), &name, PROFILE_EXT);
     if !tokio::fs::try_exists(&path).await.unwrap_or(false) {
         return Err(AppError::NotFound {
             message: format!("Profile '{name}' not found"),
@@ -204,11 +202,7 @@ pub async fn create_profile(
     validate_profile_name(&profile.name)?;
     validate_profile_references(&state, &profile).await?;
 
-    let path = profile_path(
-        &state.config.processing_profile_dir,
-        &profile.name,
-        PROFILE_EXT,
-    );
+    let path = profile_path(state.registry.profile_dir(), &profile.name, PROFILE_EXT);
     if tokio::fs::try_exists(&path).await.unwrap_or(false) {
         return Err(AppError::Conflict {
             message: format!("Profile '{}' already exists", profile.name),
@@ -234,7 +228,7 @@ pub async fn update_profile(
     require_admin(&user)?;
     validate_profile_name(&name)?;
 
-    let path = profile_path(&state.config.processing_profile_dir, &name, PROFILE_EXT);
+    let path = profile_path(state.registry.profile_dir(), &name, PROFILE_EXT);
     if !tokio::fs::try_exists(&path).await.unwrap_or(false) {
         return Err(AppError::NotFound {
             message: format!("Profile '{name}' not found"),
@@ -263,13 +257,13 @@ pub async fn deactivate_profile(
     require_admin(&user)?;
     validate_profile_name(&name)?;
 
-    let src = profile_path(&state.config.processing_profile_dir, &name, PROFILE_EXT);
+    let src = profile_path(state.registry.profile_dir(), &name, PROFILE_EXT);
     if !tokio::fs::try_exists(&src).await.unwrap_or(false) {
         return Err(AppError::NotFound {
             message: format!("Profile '{name}' not found"),
         });
     }
-    let dst = profile_path(&state.config.processing_profile_dir, &name, INACTIVE_EXT);
+    let dst = profile_path(state.registry.profile_dir(), &name, INACTIVE_EXT);
 
     tokio::fs::rename(&src, &dst)
         .await

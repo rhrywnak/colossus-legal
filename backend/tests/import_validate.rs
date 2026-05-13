@@ -76,6 +76,9 @@ async fn setup_app() -> TestResult<Router> {
         },
         chat_providers: std::collections::HashMap::new(),
         default_chat_model: String::new(),
+        registry: std::sync::Arc::new(
+            colossus_legal_backend::pipeline::registry::PipelineRegistry::stub_for_tests(),
+        ),
     };
     Ok(router().with_state(state))
 }

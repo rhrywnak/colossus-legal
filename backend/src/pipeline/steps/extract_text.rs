@@ -676,8 +676,7 @@ impl ExtractText {
                 message: format!("update documents.document_type: {e}"),
             })?;
 
-            let detected_schema =
-                schema_file_for_document_type(&context.profile_dir, detected_type)?;
+            let detected_schema = schema_file_for_document_type(&context.registry, detected_type)?;
             sqlx::query("UPDATE pipeline_config SET schema_file = $1 WHERE document_id = $2")
                 .bind(&detected_schema)
                 .bind(doc_id)

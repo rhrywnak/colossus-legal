@@ -107,22 +107,21 @@ async fn live_context() -> TestResult<colossus_legal_backend::pipeline::context:
         .connect_timeout(std::time::Duration::from_secs(5))
         .build()?;
 
+    // Cleanup tests only exercise on_cancel / on_delete hooks that
+    // don't load profile / schema / template / system-prompt files,
+    // so the registry's path methods are never called. A stub
+    // registry satisfies the `AppContext` struct shape without the
+    // tempfile-layout overhead the registry's own tests use.
+    let registry =
+        Arc::new(colossus_legal_backend::pipeline::registry::PipelineRegistry::stub_for_tests());
+
     Ok(colossus_legal_backend::pipeline::context::AppContext {
         pipeline_pool,
         graph,
         qdrant_url: config.qdrant_url.clone(),
         http_client,
-        schema_dir: config.extraction_schema_dir.clone(),
-        template_dir: config.extraction_template_dir.clone(),
-        // Both directories are real production paths from `AppConfig`
-        // (see config.rs:39, 41). Cleanup tests only exercise on_cancel
-        // / on_delete hooks that don't load profile or system-prompt
-        // files, so these values are never read at test time — but the
-        // `AppContext` struct now requires them, so we populate them
-        // from the same source production does.
-        profile_dir: config.processing_profile_dir.clone(),
-        system_prompt_dir: config.system_prompt_dir.clone(),
         document_storage_path: config.document_storage_path.clone(),
+        registry,
         llm_provider: Arc::new(PanicLlm) as Arc<dyn LlmProvider>,
         embedding_provider: Arc::new(PanicEmbedding) as Arc<dyn EmbeddingProvider>,
         llm_semaphore: Arc::new(Semaphore::new(1)),

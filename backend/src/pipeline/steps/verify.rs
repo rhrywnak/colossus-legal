@@ -193,7 +193,7 @@ impl Verify {
         //    default every entity to Verbatim, silently corrupting
         //    Party / LegalCount / Harm grounding.
         let grounding_config: HashMap<String, EntityVerificationConfig> =
-            verify_api::load_grounding_config(db, &context.schema_dir, doc_id)
+            verify_api::load_grounding_config(db, context.registry.schema_dir(), doc_id)
                 .await
                 .map_err(|message| VerifyError::GroundingModes {
                     doc_id: doc_id.to_string(),
