@@ -1,30 +1,37 @@
-# discovery_response.yaml
-# Processing profile for interrogatory and request for admission
-# responses. Uses chunked extraction because discovery documents
-# can be lengthy and contain many independent question/answer pairs.
+# Profile: Discovery Response v5.1
+#
+# Evidence-anchoring pipeline profile for sworn interrogatory responses
+# and requests for admission. Uses Claude Sonnet for Pass 1 (entity
+# extraction) and Claude Opus for Pass 2 (relationship reasoning).
+#
+# Naming convention: discovery_response_v5_1.yaml
+# Referenced by: upload.rs profile_name_for_document_type()
 
 name: discovery_response
-display_name: Discovery Response
-document_type: discovery_response
-description: Interrogatory or request for admission responses.
+display_name: "Discovery Response (v5.1)"
+description: "Sworn interrogatory responses and requests for admission — evidence-anchoring pipeline"
 
-schema_file: discovery_response_v4.yaml
+# Schema
+schema_file: discovery_response_schema_v5_1.yaml
 
-template_file: pass1_discovery_response_v4.md
-global_rules_file: global_rules_v4.md
-pass2_template_file: pass2_discovery_response_v4.md
-system_prompt_file: legal_extraction_system.md
+# Pass 1 — Entity extraction
+template_file: discovery_response_pass1_v5_1.md
+extraction_model: claude-sonnet-4-20250514
 
-extraction_model: claude-sonnet-4-6
+# Pass 2 — Relationship extraction
+run_pass2: true
+pass2_template_file: discovery_response_pass2_v5_1.md
+pass2_extraction_model: claude-opus-4-20250115
 
+# Processing mode — full document (no chunking)
+# Discovery responses are typically 25-40 pages of Q&A pairs.
+# Full-document processing preserves cross-reference context
+# ("see prior interrogatory") that chunking would break.
 chunking_mode: full
-chunk_size: 8000
-chunk_overlap: 500
 
+# LLM parameters
 max_tokens: 32000
 temperature: 0.0
 
+# Auto-approve entities that pass grounding verification
 auto_approve_grounded: true
-run_pass2: true
-
-is_default: true

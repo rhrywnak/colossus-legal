@@ -1,0 +1,186 @@
+# Extraction schema for discovery responses — v5.1 (evidence-anchoring pipeline)
+#
+# Purpose: Extract sworn Q&A pairs from interrogatory responses and
+# requests for admission. These are SUPPORTING DOCUMENTS — they anchor
+# evidence to the structural backbone produced by the complaint
+# case-structuring pipeline.
+#
+# v5.1 changes from v4:
+#   - Entity type names aligned with v5.1 schema conventions
+#   - relationship_properties section added per LEGAL_DATA_MODEL_v5_1.md
+#     §5.4 (source_document_id, extraction_run_id, created_at)
+#   - completeness_rules section added
+#   - statement_type enum expanded: added partial_admission, referral
+#   - pattern_tags property added to Evidence for trial-prep query
+#     patterns (Pattern A repetition tracker, Pattern F speaker behavior)
+#   - Cross-document relationship semantics (CORROBORATES, CONTRADICTS,
+#     REBUTS) documented in relationship_types descriptions for LLM
+#     guidance; valid_patterns restricted to local entity types only
+#     per the schema parser constraint
+#   - verbatim_quote remains a top-level entity field, NOT a schema
+#     property
+#
+# Document characteristics:
+#   - Sworn answers under oath — binding on the responding party
+#   - Numbered Q&A pairs (interrogatories, requests for admission)
+#   - Admissions are the strongest evidence class — a party conceding
+#     a fact under oath
+#   - Evasive responses ("documents speak for themselves", "I do not
+#     recall") are evidence of concealment
+#   - Objections (attorney-client privilege, etc.) are evidence of
+#     what the party is hiding
+#   - Multi-part questions with sub-parts (a, b, c, ...) are common;
+#     the entire Q&A pair is ONE Evidence entity
+#
+# Property names match PROD Neo4j and existing pipeline code per memory
+# rule #14. verbatim_quote remains a top-level entity field, NOT a
+# schema property.
+
+document_type: discovery_response
+version: "5.1"
+description: "Sworn discovery response (interrogatories, requests for admission) — evidence-anchoring document. Each Q&A pair is a sworn statement by the responding party."
+
+entity_types:
+  - name: Party
+    required: true
+    min_count: 2
+    grounding_mode: name_match
+    category: reference
+    description: "A person or organization mentioned in the discovery response. Includes the respondent, requesting party, and every person/organization referenced in questions or answers."
+    properties:
+      - name: party_name
+        type: string
+        required: true
+        description: "Full name as it appears in the document"
+      - name: role
+        type: string
+        required: true
+        description: "respondent, requesting_party, plaintiff, defendant, witness, attorney, judge, decedent, interested_party, guardian_ad_litem, personal_representative, third_party"
+      - name: party_type
+        type: string
+        required: true
+        description: "person or organization"
+      - name: aliases
+        type: string
+        description: "Other names or references used for this party, comma-separated"
+
+  - name: Evidence
+    required: true
+    min_count: 1
+    grounding_mode: verbatim
+    category: evidence
+    description: "A sworn Q&A pair from the discovery response. The verbatim_quote is the ANSWER portion — the sworn statement by the responding party. The question text goes in the `question` property. Every Q&A pair that contains a substantive answer (admission, denial, evasion, objection, or referral) must be extracted as a separate Evidence entity."
+    properties:
+      - name: title
+        type: string
+        required: true
+        description: "Short descriptive title summarizing what this Q&A reveals, e.g. 'Phillips admits no documents support $50K gift claim'"
+      - name: question
+        type: string
+        required: true
+        description: "The interrogatory question text. For multi-part questions (a, b, c, ...), include the main question and all sub-parts."
+      - name: answer
+        type: string
+        required: true
+        description: "The sworn response. Include the full answer exactly as written."
+      - name: paragraph
+        type: string
+        required: true
+        description: "Interrogatory number, e.g. 'Q73', 'Q14', 'RFA 9'. For multi-part answers, use the main question number."
+      - name: page_number
+        type: integer
+        required: true
+        description: "PDF page number where this Q&A pair appears"
+      - name: page_note
+        type: string
+        description: "If the Q&A spans multiple pages, note the range, e.g. 'pages 10-11'"
+      - name: kind
+        type: string
+        required: true
+        description: "Always 'testimonial' for discovery responses (these are sworn statements)"
+      - name: evidence_strength
+        type: string
+        required: true
+        description: "sworn_party_admission (binding admission under oath), sworn_party_denial (explicit denial under oath), sworn_party_evasion (evasive or non-responsive answer suggesting concealment)"
+      - name: statement_type
+        type: string
+        required: true
+        description: "admission (fact acknowledged under oath), denial (fact explicitly contested), evasive (non-answer: 'documents speak for themselves', 'I do not recall', 'see prior response'), partial_admission (admits some facts while qualifying or limiting others), objection (attorney-client privilege or other legal objection to answering), referral (directs to another party, document, or prior response for the answer)"
+      - name: significance
+        type: string
+        required: true
+        description: "Why this Q&A matters for trial preparation. What does it prove, contradict, or reveal? Reference specific legal theories or complaint allegations when applicable."
+      - name: weight
+        type: integer
+        description: "1-10 scale of evidentiary weight (10 = most damaging). Admissions are typically 8-10. Evasive responses 5-7. Pure referrals 2-4."
+      - name: pattern_tags
+        type: string
+        description: "Comma-separated tags for trial-prep query patterns: selective_enforcement, disparagement, evasive_responses, financial_misconduct, secrecy, lies_under_oath, conflict_of_interest, coordination, property_mismanagement, fee_allocation, denial_of_due_process"
+      - name: event_date
+        type: string
+        description: "Date referenced in the Q&A if applicable"
+
+relationship_types:
+  - name: STATED_BY
+    description: "Evidence stated by Party. For discovery responses, the STATED_BY party is ALWAYS the respondent (the person who signed the verification), even when an answer refers to information from others. The respondent is swearing to the answer under oath."
+  - name: ABOUT
+    description: "Evidence is about (concerning) this Party. A single Evidence entity may be ABOUT multiple parties — create one ABOUT relationship for each party discussed in the Q&A. The respondent can also be the ABOUT target when the question asks about the respondent's own actions."
+  - name: CORROBORATES
+    description: "This sworn statement independently confirms a factual claim from the complaint (an Allegation node). The corroboration test: does this answer confirm the same facts alleged in the complaint, from the respondent's own sworn admission? Admissions corroborate. Evasive responses can corroborate (refusing to deny = implicit acknowledgment). Denials do NOT corroborate. NOTE: CORROBORATES targets Allegation nodes from the complaint schema — these are cross-document relationships. The LLM should identify which complaint allegations each Evidence entity corroborates using the {{context}} variable that supplies previously-extracted entities."
+  - name: CONTRADICTS
+    description: "This sworn statement conflicts with another statement by the SAME person in a DIFFERENT document. The contradiction test: did this person say something materially different elsewhere? Example: Phillips admits in discovery Q73 that no documents support the $50K gift claim, but in his CoA brief he argued the money was gifted. NOTE: CONTRADICTS targets Evidence nodes from other documents — cross-document relationships."
+  - name: REBUTS
+    description: "This sworn statement directly counters what a DIFFERENT person claimed. The rebuttal test: does this person's answer oppose what another party asserted? Example: Phillips' admission about fee allocation rebuts CFS's claim that fee decisions were Marie's fault. NOTE: REBUTS targets Evidence or Assertion nodes from other documents — cross-document relationships."
+
+# Required provenance properties applied to every relationship written to
+# Neo4j (per LEGAL_DATA_MODEL_v5_1.md §5.4). Populated by the ingest stage
+# at write time, not by the LLM extractor.
+relationship_properties:
+  - name: source_document_id
+    type: string
+    required: true
+    description: "ID of the Document whose extraction produced this relationship"
+  - name: extraction_run_id
+    type: string
+    required: true
+    description: "Identifier of the specific pipeline run that created this relationship (format: 'run-{i32}' for pipeline-extracted, 'manual-{user_id}-{ts}' for hand-authored, 'repair-{...}' for repair runs)"
+  - name: created_at
+    type: timestamp
+    required: true
+    description: "When the relationship was first created (Cypher datetime() at write time; preserved on subsequent re-ingests via coalesce)"
+
+# valid_patterns can ONLY reference entity types defined in THIS schema.
+# Cross-document relationships (CORROBORATES → Allegation, CONTRADICTS →
+# Evidence from another doc) are described in relationship_types above for
+# LLM guidance but are NOT listed here — the schema parser would reject
+# references to entity types not defined locally.
+valid_patterns:
+  - from: Evidence
+    relationship: STATED_BY
+    to: Party
+  - from: Evidence
+    relationship: ABOUT
+    to: Party
+
+extraction_rules:
+  - "Extract EVERY Q&A pair that contains a substantive answer as a separate Evidence entity"
+  - "The verbatim_quote field is the ANSWER text — copy it exactly, character for character"
+  - "The question text goes in the 'question' property, NOT in verbatim_quote"
+  - "For multi-part questions (a, b, c, ...), the entire question and answer is ONE Evidence entity"
+  - "Classify every answer: admission, denial, evasive, partial_admission, objection, or referral"
+  - "Evasive answers ('documents speak for themselves', 'I do not recall', 'see prior response') are evidence of concealment — extract them with statement_type='evasive'"
+  - "Objection answers (attorney-client privilege) are evidence of what the party is hiding — extract with statement_type='objection'"
+  - "Referral answers ('see the response to the prior interrogatory') should be extracted with statement_type='referral' and a significance note explaining what the referral avoids answering directly"
+  - "Extract ALL parties mentioned anywhere in questions or answers — attorneys, judges, witnesses, organizations, third parties"
+  - "Do NOT skip Q&A pairs just because the answer is short — 'No' and 'Yes' are substantive sworn admissions or denials"
+  - "Do NOT combine multiple Q&A pairs into a single Evidence entity — each numbered question is a separate entity"
+
+completeness_rules:
+  - type: entity_count
+    entity: Party
+    min: 2
+    message: "Expected at least respondent + requesting party"
+  - type: entity_count
+    entity: Evidence
+    min: 10
+    message: "Discovery responses typically contain dozens of Q&A pairs — fewer than 10 suggests extraction failure"
