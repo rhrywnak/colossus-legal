@@ -2433,6 +2433,8 @@ The real prompt body.";
     fn resolve_max_tokens_prefers_profile_value() {
         let r = ResolvedConfig {
             profile_name: "p".into(),
+            version: String::new(),
+            pipeline_type: None,
             profile_hash: String::new(),
             effective_pass: 1,
             model: "m".into(),
@@ -2465,6 +2467,8 @@ The real prompt body.";
     fn resolved_with_run_pass2(flag: bool) -> ResolvedConfig {
         ResolvedConfig {
             profile_name: "complaint".into(),
+            version: String::new(),
+            pipeline_type: None,
             profile_hash: String::new(),
             effective_pass: 1,
             model: "m".into(),
@@ -2595,6 +2599,8 @@ The real prompt body.";
     fn resolved_with_both_passes() -> ResolvedConfig {
         ResolvedConfig {
             profile_name: "complaint".into(),
+            version: String::new(),
+            pipeline_type: None,
             profile_hash: "deadbeef".into(),
             effective_pass: 1,
             model: "claude-sonnet-4-6".into(),

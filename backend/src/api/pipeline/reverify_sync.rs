@@ -154,7 +154,7 @@ pub async fn reverify_sync_handler(
         .filter(|item| {
             before_status
                 .get(&item.id)
-                .map_or(true, |old| *old != item.grounding_status)
+                .is_none_or(|old| *old != item.grounding_status)
         })
         .count();
 

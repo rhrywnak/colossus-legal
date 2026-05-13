@@ -21,6 +21,7 @@ use crate::pipeline::config::{
     PipelineConfigOverrides, ProcessingProfile, ProcessingProfileLoadError,
 };
 use crate::pipeline::registry::PipelineRegistry;
+use crate::pipeline::validation::validate_profile;
 use crate::repositories::audit_repository::log_admin_action;
 use crate::repositories::pipeline_repository::{self, steps, PipelineConfigInput};
 use crate::state::AppState;
@@ -171,6 +172,48 @@ pub fn schema_file_for_document_type(
     }
 }
 
+/// Build the initial per-document override map from a matched profile.
+///
+/// Mirrors the field-by-field shape upload writes to `pipeline_config`
+/// after the base row is inserted. Every column on the override path is
+/// listed here so a reader can confirm the profile-to-row mapping in one
+/// place — the Configuration Panel reads exactly these columns when it
+/// renders the post-upload state.
+///
+/// `chunking_config` and `context_config` are deliberately left as
+/// `None`: seeding them with the profile's current values would freeze
+/// a snapshot at upload time, which would *prevent* future profile YAML
+/// edits from flowing through to this document. Leaving the override
+/// NULL means the resolver picks the profile's live map at every
+/// resolve. Operators who want a per-document tweak set them through
+/// PATCH /config.
+///
+/// Factored out of `upload_document` so the column coverage is
+/// unit-testable without spinning up an Axum runtime.
+pub fn overrides_for_upload(profile: &ProcessingProfile) -> PipelineConfigOverrides {
+    PipelineConfigOverrides {
+        profile_name: Some(profile.name.clone()),
+        extraction_model: Some(profile.extraction_model.clone()),
+        pass2_extraction_model: profile.pass2_extraction_model.clone(),
+        pass2_template_file: profile.pass2_template_file.clone(),
+        template_file: Some(profile.template_file.clone()),
+        system_prompt_file: profile.system_prompt_file.clone(),
+        chunking_mode: Some(profile.chunking_mode.clone()),
+        chunk_size: profile.chunk_size,
+        chunk_overlap: profile.chunk_overlap,
+        max_tokens: Some(profile.max_tokens),
+        temperature: Some(profile.temperature),
+        run_pass2: Some(profile.run_pass2),
+        // Bug #8 fix — per-document overridable. Seeded from profile so
+        // the Configuration Panel shows the profile's defaults instead
+        // of compiled fallbacks; operators change via PATCH /config.
+        auto_approve_grounded: Some(profile.auto_approve_grounded),
+        global_rules_file: profile.global_rules_file.clone(),
+        chunking_config: None,
+        context_config: None,
+    }
+}
+
 /// POST /api/admin/pipeline/documents
 ///
 /// Accepts a multipart form with a PDF file and metadata fields.
@@ -187,13 +230,19 @@ pub async fn upload_document(
 
     // Collect all multipart fields into local variables.
     // Fields can arrive in any order, so we parse them all first.
+    //
+    // Bug #6 fix: the multipart `pass1_model` and `pass2_model` fields
+    // are gone. They were upload-time operator overrides that wrote to
+    // dead pipeline_config columns (`pass1_model`/`pass2_model`) the
+    // resolver did not read. Per-upload model selection now flows via
+    // the matched profile; per-document tweaks happen post-upload via
+    // PATCH /config (which writes `extraction_model` — the column the
+    // resolver actually reads).
     let mut file_data: Option<Vec<u8>> = None;
     let mut file_name: Option<String> = None;
     let mut doc_id: Option<String> = None;
     let mut title: Option<String> = None;
     let mut document_type: Option<String> = None;
-    let mut pass1_model: Option<String> = None;
-    let mut pass2_model: Option<String> = None;
     let mut admin_instructions: Option<String> = None;
     let mut profile_version: Option<String> = None;
 
@@ -218,8 +267,6 @@ pub async fn upload_document(
             "id" => doc_id = Some(field_text(&name, field).await?),
             "title" => title = Some(field_text(&name, field).await?),
             "document_type" => document_type = Some(field_text(&name, field).await?),
-            "pass1_model" => pass1_model = Some(field_text(&name, field).await?),
-            "pass2_model" => pass2_model = Some(field_text(&name, field).await?),
             "admin_instructions" => admin_instructions = Some(field_text(&name, field).await?),
             "profile_version" => profile_version = Some(field_text(&name, field).await?),
             _ => { /* ignore unknown fields */ }
@@ -242,6 +289,14 @@ pub async fn upload_document(
     // override columns, avoiding a duplicate disk read.
     let profile =
         resolve_upload_profile(&state.registry, &document_type, profile_version.as_deref())?;
+
+    // Bug #1/#4 fix: validate the profile's cross-references before
+    // writing anything to disk or DB. An invalid `extraction_model`
+    // (model ID not in `llm_models`) used to slip through here and
+    // surface as a `ModelNotFound` at extract time — after the PDF was
+    // already on disk and the row inserted. Validation up front turns
+    // the same failure into a clean 400 before any side effect.
+    validate_profile(&state.pipeline_pool, &state.registry, &profile).await?;
 
     // Schema file — derived exclusively from the processing profile.
     // The profile load above succeeded (we propagated on error), so we
@@ -482,12 +537,10 @@ pub async fn upload_document(
         }
     }
 
-    // Insert pipeline config
+    // Insert pipeline config (base row — no model columns; the matched
+    // profile's model & params are written immediately below via the
+    // override path).
     let config_input = PipelineConfigInput {
-        pass1_model,
-        pass2_model,
-        pass1_max_tokens: None,
-        pass2_max_tokens: None,
         schema_file,
         admin_instructions,
         prior_context_doc_ids: None,
@@ -511,30 +564,7 @@ pub async fn upload_document(
     // the previous `if let Some(...)` guard against the silent-fallback
     // None case is dead code after defect #2.1's fix.
     {
-        let overrides = PipelineConfigOverrides {
-            profile_name: Some(profile.name.clone()),
-            extraction_model: Some(profile.extraction_model.clone()),
-            pass2_extraction_model: profile.pass2_extraction_model.clone(),
-            pass2_template_file: profile.pass2_template_file.clone(),
-            template_file: Some(profile.template_file.clone()),
-            system_prompt_file: profile.system_prompt_file.clone(),
-            chunking_mode: Some(profile.chunking_mode.clone()),
-            chunk_size: profile.chunk_size,
-            chunk_overlap: profile.chunk_overlap,
-            max_tokens: Some(profile.max_tokens),
-            temperature: Some(profile.temperature),
-            run_pass2: Some(profile.run_pass2),
-            // Leave `chunking_config` and `context_config` as None at
-            // upload time so the document inherits live from the
-            // profile at resolve time. Seeding with the profile's
-            // current values would freeze a snapshot here, which
-            // would *prevent* future profile YAML edits from
-            // affecting this document — confusing semantics.
-            // The PATCH /config endpoint is the per-document
-            // override path operators use to deviate from the profile.
-            chunking_config: None,
-            context_config: None,
-        };
+        let overrides = overrides_for_upload(&profile);
         if let Err(e) = pipeline_repository::patch_pipeline_config_overrides(
             &state.pipeline_pool,
             &doc_id,
@@ -740,6 +770,111 @@ mod tests {
 
         assert_eq!(profile.schema_file, "default_schema.yaml");
         assert_eq!(profile.template_file, "default_template.md");
+    }
+
+    /// Bug audit follow-ups: every column on `pipeline_config` that
+    /// the upload populates must come from the matched profile. Pin
+    /// down the mapping so a future field addition (or removal) that
+    /// drops the column from the override map is caught here, not in
+    /// production when the Configuration Panel suddenly shows
+    /// compiled fallbacks.
+    #[test]
+    fn test_pipeline_config_populated_from_profile() {
+        let yaml = r#"
+name: full_profile
+display_name: Full
+schema_file: full.yaml
+template_file: full_pass1.md
+pass2_template_file: full_pass2.md
+system_prompt_file: full_sys.md
+global_rules_file: rules.md
+extraction_model: claude-sonnet-4-6
+pass2_extraction_model: claude-opus-4-6
+chunking_mode: structured
+chunk_size: 7000
+chunk_overlap: 400
+max_tokens: 31000
+temperature: 0.5
+auto_approve_grounded: false
+run_pass2: true
+version: "5.1"
+pipeline_type: case_structuring
+"#;
+        let profile = ProcessingProfile::from_yaml_str(yaml).expect("parses");
+        let o = super::overrides_for_upload(&profile);
+
+        assert_eq!(o.profile_name.as_deref(), Some("full_profile"));
+        assert_eq!(o.extraction_model.as_deref(), Some("claude-sonnet-4-6"));
+        assert_eq!(
+            o.pass2_extraction_model.as_deref(),
+            Some("claude-opus-4-6")
+        );
+        assert_eq!(o.template_file.as_deref(), Some("full_pass1.md"));
+        assert_eq!(o.pass2_template_file.as_deref(), Some("full_pass2.md"));
+        assert_eq!(o.system_prompt_file.as_deref(), Some("full_sys.md"));
+        assert_eq!(o.global_rules_file.as_deref(), Some("rules.md"));
+        assert_eq!(o.chunking_mode.as_deref(), Some("structured"));
+        assert_eq!(o.chunk_size, Some(7000));
+        assert_eq!(o.chunk_overlap, Some(400));
+        assert_eq!(o.max_tokens, Some(31000));
+        assert_eq!(o.temperature, Some(0.5));
+        assert_eq!(o.run_pass2, Some(true));
+        assert_eq!(o.auto_approve_grounded, Some(false));
+        // chunking_config/context_config intentionally None so the
+        // document inherits live from the profile at resolve time.
+        assert!(o.chunking_config.is_none());
+        assert!(o.context_config.is_none());
+    }
+
+    /// Bug-fix anchor: after upload, the resolved config the runtime
+    /// will use matches the profile's values for every field that's
+    /// not specifically overridden. Round-trip:
+    ///   profile → upload-time overrides → resolve_config → resolved
+    /// must equal the profile's intent.
+    #[test]
+    fn test_resolved_config_matches_pipeline_config() {
+        use crate::pipeline::config::resolve_config;
+        let yaml = r#"
+name: roundtrip
+display_name: Roundtrip
+schema_file: rt.yaml
+template_file: rt_pass1.md
+pass2_template_file: rt_pass2.md
+system_prompt_file: rt_sys.md
+global_rules_file: rt_rules.md
+extraction_model: claude-sonnet-4-6
+pass2_extraction_model: claude-opus-4-6
+chunking_mode: full
+chunk_size: 8000
+chunk_overlap: 500
+max_tokens: 32000
+temperature: 0.0
+auto_approve_grounded: true
+run_pass2: true
+version: "1.0"
+pipeline_type: evidence_anchoring
+"#;
+        let profile = ProcessingProfile::from_yaml_str(yaml).expect("parses");
+        let overrides = super::overrides_for_upload(&profile);
+        let resolved = resolve_config(&profile, &overrides);
+
+        assert_eq!(resolved.profile_name, profile.name);
+        assert_eq!(resolved.model, profile.extraction_model);
+        assert_eq!(resolved.pass2_model, profile.pass2_extraction_model);
+        assert_eq!(resolved.template_file, profile.template_file);
+        assert_eq!(resolved.pass2_template_file, profile.pass2_template_file);
+        assert_eq!(resolved.system_prompt_file, profile.system_prompt_file);
+        assert_eq!(resolved.global_rules_file, profile.global_rules_file);
+        assert_eq!(resolved.schema_file, profile.schema_file);
+        assert_eq!(resolved.chunking_mode, profile.chunking_mode);
+        assert_eq!(resolved.chunk_size, profile.chunk_size);
+        assert_eq!(resolved.chunk_overlap, profile.chunk_overlap);
+        assert_eq!(resolved.max_tokens, profile.max_tokens);
+        assert_eq!(resolved.temperature, profile.temperature);
+        assert_eq!(resolved.run_pass2, profile.run_pass2);
+        assert_eq!(resolved.auto_approve_grounded, profile.auto_approve_grounded);
+        assert_eq!(resolved.version, profile.version);
+        assert_eq!(resolved.pipeline_type, profile.pipeline_type);
     }
 
     /// If the registry has no default entry AND the document_type

@@ -16,6 +16,7 @@ import {
   buildPatchInput,
   diffConfigFromProfile,
   diffMapFromProfile,
+  invalidModelFallbackOption,
   isMapKeyModified,
   mergeOverridesIntoResolved,
   Overrides,
@@ -373,6 +374,57 @@ describe("mergeOverridesIntoResolved", () => {
     const overrides = {} as Overrides; // empty — no schema_file path
     const out = mergeOverridesIntoResolved(resolved, overrides);
     expect(out.schema_file).toBe("complaint_v5.yaml");
+  });
+});
+
+// ── Bug #2: invalid-model-ID dropdown visibility ──────────────────────
+//
+// `invalidModelFallbackOption` is the helper the Pass-1 and Pass-2
+// model dropdowns call to decide whether to render an extra disabled
+// option for an effective model ID that isn't in the active list.
+// Without it, the browser silently picks the alphabetically-first
+// option as the visible selection — hiding the invalid stored value.
+
+describe("invalidModelFallbackOption — Bug #2 (dropdown invalid-ID visibility)", () => {
+  const activeModels = [
+    { id: "claude-sonnet-4-6" },
+    { id: "claude-opus-4-6" },
+  ];
+
+  it("returns null when the effective model is in the active list", () => {
+    // Bug #2 anchor: matching IDs need no fallback.
+    expect(
+      invalidModelFallbackOption("claude-sonnet-4-6", activeModels),
+    ).toBeNull();
+  });
+
+  it("returns a labeled fallback when the effective model is missing", () => {
+    // test_dropdown_displays_invalid_model_id_visibly — when the
+    // stored model isn't in llm_models, the helper instructs the
+    // dropdown to render a disabled option containing the invalid
+    // value plus an explanatory suffix.
+    const fallback = invalidModelFallbackOption(
+      "claude-sonnet-4-20250514",
+      activeModels,
+    );
+    expect(fallback).not.toBeNull();
+    expect(fallback?.value).toBe("claude-sonnet-4-20250514");
+    expect(fallback?.label).toContain("claude-sonnet-4-20250514");
+    expect(fallback?.label).toContain("not in llm_models");
+  });
+
+  it("returns null when no effective model is set", () => {
+    expect(invalidModelFallbackOption(undefined, activeModels)).toBeNull();
+    expect(invalidModelFallbackOption(null, activeModels)).toBeNull();
+    expect(invalidModelFallbackOption("", activeModels)).toBeNull();
+  });
+
+  it("returns the fallback even when the active list is empty", () => {
+    // Defensive: if listModels() failed (e.g. DB hiccup at panel
+    // mount), the helper still surfaces the stored ID so the operator
+    // isn't shown a misleading default.
+    const fallback = invalidModelFallbackOption("any-id", []);
+    expect(fallback?.value).toBe("any-id");
   });
 });
 

@@ -12,16 +12,12 @@ use serde::Serialize;
 use crate::auth::{require_admin, AuthUser};
 use crate::error::AppError;
 use crate::pipeline::config::ProcessingProfile;
-use crate::repositories::pipeline_repository::models;
+use crate::pipeline::validation::validate_profile;
 use crate::state::AppState;
 
 /// File-extension constants for profile YAML files.
 const PROFILE_EXT: &str = "yaml";
 const INACTIVE_EXT: &str = "yaml.inactive";
-
-/// Chunking modes accepted in a `ProcessingProfile.chunking_mode`.
-/// Mirrors the dispatch in `backend/src/pipeline/steps/llm_extract.rs`.
-const ALLOWED_CHUNKING_MODES: &[&str] = &["full", "chunked"];
 
 #[derive(Debug, Serialize)]
 pub struct ProfilesResponse {
@@ -61,66 +57,17 @@ fn profile_path(dir: &str, name: &str, ext: &str) -> std::path::PathBuf {
 
 /// Validate a profile's cross-references before writing it to disk.
 ///
-/// - `chunking_mode` must be in [`ALLOWED_CHUNKING_MODES`]
-/// - `extraction_model` must exist in `llm_models` AND be active
-/// - `schema_file` must exist under `extraction_schema_dir`
-/// - `template_file` must exist under `extraction_template_dir`
-///
-/// Returns `BadRequest` for any violation with a `details.field` pointing
-/// the admin UI at the offending input.
+/// Bug #4 fix — used to omit `pass2_extraction_model`,
+/// `pass2_template_file`, `system_prompt_file`, and `global_rules_file`
+/// from the check. All cross-reference validation now lives in
+/// [`crate::pipeline::validation::validate_profile`], shared with the
+/// upload and PATCH paths so every entry point catches the same
+/// inconsistencies with the same error format.
 async fn validate_profile_references(
     state: &AppState,
     profile: &ProcessingProfile,
 ) -> Result<(), AppError> {
-    if !ALLOWED_CHUNKING_MODES.contains(&profile.chunking_mode.as_str()) {
-        return Err(AppError::BadRequest {
-            message: format!(
-                "Invalid chunking_mode '{}' — expected one of: {}",
-                profile.chunking_mode,
-                ALLOWED_CHUNKING_MODES.join(", ")
-            ),
-            details: serde_json::json!({"field": "chunking_mode"}),
-        });
-    }
-
-    let model = models::get_active_model_by_id(&state.pipeline_pool, &profile.extraction_model)
-        .await
-        .map_err(|e| AppError::Internal {
-            message: format!("Failed to look up model: {e}"),
-        })?;
-    if model.is_none() {
-        return Err(AppError::BadRequest {
-            message: format!(
-                "extraction_model '{}' not found or inactive in llm_models",
-                profile.extraction_model
-            ),
-            details: serde_json::json!({"field": "extraction_model"}),
-        });
-    }
-
-    let schema_path = state.registry.schema_path(&profile.schema_file);
-    if !tokio::fs::try_exists(&schema_path).await.unwrap_or(false) {
-        return Err(AppError::BadRequest {
-            message: format!(
-                "schema_file '{}' not found in extraction_schema_dir",
-                profile.schema_file
-            ),
-            details: serde_json::json!({"field": "schema_file"}),
-        });
-    }
-
-    let template_path = state.registry.template_path(&profile.template_file);
-    if !tokio::fs::try_exists(&template_path).await.unwrap_or(false) {
-        return Err(AppError::BadRequest {
-            message: format!(
-                "template_file '{}' not found in extraction_template_dir",
-                profile.template_file
-            ),
-            details: serde_json::json!({"field": "template_file"}),
-        });
-    }
-
-    Ok(())
+    validate_profile(&state.pipeline_pool, &state.registry, profile).await
 }
 
 /// GET /api/admin/pipeline/profiles — list every active profile.

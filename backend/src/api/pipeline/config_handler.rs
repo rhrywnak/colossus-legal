@@ -19,6 +19,7 @@ use crate::error::AppError;
 use crate::pipeline::config::{
     resolve_config, PipelineConfigOverrides, ProcessingProfile, ResolvedConfig,
 };
+use crate::pipeline::validation::validate_overrides;
 use crate::repositories::pipeline_repository::{self, PipelineRepoError};
 use crate::state::AppState;
 
@@ -81,6 +82,14 @@ pub struct PatchConfigInput {
     pub temperature: Option<f64>,
     #[serde(default)]
     pub run_pass2: Option<bool>,
+    /// Per-document `auto_approve_grounded` override (bug #8 fix).
+    /// `None` = "use profile default."
+    #[serde(default)]
+    pub auto_approve_grounded: Option<bool>,
+    /// Per-document `global_rules_file` override (bug #8 fix).
+    /// `None` = "use profile default."
+    #[serde(default)]
+    pub global_rules_file: Option<String>,
     /// Per-document `chunking_config` override — merged on top of the
     /// profile's map at the *key level* by `resolve_config`. `None`
     /// means "no override; use the profile's map verbatim." See
@@ -112,6 +121,8 @@ impl From<PatchConfigInput> for PipelineConfigOverrides {
             max_tokens: input.max_tokens,
             temperature: input.temperature,
             run_pass2: input.run_pass2,
+            auto_approve_grounded: input.auto_approve_grounded,
+            global_rules_file: input.global_rules_file,
             chunking_config: input.chunking_config,
             context_config: input.context_config,
         }
@@ -164,6 +175,8 @@ pub async fn get_config_handler(
         max_tokens: overrides.max_tokens,
         temperature: overrides.temperature,
         run_pass2: overrides.run_pass2,
+        auto_approve_grounded: overrides.auto_approve_grounded,
+        global_rules_file: overrides.global_rules_file,
         chunking_config: overrides.chunking_config,
         context_config: overrides.context_config,
         schema_file: Some(base_config.schema_file),
@@ -183,6 +196,13 @@ pub async fn patch_config_handler(
     require_admin(&user)?;
 
     let overrides: PipelineConfigOverrides = input.into();
+
+    // Bug #5 fix: validate operator-supplied overrides BEFORE writing.
+    // Without this, an invalid extraction_model could land in
+    // pipeline_config and surface as a runtime ModelNotFound at extract
+    // time. The validator only inspects fields the PATCH supplied; it
+    // does not re-validate the underlying profile.
+    validate_overrides(&state.pipeline_pool, &state.registry, &overrides).await?;
 
     pipeline_repository::patch_pipeline_config_overrides(&state.pipeline_pool, &doc_id, &overrides)
         .await

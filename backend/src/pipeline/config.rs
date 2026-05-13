@@ -25,7 +25,12 @@ use std::path::Path;
 /// format, filesystem is the runtime store. Our backend runs on a
 /// persistent VM with mounted storage. Editing a YAML file takes effect
 /// immediately — no migration, no restart, no container rebuild.
+/// `#[serde(deny_unknown_fields)]` — typos in profile YAMLs become loud
+/// errors at load time instead of silent drops. Every profile YAML on
+/// disk has been audited to contain only fields named below; any future
+/// unknown key fails fast with a parse error naming the offending key.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProcessingProfile {
     pub name: String,
     pub display_name: String,
@@ -166,6 +171,16 @@ pub struct ProcessingProfile {
 
     #[serde(default)]
     pub is_default: bool,
+
+    /// Pipeline-type tag — e.g. `case_structuring` or `evidence_anchoring`.
+    /// Profile-level only (no per-document override path); flows through
+    /// `resolve_config` into [`ResolvedConfig::pipeline_type`] so the
+    /// audit trail records which pipeline a document was processed by.
+    /// `#[serde(default)]` so profiles that omit the field deserialise as
+    /// `None`; the runtime does not branch on it today, but downstream
+    /// ingest mappers may.
+    #[serde(default)]
+    pub pipeline_type: Option<String>,
 
     /// SHA-256 of the YAML body as it was on disk at load time.
     ///
@@ -390,6 +405,21 @@ pub struct CrossDocContextRecord {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResolvedConfig {
     pub profile_name: String,
+    /// Human-readable profile version (e.g. `"5.1"`). Display-only.
+    /// Copied from [`ProcessingProfile::version`] in `resolve_config`
+    /// — `profile_hash` is the canonical fingerprint for audit; this
+    /// field exists so an operator skimming the audit trail can
+    /// recognise a version without decoding a SHA-256. Empty string
+    /// when the profile YAML omits the field.
+    #[serde(default)]
+    pub version: String,
+    /// Pipeline-type tag — `case_structuring`, `evidence_anchoring`,
+    /// or `None` for profiles that predate the field. Copied from
+    /// [`ProcessingProfile::pipeline_type`] in `resolve_config`. Flows
+    /// into the JSONB audit snapshot so a reader can answer "which
+    /// pipeline produced this row?" without re-reading the profile.
+    #[serde(default)]
+    pub pipeline_type: Option<String>,
     /// SHA-256 of the YAML body the resolver saw at load time. Copied
     /// from [`ProcessingProfile::profile_hash`] in `resolve_config`.
     /// Two runs against the same `profile_name` but a content-edited
@@ -515,6 +545,18 @@ pub struct PipelineConfigOverrides {
     pub max_tokens: Option<i32>,
     pub temperature: Option<f64>,
     pub run_pass2: Option<bool>,
+    /// Per-document `auto_approve_grounded` override. `None` means
+    /// "use the profile default." Populated from the
+    /// `auto_approve_grounded` column on `pipeline_config` (added in
+    /// migration 20260513_consolidate_model_columns_and_add_overrides.sql).
+    /// Bug #8 fix — until that migration every other config knob had a
+    /// per-document override path and this one didn't.
+    pub auto_approve_grounded: Option<bool>,
+    /// Per-document `global_rules_file` override. `None` means "use the
+    /// profile default." Populated from the `global_rules_file` column
+    /// on `pipeline_config` (added in migration
+    /// 20260513_consolidate_model_columns_and_add_overrides.sql).
+    pub global_rules_file: Option<String>,
     /// Per-document chunking config override — merged on top of the
     /// profile's `chunking_config` at the *key level*.
     ///
@@ -733,6 +775,24 @@ pub fn resolve_config(
         None => profile.run_pass2,
     };
 
+    // Bug #8 fix: auto_approve_grounded is now per-document overridable.
+    let auto_approve_grounded = match overrides.auto_approve_grounded {
+        Some(v) => {
+            applied.push("auto_approve_grounded".to_string());
+            v
+        }
+        None => profile.auto_approve_grounded,
+    };
+
+    // Bug #8 fix: global_rules_file is now per-document overridable.
+    let global_rules_file = match &overrides.global_rules_file {
+        Some(v) => {
+            applied.push("global_rules_file".to_string());
+            Some(v.clone())
+        }
+        None => profile.global_rules_file.clone(),
+    };
+
     // ## Rust Learning: `HashMap::extend()` is upsert
     //
     // `extend()` walks an iterator of `(K, V)` pairs and inserts each
@@ -762,6 +822,11 @@ pub fn resolve_config(
             .profile_name
             .clone()
             .unwrap_or_else(|| profile.name.clone()),
+        // The profile-level version tag and pipeline_type tag flow
+        // straight through. Per-document overrides cannot change them —
+        // they describe the profile, not the document. Bug #7/#11 fix.
+        version: profile.version.clone(),
+        pipeline_type: profile.pipeline_type.clone(),
         // The profile YAML body's hash flows straight through. Per-document
         // overrides cannot change it — the YAML body is the YAML body.
         profile_hash: profile.profile_hash.clone(),
@@ -777,10 +842,10 @@ pub fn resolve_config(
         pass2_template_file,
         system_prompt_file,
         system_prompt_hash: None, // Set at runtime after loading the file
-        // Global rules are profile-level only — no per-document override path.
-        // Operators change them by editing the profile YAML; per-document
-        // tweaking didn't seem worth the override-column surface area.
-        global_rules_file: profile.global_rules_file.clone(),
+        // Bug #8 fix: global_rules_file is now per-document overridable.
+        // Override → profile fallback resolved above, parallel to every
+        // other config knob.
+        global_rules_file,
         // Filled at runtime by the extraction step after loading the rules
         // file (parallel to `template_hash` and `system_prompt_hash`).
         global_rules_hash: None,
@@ -792,7 +857,8 @@ pub fn resolve_config(
         context_config,
         max_tokens,
         temperature,
-        auto_approve_grounded: profile.auto_approve_grounded,
+        // Bug #8 fix: per-document overridable; falls back to profile.
+        auto_approve_grounded,
         run_pass2,
         overrides_applied: applied,
         // Empty by default. Pass-2 fills these in via SnapshotRuntimeFields
@@ -1001,6 +1067,7 @@ extraction_model: claude-sonnet-4-6
             is_default: false,
             profile_hash: String::new(),
             version: String::new(),
+            pipeline_type: None,
         };
         let overrides = PipelineConfigOverrides::default();
         let resolved = resolve_config(&profile, &overrides);
@@ -1042,6 +1109,7 @@ extraction_model: claude-sonnet-4-6
             is_default: false,
             profile_hash: String::new(),
             version: String::new(),
+            pipeline_type: None,
         };
         let overrides = PipelineConfigOverrides::default();
         let resolved = resolve_config(&profile, &overrides);
@@ -1099,6 +1167,7 @@ extraction_model: claude-sonnet-4-6
             is_default: false,
             profile_hash: String::new(),
             version: String::new(),
+            pipeline_type: None,
         };
         let overrides = PipelineConfigOverrides::default();
         let resolved = resolve_config(&profile, &overrides);
@@ -1291,6 +1360,7 @@ extraction_model: claude-sonnet-4-6
             is_default: false,
             profile_hash: String::new(),
             version: String::new(),
+            pipeline_type: None,
         };
         let overrides = PipelineConfigOverrides {
             template_file: Some("custom_template.md".into()),
@@ -1347,6 +1417,7 @@ extraction_model: claude-sonnet-4-6
             is_default: false,
             profile_hash: String::new(),
             version: String::new(),
+            pipeline_type: None,
         };
         let overrides = PipelineConfigOverrides::default();
         let resolved = resolve_config(&profile, &overrides);
@@ -1409,6 +1480,7 @@ extraction_model: claude-sonnet-4-6
             is_default: false,
             profile_hash: String::new(),
             version: String::new(),
+            pipeline_type: None,
         };
 
         // Per-document override changes units_per_chunk but NOT mode or strategy
@@ -1671,6 +1743,7 @@ extraction_model: claude-sonnet-4-6
             is_default: false,
             profile_hash: String::new(),
             version: String::new(),
+            pipeline_type: None,
         }
     }
 
@@ -1796,5 +1869,146 @@ extraction_model: claude-sonnet-4-6
             "matching-value override must not be recorded; got: {:?}",
             resolved.overrides_applied
         );
+    }
+
+    // ── Bug-fix coverage ──────────────────────────────────────────────
+    //
+    // These pin down the audit-report fix expectations. Each test
+    // anchors a specific bug by number so a future reader can trace
+    // back to the audit doc.
+
+    /// Bug #7: `pipeline_type` flows from profile → resolved view.
+    #[test]
+    fn test_pipeline_type_flows_to_resolved_config() {
+        let yaml = r#"
+name: case_struct
+display_name: Case Structuring
+schema_file: s.yaml
+template_file: t.md
+extraction_model: claude-sonnet-4-6
+pipeline_type: case_structuring
+"#;
+        let profile = ProcessingProfile::from_yaml_str(yaml).expect("parses");
+        let resolved = resolve_config(&profile, &PipelineConfigOverrides::default());
+        assert_eq!(resolved.pipeline_type.as_deref(), Some("case_structuring"));
+    }
+
+    /// Bug #11: profile `version` flows into the resolved audit view
+    /// (display-only, alongside the canonical `profile_hash`).
+    #[test]
+    fn test_version_appears_in_resolved_config() {
+        let yaml = r#"
+name: t
+display_name: T
+schema_file: s.yaml
+template_file: t.md
+extraction_model: claude-sonnet-4-6
+version: "5.1"
+"#;
+        let profile = ProcessingProfile::from_yaml_str(yaml).expect("parses");
+        let resolved = resolve_config(&profile, &PipelineConfigOverrides::default());
+        assert_eq!(resolved.version, "5.1");
+    }
+
+    /// Bug #8: per-document override on `auto_approve_grounded` is
+    /// honored over the profile default and is recorded in
+    /// `overrides_applied` for the audit trail.
+    #[test]
+    fn test_auto_approve_overridable_per_document() {
+        let yaml = r#"
+name: t
+display_name: T
+schema_file: s.yaml
+template_file: t.md
+extraction_model: claude-sonnet-4-6
+auto_approve_grounded: true
+"#;
+        let profile = ProcessingProfile::from_yaml_str(yaml).expect("parses");
+        let overrides = PipelineConfigOverrides {
+            auto_approve_grounded: Some(false),
+            ..Default::default()
+        };
+        let resolved = resolve_config(&profile, &overrides);
+        assert!(
+            !resolved.auto_approve_grounded,
+            "override must override the profile default"
+        );
+        assert!(
+            resolved
+                .overrides_applied
+                .contains(&"auto_approve_grounded".to_string()),
+            "override must be recorded in audit trail; got: {:?}",
+            resolved.overrides_applied
+        );
+    }
+
+    /// Bug #8: per-document override on `global_rules_file` wins over
+    /// the profile default and is audit-logged.
+    #[test]
+    fn test_global_rules_overridable_per_document() {
+        let yaml = r#"
+name: t
+display_name: T
+schema_file: s.yaml
+template_file: t.md
+extraction_model: claude-sonnet-4-6
+global_rules_file: profile_rules.md
+"#;
+        let profile = ProcessingProfile::from_yaml_str(yaml).expect("parses");
+        let overrides = PipelineConfigOverrides {
+            global_rules_file: Some("override_rules.md".into()),
+            ..Default::default()
+        };
+        let resolved = resolve_config(&profile, &overrides);
+        assert_eq!(
+            resolved.global_rules_file.as_deref(),
+            Some("override_rules.md")
+        );
+        assert!(
+            resolved
+                .overrides_applied
+                .contains(&"global_rules_file".to_string()),
+            "override must be recorded in audit trail; got: {:?}",
+            resolved.overrides_applied
+        );
+    }
+
+    /// Bug #9: `#[serde(deny_unknown_fields)]` on `ProcessingProfile`
+    /// turns a YAML typo into a loud parse failure naming the bad key.
+    /// Before this attribute the system silently dropped the field —
+    /// the immediate precedent was `pipeline_type` being typo-prone
+    /// and unused for the entire registry rollout.
+    #[test]
+    fn test_deny_unknown_fields_rejects_typo_key() {
+        let yaml = r#"
+name: t
+display_name: T
+schema_file: s.yaml
+template_file: t.md
+extraction_model: claude-sonnet-4-6
+chunking_mod: full
+"#;
+        let result = ProcessingProfile::from_yaml_str(yaml);
+        let err = result.expect_err("typo'd key must fail to parse");
+        assert!(
+            err.contains("chunking_mod"),
+            "error must name the offending key; got: {err}"
+        );
+    }
+
+    /// Bug #7: a missing `pipeline_type` field deserialises to `None`
+    /// thanks to `#[serde(default)]`. Defensive against the deny_unknown_fields
+    /// addition — legacy profiles that predate the field still parse.
+    #[test]
+    fn test_pipeline_type_absent_deserializes_as_none() {
+        let yaml = r#"
+name: t
+display_name: T
+schema_file: s.yaml
+template_file: t.md
+extraction_model: claude-sonnet-4-6
+"#;
+        let profile = ProcessingProfile::from_yaml_str(yaml).expect("parses");
+        assert!(profile.pipeline_type.is_none());
     }
 }

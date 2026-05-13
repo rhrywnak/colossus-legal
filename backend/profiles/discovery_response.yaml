@@ -1,37 +1,47 @@
-# Profile: Discovery Response v5.1
+# Processing profile for the evidence-anchoring pipeline — Discovery Response (v5.1)
 #
-# Evidence-anchoring pipeline profile for sworn interrogatory responses
-# and requests for admission. Uses Claude Sonnet for Pass 1 (entity
-# extraction) and Claude Opus for Pass 2 (relationship reasoning).
+# Sworn interrogatory responses and requests for admission.
+# Each Q&A pair is a sworn statement by the responding party.
+# Admissions are binding. Evasive responses are evidence of concealment.
 #
-# Naming convention: discovery_response_v5_1.yaml
-# Referenced by: upload.rs profile_name_for_document_type()
+# v5.1: schema, pass1, and pass2 templates all at v5.1.
+# Structured chunking with qa_pair strategy for scanned documents.
+# Cross-document context required for CORROBORATES relationships.
 
 name: discovery_response
 display_name: "Discovery Response (v5.1)"
-description: "Sworn interrogatory responses and requests for admission — evidence-anchoring pipeline"
+document_type: discovery_response
+description: >
+  Sworn interrogatory responses and requests for admission —
+  evidence-anchoring pipeline. Each Q&A pair becomes a sworn Evidence entity.
 
-# Schema
 schema_file: discovery_response_schema_v5_1.yaml
 
-# Pass 1 — Entity extraction
 template_file: discovery_response_pass1_v5_1.md
-extraction_model: claude-sonnet-4-20250514
-
-# Pass 2 — Relationship extraction
-run_pass2: true
+global_rules_file: global_rules_v4.md
 pass2_template_file: discovery_response_pass2_v5_1.md
-pass2_extraction_model: claude-opus-4-20250115
+system_prompt_file: legal_extraction_system.md
 
-# Processing mode — full document (no chunking)
-# Discovery responses are typically 25-40 pages of Q&A pairs.
-# Full-document processing preserves cross-reference context
-# ("see prior interrogatory") that chunking would break.
-chunking_mode: full
+extraction_model: claude-sonnet-4-6
+pass2_extraction_model: claude-opus-4-6
 
-# LLM parameters
+chunking_mode: structured
+chunk_size: 8000
+chunk_overlap: 500
+
 max_tokens: 32000
 temperature: 0.0
 
-# Auto-approve entities that pass grounding verification
 auto_approve_grounded: true
+run_pass2: true
+
+is_default: true
+
+chunking_config:
+  mode: structured
+  strategy: qa_pair
+  units_per_chunk: 10
+  unit_overlap: 1
+  request_timeout_secs: 1800
+
+pipeline_type: evidence_anchoring

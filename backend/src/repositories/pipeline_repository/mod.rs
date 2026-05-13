@@ -67,12 +67,16 @@ impl From<sqlx::Error> for PipelineRepoError {
 // ── Types ────────────────────────────────────────────────────────
 
 /// Input for creating pipeline configuration (from the upload request).
+///
+/// Bug #6 fix: the legacy `pass1_model`/`pass2_model`/`pass1_max_tokens`/
+/// `pass2_max_tokens` fields are gone. The resolver reads
+/// `extraction_model` / `pass2_extraction_model` / `max_tokens` from the
+/// override columns; the legacy columns were dead from the read side.
+/// Migration 20260513_consolidate_model_columns_and_add_overrides.sql
+/// drops them. All model/max-token selection now flows through the
+/// profile → override path written by `patch_pipeline_config_overrides`.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PipelineConfigInput {
-    pub pass1_model: Option<String>,
-    pub pass2_model: Option<String>,
-    pub pass1_max_tokens: Option<i32>,
-    pub pass2_max_tokens: Option<i32>,
     pub schema_file: String,
     pub admin_instructions: Option<String>,
     pub prior_context_doc_ids: Option<Vec<String>>,
@@ -170,13 +174,16 @@ pub struct DocumentTextRecord {
 }
 
 /// A pipeline_config record from the database.
+///
+/// Bug #6 fix: the legacy `pass1_model`/`pass2_model`/`pass1_max_tokens`/
+/// `pass2_max_tokens` fields are gone — the columns were dropped by
+/// migration 20260513_consolidate_model_columns_and_add_overrides.sql.
+/// Resolved model selection comes from the override columns
+/// (`extraction_model`, `pass2_extraction_model`, `max_tokens`) read via
+/// `get_pipeline_config_overrides`.
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct PipelineConfigRecord {
     pub document_id: String,
-    pub pass1_model: String,
-    pub pass2_model: Option<String>,
-    pub pass1_max_tokens: i32,
-    pub pass2_max_tokens: Option<i32>,
     pub schema_file: String,
     pub admin_instructions: Option<String>,
     pub prior_context_doc_ids: Option<Vec<String>>,
@@ -229,6 +236,12 @@ pub async fn insert_document(
 }
 
 /// Insert pipeline configuration for a document.
+///
+/// Bug #6/#10 fix: no model column is written here. The hardcoded SQL
+/// COALESCE default `'claude-sonnet-4-6'` is gone — model resolution
+/// runs entirely through the profile → override path written by
+/// `patch_pipeline_config_overrides` immediately after upload. There is
+/// no hardcoded model name anywhere in this codebase post-fix.
 pub async fn insert_pipeline_config(
     pool: &PgPool,
     document_id: &str,
@@ -237,16 +250,10 @@ pub async fn insert_pipeline_config(
 ) -> Result<(), PipelineRepoError> {
     sqlx::query(
         r#"INSERT INTO pipeline_config
-           (document_id, pass1_model, pass2_model, pass1_max_tokens, pass2_max_tokens,
-            schema_file, admin_instructions, prior_context_doc_ids, created_by)
-           VALUES ($1, COALESCE($2, 'claude-sonnet-4-6'), $3,
-                   COALESCE($4, 32000), $5, $6, $7, $8, $9)"#,
+           (document_id, schema_file, admin_instructions, prior_context_doc_ids, created_by)
+           VALUES ($1, $2, $3, $4, $5)"#,
     )
     .bind(document_id)
-    .bind(&config.pass1_model)
-    .bind(&config.pass2_model)
-    .bind(config.pass1_max_tokens)
-    .bind(config.pass2_max_tokens)
     .bind(&config.schema_file)
     .bind(&config.admin_instructions)
     .bind(&config.prior_context_doc_ids)
@@ -465,8 +472,8 @@ pub async fn get_pipeline_config(
     document_id: &str,
 ) -> Result<Option<PipelineConfigRecord>, PipelineRepoError> {
     let row = sqlx::query_as::<_, PipelineConfigRecord>(
-        "SELECT document_id, pass1_model, pass2_model, pass1_max_tokens, pass2_max_tokens,
-                schema_file, admin_instructions, prior_context_doc_ids, created_by, created_at
+        "SELECT document_id, schema_file, admin_instructions,
+                prior_context_doc_ids, created_by, created_at
          FROM pipeline_config WHERE document_id = $1",
     )
     .bind(document_id)
@@ -494,6 +501,10 @@ struct PipelineConfigOverridesRow {
     max_tokens: Option<i32>,
     temperature: Option<f64>,
     run_pass2: Option<bool>,
+    /// Bug #8 fix — per-document overrides for fields that were
+    /// previously profile-only. NULL = "no override; inherit from profile."
+    auto_approve_grounded: Option<bool>,
+    global_rules_file: Option<String>,
     /// Raw JSONB from the new override columns. We deliberately stay
     /// at `serde_json::Value` here (rather than `Json<HashMap<...>>`)
     /// so the converter can attach the document_id to a typed
@@ -522,6 +533,7 @@ pub async fn get_pipeline_config_overrides(
                 pass2_template_file, template_file, system_prompt_file, \
                 chunking_mode, chunk_size, chunk_overlap, max_tokens, \
                 temperature::float8 AS temperature, run_pass2, \
+                auto_approve_grounded, global_rules_file, \
                 chunking_config, context_config \
          FROM pipeline_config WHERE document_id = $1",
     )
@@ -552,6 +564,8 @@ pub async fn get_pipeline_config_overrides(
                 max_tokens: r.max_tokens,
                 temperature: r.temperature,
                 run_pass2: r.run_pass2,
+                auto_approve_grounded: r.auto_approve_grounded,
+                global_rules_file: r.global_rules_file,
                 chunking_config,
                 context_config,
             }
@@ -604,6 +618,8 @@ fn has_any_override(overrides: &PipelineConfigOverrides) -> bool {
         || overrides.max_tokens.is_some()
         || overrides.temperature.is_some()
         || overrides.run_pass2.is_some()
+        || overrides.auto_approve_grounded.is_some()
+        || overrides.global_rules_file.is_some()
         || overrides.chunking_config.is_some()
         || overrides.context_config.is_some()
 }
@@ -709,8 +725,10 @@ pub async fn patch_pipeline_config_overrides(
            max_tokens = COALESCE($11, max_tokens), \
            temperature = COALESCE($12::numeric, temperature), \
            run_pass2 = COALESCE($13, run_pass2), \
-           chunking_config = COALESCE($14, chunking_config), \
-           context_config = COALESCE($15, context_config) \
+           auto_approve_grounded = COALESCE($14, auto_approve_grounded), \
+           global_rules_file = COALESCE($15, global_rules_file), \
+           chunking_config = COALESCE($16, chunking_config), \
+           context_config = COALESCE($17, context_config) \
          WHERE document_id = $1",
     )
     .bind(document_id)
@@ -726,6 +744,8 @@ pub async fn patch_pipeline_config_overrides(
     .bind(overrides.max_tokens)
     .bind(overrides.temperature)
     .bind(overrides.run_pass2)
+    .bind(overrides.auto_approve_grounded)
+    .bind(&overrides.global_rules_file)
     .bind(chunking_config_json)
     .bind(context_config_json)
     .execute(db)
@@ -734,28 +754,6 @@ pub async fn patch_pipeline_config_overrides(
     if result.rows_affected() == 0 {
         return Err(PipelineRepoError::NotFound(document_id.to_string()));
     }
-    Ok(())
-}
-
-/// Update pipeline config with extraction overrides so the next run uses the same settings.
-pub async fn update_pipeline_config(
-    pool: &PgPool,
-    document_id: &str,
-    pass1_model: &str,
-    pass1_max_tokens: i32,
-    schema_file: &str,
-    admin_instructions: Option<&str>,
-) -> Result<(), PipelineRepoError> {
-    sqlx::query(
-        "UPDATE pipeline_config SET pass1_model = $2, pass1_max_tokens = $3, schema_file = $4, admin_instructions = $5 WHERE document_id = $1",
-    )
-    .bind(document_id)
-    .bind(pass1_model)
-    .bind(pass1_max_tokens)
-    .bind(schema_file)
-    .bind(admin_instructions)
-    .execute(pool)
-    .await?;
     Ok(())
 }
 

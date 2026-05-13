@@ -29,6 +29,7 @@ import {
 import {
   buildPatchInput,
   diffConfigFromProfile,
+  invalidModelFallbackOption,
   isMapKeyModified,
   mergeOverridesIntoResolved,
   Overrides,
@@ -889,12 +890,32 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
             Model
             {isModified("extraction_model") && <span style={modifiedBadge}>modified</span>}
           </label>
+          {/*
+           * Bug #2 fix: when the resolved/effective model ID is not in
+           * the active `llm_models` list, the browser would silently
+           * pick the first <option> (alphabetically "Claude Opus 4.6")
+           * as the visible selection — hiding the fact that the stored
+           * value is invalid and will fail at process time.
+           *
+           * Surface the actual stored value as a disabled, red-tinted
+           * option pre-selected so the operator sees the real state.
+           * Mirrors the existing pattern used for the Schema dropdown
+           * (line ~950) for missing schema filenames.
+           */}
           <select
             style={inputStyle}
             aria-label="Pass-1 extraction model"
             value={effective.model}
             onChange={(e) => setOverride("extraction_model", e.target.value)}
           >
+            {(() => {
+              const fb = invalidModelFallbackOption(effective.model, models);
+              return fb ? (
+                <option value={fb.value} disabled style={{ color: "#dc2626" }}>
+                  {fb.label}
+                </option>
+              ) : null;
+            })()}
             {models.map((m) => (
               <option key={m.id} value={m.id}>
                 {m.display_name}
@@ -1039,6 +1060,22 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
                     setOverride("pass2_extraction_model", e.target.value)
                   }
                 >
+                  {(() => {
+                    // Bug #2 fix: surface a Pass-2 model ID that isn't
+                    // in the active list, same pattern as the Pass-1
+                    // dropdown above.
+                    const p2 = effective.pass2_model ?? effective.model;
+                    const fb = invalidModelFallbackOption(p2, models);
+                    return fb ? (
+                      <option
+                        value={fb.value}
+                        disabled
+                        style={{ color: "#dc2626" }}
+                      >
+                        {fb.label}
+                      </option>
+                    ) : null;
+                  })()}
                   {models.map((m) => (
                     <option key={m.id} value={m.id}>
                       {m.display_name}

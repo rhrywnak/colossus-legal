@@ -383,3 +383,30 @@ export function mergeOverridesIntoResolved(
     context_config: mergeMap(resolved.context_config, overrides.context_config),
   };
 }
+
+/**
+ * Bug #2 fix: decide whether a model dropdown should render an extra
+ * disabled fallback option for an effective value not present in the
+ * active model list.
+ *
+ * Without this, an `effective.model` that isn't in `models` makes the
+ * native `<select>` silently display the first option as the visible
+ * selection — hiding the fact that the stored value is invalid and
+ * will fail at process time. The dropdown calls this helper to decide
+ * whether to prepend an explicit, disabled, red-tinted fallback
+ * option so the operator sees the real stored value.
+ *
+ * Returns `null` when the value is valid (no extra option needed) or
+ * `{ value, label }` describing the fallback option's text and value.
+ */
+export function invalidModelFallbackOption(
+  effectiveModelId: string | undefined | null,
+  models: { id: string }[],
+): { value: string; label: string } | null {
+  if (!effectiveModelId) return null;
+  if (models.some((m) => m.id === effectiveModelId)) return null;
+  return {
+    value: effectiveModelId,
+    label: `${effectiveModelId} (not in llm_models)`,
+  };
+}

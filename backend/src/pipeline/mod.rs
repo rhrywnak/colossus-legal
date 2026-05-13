@@ -9,3 +9,4 @@ pub mod registry;
 pub mod step_recorder;
 pub mod steps;
 pub mod task;
+pub mod validation;
