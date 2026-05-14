@@ -370,7 +370,22 @@ Repos:
 
 ---
 
-## 11. WHAT NOT TO DO
+## 11. PRE-COMMIT AGENT ENFORCEMENT (MANDATORY)
+
+Before committing ANY code changes, invoke ALL agents in `.claude/agents/`:
+
+1. `Task(rules-enforcer)` — must PASS
+2. `Task(architecture-reviewer)` — must PASS
+3. `Task(test-auditor)` — must PASS
+4. `Task(observability-checker)` — must PASS
+
+If ANY agent returns FAIL, fix every violation before committing.
+Do not skip agents. Do not override agent findings.
+Do not commit with known violations "to fix later."
+
+---
+
+## 12. WHAT NOT TO DO
 
 ❌ Write code before Pre-Coding Analysis is approved
 ❌ Modify files outside the approved list
@@ -392,7 +407,7 @@ Repos:
 
 ---
 
-## 12. IF SOMETHING GOES WRONG
+## 13. IF SOMETHING GOES WRONG
 
 **STOP all edits.** Report the issue. Read-only operations only until Roman responds.
 
@@ -403,7 +418,7 @@ Specifically:
 
 ---
 
-## 13. THE LAYER SYSTEM
+## 14. THE LAYER SYSTEM
 
 For multi-step features, work in layers. Never skip a layer.
 
