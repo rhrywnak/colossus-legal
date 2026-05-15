@@ -295,16 +295,175 @@ pub trait ExtractionEngine: Send + Sync + 'static {
     }
 }
 
+// ─────────────────────────────────────────────────────────────────
+//
+// `EmbeddingEngine` and its error type live in the same module as
+// `ExtractionEngine` because they are companion abstractions over
+// the same domain (one wraps LLM completion, the other wraps text
+// embedding). Splitting them into separate modules would invite
+// drift — they share doc-comment cross-references, share the same
+// `Send + Sync + 'static` rationale, and share the same `Box<dyn
+// Error + Send + Sync>` source-erasure pattern. Keeping them
+// adjacent makes the shared design loud rather than implicit.
+//
+// ─────────────────────────────────────────────────────────────────
+
+/// Typed error from any [`EmbeddingEngine`] method.
+///
+/// Companion to [`ExtractionEngineError`] — the same
+/// `Box<dyn Error + Send + Sync>` source-erasure keeps the
+/// underlying embedding-backend types (FastEmbed, ONNX, Rig's
+/// `EmbeddingError`, etc.) out of the trait surface, preserving R4.
+///
+/// Unlike [`ExtractionEngineError`] there is no `RateLimited`
+/// variant. The only embedding workload colossus-legal currently
+/// runs is the local FastEmbed-on-CPU path, which cannot be
+/// rate-limited. If a future implementation adds a remote embedding
+/// provider (OpenAI, Cohere) with quota enforcement, add a
+/// `RateLimited` variant then — rather than carry one on speculation
+/// now.
+#[derive(Debug, thiserror::Error)]
+pub enum EmbeddingEngineError {
+    /// The underlying embedding call failed — ONNX runtime error,
+    /// tokeniser failure, transient HTTP error against a remote
+    /// embedding backend, etc.
+    ///
+    /// `model` is the model identifier that was being called —
+    /// included in the message so the operator can see which
+    /// embedding model misbehaved without consulting the call site
+    /// (Rule 1: failures are observable and distinguishable).
+    #[error("Embedding call failed for model {model}: {source}")]
+    EmbedFailed {
+        /// Model identifier that was being called.
+        model: String,
+        /// Underlying error from the adapter implementation.
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
+
+    /// The engine was constructed with invalid configuration —
+    /// missing `FASTEMBED_MODEL`, an unrecognised model name, a
+    /// missing `VLLM_BASE_URL` for the vLLM backend, etc.
+    ///
+    /// Distinct from `EmbedFailed`: configuration errors are caught
+    /// at engine-construction time and never imply a retry is
+    /// appropriate.
+    #[error("Provider configuration error: {0}")]
+    Configuration(String),
+}
+
+/// The colossus-legal-facing facade over text-embedding operations.
+///
+/// Companion to [`ExtractionEngine`] — same posture, same bounds,
+/// same R4 rationale (domain code never touches the underlying
+/// embedding library). When the implementation adopts Rig's
+/// `rig-fastembed` companion crate in a later phase, this trait is
+/// the single abstraction the rest of the backend depends on; Rig
+/// types stay confined to the adapter module.
+///
+/// ## Relationship to `EmbeddingProvider` in `colossus-extract`
+///
+/// `EmbeddingProvider` (from the `colossus-extract` git dep) is the
+/// *legacy* embedding interface used by the current Index step,
+/// QdrantRetriever, and EmbeddingReranker. During Phase 1 both
+/// interfaces coexist:
+///
+/// - Legacy `Index` step + RAG retriever + reranker → `EmbeddingProvider`
+/// - Restate-driven indexing workflow (future) → `EmbeddingEngine` (this trait)
+///
+/// Phase 4 removes `EmbeddingProvider` together with `colossus-rag`;
+/// only `EmbeddingEngine` remains.
+///
+/// The bounds (`Send + Sync + 'static`, `#[async_trait]`) carry the
+/// same rationale as on [`ExtractionEngine`] — see the "Rust
+/// Learning" sections on that trait for the full explanation rather
+/// than restate it here.
+#[async_trait]
+pub trait EmbeddingEngine: Send + Sync + 'static {
+    /// Embed a single text into a vector.
+    ///
+    /// # Errors
+    ///
+    /// - [`EmbeddingEngineError::Configuration`] for permanent setup
+    ///   failures (model not loaded, missing endpoint URL). Do NOT
+    ///   retry.
+    /// - [`EmbeddingEngineError::EmbedFailed`] for everything else
+    ///   (transient I/O, ONNX runtime error, remote backend error).
+    ///   Caller decides retry policy.
+    async fn embed(&self, text: &str) -> Result<Vec<f32>, EmbeddingEngineError>;
+
+    /// Embed multiple texts in a single call.
+    ///
+    /// Default implementation calls [`embed`](Self::embed) serially
+    /// over the slice. Implementations backed by native batch APIs
+    /// (FastEmbed's rayon-parallel batch path, OpenAI's batch
+    /// embeddings endpoint, vLLM's batched inference) should
+    /// override this for throughput. The legacy
+    /// `colossus_extract::FastembedProvider` overrides its
+    /// equivalent for exactly this reason: a single `spawn_blocking`
+    /// over a rayon parallel iterator is dramatically cheaper than
+    /// `N` serial blocking calls.
+    ///
+    /// `texts` is `&[String]` rather than `&[&str]` so implementations
+    /// can move the owned strings into spawned blocking tasks or
+    /// remote-API request bodies without re-allocating. Callers
+    /// usually already own the strings (e.g. extraction-step output);
+    /// the slight ergonomic cost of building a `Vec<String>` is
+    /// dwarfed by avoiding the clone an implementer would otherwise
+    /// have to do.
+    ///
+    /// # Errors
+    ///
+    /// The trait contract is fail-fast: the returned `Result` is
+    /// either `Ok(Vec)` with the same length as `texts`, or `Err`.
+    /// (Compare with [`ExtractionEngine::extract_batch`], which
+    /// returns `Vec<Result<_, _>>` per-item — that asymmetry is
+    /// deliberate: LLM rate limits make partial-success the common
+    /// case for extraction, whereas embedding failures are usually
+    /// fail-the-whole-document affairs.)
+    async fn embed_batch(
+        &self,
+        texts: &[String],
+    ) -> Result<Vec<Vec<f32>>, EmbeddingEngineError> {
+        let mut results = Vec::with_capacity(texts.len());
+        for text in texts {
+            results.push(self.embed(text).await?);
+        }
+        Ok(results)
+    }
+
+    /// Dimension of the embedding vectors this engine produces.
+    ///
+    /// MUST equal the dimensions configured in the Qdrant collection
+    /// — mismatches cause runtime query failures with vector-shape
+    /// errors. The startup path in `main.rs` reads this value to
+    /// call `qdrant_service::ensure_collection`, and the indexing
+    /// step re-reads it as a defensive check before writing vectors.
+    /// Implementations expose the static, configured dimension — not
+    /// the actual size of any specific `embed` call's output.
+    fn dimensions(&self) -> u32;
+
+    /// Human-readable model name for logging and cost tracking.
+    ///
+    /// Returned value is stable across the engine's lifetime and is
+    /// suitable for grouping observations in `pipeline_events`.
+    /// Typical values: `"nomic-embed-text-v1.5"`,
+    /// `"bge-small-en-v1.5"`, `"text-embedding-3-small"`.
+    fn model_name(&self) -> &str;
+}
+
 #[cfg(test)]
 mod tests {
-    //! Tests for the `ExtractionEngineError` Display surface.
+    //! Tests for the `ExtractionEngineError` and `EmbeddingEngineError`
+    //! Display surfaces.
     //!
     //! The `#[error(...)]` format strings on the variants are public
     //! contract — log scrapers and operator-facing messages depend on
-    //! them. Even though P1-2 ships no implementation of the trait,
-    //! the error type is fully usable and its rendered output should be
-    //! locked down here. P1-3 onward must not silently change these
-    //! strings without a corresponding test update.
+    //! them. Even though this module ships no implementation of either
+    //! trait, the error types are fully usable and their rendered
+    //! output should be locked down here. Future tasks must not
+    //! silently change these strings without a corresponding test
+    //! update.
     use super::*;
 
     #[test]
@@ -358,6 +517,35 @@ mod tests {
         assert_eq!(
             rendered,
             "Provider configuration error: ANTHROPIC_API_KEY is unset"
+        );
+    }
+
+    // ── EmbeddingEngineError ─────────────────────────────────────
+
+    #[test]
+    fn embed_failed_display_includes_model_and_source() {
+        let source: Box<dyn std::error::Error + Send + Sync> = "ONNX runtime failure".into();
+        let err = EmbeddingEngineError::EmbedFailed {
+            model: "nomic-embed-text-v1.5".to_string(),
+            source,
+        };
+        let rendered = format!("{err}");
+        assert_eq!(
+            rendered,
+            "Embedding call failed for model nomic-embed-text-v1.5: ONNX runtime failure"
+        );
+    }
+
+    #[test]
+    fn embedding_configuration_display_includes_payload() {
+        // Distinct test name from `configuration_display_includes_payload`
+        // (which covers `ExtractionEngineError::Configuration`) — both
+        // live in the same test module so the names must not collide.
+        let err = EmbeddingEngineError::Configuration("FASTEMBED_MODEL is unset".to_string());
+        let rendered = format!("{err}");
+        assert_eq!(
+            rendered,
+            "Provider configuration error: FASTEMBED_MODEL is unset"
         );
     }
 }
