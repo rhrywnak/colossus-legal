@@ -100,6 +100,14 @@ const DEFAULT_TCP_KEEPALIVE_SECS: u64 = 60;
 /// Anthropic's 429 body is shaped
 /// `{"type":"error","error":{"type":"rate_limit_error",…}}`, so this
 /// catches both the discriminator field and the error type identifier.
+///
+/// CONST: Anthropic's error-taxonomy key — not an env-configurable
+/// knob. This string is part of the provider's public error protocol;
+/// the only way it would need to change is if Anthropic re-shaped
+/// their 429 body, in which case the entire detection path needs a
+/// code change regardless. An env-var override here would let a
+/// misconfigured operator silently break 429 detection — exactly the
+/// opposite of what configurability would buy us.
 const RATE_LIMIT_MARKER: &str = "rate_limit";
 
 /// Rig 0.36 implementation of [`ExtractionEngine`].
@@ -409,8 +417,29 @@ mod tests {
     // discharged by isolation, not by static analysis. We document
     // that reasoning here and `remove_var` after each case so other
     // tests in the binary see a clean slate.
-    #[test]
-    fn from_env_handles_missing_present_and_malformed_timeout() {
+    #[tokio::test]
+    async fn from_env_and_extract_batch_against_env_state() {
+        // ## Rust Learning: why all env-mutating cases live in ONE test
+        //
+        // Tests that mutate the same env var must not run concurrently.
+        // cargo's harness runs `#[test]` functions on a thread pool by
+        // default, so two tests both touching `ANTHROPIC_API_KEY`
+        // race: one observes a clean state, sets a value, runs its
+        // assertion; the OTHER observes the same var in the middle of
+        // the first test's lifecycle and gets a stale read.
+        //
+        // The earlier P1-3 commit had this test split into two —
+        // `from_env_handles_*` and `extract_batch_empty_items_*` —
+        // and both raced on `ANTHROPIC_API_KEY`. P1-7's verification
+        // surfaced the flake (intermittent failure ~1 in 3 runs). The
+        // fix is structural: collapse all `ANTHROPIC_API_KEY`-
+        // mutating cases into one sequential test function. There is
+        // no other test in the binary that touches the var, so this
+        // function now holds exclusive write access to it within a
+        // test run.
+        //
+        // Async because Case 2b exercises `extract_batch(&[], 0).await`.
+
         // Snapshot existing values so the test does not corrupt the
         // operator's real env when run on a developer machine.
         let prior_api_key = std::env::var(ANTHROPIC_API_KEY_ENV).ok();
@@ -431,16 +460,24 @@ mod tests {
             Ok(_) => panic!("expected error when API key is unset"),
         }
 
-        // Case 2: ANTHROPIC_API_KEY set to a dummy value → constructor
-        // succeeds (we are not calling the API).
+        // Case 2a: ANTHROPIC_API_KEY set to a dummy value →
+        // constructor succeeds (we are not calling the API).
         unsafe {
             std::env::set_var(ANTHROPIC_API_KEY_ENV, "sk-ant-placeholder-for-test");
         }
-        let engine = RigExtractionEngine::from_env();
+        let engine =
+            RigExtractionEngine::from_env().expect("from_env should succeed with dummy API key");
+
+        // Case 2b: `extract_batch(&[], 0)` must clamp the zero
+        // concurrency value and return an empty Vec instead of
+        // hanging on `buffer_unordered(0)`. Folded into this test
+        // (rather than living in its own `#[tokio::test]`) so
+        // ANTHROPIC_API_KEY mutations stay single-threaded.
+        let results = engine.extract_batch(&[], 0).await;
         assert!(
-            engine.is_ok(),
-            "from_env should succeed with dummy API key, got: {:?}",
-            engine.err()
+            results.is_empty(),
+            "extract_batch with empty items should return empty Vec, got {} elements",
+            results.len()
         );
 
         // Case 3: a malformed timeout env var does NOT break
@@ -602,31 +639,7 @@ mod tests {
         assert_eq!(collect_text(&choice), "");
     }
 
-    // ── extract_batch with zero items ────────────────────────────
-    //
-    // The `concurrency.max(1)` clamp at the top of `extract_batch`
-    // guards against a misconfigured `concurrency = 0`. With an
-    // empty input slice the clamp is the only branch we can exercise
-    // without hitting the live API; the test confirms the function
-    // returns an empty Vec rather than blocking on `buffer_unordered(0)`.
-
-    #[tokio::test]
-    async fn extract_batch_empty_items_returns_empty_vec_even_at_zero_concurrency() {
-        // Build a dummy engine. We never call `extract` because items
-        // is empty, so the network is not exercised.
-        unsafe {
-            std::env::set_var(ANTHROPIC_API_KEY_ENV, "sk-ant-placeholder-for-test");
-        }
-        let engine = RigExtractionEngine::from_env().expect("dummy engine should build");
-        unsafe {
-            std::env::remove_var(ANTHROPIC_API_KEY_ENV);
-        }
-
-        let results = engine.extract_batch(&[], 0).await;
-        assert!(
-            results.is_empty(),
-            "extract_batch with empty items should return empty Vec, got {} elements",
-            results.len()
-        );
-    }
+    // (extract_batch zero-concurrency clamp test was merged into
+    // `from_env_and_extract_batch_against_env_state` above to keep
+    // ANTHROPIC_API_KEY mutations single-threaded.)
 }
