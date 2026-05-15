@@ -21,7 +21,9 @@ use reqwest::Client;
 use sqlx::PgPool;
 use tokio::sync::Semaphore;
 
+use crate::pipeline::extraction_engine::ExtractionEngine;
 use crate::pipeline::registry::PipelineRegistry;
+use crate::pipeline::rig_provider::RigExtractionEngine;
 
 /// Default number of concurrent LLM calls the pipeline worker will make.
 ///
@@ -119,6 +121,21 @@ pub struct AppContext {
     /// Consumed by the `LlmExtract` step and by the RAG synthesizer/decomposer.
     pub llm_provider: Arc<dyn LlmProvider>,
 
+    /// Extraction engine — the R4 thin adapter over the LLM client.
+    ///
+    /// Consumed by the Restate-driven workflow handlers (Phase 2
+    /// onwards). The legacy `LlmExtract` / `LlmExtractPass2` pipeline
+    /// steps continue to use [`llm_provider`](Self::llm_provider)
+    /// until Phase 3 removes them.
+    ///
+    /// Constructed by [`RigExtractionEngine::from_env`], which reads
+    /// the same `ANTHROPIC_API_KEY` that the legacy `llm_provider`
+    /// path consumes, plus the optional
+    /// `EXTRACTION_ENGINE_TIMEOUT_SECS` and
+    /// `EXTRACTION_ENGINE_TCP_KEEPALIVE_SECS` tuning knobs introduced
+    /// in P1-3.
+    pub extraction_engine: Arc<dyn ExtractionEngine>,
+
     /// Embedding provider (fastembed or vLLM).
     /// Constructed from `EMBEDDING_PROVIDER` env var at startup.
     /// Consumed by the `Index` step and the RAG `QdrantRetriever`/`EmbeddingReranker`.
@@ -144,6 +161,15 @@ impl AppContext {
     /// - `LLM_PROVIDER` is unset, or is set to an unsupported value, or its
     ///   required companion vars are missing (see
     ///   `colossus_extract::providers::llm_provider_from_env`).
+    /// - `ANTHROPIC_API_KEY` is unset — required by the new
+    ///   [`RigExtractionEngine`] that backs
+    ///   [`extraction_engine`](Self::extraction_engine), regardless of
+    ///   which `LLM_PROVIDER` is selected for the legacy
+    ///   [`llm_provider`](Self::llm_provider). (In practice the legacy
+    ///   Anthropic path needs the same key, so this is rarely a new
+    ///   failure mode; a vLLM-only deployment is currently the one
+    ///   case where the engine refuses to build even though
+    ///   `llm_provider` would have succeeded.)
     /// - `EMBEDDING_PROVIDER` is unset, or is set to an unsupported value, or
     ///   its required companion vars are missing (see
     ///   `colossus_extract::providers::embedding_provider_from_env`).
@@ -151,12 +177,28 @@ impl AppContext {
         let llm_provider = colossus_extract::providers::llm_provider_from_env()
             .map_err(|e| format!("Failed to build LLM provider: {e}"))?;
 
+        // Construct the new Rig-backed extraction engine alongside the
+        // legacy `llm_provider`. Both read `ANTHROPIC_API_KEY` from
+        // the environment; the legacy provider speaks reqwest 0.12
+        // directly while the engine speaks reqwest 0.13 through Rig's
+        // `HttpClientExt` (see backend/src/pipeline/rig_provider.rs
+        // module doc for why the two HTTP-client versions coexist).
+        //
+        // The engine is unused until Phase 2 wires it into the
+        // Restate workflow handlers; constructing it here at startup
+        // means a misconfiguration fails the boot rather than the
+        // first inbound job.
+        let extraction_engine: Arc<dyn ExtractionEngine> = Arc::new(
+            RigExtractionEngine::from_env()
+                .map_err(|e| format!("Failed to build extraction engine: {e}"))?,
+        );
+
         let embedding_provider = colossus_extract::providers::embedding_provider_from_env()
             .map_err(|e| format!("Failed to build embedding provider: {e}"))?;
 
         let llm_concurrency: usize = std::env::var("PIPELINE_LLM_CONCURRENCY")
-            .ok()
-            .and_then(|v| v.parse().ok())
+            .ok() // best-effort: VarError (env var absent) → fall back to DEFAULT_LLM_CONCURRENCY
+            .and_then(|v| v.parse().ok()) // best-effort: ParseIntError (non-numeric value) → fall back to DEFAULT_LLM_CONCURRENCY
             .unwrap_or(DEFAULT_LLM_CONCURRENCY);
 
         Ok(Self {
@@ -167,6 +209,7 @@ impl AppContext {
             document_storage_path: deps.document_storage_path,
             registry: deps.registry,
             llm_provider,
+            extraction_engine,
             embedding_provider,
             llm_semaphore: Arc::new(Semaphore::new(llm_concurrency)),
         })
