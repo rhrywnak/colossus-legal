@@ -315,7 +315,10 @@ mod tests {
             source,
         };
         let rendered = format!("{err}");
-        assert_eq!(rendered, "LLM call failed for model claude-sonnet-4-6: boom");
+        assert_eq!(
+            rendered,
+            "LLM call failed for model claude-sonnet-4-6: boom"
+        );
     }
 
     #[test]
@@ -350,8 +353,7 @@ mod tests {
 
     #[test]
     fn configuration_display_includes_payload() {
-        let err =
-            ExtractionEngineError::Configuration("ANTHROPIC_API_KEY is unset".to_string());
+        let err = ExtractionEngineError::Configuration("ANTHROPIC_API_KEY is unset".to_string());
         let rendered = format!("{err}");
         assert_eq!(
             rendered,
