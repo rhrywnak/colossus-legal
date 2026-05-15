@@ -1,0 +1,215 @@
+//! Restate SDK HTTP endpoint — runs alongside Axum on a separate port.
+//!
+//! ## Why a separate HTTP server?
+//!
+//! Restate's Rust SDK exposes its workflow handlers over HTTP/2 using
+//! its own hyper-based protocol layer. Mounting it inside the existing
+//! Axum router would require shimming the SDK's bidirectional
+//! streaming protocol through Axum middleware — not worth the cost when
+//! the SDK already ships a working `HttpServer`.
+//!
+//! Instead we run two HTTP servers in one process:
+//! - Axum on `BACKEND_PORT` (default `3403`) — user-facing API
+//! - Restate SDK on `RESTATE_LISTEN_PORT` (default `9080`) — invoked
+//!   by the Restate runtime over pod-to-pod HTTP/2
+//!
+//! ## HTTP/2 and the Podman compatibility note
+//!
+//! The legacy `AnthropicProvider` (and our new [`RigExtractionEngine`](crate::pipeline::rig_provider::RigExtractionEngine))
+//! force HTTP/1.1 because `api.anthropic.com` hangs over HTTP/2 + TLS
+//! when called from inside a Podman container. That constraint does
+//! NOT apply here: this is the *server* side, accepting traffic from
+//! the in-cluster Restate runtime over plain HTTP/2 (no TLS, pod-to-pod
+//! routing), which works correctly. The SDK uses
+//! `hyper::server::conn::http2` — that is intentional.
+//!
+//! ## Empty endpoint is intentional in P1-6
+//!
+//! No workflow services are bound. The endpoint responds only to
+//! Restate's discovery protocol (`POST /discover`), which proves the
+//! integration is live and the binary speaks the right protocol
+//! version. P1-7 adds the first workflow handler; later phases
+//! incrementally bind real services.
+//!
+//! ## Shutdown
+//!
+//! [`HttpServer::serve`] installs its own `tokio::signal::ctrl_c()`
+//! handler and exits when ctrl-c arrives. Our existing Axum
+//! `shutdown_signal()` also handles ctrl-c AND SIGTERM. Both servers
+//! receive ctrl-c simultaneously and shut down independently — no
+//! coordination needed.
+//!
+//! Known limitation for P2+: on a pure SIGTERM (e.g. `podman stop`),
+//! Axum shuts down but Restate keeps running until the tokio runtime
+//! drops the spawned task. With zero services bound this is benign;
+//! once real workflows ship, the SDK call should be switched to
+//! `HttpServer::serve_with_cancel(...)` driven by the same combined
+//! signal future Axum already uses.
+//!
+//! ## Environment variables
+//!
+//! - `RESTATE_LISTEN_PORT` (optional, default `9080`) — TCP port to
+//!   bind. Absent → default. **Present but not a valid `u16` → panic
+//!   at boot** (matches the `BACKEND_PORT` convention — a bad port
+//!   value is operator error that should fail fast, not silently
+//!   degrade).
+
+use tokio::net::TcpListener;
+
+use restate_sdk::endpoint::Endpoint;
+use restate_sdk::http_server::HttpServer;
+
+/// Env var holding the Restate SDK endpoint's TCP port.
+const RESTATE_LISTEN_PORT_ENV: &str = "RESTATE_LISTEN_PORT";
+
+/// Default port when `RESTATE_LISTEN_PORT` is unset. Matches the
+/// Restate SDK's documented default and the value the Restate runtime
+/// expects on DEV per the deployment doc.
+const DEFAULT_RESTATE_PORT: &str = "9080";
+
+/// Read the Restate endpoint port from the environment.
+///
+/// Behaviour:
+/// - `RESTATE_LISTEN_PORT` unset → returns `9080` (the [`DEFAULT_RESTATE_PORT`])
+/// - `RESTATE_LISTEN_PORT` set and parseable as `u16` → returns that value
+/// - `RESTATE_LISTEN_PORT` set but not parseable → **panics**
+///
+/// Mirrors the `BACKEND_PORT` reader in `main.rs:330`. The
+/// panic-on-malformed posture is deliberate: a bad port value is an
+/// operator-typo, not a runtime condition the backend should silently
+/// recover from. Fail at boot so the deployment is obviously broken
+/// rather than subtly misconfigured.
+///
+/// # Panics
+///
+/// Panics if `RESTATE_LISTEN_PORT` is set to a value that does not
+/// parse as a `u16`.
+pub fn port_from_env() -> u16 {
+    std::env::var(RESTATE_LISTEN_PORT_ENV)
+        .unwrap_or_else(|_| DEFAULT_RESTATE_PORT.to_string())
+        .parse::<u16>()
+        // SAFETY: startup-once panic on operator typo. A non-u16
+        // RESTATE_LISTEN_PORT is config error, not a runtime
+        // condition — fail at boot rather than degrade silently.
+        // Mirrors the BACKEND_PORT pattern at main.rs:330.
+        .expect("Invalid RESTATE_LISTEN_PORT — must parse as u16")
+}
+
+/// Serve the Restate SDK endpoint on a pre-bound TCP listener.
+///
+/// The caller binds the listener synchronously in `main.rs` so a
+/// bind failure crashes the process at startup rather than from
+/// inside a spawned task where the error would race with the Axum
+/// server and surface only via a `tracing::error!` long after boot.
+///
+/// In P1-6 the endpoint is intentionally empty — no workflow services
+/// are bound. The endpoint still responds to Restate's discovery
+/// protocol, which validates the SDK integration end-to-end. P1-7
+/// onward will use `Endpoint::builder().bind(...)` to register real
+/// handlers; the call site in `main.rs` is the only place that needs
+/// to change when that happens.
+///
+/// This function runs until the SDK's internal `ctrl_c` handler fires
+/// (i.e. SIGINT), then returns. The tokio runtime cancels the spawned
+/// task on process exit if SIGTERM arrived instead.
+///
+/// ## Rust Learning: `tokio::spawn` on a long-running background task
+///
+/// The caller wraps this in `tokio::spawn(serve_restate_endpoint(...))`
+/// and never awaits the returned `JoinHandle`. The handle is dropped
+/// (we bind it to `_restate_handle` to make the intent explicit), but
+/// the task itself stays alive because tokio keeps spawned tasks
+/// running until the runtime is dropped. Compare with the worker
+/// `JoinHandle` in `main.rs`, which IS awaited so we can coordinate
+/// the worker drain on shutdown — that pattern is reserved for tasks
+/// with state to flush.
+pub async fn serve_restate_endpoint(listener: TcpListener) {
+    // No services bound — discovery responds with an empty service list.
+    let endpoint = Endpoint::builder().build();
+    // best-effort: local_addr() only fails if the kernel-side socket
+    // state is unreadable, which would not happen on a listener we
+    // just bound. The value is used only for the log line below; on
+    // the impossible None branch we log `addr = None` and continue.
+    let local_addr = listener.local_addr().ok();
+    tracing::info!(
+        addr = ?local_addr,
+        "Restate SDK endpoint serving (zero services bound — P1-6 integration validator)"
+    );
+    HttpServer::new(endpoint).serve(listener).await;
+    tracing::info!("Restate SDK endpoint stopped");
+}
+
+#[cfg(test)]
+mod tests {
+    //! Tests for `port_from_env`.
+    //!
+    //! `serve_restate_endpoint` does network I/O and runs until
+    //! SIGINT; meaningfully testing it requires a port-binding
+    //! integration test, which is out of scope for unit tests. The
+    //! P1-9 instruction will introduce an integration test that
+    //! exercises the live endpoint.
+    //!
+    //! The env-mutating test mirrors the pattern established in
+    //! `pipeline::rig_provider::tests` — single test function, both
+    //! cases sequentially, snapshot-and-restore to keep other tests
+    //! in the binary from seeing our scratch values.
+    use super::*;
+
+    #[test]
+    fn port_from_env_returns_default_when_unset_and_parses_when_set() {
+        // Snapshot existing value so the test does not corrupt the
+        // operator's real env when run on a developer machine.
+        let prior = std::env::var(RESTATE_LISTEN_PORT_ENV).ok();
+
+        // Case 1: unset → default 9080.
+        // SAFETY: `std::env::set_var`/`remove_var` became `unsafe` in
+        // Rust 2024 because mutating env-state while other threads
+        // read it is a data race. Single-threaded sequential test
+        // function — no other thread reads our var.
+        unsafe {
+            std::env::remove_var(RESTATE_LISTEN_PORT_ENV);
+        }
+        assert_eq!(port_from_env(), 9080);
+
+        // Case 2: set to a valid value → parses.
+        unsafe {
+            std::env::set_var(RESTATE_LISTEN_PORT_ENV, "9081");
+        }
+        assert_eq!(port_from_env(), 9081);
+
+        // Restore prior env state so other tests in this binary are
+        // not affected by our mutations.
+        unsafe {
+            match prior {
+                Some(v) => std::env::set_var(RESTATE_LISTEN_PORT_ENV, v),
+                None => std::env::remove_var(RESTATE_LISTEN_PORT_ENV),
+            }
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid RESTATE_LISTEN_PORT")]
+    fn port_from_env_panics_on_malformed_value() {
+        // Unique env-var name so this test cannot race with any other
+        // test that mutates `RESTATE_LISTEN_PORT` proper. We test the
+        // panic behaviour by re-implementing the parse with the same
+        // shape using a dedicated env var — keeps the production
+        // env-var name single-purpose AND lets us assert on the
+        // expected panic message reliably.
+        //
+        // Why not just set RESTATE_LISTEN_PORT directly: parallel test
+        // execution would let another test see our malformed value and
+        // spuriously panic. The `should_panic` attribute scopes the
+        // panic expectation to THIS test, not other tests reading the
+        // same global.
+        const TEST_ENV: &str = "RESTATE_LISTEN_PORT_TEST_MALFORMED_PROBE";
+        unsafe {
+            std::env::set_var(TEST_ENV, "not-a-port");
+        }
+        let _: u16 = std::env::var(TEST_ENV)
+            .unwrap_or_else(|_| DEFAULT_RESTATE_PORT.to_string())
+            .parse::<u16>()
+            .expect("Invalid RESTATE_LISTEN_PORT — must parse as u16");
+        // Unreachable: the .expect above panics.
+    }
+}

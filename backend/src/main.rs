@@ -41,7 +41,7 @@ use colossus_legal_backend::{
     pipeline::registry::PipelineRegistry,
     pipeline::step_recorder::PgStepRecorder,
     pipeline::task::DocProcessing,
-    prompt_loader,
+    prompt_loader, restate_endpoint,
     state::{AppState, EntityTypeInfo, RelationshipTypeInfo, SchemaMetadata},
 };
 
@@ -233,6 +233,40 @@ async fn run_serve(config: AppConfig, graph: neo4rs::Graph, http_client: reqwest
             Err(e) => tracing::error!(error = %e, "Worker exited with error"),
         }
     });
+
+    // --- Spawn the Restate SDK endpoint ---
+    //
+    // Bind the TCP listener synchronously on the main task so a
+    // port-in-use failure crashes startup immediately rather than
+    // racing with the Axum server inside a spawned task. The
+    // pre-bound listener is then handed to a background task that
+    // serves until SIGINT.
+    //
+    // In P1-6 no workflow services are bound — the endpoint just
+    // validates that the SDK integration is live and reachable by
+    // the Restate runtime. P1-7 will register the first workflow.
+    //
+    // `_restate_handle` is intentionally not awaited: the task runs
+    // until the tokio runtime shuts down (which happens after the
+    // worker drain at the end of main). With zero services bound
+    // there is no state to drain.
+    let restate_port = restate_endpoint::port_from_env();
+    let restate_addr = SocketAddr::from(([0, 0, 0, 0], restate_port));
+    // SAFETY: startup-once panic on bind failure. Port-in-use or
+    // EACCES is infra error — fail at boot so the deployment is
+    // obviously broken rather than running with Restate silently
+    // unavailable (which would only surface when a workflow tries
+    // to execute, hours after deploy). Mirrors the BACKEND_PORT
+    // bind panic at main.rs:393.
+    let restate_listener = TcpListener::bind(restate_addr)
+        .await
+        .expect("Failed to bind Restate SDK endpoint port (RESTATE_LISTEN_PORT)");
+    tracing::info!(
+        addr = %restate_addr,
+        "Starting Restate SDK endpoint as background task"
+    );
+    let _restate_handle: tokio::task::JoinHandle<()> =
+        tokio::spawn(restate_endpoint::serve_restate_endpoint(restate_listener));
 
     // --- Load external prompt templates from disk ---
     //

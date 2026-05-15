@@ -12,5 +12,6 @@ pub mod neo4j;
 pub mod pipeline;
 pub mod prompt_loader;
 pub mod repositories;
+pub mod restate_endpoint;
 pub mod services;
 pub mod state;
