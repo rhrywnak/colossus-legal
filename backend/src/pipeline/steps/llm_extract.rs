@@ -317,7 +317,7 @@ impl LlmExtract {
             .ok_or_else(|| LlmExtractError::ModelNotFound {
                 model_id: resolved.model.clone(),
             })?;
-        let llm_provider = provider_for_model(&model_record)
+        let llm_provider = provider_for_model(&context.extraction_engine, &model_record)
             .map_err(|message| LlmExtractError::ProviderConstructionFailed { message })?;
 
         // 5. Load template and hash it.
@@ -576,7 +576,7 @@ impl LlmExtract {
         .await;
 
         // 13. Final progress + step complete.
-        // best-effort progress update
+        // best-effort: progress update
         documents::update_processing_progress(
             db,
             &self.document_id,
@@ -681,7 +681,7 @@ struct RunArgs<'a> {
 async fn run_full_document_extraction(
     args: RunArgs<'_>,
 ) -> Result<ExtractionOutcome, Box<dyn Error + Send + Sync>> {
-    // best-effort progress update
+    // best-effort: progress update
     args.progress
         .report(serde_json::json!({
             "status": "extracting",
@@ -690,7 +690,7 @@ async fn run_full_document_extraction(
         .await
         .ok();
 
-    // best-effort progress update
+    // best-effort: progress update
     documents::update_processing_progress(
         args.db,
         args.document_id,
@@ -929,7 +929,7 @@ async fn extract_chunks_loop(
     let mut total_input_tokens: i64 = 0;
     let mut total_output_tokens: i64 = 0;
 
-    // best-effort progress update
+    // best-effort: progress update
     documents::update_processing_progress(
         args.db,
         args.document_id,
@@ -949,7 +949,7 @@ async fn extract_chunks_loop(
             return Err("Cancelled during extraction".into());
         }
 
-        // best-effort progress update
+        // best-effort: progress update
         args.progress
             .report(serde_json::json!({
                 "status": "extracting",
@@ -1142,7 +1142,7 @@ async fn extract_chunks_loop(
 
                         let percent =
                             ((chunks_succeeded as f64 / chunks.len() as f64) * 100.0) as i32;
-                        // best-effort progress update
+                        // best-effort: progress update
                         documents::update_processing_progress(
                             args.db,
                             args.document_id,
@@ -1186,7 +1186,7 @@ async fn extract_chunks_loop(
 
                         let processed = chunks_succeeded + chunks_failed;
                         let percent = ((processed as f64 / chunks.len() as f64) * 100.0) as i32;
-                        // best-effort progress update
+                        // best-effort: progress update
                         documents::update_processing_progress(
                             args.db,
                             args.document_id,
@@ -1228,7 +1228,7 @@ async fn extract_chunks_loop(
 
                 let processed = chunks_succeeded + chunks_failed;
                 let percent = ((processed as f64 / chunks.len() as f64) * 100.0) as i32;
-                // best-effort progress update
+                // best-effort: progress update
                 documents::update_processing_progress(
                     args.db,
                     args.document_id,
@@ -1498,6 +1498,14 @@ pub(crate) fn resolve_max_tokens(resolved: &ResolvedConfig) -> u32 {
     if resolved.max_tokens > 0 {
         return resolved.max_tokens as u32;
     }
+    // best-effort: profile-resolved max_tokens of 0 means "fall back
+    // to LLM_MAX_TOKENS env var", and a missing/non-numeric env var
+    // means "fall back to DEFAULT_CHUNK_MAX_TOKENS". Both `.ok()`
+    // calls intentionally discard their errors — VarError (env unset)
+    // and ParseIntError (non-numeric value) — for that cascading-
+    // default behaviour. Distinct from the typical "this can't fail"
+    // pattern; here the failure modes are part of the resolution
+    // protocol.
     std::env::var("LLM_MAX_TOKENS")
         .ok()
         .and_then(|v| v.parse().ok())

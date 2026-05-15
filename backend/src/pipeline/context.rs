@@ -23,6 +23,7 @@ use tokio::sync::Semaphore;
 
 use crate::pipeline::extraction_engine::ExtractionEngine;
 use crate::pipeline::registry::PipelineRegistry;
+use crate::pipeline::rig_llm_bridge::RigLlmProviderBridge;
 use crate::pipeline::rig_provider::RigExtractionEngine;
 
 /// Default number of concurrent LLM calls the pipeline worker will make.
@@ -158,40 +159,77 @@ impl AppContext {
     /// # Errors
     ///
     /// Returns a descriptive error string if:
-    /// - `LLM_PROVIDER` is unset, or is set to an unsupported value, or its
-    ///   required companion vars are missing (see
-    ///   `colossus_extract::providers::llm_provider_from_env`).
-    /// - `ANTHROPIC_API_KEY` is unset — required by the new
+    /// - `ANTHROPIC_API_KEY` is unset — required by
     ///   [`RigExtractionEngine`] that backs
-    ///   [`extraction_engine`](Self::extraction_engine), regardless of
-    ///   which `LLM_PROVIDER` is selected for the legacy
-    ///   [`llm_provider`](Self::llm_provider). (In practice the legacy
-    ///   Anthropic path needs the same key, so this is rarely a new
-    ///   failure mode; a vLLM-only deployment is currently the one
-    ///   case where the engine refuses to build even though
-    ///   `llm_provider` would have succeeded.)
-    /// - `EMBEDDING_PROVIDER` is unset, or is set to an unsupported value, or
-    ///   its required companion vars are missing (see
+    ///   [`extraction_engine`](Self::extraction_engine) regardless of
+    ///   which `LLM_PROVIDER` is selected, AND required for the
+    ///   anthropic [`llm_provider`](Self::llm_provider) path.
+    /// - `LLM_PROVIDER=anthropic` (or unset → default anthropic) but
+    ///   `LLM_MODEL` is unset — the legacy factory we replaced raised
+    ///   the same error; we preserve one-for-one parity.
+    /// - `LLM_PROVIDER=vllm` and the legacy
+    ///   `colossus_extract::providers::llm_provider_from_env()` returns
+    ///   an error (vLLM stays on the legacy path).
+    /// - `LLM_PROVIDER` is set to an unsupported value
+    ///   (anything other than `"anthropic"` or `"vllm"`).
+    /// - `EMBEDDING_PROVIDER` is unset, or is set to an unsupported
+    ///   value, or its required companion vars are missing (see
     ///   `colossus_extract::providers::embedding_provider_from_env`).
     pub fn from_deps_and_env(deps: AppContextDeps) -> Result<Self, String> {
-        let llm_provider = colossus_extract::providers::llm_provider_from_env()
-            .map_err(|e| format!("Failed to build LLM provider: {e}"))?;
-
-        // Construct the new Rig-backed extraction engine alongside the
-        // legacy `llm_provider`. Both read `ANTHROPIC_API_KEY` from
-        // the environment; the legacy provider speaks reqwest 0.12
-        // directly while the engine speaks reqwest 0.13 through Rig's
-        // `HttpClientExt` (see backend/src/pipeline/rig_provider.rs
-        // module doc for why the two HTTP-client versions coexist).
-        //
-        // The engine is unused until Phase 2 wires it into the
-        // Restate workflow handlers; constructing it here at startup
-        // means a misconfiguration fails the boot rather than the
-        // first inbound job.
+        // Construct the Rig-backed extraction engine FIRST so the
+        // anthropic-bridge `llm_provider` below can share it (one
+        // HTTP/1.1 reqwest 0.13 client refcount-shared across the
+        // bridge, the per-document `provider_for_model` bridges,
+        // and any future Restate workflow handlers).
         let extraction_engine: Arc<dyn ExtractionEngine> = Arc::new(
             RigExtractionEngine::from_env()
                 .map_err(|e| format!("Failed to build extraction engine: {e}"))?,
         );
+
+        // Build the global `llm_provider` by dispatching on
+        // `LLM_PROVIDER`:
+        //
+        // - `"anthropic"` (or unset — anthropic is the default per
+        //   colossus-extract's factory): build [`RigLlmProviderBridge`]
+        //   wrapping the shared engine. Reads `LLM_MODEL` and
+        //   `LLM_TEMPERATURE` from env (mirroring the legacy factory
+        //   exactly — see `colossus-extract/src/providers/factory.rs`).
+        //   `cost_per_input_token` / `cost_per_output_token` are
+        //   `None` on this path because the global llm_provider is
+        //   not driven by a `llm_models` DB row.
+        //
+        // - `"vllm"`: keep the legacy
+        //   `llm_provider_from_env()` factory. Rig 0.36 has no vLLM
+        //   completion model; migrate this branch when Rig adds one.
+        //
+        // - Anything else: error with a clear message identifying
+        //   the bad value.
+        let provider_selector =
+            std::env::var("LLM_PROVIDER").unwrap_or_else(|_| DEFAULT_LLM_PROVIDER.to_string());
+        let llm_provider: Arc<dyn LlmProvider> = match provider_selector.as_str() {
+            "anthropic" => {
+                let model = std::env::var("LLM_MODEL").map_err(|_| {
+                    "LLM_MODEL is required when LLM_PROVIDER=anthropic (no default; set \
+                     explicitly to avoid pinning deployments to an obsolete model)"
+                        .to_string()
+                })?;
+                let temperature = parse_llm_temperature();
+                Arc::new(RigLlmProviderBridge::new(
+                    Arc::clone(&extraction_engine),
+                    model,
+                    None,
+                    None,
+                    temperature,
+                ))
+            }
+            "vllm" => colossus_extract::providers::llm_provider_from_env()
+                .map_err(|e| format!("Failed to build vLLM LLM provider: {e}"))?,
+            other => {
+                return Err(format!(
+                    "Unknown LLM_PROVIDER: '{other}'. Valid values: anthropic, vllm"
+                ));
+            }
+        };
 
         let embedding_provider = colossus_extract::providers::embedding_provider_from_env()
             .map_err(|e| format!("Failed to build embedding provider: {e}"))?;
@@ -213,5 +251,45 @@ impl AppContext {
             embedding_provider,
             llm_semaphore: Arc::new(Semaphore::new(llm_concurrency)),
         })
+    }
+}
+
+/// Default `LLM_PROVIDER` when the env var is unset. Matches the
+/// pre-P1-8 behaviour of `colossus_extract::providers::llm_provider_from_env`.
+///
+/// CONST: backend selection — not env-configurable in a useful sense
+/// (the env var IS the configurable hook; this is the unset-default).
+const DEFAULT_LLM_PROVIDER: &str = "anthropic";
+
+/// Parse `LLM_TEMPERATURE` into `Option<f64>`, mirroring the legacy
+/// `colossus-extract` factory rules exactly.
+///
+/// Rules:
+/// - Unset → `None` (API applies its default; required for Opus 4.7
+///   which rejects any explicit sampling key).
+/// - Valid float → `Some(value)` (pipeline extraction sets
+///   `LLM_TEMPERATURE=0` to preserve deterministic output).
+/// - Unparseable → `None` with a `tracing::warn!`. The legacy factory
+///   takes the same posture: a bad temperature string falls through
+///   to the API default rather than failing startup, because
+///   extraction workloads that require determinism configure the
+///   value through the per-document `provider_for_model` path (which
+///   pins `Some(0.0)` in code), not through this env var.
+fn parse_llm_temperature() -> Option<f64> {
+    // best-effort: VarError (env var absent) → return None, which the
+    // bridge passes straight through to the engine — engine omits the
+    // temperature field from the API request. This is the documented
+    // legacy behaviour, mirrored exactly.
+    let raw = std::env::var("LLM_TEMPERATURE").ok()?;
+    match raw.parse::<f64>() {
+        Ok(value) => Some(value),
+        Err(e) => {
+            tracing::warn!(
+                value = %raw,
+                error = %e,
+                "LLM_TEMPERATURE is not a valid f64 — falling back to None (API default)"
+            );
+            None
+        }
     }
 }

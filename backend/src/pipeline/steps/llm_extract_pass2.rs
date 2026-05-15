@@ -254,7 +254,7 @@ pub async fn run_pass2_extraction(
         .ok_or_else(|| LlmExtractError::ModelNotFound {
             model_id: pass2_model_id.clone(),
         })?;
-    let llm_provider = provider_for_model(&model_record)
+    let llm_provider = provider_for_model(&context.extraction_engine, &model_record)
         .map_err(|message| LlmExtractError::ProviderConstructionFailed { message })?;
 
     // 8. Load pass-2 template + optional system prompt.
@@ -464,7 +464,7 @@ pub async fn run_pass2_extraction(
     })?;
 
     // 13. LLM call with rate-limit retry.
-    // best-effort progress update
+    // best-effort: progress update
     progress
         .report(serde_json::json!({ "status": "extracting", "mode": "pass2_full" }))
         .await
