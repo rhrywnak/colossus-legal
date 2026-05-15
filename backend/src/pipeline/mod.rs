@@ -4,6 +4,7 @@ pub mod chunking_strategies;
 pub mod config;
 pub mod constants;
 pub mod context;
+pub mod extraction_engine;
 pub mod providers;
 pub mod registry;
 pub mod step_recorder;
