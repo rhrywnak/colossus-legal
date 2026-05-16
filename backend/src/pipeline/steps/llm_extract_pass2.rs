@@ -475,8 +475,6 @@ pub async fn run_pass2_extraction(
         system_prompt.as_deref(),
         &prompt,
         max_tokens,
-        cancel,
-        progress,
         0,
         1,
     )

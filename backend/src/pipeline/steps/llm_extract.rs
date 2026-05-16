@@ -747,8 +747,6 @@ async fn run_full_document_extraction(
         args.system_prompt,
         &prompt,
         args.max_tokens,
-        args.cancel,
-        args.progress,
         0,
         1,
     )
@@ -1019,8 +1017,6 @@ async fn extract_chunks_loop(
             args.system_prompt,
             &prompt,
             args.max_tokens,
-            args.cancel,
-            args.progress,
             i,
             chunks.len(),
         )

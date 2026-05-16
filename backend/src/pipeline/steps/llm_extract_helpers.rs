@@ -10,8 +10,6 @@ use sqlx::PgPool;
 use tokio::time::Duration;
 
 use colossus_extract::{LlmProvider, LlmResponse, PipelineError};
-use colossus_pipeline::cancel::CancellationToken;
-use colossus_pipeline::progress::ProgressReporter;
 
 use crate::repositories::pipeline_repository::extraction;
 
@@ -22,28 +20,19 @@ pub(crate) const MAX_RETRIES_PER_CHUNK: u32 = 3;
 ///
 /// On `PipelineError::RateLimited`, sleeps exactly `retry_after_secs` and
 /// retries. Max [`MAX_RETRIES_PER_CHUNK`] attempts. Any other error returns
-/// immediately. Emits progress events during waits so the UI shows status.
+/// immediately.
 ///
-/// The `chunk_idx` / `chunk_total` pair is used only for logging and
-/// progress payloads. For full-document calls, pass `(0, 1)`.
+/// The `chunk_idx` / `chunk_total` pair is used only for logging.
 ///
 /// When `system` is `Some`, the call routes through
 /// [`LlmProvider::invoke_with_system`] so providers with a native
 /// system-prompt field (Anthropic Messages API) populate it instead of
 /// concatenating system+user into a single prompt.
-///
-/// Each argument carries a distinct, orthogonal concern (provider handle,
-/// system prompt, user prompt, max tokens, cancellation, progress sink,
-/// chunk position); grouping them into a struct at this boundary just
-/// moves the complexity up to each call site. Holding at 8 args.
-#[allow(clippy::too_many_arguments)]
 pub(crate) async fn call_with_rate_limit_retry(
     provider: &dyn LlmProvider,
     system: Option<&str>,
     prompt: &str,
     max_tokens: u32,
-    cancel: &CancellationToken,
-    progress: &ProgressReporter,
     chunk_idx: usize,
     chunk_total: usize,
 ) -> Result<LlmResponse, PipelineError> {
@@ -66,18 +55,6 @@ pub(crate) async fn call_with_rate_limit_retry(
                     )));
                 }
 
-                // best-effort progress update
-                progress
-                    .report(serde_json::json!({
-                        "status": "rate_limited",
-                        "chunk": chunk_idx + 1,
-                        "total": chunk_total,
-                        "retry_after_secs": retry_after_secs,
-                        "attempt": attempt,
-                    }))
-                    .await
-                    .ok();
-
                 tracing::warn!(
                     chunk = chunk_idx,
                     retry_after_secs,
@@ -85,17 +62,15 @@ pub(crate) async fn call_with_rate_limit_retry(
                     "Rate limited, sleeping before retry"
                 );
 
-                // Sleep with cancel awareness. Poll is_cancelled every second.
-                let mut remaining = retry_after_secs;
-                while remaining > 0 {
-                    tokio::time::sleep(Duration::from_secs(1)).await;
-                    remaining -= 1;
-                    if cancel.is_cancelled().await {
-                        return Err(PipelineError::LlmProvider(
-                            "Cancelled during rate-limit wait".into(),
-                        ));
-                    }
-                }
+                // Single sleep, no per-second cancel polling. The
+                // legacy Worker's `cancel_watcher` race in
+                // `colossus-pipeline/src/worker/executor.rs` still
+                // cancels the whole step future at the
+                // `tokio::select!`, so mid-sleep cancellation still
+                // works at the step level — granularity drops from
+                // ~1s to ~retry_after_secs. The Restate path kills
+                // the awaiting future directly via SDK abort.
+                tokio::time::sleep(Duration::from_secs(retry_after_secs)).await;
                 // Loop continues — retry the call
             }
             Err(other) => return Err(other),
