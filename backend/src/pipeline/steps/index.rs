@@ -64,11 +64,20 @@ pub struct Index {
     pub document_id: String,
 }
 
-/// Counts returned by [`Index::run_index`] for the `pipeline_steps`
-/// `result_summary` JSON (bug B3).
-#[derive(Debug)]
-struct IndexStats {
-    embedded_count: usize,
+/// Outcome of a successful pass through [`run_index`].
+///
+/// Consumed by:
+/// - The legacy [`Index::execute`] thin wrapper — re-emits the
+///   1-key audit JSON via `progress.set_step_result(...)` so
+///   `pipeline_steps.result_summary` stays byte-identical to the
+///   pre-refactor shape (bug B3).
+/// - The Restate workflow handler (`step_index`) — builds a
+///   journal summary string from this counter.
+#[derive(Debug, Clone, Default)]
+pub struct IndexResult {
+    /// Number of Qdrant points upserted in this invocation. One per
+    /// Neo4j node belonging to the document.
+    pub embedded_count: usize,
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -117,6 +126,16 @@ impl Step<DocProcessing> for Index {
     const DEFAULT_RETRY_DELAY_SECS: u64 = 10;
     const DEFAULT_TIMEOUT_SECS: Option<u64> = Some(300);
 
+    /// Thin wrapper over [`run_index`] — the clean business core
+    /// that the Restate workflow handler also calls.
+    ///
+    /// Adds on top of the core:
+    /// 1. **Pre / post cancel checks** (legacy worker semantics).
+    /// 2. **`progress.set_step_result(...)` audit JSON.** Re-emits
+    ///    the 1-key shape (`points_indexed`) the pre-refactor body
+    ///    wrote inline so `pipeline_steps.result_summary` stays
+    ///    byte-identical.
+    /// 3. **FSM routing** to Completeness.
     async fn execute(
         self,
         db: &PgPool,
@@ -125,13 +144,12 @@ impl Step<DocProcessing> for Index {
         progress: &ProgressReporter,
     ) -> Result<StepResult<DocProcessing>, Box<dyn Error + Send + Sync>> {
         let start = Instant::now();
-        let doc_id = self.document_id.clone();
 
         if cancel.is_cancelled().await {
             return Err("Cancelled before indexing".into());
         }
 
-        let stats = self.run_index(db, context, &doc_id).await?;
+        let result = run_index(&self.document_id, db, context).await?;
 
         if cancel.is_cancelled().await {
             return Err("Cancelled after indexing".into());
@@ -139,14 +157,14 @@ impl Step<DocProcessing> for Index {
 
         let duration_secs = start.elapsed().as_secs_f64();
         tracing::info!(
-            doc_id = %doc_id,
+            doc_id = %self.document_id,
             duration_secs,
-            embedded_count = stats.embedded_count,
+            embedded_count = result.embedded_count,
             "Index step complete"
         );
 
         progress.set_step_result(serde_json::json!({
-            "points_indexed": stats.embedded_count,
+            "points_indexed": result.embedded_count,
         }));
 
         Ok(StepResult::Next(DocProcessing::Completeness(
@@ -168,15 +186,37 @@ impl Step<DocProcessing> for Index {
     }
 }
 
-impl Index {
-    /// Internal: perform the full embed-and-upsert path. Called from
-    /// [`Step::execute`].
-    async fn run_index(
-        &self,
-        db: &PgPool,
-        context: &AppContext,
-        doc_id: &str,
-    ) -> Result<IndexStats, IndexError> {
+// ─────────────────────────────────────────────────────────────────────────
+// Core implementation (Restate-callable)
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Run the Index step — embed Neo4j nodes and upsert into Qdrant.
+///
+/// ## Idempotency
+///
+/// Qdrant upsert is natively idempotent ("insert if absent,
+/// overwrite if present"). Point IDs are deterministic — derived
+/// from Neo4j node IDs via `DefaultHasher`. Re-running produces
+/// identical points regardless of prior state. No pre-cleanup
+/// needed; Restate replay is safe by construction.
+///
+/// ## documents.status
+///
+/// Writes `STATUS_INDEXED` at the end of the function. Both legacy
+/// and Restate paths see the canonical status surface via this core.
+///
+/// ## Cancellation
+///
+/// Does not poll a `CancellationToken`. The legacy worker wraps
+/// `Step::execute` in `tokio::select!` with a `cancel_watcher`; the
+/// Restate path kills the awaiting future via SDK abort.
+pub async fn run_index(
+    document_id: &str,
+    db: &PgPool,
+    context: &AppContext,
+) -> Result<IndexResult, IndexError> {
+    let doc_id = document_id;
+    {
         // 1. Ensure Qdrant collection exists (idempotent no-op if present).
         //    Dimension must match the provider's output — passed through
         //    per P2-Nx-A's parameterised signature.
@@ -325,7 +365,7 @@ impl Index {
                 message: format!("update_document_status: {e}"),
             })?;
 
-        Ok(IndexStats { embedded_count })
+        Ok(IndexResult { embedded_count })
     }
 }
 

@@ -35,5 +35,7 @@
 pub mod auto_approve;
 pub mod completeness;
 pub mod extract_text;
+pub mod index;
+pub mod ingest;
 pub mod llm_extract;
 pub mod verify;

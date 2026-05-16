@@ -1,13 +1,10 @@
-//! `DocumentPipeline` workflow — Phase 2-2c (Part 1): verify, auto-approve, completeness.
+//! `DocumentPipeline` workflow — Phase 2-2c (Part 2): all 8 steps real.
 //!
 //! ## Purpose
 //!
 //! Phase 2's document-processing workflow. Replaces P1's echo step
-//! with the 8-step pipeline. Steps 1-5 and step 8 are fully
-//! implemented as of P2-2c Part 1; steps 6 (ingest) and 7 (index)
-//! are placeholder `ctx.run()` calls that log and return Ok so the
-//! workflow's `ctx.set` state transitions can still be exercised
-//! end-to-end before P2-2c Part 2 fills them in.
+//! with the 8-step pipeline. As of P2-2c Part 2, all 8 steps have
+//! real implementations — zero placeholders remain.
 //!
 //! The 8 steps, in order:
 //!
@@ -17,8 +14,8 @@
 //!    by the handler when the profile has `run_pass2 = false`).
 //! 4. `verify` — grounding verification (REAL).
 //! 5. `auto_approve` — auto-approve grounded items (REAL).
-//! 6. `ingest` — write to Neo4j (placeholder — P2-2c Part 2).
-//! 7. `index` — embed and write to Qdrant (placeholder — P2-2c Part 2).
+//! 6. `ingest` — write to Neo4j (REAL; cleanup-then-write idempotency).
+//! 7. `index` — embed and write to Qdrant (REAL; native upsert idempotency).
 //! 8. `completeness` — completeness check (REAL; terminal step).
 //!
 //! Each step is its own `ctx.run()` call so Restate journals each
@@ -341,38 +338,44 @@ impl DocumentPipeline for DocumentPipelineImpl {
         })?;
         ctx.set(STATUS_STATE_KEY, STATUS_APPROVED.to_string());
 
-        // ── Step 6: ingest (PLACEHOLDER — P2-2c) ───────────────────
-        let did6 = doc_id.clone();
-        ctx.run(|| async move {
-            tracing::info!(doc_id = %did6, "PLACEHOLDER: ingest");
-            Ok::<String, HandlerError>("ingest_placeholder".to_string())
-        })
-        .await
-        .map_err(|e| {
-            tracing::error!(
-                doc_id = %doc_id, step = "ingest", error = %e,
-                recovery = STEP_FAILURE_RECOVERY,
-                "DocumentPipeline step failed"
-            );
-            e
-        })?;
+        // ── Step 6: ingest (REAL) ──────────────────────────────────
+        //
+        // The Postgres `documents.status = "INGESTED"` write happens
+        // inside the core `run_ingest`. The core also performs
+        // cleanup-then-write idempotency (calls `cleanup_neo4j` at
+        // the start of every invocation), so Restate replay is safe
+        // even though `ingest_helpers` uses CREATE rather than MERGE.
+        let app = Arc::clone(&self.ctx);
+        let did = doc_id.clone();
+        ctx.run(|| async move { workflow_steps::ingest::step_ingest(&app, &did).await })
+            .await
+            .map_err(|e| {
+                tracing::error!(
+                    doc_id = %doc_id, step = "ingest", error = %e,
+                    recovery = STEP_FAILURE_RECOVERY,
+                    "DocumentPipeline step failed"
+                );
+                e
+            })?;
         ctx.set(STATUS_STATE_KEY, STATUS_INGESTED.to_string());
 
-        // ── Step 7: index (PLACEHOLDER — P2-2c) ────────────────────
-        let did7 = doc_id.clone();
-        ctx.run(|| async move {
-            tracing::info!(doc_id = %did7, "PLACEHOLDER: index");
-            Ok::<String, HandlerError>("index_placeholder".to_string())
-        })
-        .await
-        .map_err(|e| {
-            tracing::error!(
-                doc_id = %doc_id, step = "index", error = %e,
-                recovery = STEP_FAILURE_RECOVERY,
-                "DocumentPipeline step failed"
-            );
-            e
-        })?;
+        // ── Step 7: index (REAL) ───────────────────────────────────
+        //
+        // The Postgres `documents.status = "INDEXED"` write happens
+        // inside the core `run_index`. Qdrant upsert is natively
+        // idempotent — Restate replay produces identical points.
+        let app = Arc::clone(&self.ctx);
+        let did = doc_id.clone();
+        ctx.run(|| async move { workflow_steps::index::step_index(&app, &did).await })
+            .await
+            .map_err(|e| {
+                tracing::error!(
+                    doc_id = %doc_id, step = "index", error = %e,
+                    recovery = STEP_FAILURE_RECOVERY,
+                    "DocumentPipeline step failed"
+                );
+                e
+            })?;
         ctx.set(STATUS_STATE_KEY, STATUS_INDEXED.to_string());
 
         // ── Step 8: completeness (REAL — terminal step) ────────────

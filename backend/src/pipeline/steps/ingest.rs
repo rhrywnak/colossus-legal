@@ -63,13 +63,26 @@ pub struct Ingest {
     pub document_id: String,
 }
 
-/// Counts returned by [`Ingest::run_ingest`] so [`Step::execute`] can both
-/// persist them (bug B2: `documents.entities_written`) and surface them in
-/// the `pipeline_steps.result_summary` JSON (bug B3).
-#[derive(Debug)]
-struct IngestStats {
-    total_nodes: usize,
-    total_rels: usize,
+/// Outcome of a successful pass through [`run_ingest`].
+///
+/// Consumed by:
+/// - The legacy [`Ingest::execute`] thin wrapper — re-emits the
+///   2-key audit JSON via `progress.set_step_result(...)` so
+///   `pipeline_steps.result_summary` stays byte-identical to the
+///   pre-refactor shape.
+/// - The Restate workflow handler (`step_ingest`) — builds a
+///   journal summary string from these counters.
+///
+/// Fixes bug B2 (`documents.entities_written` persistence) and
+/// bug B3 (`pipeline_steps.result_summary` content).
+#[derive(Debug, Clone, Default)]
+pub struct IngestResult {
+    /// Total Neo4j nodes written in this invocation (Document node +
+    /// Party nodes + non-Party entity nodes).
+    pub total_nodes: usize,
+    /// Total Neo4j relationships written (extraction rels +
+    /// DERIVED_FROM provenance + CONTAINED_IN).
+    pub total_rels: usize,
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -127,6 +140,21 @@ impl Step<DocProcessing> for Ingest {
     const DEFAULT_RETRY_DELAY_SECS: u64 = 10;
     const DEFAULT_TIMEOUT_SECS: Option<u64> = Some(300);
 
+    /// Thin wrapper over [`run_ingest`] — the clean business core
+    /// that the Restate workflow handler also calls.
+    ///
+    /// Adds on top of the core:
+    /// 1. **Pre / post cancel checks** (legacy worker semantics).
+    /// 2. **`progress.set_step_result(...)` audit JSON.** Re-emits
+    ///    the 2-key shape (`entities_written`, `relationships_written`)
+    ///    the pre-refactor body wrote inline so
+    ///    `pipeline_steps.result_summary` stays byte-identical.
+    /// 3. **FSM routing** to Index.
+    ///
+    /// The pre-run `cleanup_neo4j` call that used to live here moved
+    /// INSIDE `run_ingest` so the Restate path's `ctx.run` replays
+    /// also benefit from cleanup-then-write idempotency without the
+    /// Restate handler having to call cleanup itself.
     async fn execute(
         self,
         db: &PgPool,
@@ -135,23 +163,12 @@ impl Step<DocProcessing> for Ingest {
         progress: &ProgressReporter,
     ) -> Result<StepResult<DocProcessing>, Box<dyn Error + Send + Sync>> {
         let start = Instant::now();
-        let doc_id = self.document_id.clone();
 
         if cancel.is_cancelled().await {
             return Err("Cancelled before ingest".into());
         }
 
-        // Pre-run cleanup: wipe any prior partial Neo4j state for this
-        // doc_id before opening the write transaction. Makes retry safe
-        // even though the underlying helpers use CREATE rather than MERGE.
-        cleanup_neo4j(&doc_id, &context.graph)
-            .await
-            .map_err(|source| IngestError::Cleanup {
-                doc_id: doc_id.clone(),
-                source,
-            })?;
-
-        let stats = self.run_ingest(db, context, &doc_id).await?;
+        let result = run_ingest(&self.document_id, db, context).await?;
 
         if cancel.is_cancelled().await {
             return Err("Cancelled after ingest".into());
@@ -159,16 +176,16 @@ impl Step<DocProcessing> for Ingest {
 
         let duration_secs = start.elapsed().as_secs_f64();
         tracing::info!(
-            doc_id = %doc_id,
+            doc_id = %self.document_id,
             duration_secs,
-            total_nodes = stats.total_nodes,
-            total_rels = stats.total_rels,
+            total_nodes = result.total_nodes,
+            total_rels = result.total_rels,
             "Ingest step complete"
         );
 
         progress.set_step_result(serde_json::json!({
-            "entities_written": stats.total_nodes,
-            "relationships_written": stats.total_rels,
+            "entities_written": result.total_nodes,
+            "relationships_written": result.total_rels,
         }));
 
         Ok(StepResult::Next(DocProcessing::Index(Index {
@@ -188,19 +205,63 @@ impl Step<DocProcessing> for Ingest {
     }
 }
 
-impl Ingest {
-    /// Internal: perform the full ingest write path. Called from
-    /// [`Step::execute`] after pre-run cleanup succeeds.
-    ///
-    /// Step numbering below mirrors the existing HTTP `ingest_handler`'s
-    /// step comments so anyone diff-reading between the two sees the
-    /// correspondence.
-    async fn run_ingest(
-        &self,
-        db: &PgPool,
-        context: &AppContext,
-        doc_id: &str,
-    ) -> Result<IngestStats, IngestError> {
+// ─────────────────────────────────────────────────────────────────────────
+// Core implementation (Restate-callable)
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Run the Ingest step — write approved extraction items into Neo4j.
+///
+/// ## Cleanup-then-write idempotency
+///
+/// Calls [`cleanup_neo4j`] first to wipe any prior partial Neo4j
+/// state for this `doc_id`, then performs the write inside a fresh
+/// Neo4j transaction. This is the same idempotency model the legacy
+/// worker used (the cleanup call previously lived in
+/// `Step::execute`); moving it inside the core means Restate replay
+/// — which re-executes the `ctx.run` closure body on workflow
+/// recovery — gets cleanup-then-write for free, without forcing the
+/// Restate handler to know about cleanup semantics.
+///
+/// The underlying `ingest_helpers` uses `CREATE` (not `MERGE`) for
+/// everything except Party entities; a naive retry would duplicate
+/// nodes. Cleanup-then-write is the bounded-cost workaround until
+/// the cross-cutting **P-MERGE-refactor** lands. See module-level
+/// docs for the rationale.
+///
+/// ## documents.status
+///
+/// Writes `STATUS_INGESTED` at the end of the function. Both legacy
+/// and Restate paths see the canonical status surface via this core.
+///
+/// ## Cancellation
+///
+/// Does not poll a `CancellationToken`. The legacy worker wraps
+/// `Step::execute` in `tokio::select!` with a `cancel_watcher`; the
+/// Restate path kills the awaiting future via SDK abort.
+///
+/// Step numbering below mirrors the existing HTTP `ingest_handler`'s
+/// step comments so anyone diff-reading between the two sees the
+/// correspondence.
+pub async fn run_ingest(
+    document_id: &str,
+    db: &PgPool,
+    context: &AppContext,
+) -> Result<IngestResult, IngestError> {
+    let doc_id = document_id;
+
+    // 0. Pre-run cleanup: wipe any prior partial Neo4j state for this
+    //    doc_id before opening the write transaction. Makes retry safe
+    //    even though the underlying helpers use CREATE rather than
+    //    MERGE. Lives INSIDE the core (rather than the legacy
+    //    `Step::execute` wrapper) so Restate replay also benefits.
+    cleanup_neo4j(doc_id, &context.graph)
+        .await
+        .map_err(|source| IngestError::Cleanup {
+            doc_id: doc_id.to_string(),
+            source,
+        })?;
+
+    {
         // 1. Fetch document — must exist
         let document = pipeline_repository::get_document(db, doc_id)
             .await
@@ -589,7 +650,7 @@ impl Ingest {
             "Ingest write complete"
         );
 
-        Ok(IngestStats {
+        Ok(IngestResult {
             total_nodes,
             total_rels,
         })
