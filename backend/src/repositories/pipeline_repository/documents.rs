@@ -43,6 +43,50 @@ pub async fn update_processing_progress(
     Ok(())
 }
 
+/// Persist failure details to the `documents` table.
+///
+/// Writes three columns the frontend reads to render the FAILED-state
+/// UI (`DocumentCard.tsx` and `ProcessingPanel.tsx`):
+/// - `failed_step` — the step name that failed (e.g. `"ingest"`).
+/// - `error_message` — the operator-facing failure string.
+/// - `error_suggestion` — optional recovery hint from
+///   `PipelineRegistry::suggest_recovery`. `None` is bound as SQL
+///   NULL and the frontend hides the "Suggestion:" line.
+///
+/// Called by the Restate workflow's top-level failure handler. The
+/// legacy worker path doesn't call this — its `pipeline_jobs_*`
+/// trigger projects terminal job status onto `documents.status` but
+/// has no equivalent error-detail projection, so the legacy "Failed
+/// at: X" surface has always shown empty (pre-existing bug B3 from
+/// the progress audit, now fixed for the Restate path).
+///
+/// This function is best-effort at the caller's discretion: a DB
+/// failure here would mask the underlying step failure. Callers
+/// should log and continue, not propagate.
+pub async fn update_document_failure(
+    pool: &PgPool,
+    document_id: &str,
+    failed_step: &str,
+    error_message: &str,
+    error_suggestion: Option<&str>,
+) -> Result<(), PipelineRepoError> {
+    sqlx::query(
+        "UPDATE documents SET
+            failed_step = $2,
+            error_message = $3,
+            error_suggestion = $4,
+            updated_at = NOW()
+         WHERE id = $1",
+    )
+    .bind(document_id)
+    .bind(failed_step)
+    .bind(error_message)
+    .bind(error_suggestion)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 /// Check if document is cancelled.
 pub async fn is_cancelled(pool: &PgPool, document_id: &str) -> Result<bool, PipelineRepoError> {
     let row = sqlx::query_scalar::<_, bool>("SELECT is_cancelled FROM documents WHERE id = $1")

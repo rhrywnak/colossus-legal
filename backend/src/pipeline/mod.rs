@@ -9,6 +9,7 @@ pub mod providers;
 pub mod registry;
 pub mod rig_llm_bridge;
 pub mod rig_provider;
+pub mod step_progress;
 pub mod step_recorder;
 pub mod steps;
 pub mod task;

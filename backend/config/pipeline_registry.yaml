@@ -72,3 +72,127 @@ document_types:
     description: "Fallback for document types without a specific profile"
     is_default: true
     sort_order: 99
+
+# step_labels — UI-facing labels and workflow-level progress percentages.
+#
+# Each entry maps a pipeline step name to:
+#   - label:          the operator-facing string shown in the Documents tab
+#                     while the step runs. May contain a {grounding_pct}
+#                     placeholder (Verify only).
+#   - label_full:     (optional, pass-1 only) override used when the
+#                     extraction runs in full-document mode (one LLM call,
+#                     no chunking). Visible for the entire duration of
+#                     that LLM call, so it should warn the operator that
+#                     a wait is expected.
+#   - label_chunk:    (optional, pass-1 only) per-chunk template. The
+#                     {current} / {total} placeholders are substituted at
+#                     write time from the chunk loop's state.
+#   - percent_start:  workflow-level percent shown when the step begins.
+#                     Workflow percentages monotonically increase from 0
+#                     to 100 across the 8 steps so the progress bar
+#                     never regresses between steps.
+#   - percent_end:    workflow-level percent shown when the step ends.
+#
+# Validation (registry.rs): percent_start < percent_end <= 100; each
+# step's percent_start >= the previous step's percent_end so the bar
+# never moves backwards.
+step_labels:
+  extract_text:
+    label: "Reading document..."
+    percent_start: 5
+    percent_end: 10
+  llm_extract_pass1:
+    label: "Analyzing document content..."
+    label_full: "Analyzing document — awaiting LLM response (this may take several minutes)..."
+    label_chunk: "Analyzing document — section {current} of {total}..."
+    percent_start: 10
+    percent_end: 60
+  llm_extract_pass2:
+    label: "Extracting relationships..."
+    percent_start: 60
+    percent_end: 70
+  verify:
+    label: "Verifying extracted information ({grounding_pct}% grounded)..."
+    percent_start: 70
+    percent_end: 80
+  auto_approve:
+    label: "Reviewing verification results..."
+    percent_start: 80
+    percent_end: 82
+  ingest:
+    label: "Saving to case graph..."
+    percent_start: 82
+    percent_end: 90
+  index:
+    label: "Building search index..."
+    percent_start: 90
+    percent_end: 95
+  completeness:
+    label: "Running final quality checks..."
+    percent_start: 95
+    percent_end: 100
+
+# recovery_hints — operator-facing suggestions written to
+# `documents.error_suggestion` when a workflow step fails terminally.
+#
+# Keyed by step name. Each step has an ordered list of (error_pattern,
+# suggestion) entries. On a terminal failure, the failure handler scans
+# the matching step's list and uses the FIRST entry whose
+# `error_pattern` substring matches the error message. If no entry
+# matches, no suggestion is written (the operator sees only
+# error_message).
+recovery_hints:
+  extract_text:
+    - error_pattern: "file not present"
+      suggestion: "The uploaded file is not on disk. Re-upload the document."
+    - error_pattern: "OCR tooling unavailable"
+      suggestion: "Surya OCR service is unreachable. Check SURYA_OCR_URL points at a running Surya instance, then re-process."
+    - error_pattern: "no usable text"
+      suggestion: "The PDF appears to be entirely scanned with no extractable text. Confirm OCR is enabled and re-process."
+  llm_extract_pass1:
+    - error_pattern: "rate limit"
+      suggestion: "Anthropic rate limit hit. Wait a few minutes, then re-process."
+    - error_pattern: "exhausted"
+      suggestion: "Rate-limit retries exhausted. Anthropic API is heavily throttled — try again in 30+ minutes."
+    - error_pattern: "ANTHROPIC_API_KEY"
+      suggestion: "ANTHROPIC_API_KEY env var is missing or invalid. Update the backend's env config and restart."
+    - error_pattern: "not found or inactive in llm_models"
+      suggestion: "The configured LLM model is not active in the llm_models table. Toggle it on in the Admin → Models page or change the profile."
+    - error_pattern: "non-JSON"
+      suggestion: "LLM returned non-JSON output. Inspect the extraction_runs.raw_output and check the prompt template for drift."
+    - error_pattern: "no extracted text pages"
+      suggestion: "extract_text did not write document_text rows. Re-run from upload."
+  llm_extract_pass2:
+    - error_pattern: "rate limit"
+      suggestion: "Anthropic rate limit hit during pass-2. Wait a few minutes, then re-process."
+    - error_pattern: "no pass2_template_file"
+      suggestion: "The profile is configured for pass-2 (run_pass2=true) but has no pass2_template_file. Update the profile YAML."
+    - error_pattern: "No COMPLETED pass-1"
+      suggestion: "Pass-2 requires a completed pass-1 run. Re-process from the beginning."
+  verify:
+    - error_pattern: "no canonical text"
+      suggestion: "Verify needs the document_text rows from extract_text. Re-run extract_text first."
+    - error_pattern: "grounding-config"
+      suggestion: "The schema YAML's grounding modes failed to load. Validate the schema and redeploy."
+  auto_approve:
+    - error_pattern: "not found in database"
+      suggestion: "The document row is gone. The document may have been deleted concurrently — no recovery."
+  ingest:
+    - error_pattern: "connection refused"
+      suggestion: "Neo4j is unreachable. Check the Neo4j VM is running and the bolt port is open."
+    - error_pattern: "No COMPLETED extraction_run"
+      suggestion: "Ingest requires a completed extraction. Re-run pass-1 (and pass-2 if configured)."
+    - error_pattern: "No Neo4j ID for"
+      suggestion: "A relationship references an entity that wasn't ingested. Inspect the failed run's extraction_items for orphaned references."
+  index:
+    - error_pattern: "No Neo4j nodes"
+      suggestion: "Index requires Neo4j nodes from ingest. Re-run ingest before indexing."
+    - error_pattern: "rate limit"
+      suggestion: "Embedding-provider rate limit hit. Wait a few minutes, then re-process."
+    - error_pattern: "qdrant"
+      suggestion: "Qdrant write failed. Check QDRANT_URL and confirm the Qdrant container is running."
+  completeness:
+    - error_pattern: "Document node missing"
+      suggestion: "Ingest did not produce the Document node. Re-run ingest and check its logs."
+    - error_pattern: "expected Neo4j nodes are missing"
+      suggestion: "Some entity nodes did not land in Neo4j. Inspect the ingest step's log for the failing items."

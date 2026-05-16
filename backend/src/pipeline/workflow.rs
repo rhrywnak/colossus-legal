@@ -71,10 +71,12 @@ use std::sync::Arc;
 use restate_sdk::prelude::*;
 
 use crate::models::document_status::{
-    STATUS_APPROVED, STATUS_INDEXED, STATUS_INGESTED, STATUS_TEXT_EXTRACTED, STATUS_VERIFIED,
+    STATUS_APPROVED, STATUS_FAILED, STATUS_INDEXED, STATUS_INGESTED, STATUS_TEXT_EXTRACTED,
+    STATUS_VERIFIED,
 };
 use crate::pipeline::context::AppContext;
 use crate::pipeline::workflow_steps;
+use crate::repositories::pipeline_repository;
 
 // ── State contract ───────────────────────────────────────────────
 //
@@ -225,190 +227,329 @@ impl DocumentPipelineImpl {
     }
 }
 
+impl DocumentPipelineImpl {
+    /// Persist failure details to `documents` after a terminal step
+    /// error. Best-effort — log on DB write failure, never propagate.
+    ///
+    /// Writes three rows on `documents`:
+    /// - `failed_step` (the step name from the registry's
+    ///   `step_labels` key — `"extract_text"`, `"llm_extract_pass1"`,
+    ///   etc.)
+    /// - `error_message` (the `HandlerError`'s Display string)
+    /// - `error_suggestion` (looked up via
+    ///   `PipelineRegistry::suggest_recovery` — `None` if no
+    ///   recovery_hints pattern matched)
+    ///
+    /// Then writes `documents.status = STATUS_FAILED` so the
+    /// frontend's `compute_status_group` routes the document to the
+    /// `"failed"` bucket. Without this write the doc would stay
+    /// stuck at whatever the last successful step set
+    /// (e.g. `"EXTRACTED"`) and the frontend would keep polling as
+    /// if processing were still in progress (gap G6/R7 from the
+    /// progress audit).
+    async fn write_failure_to_documents(
+        &self,
+        doc_id: &str,
+        failed_step: &str,
+        error: &HandlerError,
+    ) {
+        // ## Rust Learning: Send-friendly `&dyn Error` annotation
+        //
+        // `HandlerError::as_ref()` returns `&(dyn StdError + Send +
+        // Sync)`. Naming the local with the bounds preserved keeps
+        // the future `Send` (which the Restate SDK requires).
+        // Without `Send + Sync` in the type annotation, the bare
+        // `&dyn Error` would be `!Send`, and holding it across the
+        // `.await` below makes the surrounding `run` future fail
+        // the Restate SDK's `Send` bound.
+        let inner: &(dyn std::error::Error + Send + Sync) = error.as_ref();
+        let error_message = format!("{inner}");
+        let suggestion = self
+            .ctx
+            .registry
+            .suggest_recovery(failed_step, &error_message);
+
+        if let Err(e) = pipeline_repository::documents::update_document_failure(
+            &self.ctx.pipeline_pool,
+            doc_id,
+            failed_step,
+            &error_message,
+            suggestion.as_deref(),
+        )
+        .await
+        {
+            tracing::error!(
+                doc_id, step = failed_step, error = %e,
+                "DocumentPipeline: failed to write failure details to documents table"
+            );
+        }
+
+        if let Err(e) = pipeline_repository::update_document_status(
+            &self.ctx.pipeline_pool,
+            doc_id,
+            STATUS_FAILED,
+        )
+        .await
+        {
+            tracing::error!(
+                doc_id, step = failed_step, error = %e,
+                "DocumentPipeline: failed to write STATUS_FAILED to documents table"
+            );
+        }
+    }
+}
+
 impl DocumentPipeline for DocumentPipelineImpl {
     async fn run(&self, ctx: WorkflowContext<'_>, doc_id: String) -> Result<String, HandlerError> {
         tracing::info!(doc_id = %doc_id, "DocumentPipeline workflow started");
 
-        // ── Step 1: extract_text (REAL) ────────────────────────────
+        // Track which step is currently active so the failure handler
+        // below can write `documents.failed_step` after a terminal
+        // error. Each step updates this BEFORE its `ctx.run`; on
+        // failure the outer match reads the last-set value.
         //
-        // ## Rust Learning: `Arc` clone before the async move
-        //
-        // Each `ctx.run` closure becomes a 'static future, so it must
-        // own its captures. Cloning the `Arc<AppContext>` is a single
-        // atomic refcount bump — the underlying `AppContext` is shared
-        // across all clones. The doc_id is `.clone()`d separately
-        // because the trailing tracing line and the next step both
-        // need their own copies.
-        let app = Arc::clone(&self.ctx);
-        let did = doc_id.clone();
-        ctx.run(
-            || async move { workflow_steps::extract_text::step_extract_text(&app, &did).await },
-        )
-        .await
-        .map_err(|e| {
-            tracing::error!(
-                doc_id = %doc_id, step = "extract_text", error = %e,
-                recovery = STEP_FAILURE_RECOVERY,
-                "DocumentPipeline step failed"
-            );
-            e
-        })?;
-        ctx.set(STATUS_STATE_KEY, STATUS_TEXT_EXTRACTED.to_string());
+        // Empty sentinel: if the async body returns `Err` before the
+        // first step's assignment fires (e.g. setup-phase panic
+        // surfaced as a Restate error before line 323 runs), the
+        // failure handler will see `""` and skip the documents-table
+        // write rather than store the meaningless string `"init"` —
+        // which would surface as garbage in `documents.failed_step`
+        // and would never match a `recovery_hints:` key.
+        let mut failed_step: &'static str = "";
 
-        // ── Step 2: llm_extract_pass1 (REAL — includes chunking) ──
-        //
-        // Chunking lives inside this step rather than as its own step
-        // because `extraction_chunks` rows carry an `extraction_run_id`
-        // FK and are pass-scoped (see the module-level doc above for
-        // why a separate chunk step is awkward).
-        let app = Arc::clone(&self.ctx);
-        let did = doc_id.clone();
-        ctx.run(
-            || async move { workflow_steps::llm_extract::step_llm_extract_pass1(&app, &did).await },
-        )
-        .await
-        .map_err(|e| {
-            tracing::error!(
-                doc_id = %doc_id, step = "llm_extract_pass1", error = %e,
-                recovery = STEP_FAILURE_RECOVERY,
-                "DocumentPipeline step failed"
-            );
-            e
-        })?;
-        ctx.set(STATUS_STATE_KEY, STATUS_PASS1_COMPLETE.to_string());
-
-        // ── Step 3: llm_extract_pass2 (REAL — relationships) ───────
-        //
-        // The workflow body calls pass-2 unconditionally; the step
-        // handler itself short-circuits when the resolved profile has
-        // `run_pass2 = false`. No FSM routing here (the legacy
-        // worker's `next_step_after_pass1` is bypassed on the Restate
-        // path).
-        let app = Arc::clone(&self.ctx);
-        let did = doc_id.clone();
-        ctx.run(
-            || async move { workflow_steps::llm_extract::step_llm_extract_pass2(&app, &did).await },
-        )
-        .await
-        .map_err(|e| {
-            tracing::error!(
-                doc_id = %doc_id, step = "llm_extract_pass2", error = %e,
-                recovery = STEP_FAILURE_RECOVERY,
-                "DocumentPipeline step failed"
-            );
-            e
-        })?;
-        ctx.set(STATUS_STATE_KEY, STATUS_PASS2_COMPLETE.to_string());
-
-        // ── Step 4: verify (REAL) ──────────────────────────────────
-        let app = Arc::clone(&self.ctx);
-        let did = doc_id.clone();
-        ctx.run(|| async move { workflow_steps::verify::step_verify(&app, &did).await })
+        let body_result: Result<String, HandlerError> = async {
+            // ── Step 1: extract_text (REAL) ────────────────────────────
+            //
+            // ## Rust Learning: `Arc` clone before the async move
+            //
+            // Each `ctx.run` closure becomes a 'static future, so it must
+            // own its captures. Cloning the `Arc<AppContext>` is a single
+            // atomic refcount bump — the underlying `AppContext` is shared
+            // across all clones. The doc_id is `.clone()`d separately
+            // because the trailing tracing line and the next step both
+            // need their own copies.
+            failed_step = "extract_text";
+            let app = Arc::clone(&self.ctx);
+            let did = doc_id.clone();
+            ctx.run(
+                || async move { workflow_steps::extract_text::step_extract_text(&app, &did).await },
+            )
             .await
             .map_err(|e| {
                 tracing::error!(
-                    doc_id = %doc_id, step = "verify", error = %e,
+                    doc_id = %doc_id, step = "extract_text", error = %e,
                     recovery = STEP_FAILURE_RECOVERY,
                     "DocumentPipeline step failed"
                 );
                 e
             })?;
-        ctx.set(STATUS_STATE_KEY, STATUS_VERIFIED.to_string());
+            ctx.set(STATUS_STATE_KEY, STATUS_TEXT_EXTRACTED.to_string());
 
-        // ── Step 5: auto_approve (REAL) ────────────────────────────
-        //
-        // Per P2-2c design decision (option b), the handler does NOT
-        // write `documents.status` — the lifecycle column stays at
-        // "VERIFIED" until step_ingest writes "INGESTED". The
-        // Restate state still transitions through STATUS_APPROVED
-        // below so the journal records the step boundary.
-        let app = Arc::clone(&self.ctx);
-        let did = doc_id.clone();
-        ctx.run(
-            || async move { workflow_steps::auto_approve::step_auto_approve(&app, &did).await },
-        )
-        .await
-        .map_err(|e| {
-            tracing::error!(
-                doc_id = %doc_id, step = "auto_approve", error = %e,
-                recovery = STEP_FAILURE_RECOVERY,
-                "DocumentPipeline step failed"
-            );
-            e
-        })?;
-        ctx.set(STATUS_STATE_KEY, STATUS_APPROVED.to_string());
-
-        // ── Step 6: ingest (REAL) ──────────────────────────────────
-        //
-        // The Postgres `documents.status = "INGESTED"` write happens
-        // inside the core `run_ingest`. The core also performs
-        // cleanup-then-write idempotency (calls `cleanup_neo4j` at
-        // the start of every invocation), so Restate replay is safe
-        // even though `ingest_helpers` uses CREATE rather than MERGE.
-        let app = Arc::clone(&self.ctx);
-        let did = doc_id.clone();
-        ctx.run(|| async move { workflow_steps::ingest::step_ingest(&app, &did).await })
+            // ── Step 2: llm_extract_pass1 (REAL — includes chunking) ──
+            //
+            // Chunking lives inside this step rather than as its own step
+            // because `extraction_chunks` rows carry an `extraction_run_id`
+            // FK and are pass-scoped (see the module-level doc above for
+            // why a separate chunk step is awkward).
+            failed_step = "llm_extract_pass1";
+            let app = Arc::clone(&self.ctx);
+            let did = doc_id.clone();
+            ctx.run(|| async move {
+                workflow_steps::llm_extract::step_llm_extract_pass1(&app, &did).await
+            })
             .await
             .map_err(|e| {
                 tracing::error!(
-                    doc_id = %doc_id, step = "ingest", error = %e,
+                    doc_id = %doc_id, step = "llm_extract_pass1", error = %e,
                     recovery = STEP_FAILURE_RECOVERY,
                     "DocumentPipeline step failed"
                 );
                 e
             })?;
-        ctx.set(STATUS_STATE_KEY, STATUS_INGESTED.to_string());
+            ctx.set(STATUS_STATE_KEY, STATUS_PASS1_COMPLETE.to_string());
 
-        // ── Step 7: index (REAL) ───────────────────────────────────
-        //
-        // The Postgres `documents.status = "INDEXED"` write happens
-        // inside the core `run_index`. Qdrant upsert is natively
-        // idempotent — Restate replay produces identical points.
-        let app = Arc::clone(&self.ctx);
-        let did = doc_id.clone();
-        ctx.run(|| async move { workflow_steps::index::step_index(&app, &did).await })
+            // ── Step 3: llm_extract_pass2 (REAL — relationships) ───────
+            //
+            // The workflow body calls pass-2 unconditionally; the step
+            // handler itself short-circuits when the resolved profile has
+            // `run_pass2 = false`. No FSM routing here (the legacy
+            // worker's `next_step_after_pass1` is bypassed on the Restate
+            // path).
+            failed_step = "llm_extract_pass2";
+            let app = Arc::clone(&self.ctx);
+            let did = doc_id.clone();
+            ctx.run(|| async move {
+                workflow_steps::llm_extract::step_llm_extract_pass2(&app, &did).await
+            })
             .await
             .map_err(|e| {
                 tracing::error!(
-                    doc_id = %doc_id, step = "index", error = %e,
+                    doc_id = %doc_id, step = "llm_extract_pass2", error = %e,
                     recovery = STEP_FAILURE_RECOVERY,
                     "DocumentPipeline step failed"
                 );
                 e
             })?;
-        ctx.set(STATUS_STATE_KEY, STATUS_INDEXED.to_string());
+            ctx.set(STATUS_STATE_KEY, STATUS_PASS2_COMPLETE.to_string());
 
-        // ── Step 8: completeness (REAL — terminal step) ────────────
+            // ── Step 4: verify (REAL) ──────────────────────────────────
+            failed_step = "verify";
+            let app = Arc::clone(&self.ctx);
+            let did = doc_id.clone();
+            ctx.run(|| async move { workflow_steps::verify::step_verify(&app, &did).await })
+                .await
+                .map_err(|e| {
+                    tracing::error!(
+                        doc_id = %doc_id, step = "verify", error = %e,
+                        recovery = STEP_FAILURE_RECOVERY,
+                        "DocumentPipeline step failed"
+                    );
+                    e
+                })?;
+            ctx.set(STATUS_STATE_KEY, STATUS_VERIFIED.to_string());
+
+            // ── Step 5: auto_approve (REAL) ────────────────────────────
+            //
+            // Per P2-2c design decision (option b), the handler does NOT
+            // write `documents.status` — the lifecycle column stays at
+            // "VERIFIED" until step_ingest writes "INGESTED". The
+            // Restate state still transitions through STATUS_APPROVED
+            // below so the journal records the step boundary.
+            failed_step = "auto_approve";
+            let app = Arc::clone(&self.ctx);
+            let did = doc_id.clone();
+            ctx.run(
+                || async move { workflow_steps::auto_approve::step_auto_approve(&app, &did).await },
+            )
+            .await
+            .map_err(|e| {
+                tracing::error!(
+                    doc_id = %doc_id, step = "auto_approve", error = %e,
+                    recovery = STEP_FAILURE_RECOVERY,
+                    "DocumentPipeline step failed"
+                );
+                e
+            })?;
+            ctx.set(STATUS_STATE_KEY, STATUS_APPROVED.to_string());
+
+            // ── Step 6: ingest (REAL) ──────────────────────────────────
+            //
+            // The Postgres `documents.status = "INGESTED"` write happens
+            // inside the core `run_ingest`. The core also performs
+            // cleanup-then-write idempotency (calls `cleanup_neo4j` at
+            // the start of every invocation), so Restate replay is safe
+            // even though `ingest_helpers` uses CREATE rather than MERGE.
+            failed_step = "ingest";
+            let app = Arc::clone(&self.ctx);
+            let did = doc_id.clone();
+            ctx.run(|| async move { workflow_steps::ingest::step_ingest(&app, &did).await })
+                .await
+                .map_err(|e| {
+                    tracing::error!(
+                        doc_id = %doc_id, step = "ingest", error = %e,
+                        recovery = STEP_FAILURE_RECOVERY,
+                        "DocumentPipeline step failed"
+                    );
+                    e
+                })?;
+            ctx.set(STATUS_STATE_KEY, STATUS_INGESTED.to_string());
+
+            // ── Step 7: index (REAL) ───────────────────────────────────
+            //
+            // The Postgres `documents.status = "INDEXED"` write happens
+            // inside the core `run_index`. Qdrant upsert is natively
+            // idempotent — Restate replay produces identical points.
+            failed_step = "index";
+            let app = Arc::clone(&self.ctx);
+            let did = doc_id.clone();
+            ctx.run(|| async move { workflow_steps::index::step_index(&app, &did).await })
+                .await
+                .map_err(|e| {
+                    tracing::error!(
+                        doc_id = %doc_id, step = "index", error = %e,
+                        recovery = STEP_FAILURE_RECOVERY,
+                        "DocumentPipeline step failed"
+                    );
+                    e
+                })?;
+            ctx.set(STATUS_STATE_KEY, STATUS_INDEXED.to_string());
+
+            // ── Step 8: completeness (REAL — terminal step) ────────────
+            //
+            // The Postgres `documents.status = "PUBLISHED"` write happens
+            // inside the core `run_completeness`, so no handler-level
+            // status write is needed. The Restate state still transitions
+            // through STATUS_COMPLETED at the very end (below) to mark
+            // the workflow journal as terminally complete.
+            failed_step = "completeness";
+            let app = Arc::clone(&self.ctx);
+            let did = doc_id.clone();
+            ctx.run(
+                || async move { workflow_steps::completeness::step_completeness(&app, &did).await },
+            )
+            .await
+            .map_err(|e| {
+                tracing::error!(
+                    doc_id = %doc_id, step = "completeness", error = %e,
+                    recovery = STEP_FAILURE_RECOVERY,
+                    "DocumentPipeline step failed"
+                );
+                e
+            })?;
+
+            // ctx.set is synchronous (no .await) and fire-and-forget at
+            // the API level — Restate journals the write transactionally
+            // with the surrounding handler completion. `&str` does not
+            // impl the SDK's `Serialize` trait (only owned `String`
+            // does), hence the `.to_string()`.
+            ctx.set(STATUS_STATE_KEY, STATUS_COMPLETED.to_string());
+
+            Ok::<String, HandlerError>(STATUS_COMPLETED.to_string())
+        }
+        .await;
+
+        // Failure handler — runs on any terminal step error. Writes
+        // `documents.status = "FAILED"` + failure details so the
+        // frontend's `compute_status_group` routes the doc to the
+        // `"failed"` bucket. Without this the document would stay
+        // stuck at whatever the last successful step set (e.g.
+        // "EXTRACTED" if pass-1 succeeded and pass-2 failed
+        // terminally), and the 3-second frontend poll would never
+        // stop. See G6/R7 in the progress audit.
         //
-        // The Postgres `documents.status = "PUBLISHED"` write happens
-        // inside the core `run_completeness`, so no handler-level
-        // status write is needed. The Restate state still transitions
-        // through STATUS_COMPLETED at the very end (below) to mark
-        // the workflow journal as terminally complete.
-        let app = Arc::clone(&self.ctx);
-        let did = doc_id.clone();
-        ctx.run(
-            || async move { workflow_steps::completeness::step_completeness(&app, &did).await },
-        )
-        .await
-        .map_err(|e| {
-            tracing::error!(
-                doc_id = %doc_id, step = "completeness", error = %e,
-                recovery = STEP_FAILURE_RECOVERY,
-                "DocumentPipeline step failed"
-            );
-            e
-        })?;
-
-        // ctx.set is synchronous (no .await) and fire-and-forget at
-        // the API level — Restate journals the write transactionally
-        // with the surrounding handler completion. `&str` does not
-        // impl the SDK's `Serialize` trait (only owned `String`
-        // does), hence the `.to_string()`.
-        ctx.set(STATUS_STATE_KEY, STATUS_COMPLETED.to_string());
-
-        tracing::info!(doc_id = %doc_id, "DocumentPipeline workflow completed");
-        Ok(STATUS_COMPLETED.to_string())
+        // This block runs OUTSIDE `ctx.run()` — it's not a journaled
+        // operation. On Restate replay after a crash, the workflow
+        // re-executes the step that failed; if it succeeds this
+        // time, the failure-write never fires. The "failed" state
+        // in `documents` is therefore "this workflow's most recent
+        // terminal attempt failed at step X" — exactly the right
+        // signal for the UI.
+        match body_result {
+            Ok(s) => {
+                tracing::info!(doc_id = %doc_id, "DocumentPipeline workflow completed");
+                Ok(s)
+            }
+            Err(e) => {
+                if failed_step.is_empty() {
+                    // Failure before any step assignment fired. Log
+                    // the anomaly and propagate without touching the
+                    // documents table — we have no meaningful step
+                    // name to record, and writing `""` would corrupt
+                    // the audit trail. This branch is only reachable
+                    // if the async body returns Err prior to the
+                    // first `failed_step = "extract_text"` line.
+                    let inner: &(dyn std::error::Error + Send + Sync) = e.as_ref();
+                    tracing::error!(
+                        doc_id = %doc_id, error = %inner,
+                        "DocumentPipeline workflow failed before any step started — no failure write"
+                    );
+                } else {
+                    self.write_failure_to_documents(&doc_id, failed_step, &e)
+                        .await;
+                }
+                Err(e)
+            }
+        }
     }
 
     async fn get_status(&self, ctx: SharedWorkflowContext<'_>) -> Result<String, HandlerError> {

@@ -241,6 +241,9 @@ pub async fn run_completeness(
     context: &AppContext,
 ) -> Result<CompletenessResult, CompletenessError> {
     let doc_id = document_id;
+
+    // UI progress — step started.
+    crate::pipeline::step_progress::write_start(db, context, doc_id, "completeness").await;
     {
         // 1. Document exists in Postgres.
         let _document = pipeline_repository::get_document(db, doc_id)
@@ -334,6 +337,9 @@ pub async fn run_completeness(
                 doc_id: doc_id.to_string(),
                 message: format!("update_document_status: {e}"),
             })?;
+
+        // UI progress — step complete (100% — terminal step).
+        crate::pipeline::step_progress::write_end(db, context, doc_id, "completeness").await;
 
         Ok(CompletenessResult {
             total_items,

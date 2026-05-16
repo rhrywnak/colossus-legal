@@ -710,6 +710,8 @@ mod tests {
                 system_prompts: dir_paths[3].to_string_lossy().into_owned(),
             },
             document_types: entries,
+            step_labels: crate::pipeline::registry::legacy_default_step_labels(),
+            recovery_hints: std::collections::HashMap::new(),
         };
         (tmp, registry)
     }
@@ -911,6 +913,8 @@ pipeline_type: evidence_anchoring
                 is_default: false,
                 sort_order: 1,
             }],
+            step_labels: crate::pipeline::registry::legacy_default_step_labels(),
+            recovery_hints: std::collections::HashMap::new(),
         };
 
         let err = resolve_upload_profile(&registry, "totally_unknown", None)

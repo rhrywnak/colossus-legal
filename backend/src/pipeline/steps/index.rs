@@ -216,6 +216,9 @@ pub async fn run_index(
     context: &AppContext,
 ) -> Result<IndexResult, IndexError> {
     let doc_id = document_id;
+
+    // UI progress — step started.
+    crate::pipeline::step_progress::write_start(db, context, doc_id, "index").await;
     {
         // 1. Ensure Qdrant collection exists (idempotent no-op if present).
         //    Dimension must match the provider's output — passed through
@@ -364,6 +367,9 @@ pub async fn run_index(
                 doc_id: doc_id.to_string(),
                 message: format!("update_document_status: {e}"),
             })?;
+
+        // UI progress — step complete.
+        crate::pipeline::step_progress::write_end(db, context, doc_id, "index").await;
 
         Ok(IndexResult { embedded_count })
     }

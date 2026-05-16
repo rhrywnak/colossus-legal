@@ -459,6 +459,10 @@ pub async fn extract_text_to_db(
     context: &AppContext,
     doc_id: &str,
 ) -> Result<TextExtractionResult, ExtractTextError> {
+    // [0] UI progress — step started. Label + percent come from
+    //     the registry's step_labels config; no hardcoded strings.
+    crate::pipeline::step_progress::write_start(db, context, doc_id, "extract_text").await;
+
     // [1] Fetch document; build full path; verify file exists.
     let document = pipeline_repository::get_document(db, doc_id)
         .await
@@ -804,6 +808,9 @@ pub async fn extract_text_to_db(
         doc_id = %doc_id, page_count, total_chars, pages_native, pages_ocr,
         "extract_text_to_db: complete"
     );
+
+    // UI progress — step complete.
+    crate::pipeline::step_progress::write_end(db, context, doc_id, "extract_text").await;
 
     Ok(TextExtractionResult {
         page_count,

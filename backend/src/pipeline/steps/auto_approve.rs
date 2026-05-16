@@ -20,7 +20,7 @@ use colossus_pipeline::{Step, StepResult};
 use crate::pipeline::context::AppContext;
 use crate::pipeline::steps::ingest::Ingest;
 use crate::pipeline::task::DocProcessing;
-use crate::repositories::pipeline_repository::{self, documents, review};
+use crate::repositories::pipeline_repository::{self, review};
 
 /// AutoApprove step state.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -181,9 +181,12 @@ impl Step<DocProcessing> for AutoApprove {
 pub async fn run_auto_approve(
     document_id: &str,
     db: &PgPool,
-    _context: &AppContext,
+    context: &AppContext,
 ) -> Result<AutoApproveResult, AutoApproveError> {
     let doc_id = document_id;
+
+    // UI progress — step started.
+    crate::pipeline::step_progress::write_start(db, context, doc_id, "auto_approve").await;
 
     // Guard: confirm the document exists.
     pipeline_repository::get_document(db, doc_id)
@@ -228,22 +231,11 @@ pub async fn run_auto_approve(
         );
     }
 
-    // best-effort: progress update. Surfaces the auto-approval
-    // count to the Documents-tab poll loop. `.ok()` discards the
-    // sqlx::Error — a failed progress write must never fail the
-    // auto-approve step.
-    documents::update_processing_progress(
-        db,
-        doc_id,
-        "AutoApprove",
-        &format!("Auto-approved {approved_count} grounded items"),
-        0,
-        0,
-        0,
-        0,
-    )
-    .await
-    .ok();
+    // UI progress — step complete. Workflow-level percent_end (B5
+    // fix: no longer drops the bar to 0%). The label comes from
+    // the registry; the auto-approval count is observable via the
+    // Restate journal summary and the review-tab counters.
+    crate::pipeline::step_progress::write_end(db, context, doc_id, "auto_approve").await;
 
     Ok(AutoApproveResult {
         approved_count,

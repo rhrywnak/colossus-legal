@@ -244,6 +244,10 @@ pub async fn run_pass2_extraction(
     db: &PgPool,
     context: &AppContext,
 ) -> Result<Pass2ExtractionResult, Box<dyn Error + Send + Sync>> {
+    // 0. UI progress — step started.
+    crate::pipeline::step_progress::write_start(db, context, document_id, "llm_extract_pass2")
+        .await;
+
     // 1. Idempotency: short-circuit on an existing COMPLETED pass-2 row.
     if pass2_already_complete(db, document_id).await? {
         tracing::info!(
@@ -642,6 +646,9 @@ pub async fn run_pass2_extraction(
         profile = %resolved.profile_name,
         "Pass 2 extraction complete"
     );
+
+    // UI progress — step complete.
+    crate::pipeline::step_progress::write_end(db, context, document_id, "llm_extract_pass2").await;
 
     Ok(Pass2ExtractionResult {
         relationship_count: rel_count,

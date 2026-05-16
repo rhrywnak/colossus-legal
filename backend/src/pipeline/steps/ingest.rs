@@ -249,6 +249,9 @@ pub async fn run_ingest(
 ) -> Result<IngestResult, IngestError> {
     let doc_id = document_id;
 
+    // UI progress — step started.
+    crate::pipeline::step_progress::write_start(db, context, doc_id, "ingest").await;
+
     // 0. Pre-run cleanup: wipe any prior partial Neo4j state for this
     //    doc_id before opening the write transaction. Makes retry safe
     //    even though the underlying helpers use CREATE rather than
@@ -649,6 +652,9 @@ pub async fn run_ingest(
             ?rel_type_counts,
             "Ingest write complete"
         );
+
+        // UI progress — step complete.
+        crate::pipeline::step_progress::write_end(db, context, doc_id, "ingest").await;
 
         Ok(IngestResult {
             total_nodes,

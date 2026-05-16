@@ -42,7 +42,7 @@
 //!   caller's existing `config.rs` defaults are unchanged but are
 //!   bypassed when the registry path is in use).
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
@@ -124,6 +124,87 @@ pub struct DocumentTypeEntry {
     pub sort_order: i32,
 }
 
+/// One step's UI-progress configuration.
+///
+/// Loaded from the `step_labels:` section of the registry YAML at
+/// startup. Each pipeline step's `update_processing_progress` call
+/// reads these fields instead of hardcoding the label string or the
+/// percent values. The workflow-level `percent_start` / `percent_end`
+/// pair span the entire 8-step pipeline, so the progress bar never
+/// regresses between steps.
+///
+/// ## Rust Learning: `Option<String>` for non-required fields
+///
+/// `label` and the two percent fields are required (`serde` errors
+/// "missing field" if the YAML omits them). `label_full` and
+/// `label_chunk` are `Option<String>` — only Pass-1 uses them, every
+/// other step's entry leaves them out of the YAML and serde fills in
+/// `None` automatically.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StepLabelEntry {
+    /// User-facing label written to `documents.processing_step_label`
+    /// at the start of the step. The Verify entry's label may contain
+    /// a `{grounding_pct}` placeholder substituted at write time.
+    pub label: String,
+
+    /// (Pass-1 only) Label override used when extraction runs in
+    /// full-document mode. The full-doc path makes one long LLM call
+    /// with no chunk-level events, so this label tells the operator
+    /// to expect a wait.
+    #[serde(default)]
+    pub label_full: Option<String>,
+
+    /// (Pass-1 only) Per-chunk template. `{current}` and `{total}`
+    /// are substituted with the chunk index (1-based) and total
+    /// chunk count at every per-chunk progress write.
+    #[serde(default)]
+    pub label_chunk: Option<String>,
+
+    /// Workflow-level percent shown when the step BEGINS.
+    pub percent_start: i32,
+
+    /// Workflow-level percent shown when the step ENDS. Must be
+    /// strictly greater than `percent_start` and ≤ 100.
+    pub percent_end: i32,
+}
+
+/// One recovery-hint pattern.
+///
+/// `error_pattern` is matched as a substring against the failure's
+/// `error_message`. The first matching entry's `suggestion` is
+/// written to `documents.error_suggestion` when a step fails
+/// terminally.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RecoveryHint {
+    /// Substring matched against the failure's `error_message`.
+    pub error_pattern: String,
+    /// Operator-facing recovery text written to
+    /// `documents.error_suggestion`.
+    pub suggestion: String,
+}
+
+/// All 8 pipeline steps' label entries.
+///
+/// One field per step, deserialized by matching field name against
+/// the YAML key. Adding a new step requires adding a field here AND
+/// a `step_labels:` entry in the registry YAML — the registry's
+/// startup validation surfaces a "missing field" error if the YAML
+/// omits an expected step.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PipelineStepLabels {
+    pub extract_text: StepLabelEntry,
+    pub llm_extract_pass1: StepLabelEntry,
+    pub llm_extract_pass2: StepLabelEntry,
+    pub verify: StepLabelEntry,
+    pub auto_approve: StepLabelEntry,
+    pub ingest: StepLabelEntry,
+    pub index: StepLabelEntry,
+    pub completeness: StepLabelEntry,
+}
+
 /// The registry root.
 ///
 /// Constructed once at startup, wrapped in `Arc`, and shared across all
@@ -131,9 +212,23 @@ pub struct DocumentTypeEntry {
 /// the registry YAML requires a backend restart (matching the lifecycle
 /// of any other startup-loaded configuration).
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PipelineRegistry {
     pub directories: PipelineDirectories,
     pub document_types: Vec<DocumentTypeEntry>,
+
+    /// UI-progress configuration for every step. Loaded from the
+    /// `step_labels:` YAML section. Required — startup validation
+    /// rejects a registry that omits this section or any step
+    /// within it.
+    pub step_labels: PipelineStepLabels,
+
+    /// Per-step recovery hints written to `documents.error_suggestion`
+    /// when a step fails terminally. Keyed by step name (the same
+    /// string written to `documents.failed_step`). Empty map → no
+    /// suggestion is written.
+    #[serde(default)]
+    pub recovery_hints: HashMap<String, Vec<RecoveryHint>>,
 }
 
 impl PipelineRegistry {
@@ -214,6 +309,8 @@ impl PipelineRegistry {
         let registry = Self {
             directories,
             document_types,
+            step_labels: legacy_default_step_labels(),
+            recovery_hints: HashMap::new(),
         };
         registry.validate()?;
         Ok(registry)
@@ -274,7 +371,46 @@ impl PipelineRegistry {
             )));
         }
 
+        validate_step_labels(&self.step_labels)?;
+
         Ok(())
+    }
+
+    /// Look up a step's label entry by step name.
+    ///
+    /// Returns `None` for unknown names. Step handlers use this to
+    /// resolve `label`, `label_full`, `label_chunk`, and the
+    /// `percent_start` / `percent_end` workflow percentages.
+    pub fn step_label(&self, step_name: &str) -> Option<&StepLabelEntry> {
+        match step_name {
+            "extract_text" => Some(&self.step_labels.extract_text),
+            "llm_extract_pass1" => Some(&self.step_labels.llm_extract_pass1),
+            "llm_extract_pass2" => Some(&self.step_labels.llm_extract_pass2),
+            "verify" => Some(&self.step_labels.verify),
+            "auto_approve" => Some(&self.step_labels.auto_approve),
+            "ingest" => Some(&self.step_labels.ingest),
+            "index" => Some(&self.step_labels.index),
+            "completeness" => Some(&self.step_labels.completeness),
+            _ => None,
+        }
+    }
+
+    /// Look up a recovery suggestion for a failed step + error
+    /// message.
+    ///
+    /// Scans the matching step's recovery_hints list in YAML order
+    /// and returns the FIRST entry whose `error_pattern` is a
+    /// substring of `error_message`. Returns `None` if the step has
+    /// no entry or no pattern matches.
+    ///
+    /// Used by the workflow failure handler to populate
+    /// `documents.error_suggestion`.
+    pub fn suggest_recovery(&self, failed_step: &str, error_message: &str) -> Option<String> {
+        self.recovery_hints
+            .get(failed_step)?
+            .iter()
+            .find(|hint| error_message.contains(&hint.error_pattern))
+            .map(|hint| hint.suggestion.clone())
     }
 
     /// Look up a document-type entry by registry key.
@@ -365,6 +501,8 @@ impl PipelineRegistry {
                 system_prompts: "/tmp".to_string(),
             },
             document_types: Vec::new(),
+            step_labels: legacy_default_step_labels(),
+            recovery_hints: HashMap::new(),
         }
     }
 
@@ -413,6 +551,95 @@ fn validate_directory(label: &str, path: &str) -> Result<(), PipelineRegistryErr
 
 fn join_dir(dir: &str, file: &str) -> String {
     Path::new(dir).join(file).to_string_lossy().into_owned()
+}
+
+/// Hardcoded fallback step labels for the legacy env-var path.
+///
+/// `pub(crate)` so unit tests in other modules (validation, upload,
+/// document_types) can construct a `PipelineRegistry` for assertions
+/// without spelling out the 8 step entries inline.
+///
+/// Used ONLY when `PIPELINE_REGISTRY_FILE` is unset and the backend
+/// falls back to scanning the profile directory (the deprecated path
+/// that already logs a `tracing::warn!` on entry). Production
+/// deployments use the YAML-loaded registry whose `step_labels:`
+/// section provides the real strings — this fallback's strings are
+/// intentionally placeholder-quality so operators on the legacy path
+/// know to migrate.
+///
+/// Once the legacy fallback is removed (tracked alongside the
+/// deprecation warning in `from_legacy_env_vars`), this function
+/// goes with it.
+pub(crate) fn legacy_default_step_labels() -> PipelineStepLabels {
+    fn entry(label: &str, start: i32, end: i32) -> StepLabelEntry {
+        StepLabelEntry {
+            label: label.to_string(),
+            label_full: None,
+            label_chunk: None,
+            percent_start: start,
+            percent_end: end,
+        }
+    }
+    PipelineStepLabels {
+        extract_text: entry("Step 1 of 8 (legacy registry — migrate to YAML)", 5, 10),
+        llm_extract_pass1: entry("Step 2 of 8 (legacy registry — migrate to YAML)", 10, 60),
+        llm_extract_pass2: entry("Step 3 of 8 (legacy registry — migrate to YAML)", 60, 70),
+        verify: entry("Step 4 of 8 (legacy registry — migrate to YAML)", 70, 80),
+        auto_approve: entry("Step 5 of 8 (legacy registry — migrate to YAML)", 80, 82),
+        ingest: entry("Step 6 of 8 (legacy registry — migrate to YAML)", 82, 90),
+        index: entry("Step 7 of 8 (legacy registry — migrate to YAML)", 90, 95),
+        completeness: entry("Step 8 of 8 (legacy registry — migrate to YAML)", 95, 100),
+    }
+}
+
+/// Validate the registry's `step_labels` section.
+///
+/// Three invariants:
+/// 1. For each step, `percent_start < percent_end`.
+/// 2. `percent_end <= 100`.
+/// 3. Across the 8 steps in pipeline order, each step's
+///    `percent_start` >= the previous step's `percent_end`. The
+///    progress bar never regresses across step boundaries.
+///
+/// Failures return `Err(Config(...))` with a message naming the
+/// failing step. Operator fixes the YAML and restarts; no source
+/// code consultation needed.
+fn validate_step_labels(labels: &PipelineStepLabels) -> Result<(), PipelineRegistryError> {
+    let ordered: [(&str, &StepLabelEntry); 8] = [
+        ("extract_text", &labels.extract_text),
+        ("llm_extract_pass1", &labels.llm_extract_pass1),
+        ("llm_extract_pass2", &labels.llm_extract_pass2),
+        ("verify", &labels.verify),
+        ("auto_approve", &labels.auto_approve),
+        ("ingest", &labels.ingest),
+        ("index", &labels.index),
+        ("completeness", &labels.completeness),
+    ];
+    let mut prev_end: i32 = 0;
+    for (name, entry) in &ordered {
+        if entry.percent_start >= entry.percent_end {
+            return Err(PipelineRegistryError::Config(format!(
+                "step_labels.{name}: percent_start ({}) must be strictly less \
+                 than percent_end ({})",
+                entry.percent_start, entry.percent_end
+            )));
+        }
+        if entry.percent_end > 100 {
+            return Err(PipelineRegistryError::Config(format!(
+                "step_labels.{name}: percent_end ({}) exceeds 100",
+                entry.percent_end
+            )));
+        }
+        if entry.percent_start < prev_end {
+            return Err(PipelineRegistryError::Config(format!(
+                "step_labels.{name}: percent_start ({}) is less than the \
+                 previous step's percent_end ({}) — progress would regress",
+                entry.percent_start, prev_end
+            )));
+        }
+        prev_end = entry.percent_end;
+    }
+    Ok(())
 }
 
 /// Build [`DocumentTypeEntry`] values by scanning a legacy profile

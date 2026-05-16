@@ -292,6 +292,8 @@ mod tests {
                 system_prompts: paths[3].to_string_lossy().into_owned(),
             },
             document_types: Vec::new(),
+            step_labels: super::super::registry::legacy_default_step_labels(),
+            recovery_hints: std::collections::HashMap::new(),
         }
     }
 

@@ -29,7 +29,7 @@ use crate::api::pipeline::verify as verify_api;
 use crate::pipeline::context::AppContext;
 use crate::pipeline::steps::auto_approve::AutoApprove;
 use crate::pipeline::task::DocProcessing;
-use crate::repositories::pipeline_repository::{self, documents};
+use crate::repositories::pipeline_repository;
 
 /// Verify step state.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -210,6 +210,9 @@ pub async fn run_verify(
     context: &AppContext,
 ) -> Result<VerifyResult, VerifyError> {
     let doc_id = document_id;
+
+    // UI progress — step started.
+    crate::pipeline::step_progress::write_start(db, context, doc_id, "verify").await;
 
     // 1. Fetch document (existence guard — content is no longer read here;
     //    canonical text comes from document_text in step 4).
@@ -395,24 +398,28 @@ pub async fn run_verify(
         0.0
     };
 
-    // best-effort: progress update. Surfaces the post-verify
-    // grounding percentage to the Documents-tab poll loop. Lives
-    // here (not in the legacy wrapper) so both legacy and Restate
-    // paths write the UI progress columns. `.ok()` discards the
-    // sqlx::Error — a failed progress write must never fail the
-    // verify step.
-    documents::update_processing_progress(
+    // UI progress — step complete. Substitutes {grounding_pct} in
+    // the registry's verify label and writes at the workflow-level
+    // `percent_end` (not 0% as pre-fix B5). Both legacy and Restate
+    // paths share this write — the label is config-driven so
+    // there's no hardcoded "{pct}% grounded" string in Rust.
+    let verify_label = context
+        .registry
+        .step_label("verify")
+        .map(|entry| {
+            entry
+                .label
+                .replace("{grounding_pct}", &format!("{grounding_pct:.0}"))
+        })
+        .unwrap_or_else(|| format!("{grounding_pct:.0}% grounded"));
+    crate::pipeline::step_progress::write_end_with_label(
         db,
+        context,
         doc_id,
-        "Verify",
-        &format!("{grounding_pct:.0}% grounded"),
-        0,
-        0,
-        0,
-        0,
+        "verify",
+        &verify_label,
     )
-    .await
-    .ok();
+    .await;
 
     Ok(VerifyResult {
         total_items,

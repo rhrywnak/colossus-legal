@@ -304,6 +304,11 @@ pub async fn run_pass1_extraction(
     db: &PgPool,
     context: &AppContext,
 ) -> Result<Pass1ExtractionResult, Box<dyn Error + Send + Sync>> {
+    // 0. UI progress — step started. The full-document path overrides
+    //    this with `label_full` at its own write site below.
+    crate::pipeline::step_progress::write_start(db, context, document_id, "llm_extract_pass1")
+        .await;
+
     // 1. Resolve config FIRST. We need `resolved.run_pass2` available
     //    at the idempotency check so the short-circuit's returned
     //    `Pass1ExtractionResult` carries the right `run_pass2` value
@@ -519,6 +524,7 @@ pub async fn run_pass1_extraction(
                 admin_instructions: admin_instructions_ref,
                 context: context_ref,
                 max_tokens,
+                app_context: context,
                 run_id,
             })
             .await?
@@ -537,6 +543,7 @@ pub async fn run_pass1_extraction(
                     admin_instructions: admin_instructions_ref,
                     context: context_ref,
                     max_tokens,
+                    app_context: context,
                     run_id,
                 },
                 &resolved,
@@ -559,6 +566,7 @@ pub async fn run_pass1_extraction(
                     admin_instructions: admin_instructions_ref,
                     context: context_ref,
                     max_tokens,
+                    app_context: context,
                     run_id,
                 },
                 &resolved,
@@ -633,20 +641,10 @@ pub async fn run_pass1_extraction(
     )
     .await;
 
-    // 12. Final progress + step complete.
-    // best-effort: progress update
-    documents::update_processing_progress(
-        db,
-        document_id,
-        "LlmExtract",
-        "Extraction complete",
-        outcome.chunk_count.unwrap_or(1),
-        outcome.chunk_count.unwrap_or(1),
-        entity_count as i32,
-        100,
-    )
-    .await
-    .ok();
+    // 12. UI progress — step complete. Workflow-level percent_end
+    //     from the registry config (NOT 100% — pass-1 is one of 8
+    //     steps; the bar advances to its workflow_percent_end here).
+    crate::pipeline::step_progress::write_end(db, context, document_id, "llm_extract_pass1").await;
 
     tracing::info!(
         document_id = %document_id,
@@ -711,6 +709,12 @@ struct RunArgs<'a> {
     /// populate this without changing the substitution code.
     context: Option<&'a str>,
     max_tokens: u32,
+    /// Application context — needed by `run_full_document_extraction`
+    /// and `extract_chunks_loop` to read the registry's step_labels
+    /// config for per-chunk progress writes. Named `app_context` to
+    /// disambiguate from the `context: Option<&'a str>` prompt
+    /// placeholder field above.
+    app_context: &'a AppContext,
     run_id: i32,
 }
 
@@ -733,19 +737,29 @@ struct RunArgs<'a> {
 async fn run_full_document_extraction(
     args: RunArgs<'_>,
 ) -> Result<ExtractionOutcome, Box<dyn Error + Send + Sync>> {
-    // best-effort: progress update
-    documents::update_processing_progress(
-        args.db,
-        args.document_id,
-        "LlmExtract",
-        "Extracting (full document)...",
-        1,
-        0,
-        0,
-        5,
-    )
-    .await
-    .ok();
+    // best-effort: progress update — full-doc mode override.
+    //
+    // Uses `label_full` from the registry instead of the default
+    // pass-1 label so the operator sees a "this will take time"
+    // message during the long single LLM call. The percent comes
+    // from the registry's pass-1 percent_start (the bar doesn't
+    // advance until the LLM call completes — fundamental to
+    // single-call mode).
+    if let Some(entry) = args.app_context.registry.step_label("llm_extract_pass1") {
+        let label = entry.label_full.as_deref().unwrap_or(entry.label.as_str());
+        documents::update_processing_progress(
+            args.db,
+            args.document_id,
+            "llm_extract_pass1",
+            label,
+            1,
+            0,
+            0,
+            entry.percent_start,
+        )
+        .await
+        .ok();
+    }
 
     // Cross-mode symmetric prompt assembly. The full-document path uses
     // the SAME helper as the chunked / structured paths so all three modes
@@ -970,19 +984,23 @@ async fn extract_chunks_loop(
     let mut total_input_tokens: i64 = 0;
     let mut total_output_tokens: i64 = 0;
 
-    // best-effort: progress update
-    documents::update_processing_progress(
-        args.db,
-        args.document_id,
-        "LlmExtract",
-        "Extracting entities...",
-        chunks.len() as i32,
-        0,
-        0,
-        0,
-    )
-    .await
-    .ok();
+    // best-effort: progress update — chunked-mode start. Label
+    // comes from the registry's default pass-1 label (NOT
+    // `label_full`, which is single-call mode).
+    if let Some(entry) = args.app_context.registry.step_label("llm_extract_pass1") {
+        documents::update_processing_progress(
+            args.db,
+            args.document_id,
+            "llm_extract_pass1",
+            &entry.label,
+            chunks.len() as i32,
+            0,
+            0,
+            entry.percent_start,
+        )
+        .await
+        .ok();
+    }
 
     for (i, chunk) in chunks.iter().enumerate() {
         // ## Rust Learning: defensive `unwrap_or_else` on a guaranteed-OK call
@@ -1163,21 +1181,25 @@ async fn extract_chunks_loop(
                             "Chunk extraction succeeded"
                         );
 
-                        let percent =
-                            ((chunks_succeeded as f64 / chunks.len() as f64) * 100.0) as i32;
-                        // best-effort: progress update
-                        documents::update_processing_progress(
-                            args.db,
-                            args.document_id,
-                            "LlmExtract",
-                            &format!("Extracting chunk {} of {}...", i + 1, chunks.len()),
-                            chunks.len() as i32,
-                            chunks_succeeded,
+                        // best-effort: progress update — success arm.
+                        //
+                        // B2 fix: `processed` includes BOTH succeeded
+                        // and failed chunks so the percent doesn't
+                        // regress when an earlier chunk failed and a
+                        // later one succeeds. Pre-fix, this arm used
+                        // `chunks_succeeded` only — making the bar
+                        // visibly snap backwards on intermittent
+                        // failures.
+                        let processed = chunks_succeeded + chunks_failed;
+                        write_pass1_chunk_progress(
+                            args,
+                            "llm_extract_pass1",
+                            i,
+                            chunks.len(),
+                            processed,
                             running_entity_count,
-                            percent.min(95),
                         )
-                        .await
-                        .ok();
+                        .await;
                     }
                     Err(parse_err) => {
                         chunks_failed += 1;
@@ -1207,21 +1229,17 @@ async fn extract_chunks_loop(
                             );
                         }
 
+                        // best-effort: progress update — parse-fail arm.
                         let processed = chunks_succeeded + chunks_failed;
-                        let percent = ((processed as f64 / chunks.len() as f64) * 100.0) as i32;
-                        // best-effort: progress update
-                        documents::update_processing_progress(
-                            args.db,
-                            args.document_id,
-                            "LlmExtract",
-                            &format!("Extracting chunk {} of {}...", i + 1, chunks.len()),
-                            chunks.len() as i32,
+                        write_pass1_chunk_progress(
+                            args,
+                            "llm_extract_pass1",
+                            i,
+                            chunks.len(),
                             processed,
                             running_entity_count,
-                            percent.min(95),
                         )
-                        .await
-                        .ok();
+                        .await;
                     }
                 }
             }
@@ -1249,21 +1267,17 @@ async fn extract_chunks_loop(
                     );
                 }
 
+                // best-effort: progress update — call-fail arm.
                 let processed = chunks_succeeded + chunks_failed;
-                let percent = ((processed as f64 / chunks.len() as f64) * 100.0) as i32;
-                // best-effort: progress update
-                documents::update_processing_progress(
-                    args.db,
-                    args.document_id,
-                    "LlmExtract",
-                    &format!("Extracting chunk {} of {}...", i + 1, chunks.len()),
-                    chunks.len() as i32,
+                write_pass1_chunk_progress(
+                    args,
+                    "llm_extract_pass1",
+                    i,
+                    chunks.len(),
                     processed,
                     running_entity_count,
-                    percent.min(95),
                 )
-                .await
-                .ok();
+                .await;
             }
         }
     }
@@ -1363,6 +1377,64 @@ async fn extract_chunks_loop(
         chunks_succeeded: Some(chunks_succeeded),
         chunks_failed: Some(chunks_failed),
     })
+}
+
+/// Best-effort per-chunk progress write for the pass-1 chunked path.
+///
+/// Interpolates the workflow-level percent between `percent_start`
+/// and `percent_end` from the registry config based on
+/// `processed / total`. Caps at `percent_end - 1` so the
+/// orchestrator's final `step_progress::write_end` at `percent_end`
+/// moves the bar to the boundary value.
+///
+/// The label comes from `step_labels.llm_extract_pass1.label_chunk`
+/// with `{current}` (1-based) and `{total}` substituted. If
+/// `label_chunk` is absent, falls back to the default `label`.
+///
+/// `processed` is the total of successful + failed chunks so the
+/// percent monotonically increases — the B2 regression (success arm
+/// using `chunks_succeeded` only) lived in the call sites pre-fix.
+async fn write_pass1_chunk_progress(
+    args: &RunArgs<'_>,
+    step_name: &'static str,
+    chunk_idx: usize,
+    total_chunks: usize,
+    processed: i32,
+    running_entity_count: i32,
+) {
+    let Some(entry) = args.app_context.registry.step_label(step_name) else {
+        return;
+    };
+
+    // Linear interpolation. `total_chunks > 0` is guaranteed by the
+    // dispatch (extract_chunks_loop returns early on empty input);
+    // defensively saturate at percent_end - 1 if the math overflows.
+    let range = (entry.percent_end - entry.percent_start).max(0);
+    let interp = if total_chunks > 0 {
+        (processed as f64 / total_chunks as f64) * range as f64
+    } else {
+        0.0
+    };
+    let percent = (entry.percent_start + interp as i32).min(entry.percent_end - 1);
+
+    let template = entry.label_chunk.as_deref().unwrap_or(entry.label.as_str());
+    let label = template
+        .replace("{current}", &(chunk_idx + 1).to_string())
+        .replace("{total}", &total_chunks.to_string());
+
+    // best-effort: progress write — never fail the chunk on a DB error.
+    documents::update_processing_progress(
+        args.db,
+        args.document_id,
+        step_name,
+        &label,
+        total_chunks as i32,
+        processed,
+        running_entity_count,
+        percent,
+    )
+    .await
+    .ok();
 }
 
 // ── Chunked extraction (legacy, FixedSizeSplitter) ──────────────

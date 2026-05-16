@@ -72,12 +72,31 @@ fn registry_yaml(layout: &Layout, document_types_section: &str) -> String {
            schemas: {schemas}\n  \
            templates: {templates}\n  \
            system_prompts: {system_prompts}\n\
-         document_types:\n{document_types_section}",
+         document_types:\n{document_types_section}\
+         {step_labels_section}",
         profiles = layout.profiles,
         schemas = layout.schemas,
         templates = layout.templates,
         system_prompts = layout.system_prompts,
+        step_labels_section = default_step_labels_yaml(),
     )
+}
+
+/// YAML block for the registry's `step_labels:` section, matching the
+/// production `backend/config/pipeline_registry.yaml`. Tests that load
+/// registry YAML must include this section (or YAML parsing fails with
+/// `missing field 'step_labels'`), so the helper appends it
+/// automatically.
+fn default_step_labels_yaml() -> &'static str {
+    "step_labels:\n  \
+       extract_text:\n    label: \"Extracting text\"\n    label_full: \"Extracting text\"\n    label_chunk: \"Extracting text\"\n    percent_start: 5\n    percent_end: 10\n  \
+       llm_extract_pass1:\n    label: \"Pass 1\"\n    label_full: \"Pass 1 (full document)\"\n    label_chunk: \"Pass 1 chunk {current}/{total}\"\n    percent_start: 10\n    percent_end: 60\n  \
+       llm_extract_pass2:\n    label: \"Pass 2\"\n    label_full: \"Pass 2 (full document)\"\n    label_chunk: \"Pass 2 chunk {current}/{total}\"\n    percent_start: 60\n    percent_end: 70\n  \
+       verify:\n    label: \"Verifying\"\n    label_full: \"Verifying\"\n    label_chunk: \"Verifying\"\n    percent_start: 70\n    percent_end: 80\n  \
+       auto_approve:\n    label: \"Auto-approving\"\n    label_full: \"Auto-approving\"\n    label_chunk: \"Auto-approving\"\n    percent_start: 80\n    percent_end: 82\n  \
+       ingest:\n    label: \"Ingesting\"\n    label_full: \"Ingesting\"\n    label_chunk: \"Ingesting\"\n    percent_start: 82\n    percent_end: 90\n  \
+       index:\n    label: \"Indexing\"\n    label_full: \"Indexing\"\n    label_chunk: \"Indexing\"\n    percent_start: 90\n    percent_end: 95\n  \
+       completeness:\n    label: \"Finalizing\"\n    label_full: \"Finalizing\"\n    label_chunk: \"Finalizing\"\n    percent_start: 95\n    percent_end: 100\n"
 }
 
 fn write_registry_yaml(path: &Path, body: &str) {
@@ -128,6 +147,8 @@ fn test_registry_validate_missing_directory() {
             system_prompts: "/tmp".to_string(),
         },
         document_types: vec![],
+        step_labels: super::legacy_default_step_labels(),
+        recovery_hints: std::collections::HashMap::new(),
     };
     let err = registry.validate().unwrap_err();
     let msg = err.to_string();
@@ -155,6 +176,8 @@ fn test_registry_validate_missing_profile_file() {
             is_default: true,
             sort_order: 0,
         }],
+        step_labels: super::legacy_default_step_labels(),
+        recovery_hints: std::collections::HashMap::new(),
     };
     let err = registry.validate().unwrap_err();
     let msg = err.to_string();
@@ -182,6 +205,8 @@ fn test_registry_validate_no_default() {
             is_default: false,
             sort_order: 1,
         }],
+        step_labels: super::legacy_default_step_labels(),
+        recovery_hints: std::collections::HashMap::new(),
     };
     let err = registry.validate().unwrap_err();
     assert!(
@@ -221,6 +246,8 @@ fn test_registry_validate_multiple_defaults() {
                 sort_order: 2,
             },
         ],
+        step_labels: super::legacy_default_step_labels(),
+        recovery_hints: std::collections::HashMap::new(),
     };
     let err = registry.validate().unwrap_err();
     assert!(
@@ -257,6 +284,8 @@ fn test_registry_validate_duplicate_names() {
                 sort_order: 2,
             },
         ],
+        step_labels: super::legacy_default_step_labels(),
+        recovery_hints: std::collections::HashMap::new(),
     };
     let err = registry.validate().unwrap_err();
     assert!(
@@ -283,6 +312,8 @@ fn test_registry_validate_empty_name() {
             is_default: true,
             sort_order: 0,
         }],
+        step_labels: super::legacy_default_step_labels(),
+        recovery_hints: std::collections::HashMap::new(),
     };
     let err = registry.validate().unwrap_err();
     assert!(
@@ -309,6 +340,8 @@ fn test_registry_validate_empty_profile_file() {
             is_default: true,
             sort_order: 0,
         }],
+        step_labels: super::legacy_default_step_labels(),
+        recovery_hints: std::collections::HashMap::new(),
     };
     let err = registry.validate().unwrap_err();
     let msg = err.to_string();
@@ -359,6 +392,8 @@ fn fully_valid_registry() -> (Layout, PipelineRegistry) {
                 sort_order: 99,
             },
         ],
+        step_labels: super::legacy_default_step_labels(),
+        recovery_hints: std::collections::HashMap::new(),
     };
     registry.validate().expect("fixture must validate");
     (layout, registry)
@@ -533,5 +568,188 @@ fn test_registry_from_env_no_vars_at_all() {
                 "error must name the missing var(s); got: {msg}"
             );
         },
+    );
+}
+
+// ── step_label() lookup ────────────────────────────────────────
+
+#[test]
+fn test_step_label_returns_entry_for_each_known_step_name() {
+    let (_layout, registry) = fully_valid_registry();
+    for step in [
+        "extract_text",
+        "llm_extract_pass1",
+        "llm_extract_pass2",
+        "verify",
+        "auto_approve",
+        "ingest",
+        "index",
+        "completeness",
+    ] {
+        let entry = registry
+            .step_label(step)
+            .unwrap_or_else(|| panic!("step_label({step}) must return Some"));
+        assert!(
+            entry.percent_start < entry.percent_end,
+            "{step}: start ({}) must be < end ({})",
+            entry.percent_start,
+            entry.percent_end
+        );
+        assert!(
+            entry.percent_end <= 100,
+            "{step}: end ({}) must be <= 100",
+            entry.percent_end
+        );
+        assert!(!entry.label.is_empty(), "{step}: label must not be empty");
+    }
+}
+
+#[test]
+fn test_step_label_returns_none_for_unknown_name() {
+    let (_layout, registry) = fully_valid_registry();
+    assert!(registry.step_label("nonexistent_step").is_none());
+    assert!(registry.step_label("").is_none());
+}
+
+// ── suggest_recovery() lookup ──────────────────────────────────
+
+fn registry_with_recovery_hints(
+    hints: Vec<(&str, Vec<(&str, &str)>)>,
+) -> (Layout, PipelineRegistry) {
+    let (layout, mut registry) = fully_valid_registry();
+    let mut map = std::collections::HashMap::new();
+    for (step, patterns) in hints {
+        let entries: Vec<super::RecoveryHint> = patterns
+            .into_iter()
+            .map(|(pat, sug)| super::RecoveryHint {
+                error_pattern: pat.to_string(),
+                suggestion: sug.to_string(),
+            })
+            .collect();
+        map.insert(step.to_string(), entries);
+    }
+    registry.recovery_hints = map;
+    (layout, registry)
+}
+
+#[test]
+fn test_suggest_recovery_returns_first_matching_hint() {
+    let (_layout, registry) = registry_with_recovery_hints(vec![(
+        "extract_text",
+        vec![
+            ("OCR confidence", "Re-scan the source at higher DPI"),
+            ("permission denied", "Check filesystem permissions"),
+        ],
+    )]);
+    let got = registry
+        .suggest_recovery("extract_text", "OCR confidence below threshold for page 3")
+        .expect("matching error message must return Some");
+    assert_eq!(got, "Re-scan the source at higher DPI");
+}
+
+#[test]
+fn test_suggest_recovery_returns_first_when_multiple_match() {
+    let (_layout, registry) = registry_with_recovery_hints(vec![(
+        "ingest",
+        vec![
+            ("Neo4j", "Check Neo4j connectivity"),
+            ("connection", "Check network"),
+        ],
+    )]);
+    let got = registry
+        .suggest_recovery("ingest", "Neo4j connection refused")
+        .expect("must return first matching hint");
+    assert_eq!(got, "Check Neo4j connectivity");
+}
+
+#[test]
+fn test_suggest_recovery_returns_none_when_no_pattern_matches() {
+    let (_layout, registry) = registry_with_recovery_hints(vec![(
+        "verify",
+        vec![("schema mismatch", "Re-run with --strict")],
+    )]);
+    assert!(registry
+        .suggest_recovery("verify", "Some unrelated runtime panic")
+        .is_none());
+}
+
+#[test]
+fn test_suggest_recovery_returns_none_for_unknown_step() {
+    let (_layout, registry) =
+        registry_with_recovery_hints(vec![("verify", vec![("anything", "Some suggestion")])]);
+    assert!(registry
+        .suggest_recovery("step_that_has_no_hints", "anything matches")
+        .is_none());
+}
+
+#[test]
+fn test_suggest_recovery_returns_none_when_recovery_hints_empty() {
+    let (_layout, registry) = fully_valid_registry();
+    assert!(registry.recovery_hints.is_empty());
+    assert!(registry
+        .suggest_recovery("extract_text", "any error at all")
+        .is_none());
+}
+
+// ── validate_step_labels() invariants ──────────────────────────
+
+/// Build a registry whose only flaw is the named step's percent
+/// range — used to pin the three invariants enforced by
+/// `validate_step_labels`.
+fn registry_with_broken_step(
+    mutate: impl FnOnce(&mut super::PipelineStepLabels),
+) -> (Layout, PipelineRegistry) {
+    let (layout, mut registry) = fully_valid_registry();
+    mutate(&mut registry.step_labels);
+    (layout, registry)
+}
+
+#[test]
+fn test_validate_step_labels_rejects_start_gte_end() {
+    let (_layout, registry) = registry_with_broken_step(|labels| {
+        // Make extract_text's start == end.
+        labels.extract_text.percent_start = 10;
+        labels.extract_text.percent_end = 10;
+    });
+    let err = registry
+        .validate()
+        .expect_err("start >= end must fail validation");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("extract_text") && msg.contains("strictly less"),
+        "error must name the step and say 'strictly less'; got: {msg}"
+    );
+}
+
+#[test]
+fn test_validate_step_labels_rejects_percent_end_over_100() {
+    let (_layout, registry) = registry_with_broken_step(|labels| {
+        labels.completeness.percent_end = 101;
+    });
+    let err = registry
+        .validate()
+        .expect_err("percent_end > 100 must fail validation");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("completeness") && msg.contains("exceeds 100"),
+        "error must name the step and say 'exceeds 100'; got: {msg}"
+    );
+}
+
+#[test]
+fn test_validate_step_labels_rejects_non_monotonic_sequence() {
+    let (_layout, registry) = registry_with_broken_step(|labels| {
+        // llm_extract_pass2's start (60) is fine; force it BELOW
+        // pass1's end (60) so it regresses.
+        labels.llm_extract_pass2.percent_start = 50;
+        labels.llm_extract_pass2.percent_end = 70;
+    });
+    let err = registry
+        .validate()
+        .expect_err("non-monotonic must fail validation");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("llm_extract_pass2") && msg.contains("regress"),
+        "error must name the step and say 'regress'; got: {msg}"
     );
 }

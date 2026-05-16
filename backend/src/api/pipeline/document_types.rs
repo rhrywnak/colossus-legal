@@ -113,6 +113,8 @@ mod tests {
                     sort_order: 99,
                 },
             ],
+            step_labels: crate::pipeline::registry::legacy_default_step_labels(),
+            recovery_hints: std::collections::HashMap::new(),
         }
     }
 
