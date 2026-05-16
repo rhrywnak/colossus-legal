@@ -18,6 +18,8 @@ use colossus_extract::{EmbeddingProvider, LlmProvider};
 use colossus_legal_backend::{
     config::AppConfig,
     neo4j::create_neo4j_graph,
+    pipeline::extraction_engine::ExtractionEngine,
+    pipeline::rig_provider::RigExtractionEngine,
     pipeline::steps::cleanup::{
         cleanup_all, cleanup_neo4j, cleanup_postgres, cleanup_qdrant, CleanupError,
     },
@@ -123,6 +125,8 @@ async fn live_context() -> TestResult<colossus_legal_backend::pipeline::context:
         document_storage_path: config.document_storage_path.clone(),
         registry,
         llm_provider: Arc::new(PanicLlm) as Arc<dyn LlmProvider>,
+        extraction_engine: Arc::new(RigExtractionEngine::from_env().expect("extraction engine"))
+            as Arc<dyn ExtractionEngine>,
         embedding_provider: Arc::new(PanicEmbedding) as Arc<dyn EmbeddingProvider>,
         llm_semaphore: Arc::new(Semaphore::new(1)),
     })

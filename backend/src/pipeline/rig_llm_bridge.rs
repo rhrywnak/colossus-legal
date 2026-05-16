@@ -443,4 +443,73 @@ mod tests {
         let bridge = build_bridge(None);
         assert!(bridge.supports_structured_output());
     }
+
+    // ── Live integration test ────────────────────────────────────
+    //
+    // Companion to `pipeline::rig_provider::tests::test_rig_engine_live`
+    // but exercises the full bridge path: a real `RigExtractionEngine`
+    // built from env, wrapped in `RigLlmProviderBridge`, called via
+    // the legacy `LlmProvider::invoke_with_system` surface. Validates
+    // the end-to-end production call sequence:
+    //
+    //     LlmProvider::invoke_with_system(bridge, system, prompt, max)
+    //       → bridge.engine.extract(...)
+    //         → RigExtractionEngine → reqwest 0.13 HTTP/1.1
+    //           → api.anthropic.com
+    //         ← LlmCallResult
+    //       ← map_engine_error / convert_tokens
+    //     ← LlmResponse
+    //
+    // Gated with `#[ignore]` + self-skip; run with:
+    //
+    //     cargo test --lib test_rig_bridge_live -- --ignored --nocapture
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_rig_bridge_live() {
+        let Ok(_) = std::env::var("ANTHROPIC_API_KEY") else {
+            return;
+        };
+
+        let engine = Arc::new(
+            crate::pipeline::rig_provider::RigExtractionEngine::from_env()
+                .expect("engine construction"),
+        );
+        let bridge = RigLlmProviderBridge::new(
+            engine,
+            "claude-sonnet-4-6".to_string(),
+            None,
+            None,
+            Some(0.0),
+        );
+
+        let result = bridge
+            .invoke_with_system(
+                "You are a legal document extraction assistant. Extract the named entity from the text.",
+                "Extract the person name from: 'George Phillips was named as defendant.'",
+                200,
+            )
+            .await
+            .expect("invoke_with_system call");
+
+        println!("=== RIG BRIDGE LIVE TEST ===");
+        println!("Response text: {}", result.text);
+        println!("Input tokens: {:?}", result.input_tokens);
+        println!("Output tokens: {:?}", result.output_tokens);
+        println!("Provider name: {}", bridge.provider_name());
+        println!("Model name: {}", bridge.model_name());
+        println!("============================");
+
+        assert!(!result.text.is_empty(), "Response text was empty");
+        assert!(
+            result.text.contains("George") || result.text.contains("Phillips"),
+            "Expected entity extraction to find George Phillips, got: {}",
+            result.text
+        );
+        assert!(result.input_tokens.unwrap_or(0) > 0, "Input tokens missing");
+        assert!(
+            result.output_tokens.unwrap_or(0) > 0,
+            "Output tokens missing"
+        );
+    }
 }

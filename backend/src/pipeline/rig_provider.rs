@@ -657,9 +657,8 @@ mod tests {
     // failure on a developer machine without a key.
 
     #[tokio::test]
-    #[ignore] // Run manually: cargo test --package colossus-legal-backend test_rig_extract_live -- --ignored
-    async fn test_rig_extract_live() {
-        // Skip if no API key.
+    #[ignore]
+    async fn test_rig_engine_live() {
         let Ok(_) = std::env::var("ANTHROPIC_API_KEY") else {
             return;
         };
@@ -667,22 +666,41 @@ mod tests {
         let engine = RigExtractionEngine::from_env().expect("engine construction");
         let result = engine
             .extract(
-                Some("You are a test assistant. Reply with exactly: BRIDGE_OK"),
-                "Say the phrase.",
+                Some(
+                    "You are a legal document extraction assistant. Extract the named entity from the text.",
+                ),
+                "Extract the person name from: 'Marie Awad filed the complaint on January 15, 2024.'",
                 "claude-sonnet-4-6",
-                100,
+                200,
                 Some(0.0),
             )
             .await
             .expect("extract call");
 
+        println!("=== RIG ENGINE LIVE TEST ===");
+        println!("Response text: {}", result.response_text);
+        println!("Input tokens: {:?}", result.input_tokens);
+        println!("Output tokens: {:?}", result.output_tokens);
+        println!("Request ID: {:?}", result.request_id);
+        println!("Duration: {:?}", result.duration);
+        println!("============================");
+
+        assert!(!result.response_text.is_empty(), "Response text was empty");
         assert!(
-            result.response_text.contains("BRIDGE_OK"),
-            "Expected BRIDGE_OK, got: {}",
+            result.response_text.contains("Marie") || result.response_text.contains("Awad"),
+            "Expected entity extraction to find Marie Awad, got: {}",
             result.response_text
         );
-        assert!(result.input_tokens.is_some());
-        assert!(result.output_tokens.is_some());
-        assert!(result.duration.as_millis() > 0);
+        assert!(result.input_tokens.unwrap_or(0) > 0, "Input tokens missing");
+        assert!(
+            result.output_tokens.unwrap_or(0) > 0,
+            "Output tokens missing"
+        );
+        if result.request_id.is_none() {
+            println!(
+                "Note: Request ID is None — Rig 0.36 does not expose Anthropic message_id reliably"
+            );
+        }
+        assert!(result.duration.as_millis() > 0, "Duration was zero");
     }
 }
