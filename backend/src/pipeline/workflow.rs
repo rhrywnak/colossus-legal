@@ -1,23 +1,41 @@
-//! `DocumentPipeline` workflow — Phase 1 echo validator.
+//! `DocumentPipeline` workflow — Phase 2-2a skeleton + extract_text.
 //!
 //! ## Purpose
 //!
-//! This is the **Phase 1 milestone**: a minimal Restate workflow that
-//! proves the SDK integration is wired end-to-end. It is deliberately
-//! trivial — one `ctx.run()` step that echoes the document id, one
-//! `ctx.set()` that records "completed", one shared handler that
-//! reads it back.
+//! Phase 2's first real workflow: replaces P1's echo step with the
+//! 8-step document processing pipeline structure. Step 1
+//! (`step_extract_text`) is fully implemented; steps 2-8 are
+//! placeholder `ctx.run()` calls that log and return Ok so the
+//! workflow's `ctx.set` state transitions can be exercised end-to-end
+//! before P2-2b / P2-2c fill them in.
 //!
-//! Phase 2 replaces the echo step with the real document-processing
-//! pipeline (ingest → extract → verify → index, currently in
-//! `pipeline::steps::*`). For now the goal is to validate four things
-//! once the binary is deployed against the DEV Restate server:
+//! The 8 steps, in order:
 //!
-//! 1. The `#[restate_sdk::workflow]` macro compiles in our backend.
-//! 2. The workflow registers with the Restate discovery endpoint.
-//! 3. A workflow invocation reaches the SDK and runs to completion.
-//! 4. `ctx.run()` journaling and `ctx.set()` / `ctx.get()` state both
-//!    work against the live Restate journal.
+//! 1. `extract_text` — PDF/DOCX/TXT → `document_text` rows (REAL).
+//! 2. `llm_extract_pass1` — LLM extraction over chunks (placeholder).
+//! 3. `llm_extract_pass2` — second-pass extraction (placeholder).
+//! 4. `verify` — grounding verification (placeholder).
+//! 5. `auto_approve` — auto-approve grounded items (placeholder).
+//! 6. `ingest` — write to Neo4j (placeholder).
+//! 7. `index` — embed and write to Qdrant (placeholder).
+//! 8. `completeness` — completeness check (placeholder).
+//!
+//! Each step is its own `ctx.run()` call so Restate journals each
+//! step's outcome separately and replay can resume from the last
+//! completed step.
+//!
+//! ## Why chunking is NOT a separate step
+//!
+//! In the prior draft of this design chunking lived between extract
+//! and pass-1. The schema makes that awkward — `extraction_chunks`
+//! rows carry an `extraction_run_id` FK and are pass-scoped (pass 1
+//! chunks vs pass 2 chunks live under different `extraction_runs`
+//! rows). Splitting "chunk" into its own pre-extraction step would
+//! force one of: (a) create a placeholder run row up-front, (b)
+//! introduce a pass-agnostic chunks table, or (c) recompute chunks
+//! inside pass-1 anyway. All three are worse than just keeping the
+//! chunk split where it already is — inside `llm_extract_pass1` /
+//! `llm_extract_pass2`. The workflow is 8 steps, not 9.
 //!
 //! ## What gets journaled (replay semantics)
 //!
@@ -50,7 +68,15 @@
 //! can dedupe by invocation id. P2+ should consider installing the
 //! `ReplayAwareFilter` in the tracing-subscriber setup.
 
+use std::sync::Arc;
+
 use restate_sdk::prelude::*;
+
+use crate::models::document_status::{
+    STATUS_APPROVED, STATUS_INDEXED, STATUS_INGESTED, STATUS_TEXT_EXTRACTED, STATUS_VERIFIED,
+};
+use crate::pipeline::context::AppContext;
+use crate::pipeline::workflow_steps;
 
 // ── State contract ───────────────────────────────────────────────
 //
@@ -89,6 +115,46 @@ const STATUS_COMPLETED: &str = "completed";
 /// pattern-matchers depend on this exact string; it is not
 /// runtime-configurable.
 const STATUS_UNKNOWN: &str = "unknown";
+
+// ── Per-step status sentinels ────────────────────────────────────
+//
+// One string per terminal-per-step status the workflow writes to
+// `STATUS_STATE_KEY` after each `ctx.run()` completes. The values
+// that also map onto a `documents.status` column write are imported
+// from `crate::models::document_status` so the casing
+// (`TEXT_EXTRACTED`, `VERIFIED`, …) matches the canonical SQL
+// vocabulary that `compute_status_group` and the legacy pipeline
+// already enforce. The two intermediate states that do NOT have a
+// `documents.status` counterpart (between-passes, pre-verify) live
+// here as local constants. Naming each transition through a constant
+// prevents typo drift and keeps the status vocabulary auditable.
+//
+// CONST justification (shared with the canonical module): these
+// strings are pattern-matched by external callers (Restate admin
+// UI, future `get_status` extensions, frontend `compute_status_group`).
+// They are not env-var configurable.
+
+const STATUS_PASS1_COMPLETE: &str = "PASS1_COMPLETE";
+const STATUS_PASS2_COMPLETE: &str = "PASS2_COMPLETE";
+
+/// Operator recovery hint included in every step-failure log line.
+///
+/// The architecture-review's "WHAT-TO-DO" requirement: a step-failure
+/// log alone is not actionable without telling the operator where to
+/// look. Restate journals the failure with the original `HandlerError`
+/// message (which `classify_extract_error` populates with step-specific
+/// guidance for the extract step). The same hint applies to every step,
+/// so it lives compiled-in and is attached as a `recovery` structured
+/// field on each `tracing::error!`.
+///
+/// CONST: free-form operator guidance — not env-var configurable. The
+/// referenced URL is intentionally an env-var name (`RESTATE_ADMIN_URL`)
+/// rather than a literal URL, so a deployment can point operators at
+/// the right console without touching this file.
+const STEP_FAILURE_RECOVERY: &str =
+    "Inspect the Restate workflow journal for this doc_id (admin UI at \
+     $RESTATE_ADMIN_URL) — terminal errors need fix+redeploy; retryable \
+     errors auto-retry with exponential backoff.";
 
 /// Document-processing workflow.
 ///
@@ -130,59 +196,192 @@ pub trait DocumentPipeline {
 
 /// Concrete implementation of [`DocumentPipeline`].
 ///
-/// Unit struct because P1-7 carries no per-workflow state outside of
-/// what Restate's own journal holds. P2 will likely promote this to a
-/// struct holding `Arc<AppContext>` so the real pipeline steps can
-/// reach the LLM/embedding engines and the database pools.
-pub struct DocumentPipelineImpl;
+/// Holds an `Arc<AppContext>` so step handlers can reach the database
+/// pools, the LLM/embedding providers, the HTTP client, and the
+/// pipeline-configuration registry. Constructed once at process
+/// startup in `restate_endpoint::serve_restate_endpoint` and shared
+/// (by `Arc` clone) into every `ctx.run()` closure that needs it.
+///
+/// ## Rust Learning: why `Arc` here and `&self` on the handler
+///
+/// Restate's macro-generated `Service::serve` takes `self` by value,
+/// but each handler call sees `&self`. Cloning the `Arc<AppContext>`
+/// inside the handler body (one atomic increment) is what lets us move
+/// the context into a `'static + Send` `async move` closure for
+/// `ctx.run` without forcing the whole context to be `Clone`.
+pub struct DocumentPipelineImpl {
+    /// Shared application context. Cloned (cheap, refcount bump) into
+    /// every `ctx.run` closure that needs access to the database
+    /// pools, providers, or registry.
+    pub ctx: Arc<AppContext>,
+}
+
+impl DocumentPipelineImpl {
+    /// Construct a new workflow impl from a shared [`AppContext`].
+    ///
+    /// Called once from `restate_endpoint::serve_restate_endpoint` —
+    /// the Restate SDK holds the resulting value for the lifetime of
+    /// the HTTP/2 server.
+    pub fn new(ctx: Arc<AppContext>) -> Self {
+        Self { ctx }
+    }
+}
 
 impl DocumentPipeline for DocumentPipelineImpl {
     async fn run(&self, ctx: WorkflowContext<'_>, doc_id: String) -> Result<String, HandlerError> {
         tracing::info!(doc_id = %doc_id, "DocumentPipeline workflow started");
 
-        // ## Rust Learning: `async move` inside a `ctx.run` closure
+        // ── Step 1: extract_text (REAL) ────────────────────────────
         //
-        // The closure outlives the synchronous call frame — Restate
-        // stashes it on the journal task. So it must own everything
-        // it touches. `doc_id` is still needed by the trailing log
-        // line after `.await`, so we clone it for the closure and
-        // keep the original. `async move` captures the clone
-        // by-value.
+        // ## Rust Learning: `Arc` clone before the async move
         //
-        // The `Ok::<String, HandlerError>(...)` turbofish is needed
-        // because the closure body has only one statement — Rust
-        // can't infer which `Result<_, _>` variant the `Ok` belongs
-        // to without an explicit type.
-        let echo_doc_id = doc_id.clone();
-        let echo_result: String = ctx
-            .run(|| async move { Ok::<String, HandlerError>(format!("echo: {echo_doc_id}")) })
-            .await
-            .map_err(|e| {
-                // `ctx.run` propagates `HandlerError` opaquely to the
-                // Restate runtime. Without this `map_err` the operator
-                // would see a generic SDK error in the Restate journal
-                // with no indication of which document failed. Logging
-                // here records doc_id + step name in our own tracing
-                // pipeline before forwarding the error unchanged.
-                tracing::error!(
-                    doc_id = %doc_id,
-                    step = "echo",
-                    error = %e,
-                    "DocumentPipeline echo ctx.run step failed"
-                );
-                e
-            })?;
+        // Each `ctx.run` closure becomes a 'static future, so it must
+        // own its captures. Cloning the `Arc<AppContext>` is a single
+        // atomic refcount bump — the underlying `AppContext` is shared
+        // across all clones. The doc_id is `.clone()`d separately
+        // because the trailing tracing line and the next step both
+        // need their own copies.
+        let app = Arc::clone(&self.ctx);
+        let did = doc_id.clone();
+        ctx.run(
+            || async move { workflow_steps::extract_text::step_extract_text(&app, &did).await },
+        )
+        .await
+        .map_err(|e| {
+            tracing::error!(
+                doc_id = %doc_id, step = "extract_text", error = %e,
+                recovery = STEP_FAILURE_RECOVERY,
+                "DocumentPipeline step failed"
+            );
+            e
+        })?;
+        ctx.set(STATUS_STATE_KEY, STATUS_TEXT_EXTRACTED.to_string());
 
-        // Useful at trace level when debugging replay behaviour
-        // against a live Restate server: on first execution this logs
-        // the freshly-computed value; on replay it logs the journaled
-        // value (which should be identical — divergence indicates a
-        // non-deterministic step bug).
-        tracing::debug!(
-            doc_id = %doc_id,
-            echo = %echo_result,
-            "Echo step journaled"
-        );
+        // ── Step 2: llm_extract_pass1 (PLACEHOLDER — P2-2b) ────────
+        //
+        // The placeholder body just logs and returns Ok. Replacing
+        // the body in P2-2b should keep the same shape: an
+        // idempotent body inside the closure, an outer `ctx.set` for
+        // the terminal-per-step status. The journaled return value
+        // is intentionally a short distinguishable string so an
+        // operator can tell at a glance whether the placeholder
+        // shipped to production by accident.
+        let did2 = doc_id.clone();
+        ctx.run(|| async move {
+            tracing::info!(doc_id = %did2, "PLACEHOLDER: llm_extract_pass1");
+            Ok::<String, HandlerError>("pass1_placeholder".to_string())
+        })
+        .await
+        .map_err(|e| {
+            tracing::error!(
+                doc_id = %doc_id, step = "llm_extract_pass1", error = %e,
+                recovery = STEP_FAILURE_RECOVERY,
+                "DocumentPipeline step failed"
+            );
+            e
+        })?;
+        ctx.set(STATUS_STATE_KEY, STATUS_PASS1_COMPLETE.to_string());
+
+        // ── Step 3: llm_extract_pass2 (PLACEHOLDER — P2-2b) ────────
+        let did3 = doc_id.clone();
+        ctx.run(|| async move {
+            tracing::info!(doc_id = %did3, "PLACEHOLDER: llm_extract_pass2");
+            Ok::<String, HandlerError>("pass2_placeholder".to_string())
+        })
+        .await
+        .map_err(|e| {
+            tracing::error!(
+                doc_id = %doc_id, step = "llm_extract_pass2", error = %e,
+                recovery = STEP_FAILURE_RECOVERY,
+                "DocumentPipeline step failed"
+            );
+            e
+        })?;
+        ctx.set(STATUS_STATE_KEY, STATUS_PASS2_COMPLETE.to_string());
+
+        // ── Step 4: verify (PLACEHOLDER — P2-2c) ───────────────────
+        let did4 = doc_id.clone();
+        ctx.run(|| async move {
+            tracing::info!(doc_id = %did4, "PLACEHOLDER: verify");
+            Ok::<String, HandlerError>("verify_placeholder".to_string())
+        })
+        .await
+        .map_err(|e| {
+            tracing::error!(
+                doc_id = %doc_id, step = "verify", error = %e,
+                recovery = STEP_FAILURE_RECOVERY,
+                "DocumentPipeline step failed"
+            );
+            e
+        })?;
+        ctx.set(STATUS_STATE_KEY, STATUS_VERIFIED.to_string());
+
+        // ── Step 5: auto_approve (PLACEHOLDER — P2-2c) ─────────────
+        let did5 = doc_id.clone();
+        ctx.run(|| async move {
+            tracing::info!(doc_id = %did5, "PLACEHOLDER: auto_approve");
+            Ok::<String, HandlerError>("approve_placeholder".to_string())
+        })
+        .await
+        .map_err(|e| {
+            tracing::error!(
+                doc_id = %doc_id, step = "auto_approve", error = %e,
+                recovery = STEP_FAILURE_RECOVERY,
+                "DocumentPipeline step failed"
+            );
+            e
+        })?;
+        ctx.set(STATUS_STATE_KEY, STATUS_APPROVED.to_string());
+
+        // ── Step 6: ingest (PLACEHOLDER — P2-2c) ───────────────────
+        let did6 = doc_id.clone();
+        ctx.run(|| async move {
+            tracing::info!(doc_id = %did6, "PLACEHOLDER: ingest");
+            Ok::<String, HandlerError>("ingest_placeholder".to_string())
+        })
+        .await
+        .map_err(|e| {
+            tracing::error!(
+                doc_id = %doc_id, step = "ingest", error = %e,
+                recovery = STEP_FAILURE_RECOVERY,
+                "DocumentPipeline step failed"
+            );
+            e
+        })?;
+        ctx.set(STATUS_STATE_KEY, STATUS_INGESTED.to_string());
+
+        // ── Step 7: index (PLACEHOLDER — P2-2c) ────────────────────
+        let did7 = doc_id.clone();
+        ctx.run(|| async move {
+            tracing::info!(doc_id = %did7, "PLACEHOLDER: index");
+            Ok::<String, HandlerError>("index_placeholder".to_string())
+        })
+        .await
+        .map_err(|e| {
+            tracing::error!(
+                doc_id = %doc_id, step = "index", error = %e,
+                recovery = STEP_FAILURE_RECOVERY,
+                "DocumentPipeline step failed"
+            );
+            e
+        })?;
+        ctx.set(STATUS_STATE_KEY, STATUS_INDEXED.to_string());
+
+        // ── Step 8: completeness (PLACEHOLDER — P2-2c) ─────────────
+        let did8 = doc_id.clone();
+        ctx.run(|| async move {
+            tracing::info!(doc_id = %did8, "PLACEHOLDER: completeness");
+            Ok::<String, HandlerError>("completeness_placeholder".to_string())
+        })
+        .await
+        .map_err(|e| {
+            tracing::error!(
+                doc_id = %doc_id, step = "completeness", error = %e,
+                recovery = STEP_FAILURE_RECOVERY,
+                "DocumentPipeline step failed"
+            );
+            e
+        })?;
 
         // ctx.set is synchronous (no .await) and fire-and-forget at
         // the API level — Restate journals the write transactionally

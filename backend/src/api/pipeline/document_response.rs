@@ -9,8 +9,8 @@ use serde::Serialize;
 use crate::auth::AuthUser;
 use crate::models::document_status::{
     STATUS_CANCELLED, STATUS_COMPLETED, STATUS_EXTRACTED, STATUS_FAILED, STATUS_INDEXED,
-    STATUS_INGESTED, STATUS_NEW, STATUS_PROCESSING, STATUS_PUBLISHED, STATUS_UPLOADED,
-    STATUS_VERIFIED,
+    STATUS_INGESTED, STATUS_NEW, STATUS_PROCESSING, STATUS_PUBLISHED, STATUS_TEXT_EXTRACTED,
+    STATUS_UPLOADED, STATUS_VERIFIED,
 };
 use crate::repositories::pipeline_repository::DocumentRecord;
 
@@ -95,7 +95,16 @@ fn compute_can_view(status: &str, is_admin: bool) -> bool {
 pub fn compute_status_group(status: &str) -> &'static str {
     match status {
         STATUS_NEW | STATUS_UPLOADED => "new",
-        STATUS_PROCESSING | STATUS_EXTRACTED | STATUS_VERIFIED | STATUS_INGESTED
+        // `TEXT_EXTRACTED` is the Restate workflow's first per-step
+        // status write (P2-2a). It precedes `EXTRACTED` (Pass-1 LLM
+        // extraction complete) and shares the "processing" bucket so
+        // the frontend's 3s poll loop keeps running between
+        // text-extract and pass-1.
+        STATUS_PROCESSING
+        | STATUS_TEXT_EXTRACTED
+        | STATUS_EXTRACTED
+        | STATUS_VERIFIED
+        | STATUS_INGESTED
         | STATUS_INDEXED => "processing",
         STATUS_COMPLETED | STATUS_PUBLISHED => "completed",
         STATUS_FAILED => "failed",
@@ -123,6 +132,10 @@ mod tests {
             ("NEW", "new"),
             ("UPLOADED", "new"),
             ("PROCESSING", "processing"),
+            // TEXT_EXTRACTED is the Restate workflow's first per-step
+            // write (P2-2a). MUST stay in "processing" — same poll-loop
+            // requirement as the rest of the mid-pipeline statuses.
+            ("TEXT_EXTRACTED", "processing"),
             ("EXTRACTED", "processing"), // mid-pipeline: keep polling
             ("VERIFIED", "processing"),  // mid-pipeline: keep polling
             ("INGESTED", "processing"),  // mid-pipeline: keep polling

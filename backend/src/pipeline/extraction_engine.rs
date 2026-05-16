@@ -421,10 +421,7 @@ pub trait EmbeddingEngine: Send + Sync + 'static {
     /// deliberate: LLM rate limits make partial-success the common
     /// case for extraction, whereas embedding failures are usually
     /// fail-the-whole-document affairs.)
-    async fn embed_batch(
-        &self,
-        texts: &[String],
-    ) -> Result<Vec<Vec<f32>>, EmbeddingEngineError> {
+    async fn embed_batch(&self, texts: &[String]) -> Result<Vec<Vec<f32>>, EmbeddingEngineError> {
         let mut results = Vec::with_capacity(texts.len());
         for text in texts {
             results.push(self.embed(text).await?);

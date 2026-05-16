@@ -81,7 +81,13 @@ pub async fn validate_profile(
         validate_model(db, "pass2_extraction_model", m).await?;
     }
 
-    validate_file(registry, "schema_file", FileKind::Schema, &profile.schema_file).await?;
+    validate_file(
+        registry,
+        "schema_file",
+        FileKind::Schema,
+        &profile.schema_file,
+    )
+    .await?;
     validate_file(
         registry,
         "template_file",
@@ -274,8 +280,7 @@ mod tests {
     use tempfile::TempDir;
 
     fn registry_at(root: &std::path::Path) -> PipelineRegistry {
-        let paths =
-            ["profiles", "schemas", "templates", "system_prompts"].map(|n| root.join(n));
+        let paths = ["profiles", "schemas", "templates", "system_prompts"].map(|n| root.join(n));
         for p in &paths {
             fs::create_dir_all(p).unwrap();
         }
@@ -345,11 +350,7 @@ mod tests {
     #[test]
     fn test_upload_rejects_invalid_extraction_model() {
         let valid: Vec<String> = vec!["claude-sonnet-4-6".into(), "claude-opus-4-6".into()];
-        let err = model_not_in_list_error(
-            "extraction_model",
-            "claude-sonnet-4-20250514",
-            &valid,
-        );
+        let err = model_not_in_list_error("extraction_model", "claude-sonnet-4-20250514", &valid);
         let msg = format!("{err:?}");
         assert!(
             msg.contains("extraction_model"),
@@ -370,15 +371,11 @@ mod tests {
     #[test]
     fn test_upload_rejects_invalid_pass2_model() {
         let valid: Vec<String> = vec!["claude-sonnet-4-6".into(), "claude-opus-4-6".into()];
-        let err = model_not_in_list_error(
-            "pass2_extraction_model",
-            "claude-opus-4-20250115",
-            &valid,
-        );
+        let err =
+            model_not_in_list_error("pass2_extraction_model", "claude-opus-4-20250115", &valid);
         let msg = format!("{err:?}");
         assert!(
-            msg.contains("pass2_extraction_model")
-                && msg.contains("claude-opus-4-20250115"),
+            msg.contains("pass2_extraction_model") && msg.contains("claude-opus-4-20250115"),
             "error must name field and value; got: {msg}"
         );
     }
@@ -389,14 +386,9 @@ mod tests {
     async fn test_upload_rejects_invalid_template_file() {
         let tmp = TempDir::new().unwrap();
         let registry = registry_at(tmp.path());
-        let err = validate_file(
-            &registry,
-            "template_file",
-            FileKind::Template,
-            "missing.md",
-        )
-        .await
-        .expect_err("missing template must reject");
+        let err = validate_file(&registry, "template_file", FileKind::Template, "missing.md")
+            .await
+            .expect_err("missing template must reject");
         let msg = format!("{err:?}");
         assert!(
             msg.contains("template_file")
@@ -412,15 +404,12 @@ mod tests {
     async fn test_upload_rejects_missing_schema_file() {
         let tmp = TempDir::new().unwrap();
         let registry = registry_at(tmp.path());
-        let err =
-            validate_file(&registry, "schema_file", FileKind::Schema, "gone.yaml")
-                .await
-                .expect_err("missing schema must reject");
+        let err = validate_file(&registry, "schema_file", FileKind::Schema, "gone.yaml")
+            .await
+            .expect_err("missing schema must reject");
         let msg = format!("{err:?}");
         assert!(
-            msg.contains("schema_file")
-                && msg.contains("gone.yaml")
-                && msg.contains("schemas"),
+            msg.contains("schema_file") && msg.contains("gone.yaml") && msg.contains("schemas"),
             "error must name field, file, directory; got: {msg}"
         );
     }
@@ -470,11 +459,7 @@ mod tests {
             ("template_file", FileKind::Template, "ok.md"),
             ("pass2_template_file", FileKind::Template, "ok_pass2.md"),
             ("global_rules_file", FileKind::Template, "rules.md"),
-            (
-                "system_prompt_file",
-                FileKind::SystemPrompt,
-                "sys.md",
-            ),
+            ("system_prompt_file", FileKind::SystemPrompt, "sys.md"),
         ] {
             validate_file(&registry, field, kind, file)
                 .await
@@ -488,8 +473,7 @@ mod tests {
     #[test]
     fn test_patch_rejects_invalid_model_id() {
         let valid: Vec<String> = vec!["claude-sonnet-4-6".into()];
-        let err =
-            model_not_in_list_error("extraction_model", "made-up-model", &valid);
+        let err = model_not_in_list_error("extraction_model", "made-up-model", &valid);
         let msg = format!("{err:?}");
         assert!(
             msg.contains("extraction_model")

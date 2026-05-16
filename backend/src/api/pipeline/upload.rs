@@ -805,10 +805,7 @@ pipeline_type: case_structuring
 
         assert_eq!(o.profile_name.as_deref(), Some("full_profile"));
         assert_eq!(o.extraction_model.as_deref(), Some("claude-sonnet-4-6"));
-        assert_eq!(
-            o.pass2_extraction_model.as_deref(),
-            Some("claude-opus-4-6")
-        );
+        assert_eq!(o.pass2_extraction_model.as_deref(), Some("claude-opus-4-6"));
         assert_eq!(o.template_file.as_deref(), Some("full_pass1.md"));
         assert_eq!(o.pass2_template_file.as_deref(), Some("full_pass2.md"));
         assert_eq!(o.system_prompt_file.as_deref(), Some("full_sys.md"));
@@ -872,7 +869,10 @@ pipeline_type: evidence_anchoring
         assert_eq!(resolved.max_tokens, profile.max_tokens);
         assert_eq!(resolved.temperature, profile.temperature);
         assert_eq!(resolved.run_pass2, profile.run_pass2);
-        assert_eq!(resolved.auto_approve_grounded, profile.auto_approve_grounded);
+        assert_eq!(
+            resolved.auto_approve_grounded,
+            profile.auto_approve_grounded
+        );
         assert_eq!(resolved.version, profile.version);
         assert_eq!(resolved.pipeline_type, profile.pipeline_type);
     }

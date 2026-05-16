@@ -265,8 +265,9 @@ async fn run_serve(config: AppConfig, graph: neo4rs::Graph, http_client: reqwest
         addr = %restate_addr,
         "Starting Restate SDK endpoint as background task"
     );
-    let _restate_handle: tokio::task::JoinHandle<()> =
-        tokio::spawn(restate_endpoint::serve_restate_endpoint(restate_listener));
+    let _restate_handle: tokio::task::JoinHandle<()> = tokio::spawn(
+        restate_endpoint::serve_restate_endpoint(restate_listener, app_context.clone()),
+    );
 
     // --- Load external prompt templates from disk ---
     //
