@@ -28,6 +28,36 @@ pub struct AutoApprove {
     pub document_id: String,
 }
 
+/// Outcome of a successful pass through [`run_auto_approve`].
+///
+/// Consumed by:
+/// - The legacy [`AutoApprove::execute`] thin wrapper — re-emits
+///   the 2-key audit JSON via `progress.set_step_result(...)`
+///   (`approved`, `pending_review`) so `pipeline_steps.result_summary`
+///   stays byte-identical to the pre-refactor shape.
+/// - The Restate workflow handler (`step_auto_approve`) — builds a
+///   journal summary string from these counters.
+///
+/// ## Idempotency
+///
+/// `bulk_approve` only transitions items currently in PENDING with a
+/// matching `grounding_status`. A second invocation finds nothing to
+/// flip — `approved_count` will be `0` on replay. The replay-safe
+/// behavior is intentional: we do NOT need a `skipped_already_complete`
+/// flag because there is no terminal-vs-skipped semantic distinction
+/// — both produce `approved_count = 0`.
+#[derive(Debug, Clone, Default)]
+pub struct AutoApproveResult {
+    /// Items newly transitioned to APPROVED in this invocation. `0`
+    /// on replay (the bulk_approve query filters by PENDING only).
+    pub approved_count: u64,
+    /// Items still PENDING after this invocation. The legacy wrapper
+    /// renders this as the `pending_review` audit key. `i64` matches
+    /// the repository return type
+    /// ([`review::count_pending`](crate::repositories::pipeline_repository::review::count_pending)).
+    pub pending_review_count: i64,
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // AutoApproveError
 // ─────────────────────────────────────────────────────────────────────────
@@ -73,76 +103,30 @@ impl Step<DocProcessing> for AutoApprove {
     const DEFAULT_RETRY_DELAY_SECS: u64 = 5;
     const DEFAULT_TIMEOUT_SECS: Option<u64> = Some(30);
 
+    /// Thin wrapper over [`run_auto_approve`] — the clean business
+    /// core that the Restate workflow handler also calls.
+    ///
+    /// Adds on top of the core:
+    /// 1. **Pre / post cancel checks** (legacy worker semantics).
+    /// 2. **`progress.set_step_result(...)` audit JSON.** Re-emits
+    ///    the 2-key shape (`approved`, `pending_review`) the
+    ///    pre-refactor body wrote inline so
+    ///    `pipeline_steps.result_summary` stays byte-identical.
+    /// 3. **FSM routing** to Ingest.
     async fn execute(
         self,
         db: &PgPool,
-        _context: &AppContext,
+        context: &AppContext,
         cancel: &CancellationToken,
         progress: &ProgressReporter,
     ) -> Result<StepResult<DocProcessing>, Box<dyn Error + Send + Sync>> {
         let start = Instant::now();
-        let doc_id = self.document_id.clone();
 
         if cancel.is_cancelled().await {
             return Err("Cancelled before auto-approve".into());
         }
 
-        // Guard: confirm the document exists.
-        pipeline_repository::get_document(db, &doc_id)
-            .await
-            .map_err(|e| AutoApproveError::Helper {
-                doc_id: doc_id.clone(),
-                message: format!("get_document: {e}"),
-            })?
-            .ok_or_else(|| AutoApproveError::DocumentNotFound {
-                doc_id: doc_id.clone(),
-            })?;
-
-        // Approve only items where grounding_status IN ('exact', 'normalized').
-        let approved_count = review::bulk_approve(db, &doc_id, "pipeline", "grounded")
-            .await
-            .map_err(|source| AutoApproveError::BulkApproveFailed {
-                doc_id: doc_id.clone(),
-                source,
-            })?;
-
-        // Count remaining grounded+pending items (should be 0 immediately
-        // after bulk_approve unless a race approved more in parallel).
-        let remaining_pending = review::count_pending(db, &doc_id).await.map_err(|source| {
-            AutoApproveError::CountPendingFailed {
-                doc_id: doc_id.clone(),
-                source,
-            }
-        })?;
-
-        if approved_count == 0 {
-            tracing::warn!(
-                doc_id = %doc_id,
-                remaining_pending,
-                "AutoApprove: zero items approved — zero items will reach Neo4j unless reviewed manually"
-            );
-        } else {
-            tracing::info!(
-                doc_id = %doc_id,
-                approved_count,
-                remaining_pending,
-                "AutoApprove complete"
-            );
-        }
-
-        // best-effort progress update
-        documents::update_processing_progress(
-            db,
-            &doc_id,
-            "AutoApprove",
-            &format!("Auto-approved {approved_count} grounded items"),
-            0,
-            0,
-            0,
-            0,
-        )
-        .await
-        .ok();
+        let result = run_auto_approve(&self.document_id, db, context).await?;
 
         if cancel.is_cancelled().await {
             return Err("Cancelled after auto-approve".into());
@@ -150,21 +134,121 @@ impl Step<DocProcessing> for AutoApprove {
 
         let duration_secs = start.elapsed().as_secs_f64();
         tracing::info!(
-            doc_id = %doc_id,
+            doc_id = %self.document_id,
             duration_secs,
-            approved_count,
+            approved_count = result.approved_count,
             "AutoApprove step complete"
         );
 
         progress.set_step_result(serde_json::json!({
-            "approved": approved_count,
-            "pending_review": remaining_pending,
+            "approved": result.approved_count,
+            "pending_review": result.pending_review_count,
         }));
 
         Ok(StepResult::Next(DocProcessing::Ingest(Ingest {
             document_id: self.document_id,
         })))
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Core implementation (Restate-callable)
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Run the AutoApprove step — bulk-approve grounded extraction items.
+///
+/// Calls `review::bulk_approve(... "grounded")` which transitions
+/// every PENDING item whose `grounding_status` is `'exact'` or
+/// `'normalized'` to APPROVED. Items with other grounding statuses
+/// remain in PENDING and surface to the manual review queue.
+///
+/// Returns an [`AutoApproveResult`] with the newly-approved count
+/// and the still-pending count. Both numbers feed the legacy
+/// wrapper's audit JSON.
+///
+/// ## Idempotency
+///
+/// Naturally idempotent: re-running on a document whose grounded
+/// items are already APPROVED produces `approved_count = 0` (the
+/// bulk-approve SQL filters by PENDING only). Restate replay is
+/// safe; no explicit short-circuit guard needed.
+///
+/// ## Cancellation
+///
+/// Does not poll a `CancellationToken`. The legacy worker wraps
+/// `Step::execute` in `tokio::select!` with a `cancel_watcher`; the
+/// Restate path kills the awaiting future via SDK abort.
+pub async fn run_auto_approve(
+    document_id: &str,
+    db: &PgPool,
+    _context: &AppContext,
+) -> Result<AutoApproveResult, AutoApproveError> {
+    let doc_id = document_id;
+
+    // Guard: confirm the document exists.
+    pipeline_repository::get_document(db, doc_id)
+        .await
+        .map_err(|e| AutoApproveError::Helper {
+            doc_id: doc_id.to_string(),
+            message: format!("get_document: {e}"),
+        })?
+        .ok_or_else(|| AutoApproveError::DocumentNotFound {
+            doc_id: doc_id.to_string(),
+        })?;
+
+    // Approve only items where grounding_status IN ('exact', 'normalized').
+    let approved_count = review::bulk_approve(db, doc_id, "pipeline", "grounded")
+        .await
+        .map_err(|source| AutoApproveError::BulkApproveFailed {
+            doc_id: doc_id.to_string(),
+            source,
+        })?;
+
+    // Count remaining grounded+pending items (should be 0 immediately
+    // after bulk_approve unless a race approved more in parallel).
+    let pending_review_count = review::count_pending(db, doc_id).await.map_err(|source| {
+        AutoApproveError::CountPendingFailed {
+            doc_id: doc_id.to_string(),
+            source,
+        }
+    })?;
+
+    if approved_count == 0 {
+        tracing::warn!(
+            doc_id = %doc_id,
+            pending_review_count,
+            "AutoApprove: zero items approved — zero items will reach Neo4j unless reviewed manually"
+        );
+    } else {
+        tracing::info!(
+            doc_id = %doc_id,
+            approved_count,
+            pending_review_count,
+            "AutoApprove complete"
+        );
+    }
+
+    // best-effort: progress update. Surfaces the auto-approval
+    // count to the Documents-tab poll loop. `.ok()` discards the
+    // sqlx::Error — a failed progress write must never fail the
+    // auto-approve step.
+    documents::update_processing_progress(
+        db,
+        doc_id,
+        "AutoApprove",
+        &format!("Auto-approved {approved_count} grounded items"),
+        0,
+        0,
+        0,
+        0,
+    )
+    .await
+    .ok();
+
+    Ok(AutoApproveResult {
+        approved_count,
+        pending_review_count,
+    })
 }
 
 // ─────────────────────────────────────────────────────────────────────────

@@ -1,12 +1,13 @@
-//! `DocumentPipeline` workflow — Phase 2-2b: extract + LLM extraction.
+//! `DocumentPipeline` workflow — Phase 2-2c (Part 1): verify, auto-approve, completeness.
 //!
 //! ## Purpose
 //!
 //! Phase 2's document-processing workflow. Replaces P1's echo step
-//! with the 8-step pipeline. Steps 1-3 are fully implemented as of
-//! P2-2b; steps 4-8 are placeholder `ctx.run()` calls that log and
-//! return Ok so the workflow's `ctx.set` state transitions can still
-//! be exercised end-to-end before P2-2c fills them in.
+//! with the 8-step pipeline. Steps 1-5 and step 8 are fully
+//! implemented as of P2-2c Part 1; steps 6 (ingest) and 7 (index)
+//! are placeholder `ctx.run()` calls that log and return Ok so the
+//! workflow's `ctx.set` state transitions can still be exercised
+//! end-to-end before P2-2c Part 2 fills them in.
 //!
 //! The 8 steps, in order:
 //!
@@ -14,11 +15,11 @@
 //! 2. `llm_extract_pass1` — LLM extraction + chunking (REAL).
 //! 3. `llm_extract_pass2` — relationship extraction (REAL; skipped
 //!    by the handler when the profile has `run_pass2 = false`).
-//! 4. `verify` — grounding verification (placeholder — P2-2c).
-//! 5. `auto_approve` — auto-approve grounded items (placeholder — P2-2c).
-//! 6. `ingest` — write to Neo4j (placeholder — P2-2c).
-//! 7. `index` — embed and write to Qdrant (placeholder — P2-2c).
-//! 8. `completeness` — completeness check (placeholder — P2-2c).
+//! 4. `verify` — grounding verification (REAL).
+//! 5. `auto_approve` — auto-approve grounded items (REAL).
+//! 6. `ingest` — write to Neo4j (placeholder — P2-2c Part 2).
+//! 7. `index` — embed and write to Qdrant (placeholder — P2-2c Part 2).
+//! 8. `completeness` — completeness check (REAL; terminal step).
 //!
 //! Each step is its own `ctx.run()` call so Restate journals each
 //! step's outcome separately and replay can resume from the last
@@ -302,29 +303,33 @@ impl DocumentPipeline for DocumentPipelineImpl {
         })?;
         ctx.set(STATUS_STATE_KEY, STATUS_PASS2_COMPLETE.to_string());
 
-        // ── Step 4: verify (PLACEHOLDER — P2-2c) ───────────────────
-        let did4 = doc_id.clone();
-        ctx.run(|| async move {
-            tracing::info!(doc_id = %did4, "PLACEHOLDER: verify");
-            Ok::<String, HandlerError>("verify_placeholder".to_string())
-        })
-        .await
-        .map_err(|e| {
-            tracing::error!(
-                doc_id = %doc_id, step = "verify", error = %e,
-                recovery = STEP_FAILURE_RECOVERY,
-                "DocumentPipeline step failed"
-            );
-            e
-        })?;
+        // ── Step 4: verify (REAL) ──────────────────────────────────
+        let app = Arc::clone(&self.ctx);
+        let did = doc_id.clone();
+        ctx.run(|| async move { workflow_steps::verify::step_verify(&app, &did).await })
+            .await
+            .map_err(|e| {
+                tracing::error!(
+                    doc_id = %doc_id, step = "verify", error = %e,
+                    recovery = STEP_FAILURE_RECOVERY,
+                    "DocumentPipeline step failed"
+                );
+                e
+            })?;
         ctx.set(STATUS_STATE_KEY, STATUS_VERIFIED.to_string());
 
-        // ── Step 5: auto_approve (PLACEHOLDER — P2-2c) ─────────────
-        let did5 = doc_id.clone();
-        ctx.run(|| async move {
-            tracing::info!(doc_id = %did5, "PLACEHOLDER: auto_approve");
-            Ok::<String, HandlerError>("approve_placeholder".to_string())
-        })
+        // ── Step 5: auto_approve (REAL) ────────────────────────────
+        //
+        // Per P2-2c design decision (option b), the handler does NOT
+        // write `documents.status` — the lifecycle column stays at
+        // "VERIFIED" until step_ingest writes "INGESTED". The
+        // Restate state still transitions through STATUS_APPROVED
+        // below so the journal records the step boundary.
+        let app = Arc::clone(&self.ctx);
+        let did = doc_id.clone();
+        ctx.run(
+            || async move { workflow_steps::auto_approve::step_auto_approve(&app, &did).await },
+        )
         .await
         .map_err(|e| {
             tracing::error!(
@@ -370,12 +375,18 @@ impl DocumentPipeline for DocumentPipelineImpl {
         })?;
         ctx.set(STATUS_STATE_KEY, STATUS_INDEXED.to_string());
 
-        // ── Step 8: completeness (PLACEHOLDER — P2-2c) ─────────────
-        let did8 = doc_id.clone();
-        ctx.run(|| async move {
-            tracing::info!(doc_id = %did8, "PLACEHOLDER: completeness");
-            Ok::<String, HandlerError>("completeness_placeholder".to_string())
-        })
+        // ── Step 8: completeness (REAL — terminal step) ────────────
+        //
+        // The Postgres `documents.status = "PUBLISHED"` write happens
+        // inside the core `run_completeness`, so no handler-level
+        // status write is needed. The Restate state still transitions
+        // through STATUS_COMPLETED at the very end (below) to mark
+        // the workflow journal as terminally complete.
+        let app = Arc::clone(&self.ctx);
+        let did = doc_id.clone();
+        ctx.run(
+            || async move { workflow_steps::completeness::step_completeness(&app, &did).await },
+        )
         .await
         .map_err(|e| {
             tracing::error!(

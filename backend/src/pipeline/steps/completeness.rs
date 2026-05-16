@@ -53,15 +53,32 @@ pub struct Completeness {
     pub document_id: String,
 }
 
-/// Result summary threaded into `pipeline_steps.result_summary` on
-/// success. Mirrors the HTTP handler's response shape (without the
-/// full id lists — those stay in the on-error path).
-#[derive(Debug)]
-struct CompletenessStats {
-    total_items: usize,
-    nodes_verified: usize,
-    points_verified: usize,
-    points_missing: usize,
+/// Outcome of a successful pass through [`run_completeness`].
+///
+/// Consumed by:
+/// - The legacy [`Completeness::execute`] thin wrapper — re-emits
+///   the 4-key audit JSON via `progress.set_step_result(...)` so
+///   `pipeline_steps.result_summary` stays byte-identical to the
+///   pre-refactor shape.
+/// - The Restate workflow handler (`step_completeness`) — builds a
+///   journal summary string from these counters.
+///
+/// Mirrors the HTTP handler's response shape (without the full id
+/// lists — those stay in the on-error `CompletenessError::MissingNodes`
+/// variant where they're operator-actionable).
+///
+/// ## Why no `skipped_already_complete`
+///
+/// Completeness is naturally idempotent: it reads Neo4j + Qdrant +
+/// Postgres and writes one row (`documents.status = "PUBLISHED"`,
+/// idempotent — same value re-applied). Re-running on a PUBLISHED
+/// document produces the same result. No short-circuit needed.
+#[derive(Debug, Clone, Default)]
+pub struct CompletenessResult {
+    pub total_items: usize,
+    pub nodes_verified: usize,
+    pub points_verified: usize,
+    pub points_missing: usize,
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -133,6 +150,22 @@ impl Step<DocProcessing> for Completeness {
     const DEFAULT_RETRY_DELAY_SECS: u64 = 10;
     const DEFAULT_TIMEOUT_SECS: Option<u64> = Some(60);
 
+    /// Thin wrapper over [`run_completeness`] — the clean business
+    /// core that the Restate workflow handler also calls.
+    ///
+    /// Adds on top of the core:
+    /// 1. **Pre-extraction cancel check** (legacy worker semantics).
+    /// 2. **`progress.set_step_result(...)` audit JSON.** Re-emits
+    ///    the 4-key shape the pre-refactor body wrote inline so
+    ///    `pipeline_steps.result_summary` stays byte-identical.
+    /// 3. **`StepResult::Done`** — Completeness is the terminal FSM
+    ///    step on the legacy worker path. The Restate workflow body
+    ///    sequences steps directly and does not see this routing.
+    ///
+    /// Note: the `documents.status = "PUBLISHED"` write happens
+    /// inside the CORE function `run_completeness`, not here. Both
+    /// legacy and Restate paths see the canonical status surface
+    /// via the core.
     async fn execute(
         self,
         db: &PgPool,
@@ -141,30 +174,29 @@ impl Step<DocProcessing> for Completeness {
         progress: &ProgressReporter,
     ) -> Result<StepResult<DocProcessing>, Box<dyn Error + Send + Sync>> {
         let start = Instant::now();
-        let doc_id = self.document_id.clone();
 
         if cancel.is_cancelled().await {
             return Err("Cancelled before completeness check".into());
         }
 
-        let stats = self.run_completeness(db, context, &doc_id).await?;
+        let result = run_completeness(&self.document_id, db, context).await?;
         let duration_secs = start.elapsed().as_secs_f64();
 
         tracing::info!(
-            doc_id = %doc_id,
+            doc_id = %self.document_id,
             duration_secs,
-            total_items = stats.total_items,
-            nodes_verified = stats.nodes_verified,
-            points_verified = stats.points_verified,
-            points_missing = stats.points_missing,
+            total_items = result.total_items,
+            nodes_verified = result.nodes_verified,
+            points_verified = result.points_verified,
+            points_missing = result.points_missing,
             "Completeness step complete — document PUBLISHED"
         );
 
         progress.set_step_result(serde_json::json!({
-            "total_items": stats.total_items,
-            "nodes_verified": stats.nodes_verified,
-            "points_verified": stats.points_verified,
-            "points_missing": stats.points_missing,
+            "total_items": result.total_items,
+            "nodes_verified": result.nodes_verified,
+            "points_verified": result.points_verified,
+            "points_missing": result.points_missing,
         }));
 
         Ok(StepResult::Done)
@@ -175,14 +207,41 @@ impl Step<DocProcessing> for Completeness {
     // cleanup_all).
 }
 
-impl Completeness {
-    /// Entity-level verification body. Called from [`Step::execute`].
-    async fn run_completeness(
-        &self,
-        db: &PgPool,
-        context: &AppContext,
-        doc_id: &str,
-    ) -> Result<CompletenessStats, CompletenessError> {
+// ─────────────────────────────────────────────────────────────────────
+// Core implementation (Restate-callable)
+// ─────────────────────────────────────────────────────────────────────
+
+/// Run the Completeness step — entity-level Neo4j + Qdrant verification.
+///
+/// For each approved extraction item: computes its expected Neo4j
+/// id, batch-verifies the Neo4j node exists, batch-verifies a Qdrant
+/// point exists per found node. Missing Document node or any missing
+/// entity node → terminal error (operator must investigate before
+/// the document can advance). Missing Qdrant points → WARN only
+/// (re-indexing repairs).
+///
+/// On success, writes `documents.status = "PUBLISHED"` — the
+/// terminal status of the legacy 8-state lifecycle. Both legacy and
+/// Restate paths see this canonical surface via the core.
+///
+/// ## Idempotency
+///
+/// Naturally idempotent: read-only verifications + idempotent status
+/// write (same value re-applied). Restate replay is safe; no
+/// explicit short-circuit guard needed.
+///
+/// ## Cancellation
+///
+/// Does not poll a `CancellationToken`. The legacy worker wraps
+/// `Step::execute` in `tokio::select!` with a `cancel_watcher`; the
+/// Restate path kills the awaiting future via SDK abort.
+pub async fn run_completeness(
+    document_id: &str,
+    db: &PgPool,
+    context: &AppContext,
+) -> Result<CompletenessResult, CompletenessError> {
+    let doc_id = document_id;
+    {
         // 1. Document exists in Postgres.
         let _document = pipeline_repository::get_document(db, doc_id)
             .await
@@ -276,7 +335,7 @@ impl Completeness {
                 message: format!("update_document_status: {e}"),
             })?;
 
-        Ok(CompletenessStats {
+        Ok(CompletenessResult {
             total_items,
             nodes_verified,
             points_verified,

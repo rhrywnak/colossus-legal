@@ -32,5 +32,8 @@
 //! step body still short-circuits when prior work is observable, both
 //! to save the work itself and to keep the journal entry small.
 
+pub mod auto_approve;
+pub mod completeness;
 pub mod extract_text;
 pub mod llm_extract;
+pub mod verify;
