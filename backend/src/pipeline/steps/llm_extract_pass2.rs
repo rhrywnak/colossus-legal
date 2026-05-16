@@ -77,6 +77,25 @@ pub struct LlmExtractPass2 {
 
 #[async_trait]
 impl Step<DocProcessing> for LlmExtractPass2 {
+    /// Thin wrapper over [`run_pass2_extraction`] — the clean business
+    /// core that the Restate workflow handler also calls.
+    ///
+    /// What this wrapper adds on top of the core:
+    /// 1. **Pre-extraction cancel check.** The legacy worker wraps
+    ///    the step body in `tokio::select!` with a `cancel_watcher`
+    ///    that flips the token when the `pipeline_jobs.control`
+    ///    column transitions to `cancel`. Honoring it pre-extraction
+    ///    means an already-cancelled job spends zero LLM budget.
+    /// 2. **`progress.set_step_result(...)` write.** The Worker
+    ///    executor reads the in-memory slot after the step returns
+    ///    and threads it into `pipeline_steps.result_summary`. The
+    ///    9-key JSON matches what the pre-refactor body wrote so the
+    ///    audit-trail column stays byte-identical.
+    /// 3. **Legacy FSM routing.** Pass-2 always hands off to
+    ///    `Verify` (the FSM has no branching here — `run_pass2 =
+    ///    false` profiles never reach this step in the legacy
+    ///    worker). The Restate workflow body sequences steps
+    ///    directly and does not see this routing.
     async fn execute(
         self,
         db: &PgPool,
@@ -84,7 +103,24 @@ impl Step<DocProcessing> for LlmExtractPass2 {
         cancel: &CancellationToken,
         progress: &ProgressReporter,
     ) -> Result<StepResult<DocProcessing>, Box<dyn Error + Send + Sync>> {
-        run_pass2_extraction(&self.document_id, db, context, cancel, progress).await?;
+        if cancel.is_cancelled().await {
+            return Err("Cancelled before pass-2 extraction".into());
+        }
+
+        let result = run_pass2_extraction(&self.document_id, db, context).await?;
+
+        progress.set_step_result(serde_json::json!({
+            "pass": 2,
+            "relationship_count": result.relationship_count,
+            "local_entities": result.local_entities,
+            "cross_doc_entities": result.cross_doc_entities,
+            "input_tokens": result.input_tokens,
+            "output_tokens": result.output_tokens,
+            "profile": result.profile,
+            "model": result.model,
+            "pass2_template_file": result.pass2_template_file,
+        }));
+
         Ok(StepResult::Next(DocProcessing::Verify(Verify {
             document_id: self.document_id,
         })))
@@ -122,6 +158,61 @@ impl Step<DocProcessing> for LlmExtractPass2 {
 
 // ── Public entry point ──────────────────────────────────────────
 
+/// Outcome of a pass-2 invocation driven by [`run_pass2_extraction`].
+///
+/// Consumed by:
+/// - The Restate workflow handler — builds a journal summary string
+///   and detects the already-complete short-circuit via the
+///   `skipped_already_complete` flag.
+/// - The legacy [`LlmExtractPass2::execute`] thin wrapper — re-emits
+///   the full 9-key audit JSON via `progress.set_step_result(...)`
+///   so `pipeline_steps.result_summary` stays byte-identical to the
+///   pre-refactor shape.
+///
+/// ## Field types
+///
+/// Numeric counts are bare `usize` / `i64` (zero on the short-circuit
+/// path matches the pre-refactor `Ok(0)` semantics and is also the
+/// natural fresh-run-with-no-relationships value — distinguish the
+/// two via `skipped_already_complete`). String fields are
+/// `Option<String>` because empty-string would be misleading and
+/// `None` cleanly serializes to JSON `null`.
+#[derive(Debug, Clone, Default)]
+pub struct Pass2ExtractionResult {
+    /// Relationships stored from this invocation. `0` on the
+    /// already-complete short-circuit (matches pre-refactor `Ok(0)`)
+    /// and `0` on a fresh run that produced zero relationships —
+    /// distinguish via [`skipped_already_complete`](Self::skipped_already_complete).
+    pub relationship_count: usize,
+    /// Number of merged pass-1 entities fed into pass-2's prompt.
+    /// Zero on the short-circuit path.
+    pub local_entities: usize,
+    /// Number of cross-document entities pulled into pass-2 context.
+    /// Zero on the short-circuit path.
+    pub cross_doc_entities: usize,
+    /// Sum of input tokens from the single pass-2 LLM call. Zero on
+    /// the short-circuit path. `i64` (rather than `usize`) so the
+    /// value matches the `extraction_runs.input_tokens` DB column
+    /// and survives the sign-preserving `u32 → i64` cast from the
+    /// provider's `LlmResponse.input_tokens`.
+    pub input_tokens: i64,
+    /// Sum of output tokens from the single pass-2 LLM call. Same
+    /// shape and rationale as [`input_tokens`](Self::input_tokens).
+    /// Zero on the short-circuit path.
+    pub output_tokens: i64,
+    /// Resolved profile name. `None` on the short-circuit path.
+    pub profile: Option<String>,
+    /// Pass-2-specific model id (may differ from pass-1's model).
+    /// `None` on the short-circuit path.
+    pub model: Option<String>,
+    /// Resolved pass-2 template filename. `None` on the short-circuit
+    /// path.
+    pub pass2_template_file: Option<String>,
+    /// True when this invocation hit the already-COMPLETED
+    /// idempotency short-circuit and did no extraction work.
+    pub skipped_already_complete: bool,
+}
+
 /// Run the pass-2 (relationship-only) extraction for a document.
 ///
 /// Preconditions:
@@ -133,23 +224,36 @@ impl Step<DocProcessing> for LlmExtractPass2 {
 /// merged pass-1 entities, then makes a single LLM call. Pass 1's
 /// chunking mode (`full` / `chunked` / `structured`) does not affect it.
 ///
-/// Returns the number of relationships stored. Returns `0` (and does no
-/// work) when a pass-2 run is already COMPLETED for this document — the
-/// idempotency guard matches pass 1's design.
+/// ## Idempotency
+///
+/// Short-circuits if a COMPLETED pass-2 `extraction_runs` row already
+/// exists for this document. The returned
+/// [`Pass2ExtractionResult::skipped_already_complete`] flips to `true`
+/// on that path; numeric count fields stay at `0`, string fields stay
+/// at `None`.
+///
+/// ## Cancellation
+///
+/// Does not poll a `CancellationToken`. The legacy worker wraps the
+/// surrounding `Step::execute` in `tokio::select!` with a
+/// `cancel_watcher` that aborts the whole future when the
+/// `pipeline_jobs.control` column transitions to `cancel`; the
+/// Restate path kills the awaiting future directly via SDK abort.
 pub async fn run_pass2_extraction(
     document_id: &str,
     db: &PgPool,
     context: &AppContext,
-    cancel: &CancellationToken,
-    progress: &ProgressReporter,
-) -> Result<usize, Box<dyn Error + Send + Sync>> {
+) -> Result<Pass2ExtractionResult, Box<dyn Error + Send + Sync>> {
     // 1. Idempotency: short-circuit on an existing COMPLETED pass-2 row.
     if pass2_already_complete(db, document_id).await? {
         tracing::info!(
             document_id,
             "Pass 2 already COMPLETED for document, skipping"
         );
-        return Ok(0);
+        return Ok(Pass2ExtractionResult {
+            skipped_already_complete: true,
+            ..Default::default()
+        });
     }
 
     // 2. Load pipeline config, document, and schema.
@@ -452,24 +556,13 @@ pub async fn run_pass2_extraction(
             message: format!("reset_extraction_run_children: {e}"),
         })?;
 
-    // 12. Cancel check before acquiring the semaphore.
-    if cancel.is_cancelled().await {
-        mark_run_failed(db, run_id, "Cancelled before pass 2 extraction").await;
-        return Err("Cancelled before pass 2 extraction".into());
-    }
-
+    // 12. Acquire the LLM semaphore for the duration of the pass-2 call.
     let _llm_permit = context.llm_semaphore.acquire().await.map_err(|e| {
         tracing::debug!(error = %e, "Semaphore acquire failed");
         LlmExtractError::SemaphoreClosed
     })?;
 
     // 13. LLM call with rate-limit retry.
-    // best-effort: progress update
-    progress
-        .report(serde_json::json!({ "status": "extracting", "mode": "pass2_full" }))
-        .await
-        .ok();
-
     let response = call_with_rate_limit_retry(
         &*llm_provider,
         system_prompt.as_deref(),
@@ -541,20 +634,6 @@ pub async fn run_pass2_extraction(
     )
     .await;
 
-    progress.set_step_result(serde_json::json!({
-        "pass": 2,
-        "relationship_count": rel_count,
-        "local_entities": entities.len(),
-        "cross_doc_entities": cross_doc_entities.len(),
-        "input_tokens": input_tokens,
-        "output_tokens": output_tokens,
-        "profile": resolved.profile_name,
-        // Report the pass-2-specific model so the UI reflects what
-        // actually ran (may differ from pass-1's `resolved.model`).
-        "model": pass2_model_id,
-        "pass2_template_file": pass2_template_file,
-    }));
-
     tracing::info!(
         document_id,
         relationships = rel_count,
@@ -564,7 +643,19 @@ pub async fn run_pass2_extraction(
         "Pass 2 extraction complete"
     );
 
-    Ok(rel_count)
+    Ok(Pass2ExtractionResult {
+        relationship_count: rel_count,
+        local_entities: entities.len(),
+        cross_doc_entities: cross_doc_entities.len(),
+        input_tokens,
+        output_tokens,
+        profile: Some(resolved.profile_name.clone()),
+        // Pass-2-specific model so the audit reflects what actually
+        // ran (may differ from pass-1's `resolved.model`).
+        model: Some(pass2_model_id.clone()),
+        pass2_template_file: Some(pass2_template_file.clone()),
+        skipped_already_complete: false,
+    })
 }
 
 // ── Helpers ─────────────────────────────────────────────────────

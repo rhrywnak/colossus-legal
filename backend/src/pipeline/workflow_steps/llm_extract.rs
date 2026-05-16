@@ -1,37 +1,23 @@
 //! Restate workflow step handlers for LLM extraction (pass 1 and pass 2).
 //!
-//! Wraps the legacy orchestrators
+//! Wraps the clean orchestrators
 //! ([`run_pass1_extraction`](crate::pipeline::steps::llm_extract::run_pass1_extraction)
 //! and [`run_pass2_extraction`](crate::pipeline::steps::llm_extract_pass2::run_pass2_extraction))
 //! with the Restate error classification, the
 //! `documents.status = "EXTRACTED"` Postgres write after pass-1, and
 //! the `run_pass2` skip path for pass-2.
 //!
-//! ## Path A — no-op cancel + nil-uuid progress
+//! ## No fake framework objects
 //!
-//! Per the P2-2b design, this file does NOT refactor the legacy
-//! orchestrators to make `CancellationToken` and `ProgressReporter`
-//! optional. Instead it constructs them in a no-op form and passes
-//! them through:
-//!
-//! - [`CancellationToken::new()`] yields a never-cancelled token —
-//!   every `is_cancelled().await` inside the orchestrators returns
-//!   `false`. The Restate path has its own cancellation surface
-//!   (workflow termination), so this is functionally correct.
-//! - [`ProgressReporter::new(pool, Uuid::nil())`] yields a reporter
-//!   that issues `UPDATE pipeline_jobs SET progress = $1 WHERE id = $2`
-//!   with a nil uuid. The UPDATE matches zero rows and returns
-//!   `Ok(())` either way — observed cost: one wasted DB roundtrip per
-//!   `progress.report(...)` call. For a 50-chunk extraction that's
-//!   ~50 throwaway queries.
-//!
-//! **Deferred tech debt:** Replace the `Uuid::nil()` construction
-//! with a true `ProgressReporter::sink(pool)` no-op constructor when
-//! one is added to the `colossus-pipeline` crate (separate
-//! `colossus-rs` instruction — `colossus-legal` cannot edit
-//! `colossus-pipeline` per CLAUDE.md §4 workflow rule 3). Until then,
-//! Restate-path document throughput will issue these throwaway
-//! queries; they are harmless but visible in DB query metrics.
+//! After the three-refactor sequence (1/3 `call_with_rate_limit_retry`,
+//! 2/3 pass-1 orchestrator, 3/3 pass-2 orchestrator), neither
+//! orchestrator takes `CancellationToken` or `ProgressReporter`
+//! parameters. The Restate handlers call them with `(doc_id, db,
+//! context)` and consume the clean return structs — no
+//! `CancellationToken::new()`, no `ProgressReporter::new(pool, Uuid::nil())`,
+//! no noop-progress shim. The legacy `Step::execute` impls remain as
+//! thin wrappers that add the cancel check + `set_step_result` audit
+//! JSON + FSM routing on top of the same clean cores.
 //!
 //! ## Idempotency
 //!
@@ -42,33 +28,21 @@
 //! the SELECT that confirms the COMPLETED row.
 //!
 //! The step handlers surface that short-circuit distinctly in the
-//! Restate journal:
+//! Restate journal via the `skipped_already_complete` flag on each
+//! return struct:
 //!
-//! - **Pass-1** uses [`crate::pipeline::steps::llm_extract::Pass1ExtractionResult::skipped_already_complete`]
-//!   (set when the orchestrator returns without writing
-//!   `set_step_result`) → summary
-//!   `skipped_pass1_already_complete_run_pass2=…`.
-//! - **Pass-2** uses a workflow-layer probe
-//!   ([`pass2_already_complete_probe`]) BEFORE delegating, because the
-//!   orchestrator's `Ok(0)` return is indistinguishable from a fresh
-//!   run that produced zero relationships. The probe runs one extra
-//!   `SELECT id FROM extraction_runs WHERE ... pass_number = 2 AND
-//!   status = COMPLETED` per pass-2 invocation; the cost is one
-//!   query and the gain is a distinct
-//!   `skipped_pass2_already_complete` journal summary that an
-//!   operator can pattern-match.
+//! - **Pass-1**: [`crate::pipeline::steps::llm_extract::Pass1ExtractionResult::skipped_already_complete`]
+//!   → summary `skipped_pass1_already_complete_run_pass2=…`.
+//! - **Pass-2**: [`crate::pipeline::steps::llm_extract_pass2::Pass2ExtractionResult::skipped_already_complete`]
+//!   → summary `skipped_pass2_already_complete`.
 
 use std::error::Error;
 use std::sync::Arc;
 
 use restate_sdk::errors::{HandlerError, TerminalError};
 use sqlx::PgPool;
-use uuid::Uuid;
 
-use colossus_pipeline::cancel::CancellationToken;
-use colossus_pipeline::progress::ProgressReporter;
-
-use crate::models::document_status::{RUN_STATUS_COMPLETED, STATUS_EXTRACTED};
+use crate::models::document_status::STATUS_EXTRACTED;
 use crate::pipeline::config::{resolve_config, ProcessingProfile};
 use crate::pipeline::context::AppContext;
 use crate::pipeline::steps::llm_extract::{
@@ -81,10 +55,12 @@ use crate::repositories::pipeline_repository;
 ///
 /// Runs the same orchestrator the legacy worker does — chunking,
 /// per-chunk LLM calls, rate-limit retry, entity merge, audit
-/// snapshots — via the Path A no-op cancel/progress shims. On
-/// success writes `documents.status = "EXTRACTED"` (the canonical
-/// status from [`crate::models::document_status`]). Returns a short
-/// summary string for the Restate journal.
+/// snapshots — by calling the clean
+/// [`run_pass1_extraction`](crate::pipeline::steps::llm_extract::run_pass1_extraction)
+/// directly with `(doc_id, db, context)`. On success writes
+/// `documents.status = "EXTRACTED"` (the canonical status from
+/// [`crate::models::document_status`]). Returns a short summary
+/// string for the Restate journal.
 ///
 /// ## Idempotency
 ///
@@ -187,17 +163,12 @@ pub async fn step_llm_extract_pass1(
 ///
 /// 1. **Profile says no:** `resolve_run_pass2` returns false →
 ///    `"skipped_pass2_not_configured"`.
-/// 2. **Already complete:** a probe via [`pass2_already_complete_probe`]
-///    detects an existing COMPLETED pass-2 `extraction_runs` row for
-///    this document → `"skipped_pass2_already_complete"`. The probe
-///    runs BEFORE the orchestrator so an operator reading the journal
-///    can tell a replay from a fresh-run-with-zero-relationships
-///    (which both used to surface as `pass2_complete relationships=0`).
-///
-/// The orchestrator itself ALSO short-circuits on its private
-/// `pass2_already_complete` check — but its `Ok(0)` return is
-/// indistinguishable from "fresh run found zero relationships" in
-/// the Restate journal, which was the audit gap this probe closes.
+/// 2. **Already complete:** the orchestrator's returned
+///    [`Pass2ExtractionResult::skipped_already_complete`] flag is
+///    `true` → `"skipped_pass2_already_complete"`. After Refactor
+///    3/3 this signal lives on the struct itself, so the
+///    workflow-layer probe that used to do a pre-call SELECT was
+///    deleted — one fewer DB roundtrip per pass-2 invocation.
 #[tracing::instrument(skip(app), fields(doc_id = %doc_id, step = "llm_extract_pass2"))]
 pub async fn step_llm_extract_pass2(
     app: &Arc<AppContext>,
@@ -215,13 +186,15 @@ pub async fn step_llm_extract_pass2(
         return Ok("skipped_pass2_not_configured".to_string());
     }
 
-    // [2] Already-complete probe. Mirrors the orchestrator's private
-    //     `pass2_already_complete` check (`llm_extract_pass2.rs:640`)
-    //     but runs at the Restate-handler layer so the skip can be
-    //     surfaced as a distinct journal summary string, not folded
-    //     into the orchestrator's opaque `Ok(0)` return. One SELECT
-    //     extra per pass-2 invocation; negligible.
-    if pass2_already_complete_probe(&app.pipeline_pool, doc_id).await? {
+    // [2] Call the clean orchestrator. After Refactor 3/3 the
+    //     orchestrator no longer takes a CancellationToken or
+    //     ProgressReporter — it returns a Pass2ExtractionResult that
+    //     carries the already-complete signal directly.
+    let result = run_pass2_extraction(doc_id, &app.pipeline_pool, app.as_ref())
+        .await
+        .map_err(|e| classify_dyn_llm_error(doc_id, "llm_extract_pass2", e))?;
+
+    if result.skipped_already_complete {
         tracing::info!(
             doc_id = %doc_id,
             "step_llm_extract_pass2: COMPLETED pass-2 extraction_run exists, skipping"
@@ -229,75 +202,17 @@ pub async fn step_llm_extract_pass2(
         return Ok("skipped_pass2_already_complete".to_string());
     }
 
-    // [3] Fresh run.
-    let cancel = CancellationToken::new();
-    let progress = make_noop_progress(&app.pipeline_pool);
-
-    let rel_count =
-        run_pass2_extraction(doc_id, &app.pipeline_pool, app.as_ref(), &cancel, &progress)
-            .await
-            .map_err(|e| classify_dyn_llm_error(doc_id, "llm_extract_pass2", e))?;
-
-    let summary = format!("pass2_complete relationships={rel_count}");
+    let summary = format!("pass2_complete relationships={}", result.relationship_count);
     tracing::info!(
         doc_id = %doc_id,
-        relationship_count = rel_count,
+        relationship_count = result.relationship_count,
+        local_entities = result.local_entities,
+        cross_doc_entities = result.cross_doc_entities,
+        input_tokens = result.input_tokens,
+        output_tokens = result.output_tokens,
         "step_llm_extract_pass2: complete"
     );
     Ok(summary)
-}
-
-// ── No-op helpers ───────────────────────────────────────────────
-
-/// Build a no-op [`ProgressReporter`] for the Restate path.
-///
-/// The Restate workflow has no `pipeline_jobs` row, so progress
-/// updates would have no target. Constructing the reporter with
-/// [`Uuid::nil()`] makes every `report(...)` call's `UPDATE pipeline_jobs
-/// SET progress = $1 WHERE id = '00000000-...'` match zero rows —
-/// the underlying SQL still runs but is observably a no-op.
-///
-/// **Deferred tech debt:** Replace with `ProgressReporter::sink(pool)`
-/// when the `colossus-pipeline` crate adds a real no-op constructor.
-/// Until then we accept ~50 wasted DB roundtrips per Restate-path
-/// document (one per `progress.report(...)` call inside the
-/// orchestrator). See module-level doc for the cross-repo constraint.
-fn make_noop_progress(pool: &PgPool) -> ProgressReporter {
-    ProgressReporter::new(pool.clone(), Uuid::nil())
-}
-
-/// Probe `extraction_runs` for an existing COMPLETED pass-2 row.
-///
-/// Used by [`step_llm_extract_pass2`] to detect the
-/// already-completed idempotency path BEFORE delegating to the
-/// orchestrator. The orchestrator has its own private
-/// `pass2_already_complete` check, but its `Ok(0)` return is
-/// observationally indistinguishable from a fresh run that produced
-/// zero relationships — the workflow-layer probe lets us emit a
-/// distinct journal summary (`skipped_pass2_already_complete` vs
-/// `pass2_complete relationships=0`).
-///
-/// SQL mirrors the orchestrator's helper at
-/// `llm_extract_pass2.rs:640` to keep the two checks consistent.
-/// A DB error here is treated as retryable — Restate will back off
-/// and try again.
-async fn pass2_already_complete_probe(pool: &PgPool, doc_id: &str) -> Result<bool, HandlerError> {
-    let existing: Option<i32> = sqlx::query_scalar(
-        "SELECT id FROM extraction_runs \
-         WHERE document_id = $1 AND pass_number = 2 AND status = $2 \
-         ORDER BY id DESC LIMIT 1",
-    )
-    .bind(doc_id)
-    .bind(RUN_STATUS_COMPLETED)
-    .fetch_optional(pool)
-    .await
-    .map_err(|e| {
-        HandlerError::from(format!(
-            "step_llm_extract_pass2: transient failure probing for completed \
-             pass-2 run for '{doc_id}': {e}. Will retry."
-        ))
-    })?;
-    Ok(existing.is_some())
 }
 
 /// Resolve the `run_pass2` flag for the document's profile.
