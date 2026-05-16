@@ -157,6 +157,26 @@ pub struct LlmExtract {
 
 #[async_trait]
 impl Step<DocProcessing> for LlmExtract {
+    /// Thin wrapper over [`run_pass1_extraction`] — the clean business
+    /// core that the Restate workflow handler also calls.
+    ///
+    /// What this wrapper adds on top of the core:
+    /// 1. **Pre-extraction cancel check.** The legacy worker
+    ///    wraps the step body in `tokio::select!` with a
+    ///    `cancel_watcher` that flips the token when the
+    ///    `pipeline_jobs.control` column transitions to `cancel`.
+    ///    Honoring it pre-extraction means an already-cancelled
+    ///    job spends zero LLM budget.
+    /// 2. **`progress.set_step_result(...)` write.** The Worker
+    ///    executor reads the in-memory slot after the step returns
+    ///    and threads it into `pipeline_steps.result_summary`. We
+    ///    re-emit the full 11-key audit JSON the pre-refactor body
+    ///    used to write inline, keeping the column's shape
+    ///    byte-identical for any operator inspecting it directly.
+    /// 3. **Legacy FSM routing.** Pass-1 hands off to
+    ///    `LlmExtractPass2` (when `run_pass2 = true`) or `Verify`
+    ///    (otherwise). Only the legacy worker reads this; the
+    ///    Restate workflow body sequences steps directly.
     async fn execute(
         self,
         db: &PgPool,
@@ -164,7 +184,35 @@ impl Step<DocProcessing> for LlmExtract {
         cancel: &CancellationToken,
         progress: &ProgressReporter,
     ) -> Result<StepResult<DocProcessing>, Box<dyn Error + Send + Sync>> {
-        self.run_llm_extract(db, context, cancel, progress).await
+        if cancel.is_cancelled().await {
+            return Err("Cancelled before extraction".into());
+        }
+
+        let result = run_pass1_extraction(&self.document_id, db, context).await?;
+
+        progress.set_step_result(serde_json::json!({
+            "entity_count": result.entity_count,
+            "relationship_count": result.relationship_count,
+            "input_tokens": result.input_tokens,
+            "output_tokens": result.output_tokens,
+            "chunk_count": result.chunk_count,
+            "chunks_succeeded": result.chunks_succeeded,
+            "chunks_failed": result.chunks_failed,
+            "profile": result.profile,
+            "model": result.model,
+            "chunking_mode": result.chunking_mode,
+            "system_prompt_file": result.system_prompt_file,
+        }));
+
+        // FSM routing — shared with the test suite via the
+        // `next_step_after_pass1` helper so the routing rule lives in
+        // exactly one place. The helper takes `&ResolvedConfig` for
+        // legacy reasons; we synthesize the minimum it needs from the
+        // `result.run_pass2` flag.
+        Ok(StepResult::Next(next_step_after_pass1_from_flag(
+            result.run_pass2,
+            &self.document_id,
+        )))
     }
 
     async fn on_cancel(
@@ -215,236 +263,271 @@ struct ExtractionOutcome {
     chunks_failed: Option<i32>,
 }
 
-// ── Core implementation ─────────────────────────────────────────
+// ── Core: the clean pass-1 orchestrator ─────────────────────────
 
-impl LlmExtract {
-    /// Orchestrate the full extraction path.
-    ///
-    /// Resolves config, looks up the model, constructs the provider, inserts
-    /// the `extraction_runs` row, dispatches to the full-document or chunked
-    /// sub-function, then finalizes the run, stores entities + relationships,
-    /// and writes the processing_config JSONB snapshot.
-    async fn run_llm_extract(
-        &self,
-        db: &PgPool,
-        context: &AppContext,
-        cancel: &CancellationToken,
-        progress: &ProgressReporter,
-    ) -> Result<StepResult<DocProcessing>, Box<dyn Error + Send + Sync>> {
-        // 1. Resolve config FIRST. We need `resolved.run_pass2` available
-        //    at the idempotency check so the short-circuit path can route
-        //    through the right next step (LlmExtractPass2 vs Verify). The
-        //    reads here are cheap — one DB row each, one YAML read — so
-        //    doing them on the short-circuit path is a fair trade for
-        //    FSM correctness.
-        let pipe_config = pipeline_repository::get_pipeline_config(db, &self.document_id)
-            .await?
-            .ok_or_else(|| LlmExtractError::NoPipelineConfig {
-                document_id: self.document_id.clone(),
-            })?;
+/// Run pass-1 LLM extraction for a document.
+///
+/// Resolves config, loads schema and template, inserts the
+/// `extraction_runs` row, dispatches to the full / chunked /
+/// structured extraction sub-function, merges results, stores
+/// entities and relationships, and writes the processing-config
+/// audit snapshot.
+///
+/// ## Idempotency
+///
+/// Short-circuits if a COMPLETED pass-1 `extraction_runs` row
+/// already exists for this document. The returned
+/// [`Pass1ExtractionResult::skipped_already_complete`] flips to
+/// `true` on that path, count fields stay `None`, and `run_pass2`
+/// reflects the freshly-resolved profile (so the legacy FSM
+/// wrapper can still pick the correct next step).
+///
+/// ## Why a free function (not a method on `LlmExtract`)
+///
+/// The Restate workflow handler needs to call this without
+/// constructing an `LlmExtract { document_id }` value or threading
+/// a `CancellationToken`/`ProgressReporter` through the call chain.
+/// The legacy `Step<DocProcessing>::execute` impl is now a thin
+/// wrapper that calls into this same function, so both worlds
+/// share the core body.
+///
+/// ## Cancellation
+///
+/// This function does not poll a `CancellationToken`. The legacy
+/// worker wraps the surrounding `Step::execute` in `tokio::select!`
+/// with a `cancel_watcher` that aborts the whole future when the
+/// `pipeline_jobs.control` column transitions to `cancel`; the
+/// Restate path kills the awaiting future directly via SDK abort.
+/// Neither path needs in-body polling.
+pub async fn run_pass1_extraction(
+    document_id: &str,
+    db: &PgPool,
+    context: &AppContext,
+) -> Result<Pass1ExtractionResult, Box<dyn Error + Send + Sync>> {
+    // 1. Resolve config FIRST. We need `resolved.run_pass2` available
+    //    at the idempotency check so the short-circuit's returned
+    //    `Pass1ExtractionResult` carries the right `run_pass2` value
+    //    for the legacy FSM wrapper. The reads here are cheap — one
+    //    DB row each, one YAML read — so doing them on the
+    //    short-circuit path is a fair trade for correctness.
+    let pipe_config = pipeline_repository::get_pipeline_config(db, document_id)
+        .await?
+        .ok_or_else(|| LlmExtractError::NoPipelineConfig {
+            document_id: document_id.to_string(),
+        })?;
 
-        let overrides =
-            pipeline_repository::get_pipeline_config_overrides(db, &self.document_id).await?;
-        let profile_name = overrides
-            .profile_name
-            .clone()
-            .unwrap_or_else(|| default_profile_name_from_schema(&pipe_config.schema_file));
-        let profile = ProcessingProfile::load(context.registry.profile_dir(), &profile_name)
-            .map_err(|e| {
-                // Per silent-fallback audit defect #2.1, `::load` now returns
-                // `ProcessingProfileLoadError` (a typed enum with FileNotFound /
-                // IoError / ParseError variants) instead of a `String`. Stringify
-                // here to preserve the existing `ProfileLoadFailed { message }`
-                // shape — downstream tests and audit logs depend on `message`
-                // being a flat string. The Display impl on the source error
-                // includes the path and the chained cause.
-                LlmExtractError::ProfileLoadFailed {
-                    message: e.to_string(),
-                }
-            })?;
-        let resolved = resolve_config(&profile, &overrides);
-
-        // 2. Idempotency: short-circuit if a COMPLETED *pass-1* run
-        //    already exists. Filtered by pass_number = 1 so a prior
-        //    pass-2 COMPLETED row doesn't falsely mask an incomplete
-        //    pass-1 (the ON CONFLICT upsert in insert_extraction_run
-        //    keys on (document_id, pass_number), so both passes can
-        //    coexist as separate rows).
-        if pass1_already_complete(db, &self.document_id).await? {
-            tracing::info!(
-                document_id = %self.document_id,
-                run_pass2 = resolved.run_pass2,
-                "Completed pass-1 extraction_run exists, skipping"
-            );
-            return Ok(StepResult::Next(next_step_after_pass1(
-                &resolved,
-                &self.document_id,
-            )));
-        }
-
-        // 3. Document + schema + text pages.
-        let _doc = pipeline_repository::get_document(db, &self.document_id)
-            .await?
-            .ok_or_else(|| LlmExtractError::DocumentNotFound {
-                document_id: self.document_id.clone(),
-            })?;
-
-        let schema_path = context.registry.schema_path(&pipe_config.schema_file);
-        let schema =
-            colossus_extract::ExtractionSchema::from_file(std::path::Path::new(&schema_path))
-                .map_err(|e| LlmExtractError::SchemaLoadFailed {
-                    schema_file: pipe_config.schema_file.clone(),
-                    source: e,
-                })?;
-        let schema_json = serde_json::to_string_pretty(&schema)?;
-
-        let pages = pipeline_repository::get_document_text(db, &self.document_id).await?;
-        if pages.is_empty() {
-            return Err(LlmExtractError::NoTextPages {
-                document_id: self.document_id.clone(),
+    let overrides = pipeline_repository::get_pipeline_config_overrides(db, document_id).await?;
+    let profile_name = overrides
+        .profile_name
+        .clone()
+        .unwrap_or_else(|| default_profile_name_from_schema(&pipe_config.schema_file));
+    let profile =
+        ProcessingProfile::load(context.registry.profile_dir(), &profile_name).map_err(|e| {
+            // Per silent-fallback audit defect #2.1, `::load` now returns
+            // `ProcessingProfileLoadError` (a typed enum with FileNotFound /
+            // IoError / ParseError variants) instead of a `String`. Stringify
+            // here to preserve the existing `ProfileLoadFailed { message }`
+            // shape — downstream tests and audit logs depend on `message`
+            // being a flat string. The Display impl on the source error
+            // includes the path and the chained cause.
+            LlmExtractError::ProfileLoadFailed {
+                message: e.to_string(),
             }
-            .into());
+        })?;
+    let resolved = resolve_config(&profile, &overrides);
+
+    // 2. Idempotency: short-circuit if a COMPLETED *pass-1* run
+    //    already exists. Filtered by pass_number = 1 so a prior
+    //    pass-2 COMPLETED row doesn't falsely mask an incomplete
+    //    pass-1 (the ON CONFLICT upsert in insert_extraction_run
+    //    keys on (document_id, pass_number), so both passes can
+    //    coexist as separate rows).
+    if pass1_already_complete(db, document_id).await? {
+        tracing::info!(
+            document_id = %document_id,
+            run_pass2 = resolved.run_pass2,
+            "Completed pass-1 extraction_run exists, skipping"
+        );
+        return Ok(Pass1ExtractionResult {
+            run_pass2: resolved.run_pass2,
+            skipped_already_complete: true,
+            ..Default::default()
+        });
+    }
+
+    // 3. Document + schema + text pages.
+    let _doc = pipeline_repository::get_document(db, document_id)
+        .await?
+        .ok_or_else(|| LlmExtractError::DocumentNotFound {
+            document_id: document_id.to_string(),
+        })?;
+
+    let schema_path = context.registry.schema_path(&pipe_config.schema_file);
+    let schema = colossus_extract::ExtractionSchema::from_file(std::path::Path::new(&schema_path))
+        .map_err(|e| LlmExtractError::SchemaLoadFailed {
+            schema_file: pipe_config.schema_file.clone(),
+            source: e,
+        })?;
+    let schema_json = serde_json::to_string_pretty(&schema)?;
+
+    let pages = pipeline_repository::get_document_text(db, document_id).await?;
+    if pages.is_empty() {
+        return Err(LlmExtractError::NoTextPages {
+            document_id: document_id.to_string(),
         }
-        let full_text = pages
-            .iter()
-            .map(|p| format!("--- Page {} ---\n{}", p.page_number, p.text_content))
-            .collect::<Vec<_>>()
-            .join("\n\n");
+        .into());
+    }
+    let full_text = pages
+        .iter()
+        .map(|p| format!("--- Page {} ---\n{}", p.page_number, p.text_content))
+        .collect::<Vec<_>>()
+        .join("\n\n");
 
-        // 4. Look up the model row and construct a provider for this document.
-        let model_record = models::get_active_model_by_id(db, &resolved.model)
-            .await?
-            .ok_or_else(|| LlmExtractError::ModelNotFound {
-                model_id: resolved.model.clone(),
-            })?;
-        let llm_provider = provider_for_model(&context.extraction_engine, &model_record)
-            .map_err(|message| LlmExtractError::ProviderConstructionFailed { message })?;
+    // 4. Look up the model row and construct a provider for this document.
+    let model_record = models::get_active_model_by_id(db, &resolved.model)
+        .await?
+        .ok_or_else(|| LlmExtractError::ModelNotFound {
+            model_id: resolved.model.clone(),
+        })?;
+    let llm_provider = provider_for_model(&context.extraction_engine, &model_record)
+        .map_err(|message| LlmExtractError::ProviderConstructionFailed { message })?;
 
-        // 5. Load template and hash it.
-        let template_path = context.registry.template_path(&resolved.template_file);
-        let template_text = std::fs::read_to_string(&template_path)
-            .map_err(|e| format!("Failed to read template '{template_path}': {e}"))?;
-        let template_hash = sha2_hex(&template_text);
+    // 5. Load template and hash it.
+    let template_path = context.registry.template_path(&resolved.template_file);
+    let template_text = std::fs::read_to_string(&template_path)
+        .map_err(|e| format!("Failed to read template '{template_path}': {e}"))?;
+    let template_hash = sha2_hex(&template_text);
 
-        // 5b. Load system prompt if the resolved config names one. The
-        //     provider's native system field wins when populated (Anthropic
-        //     Messages API treats system as a separate instruction layer);
-        //     concatenating into the user prompt would lose that distinction.
-        //     Read failure surfaces as ProfileLoadFailed so the audit log
-        //     names the missing file, matching the template-load convention.
-        let system_prompt: Option<String> = match &resolved.system_prompt_file {
-            Some(filename) => {
-                let path = context.registry.system_prompt_path(filename);
-                let text = std::fs::read_to_string(&path).map_err(|e| {
-                    LlmExtractError::ProfileLoadFailed {
-                        message: format!("Failed to read system prompt '{path}': {e}"),
-                    }
+    // 5b. Load system prompt if the resolved config names one. The
+    //     provider's native system field wins when populated (Anthropic
+    //     Messages API treats system as a separate instruction layer);
+    //     concatenating into the user prompt would lose that distinction.
+    //     Read failure surfaces as ProfileLoadFailed so the audit log
+    //     names the missing file, matching the template-load convention.
+    let system_prompt: Option<String> = match &resolved.system_prompt_file {
+        Some(filename) => {
+            let path = context.registry.system_prompt_path(filename);
+            let text =
+                std::fs::read_to_string(&path).map_err(|e| LlmExtractError::ProfileLoadFailed {
+                    message: format!("Failed to read system prompt '{path}': {e}"),
                 })?;
-                Some(text)
-            }
-            None => None,
-        };
-        let system_prompt_hash: Option<String> = system_prompt.as_deref().map(sha2_hex);
+            Some(text)
+        }
+        None => None,
+    };
+    let system_prompt_hash: Option<String> = system_prompt.as_deref().map(sha2_hex);
 
-        // 5c. Load the global-rules fragment if the profile names one and
-        //     compute its SHA-256 for the F3 audit columns. Read failure is
-        //     fatal — the profile declared the rules file as required, so
-        //     missing it is a configuration error worth surfacing instead
-        //     of silently continuing without the rules. See
-        //     [`load_global_rules`] for the full case table (no-file vs
-        //     empty-file vs nonempty-file vs missing-file).
-        let (global_rules_text, global_rules_hash) = load_global_rules(
-            Path::new(context.registry.template_dir()),
-            resolved.global_rules_file.as_deref(),
-        )?;
+    // 5c. Load the global-rules fragment if the profile names one and
+    //     compute its SHA-256 for the F3 audit columns. Read failure is
+    //     fatal — the profile declared the rules file as required, so
+    //     missing it is a configuration error worth surfacing instead
+    //     of silently continuing without the rules. See
+    //     [`load_global_rules`] for the full case table (no-file vs
+    //     empty-file vs nonempty-file vs missing-file).
+    let (global_rules_text, global_rules_hash) = load_global_rules(
+        Path::new(context.registry.template_dir()),
+        resolved.global_rules_file.as_deref(),
+    )?;
 
-        // 6. Choose an effective max_tokens.
-        let max_tokens = resolve_max_tokens(&resolved);
+    // 6. Choose an effective max_tokens.
+    let max_tokens = resolve_max_tokens(&resolved);
 
-        // 7. Insert the extraction_runs row.
-        // F3 audit: pass `rules_name` and `rules_hash` from the resolved
-        // profile and the loaded fragment. Both columns existed since
-        // migration 20260410 but were always NULL until this fix —
-        // AUDIT_PIPELINE_CONFIG_GAPS.md Gap 5.
-        let run_id = extraction::insert_extraction_run(
-            db,
-            &self.document_id,
-            1,
-            &resolved.model,
-            &schema.version,
-            None,
-            Some(resolved.template_file.as_str()),
-            Some(&template_hash),
-            resolved.global_rules_file.as_deref(),
-            global_rules_hash.as_deref(),
-            None,
-            Some(&serde_json::to_value(&schema)?),
-            Some(resolved.temperature),
-            Some(max_tokens as i32),
-            pipe_config.admin_instructions.as_deref(),
-            None,
-        )
+    // 7. Insert the extraction_runs row.
+    // F3 audit: pass `rules_name` and `rules_hash` from the resolved
+    // profile and the loaded fragment. Both columns existed since
+    // migration 20260410 but were always NULL until this fix —
+    // AUDIT_PIPELINE_CONFIG_GAPS.md Gap 5.
+    let run_id = extraction::insert_extraction_run(
+        db,
+        document_id,
+        1,
+        &resolved.model,
+        &schema.version,
+        None,
+        Some(resolved.template_file.as_str()),
+        Some(&template_hash),
+        resolved.global_rules_file.as_deref(),
+        global_rules_hash.as_deref(),
+        None,
+        Some(&serde_json::to_value(&schema)?),
+        Some(resolved.temperature),
+        Some(max_tokens as i32),
+        pipe_config.admin_instructions.as_deref(),
+        None,
+    )
+    .await
+    .map_err(|e| LlmExtractError::InsertRunFailed {
+        message: format!("{e}"),
+    })?;
+
+    // 7b. If the run row was reused via ON CONFLICT DO UPDATE (prior
+    //     FAILED or stuck-RUNNING attempt), wipe its children so new
+    //     items / chunks / relationships don't coexist with stale
+    //     ones under the same run_id. No-op for a fresh row (R5).
+    extraction::reset_extraction_run_children(db, run_id)
         .await
         .map_err(|e| LlmExtractError::InsertRunFailed {
-            message: format!("{e}"),
+            message: format!("reset_extraction_run_children: {e}"),
         })?;
 
-        // 7b. If the run row was reused via ON CONFLICT DO UPDATE (prior
-        //     FAILED or stuck-RUNNING attempt), wipe its children so new
-        //     items / chunks / relationships don't coexist with stale
-        //     ones under the same run_id. No-op for a fresh row (R5).
-        extraction::reset_extraction_run_children(db, run_id)
-            .await
-            .map_err(|e| LlmExtractError::InsertRunFailed {
-                message: format!("reset_extraction_run_children: {e}"),
-            })?;
+    // 8. Acquire LLM semaphore for the duration of the extraction.
+    let _llm_permit = context.llm_semaphore.acquire().await.map_err(|e| {
+        tracing::debug!(error = %e, "Semaphore acquire failed");
+        LlmExtractError::SemaphoreClosed
+    })?;
 
-        // 8. Cancel check before acquiring semaphore.
-        if cancel.is_cancelled().await {
-            mark_run_failed(db, run_id, "Cancelled before extraction").await;
-            return Err("Cancelled before extraction".into());
+    // 9. Dispatch on the effective chunking mode.
+    //
+    // ## Rust Learning: Open-set dispatch via `match` on `&str`
+    //
+    // We match on a `String`-derived `&str` rather than a typed
+    // enum so the set of modes can grow without breaking changes
+    // elsewhere. The default arm catches anything unrecognized
+    // ("chunked" *and* any unknown value) and routes it through
+    // the legacy FixedSizeSplitter path. That is the safest
+    // backward-compat behavior: a profile that ships a future mode
+    // string ("parallel", "multi_pass", ...) before this binary
+    // knows what it means still produces extraction output via the
+    // legacy path rather than failing the run outright.
+    let system_prompt_ref = system_prompt.as_deref();
+    // The assembler treats `None` and `Some("")` identically (both
+    // collapse to an empty substitution); pass `None` when no rules
+    // file was configured so the audit comment in `assemble_chunk_prompt`
+    // about "no rule fragment to inject" stays accurate.
+    let global_rules_ref: Option<&str> = global_rules_hash
+        .as_ref()
+        .map(|_| global_rules_text.as_str());
+    let admin_instructions_ref = pipe_config.admin_instructions.as_deref();
+    // `{{context}}` is reserved for a future prior-context renderer
+    // (driven by `pipe_config.prior_context_doc_ids`). For now it is
+    // always None — the helper substitutes empty string so the
+    // placeholder vanishes without leaking literal text. See
+    // RunArgs.context doc comment for the migration path.
+    let context_ref: Option<&str> = None;
+    let effective_mode = resolve_effective_mode(&resolved);
+    let outcome = match effective_mode.as_str() {
+        CHUNKING_MODE_FULL => {
+            run_full_document_extraction(RunArgs {
+                db,
+                document_id,
+                llm_provider: &*llm_provider,
+                system_prompt: system_prompt_ref,
+                template_text: &template_text,
+                schema_json: &schema_json,
+                full_text: &full_text,
+                global_rules: global_rules_ref,
+                admin_instructions: admin_instructions_ref,
+                context: context_ref,
+                max_tokens,
+                run_id,
+            })
+            .await?
         }
-
-        // 9. Acquire LLM semaphore for the duration of the extraction.
-        let _llm_permit = context.llm_semaphore.acquire().await.map_err(|e| {
-            tracing::debug!(error = %e, "Semaphore acquire failed");
-            LlmExtractError::SemaphoreClosed
-        })?;
-
-        // 10. Dispatch on the effective chunking mode.
-        //
-        // ## Rust Learning: Open-set dispatch via `match` on `&str`
-        //
-        // We match on a `String`-derived `&str` rather than a typed
-        // enum so the set of modes can grow without breaking changes
-        // elsewhere. The default arm catches anything unrecognized
-        // ("chunked" *and* any unknown value) and routes it through
-        // the legacy FixedSizeSplitter path. That is the safest
-        // backward-compat behavior: a profile that ships a future mode
-        // string ("parallel", "multi_pass", ...) before this binary
-        // knows what it means still produces extraction output via the
-        // legacy path rather than failing the run outright.
-        let system_prompt_ref = system_prompt.as_deref();
-        // The assembler treats `None` and `Some("")` identically (both
-        // collapse to an empty substitution); pass `None` when no rules
-        // file was configured so the audit comment in `assemble_chunk_prompt`
-        // about "no rule fragment to inject" stays accurate.
-        let global_rules_ref: Option<&str> = global_rules_hash
-            .as_ref()
-            .map(|_| global_rules_text.as_str());
-        let admin_instructions_ref = pipe_config.admin_instructions.as_deref();
-        // `{{context}}` is reserved for a future prior-context renderer
-        // (driven by `pipe_config.prior_context_doc_ids`). For now it is
-        // always None — the helper substitutes empty string so the
-        // placeholder vanishes without leaking literal text. See
-        // RunArgs.context doc comment for the migration path.
-        let context_ref: Option<&str> = None;
-        let effective_mode = resolve_effective_mode(&resolved);
-        let outcome = match effective_mode.as_str() {
-            CHUNKING_MODE_FULL => {
-                run_full_document_extraction(RunArgs {
+        "structured" => {
+            run_structured_extraction(
+                RunArgs {
                     db,
-                    document_id: &self.document_id,
+                    document_id,
                     llm_provider: &*llm_provider,
                     system_prompt: system_prompt_ref,
                     template_text: &template_text,
@@ -454,174 +537,145 @@ impl LlmExtract {
                     admin_instructions: admin_instructions_ref,
                     context: context_ref,
                     max_tokens,
-                    cancel,
-                    progress,
                     run_id,
-                })
-                .await?
-            }
-            "structured" => {
-                run_structured_extraction(
-                    RunArgs {
-                        db,
-                        document_id: &self.document_id,
-                        llm_provider: &*llm_provider,
-                        system_prompt: system_prompt_ref,
-                        template_text: &template_text,
-                        schema_json: &schema_json,
-                        full_text: &full_text,
-                        global_rules: global_rules_ref,
-                        admin_instructions: admin_instructions_ref,
-                        context: context_ref,
-                        max_tokens,
-                        cancel,
-                        progress,
-                        run_id,
-                    },
-                    &resolved,
-                    &schema,
-                )
-                .await?
-            }
-            _ => {
-                // "chunked" and any unknown value → legacy FixedSizeSplitter path.
-                run_chunked_extraction(
-                    RunArgs {
-                        db,
-                        document_id: &self.document_id,
-                        llm_provider: &*llm_provider,
-                        system_prompt: system_prompt_ref,
-                        template_text: &template_text,
-                        schema_json: &schema_json,
-                        full_text: &full_text,
-                        global_rules: global_rules_ref,
-                        admin_instructions: admin_instructions_ref,
-                        context: context_ref,
-                        max_tokens,
-                        cancel,
-                        progress,
-                        run_id,
-                    },
-                    &resolved,
-                    &schema,
-                )
-                .await?
-            }
-        };
-
-        // 11. Merge and finalize the run.
-        let merged = serde_json::json!({
-            "entities": outcome.entities,
-            "relationships": outcome.relationships,
-        });
-
-        let cost_usd = compute_cost(
-            &model_record,
-            outcome.total_input_tokens,
-            outcome.total_output_tokens,
-        );
-
-        if let (Some(total), Some(ok), Some(failed)) = (
-            outcome.chunk_count,
-            outcome.chunks_succeeded,
-            outcome.chunks_failed,
-        ) {
-            if let Err(e) = extraction::update_run_chunk_stats(db, run_id, total, ok, failed).await
-            {
-                tracing::error!(
-                    run_id = run_id,
-                    error = %e,
-                    "Failed to write chunk stats to extraction run — audit data incomplete"
-                );
-            }
+                },
+                &resolved,
+                &schema,
+            )
+            .await?
         }
+        _ => {
+            // "chunked" and any unknown value → legacy FixedSizeSplitter path.
+            run_chunked_extraction(
+                RunArgs {
+                    db,
+                    document_id,
+                    llm_provider: &*llm_provider,
+                    system_prompt: system_prompt_ref,
+                    template_text: &template_text,
+                    schema_json: &schema_json,
+                    full_text: &full_text,
+                    global_rules: global_rules_ref,
+                    admin_instructions: admin_instructions_ref,
+                    context: context_ref,
+                    max_tokens,
+                    run_id,
+                },
+                &resolved,
+                &schema,
+            )
+            .await?
+        }
+    };
 
-        extraction::complete_extraction_run(
-            db,
-            run_id,
-            &merged,
-            Some(outcome.total_input_tokens as i32),
-            Some(outcome.total_output_tokens as i32),
-            cost_usd,
-            RUN_STATUS_COMPLETED,
-        )
-        .await
-        .map_err(|e| LlmExtractError::CompleteRunFailed {
-            message: format!("{e}"),
-        })?;
+    // 10. Merge and finalize the run.
+    let merged = serde_json::json!({
+        "entities": outcome.entities,
+        "relationships": outcome.relationships,
+    });
 
-        let (entity_count, rel_count) =
-            extraction::store_entities_and_relationships(db, run_id, &self.document_id, &merged)
-                .await
-                .map_err(|e| LlmExtractError::StoreFailed {
-                    message: format!("{e}"),
-                })?;
+    let cost_usd = compute_cost(
+        &model_record,
+        outcome.total_input_tokens,
+        outcome.total_output_tokens,
+    );
 
-        // 12. Write processing_config JSONB snapshot (best-effort).
-        // Pass-1 snapshot: empty cross-doc slices (the runtime fields
-        // are Pass-2-only audit data).
-        write_processing_config_snapshot(
-            db,
-            run_id,
-            &resolved,
-            SnapshotRuntimeFields {
-                effective_pass: 1,
-                template_hash: &template_hash,
-                system_prompt_hash: system_prompt_hash.as_deref(),
-                global_rules_hash: global_rules_hash.as_deref(),
-                pass2_cross_doc_entities: &[],
-                pass2_source_document_ids: &[],
-            },
-        )
-        .await;
-
-        // 13. Final progress + step complete.
-        // best-effort: progress update
-        documents::update_processing_progress(
-            db,
-            &self.document_id,
-            "LlmExtract",
-            "Extraction complete",
-            outcome.chunk_count.unwrap_or(1),
-            outcome.chunk_count.unwrap_or(1),
-            entity_count as i32,
-            100,
-        )
-        .await
-        .ok();
-
-        tracing::info!(
-            document_id = %self.document_id,
-            entities = entity_count,
-            relationships = rel_count,
-            chunks_succeeded = ?outcome.chunks_succeeded,
-            chunks_failed = ?outcome.chunks_failed,
-            total_input_tokens = outcome.total_input_tokens,
-            total_output_tokens = outcome.total_output_tokens,
-            profile = %resolved.profile_name,
-            chunking_mode = %resolved.chunking_mode,
-            "Extraction complete"
-        );
-
-        progress.set_step_result(serde_json::json!({
-            "entity_count": entity_count,
-            "relationship_count": rel_count,
-            "input_tokens": outcome.total_input_tokens,
-            "output_tokens": outcome.total_output_tokens,
-            "chunk_count": outcome.chunk_count,
-            "chunks_succeeded": outcome.chunks_succeeded,
-            "chunks_failed": outcome.chunks_failed,
-            "profile": resolved.profile_name,
-            "model": resolved.model,
-            "chunking_mode": resolved.chunking_mode,
-            "system_prompt_file": resolved.system_prompt_file,
-        }));
-
-        Ok(StepResult::Next(next_step_after_pass1(
-            &resolved,
-            &self.document_id,
-        )))
+    if let (Some(total), Some(ok), Some(failed)) = (
+        outcome.chunk_count,
+        outcome.chunks_succeeded,
+        outcome.chunks_failed,
+    ) {
+        if let Err(e) = extraction::update_run_chunk_stats(db, run_id, total, ok, failed).await {
+            tracing::error!(
+                run_id = run_id,
+                error = %e,
+                "Failed to write chunk stats to extraction run — audit data incomplete"
+            );
+        }
     }
+
+    extraction::complete_extraction_run(
+        db,
+        run_id,
+        &merged,
+        Some(outcome.total_input_tokens as i32),
+        Some(outcome.total_output_tokens as i32),
+        cost_usd,
+        RUN_STATUS_COMPLETED,
+    )
+    .await
+    .map_err(|e| LlmExtractError::CompleteRunFailed {
+        message: format!("{e}"),
+    })?;
+
+    let (entity_count, rel_count) =
+        extraction::store_entities_and_relationships(db, run_id, document_id, &merged)
+            .await
+            .map_err(|e| LlmExtractError::StoreFailed {
+                message: format!("{e}"),
+            })?;
+
+    // 11. Write processing_config JSONB snapshot (best-effort).
+    // Pass-1 snapshot: empty cross-doc slices (the runtime fields
+    // are Pass-2-only audit data).
+    write_processing_config_snapshot(
+        db,
+        run_id,
+        &resolved,
+        SnapshotRuntimeFields {
+            effective_pass: 1,
+            template_hash: &template_hash,
+            system_prompt_hash: system_prompt_hash.as_deref(),
+            global_rules_hash: global_rules_hash.as_deref(),
+            pass2_cross_doc_entities: &[],
+            pass2_source_document_ids: &[],
+        },
+    )
+    .await;
+
+    // 12. Final progress + step complete.
+    // best-effort: progress update
+    documents::update_processing_progress(
+        db,
+        document_id,
+        "LlmExtract",
+        "Extraction complete",
+        outcome.chunk_count.unwrap_or(1),
+        outcome.chunk_count.unwrap_or(1),
+        entity_count as i32,
+        100,
+    )
+    .await
+    .ok();
+
+    tracing::info!(
+        document_id = %document_id,
+        entities = entity_count,
+        relationships = rel_count,
+        chunks_succeeded = ?outcome.chunks_succeeded,
+        chunks_failed = ?outcome.chunks_failed,
+        total_input_tokens = outcome.total_input_tokens,
+        total_output_tokens = outcome.total_output_tokens,
+        profile = %resolved.profile_name,
+        chunking_mode = %resolved.chunking_mode,
+        "Extraction complete"
+    );
+
+    Ok(Pass1ExtractionResult {
+        entity_count: Some(entity_count),
+        relationship_count: Some(rel_count),
+        input_tokens: Some(outcome.total_input_tokens),
+        output_tokens: Some(outcome.total_output_tokens),
+        run_pass2: resolved.run_pass2,
+        skipped_already_complete: false,
+        chunk_count: outcome.chunk_count,
+        chunks_succeeded: outcome.chunks_succeeded,
+        chunks_failed: outcome.chunks_failed,
+        profile: Some(resolved.profile_name.clone()),
+        model: Some(resolved.model.clone()),
+        chunking_mode: Some(resolved.chunking_mode.clone()),
+        system_prompt_file: resolved.system_prompt_file.clone(),
+    })
 }
 
 // ── Shared run arguments ────────────────────────────────────────
@@ -657,8 +711,6 @@ struct RunArgs<'a> {
     /// populate this without changing the substitution code.
     context: Option<&'a str>,
     max_tokens: u32,
-    cancel: &'a CancellationToken,
-    progress: &'a ProgressReporter,
     run_id: i32,
 }
 
@@ -681,15 +733,6 @@ struct RunArgs<'a> {
 async fn run_full_document_extraction(
     args: RunArgs<'_>,
 ) -> Result<ExtractionOutcome, Box<dyn Error + Send + Sync>> {
-    // best-effort: progress update
-    args.progress
-        .report(serde_json::json!({
-            "status": "extracting",
-            "mode": "full",
-        }))
-        .await
-        .ok();
-
     // best-effort: progress update
     documents::update_processing_progress(
         args.db,
@@ -942,22 +985,6 @@ async fn extract_chunks_loop(
     .ok();
 
     for (i, chunk) in chunks.iter().enumerate() {
-        if args.cancel.is_cancelled().await {
-            mark_run_failed(args.db, args.run_id, "Cancelled during extraction").await;
-            return Err("Cancelled during extraction".into());
-        }
-
-        // best-effort: progress update
-        args.progress
-            .report(serde_json::json!({
-                "status": "extracting",
-                "chunk": i + 1,
-                "total": chunks.len(),
-                "chars": chunk.text.len(),
-            }))
-            .await
-            .ok();
-
         // ## Rust Learning: defensive `unwrap_or_else` on a guaranteed-OK call
         //
         // `serde_json::to_value` only fails when the input's `Serialize`
@@ -1451,13 +1478,19 @@ async fn pass1_already_complete(db: &PgPool, document_id: &str) -> Result<bool, 
 /// Pick the next FSM step after a successful (or already-COMPLETED)
 /// pass 1.
 ///
-/// When the resolved profile has `run_pass2: true`, routes through
-/// `LlmExtractPass2`; otherwise returns directly to `Verify`. Shared
-/// between the idempotency short-circuit and the success path so both
-/// branches agree on the FSM edge — otherwise a retry of an already-
-/// completed pass 1 (with `run_pass2 = true`) would bypass pass 2.
-pub(crate) fn next_step_after_pass1(resolved: &ResolvedConfig, document_id: &str) -> DocProcessing {
-    if resolved.run_pass2 {
+/// When `run_pass2` is true the resolved profile has pass-2
+/// extraction enabled and the FSM routes through `LlmExtractPass2`;
+/// otherwise it returns directly to `Verify`. Called by the legacy
+/// `Step::execute` wrapper to map the new `Pass1ExtractionResult`
+/// onto the legacy `StepResult::Next(DocProcessing::...)` shape; the
+/// Restate workflow body sequences steps directly and does not call
+/// this helper.
+///
+/// Lives as a free function (not inlined in `Step::execute`) so the
+/// tests below can pin the routing invariant independent of the
+/// step body.
+pub(crate) fn next_step_after_pass1_from_flag(run_pass2: bool, document_id: &str) -> DocProcessing {
+    if run_pass2 {
         DocProcessing::LlmExtractPass2(LlmExtractPass2 {
             document_id: document_id.to_string(),
         })
@@ -1854,58 +1887,26 @@ pub(crate) fn resolve_effective_mode(resolved: &ResolvedConfig) -> String {
     resolved.chunking_mode.clone()
 }
 
-// ─────────────────────────────────────────────────────────────────
-// Restate-path entry point (P2-2b)
-//
-// `run_llm_extract` is a private method on `LlmExtract` driven by the
-// legacy `Step<DocProcessing>` worker — it returns a
-// `StepResult<DocProcessing>` that routes the FSM. The Restate
-// workflow has no FSM (the workflow body sequences steps directly),
-// so it needs a thin entry point that calls the same orchestrator
-// and returns flat fields instead of an FSM step.
-//
-// The wrapper does NOT re-resolve config and does NOT touch the
-// orchestrator's internals. Per the P2-2b design contract: legacy
-// extraction code stays unchanged. The wrapper:
-//   1. constructs an `LlmExtract { document_id }` value
-//   2. delegates to `.run_llm_extract(...)` with the caller's
-//      cancel + progress (the Restate path supplies a never-cancelled
-//      `CancellationToken::new()` and a nil-uuid `ProgressReporter`)
-//   3. derives `run_pass2` from the returned `StepResult::Next`
-//      variant — `next_step_after_pass1` routes to
-//      `DocProcessing::LlmExtractPass2` when the resolved profile
-//      has `run_pass2 = true`, and to `DocProcessing::Verify`
-//      otherwise. Same logic, no re-resolution.
-//   4. pulls entity/relationship counts and token stats out of the
-//      `ProgressReporter`'s in-memory `step_result` slot via
-//      `take_step_result()`. The success path of
-//      `run_llm_extract` calls `set_step_result(...)` with a JSON
-//      object containing exactly the fields we want.
-//   5. returns a flat `Pass1ExtractionResult` for the Restate step
-//      handler to format into a journal summary.
-//
-// When pass-1 short-circuits on the already-COMPLETED idempotency
-// guard (`run_llm_extract` line ~273), `set_step_result` is NOT
-// called — `take_step_result()` returns `Value::Null` and the result
-// fields stay `None`. The `skipped_already_complete` flag flips true
-// so the caller can format a "skipped" summary string.
-// ─────────────────────────────────────────────────────────────────
-
 /// Outcome of a successful (or idempotency-skipped) pass-1 invocation
 /// driven by [`run_pass1_extraction`].
 ///
-/// The Restate workflow handler consumes this to build a journal
-/// summary string and to write `documents.status = "EXTRACTED"`.
+/// Consumed by:
+/// - The Restate workflow handler — builds a journal summary string
+///   and writes `documents.status = "EXTRACTED"`.
+/// - The legacy [`LlmExtract::execute`](crate::pipeline::steps::llm_extract::LlmExtract)
+///   thin wrapper — re-emits the full 11-key audit JSON via
+///   `progress.set_step_result(...)` so `pipeline_steps.result_summary`
+///   stays byte-identical to the pre-refactor shape (the Execution
+///   History UI doesn't display those fields but the JSONB is read
+///   by operators / audit tooling directly).
 ///
 /// ## Why the optional counts
 ///
-/// On the success path every count is populated from the
-/// orchestrator's `set_step_result` JSON. On the idempotency
+/// On the success path every count is populated. On the idempotency
 /// short-circuit (a prior run already COMPLETED), the orchestrator
-/// returns immediately without writing `set_step_result`, so the
-/// fields stay `None`. The `skipped_already_complete` flag
-/// distinguishes the two outcomes without forcing the caller to
-/// pattern-match on `None`.
+/// returns early with all count fields `None`. The
+/// `skipped_already_complete` flag distinguishes the two outcomes
+/// without forcing the caller to pattern-match on `None`.
 #[derive(Debug, Clone, Default)]
 pub struct Pass1ExtractionResult {
     /// Number of entities stored from this invocation. `None` on the
@@ -1922,10 +1923,11 @@ pub struct Pass1ExtractionResult {
     /// Sum of output tokens across all LLM calls. `None` on the
     /// already-complete short-circuit.
     pub output_tokens: Option<i64>,
-    /// Whether the resolved profile had `run_pass2 = true` AT THE
-    /// TIME OF THIS PASS-1 INVOCATION. Derived from the orchestrator's
-    /// returned `StepResult::Next` variant rather than re-resolving
-    /// the profile.
+    /// Whether the resolved profile has `run_pass2 = true`. Read
+    /// directly from `resolved.run_pass2` inside the orchestrator;
+    /// both the success path and the short-circuit path populate it
+    /// from the same source, so the value is consistent regardless
+    /// of which path produced this struct.
     ///
     /// ## Informational only — does NOT drive the pass-2 skip
     ///
@@ -1948,92 +1950,34 @@ pub struct Pass1ExtractionResult {
     /// True when this invocation hit the already-COMPLETED
     /// idempotency short-circuit and did no extraction work.
     pub skipped_already_complete: bool,
-}
 
-/// Restate-path entry point for pass-1 extraction.
-///
-/// Wraps the legacy [`LlmExtract::run_llm_extract`] private method
-/// so the Restate workflow handler can call it without depending on
-/// the `Step<DocProcessing>` trait's FSM-shaped return type.
-/// Internals of the orchestrator are unchanged — see the module-level
-/// comment above for the wrapper's contract.
-///
-/// ## Errors
-///
-/// Returns the same `Box<dyn Error + Send + Sync>` shape as the
-/// underlying orchestrator. The Restate step handler downcasts to
-/// [`LlmExtractError`] for terminal-vs-retryable classification.
-///
-/// ## Rust Learning: free function calling a private method
-///
-/// Visibility in Rust is per-module: a `pub async fn` declared in
-/// the same module as the `impl LlmExtract { async fn run_llm_extract }`
-/// can call that private method directly. This is the lowest-cost
-/// way to expose a private method to outside-module callers while
-/// keeping its name and ownership shape internal — the method stays
-/// `async fn` (no `pub`), and only the wrapper is `pub`.
-pub async fn run_pass1_extraction(
-    doc_id: &str,
-    db: &PgPool,
-    context: &AppContext,
-    cancel: &CancellationToken,
-    progress: &ProgressReporter,
-) -> Result<Pass1ExtractionResult, Box<dyn Error + Send + Sync>> {
-    let step = LlmExtract {
-        document_id: doc_id.to_string(),
-    };
-    let step_result = step.run_llm_extract(db, context, cancel, progress).await?;
-
-    // Derive run_pass2 from the FSM route. The orchestrator's
-    // `next_step_after_pass1` (this file, ~line 1463) routes to
-    // `LlmExtractPass2` when `resolved.run_pass2 = true` and to
-    // `Verify` otherwise. Same FSM both on the success path AND
-    // on the idempotency short-circuit, so this works for both.
-    let run_pass2 = match &step_result {
-        StepResult::Next(DocProcessing::LlmExtractPass2(_)) => true,
-        StepResult::Next(DocProcessing::Verify(_)) => false,
-        // Defensive: `run_llm_extract` only ever emits one of the
-        // two `Next` variants above. Any other shape is a programming
-        // error in the orchestrator — surface it instead of silently
-        // defaulting `run_pass2 = false`.
-        other => {
-            return Err(format!(
-                "run_pass1_extraction: orchestrator returned unexpected \
-                 StepResult variant for document '{doc_id}': {other:?}. \
-                 This indicates a programming error in run_llm_extract."
-            )
-            .into());
-        }
-    };
-
-    // The orchestrator's `set_step_result` (line ~606) writes a JSON
-    // object with `entity_count`, `relationship_count`, `input_tokens`,
-    // `output_tokens`, etc. On the already-complete short-circuit
-    // (line ~273) `set_step_result` is NOT called — `take_step_result`
-    // returns `Value::Null` and the parses below all yield `None`.
-    let result_json = progress.take_step_result();
-    let entity_count = result_json
-        .get("entity_count")
-        .and_then(|v| v.as_u64())
-        .map(|n| n as usize);
-    let relationship_count = result_json
-        .get("relationship_count")
-        .and_then(|v| v.as_u64())
-        .map(|n| n as usize);
-    let input_tokens = result_json.get("input_tokens").and_then(|v| v.as_i64());
-    let output_tokens = result_json.get("output_tokens").and_then(|v| v.as_i64());
-    // `take_step_result` returns Null only when set_step_result was
-    // never called — that's the idempotency short-circuit path.
-    let skipped_already_complete = result_json.is_null();
-
-    Ok(Pass1ExtractionResult {
-        entity_count,
-        relationship_count,
-        input_tokens,
-        output_tokens,
-        run_pass2,
-        skipped_already_complete,
-    })
+    // ── Audit-trail fields (legacy wrapper rebuilds the 11-key JSON) ─
+    //
+    // These fields exist solely to preserve the audit shape the
+    // pre-refactor `progress.set_step_result(...)` call wrote into
+    // `pipeline_steps.result_summary`. The Restate path does not
+    // consume them (no equivalent JSONB column on the Restate
+    // journal). The legacy `Step::execute` wrapper reads them back
+    // and re-emits the same 11-key JSON object.
+    /// Total chunk count for the run (only meaningful for chunked /
+    /// structured paths; `None` on the full-document path and on the
+    /// short-circuit path).
+    pub chunk_count: Option<i32>,
+    /// Chunks that succeeded extraction.
+    pub chunks_succeeded: Option<i32>,
+    /// Chunks that failed extraction (parse or LLM call).
+    pub chunks_failed: Option<i32>,
+    /// Resolved profile name. `None` on the short-circuit path.
+    pub profile: Option<String>,
+    /// Resolved model id. `None` on the short-circuit path.
+    pub model: Option<String>,
+    /// Resolved chunking-mode string. `None` on the short-circuit path.
+    pub chunking_mode: Option<String>,
+    /// Resolved system-prompt filename. Doubly optional: `None` if
+    /// the run had no system prompt configured, AND `None` on the
+    /// short-circuit path. Flattened to a single `Option<String>` —
+    /// the legacy JSON shape would have been `null` either way.
+    pub system_prompt_file: Option<String>,
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -2649,7 +2593,9 @@ The real prompt body.";
         assert_eq!(resolve_max_tokens(&r), 12345);
     }
 
-    /// Helper: a minimal ResolvedConfig used by next_step_after_pass1 tests.
+    /// Helper: a minimal ResolvedConfig used by `resolve_effective_mode`
+    /// tests (and historically the FSM-routing tests, which now drive
+    /// `next_step_after_pass1_from_flag` directly with a bool).
     fn resolved_with_run_pass2(flag: bool) -> ResolvedConfig {
         ResolvedConfig {
             profile_name: "complaint".into(),
@@ -2684,8 +2630,7 @@ The real prompt body.";
 
     #[test]
     fn next_step_after_pass1_routes_to_pass2_when_flag_set() {
-        let r = resolved_with_run_pass2(true);
-        match next_step_after_pass1(&r, "doc-x") {
+        match next_step_after_pass1_from_flag(true, "doc-x") {
             DocProcessing::LlmExtractPass2(step) => {
                 assert_eq!(step.document_id, "doc-x");
             }
@@ -2695,8 +2640,7 @@ The real prompt body.";
 
     #[test]
     fn next_step_after_pass1_routes_to_verify_when_flag_unset() {
-        let r = resolved_with_run_pass2(false);
-        match next_step_after_pass1(&r, "doc-y") {
+        match next_step_after_pass1_from_flag(false, "doc-y") {
             DocProcessing::Verify(step) => {
                 assert_eq!(step.document_id, "doc-y");
             }

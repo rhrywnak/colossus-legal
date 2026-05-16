@@ -107,10 +107,11 @@ pub async fn step_llm_extract_pass1(
     app: &Arc<AppContext>,
     doc_id: &str,
 ) -> Result<String, HandlerError> {
-    let cancel = CancellationToken::new();
-    let progress = make_noop_progress(&app.pipeline_pool);
-
-    let result = run_pass1_extraction(doc_id, &app.pipeline_pool, app.as_ref(), &cancel, &progress)
+    // After Refactor 2/3, run_pass1_extraction has a clean signature
+    // — no CancellationToken, no ProgressReporter, no make_noop_progress
+    // shim. The legacy Worker's `Step::execute` impl wraps this same
+    // function with its own cancel check + progress.set_step_result.
+    let result = run_pass1_extraction(doc_id, &app.pipeline_pool, app.as_ref())
         .await
         .map_err(|e| classify_dyn_llm_error(doc_id, "llm_extract_pass1", e))?;
 
