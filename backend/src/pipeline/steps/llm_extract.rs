@@ -1859,6 +1859,188 @@ pub(crate) fn resolve_effective_mode(resolved: &ResolvedConfig) -> String {
 }
 
 // ─────────────────────────────────────────────────────────────────
+// Restate-path entry point (P2-2b)
+//
+// `run_llm_extract` is a private method on `LlmExtract` driven by the
+// legacy `Step<DocProcessing>` worker — it returns a
+// `StepResult<DocProcessing>` that routes the FSM. The Restate
+// workflow has no FSM (the workflow body sequences steps directly),
+// so it needs a thin entry point that calls the same orchestrator
+// and returns flat fields instead of an FSM step.
+//
+// The wrapper does NOT re-resolve config and does NOT touch the
+// orchestrator's internals. Per the P2-2b design contract: legacy
+// extraction code stays unchanged. The wrapper:
+//   1. constructs an `LlmExtract { document_id }` value
+//   2. delegates to `.run_llm_extract(...)` with the caller's
+//      cancel + progress (the Restate path supplies a never-cancelled
+//      `CancellationToken::new()` and a nil-uuid `ProgressReporter`)
+//   3. derives `run_pass2` from the returned `StepResult::Next`
+//      variant — `next_step_after_pass1` routes to
+//      `DocProcessing::LlmExtractPass2` when the resolved profile
+//      has `run_pass2 = true`, and to `DocProcessing::Verify`
+//      otherwise. Same logic, no re-resolution.
+//   4. pulls entity/relationship counts and token stats out of the
+//      `ProgressReporter`'s in-memory `step_result` slot via
+//      `take_step_result()`. The success path of
+//      `run_llm_extract` calls `set_step_result(...)` with a JSON
+//      object containing exactly the fields we want.
+//   5. returns a flat `Pass1ExtractionResult` for the Restate step
+//      handler to format into a journal summary.
+//
+// When pass-1 short-circuits on the already-COMPLETED idempotency
+// guard (`run_llm_extract` line ~273), `set_step_result` is NOT
+// called — `take_step_result()` returns `Value::Null` and the result
+// fields stay `None`. The `skipped_already_complete` flag flips true
+// so the caller can format a "skipped" summary string.
+// ─────────────────────────────────────────────────────────────────
+
+/// Outcome of a successful (or idempotency-skipped) pass-1 invocation
+/// driven by [`run_pass1_extraction`].
+///
+/// The Restate workflow handler consumes this to build a journal
+/// summary string and to write `documents.status = "EXTRACTED"`.
+///
+/// ## Why the optional counts
+///
+/// On the success path every count is populated from the
+/// orchestrator's `set_step_result` JSON. On the idempotency
+/// short-circuit (a prior run already COMPLETED), the orchestrator
+/// returns immediately without writing `set_step_result`, so the
+/// fields stay `None`. The `skipped_already_complete` flag
+/// distinguishes the two outcomes without forcing the caller to
+/// pattern-match on `None`.
+#[derive(Debug, Clone, Default)]
+pub struct Pass1ExtractionResult {
+    /// Number of entities stored from this invocation. `None` on the
+    /// already-complete short-circuit.
+    pub entity_count: Option<usize>,
+    /// Number of relationships stored from this invocation. `None`
+    /// on the already-complete short-circuit (and 0 on the
+    /// `run_pass2 = true` path, where relationships come from pass 2
+    /// rather than pass 1).
+    pub relationship_count: Option<usize>,
+    /// Sum of input tokens across all LLM calls in this invocation.
+    /// `None` on the already-complete short-circuit.
+    pub input_tokens: Option<i64>,
+    /// Sum of output tokens across all LLM calls. `None` on the
+    /// already-complete short-circuit.
+    pub output_tokens: Option<i64>,
+    /// Whether the resolved profile had `run_pass2 = true` AT THE
+    /// TIME OF THIS PASS-1 INVOCATION. Derived from the orchestrator's
+    /// returned `StepResult::Next` variant rather than re-resolving
+    /// the profile.
+    ///
+    /// ## Informational only — does NOT drive the pass-2 skip
+    ///
+    /// The Restate workflow's pass-2 step handler
+    /// (`workflow_steps::llm_extract::step_llm_extract_pass2`) does
+    /// its OWN profile resolution (`resolve_run_pass2`) to decide
+    /// whether to run pass-2. This field is for the pass-1 journal
+    /// summary and observability — it is NOT consumed by pass-2 and
+    /// must not be threaded through `ctx.set` / `ctx.get` for that
+    /// purpose. The independent resolution is forced by Restate's
+    /// closure model (each `ctx.run` body is opaque to other steps)
+    /// and is acceptable because the profile YAML is on-disk
+    /// configuration that doesn't change mid-workflow during a
+    /// normal deploy. If a profile YAML is hot-reloaded between the
+    /// two steps, the pass-1 journal summary's `run_pass2` and the
+    /// pass-2 skip decision could disagree — operationally rare,
+    /// but document the divergence here so an operator reading both
+    /// log lines understands why.
+    pub run_pass2: bool,
+    /// True when this invocation hit the already-COMPLETED
+    /// idempotency short-circuit and did no extraction work.
+    pub skipped_already_complete: bool,
+}
+
+/// Restate-path entry point for pass-1 extraction.
+///
+/// Wraps the legacy [`LlmExtract::run_llm_extract`] private method
+/// so the Restate workflow handler can call it without depending on
+/// the `Step<DocProcessing>` trait's FSM-shaped return type.
+/// Internals of the orchestrator are unchanged — see the module-level
+/// comment above for the wrapper's contract.
+///
+/// ## Errors
+///
+/// Returns the same `Box<dyn Error + Send + Sync>` shape as the
+/// underlying orchestrator. The Restate step handler downcasts to
+/// [`LlmExtractError`] for terminal-vs-retryable classification.
+///
+/// ## Rust Learning: free function calling a private method
+///
+/// Visibility in Rust is per-module: a `pub async fn` declared in
+/// the same module as the `impl LlmExtract { async fn run_llm_extract }`
+/// can call that private method directly. This is the lowest-cost
+/// way to expose a private method to outside-module callers while
+/// keeping its name and ownership shape internal — the method stays
+/// `async fn` (no `pub`), and only the wrapper is `pub`.
+pub async fn run_pass1_extraction(
+    doc_id: &str,
+    db: &PgPool,
+    context: &AppContext,
+    cancel: &CancellationToken,
+    progress: &ProgressReporter,
+) -> Result<Pass1ExtractionResult, Box<dyn Error + Send + Sync>> {
+    let step = LlmExtract {
+        document_id: doc_id.to_string(),
+    };
+    let step_result = step.run_llm_extract(db, context, cancel, progress).await?;
+
+    // Derive run_pass2 from the FSM route. The orchestrator's
+    // `next_step_after_pass1` (this file, ~line 1463) routes to
+    // `LlmExtractPass2` when `resolved.run_pass2 = true` and to
+    // `Verify` otherwise. Same FSM both on the success path AND
+    // on the idempotency short-circuit, so this works for both.
+    let run_pass2 = match &step_result {
+        StepResult::Next(DocProcessing::LlmExtractPass2(_)) => true,
+        StepResult::Next(DocProcessing::Verify(_)) => false,
+        // Defensive: `run_llm_extract` only ever emits one of the
+        // two `Next` variants above. Any other shape is a programming
+        // error in the orchestrator — surface it instead of silently
+        // defaulting `run_pass2 = false`.
+        other => {
+            return Err(format!(
+                "run_pass1_extraction: orchestrator returned unexpected \
+                 StepResult variant for document '{doc_id}': {other:?}. \
+                 This indicates a programming error in run_llm_extract."
+            )
+            .into());
+        }
+    };
+
+    // The orchestrator's `set_step_result` (line ~606) writes a JSON
+    // object with `entity_count`, `relationship_count`, `input_tokens`,
+    // `output_tokens`, etc. On the already-complete short-circuit
+    // (line ~273) `set_step_result` is NOT called — `take_step_result`
+    // returns `Value::Null` and the parses below all yield `None`.
+    let result_json = progress.take_step_result();
+    let entity_count = result_json
+        .get("entity_count")
+        .and_then(|v| v.as_u64())
+        .map(|n| n as usize);
+    let relationship_count = result_json
+        .get("relationship_count")
+        .and_then(|v| v.as_u64())
+        .map(|n| n as usize);
+    let input_tokens = result_json.get("input_tokens").and_then(|v| v.as_i64());
+    let output_tokens = result_json.get("output_tokens").and_then(|v| v.as_i64());
+    // `take_step_result` returns Null only when set_step_result was
+    // never called — that's the idempotency short-circuit path.
+    let skipped_already_complete = result_json.is_null();
+
+    Ok(Pass1ExtractionResult {
+        entity_count,
+        relationship_count,
+        input_tokens,
+        output_tokens,
+        run_pass2,
+        skipped_already_complete,
+    })
+}
+
+// ─────────────────────────────────────────────────────────────────
 // Unit tests
 // ─────────────────────────────────────────────────────────────────
 

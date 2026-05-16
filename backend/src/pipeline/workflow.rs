@@ -1,24 +1,24 @@
-//! `DocumentPipeline` workflow — Phase 2-2a skeleton + extract_text.
+//! `DocumentPipeline` workflow — Phase 2-2b: extract + LLM extraction.
 //!
 //! ## Purpose
 //!
-//! Phase 2's first real workflow: replaces P1's echo step with the
-//! 8-step document processing pipeline structure. Step 1
-//! (`step_extract_text`) is fully implemented; steps 2-8 are
-//! placeholder `ctx.run()` calls that log and return Ok so the
-//! workflow's `ctx.set` state transitions can be exercised end-to-end
-//! before P2-2b / P2-2c fill them in.
+//! Phase 2's document-processing workflow. Replaces P1's echo step
+//! with the 8-step pipeline. Steps 1-3 are fully implemented as of
+//! P2-2b; steps 4-8 are placeholder `ctx.run()` calls that log and
+//! return Ok so the workflow's `ctx.set` state transitions can still
+//! be exercised end-to-end before P2-2c fills them in.
 //!
 //! The 8 steps, in order:
 //!
 //! 1. `extract_text` — PDF/DOCX/TXT → `document_text` rows (REAL).
-//! 2. `llm_extract_pass1` — LLM extraction over chunks (placeholder).
-//! 3. `llm_extract_pass2` — second-pass extraction (placeholder).
-//! 4. `verify` — grounding verification (placeholder).
-//! 5. `auto_approve` — auto-approve grounded items (placeholder).
-//! 6. `ingest` — write to Neo4j (placeholder).
-//! 7. `index` — embed and write to Qdrant (placeholder).
-//! 8. `completeness` — completeness check (placeholder).
+//! 2. `llm_extract_pass1` — LLM extraction + chunking (REAL).
+//! 3. `llm_extract_pass2` — relationship extraction (REAL; skipped
+//!    by the handler when the profile has `run_pass2 = false`).
+//! 4. `verify` — grounding verification (placeholder — P2-2c).
+//! 5. `auto_approve` — auto-approve grounded items (placeholder — P2-2c).
+//! 6. `ingest` — write to Neo4j (placeholder — P2-2c).
+//! 7. `index` — embed and write to Qdrant (placeholder — P2-2c).
+//! 8. `completeness` — completeness check (placeholder — P2-2c).
 //!
 //! Each step is its own `ctx.run()` call so Restate journals each
 //! step's outcome separately and replay can resume from the last
@@ -257,20 +257,17 @@ impl DocumentPipeline for DocumentPipelineImpl {
         })?;
         ctx.set(STATUS_STATE_KEY, STATUS_TEXT_EXTRACTED.to_string());
 
-        // ── Step 2: llm_extract_pass1 (PLACEHOLDER — P2-2b) ────────
+        // ── Step 2: llm_extract_pass1 (REAL — includes chunking) ──
         //
-        // The placeholder body just logs and returns Ok. Replacing
-        // the body in P2-2b should keep the same shape: an
-        // idempotent body inside the closure, an outer `ctx.set` for
-        // the terminal-per-step status. The journaled return value
-        // is intentionally a short distinguishable string so an
-        // operator can tell at a glance whether the placeholder
-        // shipped to production by accident.
-        let did2 = doc_id.clone();
-        ctx.run(|| async move {
-            tracing::info!(doc_id = %did2, "PLACEHOLDER: llm_extract_pass1");
-            Ok::<String, HandlerError>("pass1_placeholder".to_string())
-        })
+        // Chunking lives inside this step rather than as its own step
+        // because `extraction_chunks` rows carry an `extraction_run_id`
+        // FK and are pass-scoped (see the module-level doc above for
+        // why a separate chunk step is awkward).
+        let app = Arc::clone(&self.ctx);
+        let did = doc_id.clone();
+        ctx.run(
+            || async move { workflow_steps::llm_extract::step_llm_extract_pass1(&app, &did).await },
+        )
         .await
         .map_err(|e| {
             tracing::error!(
@@ -282,12 +279,18 @@ impl DocumentPipeline for DocumentPipelineImpl {
         })?;
         ctx.set(STATUS_STATE_KEY, STATUS_PASS1_COMPLETE.to_string());
 
-        // ── Step 3: llm_extract_pass2 (PLACEHOLDER — P2-2b) ────────
-        let did3 = doc_id.clone();
-        ctx.run(|| async move {
-            tracing::info!(doc_id = %did3, "PLACEHOLDER: llm_extract_pass2");
-            Ok::<String, HandlerError>("pass2_placeholder".to_string())
-        })
+        // ── Step 3: llm_extract_pass2 (REAL — relationships) ───────
+        //
+        // The workflow body calls pass-2 unconditionally; the step
+        // handler itself short-circuits when the resolved profile has
+        // `run_pass2 = false`. No FSM routing here (the legacy
+        // worker's `next_step_after_pass1` is bypassed on the Restate
+        // path).
+        let app = Arc::clone(&self.ctx);
+        let did = doc_id.clone();
+        ctx.run(
+            || async move { workflow_steps::llm_extract::step_llm_extract_pass2(&app, &did).await },
+        )
         .await
         .map_err(|e| {
             tracing::error!(

@@ -33,3 +33,4 @@
 //! to save the work itself and to keep the journal entry small.
 
 pub mod extract_text;
+pub mod llm_extract;
