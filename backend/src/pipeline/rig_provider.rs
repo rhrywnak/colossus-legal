@@ -642,4 +642,47 @@ mod tests {
     // (extract_batch zero-concurrency clamp test was merged into
     // `from_env_and_extract_batch_against_env_state` above to keep
     // ANTHROPIC_API_KEY mutations single-threaded.)
+
+    // ── Live integration test ────────────────────────────────────
+    //
+    // The only test in this module that hits the real Anthropic API.
+    // Gated with `#[ignore]` so the default `cargo test` runs without
+    // network access, an API key, or a wallet hit. Operators with an
+    // ANTHROPIC_API_KEY in their environment can run it explicitly:
+    //
+    //     cargo test --package colossus-legal-backend test_rig_extract_live -- --ignored
+    //
+    // The test also self-skips if ANTHROPIC_API_KEY is unset, so the
+    // `--ignored` flag is sufficient on its own; no flake or false
+    // failure on a developer machine without a key.
+
+    #[tokio::test]
+    #[ignore] // Run manually: cargo test --package colossus-legal-backend test_rig_extract_live -- --ignored
+    async fn test_rig_extract_live() {
+        // Skip if no API key.
+        let Ok(_) = std::env::var("ANTHROPIC_API_KEY") else {
+            return;
+        };
+
+        let engine = RigExtractionEngine::from_env().expect("engine construction");
+        let result = engine
+            .extract(
+                Some("You are a test assistant. Reply with exactly: BRIDGE_OK"),
+                "Say the phrase.",
+                "claude-sonnet-4-6",
+                100,
+                Some(0.0),
+            )
+            .await
+            .expect("extract call");
+
+        assert!(
+            result.response_text.contains("BRIDGE_OK"),
+            "Expected BRIDGE_OK, got: {}",
+            result.response_text
+        );
+        assert!(result.input_tokens.is_some());
+        assert!(result.output_tokens.is_some());
+        assert!(result.duration.as_millis() > 0);
+    }
 }
