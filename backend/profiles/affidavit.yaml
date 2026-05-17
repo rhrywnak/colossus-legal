@@ -1,27 +1,29 @@
 # affidavit.yaml
 # Processing profile for sworn statements by witnesses.
-# Uses chunked extraction for longer affidavits.
+# Updated to v5.1 schema and templates.
 
 name: affidavit
 display_name: Affidavit
-description: Sworn statement by a witness.
+document_type: affidavit
+description: Sworn statement by a witness — evidence-anchoring pipeline.
 
-schema_file: affidavit.yaml
+schema_file: affidavit_schema_v5_1.yaml
 
-template_file: chunk_extract.md
-system_prompt_file: null
+template_file: affidavit_pass1_v5_1.md
+global_rules_file: global_rules_v4.md
+pass2_template_file: affidavit_pass2_v5_1.md
+system_prompt_file: legal_extraction_system.md
 
 extraction_model: claude-sonnet-4-6
-synthesis_model: null
 
-chunking_mode: chunked
+chunking_mode: full
 chunk_size: 8000
 chunk_overlap: 500
 
-max_tokens: 8000
+max_tokens: 32000
 temperature: 0.0
 
 auto_approve_grounded: true
-run_pass2: false
+run_pass2: true
 
 is_default: false
