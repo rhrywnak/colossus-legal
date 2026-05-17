@@ -9,15 +9,11 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::signal;
-use tokio::sync::watch;
 use tower_http::cors::CorsLayer;
 use tracing_subscriber::EnvFilter;
 
 use colossus_extract::providers::AnthropicProvider;
 use colossus_extract::LlmProvider;
-
-use colossus_pipeline::worker::config::WorkerConfig;
-use colossus_pipeline::Worker;
 
 /// Model id the Chat endpoint uses when the request does not specify one.
 ///
@@ -39,8 +35,6 @@ use colossus_legal_backend::{
     neo4j::{check_neo4j, create_neo4j_graph},
     pipeline::context::{AppContext, AppContextDeps},
     pipeline::registry::PipelineRegistry,
-    pipeline::step_recorder::PgStepRecorder,
-    pipeline::task::DocProcessing,
     prompt_loader, restate_endpoint,
     state::{AppState, EntityTypeInfo, RelationshipTypeInfo, SchemaMetadata},
 };
@@ -201,38 +195,10 @@ async fn run_serve(config: AppConfig, graph: neo4rs::Graph, http_client: reqwest
         "AppContext constructed"
     );
 
-    // --- Start the pipeline worker ---
-    //
-    // The worker polls pipeline_jobs and executes DocProcessing step
-    // sequences. Worker::run() takes a watch::Receiver<bool>; when the
-    // sender sends true, the worker completes its current job and exits.
-    //
-    // We spawn the worker on the tokio runtime as a background task and
-    // keep the JoinHandle to await it on shutdown. The watch::Sender is
-    // kept in scope so we can signal shutdown after axum's graceful
-    // shutdown future completes.
-    let worker_config = WorkerConfig::from_env();
-    tracing::info!(
-        worker_id = %worker_config.worker_id,
-        max_concurrent = worker_config.max_concurrent,
-        "Worker config loaded"
-    );
-
-    let (shutdown_tx, shutdown_rx) = watch::channel(false);
-    let step_recorder = Arc::new(PgStepRecorder::new(pipeline_pool.clone()));
-    let worker = Worker::<DocProcessing>::new(
-        pipeline_pool.clone(),
-        app_context.clone(),
-        worker_config,
-        shutdown_rx,
-        step_recorder,
-    );
-    let worker_handle: tokio::task::JoinHandle<()> = tokio::spawn(async move {
-        match worker.run().await {
-            Ok(()) => tracing::info!("Worker exited cleanly"),
-            Err(e) => tracing::error!(error = %e, "Worker exited with error"),
-        }
-    });
+    // Legacy Worker disabled — all new processing routes through Restate.
+    // The Worker module and colossus-pipeline crate are retained for
+    // legacy pipeline_jobs cleanup in the cancel handler.
+    // See: P2-3 (process_handler → Restate), this commit.
 
     // --- Spawn the Restate SDK endpoint ---
     //
@@ -431,21 +397,6 @@ async fn run_serve(config: AppConfig, graph: neo4rs::Graph, http_client: reqwest
         .with_graceful_shutdown(shutdown_signal())
         .await
         .expect("Server error");
-
-    tracing::info!("HTTP server stopped; signalling worker shutdown");
-
-    // Signal the worker to stop.
-    let _ = shutdown_tx.send(true);
-
-    // Wait up to 30 seconds for the worker to drain.
-    // This ceiling matches podman's default stop-timeout (10s) plus headroom.
-    // Past this, we exit regardless; the recovery system will clean up
-    // any jobs that were in-flight on the next restart.
-    match tokio::time::timeout(std::time::Duration::from_secs(30), worker_handle).await {
-        Ok(Ok(())) => tracing::info!("Worker drain completed"),
-        Ok(Err(e)) => tracing::error!(error = %e, "Worker task panicked during drain"),
-        Err(_) => tracing::warn!("Worker drain timed out after 30s; exiting anyway"),
-    }
 
     tracing::info!("colossus-legal backend shutdown complete");
 }
