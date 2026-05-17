@@ -1,0 +1,180 @@
+# Extraction schema for affidavits — v5.1 (evidence-anchoring pipeline)
+#
+# Purpose: Extract sworn statements from witness affidavits. Affidavits
+# are SUPPORTING DOCUMENTS — they anchor evidence to the structural
+# backbone produced by the complaint case-structuring pipeline.
+#
+# v5.1 changes from v4:
+#   - relationship_properties section added per LEGAL_DATA_MODEL_v5_1.md
+#     §5.4 (source_document_id, extraction_run_id, created_at)
+#   - completeness_rules section added
+#   - valid_patterns corrected: cross-document relationships
+#     (CORROBORATES, CONTRADICTS, REBUTS) removed from valid_patterns
+#     since they target entity types not defined in this schema — the
+#     schema parser rejects foreign entity type references. Cross-document
+#     semantics documented in relationship_types descriptions for LLM
+#     guidance (same pattern as discovery_response_schema_v5_1.yaml).
+#   - Evidence.required changed from false to true, min_count from 0 to 1
+#     (every affidavit has at least one sworn statement)
+#   - Evidence.paragraph changed to required: true (every affidavit
+#     statement has a paragraph number)
+#   - Party.aliases property added (consistent with complaint and
+#     discovery response v5.1 schemas)
+#   - Filename follows v5.1 convention: affidavit_schema_v5_1.yaml
+#
+# Document characteristics:
+#   - Sworn statements made voluntarily under oath before a notary
+#   - Numbered paragraphs, each a separate factual claim
+#   - The affiant is always the sole speaker (STATED_BY target)
+#   - Affidavits carry significant evidentiary weight — comparable to
+#     deposition testimony
+#   - Multiple separate affidavits may appear in a single PDF (each
+#     with its own signature block and notarization)
+#
+# Property names match PROD Neo4j and existing pipeline code per memory
+# rule #14. verbatim_quote remains a top-level entity field, NOT a
+# schema property.
+
+document_type: affidavit
+version: "5.1"
+description: "Sworn affidavit — evidence-anchoring document. Each substantive numbered paragraph is a sworn statement by the affiant, extracted as an Evidence entity."
+
+entity_types:
+  - name: Party
+    required: true
+    min_count: 2
+    grounding_mode: name_match
+    category: reference
+    description: "A person or organization mentioned in the affidavit. Includes the affiant, every person named in the sworn statements, and every organization referenced."
+    properties:
+      - name: party_name
+        type: string
+        required: true
+        description: "Full legal name as it appears in the document. Use canonical names consistent with other case documents."
+      - name: role
+        type: string
+        required: true
+        description: "affiant, witness, plaintiff, defendant, attorney, caregiver, decedent, third_party, interested_party, guardian_ad_litem, personal_representative"
+      - name: party_type
+        type: string
+        required: true
+        description: "person or organization"
+      - name: aliases
+        type: string
+        description: "Other names or references used for this party, comma-separated"
+
+  - name: Evidence
+    required: true
+    min_count: 1
+    grounding_mode: verbatim
+    category: evidence
+    description: "A sworn statement from a numbered paragraph in the affidavit. The verbatim_quote is the full text of the sworn statement — copy it exactly, character for character. Every substantive numbered paragraph becomes a separate Evidence entity."
+    properties:
+      - name: title
+        type: string
+        required: true
+        description: "Short descriptive title summarizing the evidentiary value, e.g. 'Humphrey: Emil was completely competent and capable'"
+      - name: answer
+        type: string
+        required: true
+        description: "The substance of the sworn statement in summary form"
+      - name: paragraph
+        type: string
+        required: true
+        description: "Paragraph number in the affidavit, e.g. '5', '12'. For affidavits with multiple sections, prefix with the section: 'A-3', 'B-1'."
+      - name: page_number
+        type: integer
+        required: true
+        description: "PDF page number where this statement appears"
+      - name: kind
+        type: string
+        required: true
+        description: "Always 'testimonial' for affidavits (these are sworn statements)"
+      - name: evidence_strength
+        type: string
+        required: true
+        description: "Always 'sworn_testimony' — these are statements made under oath"
+      - name: statement_type
+        type: string
+        required: true
+        description: "sworn_testimony (standard sworn statement of fact), factual_assertion (stating a specific observed fact), expert_opinion (professional judgment by a qualified witness)"
+      - name: significance
+        type: string
+        required: true
+        description: "Why this statement matters for trial preparation. What does it prove, corroborate, or rebut? Reference specific complaint allegations or legal theories when applicable."
+      - name: weight
+        type: integer
+        description: "1-10 scale of evidentiary weight (10 = most probative for trial). Direct firsthand observations typically 7-9. Conclusions or beliefs 4-6."
+      - name: statement_date
+        type: string
+        description: "Date the affidavit was signed/notarized (same for all Evidence entities from one affidavit)"
+      - name: event_date
+        type: string
+        description: "Date of the event being described, if the statement mentions when something happened"
+      - name: pattern_tags
+        type: string
+        description: "Comma-separated tags for trial-prep query patterns: coordination, selective_enforcement, disparagement, financial_misconduct, secrecy, elder_abuse, competence, undue_influence, coercion"
+
+relationship_types:
+  - name: STATED_BY
+    description: "Evidence stated by Party. For affidavits, the STATED_BY party is ALWAYS the affiant (the person who signed the affidavit), even when they report what someone else said. The affiant is swearing under oath that the statement is true. Every Evidence entity MUST have exactly one STATED_BY."
+  - name: ABOUT
+    description: "Evidence is about (concerning) this Party. A single Evidence entity may be ABOUT multiple parties — create one ABOUT relationship for each party discussed in the statement. Do NOT create ABOUT to the affiant for every statement — STATED_BY already captures that. Only create ABOUT to the affiant when the statement is specifically about the affiant's own actions beyond the act of testifying."
+  - name: CORROBORATES
+    description: "This sworn statement independently confirms a factual claim from the complaint (an Allegation node). The corroboration test: does this affiant's firsthand testimony confirm the same facts alleged in the complaint? The affiant must have independent knowledge — not just repeating what the plaintiff told them. NOTE: CORROBORATES targets Allegation nodes from the complaint schema — these are cross-document relationships."
+  - name: CONTRADICTS
+    description: "This sworn statement conflicts with another statement by the SAME person in a DIFFERENT document. CONTRADICTS requires the same speaker — both statements must have the same STATED_BY party. If two different people disagree, that is REBUTS, not CONTRADICTS. NOTE: CONTRADICTS targets Evidence nodes from other documents — cross-document relationships."
+  - name: REBUTS
+    description: "This affiant's statement directly counters what a DIFFERENT person claimed in another document. The rebuttal test: does this person's sworn testimony oppose what another party asserted? Example: defendant's discovery response says conservatorship was necessary, but caregiver's affidavit says decedent was fully competent. NOTE: REBUTS targets Evidence or Assertion nodes from other documents — cross-document relationships."
+
+# Required provenance properties applied to every relationship written to
+# Neo4j (per LEGAL_DATA_MODEL_v5_1.md §5.4). Populated by the ingest stage
+# at write time, not by the LLM extractor.
+relationship_properties:
+  - name: source_document_id
+    type: string
+    required: true
+    description: "ID of the Document whose extraction produced this relationship"
+  - name: extraction_run_id
+    type: string
+    required: true
+    description: "Identifier of the specific pipeline run that created this relationship (format: 'run-{i32}' for pipeline-extracted, 'manual-{user_id}-{ts}' for hand-authored, 'repair-{...}' for repair runs)"
+  - name: created_at
+    type: timestamp
+    required: true
+    description: "When the relationship was first created (Cypher datetime() at write time; preserved on subsequent re-ingests via coalesce)"
+
+# valid_patterns can ONLY reference entity types defined in THIS schema.
+# Cross-document relationships (CORROBORATES → Allegation, CONTRADICTS →
+# Evidence from another doc, REBUTS → Evidence from another doc) are
+# described in relationship_types above for LLM guidance but are NOT
+# listed here — the schema parser would reject references to entity types
+# not defined locally.
+valid_patterns:
+  - from: Evidence
+    relationship: STATED_BY
+    to: Party
+  - from: Evidence
+    relationship: ABOUT
+    to: Party
+
+extraction_rules:
+  - "Extract EVERY substantive numbered paragraph as a separate Evidence entity"
+  - "The verbatim_quote field is the full text of the sworn statement — copy it exactly, character for character"
+  - "Skip purely formulaic paragraphs ('I am over 18 years of age and competent to testify') UNLESS they contain case-relevant facts"
+  - "Always set kind='testimonial' and evidence_strength='sworn_testimony' — these are statements under oath"
+  - "The STATED_BY party is ALWAYS the affiant who signed the affidavit"
+  - "When multiple separate affidavits appear in one PDF (each with its own signature block), extract entities from ALL of them"
+  - "Extract ALL parties mentioned anywhere in the sworn statements — use canonical names matching other case documents"
+  - "Do NOT extract the notary public as a Party unless they have another role in the case"
+  - "Do NOT combine multiple numbered paragraphs into a single Evidence entity — each paragraph is a separate sworn statement"
+
+completeness_rules:
+  - type: entity_count
+    entity: Party
+    min: 2
+    message: "Expected at least the affiant + one other party discussed in the affidavit"
+  - type: entity_count
+    entity: Evidence
+    min: 1
+    message: "No sworn statements extracted — every affidavit has at least one substantive paragraph"
