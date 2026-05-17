@@ -48,7 +48,15 @@ use crate::pipeline::task::DocProcessing;
 use crate::repositories::pipeline_repository;
 
 /// Completeness step state.
+///
+/// Serialized into `pipeline_jobs.task` as JSONB for the legacy
+/// worker. `deny_unknown_fields` is safe here because the struct is
+/// owned by this codebase: any future field addition lands in the
+/// same release as the matching deserializer update, so we never see
+/// "old payload, new fields" or "new payload, old fields" across the
+/// worker restart boundary.
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Completeness {
     pub document_id: String,
 }
@@ -132,6 +140,7 @@ impl From<AppError> for CompletenessError {
             AppError::Forbidden { message } => message,
             AppError::Conflict { message, .. } => message,
             AppError::Internal { message } => message,
+            AppError::ServiceUnavailable { message } => message,
         };
         CompletenessError::Helper {
             doc_id: String::new(),

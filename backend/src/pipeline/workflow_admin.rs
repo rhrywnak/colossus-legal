@@ -1,22 +1,36 @@
-//! Admin operations on running Restate workflow invocations.
+//! Out-of-band operations on the Restate workflow runtime.
 //!
 //! This module lives alongside [`crate::pipeline::workflow`] but is
 //! deliberately separate from it: `workflow.rs` is bound by the
 //! `#[restate_sdk::workflow]` macro to the workflow's request/response
-//! shape, while this module's helpers talk to Restate's *admin* API
-//! (a separate HTTP surface on a separate port) to control already-
-//! running invocations. Keeping the two concerns split lets the admin
-//! helpers be unit-tested without dragging the SDK macro in.
+//! shape, while this module's helpers talk to Restate's HTTP surface
+//! to control workflow invocations from outside the workflow itself.
+//! Keeping the two concerns split lets these helpers be unit-tested
+//! without dragging the SDK macro in.
 //!
-//! ## Why an out-of-band admin call?
+//! ## Two Restate ports, two operations
 //!
-//! Restate's exactly-once semantics mean a workflow can be cancelled
-//! only by Restate itself — the worker process serving the workflow
-//! cannot reach into the journal and stop its own execution. The admin
-//! API exposes a `DELETE /invocations/{service}/{key}?mode=cancel`
-//! endpoint that flips the invocation into a cancelled terminal state;
-//! Restate then propagates that state to the worker (`ctx.run` closures
-//! observe cancellation via the `TerminalError::cancelled()` sentinel).
+//! Restate exposes two HTTP servers on distinct ports:
+//!
+//! - **Ingress (port 8080)** — accepts `POST` requests that invoke
+//!   workflows. [`invoke_restate_workflow`] posts to
+//!   `POST /DocumentPipeline/{doc_id}/run/send` to start a new
+//!   workflow invocation for a document. The `/send` suffix selects
+//!   the async invocation mode: Restate returns the invocation id
+//!   immediately and runs the workflow in the background.
+//! - **Admin (port 9070)** — exposes invocation-management endpoints.
+//!   [`cancel_restate_workflow`] posts to
+//!   `DELETE /invocations/DocumentPipeline/{doc_id}?mode=cancel` to
+//!   stop a running invocation. Restate's exactly-once semantics mean
+//!   a workflow can only be cancelled this way — the worker process
+//!   serving the workflow cannot reach into the journal and stop its
+//!   own execution. Restate then propagates the cancel signal to the
+//!   worker (`ctx.run` closures observe it as `TerminalError`).
+//!
+//! Each port's URL is read from a separate `AppConfig` field
+//! ([`crate::config::AppConfig::restate_ingress_url`] and
+//! [`crate::config::AppConfig::restate_admin_url`]) so a deployment
+//! can configure them independently.
 
 use std::time::Duration;
 
@@ -25,17 +39,23 @@ use reqwest::StatusCode;
 
 /// Restate timeout for cancel calls.
 ///
-/// CONST justification: this is a per-request override of the shared
-/// `state.http_client`'s 90-second total-timeout, scoped specifically
-/// to the cancel call. Cancel is an admin operation — Restate either
-/// returns 202 immediately (success) or 404 immediately (no such
-/// invocation). A real failure to respond within 10s indicates the
-/// admin endpoint is down or unreachable, which is operator-actionable
-/// information; waiting 90s would only delay the operator's response.
-/// This is the latency-budget for a fast admin call, not a knob
-/// deployments need to tune.
-// DEFAULT: 10 seconds — override by editing this constant and rebuilding;
-// not env-var configurable by design (see doc comment above).
+/// See the line-comment markers immediately above the declaration for
+/// the formal `// CONST:` and `// DEFAULT:` justifications. The full
+/// rationale follows.
+///
+/// This is a per-request override of the shared `state.http_client`'s
+/// 90-second total-timeout, scoped specifically to the cancel call.
+/// Cancel is an admin operation — Restate either returns 202
+/// immediately (success) or 404 immediately (no such invocation).
+/// A real failure to respond within 10s indicates the admin endpoint
+/// is down or unreachable, which is operator-actionable information;
+/// waiting 90s would only delay the operator's response. This is the
+/// latency-budget for a fast admin call, not a knob deployments need
+/// to tune.
+// CONST: latency budget for a fast admin call; not env-var configurable
+// because deployments do not need to tune cancel latency independently
+// from the rest of the HTTP stack.
+// DEFAULT: 10 seconds — override by editing this constant and rebuilding.
 const RESTATE_CANCEL_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// The Restate workflow service name. Matches the `#[restate_sdk::workflow]`
@@ -47,13 +67,13 @@ const RESTATE_CANCEL_TIMEOUT: Duration = Duration::from_secs(10);
 /// Restate would return 404 for every cancel and the dual-cancel handler
 /// would mistake the breakage for "no invocation exists." The lockstep
 /// drift is detected at test time by
-/// [`tests::service_name_matches_workflow_trait`] below, which asserts
-/// the constant string equals the SDK-derived service name; that test
-/// fails if the trait is renamed without updating the constant.
-///
-/// CONST justification: state-contract identifier. Restate's HTTP admin
-/// API addresses invocations by `{service-name}/{key}/...` and the value
-/// is baked into the SDK's macro expansion — not env-var configurable.
+/// [`tests::service_name_matches_workflow_trait_identifier`] in
+/// `workflow_admin_tests.rs`, which asserts the constant string equals
+/// the SDK-derived service name; that test fails if the trait is
+/// renamed without updating the constant.
+// CONST: state-contract identifier baked into the Restate SDK's macro
+// expansion; not env-var configurable because deployments cannot rename
+// the workflow service without recompiling the workflow trait too.
 const DOCUMENT_PIPELINE_SERVICE: &str = "DocumentPipeline";
 
 /// Cancel a Restate workflow invocation for the given document.
@@ -162,159 +182,193 @@ pub async fn cancel_restate_workflow(
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::net::SocketAddr;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::Arc;
-    use tokio::net::TcpListener;
+// ── Invoke: ingress-port workflow invocation ────────────────────
 
-    /// Lockstep check: the `DOCUMENT_PIPELINE_SERVICE` constant must
-    /// match the workflow trait's identifier byte-for-byte, because
-    /// Restate's admin API addresses invocations by that name and the
-    /// `#[restate_sdk::workflow]` macro derives the service name from
-    /// the trait identifier.
-    ///
-    /// The `use` import below makes this test compile-fail if the
-    /// trait is renamed or removed — Rust's resolution catches the
-    /// missing symbol before the assertion runs. The `stringify!`
-    /// macro then verifies that whatever we typed for the trait name
-    /// matches the constant: a renamed trait whose constant was
-    /// updated in lockstep passes; a constant that drifted from the
-    /// trait fails the assertion. The combination catches both halves
-    /// of the lockstep contract.
-    #[test]
-    fn service_name_matches_workflow_trait_identifier() {
-        // `as _` keeps the import side-effect (proving the trait
-        // exists) without forcing the trait into scope in a way that
-        // would trip clippy::unused_imports for the other tests.
-        use crate::pipeline::workflow::DocumentPipeline as _;
-        assert_eq!(
-            DOCUMENT_PIPELINE_SERVICE,
-            stringify!(DocumentPipeline),
-            "DOCUMENT_PIPELINE_SERVICE must match the workflow trait identifier — \
-             rename one without the other and Restate routes cancels at a non-existent service"
-        );
+/// Restate timeout for ingress invoke calls.
+///
+/// See the line-comment markers immediately above the declaration for
+/// the formal `// CONST:` and `// DEFAULT:` justifications. The full
+/// rationale follows.
+///
+/// Parallel to [`RESTATE_CANCEL_TIMEOUT`] — the ingress invoke is a
+/// fast admin-like call (Restate returns 202 with the invocation id
+/// immediately and runs the workflow in the background, per the
+/// `/send` suffix). A failure to respond within 10s indicates the
+/// ingress endpoint is unreachable, which the handler surfaces as a
+/// 500 to the operator.
+// CONST: latency budget for a fast ingress invocation; not env-var
+// configurable because deployments do not need to tune invoke latency
+// independently from the rest of the HTTP stack.
+// DEFAULT: 10 seconds — override by editing this constant and rebuilding.
+const RESTATE_INVOKE_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Outcome of a Restate workflow invocation attempt.
+///
+/// Restate's ingress `/send` endpoint returns HTTP 202 in two
+/// semantically distinct cases — a brand-new invocation and a replay
+/// of an existing one. The HTTP status alone cannot distinguish them;
+/// we have to read the JSON body's `status` field. Returning a typed
+/// enum (instead of stringly-typed error messages or a `Result<String, _>`
+/// that callers pattern-match on the message) lets the caller route
+/// each case to the right HTTP response without fragile string
+/// inspection.
+#[derive(Debug, PartialEq, Eq)]
+pub enum InvokeOutcome {
+    /// Restate returned `"status":"Accepted"` — a new invocation was
+    /// created. The `invocation_id` carries Restate's identifier for
+    /// the new invocation (`inv_…`), useful for the audit log and
+    /// for cross-referencing logs against the Restate admin UI.
+    Accepted { invocation_id: String },
+    /// Restate returned `"status":"PreviouslyAccepted"` — an invocation
+    /// for this `(service, key)` tuple already exists. Under our
+    /// workflow design (key = `doc_id`) this means the document has
+    /// already been submitted to Restate; the caller maps this to a
+    /// 409 Conflict so the operator knows they need to either delete
+    /// the document and re-upload, or purge the existing Restate
+    /// invocation, before retrying.
+    PreviouslyAccepted { invocation_id: String },
+}
+
+/// Internal shape used to parse Restate's ingress `/send` response body.
+///
+/// Restate returns a JSON object with two fields: `invocationId` and
+/// `status`. We parse only those two — anything else Restate adds in
+/// future versions is ignored by serde.
+// serde: allows unknown fields because Restate is an external service
+// we do not control. A future Restate version may add new top-level
+// fields to the `/send` response (telemetry, idempotency hints,
+// etc.) — `deny_unknown_fields` would turn every such addition into
+// a hard parse failure for us, breaking document processing on a
+// dependency upgrade we did not author. Forward compatibility is
+// load-bearing here.
+#[derive(Debug, serde::Deserialize)]
+struct RestateInvokeResponse {
+    #[serde(rename = "invocationId")]
+    invocation_id: String,
+    status: String,
+}
+
+/// Invoke the Restate `DocumentPipeline` workflow for a document.
+///
+/// `POST {restate_ingress_url}/DocumentPipeline/{doc_id}/run/send`
+/// with body `"{doc_id}"` (a JSON string) and a 10-second timeout.
+/// The `/send` suffix selects the async invocation mode: Restate
+/// returns 202 immediately with the assigned invocation id, then runs
+/// the workflow in the background.
+///
+/// Restate's documented response codes for `/send`:
+///
+/// - **202 Accepted** with body `{"invocationId":"inv_...","status":"Accepted"}`
+///   → returns `Ok(InvokeOutcome::Accepted { invocation_id })`.
+/// - **202 Accepted** with body `{"invocationId":"inv_...","status":"PreviouslyAccepted"}`
+///   → returns `Ok(InvokeOutcome::PreviouslyAccepted { invocation_id })`.
+///   The keyed-workflow's invocation for this `doc_id` already exists.
+/// - **Any other status** → returns `Err`, surfacing the status code
+///   and the response body for operator diagnostics.
+///
+/// ## Why a JSON string as the body
+///
+/// The workflow's `run(doc_id: String)` handler is declared with
+/// `String` as its argument type. Restate's ingress expects the
+/// request body to be the JSON encoding of that argument — a JSON
+/// string with surrounding quotes, e.g. `"doc-abc"`. We build it
+/// with `serde_json::Value::String(doc_id.to_string()).to_string()`
+/// rather than hand-quoting, so any character that would need
+/// JSON-escaping (a doc_id containing a quote, backslash, or
+/// non-ASCII) is handled correctly without ad-hoc string munging.
+#[tracing::instrument(skip(http_client), fields(doc_id = %doc_id))]
+pub async fn invoke_restate_workflow(
+    http_client: &reqwest::Client,
+    restate_ingress_url: &str,
+    doc_id: &str,
+) -> Result<InvokeOutcome, anyhow::Error> {
+    let base = restate_ingress_url.trim_end_matches('/');
+    let url = format!("{base}/{DOCUMENT_PIPELINE_SERVICE}/{doc_id}/run/send");
+
+    // The workflow's `run` handler takes `String` — Restate wants the
+    // JSON encoding of that argument, which for a plain string is
+    // `"<value>"` (with quotes). Build via serde_json so any escapes
+    // in doc_id are handled correctly rather than via raw `format!`.
+    let body = serde_json::Value::String(doc_id.to_string()).to_string();
+
+    let response = http_client
+        .post(&url)
+        .header("content-type", "application/json")
+        .body(body)
+        // Per-request timeout override — see RESTATE_INVOKE_TIMEOUT.
+        .timeout(RESTATE_INVOKE_TIMEOUT)
+        .send()
+        .await
+        .with_context(|| {
+            format!(
+                "Restate invoke POST to '{url}' failed before a response was received \
+                 (network, DNS, or timeout). Check RESTATE_INGRESS_URL and that the \
+                 Restate ingress endpoint is reachable."
+            )
+        })?;
+
+    let status = response.status();
+    if status != StatusCode::ACCEPTED {
+        let body = response
+            .text()
+            .await
+            .unwrap_or_else(|e| format!("<failed to read body: {e}>"));
+        let truncated = if body.len() > 512 {
+            format!("{}…<truncated>", &body[..512])
+        } else {
+            body
+        };
+        return Err(anyhow::anyhow!(
+            "Restate invoke returned unexpected status {status} for '{doc_id}' \
+             (URL: {url}). Body: {truncated}"
+        ));
     }
 
-    /// Tiny single-connection HTTP test server. We do NOT pull in
-    /// `wiremock` or `axum` here — the cancel helper only cares about
-    /// the response status code, so a trivial line-buffered TCP
-    /// responder is enough and keeps the test-suite dependency
-    /// footprint flat. Returns the bound address and an `Arc<AtomicUsize>`
-    /// tracking how many requests the server saw.
-    async fn spawn_responder(status_line: &'static str) -> (SocketAddr, Arc<AtomicUsize>) {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        let counter = Arc::new(AtomicUsize::new(0));
-        let counter_clone = counter.clone();
-        tokio::spawn(async move {
-            loop {
-                let Ok((mut sock, _)) = listener.accept().await else {
-                    break;
-                };
-                counter_clone.fetch_add(1, Ordering::SeqCst);
-                // Drain enough of the request line to avoid a RST on close.
-                let mut buf = [0u8; 1024];
-                let _ = tokio::io::AsyncReadExt::read(&mut sock, &mut buf).await;
-                let body = "test body";
-                let response = format!(
-                    "HTTP/1.1 {status_line}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                    body.len()
-                );
-                let _ = tokio::io::AsyncWriteExt::write_all(&mut sock, response.as_bytes()).await;
-                let _ = tokio::io::AsyncWriteExt::shutdown(&mut sock).await;
-            }
-        });
-        (addr, counter)
-    }
+    // 202 path: parse the JSON body to distinguish Accepted vs
+    // PreviouslyAccepted. Both share the HTTP status code, so the
+    // body is the only signal.
+    let parsed: RestateInvokeResponse = response.json().await.with_context(|| {
+        format!(
+            "Restate invoke returned 202 for '{doc_id}' but the body did not parse \
+             as the expected `{{invocationId, status}}` shape. The Restate ingress \
+             contract may have changed; check the Restate version."
+        )
+    })?;
 
-    fn test_client() -> reqwest::Client {
-        reqwest::Client::builder()
-            .timeout(Duration::from_secs(5))
-            .build()
-            .expect("test client builder")
-    }
-
-    #[tokio::test]
-    async fn cancel_returns_true_on_202() {
-        let (addr, counter) = spawn_responder("202 Accepted").await;
-        let url = format!("http://{addr}");
-        let res = cancel_restate_workflow(&test_client(), &url, "doc-x").await;
-        // `matches!` borrows `res`, so it stays available for the
-        // debug-format in the assertion message on failure. (Using
-        // `res.ok()` here would consume the Result and break the
-        // `{res:?}` format.)
-        assert!(matches!(res, Ok(true)), "202 must yield Ok(true): {res:?}");
-        assert_eq!(
-            counter.load(Ordering::SeqCst),
-            1,
-            "helper must perform exactly one HTTP DELETE per call"
-        );
-    }
-
-    #[tokio::test]
-    async fn cancel_returns_false_on_404() {
-        let (addr, _counter) = spawn_responder("404 Not Found").await;
-        let url = format!("http://{addr}");
-        let res = cancel_restate_workflow(&test_client(), &url, "doc-x").await;
-        assert!(
-            matches!(res, Ok(false)),
-            "404 must yield Ok(false): {res:?}"
-        );
-    }
-
-    #[tokio::test]
-    async fn cancel_returns_err_on_500() {
-        let (addr, _counter) = spawn_responder("500 Internal Server Error").await;
-        let url = format!("http://{addr}");
-        let res = cancel_restate_workflow(&test_client(), &url, "doc-abc").await;
-        let err = res.expect_err("500 must yield Err");
-        let msg = format!("{err}");
-        // Operator-facing context: status code and doc_id must both appear.
-        assert!(msg.contains("500"), "err must include status code: {msg}");
-        assert!(msg.contains("doc-abc"), "err must include doc_id: {msg}");
-        assert!(
-            msg.contains("test body"),
-            "err must include response body for diagnostics: {msg}"
-        );
-    }
-
-    #[tokio::test]
-    async fn cancel_returns_err_on_unreachable_host() {
-        // Use a port that is essentially guaranteed not to have a
-        // listener — `127.0.0.1:1` (port 1 is reserved). The connect
-        // refusal happens immediately, so this test runs in <50ms.
-        let res =
-            cancel_restate_workflow(&test_client(), "http://127.0.0.1:1", "doc-unreachable").await;
-        let err = res.expect_err("unreachable host must yield Err");
-        let msg = format!("{err}");
-        assert!(
-            msg.contains("Restate cancel DELETE"),
-            "err must surface the operation, got: {msg}"
-        );
-        assert!(
-            msg.contains("RESTATE_ADMIN_URL"),
-            "err must point operators at the env var to check, got: {msg}"
-        );
-    }
-
-    #[tokio::test]
-    async fn cancel_trims_trailing_slash_on_admin_url() {
-        // The helper must build `{base}/invocations/...`, not
-        // `{base}//invocations/...`, even when the caller stores the
-        // admin URL with a trailing slash. We can't directly observe
-        // the URL from our line-buffer test server, but we CAN observe
-        // that the request still produces the 202 outcome — i.e. the
-        // server received a syntactically valid HTTP request line.
-        let (addr, counter) = spawn_responder("202 Accepted").await;
-        let url_with_slash = format!("http://{addr}/");
-        let res = cancel_restate_workflow(&test_client(), &url_with_slash, "doc-x").await;
-        assert!(
-            matches!(res, Ok(true)),
-            "trailing slash must still yield 202: {res:?}"
-        );
-        assert_eq!(counter.load(Ordering::SeqCst), 1);
+    match parsed.status.as_str() {
+        "Accepted" => {
+            tracing::info!(
+                doc_id = %doc_id,
+                invocation_id = %parsed.invocation_id,
+                "Restate invoke: new invocation accepted (202 Accepted)"
+            );
+            Ok(InvokeOutcome::Accepted {
+                invocation_id: parsed.invocation_id,
+            })
+        }
+        "PreviouslyAccepted" => {
+            tracing::info!(
+                doc_id = %doc_id,
+                invocation_id = %parsed.invocation_id,
+                "Restate invoke: invocation already exists (202 PreviouslyAccepted)"
+            );
+            Ok(InvokeOutcome::PreviouslyAccepted {
+                invocation_id: parsed.invocation_id,
+            })
+        }
+        other => Err(anyhow::anyhow!(
+            "Restate invoke returned 202 for '{doc_id}' with an unrecognised \
+             status field '{other}' (expected 'Accepted' or 'PreviouslyAccepted'). \
+             The Restate ingress contract may have changed."
+        )),
     }
 }
+
+// Unit tests for the helpers above plus the workflow service-name
+// lockstep check live in `workflow_admin_tests.rs` (kept out-of-line
+// to stay under the 300-line module-size budget; matches the
+// `pipeline/registry.rs` / `registry_tests.rs` and
+// `workflow_steps/extract_text.rs` / `extract_text_tests.rs` idioms).
+#[cfg(test)]
+#[path = "workflow_admin_tests.rs"]
+mod tests;

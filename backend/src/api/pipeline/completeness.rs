@@ -145,6 +145,7 @@ pub(crate) async fn run_completeness(
                 AppError::Forbidden { message } => message.clone(),
                 AppError::Conflict { message, .. } => message.clone(),
                 AppError::Internal { message } => message.clone(),
+                AppError::ServiceUnavailable { message } => message.clone(),
             };
             if let Err(rec_err) =
                 steps::record_step_failure(&state.pipeline_pool, step_id, duration_secs, &err_msg)

@@ -10,19 +10,23 @@ pub struct AppConfig {
     pub fastembed_cache_path: String,
     /// Anthropic API key — None means /ask returns 503 but the rest of the app works.
     pub anthropic_api_key: Option<String>,
-    /// Claude model ID for synthesis (default: claude-sonnet-4-6).
+    /// Anthropic model id for the Chat / RAG synthesis endpoint.
+    /// Read from `ANTHROPIC_MODEL` at startup — required (no
+    /// in-binary default).
     pub anthropic_model: String,
     /// Minimum cosine similarity for reranking graph-expanded nodes.
     /// Graph-expanded chunks below this threshold are filtered out.
     /// Default: 0.3 (conservative — keeps most chunks).
     pub rerank_threshold: f32,
-    /// Model for query decomposition (fast model like Sonnet).
-    /// Defaults to claude-sonnet-4-6 for speed and cost efficiency.
+    /// Anthropic model id for query decomposition (typically a fast
+    /// model). Read from `DECOMPOSER_MODEL` at startup — required (no
+    /// in-binary default).
     pub decomposer_model: String,
     /// PostgreSQL connection URL for analytical data (ratings, feedback).
     pub postgres_url: String,
-    /// Directory containing prompt template files (synthesis.md, decomposition.md).
-    /// Default: `/data/documents/prompts`
+    /// Directory containing prompt template files (synthesis.md,
+    /// decomposition.md). Read from `PROMPTS_DIR` at startup —
+    /// required (no in-binary default).
     pub prompts_dir: PathBuf,
     /// PostgreSQL connection URL for the pipeline v2 database (clean room).
     /// Separate from postgres_url which connects to colossus_legal.
@@ -59,6 +63,24 @@ pub struct AppConfig {
     /// infrastructure addresses live in configuration, never in code
     /// (Standing Rule 2).
     pub restate_admin_url: Option<String>,
+
+    /// Restate ingress endpoint base URL (e.g. `http://10.10.100.220:8080`
+    /// on DEV).
+    ///
+    /// Used by the Process Document handler in
+    /// [`crate::api::pipeline::process::process_handler`] to invoke the
+    /// `DocumentPipeline` workflow via Restate's ingress API. Unlike
+    /// [`Self::restate_admin_url`] (which silently skips when unset),
+    /// the process handler **requires** this value — when `None` the
+    /// handler returns HTTP 503 Service Unavailable. Restate-driven
+    /// document processing is the only supported processing path; a
+    /// missing ingress URL means the deployment cannot start new
+    /// document processing at all and the operator must fix it.
+    ///
+    /// We deliberately do not hardcode a fallback URL here — case-specific
+    /// infrastructure addresses live in configuration, never in code
+    /// (Standing Rule 2).
+    pub restate_ingress_url: Option<String>,
 
     /// Optional case-specific subject name to pre-select in the Bias Explorer's
     /// "About" filter on first page render.
@@ -99,24 +121,44 @@ impl AppConfig {
 
         // Anthropic API key — optional so the app starts without it.
         // If absent, POST /ask returns 503 Service Unavailable.
+        // best-effort: env-var-unset → None is the documented success path here
         let anthropic_api_key = std::env::var("ANTHROPIC_API_KEY").ok();
 
-        let anthropic_model =
-            std::env::var("ANTHROPIC_MODEL").unwrap_or_else(|_| "claude-sonnet-4-6".to_string());
+        // ANTHROPIC_MODEL is required: the model identifier is a
+        // deployment decision (model availability, cost tier) that
+        // must be set explicitly per environment. No fallback is
+        // hardcoded — the binary refuses to start if the env var is
+        // unset, the same way DATABASE_URL etc. do.
+        let anthropic_model = std::env::var("ANTHROPIC_MODEL")
+            .map_err(|_| "Missing env var: ANTHROPIC_MODEL".to_string())?;
 
+        // Each `.ok()` below is annotated inline with `// best-effort:`
+        // so the marker satisfies the same-line-or-immediately-preceding
+        // placement requirement for both calls. Distinct from `let _ =
+        // ...`: each `.ok()` feeds the next combinator and the final
+        // value is captured by `.unwrap_or(0.3)`.
         let rerank_threshold: f32 = std::env::var("RERANK_THRESHOLD")
-            .ok()
-            .and_then(|v| v.parse().ok())
+            .ok() // best-effort: env-var-unset → None → unwrap_or(0.3)
+            .and_then(|v| v.parse().ok()) // best-effort: parse-failure → None → unwrap_or(0.3)
             .unwrap_or(0.3);
 
-        let decomposer_model =
-            std::env::var("DECOMPOSER_MODEL").unwrap_or_else(|_| "claude-sonnet-4-6".to_string());
+        // DECOMPOSER_MODEL is required for the same reason as
+        // ANTHROPIC_MODEL above — the decomposer reads its own env
+        // var so the two model selections can drift independently.
+        let decomposer_model = std::env::var("DECOMPOSER_MODEL")
+            .map_err(|_| "Missing env var: DECOMPOSER_MODEL".to_string())?;
 
         let postgres_url = std::env::var("DATABASE_URL")
             .map_err(|_| "Missing env var: DATABASE_URL".to_string())?;
 
+        // PROMPTS_DIR is required: the prompt directory is a
+        // deployment-specific filesystem path (container bind-mount on
+        // DEV/PROD, repo-relative on local dev). No fallback is
+        // hardcoded — the binary refuses to start if the env var is
+        // unset, the same way DOCUMENT_STORAGE_PATH would if it were
+        // declared without `unwrap_or_else`.
         let prompts_dir = PathBuf::from(
-            std::env::var("PROMPTS_DIR").unwrap_or_else(|_| "/data/documents/prompts".to_string()),
+            std::env::var("PROMPTS_DIR").map_err(|_| "Missing env var: PROMPTS_DIR".to_string())?,
         );
 
         let pipeline_database_url = std::env::var("PIPELINE_DATABASE_URL")
@@ -152,12 +194,22 @@ impl AppConfig {
         // best-effort: env-var-unset → None is the documented success path here
         let restate_admin_url = std::env::var("RESTATE_ADMIN_URL").ok();
 
+        // RESTATE_INGRESS_URL is read here as Option<String>; the handler
+        // layer (process::process_handler) enforces presence at use time
+        // and returns HTTP 503 when None. The read here is intentionally
+        // permissive so the binary still starts on a deployment without
+        // the env var set — only the Process Document endpoint becomes
+        // unavailable, which is preferable to refusing to boot.
+        // best-effort: env-var-unset → None is the documented intermediate path here
+        let restate_ingress_url = std::env::var("RESTATE_INGRESS_URL").ok();
+
         // CASE_DEFAULT_SUBJECT_NAME — optional. We use `.ok()` rather than
         // `unwrap_or` because we need to distinguish "unset" (no default
         // applied, frontend stays at All subjects) from "set to empty
         // string" (which we treat as unset below to keep the wire contract
         // simple — see `Some(name) if !name.trim().is_empty()` in the
         // bias handler).
+        // best-effort: env-var-unset → None is the documented success path here
         let case_default_subject_name = std::env::var("CASE_DEFAULT_SUBJECT_NAME").ok();
 
         Ok(Self {
@@ -181,6 +233,7 @@ impl AppConfig {
             prompts_dir,
             environment,
             restate_admin_url,
+            restate_ingress_url,
             case_default_subject_name,
         })
     }
