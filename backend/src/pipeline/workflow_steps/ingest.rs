@@ -24,12 +24,30 @@ use std::sync::Arc;
 
 use restate_sdk::errors::{HandlerError, TerminalError};
 
+use super::{record_step_lifecycle, StepOutcome, STEP_INGEST};
 use crate::pipeline::context::AppContext;
 use crate::pipeline::steps::ingest::{run_ingest, IngestError};
 
 /// Restate workflow step: ingest approved extraction items into Neo4j.
-#[tracing::instrument(skip(app), fields(doc_id = %doc_id, step = "ingest"))]
+#[tracing::instrument(skip(app), fields(doc_id = %doc_id, step = STEP_INGEST))]
 pub async fn step_ingest(app: &Arc<AppContext>, doc_id: &str) -> Result<String, HandlerError> {
+    record_step_lifecycle(
+        &app.pipeline_pool,
+        doc_id,
+        STEP_INGEST,
+        step_ingest_body(app, doc_id),
+    )
+    .await
+}
+
+/// Body of [`step_ingest`]. Returns the 2-key audit JSON
+/// (`entities_written` ← `total_nodes`, `relationships_written` ←
+/// `total_rels`) matching `pipeline/steps/ingest.rs:186`.
+#[tracing::instrument(skip(app), fields(doc_id = %doc_id))]
+async fn step_ingest_body(
+    app: &Arc<AppContext>,
+    doc_id: &str,
+) -> Result<StepOutcome, HandlerError> {
     let result = run_ingest(doc_id, &app.pipeline_pool, app.as_ref())
         .await
         .map_err(|e| classify_ingest_error(doc_id, &e))?;
@@ -44,7 +62,27 @@ pub async fn step_ingest(app: &Arc<AppContext>, doc_id: &str) -> Result<String, 
         total_rels = result.total_rels,
         "step_ingest: complete"
     );
-    Ok(summary)
+    // Audit JSON shape matches `pipeline/steps/ingest.rs:186`. See
+    // [`build_result_summary`] for the rename contract.
+    Ok(StepOutcome {
+        summary,
+        result_summary: build_result_summary(&result),
+        skipped_early: false,
+    })
+}
+
+/// Build the 2-key `result_summary` JSON for ingest, matching
+/// `pipeline/steps/ingest.rs:186` byte-for-byte. The legacy code
+/// renames the struct fields (`total_nodes → entities_written`,
+/// `total_rels → relationships_written`) so we do the same to keep
+/// the column byte-identical. Extracted for testability.
+fn build_result_summary(
+    result: &crate::pipeline::steps::ingest::IngestResult,
+) -> serde_json::Value {
+    serde_json::json!({
+        "entities_written": result.total_nodes,
+        "relationships_written": result.total_rels,
+    })
 }
 
 /// Classify an [`IngestError`] as terminal or retryable.
@@ -93,6 +131,27 @@ mod tests {
 
     fn is_terminal(e: &HandlerError) -> bool {
         display_message(e).starts_with("Terminal error")
+    }
+
+    // ── `build_result_summary` rename contract ─────────────────
+
+    #[test]
+    fn build_result_summary_renames_struct_fields() {
+        let result = crate::pipeline::steps::ingest::IngestResult {
+            total_nodes: 142,
+            total_rels: 89,
+        };
+        let summary = super::build_result_summary(&result);
+        // Renamed keys.
+        assert_eq!(summary["entities_written"], serde_json::json!(142));
+        assert_eq!(summary["relationships_written"], serde_json::json!(89));
+        // Struct field names must NOT appear.
+        assert!(summary.get("total_nodes").is_none());
+        assert!(summary.get("total_rels").is_none());
+        let obj = summary
+            .as_object()
+            .expect("result_summary must be a JSON object");
+        assert_eq!(obj.len(), 2);
     }
 
     #[test]

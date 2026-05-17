@@ -16,12 +16,27 @@ use std::sync::Arc;
 
 use restate_sdk::errors::{HandlerError, TerminalError};
 
+use super::{record_step_lifecycle, StepOutcome, STEP_INDEX};
 use crate::pipeline::context::AppContext;
 use crate::pipeline::steps::index::{run_index, IndexError};
 
 /// Restate workflow step: embed Neo4j nodes and upsert into Qdrant.
-#[tracing::instrument(skip(app), fields(doc_id = %doc_id, step = "index"))]
+#[tracing::instrument(skip(app), fields(doc_id = %doc_id, step = STEP_INDEX))]
 pub async fn step_index(app: &Arc<AppContext>, doc_id: &str) -> Result<String, HandlerError> {
+    record_step_lifecycle(
+        &app.pipeline_pool,
+        doc_id,
+        STEP_INDEX,
+        step_index_body(app, doc_id),
+    )
+    .await
+}
+
+/// Body of [`step_index`]. Returns the 1-key audit JSON
+/// (`points_indexed` ← `embedded_count`) matching
+/// `pipeline/steps/index.rs:166`.
+#[tracing::instrument(skip(app), fields(doc_id = %doc_id))]
+async fn step_index_body(app: &Arc<AppContext>, doc_id: &str) -> Result<StepOutcome, HandlerError> {
     let result = run_index(doc_id, &app.pipeline_pool, app.as_ref())
         .await
         .map_err(|e| classify_index_error(doc_id, &e))?;
@@ -32,7 +47,23 @@ pub async fn step_index(app: &Arc<AppContext>, doc_id: &str) -> Result<String, H
         embedded_count = result.embedded_count,
         "step_index: complete"
     );
-    Ok(summary)
+    // Audit JSON shape matches `pipeline/steps/index.rs:166`. See
+    // [`build_result_summary`] for the rename contract.
+    Ok(StepOutcome {
+        summary,
+        result_summary: build_result_summary(&result),
+        skipped_early: false,
+    })
+}
+
+/// Build the 1-key `result_summary` JSON for index, matching
+/// `pipeline/steps/index.rs:166` byte-for-byte. The legacy code
+/// renames `embedded_count → points_indexed` so we do the same to
+/// keep the column byte-identical. Extracted for testability.
+fn build_result_summary(result: &crate::pipeline::steps::index::IndexResult) -> serde_json::Value {
+    serde_json::json!({
+        "points_indexed": result.embedded_count,
+    })
 }
 
 /// Classify an [`IndexError`] as terminal or retryable.
@@ -75,6 +106,25 @@ mod tests {
 
     fn is_terminal(e: &HandlerError) -> bool {
         display_message(e).starts_with("Terminal error")
+    }
+
+    // ── `build_result_summary` rename contract ─────────────────
+
+    #[test]
+    fn build_result_summary_renames_embedded_count_to_points_indexed() {
+        let result = crate::pipeline::steps::index::IndexResult {
+            embedded_count: 256,
+        };
+        let summary = super::build_result_summary(&result);
+        assert_eq!(summary["points_indexed"], serde_json::json!(256));
+        assert!(
+            summary.get("embedded_count").is_none(),
+            "embedded_count must be renamed to points_indexed"
+        );
+        let obj = summary
+            .as_object()
+            .expect("result_summary must be a JSON object");
+        assert_eq!(obj.len(), 1);
     }
 
     #[test]

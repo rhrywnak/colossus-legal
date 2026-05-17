@@ -18,6 +18,7 @@ use std::sync::Arc;
 
 use restate_sdk::errors::{HandlerError, TerminalError};
 
+use super::{record_step_lifecycle, StepOutcome, STEP_VERIFY};
 use crate::models::document_status::STATUS_VERIFIED;
 use crate::pipeline::context::AppContext;
 use crate::pipeline::steps::verify::{run_verify, VerifyError};
@@ -39,8 +40,26 @@ use crate::repositories::pipeline_repository;
 ///   retry without operator intervention).
 /// - Transient DB failures → retryable (Restate's exponential backoff
 ///   likely resolves these).
-#[tracing::instrument(skip(app), fields(doc_id = %doc_id, step = "verify"))]
+#[tracing::instrument(skip(app), fields(doc_id = %doc_id, step = STEP_VERIFY))]
 pub async fn step_verify(app: &Arc<AppContext>, doc_id: &str) -> Result<String, HandlerError> {
+    record_step_lifecycle(
+        &app.pipeline_pool,
+        doc_id,
+        STEP_VERIFY,
+        step_verify_body(app, doc_id),
+    )
+    .await
+}
+
+/// Body of [`step_verify`]. Returns the success-path
+/// [`StepOutcome`] (11-key audit JSON matching the legacy
+/// `progress.set_step_result(...)` shape at
+/// `pipeline/steps/verify.rs:160`), or a classified `HandlerError`.
+#[tracing::instrument(skip(app), fields(doc_id = %doc_id))]
+async fn step_verify_body(
+    app: &Arc<AppContext>,
+    doc_id: &str,
+) -> Result<StepOutcome, HandlerError> {
     let result = run_verify(doc_id, &app.pipeline_pool, app.as_ref())
         .await
         .map_err(|e| classify_verify_error(doc_id, &e))?;
@@ -89,7 +108,42 @@ pub async fn step_verify(app: &Arc<AppContext>, doc_id: &str) -> Result<String, 
         grounding_pct = result.grounding_pct,
         "step_verify: complete"
     );
-    Ok(summary)
+    // Audit JSON shape matches `pipeline/steps/verify.rs:160`. See
+    // [`build_result_summary`] for the byte-identical mapping and
+    // the derived-field computation.
+    Ok(StepOutcome {
+        summary,
+        result_summary: build_result_summary(&result),
+        skipped_early: false,
+    })
+}
+
+/// Build the 11-key `result_summary` JSON for verify, matching
+/// `pipeline/steps/verify.rs:160` byte-for-byte.
+///
+/// Two keys are derived at JSON-build time (not direct struct-field
+/// reads): `grounded = exact + normalized` and
+/// `ungrounded = not_found + missing_quote`. The legacy code computes
+/// these inline so we do the same to keep
+/// `pipeline_steps.result_summary` byte-identical — and so the
+/// derived computation is unit-testable here without standing up the
+/// orchestrator.
+fn build_result_summary(
+    result: &crate::pipeline::steps::verify::VerifyResult,
+) -> serde_json::Value {
+    serde_json::json!({
+        "grounded": result.exact + result.normalized,
+        "ungrounded": result.not_found + result.missing_quote,
+        "total": result.total_items,
+        "exact": result.exact,
+        "normalized": result.normalized,
+        "not_found": result.not_found,
+        "derived": result.derived,
+        "derived_invalid": result.derived_invalid,
+        "unverified": result.unverified,
+        "missing_quote": result.missing_quote,
+        "grounding_pct": result.grounding_pct,
+    })
 }
 
 /// Classify a [`VerifyError`] as terminal or retryable for Restate.
@@ -190,6 +244,69 @@ mod tests {
         assert!(is_terminal(&c));
         let msg = display_message(&c);
         assert!(msg.contains("schema YAML"), "msg must point at fix: {msg}");
+    }
+
+    // ── `build_result_summary` shape + derived-field contracts ──
+
+    #[test]
+    fn build_result_summary_emits_11_keys_with_derived_fields() {
+        // Construct a VerifyResult with distinct values per counter
+        // so a swap-in-place bug (e.g., `derived` accidentally
+        // mapped to `derived_invalid`) is observable.
+        let result = crate::pipeline::steps::verify::VerifyResult {
+            total_items: 100,
+            exact: 40,
+            normalized: 10,
+            not_found: 5,
+            derived: 20,
+            derived_invalid: 3,
+            unverified: 12,
+            missing_quote: 10,
+            grounding_pct: 60.0,
+        };
+        let summary = super::build_result_summary(&result);
+
+        // Direct mappings.
+        assert_eq!(summary["total"], serde_json::json!(100));
+        assert_eq!(summary["exact"], serde_json::json!(40));
+        assert_eq!(summary["normalized"], serde_json::json!(10));
+        assert_eq!(summary["not_found"], serde_json::json!(5));
+        assert_eq!(summary["derived"], serde_json::json!(20));
+        assert_eq!(summary["derived_invalid"], serde_json::json!(3));
+        assert_eq!(summary["unverified"], serde_json::json!(12));
+        assert_eq!(summary["missing_quote"], serde_json::json!(10));
+        assert_eq!(summary["grounding_pct"], serde_json::json!(60.0));
+
+        // Derived computations — pinning the addition contract.
+        assert_eq!(
+            summary["grounded"],
+            serde_json::json!(50),
+            "grounded must be exact ({}) + normalized ({})",
+            result.exact,
+            result.normalized
+        );
+        assert_eq!(
+            summary["ungrounded"],
+            serde_json::json!(15),
+            "ungrounded must be not_found ({}) + missing_quote ({})",
+            result.not_found,
+            result.missing_quote
+        );
+
+        // total_items is renamed to `total` in the JSON (legacy parity).
+        assert!(
+            summary.get("total_items").is_none(),
+            "the struct field name must NOT appear in the JSON"
+        );
+
+        let obj = summary
+            .as_object()
+            .expect("result_summary must be a JSON object");
+        assert_eq!(
+            obj.len(),
+            11,
+            "result_summary must contain exactly 11 keys, got {obj:?}"
+        );
     }
 
     #[test]

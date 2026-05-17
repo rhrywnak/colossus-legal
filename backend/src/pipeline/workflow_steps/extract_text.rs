@@ -36,6 +36,7 @@ use std::sync::Arc;
 
 use restate_sdk::errors::{HandlerError, TerminalError};
 
+use super::{record_step_lifecycle, StepOutcome, STEP_EXTRACT_TEXT};
 use crate::models::document_status::STATUS_TEXT_EXTRACTED;
 use crate::pipeline::context::AppContext;
 use crate::pipeline::steps::extract_text::{extract_text_to_db, ExtractTextError};
@@ -68,11 +69,46 @@ use crate::repositories::pipeline_repository;
 /// `Arc` for later steps without re-cloning it. Inside this function
 /// we deref to `&AppContext` (`app.as_ref()`) when calling helpers
 /// that don't need the refcount.
-#[tracing::instrument(skip(app), fields(doc_id = %doc_id, step = "extract_text"))]
+#[tracing::instrument(skip(app), fields(doc_id = %doc_id, step = STEP_EXTRACT_TEXT))]
 pub async fn step_extract_text(
     app: &Arc<AppContext>,
     doc_id: &str,
 ) -> Result<String, HandlerError> {
+    // Audit-row lifecycle: one `pipeline_steps` row per invocation.
+    // `record_step_lifecycle` handles the start/finish/failure writes
+    // around the body future and surfaces the body's `HandlerError`
+    // unchanged on the failure path (Restate's retry behaviour stays
+    // driven by the body's `classify_*_error`).
+    record_step_lifecycle(
+        &app.pipeline_pool,
+        doc_id,
+        STEP_EXTRACT_TEXT,
+        step_extract_text_body(app, doc_id),
+    )
+    .await
+}
+
+/// Body of [`step_extract_text`] — the original step logic, returning
+/// [`StepOutcome`] so the wrapping handler can record the
+/// `pipeline_steps` row with the right `result_summary` shape.
+///
+/// Returns three distinct outcomes via [`StepOutcome`]:
+///
+/// - **Skipped** (idempotency guard fired): `skipped_early = true`,
+///   `result_summary` is `{"skipped": true, "reason": "already_extracted",
+///   "page_count": N}` — distinct from the success shape so an
+///   operator inspecting the row can tell the two cases apart.
+/// - **Success**: `skipped_early = false`, `result_summary` is the
+///   6-key shape the legacy `progress.set_step_result(...)` emits
+///   (`page_count`, `total_chars`, `pages_native`, `pages_ocr`,
+///   `detected_type`, `ocr_engine`).
+/// - **Failure**: returns `Err(HandlerError)` — the wrapper records
+///   the failure row.
+#[tracing::instrument(skip(app), fields(doc_id = %doc_id))]
+async fn step_extract_text_body(
+    app: &Arc<AppContext>,
+    doc_id: &str,
+) -> Result<StepOutcome, HandlerError> {
     // [1] Idempotency guard. `document_text` is the authoritative
     //     "extraction already done" signal — a non-empty vector here
     //     means a prior invocation wrote pages, so we skip without
@@ -98,7 +134,14 @@ pub async fn step_extract_text(
             page_count,
             "step_extract_text: skip — already extracted"
         );
-        return Ok(format!("skipped_already_extracted_{page_count}_pages"));
+        // Distinct shape from the success path — see
+        // [`build_skipped_result_summary`] for the audit-trail
+        // rationale and contract.
+        return Ok(StepOutcome {
+            summary: format!("skipped_already_extracted_{page_count}_pages"),
+            result_summary: build_skipped_result_summary(page_count),
+            skipped_early: true,
+        });
     }
 
     // [2] Delegate to the shared helper. The legacy Worker step and
@@ -144,7 +187,52 @@ pub async fn step_extract_text(
         detected_type = ?result.detected_document_type,
         "step_extract_text: complete"
     );
-    Ok(summary)
+    // Audit JSON shape matches `pipeline/steps/extract_text.rs:397`
+    // (the legacy `progress.set_step_result(...)` call) byte-for-byte
+    // so external audit tooling sees the same column content from both
+    // paths. See [`build_success_result_summary`].
+    Ok(StepOutcome {
+        summary,
+        result_summary: build_success_result_summary(&result),
+        skipped_early: false,
+    })
+}
+
+/// Build the 3-key skipped-path `result_summary` JSON written when
+/// the idempotency guard found existing `document_text` rows.
+///
+/// The `"skipped": true` sentinel lets audit tooling and the
+/// Execution History panel distinguish "we did work" from "we
+/// short-circuited" without parsing the summary string. Extracted
+/// from the inline call site so the contract can be unit-tested
+/// without standing up a database.
+fn build_skipped_result_summary(page_count: usize) -> serde_json::Value {
+    serde_json::json!({
+        "skipped": true,
+        "reason": "already_extracted",
+        "page_count": page_count,
+    })
+}
+
+/// Build the 6-key success-path `result_summary` JSON, matching
+/// `pipeline/steps/extract_text.rs:397` byte-for-byte.
+///
+/// Extracted from the inline call site so the audit-trail contract
+/// (specifically the `detected_type` rename from
+/// `ExtractTextOutcome::detected_document_type`) can be pinned by a
+/// unit test against silent breakage from a future struct-field
+/// rename.
+fn build_success_result_summary(
+    result: &crate::pipeline::steps::extract_text::TextExtractionResult,
+) -> serde_json::Value {
+    serde_json::json!({
+        "page_count": result.page_count,
+        "total_chars": result.total_chars,
+        "pages_native": result.pages_native,
+        "pages_ocr": result.pages_ocr,
+        "detected_type": result.detected_document_type,
+        "ocr_engine": result.ocr_engine,
+    })
 }
 
 /// Classify an [`ExtractTextError`] as terminal or retryable for
@@ -222,216 +310,10 @@ fn classify_extract_error(doc_id: &str, e: ExtractTextError) -> HandlerError {
     }
 }
 
-// ─────────────────────────────────────────────────────────────────
-// Unit tests for `classify_extract_error`.
-//
-// The terminal-vs-retryable decision is operator-observable: a
-// terminal classification stops Restate's retry loop and fails the
-// workflow; a retryable one triggers exponential backoff. A
-// misclassification introduced by a future edit has no compile-time
-// backstop without these tests — one test per variant pins the
-// contract.
-//
-// `HandlerError`'s inner enum is `pub(crate)` to the restate_sdk
-// crate, so we cannot pattern-match on the Terminal/Retryable
-// variants directly. We assert through the `Display` impl instead,
-// which prefixes "Terminal error" or "Retryable error" depending on
-// the inner variant (see restate_sdk::errors::HandlerErrorInner's
-// Display impl, restate-sdk-0.6/src/errors.rs:29-38).
-// ─────────────────────────────────────────────────────────────────
-
+// Unit tests for `classify_extract_error` live in
+// `extract_text_tests.rs` (kept out-of-line to stay under the
+// 300-line module-size budget; matches the
+// `pipeline/registry.rs` / `registry_tests.rs` idiom).
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    use crate::pipeline::config::ProcessingProfileLoadError;
-    use crate::pipeline::steps::extract_text::ExtractTextError;
-
-    /// Returns `true` when `e` is the Terminal branch of HandlerError.
-    ///
-    /// `HandlerError` itself does not implement `Display` (only its
-    /// `pub(crate)` inner enum does), so we route through `as_ref()`
-    /// — `HandlerError: AsRef<dyn StdError>`, and every `StdError`
-    /// implements `Display`. The inner `HandlerErrorInner::Display`
-    /// formats terminal errors as `"Terminal error [code]: message"`
-    /// and retryable ones as `"Retryable error: ..."`. We pin the
-    /// classification by checking the prefix.
-    fn display_message(e: &HandlerError) -> String {
-        let inner: &dyn std::error::Error = e.as_ref();
-        format!("{inner}")
-    }
-
-    fn is_terminal(e: &HandlerError) -> bool {
-        display_message(e).starts_with("Terminal error")
-    }
-
-    #[test]
-    fn classify_document_not_found_is_terminal() {
-        let err = ExtractTextError::DocumentNotFound {
-            doc_id: "doc-abc".into(),
-        };
-        let classified = classify_extract_error("doc-abc", err);
-        assert!(
-            is_terminal(&classified),
-            "DocumentNotFound must classify as terminal — retrying won't make \
-             a missing row reappear. Got: {:?}",
-            classified
-        );
-        // The operator-facing message must name the doc_id and point
-        // at the recovery action (confirming upload completed).
-        let msg = display_message(&classified);
-        assert!(msg.contains("doc-abc"), "msg must name doc_id: {msg}");
-        assert!(
-            msg.contains("not found"),
-            "msg must say what's wrong: {msg}"
-        );
-    }
-
-    #[test]
-    fn classify_file_not_found_is_terminal() {
-        let err = ExtractTextError::FileNotFound {
-            path: "/data/docs/missing.pdf".into(),
-        };
-        let classified = classify_extract_error("doc-x", err);
-        assert!(
-            is_terminal(&classified),
-            "FileNotFound must classify as terminal — retrying won't put the \
-             file back on disk. Got: {:?}",
-            classified
-        );
-        let msg = display_message(&classified);
-        assert!(
-            msg.contains("/data/docs/missing.pdf"),
-            "msg must include the path: {msg}"
-        );
-        assert!(
-            msg.contains("DOCUMENT_STORAGE_PATH"),
-            "msg must point at the env var to check: {msg}"
-        );
-    }
-
-    #[test]
-    fn classify_no_usable_text_is_terminal() {
-        // Construct a NoUsableText with the same fields the real path
-        // emits — the Display impl includes the page/OCR counters.
-        let err = ExtractTextError::NoUsableText {
-            doc_id: "doc-empty".into(),
-            page_count: 5,
-            pages_native: 5,
-            pages_ocr: 0,
-            scanned_count: 0,
-            ocr_available: true,
-            ocr_error_suffix: String::new(),
-        };
-        let classified = classify_extract_error("doc-empty", err);
-        assert!(
-            is_terminal(&classified),
-            "NoUsableText must classify as terminal — an empty PDF won't \
-             gain content on retry. Got: {:?}",
-            classified
-        );
-    }
-
-    #[test]
-    fn classify_ocr_tools_missing_is_terminal() {
-        let err = ExtractTextError::OcrToolsMissing {
-            source: crate::api::pipeline::ocr::OcrError::ToolNotFound(
-                "pdftoppm not on PATH".into(),
-            ),
-        };
-        let classified = classify_extract_error("doc-x", err);
-        assert!(
-            is_terminal(&classified),
-            "OcrToolsMissing must classify as terminal — missing binaries \
-             are a deployment fix, not a retry. Got: {:?}",
-            classified
-        );
-        let msg = display_message(&classified);
-        assert!(
-            msg.contains("pdftoppm") || msg.contains("tesseract"),
-            "msg must name the tools to install: {msg}"
-        );
-    }
-
-    #[test]
-    fn classify_profile_load_is_terminal() {
-        let err = ExtractTextError::ProfileLoad {
-            source: ProcessingProfileLoadError::FileNotFound {
-                path: "/etc/profiles/missing.yaml".into(),
-            },
-        };
-        let classified = classify_extract_error("doc-x", err);
-        assert!(
-            is_terminal(&classified),
-            "ProfileLoad must classify as terminal — fixing YAML is a \
-             deploy step. Got: {:?}",
-            classified
-        );
-        let msg = display_message(&classified);
-        assert!(
-            msg.contains("profile"),
-            "msg must mention the profile: {msg}"
-        );
-        assert!(
-            msg.contains("redeploy"),
-            "msg must hint at fix+redeploy: {msg}"
-        );
-    }
-
-    #[test]
-    fn classify_extraction_failed_is_retryable() {
-        // spawn_blocking failures and other transient PDF/DOCX errors
-        // come through as ExtractionFailed. The retry path is correct
-        // for these — a thread-pool exhaustion or a flaky native call
-        // may resolve on the next attempt.
-        let err = ExtractTextError::ExtractionFailed {
-            message: "pdf spawn_blocking join: panic".into(),
-        };
-        let classified = classify_extract_error("doc-x", err);
-        assert!(
-            !is_terminal(&classified),
-            "ExtractionFailed must classify as retryable — a transient PDF \
-             extractor crash may succeed on retry. Got: {:?}",
-            classified
-        );
-        let msg = display_message(&classified);
-        assert!(
-            msg.contains("Will retry"),
-            "msg must signal retry intent for operator clarity: {msg}"
-        );
-    }
-
-    #[test]
-    fn classify_db_write_is_retryable() {
-        let err = ExtractTextError::DbWrite {
-            message: "connection timeout".into(),
-        };
-        let classified = classify_extract_error("doc-x", err);
-        assert!(
-            !is_terminal(&classified),
-            "DbWrite must classify as retryable — pool/connection blips \
-             often resolve on the next attempt. Got: {:?}",
-            classified
-        );
-    }
-
-    #[test]
-    fn classify_cancelled_is_terminal() {
-        // Cancelled is unreachable on the Restate path (no
-        // CancellationToken threaded in), but if it ever surfaces we
-        // must NOT retry an operator-initiated cancellation.
-        let err = ExtractTextError::Cancelled;
-        let classified = classify_extract_error("doc-x", err);
-        assert!(
-            is_terminal(&classified),
-            "Cancelled must classify as terminal — operator intent should \
-             never be retried into a different outcome. Got: {:?}",
-            classified
-        );
-        let msg = display_message(&classified);
-        assert!(
-            msg.contains("Investigate"),
-            "msg must flag the unexpected path: {msg}"
-        );
-    }
-}
+#[path = "extract_text_tests.rs"]
+mod tests;

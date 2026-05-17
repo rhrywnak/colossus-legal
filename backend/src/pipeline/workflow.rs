@@ -75,7 +75,10 @@ use crate::models::document_status::{
     STATUS_VERIFIED,
 };
 use crate::pipeline::context::AppContext;
-use crate::pipeline::workflow_steps;
+use crate::pipeline::workflow_steps::{
+    self, STEP_AUTO_APPROVE, STEP_COMPLETENESS, STEP_EXTRACT_TEXT, STEP_INDEX, STEP_INGEST,
+    STEP_LLM_EXTRACT_PASS1, STEP_LLM_EXTRACT_PASS2, STEP_VERIFY,
+};
 use crate::repositories::pipeline_repository;
 
 // ── State contract ───────────────────────────────────────────────
@@ -328,7 +331,7 @@ impl DocumentPipeline for DocumentPipelineImpl {
             // across all clones. The doc_id is `.clone()`d separately
             // because the trailing tracing line and the next step both
             // need their own copies.
-            failed_step = "extract_text";
+            failed_step = STEP_EXTRACT_TEXT;
             let app = Arc::clone(&self.ctx);
             let did = doc_id.clone();
             ctx.run(
@@ -337,7 +340,7 @@ impl DocumentPipeline for DocumentPipelineImpl {
             .await
             .map_err(|e| {
                 tracing::error!(
-                    doc_id = %doc_id, step = "extract_text", error = %e,
+                    doc_id = %doc_id, step = STEP_EXTRACT_TEXT, error = %e,
                     recovery = STEP_FAILURE_RECOVERY,
                     "DocumentPipeline step failed"
                 );
@@ -351,7 +354,7 @@ impl DocumentPipeline for DocumentPipelineImpl {
             // because `extraction_chunks` rows carry an `extraction_run_id`
             // FK and are pass-scoped (see the module-level doc above for
             // why a separate chunk step is awkward).
-            failed_step = "llm_extract_pass1";
+            failed_step = STEP_LLM_EXTRACT_PASS1;
             let app = Arc::clone(&self.ctx);
             let did = doc_id.clone();
             ctx.run(|| async move {
@@ -360,7 +363,7 @@ impl DocumentPipeline for DocumentPipelineImpl {
             .await
             .map_err(|e| {
                 tracing::error!(
-                    doc_id = %doc_id, step = "llm_extract_pass1", error = %e,
+                    doc_id = %doc_id, step = STEP_LLM_EXTRACT_PASS1, error = %e,
                     recovery = STEP_FAILURE_RECOVERY,
                     "DocumentPipeline step failed"
                 );
@@ -375,7 +378,7 @@ impl DocumentPipeline for DocumentPipelineImpl {
             // `run_pass2 = false`. No FSM routing here (the legacy
             // worker's `next_step_after_pass1` is bypassed on the Restate
             // path).
-            failed_step = "llm_extract_pass2";
+            failed_step = STEP_LLM_EXTRACT_PASS2;
             let app = Arc::clone(&self.ctx);
             let did = doc_id.clone();
             ctx.run(|| async move {
@@ -384,7 +387,7 @@ impl DocumentPipeline for DocumentPipelineImpl {
             .await
             .map_err(|e| {
                 tracing::error!(
-                    doc_id = %doc_id, step = "llm_extract_pass2", error = %e,
+                    doc_id = %doc_id, step = STEP_LLM_EXTRACT_PASS2, error = %e,
                     recovery = STEP_FAILURE_RECOVERY,
                     "DocumentPipeline step failed"
                 );
@@ -393,14 +396,14 @@ impl DocumentPipeline for DocumentPipelineImpl {
             ctx.set(STATUS_STATE_KEY, STATUS_PASS2_COMPLETE.to_string());
 
             // ── Step 4: verify (REAL) ──────────────────────────────────
-            failed_step = "verify";
+            failed_step = STEP_VERIFY;
             let app = Arc::clone(&self.ctx);
             let did = doc_id.clone();
             ctx.run(|| async move { workflow_steps::verify::step_verify(&app, &did).await })
                 .await
                 .map_err(|e| {
                     tracing::error!(
-                        doc_id = %doc_id, step = "verify", error = %e,
+                        doc_id = %doc_id, step = STEP_VERIFY, error = %e,
                         recovery = STEP_FAILURE_RECOVERY,
                         "DocumentPipeline step failed"
                     );
@@ -415,7 +418,7 @@ impl DocumentPipeline for DocumentPipelineImpl {
             // "VERIFIED" until step_ingest writes "INGESTED". The
             // Restate state still transitions through STATUS_APPROVED
             // below so the journal records the step boundary.
-            failed_step = "auto_approve";
+            failed_step = STEP_AUTO_APPROVE;
             let app = Arc::clone(&self.ctx);
             let did = doc_id.clone();
             ctx.run(
@@ -424,7 +427,7 @@ impl DocumentPipeline for DocumentPipelineImpl {
             .await
             .map_err(|e| {
                 tracing::error!(
-                    doc_id = %doc_id, step = "auto_approve", error = %e,
+                    doc_id = %doc_id, step = STEP_AUTO_APPROVE, error = %e,
                     recovery = STEP_FAILURE_RECOVERY,
                     "DocumentPipeline step failed"
                 );
@@ -439,14 +442,14 @@ impl DocumentPipeline for DocumentPipelineImpl {
             // cleanup-then-write idempotency (calls `cleanup_neo4j` at
             // the start of every invocation), so Restate replay is safe
             // even though `ingest_helpers` uses CREATE rather than MERGE.
-            failed_step = "ingest";
+            failed_step = STEP_INGEST;
             let app = Arc::clone(&self.ctx);
             let did = doc_id.clone();
             ctx.run(|| async move { workflow_steps::ingest::step_ingest(&app, &did).await })
                 .await
                 .map_err(|e| {
                     tracing::error!(
-                        doc_id = %doc_id, step = "ingest", error = %e,
+                        doc_id = %doc_id, step = STEP_INGEST, error = %e,
                         recovery = STEP_FAILURE_RECOVERY,
                         "DocumentPipeline step failed"
                     );
@@ -459,14 +462,14 @@ impl DocumentPipeline for DocumentPipelineImpl {
             // The Postgres `documents.status = "INDEXED"` write happens
             // inside the core `run_index`. Qdrant upsert is natively
             // idempotent — Restate replay produces identical points.
-            failed_step = "index";
+            failed_step = STEP_INDEX;
             let app = Arc::clone(&self.ctx);
             let did = doc_id.clone();
             ctx.run(|| async move { workflow_steps::index::step_index(&app, &did).await })
                 .await
                 .map_err(|e| {
                     tracing::error!(
-                        doc_id = %doc_id, step = "index", error = %e,
+                        doc_id = %doc_id, step = STEP_INDEX, error = %e,
                         recovery = STEP_FAILURE_RECOVERY,
                         "DocumentPipeline step failed"
                     );
@@ -481,7 +484,7 @@ impl DocumentPipeline for DocumentPipelineImpl {
             // status write is needed. The Restate state still transitions
             // through STATUS_COMPLETED at the very end (below) to mark
             // the workflow journal as terminally complete.
-            failed_step = "completeness";
+            failed_step = STEP_COMPLETENESS;
             let app = Arc::clone(&self.ctx);
             let did = doc_id.clone();
             ctx.run(
@@ -490,7 +493,7 @@ impl DocumentPipeline for DocumentPipelineImpl {
             .await
             .map_err(|e| {
                 tracing::error!(
-                    doc_id = %doc_id, step = "completeness", error = %e,
+                    doc_id = %doc_id, step = STEP_COMPLETENESS, error = %e,
                     recovery = STEP_FAILURE_RECOVERY,
                     "DocumentPipeline step failed"
                 );

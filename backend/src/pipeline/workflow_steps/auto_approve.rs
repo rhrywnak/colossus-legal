@@ -19,6 +19,7 @@ use std::sync::Arc;
 
 use restate_sdk::errors::{HandlerError, TerminalError};
 
+use super::{record_step_lifecycle, StepOutcome, STEP_AUTO_APPROVE};
 use crate::pipeline::context::AppContext;
 use crate::pipeline::steps::auto_approve::{run_auto_approve, AutoApproveError};
 
@@ -51,11 +52,30 @@ use crate::pipeline::steps::auto_approve::{run_auto_approve, AutoApproveError};
 /// - `BulkApproveFailed`, `CountPendingFailed`, `Helper` are
 ///   retryable transient DB failures — Restate's backoff likely
 ///   resolves them.
-#[tracing::instrument(skip(app), fields(doc_id = %doc_id, step = "auto_approve"))]
+#[tracing::instrument(skip(app), fields(doc_id = %doc_id, step = STEP_AUTO_APPROVE))]
 pub async fn step_auto_approve(
     app: &Arc<AppContext>,
     doc_id: &str,
 ) -> Result<String, HandlerError> {
+    record_step_lifecycle(
+        &app.pipeline_pool,
+        doc_id,
+        STEP_AUTO_APPROVE,
+        step_auto_approve_body(app, doc_id),
+    )
+    .await
+}
+
+/// Body of [`step_auto_approve`]. Returns the 2-key audit JSON
+/// (`approved` ← `approved_count`, `pending_review` ←
+/// `pending_review_count`) matching the legacy
+/// `progress.set_step_result(...)` shape at
+/// `pipeline/steps/auto_approve.rs:143`.
+#[tracing::instrument(skip(app), fields(doc_id = %doc_id))]
+async fn step_auto_approve_body(
+    app: &Arc<AppContext>,
+    doc_id: &str,
+) -> Result<StepOutcome, HandlerError> {
     let result = run_auto_approve(doc_id, &app.pipeline_pool, app.as_ref())
         .await
         .map_err(|e| classify_auto_approve_error(doc_id, &e))?;
@@ -70,7 +90,30 @@ pub async fn step_auto_approve(
         pending_review_count = result.pending_review_count,
         "step_auto_approve: complete"
     );
-    Ok(summary)
+    // Audit JSON shape matches `pipeline/steps/auto_approve.rs:143`.
+    // See [`build_result_summary`] for the rename contract.
+    Ok(StepOutcome {
+        summary,
+        result_summary: build_result_summary(&result),
+        skipped_early: false,
+    })
+}
+
+/// Build the 2-key `result_summary` JSON for auto_approve, matching
+/// `pipeline/steps/auto_approve.rs:143` byte-for-byte. The legacy
+/// code renames the struct fields (`approved_count → approved`,
+/// `pending_review_count → pending_review`) so we do the same to
+/// keep the column byte-identical. Extracted for testability — a
+/// future struct-field rename without an audit-trail migration
+/// would silently break tooling that reads
+/// `pipeline_steps.result_summary` directly.
+fn build_result_summary(
+    result: &crate::pipeline::steps::auto_approve::AutoApproveResult,
+) -> serde_json::Value {
+    serde_json::json!({
+        "approved": result.approved_count,
+        "pending_review": result.pending_review_count,
+    })
 }
 
 /// Classify an [`AutoApproveError`] as terminal or retryable.
@@ -112,6 +155,33 @@ mod tests {
 
     fn is_terminal(e: &HandlerError) -> bool {
         display_message(e).starts_with("Terminal error")
+    }
+
+    // ── `build_result_summary` rename contract ─────────────────
+
+    #[test]
+    fn build_result_summary_renames_struct_fields() {
+        let result = crate::pipeline::steps::auto_approve::AutoApproveResult {
+            approved_count: 17,
+            pending_review_count: 4,
+        };
+        let summary = super::build_result_summary(&result);
+        // Renamed keys.
+        assert_eq!(summary["approved"], serde_json::json!(17));
+        assert_eq!(summary["pending_review"], serde_json::json!(4));
+        // The struct field names must NOT appear in the JSON.
+        assert!(
+            summary.get("approved_count").is_none(),
+            "approved_count must be renamed to approved"
+        );
+        assert!(
+            summary.get("pending_review_count").is_none(),
+            "pending_review_count must be renamed to pending_review"
+        );
+        let obj = summary
+            .as_object()
+            .expect("result_summary must be a JSON object");
+        assert_eq!(obj.len(), 2, "result_summary must have exactly 2 keys");
     }
 
     #[test]

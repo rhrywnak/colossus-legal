@@ -42,6 +42,7 @@ use std::sync::Arc;
 use restate_sdk::errors::{HandlerError, TerminalError};
 use sqlx::PgPool;
 
+use super::{record_step_lifecycle, StepOutcome, STEP_LLM_EXTRACT_PASS1, STEP_LLM_EXTRACT_PASS2};
 use crate::models::document_status::STATUS_EXTRACTED;
 use crate::pipeline::config::{resolve_config, ProcessingProfile};
 use crate::pipeline::context::AppContext;
@@ -78,11 +79,30 @@ use crate::repositories::pipeline_repository;
 /// wrapped into the orchestrator's `Box<dyn Error>` return) are
 /// conservatively classified as retryable — Restate will back off
 /// and try again.
-#[tracing::instrument(skip(app), fields(doc_id = %doc_id, step = "llm_extract_pass1"))]
+#[tracing::instrument(skip(app), fields(doc_id = %doc_id, step = STEP_LLM_EXTRACT_PASS1))]
 pub async fn step_llm_extract_pass1(
     app: &Arc<AppContext>,
     doc_id: &str,
 ) -> Result<String, HandlerError> {
+    record_step_lifecycle(
+        &app.pipeline_pool,
+        doc_id,
+        STEP_LLM_EXTRACT_PASS1,
+        step_llm_extract_pass1_body(app, doc_id),
+    )
+    .await
+}
+
+/// Body of [`step_llm_extract_pass1`]. Returns the 11-key audit JSON
+/// matching `pipeline/steps/llm_extract.rs:193`. `None` fields on the
+/// idempotency short-circuit path serialize to JSON `null`, which is
+/// what the legacy `progress.set_step_result(...)` also emits — the
+/// shape stays byte-identical regardless of whether work was done.
+#[tracing::instrument(skip(app), fields(doc_id = %doc_id))]
+async fn step_llm_extract_pass1_body(
+    app: &Arc<AppContext>,
+    doc_id: &str,
+) -> Result<StepOutcome, HandlerError> {
     // After Refactor 2/3, run_pass1_extraction has a clean signature
     // — no CancellationToken, no ProgressReporter, no make_noop_progress
     // shim. The legacy Worker's `Step::execute` impl wraps this same
@@ -140,7 +160,52 @@ pub async fn step_llm_extract_pass1(
         run_pass2 = result.run_pass2,
         "step_llm_extract_pass1: complete"
     );
-    Ok(summary)
+    // Audit JSON shape matches `pipeline/steps/llm_extract.rs:193`.
+    // See [`build_pass1_result_summary`] for the byte-identical
+    // mapping the legacy worker established.
+    Ok(StepOutcome {
+        summary,
+        result_summary: build_pass1_result_summary(&result),
+        // `skipped_early` mirrors the orchestrator's idempotency
+        // flag: when pass-1 short-circuited on a COMPLETED run, the
+        // body's wall-clock work was bookkeeping only (the `SELECT`
+        // probing the COMPLETED row plus the `UPDATE` writing the
+        // `EXTRACTED` status). Reporting duration_secs = 0.0 in that
+        // case keeps the Execution History panel's "skipped"
+        // semantics consistent across all 8 steps (extract_text's
+        // idempotency-guard skip and pass-2's profile-driven skip
+        // both set this same flag — see the StepOutcome docstring
+        // for the contract).
+        skipped_early: result.skipped_already_complete,
+    })
+}
+
+/// Build the 11-key `result_summary` JSON for pass-1, matching
+/// `pipeline/steps/llm_extract.rs:193` byte-for-byte.
+///
+/// Extracted from the inline call site for two reasons: (1) so the
+/// JSON shape can be unit-tested without standing up a database, and
+/// (2) so a single-line change to a key name is mechanically isolated
+/// from the surrounding lifecycle code. The audit-trail contract this
+/// JSON encodes is consumed by external tooling that the Rust tests
+/// cannot see — without a unit test pinning the keys, a rename of a
+/// `Pass1ExtractionResult` field would silently break the contract.
+fn build_pass1_result_summary(
+    result: &crate::pipeline::steps::llm_extract::Pass1ExtractionResult,
+) -> serde_json::Value {
+    serde_json::json!({
+        "entity_count": result.entity_count,
+        "relationship_count": result.relationship_count,
+        "input_tokens": result.input_tokens,
+        "output_tokens": result.output_tokens,
+        "chunk_count": result.chunk_count,
+        "chunks_succeeded": result.chunks_succeeded,
+        "chunks_failed": result.chunks_failed,
+        "profile": result.profile,
+        "model": result.model,
+        "chunking_mode": result.chunking_mode,
+        "system_prompt_file": result.system_prompt_file,
+    })
 }
 
 /// Restate workflow step: LLM extraction pass 2 (relationships).
@@ -169,11 +234,38 @@ pub async fn step_llm_extract_pass1(
 ///    3/3 this signal lives on the struct itself, so the
 ///    workflow-layer probe that used to do a pre-call SELECT was
 ///    deleted — one fewer DB roundtrip per pass-2 invocation.
-#[tracing::instrument(skip(app), fields(doc_id = %doc_id, step = "llm_extract_pass2"))]
+#[tracing::instrument(skip(app), fields(doc_id = %doc_id, step = STEP_LLM_EXTRACT_PASS2))]
 pub async fn step_llm_extract_pass2(
     app: &Arc<AppContext>,
     doc_id: &str,
 ) -> Result<String, HandlerError> {
+    record_step_lifecycle(
+        &app.pipeline_pool,
+        doc_id,
+        STEP_LLM_EXTRACT_PASS2,
+        step_llm_extract_pass2_body(app, doc_id),
+    )
+    .await
+}
+
+/// Body of [`step_llm_extract_pass2`]. Three outcome shapes:
+///
+/// - **Profile says no** (`run_pass2 = false`): `skipped_early =
+///   true`, `result_summary` is `{"skipped": true, "reason":
+///   "run_pass2_not_configured"}`. The core orchestrator is never
+///   called, so the `pipeline_steps.duration_secs` is recorded as
+///   0.0.
+/// - **Already complete** or **success**: `skipped_early = false`,
+///   `result_summary` is the 9-key shape from
+///   `pipeline/steps/llm_extract_pass2.rs:112`. On the
+///   already-complete path the count fields are zero and the string
+///   fields are `null`, matching what the legacy `set_step_result`
+///   would emit for the same `Pass2ExtractionResult`.
+#[tracing::instrument(skip(app), fields(doc_id = %doc_id))]
+async fn step_llm_extract_pass2_body(
+    app: &Arc<AppContext>,
+    doc_id: &str,
+) -> Result<StepOutcome, HandlerError> {
     // [1] Profile-driven skip. If the resolved profile has
     //     run_pass2=false, the workflow's unconditional call is
     //     satisfied without running pass-2.
@@ -183,7 +275,14 @@ pub async fn step_llm_extract_pass2(
             doc_id = %doc_id,
             "step_llm_extract_pass2: profile has run_pass2=false, skipping"
         );
-        return Ok("skipped_pass2_not_configured".to_string());
+        // Distinct shape from the post-orchestrator paths — `"skipped":
+        // true` lets audit tooling distinguish "we never ran pass-2 for
+        // this doc" from "we ran it and got zero relationships."
+        return Ok(StepOutcome {
+            summary: "skipped_pass2_not_configured".to_string(),
+            result_summary: build_pass2_not_configured_summary(),
+            skipped_early: true,
+        });
     }
 
     // [2] Call the clean orchestrator. After Refactor 3/3 the
@@ -194,25 +293,73 @@ pub async fn step_llm_extract_pass2(
         .await
         .map_err(|e| classify_dyn_llm_error(doc_id, "llm_extract_pass2", e))?;
 
-    if result.skipped_already_complete {
+    let summary = if result.skipped_already_complete {
         tracing::info!(
             doc_id = %doc_id,
             "step_llm_extract_pass2: COMPLETED pass-2 extraction_run exists, skipping"
         );
-        return Ok("skipped_pass2_already_complete".to_string());
-    }
+        "skipped_pass2_already_complete".to_string()
+    } else {
+        let s = format!("pass2_complete relationships={}", result.relationship_count);
+        tracing::info!(
+            doc_id = %doc_id,
+            relationship_count = result.relationship_count,
+            local_entities = result.local_entities,
+            cross_doc_entities = result.cross_doc_entities,
+            input_tokens = result.input_tokens,
+            output_tokens = result.output_tokens,
+            "step_llm_extract_pass2: complete"
+        );
+        s
+    };
 
-    let summary = format!("pass2_complete relationships={}", result.relationship_count);
-    tracing::info!(
-        doc_id = %doc_id,
-        relationship_count = result.relationship_count,
-        local_entities = result.local_entities,
-        cross_doc_entities = result.cross_doc_entities,
-        input_tokens = result.input_tokens,
-        output_tokens = result.output_tokens,
-        "step_llm_extract_pass2: complete"
-    );
-    Ok(summary)
+    // Audit JSON shape matches `pipeline/steps/llm_extract_pass2.rs:112`.
+    // See [`build_pass2_result_summary`] for the byte-identical
+    // mapping. On the already-complete path the count fields are
+    // zero and the string fields are `None` (→ JSON `null`) — same
+    // shape, just different content.
+    Ok(StepOutcome {
+        summary,
+        result_summary: build_pass2_result_summary(&result),
+        // See pass-1's identical comment above — `skipped_early`
+        // mirrors the orchestrator's idempotency flag so all 8
+        // step types report skip duration consistently.
+        skipped_early: result.skipped_already_complete,
+    })
+}
+
+/// Build the 9-key `result_summary` JSON for pass-2 (success and
+/// already-complete paths), matching
+/// `pipeline/steps/llm_extract_pass2.rs:112` byte-for-byte. The
+/// `pass: 2` literal mirrors the legacy emit. Extracted for
+/// testability — see [`build_pass1_result_summary`] for the same
+/// rationale.
+fn build_pass2_result_summary(
+    result: &crate::pipeline::steps::llm_extract_pass2::Pass2ExtractionResult,
+) -> serde_json::Value {
+    serde_json::json!({
+        "pass": 2,
+        "relationship_count": result.relationship_count,
+        "local_entities": result.local_entities,
+        "cross_doc_entities": result.cross_doc_entities,
+        "input_tokens": result.input_tokens,
+        "output_tokens": result.output_tokens,
+        "profile": result.profile,
+        "model": result.model,
+        "pass2_template_file": result.pass2_template_file,
+    })
+}
+
+/// Build the skipped-not-configured `result_summary` JSON for
+/// pass-2 when the resolved profile has `run_pass2 = false`. The
+/// `"reason": "run_pass2_not_configured"` sentinel distinguishes
+/// this from pass-2's other skip path (already-complete), where
+/// the full 9-key shape is emitted instead.
+fn build_pass2_not_configured_summary() -> serde_json::Value {
+    serde_json::json!({
+        "skipped": true,
+        "reason": "run_pass2_not_configured",
+    })
 }
 
 /// Resolve the `run_pass2` flag for the document's profile.
@@ -422,305 +569,11 @@ fn classify_llm_extract_error(
 // error" prefix on `HandlerError::as_ref()`).
 // ─────────────────────────────────────────────────────────────────
 
+// Unit tests for the classify functions and the result-summary
+// builders live in `llm_extract_tests.rs` (kept out-of-line to stay
+// closer to the 300-line module-size budget; matches the
+// `pipeline/registry.rs` / `registry_tests.rs` and
+// `extract_text.rs` / `extract_text_tests.rs` idioms).
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Returns `true` when `e` is the Terminal branch of HandlerError.
-    fn display_message(e: &HandlerError) -> String {
-        let inner: &dyn Error = e.as_ref();
-        format!("{inner}")
-    }
-
-    fn is_terminal(e: &HandlerError) -> bool {
-        display_message(e).starts_with("Terminal error")
-    }
-
-    // ── Terminal variants ───────────────────────────────────────
-
-    #[test]
-    fn classify_document_not_found_is_terminal() {
-        let err = LlmExtractError::DocumentNotFound {
-            document_id: "doc-x".into(),
-        };
-        let c = classify_llm_extract_error("doc-x", "llm_extract_pass1", &err);
-        assert!(is_terminal(&c), "DocumentNotFound must be terminal");
-        let msg = display_message(&c);
-        assert!(msg.contains("doc-x"), "msg must name doc_id: {msg}");
-        assert!(
-            msg.contains("upload completed"),
-            "msg must hint recovery: {msg}"
-        );
-    }
-
-    #[test]
-    fn classify_no_pipeline_config_is_terminal() {
-        let err = LlmExtractError::NoPipelineConfig {
-            document_id: "doc-x".into(),
-        };
-        let c = classify_llm_extract_error("doc-x", "llm_extract_pass1", &err);
-        assert!(is_terminal(&c));
-        let msg = display_message(&c);
-        assert!(
-            msg.contains("config-creation"),
-            "msg must point at config step: {msg}"
-        );
-    }
-
-    #[test]
-    fn classify_profile_load_failed_is_terminal() {
-        let err = LlmExtractError::ProfileLoadFailed {
-            message: "Profile file not found: /etc/profiles/missing.yaml".into(),
-        };
-        let c = classify_llm_extract_error("doc-x", "llm_extract_pass1", &err);
-        assert!(is_terminal(&c));
-        let msg = display_message(&c);
-        assert!(
-            msg.contains("profile YAML"),
-            "msg must mention profile YAML: {msg}"
-        );
-        assert!(msg.contains("redeploy"), "msg must hint deploy: {msg}");
-    }
-
-    #[test]
-    fn classify_model_not_found_is_terminal() {
-        let err = LlmExtractError::ModelNotFound {
-            model_id: "claude-deprecated".into(),
-        };
-        let c = classify_llm_extract_error("doc-x", "llm_extract_pass1", &err);
-        assert!(is_terminal(&c));
-        let msg = display_message(&c);
-        assert!(
-            msg.contains("claude-deprecated"),
-            "msg must name model: {msg}"
-        );
-        assert!(
-            msg.contains("llm_models"),
-            "msg must point at the table: {msg}"
-        );
-    }
-
-    #[test]
-    fn classify_provider_construction_failed_is_terminal() {
-        let err = LlmExtractError::ProviderConstructionFailed {
-            message: "ANTHROPIC_API_KEY unset".into(),
-        };
-        let c = classify_llm_extract_error("doc-x", "llm_extract_pass1", &err);
-        assert!(is_terminal(&c));
-        let msg = display_message(&c);
-        assert!(
-            msg.contains("ANTHROPIC_API_KEY") || msg.contains("LLM_PROVIDER"),
-            "msg must name the env vars to check: {msg}"
-        );
-    }
-
-    #[test]
-    fn classify_no_pass2_template_is_terminal() {
-        let err = LlmExtractError::NoPass2Template {
-            profile_name: "no_pass2_template_profile".into(),
-        };
-        let c = classify_llm_extract_error("doc-x", "llm_extract_pass2", &err);
-        assert!(is_terminal(&c));
-        let msg = display_message(&c);
-        assert!(
-            msg.contains("no_pass2_template_profile"),
-            "msg must name the profile: {msg}"
-        );
-        assert!(
-            msg.contains("run_pass2"),
-            "msg must mention run_pass2: {msg}"
-        );
-    }
-
-    #[test]
-    fn classify_no_completed_pass1_is_terminal() {
-        let err = LlmExtractError::NoCompletedPass1 {
-            document_id: "doc-x".into(),
-        };
-        let c = classify_llm_extract_error("doc-x", "llm_extract_pass2", &err);
-        assert!(is_terminal(&c));
-        let msg = display_message(&c);
-        assert!(
-            msg.contains("Pass-1"),
-            "msg must mention pass-1 prerequisite: {msg}"
-        );
-    }
-
-    #[test]
-    fn classify_no_text_pages_is_terminal() {
-        let err = LlmExtractError::NoTextPages {
-            document_id: "doc-x".into(),
-        };
-        let c = classify_llm_extract_error("doc-x", "llm_extract_pass1", &err);
-        assert!(is_terminal(&c));
-        let msg = display_message(&c);
-        assert!(
-            msg.contains("extract_text"),
-            "msg must point at extract_text: {msg}"
-        );
-    }
-
-    #[test]
-    fn classify_schema_load_failed_is_terminal() {
-        // Use a real PipelineError construction path via from_file on
-        // a missing file. The construction details aren't critical to
-        // the classification — we just need the variant.
-        // Simulate it: build via the source error's Display being the
-        // important part for the message.
-        // We'll construct with a minimal stand-in PipelineError via
-        // the existing path. Falls back to a synthetic if needed.
-        use colossus_extract::ExtractionSchema;
-        let schema_err = ExtractionSchema::from_file(std::path::Path::new(
-            "/nonexistent/path/should/never/exist.json",
-        ))
-        .expect_err("missing schema file should fail to load");
-        let err = LlmExtractError::SchemaLoadFailed {
-            schema_file: "missing.json".into(),
-            source: schema_err,
-        };
-        let c = classify_llm_extract_error("doc-x", "llm_extract_pass1", &err);
-        assert!(is_terminal(&c));
-        let msg = display_message(&c);
-        assert!(
-            msg.contains("missing.json"),
-            "msg must name the schema: {msg}"
-        );
-    }
-
-    #[test]
-    fn classify_response_not_json_is_terminal() {
-        // ResponseNotJson carries an inner serde_json::Error. We
-        // generate one via a parse failure.
-        let serde_err = serde_json::from_str::<serde_json::Value>("not-json-text")
-            .expect_err("malformed JSON must error");
-        let err = LlmExtractError::ResponseNotJson {
-            preview: "garbage llm output".into(),
-            source: serde_err,
-        };
-        let c = classify_llm_extract_error("doc-x", "llm_extract_pass1", &err);
-        assert!(is_terminal(&c));
-        let msg = display_message(&c);
-        assert!(msg.contains("non-JSON"), "msg must say what's wrong: {msg}");
-        assert!(
-            msg.contains("garbage llm output"),
-            "msg must include preview: {msg}"
-        );
-    }
-
-    #[test]
-    fn classify_entity_serialization_failed_is_terminal() {
-        let serde_err = serde_json::from_str::<serde_json::Value>("not-json-text")
-            .expect_err("malformed JSON must error");
-        let err = LlmExtractError::EntitySerializationFailed {
-            entity_index: 7,
-            source: serde_err,
-        };
-        let c = classify_llm_extract_error("doc-x", "llm_extract_pass1", &err);
-        assert!(is_terminal(&c));
-        let msg = display_message(&c);
-        assert!(
-            msg.contains("programming bug"),
-            "msg must call out the bug class: {msg}"
-        );
-    }
-
-    #[test]
-    fn classify_relationship_serialization_failed_is_terminal() {
-        let serde_err = serde_json::from_str::<serde_json::Value>("not-json-text")
-            .expect_err("malformed JSON must error");
-        let err = LlmExtractError::RelationshipSerializationFailed {
-            rel_index: 3,
-            source: serde_err,
-        };
-        let c = classify_llm_extract_error("doc-x", "llm_extract_pass2", &err);
-        assert!(is_terminal(&c));
-    }
-
-    #[test]
-    fn classify_prompt_build_failed_is_terminal() {
-        // PromptBuildFailed carries a colossus_extract::PipelineError. We
-        // synthesize one through the same source error path the schema
-        // test uses.
-        use colossus_extract::ExtractionSchema;
-        let pe =
-            ExtractionSchema::from_file(std::path::Path::new("/nonexistent/prompt/schema.json"))
-                .expect_err("missing schema should fail");
-        let err = LlmExtractError::PromptBuildFailed { source: pe };
-        let c = classify_llm_extract_error("doc-x", "llm_extract_pass1", &err);
-        assert!(is_terminal(&c));
-        let msg = display_message(&c);
-        assert!(
-            msg.contains("template"),
-            "msg must point at template: {msg}"
-        );
-    }
-
-    // ── Retryable variants ──────────────────────────────────────
-
-    #[test]
-    fn classify_llm_call_failed_is_retryable() {
-        use colossus_extract::ExtractionSchema;
-        let pe = ExtractionSchema::from_file(std::path::Path::new("/nonexistent.json"))
-            .expect_err("missing should fail");
-        let err = LlmExtractError::LlmCallFailed { source: pe };
-        let c = classify_llm_extract_error("doc-x", "llm_extract_pass1", &err);
-        assert!(!is_terminal(&c), "LlmCallFailed must be retryable: {c:?}");
-        let msg = display_message(&c);
-        assert!(msg.contains("Will retry"), "msg must signal retry: {msg}");
-    }
-
-    #[test]
-    fn classify_semaphore_closed_is_retryable() {
-        let err = LlmExtractError::SemaphoreClosed;
-        let c = classify_llm_extract_error("doc-x", "llm_extract_pass1", &err);
-        assert!(!is_terminal(&c), "SemaphoreClosed must be retryable");
-    }
-
-    #[test]
-    fn classify_insert_run_failed_is_retryable() {
-        let err = LlmExtractError::InsertRunFailed {
-            message: "connection refused".into(),
-        };
-        let c = classify_llm_extract_error("doc-x", "llm_extract_pass1", &err);
-        assert!(!is_terminal(&c));
-    }
-
-    #[test]
-    fn classify_complete_run_failed_is_retryable() {
-        let err = LlmExtractError::CompleteRunFailed {
-            message: "tx timeout".into(),
-        };
-        let c = classify_llm_extract_error("doc-x", "llm_extract_pass1", &err);
-        assert!(!is_terminal(&c));
-    }
-
-    #[test]
-    fn classify_store_failed_is_retryable() {
-        let err = LlmExtractError::StoreFailed {
-            message: "deadlock detected".into(),
-        };
-        let c = classify_llm_extract_error("doc-x", "llm_extract_pass1", &err);
-        assert!(!is_terminal(&c));
-    }
-
-    // ── Unknown error type (downcast miss) ──────────────────────
-
-    #[test]
-    fn classify_dyn_unknown_error_is_retryable() {
-        // A non-LlmExtractError boxed error — e.g. a sqlx::Error
-        // promoted to Box<dyn Error>. The downcast misses and we
-        // fall back to retryable to avoid locking up on a transient
-        // we couldn't classify.
-        let boxed: Box<dyn Error + Send + Sync> = "sudden infrastructure blip".into();
-        let c = classify_dyn_llm_error("doc-x", "llm_extract_pass1", boxed);
-        assert!(
-            !is_terminal(&c),
-            "unknown error must default to retryable: {c:?}"
-        );
-        let msg = display_message(&c);
-        assert!(
-            msg.contains("unclassified"),
-            "msg must signal unknown type: {msg}"
-        );
-    }
-}
+#[path = "llm_extract_tests.rs"]
+mod tests;

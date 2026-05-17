@@ -18,6 +18,7 @@ use std::sync::Arc;
 
 use restate_sdk::errors::{HandlerError, TerminalError};
 
+use super::{record_step_lifecycle, StepOutcome, STEP_COMPLETENESS};
 use crate::pipeline::context::AppContext;
 use crate::pipeline::steps::completeness::{run_completeness, CompletenessError};
 
@@ -28,11 +29,28 @@ use crate::pipeline::steps::completeness::{run_completeness, CompletenessError};
 /// and returns a short summary string suitable for journaling. The
 /// status transition to `"PUBLISHED"` is written inside the
 /// orchestrator — this handler does not duplicate it.
-#[tracing::instrument(skip(app), fields(doc_id = %doc_id, step = "completeness"))]
+#[tracing::instrument(skip(app), fields(doc_id = %doc_id, step = STEP_COMPLETENESS))]
 pub async fn step_completeness(
     app: &Arc<AppContext>,
     doc_id: &str,
 ) -> Result<String, HandlerError> {
+    record_step_lifecycle(
+        &app.pipeline_pool,
+        doc_id,
+        STEP_COMPLETENESS,
+        step_completeness_body(app, doc_id),
+    )
+    .await
+}
+
+/// Body of [`step_completeness`]. Returns the 4-key audit JSON
+/// (`total_items`, `nodes_verified`, `points_verified`,
+/// `points_missing`) matching `pipeline/steps/completeness.rs:195`.
+#[tracing::instrument(skip(app), fields(doc_id = %doc_id))]
+async fn step_completeness_body(
+    app: &Arc<AppContext>,
+    doc_id: &str,
+) -> Result<StepOutcome, HandlerError> {
     let result = run_completeness(doc_id, &app.pipeline_pool, app.as_ref())
         .await
         .map_err(|e| classify_completeness_error(doc_id, &e))?;
@@ -50,7 +68,29 @@ pub async fn step_completeness(
         points_missing = result.points_missing,
         "step_completeness: complete — document PUBLISHED"
     );
-    Ok(summary)
+    // Audit JSON shape matches `pipeline/steps/completeness.rs:195`
+    // — see [`build_result_summary`] for the 4-key mapping.
+    Ok(StepOutcome {
+        summary,
+        result_summary: build_result_summary(&result),
+        skipped_early: false,
+    })
+}
+
+/// Build the 4-key `result_summary` JSON for completeness, matching
+/// `pipeline/steps/completeness.rs:195` byte-for-byte. Same field
+/// names as `CompletenessResult` (no rename) — extracted for
+/// testability so a future struct-field rename without an audit
+/// migration is caught at test time.
+fn build_result_summary(
+    result: &crate::pipeline::steps::completeness::CompletenessResult,
+) -> serde_json::Value {
+    serde_json::json!({
+        "total_items": result.total_items,
+        "nodes_verified": result.nodes_verified,
+        "points_verified": result.points_verified,
+        "points_missing": result.points_missing,
+    })
 }
 
 /// Classify a [`CompletenessError`] as terminal or retryable.
@@ -103,6 +143,31 @@ mod tests {
 
     fn is_terminal(e: &HandlerError) -> bool {
         display_message(e).starts_with("Terminal error")
+    }
+
+    // ── `build_result_summary` shape contract ──────────────────
+
+    #[test]
+    fn build_result_summary_emits_4_keys_direct_mapping() {
+        let result = crate::pipeline::steps::completeness::CompletenessResult {
+            total_items: 50,
+            nodes_verified: 47,
+            points_verified: 47,
+            points_missing: 3,
+        };
+        let summary = super::build_result_summary(&result);
+        assert_eq!(summary["total_items"], serde_json::json!(50));
+        assert_eq!(summary["nodes_verified"], serde_json::json!(47));
+        assert_eq!(summary["points_verified"], serde_json::json!(47));
+        assert_eq!(summary["points_missing"], serde_json::json!(3));
+        let obj = summary
+            .as_object()
+            .expect("result_summary must be a JSON object");
+        assert_eq!(
+            obj.len(),
+            4,
+            "result_summary must contain exactly 4 keys, got {obj:?}"
+        );
     }
 
     #[test]
