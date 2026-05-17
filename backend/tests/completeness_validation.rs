@@ -173,6 +173,8 @@ fn test_completeness_passes_no_rules() {
 document_type: evidence_doc
 entity_types:
   - name: Exhibit
+    required: false
+    min_count: 0
     description: "An exhibit"
 relationship_types:
   - name: REFERENCES

@@ -51,8 +51,10 @@ fn unique_run_id() -> String {
     format!("t3-1b-{nanos}")
 }
 
+mod common;
+
 async fn setup() -> TestResult<(Graph, AppConfig)> {
-    dotenvy::dotenv().ok();
+    common::init_test_env();
     let config = AppConfig::from_env().map_err(|e| format!("config error: {e}"))?;
     let graph = create_neo4j_graph(&config)
         .await
@@ -198,10 +200,27 @@ async fn get_documents_returns_empty_when_no_data() -> TestResult<()> {
 
     assert_eq!(response.status(), StatusCode::OK);
     let body_bytes = to_bytes(response.into_body(), 1024 * 1024).await?;
-    let documents: Vec<DocumentDto> = serde_json::from_slice(&body_bytes)?;
-    assert!(
-        documents.is_empty(),
-        "Expected empty documents list when no data"
+    let _documents: Vec<DocumentDto> = serde_json::from_slice(&body_bytes)?;
+
+    // `list_documents` returns every Document node in Neo4j with no
+    // source filter, so on a shared dev DB the response can contain
+    // rows whose source != "test". DocumentDto also doesn't expose
+    // `source`, so we can't filter the response itself. Verify the
+    // cleanup did its job by counting source="test" rows directly.
+    let mut count_result = graph
+        .execute(
+            query("MATCH (d:Document {source: $source}) RETURN count(d) AS cnt")
+                .param("source", TEST_SOURCE),
+        )
+        .await?;
+    let row = count_result
+        .next()
+        .await?
+        .expect("count query returned no rows");
+    let test_count: i64 = row.get("cnt").expect("cnt field present");
+    assert_eq!(
+        test_count, 0,
+        "Expected zero source='test' documents after cleanup"
     );
 
     cleanup_documents(&graph).await?;

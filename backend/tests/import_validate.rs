@@ -41,10 +41,12 @@ impl colossus_extract::EmbeddingProvider for TestEmbeddingProvider {
     }
 }
 
+mod common;
+
 /// Create the app router with Neo4j state.
 /// Note: Validation endpoint doesn't query Neo4j, but router requires AppState.
 async fn setup_app() -> TestResult<Router> {
-    dotenvy::dotenv().ok();
+    common::init_test_env();
     let config = AppConfig::from_env().map_err(|e| format!("config error: {e}"))?;
     let graph = create_neo4j_graph(&config)
         .await
@@ -85,10 +87,16 @@ async fn setup_app() -> TestResult<Router> {
 
 /// Helper to make POST request and parse response.
 async fn post_validate(app: Router, body: &str) -> TestResult<(StatusCode, ValidationResult)> {
+    // Auth headers mimic what Traefik/Authentik ForwardAuth sets in
+    // production. The handler requires `AuthUser` and calls
+    // `require_edit`, so the user must be in the `legal_editor` group.
     let request = Request::builder()
         .method("POST")
         .uri("/import/validate")
         .header("content-type", "application/json")
+        .header("x-authentik-username", "test-editor")
+        .header("x-authentik-email", "test-editor@example.com")
+        .header("x-authentik-groups", "legal_editor")
         .body(Body::from(body.to_string()))?;
 
     let response = app.oneshot(request).await?;

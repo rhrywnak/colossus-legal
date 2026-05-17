@@ -50,8 +50,10 @@ fn unique_run_id() -> String {
     format!("t2-1b-{nanos}")
 }
 
+mod common;
+
 async fn setup() -> TestResult<(Graph, AppConfig)> {
-    dotenvy::dotenv().ok();
+    common::init_test_env();
     let config = AppConfig::from_env().map_err(|e| format!("config error: {e}"))?;
     let graph = create_neo4j_graph(&config)
         .await

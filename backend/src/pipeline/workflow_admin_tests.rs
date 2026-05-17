@@ -33,9 +33,13 @@ use tokio::net::TcpListener;
 /// of the lockstep contract.
 #[test]
 fn service_name_matches_workflow_trait_identifier() {
-    // `as _` keeps the import side-effect (proving the trait
-    // exists) without forcing the trait into scope in a way that
-    // would trip clippy::unused_imports for the other tests.
+    // The `use as _` is a compile-time existence check: if
+    // `DocumentPipeline` is renamed without updating
+    // `DOCUMENT_PIPELINE_SERVICE`, this file fails to compile. The
+    // rename-to-underscore pattern doesn't satisfy clippy here because
+    // `stringify!` below consumes the token without using the trait, so
+    // we suppress the lint explicitly.
+    #[allow(unused_imports)]
     use crate::pipeline::workflow::DocumentPipeline as _;
     assert_eq!(
         DOCUMENT_PIPELINE_SERVICE,

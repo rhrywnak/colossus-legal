@@ -65,8 +65,10 @@ fn test_editor() -> AuthUser {
     }
 }
 
+mod common;
+
 async fn setup() -> TestResult<(Graph, AppConfig)> {
-    dotenvy::dotenv().ok();
+    common::init_test_env();
     let config = AppConfig::from_env().map_err(|e| format!("config error: {e}"))?;
     let graph = create_neo4j_graph(&config)
         .await
@@ -294,7 +296,7 @@ async fn update_document_rejects_invalid_doc_type() -> TestResult<()> {
         ),
     };
 
-    let payload = base_create_payload("Title", "pdf");
+    let payload = base_create_payload("Title", "complaint");
     let created_response =
         create_document(test_editor(), State(state.clone()), axum::Json(payload))
             .await
@@ -362,7 +364,7 @@ async fn update_document_returns_404_when_missing() -> TestResult<()> {
 
     let update_payload = DocumentUpdateRequest {
         title: Some("New".to_string()),
-        doc_type: Some("pdf".to_string()),
+        doc_type: Some("complaint".to_string()),
         created_at: None,
         description: None,
         file_path: None,
@@ -416,7 +418,7 @@ async fn happy_path_create_get_update_document() -> TestResult<()> {
         ),
     };
 
-    let mut payload = base_create_payload("Happy Title", "pdf");
+    let mut payload = base_create_payload("Happy Title", "complaint");
     payload.created_at = Some(Utc::now().to_rfc3339());
 
     let create_response = create_document(test_editor(), State(state.clone()), axum::Json(payload))
