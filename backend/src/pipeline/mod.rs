@@ -15,4 +15,5 @@ pub mod steps;
 pub mod task;
 pub mod validation;
 pub mod workflow;
+pub mod workflow_admin;
 pub mod workflow_steps;

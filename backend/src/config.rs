@@ -42,6 +42,24 @@ pub struct AppConfig {
     /// Deployment environment name (e.g. "dev", "prod").
     /// Read from COLOSSUS_ENVIRONMENT, defaults to "unknown".
     pub environment: String,
+    /// Restate admin endpoint base URL (e.g. `http://10.10.100.220:9070`
+    /// on DEV).
+    ///
+    /// Used by the dual-cancel handler in
+    /// [`crate::api::pipeline::cancel::cancel_handler`] to call Restate's
+    /// `DELETE /invocations/DocumentPipeline/{doc_id}?mode=cancel`
+    /// endpoint. `None` is a first-class state: when the env var is unset
+    /// the Restate-side cancel is silently skipped, so the Cancel button
+    /// continues to work during the transition period (when only the
+    /// legacy Worker has cancel coverage). Once Restate cancel is fully
+    /// rolled out, deployments will set `RESTATE_ADMIN_URL` and the
+    /// silent-skip branch becomes unreachable in practice.
+    ///
+    /// We deliberately do not hardcode a fallback URL here — case-specific
+    /// infrastructure addresses live in configuration, never in code
+    /// (Standing Rule 2).
+    pub restate_admin_url: Option<String>,
+
     /// Optional case-specific subject name to pre-select in the Bias Explorer's
     /// "About" filter on first page render.
     ///
@@ -122,6 +140,18 @@ impl AppConfig {
         let environment =
             std::env::var("COLOSSUS_ENVIRONMENT").unwrap_or_else(|_| "unknown".to_string());
 
+        // RESTATE_ADMIN_URL is optional. `.ok()` converts "env var
+        // unset" → `None`, which the dual-cancel handler treats as
+        // "Restate cancel is not configured; skip silently and rely on
+        // the legacy path." Once Restate is fully rolled out this env
+        // var becomes mandatory in practice, but keeping it optional
+        // avoids breaking deployments still on the legacy-only path.
+        // Distinct from `let _ = ...`: the value is captured and the
+        // call-site handles the `None` arm explicitly (see
+        // `cancel::try_restate_cancel`).
+        // best-effort: env-var-unset → None is the documented success path here
+        let restate_admin_url = std::env::var("RESTATE_ADMIN_URL").ok();
+
         // CASE_DEFAULT_SUBJECT_NAME — optional. We use `.ok()` rather than
         // `unwrap_or` because we need to distinguish "unset" (no default
         // applied, frontend stays at All subjects) from "set to empty
@@ -150,6 +180,7 @@ impl AppConfig {
             system_prompt_dir,
             prompts_dir,
             environment,
+            restate_admin_url,
             case_default_subject_name,
         })
     }

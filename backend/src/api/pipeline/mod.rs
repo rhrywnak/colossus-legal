@@ -10,6 +10,7 @@
 //! `pipeline.rs` becomes `pipeline/mod.rs` + `pipeline/upload.rs` + etc.
 //! The `mod.rs` file re-exports the public items so callers don't change.
 
+mod cancel;
 pub(crate) mod canonical_verifier;
 pub(crate) mod completeness;
 pub(crate) mod completeness_helpers;
@@ -92,7 +93,7 @@ pub fn router() -> Router<AppState> {
         .route("/documents/:id", delete(delete_document))
         .route("/documents/:id/extract-text", post(extract_text))
         .route("/documents/:id/process", post(process::process_handler))
-        .route("/documents/:id/cancel", post(process::cancel_handler))
+        .route("/documents/:id/cancel", post(cancel::cancel_handler))
         .route("/documents/:id/verify", post(verify_handler))
         .route(
             "/documents/:id/recompute-derived-grounding",
