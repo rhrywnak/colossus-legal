@@ -48,6 +48,9 @@ const REQUIRED_TEST_ENV: &[(&str, &str)] = &[
     ("ANTHROPIC_MODEL", "claude-sonnet-4-6"),
     ("DECOMPOSER_MODEL", "claude-sonnet-4-6"),
     ("DATABASE_URL", "postgres://test:test@localhost/test"),
-    ("PIPELINE_DATABASE_URL", "postgres://test:test@localhost/test_pipeline"),
+    (
+        "PIPELINE_DATABASE_URL",
+        "postgres://test:test@localhost/test_pipeline",
+    ),
     ("PROMPTS_DIR", "/tmp/colossus-legal-test-prompts"),
 ];

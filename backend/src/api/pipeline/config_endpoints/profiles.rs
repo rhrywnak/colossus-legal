@@ -169,8 +169,7 @@ pub async fn get_profile(
     require_admin(&user)?;
     validate_profile_name(&name)?;
 
-    let (_basename, path) =
-        resolve_profile_basename_and_path(&state.registry, &name, PROFILE_EXT);
+    let (_basename, path) = resolve_profile_basename_and_path(&state.registry, &name, PROFILE_EXT);
     if !tokio::fs::try_exists(&path).await.unwrap_or(false) {
         return Err(AppError::NotFound {
             message: format!("Profile '{name}' not found"),
@@ -229,8 +228,7 @@ pub async fn update_profile(
     require_admin(&user)?;
     validate_profile_name(&name)?;
 
-    let (basename, path) =
-        resolve_profile_basename_and_path(&state.registry, &name, PROFILE_EXT);
+    let (basename, path) = resolve_profile_basename_and_path(&state.registry, &name, PROFILE_EXT);
     if !tokio::fs::try_exists(&path).await.unwrap_or(false) {
         return Err(AppError::NotFound {
             message: format!("Profile '{name}' not found"),
@@ -261,8 +259,7 @@ pub async fn deactivate_profile(
     require_admin(&user)?;
     validate_profile_name(&name)?;
 
-    let (basename, src) =
-        resolve_profile_basename_and_path(&state.registry, &name, PROFILE_EXT);
+    let (basename, src) = resolve_profile_basename_and_path(&state.registry, &name, PROFILE_EXT);
     if !tokio::fs::try_exists(&src).await.unwrap_or(false) {
         return Err(AppError::NotFound {
             message: format!("Profile '{name}' not found"),
