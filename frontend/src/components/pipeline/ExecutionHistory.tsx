@@ -61,7 +61,7 @@ const ExecutionHistory: React.FC<Props> = ({ steps }) => {
                 <span style={{ ...cellStyle, minWidth: "130px" }}>
                   {new Date(s.started_at).toLocaleString()}
                 </span>
-                <span style={{ ...cellStyle, minWidth: "100px", fontWeight: 500 }}>{s.step_name}</span>
+                <span style={{ ...cellStyle, minWidth: "100px", fontWeight: 500 }}>{s.step_label ?? s.step_name}</span>
                 <span style={{
                   ...cellStyle, minWidth: "70px",
                   color: s.status === "completed" ? "#22c55e" : s.status === "failed" ? "#ef4444" : "#2563eb",

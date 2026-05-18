@@ -89,6 +89,13 @@ export interface PipelineStep {
   input_params: Record<string, unknown>;
   result_summary: Record<string, unknown>;
   error_message: string | null;
+  /**
+   * Operator-facing label resolved from the backend's
+   * `step_labels:` registry. Null for legacy rows whose `step_name`
+   * has no registry entry. Callers should display `step_label ??
+   * step_name` so unrecognized rows still render.
+   */
+  step_label: string | null;
 }
 
 export interface HistoryResponse {
