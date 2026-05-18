@@ -1098,12 +1098,52 @@ pub const CROSS_DOC_ID_PREFIX: &str = "ctx:";
 /// `COALESCE(resolved_entity_type, entity_type)` projection used by
 /// every other item SELECT — otherwise post-Ingest Party rows would
 /// fail the filter and drop out of the context.
+///
+/// ## CONST: why this is a compile-time list, not env/YAML config
+///
+/// Each entry is a Neo4j node label / `extraction_items.entity_type`
+/// discriminator — i.e., a data-model identifier rather than an
+/// operator-tunable threshold. Adding a label requires three coupled
+/// changes that must land together: (1) the extraction schema YAML
+/// must define the type, (2) `filter_properties_for_prompt` below
+/// must decide which properties of that type are useful in the
+/// prompt (or fall through to the wildcard arm), and (3) downstream
+/// graph ingest must know how to write the label. None of those
+/// downstream changes can be driven from a YAML toggle alone, so
+/// operator-tunability via env/YAML would offer a false escape hatch:
+/// flipping a flag without the matching schema + ingest support would
+/// surface entities the LLM cannot reason about and the graph cannot
+/// store. Keeping the list `const` forces the three changes to land
+/// in the same commit and the `cross_doc_entity_types_includes_v5_1_labels`
+/// test guards against silent regressions.
+///
+/// ## Why each type is included
+/// - `Party` / `Person` / `Organization` — actors named across
+///   documents; required so cross-doc relationships can resolve both
+///   endpoints when one is a re-mention of an already-extracted actor.
+/// - `LegalCount` — counts (causes of action) named in the complaint
+///   that downstream evidence-anchoring documents cite via CORROBORATES.
+/// - `ComplaintAllegation` / `Allegation` — both labels coexist:
+///   `ComplaintAllegation` is the v4-era / pre-v5.1 label, `Allegation`
+///   is the v5.1 complaint-schema label. Filtering on only one would
+///   silently drop the other version's data from the cross-doc context.
+/// - `Evidence` — evidence-anchoring profiles (affidavit,
+///   discovery_response) emit `Evidence` entities; peer documents need
+///   them as endpoints for CONTRADICTS / REBUTS.
+/// - `Element` / `Harm` — proof-chain entities in v5.1. The pass-2 LLM
+///   may anchor cross-document relationships against them (e.g., a
+///   discovery response that admits the factual basis for an `Element`
+///   on the opposing party's complaint).
 const CROSS_DOC_ENTITY_TYPES: &[&str] = &[
     crate::models::document_status::ENTITY_PARTY,
     crate::models::document_status::ENTITY_PERSON,
     crate::models::document_status::ENTITY_ORGANIZATION,
     crate::models::document_status::ENTITY_LEGAL_COUNT,
     crate::models::document_status::ENTITY_COMPLAINT_ALLEGATION,
+    crate::models::document_status::ENTITY_ALLEGATION,
+    crate::models::document_status::ENTITY_EVIDENCE,
+    crate::models::document_status::ENTITY_ELEMENT,
+    crate::models::document_status::ENTITY_HARM,
 ];
 
 /// An entity loaded from another PUBLISHED document's pass-1 run for
@@ -1746,5 +1786,54 @@ mod tests {
         assert_eq!(from, "");
         assert_eq!(to, "");
         assert_eq!(rtype, "UNKNOWN");
+    }
+
+    /// Locks in the cross-document entity-type whitelist.
+    ///
+    /// This test is the regression guard against the v5.1 silent-drop
+    /// bug: the v5.1 complaint schema emits `"Allegation"` entities,
+    /// but the original whitelist only carried `"ComplaintAllegation"`,
+    /// so all v5.1 allegations were filtered out of the pass-2
+    /// cross-document context and the LLM saw no allegations to
+    /// CORROBORATES against. The set is now asserted member-by-member
+    /// so a future "cleanup" that re-drops `"Allegation"` (or removes
+    /// `Evidence` / `Element` / `Harm`) fails this test immediately
+    /// rather than producing an empty-context regression that is
+    /// invisible until a downstream pass-2 run gets manually inspected.
+    #[test]
+    fn cross_doc_entity_types_includes_v5_1_labels() {
+        // Use `contains` rather than full-array equality so cosmetic
+        // reordering does not break the test; the asserted properties
+        // are membership and length, not the literal slice layout.
+        use crate::models::document_status::{
+            ENTITY_ALLEGATION, ENTITY_COMPLAINT_ALLEGATION, ENTITY_ELEMENT, ENTITY_EVIDENCE,
+            ENTITY_HARM, ENTITY_LEGAL_COUNT, ENTITY_ORGANIZATION, ENTITY_PARTY, ENTITY_PERSON,
+        };
+        let expected: &[&str] = &[
+            ENTITY_PARTY,
+            ENTITY_PERSON,
+            ENTITY_ORGANIZATION,
+            ENTITY_LEGAL_COUNT,
+            ENTITY_COMPLAINT_ALLEGATION,
+            ENTITY_ALLEGATION,
+            ENTITY_EVIDENCE,
+            ENTITY_ELEMENT,
+            ENTITY_HARM,
+        ];
+        for et in expected {
+            assert!(
+                CROSS_DOC_ENTITY_TYPES.contains(et),
+                "CROSS_DOC_ENTITY_TYPES missing required v5.1 type {et:?} — \
+                 v5.1 cross-doc context would silently drop these entities"
+            );
+        }
+        assert_eq!(
+            CROSS_DOC_ENTITY_TYPES.len(),
+            expected.len(),
+            "CROSS_DOC_ENTITY_TYPES length drift: adding a type without \
+             updating this test, or pulling a type without justification, \
+             both break cross-doc context. Update the test and the doc \
+             comment together."
+        );
     }
 }

@@ -410,6 +410,32 @@ pub async fn run_pass2_extraction(
         cross_doc_entities = cross_doc_entities.len(),
         "Pass 2: loaded entities for prompt"
     );
+    // Per-type breakdown. The aggregate count above can mask the case
+    // where one whitelisted type contributes everything and another
+    // contributes zero — precisely the v5.1 silent-drop signature
+    // (`Allegation` was missing from the whitelist; the aggregate count
+    // was non-zero from `Party` rows, so the bug was invisible in the
+    // logs). Emitting `debug` (not `info`) so the line is opt-in for
+    // diagnosis runs and does not bloat the steady-state log volume.
+    // The reproducibility-grade record of which entities were actually
+    // injected still lives in `extraction_runs.prior_context` JSONB
+    // (built immediately below); this log is the *operator-facing*
+    // confirmation that the broadened whitelist is participating.
+    if tracing::enabled!(tracing::Level::DEBUG) {
+        use std::collections::BTreeMap;
+        let mut by_type: BTreeMap<&str, usize> = BTreeMap::new();
+        for e in &cross_doc_entities {
+            *by_type.entry(e.entity_type.as_str()).or_insert(0) += 1;
+        }
+        for (entity_type, count) in &by_type {
+            tracing::debug!(
+                document_id,
+                entity_type = %entity_type,
+                count = *count,
+                "Pass 2: cross-doc context breakdown"
+            );
+        }
+    }
 
     // 9a-bis. Reproducibility record of the cross-document entities that
     //     will be inlined into the Pass-2 prompt. Built BEFORE the prompt

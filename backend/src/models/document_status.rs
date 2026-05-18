@@ -108,6 +108,15 @@ pub const ENTITY_PARTY: &str = "Party";
 pub const ENTITY_PERSON: &str = "Person";
 pub const ENTITY_ORGANIZATION: &str = "Organization";
 pub const ENTITY_COMPLAINT_ALLEGATION: &str = "ComplaintAllegation";
+/// v5.1 complaint-schema variant of [`ENTITY_COMPLAINT_ALLEGATION`].
+///
+/// The v5.1 complaint schema emits entities under the shorter label
+/// `"Allegation"` rather than `"ComplaintAllegation"`. Both names must
+/// be recognised by anything that filters on allegation-shaped items
+/// (cross-document context, downstream graph queries) so the v5.1
+/// pipeline and any older v4-era data are both readable. Renaming
+/// either constant is a data-model migration, not a refactor.
+pub const ENTITY_ALLEGATION: &str = "Allegation";
 pub const ENTITY_LEGAL_COUNT: &str = "LegalCount";
 pub const ENTITY_HARM: &str = "Harm";
 pub const ENTITY_EVIDENCE: &str = "Evidence";
@@ -191,6 +200,7 @@ mod tests {
         assert!(ENTITY_PERSON.starts_with(char::is_uppercase));
         assert!(ENTITY_ORGANIZATION.starts_with(char::is_uppercase));
         assert!(ENTITY_COMPLAINT_ALLEGATION.starts_with(char::is_uppercase));
+        assert!(ENTITY_ALLEGATION.starts_with(char::is_uppercase));
         assert!(ENTITY_LEGAL_COUNT.starts_with(char::is_uppercase));
         assert!(ENTITY_HARM.starts_with(char::is_uppercase));
         assert!(ENTITY_EVIDENCE.starts_with(char::is_uppercase));
