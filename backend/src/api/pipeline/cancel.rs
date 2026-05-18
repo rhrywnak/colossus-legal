@@ -87,13 +87,16 @@ pub async fn cancel_handler(
     let legacy_outcome = try_legacy_cancel(&state, &doc_id).await?;
     let restate_outcome = try_restate_cancel(&state, &doc_id).await?;
 
+    let legacy_cancelled = matches!(legacy_outcome, LegacyCancelOutcome::Cancelled(_));
+    let restate_cancelled = matches!(restate_outcome, RestateCancelOutcome::Cancelled);
+
     // On Restate-side success the documents row must be updated
     // manually: the legacy trigger only projects pipeline_jobs
     // changes onto documents.status. Best-effort — a write failure
     // here leaves the document at "PROCESSING" until the next
     // status reconciliation, which is preferable to failing the
     // cancel itself.
-    if matches!(restate_outcome, RestateCancelOutcome::Cancelled) {
+    if restate_cancelled {
         if let Err(e) = pipeline_repository::update_document_status(
             &state.pipeline_pool,
             &doc_id,
@@ -109,9 +112,41 @@ pub async fn cancel_handler(
         }
     }
 
+    // Flip `documents.is_cancelled = true` on either-path success.
+    // This is the cooperative-cancellation signal read by the LLM
+    // extraction chunk loop (`extract_chunks_loop` in
+    // `pipeline/steps/llm_extract.rs`) and at the entry of
+    // `run_pass2_extraction`. Restate's cancel signal does NOT
+    // interrupt an in-flight `ctx.run()` closure (the SDK only
+    // checks for cancellation at journal boundaries, not while a
+    // closure is mid-flight on a multi-minute Opus call), so the
+    // closure must poll for itself. The legacy `Scheduler::cancel`
+    // path also benefits — it triggers `CancellationToken` aborts
+    // for steps not currently inside the chunk loop, but the chunk
+    // loop runs inside a single `tokio::select!` branch that the
+    // token doesn't interrupt mid-iteration either.
+    //
+    // Best-effort: a failure to flip the flag is logged and
+    // swallowed. The cancel itself has already succeeded at the
+    // workflow / scheduler layer; the worst outcome is the
+    // in-flight extractor keeps running until the abort timeout,
+    // which is no worse than the pre-fix behaviour.
+    if legacy_cancelled || restate_cancelled {
+        if let Err(e) =
+            pipeline_repository::documents::mark_document_cancelled(&state.pipeline_pool, &doc_id)
+                .await
+        {
+            tracing::error!(
+                doc_id = %doc_id, error = %e,
+                legacy_cancelled, restate_cancelled,
+                "Cancel succeeded at workflow layer but writing documents.is_cancelled=true failed \
+                 (non-fatal — in-flight chunk loop will not short-circuit but the abort timeout \
+                 will still terminate the invocation)"
+            );
+        }
+    }
+
     // Decision matrix → either an OK response or an error variant.
-    let legacy_cancelled = matches!(legacy_outcome, LegacyCancelOutcome::Cancelled(_));
-    let restate_cancelled = matches!(restate_outcome, RestateCancelOutcome::Cancelled);
     let job_id_string = match &legacy_outcome {
         LegacyCancelOutcome::Cancelled(id) => Some(id.to_string()),
         _ => None,

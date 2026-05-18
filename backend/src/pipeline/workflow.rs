@@ -71,8 +71,8 @@ use std::sync::Arc;
 use restate_sdk::prelude::*;
 
 use crate::models::document_status::{
-    STATUS_APPROVED, STATUS_FAILED, STATUS_INDEXED, STATUS_INGESTED, STATUS_TEXT_EXTRACTED,
-    STATUS_VERIFIED,
+    STATUS_APPROVED, STATUS_CANCELLED, STATUS_FAILED, STATUS_INDEXED, STATUS_INGESTED,
+    STATUS_TEXT_EXTRACTED, STATUS_VERIFIED,
 };
 use crate::pipeline::context::AppContext;
 use crate::pipeline::workflow_steps::{
@@ -287,16 +287,51 @@ impl DocumentPipelineImpl {
             );
         }
 
+        // Operator-cancellation routing. If `documents.is_cancelled` is
+        // set (the cancel handler flips it on either-path success), the
+        // terminal error we are about to record was almost certainly
+        // raised by the cooperative-cancellation poller in the LLM
+        // extraction step — not a genuine failure. Routing it to
+        // STATUS_FAILED would land the document in the frontend's
+        // "Failed" bucket, conflating cancellations with real errors
+        // for `compute_status_group` consumers. Reading the flag here
+        // (one SELECT, ~1 ms) lets us write STATUS_CANCELLED instead,
+        // so the document surfaces under "Cancelled" with the
+        // operator-friendly error_message already written above.
+        //
+        // The flag is set by `cancel.rs::mark_document_cancelled` on
+        // either legacy- or Restate-side cancel success; if it isn't
+        // set, the failure is a genuine terminal error and we keep the
+        // existing STATUS_FAILED behaviour. A read failure here
+        // degrades to STATUS_FAILED — the wrong-bucket cost is far
+        // smaller than failing the failure-handler itself.
+        let was_cancelled =
+            pipeline_repository::documents::is_cancelled(&self.ctx.pipeline_pool, doc_id)
+                .await
+                .unwrap_or_else(|e| {
+                    tracing::warn!(
+                        doc_id, step = failed_step, error = %e,
+                        "DocumentPipeline: failed to read is_cancelled flag; \
+                         defaulting to STATUS_FAILED for terminal-error routing"
+                    );
+                    false
+                });
+        let terminal_status = if was_cancelled {
+            STATUS_CANCELLED
+        } else {
+            STATUS_FAILED
+        };
+
         if let Err(e) = pipeline_repository::update_document_status(
             &self.ctx.pipeline_pool,
             doc_id,
-            STATUS_FAILED,
+            terminal_status,
         )
         .await
         {
             tracing::error!(
-                doc_id, step = failed_step, error = %e,
-                "DocumentPipeline: failed to write STATUS_FAILED to documents table"
+                doc_id, step = failed_step, terminal_status, error = %e,
+                "DocumentPipeline: failed to write terminal status to documents table"
             );
         }
     }

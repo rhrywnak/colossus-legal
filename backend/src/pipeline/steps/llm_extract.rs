@@ -141,6 +141,38 @@ pub enum LlmExtractError {
         #[source]
         source: serde_json::Error,
     },
+
+    /// Cooperative cancellation: the chunk loop or pass-2 entry
+    /// observed `documents.is_cancelled = true` and short-circuited
+    /// before the next Anthropic API call.
+    ///
+    /// Triggered when the cancel handler at `api/pipeline/cancel.rs`
+    /// flips the flag after a Restate / Worker cancel succeeds. The
+    /// Restate SDK does NOT interrupt an in-flight `ctx.run()` closure
+    /// (cancellation is only checked at journal boundaries, not while
+    /// a closure is mid-flight), so a multi-minute Opus extraction has
+    /// to poll the flag itself; this variant is the polled-out result.
+    ///
+    /// Carries `chunks_completed` / `chunks_total` so the audit log
+    /// records how far the extraction got before the operator bailed.
+    /// For pass-2 (single-call, no chunking) both counts are `0` — a
+    /// future audit reader can distinguish "cancelled at pass-2 entry"
+    /// from "cancelled mid-chunk" by the value of `chunks_total`.
+    ///
+    /// Classified as **Terminal** by the Restate workflow's error
+    /// mapper (not Retryable) so Restate's retry loop does not re-run
+    /// the cancelled handler. Mirrors the SDK's own
+    /// `CancelSignalReceived → TerminalError(409, "cancelled")`
+    /// mapping at `restate-sdk-0.6.0/src/endpoint/context.rs:884`.
+    #[error(
+        "Processing cancelled by operator at chunk {chunks_completed}/{chunks_total} \
+         of document '{document_id}'"
+    )]
+    Cancelled {
+        document_id: String,
+        chunks_completed: i32,
+        chunks_total: i32,
+    },
 }
 
 // ── Step struct ─────────────────────────────────────────────────
@@ -1003,6 +1035,50 @@ async fn extract_chunks_loop(
     }
 
     for (i, chunk) in chunks.iter().enumerate() {
+        // Cooperative cancellation poll. The Restate cancel signal
+        // does NOT interrupt this loop — the SDK only checks for
+        // cancellation at journal boundaries, not while we're inside
+        // a `ctx.run()` closure on a multi-minute Anthropic call. So
+        // we read `documents.is_cancelled` ourselves between chunks.
+        // A single SELECT against the pool already in use (~1 ms);
+        // 14 polls over a ~20-minute Opus extraction is negligible
+        // overhead and the operator-perceived benefit is large —
+        // hitting Cancel stops the next chunk's API call instead of
+        // burning all remaining chunks' tokens.
+        //
+        // Placement: above `insert_extraction_chunk` so a cancelled
+        // run does not write a pending chunk row that would never
+        // get completed.
+        if pipeline_repository::documents::is_cancelled(args.db, args.document_id).await? {
+            tracing::info!(
+                document_id = %args.document_id,
+                chunks_completed = i as i32,
+                chunks_total = chunks.len() as i32,
+                "Pass 1: cancellation observed between chunks — short-circuiting"
+            );
+            // Mark the extraction_runs row FAILED with a
+            // cancellation-shaped message before returning. Without
+            // this the row stays RUNNING + completed_at=NULL forever
+            // — a zombie row that future audit queries cannot
+            // distinguish from a genuinely in-flight run. Mirrors the
+            // mark_run_failed pattern every other failure path in
+            // this file uses (prompt build, LLM call, parse, etc.).
+            // Best-effort like the other call sites; a write failure
+            // here doesn't change the outcome we're already returning.
+            let msg = format!(
+                "Processing cancelled by operator at chunk {}/{}",
+                i,
+                chunks.len()
+            );
+            mark_run_failed(args.db, args.run_id, &msg).await;
+            return Err(LlmExtractError::Cancelled {
+                document_id: args.document_id.to_string(),
+                chunks_completed: i as i32,
+                chunks_total: chunks.len() as i32,
+            }
+            .into());
+        }
+
         // ## Rust Learning: defensive `unwrap_or_else` on a guaranteed-OK call
         //
         // `serde_json::to_value` only fails when the input's `Serialize`

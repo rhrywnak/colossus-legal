@@ -548,6 +548,23 @@ fn classify_llm_extract_error(
             .into()
         }
 
+        // ── Terminal: operator-initiated cancellation ────────────
+        //
+        // Mirrors the Restate SDK's own
+        // `CancelSignalReceived → TerminalError(409, "cancelled")`
+        // mapping at `restate-sdk-0.6.0/src/endpoint/context.rs:884`.
+        // MUST be terminal — a Retryable classification here would
+        // bounce the cancelled invocation through Restate's retry
+        // loop and undo the whole point of polling
+        // `documents.is_cancelled` in the chunk loop.
+        E::Cancelled { .. } => TerminalError::new(format!(
+            "step_{step_name}: {e}. The cooperative-cancellation \
+             poller observed `documents.is_cancelled = true` and \
+             short-circuited before the next Anthropic API call. No \
+             retry — the operator explicitly asked to stop."
+        ))
+        .into(),
+
         // ── Retryable: transient infrastructure ──────────────────
         E::LlmCallFailed { .. }
         | E::SemaphoreClosed

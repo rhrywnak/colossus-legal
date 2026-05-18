@@ -234,11 +234,23 @@ pub struct Pass2ExtractionResult {
 ///
 /// ## Cancellation
 ///
-/// Does not poll a `CancellationToken`. The legacy worker wraps the
-/// surrounding `Step::execute` in `tokio::select!` with a
-/// `cancel_watcher` that aborts the whole future when the
-/// `pipeline_jobs.control` column transitions to `cancel`; the
-/// Restate path kills the awaiting future directly via SDK abort.
+/// Two cancellation mechanisms apply:
+///
+/// 1. **`CancellationToken`** — not polled inside this function. The
+///    legacy worker wraps the surrounding `Step::execute` in
+///    `tokio::select!` with a `cancel_watcher` that aborts the whole
+///    future when `pipeline_jobs.control` transitions to `cancel`.
+///    The token cannot interrupt this function from inside.
+///
+/// 2. **`documents.is_cancelled` DB poll** — read once at the entry
+///    of this function (immediately after the COMPLETED-pass-2
+///    short-circuit). The Restate SDK does NOT interrupt an in-flight
+///    `ctx.run()` closure when its cancel signal arrives; the closure
+///    must poll for itself. The cancel handler at
+///    `api/pipeline/cancel.rs` flips `documents.is_cancelled = true`
+///    on either-path success, so checking the flag here prevents
+///    starting a fresh ~20-minute Opus pass-2 call on a document the
+///    operator has already cancelled during pass-1.
 pub async fn run_pass2_extraction(
     document_id: &str,
     db: &PgPool,
@@ -258,6 +270,28 @@ pub async fn run_pass2_extraction(
             skipped_already_complete: true,
             ..Default::default()
         });
+    }
+
+    // 1b. Cooperative cancellation poll. Pass-1 may have been
+    //     cancelled mid-flight; we must not start pass-2 (another
+    //     ~20-minute Opus call) on a document the operator has
+    //     flagged for cancellation. The check is AFTER the
+    //     COMPLETED-pass-2 short-circuit above so a finished pass-2
+    //     still reports `skipped_already_complete` rather than
+    //     masking durable work as a cancellation — terminal-state
+    //     precedence over in-flight signal. See the function-level
+    //     doc comment for the broader cancellation design.
+    if pipeline_repository::documents::is_cancelled(db, document_id).await? {
+        tracing::info!(
+            document_id,
+            "Pass 2: cancellation observed at entry — short-circuiting before LLM call"
+        );
+        return Err(LlmExtractError::Cancelled {
+            document_id: document_id.to_string(),
+            chunks_completed: 0,
+            chunks_total: 0,
+        }
+        .into());
     }
 
     // 2. Load pipeline config, document, and schema.

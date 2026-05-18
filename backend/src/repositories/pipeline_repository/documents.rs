@@ -27,5 +27,7 @@
 //! Do NOT add function definitions to this file.
 
 pub use super::documents_delete::{delete_all_document_data, delete_document_extraction_data};
-pub use super::documents_progress::{update_document_failure, update_processing_progress};
+pub use super::documents_progress::{
+    mark_document_cancelled, update_document_failure, update_processing_progress,
+};
 pub use super::documents_state::{count_documents, has_document_of_type, is_cancelled};

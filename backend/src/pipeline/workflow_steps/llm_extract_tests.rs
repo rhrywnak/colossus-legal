@@ -242,6 +242,65 @@ fn classify_prompt_build_failed_is_terminal() {
     );
 }
 
+// ── Operator-initiated cancellation ─────────────────────────
+
+#[test]
+fn classify_cancelled_is_terminal_and_not_retryable() {
+    // The cooperative-cancellation poller short-circuited the chunk
+    // loop after the operator hit Cancel. MUST be terminal — a
+    // retryable classification would bounce the cancelled invocation
+    // through Restate's retry loop and undo the whole point of
+    // polling `documents.is_cancelled` between chunks.
+    let err = LlmExtractError::Cancelled {
+        document_id: "doc-x".into(),
+        chunks_completed: 3,
+        chunks_total: 14,
+    };
+    let c = classify_llm_extract_error("doc-x", "llm_extract_pass1", &err);
+    assert!(is_terminal(&c), "Cancelled MUST be terminal, not retryable");
+    let msg = display_message(&c);
+    assert!(
+        msg.contains("doc-x"),
+        "msg must name doc_id for the audit log: {msg}"
+    );
+    assert!(
+        msg.contains("3/14") || (msg.contains("3") && msg.contains("14")),
+        "msg must record how far the run got before cancel: {msg}"
+    );
+    assert!(
+        msg.contains("operator"),
+        "msg must identify the cause as operator action: {msg}"
+    );
+    assert!(
+        !msg.contains("Will retry"),
+        "Cancelled must NOT carry the retry hint: {msg}"
+    );
+}
+
+#[test]
+fn classify_cancelled_at_pass2_entry_records_zero_chunks() {
+    // Pass-2 polls the flag once at function entry (single-call, no
+    // chunking). Both `chunks_completed` and `chunks_total` are `0`,
+    // distinguishing "cancelled at pass-2 entry" from "cancelled
+    // mid-chunk" in the audit log.
+    let err = LlmExtractError::Cancelled {
+        document_id: "doc-y".into(),
+        chunks_completed: 0,
+        chunks_total: 0,
+    };
+    let c = classify_llm_extract_error("doc-y", "llm_extract_pass2", &err);
+    assert!(is_terminal(&c));
+    let msg = display_message(&c);
+    assert!(
+        msg.contains("0/0"),
+        "pass-2 entry cancel must show 0/0: {msg}"
+    );
+    assert!(
+        msg.contains("llm_extract_pass2"),
+        "step_name must propagate: {msg}"
+    );
+}
+
 // ── Retryable variants ──────────────────────────────────────
 
 #[test]
