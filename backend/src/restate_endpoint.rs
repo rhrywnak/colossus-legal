@@ -53,12 +53,23 @@
 //!   at boot** (matches the `BACKEND_PORT` convention — a bad port
 //!   value is operator error that should fail fast, not silently
 //!   degrade).
+//! - `PIPELINE_INACTIVITY_TIMEOUT_SECS` (optional, default `1800` =
+//!   30 minutes) — Restate-SDK per-service inactivity timeout for the
+//!   `DocumentPipeline` workflow. Restate's own default (1 minute) is
+//!   far too short for multi-step LLM extractions; see the constant
+//!   doc for the full rationale. **Present but not a valid `u64` →
+//!   panic at boot.**
+//! - `PIPELINE_ABORT_TIMEOUT_SECS` (optional, default `2700` = 45
+//!   minutes) — Restate-SDK per-service abort timeout. Starts ticking
+//!   after the inactivity timeout fires. **Present but not a valid
+//!   `u64` → panic at boot.**
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use tokio::net::TcpListener;
 
-use restate_sdk::endpoint::Endpoint;
+use restate_sdk::endpoint::{Endpoint, ServiceOptions};
 use restate_sdk::http_server::HttpServer;
 
 use crate::pipeline::context::AppContext;
@@ -74,6 +85,45 @@ const RESTATE_LISTEN_PORT_ENV: &str = "RESTATE_LISTEN_PORT";
 /// Restate SDK's documented default and the value the Restate runtime
 /// expects on DEV per the deployment doc.
 const DEFAULT_RESTATE_PORT: &str = "9080";
+
+/// Env var holding the per-service inactivity timeout (seconds).
+const PIPELINE_INACTIVITY_TIMEOUT_ENV: &str = "PIPELINE_INACTIVITY_TIMEOUT_SECS";
+
+/// Env var holding the per-service abort timeout (seconds).
+const PIPELINE_ABORT_TIMEOUT_ENV: &str = "PIPELINE_ABORT_TIMEOUT_SECS";
+
+/// Default inactivity timeout for the `DocumentPipeline` workflow.
+///
+/// The Restate runtime's default inactivity timeout is 1 minute — far
+/// too short for our pipeline. A 14-chunk Opus extraction routinely
+/// takes ~20 minutes wall-clock. Once the inactivity window elapses,
+/// Restate asks the SDK to abort the invocation; if the handler does
+/// not yield within [`DEFAULT_PIPELINE_ABORT_TIMEOUT_SECS`], the
+/// invocation is hard-killed and Restate retries from the last
+/// suspendable journal entry — each retry replays the work, burning
+/// real money on the LLM provider.
+///
+/// 30 minutes (= `1800`) covers the observed P95 extraction duration
+/// with comfort margin. Anything that legitimately exceeds this is a
+/// bug worth a timeout, not a healthy long-running task. Operators
+/// override via `PIPELINE_INACTIVITY_TIMEOUT_SECS` without rebuilding.
+const DEFAULT_PIPELINE_INACTIVITY_TIMEOUT_SECS: u64 = 30 * 60;
+
+/// Default abort timeout for the `DocumentPipeline` workflow.
+///
+/// Starts ticking *after* the inactivity timeout elapses and Restate
+/// has asked the handler to abort. Gives the handler 15 additional
+/// minutes to drain in-flight LLM calls / DB writes before the
+/// invocation is hard-killed. Total worst-case wall-clock before a
+/// forced retry: 30m + 15m = 45m (= `2700` seconds).
+///
+/// The previous server-default of 10 minutes was the proximate cause
+/// of the retry storm: a 20-minute extraction would breach the abort
+/// deadline while still mid-flight on a chunk, get hard-killed, and
+/// Restate would replay the journal — paying for the same Opus tokens
+/// twice (or more) per document. Operators override via
+/// `PIPELINE_ABORT_TIMEOUT_SECS` without rebuilding.
+const DEFAULT_PIPELINE_ABORT_TIMEOUT_SECS: u64 = 45 * 60;
 
 /// Read the Restate endpoint port from the environment.
 ///
@@ -101,6 +151,55 @@ pub fn port_from_env() -> u16 {
         // condition — fail at boot rather than degrade silently.
         // Mirrors the BACKEND_PORT pattern at main.rs:330.
         .expect("Invalid RESTATE_LISTEN_PORT — must parse as u16")
+}
+
+/// Read a per-service timeout (in whole seconds) from an env var,
+/// falling back to a documented default when the var is unset.
+///
+/// Behaviour mirrors [`port_from_env`]:
+/// - unset → returns `default_secs` as a `Duration`
+/// - set and parseable as `u64` → returns that many seconds
+/// - set but not parseable → **panics**
+///
+/// The panic posture is deliberate. A non-numeric value in a Restate
+/// timeout env var is operator error that should fail fast at boot, not
+/// silently fall back to the default (which would mask the typo and
+/// re-introduce the retry storm the explicit value was meant to fix).
+///
+/// ## Rust Learning: `&'static str` parameters
+/// `env_name` is taken as `&'static str` so callers can pass module-
+/// level `const &str` env-var names without lifetime ceremony. The
+/// borrow lives for the program's lifetime, so the `'static` bound
+/// imposes no real constraint at the call sites in this module.
+///
+/// # Panics
+///
+/// Panics if `env_name` is set to a value that does not parse as `u64`.
+fn duration_secs_from_env(env_name: &'static str, default_secs: u64) -> Duration {
+    // best-effort: VarError::NotPresent (env var absent) is the expected
+    // and dominant case — `.ok()` collapses it to `None` so the
+    // `.unwrap_or(default_secs)` below substitutes the documented
+    // default. VarError::NotUnicode (raw bytes that are not valid
+    // UTF-8) is also collapsed to `None` here and silently falls back
+    // to the default; this matches the `port_from_env` pattern above
+    // (which uses `.unwrap_or_else` on the same `VarError` and likewise
+    // does not distinguish the two variants). Non-UTF-8 env values are
+    // vanishingly rare in operator deployments and would have to be
+    // injected deliberately — the simpler "any VarError → default"
+    // posture is preferred over branching to a custom NotUnicode
+    // diagnostic that would never realistically fire.
+    let secs = std::env::var(env_name)
+        .ok()
+        .map(|raw| {
+            raw.parse::<u64>().unwrap_or_else(|_| {
+                // SAFETY: startup-once panic on operator typo. Same
+                // posture as `port_from_env` — a bad timeout is
+                // config error, not a runtime condition.
+                panic!("Invalid {env_name} — must parse as u64 (whole seconds)")
+            })
+        })
+        .unwrap_or(default_secs);
+    Duration::from_secs(secs)
 }
 
 /// Serve the Restate SDK endpoint on a pre-bound TCP listener.
@@ -136,17 +235,57 @@ pub async fn serve_restate_endpoint(listener: TcpListener, app_context: Arc<AppC
     // pipeline runs against the shared `AppContext`. The Arc clone
     // here is one atomic increment; the underlying context is shared
     // with the legacy worker thread.
+    //
+    // Why `bind_with_options` instead of `bind`:
+    // The Restate server's built-in defaults (1m inactivity, 10m abort)
+    // are tuned for short request/response handlers, not multi-step LLM
+    // pipelines. A 14-chunk Opus extraction takes ~20 minutes wall-
+    // clock; the 10-minute abort deadline was being breached mid-flight,
+    // causing Restate to hard-kill the invocation and replay the
+    // journal — burning Opus tokens on every retry. Raising both
+    // timeouts to cover the observed P95 (env-tunable, defaults 30m
+    // inactivity / 45m abort) eliminates the retry storm without
+    // affecting fast-path workflows in other services.
+    //
+    // ## Rust Learning: builder pattern with consuming methods
+    // `ServiceOptions::default()` produces an owned value; each
+    // `.inactivity_timeout(...)` / `.abort_timeout(...)` consumes
+    // `self` and returns a new `Self`. The chain works because each
+    // method's return value flows into the next call — no intermediate
+    // `let` bindings needed. This is the same pattern Rust uses for
+    // `reqwest::ClientBuilder` and most config-by-builder APIs.
+    let inactivity_timeout = duration_secs_from_env(
+        PIPELINE_INACTIVITY_TIMEOUT_ENV,
+        DEFAULT_PIPELINE_INACTIVITY_TIMEOUT_SECS,
+    );
+    let abort_timeout = duration_secs_from_env(
+        PIPELINE_ABORT_TIMEOUT_ENV,
+        DEFAULT_PIPELINE_ABORT_TIMEOUT_SECS,
+    );
+    let service_options = ServiceOptions::default()
+        .inactivity_timeout(inactivity_timeout)
+        .abort_timeout(abort_timeout);
     let endpoint = Endpoint::builder()
-        .bind(DocumentPipelineImpl::new(app_context).serve())
+        .bind_with_options(
+            DocumentPipelineImpl::new(app_context).serve(),
+            service_options,
+        )
         .build();
     // best-effort: local_addr() only fails if the kernel-side socket
     // state is unreadable, which would not happen on a listener we
     // just bound. The value is used only for the log line below; on
     // the impossible None branch we log `addr = None` and continue.
     let local_addr = listener.local_addr().ok();
+    // Echo the effective timeouts so an operator inspecting startup
+    // logs can confirm the retry-storm fix is actually in effect for
+    // this deployment (and quickly spot a stale container or a typo
+    // in the override env vars). `_secs` suffix makes the unit
+    // self-evident in structured log aggregators.
     tracing::info!(
         addr = ?local_addr,
         services = ?["DocumentPipeline"],
+        inactivity_timeout_secs = inactivity_timeout.as_secs(),
+        abort_timeout_secs = abort_timeout.as_secs(),
         "Restate SDK endpoint serving"
     );
     HttpServer::new(endpoint).serve(listener).await;
@@ -199,6 +338,84 @@ mod tests {
                 None => std::env::remove_var(RESTATE_LISTEN_PORT_ENV),
             }
         }
+    }
+
+    #[test]
+    fn duration_secs_from_env_returns_default_when_unset_and_parses_when_set() {
+        // Unique scratch env-var name to avoid colliding with the real
+        // PIPELINE_INACTIVITY_TIMEOUT_SECS / PIPELINE_ABORT_TIMEOUT_SECS
+        // that another test in this binary might be touching. We are
+        // exercising the reader's behaviour, not the production env-var
+        // wiring (the constants are checked by the dedicated assertion
+        // below).
+        const TEST_ENV: &str = "PIPELINE_TIMEOUT_TEST_PROBE_OK";
+        let prior = std::env::var(TEST_ENV).ok();
+
+        // SAFETY: `set_var`/`remove_var` are unsafe in Rust 2024 because
+        // env mutation races with reads on other threads. This test is
+        // single-threaded and uses a uniquely-named scratch var that no
+        // production code reads.
+        unsafe {
+            std::env::remove_var(TEST_ENV);
+        }
+        assert_eq!(
+            duration_secs_from_env(TEST_ENV, 1234),
+            Duration::from_secs(1234),
+            "unset env var must yield the default duration"
+        );
+
+        unsafe {
+            std::env::set_var(TEST_ENV, "777");
+        }
+        assert_eq!(
+            duration_secs_from_env(TEST_ENV, 1234),
+            Duration::from_secs(777),
+            "set-and-parseable env var must override the default"
+        );
+
+        // Restore prior state for other tests in this binary.
+        unsafe {
+            match prior {
+                Some(v) => std::env::set_var(TEST_ENV, v),
+                None => std::env::remove_var(TEST_ENV),
+            }
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "must parse as u64")]
+    fn duration_secs_from_env_panics_on_malformed_value() {
+        // Dedicated scratch env var so the panic expectation cannot be
+        // triggered by another test's mutation of the production vars
+        // under parallel test execution.
+        const TEST_ENV: &str = "PIPELINE_TIMEOUT_TEST_PROBE_BAD";
+        unsafe {
+            std::env::set_var(TEST_ENV, "not-a-u64");
+        }
+        // The .expect-style panic message includes the env-var name so
+        // an operator can find the bad var immediately in the boot log.
+        let _ = duration_secs_from_env(TEST_ENV, 30);
+        // Unreachable: duration_secs_from_env panics inside the
+        // unwrap_or_else above.
+    }
+
+    #[test]
+    fn pipeline_default_timeouts_match_documented_values() {
+        // Lock in the documented 30m / 45m defaults. If a future edit
+        // changes the constants without updating the module-level docs
+        // and the doc-comment in `bind_with_options`, this test fails
+        // and forces the doc to be updated in lockstep. The Restate
+        // server's 10-minute abort default was the exact value that
+        // caused the retry storm — regressing to it (or anything below
+        // the observed P95) would silently reintroduce the bug.
+        assert_eq!(
+            DEFAULT_PIPELINE_INACTIVITY_TIMEOUT_SECS, 1800,
+            "inactivity default must remain 30 minutes (1800 s)"
+        );
+        assert_eq!(
+            DEFAULT_PIPELINE_ABORT_TIMEOUT_SECS, 2700,
+            "abort default must remain 45 minutes (2700 s)"
+        );
     }
 
     #[test]
