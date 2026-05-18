@@ -12,6 +12,7 @@ use serde::Serialize;
 use crate::auth::{require_admin, AuthUser};
 use crate::error::AppError;
 use crate::pipeline::config::ProcessingProfile;
+use crate::pipeline::registry::PipelineRegistry;
 use crate::pipeline::validation::validate_profile;
 use crate::state::AppState;
 
@@ -53,6 +54,47 @@ fn validate_profile_name(name: &str) -> Result<(), AppError> {
 /// Build the on-disk path for a profile file (`.yaml` or `.yaml.inactive`).
 fn profile_path(dir: &str, name: &str, ext: &str) -> std::path::PathBuf {
     std::path::Path::new(dir).join(format!("{name}.{ext}"))
+}
+
+/// Resolve a path-parameter name to its on-disk profile basename and full path.
+///
+/// The endpoint receives a path parameter that may be either:
+///
+/// 1. A registry **document_type** key (e.g. `"complaint"`) — the
+///    UI's primary call shape. The registry maps it to a
+///    `profile_file` like `"complaint_v5_1.yaml"`, and we return
+///    the basename `"complaint_v5_1"` and the full file path.
+/// 2. A literal **profile filename basename** (e.g. `"complaint_v5_1"`)
+///    — admin tooling that already knows the filename. No registry
+///    indirection applies and we pass it through.
+///
+/// Trying the registry first, then falling back to the literal name,
+/// keeps both call shapes working. Mirrors the resolution upload.rs
+/// performs on the document_type → profile_file mapping.
+///
+/// `ext` is the file extension without leading dot (`"yaml"` for
+/// active profiles, `"yaml.inactive"` for deactivated ones).
+fn resolve_profile_basename_and_path(
+    registry: &PipelineRegistry,
+    name: &str,
+    ext: &str,
+) -> (String, std::path::PathBuf) {
+    if let Some(entry) = registry.document_type(name) {
+        // Registry `profile_file` values are full filenames ending in
+        // `.yaml`. Strip the suffix so the basename can be re-used as
+        // the on-disk file's internal `name:` field (update_profile)
+        // and so `profile_path` doesn't double-append the extension.
+        let basename = entry
+            .profile_file
+            .strip_suffix(".yaml")
+            .unwrap_or(&entry.profile_file)
+            .to_string();
+        let path = profile_path(registry.profile_dir(), &basename, ext);
+        (basename, path)
+    } else {
+        let path = profile_path(registry.profile_dir(), name, ext);
+        (name.to_string(), path)
+    }
 }
 
 /// Validate a profile's cross-references before writing it to disk.
@@ -113,7 +155,12 @@ pub async fn list_profiles(
 
 /// GET /api/admin/pipeline/profiles/:name — read a single profile.
 ///
-/// `404 Not Found` if `{name}.yaml` doesn't exist.
+/// `:name` may be either a registry document_type (e.g. `"complaint"`)
+/// or a literal profile filename basename (e.g. `"complaint_v5_1"`).
+/// The registry mapping is tried first so the UI can fetch by
+/// document_type without knowing the versioned profile filename.
+///
+/// `404 Not Found` if the resolved file doesn't exist.
 pub async fn get_profile(
     user: AuthUser,
     State(state): State<AppState>,
@@ -122,7 +169,8 @@ pub async fn get_profile(
     require_admin(&user)?;
     validate_profile_name(&name)?;
 
-    let path = profile_path(state.registry.profile_dir(), &name, PROFILE_EXT);
+    let (_basename, path) =
+        resolve_profile_basename_and_path(&state.registry, &name, PROFILE_EXT);
     if !tokio::fs::try_exists(&path).await.unwrap_or(false) {
         return Err(AppError::NotFound {
             message: format!("Profile '{name}' not found"),
@@ -163,9 +211,15 @@ pub async fn create_profile(
 
 /// PUT /api/admin/pipeline/profiles/:name — overwrite an existing profile.
 ///
-/// `404` if the file doesn't exist. The path param is authoritative —
-/// if the body contains a different `profile.name`, the file at `:name`
-/// is still the one overwritten. This avoids a "rename via update" foot-gun.
+/// `:name` may be a registry document_type or a literal profile filename
+/// basename (same resolution as `get_profile`). The resolved filename is
+/// authoritative — if the body contains a different `profile.name`, the
+/// resolved file is the one overwritten and the body's `name` field is
+/// rewritten to match the file basename. This avoids a "rename via update"
+/// foot-gun and keeps the YAML's internal `name:` field in lockstep with
+/// its filename.
+///
+/// `404` if the resolved file doesn't exist.
 pub async fn update_profile(
     user: AuthUser,
     State(state): State<AppState>,
@@ -175,16 +229,17 @@ pub async fn update_profile(
     require_admin(&user)?;
     validate_profile_name(&name)?;
 
-    let path = profile_path(state.registry.profile_dir(), &name, PROFILE_EXT);
+    let (basename, path) =
+        resolve_profile_basename_and_path(&state.registry, &name, PROFILE_EXT);
     if !tokio::fs::try_exists(&path).await.unwrap_or(false) {
         return Err(AppError::NotFound {
             message: format!("Profile '{name}' not found"),
         });
     }
 
-    // Path param wins — overwrite the body name so the on-disk file and
-    // its internal `name` field stay in sync.
-    profile.name = name;
+    // Resolved basename wins — overwrite the body name so the on-disk
+    // file and its internal `name` field stay in sync.
+    profile.name = basename;
     validate_profile_references(&state, &profile).await?;
 
     write_profile_yaml(&path, &profile).await?;
@@ -193,7 +248,9 @@ pub async fn update_profile(
 
 /// DELETE /api/admin/pipeline/profiles/:name — deactivate a profile.
 ///
-/// Renames `{name}.yaml` → `{name}.yaml.inactive`. Never hard-deletes —
+/// `:name` may be a registry document_type or a literal profile filename
+/// basename. The resolved file is renamed
+/// `{basename}.yaml` → `{basename}.yaml.inactive`. Never hard-deletes —
 /// admins can restore by renaming back. `404` if the source doesn't exist;
 /// if the destination already exists, it is overwritten (re-deactivate).
 pub async fn deactivate_profile(
@@ -204,13 +261,14 @@ pub async fn deactivate_profile(
     require_admin(&user)?;
     validate_profile_name(&name)?;
 
-    let src = profile_path(state.registry.profile_dir(), &name, PROFILE_EXT);
+    let (basename, src) =
+        resolve_profile_basename_and_path(&state.registry, &name, PROFILE_EXT);
     if !tokio::fs::try_exists(&src).await.unwrap_or(false) {
         return Err(AppError::NotFound {
             message: format!("Profile '{name}' not found"),
         });
     }
-    let dst = profile_path(state.registry.profile_dir(), &name, INACTIVE_EXT);
+    let dst = profile_path(state.registry.profile_dir(), &basename, INACTIVE_EXT);
 
     tokio::fs::rename(&src, &dst)
         .await
@@ -219,7 +277,7 @@ pub async fn deactivate_profile(
         })?;
 
     Ok(Json(serde_json::json!({
-        "deactivated": name,
+        "deactivated": basename,
         "renamed_to": dst.file_name().map(|n| n.to_string_lossy().into_owned()),
     })))
 }
