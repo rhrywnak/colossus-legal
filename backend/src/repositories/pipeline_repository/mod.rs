@@ -287,6 +287,28 @@ pub async fn update_document_write_counts(
     Ok(())
 }
 
+/// Count items NOT in [`review::GROUNDED_STATUSES`] for the document and
+/// persist the count to `documents.entities_flagged`. Called by Ingest
+/// so the Processing-tab grounding stat has a real denominator —
+/// the column was previously declared, projected, and rendered but
+/// never written, which forced the UI rate to a hardcoded 100%.
+///
+/// Returns the count for logging.
+pub async fn refresh_document_flagged_count(
+    pool: &PgPool,
+    document_id: &str,
+) -> Result<i32, PipelineRepoError> {
+    let count = review::count_flagged_items_for_document(pool, document_id).await? as i32;
+    sqlx::query(
+        "UPDATE documents SET entities_flagged = $2, updated_at = NOW() WHERE id = $1",
+    )
+    .bind(document_id)
+    .bind(count)
+    .execute(pool)
+    .await?;
+    Ok(count)
+}
+
 /// Additive counterpart to `update_document_write_counts` for delta ingest.
 ///
 /// Delta runs top up the graph with newly-approved items; the counts

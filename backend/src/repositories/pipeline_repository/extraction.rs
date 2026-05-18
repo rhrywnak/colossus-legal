@@ -33,23 +33,32 @@ pub struct ExtractionItemRecord {
     pub neo4j_node_id: Option<String>,
     /// Ingest-determined Neo4j label (e.g. `"Person"` / `"Organization"`
     /// for Party items). `None` before Ingest runs or for legacy rows
-    /// from before the R4 migration. `entity_type` on this struct is
-    /// populated from `COALESCE(resolved_entity_type, entity_type)` at
-    /// SELECT time, so callers who want the *effective* label read
-    /// `entity_type`; only callers that specifically want the resolved-
-    /// only value read this column.
+    /// from before the R4 migration.
+    ///
+    /// IMPORTANT: this struct's `entity_type` field carries the RAW
+    /// LLM-written value — the same string that matches the schema's
+    /// `entity_types[].name`. Schema-keyed flows (verify, completeness,
+    /// derived-provenance validation) read `entity_type`. Callers that
+    /// need the post-resolution Neo4j label (display surfaces, downstream
+    /// Neo4j writes) read `resolved_entity_type` explicitly.
     pub resolved_entity_type: Option<String>,
 }
 
 /// Shared SELECT column list for every `query_as::<_, ExtractionItemRecord>`
-/// call site. The `entity_type` column is projected through
-/// `COALESCE(resolved_entity_type, entity_type)` so the struct field
-/// always carries the effective label — preserving the external API
-/// shape while the underlying column stays immutable (R4). The raw
-/// `resolved_entity_type` column is also returned for callers that
-/// need the resolved-only value.
-const ITEM_SELECT_COLUMNS: &str = "id, run_id, document_id, \
-     COALESCE(resolved_entity_type, entity_type) AS entity_type, \
+/// call site. Both `entity_type` (raw LLM-written value, matches the
+/// schema's `entity_types[].name`) and `resolved_entity_type` (Ingest-
+/// determined Neo4j label, populated post-Ingest) are returned. Callers
+/// decide which to read: schema-keyed flows read `entity_type`; display
+/// and Neo4j-label flows read `resolved_entity_type`.
+///
+/// Previously projected `entity_type` through
+/// `COALESCE(resolved_entity_type, entity_type) AS entity_type`. That
+/// silently rewrote the field after Ingest ran: re-verifying an already-
+/// ingested document made the schema HashMap lookup miss on every Party
+/// item (the rows came back as "Person"/"Organization" instead of
+/// "Party"), the silent-default-to-Verbatim path fired, and name_match
+/// entities were stamped `grounding_status = "missing_quote"`.
+const ITEM_SELECT_COLUMNS: &str = "id, run_id, document_id, entity_type, \
      item_data, verbatim_quote, grounding_status, grounded_page, \
      review_status, reviewed_by, reviewed_at, review_notes, \
      graph_status, neo4j_node_id, resolved_entity_type";

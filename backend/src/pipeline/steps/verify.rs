@@ -267,7 +267,11 @@ pub async fn run_verify(
         .collect();
 
     // 6. Categorize items by grounding mode.
-    let categorization = verify_api::categorize_items_for_grounding(&items, &grounding_config);
+    let categorization = verify_api::categorize_items_for_grounding(&items, &grounding_config)
+        .map_err(|message| VerifyError::GroundingModes {
+            doc_id: doc_id.to_string(),
+            message,
+        })?;
 
     // 7. Flatten verbatim/name/heading categories into parallel
     //    `snippets` and `snippet_items` vectors for PageGrounder.

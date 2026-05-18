@@ -402,8 +402,17 @@ async fn run_ingest_locked(
     )
     .await
     .map_err(|e| AppError::Internal {
-        message: format!("Failed to update write counts: {e}"),
+        message: format!("Failed to persist write counts: {e}"),
     })?;
+
+    // 14a'. Persist the flagged-item count for the Processing tab's
+    //       grounding-rate stat. `entities_flagged` was previously
+    //       declared and rendered but never written.
+    pipeline_repository::refresh_document_flagged_count(&state.pipeline_pool, doc_id)
+        .await
+        .map_err(|e| AppError::Internal {
+            message: format!("Failed to refresh flagged count: {e}"),
+        })?;
 
     // 14a-R1. Persist the extraction-item → Neo4j-node-id lineage.
     //         `pg_to_neo4j` carries the post-resolver, post-MERGE id for

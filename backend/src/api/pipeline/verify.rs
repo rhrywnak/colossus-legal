@@ -156,7 +156,8 @@ pub(crate) async fn run_verify(
 
     // 6. Categorize items by grounding mode using the extracted pure function.
     //    Then build combined snippets for PageGrounder.
-    let categorization = categorize_items_for_grounding(&items, &grounding_config);
+    let categorization = categorize_items_for_grounding(&items, &grounding_config)
+        .map_err(|message| AppError::Internal { message })?;
 
     let mut snippets: Vec<String> = Vec::new();
     let mut snippet_items: Vec<SnippetMeta> = Vec::new();
@@ -465,6 +466,7 @@ pub(crate) enum SnippetKind {
 /// which need name matching, which are derived — is pure business logic
 /// with no IO dependencies. Extracting it as a pure function allows it
 /// to be tested without a database connection.
+#[derive(Debug)]
 pub(crate) struct GroundingCategorization {
     /// Items that need verbatim quote search (have a non-empty quote)
     pub verbatim_items: Vec<(i32, String)>, // (item_id, quote)
@@ -497,7 +499,7 @@ pub(crate) struct GroundingCategorization {
 pub(crate) fn categorize_items_for_grounding(
     items: &[ExtractionItemRecord],
     grounding_config: &HashMap<String, EntityVerificationConfig>,
-) -> GroundingCategorization {
+) -> Result<GroundingCategorization, String> {
     let mut verbatim_items = Vec::new();
     let mut name_match_items = Vec::new();
     let mut heading_match_items = Vec::new();
@@ -506,14 +508,33 @@ pub(crate) fn categorize_items_for_grounding(
     let mut missing_quote_item_ids = Vec::new();
 
     for item in items {
-        // FOLLOWUP-verify-silent-default: this `unwrap_or(&Verbatim)` is
-        // a silent fallback and violates Rule 1 — it should hard-error
-        // with the unmapped entity_type and the loaded schema file.
-        // Out of scope for the v5.1 fix; tracked separately.
+        // Hard-error on schema lookup miss. The pre-fix code silently
+        // defaulted unmapped entity_types to Verbatim, which routed
+        // name_match entities (Party, etc.) through the empty-quote
+        // branch and stamped them `grounding_status = "missing_quote"`
+        // without surfacing the underlying mismatch. If we hit this,
+        // either `pipeline_config.schema_file` points at the wrong
+        // schema or the LLM emitted an entity_type the schema doesn't
+        // declare — both are operator-actionable bugs, not conditions
+        // to mask.
         let mode = grounding_config
             .get(&item.entity_type)
             .map(|c| &c.mode)
-            .unwrap_or(&GroundingMode::Verbatim);
+            .ok_or_else(|| {
+                format!(
+                    "Entity type '{}' (item id {}) is not declared in the loaded schema. \
+                     Schema declares: [{}]. Check that pipeline_config.schema_file matches \
+                     the entity types the LLM emitted for this document.",
+                    item.entity_type,
+                    item.id,
+                    {
+                        let mut keys: Vec<&str> =
+                            grounding_config.keys().map(String::as_str).collect();
+                        keys.sort();
+                        keys.join(", ")
+                    },
+                )
+            })?;
 
         match mode {
             GroundingMode::Derived => {
@@ -548,14 +569,14 @@ pub(crate) fn categorize_items_for_grounding(
         }
     }
 
-    GroundingCategorization {
+    Ok(GroundingCategorization {
         verbatim_items,
         name_match_items,
         heading_match_items,
         derived_item_ids,
         none_item_ids,
         missing_quote_item_ids,
-    }
+    })
 }
 
 /// Load per-entity verification config (grounding mode + provenance_required)
@@ -900,7 +921,7 @@ mod tests {
                 "ComplaintAllegation",
                 Some("Defendant fired plaintiff."),
             )];
-            let cat = categorize_items_for_grounding(&items, &modes);
+            let cat = categorize_items_for_grounding(&items, &modes).unwrap();
             assert_eq!(
                 cat.verbatim_items.len(),
                 1,
@@ -913,7 +934,7 @@ mod tests {
         // Case 2: ComplaintAllegation without quote → missing_quote
         {
             let items = vec![make_item(2, "ComplaintAllegation", None)];
-            let cat = categorize_items_for_grounding(&items, &modes);
+            let cat = categorize_items_for_grounding(&items, &modes).unwrap();
             assert!(
                 cat.verbatim_items.is_empty(),
                 "ComplaintAllegation-quote → not verbatim"
@@ -924,24 +945,31 @@ mod tests {
         {
             let mut item = make_item(3, "Party", None);
             item.item_data = serde_json::json!({"properties": {"full_name": "Marie Awad"}});
-            let cat = categorize_items_for_grounding(&[item], &modes);
+            let cat = categorize_items_for_grounding(&[item], &modes).unwrap();
             assert_eq!(cat.name_match_items.len(), 1, "Party+name → name_match");
             assert!(cat.missing_quote_item_ids.is_empty());
         }
         // Case 4: Harm → derived
         {
             let items = vec![make_item(4, "Harm", None)];
-            let cat = categorize_items_for_grounding(&items, &modes);
+            let cat = categorize_items_for_grounding(&items, &modes).unwrap();
             assert_eq!(cat.derived_item_ids, vec![4], "Harm → derived");
         }
-        // Case 5: UnknownType → missing_quote (silent default to Verbatim)
+        // Case 5: UnknownType → hard error. The pre-fix code silently
+        // defaulted to Verbatim and routed the item to missing_quote,
+        // masking the real bug (schema/LLM mismatch). The fix raises
+        // an Err naming the unmapped entity_type and the schema keys.
         {
             let items = vec![make_item(5, "UnknownType", None)];
-            let cat = categorize_items_for_grounding(&items, &modes);
-            assert_eq!(
-                cat.missing_quote_item_ids,
-                vec![5],
-                "UnknownType (silent-default Verbatim) without quote → missing_quote"
+            let err = categorize_items_for_grounding(&items, &modes)
+                .expect_err("UnknownType not in modes → Err");
+            assert!(
+                err.contains("UnknownType"),
+                "error must name the unmapped entity_type, got: {err}"
+            );
+            assert!(
+                err.contains("item id 5"),
+                "error must name the offending item id, got: {err}"
             );
         }
     }
@@ -961,7 +989,7 @@ mod tests {
         modes.insert("Statement".to_string(), cfg(GroundingMode::Verbatim, false));
         modes.insert("Party".to_string(), cfg(GroundingMode::NameMatch, false));
 
-        let cat = categorize_items_for_grounding(&items, &modes);
+        let cat = categorize_items_for_grounding(&items, &modes).unwrap();
         // Statement without quote → missing_quote (verbatim mode, no quote)
         // Party without name label → missing_quote (name_match mode, empty item_data)
         // Both end up in missing_quote because neither has the data its mode requires.

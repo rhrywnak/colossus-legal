@@ -251,6 +251,26 @@ pub async fn count_ungrounded_pending(
     .await
 }
 
+/// Count every extraction_items row for the document whose grounding_status
+/// is NOT in [`GROUNDED_STATUSES`] (or is NULL). Unlike
+/// `count_ungrounded_pending`, this is NOT gated by `review_status='pending'`
+/// — it's a document-wide tally used by Ingest to populate
+/// `documents.entities_flagged` for the Processing-tab grounding stat.
+pub async fn count_flagged_items_for_document(
+    pool: &PgPool,
+    document_id: &str,
+) -> Result<i64, sqlx::Error> {
+    sqlx::query_scalar::<_, i64>(
+        "SELECT count(*) FROM extraction_items
+         WHERE document_id = $1
+           AND (grounding_status IS NULL OR grounding_status <> ALL($2))",
+    )
+    .bind(document_id)
+    .bind(grounded_statuses_vec())
+    .fetch_one(pool)
+    .await
+}
+
 /// Fetch a single extraction item by ID (for guards and history).
 pub async fn get_item_by_id(
     pool: &PgPool,

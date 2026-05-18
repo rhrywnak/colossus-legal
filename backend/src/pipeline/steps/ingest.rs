@@ -602,6 +602,18 @@ pub async fn run_ingest(
             message: format!("update_document_write_counts: {source}"),
         })?;
 
+        // 14b'. Persist the flagged-item count for the Processing tab's
+        //       grounding-rate stat. `entities_flagged` was previously
+        //       declared and rendered but never written, so the UI
+        //       always showed 100% grounded regardless of how many
+        //       items landed in not_found/missing_quote.
+        pipeline_repository::refresh_document_flagged_count(db, doc_id)
+            .await
+            .map_err(|source| IngestError::Helper {
+                doc_id: doc_id.to_string(),
+                message: format!("refresh_document_flagged_count: {source}"),
+            })?;
+
         // 14c. R1: persist the extraction-item → Neo4j-node-id lineage.
         //      `pg_to_neo4j` carries the post-resolver, post-MERGE id for
         //      every item — including Party entities matched to
