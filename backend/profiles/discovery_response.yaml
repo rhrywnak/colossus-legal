@@ -22,7 +22,7 @@ global_rules_file: global_rules_v4.md
 pass2_template_file: discovery_response_pass2_v5_1.md
 system_prompt_file: legal_extraction_system.md
 
-extraction_model: claude-sonnet-4-6
+extraction_model: claude-opus-4-6
 pass2_extraction_model: claude-opus-4-6
 
 chunking_mode: structured
