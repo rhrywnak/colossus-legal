@@ -5,12 +5,27 @@
 //!
 //! ## Rust Learning: Module directory split
 //!
-//! This module is split into two files:
+//! This module is split across several files:
 //! - `mod.rs` — shared types, error, document and config CRUD
-//! - `extraction.rs` — extraction_runs, extraction_items, extraction_relationships
+//! - `extraction.rs` — re-export hub that funnels the four focused
+//!   extraction modules below into the `pipeline_repository::*` surface
+//! - `extraction_runs.rs` — `extraction_runs` lifecycle + chunk
+//!   bookkeeping + graph-status writeback
+//! - `extraction_items.rs` — `extraction_items` CRUD and queries
+//! - `extraction_items_pass1.rs` — `Pass1Entity` projection +
+//!   `load_pass1_entities` (split out of `extraction_items` purely to
+//!   keep both files under the 300-line module budget)
+//! - `extraction_relationships.rs` — `extraction_relationships` CRUD +
+//!   the per-pass LLM-result writers
+//! - `extraction_context.rs` — cross-document context loader for pass 2
 
 pub mod documents;
 pub mod extraction;
+pub mod extraction_context;
+pub mod extraction_items;
+pub mod extraction_items_pass1;
+pub mod extraction_relationships;
+pub mod extraction_runs;
 pub mod models;
 pub mod report_queries;
 pub mod review;
@@ -299,13 +314,11 @@ pub async fn refresh_document_flagged_count(
     document_id: &str,
 ) -> Result<i32, PipelineRepoError> {
     let count = review::count_flagged_items_for_document(pool, document_id).await? as i32;
-    sqlx::query(
-        "UPDATE documents SET entities_flagged = $2, updated_at = NOW() WHERE id = $1",
-    )
-    .bind(document_id)
-    .bind(count)
-    .execute(pool)
-    .await?;
+    sqlx::query("UPDATE documents SET entities_flagged = $2, updated_at = NOW() WHERE id = $1")
+        .bind(document_id)
+        .bind(count)
+        .execute(pool)
+        .await?;
     Ok(count)
 }
 
