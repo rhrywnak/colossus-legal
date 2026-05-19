@@ -109,6 +109,24 @@ pub struct DocumentRecord {
     /// NULL for documents uploaded before multi-format support.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub original_format: Option<String>,
+    // ── Restate workflow tracking ───────────────────────────────
+    //
+    /// Restate-assigned invocation id (`inv_…`) returned by the
+    /// ingress `/send` call when the workflow was started. NULL for
+    /// documents that have never had Process clicked, and for legacy
+    /// rows that pre-date the column. Used by the delete handler to
+    /// purge the workflow journal via the Restate admin API so a
+    /// subsequent re-upload of the same document_id does not 409
+    /// with `PreviouslyAccepted`.
+    ///
+    /// ## Rust Learning: Option<String> for nullable DB columns
+    ///
+    /// PostgreSQL NULL maps to `None`; a present id (e.g. `"inv_abc123"`)
+    /// maps to `Some(...)`. The delete handler pattern-matches on this
+    /// to decide whether to call Restate at all — no recorded id means
+    /// no workflow exists to purge.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub restate_invocation_id: Option<String>,
 }
 
 /// A page of extracted text from the `document_text` table.
@@ -296,7 +314,8 @@ pub async fn list_all_documents(pool: &PgPool) -> Result<Vec<DocumentRecord>, Pi
                 run.chunks_failed AS run_chunks_failed,
                 d.content_type, d.page_count, d.text_pages, d.scanned_pages,
                 d.pages_needing_ocr, d.total_chars,
-                d.mime_type, d.original_format
+                d.mime_type, d.original_format,
+                d.restate_invocation_id
          FROM documents d
          LEFT JOIN (
              SELECT document_id, SUM(cost_usd::float8) AS total_cost_usd
@@ -346,7 +365,8 @@ pub async fn get_document(
                 run.chunks_failed AS run_chunks_failed,
                 d.content_type, d.page_count, d.text_pages, d.scanned_pages,
                 d.pages_needing_ocr, d.total_chars,
-                d.mime_type, d.original_format
+                d.mime_type, d.original_format,
+                d.restate_invocation_id
          FROM documents d
          LEFT JOIN (
              SELECT document_id, SUM(cost_usd::float8) AS total_cost_usd

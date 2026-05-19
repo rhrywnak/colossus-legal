@@ -182,6 +182,146 @@ pub async fn cancel_restate_workflow(
     }
 }
 
+// ── Purge: admin-port journal purge ─────────────────────────────
+
+/// Restate timeout for purge calls.
+///
+/// See the line-comment markers immediately above the declaration for
+/// the formal `// CONST:` and `// DEFAULT:` justifications. The full
+/// rationale follows.
+///
+/// Parallel to [`RESTATE_CANCEL_TIMEOUT`] — purge is an admin
+/// operation that Restate answers immediately (202 on success, 404 if
+/// the invocation does not exist, or 4xx if it is still in a
+/// non-terminal state). A failure to respond within 10s indicates the
+/// admin endpoint is down or unreachable, which is operator-actionable
+/// information; waiting longer would only delay the operator's
+/// diagnosis. Matches the cancel helper's latency budget so both admin
+/// calls fail-fast on the same envelope.
+// CONST: latency budget for a fast admin call; not env-var configurable
+// because deployments do not need to tune purge latency independently
+// from the rest of the HTTP stack.
+// DEFAULT: 10 seconds — override by editing this constant and rebuilding.
+const RESTATE_PURGE_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Purge a Restate workflow invocation journal by its invocation id.
+///
+/// Calls `PATCH {restate_admin_url}/invocations/{invocation_id}/purge`
+/// with a 10-second timeout. Restate's documented return codes for the
+/// `/purge` endpoint:
+///
+/// - **202 Accepted** / **200 OK** → the invocation journal was found
+///   (in a terminal state) and purged; returns `Ok(true)`.
+/// - **404 Not Found** → no invocation exists for this id, either
+///   because it was never created or because a prior purge already
+///   removed it. Idempotent-safe; returns `Ok(false)`.
+/// - **Any other status** → returns `Err`, surfacing the status code
+///   and the response body so an operator can diagnose. The most
+///   likely non-2xx non-404 cause is `409 Conflict` when the
+///   invocation is still in a non-terminal state — purge requires a
+///   completed, failed, or cancelled invocation. Roman's operator
+///   contract is to cancel before deleting, so this path should be
+///   rare; when it happens the error message tells the operator
+///   exactly what to fix.
+///
+/// ## Why purge-by-id rather than purge-by-(service, key)
+///
+/// Restate's admin API on this deployment exposes `/purge` only at the
+/// `/invocations/{invocation_id}/purge` URL — the keyed form
+/// (`/invocations/{service}/{key}?mode=purge`) used by
+/// [`cancel_restate_workflow`] does not exist for purge here, confirmed
+/// against the running cluster. We therefore persist the Restate-
+/// assigned id on `documents.restate_invocation_id` at workflow-invoke
+/// time (`api/pipeline/process.rs`) and pass it to this helper at
+/// delete time.
+///
+/// ## Best-effort semantics
+///
+/// Callers should treat `Ok(false)` as "no journal to purge — proceed
+/// with the surrounding cleanup" and `Err(_)` as "Restate is
+/// configured but the purge call didn't return a recognised outcome."
+/// The delete handler in `api/pipeline/delete.rs` records the outcome
+/// in the audit snapshot regardless, so an operator can reconcile any
+/// orphan journal after the fact.
+///
+/// ## Rust Learning: `&str` for the invocation id
+///
+/// We take `&str` (a borrowed reference) rather than `String` because
+/// the caller already owns the id — either as a column read from
+/// `documents.restate_invocation_id` (an `Option<String>` they have
+/// pattern-matched into `Some(id)`) or as a freshly-returned
+/// `InvokeOutcome::Accepted { invocation_id }`. Borrowing avoids an
+/// unnecessary clone at the call boundary.
+#[tracing::instrument(skip(http_client), fields(invocation_id = %invocation_id))]
+pub async fn purge_restate_workflow(
+    http_client: &reqwest::Client,
+    restate_admin_url: &str,
+    invocation_id: &str,
+) -> Result<bool, anyhow::Error> {
+    // Trim trailing `/` so we don't build URLs like
+    // `http://host//invocations/...`. Restate is lenient about doubled
+    // slashes but proxies between us and it may not be — matches the
+    // defensive shape of the cancel helper.
+    let base = restate_admin_url.trim_end_matches('/');
+    let url = format!("{base}/invocations/{invocation_id}/purge");
+
+    let response = http_client
+        .patch(&url)
+        // Per-request timeout override: replaces the shared client's
+        // 90s default (configured in `main.rs` for RAG/synthesis calls).
+        // Purge must answer fast or fail fast — see RESTATE_PURGE_TIMEOUT.
+        .timeout(RESTATE_PURGE_TIMEOUT)
+        .send()
+        .await
+        .with_context(|| {
+            format!(
+                "Restate purge PATCH to '{url}' failed before a response was received \
+                 (network, DNS, or timeout). Check RESTATE_ADMIN_URL and that the \
+                 Restate admin endpoint is reachable."
+            )
+        })?;
+
+    let status = response.status();
+    match status {
+        // Restate's `/purge` returns 202 on success. Accept 200 as well
+        // so a future Restate version that switches to a sync response
+        // does not silently regress to the error branch.
+        StatusCode::ACCEPTED | StatusCode::OK => {
+            tracing::info!(
+                invocation_id = %invocation_id,
+                "Restate purge: journal purged (status {status})"
+            );
+            Ok(true)
+        }
+        StatusCode::NOT_FOUND => {
+            tracing::info!(
+                invocation_id = %invocation_id,
+                "Restate purge: no invocation found for id (404) — \
+                 either already purged or never created"
+            );
+            Ok(false)
+        }
+        other => {
+            // Drain the body for the error message so the operator sees
+            // what Restate said. Truncate at 512 chars so a stray HTML
+            // error page doesn't flood the log line.
+            let body = response
+                .text()
+                .await
+                .unwrap_or_else(|e| format!("<failed to read body: {e}>"));
+            let truncated = if body.len() > 512 {
+                format!("{}…<truncated>", &body[..512])
+            } else {
+                body
+            };
+            Err(anyhow::anyhow!(
+                "Restate purge returned unexpected status {other} for invocation \
+                 '{invocation_id}' (URL: {url}). Body: {truncated}"
+            ))
+        }
+    }
+}
+
 // ── Invoke: ingress-port workflow invocation ────────────────────
 
 /// Restate timeout for ingress invoke calls.

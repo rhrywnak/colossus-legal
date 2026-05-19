@@ -19,6 +19,7 @@ mod config_endpoints;
 mod config_handler;
 pub(crate) mod constants;
 mod delete;
+mod delete_restate_purge;
 mod document_response;
 mod document_types;
 mod errors;

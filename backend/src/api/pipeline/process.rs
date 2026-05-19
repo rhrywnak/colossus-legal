@@ -237,7 +237,39 @@ pub async fn process_handler(
         }
     };
 
-    // [7] Audit + tracing. Both records carry the invocation id under
+    // [7a] Persist the Restate-assigned invocation id on the document
+    // row. The delete handler needs this id to purge the workflow
+    // journal via the Restate admin API (`PATCH /invocations/{id}/purge`)
+    // — without it, deleting and re-uploading the same `doc_id` would
+    // 409 with `PreviouslyAccepted` because the orphan journal blocks a
+    // fresh invocation.
+    //
+    // Best-effort here: the workflow has already been submitted to
+    // Restate, so we cannot retract the operation. A failure to persist
+    // means the delete handler will skip the purge (its `None`
+    // branch) and an operator will need to purge the journal manually
+    // via `curl`. We log loudly so the operator notices, but return
+    // success because the user's `/process` action did succeed — the
+    // workflow is running, just without our delete-time hook into it.
+    if let Err(e) = pipeline_repository::documents::set_restate_invocation_id(
+        &state.pipeline_pool,
+        &doc_id,
+        &invocation_id,
+    )
+    .await
+    {
+        tracing::error!(
+            doc_id = %doc_id,
+            invocation_id = %invocation_id,
+            error = %e,
+            "Restate workflow invoked successfully but persisting invocation_id \
+             to documents.restate_invocation_id failed. The workflow is running, \
+             but a future delete of this document will NOT auto-purge the Restate \
+             journal — operator must purge manually via the admin API."
+        );
+    }
+
+    // [7b] Audit + tracing. Both records carry the invocation id under
     // the same field names the legacy path used (`job_id` in the
     // audit details JSON) so log-scraping tooling still finds the
     // value at a stable key.

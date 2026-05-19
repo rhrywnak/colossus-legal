@@ -17,6 +17,7 @@ use axum::{
 };
 use serde::Deserialize;
 
+use super::delete_restate_purge::{attempt_restate_purge, inject_restate_purge_into_snapshot};
 use crate::auth::{require_admin, AuthUser};
 use crate::error::AppError;
 use crate::models::document_status::{
@@ -62,6 +63,7 @@ pub async fn delete_document(
     let title = doc.title.clone();
     let file_path = doc.file_path.clone();
     let previous_status = doc.status.clone();
+    let invocation_id = doc.restate_invocation_id.clone();
     let reason = body.and_then(|b| b.0.reason);
 
     // Published documents require a reason
@@ -73,7 +75,22 @@ pub async fn delete_document(
     }
 
     // 2. Build audit snapshot before deleting anything
-    let snapshot = build_audit_snapshot(&state, &document_id, &doc).await?;
+    let mut snapshot = build_audit_snapshot(&state, &document_id, &doc).await?;
+
+    // 2a. Purge the Restate workflow journal (best-effort). Must run
+    // BEFORE the destructive Neo4j/Qdrant/Postgres steps so the
+    // outcome can be recorded in the audit snapshot the next step
+    // writes. The purge cannot block delete: any failure here is
+    // logged and recorded, and the surrounding cleanup proceeds. See
+    // `attempt_restate_purge` for the outcome matrix.
+    let purge_outcome = attempt_restate_purge(
+        &state.http_client,
+        state.config.restate_admin_url.as_deref(),
+        &document_id,
+        invocation_id.as_deref(),
+    )
+    .await;
+    inject_restate_purge_into_snapshot(&mut snapshot, invocation_id.as_deref(), &purge_outcome);
 
     // 3. Write audit log entry (before deletion — survives even if delete fails)
     sqlx::query(

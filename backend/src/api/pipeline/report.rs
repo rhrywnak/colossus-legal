@@ -620,6 +620,7 @@ mod tests {
             total_chars: None,
             mime_type: None,
             original_format: None,
+            restate_invocation_id: None,
         }
     }
 

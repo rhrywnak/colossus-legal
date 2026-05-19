@@ -87,6 +87,59 @@ pub async fn mark_document_cancelled(
     Ok(())
 }
 
+/// Persist the Restate-assigned invocation id for a document.
+///
+/// Called from the `/process` handler immediately after
+/// `invoke_restate_workflow` returns `InvokeOutcome::Accepted` with a
+/// new `inv_…` id. The delete handler later reads this column to know
+/// which Restate workflow journal to purge.
+///
+/// ## Why a dedicated helper instead of widening `update_document_status`
+///
+/// `update_document_status` writes the FSM column (`documents.status`)
+/// — a separate concern from the workflow-runtime cross-reference id
+/// we're persisting here. Mixing the two writes into one function
+/// would couple every status transition to a Restate-id parameter that
+/// only one transition (NEW → PROCESSING via the `/process` handler)
+/// ever supplies; every other caller would pass `None` and bloat the
+/// API surface. Keeping it separate matches the file's pattern of one
+/// orthogonal in-flight signal per writer (`mark_document_cancelled`,
+/// `update_document_failure`, and now this).
+///
+/// Best-effort by the caller's design: by the time the `/process`
+/// handler reaches this call the Restate workflow has already been
+/// invoked and cannot be retracted, so a persist failure here cannot
+/// undo the user's action. The caller logs the failure at
+/// `tracing::error!` with operator-actionable context and returns
+/// success — the workflow IS running, just without our delete-time
+/// hook. Without the persisted id, a future delete of this document
+/// will hit the `SkippedNoId` branch in
+/// [`crate::api::pipeline::delete_restate_purge::attempt_restate_purge`]
+/// and the operator will need to purge the journal manually via the
+/// Restate admin API. The function still returns the error so the
+/// caller is structurally forced to handle it; the choice of what to
+/// do with the error lives at the call site, where the surrounding
+/// state (workflow already in flight) is in scope.
+pub async fn set_restate_invocation_id(
+    pool: &PgPool,
+    document_id: &str,
+    invocation_id: &str,
+) -> Result<(), PipelineRepoError> {
+    let result = sqlx::query(
+        "UPDATE documents SET restate_invocation_id = $2, updated_at = NOW() \
+         WHERE id = $1",
+    )
+    .bind(document_id)
+    .bind(invocation_id)
+    .execute(pool)
+    .await?;
+
+    if result.rows_affected() == 0 {
+        return Err(PipelineRepoError::NotFound(document_id.to_string()));
+    }
+    Ok(())
+}
+
 /// Persist failure details to the `documents` table.
 ///
 /// Writes three columns the frontend reads to render the FAILED-state
