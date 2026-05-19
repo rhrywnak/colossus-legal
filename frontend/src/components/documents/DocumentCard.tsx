@@ -199,7 +199,6 @@ const DocumentCard: React.FC<DocumentCardProps> = ({ doc, isAdmin, onRefresh }) 
           <>
             <div style={{ ...metaText, marginBottom: "0.25rem" }}>
               {titleizeType(doc.document_type)} | Processed {formatDate(doc.updated_at)}
-              {doc.total_cost_usd != null && ` | $${doc.total_cost_usd.toFixed(2)}`}
             </div>
             <div style={metaText}>
               {doc.entities_written ?? 0} entities | {doc.relationships_written ?? 0} relationships

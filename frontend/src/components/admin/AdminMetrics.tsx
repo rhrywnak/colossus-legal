@@ -1,7 +1,7 @@
 /**
  * AdminMetrics — Pipeline metrics dashboard tab.
  *
- * Shows summary cards (document counts, cost, grounding rate) and a
+ * Shows summary cards (document counts, grounding rate, completion) and a
  * step performance table with proportional duration bars.
  */
 import React, { useEffect, useState } from "react";
@@ -108,13 +108,6 @@ const AdminMetrics: React.FC = () => {
           </div>
         </div>
         <div style={card}>
-          <div style={cardValue}>${metrics.total_cost_usd.toFixed(2)}</div>
-          <div style={cardLabel}>Total Cost</div>
-          <div style={{ fontSize: "0.72rem", color: "#94a3b8", marginTop: "0.15rem" }}>
-            ${metrics.avg_cost_per_document.toFixed(2)} avg/doc
-          </div>
-        </div>
-        <div style={card}>
           <div style={cardValue}>
             {metrics.avg_grounding_rate > 0 ? `${metrics.avg_grounding_rate.toFixed(1)}%` : "--"}
           </div>
@@ -129,12 +122,6 @@ const AdminMetrics: React.FC = () => {
       {/* Estimates */}
       {metrics.estimates.confidence !== "none" ? (
         <div style={{ ...cardRow, marginBottom: "1.5rem" }}>
-          {metrics.estimates.estimated_remaining_cost_usd != null && (
-            <div style={card}>
-              <div style={cardValue}>~${metrics.estimates.estimated_remaining_cost_usd.toFixed(2)}</div>
-              <div style={cardLabel}>Est. Remaining Cost</div>
-            </div>
-          )}
           {metrics.estimates.estimated_remaining_time_secs != null && (
             <div style={card}>
               <div style={cardValue}>~{fmtTime(metrics.estimates.estimated_remaining_time_secs)}</div>
@@ -151,7 +138,7 @@ const AdminMetrics: React.FC = () => {
         </div>
       ) : (
         <div style={{ fontSize: "0.8rem", color: "#94a3b8", marginBottom: "1.5rem" }}>
-          Not enough data to estimate remaining cost and time.
+          Not enough data to estimate remaining time.
         </div>
       )}
 

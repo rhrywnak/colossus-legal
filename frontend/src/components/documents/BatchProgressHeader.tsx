@@ -1,7 +1,7 @@
 /**
  * BatchProgressHeader — shows batch processing progress above the document list.
  *
- * Displays a progress bar, status bucket counts, and cost/time estimates.
+ * Displays a progress bar, status bucket counts, and time estimates.
  * Updated for 5-status model: new, processing, completed, failed, cancelled.
  */
 import React from "react";
@@ -14,10 +14,6 @@ interface BatchProgressHeaderProps {
 }
 
 // ── Helpers ─────────────────────────────────────────────────────
-
-function fmtCost(usd: number): string {
-  return `$${usd.toFixed(2)}`;
-}
 
 function fmtTime(secs: number): string {
   if (secs < 60) return `${Math.round(secs)}s`;
@@ -59,11 +55,9 @@ const BatchProgressHeader: React.FC<BatchProgressHeaderProps> = ({
 
   const total = documents.length;
   const buckets = { new: 0, processing: 0, completed: 0, failed: 0, cancelled: 0 };
-  let totalCost = 0;
   for (const d of documents) {
     const group = (d.status_group ?? "new") as keyof typeof buckets;
     if (group in buckets) buckets[group]++;
-    if (d.total_cost_usd != null) totalCost += d.total_cost_usd;
   }
   const completed = buckets.completed;
   const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
@@ -110,18 +104,10 @@ const BatchProgressHeader: React.FC<BatchProgressHeaderProps> = ({
         })}
       </div>
 
-      {/* Cost / estimates */}
+      {/* Estimates */}
       <div style={metaRow}>
-        {totalCost > 0 && <span>Total cost: {fmtCost(totalCost)}</span>}
-        {estimates && estimates.confidence !== "none" && (
-          <>
-            {estimates.estimated_remaining_cost_usd != null && (
-              <span>Est. remaining: ~{fmtCost(estimates.estimated_remaining_cost_usd)}</span>
-            )}
-            {estimates.estimated_remaining_time_secs != null && (
-              <span>Est. time: ~{fmtTime(estimates.estimated_remaining_time_secs)}</span>
-            )}
-          </>
+        {estimates && estimates.confidence !== "none" && estimates.estimated_remaining_time_secs != null && (
+          <span>Est. time: ~{fmtTime(estimates.estimated_remaining_time_secs)}</span>
         )}
       </div>
     </div>

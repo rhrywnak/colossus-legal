@@ -106,7 +106,6 @@ const ExtractionConfigDialog: React.FC<ExtractionConfigDialogProps> = ({
     return () => { cancelled = true; };
   }, [currentSchemaFile]);
 
-  const selectedModel = models.find((m) => m.id === modelId);
   const canSubmit = !loading && schemaFile.length > 0;
 
   const handleSubmit = () => {
@@ -161,12 +160,6 @@ const ExtractionConfigDialog: React.FC<ExtractionConfigDialogProps> = ({
                   </option>
                 ))}
               </select>
-              {selectedModel && (
-                <div style={S.hint}>
-                  ${selectedModel.input_cost_per_mtok.toFixed(2)}/MTok in,
-                  ${selectedModel.output_cost_per_mtok.toFixed(2)}/MTok out
-                </div>
-              )}
             </div>
 
             <div style={S.fieldGroup}>

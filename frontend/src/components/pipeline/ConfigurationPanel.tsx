@@ -1225,15 +1225,6 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
               <div>
                 Estimated input tokens:{" "}
                 <strong>{preview.estimated_input_tokens.toLocaleString()}</strong>
-                {preview.estimated_cost_usd != null && (
-                  <>
-                    {" "}· Estimated cost:{" "}
-                    <strong>${preview.estimated_cost_usd.toFixed(4)}</strong>
-                  </>
-                )}
-                {preview.estimated_cost_usd == null && (
-                  <> · Cost: unavailable</>
-                )}
                 {preview.chunk_count != null && (
                   <> · Chunks: <strong>{preview.chunk_count}</strong></>
                 )}

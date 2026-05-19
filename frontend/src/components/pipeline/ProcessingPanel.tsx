@@ -301,9 +301,6 @@ const ProcessingPanel: React.FC<ProcessingPanelProps> = ({
 
     return (
       <div style={bodyStyle}>
-        {doc.total_cost_usd != null && (
-          <div style={summaryLine}>Cost: ${doc.total_cost_usd.toFixed(2)}</div>
-        )}
         {doc.run_chunk_count != null && (
           <div style={summaryLine}>
             Chunks: {doc.run_chunk_count} total
