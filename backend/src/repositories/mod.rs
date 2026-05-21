@@ -3,6 +3,10 @@ pub mod allegation_repository;
 pub mod analysis_repository;
 pub mod audit_repository;
 pub mod case_repository;
+// Private — internal helper module for case_summary_repository. Kept as a
+// sibling (not a sub-module) to mirror the established split pattern
+// (allegation_detail_repository.rs from decomposition_repository.rs).
+mod case_summary_elements;
 pub mod case_summary_repository;
 pub mod claim_repository;
 pub mod contradiction_repository;

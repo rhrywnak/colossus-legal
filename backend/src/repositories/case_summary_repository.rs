@@ -1,9 +1,14 @@
 // Neo4j queries for GET /case-summary — analytical dashboard data.
 // Uses separate query methods (same pattern as case_repository.rs).
+//
+// Per-Element loading lives in the sibling `case_summary_elements` module
+// — split out to keep this file under the 300-line cap (CLAUDE.md §4-17).
 
 use neo4rs::{query, Graph};
 
 use crate::dto::case_summary::{CaseSummaryResponse, LegalCountInfo, PersonCharacterizationCount};
+
+use super::case_summary_elements;
 
 #[derive(Debug)]
 pub enum CaseSummaryRepositoryError {
@@ -44,17 +49,37 @@ impl CaseSummaryRepository {
         Self { graph }
     }
 
-    /// Build the complete case summary by running 5 focused queries.
+    /// Build the complete case summary by running 6 focused queries.
     ///
     /// RUST PATTERN: Orchestrator Method
     /// Each sub-query is its own method returning a partial result.
     /// This method assembles them into the final response struct.
+    ///
+    /// Elements are fetched separately and attached to each
+    /// [`LegalCountInfo`] in-memory rather than joined in Cypher — the
+    /// elements query is a different aggregation grain (per-element
+    /// allegation counts) from the count-level query (DISTINCT allegations
+    /// across the whole count), so collapsing the two would lose the
+    /// distinction the UI now displays.
     pub async fn get_case_summary(
         &self,
     ) -> Result<CaseSummaryResponse, CaseSummaryRepositoryError> {
         let (case_title, court, case_number) = self.get_case_identity().await?;
         let stats = self.get_core_stats().await?;
-        let legal_count_details = self.get_legal_count_details().await?;
+        let mut legal_count_details = self.get_legal_count_details().await?;
+        // Fetch all Elements for the case in one round trip, then attach
+        // them per-count below. Keeps Cypher simple and avoids N+1.
+        // Lives in the sibling module to keep this file under the
+        // 300-line cap; see `case_summary_elements.rs` for the query +
+        // sort helper + tests.
+        let mut elements_by_count =
+            case_summary_elements::get_elements_per_count(&self.graph).await?;
+        for count in legal_count_details.iter_mut() {
+            // `remove` (vs `get`) lets us move the Vec out — saves a clone of
+            // a list that's only used here. Any count_id not in the map
+            // (count has no Elements yet) cleanly degrades to an empty Vec.
+            count.elements = elements_by_count.remove(&count.id).unwrap_or_default();
+        }
         let decomp = self.get_decomposition_stats().await?;
         let (plaintiffs, defendants) = self.get_parties().await?;
 
@@ -225,6 +250,10 @@ impl CaseSummaryRepository {
                 name: row.get("name").unwrap_or_default(),
                 count_number: row.get("count_number").unwrap_or(0),
                 allegation_count: row.get("allegation_count").unwrap_or(0),
+                // Elements are attached by the orchestrator after a
+                // separate query — leave empty here so the partial result
+                // shape stays simple and the orchestrator does the merge.
+                elements: Vec::new(),
             });
         }
 

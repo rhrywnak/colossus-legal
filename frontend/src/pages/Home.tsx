@@ -2,22 +2,9 @@ import React, { useState } from "react";
 import { Link } from "react-router-dom";
 import { useCase } from "../context/CaseContext";
 import { HarmDto, getHarms } from "../services/harms";
-import { stripCountPrefix, toCountLabel } from "../utils/countFormat";
+import CountCard from "../components/CountCard";
 
-// ─── Static data ─────────────────────────────────────────────────────────────
-
-// TODO: Fetch descriptions from LegalCount.description in Neo4j once the field
-// is populated. For now these are hardcoded summaries from the complaint.
-const COUNT_DESCRIPTIONS: Record<string, string> = {
-  "count-breach-fiduciary-duty":
-    "CFS and Phillips violated duties of loyalty and care owed to Marie as estate beneficiary.",
-  "count-fraud":
-    "Defendants made material misrepresentations to the court about Marie's cooperation and estate assets.",
-  "count-declaratory-ultra-vires":
-    "Request for court determination regarding the rights and duties of parties under the estate.",
-  "count-abuse-of-process":
-    "Phillips used court proceedings for improper purposes including sanctions motions and character attacks.",
-};
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const formatCurrency = (amount: number): string =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(amount);
@@ -132,42 +119,9 @@ const Home: React.FC = () => {
           <div style={{ fontSize: "0.95rem", fontWeight: 700, color: "#0f172a", marginBottom: "0.85rem", letterSpacing: "-0.01em" }}>
             Causes of Action
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "0.65rem" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "0.65rem", alignItems: "start" }}>
             {caseData.legal_count_details.map((lc) => (
-              <Link
-                key={lc.id}
-                to={`/allegations?count=${encodeURIComponent(lc.id)}`}
-                style={{
-                  backgroundColor: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "10px",
-                  padding: "1.15rem 1.25rem", textDecoration: "none", display: "flex",
-                  justifyContent: "space-between", alignItems: "flex-start",
-                  transition: "all 0.15s ease", cursor: "pointer",
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.borderColor = "#3b82f6"; e.currentTarget.style.boxShadow = "0 2px 8px rgba(37,99,235,0.08)"; }}
-                onMouseLeave={(e) => { e.currentTarget.style.borderColor = "#e2e8f0"; e.currentTarget.style.boxShadow = "none"; }}
-              >
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: "0.68rem", fontWeight: 700, color: "#2563eb", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "0.2rem" }}>
-                    {toCountLabel(lc.count_number)}
-                  </div>
-                  <div style={{ fontSize: "0.92rem", fontWeight: 600, color: "#0f172a", marginBottom: "0.3rem", lineHeight: 1.3 }}>
-                    {stripCountPrefix(lc.name)}
-                  </div>
-                  <div style={{ fontSize: "0.8rem", color: "#475569", lineHeight: 1.45, fontFamily: "'Georgia', serif" }}>
-                    {COUNT_DESCRIPTIONS[lc.id] || ""}
-                  </div>
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexShrink: 0, marginLeft: "1rem" }}>
-                  <span style={{
-                    padding: "0.22rem 0.55rem", borderRadius: "5px", fontSize: "0.72rem",
-                    fontWeight: 600, letterSpacing: "0.02em",
-                    backgroundColor: "#eff6ff", color: "#1d4ed8", whiteSpace: "nowrap",
-                  }}>
-                    {lc.allegation_count} {lc.allegation_count === 1 ? "allegation" : "allegations"}
-                  </span>
-                  <span style={{ color: "#cbd5e1", fontSize: "0.9rem" }}>{"\u2192"}</span>
-                </div>
-              </Link>
+              <CountCard key={lc.id} count={lc} />
             ))}
           </div>
         </section>

@@ -6,11 +6,26 @@ export type PersonCharacterizationCount = {
   count: number;
 };
 
+// One Element of proof attached to a LegalCount. Mirrors the backend
+// `ElementInfo` DTO. `controlling_authority` is absent (undefined) on the
+// wire when the graph property is null — the frontend treats absent/empty
+// the same way (placeholder text in the popover), but the InfoPopup icon
+// is always rendered so "missing" and "pending" remain distinguishable.
+export type ElementInfo = {
+  id: string;
+  element_name: string;
+  title: string;
+  order_in_count: number | null;
+  allegation_count: number;
+  controlling_authority?: string;
+};
+
 export type LegalCountInfo = {
   id: string;
   name: string;
   count_number: number;
   allegation_count: number;
+  elements: ElementInfo[];
 };
 
 export type CaseSummaryResponse = {
