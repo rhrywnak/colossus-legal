@@ -1,0 +1,216 @@
+# count_3_declaratory_relief.yaml
+#
+# Canonical Element library for Count III — Declaratory Relief
+# Source case: Awad v. Catholic Family Service & Phillips
+# Bay County Circuit Court (transferred from Macomb County Circuit Court)
+#
+# Current operative defendants: Catholic Family Service, George Phillips
+# Archdiocese of Detroit was originally pleaded on supervisory-liability theory
+# but has been dismissed; remains as Party in the graph with status=dropped.
+#
+# Count III differs structurally from tort Counts: its Elements are
+# JURISDICTIONAL PREREQUISITES (what plaintiff must show for the court to
+# grant declaratory relief) rather than factual elements of a tort. The
+# substantive declarations sought (CFS acted ultra vires, fees were
+# improper) are NOT Elements — they are the relief the declaratory
+# judgment would grant. Those are modeled separately via DeclarationSought
+# nodes attached to LegalCount via SEEKS_DECLARATION.
+#
+# Per the operative complaint as it now stands (Detroit dismissed), the
+# Count III declarations originally pleaded against Detroit ("Detroit
+# failed to supervise") drop out. Only the CFS-focused declarations
+# remain: ultra vires conduct, improper fees.
+
+count:
+  count_number: 3
+  count_name: "Declaratory Relief"
+  template_name: "declaratory_relief_michigan"
+  burden_of_proof: "preponderance"
+  m_civ_ji_reference: null  # No specific M Civ JI for declaratory relief; controlled by MCR 2.605 and case law
+
+  special_note: >
+    Unlike tort causes of action, Count III's Elements are PREREQUISITES
+    FOR THE COURT TO GRANT THE RELIEF SOUGHT, not factual elements
+    plaintiff must prove to establish liability. Substantive declarations
+    sought are separate (see DeclarationSought below). "Damages" is NOT
+    an Element of declaratory relief under Michigan law — damages flow
+    through Counts I, II, and IV.
+
+  controlling_authorities:
+    - citation: "MCR 2.605(A)(1)"
+      authority_type: "court_rule"
+      role: "Establishes actual-controversy requirement"
+
+    - citation: "MCR 2.605(A)(2)"
+      authority_type: "court_rule"
+      role: "Establishes jurisdictional-prerequisite requirement"
+
+    - citation: "MCR 3.001"
+      authority_type: "court_rule"
+      role: "$25,000+ amount-in-controversy threshold for Michigan circuit court jurisdiction"
+
+    - citation: "Lansing Schools Ed Ass'n v Lansing Bd of Ed, 487 Mich 349, 372 n.20 (2010)"
+      authority_type: "case"
+      court: "Michigan Supreme Court"
+      year: 2010
+      role: "Defines actual-controversy doctrine"
+
+    - citation: "Mercurio v Huntington Nat'l Bank, 347 Mich App 662, 675 (2023)"
+      authority_type: "case"
+      court: "Michigan Court of Appeals"
+      year: 2023
+      role: "Future-conduct guidance requirement"
+
+    - citation: "UAW v Central Mich Univ Trustees, 295 Mich App 486, 495 (2012)"
+      authority_type: "case"
+      court: "Michigan Court of Appeals"
+      year: 2012
+      role: "Real-party-in-interest requirement for declaratory relief"
+
+elements:
+  - id: "element-3-1"
+    order_in_count: 1
+    element_name: "Actual controversy exists"
+    title: "Actual controversy exists"
+
+    what_plaintiff_must_prove: >
+      That plaintiff has pleaded facts demonstrating an adverse interest
+      necessitating the sharpening of the issues raised. A hypothetical
+      or speculative dispute is insufficient.
+
+    controlling_authority: "MCR 2.605(A)(1); Lansing Schools Ed Ass'n, 487 Mich 349, 372 n.20 (2010)"
+
+    statutory_anchor: null
+
+    case_specific_notes: >
+      CFS allegedly operating outside its corporate purpose creates an
+      ongoing dispute about whether CFS can continue to serve as PR,
+      collect fees, or act as a court-appointed fiduciary. This is a real
+      controversy, not hypothetical — the estate matter remains open and
+      CFS's conduct continues to affect plaintiff's interests as heir.
+
+  - id: "element-3-2"
+    order_in_count: 2
+    element_name: "Relief necessary to guide future conduct"
+    title: "Relief necessary to guide future conduct"
+
+    what_plaintiff_must_prove: >
+      That a declaratory judgment is necessary to guide plaintiff's future
+      conduct in order to preserve plaintiff's legal rights. Where the
+      injury sought to be prevented is merely hypothetical, no actual
+      controversy exists.
+
+    controlling_authority: "Mercurio v Huntington Nat'l Bank, 347 Mich App 662, 675 (2023)"
+
+    statutory_anchor: null
+
+    case_specific_notes: >
+      A declaration that CFS acted ultra vires has prospective effect —
+      it would prevent future similar misconduct against this plaintiff
+      and potentially others affected by CFS's continuing role as a
+      court-appointed fiduciary.
+
+  - id: "element-3-3"
+    order_in_count: 3
+    element_name: "Plaintiff is a real party in interest"
+    title: "Plaintiff is a real party in interest"
+
+    what_plaintiff_must_prove: >
+      That plaintiff has a concrete and distinct interest in the matter
+      such that the declaratory judgment will resolve plaintiff's rights,
+      not those of third parties.
+
+    controlling_authority: "MCR 2.605(A)(1); UAW v Central Mich Univ Trustees, 295 Mich App 486, 495 (2012)"
+
+    statutory_anchor: null
+
+    case_specific_notes: >
+      Marie Awad is an heir of the estate of Emil Awad and is directly
+      affected by CFS's fee charges and conduct as PR. Her interest is
+      concrete (financial recovery for excessive fees), distinct (her
+      heir's share, not a third party's), and ongoing (the estate matter
+      remains open).
+
+  - id: "element-3-4"
+    order_in_count: 4
+    element_name: "Court has jurisdiction over subject matter"
+    title: "Court has jurisdiction over subject matter"
+
+    what_plaintiff_must_prove: >
+      That the court would have jurisdiction over the underlying claim
+      if relief other than a declaratory judgment had been sought. For
+      Michigan circuit court civil jurisdiction, this includes the
+      $25,000+ amount-in-controversy threshold under MCR 3.001.
+
+    controlling_authority: "MCR 2.605(A)(2); MCR 3.001"
+
+    statutory_anchor: null
+
+    case_specific_notes: >
+      Damages-quantum paragraphs (¶85, 100, 114, 126 — all "damages
+      exceeding $25,000") collectively establish Bay County Circuit
+      Court jurisdiction. These paragraphs appear in the complaint as
+      jurisdictional pleadings, not substantive Elements of their
+      respective Counts. In particular, ¶114 within the Count III section
+      supports THIS Element directly.
+
+# Substantive declarations sought (modeled separately from Elements)
+#
+# Count III's substantive relief is NOT Elements. These are the
+# declarations Chuck asks the court to issue. They are modeled as
+# DeclarationSought nodes attached to LegalCount(count_number=3) via
+# the SEEKS_DECLARATION relationship.
+#
+# IMPORTANT: With Detroit's dismissal, only the CFS-focused declarations
+# remain operative. The original "Detroit failed to supervise" declaration
+# is preserved here for historical traceability but marked as inoperative.
+
+declarations_sought:
+  - id: "declaration-3-a"
+    declaration: "CFS acted outside its corporate purpose (ultra vires)"
+    legal_basis: >
+      CFS is a Michigan 501(c)(3) non-profit corporation whose Articles
+      of Incorporation do not authorize providing guardianship,
+      conservatorship, or personal representative services for adults
+      (per Motion for Default §I — CFS admitted in Requests for Admission
+      #25-27 that these services are not in their Articles).
+    operative: true
+
+  - id: "declaration-3-b"
+    declaration: "Fees charged by CFS for unauthorized services should be returned"
+    legal_basis: >
+      Consequence of declaration-3-a — fees paid for services CFS was not
+      corporately authorized to provide are recoverable.
+    operative: true
+
+  - id: "declaration-3-c"
+    declaration: "Archdiocese of Detroit failed to supervise CFS"
+    legal_basis: >
+      Originally pleaded on supervisory-liability theory against Detroit
+      as parent organization of CFS. Detroit was dismissed as a defendant;
+      this declaration is preserved in the historical record but is NOT
+      operative in the current case.
+    operative: false
+    inoperative_reason: "Detroit dismissed; not an operative defendant"
+
+# Notes for downstream consumption
+#
+# 1. "Damages" is NOT an Element of Count III. The current LLM extraction
+#    has a "Damages — declaratory relief" Element which is structurally
+#    wrong under Michigan law and will be wiped when canonical Elements
+#    load. Damages flow through Counts I, II, and IV (Elements 1-3, 2-5,
+#    2-11). Damages-quantum paragraph ¶114 supports Element 3-4
+#    (jurisdiction) ONLY for Count III, not a separate damages Element.
+#
+# 2. The four Elements above are JURISDICTIONAL PREREQUISITES, not
+#    factual Elements of a tort. Allegations that satisfy these Elements
+#    will mostly be Common Allegations (¶7-71) establishing the case
+#    posture, rather than Count-section-specific Allegations (¶102-114).
+#    Some Count-section Allegations will support Elements 3-1 and 3-2;
+#    Element 3-4 is established by damages-quantum paragraphs across
+#    all Counts.
+#
+# 3. The DeclarationSought model is new. The loader binary should create
+#    DeclarationSought nodes attached to LegalCount(count_number=3) via
+#    SEEKS_DECLARATION when this YAML is processed. Schema design for
+#    DeclarationSought needs to happen alongside loader implementation.

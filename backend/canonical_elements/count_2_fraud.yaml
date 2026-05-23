@@ -1,0 +1,383 @@
+# count_2_fraud.yaml
+#
+# Canonical Element library for Count II — Fraud
+# Source case: Awad v. Catholic Family Service & Phillips
+# Bay County Circuit Court (transferred from Macomb County Circuit Court)
+#
+# Current operative defendants: Catholic Family Service, George Phillips
+# Archdiocese of Detroit was originally pleaded on supervisory-liability theory
+# but has been dismissed; remains as Party in the graph with status=dropped.
+#
+# This file defines TWO fraud theories pleaded simultaneously under MCR
+# 2.111(A)(2)(b):
+#   1. Silent fraud (M Civ JI 128.02) — 5 Elements — RECOMMENDED PRIMARY
+#   2. Common-law fraud (M Civ JI 128.01) — 6 Elements — ALTERNATIVE
+# Total: 11 canonical Elements under Count II.
+#
+# CHUCK REVIEW FLAG: The decision to encode both fraud variants simultaneously
+# (rather than silent fraud only) was made by Opus per Michigan civil
+# procedure and the structure of Chuck's pleaded facts. This should be
+# confirmed by Chuck when he becomes available.
+
+count:
+  count_number: 2
+  count_name: "Fraud"
+  template_name: "fraud_michigan"
+  burden_of_proof: "clear_and_convincing"  # PER M CIV JI 128.01 — DIFFERENT FROM OTHER COUNTS
+  m_civ_ji_reference: "M Civ JI 128.01 (common-law fraud); M Civ JI 128.02 (silent fraud)"
+  chuck_review_required: true
+  chuck_review_note: >
+    Both silent fraud (128.02) and common-law fraud (128.01) variants are
+    encoded simultaneously per MCR 2.111(A)(2)(b). Silent fraud is the
+    recommended primary theory because Phillips's fiduciary status creates
+    a duty to disclose as a matter of law (Hord v Environmental Research
+    Institute). Common-law fraud is needed for affirmative-misrepresentation
+    facts that silent fraud does not reach. Confirm or override.
+
+  controlling_authorities:
+    - citation: "M Civ JI 128.01 — Common-Law Fraud"
+      authority_type: "jury_instruction"
+      role: "Six-element test for common-law fraud; requires CLEAR AND CONVINCING evidence"
+
+    - citation: "M Civ JI 128.02 — Silent Fraud"
+      authority_type: "jury_instruction"
+      role: "Five-element test for silent fraud; requires CLEAR AND CONVINCING evidence"
+
+    - citation: "Hord v Environmental Research Institute, 463 Mich 399 (2000)"
+      authority_type: "case"
+      court: "Michigan Supreme Court"
+      year: 2000
+      role: "Fiduciary relationship creates duty to disclose as a matter of law (gating element for silent fraud)"
+
+    - citation: "Hi-Way Motor Co v International Harvester Co, 398 Mich 330 (1976)"
+      authority_type: "case"
+      court: "Michigan Supreme Court"
+      year: 1976
+      role: "Establishes clear-and-convincing burden for fraud claims in Michigan"
+
+    - citation: "U.S. Fidelity & Guaranty Co v Black, 412 Mich 99 (1981)"
+      authority_type: "case"
+      court: "Michigan Supreme Court"
+      year: 1981
+      role: "Confirms six-element common-law fraud test"
+
+    - citation: "M&D, Inc v McConkey, 231 Mich App 22 (1998)"
+      authority_type: "case"
+      court: "Michigan Court of Appeals"
+      year: 1998
+      role: "Silent fraud requires legal or equitable duty to disclose"
+
+# ============================================================
+# THEORY 1: SILENT FRAUD (M Civ JI 128.02) — RECOMMENDED PRIMARY
+# ============================================================
+#
+# 5 elements. Phillips's fiduciary status creates the duty to disclose
+# as a matter of law, satisfying the gating element without separate proof.
+# Best reaches the concealment-based facts in Awad: undisclosed
+# CFS-court contractual relationship, undisclosed conflicts of interest,
+# failure to disclose material facts about the $50,000 transfer.
+
+elements:
+  - id: "element-2-1"
+    order_in_count: 1
+    element_name: "Defendant had a duty to disclose"
+    title: "Duty to disclose (silent fraud)"
+    theory_variant: "silent_fraud"
+
+    what_plaintiff_must_prove: >
+      That defendant had a legal or equitable duty to disclose material
+      facts to plaintiff. A fiduciary relationship creates this duty as a
+      matter of law.
+
+    controlling_authority: "M Civ JI 128.02; Hord v Environmental Research Institute, 463 Mich 399 (2000)"
+
+    statutory_anchor: >
+      MCL 700.1212(1) — fiduciary duties include disclosure as part of the
+      confidential and fiduciary relationship.
+
+    case_specific_notes: >
+      Phillips's role as attorney for the PR/conservator establishes the
+      fiduciary status; the duty to disclose flows as a matter of law per
+      Hord. CFS's role as Personal Representative similarly establishes
+      the duty. This element is satisfied structurally — plaintiff does
+      not need to prove the duty existed separately; the fiduciary
+      relationship IS the duty.
+
+  - id: "element-2-2"
+    order_in_count: 2
+    element_name: "Defendant failed to disclose material facts"
+    title: "Failure to disclose (silent fraud)"
+    theory_variant: "silent_fraud"
+
+    what_plaintiff_must_prove: >
+      That defendant suppressed or failed to disclose material facts that
+      defendant knew, when defendant had a duty to disclose those facts.
+
+    controlling_authority: "M Civ JI 128.02"
+
+    statutory_anchor: null
+
+    case_specific_notes: >
+      Awad facts: CFS-Bay County Probate Court contractual relationship
+      (undisclosed at time of appointment); CFS's lack of corporate
+      authorization to act as PR/conservator (undisclosed); Phillips's
+      relationship with Milton Higgs and Nadia Awad's attorney (undisclosed
+      meetings without all interested parties present); evasive non-
+      responses to interrogatories pleading "documents speak for themselves"
+      when the documents do not exist or do not contain the requested
+      information (Motion for Default documents).
+
+  - id: "element-2-3"
+    order_in_count: 3
+    element_name: "The undisclosed facts were material"
+    title: "Materiality (silent fraud)"
+    theory_variant: "silent_fraud"
+
+    what_plaintiff_must_prove: >
+      That the facts not disclosed were material — meaning a reasonable
+      person would have considered them important in deciding whether
+      to act or refrain from acting.
+
+    controlling_authority: "M Civ JI 128.02"
+
+    statutory_anchor: null
+
+    case_specific_notes: >
+      The CFS-court contractual relationship is material because it created
+      a financial conflict that affected CFS's appointment and conduct as
+      PR. The corporate-authorization gap is material because it goes to
+      whether CFS could lawfully serve at all. The concealment-of-conflicts
+      pattern in Phillips's meetings is material because it affected
+      plaintiff's ability to challenge the integrity of estate proceedings.
+
+  - id: "element-2-4"
+    order_in_count: 4
+    element_name: "Plaintiff reasonably relied on the silence"
+    title: "Reasonable reliance (silent fraud)"
+    theory_variant: "silent_fraud"
+
+    what_plaintiff_must_prove: >
+      That plaintiff reasonably relied on defendant's silence — i.e., that
+      plaintiff acted, or refrained from acting, because the material facts
+      were not disclosed.
+
+    controlling_authority: "M Civ JI 128.02"
+
+    statutory_anchor: null
+
+    case_specific_notes: >
+      Plaintiff Marie Awad relied on CFS being a "neutral party" at the
+      time of appointment; had the contractual relationship been disclosed,
+      she would have objected to the appointment on conflict grounds.
+      Plaintiff relied on Phillips's representations that he was acting
+      impartially as attorney for the PR; had his collusion with Nadia's
+      side been disclosed, she would have moved for his removal.
+
+  - id: "element-2-5"
+    order_in_count: 5
+    element_name: "Plaintiff was damaged by the reliance"
+    title: "Damages (silent fraud)"
+    theory_variant: "silent_fraud"
+
+    what_plaintiff_must_prove: >
+      That plaintiff suffered damages as a result of the reliance on
+      defendant's silence.
+
+    controlling_authority: "M Civ JI 128.02"
+
+    statutory_anchor: null
+
+    case_specific_notes: >
+      Damages-quantum paragraph ¶100 ("damages exceeding $25,000") supports
+      this Element AND also supports the jurisdictional Element 3.4
+      (MCR 3.001 amount-in-controversy threshold). Specific damages
+      include: estate funds consumed by excessive CFS/Phillips fees;
+      missing $50,420.82 from the estate (per Motion for Default); loss
+      of estate value through wasteful auction.
+
+# ============================================================
+# THEORY 2: COMMON-LAW FRAUD (M Civ JI 128.01) — ALTERNATIVE
+# ============================================================
+#
+# 6 elements. Pleaded as alternative theory under MCR 2.111(A)(2)(b)
+# to reach the affirmative-misrepresentation facts in Awad that silent
+# fraud does not reach: the "agreement of the parties" lie about the
+# $50,000 transfer, the false statements about plaintiff's character and
+# conduct, the false statements about funeral expenses, the false
+# statements to the probate court that influenced Judge Tighe's rulings.
+
+  - id: "element-2-6"
+    order_in_count: 6
+    element_name: "Defendant made a material representation"
+    title: "Material representation (common-law fraud)"
+    theory_variant: "common_law_fraud"
+
+    what_plaintiff_must_prove: >
+      That defendant made a representation of a material fact.
+
+    controlling_authority: "M Civ JI 128.01; U.S. Fidelity & Guaranty Co v Black, 412 Mich 99 (1981)"
+
+    statutory_anchor: null
+
+    case_specific_notes: >
+      Awad affirmative-misrepresentation facts: Phillips's and CFS's
+      representations that there was an "agreement of the parties" allowing
+      CFS to take custody of the $50,000 before appointment (Motion for
+      Default Interrogatory 27 — both Defendants gave matching responses
+      claiming the agreement existed; neither produced any written agreement);
+      false statements that plaintiff "refused to pay" funeral expenses
+      (¶92-93); false statements about plaintiff's character as
+      "demanding," "secretive," "unable to act amicably"; false statements
+      to Judge Tighe that influenced the April 12, 2012 Opinion.
+
+  - id: "element-2-7"
+    order_in_count: 7
+    element_name: "The representation was false"
+    title: "Falsity (common-law fraud)"
+    theory_variant: "common_law_fraud"
+
+    what_plaintiff_must_prove: >
+      That the representation was false when made.
+
+    controlling_authority: "M Civ JI 128.01"
+
+    statutory_anchor: null
+
+    case_specific_notes: >
+      No "agreement of the parties" existed for the $50,000 transfer —
+      both Defendants failed to produce any documentation despite repeated
+      requests (Motion for Default §I and §II). Bank records prove plaintiff
+      paid her share of the funeral expenses (Motion for Default §II re:
+      Interrogatory 43). Plaintiff repeatedly requested property security
+      (Nov 14, 2009 letter; Nov 27, 2009 email; Dec 15, 2009 transcript;
+      March 5, 2010 brief — Motion for Default §II re: Interrogatory 17).
+
+  - id: "element-2-8"
+    order_in_count: 8
+    element_name: "Defendant knew the representation was false (scienter)"
+    title: "Knowledge of falsity / scienter (common-law fraud)"
+    theory_variant: "common_law_fraud"
+
+    what_plaintiff_must_prove: >
+      That when defendant made the representation, defendant knew it was
+      false, or made it recklessly without knowledge of its truth and as a
+      positive assertion. This is the SCIENTER element — distinguishes
+      common-law fraud from negligent misrepresentation.
+
+    controlling_authority: "M Civ JI 128.01; Hi-Way Motor Co v International Harvester Co, 398 Mich 330 (1976)"
+
+    statutory_anchor: null
+
+    case_specific_notes: >
+      Scienter is established by the documentary evidence Phillips
+      possessed at the time of his representations: he had the bank
+      records showing plaintiff paid funeral expenses BEFORE he repeated
+      the "refused to pay" accusation in court papers (Motion for Default
+      §II — Phillips received the Oct 2, 2009 letter and the bank
+      statements before lying to the courts in his Reply to Awad's
+      Objections). He had documents showing plaintiff requested property
+      security BEFORE he accused her of "demanding the estate delay placing
+      items in storage." Scienter is the strongest element of common-law
+      fraud in Awad because the contemporaneous documents prove defendants
+      knew the representations were false.
+
+  - id: "element-2-9"
+    order_in_count: 9
+    element_name: "Defendant intended plaintiff to act on it"
+    title: "Intent to induce reliance (common-law fraud)"
+    theory_variant: "common_law_fraud"
+
+    what_plaintiff_must_prove: >
+      That defendant made the representation with the intention that
+      plaintiff would act on it.
+
+    controlling_authority: "M Civ JI 128.01"
+
+    statutory_anchor: null
+
+    case_specific_notes: >
+      Defendants' representations to the probate court were made with
+      intent to induce reliance by the court (Judge Tighe), which produced
+      adverse rulings against plaintiff. Defendants' statements to plaintiff
+      and her counsel were made with intent to induce her to abandon her
+      claims regarding the $50,000 transfer and the unauthorized fees.
+
+  - id: "element-2-10"
+    order_in_count: 10
+    element_name: "Plaintiff reasonably relied"
+    title: "Reasonable reliance (common-law fraud)"
+    theory_variant: "common_law_fraud"
+
+    what_plaintiff_must_prove: >
+      That plaintiff acted in reasonable reliance on the representation.
+
+    controlling_authority: "M Civ JI 128.01"
+
+    statutory_anchor: null
+
+    case_specific_notes: >
+      Plaintiff's reliance is reasonable where defendants were her
+      adversaries' counsel and the court-appointed PR — i.e., parties she
+      was entitled to expect would deal honestly with the court and the
+      heirs.
+
+  - id: "element-2-11"
+    order_in_count: 11
+    element_name: "Plaintiff suffered damages as a result"
+    title: "Damages (common-law fraud)"
+    theory_variant: "common_law_fraud"
+
+    what_plaintiff_must_prove: >
+      That plaintiff suffered damages as a result of the reliance.
+
+    controlling_authority: "M Civ JI 128.01"
+
+    statutory_anchor: null
+
+    case_specific_notes: >
+      Same damages base as Element 2-5 (silent fraud damages). Excessive
+      fees consumed estate; missing $50,420.82; auction losses. Damages-
+      quantum paragraph ¶100 supports this Element AND the jurisdictional
+      Element 3.4.
+
+# Theory-pairing notes for the Allegation-mapping pass
+#
+# Some Allegations support BOTH silent fraud and common-law fraud — these
+# get mapped twice, once to each theory's Elements. For example, the
+# undisclosed CFS-court contractual relationship supports:
+#   - Silent fraud Element 2-2 (failure to disclose) and 2-3 (materiality)
+#   - Common-law fraud Element 2-6 (representation that CFS was "neutral")
+#     and 2-7 (falsity of that representation)
+#
+# Other Allegations support only one theory:
+#   - The bank records contradicting the "refused to pay funeral"
+#     accusation support common-law fraud (affirmative misrepresentation
+#     with documentary proof of falsity) but not silent fraud (the lie
+#     was spoken, not concealed).
+#   - The undisclosed Phillips-Higgs meetings support silent fraud
+#     (concealment of conflicts) but only weakly common-law fraud
+#     (no specific affirmative representation about the meetings was made).
+#
+# These distinctions will be made per-Allegation in the mapping pass.
+
+# Notes for downstream consumption
+#
+# 1. Burden of proof: CLEAR AND CONVINCING (per M Civ JI 128.01 and 128.02).
+#    This is HIGHER than the preponderance burden for Counts I, III, and IV.
+#    The Proof Matrix view (Stage 4 of Ground Truth) must visually
+#    distinguish Count II as harder to prove. The Home page Count II header
+#    displays burden as a warning-colored pill per HOME_PAGE_REDESIGN_v2.md
+#    section 7.
+#
+# 2. Defendant attribution: Most fraud Allegations are joint (CFS + Phillips
+#    both made the false statements; both concealed the same facts). Some
+#    are Phillips-only (his statements to the appellate court in his April
+#    11, 2011 brief; his individual responses to interrogatories). The
+#    PROVES_ELEMENT edge can carry an optional `defendant_attribution`
+#    property: "cfs", "phillips", or "joint".
+#
+# 3. The Motion for Default documents are the strongest source for Count II
+#    proof — they catalog the specific affirmative misrepresentations and
+#    concealments with documentary corroboration. These documents have not
+#    yet been processed by the pipeline; processing requires the brief/
+#    motion v5 document type templates which are pending authoring.

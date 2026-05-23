@@ -1,0 +1,277 @@
+# count_4_abuse_of_process.yaml
+#
+# Canonical Element library for Count IV — Abuse of Process
+# Source case: Awad v. Catholic Family Service & Phillips
+# Bay County Circuit Court (transferred from Macomb County Circuit Court)
+#
+# Current operative defendants: Catholic Family Service, George Phillips
+# Archdiocese of Detroit was originally pleaded on supervisory-liability theory
+# but has been dismissed; remains as Party in the graph with status=dropped.
+#
+# This file defines the canonical Michigan-law Elements for Count IV.
+# Under Friedman v Dozorc (Michigan Supreme Court, 1981), abuse of process
+# has EXACTLY TWO Elements — ulterior purpose and an improper act.
+#
+# Critical doctrinal limits captured below: (1) mere commencement of a
+# lawsuit is NOT an improper act; (2) pleadings must allege the irregular
+# act with SPECIFICITY per Dalley v Dykema Gossett; (3) excessive discovery
+# alone is insufficient as the improper act.
+#
+# The Motion for Default documents are the primary source of the specific
+# improper acts Chuck pleads — they catalog with documentary corroboration
+# the false statements, false discovery responses, collusion between
+# defendants, and failures to supplement.
+
+count:
+  count_number: 4
+  count_name: "Abuse of Process"
+  template_name: "abuse_of_process_michigan"
+  burden_of_proof: "preponderance"
+  m_civ_ji_reference: null  # No specific M Civ JI; controlled by Friedman v Dozorc
+
+  controlling_authorities:
+    - citation: "Friedman v Dozorc, 412 Mich 1, 30-31 (1981)"
+      authority_type: "case"
+      court: "Michigan Supreme Court"
+      year: 1981
+      role: "Controlling two-element test; bad motive alone insufficient — must be accompanied by corroborating act; mere lawsuit filing is NOT an improper act"
+
+    - citation: "Spear v Pendill, 164 Mich 620, 623 (1911)"
+      authority_type: "case"
+      court: "Michigan Supreme Court"
+      year: 1911
+      role: "Origin of the doctrine; abuse of process lies for improper use AFTER process has issued, not for maliciously causing it to issue"
+
+    - citation: "Bonner v Chicago Title Ins Co, 194 Mich App 462, 472 (1992)"
+      authority_type: "case"
+      court: "Michigan Court of Appeals"
+      year: 1992
+      role: "Application of Friedman two-element test"
+
+    - citation: "Dalley v Dykema Gossett, 287 Mich App 296, 322 (2010)"
+      authority_type: "case"
+      court: "Michigan Court of Appeals"
+      year: 2010
+      role: "SPECIFICITY DOCTRINE — pleadings must allege the irregular act with specificity; generic claims of impropriety fail at summary disposition"
+
+    - citation: "Early Detection Ctr v New York Life Ins Co, 157 Mich App 618, 629-630 (1986)"
+      authority_type: "case"
+      court: "Michigan Court of Appeals"
+      year: 1986
+      role: "Confirms improper-act-after-issuance requirement"
+
+  doctrinal_requirements:
+    - requirement: "specificity"
+      description: >
+        Per Dalley v Dykema Gossett, 287 Mich App 296, 322 (2010), the
+        pleadings must allege an irregular act in the use of process WITH
+        SPECIFICITY. Generic claims of impropriety fail at summary
+        disposition. The complaint must name specific acts.
+      satisfied_in_case: true
+      satisfaction_evidence: >
+        Chuck's complaint ¶120-124 pleads specific irregular acts: false
+        statements about plaintiff's character; false statements to the
+        court; lies about costs plaintiff allegedly incurred; lies about
+        plaintiff's refusal to cooperate; false discovery responses (per
+        Motion for Default documents — specific interrogatory responses
+        catalogued with documentary corroboration).
+
+    - requirement: "improper_act_after_issuance"
+      description: >
+        Per Friedman v Dozorc, mere commencement of a lawsuit is NOT an
+        improper act. The doctrine requires improper use of process AFTER
+        it has been issued. Plaintiff cannot premise abuse-of-process on
+        the act of opening the probate estate.
+      satisfied_in_case: true
+      satisfaction_evidence: >
+        All improper acts pleaded occurred AFTER process was issued —
+        during the probate proceeding (false statements at hearings,
+        false discovery responses, failure to supplement) and during this
+        civil action (false discovery responses to interrogatories,
+        collusion between CFS and Phillips on identical answers).
+
+    - requirement: "corroborating_act_beyond_motive"
+      description: >
+        Per Friedman, "a bad motive alone will not establish an abuse of
+        process; the plaintiff must set forth some corroborating act."
+        Element 4-1 (ulterior purpose) is necessary but not sufficient;
+        it must be accompanied by Element 4-2 (improper act).
+      satisfied_in_case: true
+      satisfaction_evidence: >
+        Multiple corroborating acts pleaded (see Element 4-2 and the
+        improper_act_theory registry below).
+
+elements:
+  - id: "element-4-1"
+    order_in_count: 1
+    element_name: "Ulterior purpose"
+    title: "Ulterior purpose"
+
+    what_plaintiff_must_prove: >
+      That defendant pursued an ulterior purpose in using the legal
+      process — a purpose collateral to or beyond the proper object of
+      the process.
+
+    controlling_authority: "Friedman v Dozorc, 412 Mich 1, 30 (1981)"
+
+    statutory_anchor: null
+
+    case_specific_notes: >
+      Chuck alleges defendants' purposes included: embarrassing plaintiff,
+      humiliating plaintiff, causing financial harm to plaintiff,
+      increasing plaintiff's costs (¶118-119). These are valid
+      ulterior-purpose theories. NOTE: under Friedman, this Element alone
+      is insufficient — must be accompanied by Element 4-2.
+
+  - id: "element-4-2"
+    order_in_count: 2
+    element_name: "Improper act in the use of process"
+    title: "Improper act in the use of process"
+
+    what_plaintiff_must_prove: >
+      Some act in the use of legal process that is improper in the regular
+      prosecution of the proceeding. See improper_act_theory registry
+      below for the specific types of improper acts available.
+
+    controlling_authority: "Friedman v Dozorc, 412 Mich 1, 30 (1981); Spear v Pendill, 164 Mich 620, 623 (1911); Dalley v Dykema Gossett, 287 Mich App 296, 322 (2010)"
+
+    statutory_anchor: null
+
+    case_specific_notes: >
+      Specific irregular acts pleaded (¶120-124 of complaint, plus the
+      Motion for Default catalogs): false statements about plaintiff's
+      character; false statements to the court; lies about costs plaintiff
+      allegedly incurred; lies about plaintiff's refusal to cooperate;
+      false discovery responses (Motion for Default §I and §II catalog
+      these with documentary corroboration). The specificity requirement
+      (Dalley) is satisfied because each act is named and supported by
+      documentary evidence rather than generic claims of impropriety.
+
+# Improper act theory registry
+#
+# These are theories of HOW Element 4-2 (improper act) was satisfied, not
+# separate Elements. When mapping an Allegation to Element 4-2, the
+# PROVES_ELEMENT edge carries an optional `improper_act_theory` property
+# with one of these values.
+#
+# Authority for treating these as theories rather than separate Elements:
+# Parallel to Count I breach theories — Michigan law treats abuse of
+# process as having ONE improper-act Element with multiple possible acts.
+# Dalley specificity doctrine requires naming specific acts but does not
+# require each named act to be its own Element of the cause of action.
+
+improper_act_theories:
+  - key: "false_statement_to_court"
+    definition: >
+      Misleading statement made in court papers or oral argument that
+      misrepresented material facts to the tribunal.
+    examples: >
+      Phillips's repeated written attacks calling plaintiff "demanding,"
+      "secretive," "unable to act amicably" without supporting documents
+      (¶89 area; Motion for Default §I and §II — specific quoted statements
+      from Phillips's Reply to Awad's Objections and his Appellate Briefs);
+      Phillips's misrepresentations to Court of Appeals in April 11, 2011
+      brief that misstated who was shorted in the non-probate distribution.
+
+  - key: "false_discovery_response"
+    definition: >
+      Discovery response that is demonstrably false or evasive, designed
+      to obstruct the discovery process rather than honestly disclose
+      relevant facts.
+    examples: >
+      Motion for Default §I and §II catalog 50+ specific interrogatory
+      responses with documentary proof of falsity. Examples: response
+      claiming no knowledge of safe when defendants had photos and prior
+      written acknowledgment; response claiming auctioneer names are in
+      filed papers when co-defendant admitted having no records; matching
+      "uncannily similar" responses between CFS and Phillips on key
+      interrogatories (e.g., Interrogatory 27 re: $50,000 agreement).
+
+  - key: "false_characterization_of_party"
+    definition: >
+      Public characterization of party as unreasonable, uncooperative, or
+      otherwise impugning plaintiff's character without factual basis,
+      where the characterization is used to influence court rulings.
+    examples: >
+      Phillips's repeated public characterizations of plaintiff: "demanding"
+      (despite plaintiff merely requesting information through counsel),
+      "secretive" (after plaintiff asked counsel not to share evidence with
+      adversaries until they sought it through discovery), "refused to
+      cooperate" with property securing (despite plaintiff's documented
+      requests that property BE secured); false accusation that plaintiff
+      "refused to pay" for father's funeral (refuted by bank records
+      already in Phillips's possession when the statements were made).
+
+  - key: "improper_billing"
+    definition: >
+      Billing for services not rendered, billing for services outside the
+      fiduciary's proper scope, or excessive billing relative to the
+      estate's value.
+    examples: >
+      CFS and Phillips billed combined approximately $7,500 to conduct
+      an auction that lost the estate $6,000 (Motion for Default §I and
+      §II — both defendants billed substantial fees for services that
+      damaged the estate); billings for time before CFS was appointed as
+      PR (CFS had no standing to act, yet billed approximately $3,000 in
+      fees pre-appointment per Motion for Default §II re: Interrogatory 16);
+      missing $50,420.82 from the estate per Account of Fiduciary.
+
+  - key: "collusion_with_other_parties"
+    definition: >
+      Coordination between defendants (or with non-party allies) to
+      disadvantage plaintiff through false or evasive joint responses,
+      shared cover stories, or coordinated public statements.
+    examples: >
+      Motion for Default §I and §II catalog "uncannily similar" responses
+      between CFS and Phillips that evolved across discovery sets in
+      parallel — both initially claimed no dispute about CFS's appointment,
+      then both later claimed an "agreement of the parties" allowing CFS
+      to hold the $50,000 (with no written documentation of any such
+      agreement); shared putative "memory loss" about the safe; matching
+      evasive language putting "retained" in quotes on identical questions.
+
+  - key: "failure_to_supplement_discovery"
+    definition: >
+      Failure to correct prior false or incomplete discovery responses
+      per MCR 2.302(E)'s duty to supplement when responses become known
+      to be incorrect.
+    examples: >
+      Per Motion for Default — multiple instances where defendants made
+      representations to the probate court (e.g., that plaintiff refused
+      to pay funeral expenses, that plaintiff demanded delay in property
+      securing) that were demonstrably false at the time, and that
+      defendants never corrected via supplemental discovery even after
+      documents proving the falsity were exchanged.
+
+# Notes for downstream consumption
+#
+# 1. Detroit attribution: ¶117 of the original complaint pleads Detroit's
+#    supervisory liability for the abuse-of-process acts. Detroit is
+#    dismissed. ¶117 should be either (a) left unmapped with a comment
+#    noting the operative theory was Detroit-attribution and Detroit is
+#    now dismissed, or (b) re-targeted to CFS as principal-for-Phillips
+#    if the facts support that theory. The per-Allegation choice is made
+#    in the mapping pass.
+#
+# 2. Defendant attribution for the improper acts: Most are joint (CFS
+#    and Phillips both made the false statements; both responded falsely
+#    in discovery; both colluded). Some are Phillips-only (statements in
+#    his individual briefs to the appellate court). Some are CFS-only
+#    (Articles-of-Incorporation-related billings). The PROVES_ELEMENT
+#    edge can carry an optional `defendant_attribution` property: "cfs",
+#    "phillips", or "joint".
+#
+# 3. The Motion for Default documents are the primary source of proof
+#    for Count IV. They are not yet processed by the pipeline; processing
+#    requires the brief/motion v5 document type templates which are
+#    pending authoring. Without processing the motions, Element 4-2 will
+#    have only the complaint's general allegations supporting it — the
+#    specific catalog of improper acts (which is what satisfies the
+#    Dalley specificity requirement) comes from the motions.
+#
+# 4. "Damages" is NOT a separate Element of Count IV under the Friedman
+#    two-element test. Damages-quantum paragraph ¶126 ("damages exceeding
+#    $25,000") supports the jurisdictional Element 3-4 of Count III, but
+#    does not establish a separate damages Element under Count IV.
+#    Damages are recoverable as relief, but they are not an Element of
+#    liability.
