@@ -1,0 +1,238 @@
+# count_1_breach_of_fiduciary_duty.yaml
+#
+# Canonical Element library for Count I — Breach of Fiduciary Duty
+# Source case: Awad v. Catholic Family Service & Phillips
+# Bay County Circuit Court (transferred from Macomb County Circuit Court)
+#
+# Current operative defendants: Catholic Family Service, George Phillips
+# Archdiocese of Detroit was originally pleaded on supervisory-liability theory
+# but has been dismissed; remains as Party in the graph with status=dropped.
+#
+# This file defines the canonical Michigan-law Elements for Count I.
+# The loader binary syncs this to Neo4j as Element nodes attached to
+# LegalCount(count_number=1) via HAS_ELEMENT relationships.
+#
+# This file does NOT contain allegation_assignments. Allegation-to-Element
+# mapping is a separate pass after canonical Elements are loaded.
+
+count:
+  count_number: 1
+  count_name: "Breach of Fiduciary Duty"
+  template_name: "breach_of_fiduciary_duty_michigan"
+  burden_of_proof: "preponderance"
+  m_civ_ji_reference: null  # No specific M Civ JI for breach of fiduciary duty; controlled by case law
+
+  controlling_authorities:
+    - citation: "Highfield Beach at Lake Mich v Sanderson, 331 Mich App 636, 666 (2020)"
+      authority_type: "case"
+      court: "Michigan Court of Appeals"
+      year: 2020
+      role: "Establishes three-element test for breach of fiduciary duty"
+
+    - citation: "In re Conservatorship of Nina Jean Murray, 336 Mich App 234 (2021)"
+      authority_type: "case"
+      court: "Michigan Court of Appeals"
+      year: 2021
+      role: "Validates preponderance burden and one-Element-multiple-breach-acts structure; directly on point for Awad (child as conservator, removed, sued for breach)"
+
+    - citation: "MCL 700.1212"
+      authority_type: "statute"
+      role: "Enumerates four statutory fiduciary duties: loyalty, impartiality, care/prudence, segregation"
+
+    - citation: "MCL 700.1214"
+      authority_type: "statute"
+      role: "Self-dealing prohibition"
+
+    - citation: "MCL 700.1308"
+      authority_type: "statute"
+      role: "Breach remedies — nine specific remedies enumerated"
+
+    - citation: "MCL 700.7803"
+      authority_type: "statute"
+      role: "Prudent-person standard incorporated by reference for conservators and PRs"
+
+elements:
+  - id: "element-1-1"
+    order_in_count: 1
+    element_name: "Existence of fiduciary duty"
+    title: "Existence of fiduciary duty"
+
+    what_plaintiff_must_prove: >
+      That a fiduciary relationship existed between plaintiff and defendant
+      at the time of the conduct complained of, and that the duty extended
+      to the matter at issue.
+
+    controlling_authority: "Highfield Beach v Sanderson, 331 Mich App 636, 666 (2020)"
+
+    statutory_anchor: >
+      MCL 700.1104(e) — fiduciary defined to include conservator AND personal
+      representative. MCL 700.1212(1) — "A fiduciary stands in a position of
+      confidence and trust..." MCL 700.5416 — incorporates trustee duties for
+      conservators.
+
+    case_specific_notes: >
+      Phillips's role as attorney for the PR/conservator establishes the duty.
+      CFS's role as Personal Representative establishes the duty under
+      MCL 700.1104(e). (Archdiocese of Detroit's status as supervising entity
+      was originally pleaded as a vicarious liability theory; Detroit has been
+      dismissed and is not an operative defendant.)
+
+  - id: "element-1-2"
+    order_in_count: 2
+    element_name: "Breach of the fiduciary duty"
+    title: "Breach of the fiduciary duty"
+
+    what_plaintiff_must_prove: >
+      That defendant breached one or more of the duties owed (see breach_theory
+      registry below for the specific theories of breach available under
+      Michigan law).
+
+    controlling_authority: "Highfield Beach v Sanderson, 331 Mich App 636, 666 (2020); In re Conservatorship of Murray, 336 Mich App 234 (2021)"
+
+    statutory_anchor: >
+      MCL 700.1212(1) enumerates four statutory duties: loyalty, impartiality,
+      care and prudence, segregation. MCL 700.1214 adds self-dealing
+      prohibition. MCL 700.7803 sets prudent-person standard.
+
+    case_specific_notes: >
+      Murray case (2021) is directly on point — Michigan Court of Appeals
+      upheld multiple separate identifiable breach acts under a single Element
+      of breach. This means: multiple Allegations supporting Element 1.2 are
+      not redundant; each can be its own breach act under one of the breach
+      theories below. Chuck's complaint pleads breach via differential
+      treatment (impartiality), failure to investigate (care/prudence),
+      unauthorized $50,000 transfer (care/prudence + possibly self-dealing),
+      CFS-court contractual relationship (loyalty/self-dealing), failure to
+      supervise the attorney (care/prudence). All theories under one Element.
+
+  - id: "element-1-3"
+    order_in_count: 3
+    element_name: "Damages caused by the breach"
+    title: "Damages caused by the breach"
+
+    what_plaintiff_must_prove: >
+      That plaintiff suffered damages, and that those damages were caused by
+      the breach (not merely correlated with it).
+
+    controlling_authority: "Highfield Beach v Sanderson, 331 Mich App 636, 666 (2020)"
+
+    statutory_anchor: >
+      MCL 700.1308 provides nine specific remedies: compel performance,
+      enjoin breach, redress by payment/restoration, accounting, appoint
+      special fiduciary, suspend fiduciary, remove fiduciary, reduce/deny
+      compensation, void acts/impose constructive trust.
+
+    case_specific_notes: >
+      Per Murray, the trial court can find specific damages tied to specific
+      breach acts. Damages need not be lump-sum. Damages-quantum paragraph
+      ¶85 ("damages exceeding $25,000") supports this Element AND also
+      supports the jurisdictional Element 3.4 (MCR 3.001 amount-in-controversy
+      threshold for circuit court).
+
+# Breach theory registry
+#
+# These are theories of HOW Element 1.2 (breach) was satisfied, not separate
+# Elements. When mapping an Allegation to Element 1.2, the PROVES_ELEMENT edge
+# carries an optional `breach_theory` property with one of these values.
+#
+# Authority for treating these as theories rather than separate Elements:
+# In re Conservatorship of Murray, 336 Mich App 234 (2021) — court upheld
+# multiple separate identifiable breach acts under one Element of breach.
+# MCL 700.1212 enumerates these as theories of breach, not as elements of
+# the cause of action.
+
+breach_theories:
+  - key: "loyalty"
+    definition: >
+      Defendant placed personal or third-party interests above the
+      beneficiary's interests.
+    statutory_anchor: "MCL 700.1212(1)"
+    examples: >
+      CFS-Bay County Probate Court contractual relationship (¶7-10 area;
+      undisclosed financial relationship between PR and the appointing court).
+
+  - key: "impartiality"
+    definition: >
+      Defendant treated similarly-situated heirs, devisees, or beneficiaries
+      differently without legal justification.
+    statutory_anchor: "MCL 700.1212(1)"
+    examples: >
+      Differential treatment of Marie Awad vs Nadia Awad and Camille Hanley
+      throughout the probate proceeding (¶77 and following — repeated
+      hearsay accusations against Marie while ignoring conduct of other
+      sisters).
+
+  - key: "care_and_prudence"
+    definition: >
+      Defendant failed to exercise the standard of care a prudent person
+      would exercise in handling fiduciary duties.
+    statutory_anchor: "MCL 700.1212(1); MCL 700.7803"
+    examples: >
+      Failure to investigate the $50,000 transfer from Emil Awad's account;
+      failure to investigate the conspiracy claims against the sisters;
+      failure to secure personal property for seven months after appointment;
+      failure to supervise the attorney for the estate.
+
+  - key: "segregation"
+    definition: >
+      Defendant commingled fiduciary assets with personal or third-party
+      assets.
+    statutory_anchor: "MCL 700.1212(1)"
+    examples: >
+      Not the primary breach theory in Awad, but the unauthorized possession
+      of the $50,000 check before appointment as PR (taking custody without
+      court order) may support this theory.
+
+  - key: "self_dealing"
+    definition: >
+      Defendant engaged in transactions that personally benefited the
+      fiduciary at the expense of the beneficiaries.
+    statutory_anchor: "MCL 700.1214"
+    examples: >
+      Excessive fees billed by CFS and Phillips that consumed the bulk of a
+      ~$50,000 estate; CFS-court contractual relationship benefiting CFS
+      financially through court appointments.
+
+  - key: "disclosure"
+    definition: >
+      Defendant failed to disclose material facts that the fiduciary had a
+      duty to disclose to the beneficiary.
+    statutory_anchor: "Common-law fiduciary duty of disclosure; recognized in Hord v Environmental Research Institute, 463 Mich 399 (2000)"
+    examples: >
+      Failure to disclose the CFS-Bay County Probate Court contractual
+      relationship at the time of appointment; failure to disclose conflicts
+      of interest.
+
+  - key: "accounting"
+    definition: >
+      Defendant failed to maintain accurate records or provide a proper
+      accounting of fiduciary actions.
+    statutory_anchor: "MCL 700.3952; MCL 700.3953 (PR duty to account)"
+    examples: >
+      Per Motion for Default documents: missing $50,420.82 of estate funds
+      (Account of Fiduciary shows balance unaccounted for); failure to produce
+      payment ledger from auction; conflicting answers about whether
+      documents exist or have been produced.
+
+# Notes for downstream consumption
+#
+# 1. Defendant attribution: For Element 1.2, the agency relationship between
+#    CFS (principal) and Phillips (agent) is relevant. Some breach acts are
+#    attributable to Phillips directly (e.g., his statements to court);
+#    others to CFS as principal (e.g., failure to supervise Phillips);
+#    most to both jointly. The PROVES_ELEMENT edge can carry an optional
+#    `defendant_attribution` property: "cfs", "phillips", or "joint".
+#
+# 2. Allegations referencing Archdiocese of Detroit (e.g., ¶80-82) are
+#    historical — they were pleaded in the original complaint. Since Detroit
+#    is dropped, these Allegations should either:
+#    (a) re-target to CFS as principal-for-Phillips (with breach_theory:
+#        care_and_prudence and defendant_attribution: cfs); or
+#    (b) be left unmapped with a comment noting Detroit was the operative
+#        defendant for this theory and is now dismissed.
+#    The choice is per-Allegation and will be made during the mapping pass.
+#
+# 3. The Common Allegations section (¶7-71) of the complaint contains facts
+#    that support multiple Elements across Counts. Per Roman's explicit
+#    deferral on 2026-05-21, Common Allegations are mapped in a separate
+#    batch AFTER Count-specific paragraphs (¶72-126) are mapped.

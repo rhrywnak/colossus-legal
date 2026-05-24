@@ -2,6 +2,7 @@
 pub mod api;
 pub mod auth;
 pub mod bias;
+pub mod canonical_elements;
 pub mod cli;
 pub mod config;
 pub mod database;
