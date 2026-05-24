@@ -30,6 +30,7 @@ pub mod ask;
 pub mod case;
 pub mod case_header;
 pub mod case_summary;
+pub mod causes_of_action;
 pub mod chat_models;
 pub mod claims;
 pub mod contradictions;
@@ -69,6 +70,10 @@ pub fn router() -> Router<AppState> {
         .route("/case", get(case::get_case))
         .route("/case-summary", get(case_summary::get_case_summary))
         .route("/cases/:slug", get(case_header::get_case_by_slug))
+        .route(
+            "/cases/:slug/causes-of-action",
+            get(causes_of_action::get_causes_of_action),
+        )
         .route("/claims", get(claims::list_claims))
         .route("/claims/:id", get(claims::get_claim))
         .route("/claims", post(claims::create_claim))
