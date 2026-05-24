@@ -57,20 +57,28 @@ fn every_committed_profile_yaml_parses() {
     );
 }
 
-/// Bug #3 anchor: discovery_response.yaml must reference model IDs that
-/// exist in the seed `llm_models` rows (claude-sonnet-4-6 and
+/// Bug #3 anchor: discovery_response.yaml must reference canonical model IDs
+/// that exist in the seed `llm_models` rows (claude-sonnet-4-6 and
 /// claude-opus-4-6 per migration 20260420_config_system.sql). The full
-/// `llm_models`-membership check is a DB-backed test elsewhere; here
-/// we verify the YAML literal text is the canonical, non-date-suffixed
-/// model ID — preventing the regression where the file was edited back
-/// to `claude-sonnet-4-20250514`.
+/// `llm_models`-membership check is a DB-backed test elsewhere; here we verify
+/// the YAML literal text is the canonical, non-date-suffixed form.
+///
+/// Both passes run on Opus (`claude-opus-4-6`): pass-1 (`extraction_model`)
+/// was deliberately moved from Sonnet to Opus in commit d7a4a85, and pass-2
+/// (`pass2_extraction_model`) was already Opus. This test pins that choice so
+/// an accidental revert of pass-1 — or a relapse to a date-suffixed id like
+/// `claude-sonnet-4-20250514` — is caught.
 #[test]
 fn discovery_response_references_canonical_model_ids() {
     let body = fs::read_to_string("profiles/discovery_response.yaml")
         .expect("discovery_response.yaml exists");
+    // Line-anchored, not a bare `contains`: pass-1 and pass-2 now share the
+    // same model id, so a substring match would also be satisfied by the
+    // `pass2_extraction_model:` line and would fail to catch a pass-1 revert.
     assert!(
-        body.contains("extraction_model: claude-sonnet-4-6"),
-        "extraction_model must be the canonical claude-sonnet-4-6"
+        body.lines()
+            .any(|line| line.trim() == "extraction_model: claude-opus-4-6"),
+        "extraction_model (pass-1) must be the canonical claude-opus-4-6"
     );
     assert!(
         body.contains("pass2_extraction_model: claude-opus-4-6"),
