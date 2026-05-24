@@ -5,6 +5,9 @@ pub mod audit_repository;
 pub mod case_header_builder;
 pub mod case_header_repository;
 pub mod case_repository;
+pub mod causes_of_action_builder;
+pub mod causes_of_action_decode;
+pub mod causes_of_action_repository;
 // Private — internal helper module for case_summary_repository. Kept as a
 // sibling (not a sub-module) to mirror the established split pattern
 // (allegation_detail_repository.rs from decomposition_repository.rs).

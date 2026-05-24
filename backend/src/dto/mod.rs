@@ -3,6 +3,7 @@ pub mod analysis;
 pub mod case_dto;
 pub mod case_header;
 pub mod case_summary;
+pub mod causes_of_action;
 pub mod claim;
 pub mod contradiction;
 pub mod decision;
