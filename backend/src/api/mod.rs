@@ -28,6 +28,7 @@ pub mod allegations;
 pub mod analysis;
 pub mod ask;
 pub mod case;
+pub mod case_header;
 pub mod case_summary;
 pub mod chat_models;
 pub mod claims;
@@ -67,6 +68,7 @@ pub fn router() -> Router<AppState> {
         .route("/analysis", get(analysis::get_analysis))
         .route("/case", get(case::get_case))
         .route("/case-summary", get(case_summary::get_case_summary))
+        .route("/cases/:slug", get(case_header::get_case_by_slug))
         .route("/claims", get(claims::list_claims))
         .route("/claims/:id", get(claims::get_claim))
         .route("/claims", post(claims::create_claim))
