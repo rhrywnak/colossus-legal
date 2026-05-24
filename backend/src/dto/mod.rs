@@ -1,6 +1,7 @@
 pub mod allegation;
 pub mod analysis;
 pub mod case_dto;
+pub mod case_header;
 pub mod case_summary;
 pub mod claim;
 pub mod contradiction;
