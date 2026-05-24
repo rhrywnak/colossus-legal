@@ -135,7 +135,7 @@ pub(crate) fn theory_fields(
     vec![
         ("definition", Some(t.definition.clone())),
         ("statutory_anchor", t.statutory_anchor.clone()),
-        ("awad_examples", Some(t.awad_examples.clone())),
+        ("examples", Some(t.examples.clone())),
         ("parent_count_id", Some(count_number.to_string())),
     ]
 }

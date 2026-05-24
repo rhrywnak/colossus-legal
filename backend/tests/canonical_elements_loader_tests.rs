@@ -161,8 +161,8 @@ fn rejects_duplicate_count_numbers() {
 fn rejects_duplicate_theory_keys_within_a_count() {
     let yaml = format!(
         "{}breach_theories:\n  \
-           - key: \"loyalty\"\n    definition: \"d\"\n    awad_examples: \"e\"\n  \
-           - key: \"loyalty\"\n    definition: \"d2\"\n    awad_examples: \"e2\"\n",
+           - key: \"loyalty\"\n    definition: \"d\"\n    examples: \"e\"\n  \
+           - key: \"loyalty\"\n    definition: \"d2\"\n    examples: \"e2\"\n",
         minimal_count_yaml(1, "element-1-1")
     );
     let f: CountFile = serde_yaml::from_str(&yaml).unwrap();
@@ -364,7 +364,7 @@ breach_theories:
   - key: "loyalty"
     definition: "self-interest over beneficiary"
     statutory_anchor: "MCL 700.1212(1)"
-    awad_examples: "example"
+    examples: "example"
 "#;
 
 const FIXTURE_COUNT_2: &str = r#"
@@ -441,7 +441,7 @@ count:
   doctrinal_requirements:
     - requirement: "specificity"
       description: "must plead specific acts"
-      satisfied_in_awad: true
+      satisfied_in_case: true
       satisfaction_evidence: "complaint paragraphs"
 elements:
   - id: "element-4-1"
@@ -453,7 +453,7 @@ elements:
 improper_act_theories:
   - key: "false_statement_to_court"
     definition: "misleading statement to tribunal"
-    awad_examples: "example"
+    examples: "example"
 "#;
 
 /// Total Element nodes across the fixture set (3 + 2 + 1 + 1).

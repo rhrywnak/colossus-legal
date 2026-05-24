@@ -150,7 +150,7 @@ pub struct DoctrinalRequirementDef {
     pub description: String,
 
     /// Whether the case as pleaded satisfies it.
-    pub satisfied_in_awad: bool,
+    pub satisfied_in_case: bool,
 
     /// Evidence supporting the satisfaction claim.
     pub satisfaction_evidence: String,
@@ -212,7 +212,7 @@ pub struct TheoryDef {
     pub statutory_anchor: Option<String>,
 
     /// Worked examples from the case facts.
-    pub awad_examples: String,
+    pub examples: String,
 }
 
 /// A substantive declaration the court is asked to issue (Count III) →

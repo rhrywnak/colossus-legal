@@ -171,7 +171,7 @@ fn upsert_theory(
         "MERGE (t:{label} {{key: $key}}) \
          SET t.definition = $definition, \
              t.statutory_anchor = $statutory_anchor, \
-             t.awad_examples = $awad_examples, \
+             t.examples = $examples, \
              t.parent_count_id = $parent_count_id, \
              t.content_hash = $content_hash, \
              t.updated_at = datetime() \
@@ -183,7 +183,7 @@ fn upsert_theory(
     .param("key", t.key.as_str())
     .param("definition", t.definition.as_str())
     .param("statutory_anchor", t.statutory_anchor.clone())
-    .param("awad_examples", t.awad_examples.as_str())
+    .param("examples", t.examples.as_str())
     .param("parent_count_id", count_number as i64)
     .param("content_hash", content_hash)
     .param("count_number", count_number as i64)
