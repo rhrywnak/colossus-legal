@@ -61,11 +61,38 @@ pub mod search;
 /// in `router`. A route defined as `.route("/documents", ...)` here
 /// becomes `/api/documents` in the final app. This is similar to
 /// Express.js `app.use('/api', apiRouter)`.
+///
+/// This top-level function is a table of contents: it `.merge()`s the
+/// route-group functions below. Each group is a small, focused unit (kept
+/// under the 50-line function limit); `.merge()` is order-independent here
+/// because every route path is distinct, so there is no overlap precedence
+/// to worry about.
 pub fn router() -> Router<AppState> {
+    Router::new()
+        .merge(session_routes())
+        .merge(case_routes())
+        .merge(claim_routes())
+        .merge(document_routes())
+        .merge(entity_routes())
+        .merge(decomposition_routes())
+        .merge(query_routes())
+        .merge(admin_document_routes())
+        .merge(admin_ops_routes())
+        .merge(interaction_routes())
+}
+
+/// Session / identity routes: who-am-I, known users, logout.
+fn session_routes() -> Router<AppState> {
     Router::new()
         .route("/me", get(me_with_tracking))
         .route("/users", get(pipeline::users::list_users_handler))
         .route("/logout", get(logout::logout))
+}
+
+/// Case-level reads: the analysis dashboard, the legacy case summary, and the
+/// slug-scoped case header + causes-of-action endpoints.
+fn case_routes() -> Router<AppState> {
+    Router::new()
         .route("/analysis", get(analysis::get_analysis))
         .route("/case", get(case::get_case))
         .route("/case-summary", get(case_summary::get_case_summary))
@@ -74,10 +101,21 @@ pub fn router() -> Router<AppState> {
             "/cases/:slug/causes-of-action",
             get(causes_of_action::get_causes_of_action),
         )
+}
+
+/// Claim CRUD plus the motion-claims read.
+fn claim_routes() -> Router<AppState> {
+    Router::new()
         .route("/claims", get(claims::list_claims))
         .route("/claims/:id", get(claims::get_claim))
         .route("/claims", post(claims::create_claim))
         .route("/claims/:id", put(claims::update_claim))
+        .route("/motion-claims", get(claims::list_motion_claims))
+}
+
+/// Document CRUD + file download, import validation, and the schema read.
+fn document_routes() -> Router<AppState> {
+    Router::new()
         .route("/documents", get(documents::list_documents))
         .route("/documents", post(documents::create_document))
         .route("/documents/:id", get(documents::get_document))
@@ -85,6 +123,12 @@ pub fn router() -> Router<AppState> {
         .route("/documents/:id/file", get(documents::get_document_file))
         .route("/import/validate", post(import::validate_import))
         .route("/schema", get(schema::get_schema))
+}
+
+/// Graph-entity reads: persons, allegations, evidence, harms, contradictions,
+/// and the legal-proof graph.
+fn entity_routes() -> Router<AppState> {
+    Router::new()
         .route("/persons", get(persons::list_persons))
         .route("/persons/:id/detail", get(persons::get_person_detail))
         .route("/allegations", get(allegations::list_allegations))
@@ -94,28 +138,39 @@ pub fn router() -> Router<AppState> {
         )
         .route("/evidence", get(evidence::list_evidence))
         .route("/harms", get(harms::list_harms))
-        .route("/motion-claims", get(claims::list_motion_claims))
         .route("/contradictions", get(contradictions::list_contradictions))
         .route("/graph/legal-proof", get(graph::get_legal_proof_graph))
+}
+
+/// Decomposition intelligence: characterizations, per-allegation detail,
+/// and rebuttals.
+fn decomposition_routes() -> Router<AppState> {
+    Router::new()
         .route("/decomposition", get(decomposition::list_decomposition))
         .route(
             "/allegations/:id/detail",
             get(decomposition::get_allegation_detail),
         )
         .route("/rebuttals", get(decomposition::list_rebuttals))
+}
+
+/// Saved-query list and run.
+fn query_routes() -> Router<AppState> {
+    Router::new()
         .route("/queries", get(queries::list_queries))
         .route("/queries/:id/run", get(queries::run_query))
+}
+
+/// Admin document-lifecycle routes: embedding, registration, reindex, upload,
+/// and per-document evidence/extract/verify/flag/ground-pages operations.
+fn admin_document_routes() -> Router<AppState> {
+    Router::new()
         .route("/admin/embed-all", post(embed::run_embed_all))
         .route(
             "/admin/documents",
             get(admin_documents::list_documents).post(admin_documents::register_document),
         )
-        .route("/admin/evidence", post(admin_evidence::import_evidence))
         .route("/admin/reindex", post(admin_reindex::trigger_reindex))
-        .route(
-            "/admin/qa-entries",
-            get(admin_qa::list_all_entries).delete(admin_qa::bulk_delete_entries),
-        )
         // Raise axum's 2 MB default body limit so PDF uploads up to
         // the handler's MAX_FILE_SIZE ceiling reach the handler. Scoped
         // to this route only — other admin endpoints keep the tighter
@@ -124,8 +179,6 @@ pub fn router() -> Router<AppState> {
             "/admin/upload",
             post(admin_upload::upload_file).layer(DefaultBodyLimit::max(pipeline::MAX_FILE_SIZE)),
         )
-        .route("/admin/audit/health", get(admin_audit_health::audit_health))
-        .route("/admin/status", get(admin_status::get_status))
         .route(
             "/admin/documents/:id/evidence",
             get(admin_document_evidence::get_document_evidence),
@@ -146,10 +199,29 @@ pub fn router() -> Router<AppState> {
             "/admin/documents/:id/ground-pages",
             post(admin_page_ground::ground_pages),
         )
+}
+
+/// Admin operational routes: evidence import, QA-entry admin, audit health,
+/// status, and the nested pipeline admin router.
+fn admin_ops_routes() -> Router<AppState> {
+    Router::new()
+        .route("/admin/evidence", post(admin_evidence::import_evidence))
+        .route(
+            "/admin/qa-entries",
+            get(admin_qa::list_all_entries).delete(admin_qa::bulk_delete_entries),
+        )
+        .route("/admin/audit/health", get(admin_audit_health::audit_health))
+        .route("/admin/status", get(admin_status::get_status))
         .nest("/admin/pipeline", pipeline::router())
-        // Bias Explorer — non-admin authenticated reads.
-        // Routes live in `crate::bias::handlers` (the bias module owns its
-        // own DTOs, repository, and handlers as a self-contained feature).
+}
+
+/// Interactive / RAG routes: Bias Explorer reads, semantic search, ask,
+/// chat models, and Q&A history + rating.
+///
+/// Bias Explorer routes live in `crate::bias::handlers` (the bias module owns
+/// its own DTOs, repository, and handlers as a self-contained feature).
+fn interaction_routes() -> Router<AppState> {
+    Router::new()
         .route(
             "/bias/available-filters",
             get(bias_handlers::get_available_filters),
@@ -173,8 +245,7 @@ pub fn router() -> Router<AppState> {
 ///
 /// `tokio::spawn` launches a new async task on the runtime. The spawned
 /// future runs independently — we don't `.await` the JoinHandle, so the
-/// response returns immediately. `.ok()` inside the task swallows any
-/// database errors (user tracking must never fail a request).
+/// response returns immediately.
 async fn me_with_tracking(user: AuthUser, State(state): State<AppState>) -> Json<MeResponse> {
     // Clone the values the background task needs before we move `user`.
     let pool = state.pipeline_pool.clone();
@@ -185,6 +256,8 @@ async fn me_with_tracking(user: AuthUser, State(state): State<AppState>) -> Json
     tokio::spawn(async move {
         known_users::upsert_known_user(&pool, &username, &display_name, &email)
             .await
+            // best-effort: passive user-tracking upsert in a detached task; a
+            // DB failure must never fail or delay the /api/me response.
             .ok();
     });
 
@@ -197,4 +270,19 @@ async fn me_with_tracking(user: AuthUser, State(state): State<AppState>) -> Json
 /// convention at the root path, and nginx/load balancers expect it there.
 pub async fn health_check(State(_state): State<AppState>) -> (StatusCode, &'static str) {
     (StatusCode::OK, "OK")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Building the router exercises axum's route-conflict detection, which
+    /// panics on a duplicate `(path, method)`. Neither `cargo build` nor a
+    /// route-equivalence diff catches that — only constructing the router
+    /// does. This guards the route-group refactor against an accidental
+    /// overlap.
+    #[test]
+    fn router_builds_without_route_conflicts() {
+        let _ = router();
+    }
 }
