@@ -1,0 +1,219 @@
+/* =============================================================================
+ * tokens.css — Design system tokens for the Home Page Redesign (Phase 2)
+ * -----------------------------------------------------------------------------
+ * Single source of truth for colors and typography, per
+ * HOME_PAGE_REDESIGN_v2.md §9.
+ *
+ * WHY this file exists
+ * --------------------
+ * Before this file, every color in the app was a hand-copied hex literal living
+ * inside inline `style={{}}` props across ~74 components. That made a palette
+ * change a find-and-replace hazard. These CSS custom properties (a.k.a. "CSS
+ * variables") give us one place to define a color and let components reference
+ * it by intent (`var(--accent-primary)`) instead of by value (`#1570EF`).
+ *
+ * HOW components use these
+ * ------------------------
+ * Custom properties cascade like any other CSS, and they work inside React
+ * inline styles too:
+ *     <div style={{ color: "var(--text-primary)", background: "var(--bg-page)" }}>
+ * The typography utility classes below are applied via `className`:
+ *     <h1 className="h1-case-title">Awad v. CFS</h1>
+ *
+ * SCOPE NOTE (Phase 2, instruction A)
+ * -----------------------------------
+ * This file is additive. No component is wired to it yet — that happens in
+ * instructions B–E. Loading this file changes nothing visible on its own.
+ * Light theme only; dark mode is explicitly out of scope for v2.
+ * =============================================================================
+ */
+
+:root {
+  /* ---------------------------------------------------------------------------
+   * Primary palette (light theme) — §9 "Primary palette"
+   * ------------------------------------------------------------------------- */
+
+  /* --bg-page: the page canvas behind all cards. A hair cooler/darker than the
+     old #FAFAFA so white surfaces read as deliberately elevated. Used on the
+     Home page outer background. */
+  --bg-page: #f4f5f7;
+
+  /* --bg-surface: card and table backgrounds that sit on top of --bg-page.
+     The 1px border (below) — not a shadow — is what separates surface from
+     page (§9 principle: "subtle elevation via 1px borders"). */
+  --bg-surface: #ffffff;
+
+  /* --border-default: the 1px divider for card borders and table row dividers.
+     Carries the elevation that we deliberately do NOT express with shadows. */
+  --border-default: #d0d5dd;
+
+  /* --text-primary: headings and primary body text. Near-black with a slight
+     blue cast so it pairs with the blue accent without going pure #000. Used
+     for the H1 case title, Count headers, element names, element numbers. */
+  --text-primary: #101828;
+
+  /* --text-secondary: metadata and secondary labels (court/case strip, dates,
+     section headers, table column headers, burden/authority strip). */
+  --text-secondary: #475467;
+
+  /* --text-muted: tertiary information that should recede further than
+     secondary (e.g., low-emphasis hints). */
+  --text-muted: #667085;
+
+  /* --accent-primary: the single interactive accent (links, buttons, pills).
+     Used on the Count header card's authority popover trigger and the
+     Allegations count pill in the Causes of Action table. One accent only —
+     §9 forbids competing accents. */
+  --accent-primary: #1570ef;
+
+  /* --accent-primary-hover: hover/active state for --accent-primary elements. */
+  --accent-primary-hover: #175cd3;
+
+  /* --accent-bg-soft: pale accent fill for pill backgrounds and focus rings.
+     The quiet companion to --accent-primary's saturated foreground. */
+  --accent-bg-soft: #e0f2fe;
+
+  /* ---------------------------------------------------------------------------
+   * Status / semantic colors — §9 "Status / semantic colors"
+   * Used sparingly (§9 principle), only to encode meaning, never decoration.
+   * Each "pill" uses a bg + matching text pair for legible contrast.
+   * ------------------------------------------------------------------------- */
+
+  /* Burden of proof = "preponderance of the evidence" (the default civil
+     burden). Neutral grey pill — no alarm, it's the baseline.
+     Domain note: preponderance ("more likely than not") is the lower bar;
+     we render it neutrally to reserve warning color for the higher bar. */
+  --burden-neutral-bg: #f2f4f7;
+  --burden-neutral-text: #344054;
+
+  /* Burden of proof = "clear and convincing evidence" (the heightened civil
+     burden). Amber pill to flag the higher evidentiary bar at a glance.
+     Domain note: this burden is harder to meet, so it warrants visual weight. */
+  --burden-warning-bg: #fef0c7;
+  --burden-warning-text: #b54708;
+
+  /* --status-active-text: green for an active case status. Text color only —
+     status here is a label, not a filled pill. */
+  --status-active-text: #027a48;
+
+  /* --status-dropped-text: red for a party that has been dropped from the case.
+     Domain note: a dropped party still appears (for context) but is marked so
+     the reader doesn't treat them as a live claim/defendant. */
+  --status-dropped-text: #b42318;
+
+  /* --status-pending-text: amber for a pending or missing field indicator
+     (e.g., an element with no canonical text loaded yet). Shares the hue of
+     --burden-warning-text intentionally — both mean "needs attention". */
+  --status-pending-text: #b54708;
+
+  /* ---------------------------------------------------------------------------
+   * Font family stacks — §9 "Typography"
+   * Token-ize the stacks so the type classes (and components) name a role
+   * ("sans"/"serif"/"mono") instead of repeating a long fallback list.
+   * ------------------------------------------------------------------------- */
+
+  /* --font-sans: body and UI default. Inter is loaded via the Google Fonts
+     <link> in index.html (weights 400/500/600/700); the rest is a system
+     fallback in case the webfont fails to load. */
+  --font-sans: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+
+  /* --font-serif: reserved for the H1 case title only — §9's "one deliberate
+     lawyerly gesture". We do NOT load a serif webfont; the stack degrades to
+     Georgia, which the app already uses elsewhere. If 'Source Serif Pro' or
+     'Charter' happen to be installed locally they win, otherwise Georgia. */
+  --font-serif: "Source Serif Pro", "Charter", Georgia, serif;
+
+  /* --font-mono: element numbers in the Causes of Action table. Uses the OS
+     default monospace stack — §9 says no dedicated mono webfont is needed. */
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+}
+
+/* =============================================================================
+ * Typography utility classes — §9 "Typography" table
+ * -----------------------------------------------------------------------------
+ * One class per row of the §9 type-scale table. Components in instructions B–E
+ * apply these via `className` instead of repeating font/size/weight inline.
+ * Sizes and weights are the design system's own canonical values, so they live
+ * here (this file is that contract); colors and fonts reference the tokens
+ * above so there is still a single source of truth for each.
+ * ============================================================================= */
+
+/* H1 — case title. Serif, 28px, 600. The only serif element in the design. */
+.h1-case-title {
+  font-family: var(--font-serif);
+  font-size: 28px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* H2 — section headers such as "CAUSES OF ACTION". Sans, 14px, 600, uppercased
+   with tracking so it reads as an eyebrow label rather than a heading. */
+.h2-section-header {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Count header — the title at the top of each Cause-of-Action card. Sans, 18px, 600. */
+.count-header {
+  font-family: var(--font-sans);
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* Table column headers inside a Count card. Sans, 12px, 600, uppercased. */
+.table-col-header {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Element name — the legal element's label in a table row. Sans, 14px, 500. */
+.element-name {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+/* "What Plaintiff Must Prove" cell text. Sans, 14px, 400 (regular body weight). */
+.proof-text {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--text-primary);
+}
+
+/* Element number — the ordinal in the table's first column. Mono, 13px, 600,
+   so the digits align in a tabular column. */
+.element-number {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* Burden / authority strip beneath a Count header. Sans, 13px, 400. */
+.burden-strip {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+
+/* Metadata — court name, filing dates, and similar secondary facts. Sans, 13px, 400. */
+.metadata {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--text-secondary);
+}
