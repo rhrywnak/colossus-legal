@@ -1,15 +1,61 @@
-import React from "react";
-import { Link } from "react-router-dom";
-import { useCase } from "../context/CaseContext";
+import React, { useEffect, useState } from "react";
+import CaseHeader from "../components/CaseHeader";
+import { CaseHeaderResponse, getCaseHeader } from "../services/caseHeader";
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
+/**
+ * Home — the case dashboard.
+ *
+ * Phase 2C: the old title/stat blocks (which read the `/api/case-summary`
+ * context) are gone. Per HOME_PAGE_REDESIGN_v2.md §5, the parties fold into the
+ * CaseHeader and the standalone stat columns are removed — so the page is now
+ * driven solely by GET /api/cases/:slug. The Causes of Action placeholder
+ * (Phase 2B) stays until Phase 2D-E rebuild the Count tables.
+ *
+ * ## React Learning: fetch-on-mount with a cancel flag
+ * We fetch in an effect and guard state updates with `cancelled`. If the
+ * component unmounts before the request resolves (user navigates away), the
+ * cleanup sets `cancelled = true` so we don't call setState on an unmounted
+ * component. Same pattern as CaseContext — kept local here because this is the
+ * only consumer of the case-header endpoint.
+ */
 const Home: React.FC = () => {
-  const { caseData, loading, error } = useCase();
+  const [header, setHeader] = useState<CaseHeaderResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      try {
+        const data = await getCaseHeader();
+        if (!cancelled) {
+          setHeader(data);
+          setLoading(false);
+        }
+      } catch (err) {
+        // No silent failure (Rule 1): surface the message to the user below.
+        if (!cancelled) {
+          const message =
+            err instanceof Error ? err.message : "Failed to load case header";
+          setError(message);
+          setLoading(false);
+        }
+      }
+    }
+
+    load();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   if (loading) {
     return (
-      <div style={{ padding: "2rem", textAlign: "center", color: "#64748b" }}>
+      <div style={{ padding: "32px", textAlign: "center", color: "var(--text-secondary)" }}>
         Loading case data...
       </div>
     );
@@ -17,98 +63,42 @@ const Home: React.FC = () => {
 
   if (error) {
     return (
-      <div style={{ padding: "1rem", backgroundColor: "#fef2f2", border: "1px solid #fecaca", borderRadius: "6px", color: "#dc2626" }}>
+      <div
+        style={{
+          margin: "32px",
+          padding: "16px",
+          backgroundColor: "var(--bg-surface)",
+          border: "1px solid var(--border-default)",
+          borderRadius: "6px",
+          color: "var(--status-dropped-text)",
+        }}
+      >
         {error}
       </div>
     );
   }
 
-  if (!caseData) {
+  // Defensive: after a successful load `header` is set; this guards the
+  // narrow window where it is somehow still null without an error.
+  if (!header) {
     return (
-      <div style={{ padding: "3rem", textAlign: "center" }}>
-        <div style={{ fontSize: "1.1rem", fontWeight: 600, color: "#334155", marginBottom: "0.5rem" }}>
-          No case data available
-        </div>
-        <div style={{ fontSize: "0.84rem", color: "#64748b", marginBottom: "1rem", lineHeight: 1.5 }}>
-          Process documents through the Pipeline to populate the knowledge graph.
-        </div>
-        <Link
-          to="/pipeline"
-          style={{ fontSize: "0.84rem", color: "#2563eb", textDecoration: "none", fontWeight: 500 }}
-        >
-          Go to Pipeline Dashboard {"\u2192"}
-        </Link>
+      <div style={{ padding: "32px", textAlign: "center", color: "var(--text-muted)" }}>
+        No case data available.
       </div>
     );
   }
 
-  // Strip any " - DocumentType" suffix from the case title (e.g., "Awad v. CFS - Complaint" → "Awad v. CFS")
-  const rawTitle = caseData.case_title;
-  const displayTitle = rawTitle.includes(" - ")
-    ? rawTitle.substring(0, rawTitle.lastIndexOf(" - "))
-    : rawTitle;
-
-  const metaParts: string[] = [];
-  if (caseData.court) metaParts.push(caseData.court);
-  if (caseData.case_number) metaParts.push(`Case No. ${caseData.case_number}`);
-
   return (
-    <div style={{ paddingTop: "2rem", paddingBottom: "4rem" }}>
+    <div style={{ paddingTop: "32px", paddingBottom: "4rem" }}>
+      {/* 2A (rebuilt): the full case header — title, court strip, parties, counsel */}
+      <CaseHeader data={header} />
 
-      {/* 2A: Case Header */}
-      <div style={{ marginBottom: "1.75rem" }}>
-        <h1 style={{ fontSize: "1.55rem", fontWeight: 700, color: "#0f172a", letterSpacing: "-0.02em", margin: 0, marginBottom: "0.4rem" }}>
-          {displayTitle}
-        </h1>
-        {metaParts.length > 0 && (
-          <span style={{ fontSize: "0.84rem", color: "#64748b" }}>
-            {metaParts.join(" \u00b7 ")}
-          </span>
-        )}
-      </div>
-
-      {/* 2B: Case Summary Stats */}
-      <div style={{ display: "flex", gap: "2rem", marginBottom: "1.75rem", flexWrap: "wrap" }}>
-        {caseData.plaintiffs.length > 0 && (
-          <div>
-            <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "0.3rem" }}>
-              Plaintiffs
-            </div>
-            <div style={{ fontSize: "0.9rem", color: "#0f172a" }}>{caseData.plaintiffs.join(", ")}</div>
-          </div>
-        )}
-        {caseData.defendants.length > 0 && (
-          <div>
-            <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "0.3rem" }}>
-              Defendants
-            </div>
-            <div style={{ fontSize: "0.9rem", color: "#0f172a" }}>{caseData.defendants.join(", ")}</div>
-          </div>
-        )}
-        {caseData.allegations_total > 0 && (
-          <div>
-            <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "0.3rem" }}>
-              Allegations
-            </div>
-            <div style={{ fontSize: "0.9rem", color: "#0f172a" }}>{caseData.allegations_total}</div>
-          </div>
-        )}
-        {caseData.legal_counts > 0 && (
-          <div>
-            <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "0.3rem" }}>
-              Legal Counts
-            </div>
-            <div style={{ fontSize: "0.9rem", color: "#0f172a" }}>{caseData.legal_counts}</div>
-          </div>
-        )}
-      </div>
-
-      {/* 2C: Causes of Action \u2014 temporary placeholder.
+      {/* 2C: Causes of Action — temporary placeholder.
           The old 2x2 CountCard grid and the "Explore the Case" nav cards were
           removed in Phase 2B. The full-width Count tables arrive in Phase 2C-E.
           This block also doubles as a smoke test for Phase 2A's tokens: if the
           heading/body render in the wrong color (e.g. plain black), the
-          tokens.css import is broken \u2014 var(--text-secondary)/var(--text-muted)
+          tokens.css import is broken — var(--text-secondary)/var(--text-muted)
           should resolve to the palette defined in styles/tokens.css. */}
       <div style={{ padding: '32px 0' }}>
         <h2 style={{
@@ -125,7 +115,7 @@ const Home: React.FC = () => {
           fontSize: '14px',
           color: 'var(--text-muted)'
         }}>
-          Count cards are being rebuilt \u2014 coming in the next update.
+          Count cards are being rebuilt — coming in the next update.
         </p>
       </div>
 
