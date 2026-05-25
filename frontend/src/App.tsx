@@ -1,5 +1,5 @@
 import React from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import Header from "./components/Header";
 import { AuthProvider } from "./context/AuthContext";
 import { CaseProvider } from "./context/CaseContext";
@@ -26,6 +26,22 @@ import People from "./pages/People";
 import PersonDetailPage from "./pages/PersonDetailPage";
 import TimelinePage from "./pages/TimelinePage";
 
+/**
+ * Redirect that preserves the query string while changing the path.
+ *
+ * ## React Learning: why a wrapper instead of `<Navigate to="/explorer">`
+ * A bare `<Navigate to="/explorer" replace />` drops the current URL's `?query`.
+ * The Phase 2D Count tables link to `/evidence?element_id=…`, and `/evidence`
+ * is an alias that redirects to the real Evidence tab at `/explorer` — so a bare
+ * redirect would silently lose `element_id` on the hop. `useLocation()` exposes
+ * the live location, and `Navigate`'s `to` accepts a `{ pathname, search }`
+ * object, so we forward the search string verbatim to the target path.
+ */
+const RedirectPreservingQuery: React.FC<{ to: string }> = ({ to }) => {
+  const location = useLocation();
+  return <Navigate to={{ pathname: to, search: location.search }} replace />;
+};
+
 const App: React.FC = () => {
   return (
     <AuthProvider>
@@ -40,7 +56,7 @@ const App: React.FC = () => {
               <Route path="/claims" element={<MotionClaimsPage />} />
               <Route path="/documents" element={<DocumentsPage />} />
               <Route path="/documents/:id" element={<DocumentWorkspaceTabs />} />
-              <Route path="/evidence" element={<Navigate to="/explorer" replace />} />
+              <Route path="/evidence" element={<RedirectPreservingQuery to="/explorer" />} />
               <Route path="/damages" element={<HarmsPage />} />
               <Route path="/people" element={<People />} />
               <Route path="/people/:id" element={<PersonDetailPage />} />
