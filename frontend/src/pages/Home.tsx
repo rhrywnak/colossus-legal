@@ -1,21 +1,11 @@
-import React, { useState } from "react";
+import React from "react";
 import { Link } from "react-router-dom";
 import { useCase } from "../context/CaseContext";
-import { HarmDto, getHarms } from "../services/harms";
-import CountCard from "../components/CountCard";
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-const formatCurrency = (amount: number): string =>
-  new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(amount);
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
 const Home: React.FC = () => {
   const { caseData, loading, error } = useCase();
-  const [showDamages, setShowDamages] = useState(false);
-  const [harms, setHarms] = useState<HarmDto[]>([]);
-  const [harmsLoading, setHarmsLoading] = useState(false);
 
   if (loading) {
     return (
@@ -113,152 +103,31 @@ const Home: React.FC = () => {
         )}
       </div>
 
-      {/* 2C: Causes of Action */}
-      {caseData.legal_count_details.length > 0 && (
-        <section style={{ marginBottom: "1.75rem" }}>
-          <div style={{ fontSize: "0.95rem", fontWeight: 700, color: "#0f172a", marginBottom: "0.85rem", letterSpacing: "-0.01em" }}>
-            Causes of Action
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "0.65rem", alignItems: "start" }}>
-            {caseData.legal_count_details.map((lc) => (
-              <CountCard key={lc.id} count={lc} />
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* 2D: Explore the Case */}
-      <section style={{ marginBottom: "1.75rem" }}>
-        <div style={{ fontSize: "0.95rem", fontWeight: 700, color: "#0f172a", marginBottom: "0.85rem", letterSpacing: "-0.01em" }}>
-          Explore the Case
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "0.65rem" }}>
-          {[
-            { name: "Evidence Explorer", desc: "Browse proof chains with verbatim quotes and page numbers", stat: `${caseData.evidence_total} sworn statements and exhibits`, path: "/explorer" },
-            { name: "Bias Analysis", desc: "Track patterns of bias, disparagement, and misconduct across all case documents", stat: "By actor and pattern", path: "/bias-explorer" },
-            { name: "Documents", desc: "Briefs, motions, discovery responses, and court orders", stat: `${caseData.documents_total} court filings`, path: "/documents" },
-            { name: "Contradictions", desc: "Impeachment evidence from sworn testimony", stat: "Where Phillips contradicted himself", path: "/contradictions" },
-            { name: "Damages", desc: "Financial and reputational damages with evidence links", stat: `${formatCurrency(caseData.damages_total)} in documented harm`, path: "/damages", hasInfo: true },
-            { name: "Graph", desc: "Interactive graph from legal counts through evidence", stat: "Visual proof chains", path: "/graph" },
-          ].map((card) => (
-            <Link
-              key={card.path}
-              to={card.path}
-              style={{
-                backgroundColor: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "10px",
-                padding: "1.15rem 1.25rem", textDecoration: "none", color: "inherit",
-                display: "flex", flexDirection: "column", justifyContent: "space-between",
-                minHeight: "100px", transition: "all 0.15s ease", cursor: "pointer",
-              }}
-              onMouseEnter={(e) => { e.currentTarget.style.borderColor = "#3b82f6"; e.currentTarget.style.boxShadow = "0 2px 8px rgba(37,99,235,0.08)"; }}
-              onMouseLeave={(e) => { e.currentTarget.style.borderColor = "#e2e8f0"; e.currentTarget.style.boxShadow = "none"; }}
-            >
-              <div>
-                <div style={{ fontSize: "0.9rem", fontWeight: 600, color: "#0f172a", marginBottom: "0.25rem" }}>
-                  {card.name}
-                </div>
-                <div style={{ fontSize: "0.78rem", color: "#475569", lineHeight: 1.4, fontFamily: "'Georgia', serif" }}>
-                  {card.desc}
-                </div>
-              </div>
-              <div style={{ marginTop: "0.6rem", fontSize: "0.72rem", fontWeight: 600, color: "#2563eb", display: "flex", alignItems: "center", gap: "0.4rem" }}>
-                {card.stat}
-                {card.hasInfo && (
-                  <button
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setShowDamages(true);
-                      if (harms.length === 0) {
-                        setHarmsLoading(true);
-                        getHarms()
-                          .then((res) => setHarms(res.harms))
-                          .catch(() => {})
-                          .finally(() => setHarmsLoading(false));
-                      }
-                    }}
-                    style={{
-                      background: "none", border: "none", padding: 0,
-                      fontSize: "0.84rem", color: "#2563eb", cursor: "pointer",
-                      fontWeight: 500, fontFamily: "inherit",
-                    }}
-                  >
-                    View Breakdown {"\u2192"}
-                  </button>
-                )}
-              </div>
-            </Link>
-          ))}
-        </div>
-      </section>
-
-      {/* Damages Breakdown Popup */}
-      {showDamages && (
-        <div
-          onClick={() => setShowDamages(false)}
-          style={{
-            position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.4)",
-            display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000,
-          }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              backgroundColor: "#ffffff", borderRadius: "12px", padding: "1.75rem",
-              maxWidth: "600px", width: "90%", maxHeight: "80vh", overflowY: "auto",
-              boxShadow: "0 20px 60px rgba(0,0,0,0.15)",
-            }}
-          >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem" }}>
-              <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 700, color: "#0f172a" }}>Damages Breakdown</h2>
-              <button
-                onClick={() => setShowDamages(false)}
-                style={{
-                  background: "none", border: "none", fontSize: "1.25rem",
-                  color: "#94a3b8", cursor: "pointer", padding: "0.25rem",
-                }}
-              >
-                {"\u2715"}
-              </button>
-            </div>
-
-            {harmsLoading ? (
-              <div style={{ textAlign: "center", padding: "2rem", color: "#64748b" }}>Loading...</div>
-            ) : (
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.84rem" }}>
-                <thead>
-                  <tr style={{ borderBottom: "2px solid #e2e8f0" }}>
-                    <th style={{ textAlign: "left", padding: "0.5rem 0.5rem 0.5rem 0", color: "#64748b", fontWeight: 600 }}>Category</th>
-                    <th style={{ textAlign: "left", padding: "0.5rem", color: "#64748b", fontWeight: 600 }}>Description</th>
-                    <th style={{ textAlign: "right", padding: "0.5rem 0 0.5rem 0.5rem", color: "#64748b", fontWeight: 600 }}>Amount</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {harms.map((h) => (
-                    <tr key={h.id} style={{ borderBottom: "1px solid #f1f5f9" }}>
-                      <td style={{ padding: "0.5rem 0.5rem 0.5rem 0", color: "#334155", textTransform: "capitalize", whiteSpace: "nowrap" }}>
-                        {h.category ?? "Other"}
-                      </td>
-                      <td style={{ padding: "0.5rem", color: "#334155" }}>{h.title}</td>
-                      <td style={{ padding: "0.5rem 0 0.5rem 0.5rem", textAlign: "right", color: "#0f172a", fontWeight: 500, whiteSpace: "nowrap" }}>
-                        {h.amount != null ? formatCurrency(h.amount) : "\u2014"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr style={{ borderTop: "2px solid #e2e8f0" }}>
-                    <td colSpan={2} style={{ padding: "0.65rem 0.5rem 0.5rem 0", fontWeight: 700, color: "#0f172a" }}>Total</td>
-                    <td style={{ padding: "0.65rem 0 0.5rem 0.5rem", textAlign: "right", fontWeight: 700, color: "#0f172a" }}>
-                      {formatCurrency(caseData.damages_total)}
-                    </td>
-                  </tr>
-                </tfoot>
-              </table>
-            )}
-          </div>
-        </div>
-      )}
+      {/* 2C: Causes of Action \u2014 temporary placeholder.
+          The old 2x2 CountCard grid and the "Explore the Case" nav cards were
+          removed in Phase 2B. The full-width Count tables arrive in Phase 2C-E.
+          This block also doubles as a smoke test for Phase 2A's tokens: if the
+          heading/body render in the wrong color (e.g. plain black), the
+          tokens.css import is broken \u2014 var(--text-secondary)/var(--text-muted)
+          should resolve to the palette defined in styles/tokens.css. */}
+      <div style={{ padding: '32px 0' }}>
+        <h2 style={{
+          fontSize: '14px',
+          fontWeight: 600,
+          textTransform: 'uppercase' as const,
+          letterSpacing: '0.05em',
+          color: 'var(--text-secondary)',
+          marginBottom: '16px'
+        }}>
+          Causes of Action
+        </h2>
+        <p style={{
+          fontSize: '14px',
+          color: 'var(--text-muted)'
+        }}>
+          Count cards are being rebuilt \u2014 coming in the next update.
+        </p>
+      </div>
 
     </div>
   );
