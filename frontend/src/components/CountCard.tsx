@@ -16,6 +16,8 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { CountDetail, ElementDetail } from "../services/causesOfAction";
+import BurdenBadge from "./BurdenBadge";
+import AuthorityPopover from "./AuthorityPopover";
 
 // ─── Pure helpers (exported for unit testing — no DOM, no React) ─────────────
 
@@ -162,11 +164,12 @@ const CountCard: React.FC<{ count: CountDetail }> = ({ count }) => {
   const roman = toRomanNumeral(count.count_number);
   const title = count.count_name ? `COUNT ${roman} — ${count.count_name}` : `COUNT ${roman}`;
 
-  // Burden + primary authority as plain text (pill/popover are Phase 2E).
-  const burden = count.burden_of_proof?.trim() ? count.burden_of_proof : "—";
-  const authority = count.controlling_authority_primary?.trim()
-    ? ` · ${count.controlling_authority_primary} ⓘ`
-    : "";
+  // Burden → styled pill (BurdenBadge); primary authority → text + the ⓘ
+  // popover of all controlling authorities (AuthorityPopover). Phase 2E.
+  const burden = count.burden_of_proof?.trim() ? count.burden_of_proof : null;
+  const primaryAuthority = count.controlling_authority_primary?.trim()
+    ? count.controlling_authority_primary
+    : null;
 
   const elements = sortElements(count.elements);
 
@@ -181,8 +184,19 @@ const CountCard: React.FC<{ count: CountDetail }> = ({ count }) => {
     >
       {/* Count header */}
       <div className="count-header">{title}</div>
-      <div className="burden-strip" style={{ marginTop: "4px" }}>
-        Burden: {burden}{authority}
+      <div
+        className="burden-strip"
+        style={{ marginTop: "4px", display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}
+      >
+        <span>Burden:</span>
+        {burden ? <BurdenBadge burden={burden} /> : <span>—</span>}
+        {primaryAuthority && (
+          <>
+            <span>· {primaryAuthority}</span>
+            {/* Renders the ⓘ trigger only when there are authorities to show. */}
+            <AuthorityPopover authorities={count.controlling_authorities} />
+          </>
+        )}
       </div>
 
       {/* Element table — or the empty-Count message (§7 empty state per Count) */}
