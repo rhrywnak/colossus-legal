@@ -20,7 +20,12 @@ use colossus_legal_backend::canonical_elements::loader::{self, RunOptions};
 use colossus_legal_backend::canonical_elements::plan::ChangeKind;
 use colossus_legal_backend::canonical_elements::schema::CountFile;
 use colossus_legal_backend::canonical_elements::CanonicalLoaderError;
+use colossus_legal_backend::repositories::pipeline_repository::{
+    delete_authored_entities_for_case, delete_authored_relationships_by_type,
+    list_authored_entities,
+};
 use neo4rs::{query, Graph};
+use sqlx::PgPool;
 use std::path::{Path, PathBuf};
 
 // ===========================================================================
@@ -223,6 +228,15 @@ fn exit_codes_map_error_categories() {
     // Code 4 — validation / missing prerequisite.
     assert_eq!(E::Validation("dup".into()).exit_code(), 4);
     assert_eq!(E::MissingLegalCount { count_number: 2 }.exit_code(), 4);
+    // Code 5 — Postgres write failure.
+    assert_eq!(
+        E::Postgres {
+            operation: "upsert LegalCount count-1".into(),
+            message: "connection refused".into(),
+        }
+        .exit_code(),
+        5
+    );
     // Codes 2 (Connection) and 3 (Cypher/RowDecode) require a live neo4rs error
     // to construct; they are exercised on the DB-test path.
 }
@@ -240,6 +254,15 @@ fn error_display_messages_are_operator_friendly() {
     assert!(CanonicalLoaderError::Validation("dup id".into())
         .to_string()
         .contains("dup id"));
+    // Postgres errors name both the operation (WHERE) and the underlying
+    // message (WHY) so the failing step is locatable in the logs.
+    let pg = CanonicalLoaderError::Postgres {
+        operation: "upsert Element element-2-3".into(),
+        message: "duplicate key value violates unique constraint".into(),
+    }
+    .to_string();
+    assert!(pg.contains("upsert Element element-2-3"), "{pg}");
+    assert!(pg.contains("duplicate key value"), "{pg}");
 }
 
 #[test]
@@ -298,6 +321,10 @@ fn opts(dir: &Path, dry_run: bool) -> RunOptions {
         yaml_dir: dir.to_path_buf(),
         dry_run,
         no_color: true,
+        // These tests exercise the Neo4j path only; the Tier-1 Postgres
+        // writes are covered by canonical_loader_postgres_integration.rs.
+        pipeline_pool: None,
+        case_slug: None,
     }
 }
 
@@ -320,6 +347,127 @@ async fn scalar(graph: &Graph, cypher: &str) -> i64 {
     let mut stream = graph.execute(query(cypher)).await.unwrap();
     let row = stream.next().await.unwrap().expect("one row");
     row.get("n").unwrap()
+}
+
+/// Connect to the pipeline test database, or `None` (with a skip notice) when
+/// `PIPELINE_DATABASE_URL` is unset.
+async fn test_pipeline_pool(test_name: &str) -> Option<PgPool> {
+    dotenvy::dotenv().ok();
+    let Ok(url) = std::env::var("PIPELINE_DATABASE_URL") else {
+        eprintln!("SKIP {test_name}: PIPELINE_DATABASE_URL not set");
+        return None;
+    };
+    Some(
+        sqlx::postgres::PgPoolOptions::new()
+            .max_connections(2)
+            .connect(&url)
+            .await
+            .expect("connect to PIPELINE_DATABASE_URL"),
+    )
+}
+
+/// Dry-run must write to neither Postgres nor Neo4j, even when a pool and
+/// case-slug are supplied. Requires both isolated test DBs.
+#[tokio::test]
+#[ignore = "requires NEO4J_TEST_URI + PIPELINE_DATABASE_URL (isolated test DBs)"]
+async fn dry_run_writes_neither_neo4j_nor_postgres() {
+    let name = "dry_run_writes_neither_neo4j_nor_postgres";
+    let Some(graph) = test_graph(name).await else {
+        return;
+    };
+    let Some(pool) = test_pipeline_pool(name).await else {
+        return;
+    };
+    let slug = "awad_v_catholic_family_service__test_loader_dryrun";
+
+    // Clean PG slate, seed the prerequisite Neo4j LegalCounts.
+    delete_authored_relationships_by_type(&pool, slug, "HAS_ELEMENT")
+        .await
+        .unwrap();
+    delete_authored_entities_for_case(&pool, slug)
+        .await
+        .unwrap();
+    reset_and_seed(&graph).await;
+    let dir = tempfile::tempdir().unwrap();
+    write_fixtures(dir.path());
+
+    let _report = loader::run(
+        &graph,
+        RunOptions {
+            yaml_dir: dir.path().to_path_buf(),
+            dry_run: true,
+            no_color: true,
+            pipeline_pool: Some(pool.clone()),
+            case_slug: Some(slug.to_string()),
+        },
+    )
+    .await
+    .unwrap();
+
+    assert!(
+        list_authored_entities(&pool, slug, None)
+            .await
+            .unwrap()
+            .is_empty(),
+        "dry-run must not write authored_entities"
+    );
+    assert_eq!(
+        scalar(&graph, "MATCH (:Element) RETURN count(*) AS n").await,
+        0,
+        "dry-run must not write Neo4j Elements"
+    );
+
+    delete_authored_entities_for_case(&pool, slug)
+        .await
+        .unwrap();
+}
+
+/// `set_legal_count_id` stamps the cross-tier `id` (`count-{N}`) on every
+/// LegalCount node, unconditionally and idempotently. Neo4j-only (no PG).
+#[tokio::test]
+#[ignore = "requires NEO4J_TEST_URI (isolated test DB)"]
+async fn legalcount_nodes_get_cross_tier_count_id() {
+    let name = "legalcount_nodes_get_cross_tier_count_id";
+    let Some(graph) = test_graph(name).await else {
+        return;
+    };
+    reset_and_seed(&graph).await;
+    let dir = tempfile::tempdir().unwrap();
+    write_fixtures(dir.path());
+
+    // First run stamps c.id = count-{N} on every LegalCount.
+    loader::run(&graph, opts(dir.path(), false)).await.unwrap();
+    assert_eq!(
+        scalar(
+            &graph,
+            "MATCH (c:LegalCount {count_number: 1}) WHERE c.id = 'count-1' RETURN count(c) AS n"
+        )
+        .await,
+        1,
+        "LegalCount 1 must carry cross-tier id count-1"
+    );
+    assert_eq!(
+        scalar(
+            &graph,
+            "MATCH (c:LegalCount) WHERE c.id STARTS WITH 'count-' RETURN count(c) AS n"
+        )
+        .await,
+        4,
+        "all four LegalCounts carry a count-N id"
+    );
+
+    // Second run: the id is set unconditionally, even though no managed
+    // property changed (content-hash idempotency skips the property update).
+    loader::run(&graph, opts(dir.path(), false)).await.unwrap();
+    assert_eq!(
+        scalar(
+            &graph,
+            "MATCH (c:LegalCount {count_number: 4}) WHERE c.id = 'count-4' RETURN count(c) AS n"
+        )
+        .await,
+        1,
+        "id persists on the idempotent re-run"
+    );
 }
 
 /// Write a four-Count fixture exercising every node type and property kind.

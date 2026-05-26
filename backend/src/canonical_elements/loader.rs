@@ -13,10 +13,13 @@
 //! Canonical Element ids (`element-1-1`, …) never collide with the wrong
 //! Elements' ids, so wiping before upserting is safe.
 
+use super::authored;
 use super::plan::{self, ChangeKind, CountPlan, LoadPlan, NodePlan};
 use super::report::ChangeReport;
-use super::{cypher, schema::CountFile, CanonicalLoaderError};
+use super::schema::CountFile;
+use super::{cypher, CanonicalLoaderError};
 use neo4rs::Graph;
+use sqlx::PgPool;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use tracing::{info, instrument};
@@ -28,10 +31,21 @@ type LoaderResult<T> = Result<T, CanonicalLoaderError>;
 pub struct RunOptions {
     /// Directory holding the `count_N_*.yaml` files.
     pub yaml_dir: PathBuf,
-    /// When true, build and report the plan but write nothing.
+    /// When true, build and report the plan but write nothing (neither
+    /// Postgres nor Neo4j).
     pub dry_run: bool,
     /// Disable ANSI color in the report.
     pub no_color: bool,
+    /// Pipeline-DB pool for the Tier-1 authored-entity writes. `None` ⇒ the
+    /// loader runs Neo4j-only (the Neo4j-focused integration tests pass
+    /// `None`); the binary always supplies it from `--database-url` /
+    /// `PIPELINE_DATABASE_URL`. CLI requiredness lives at the binary layer;
+    /// the library stays runnable without Postgres for those tests.
+    pub pipeline_pool: Option<PgPool>,
+    /// Case slug written to `authored_entities` / `authored_relationships`.
+    /// `None` alongside `pipeline_pool = None`; required at the CLI layer
+    /// (`--case-slug`).
+    pub case_slug: Option<String>,
 }
 
 /// Read → validate → plan → (execute) → report.
@@ -47,6 +61,38 @@ pub async fn run(graph: &Graph, opts: RunOptions) -> LoaderResult<ChangeReport> 
     );
     validate(&files)?;
 
+    // Tier-1 Postgres writes happen BEFORE any Neo4j writes (Option A:
+    // Postgres is the system of record, Neo4j the operational copy). When
+    // no pool/slug is configured (the Neo4j-only integration tests) this is
+    // skipped and the authored section is omitted from the report.
+    let authored = match (opts.pipeline_pool.as_ref(), opts.case_slug.as_deref()) {
+        (Some(pool), Some(case_slug)) => {
+            let counts = authored::count_authored(&files);
+            if opts.dry_run {
+                info!(
+                    authored_entities = counts.entities,
+                    authored_relationships = counts.relationships,
+                    "dry-run: skipping authored-entity Postgres writes"
+                );
+            } else {
+                authored::write_authored_entities(pool, case_slug, &files).await?;
+                info!(
+                    authored_entities = counts.entities,
+                    authored_relationships = counts.relationships,
+                    "wrote authored entities + relationships to Postgres"
+                );
+            }
+            Some(counts)
+        }
+        _ => {
+            info!(
+                "Postgres not configured (no --database-url / --case-slug); \
+                 skipping authored-entity writes"
+            );
+            None
+        }
+    };
+
     let plan = plan::build_plan(graph, &files).await?;
 
     if opts.dry_run {
@@ -56,7 +102,12 @@ pub async fn run(graph: &Graph, opts: RunOptions) -> LoaderResult<ChangeReport> 
         info!("canonical Element load complete");
     }
 
-    Ok(ChangeReport::new(plan, opts.dry_run, opts.no_color))
+    Ok(ChangeReport::new(
+        plan,
+        opts.dry_run,
+        opts.no_color,
+        authored,
+    ))
 }
 
 /// Read and parse every `*.yaml` / `*.yml` file in `yaml_dir`, sorted by Count.
@@ -286,6 +337,17 @@ async fn apply_count(graph: &Graph, count: &CountPlan) -> LoaderResult<()> {
     }
 
     let cn = count.meta.count_number;
+
+    // Stamp the cross-tier `id` (`count-{N}`) on the LegalCount node
+    // unconditionally — see `cypher::set_legal_count_id`. Done inside the
+    // per-Count transaction so it's atomic with the property update, and
+    // independent of the property-diff guard above so the id is present
+    // even on a run where no managed property changed.
+    let count_id = authored::legal_count_entity_id(cn);
+    txn.run(cypher::set_legal_count_id(cn, &count_id))
+        .await
+        .map_err(CanonicalLoaderError::exec("set_legal_count_id"))?;
+
     for e in writable(&count.elements) {
         txn.run(cypher::upsert_element(cn, &e.def, &e.hash))
             .await

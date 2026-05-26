@@ -14,12 +14,14 @@
 //! binary becomes a trivial wiring layer.
 //!
 //! Sub-modules:
-//! - [`schema`]  — serde types for the YAML schema (`deny_unknown_fields`)
-//! - [`cypher`]  — `neo4rs::Query` builders, one per operation
-//! - [`plan`]    — reads current graph state and diffs it against the YAML
-//! - [`loader`]  — orchestration: read → validate → plan → execute → report
-//! - [`report`]  — the change report struct and its `Display` impl
+//! - [`schema`]   — serde types for the YAML schema (`deny_unknown_fields`)
+//! - [`cypher`]   — `neo4rs::Query` builders, one per operation
+//! - [`plan`]     — reads current graph state and diffs it against the YAML
+//! - [`authored`] — Tier-1 authored-entity writes to Postgres (Option A)
+//! - [`loader`]   — orchestration: read → validate → Postgres → plan → Neo4j → report
+//! - [`report`]   — the change report struct and its `Display` impl
 
+pub mod authored;
 pub mod cypher;
 pub mod diff;
 pub mod loader;
@@ -158,6 +160,13 @@ pub enum CanonicalLoaderError {
         #[source]
         source: serde_json::Error,
     },
+
+    /// A Postgres operation against the authored-entity tables failed.
+    /// `operation` names the step (connect / delete / upsert / commit) so
+    /// the failure is locatable in the logs (Standing Rule 1). The source
+    /// `message` carries the underlying sqlx / repository error text.
+    #[error("Postgres operation '{operation}' failed: {message}")]
+    Postgres { operation: String, message: String },
 }
 
 impl CanonicalLoaderError {
@@ -181,6 +190,7 @@ impl CanonicalLoaderError {
     /// - `2` — Neo4j connection failure
     /// - `3` — Cypher execution failure
     /// - `4` — validation failure / missing prerequisite `LegalCount`
+    /// - `5` — Postgres write failure (authored-entity tables)
     pub fn exit_code(&self) -> u8 {
         match self {
             Self::MissingEnv { .. }
@@ -191,6 +201,7 @@ impl CanonicalLoaderError {
             Self::Connection { .. } => 2,
             Self::Cypher { .. } | Self::RowDecode { .. } => 3,
             Self::Validation(_) | Self::MissingLegalCount { .. } => 4,
+            Self::Postgres { .. } => 5,
         }
     }
 }

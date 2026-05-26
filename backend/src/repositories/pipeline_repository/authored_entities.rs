@@ -20,8 +20,12 @@
 //! table an endpoint originated in. This also lets the mapping layer be
 //! rebuilt without reprocessing documents.
 //!
-//! Like every sibling in this module, all functions take `&PgPool` (the
-//! pipeline pool) and stay stateless.
+//! Functions stay stateless. The four mutating functions (`upsert_*` /
+//! `delete_*`) take `impl sqlx::PgExecutor<'_>` rather than `&PgPool` so a
+//! caller can run them inside a single transaction (the canonical loader's
+//! delete-then-insert) — a `&PgPool` still satisfies the bound, so simple
+//! call sites pass `&pool` unchanged. The read helpers (`get_*` / `list_*`)
+//! keep `&PgPool`.
 
 use sqlx::PgPool;
 
@@ -92,7 +96,7 @@ const RELATIONSHIP_COLUMNS: &str = "id, case_slug, from_entity_id, to_entity_id,
 /// SET clause — they record the original author, not the last writer —
 /// while `updated_at = NOW()` advances on every touch.
 pub async fn upsert_authored_entity(
-    pool: &PgPool,
+    executor: impl sqlx::PgExecutor<'_>,
     case_slug: &str,
     entity_type: &str,
     entity_id: &str,
@@ -118,7 +122,7 @@ pub async fn upsert_authored_entity(
     .bind(item_data)
     .bind(provenance)
     .bind(created_by)
-    .fetch_one(pool)
+    .fetch_one(executor)
     .await?;
     Ok(id)
 }
@@ -175,12 +179,12 @@ pub async fn get_authored_entity(
 /// how many rows it cleared, keeping "deleted 12" distinguishable from
 /// "deleted 0" in the logs (Rule 1: distinct states, distinct observables).
 pub async fn delete_authored_entities_for_case(
-    pool: &PgPool,
+    executor: impl sqlx::PgExecutor<'_>,
     case_slug: &str,
 ) -> Result<u64, PipelineRepoError> {
     let result = sqlx::query("DELETE FROM authored_entities WHERE case_slug = $1")
         .bind(case_slug)
-        .execute(pool)
+        .execute(executor)
         .await?;
     Ok(result.rows_affected())
 }
@@ -204,7 +208,7 @@ pub async fn delete_authored_entities_for_case(
 /// in [`super::document_records::insert_document`].
 #[allow(clippy::too_many_arguments)]
 pub async fn upsert_authored_relationship(
-    pool: &PgPool,
+    executor: impl sqlx::PgExecutor<'_>,
     case_slug: &str,
     from_entity_id: &str,
     to_entity_id: &str,
@@ -232,7 +236,7 @@ pub async fn upsert_authored_relationship(
     .bind(properties)
     .bind(provenance)
     .bind(created_by)
-    .fetch_one(pool)
+    .fetch_one(executor)
     .await?;
     Ok(id)
 }
@@ -263,7 +267,7 @@ pub async fn list_authored_relationships(
 /// of rows removed. Used when rebuilding one mapping layer (e.g. re-running
 /// Element mapping wipes only `PROVES_ELEMENT`, not `HAS_ELEMENT`).
 pub async fn delete_authored_relationships_by_type(
-    pool: &PgPool,
+    executor: impl sqlx::PgExecutor<'_>,
     case_slug: &str,
     relationship_type: &str,
 ) -> Result<u64, PipelineRepoError> {
@@ -272,7 +276,7 @@ pub async fn delete_authored_relationships_by_type(
     )
     .bind(case_slug)
     .bind(relationship_type)
-    .execute(pool)
+    .execute(executor)
     .await?;
     Ok(result.rows_affected())
 }

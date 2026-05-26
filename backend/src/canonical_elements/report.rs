@@ -5,6 +5,7 @@
 //! the `[DRY-RUN] ` line prefix and the trailing "no changes written" note —
 //! so an operator sees identical numbers whether previewing or applying.
 
+use super::authored::AuthoredCounts;
 use super::plan::{CountPlan, LoadPlan, NodePlan, Tally};
 use super::schema::DeclarationDef;
 use chrono::Utc;
@@ -17,18 +18,29 @@ pub struct ChangeReport {
     dry_run: bool,
     no_color: bool,
     generated_at: String,
+    /// Tier-1 Postgres write counts. `None` when the loader ran Neo4j-only
+    /// (no `--database-url`/`--case-slug`); `Some` reflects the rows
+    /// written (or, in dry-run, the rows that would be written).
+    authored: Option<AuthoredCounts>,
 }
 
 impl ChangeReport {
     /// Build a report for an already-computed plan. `dry_run` only affects
     /// presentation here; the loader is responsible for actually skipping
-    /// writes.
-    pub fn new(plan: LoadPlan, dry_run: bool, no_color: bool) -> Self {
+    /// writes. `authored` is the Tier-1 Postgres count (or `None` when
+    /// Postgres was not configured).
+    pub fn new(
+        plan: LoadPlan,
+        dry_run: bool,
+        no_color: bool,
+        authored: Option<AuthoredCounts>,
+    ) -> Self {
         Self {
             plan,
             dry_run,
             no_color,
             generated_at: Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+            authored,
         }
     }
 
@@ -198,6 +210,13 @@ impl ChangeReport {
                 f,
                 "{p}  (unattributed orphans: {} Elements, {} PROVES_ELEMENT edges)",
                 self.plan.unattributed_orphan_elements, self.plan.unattributed_orphan_proves_edges
+            )?;
+        }
+        if let Some(a) = &self.authored {
+            writeln!(
+                f,
+                "{p}  Authored (Postgres): {} entities upserted, {} HAS_ELEMENT relationships upserted",
+                a.entities, a.relationships
             )?;
         }
         Ok(())

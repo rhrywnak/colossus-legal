@@ -272,6 +272,22 @@ pub fn update_legal_count(
     .param("special_note", meta.special_note.clone())
 }
 
+/// Stamp the cross-tier `id` property on a `LegalCount` node.
+///
+/// Run unconditionally for every Count (not gated on the property diff) so
+/// the Neo4j node's `id` always equals `authored_entities.entity_id`
+/// (`count-{N}`). That shared string id is how the ingest step's MATCH
+/// connects Tier-1 (authored) ↔ Tier-2 (extracted) edges. The `LegalCount`
+/// node is created earlier by the case-structuring pipeline and keyed by
+/// `count_number`; this only adds the matching `id`, leaving the
+/// loader-managed property set (and `canonical_updated_at`) untouched so it
+/// doesn't disturb the content-hash idempotency.
+pub fn set_legal_count_id(count_number: u32, count_id: &str) -> Query {
+    query("MATCH (c:LegalCount {count_number: $count_number}) SET c.id = $count_id")
+        .param("count_number", count_number as i64)
+        .param("count_id", count_id)
+}
+
 // ---------------------------------------------------------------------------
 // Orphan wipes (DETACH DELETE anything not present in the YAML)
 // ---------------------------------------------------------------------------
