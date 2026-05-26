@@ -9,7 +9,6 @@
 use std::collections::HashSet;
 use std::error::Error;
 use std::path::Path;
-use std::time::Instant;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -469,28 +468,18 @@ pub async fn run_pass1_extraction(
     // 6. Choose an effective max_tokens.
     let max_tokens = resolve_max_tokens(&resolved);
 
-    // 7. Insert the extraction_runs row.
-    // F3 audit: pass `rules_name` and `rules_hash` from the resolved
-    // profile and the loaded fragment. Both columns existed since
-    // migration 20260410 but were always NULL until this fix —
-    // AUDIT_PIPELINE_CONFIG_GAPS.md Gap 5.
+    // 7. Insert the extraction_runs row. `rules_name` records which
+    //    global-rules file produced this run; the rules hash now lives
+    //    only in the processing_config JSONB snapshot (the dedicated
+    //    `rules_hash` column was dropped in migration 20260526133731).
     let run_id = extraction::insert_extraction_run(
         db,
         document_id,
         1,
         &resolved.model,
         &schema.version,
-        None,
         Some(resolved.template_file.as_str()),
-        Some(&template_hash),
         resolved.global_rules_file.as_deref(),
-        global_rules_hash.as_deref(),
-        None,
-        Some(&serde_json::to_value(&schema)?),
-        Some(resolved.temperature),
-        Some(max_tokens as i32),
-        pipe_config.admin_instructions.as_deref(),
-        None,
     )
     .await
     .map_err(|e| LlmExtractError::InsertRunFailed {
@@ -814,23 +803,6 @@ async fn run_full_document_extraction(
         }
     };
 
-    // Persist the assembled prompt on the run for debugging / audit. The
-    // insert_extraction_run call earlier stored NULL here because the
-    // prompt hadn't been built yet; do it now with an UPDATE. Failure is
-    // logged but not fatal — the extraction itself proceeds.
-    if let Err(e) = sqlx::query("UPDATE extraction_runs SET assembled_prompt = $1 WHERE id = $2")
-        .bind(&prompt)
-        .bind(args.run_id)
-        .execute(args.db)
-        .await
-    {
-        tracing::warn!(
-            run_id = args.run_id,
-            error = %e,
-            "Failed to store assembled_prompt (non-fatal)"
-        );
-    }
-
     let response = call_with_rate_limit_retry(
         args.llm_provider,
         args.system_prompt,
@@ -1046,9 +1018,8 @@ async fn extract_chunks_loop(
         // hitting Cancel stops the next chunk's API call instead of
         // burning all remaining chunks' tokens.
         //
-        // Placement: above `insert_extraction_chunk` so a cancelled
-        // run does not write a pending chunk row that would never
-        // get completed.
+        // Placement: at the top of the loop body so a cancelled run
+        // short-circuits before spending the next chunk's LLM call.
         if pipeline_repository::documents::is_cancelled(args.db, args.document_id).await? {
             tracing::info!(
                 document_id = %args.document_id,
@@ -1078,39 +1049,6 @@ async fn extract_chunks_loop(
             }
             .into());
         }
-
-        // ## Rust Learning: defensive `unwrap_or_else` on a guaranteed-OK call
-        //
-        // `serde_json::to_value` only fails when the input's `Serialize`
-        // impl emits something invalid (e.g., a non-string map key, a
-        // non-finite float). `HashMap<String, serde_json::Value>` cannot
-        // produce either — the keys are already `String`, the values are
-        // already `Value` — so this `to_value` call is structurally
-        // guaranteed to succeed today. We still pattern-match defensively
-        // so a future change to `TextChunk.metadata`'s value type can't
-        // silently drop the audit row's metadata field. The fallback
-        // emits a JSON empty-object so the JSONB column always receives
-        // a valid object value, never NULL or junk.
-        let chunk_metadata_json = serde_json::to_value(&chunk.metadata).unwrap_or_else(|e| {
-            tracing::warn!(
-                chunk_index = i,
-                error = %e,
-                "Failed to serialize chunk metadata (non-fatal, using empty object)"
-            );
-            serde_json::json!({})
-        });
-
-        let chunk_id = extraction::insert_extraction_chunk(
-            args.db,
-            args.run_id,
-            i as i32,
-            &chunk.text,
-            &chunk_metadata_json,
-        )
-        .await
-        .map_err(|e| format!("Failed to insert chunk record: {e}"))?;
-
-        let chunk_start = Instant::now();
 
         // Dual-aware placeholder substitution. Templates can carry either
         // `{{document_text}}` or `{{chunk_text}}`; failing to find one
@@ -1143,12 +1081,8 @@ async fn extract_chunks_loop(
         )
         .await;
 
-        let chunk_duration_ms = chunk_start.elapsed().as_millis() as i32;
-
         match llm_result {
             Ok(response) => {
-                let input_toks = response.input_tokens.map(|t| t as i32);
-                let output_toks = response.output_tokens.map(|t| t as i32);
                 total_input_tokens += response.input_tokens.unwrap_or(0) as i64;
                 total_output_tokens += response.output_tokens.unwrap_or(0) as i64;
 
@@ -1229,26 +1163,6 @@ async fn extract_chunks_loop(
                         chunk_results.push((i, entities_typed, relationships_typed));
 
                         chunks_succeeded += 1;
-                        if let Err(e) = extraction::complete_extraction_chunk(
-                            args.db,
-                            chunk_id,
-                            "success",
-                            Some(entity_count as i32),
-                            Some(rel_count as i32),
-                            input_toks,
-                            output_toks,
-                            Some(chunk_duration_ms),
-                            None,
-                        )
-                        .await
-                        {
-                            tracing::error!(
-                                run_id = args.run_id,
-                                chunk_id = %chunk_id,
-                                error = %e,
-                                "Failed to record successful chunk completion — audit data incomplete"
-                            );
-                        }
 
                         tracing::info!(
                             chunk = i,
@@ -1284,27 +1198,6 @@ async fn extract_chunks_loop(
                             error = %parse_err,
                             "Chunk parse failed after repair attempt"
                         );
-                        if let Err(e) = extraction::complete_extraction_chunk(
-                            args.db,
-                            chunk_id,
-                            "failed",
-                            None,
-                            None,
-                            input_toks,
-                            output_toks,
-                            Some(chunk_duration_ms),
-                            Some(&format!("Parse error: {parse_err}")),
-                        )
-                        .await
-                        {
-                            tracing::error!(
-                                run_id = args.run_id,
-                                chunk_id = %chunk_id,
-                                error = %e,
-                                "Failed to record failed (parse) chunk completion — audit data incomplete"
-                            );
-                        }
-
                         // best-effort: progress update — parse-fail arm.
                         let processed = chunks_succeeded + chunks_failed;
                         write_pass1_chunk_progress(
@@ -1322,27 +1215,6 @@ async fn extract_chunks_loop(
             Err(call_err) => {
                 chunks_failed += 1;
                 tracing::warn!(chunk = i, error = %call_err, "Chunk LLM call failed");
-                if let Err(e) = extraction::complete_extraction_chunk(
-                    args.db,
-                    chunk_id,
-                    "failed",
-                    None,
-                    None,
-                    None,
-                    None,
-                    Some(chunk_duration_ms),
-                    Some(&format!("{call_err}")),
-                )
-                .await
-                {
-                    tracing::error!(
-                        run_id = args.run_id,
-                        chunk_id = %chunk_id,
-                        error = %e,
-                        "Failed to record failed (LLM call) chunk completion — audit data incomplete"
-                    );
-                }
-
                 // best-effort: progress update — call-fail arm.
                 let processed = chunks_succeeded + chunks_failed;
                 write_pass1_chunk_progress(
@@ -1832,19 +1704,18 @@ pub(crate) async fn write_processing_config_snapshot(
 /// "Global rules" is a Markdown fragment (e.g. `global_rules_v4.md`) that
 /// every profile may share. Pass-1 and Pass-2 prompts substitute the
 /// fragment's content at the `{{global_rules}}` placeholder. The hash
-/// is recorded in `extraction_runs.rules_hash` and in the
-/// `processing_config` JSONB snapshot so two runs against different
-/// versions of the same rules file are distinguishable from the
-/// database alone (audit reproducibility — Gap 5 in
-/// AUDIT_PIPELINE_CONFIG_GAPS.md).
+/// is recorded in the `processing_config` JSONB snapshot so two runs
+/// against different versions of the same rules file are
+/// distinguishable from the database alone (audit reproducibility —
+/// Gap 5 in AUDIT_PIPELINE_CONFIG_GAPS.md).
 ///
 /// Three input cases survive into the audit log:
 ///
 /// * `file_name = None` — the profile didn't configure a rules file.
 ///   Returns `("".to_string(), None)`. The empty string makes the
-///   `{{global_rules}}` substitution vanish; the `None` hash makes
-///   `rules_hash` NULL in the DB so an auditor can tell "no file" from
-///   "empty file."
+///   `{{global_rules}}` substitution vanish; the `None` hash leaves
+///   `global_rules_hash` null in the `processing_config` snapshot so an
+///   auditor can tell "no file" from "empty file."
 ///
 /// * `file_name = Some(_)` and the file is empty (0 bytes) — the
 ///   operator deliberately neutralised the rules. Returns
@@ -1883,8 +1754,9 @@ pub(crate) fn load_global_rules(
 ) -> Result<(String, Option<String>), LlmExtractError> {
     let Some(name) = file_name else {
         // No rules file configured. The substitution gets the empty
-        // string; `rules_hash` stays NULL in the audit log so an
-        // auditor can tell "no file" from "empty file."
+        // string; the `None` hash leaves `global_rules_hash` null in the
+        // `processing_config` snapshot so an auditor can tell "no file"
+        // from "empty file."
         return Ok((String::new(), None));
     };
 

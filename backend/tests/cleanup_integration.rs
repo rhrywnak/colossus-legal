@@ -260,14 +260,6 @@ async fn seed_postgres(pool: &PgPool, doc_id: &str) -> TestResult<()> {
     .await?;
 
     sqlx::query(
-        "INSERT INTO extraction_chunks (extraction_run_id, chunk_index, chunk_text) \
-         VALUES ($1, 0, 'chunk text')",
-    )
-    .bind(run_id)
-    .execute(pool)
-    .await?;
-
-    sqlx::query(
         "INSERT INTO pipeline_config \
          (document_id, schema_file, created_by) \
          VALUES ($1, 'test.yaml', 'test-user')",
@@ -283,8 +275,6 @@ async fn count_postgres_for(pool: &PgPool, doc_id: &str) -> TestResult<i64> {
     let n: i64 = sqlx::query_scalar(
         "SELECT (SELECT COUNT(*) FROM extraction_relationships WHERE document_id = $1) \
               + (SELECT COUNT(*) FROM extraction_items WHERE document_id = $1) \
-              + (SELECT COUNT(*) FROM extraction_chunks \
-                 WHERE extraction_run_id IN (SELECT id FROM extraction_runs WHERE document_id = $1)) \
               + (SELECT COUNT(*) FROM extraction_runs WHERE document_id = $1) \
               + (SELECT COUNT(*) FROM document_text WHERE document_id = $1) \
               + (SELECT COUNT(*) FROM pipeline_config WHERE document_id = $1)",
@@ -354,7 +344,7 @@ async fn cleanup_postgres_clears_all_step_tables() -> TestResult<()> {
     let doc_id = unique_doc_id("pg");
 
     seed_postgres(&ctx.pipeline_pool, &doc_id).await?;
-    assert_eq!(count_postgres_for(&ctx.pipeline_pool, &doc_id).await?, 6);
+    assert_eq!(count_postgres_for(&ctx.pipeline_pool, &doc_id).await?, 5);
 
     let report = cleanup_postgres(&doc_id, &ctx.pipeline_pool).await?;
     let tables: Vec<&str> = report.tables_cleared.iter().map(|(t, _)| *t).collect();
@@ -363,14 +353,13 @@ async fn cleanup_postgres_clears_all_step_tables() -> TestResult<()> {
         vec![
             "extraction_relationships",
             "extraction_items",
-            "extraction_chunks",
             "extraction_runs",
             "document_text",
             "pipeline_config",
         ]
     );
     let total: u64 = report.tables_cleared.iter().map(|(_, n)| *n).sum();
-    assert_eq!(total, 6);
+    assert_eq!(total, 5);
     assert_eq!(count_postgres_for(&ctx.pipeline_pool, &doc_id).await?, 0);
 
     drop_documents_row(&ctx.pipeline_pool, &doc_id).await?;
@@ -392,7 +381,7 @@ async fn cleanup_all_success_path() -> TestResult<()> {
     assert_eq!(report.neo4j.nodes_by_source_document, 2);
     assert_eq!(report.neo4j.nodes_by_source_document_id, 1);
     assert_eq!(report.qdrant.vectors_deleted, 1);
-    assert_eq!(report.postgres.tables_cleared.len(), 6);
+    assert_eq!(report.postgres.tables_cleared.len(), 5);
 
     assert_eq!(count_neo4j_for(&ctx.graph, &doc_id).await?, 0);
     assert_eq!(

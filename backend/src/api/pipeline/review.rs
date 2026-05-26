@@ -661,17 +661,6 @@ pub async fn reprocess_handler(
             message: format!("Delete extraction_items: {e}"),
         })?;
 
-    sqlx::query(
-        "DELETE FROM extraction_chunks WHERE extraction_run_id IN \
-         (SELECT id FROM extraction_runs WHERE document_id = $1)",
-    )
-    .bind(&doc_id)
-    .execute(&mut *txn)
-    .await
-    .map_err(|e| AppError::Internal {
-        message: format!("Delete extraction_chunks: {e}"),
-    })?;
-
     sqlx::query("DELETE FROM extraction_runs WHERE document_id = $1")
         .bind(&doc_id)
         .execute(&mut *txn)

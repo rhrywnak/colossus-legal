@@ -34,7 +34,7 @@ use super::PipelineRepoError;
 ///    from this inconsistency.
 ///
 /// 2. The PostgreSQL transaction in delete.rs — correctly wrapped in a
-///    transaction, but was missing extraction_chunks entirely.
+///    transaction, but was missing a child-table delete entirely.
 ///
 /// Two divergent paths with different bugs is worse than one correct path.
 ///
@@ -62,13 +62,7 @@ use super::PipelineRepoError;
 ///
 ///   extraction_relationships  (references extraction_items AND extraction_runs)
 ///   → extraction_items        (references extraction_runs)
-///   → extraction_chunks       (references extraction_runs, CASCADE added by migration)
-///   → extraction_runs         (parent of items and chunks)
-///
-/// extraction_chunks now has ON DELETE CASCADE from the migration, so
-/// deleting extraction_runs would cascade to extraction_chunks automatically.
-/// We still delete extraction_chunks explicitly here for clarity and to
-/// ensure correct behavior even if the migration hasn't run yet.
+///   → extraction_runs         (parent of items)
 ///
 /// pipeline_steps rows for non-upload/extract_text steps are also cleared
 /// because they represent the execution history of extraction-related steps.
@@ -99,26 +93,14 @@ pub async fn delete_document_extraction_data(
         .execute(&mut *txn)
         .await?;
 
-    // Step 3: Delete chunk observability rows — they reference extraction_runs
-    // (extraction_run_id). The migration added ON DELETE CASCADE, but we delete
-    // explicitly to be safe and to make the ordering visible to the reader.
-    sqlx::query(
-        "DELETE FROM extraction_chunks \
-         WHERE extraction_run_id IN \
-         (SELECT id FROM extraction_runs WHERE document_id = $1)",
-    )
-    .bind(document_id)
-    .execute(&mut *txn)
-    .await?;
-
-    // Step 4: Delete the run record itself. All child rows are gone, so this
+    // Step 3: Delete the run record itself. All child rows are gone, so this
     // will not violate any FK constraints.
     sqlx::query("DELETE FROM extraction_runs WHERE document_id = $1")
         .bind(document_id)
         .execute(&mut *txn)
         .await?;
 
-    // Step 5: Delete pipeline step records for extraction-related steps only.
+    // Step 4: Delete pipeline step records for extraction-related steps only.
     // We keep 'upload' and 'extract_text' steps because they record permanent
     // facts about the document. All other steps (extract, verify, ingest, etc.)
     // are tied to the specific extraction run being cleared.
@@ -131,7 +113,7 @@ pub async fn delete_document_extraction_data(
     .execute(&mut *txn)
     .await?;
 
-    // Commit the transaction. All five DELETEs are now permanent.
+    // Commit the transaction. All four DELETEs are now permanent.
     // If we never reach this line (due to an error above), the transaction
     // is automatically rolled back when `txn` is dropped at end of scope.
     txn.commit().await?;
@@ -184,15 +166,6 @@ pub async fn delete_all_document_data(
         .bind(document_id)
         .execute(&mut *txn)
         .await?;
-
-    sqlx::query(
-        "DELETE FROM extraction_chunks \
-         WHERE extraction_run_id IN \
-         (SELECT id FROM extraction_runs WHERE document_id = $1)",
-    )
-    .bind(document_id)
-    .execute(&mut *txn)
-    .await?;
 
     sqlx::query("DELETE FROM extraction_runs WHERE document_id = $1")
         .bind(document_id)

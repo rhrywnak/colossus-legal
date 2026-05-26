@@ -35,7 +35,7 @@ use async_trait::async_trait;
 /// Wider than `colossus_extract::LlmResponse` — adds `request_id`
 /// (Rig surfaces the provider's request id for trace correlation) and
 /// `duration` (measured at the adapter boundary so callers record latency
-/// in `pipeline_events` without re-measuring).
+/// without re-measuring).
 ///
 /// Tokens widen from `u32` to `u64`. Large extraction runs that aggregate
 /// many chunk-level token counts can plausibly exceed `u32::MAX` (~4.3B);
@@ -46,7 +46,7 @@ use async_trait::async_trait;
 /// - `Debug` is required by the Rust API Guidelines for every public type
 ///   and enables `{:?}` formatting in error messages and `tracing` events.
 /// - `Clone` is added because callers commonly need to both record token
-///   counts (move them into a `pipeline_events` row) and parse the response
+///   counts (e.g. onto the extraction run) and parse the response
 ///   text (consume the `String`); cloning once at the boundary is simpler
 ///   than restructuring the call sites to thread ownership.
 #[derive(Debug, Clone)]
@@ -66,13 +66,13 @@ pub struct LlmCallResult {
     pub output_tokens: Option<u64>,
 
     /// Provider-supplied request id (Anthropic's `x-request-id` header,
-    /// OpenAI's `id` field). Used to correlate a `pipeline_events` row
+    /// OpenAI's `id` field). Used to correlate a log/trace event
     /// with the provider's own logs when a request goes wrong.
     pub request_id: Option<String>,
 
     /// Wall-clock duration of the call, measured at the adapter boundary
     /// (between sending the request and parsing the response). Recorded
-    /// in `pipeline_events` for latency observability.
+    /// for latency observability.
     pub duration: Duration,
 }
 
@@ -443,7 +443,7 @@ pub trait EmbeddingEngine: Send + Sync + 'static {
     /// Human-readable model name for logging and cost tracking.
     ///
     /// Returned value is stable across the engine's lifetime and is
-    /// suitable for grouping observations in `pipeline_events`.
+    /// suitable for grouping observations in logs and cost reports.
     /// Typical values: `"nomic-embed-text-v1.5"`,
     /// `"bge-small-en-v1.5"`, `"text-embedding-3-small"`.
     fn model_name(&self) -> &str;

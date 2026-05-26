@@ -35,8 +35,8 @@
 //! ## Observability seam
 //!
 //! `provider_name()` returns `"rig-anthropic"` (NOT `"anthropic"`).
-//! This is intentional: `pipeline_events` rows written by the bridge
-//! carry a different `provider_name` than the legacy
+//! This is intentional: log/trace events emitted by the bridge carry a
+//! different `provider_name` than the legacy
 //! `colossus_extract::AnthropicProvider` did, so log aggregators and
 //! cost dashboards can tell pre-migration from post-migration data
 //! apart for the duration of the rollout window.
@@ -65,8 +65,8 @@ const DEFAULT_RATE_LIMIT_RETRY_SECS: u64 = 60;
 
 /// Provider name returned by [`LlmProvider::provider_name`].
 ///
-/// CONST: operator-visible identifier written to `pipeline_events`
-/// rows. Deliberately `"rig-anthropic"` (NOT `"anthropic"`) so log
+/// CONST: operator-visible identifier emitted on log/trace events.
+/// Deliberately `"rig-anthropic"` (NOT `"anthropic"`) so log
 /// aggregators and cost reports can tell pre-migration (legacy
 /// `colossus_extract::AnthropicProvider`, recorded as `"anthropic"`)
 /// from post-migration (this bridge → `RigExtractionEngine`, recorded

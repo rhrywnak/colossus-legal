@@ -567,7 +567,6 @@ async fn build_rag_pipeline(
         .max_context_tokens(6000)
         .search_limit(10);
 
-    // TODO(Phase2): LlmDecomposer reconstructed from rag_config DB table
     // TODO(Phase2): build_rag_pipeline() rewritten to use Arc<dyn LlmProvider>
 
     match builder.build() {

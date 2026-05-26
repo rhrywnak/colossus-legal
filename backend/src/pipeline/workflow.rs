@@ -25,14 +25,13 @@
 //! ## Why chunking is NOT a separate step
 //!
 //! In the prior draft of this design chunking lived between extract
-//! and pass-1. The schema makes that awkward — `extraction_chunks`
-//! rows carry an `extraction_run_id` FK and are pass-scoped (pass 1
-//! chunks vs pass 2 chunks live under different `extraction_runs`
-//! rows). Splitting "chunk" into its own pre-extraction step would
-//! force one of: (a) create a placeholder run row up-front, (b)
-//! introduce a pass-agnostic chunks table, or (c) recompute chunks
-//! inside pass-1 anyway. All three are worse than just keeping the
-//! chunk split where it already is — inside `llm_extract_pass1` /
+//! and pass-1. That is awkward because chunking is pass-scoped (pass-1
+//! and pass-2 split the document differently) and produces no
+//! independently-persisted artifact — the chunk split is an
+//! implementation detail of each pass's LLM loop, not a durable stage.
+//! Splitting "chunk" into its own pre-extraction step would force
+//! recomputing the split inside pass-1 anyway, which is worse than
+//! keeping it where it already is — inside `llm_extract_pass1` /
 //! `llm_extract_pass2`. The workflow is 8 steps, not 9.
 //!
 //! ## What gets journaled (replay semantics)
@@ -386,9 +385,10 @@ impl DocumentPipeline for DocumentPipelineImpl {
             // ── Step 2: llm_extract_pass1 (REAL — includes chunking) ──
             //
             // Chunking lives inside this step rather than as its own step
-            // because `extraction_chunks` rows carry an `extraction_run_id`
-            // FK and are pass-scoped (see the module-level doc above for
-            // why a separate chunk step is awkward).
+            // because chunks are pass-scoped (pass-1 and pass-2 split
+            // differently) and produce no independently-persisted artifact
+            // (see the module-level doc above for why a separate chunk step
+            // is awkward).
             failed_step = STEP_LLM_EXTRACT_PASS1;
             let app = Arc::clone(&self.ctx);
             let did = doc_id.clone();

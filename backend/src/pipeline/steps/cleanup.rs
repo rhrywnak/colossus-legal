@@ -266,9 +266,7 @@ pub async fn cleanup_qdrant(
 // cleanup_postgres
 // ─────────────────────────────────────────────────────────────────────────
 
-/// PostgreSQL delete order. Listed FK-safe: children before parents. The
-/// `extraction_chunks` subquery resolves through `extraction_runs`, which
-/// the next entry then clears.
+/// PostgreSQL delete order. Listed FK-safe: children before parents.
 ///
 /// `pipeline_steps` and `document_audit_log` are intentionally omitted —
 /// the former is framework-owned (colossus-pipeline), the latter must
@@ -277,7 +275,6 @@ pub async fn cleanup_qdrant(
 const POSTGRES_DELETE_ORDER: &[(&str, &str)] = &[
     ("extraction_relationships", "DELETE FROM extraction_relationships WHERE document_id = $1"),
     ("extraction_items",          "DELETE FROM extraction_items WHERE document_id = $1"),
-    ("extraction_chunks",         "DELETE FROM extraction_chunks WHERE extraction_run_id IN (SELECT id FROM extraction_runs WHERE document_id = $1)"),
     ("extraction_runs",           "DELETE FROM extraction_runs WHERE document_id = $1"),
     ("document_text",             "DELETE FROM document_text WHERE document_id = $1"),
     ("pipeline_config",           "DELETE FROM pipeline_config WHERE document_id = $1"),

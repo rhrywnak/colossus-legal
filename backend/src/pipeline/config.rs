@@ -381,8 +381,8 @@ impl ProcessingProfile {
 ///
 /// * `document_id` — `documents.id` of the source document.
 /// * `prefixed_id` — the `ctx:`-prefixed id used in the Pass-2 prompt's
-///   `entities_json` (so an auditor can string-match against the
-///   `assembled_prompt` column).
+///   `entities_json` (so an auditor can string-match it within the
+///   Pass-2 prompt).
 /// * `item_id` — `extraction_items.id` for direct DB join.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CrossDocContextRecord {
@@ -497,11 +497,10 @@ pub struct ResolvedConfig {
 
     /// Pass-2 only. List of `(document_id, prefixed_id, item_id)`
     /// triples for every cross-document entity that ended up in the
-    /// Pass-2 prompt's `entities_json`. Empty on Pass-1 rows. The same
-    /// data is also written to `extraction_runs.prior_context` as a
-    /// JSON string for full reproducibility — duplicated deliberately
-    /// so a JSONB-only audit query does not need to parse the TEXT
-    /// column.
+    /// Pass-2 prompt's `entities_json`. Empty on Pass-1 rows. This JSONB
+    /// snapshot is the sole reproducibility record of the cross-doc set —
+    /// the former `extraction_runs.prior_context` TEXT column that used to
+    /// duplicate it was dropped in migration 20260526133731.
     ///
     /// `#[serde(default)]` so old Pass-1 snapshots that predate this
     /// field deserialize cleanly (default = empty vec, which is also

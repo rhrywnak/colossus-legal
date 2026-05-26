@@ -420,11 +420,10 @@ pub async fn run_pass2_extraction(
 
     // 8b. Load the global-rules fragment (if the profile names one) and
     //     compute its SHA-256. The Pass-2 prompt substitutes the content
-    //     at `{{global_rules}}`, mirroring Pass-1. The hash lands in
-    //     `extraction_runs.rules_hash` and `processing_config` JSONB so
-    //     two Pass-2 runs against different rules versions are
-    //     distinguishable from the database alone (Gap 5 in
-    //     AUDIT_PIPELINE_CONFIG_GAPS.md, fixed by this commit).
+    //     at `{{global_rules}}`, mirroring Pass-1. The hash lands in the
+    //     `processing_config` JSONB snapshot so two Pass-2 runs against
+    //     different rules versions are distinguishable from the database
+    //     alone (Gap 5 in AUDIT_PIPELINE_CONFIG_GAPS.md).
     let (global_rules_text, global_rules_hash) = load_global_rules(
         Path::new(context.registry.template_dir()),
         resolved.global_rules_file.as_deref(),
@@ -452,9 +451,9 @@ pub async fn run_pass2_extraction(
     // logs). Emitting `debug` (not `info`) so the line is opt-in for
     // diagnosis runs and does not bloat the steady-state log volume.
     // The reproducibility-grade record of which entities were actually
-    // injected still lives in `extraction_runs.prior_context` JSONB
-    // (built immediately below); this log is the *operator-facing*
-    // confirmation that the broadened whitelist is participating.
+    // injected still lands in the `processing_config` JSONB snapshot
+    // (built below); this log is the *operator-facing* confirmation
+    // that the broadened whitelist is participating.
     if tracing::enabled!(tracing::Level::DEBUG) {
         use std::collections::BTreeMap;
         let mut by_type: BTreeMap<&str, usize> = BTreeMap::new();
@@ -480,8 +479,8 @@ pub async fn run_pass2_extraction(
     //     `cross_doc_entities` IS the prompt input set.
     //
     // Two parallel structures:
-    //   - `cross_doc_records`: full triples written into JSONB and into
-    //     the `prior_context` TEXT column (full reproducibility).
+    //   - `cross_doc_records`: full triples written into the
+    //     `processing_config` JSONB snapshot (full reproducibility).
     //   - `pass2_source_document_ids`: sorted unique list of contributing
     //     document_ids (cheap "which prior runs informed this Pass-2"
     //     queries without parsing the full triple list).
@@ -499,34 +498,6 @@ pub async fn run_pass2_extraction(
         .collect();
     pass2_source_document_ids.sort();
     pass2_source_document_ids.dedup();
-
-    // Compact JSON encoding for the `extraction_runs.prior_context` TEXT
-    // column. `serde_json::to_string` (not `to_string_pretty`) — saves
-    // bytes on large cross-doc sets and the column is opaque to humans
-    // anyway (the JSONB sub-field is the queryable copy).
-    // Empty cross-doc set → `None` so the column stays NULL rather than
-    // storing the literal string `"[]"` (a NULL is the unambiguous
-    // "nothing to record" signal in the audit log).
-    let prior_context_json: Option<String> = if cross_doc_records.is_empty() {
-        None
-    } else {
-        match serde_json::to_string(&cross_doc_records) {
-            Ok(s) => Some(s),
-            Err(e) => {
-                // Serialisation failure on a Vec<CrossDocContextRecord>
-                // would mean a serde-derive bug — none of the fields can
-                // produce a non-finite float or a non-string map key.
-                // Log + degrade to NULL rather than abort; the snapshot
-                // JSONB still carries the structured copy if it succeeds.
-                tracing::warn!(
-                    document_id,
-                    error = %e,
-                    "Failed to serialize prior_context (non-fatal — JSONB sub-field still written)"
-                );
-                None
-            }
-        }
-    };
 
     // 9b. Render entities for the prompt and build the LLM-id → item_id map.
     //     Local entities come first so the LLM's attention order favors
@@ -580,8 +551,9 @@ pub async fn run_pass2_extraction(
     //     reset_extraction_run_children then wipes children of just this
     //     run_id — pass-1's children on the separate pass-1 run are
     //     untouched.
-    // The assembled prompt is passed in directly (pass 1 has to UPDATE
-    // it afterward only because it builds per-chunk prompts post-insert).
+    // F3 names (template + rules) are recorded for reproducibility; the
+    // bytes-exact prompt, hashes, and prior-context live in the
+    // `processing_config` JSONB snapshot written after the run completes.
     let run_id = extraction::insert_extraction_run(
         db,
         document_id,
@@ -591,23 +563,8 @@ pub async fn run_pass2_extraction(
         // vLLM request that produced this run's output.
         &pass2_model_id,
         &schema.version,
-        Some(&prompt),
         Some(pass2_template_file.as_str()),
-        Some(&template_hash),
-        // F3 audit: rules_name + rules_hash. Previously NULL; populated
-        // here so a Pass-2 run is reproducible from the DB alone (Gap 5
-        // in AUDIT_PIPELINE_CONFIG_GAPS.md).
         resolved.global_rules_file.as_deref(),
-        global_rules_hash.as_deref(),
-        None,
-        Some(&serde_json::to_value(&schema)?),
-        Some(resolved.temperature),
-        Some(max_tokens as i32),
-        pipe_config.admin_instructions.as_deref(),
-        // F3 audit: prior_context is the JSON-encoded list of cross-doc
-        // entities actually injected into the Pass-2 prompt. Previously
-        // always NULL. AUDIT_PIPELINE_CONFIG_GAPS.md Gap 3.
-        prior_context_json.as_deref(),
     )
     .await
     .map_err(|e| LlmExtractError::InsertRunFailed {
@@ -680,9 +637,9 @@ pub async fn run_pass2_extraction(
     // Pass-2 snapshot: effective_pass = 2 triggers the snapshot helper
     // to overwrite `model` / `template_file` with their Pass-2 values
     // (Gap 11 in AUDIT_PIPELINE_CONFIG_GAPS.md). Cross-doc records and
-    // the source-doc list are captured here too — same data also lives
-    // in `extraction_runs.prior_context` as a TEXT JSON for the bytes-
-    // exact reproducibility column.
+    // the source-doc list are captured here too — this JSONB snapshot is
+    // their sole reproducibility record (the former
+    // `extraction_runs.prior_context` TEXT column was dropped).
     write_processing_config_snapshot(
         db,
         run_id,

@@ -2,8 +2,8 @@
 //!
 //! Owns the lifecycle of `extraction_runs` rows (upsert at start,
 //! mark complete, list, and read the latest COMPLETED pass-1) plus
-//! the per-chunk progress table (`extraction_chunks`) and the
-//! graph-status writeback on `extraction_items` after Ingest.
+//! the aggregate per-run chunk statistics and the graph-status
+//! writeback on `extraction_items` after Ingest.
 //!
 //! Siblings:
 //! - [`super::extraction_items`] — item-level CRUD that this module's
@@ -49,53 +49,46 @@ pub struct ExtractionRunRecord {
 /// On conflict we reset every INSERT-time column so the reused row
 /// represents the *current* attempt, preserving the synthetic id so
 /// downstream callers (`store_entities_and_relationships`,
-/// `complete_extraction_run`, chunk bookkeeping) keep working unchanged.
+/// `complete_extraction_run`) keep working unchanged.
 /// Children of the reused run are wiped separately by
 /// [`reset_extraction_run_children`] — call it after this function in
-/// the step so the slate is clean before new items / chunks get
-/// inserted.
+/// the step so the slate is clean before new items get inserted.
 ///
 /// ## F3 Reproducibility
 ///
-/// The F3 parameters capture everything needed to reproduce an
-/// extraction: the assembled prompt, template/rules file hashes, the
-/// schema content, and model parameters. All are optional so older code
-/// paths still compile.
-#[allow(clippy::too_many_arguments)]
+/// `template_name` and `rules_name` record which template and global-rules
+/// file produced the run. The other F3 fields that used to live on this
+/// table (assembled prompt, file hashes, schema content, temperature,
+/// max-tokens, admin instructions, prior context) were dropped in migration
+/// `20260526133731_drop_dead_schema_surfaces.sql`: they were written here
+/// but never read by any query. The queryable reproducibility copy is the
+/// `processing_config` JSONB snapshot written by
+/// `write_processing_config_snapshot`, which the quality report reads.
+/// Both names are optional so a run with no configured rules file still
+/// inserts cleanly.
 pub async fn insert_extraction_run(
     pool: &PgPool,
     document_id: &str,
     pass_number: i32,
     model_name: &str,
     schema_version: &str,
-    // F3 reproducibility fields:
-    assembled_prompt: Option<&str>,
+    // Retained F3 names; the hashes / prompt / schema content / model params
+    // they used to sit beside were dropped (see the doc comment above).
     template_name: Option<&str>,
-    template_hash: Option<&str>,
     rules_name: Option<&str>,
-    rules_hash: Option<&str>,
-    schema_hash: Option<&str>,
-    schema_content: Option<&serde_json::Value>,
-    temperature: Option<f64>,
-    max_tokens_requested: Option<i32>,
-    admin_instructions: Option<&str>,
-    prior_context: Option<&str>,
 ) -> Result<i32, PipelineRepoError> {
     let row = sqlx::query_scalar::<_, i32>(
         r#"INSERT INTO extraction_runs (
                document_id, pass_number, model_name, schema_version,
                started_at, raw_output, status,
-               assembled_prompt, template_name, template_hash,
-               rules_name, rules_hash, schema_hash, schema_content,
-               temperature, max_tokens_requested,
-               admin_instructions, prior_context
+               template_name, rules_name
            ) VALUES (
-               $1, $2, $3, $4, NOW(), '{}'::jsonb, $16,
-               $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
+               $1, $2, $3, $4, NOW(), '{}'::jsonb, $7,
+               $5, $6
            )
            ON CONFLICT ON CONSTRAINT extraction_runs_doc_pass_unique DO UPDATE SET
                -- Identify the new attempt: reset lifecycle columns.
-               status = $16,
+               status = $7,
                started_at = NOW(),
                completed_at = NULL,
                raw_output = '{}'::jsonb,
@@ -105,24 +98,13 @@ pub async fn insert_extraction_run(
                -- Overwrite current-attempt metadata with the new values.
                model_name = EXCLUDED.model_name,
                schema_version = EXCLUDED.schema_version,
-               assembled_prompt = EXCLUDED.assembled_prompt,
                template_name = EXCLUDED.template_name,
-               template_hash = EXCLUDED.template_hash,
                rules_name = EXCLUDED.rules_name,
-               rules_hash = EXCLUDED.rules_hash,
-               schema_hash = EXCLUDED.schema_hash,
-               schema_content = EXCLUDED.schema_content,
-               temperature = EXCLUDED.temperature,
-               max_tokens_requested = EXCLUDED.max_tokens_requested,
-               admin_instructions = EXCLUDED.admin_instructions,
-               prior_context = EXCLUDED.prior_context,
                -- Chunk stats / config snapshot get filled in later in
                -- the step; clear any stale values from the prior attempt.
                chunk_count = NULL,
                chunks_succeeded = NULL,
                chunks_failed = NULL,
-               chunks_pruned_nodes = NULL,
-               chunks_pruned_relationships = NULL,
                processing_config = NULL
            RETURNING id"#,
     )
@@ -130,17 +112,8 @@ pub async fn insert_extraction_run(
     .bind(pass_number)
     .bind(model_name)
     .bind(schema_version)
-    .bind(assembled_prompt)
     .bind(template_name)
-    .bind(template_hash)
     .bind(rules_name)
-    .bind(rules_hash)
-    .bind(schema_hash)
-    .bind(schema_content)
-    .bind(temperature)
-    .bind(max_tokens_requested)
-    .bind(admin_instructions)
-    .bind(prior_context)
     .bind(RUN_STATUS_RUNNING)
     .fetch_one(pool)
     .await?;
@@ -153,14 +126,13 @@ pub async fn insert_extraction_run(
 ///
 /// Must be called after [`insert_extraction_run`] in the step path to
 /// make re-running LlmExtract truly self-idempotent (R5). Without this,
-/// items / relationships / chunks from a prior failed attempt would
-/// coexist with rows from the current attempt under the same run_id.
+/// items / relationships from a prior failed attempt would coexist with
+/// rows from the current attempt under the same run_id.
 ///
 /// Runs in a transaction so a partial delete doesn't leave orphans
 /// behind. FK-safe order:
 ///   review_edit_history -> extraction_relationships
 ///                       -> extraction_items
-///                       -> extraction_chunks
 pub async fn reset_extraction_run_children(
     pool: &PgPool,
     run_id: i32,
@@ -181,11 +153,6 @@ pub async fn reset_extraction_run_children(
         .await?;
 
     sqlx::query("DELETE FROM extraction_items WHERE run_id = $1")
-        .bind(run_id)
-        .execute(&mut *txn)
-        .await?;
-
-    sqlx::query("DELETE FROM extraction_chunks WHERE extraction_run_id = $1")
         .bind(run_id)
         .execute(&mut *txn)
         .await?;
@@ -301,78 +268,12 @@ pub async fn update_graph_status_for_run(
     Ok((written, flagged))
 }
 
-// ── Per-chunk extraction tracking (extraction_chunks) ───────────
-
-/// Insert a pending extraction chunk record. Returns the chunk UUID.
-///
-/// Called at the start of each chunk's processing. Status starts as 'pending'
-/// and is updated to 'success' or 'failed' by `complete_extraction_chunk`.
-///
-/// `chunk_metadata` is the splitter's per-chunk metadata map (atomic-unit
-/// range, identifiers, preamble flags, fallback reason, boundary pattern,
-/// etc.) serialised as JSONB. Written once at insert because the value is
-/// immutable for the chunk's lifetime — it describes the chunk's structural
-/// origin, not its extraction outcome. FixedSizeSplitter currently emits
-/// `{}`; the StructureAwareSplitter populates it.
-pub async fn insert_extraction_chunk(
-    pool: &PgPool,
-    run_id: i32,
-    chunk_index: i32,
-    chunk_text: &str,
-    chunk_metadata: &serde_json::Value,
-) -> Result<uuid::Uuid, PipelineRepoError> {
-    let id = uuid::Uuid::new_v4();
-    sqlx::query(
-        r#"INSERT INTO extraction_chunks
-           (id, extraction_run_id, chunk_index, chunk_text, chunk_metadata,
-            status, created_at)
-           VALUES ($1, $2, $3, $4, $5, 'pending', NOW())"#,
-    )
-    .bind(id)
-    .bind(run_id)
-    .bind(chunk_index)
-    .bind(chunk_text)
-    .bind(chunk_metadata)
-    .execute(pool)
-    .await?;
-    Ok(id)
-}
-
-/// Update an extraction chunk with its result.
-///
-/// Called after each chunk completes (success or failure). Sets final status,
-/// entity/relationship counts, token usage, duration, and error message.
-#[allow(clippy::too_many_arguments)]
-pub async fn complete_extraction_chunk(
-    pool: &PgPool,
-    chunk_id: uuid::Uuid,
-    status: &str,
-    node_count: Option<i32>,
-    relationship_count: Option<i32>,
-    input_tokens: Option<i32>,
-    output_tokens: Option<i32>,
-    duration_ms: Option<i32>,
-    error_message: Option<&str>,
-) -> Result<(), PipelineRepoError> {
-    sqlx::query(
-        r#"UPDATE extraction_chunks
-           SET status = $1, node_count = $2, relationship_count = $3,
-               input_tokens = $4, output_tokens = $5,
-               duration_ms = $6, error_message = $7
-           WHERE id = $8"#,
-    )
-    .bind(status)
-    .bind(node_count)
-    .bind(relationship_count)
-    .bind(input_tokens)
-    .bind(output_tokens)
-    .bind(duration_ms)
-    .bind(error_message)
-    .bind(chunk_id)
-    .execute(pool)
-    .await?;
-    Ok(())
-}
+// ── Per-run chunk statistics (extraction_runs.chunk_count, …) ───
+//
+// Per-chunk observability rows (the old `extraction_chunks` table) were
+// dropped in migration 20260526133731 — they were written but never read.
+// The aggregate chunk counts below live on `extraction_runs` and ARE read
+// (the documents list/detail SELECT surfaces them in the UI).
 
 /// Update the chunk statistics on an extraction run after all chunks complete.
 ///

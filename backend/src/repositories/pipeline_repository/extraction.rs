@@ -15,9 +15,9 @@
 //! well over the project's 300-line module budget — and mixed four
 //! distinct concerns whose evolution paths rarely overlap:
 //!
-//! - [`extraction_runs`] — `extraction_runs` row lifecycle plus
-//!   per-chunk progress (`extraction_chunks`) and the graph-status
-//!   writeback called by Ingest.
+//! - [`extraction_runs`] — `extraction_runs` row lifecycle plus the
+//!   aggregate per-run chunk statistics and the graph-status writeback
+//!   called by Ingest.
 //! - [`extraction_items`] — `extraction_items` CRUD and the grounding-
 //!   based selection queries Auto-Ingest reads.
 //! - [`extraction_items_pass1`] — pass-1 entity loading + the prompt-
@@ -57,8 +57,7 @@ pub use super::extraction_relationships::{
     store_pass2_relationships, ExtractionRelationshipRecord,
 };
 pub use super::extraction_runs::{
-    complete_extraction_chunk, complete_extraction_run, get_extraction_runs,
-    get_latest_completed_run, insert_extraction_chunk, insert_extraction_run,
+    complete_extraction_run, get_extraction_runs, get_latest_completed_run, insert_extraction_run,
     reset_extraction_run_children, update_graph_status_for_run, update_run_chunk_stats,
     ExtractionRunRecord,
 };
