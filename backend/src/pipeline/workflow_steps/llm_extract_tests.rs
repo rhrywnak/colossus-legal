@@ -427,11 +427,12 @@ fn build_pass1_result_summary_passes_concrete_values_through() {
 }
 
 #[test]
-fn build_pass2_result_summary_emits_pass_literal_2_and_9_keys() {
+fn build_pass2_result_summary_emits_pass_literal_2_and_10_keys() {
     let result = crate::pipeline::steps::llm_extract_pass2::Pass2ExtractionResult {
         relationship_count: 14,
         local_entities: 8,
         cross_doc_entities: 2,
+        authored_context_entities: 5,
         input_tokens: 2_100,
         output_tokens: 450,
         profile: Some("complaint".to_string()),
@@ -451,6 +452,7 @@ fn build_pass2_result_summary_emits_pass_literal_2_and_9_keys() {
     assert_eq!(summary["relationship_count"], serde_json::json!(14));
     assert_eq!(summary["local_entities"], serde_json::json!(8));
     assert_eq!(summary["cross_doc_entities"], serde_json::json!(2));
+    assert_eq!(summary["authored_context_entities"], serde_json::json!(5));
     assert_eq!(
         summary["pass2_template_file"],
         serde_json::json!("pass2_complaint.md")
@@ -458,7 +460,7 @@ fn build_pass2_result_summary_emits_pass_literal_2_and_9_keys() {
     let obj = summary
         .as_object()
         .expect("result_summary must be a JSON object");
-    assert_eq!(obj.len(), 9);
+    assert_eq!(obj.len(), 10);
 }
 
 #[test]

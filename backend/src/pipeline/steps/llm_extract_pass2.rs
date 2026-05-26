@@ -114,6 +114,7 @@ impl Step<DocProcessing> for LlmExtractPass2 {
             "relationship_count": result.relationship_count,
             "local_entities": result.local_entities,
             "cross_doc_entities": result.cross_doc_entities,
+            "authored_context_entities": result.authored_context_entities,
             "input_tokens": result.input_tokens,
             "output_tokens": result.output_tokens,
             "profile": result.profile,
@@ -165,9 +166,10 @@ impl Step<DocProcessing> for LlmExtractPass2 {
 ///   and detects the already-complete short-circuit via the
 ///   `skipped_already_complete` flag.
 /// - The legacy [`LlmExtractPass2::execute`] thin wrapper — re-emits
-///   the full 9-key audit JSON via `progress.set_step_result(...)`
-///   so `pipeline_steps.result_summary` stays byte-identical to the
-///   pre-refactor shape.
+///   the audit JSON via `progress.set_step_result(...)` into
+///   `pipeline_steps.result_summary`. The key set is additive over the
+///   pre-refactor shape (the `authored_context_entities` count was added
+///   when authored Tier-1 context was introduced).
 ///
 /// ## Field types
 ///
@@ -190,6 +192,13 @@ pub struct Pass2ExtractionResult {
     /// Number of cross-document entities pulled into pass-2 context.
     /// Zero on the short-circuit path.
     pub cross_doc_entities: usize,
+    /// Number of authored (Tier-1) entities injected into pass-2 context
+    /// (canonical Elements / LegalCounts). Zero when `CASE_SLUG` is unset
+    /// and on the short-circuit path. Recorded so the audit log reflects
+    /// the *full* prompt context, not just the extracted cross-doc share —
+    /// "CASE_SLUG set, 12 authored injected" stays distinguishable from
+    /// "unset, 0 injected" from the DB alone.
+    pub authored_context_entities: usize,
     /// Sum of input tokens from the single pass-2 LLM call. Zero on
     /// the short-circuit path. `i64` (rather than `usize`) so the
     /// value matches the `extraction_runs.input_tokens` DB column
@@ -470,6 +479,43 @@ pub async fn run_pass2_extraction(
         }
     }
 
+    // 9a-quater. Authored Tier-1 entities (canonical Elements / LegalCounts)
+    //     for the configured case. Option B: these go into the PROMPT only —
+    //     NOT the id_map built below — so Pass 2 can SEE and reference them,
+    //     but a Pass-2 edge targeting one is gracefully skipped at storage
+    //     (`store_pass2_relationships` logs "unresolved endpoint") instead of
+    //     violating the `extraction_relationships → extraction_items` FK
+    //     (authored entities have no extraction_items row). Persisting those
+    //     edges is the ingest/mapping step's job (`authored_relationships`).
+    //
+    //     `CASE_SLUG` unset → `None` → authored context simply not loaded
+    //     (logged), a first-class "feature off" state, never a hardcoded
+    //     case slug (Standing Rule 2).
+    let authored_context_entities = match context.case_slug.as_deref() {
+        Some(case_slug) => {
+            let authored = extraction::load_authored_entities_for_context(
+                db,
+                case_slug,
+                extraction::CROSS_DOC_ENTITY_TYPES,
+            )
+            .await?;
+            tracing::info!(
+                document_id,
+                case_slug,
+                authored_entities = authored.len(),
+                "Pass 2: loaded authored (Tier-1) entities for prompt context"
+            );
+            authored
+        }
+        None => {
+            tracing::info!(
+                document_id,
+                "Pass 2: CASE_SLUG not configured — authored entity context disabled"
+            );
+            Vec::new()
+        }
+    };
+
     // 9a-bis. Reproducibility record of the cross-document entities that
     //     will be inlined into the Pass-2 prompt. Built BEFORE the prompt
     //     assembly so any future filtering between load and prompt-build
@@ -503,11 +549,19 @@ pub async fn run_pass2_extraction(
     //     Local entities come first so the LLM's attention order favors
     //     this document's own entities; cross-doc entities follow with a
     //     `source_document` field making their provenance explicit.
-    let mut entities_prompt: Vec<serde_json::Value> =
-        Vec::with_capacity(entities.len() + cross_doc_entities.len());
+    let mut entities_prompt: Vec<serde_json::Value> = Vec::with_capacity(
+        entities.len() + cross_doc_entities.len() + authored_context_entities.len(),
+    );
     entities_prompt.extend(entities.iter().map(Pass1Entity::to_prompt_value));
     entities_prompt.extend(
         cross_doc_entities
+            .iter()
+            .map(CrossDocEntity::to_prompt_value),
+    );
+    // Authored Tier-1 entities appended last — prompt-only (see 9a-quater);
+    // intentionally NOT added to `id_map` below.
+    entities_prompt.extend(
+        authored_context_entities
             .iter()
             .map(CrossDocEntity::to_prompt_value),
     );
@@ -671,6 +725,7 @@ pub async fn run_pass2_extraction(
         relationship_count: rel_count,
         local_entities: entities.len(),
         cross_doc_entities: cross_doc_entities.len(),
+        authored_context_entities: authored_context_entities.len(),
         input_tokens,
         output_tokens,
         profile: Some(resolved.profile_name.clone()),

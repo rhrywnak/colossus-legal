@@ -184,6 +184,7 @@ async fn run_serve(config: AppConfig, graph: neo4rs::Graph, http_client: reqwest
         http_client: http_client.clone(),
         document_storage_path: config.document_storage_path.clone(),
         registry: registry.clone(),
+        case_slug: config.case_slug.clone(),
     })
     .expect("Failed to build AppContext from env");
 

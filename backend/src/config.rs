@@ -97,6 +97,22 @@ pub struct AppConfig {
     /// fallback name here — case-specific data lives in configuration, never
     /// in code (Standing Rule 2).
     pub case_default_subject_name: Option<String>,
+
+    /// Case slug identifying which authored (Tier-1) entities the pipeline
+    /// works against, read from `CASE_SLUG`.
+    ///
+    /// Used by the Pass-2 cross-document context loader to scope
+    /// `authored_entities` (canonical Elements / LegalCounts) to this
+    /// matter — e.g. `awad_v_catholic_family_service`. The pipeline DB has
+    /// no document→case mapping, so the current case is a deployment
+    /// setting rather than something derivable from a `document_id`.
+    ///
+    /// `None` is a first-class state: when `CASE_SLUG` is unset, Pass 2
+    /// simply loads no authored context (logged, not silent) and behaves
+    /// exactly as before this feature. We deliberately do not hardcode a
+    /// fallback slug — case-specific data lives in configuration, never in
+    /// code (Standing Rule 2).
+    pub case_slug: Option<String>,
 }
 
 impl AppConfig {
@@ -212,6 +228,14 @@ impl AppConfig {
         // best-effort: env-var-unset → None is the documented success path here
         let case_default_subject_name = std::env::var("CASE_DEFAULT_SUBJECT_NAME").ok();
 
+        // CASE_SLUG — optional, same posture as CASE_DEFAULT_SUBJECT_NAME.
+        // `.ok()` maps "unset" → `None`, which the Pass-2 context loader
+        // treats as "no authored entity context configured; load none."
+        // No hardcoded fallback slug (case-specific data → config only,
+        // Standing Rule 2).
+        // best-effort: env-var-unset → None is the documented success path here
+        let case_slug = std::env::var("CASE_SLUG").ok();
+
         Ok(Self {
             neo4j_uri,
             neo4j_user,
@@ -235,6 +259,7 @@ impl AppConfig {
             restate_admin_url,
             restate_ingress_url,
             case_default_subject_name,
+            case_slug,
         })
     }
 }

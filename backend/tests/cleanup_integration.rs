@@ -129,6 +129,7 @@ async fn live_context() -> TestResult<colossus_legal_backend::pipeline::context:
             as Arc<dyn ExtractionEngine>,
         embedding_provider: Arc::new(PanicEmbedding) as Arc<dyn EmbeddingProvider>,
         llm_semaphore: Arc::new(Semaphore::new(1)),
+        case_slug: config.case_slug.clone(),
     })
 }
 

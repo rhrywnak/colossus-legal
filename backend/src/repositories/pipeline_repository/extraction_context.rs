@@ -20,6 +20,7 @@ use crate::models::document_status::{
     RUN_STATUS_COMPLETED, STATUS_PUBLISHED,
 };
 
+use super::authored_entities::AuthoredEntityRecord;
 use super::PipelineRepoError;
 
 // ── Constants ────────────────────────────────────────────────────
@@ -77,7 +78,12 @@ pub const CROSS_DOC_ID_PREFIX: &str = "ctx:";
 ///   may anchor cross-document relationships against them (e.g., a
 ///   discovery response that admits the factual basis for an `Element`
 ///   on the opposing party's complaint).
-const CROSS_DOC_ENTITY_TYPES: &[&str] = &[
+///
+/// `pub` so the Pass-2 step can pass this same whitelist to
+/// [`load_authored_entities_for_context`] — keeping a single source of
+/// truth for "which types participate in cross-document context" rather
+/// than duplicating the list at the call site (Standing Rule 2).
+pub const CROSS_DOC_ENTITY_TYPES: &[&str] = &[
     crate::models::document_status::ENTITY_PARTY,
     crate::models::document_status::ENTITY_PERSON,
     crate::models::document_status::ENTITY_ORGANIZATION,
@@ -278,6 +284,120 @@ pub async fn load_cross_document_context(
     Ok(rows.into_iter().map(CrossDocEntity::from_row).collect())
 }
 
+// ── Authored (Tier-1) entity context ─────────────────────────────
+
+/// Sentinel `source_document_id` for authored (Tier-1) entities. They
+/// have no originating document, so this fixed marker tells the Pass-2
+/// LLM the entity is canonical case knowledge rather than something
+/// extracted from a peer document.
+///
+/// ## CONST: prompt protocol token, not deployment config
+///
+/// This is a value the Pass-2 LLM reads as the provenance marker for
+/// canonical knowledge — part of the prompt contract, not an
+/// operator-tunable setting. Changing it would require simultaneously
+/// updating any prompt guidance that refers to canonical-library
+/// provenance, so an env/YAML toggle would be a false escape hatch (same
+/// reasoning as [`CROSS_DOC_ENTITY_TYPES`]). Frozen in code so a change
+/// travels with the prompt edits it implies.
+const AUTHORED_SOURCE_DOCUMENT_ID: &str = "canonical";
+
+/// Sentinel `source_document_type` for authored entities. Pairs with
+/// [`AUTHORED_SOURCE_DOCUMENT_ID`] in the prompt's `source_document_type`.
+///
+/// ## CONST: prompt protocol token, not deployment config
+///
+/// Same rationale as [`AUTHORED_SOURCE_DOCUMENT_ID`] — a prompt-contract
+/// value, not deployment configuration.
+const AUTHORED_SOURCE_DOCUMENT_TYPE: &str = "canonical_element_library";
+
+/// Convert an [`AuthoredEntityRecord`] (Tier 1) into a [`CrossDocEntity`]
+/// so authored Elements / LegalCounts render into the same
+/// `{{entities_json}}` prompt slot as extracted cross-doc entities.
+///
+/// ## Domain note: prompt id and the missing source document
+///
+/// Authored entities carry no source document or extraction run, so
+/// `source_document_id` / `source_document_type` are the sentinels above.
+/// The prompt id is taken from `item_data["id"]` when present; otherwise
+/// it falls back to the row's stable `entity_id` (the "inject entity_id as
+/// the id" rule). Either way [`CrossDocEntity::to_prompt_value`] emits
+/// `"ctx:<id>"` so Pass 2 can reference the entity.
+///
+/// `item_id` is the **negated** authored-row id. The caller does NOT add
+/// authored entities to the Pass-2 id_map (Option B — see
+/// [`load_authored_entities_for_context`]), so this value never resolves a
+/// relationship endpoint; negating it is defence-in-depth so it could
+/// never alias a real positive `extraction_items.id`.
+fn authored_record_to_cross_doc(record: &AuthoredEntityRecord) -> CrossDocEntity {
+    let original_id = record
+        .item_data
+        .get("id")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| record.entity_id.clone());
+    let label = record
+        .item_data
+        .get("label")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+    let properties = record
+        .item_data
+        .get("properties")
+        .cloned()
+        .unwrap_or_else(|| serde_json::Value::Object(Default::default()));
+    let prefixed_id = format!("{CROSS_DOC_ID_PREFIX}{original_id}");
+    CrossDocEntity {
+        item_id: -record.id,
+        original_id,
+        prefixed_id,
+        source_document_id: AUTHORED_SOURCE_DOCUMENT_ID.to_string(),
+        source_document_type: AUTHORED_SOURCE_DOCUMENT_TYPE.to_string(),
+        entity_type: record.entity_type.clone(),
+        label,
+        properties,
+    }
+}
+
+/// Load authored entities (Tier 1) for the Pass-2 cross-document context.
+///
+/// Reads `authored_entities` for `case_slug`, restricted to the same
+/// `entity_type_filter` whitelist the extracted-entity loader applies (the
+/// caller passes [`CROSS_DOC_ENTITY_TYPES`]), and converts each row via
+/// [`authored_record_to_cross_doc`]. An empty `Vec` is a valid result —
+/// the case may have no authored entities loaded yet.
+///
+/// ## Why this is separate from [`load_cross_document_context`] (Option B)
+///
+/// Extracted cross-doc entities carry a real `extraction_items.id`, so the
+/// caller can safely add them to the Pass-2 id_map and persist edges to
+/// them. Authored entities have no such row; the caller adds them to the
+/// PROMPT only (not the id_map), so a Pass-2 relationship targeting an
+/// authored entity is skipped-and-logged at storage rather than violating
+/// the `extraction_relationships → extraction_items` foreign key.
+/// Persisting authored-targeting edges belongs to the ingest/mapping step
+/// (which writes the `authored_relationships` table), not here.
+pub async fn load_authored_entities_for_context(
+    pool: &PgPool,
+    case_slug: &str,
+    entity_type_filter: &[&str],
+) -> Result<Vec<CrossDocEntity>, PipelineRepoError> {
+    let rows = sqlx::query_as::<_, AuthoredEntityRecord>(
+        "SELECT id, case_slug, entity_type, entity_id, item_data, \
+                provenance, created_by, created_at, updated_at \
+         FROM authored_entities \
+         WHERE case_slug = $1 AND entity_type = ANY($2) \
+         ORDER BY id",
+    )
+    .bind(case_slug)
+    .bind(entity_type_filter)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows.iter().map(authored_record_to_cross_doc).collect())
+}
+
 #[cfg(test)]
 mod tests {
     //! Pure-function tests for cross-doc projection + whitelist
@@ -440,5 +560,74 @@ mod tests {
              both break cross-doc context. Update the test and the doc \
              comment together."
         );
+    }
+
+    // ── Authored (Tier-1) → CrossDocEntity conversion ──────────────
+
+    fn authored_record(
+        id: i32,
+        entity_type: &str,
+        entity_id: &str,
+        item_data: serde_json::Value,
+    ) -> AuthoredEntityRecord {
+        AuthoredEntityRecord {
+            id,
+            case_slug: "awad_v_catholic_family_service".into(),
+            entity_type: entity_type.to_string(),
+            entity_id: entity_id.to_string(),
+            item_data,
+            provenance: "canonical".into(),
+            created_by: None,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        }
+    }
+
+    /// Instruction test #4: when `item_data` has no `"id"`, the stable
+    /// `entity_id` becomes the prompt id so Pass 2 can still reference it.
+    #[test]
+    fn authored_to_cross_doc_falls_back_to_entity_id_when_item_data_has_no_id() {
+        let rec = authored_record(
+            7,
+            "Element",
+            "element-1-1",
+            serde_json::json!({ "label": "Duty", "properties": { "order_in_count": 1 } }),
+        );
+        let e = authored_record_to_cross_doc(&rec);
+        assert_eq!(e.original_id, "element-1-1");
+        assert_eq!(e.prefixed_id, "ctx:element-1-1");
+        assert_eq!(e.item_id, -7, "authored item_id is the negated row id");
+        assert_eq!(e.to_prompt_value()["id"], "ctx:element-1-1");
+    }
+
+    /// When `item_data` already carries an `"id"` it wins; the canonical
+    /// source sentinels are set, and `to_prompt_value` still applies the
+    /// per-type property allowlist (here: LegalCount drops non-allowlisted
+    /// keys).
+    #[test]
+    fn authored_to_cross_doc_uses_item_data_id_and_sets_canonical_sentinels() {
+        let rec = authored_record(
+            3,
+            "LegalCount",
+            "count-1",
+            serde_json::json!({
+                "id": "count-1",
+                "label": "Count I",
+                "properties": { "count_number": 1, "legal_basis": "MCL", "extra": "drop me" }
+            }),
+        );
+        let e = authored_record_to_cross_doc(&rec);
+        assert_eq!(e.prefixed_id, "ctx:count-1");
+        assert_eq!(e.source_document_id, "canonical");
+        assert_eq!(e.source_document_type, "canonical_element_library");
+        assert_eq!(e.entity_type, "LegalCount");
+        let v = e.to_prompt_value();
+        let props = v["properties"].as_object().expect("properties object");
+        assert_eq!(props["count_number"], 1);
+        assert!(
+            !props.contains_key("extra"),
+            "non-allowlisted property must be filtered out"
+        );
+        assert_eq!(v["source_document_type"], "canonical_element_library");
     }
 }

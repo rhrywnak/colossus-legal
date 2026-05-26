@@ -40,7 +40,8 @@
 //! manifest.
 
 pub use super::extraction_context::{
-    load_cross_document_context, CrossDocEntity, CROSS_DOC_ID_PREFIX,
+    load_authored_entities_for_context, load_cross_document_context, CrossDocEntity,
+    CROSS_DOC_ENTITY_TYPES, CROSS_DOC_ID_PREFIX,
 };
 pub use super::extraction_items::{
     batch_update_neo4j_node_ids, count_items_pending_graph_write, get_all_items,

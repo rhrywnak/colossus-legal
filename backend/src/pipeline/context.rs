@@ -50,6 +50,7 @@ const DEFAULT_LLM_CONCURRENCY: usize = 2;
 ///     http_client,
 ///     registry,
 ///     document_storage_path,
+///     case_slug,
 /// })?;
 /// ```
 pub struct AppContextDeps {
@@ -79,6 +80,11 @@ pub struct AppContextDeps {
     /// to resolve a file's full path; the same registry also owns the
     /// document_type → profile mapping consumed by the upload route.
     pub registry: Arc<PipelineRegistry>,
+
+    /// Case slug for authored (Tier-1) entity context, from `CASE_SLUG`.
+    /// `None` when unset — Pass 2 then loads no authored context. See
+    /// [`AppConfig::case_slug`](crate::config::AppConfig::case_slug).
+    pub case_slug: Option<String>,
 }
 
 /// Per-job pipeline execution context.
@@ -146,6 +152,11 @@ pub struct AppContext {
     /// Prevents rate-limit collisions between concurrently-processing documents.
     /// Configured via `PIPELINE_LLM_CONCURRENCY`, default `2`.
     pub llm_semaphore: Arc<Semaphore>,
+
+    /// Case slug for authored (Tier-1) entity context, from `CASE_SLUG`
+    /// (carried from [`AppContextDeps`]). `None` disables authored context
+    /// in Pass 2. Read by the Pass-2 step's cross-document context assembly.
+    pub case_slug: Option<String>,
 }
 
 impl AppContext {
@@ -250,6 +261,7 @@ impl AppContext {
             extraction_engine,
             embedding_provider,
             llm_semaphore: Arc::new(Semaphore::new(llm_concurrency)),
+            case_slug: deps.case_slug,
         })
     }
 }

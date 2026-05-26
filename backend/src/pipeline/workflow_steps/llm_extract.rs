@@ -306,6 +306,7 @@ async fn step_llm_extract_pass2_body(
             relationship_count = result.relationship_count,
             local_entities = result.local_entities,
             cross_doc_entities = result.cross_doc_entities,
+            authored_context_entities = result.authored_context_entities,
             input_tokens = result.input_tokens,
             output_tokens = result.output_tokens,
             "step_llm_extract_pass2: complete"
@@ -328,12 +329,13 @@ async fn step_llm_extract_pass2_body(
     })
 }
 
-/// Build the 9-key `result_summary` JSON for pass-2 (success and
-/// already-complete paths), matching
-/// `pipeline/steps/llm_extract_pass2.rs:112` byte-for-byte. The
-/// `pass: 2` literal mirrors the legacy emit. Extracted for
-/// testability — see [`build_pass1_result_summary`] for the same
-/// rationale.
+/// Build the `result_summary` JSON for pass-2 (success and
+/// already-complete paths), matching the legacy emit in
+/// `pipeline/steps/llm_extract_pass2.rs`. The key set is additive over
+/// the original — `authored_context_entities` was added with authored
+/// Tier-1 context so the audit reflects the *full* prompt context. The
+/// `pass: 2` literal mirrors the legacy emit. Extracted for testability —
+/// see [`build_pass1_result_summary`] for the same rationale.
 fn build_pass2_result_summary(
     result: &crate::pipeline::steps::llm_extract_pass2::Pass2ExtractionResult,
 ) -> serde_json::Value {
@@ -342,6 +344,7 @@ fn build_pass2_result_summary(
         "relationship_count": result.relationship_count,
         "local_entities": result.local_entities,
         "cross_doc_entities": result.cross_doc_entities,
+        "authored_context_entities": result.authored_context_entities,
         "input_tokens": result.input_tokens,
         "output_tokens": result.output_tokens,
         "profile": result.profile,
