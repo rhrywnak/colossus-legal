@@ -28,9 +28,13 @@
 //! - `extraction.rs` — re-export hub for the five extraction siblings
 //!   (`extraction_runs`, `extraction_items`, `extraction_items_pass1`,
 //!   `extraction_relationships`, `extraction_context`).
+//! - `authored_entities.rs` — CRUD for the Tier-1 `authored_entities` and
+//!   Tier-3 `authored_relationships` tables (three-tier architecture,
+//!   Option A). Human-authored, not extracted; no FK to pipeline tables.
 //! - `models.rs`, `report_queries.rs`, `review.rs`, `steps.rs`,
 //!   `users.rs` — other table-scoped repository modules.
 
+pub mod authored_entities;
 pub mod config;
 pub mod config_overrides;
 pub mod document_records;
@@ -54,6 +58,7 @@ pub mod review_items;
 pub mod steps;
 pub mod users;
 
+pub use authored_entities::*;
 pub use config::*;
 pub use config_overrides::*;
 pub use document_records::*;
