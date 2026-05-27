@@ -21,7 +21,7 @@ The complaint is the FOUNDATION document of a civil lawsuit. It defines the enti
 
 - **LegalCounts** are the legal theories under which the plaintiff is suing. They are the top of the proof chain.
 
-- **Elements** are what the plaintiff must prove for each LegalCount to win at trial. Elements are extracted from the Count-section paragraphs where the drafter declares them. The drafter's pleading text is the operative element formulation for this case — not external M Civ JI or case-law text. **This is critical: every Element's verbatim_quote must be the drafter's words from the complaint, not a paraphrase, not external authority.**
+- **Elements** are what the plaintiff must prove for each LegalCount to win at trial. **Elements are NOT extracted by this pipeline.** They are canonical authored entities loaded separately from curated YAML files. Pass 2 will see them in cross-document context and create PROVES_ELEMENT relationships linking Allegations to Elements.
 
 - **Allegations** are the paragraph-level factual claims. Some are common-allegation paragraphs (factual narrative, before any Count) and others are count-section paragraphs (within a Count, often restating or applying facts to elements). The relationship Pass 2 builds — which Allegations prove which Elements — depends on you extracting ALL of them with correct `kind` classification.
 
@@ -67,14 +67,14 @@ Civil complaints across all jurisdictions generally follow this structure. The s
 - **Purpose:** Define the legal wrongs the plaintiff is asserting and walk the elements of each.
 - **Extract from here:**
   - **LegalCount** entity (one per Count, with paragraph_range covering all paragraphs in this Count)
-  - **Element** entities — one per element-declaring paragraph cluster. The verbatim_quote of an Element is the drafter's pleading text.
   - **Allegation** entities for ALL paragraphs in the Count, with `kind=count_section` (including the incorporation paragraph and the damages paragraph). Allegation's verbatim_quote is the paragraph's exact text.
-- **How to recognize:** Section headings with "COUNT" or "CAUSE OF ACTION" followed by a legal theory name. Element-declaring paragraphs typically use language like "Defendant owed a duty," "Defendant breached the duty by [specific conduct]," "as a direct and proximate result," "Plaintiff has been damaged."
+  - Do NOT extract Elements — they are canonical authored entities loaded separately.
+- **How to recognize:** Section headings with "COUNT" or "CAUSE OF ACTION" followed by a legal theory name.
 
 ### 5. Prayer for Relief / Wherefore Clause
 - **Contains:** What the plaintiff asks the court to do (award damages, enter judgment, grant injunctive relief).
 - **Purpose:** Stating the requested remedy.
-- **Extract from here:** Nothing as Allegations or Elements — but note dollar amounts mentioned here for Harm entities if not already captured.
+- **Extract from here:** Nothing as Allegations — but note dollar amounts mentioned here for Harm entities if not already captured.
 
 ### 6. Signature Block / Certification
 - **Contains:** Attorney signature, date, contact information, certifications.
@@ -132,33 +132,6 @@ A cause of action — the legal theory under which the plaintiff is suing.
 - `statutory_anchor`: Statute citation when applicable, e.g., "MCL 700.1212" or "MCL 600.2919a". Empty for common-law counts.
 - `damages_claimed`: Damages sought, e.g., "exceeding $25,000"
 - `applies_to`: Defendants this count applies to
-
-### Element
-A specific thing the plaintiff must prove for a LegalCount. Sourced from the Count-section paragraphs where the drafter declares each element.
-
-**This is the most important rule for Element extraction:** The Element's verbatim_quote is the drafter's pleading text from the anchoring paragraph(s). NOT M Civ JI text, NOT case-law text, NOT your own paraphrase, NOT external legal authority. Whatever the drafter wrote in the Count section is what the case will be tried on.
-
-**Properties:**
-- `element_name`: Short descriptive name — duty, breach, causation, damages, misrepresentation, pattern, ulterior_purpose, etc.
-- `parent_count_id`: ID of the LegalCount this Element belongs to (e.g., `count-001`)
-- `anchor_paragraph_numbers`: Paragraph numbers where this element is declared, comma-separated, e.g., "74" or "74,76"
-- `order_in_count`: Sequential position of this element within its Count (1, 2, 3, ...)
-
-**How to identify Elements within a Count section:**
-
-Read each Count section paragraph by paragraph. Look for paragraphs that walk through what the plaintiff must prove. Common patterns:
-
-- **Duty:** "Defendant owed a [fiduciary/duty of care/etc.] to Plaintiff..."
-- **Breach:** "Defendant breached this duty by [specific conduct]..." or "Defendants engaged in conduct which..."
-- **Causation:** "as a direct and proximate result..."
-- **Damages:** "Plaintiff has been damaged in an amount exceeding $X..."
-- **Misrepresentation (fraud):** "Defendant failed to disclose..." or "Defendant made false statements..."
-- **Pattern (abuse of process / fraud):** "Defendants engaged in a series of improper acts..." or "vexatious verbal attacks..."
-- **Ulterior purpose (abuse of process):** "Defendants' efforts were not done with any legitimate purpose..."
-
-Each cluster of paragraphs declaring the same element becomes ONE Element entity. If multiple paragraphs declare the same element (e.g., paragraphs 74 and 76 both establish duty — one for the corporate defendant, one for the individual agent), list both numbers in `anchor_paragraph_numbers` for a single Element.
-
-**If a Count section does NOT cleanly walk the elements** (e.g., a declaratory-relief count that mixes procedural prerequisites with substantive showings), extract whatever element-declaring paragraphs the drafter DOES include. Do not invent elements from external sources. The complaint is what the case will be tried on.
 
 ### Allegation
 A factual claim from a numbered paragraph in the complaint.
@@ -250,23 +223,20 @@ Scan for "COUNT" or "CAUSE OF ACTION" headings. For each Count, extract:
 - paragraph_range — must span the ENTIRE Count section, from the heading paragraph through the final damages paragraph
 - statutory_anchor (if applicable), damages_claimed, applies_to
 
-### Step 3: Extract Elements from each Count section
-For each LegalCount, read the paragraphs in its paragraph_range. Identify the paragraphs where the drafter walks through what must be proven (duty, breach, causation, damages, etc.). Extract one Element per element-declaring paragraph cluster. The verbatim_quote is the drafter's pleading text from the anchoring paragraph(s).
-
-### Step 4: Extract Allegations
+### Step 3: Extract Allegations
 Read every numbered paragraph in the Common Allegations section AND every numbered paragraph in each Count section. For each:
 - Determine its `kind` based on whether its paragraph_number falls within any Count's paragraph_range
 - Extract as an Allegation with the verbatim text of the paragraph
 
-### Step 5: Identify Harms — three hunting paths
+### Step 4: Identify Harms — three hunting paths
 
 Walk three passes over the document to extract Harms:
 
-**Pass 5a — Count damages paragraphs.** For each LegalCount, identify the damages paragraph (typically the last paragraph in the Count section, "As a direct and proximate result..."). For each Count, identify what concrete harms that Count is alleging. Walk back to the supporting factual paragraphs the Count incorporates to find the specific injuries. Create one Harm per distinct injury, with provenance pointing to the supporting paragraphs.
+**Pass 4a — Count damages paragraphs.** For each LegalCount, identify the damages paragraph (typically the last paragraph in the Count section, "As a direct and proximate result..."). For each Count, identify what concrete harms that Count is alleging. Walk back to the supporting factual paragraphs the Count incorporates to find the specific injuries. Create one Harm per distinct injury, with provenance pointing to the supporting paragraphs.
 
-**Pass 5b — Dollar amounts in common allegations.** Sweep the common-allegation paragraphs for any dollar amount mentioned. Each distinct dollar amount usually anchors one economic Harm. Create one Harm per dollar-amount-bearing paragraph with `kind: economic`, the amount filled in, and provenance pointing to that paragraph.
+**Pass 4b — Dollar amounts in common allegations.** Sweep the common-allegation paragraphs for any dollar amount mentioned. Each distinct dollar amount usually anchors one economic Harm. Create one Harm per dollar-amount-bearing paragraph with `kind: economic`, the amount filled in, and provenance pointing to that paragraph.
 
-**Pass 5c — Non-economic injury language in common allegations.** Sweep the common-allegation paragraphs for language describing reputational injury, character attacks, emotional distress, vexatious conduct, public disparagement, harassment, or discriminatory treatment. Create one Harm per distinct pattern of non-economic injury with `kind: non_economic` and provenance pointing to the supporting paragraphs.
+**Pass 4c — Non-economic injury language in common allegations.** Sweep the common-allegation paragraphs for language describing reputational injury, character attacks, emotional distress, vexatious conduct, public disparagement, harassment, or discriminatory treatment. Create one Harm per distinct pattern of non-economic injury with `kind: non_economic` and provenance pointing to the supporting paragraphs.
 
 After all three passes: verify each LegalCount has at least one Harm whose provenance points to that Count's supporting paragraphs. Verify each major dollar amount in the common allegations has a corresponding economic Harm. Verify the major non-economic injury patterns have non-economic Harms.
 
@@ -335,42 +305,6 @@ Correct extraction:
         "applies_to": "ACME Corp"
       },
       "verbatim_quote": null
-    },
-    {
-      "entity_type": "Element",
-      "id": "element-001",
-      "label": "Fiduciary duty",
-      "properties": {
-        "element_name": "duty",
-        "parent_count_id": "count-001",
-        "anchor_paragraph_numbers": "22",
-        "order_in_count": 1
-      },
-      "verbatim_quote": "Defendant, as personal representative, owed Plaintiff a fiduciary duty to manage estate assets prudently and exclusively for the benefit of the estate."
-    },
-    {
-      "entity_type": "Element",
-      "id": "element-002",
-      "label": "Breach of duty",
-      "properties": {
-        "element_name": "breach",
-        "parent_count_id": "count-001",
-        "anchor_paragraph_numbers": "23",
-        "order_in_count": 2
-      },
-      "verbatim_quote": "Defendant breached this duty by repeatedly withdrawing estate funds without authorization and refusing to provide an accounting."
-    },
-    {
-      "entity_type": "Element",
-      "id": "element-003",
-      "label": "Causation and damages",
-      "properties": {
-        "element_name": "causation_and_damages",
-        "parent_count_id": "count-001",
-        "anchor_paragraph_numbers": "24",
-        "order_in_count": 3
-      },
-      "verbatim_quote": "As a direct and proximate result of Defendant's breach, Plaintiff suffered financial losses exceeding $80,000."
     },
     {
       "entity_type": "Allegation",
@@ -496,14 +430,14 @@ Correct extraction:
 - Paragraphs 8, 9, 10: Allegations with `kind=common_allegation` (before Count I starts at ¶20)
 - Count I header (¶20): LegalCount with paragraph_range "20-24"
 - Paragraphs 21-24: Allegations with `kind=count_section` (within Count I's range), including the incorporation paragraph (¶21)
-- Paragraphs 22, 23, 24 ALSO each became an Element — they're the duty / breach / causation+damages declarations
+- Elements are NOT extracted — they are canonical authored entities loaded separately
 - Harm with provenance linking to supporting paragraphs
 
 **What was NOT extracted and why:**
 - "Oakland" or "Michigan" as Party — locations, not parties
 - "Plaintiff" alone or "Defendant" alone — roles, not names
 - Output has NO "relationships" key — entities only in Pass 1
-- The Element verbatim_quote is the drafter's text from the Count section (¶22-24), NOT external M Civ JI text or my own paraphrase
+- No Elements extracted — they are canonical authored entities
 
 ## Schema — Entity Types and Properties
 
@@ -538,13 +472,6 @@ Correct extraction:
 - [ ] Does paragraph_range cover the ENTIRE Count section (heading paragraph through final damages paragraph)?
 - [ ] Did I include statutory_anchor when the Count cites a statute?
 
-**Element checks:**
-- [ ] For each LegalCount, did I identify the element-declaring paragraphs in its Count section?
-- [ ] Does each Element have parent_count_id pointing to the correct LegalCount?
-- [ ] Does each Element have anchor_paragraph_numbers identifying the specific paragraph(s) where the element is declared?
-- [ ] Is each Element's verbatim_quote the drafter's pleading text from the anchoring paragraph (NOT external M Civ JI text, NOT case-law text, NOT a paraphrase)?
-- [ ] Did I extract Elements only from Count-section paragraphs, never from common-allegation paragraphs?
-
 **Allegation checks:**
 - [ ] Did I extract EVERY numbered paragraph (after the jurisdictional section) as an Allegation?
 - [ ] Does every Allegation have `kind` set to either `common_allegation` or `count_section`?
@@ -553,9 +480,9 @@ Correct extraction:
 - [ ] Does every Allegation have verbatim_quote at the TOP LEVEL (not inside properties)?
 
 **Harm checks:**
-- [ ] Did I walk Step 5a (each Count's damages paragraph + supporting factual paragraphs)?
-- [ ] Did I walk Step 5b (every dollar amount in common allegations)?
-- [ ] Did I walk Step 5c (non-economic injury patterns in common allegations)?
+- [ ] Did I walk Step 4a (each Count's damages paragraph + supporting factual paragraphs)?
+- [ ] Did I walk Step 4b (every dollar amount in common allegations)?
+- [ ] Did I walk Step 4c (non-economic injury patterns in common allegations)?
 - [ ] Does each LegalCount have at least one Harm whose provenance points to that Count's supporting paragraphs?
 - [ ] Does every Harm have a `kind` from the taxonomy (economic/non_economic/punitive/treble_damages/injunctive_relief/declaratory_relief)?
 - [ ] Does every Harm have a `provenance` array with at least one entry, each containing a `quote_snippet`?
@@ -565,7 +492,6 @@ Correct extraction:
 **General negative checks:**
 - [ ] Did I avoid extracting party identification paragraphs as Allegations?
 - [ ] Did I avoid extracting jurisdictional statements as Allegations?
-- [ ] Did I avoid sourcing Element verbatim_quote from external authority (M Civ JI, case law, my own knowledge)?
 - [ ] Did I avoid including a "relationships" key?
 
 Return ONLY the JSON object with an "entities" array. No "relationships" key. No markdown fences, no explanation, no preamble.

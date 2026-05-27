@@ -25,9 +25,25 @@
 #     be4f8cd) and validated in production: every relationship written
 #     carries all three properties.
 #
-# v5 entity backbone preserved: Party / LegalCount / Element /
-# Allegation / Harm. The proof matrix (Count → Element → Allegation →
-# Evidence) is unchanged.
+# v5.1a changes (May 2026, three-tier architecture):
+#   - Element entity REMOVED from extraction. Elements are now canonical
+#     authored entities loaded from YAML via the canonical Element loader
+#     (load_canonical_elements). They live in authored_entities (Postgres)
+#     and are MERGEd to Neo4j by the loader. The pipeline no longer
+#     extracts Elements — they are visible to Pass 2 via the cross-doc
+#     context loader.
+#   - HAS_ELEMENT relationship REMOVED from extraction schema. Created by
+#     the canonical Element loader (Count → Element), not by the pipeline.
+#   - ANCHORED_IN relationship REMOVED. Depended on extracted Element
+#     anchor_paragraph_numbers; canonical Elements use a different
+#     anchoring model.
+#   - PROVES_ELEMENT RETAINED. Pass 2 targets canonical Elements from the
+#     cross-document context (prefixed ctx:element-*).
+#
+# Extraction entity backbone: Party / LegalCount / Allegation / Harm.
+# LegalCount is still extracted so Pass 1 can determine Allegation.kind
+# from paragraph_range. The extracted LegalCount is reconciled with the
+# canonical LegalCount at ingest.
 #
 # Property names match PROD Neo4j and existing pipeline code per memory
 # rule #14. verbatim_quote remains a top-level entity field, NOT a
@@ -99,29 +115,6 @@ entity_types:
         type: string
         description: "Defendants this count applies to (comma-separated)"
 
-  - name: Element
-    required: false
-    min_count: 0
-    grounding_mode: verbatim
-    category: foundation
-    description: "A specific thing the plaintiff must prove for a LegalCount. Sourced from the Count-section paragraphs where the drafter declares each element. The verbatim_quote is the drafter's pleading text from the anchoring paragraph(s) — NOT external M Civ JI or case-law text. The verbatim_quote field of an Element is the operative element formulation for this case."
-    properties:
-      - name: element_name
-        type: string
-        required: true
-        description: "Short descriptive name: duty, breach, causation, damages, misrepresentation, pattern, ulterior_purpose, etc. Used for navigation and grouping."
-      - name: parent_count_id
-        type: string
-        required: true
-        description: "ID of the LegalCount this Element belongs to (e.g., count-001). Used to reconstruct HAS_ELEMENT relationships in Pass 2."
-      - name: anchor_paragraph_numbers
-        type: string
-        required: true
-        description: "Paragraph number(s) in the complaint's Count section where the drafter declares this element, comma-separated, e.g. '74' or '74,76'. Used to reconstruct ANCHORED_IN relationships in Pass 2."
-      - name: order_in_count
-        type: integer
-        description: "Sequential position of this element within its Count (1, 2, 3, ...). Useful for display ordering."
-
   - name: Allegation
     required: true
     min_count: 1
@@ -184,12 +177,8 @@ entity_types:
         description: "When the harm occurred"
 
 relationship_types:
-  - name: HAS_ELEMENT
-    description: "LegalCount has Element. Reconstructed mechanically from Element.parent_count_id in Pass 2 (no judgment)."
-  - name: ANCHORED_IN
-    description: "Element anchored in Allegation (the Count-section paragraph where the drafter declares the element). Reconstructed mechanically from Element.anchor_paragraph_numbers in Pass 2."
   - name: PROVES_ELEMENT
-    description: "Allegation proves Element. Element-level granularity replacing v4's flat SUPPORTS. Pass 2 reasons about which Allegations help establish which specific Elements of which Counts. THE central reasoning relationship of v5."
+    description: "Allegation proves Element. Pass 2 targets canonical Elements from cross-document context (prefixed ctx:element-*). THE central reasoning relationship of v5."
   - name: ABOUT
     description: "Allegation is about (against, concerning) this party"
   - name: CAUSED_BY
@@ -228,12 +217,6 @@ relationship_properties:
     description: "When the relationship was first created (Cypher datetime() at write time; preserved on subsequent re-ingests via coalesce)"
 
 valid_patterns:
-  - from: LegalCount
-    relationship: HAS_ELEMENT
-    to: Element
-  - from: Element
-    relationship: ANCHORED_IN
-    to: Allegation
   - from: Allegation
     relationship: PROVES_ELEMENT
     to: Element
@@ -257,10 +240,9 @@ extraction_rules:
   - "Extract EVERY numbered paragraph (after the jurisdictional section) as a separate Allegation"
   - "Set Allegation.kind to count_section when paragraph_number falls within any LegalCount.paragraph_range, otherwise common_allegation"
   - "Every verbatim_quote MUST be an exact substring of the document text — copy the text exactly, character for character"
-  - "Every Element's verbatim_quote is the drafter's pleading text from the anchoring paragraph — NOT M Civ JI text, NOT case-law text, NOT a paraphrase, NOT external authority"
   - "Extract ALL parties including attorneys, judges, witnesses, and non-party individuals named in the complaint"
   - "Extract ALL legal counts (causes of action) with statutory_anchor when applicable; paragraph_range is required and spans the entire Count section"
-  - "Identify Elements by reading each Count section and finding the paragraphs where the drafter declares what must be proven (duty, breach, causation, damages, etc.). Each cluster of element-declaring paragraphs becomes one Element."
+  - "Do NOT extract Elements — they are canonical authored entities loaded separately. Pass 2 will see them in cross-document context."
   - "Extract ALL harms via three hunting paths (per pass1 template Step 5): each Count's damages paragraph + supporting factual paragraphs; each dollar-amount-bearing paragraph in common allegations; each pattern of non-economic injury in common allegations. Every Harm requires provenance."
 
 completeness_rules:
@@ -272,10 +254,6 @@ completeness_rules:
     entity: LegalCount
     min: 1
     message: "No legal counts found — extraction failed"
-  - type: entity_count
-    entity: Element
-    min: 1
-    message: "No Elements extracted — Count sections were not parsed for element-declaring paragraphs"
   - type: entity_count
     entity: Harm
     min: 1

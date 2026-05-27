@@ -21,7 +21,7 @@ A colleague read this civil complaint and extracted five types of entities:
 
 - **LegalCount** — the legal causes of action (e.g., Count I: Breach of Fiduciary Duty). Each has `count_number`, `count_name`, `legal_basis`, `legal_theory`, `paragraph_range` (covering the entire Count section), `damages_claimed`.
 
-- **Element** — what the plaintiff must prove for each LegalCount. The Pass 1 colleague identified the paragraphs in each Count section where the drafter declares each element. Each Element has `element_name`, `parent_count_id` (which Count it belongs to), `anchor_paragraph_numbers` (the Count-section paragraphs where the element is declared), and a verbatim_quote that is the drafter's pleading text. **The Element's verbatim_quote IS the operative element formulation for this case** — not external M Civ JI text or case law.
+- **Element** — what the plaintiff must prove for each LegalCount. **Elements are NOT extracted by Pass 1.** They are canonical authored entities loaded from curated YAML files and appear in the entity list below with `ctx:` prefix IDs (e.g., `ctx:element-1-1`). Each Element has `element_name`, `title`, `what_plaintiff_must_prove`, and belongs to a specific LegalCount via HAS_ELEMENT relationships (already created by the loader). **The Element's `what_plaintiff_must_prove` IS the operative element formulation for this case.**
 
 - **Allegation** — every numbered paragraph in the complaint (after the jurisdictional section), with `kind` indicating whether it's a `common_allegation` (factual narrative paragraph, before any Count) or a `count_section` paragraph (within a Count's paragraph_range).
 
@@ -42,25 +42,9 @@ Every relationship you create or miss directly affects the attorney's ability to
 
 ## Relationship Types — How to Reason About Each
 
-### HAS_ELEMENT (LegalCount → Element)
+### ANCHORED_IN — REMOVED
 
-**What it means:** This Element belongs to this LegalCount.
-
-**How to determine:** This is mechanical. For each Element in the entity list, read its `parent_count_id` property. Create one HAS_ELEMENT relationship from that LegalCount (by id) to the Element. There is no judgment here — it's a one-to-one reconstruction.
-
-**Output rule:** Every Element must produce exactly one HAS_ELEMENT relationship.
-
-### ANCHORED_IN (Element → Allegation)
-
-**What it means:** This Allegation (a count_section paragraph) is where the drafter declares this Element. The Allegation's verbatim_quote contains the element's pleading.
-
-**How to determine:** This is also mechanical. For each Element, parse its `anchor_paragraph_numbers` property (which is comma-separated, e.g., "74" or "74,76"). For each paragraph number listed:
-1. Find the Allegation with that `paragraph_number` (it will have `kind=count_section`)
-2. Create one ANCHORED_IN relationship from the Element to that Allegation
-
-An Element with `anchor_paragraph_numbers="74,76"` produces two ANCHORED_IN relationships.
-
-**Output rule:** Every Element must produce at least one ANCHORED_IN relationship (one per paragraph number in `anchor_paragraph_numbers`).
+HAS_ELEMENT and ANCHORED_IN are no longer created by Pass 2. They are handled by the canonical Element loader. Do NOT create these relationship types.
 
 ### PROVES_ELEMENT (Allegation → Element) — THE CENTRAL RELATIONSHIP OF V5
 
@@ -129,7 +113,7 @@ What factual claim is this Allegation making? What action, omission, or pattern 
 **Step B: For EACH Element in the entity list, ask:**
 "If the factual claim in this Allegation were proven true at trial, would it help establish this specific Element?"
 
-The Element's verbatim_quote describes what must be proven (the drafter's pleading of the duty, breach, etc.). Read it carefully. The Allegation's claim either contributes evidence to proving that, or it does not.
+The Element's `what_plaintiff_must_prove` property (or `title`) describes what must be proven (the drafter's pleading of the duty, breach, etc.). Read it carefully. The Allegation's claim either contributes evidence to proving that, or it does not.
 
 **Step C: If YES, create PROVES_ELEMENT.** If NO, do not.
 
@@ -235,16 +219,18 @@ Incorporation makes the facts part of the Count's record. PROVES_ELEMENT means t
 
 ## Your Reasoning Process — Follow These Steps in Order
 
-### Step 1: Reconstruct mechanical relationships first
-These don't require judgment — they're reconstructions from properties:
-1. For each Element: create HAS_ELEMENT from `parent_count_id` to the Element
-2. For each Element: parse `anchor_paragraph_numbers` and create ANCHORED_IN to each Allegation
+### Step 1: Identify the Element framework from context entities
+The canonical Elements appear in the entity list with `ctx:` prefix IDs (e.g., `ctx:element-1-1`). These are NOT extracted by Pass 1 — they are pre-loaded canonical entities.
+1. Identify all Elements in the entity list (they have `entity_type: Element` and `ctx:` prefixed IDs)
+2. Note which LegalCount each Element belongs to (from its `parent_count_number` property)
+3. Read each Element's `what_plaintiff_must_prove` — this is what must be proven for that Count
+4. Do NOT create HAS_ELEMENT or ANCHORED_IN relationships — these are handled by the loader
 
 ### Step 2: Map the Element framework
 For each LegalCount in the entity list:
 1. Read the `count_name` and `legal_theory`
-2. Identify the Elements that belong to this Count (HAS_ELEMENT relationships from Step 1)
-3. Read each Element's verbatim_quote — this is what must be proven for that Count
+2. Identify the Elements that belong to this Count (from Step 1)
+3. Read each Element's `what_plaintiff_must_prove` — this is what must be proven for that Count
 4. Note this framework mentally for Step 3
 
 ### Step 3: Create PROVES_ELEMENT relationships (the deep reasoning step)
@@ -293,19 +279,9 @@ Return a JSON object with a single top-level key "relationships":
 {
   "relationships": [
     {
-      "relationship_type": "HAS_ELEMENT",
-      "from_entity": "count-001",
-      "to_entity": "element-001"
-    },
-    {
-      "relationship_type": "ANCHORED_IN",
-      "from_entity": "element-001",
-      "to_entity": "allegation-022"
-    },
-    {
       "relationship_type": "PROVES_ELEMENT",
       "from_entity": "allegation-008",
-      "to_entity": "element-002"
+      "to_entity": "ctx:element-1-2"
     },
     {
       "relationship_type": "ABOUT",
@@ -333,9 +309,9 @@ Return a JSON object with a single top-level key "relationships":
 
 ## Completeness Checklist — Verify Before Returning
 
-### Mechanical relationships (Steps 1-2)
-- [ ] Does every Element have exactly one HAS_ELEMENT relationship from its parent_count_id?
-- [ ] Does every Element have at least one ANCHORED_IN relationship (one per paragraph in anchor_paragraph_numbers)?
+### Element identification (Step 1)
+- [ ] Did I identify all canonical Elements in the entity list (ctx: prefixed IDs)?
+- [ ] Do NOT create HAS_ELEMENT or ANCHORED_IN relationships — these are handled by the loader
 
 ### PROVES_ELEMENT (Step 3) — the central reasoning step
 - [ ] For EACH LegalCount, did I identify its Elements via HAS_ELEMENT?
