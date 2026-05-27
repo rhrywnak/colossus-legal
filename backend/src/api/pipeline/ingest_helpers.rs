@@ -802,6 +802,107 @@ pub async fn create_contained_in_relationships(
     Ok(nodes_with_runs.len())
 }
 
+/// Build the Cypher for an extracted cross-tier edge: an extraction node
+/// (matched purely by `id`) to a canonical `:Element` node.
+///
+/// ## Why MATCH on both endpoints (not MERGE)
+///
+/// If either node is absent — the Allegation wasn't created this ingest, or
+/// the canonical loader hasn't run to create the Element — the statement is a
+/// no-op rather than creating a dangling bare node. The edge simply isn't
+/// written until both real nodes exist.
+///
+/// `rel_type` is interpolated into the pattern (Cypher can't parameterize a
+/// relationship type), so the caller MUST validate it is alphanumeric /
+/// underscore — see [`write_cross_tier_relationship`]. `asserted_by_document`
+/// tags the edge with the document whose Pass-2 extraction asserted it, which
+/// is what [`delete_cross_tier_relationships_for_document`] keys cleanup on.
+fn build_cross_tier_edge_cypher(rel_type: &str) -> String {
+    format!(
+        "MATCH (a {{id: $from_id}}) \
+         MATCH (e:Element {{id: $to_id}}) \
+         MERGE (a)-[r:{rel_type}]->(e) \
+         ON CREATE SET r.asserted_by_document = $document_id, \
+                       r.source_document_id   = $document_id, \
+                       r.extraction_run_id    = $extraction_run_id, \
+                       r.created_at           = datetime() \
+         ON MATCH SET  r.asserted_by_document = $document_id, \
+                       r.updated_at           = datetime()"
+    )
+}
+
+/// True if `rel_type` is safe to interpolate into a Cypher relationship-type
+/// position — non-empty and alphanumeric/underscore only. Cypher cannot
+/// parameterize a relationship type, so [`write_cross_tier_relationship`]
+/// interpolates it and must reject anything else (injection guard). Extracted
+/// as a pure predicate so it can be unit-tested without a live transaction,
+/// mirroring `validate_relationship_provenance` in this module.
+fn cross_tier_rel_type_is_valid(rel_type: &str) -> bool {
+    !rel_type.is_empty() && rel_type.chars().all(|c| c.is_alphanumeric() || c == '_')
+}
+
+/// Write one extracted cross-tier relationship (e.g. `PROVES_ELEMENT`) into the
+/// open transaction. Validates `rel_type` as a Cypher-injection guard, then
+/// runs the MATCH-MATCH-MERGE from [`build_cross_tier_edge_cypher`].
+///
+/// `extraction_run_id` is pre-formatted by the caller (e.g. `"run-42"`),
+/// matching the convention in [`create_contained_in_relationships`]. No row is
+/// returned: a MATCH that finds no node is an intentional no-op, not an error.
+pub async fn write_cross_tier_relationship(
+    txn: &mut neo4rs::Txn,
+    from_id: &str,
+    to_id: &str,
+    rel_type: &str,
+    document_id: &str,
+    extraction_run_id: &str,
+) -> Result<(), AppError> {
+    if !cross_tier_rel_type_is_valid(rel_type) {
+        return Err(AppError::BadRequest {
+            message: format!("Invalid cross-tier relationship type: '{rel_type}'"),
+            details: serde_json::json!({ "rel_type": rel_type }),
+        });
+    }
+    let cypher = build_cross_tier_edge_cypher(rel_type);
+    txn.run(
+        query(&cypher)
+            .param("from_id", from_id)
+            .param("to_id", to_id)
+            .param("document_id", document_id)
+            .param("extraction_run_id", extraction_run_id),
+    )
+    .await
+    .map_err(|e| AppError::Internal {
+        message: format!("Failed to write {rel_type} {from_id}->{to_id}: {e}"),
+    })?;
+    Ok(())
+}
+
+/// Delete every cross-tier edge a document previously asserted in Neo4j,
+/// matched purely on the `asserted_by_document` property.
+///
+/// Type-agnostic on purpose: `asserted_by_document` is set ONLY by
+/// [`write_cross_tier_relationship`] (canonical-loader and standard ingest
+/// edges never carry it), so matching on it alone reconciles *all* cross-tier
+/// edge types this document wrote — today `PROVES_ELEMENT`, and any future
+/// type — without burning a relationship-type literal into the query. This is
+/// the graph-side complement to the Postgres reconciliation
+/// (`delete_extracted_authored_relationships_for_document`): a re-process
+/// clears the document's prior edges before re-asserting the current set.
+pub async fn delete_cross_tier_relationships_for_document(
+    txn: &mut neo4rs::Txn,
+    document_id: &str,
+) -> Result<(), AppError> {
+    txn.run(
+        query("MATCH ()-[r {asserted_by_document: $document_id}]->() DELETE r")
+            .param("document_id", document_id),
+    )
+    .await
+    .map_err(|e| AppError::Internal {
+        message: format!("Failed to delete prior cross-tier edges for {document_id}: {e}"),
+    })?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1231,6 +1332,78 @@ mod tests {
         assert!(
             cypher.contains("coalesce(r.created_at, datetime())"),
             "ON MATCH must coalesce r.created_at (first-wins); got: {cypher}"
+        );
+    }
+
+    // ── Cross-tier edge (PROVES_ELEMENT) ─────────────────────────────
+
+    #[test]
+    fn build_cross_tier_edge_cypher_matches_both_endpoints() {
+        // Catches a refactor that switches either endpoint from MATCH to
+        // MERGE — which would create dangling bare nodes when the Allegation
+        // or canonical Element doesn't exist, instead of a no-op.
+        let cypher = build_cross_tier_edge_cypher("PROVES_ELEMENT");
+        assert!(
+            cypher.contains("MATCH (a {id: $from_id})"),
+            "from endpoint must be MATCHed by id; got: {cypher}"
+        );
+        assert!(
+            cypher.contains("MATCH (e:Element {id: $to_id})"),
+            "to endpoint must be MATCHed as :Element by id; got: {cypher}"
+        );
+        assert!(
+            cypher.contains("MERGE (a)-[r:PROVES_ELEMENT]->(e)"),
+            "rel type must be interpolated into the MERGE; got: {cypher}"
+        );
+    }
+
+    #[test]
+    fn build_cross_tier_edge_cypher_tags_asserting_document() {
+        // The `asserted_by_document` property is what per-document cleanup
+        // (delete_cross_tier_relationships_for_document) keys on — it must be
+        // stamped on both ON CREATE and ON MATCH so a re-MERGE keeps it.
+        let cypher = build_cross_tier_edge_cypher("PROVES_ELEMENT");
+        assert!(cypher.contains("ON CREATE SET"), "got: {cypher}");
+        assert!(cypher.contains("ON MATCH SET"), "got: {cypher}");
+        assert_eq!(
+            cypher
+                .matches("r.asserted_by_document = $document_id")
+                .count(),
+            2,
+            "asserted_by_document must be set on both branches; got: {cypher}"
+        );
+        assert!(
+            cypher.contains("r.created_at") && cypher.contains("datetime()"),
+            "ON CREATE must stamp created_at; got: {cypher}"
+        );
+    }
+
+    #[test]
+    fn build_cross_tier_edge_cypher_interpolates_rel_type() {
+        // The type is interpolated (Cypher can't parameterize it), so a
+        // different validated type flows through verbatim.
+        let cypher = build_cross_tier_edge_cypher("CHARACTERIZES");
+        assert!(
+            cypher.contains("[r:CHARACTERIZES]->"),
+            "rel type must be interpolated verbatim; got: {cypher}"
+        );
+    }
+
+    #[test]
+    fn cross_tier_rel_type_validator_accepts_safe_and_rejects_unsafe() {
+        // Guards the Cypher interpolation in write_cross_tier_relationship:
+        // only non-empty alphanumeric/underscore types may be interpolated.
+        assert!(cross_tier_rel_type_is_valid("PROVES_ELEMENT"));
+        assert!(cross_tier_rel_type_is_valid("CHARACTERIZES"));
+        // Injection / malformed inputs must be rejected.
+        assert!(!cross_tier_rel_type_is_valid(""), "empty must be rejected");
+        assert!(
+            !cross_tier_rel_type_is_valid("PROVES ELEMENT"),
+            "whitespace must be rejected"
+        );
+        assert!(
+            !cross_tier_rel_type_is_valid("PROVES_ELEMENT]->(x) DELETE r //"),
+            "injection payload must be rejected"
         );
     }
 }

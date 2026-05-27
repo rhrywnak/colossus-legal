@@ -118,6 +118,26 @@ pub async fn get_items_with_quotes(
     Ok(rows)
 }
 
+/// Fetch a single extraction item by its primary key. `None` if absent.
+///
+/// The Pass-2 cross-tier persistence path uses this to recover the full
+/// `item_data` for an Allegation so it can recompute that entity's stable
+/// Neo4j id via [`crate::api::pipeline::ingest_helpers::stable_entity_id`].
+/// The prompt-shaped [`super::extraction_items_pass1::Pass1Entity`] keeps only
+/// `id`/`label`/`properties`, so it cannot reproduce the `other`-arm hash
+/// (which digests the whole `item_data`) — the stored row can.
+pub async fn get_extraction_item_by_id(
+    executor: impl sqlx::PgExecutor<'_>,
+    item_id: i32,
+) -> Result<Option<ExtractionItemRecord>, PipelineRepoError> {
+    let sql = format!("SELECT {ITEM_SELECT_COLUMNS} FROM extraction_items WHERE id = $1");
+    let row = sqlx::query_as::<_, ExtractionItemRecord>(&sql)
+        .bind(item_id)
+        .fetch_optional(executor)
+        .await?;
+    Ok(row)
+}
+
 /// Update grounding status, page number, and verification reason for an
 /// extraction item.
 ///

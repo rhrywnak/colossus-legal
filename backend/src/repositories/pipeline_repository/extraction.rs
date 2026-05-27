@@ -45,9 +45,9 @@ pub use super::extraction_context::{
 };
 pub use super::extraction_items::{
     batch_update_neo4j_node_ids, count_items_pending_graph_write, get_all_items,
-    get_approved_items_for_document, get_existing_item_neo4j_map, get_grounded_items_for_document,
-    get_items_for_run, get_items_pending_graph_write, get_items_with_quotes,
-    insert_extraction_item, lookup_item_document_ids, lookup_neo4j_node_ids,
+    get_approved_items_for_document, get_existing_item_neo4j_map, get_extraction_item_by_id,
+    get_grounded_items_for_document, get_items_for_run, get_items_pending_graph_write,
+    get_items_with_quotes, insert_extraction_item, lookup_item_document_ids, lookup_neo4j_node_ids,
     update_item_entity_type, update_item_grounding, ExtractionItemRecord,
 };
 pub use super::extraction_items_pass1::{load_pass1_entities, Pass1Entity};

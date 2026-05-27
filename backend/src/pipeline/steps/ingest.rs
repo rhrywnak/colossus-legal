@@ -48,6 +48,7 @@ use colossus_pipeline::{Step, StepResult};
 use crate::api::pipeline::ingest_helpers::{
     create_contained_in_relationships, create_document_node, create_entity_node,
     create_ingest_relationship, create_party_nodes, create_provenance_relationships,
+    delete_cross_tier_relationships_for_document, write_cross_tier_relationship,
 };
 use crate::api::pipeline::ingest_resolver;
 use crate::models::document_status::{PARTY_SUBTYPES, STATUS_INGESTED};
@@ -564,6 +565,28 @@ pub async fn run_ingest(
             message: format!("create_contained_in_relationships: {e:?}"),
         })?;
 
+        // 12b. Cross-tier PROVES_ELEMENT edges (Allegation → canonical Element)
+        //      this document's Pass 2 asserted and persisted to
+        //      authored_relationships. The Element nodes already exist (written
+        //      by the canonical loader); the write is MATCH-guarded so a missing
+        //      endpoint is a silent no-op. Gated on CASE_SLUG — the same
+        //      first-class "feature off" state Pass 2 uses.
+        let proves_element_count = if context.case_slug.is_some() {
+            write_proves_element_edges(&mut txn, db, doc_id, run_id).await?
+        } else {
+            tracing::debug!(
+                doc_id = %doc_id,
+                "Ingest: CASE_SLUG not configured — skipping PROVES_ELEMENT edge write"
+            );
+            0
+        };
+        tracing::info!(
+            doc_id = %doc_id,
+            proves_element_count,
+            "Ingest: wrote {proves_element_count} PROVES_ELEMENT edges to Neo4j \
+             from authored_relationships"
+        );
+
         // 13. Commit Neo4j txn
         txn.commit().await.map_err(|source| IngestError::Neo4j {
             doc_id: doc_id.to_string(),
@@ -673,6 +696,58 @@ pub async fn run_ingest(
             total_rels,
         })
     }
+}
+
+/// Write this document's extracted cross-tier edges (`PROVES_ELEMENT`:
+/// Allegation → canonical Element) into the open Neo4j transaction.
+///
+/// Reads the rows Pass 2 persisted to `authored_relationships` (the Allegation's
+/// stable Neo4j id on the from side, the canonical Element id on the to side),
+/// clears this document's prior graph edges first (so a dropped assertion
+/// doesn't survive a re-process — the graph complement of the Pass-2 Postgres
+/// reconciliation), then MATCH-guarded-MERGEs each. Returns the edge count.
+///
+/// `run_id` is the document's latest completed (Pass-1) run; it stamps the
+/// edge's `extraction_run_id` provenance. Authored rows don't carry the
+/// Pass-2 run id, so the document's primary run stands in.
+#[tracing::instrument(skip(txn, db))]
+async fn write_proves_element_edges(
+    txn: &mut neo4rs::Txn,
+    db: &PgPool,
+    doc_id: &str,
+    run_id: i32,
+) -> Result<usize, IngestError> {
+    let edges = pipeline_repository::list_extracted_authored_relationships_for_document(db, doc_id)
+        .await
+        .map_err(|source| IngestError::Helper {
+            doc_id: doc_id.to_string(),
+            message: format!("list_extracted_authored_relationships: {source}"),
+        })?;
+
+    delete_cross_tier_relationships_for_document(txn, doc_id)
+        .await
+        .map_err(|e| IngestError::Helper {
+            doc_id: doc_id.to_string(),
+            message: format!("delete_cross_tier_relationships_for_document: {e:?}"),
+        })?;
+
+    let extraction_run_id = format!("run-{run_id}");
+    for edge in &edges {
+        write_cross_tier_relationship(
+            txn,
+            &edge.from_entity_id,
+            &edge.to_entity_id,
+            &edge.relationship_type,
+            doc_id,
+            &extraction_run_id,
+        )
+        .await
+        .map_err(|e| IngestError::Helper {
+            doc_id: doc_id.to_string(),
+            message: format!("write_cross_tier_relationship: {e:?}"),
+        })?;
+    }
+    Ok(edges.len())
 }
 
 // ─────────────────────────────────────────────────────────────────────────

@@ -30,6 +30,7 @@
 //! `pub(crate)` keeps them invisible outside the backend crate — still
 //! not part of the public API, just shared across sibling step modules.
 
+use std::collections::HashSet;
 use std::error::Error;
 use std::path::Path;
 
@@ -41,6 +42,7 @@ use colossus_pipeline::cancel::CancellationToken;
 use colossus_pipeline::progress::ProgressReporter;
 use colossus_pipeline::{Step, StepResult};
 
+use crate::api::pipeline::ingest_helpers::stable_entity_id;
 use crate::models::document_status::{RUN_STATUS_COMPLETED, RUN_STATUS_FAILED, RUN_STATUS_RUNNING};
 use crate::pipeline::config::{resolve_config, CrossDocContextRecord, ProcessingProfile};
 use crate::pipeline::context::AppContext;
@@ -58,6 +60,7 @@ use crate::pipeline::task::DocProcessing;
 use crate::repositories::pipeline_repository::{
     self, extraction,
     extraction::{CrossDocEntity, Pass1Entity},
+    extraction_relationships::resolve_relationship_fields,
     models,
 };
 
@@ -668,6 +671,37 @@ pub async fn run_pass2_extraction(
                 message: format!("{e}"),
             })?;
 
+    // 14b. Persist cross-tier edges (e.g. PROVES_ELEMENT: Allegation → canonical
+    //      Element). Pass 2 references authored Elements by their `ctx:`-prefixed
+    //      id; those are prompt-only (Option B), so `store_pass2_relationships`
+    //      above skipped them. We record them in `authored_relationships` (TEXT
+    //      endpoints, no FK) keyed by the extraction endpoint's stable Neo4j id,
+    //      for ingest to write to the graph. Gated on CASE_SLUG (same first-class
+    //      "feature off" state as the authored-context load).
+    match context.case_slug.as_deref() {
+        Some(case_slug) => {
+            let cross_tier_count = persist_cross_tier_relationships(
+                db,
+                document_id,
+                case_slug,
+                &parsed,
+                &id_map,
+                &authored_context_entities,
+            )
+            .await?;
+            tracing::info!(
+                document_id,
+                cross_tier_count,
+                "Pass 2: persisted {cross_tier_count} cross-tier relationships \
+                 (PROVES_ELEMENT) to authored_relationships"
+            );
+        }
+        None => tracing::debug!(
+            document_id,
+            "Pass 2: CASE_SLUG not configured — skipping cross-tier edge persistence"
+        ),
+    }
+
     // 15. Finalize the run.
     let input_tokens = response.input_tokens.unwrap_or(0) as i64;
     let output_tokens = response.output_tokens.unwrap_or(0) as i64;
@@ -797,6 +831,105 @@ fn assemble_pass2_prompt(
         .replace("{{admin_instructions}}", admin_instructions.unwrap_or(""))
         .replace("{{context}}", context.unwrap_or(""))
         .replace("{{document_text}}", document_text)
+}
+
+/// Persist the cross-tier edges Pass 2 produced between extracted entities and
+/// canonical (authored) entities — chiefly `PROVES_ELEMENT` from an Allegation
+/// to a canonical Element.
+///
+/// `store_pass2_relationships` skips these because the authored endpoint
+/// (`ctx:element-1-1`) is prompt-only and absent from `id_map` (Option B). We
+/// recover them here and write them to `authored_relationships` (TEXT
+/// endpoints, no FK), keyed by the extraction endpoint's *stable Neo4j id* so
+/// ingest can later `MATCH` the node it creates. This document's prior
+/// extracted rows are cleared first, so a re-process replaces rather than
+/// accumulates.
+///
+/// Scope (the instruction's accepted boundary): handles edges where the `from`
+/// endpoint is in `id_map` (extracted) and the `to` endpoint is authored. The
+/// cross-doc-`from` case is deferred future work.
+#[tracing::instrument(skip(db, parsed, id_map, authored))]
+async fn persist_cross_tier_relationships(
+    db: &PgPool,
+    document_id: &str,
+    case_slug: &str,
+    parsed: &serde_json::Value,
+    id_map: &std::collections::HashMap<String, i32>,
+    authored: &[CrossDocEntity],
+) -> Result<usize, LlmExtractError> {
+    let authored_ids: HashSet<&str> = authored.iter().map(|e| e.prefixed_id.as_str()).collect();
+
+    // Reconcile: drop this document's prior extracted edges before re-inserting.
+    pipeline_repository::delete_extracted_authored_relationships_for_document(db, document_id)
+        .await
+        .map_err(|e| LlmExtractError::StoreFailed {
+            message: format!("delete stale cross-tier edges: {e}"),
+        })?;
+
+    let Some(rels) = parsed.get("relationships").and_then(|v| v.as_array()) else {
+        return Ok(0);
+    };
+
+    let mut count = 0usize;
+    for rel in rels {
+        let (from_key, to_key, rel_type) = resolve_relationship_fields(rel);
+        // Cross-tier shape: `from` is extracted (in id_map), `to` is authored
+        // (ctx:-prefixed, not in id_map). Anything else was already handled (or
+        // skipped) by store_pass2_relationships.
+        let (Some(&from_item_id), true) = (id_map.get(from_key), authored_ids.contains(to_key))
+        else {
+            continue;
+        };
+
+        let from_neo4j_id = resolve_extraction_neo4j_id(db, from_item_id).await?;
+        // Strip the `ctx:` prefix → the canonical entity_id (e.g. "element-1-1"),
+        // which is the Neo4j node id the canonical loader assigned.
+        let to_id = to_key
+            .strip_prefix(extraction::CROSS_DOC_ID_PREFIX)
+            .unwrap_or(to_key);
+
+        pipeline_repository::insert_extracted_authored_relationship(
+            db,
+            case_slug,
+            &from_neo4j_id,
+            to_id,
+            rel_type,
+            rel.get("properties"),
+            document_id,
+        )
+        .await
+        .map_err(|e| LlmExtractError::StoreFailed {
+            message: format!("insert cross-tier edge {from_neo4j_id}->{to_id}: {e}"),
+        })?;
+        count += 1;
+    }
+    Ok(count)
+}
+
+/// Resolve an extraction item's stable Neo4j node id — the string ingest uses
+/// as the node `id`, and therefore the `from_entity_id` ingest will `MATCH` on.
+///
+/// Prefers a stored `neo4j_node_id` (the item was already ingested on a prior
+/// run); otherwise recomputes it from the full stored `item_data` via
+/// [`stable_entity_id`], passing the item's *own* `document_id` so the slug
+/// matches what ingest computes (for a local Allegation that equals the
+/// document being processed). Recomputing from the row — not the prompt-shaped
+/// `Pass1Entity` — is required because the v5.1 `Allegation` id is a hash of
+/// the entire `item_data`.
+async fn resolve_extraction_neo4j_id(db: &PgPool, item_id: i32) -> Result<String, LlmExtractError> {
+    let item = pipeline_repository::get_extraction_item_by_id(db, item_id)
+        .await
+        .map_err(|e| LlmExtractError::StoreFailed {
+            message: format!("fetch extraction item {item_id}: {e}"),
+        })?
+        .ok_or_else(|| LlmExtractError::StoreFailed {
+            message: format!("extraction item {item_id} not found for cross-tier edge"),
+        })?;
+
+    if let Some(node_id) = item.neo4j_node_id.as_deref().filter(|s| !s.is_empty()) {
+        return Ok(node_id.to_string());
+    }
+    Ok(stable_entity_id(&item, &item.document_id))
 }
 
 /// Has a COMPLETED `pass_number = 2` extraction_run landed for this document?

@@ -186,7 +186,7 @@ pub async fn get_grounded_relationships_for_document(
 /// fallback empty string failed `id_map` lookup, and the
 /// skip-and-log branch fired for every row. Accepting both in one
 /// place keeps the store functions aligned on one tolerance policy.
-fn resolve_relationship_fields(rel: &serde_json::Value) -> (&str, &str, &str) {
+pub(crate) fn resolve_relationship_fields(rel: &serde_json::Value) -> (&str, &str, &str) {
     let from = rel
         .get("from_entity")
         .or_else(|| rel.get("from"))
