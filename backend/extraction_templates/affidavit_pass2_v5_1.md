@@ -77,7 +77,7 @@ In the knowledge graph, affidavit relationships serve critical trial preparation
 - "The defendant" or "Defendants" → look up the actual Party entity with role="defendant" and create ABOUT to that specific Party.
 - Check Party aliases — if the statement mentions "Attorney Phillips" and the entity list has a Party with aliases containing that name, use that Party's ID.
 
-### CORROBORATES (Evidence → ComplaintAllegation or Evidence from another document)
+### CORROBORATES (Evidence → Allegation/ComplaintAllegation or Evidence from another document)
 
 **What it means:** This sworn statement independently confirms a factual claim made in another document — typically a complaint allegation. The affiant's testimony supports the same fact from an independent source.
 
@@ -85,7 +85,7 @@ In the knowledge graph, affidavit relationships serve critical trial preparation
 
 **How to evaluate CORROBORATES:**
 
-Step 1: Look through the entity list for entities from other documents (especially ComplaintAllegation entities).
+Step 1: Look through the entity list for entities from other documents (especially Allegation entities — a v5.1 complaint emits entity_type "Allegation"; older v4 complaints emit "ComplaintAllegation").
 
 Step 2: For each Evidence entity in THIS affidavit, ask: "Does this sworn statement confirm the same fact or event described in a complaint allegation or other evidence?"
 
@@ -155,7 +155,7 @@ For each Evidence entity:
 4. Check Party aliases when matching names
 
 ### Step 4: Evaluate cross-document relationships
-If the entity list includes entities from other documents (IDs prefixed with `ctx:` or entities with entity_type "ComplaintAllegation"):
+If the entity list includes entities from other documents (IDs prefixed with `ctx:` or entities with entity_type "Allegation" or "ComplaintAllegation"):
 
 For each Evidence entity in this affidavit:
 1. Scan ALL complaint allegations — does this statement confirm any of them? → CORROBORATES

@@ -217,9 +217,13 @@ relationship_properties:
     description: "When the relationship was first created (Cypher datetime() at write time; preserved on subsequent re-ingests via coalesce)"
 
 valid_patterns:
-  - from: Allegation
-    relationship: PROVES_ELEMENT
-    to: Element
+  # PROVES_ELEMENT is intentionally NOT listed here. Element is no longer an
+  # extraction entity (removed in v5.1a — see header), so it cannot appear as a
+  # pattern endpoint. Pass 2 targets canonical Elements from cross-document
+  # context (ctx:element-*); those PROVES_ELEMENT edges are persisted via
+  # authored_relationships (CC Instruction C), not the pattern-validated
+  # extraction_relationships path. PROVES_ELEMENT remains in relationship_types
+  # above as a valid type the LLM produces.
   - from: Allegation
     relationship: ABOUT
     to: Party
