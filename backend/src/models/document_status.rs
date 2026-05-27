@@ -122,12 +122,6 @@ pub const ENTITY_HARM: &str = "Harm";
 pub const ENTITY_EVIDENCE: &str = "Evidence";
 pub const ENTITY_DOCUMENT: &str = "Document";
 pub const ENTITY_ELEMENT: &str = "Element";
-pub const ENTITY_THEMATIC_ALLEGATION: &str = "ThematicAllegation";
-pub const ENTITY_COURT: &str = "Court";
-pub const ENTITY_PROCEEDING: &str = "Proceeding";
-pub const ENTITY_PROCEDURAL_EVENT: &str = "ProceduralEvent";
-pub const ENTITY_ROLE: &str = "Role";
-pub const ENTITY_ASSERTION: &str = "Assertion";
 
 /// Entity-type discriminators that resolve from the generic `Party`
 /// type into a concrete `Person` or `Organization` during ingest.
@@ -146,17 +140,6 @@ pub const PARTY_SUBTYPES: &[&str] = &[ENTITY_PARTY, ENTITY_PERSON, ENTITY_ORGANI
 // structural edge from every node to its `Document`.
 
 pub const REL_CONTAINED_IN: &str = "CONTAINED_IN";
-pub const REL_STATED_BY: &str = "STATED_BY";
-pub const REL_ABOUT: &str = "ABOUT";
-pub const REL_SUPPORTS: &str = "SUPPORTS";
-pub const REL_CORROBORATES: &str = "CORROBORATES";
-pub const REL_CONTRADICTS: &str = "CONTRADICTS";
-pub const REL_REBUTS: &str = "REBUTS";
-pub const REL_CAUSED_BY: &str = "CAUSED_BY";
-pub const REL_DAMAGES_FOR: &str = "DAMAGES_FOR";
-pub const REL_SUFFERED_BY: &str = "SUFFERED_BY";
-pub const REL_EVIDENCED_BY: &str = "EVIDENCED_BY";
-pub const REL_DERIVED_FROM: &str = "DERIVED_FROM";
 
 // ── Tests ───────────────────────────────────────────────────────
 
@@ -206,12 +189,6 @@ mod tests {
         assert!(ENTITY_EVIDENCE.starts_with(char::is_uppercase));
         assert!(ENTITY_DOCUMENT.starts_with(char::is_uppercase));
         assert!(ENTITY_ELEMENT.starts_with(char::is_uppercase));
-        assert!(ENTITY_THEMATIC_ALLEGATION.starts_with(char::is_uppercase));
-        assert!(ENTITY_COURT.starts_with(char::is_uppercase));
-        assert!(ENTITY_PROCEEDING.starts_with(char::is_uppercase));
-        assert!(ENTITY_PROCEDURAL_EVENT.starts_with(char::is_uppercase));
-        assert!(ENTITY_ROLE.starts_with(char::is_uppercase));
-        assert!(ENTITY_ASSERTION.starts_with(char::is_uppercase));
     }
 
     #[test]
@@ -224,24 +201,16 @@ mod tests {
 
     #[test]
     fn relationship_type_values_are_screaming_snake() {
-        for r in [
-            REL_CONTAINED_IN,
-            REL_STATED_BY,
-            REL_ABOUT,
-            REL_SUPPORTS,
-            REL_CORROBORATES,
-            REL_CONTRADICTS,
-            REL_REBUTS,
-            REL_CAUSED_BY,
-            REL_DAMAGES_FOR,
-            REL_SUFFERED_BY,
-            REL_EVIDENCED_BY,
-            REL_DERIVED_FROM,
-        ] {
-            assert!(
-                r.chars().all(|c| c.is_uppercase() || c == '_'),
-                "relationship type '{r}' must be SCREAMING_SNAKE_CASE"
-            );
-        }
+        // CONTAINED_IN is the only relationship type carried as a named
+        // constant: it is the structural edge hardcoded from every node to
+        // its Document. All other relationship types flow through as data
+        // (`rel.relationship_type`), so there are no further constants to
+        // assert here.
+        assert!(
+            REL_CONTAINED_IN
+                .chars()
+                .all(|c| c.is_uppercase() || c == '_'),
+            "relationship type '{REL_CONTAINED_IN}' must be SCREAMING_SNAKE_CASE"
+        );
     }
 }

@@ -674,9 +674,8 @@ pub(crate) enum DerivedValidation {
 /// The instruction wording in CC Instruction 2 §2B is "at least one
 /// entry in `provenance` references an Allegation whose
 /// `paragraph_number` exists in the document." LegalCount carries
-/// `paragraph_range`, Element carries `anchor_paragraph_numbers`,
-/// ThematicAllegation carries `paragraph_numbers` (plural). None of
-/// those should match a Harm's `provenance.ref` lookup — only paragraph
+/// `paragraph_range`, Element carries `anchor_paragraph_numbers`.
+/// Neither should match a Harm's `provenance.ref` lookup — only paragraph
 /// numbers from genuine Allegations should resolve. Filtering at map
 /// build time enforces that without polluting the validation function.
 ///
@@ -727,10 +726,9 @@ pub(crate) fn build_para_to_item_id(items: &[ExtractionItemRecord]) -> HashMap<S
 /// `properties`). Does NOT fall back to `item_data.properties.provenance`
 /// or to entity-type-specific alternatives like
 /// `properties.paragraph_numbers`. Schema/template/data disagreements
-/// (e.g., the May-5 ThematicAllegations have no provenance array because
-/// `pass1_complaint_v5.md` does not request one) surface loudly here as
-/// `Invalid` — the fix lives upstream in the template/schema, not in a
-/// permissive verifier.
+/// (a derived entity whose template does not request a provenance array)
+/// surface loudly here as `Invalid` — the fix lives upstream in the
+/// template/schema, not in a permissive verifier.
 pub(crate) fn validate_derived_provenance(
     item: &ExtractionItemRecord,
     para_to_item_id: &HashMap<String, i32>,
@@ -742,30 +740,20 @@ pub(crate) fn validate_derived_provenance(
         return DerivedValidation::Invalid("item_data is null".to_string());
     }
 
-    // Step 2 — read top-level provenance array (Q1A strict).
+    // Step 2 — read top-level provenance array (Q1A strict). Missing
+    // provenance is Invalid for every derived type — the fix lives
+    // upstream in the template/schema, not in a permissive verifier.
     let provenance = match item.item_data.get("provenance").and_then(|p| p.as_array()) {
         Some(arr) => arr,
-        None => {
-            // Step 3 — ThematicAllegation gets a schema/template-gap-aware
-            // message because the symptom is systemic and the followup
-            // is named in the wording. Other derived types get a
-            // generic message — for them, missing provenance is a
-            // per-item bug, not a known template gap.
-            if item.entity_type == "ThematicAllegation" {
-                return DerivedValidation::Invalid(
-                    "no provenance array — schema/template gap (see FOLLOWUP-template-thematic-provenance)".to_string(),
-                );
-            }
-            return DerivedValidation::Invalid("no provenance array".to_string());
-        }
+        None => return DerivedValidation::Invalid("no provenance array".to_string()),
     };
 
-    // Step 4 — empty array.
+    // Step 3 — empty array.
     if provenance.is_empty() {
         return DerivedValidation::Invalid("empty provenance array".to_string());
     }
 
-    // Step 5 — at-least-one-resolves with tolerance for null refs
+    // Step 4 — at-least-one-resolves with tolerance for null refs
     // and dangling refs. Each entry is inspected; null/missing refs
     // and unresolved refs are logged as warnings and skipped. If at
     // least one entry resolves, the item is Valid.
@@ -1031,7 +1019,7 @@ mod tests {
     #[test]
     fn test_validate_derived_returns_invalid_with_exact_reason() {
         // Routing table: (item fixture, expected reason string).
-        // Pins all six canonical diagnostic strings v5.1 §5.4 emits.
+        // Pins the canonical diagnostic strings v5.1 §5.4 emits.
         // Each row's docstring documents what regression it catches.
 
         // Build a paragraph map pre-populated with paragraph 8 so the
@@ -1047,25 +1035,16 @@ mod tests {
             ..make_item(201, "Harm", None)
         };
 
-        // Case 2: ThematicAllegation with no provenance key — entity-type-aware
-        // schema/template-gap message points the operator at the followup
-        // tracker instead of making it look like a per-item bug.
-        let theme_no_prov = make_item_with_data(
-            301,
-            "ThematicAllegation",
-            serde_json::json!({ "properties": { "title": "T", "paragraph_numbers": "8,10" } }),
-        );
-
-        // Case 3: Other derived type (Harm) with no provenance key — the
-        // catch-all branch's generic message. For Harm, missing provenance
-        // is a per-item bug, not a known template gap.
+        // Case 2: derived type (Harm) with no provenance key — the generic
+        // "no provenance array" message. Missing provenance is Invalid for
+        // every derived type; the fix lives upstream in the template/schema.
         let harm_no_prov = make_item_with_data(
             401,
             "Harm",
             serde_json::json!({ "properties": { "kind": "economic" } }),
         );
 
-        // Case 4: provenance: [] — distinguishing empty-array from
+        // Case 3: provenance: [] — distinguishing empty-array from
         // missing-key is what `verification_reason` is for. The empty
         // array means the LLM emitted the field but found nothing to
         // put in it; missing means the template never asked.
@@ -1075,7 +1054,7 @@ mod tests {
             serde_json::json!({ "properties": { "kind": "economic" }, "provenance": [] }),
         );
 
-        // Case 5: provenance entry refs a paragraph that's not in the map
+        // Case 4: provenance entry refs a paragraph that's not in the map
         // and it's the ONLY entry. With at-least-one-resolves semantics,
         // a sole dangling ref still produces Invalid because nothing
         // resolved. The per-entry detail goes to tracing::warn!; the
@@ -1089,7 +1068,7 @@ mod tests {
             }),
         );
 
-        // Case 6: provenance entry missing 'ref' field (sole entry).
+        // Case 5: provenance entry missing 'ref' field (sole entry).
         // Null ref is logged and skipped; with no entries resolving,
         // the summary reason fires.
         let harm_missing_ref = make_item_with_data(
@@ -1103,11 +1082,16 @@ mod tests {
 
         let cases = [
             (&null_harm, "item_data is null"),
-            (&theme_no_prov, "no provenance array — schema/template gap (see FOLLOWUP-template-thematic-provenance)"),
             (&harm_no_prov, "no provenance array"),
             (&harm_empty_prov, "empty provenance array"),
-            (&harm_dangling_ref, "no provenance entries resolved to extracted Allegations"),
-            (&harm_missing_ref, "no provenance entries resolved to extracted Allegations"),
+            (
+                &harm_dangling_ref,
+                "no provenance entries resolved to extracted Allegations",
+            ),
+            (
+                &harm_missing_ref,
+                "no provenance entries resolved to extracted Allegations",
+            ),
         ];
 
         for (item, expected_reason) in cases {

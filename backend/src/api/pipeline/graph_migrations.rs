@@ -22,9 +22,8 @@
 use neo4rs::Graph;
 
 use crate::models::document_status::{
-    ENTITY_ASSERTION, ENTITY_COMPLAINT_ALLEGATION, ENTITY_COURT, ENTITY_DOCUMENT, ENTITY_ELEMENT,
-    ENTITY_HARM, ENTITY_LEGAL_COUNT, ENTITY_ORGANIZATION, ENTITY_PERSON, ENTITY_PROCEDURAL_EVENT,
-    ENTITY_PROCEEDING, ENTITY_ROLE, ENTITY_THEMATIC_ALLEGATION,
+    ENTITY_COMPLAINT_ALLEGATION, ENTITY_DOCUMENT, ENTITY_HARM, ENTITY_LEGAL_COUNT,
+    ENTITY_ORGANIZATION, ENTITY_PERSON,
 };
 
 /// Run all Neo4j schema constraints at application startup.
@@ -52,13 +51,6 @@ pub async fn run_graph_migrations(graph: &Graph) {
         ),
         (ENTITY_LEGAL_COUNT, "legal_count_id_unique"),
         (ENTITY_HARM, "harm_id_unique"),
-        (ENTITY_ELEMENT, "element_id_unique"),
-        (ENTITY_THEMATIC_ALLEGATION, "thematic_allegation_id_unique"),
-        (ENTITY_COURT, "court_id_unique"),
-        (ENTITY_PROCEEDING, "proceeding_id_unique"),
-        (ENTITY_PROCEDURAL_EVENT, "procedural_event_id_unique"),
-        (ENTITY_ROLE, "role_id_unique"),
-        (ENTITY_ASSERTION, "assertion_id_unique"),
     ];
 
     for (label, constraint_name) in constraints {

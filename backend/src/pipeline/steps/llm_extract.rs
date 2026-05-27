@@ -2417,9 +2417,14 @@ The real prompt body.";
                  convention established in commit-of-instruction-F"
             );
         }
+        // Floor guards against a broken glob / empty dir making the test
+        // pass vacuously. Three pass-2 v4 templates remain on disk
+        // (brief, complaint, court_ruling) after the affidavit and
+        // discovery_response v4 templates were removed as orphans in the
+        // three-tier dead-code cleanup. Bump this if a v4 template is added.
         assert!(
-            pass2_count >= 5,
-            "expected at least 5 Pass-2 v4 templates, found {pass2_count}"
+            pass2_count >= 3,
+            "expected at least 3 Pass-2 v4 templates, found {pass2_count}"
         );
     }
 
@@ -2484,9 +2489,14 @@ The real prompt body.";
                 }
             }
         }
+        // Floor guards against a broken glob / empty dir. Six v4 templates
+        // remain (3 pass-1 + 3 pass-2: brief, complaint, court_ruling)
+        // after the affidavit and discovery_response v4 templates were
+        // removed as orphans in the three-tier dead-code cleanup. Bump this
+        // if a v4 template is added.
         assert!(
-            scanned >= 10,
-            "expected at least 10 v4 templates (5 pass-1 + 5 pass-2), \
+            scanned >= 6,
+            "expected at least 6 v4 templates (3 pass-1 + 3 pass-2), \
              scanned {scanned}"
         );
     }
