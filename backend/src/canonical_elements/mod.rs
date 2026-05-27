@@ -32,6 +32,15 @@ pub mod state;
 
 use std::path::PathBuf;
 
+/// Provenance marker stamped on everything the canonical loader writes, in
+/// both tiers: the Neo4j `provenance` node property ([`cypher`]) and the
+/// `authored_entities`/`authored_relationships.provenance` column
+/// ([`authored`]). Defined once here — accessible to the child modules via
+/// `super::PROVENANCE_CANONICAL` — so the two tiers cannot silently drift to
+/// different markers. A fixed data-model identifier, not configuration
+/// (Standing Rule 2 does not apply to schema identifiers).
+const PROVENANCE_CANONICAL: &str = "canonical";
+
 /// Minimal Neo4j connection config for the loader binary.
 ///
 /// ## Why not reuse `AppConfig::from_env()`?

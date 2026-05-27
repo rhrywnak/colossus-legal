@@ -21,6 +21,7 @@
 //! it, so an absent optional field and a removed property stay consistent.
 
 use super::schema::{CountMetadata, DeclarationDef, ElementDef, TheoryDef};
+use super::PROVENANCE_CANONICAL;
 use neo4rs::{query, Query};
 
 // CONST: These are Neo4j node labels and relationship discriminators — they
@@ -237,29 +238,61 @@ pub fn upsert_declaration(count_number: u32, d: &DeclarationDef, content_hash: &
     .param("count_number", count_number as i64)
 }
 
-/// Update the loader-managed properties of an existing `LegalCount`.
+/// Upsert the loader-managed properties of a `LegalCount`, creating the node
+/// if it doesn't already exist.
+///
+/// ## Why MERGE on `count_number`
+///
+/// `count_number` is the count's structural identity (1–4) and never changes,
+/// so it is the safe MERGE key. Converting the former MATCH to MERGE removes
+/// the create/update asymmetry and keeps this query self-sufficient. (Today
+/// the node is still expected to pre-exist: `plan::build_plan` reads its
+/// current state first and errors if it is missing — so in practice this
+/// MERGE always MATCHes and `ON CREATE` is dormant safety. Letting the loader
+/// own creation outright is deferred work in the plan/state layer.)
+///
+/// `provenance = 'canonical'` marks the node loader-owned on both branches.
+/// `created_at` is stamped only `ON CREATE`; `canonical_updated_at` advances on
+/// every managed write, matching the prior MATCH behaviour.
+///
+/// The cross-tier `id` (`count-{N}`) is intentionally *not* set here.
+/// [`set_legal_count_id`] stamps it unconditionally for every Count — including
+/// runs where no managed property changed and this upsert is skipped by the
+/// caller's property-diff guard — so stamping it here too would be redundant.
 ///
 /// `controlling_authorities_json` is always set (possibly `"[]"`).
 /// `doctrinal_requirements_json` is `None` for Counts without doctrinal
 /// requirements, so that property is removed/never set there. The four
 /// review/note/special fields are likewise `None` outside the Counts that use
 /// them.
-pub fn update_legal_count(
+pub fn upsert_legal_count(
     meta: &CountMetadata,
     controlling_authorities_json: String,
     doctrinal_requirements_json: Option<String>,
 ) -> Query {
     query(
-        "MATCH (c:LegalCount {count_number: $count_number}) \
-         SET c.burden_of_proof = $burden_of_proof, \
-             c.template_name = $template_name, \
-             c.m_civ_ji_reference = $m_civ_ji_reference, \
-             c.controlling_authorities_json = $controlling_authorities_json, \
-             c.doctrinal_requirements_json = $doctrinal_requirements_json, \
-             c.chuck_review_required = $chuck_review_required, \
-             c.chuck_review_note = $chuck_review_note, \
-             c.special_note = $special_note, \
-             c.canonical_updated_at = datetime()",
+        "MERGE (c:LegalCount {count_number: $count_number}) \
+         ON CREATE SET c.burden_of_proof = $burden_of_proof, \
+                       c.template_name = $template_name, \
+                       c.m_civ_ji_reference = $m_civ_ji_reference, \
+                       c.controlling_authorities_json = $controlling_authorities_json, \
+                       c.doctrinal_requirements_json = $doctrinal_requirements_json, \
+                       c.chuck_review_required = $chuck_review_required, \
+                       c.chuck_review_note = $chuck_review_note, \
+                       c.special_note = $special_note, \
+                       c.provenance = $provenance, \
+                       c.created_at = datetime(), \
+                       c.canonical_updated_at = datetime() \
+         ON MATCH SET  c.burden_of_proof = $burden_of_proof, \
+                       c.template_name = $template_name, \
+                       c.m_civ_ji_reference = $m_civ_ji_reference, \
+                       c.controlling_authorities_json = $controlling_authorities_json, \
+                       c.doctrinal_requirements_json = $doctrinal_requirements_json, \
+                       c.chuck_review_required = $chuck_review_required, \
+                       c.chuck_review_note = $chuck_review_note, \
+                       c.special_note = $special_note, \
+                       c.provenance = $provenance, \
+                       c.canonical_updated_at = datetime()",
     )
     .param("count_number", meta.count_number as i64)
     .param("burden_of_proof", meta.burden_of_proof.as_str())
@@ -270,6 +303,7 @@ pub fn update_legal_count(
     .param("chuck_review_required", meta.chuck_review_required)
     .param("chuck_review_note", meta.chuck_review_note.clone())
     .param("special_note", meta.special_note.clone())
+    .param("provenance", PROVENANCE_CANONICAL)
 }
 
 /// Stamp the cross-tier `id` property on a `LegalCount` node.

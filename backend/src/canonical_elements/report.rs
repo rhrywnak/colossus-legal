@@ -215,7 +215,7 @@ impl ChangeReport {
         if let Some(a) = &self.authored {
             writeln!(
                 f,
-                "{p}  Authored (Postgres): {} entities upserted, {} HAS_ELEMENT relationships upserted",
+                "{p}  Authored (Postgres): {} entities upserted, {} relationships upserted (HAS_ELEMENT + HAS_THEORY + SEEKS_DECLARATION)",
                 a.entities, a.relationships
             )?;
         }

@@ -326,14 +326,14 @@ async fn apply_count(graph: &Graph, count: &CountPlan) -> LoaderResult<()> {
         .map_err(CanonicalLoaderError::exec("start_txn"))?;
 
     if !count.changed_legal_count_props.is_empty() {
-        let q = cypher::update_legal_count(
+        let q = cypher::upsert_legal_count(
             &count.meta,
             count.controlling_authorities_json.clone(),
             count.doctrinal_requirements_json.clone(),
         );
         txn.run(q)
             .await
-            .map_err(CanonicalLoaderError::exec("update_legal_count"))?;
+            .map_err(CanonicalLoaderError::exec("upsert_legal_count"))?;
     }
 
     let cn = count.meta.count_number;

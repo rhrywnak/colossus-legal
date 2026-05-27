@@ -21,6 +21,9 @@
 
 use neo4rs::Graph;
 
+use crate::canonical_elements::cypher::{
+    BREACH_THEORY_LABEL, DECLARATION_LABEL, IMPROPER_ACT_THEORY_LABEL,
+};
 use crate::models::document_status::{
     ENTITY_COMPLAINT_ALLEGATION, ENTITY_DOCUMENT, ENTITY_HARM, ENTITY_LEGAL_COUNT,
     ENTITY_ORGANIZATION, ENTITY_PERSON,
@@ -34,29 +37,42 @@ use crate::models::document_status::{
 /// ## Constraint scope
 ///
 /// We create constraints for every entity type produced by the extraction
-/// pipeline. The `id` property is the MERGE key for all entity nodes.
-/// Without these constraints, concurrent ingest operations could produce
-/// duplicate nodes.
+/// pipeline plus the Tier-1 nodes written by the canonical Element loader
+/// (`load_canonical_elements`). Each entry names the MERGE-key property
+/// explicitly: most types key on `id`, but `BreachTheory` / `ImproperActTheory`
+/// MERGE on `key` (see [`crate::canonical_elements::cypher`]). Without these
+/// constraints, concurrent operations could produce duplicate nodes.
 pub async fn run_graph_migrations(graph: &Graph) {
-    // (Neo4j label, constraint name). Constraint names are persisted in the
-    // database, so changing one is a migration; pair them with the label
-    // explicitly rather than deriving from PascalCase to keep this stable.
-    let constraints: &[(&str, &str)] = &[
-        (ENTITY_DOCUMENT, "document_id_unique"),
-        (ENTITY_PERSON, "person_id_unique"),
-        (ENTITY_ORGANIZATION, "organization_id_unique"),
+    // (Neo4j label, constraint name, MERGE-key property). Constraint names are
+    // persisted in the database, so changing one is a migration; pair them with
+    // the label explicitly rather than deriving from PascalCase to keep this
+    // stable. The key property is carried per-row because it is not always `id`.
+    let constraints: &[(&str, &str, &str)] = &[
+        (ENTITY_DOCUMENT, "document_id_unique", "id"),
+        (ENTITY_PERSON, "person_id_unique", "id"),
+        (ENTITY_ORGANIZATION, "organization_id_unique", "id"),
         (
             ENTITY_COMPLAINT_ALLEGATION,
             "complaint_allegation_id_unique",
+            "id",
         ),
-        (ENTITY_LEGAL_COUNT, "legal_count_id_unique"),
-        (ENTITY_HARM, "harm_id_unique"),
+        (ENTITY_LEGAL_COUNT, "legal_count_id_unique", "id"),
+        (ENTITY_HARM, "harm_id_unique", "id"),
+        // Canonical Tier-1 loader nodes. Theories MERGE on `key`;
+        // declarations MERGE on `id`.
+        (BREACH_THEORY_LABEL, "breach_theory_key_unique", "key"),
+        (
+            IMPROPER_ACT_THEORY_LABEL,
+            "improper_act_theory_key_unique",
+            "key",
+        ),
+        (DECLARATION_LABEL, "declaration_sought_id_unique", "id"),
     ];
 
-    for (label, constraint_name) in constraints {
+    for (label, constraint_name, key_prop) in constraints {
         let cypher = format!(
             "CREATE CONSTRAINT {constraint_name} IF NOT EXISTS \
-             FOR (n:{label}) REQUIRE (n.id) IS UNIQUE"
+             FOR (n:{label}) REQUIRE (n.{key_prop}) IS UNIQUE"
         );
         match graph.run(neo4rs::query(&cypher)).await {
             Ok(_) => tracing::info!(

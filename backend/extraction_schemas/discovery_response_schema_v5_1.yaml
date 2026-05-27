@@ -131,6 +131,8 @@ relationship_types:
     description: "This sworn statement conflicts with another statement by the SAME person in a DIFFERENT document. The contradiction test: did this person say something materially different elsewhere? Example: Phillips admits in discovery Q73 that no documents support the $50K gift claim, but in his CoA brief he argued the money was gifted. NOTE: CONTRADICTS targets Evidence nodes from other documents — cross-document relationships."
   - name: REBUTS
     description: "This sworn statement directly counters what a DIFFERENT person claimed. The rebuttal test: does this person's answer oppose what another party asserted? Example: Phillips' admission about fee allocation rebuts CFS's claim that fee decisions were Marie's fault. NOTE: REBUTS targets Evidence or Assertion nodes from other documents — cross-document relationships."
+  - name: CHARACTERIZES
+    description: "Evidence characterizes a Party: a sworn answer that labels or evaluates a party's behavior or character (e.g., calling someone unreasonable, uncooperative, difficult, or unintelligible). Create one CHARACTERIZES relationship from the Evidence to each Party it characterizes. Target is a Party entity in the same document. The pass-2 template (discovery_response_pass2_v5_1.md §6) instructs the LLM to emit these; this entry registers the type the template already produces."
 
 # Required provenance properties applied to every relationship written to
 # Neo4j (per LEGAL_DATA_MODEL_v5_1.md §5.4). Populated by the ingest stage
