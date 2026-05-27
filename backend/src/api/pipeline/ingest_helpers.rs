@@ -55,8 +55,12 @@ pub fn slug(name: &str) -> String {
 /// - ComplaintAllegation: {doc_slug}:para:{paragraph_number}
 ///   paragraph_number is a structural property of legal complaints —
 ///   numbered paragraphs are stable, they don't change between extractions.
-/// - LegalCount: {doc_slug}:count:{count_number}
-///   Legal counts are numbered (Count I, II, III) — stable structural features.
+/// - LegalCount: count-{count_number}  (case-global — NO doc_slug prefix)
+///   Legal counts are numbered (Count I, II, III) and are case-global: the
+///   same id is shared across every document and matches the canonical
+///   loader's `count-{N}` (authored.rs `legal_count_entity_id`), so an
+///   extracted LegalCount MERGEs onto the canonical node instead of
+///   duplicating it.
 /// - Harm: {doc_slug}:harm:{sha256(harm_type + description)[0..8]}
 ///   Harms are derived entities without natural numbers. A content hash
 ///   provides a stable fingerprint. 8 hex chars = 32-bit space, sufficient
@@ -66,7 +70,9 @@ pub fn slug(name: &str) -> String {
 ///
 /// The {doc_slug} prefix scopes document-specific entities to their document,
 /// preventing ID collisions across different documents that happen to have
-/// the same paragraph number or count number.
+/// the same paragraph number. LegalCount is the deliberate exception — it is
+/// case-global (no prefix) so extracted counts resolve onto the shared
+/// canonical node.
 pub fn stable_entity_id(item: &ExtractionItemRecord, doc_id: &str) -> String {
     let doc_slug = slug(doc_id);
 
@@ -98,6 +104,16 @@ pub fn stable_entity_id(item: &ExtractionItemRecord, doc_id: &str) -> String {
             format!("{}:para:{}", doc_slug, para)
         }
         ENTITY_LEGAL_COUNT => {
+            // Domain note: a LegalCount is case-global, not document-scoped.
+            // Count I ("Breach of Fiduciary Duty") is the same legal count
+            // whether the complaint, a motion, or a brief references it. The
+            // canonical loader authors these nodes with id `count-{N}` (see
+            // authored.rs `legal_count_entity_id`); producing the same id here
+            // means an extracted LegalCount MERGEs onto the existing canonical
+            // node at ingest rather than creating a duplicate. This is why —
+            // unlike the other arms — we deliberately drop the `doc_slug`
+            // prefix: two documents that both cite Count 1 must resolve to one
+            // node.
             let count = item.item_data["properties"]["count_number"]
                 .as_u64()
                 .map(|n| n.to_string())
@@ -107,13 +123,23 @@ pub fn stable_entity_id(item: &ExtractionItemRecord, doc_id: &str) -> String {
                         .map(|s| s.to_string())
                 })
                 .unwrap_or_else(|| {
+                    // No usable count_number — fall back to a content hash of
+                    // legal_basis so malformed extractions don't all collapse
+                    // onto one id. Still un-prefixed (case-global); the
+                    // `hash-` segment keeps it from ever colliding with a real
+                    // `count-{N}` canonical node.
                     let legal_basis = item.item_data["properties"]["legal_basis"]
                         .as_str()
                         .unwrap_or("");
                     let hash = format!("{:x}", Sha256::digest(legal_basis.as_bytes()));
                     format!("hash-{}", &hash[..8])
                 });
-            format!("{}:count:{}", doc_slug, count)
+            // CONST: the `count-` prefix is a fixed cross-tier schema
+            // identifier — the same literal the Tier-1 loader emits
+            // (authored.rs `legal_count_entity_id`) and the Tier-2 setter
+            // stamps (cypher.rs `set_legal_count_id`). It is part of the MERGE
+            // contract, not an env-configurable value (Standing Rule 2).
+            format!("count-{count}")
         }
         ENTITY_HARM => {
             let harm_type = item.item_data["properties"]["harm_type"]
@@ -835,15 +861,69 @@ mod tests {
 
     #[test]
     fn test_stable_id_legal_count_by_number() {
+        // New case-global format: `count-{N}`, no doc_slug prefix, matching
+        // the canonical loader's `legal_count_entity_id`.
         let item = make_item(
             "LegalCount",
             serde_json::json!({ "count_number": 3, "legal_basis": "Breach of Contract" }),
         );
         let id = stable_entity_id(&item, DOC_ID);
+        assert_eq!(id, "count-3", "numeric count_number must produce count-3");
+    }
+
+    #[test]
+    fn test_stable_id_legal_count_numeric_one() {
+        let item = make_item("LegalCount", serde_json::json!({ "count_number": 1 }));
+        assert_eq!(stable_entity_id(&item, DOC_ID), "count-1");
+    }
+
+    #[test]
+    fn test_stable_id_legal_count_string_number() {
+        // count_number can arrive as a JSON string ("1") rather than a number;
+        // it must still resolve to count-1 (the as_str branch).
+        let item = make_item("LegalCount", serde_json::json!({ "count_number": "1" }));
+        assert_eq!(
+            stable_entity_id(&item, DOC_ID),
+            "count-1",
+            "string count_number must produce the same id as the numeric form"
+        );
+    }
+
+    #[test]
+    fn test_stable_id_legal_count_hash_fallback() {
+        // No usable count_number: fall back to a content hash of legal_basis,
+        // prefixed `count-hash-` (still case-global, no doc_slug).
+        let item = make_item(
+            "LegalCount",
+            serde_json::json!({ "legal_basis": "Breach of Contract" }),
+        );
+        let id = stable_entity_id(&item, DOC_ID);
+        let expected_hash = &format!("{:x}", Sha256::digest(b"Breach of Contract"))[..8];
+        assert_eq!(
+            id,
+            format!("count-hash-{expected_hash}"),
+            "missing count_number must hash legal_basis with a count-hash- prefix"
+        );
+        // Must not be doc-scoped, and must not look like a real count-{N}.
         assert!(
-            id.ends_with(":count:3"),
-            "ID should end with :count:3, got: {}",
-            id
+            !id.contains(':'),
+            "fallback id must carry no doc_slug, got: {id}"
+        );
+        assert!(id.starts_with("count-hash-"));
+    }
+
+    #[test]
+    fn test_stable_id_legal_count_resolves_across_documents() {
+        // The whole point of this change (entity resolution): the same Count
+        // cited in two different documents must produce ONE id, so ingest
+        // MERGEs both onto the single canonical node instead of duplicating.
+        let item = make_item("LegalCount", serde_json::json!({ "count_number": 1 }));
+        let id_complaint = stable_entity_id(&item, "doc-awad-complaint");
+        let id_motion = stable_entity_id(&item, "doc-awad-motion-to-compel");
+        assert_eq!(id_complaint, "count-1");
+        assert_eq!(
+            id_complaint, id_motion,
+            "same count_number in different documents must resolve to one id"
         );
     }
 
