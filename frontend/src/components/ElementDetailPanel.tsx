@@ -61,11 +61,27 @@ const PANEL_TOP_PX = 80;
 /** Panel offset from the right of the viewport (default starting position). */
 const PANEL_RIGHT_PX = 40;
 
-/** Panel width in pixels. */
-const PANEL_WIDTH_PX = 520;
+/** Initial panel width in pixels (user can drag the bottom-right corner to
+ *  resize within the min/max bounds below). */
+const PANEL_DEFAULT_WIDTH_PX = 520;
 
-/** Max height as a viewport-height fraction (panel cannot exceed 80% of vh). */
-const PANEL_MAX_HEIGHT_VH = 80;
+/** Floor for user-resize: panel can't shrink below this width or the content
+ *  would clip the header and allegation cards. */
+const PANEL_MIN_WIDTH_PX = 380;
+
+/** Ceiling for user-resize as a viewport-width fraction — keeps the panel
+ *  from spanning the whole window on small displays. */
+const PANEL_MAX_WIDTH_VW = 90;
+
+/** Initial panel height as a viewport-height fraction. */
+const PANEL_DEFAULT_HEIGHT_VH = 70;
+
+/** Floor for user-resize: must fit at least the header + collapsed notes
+ *  row + the allegations-list header without making the scroll area zero. */
+const PANEL_MIN_HEIGHT_PX = 300;
+
+/** Ceiling for user-resize as a viewport-height fraction. */
+const PANEL_MAX_HEIGHT_VH = 90;
 
 /** Z-index for the panel; high enough to float above the page content. */
 const PANEL_Z_INDEX = 1000;
@@ -172,8 +188,21 @@ const PANEL_STYLE: React.CSSProperties = {
   position: "fixed",
   top: `${PANEL_TOP_PX}px`,
   right: `${PANEL_RIGHT_PX}px`,
-  width: `${PANEL_WIDTH_PX}px`,
+  // `width`/`height` are the INITIAL dimensions; `resize: both` lets the user
+  // drag the bottom-right corner to change them, and the min/max bounds clamp
+  // the result. CSS `resize` requires `overflow` to be anything other than
+  // `visible` (we use `hidden`), and the browser renders a tiny diagonal
+  // triangle in the corner; the grip glyph below makes the affordance more
+  // obvious. The interior flex-column layout was already built so the
+  // allegations scroll area (flex: 1 1 auto) grows/shrinks to fill remaining
+  // space — no JSX changes were needed to make the content reflow.
+  width: `${PANEL_DEFAULT_WIDTH_PX}px`,
+  minWidth: `${PANEL_MIN_WIDTH_PX}px`,
+  maxWidth: `${PANEL_MAX_WIDTH_VW}vw`,
+  height: `${PANEL_DEFAULT_HEIGHT_VH}vh`,
+  minHeight: `${PANEL_MIN_HEIGHT_PX}px`,
   maxHeight: `${PANEL_MAX_HEIGHT_VH}vh`,
+  resize: "both",
   display: "flex",
   flexDirection: "column",
   backgroundColor: "var(--bg-surface)",
@@ -184,6 +213,26 @@ const PANEL_STYLE: React.CSSProperties = {
   boxShadow: "0 4px 24px rgba(0,0,0,0.12)",
   zIndex: PANEL_Z_INDEX,
   overflow: "hidden",
+};
+
+/**
+ * Subtle resize-affordance grip drawn in the bottom-right corner. The
+ * browser's native `resize: both` triangle on a borderless rounded element
+ * is easy to miss, so we overlay a muted glyph as a hint.
+ *
+ * `pointer-events: none` keeps mouse events flowing through to the panel's
+ * own bottom-right corner so the browser's native resize control still works
+ * — the grip is purely visual.
+ */
+const RESIZE_GRIP_STYLE: React.CSSProperties = {
+  position: "absolute",
+  bottom: "2px",
+  right: "6px",
+  pointerEvents: "none",
+  color: "var(--text-disabled)",
+  fontSize: "10px",
+  lineHeight: 1,
+  userSelect: "none",
 };
 
 const HEADER_STYLE: React.CSSProperties = {
@@ -722,6 +771,10 @@ const ElementDetailPanel: React.FC<ElementDetailPanelProps> = ({
             </div>
           </>
         )}
+        {/* Resize-affordance hint in the bottom-right corner. The actual
+            resize is driven by the panel's `resize: both` CSS; this glyph
+            is purely visual and lets pointer events pass through. */}
+        <span style={RESIZE_GRIP_STYLE} aria-hidden="true">◢</span>
       </div>
     </Draggable>
   );
