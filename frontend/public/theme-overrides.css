@@ -1,10 +1,102 @@
-/* Custom color overrides — edit token values to change colors without rebuilding.
-   This file is served statically and loaded after tokens.css.
-   Any :root variable defined here overrides the default in tokens.css.
+/* =============================================================================
+ * theme-overrides.css — runtime color customization for Colossus-Legal
+ * -----------------------------------------------------------------------------
+ * This file is served statically from the container's web root and loaded
+ * AFTER the bundled CSS (see index.html — the <link> is placed at the end of
+ * <body> deliberately so source-order cascade lets these :root values win).
+ *
+ * Every token from frontend/src/styles/tokens.css is listed below with its
+ * current default value. To change a color WITHOUT rebuilding the frontend,
+ * edit the value here and reload the container (or volume-mount a modified
+ * copy of this file at /usr/share/nginx/html/theme-overrides.css).
+ *
+ * Tokens are grouped by category for browsability. Each value reflects the
+ * default in tokens.css at the time this file was generated; if tokens.css
+ * adds NEW tokens later, you'll want to mirror them here as well.
+ *
+ * Tip: comment out a line (or remove it) to fall back to the default from
+ * tokens.css for that one token, while keeping your other overrides.
+ * ============================================================================= */
 
-   Example:
-   :root {
-     --bg-page: #e8e8e8;
-     --accent-primary: #2e7d32;
-   }
-*/
+:root {
+  /* --- Backgrounds ----------------------------------------------------------
+   * Surfaces from largest to smallest: page canvas → cards/tables. */
+
+  --bg-page: #f4f5f7;                /* Main page background behind all cards */
+  --bg-surface: #ffffff;             /* Card, table, and dialog backgrounds */
+
+  /* --- Borders --------------------------------------------------------------
+   * 1px dividers carrying the elevation in lieu of shadows. */
+
+  --border-default: #d0d5dd;         /* Card borders, table row dividers, input borders */
+  --state-danger-border: #fecaca;    /* Border on error banners and danger pills */
+
+  /* --- Text -----------------------------------------------------------------
+   * Emphasis ladder: primary → secondary → muted → disabled (lowest). */
+
+  --text-primary: #101828;           /* Headings, body text, element names, count headers */
+  --text-secondary: #475467;         /* Metadata, table column headers, dates, secondary labels */
+  --text-muted: #667085;             /* Tertiary hints, low-emphasis copy */
+  --text-disabled: #94a3b8;          /* Disabled buttons, input placeholders, inactive-row text */
+
+  /* --- Accent (interactive primary) -----------------------------------------
+   * One accent only — §9 design principle. Links, buttons, and pills all
+   * share this hue so the eye knows "this is clickable". */
+
+  --accent-primary: #1570ef;         /* Links, primary buttons, allegation-count pill text */
+  --accent-primary-hover: #175cd3;   /* Hover/active state for --accent-primary elements */
+  --accent-bg-soft: #e0f2fe;         /* Pale blue pill backgrounds and focus rings */
+
+  /* --- Burden of proof (case-domain) ----------------------------------------
+   * Civil-law evidentiary burden pills on Count cards. Neutral grey =
+   * preponderance (baseline). Amber = clear and convincing (heightened). */
+
+  --burden-neutral-bg: #f2f4f7;      /* "Preponderance of the evidence" pill background */
+  --burden-neutral-text: #344054;    /* "Preponderance of the evidence" pill text */
+  --burden-warning-bg: #fef0c7;      /* "Clear and convincing" pill background (amber) */
+  --burden-warning-text: #b54708;    /* "Clear and convincing" pill text (amber) */
+
+  /* --- Case status (case-domain) -------------------------------------------
+   * Single-color labels for party/claim status in case views. Text color
+   * only — not pill backgrounds. */
+
+  --status-active-text: #027a48;     /* Active case / live claim / live party (green) */
+  --status-dropped-text: #b42318;    /* Dropped party or struck claim (red) */
+  --status-pending-text: #b54708;    /* Pending / missing-field indicator (amber) */
+
+  /* --- State pills (generic semantic) --------------------------------------
+   * Cross-feature danger/warning/success/info families. Distinct from the
+   * --status-* family above, which is reserved for case-domain statuses.
+   * "soft" backgrounds pair with the existing case-status text colors
+   * (or the *-strong variant) for legible contrast on light surfaces. */
+
+  --state-danger-bg-soft: #fef2f2;   /* Error banner background, danger pill background */
+  --state-danger-strong: #dc2626;    /* Delete buttons, "HIGH" severity indicator (solid red) */
+  --state-warning-strong: #d97706;   /* Warning progress bars, severity badges (solid orange) */
+  --state-success-bg-soft: #dcfce7;  /* Success banner background, success pill background */
+  --state-success-strong: #16a34a;   /* Progress-bar fill, "PASS" indicator (solid green) */
+  --state-info-bg-soft: #e0e7ff;     /* Info pill background (indigo, distinct from accent blue) */
+
+  /* --- Bias Explorer feature accents ---------------------------------------
+   * Namespaced to the BiasExplorer pages — change these to re-theme the
+   * feature without affecting the rest of the app. Indigo/purple/pink trio
+   * encodes bias-actor categories. */
+
+  --bias-indigo-text: #4338ca;       /* Bias Explorer indigo category text */
+  --bias-purple-text: #6b21a8;       /* Bias Explorer purple category text */
+  --bias-purple-bg-soft: #ede9fe;    /* Bias Explorer purple category pill background */
+  --bias-pink-text: #9d174d;         /* Bias Explorer pink category text */
+  --bias-pink-bg-soft: #fce7f3;      /* Bias Explorer pink category pill background */
+
+  /* --- Typography font stacks ----------------------------------------------
+   * Override these only if you've installed alternative webfonts or want a
+   * different system fallback. Inter is loaded via the <link> in index.html;
+   * the serif and mono stacks degrade to system fonts. */
+
+  --font-sans: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+                                     /* Body and UI default — used by every type class */
+  --font-serif: "Source Serif Pro", "Charter", Georgia, serif;
+                                     /* H1 case title only — the one deliberate serif gesture */
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+                                     /* Element-number column — tabular digit alignment */
+}
