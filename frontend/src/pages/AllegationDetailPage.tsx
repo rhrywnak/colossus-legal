@@ -11,12 +11,12 @@ import Breadcrumb from "../components/Breadcrumb";
 // ---------------------------------------------------------------------------
 
 const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
-  PROVEN: { bg: "#dcfce7", text: "#166534" },
-  PARTIAL: { bg: "#fef3c7", text: "#92400e" },
-  UNPROVEN: { bg: "#fee2e2", text: "#991b1b" },
+  PROVEN: { bg: "var(--state-success-bg-soft)", text: "var(--status-active-text)" },
+  PARTIAL: { bg: "var(--burden-warning-bg)", text: "var(--burden-warning-text)" },
+  UNPROVEN: { bg: "var(--state-danger-bg-soft)", text: "var(--status-dropped-text)" },
 };
 
-const DEFAULT_STATUS_COLOR = { bg: "#f3f4f6", text: "#374151" };
+const DEFAULT_STATUS_COLOR = { bg: "var(--bg-page)", text: "var(--text-secondary)" };
 
 function getStatusStyle(status: string | undefined) {
   if (!status) return DEFAULT_STATUS_COLOR;
@@ -83,7 +83,7 @@ const AllegationDetailPage: React.FC = () => {
   // -- Loading state --------------------------------------------------------
   if (loading) {
     return (
-      <div style={{ padding: "2rem", textAlign: "center", color: "#6b7280" }}>
+      <div style={{ padding: "2rem", textAlign: "center", color: "var(--text-muted)" }}>
         Loading allegation detail...
       </div>
     );
@@ -93,7 +93,7 @@ const AllegationDetailPage: React.FC = () => {
   if (notFound) {
     return (
       <div style={{ padding: "1rem" }}>
-        <p style={{ color: "#6b7280" }}>Allegation not found.</p>
+        <p style={{ color: "var(--text-muted)" }}>Allegation not found.</p>
         <button type="button" onClick={goBack} style={backButtonStyle}>
           &larr; Back
         </button>
@@ -107,10 +107,10 @@ const AllegationDetailPage: React.FC = () => {
       <div
         style={{
           padding: "1rem",
-          backgroundColor: "#fef2f2",
-          border: "1px solid #fecaca",
+          backgroundColor: "var(--state-danger-bg-soft)",
+          border: "1px solid var(--state-danger-border)",
           borderRadius: "6px",
-          color: "#dc2626",
+          color: "var(--state-danger-strong)",
         }}
       >
         {error}
@@ -153,8 +153,8 @@ const AllegationDetailPage: React.FC = () => {
           <span
             style={{
               padding: "0.2rem 0.5rem",
-              backgroundColor: "#e5e7eb",
-              color: "#374151",
+              backgroundColor: "var(--border-default)",
+              color: "var(--text-secondary)",
               borderRadius: "4px",
               fontSize: "0.75rem",
               fontFamily: "monospace",
@@ -186,7 +186,7 @@ const AllegationDetailPage: React.FC = () => {
         <h1 style={{ margin: 0, fontSize: "1.5rem" }}>{allegation.title}</h1>
 
         {allegation.description && (
-          <p style={{ color: "#4b5563", marginTop: "0.5rem", lineHeight: 1.5 }}>
+          <p style={{ color: "var(--text-secondary)", marginTop: "0.5rem", lineHeight: 1.5 }}>
             {allegation.description}
           </p>
         )}
@@ -199,7 +199,7 @@ const AllegationDetailPage: React.FC = () => {
       </h2>
 
       {characterizations.length === 0 ? (
-        <p style={{ color: "#6b7280", fontStyle: "italic" }}>
+        <p style={{ color: "var(--text-muted)", fontStyle: "italic" }}>
           No characterizations found for this allegation.
         </p>
       ) : (
@@ -225,7 +225,7 @@ const AllegationDetailPage: React.FC = () => {
               >
                 <span style={charLabelStyle}>{char.label}</span>
                 {char.stated_by && (
-                  <span style={{ fontSize: "0.8rem", color: "#6b7280" }}>
+                  <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
                     &mdash; {char.stated_by}
                   </span>
                 )}
@@ -254,7 +254,7 @@ const AllegationDetailPage: React.FC = () => {
                     style={{
                       fontSize: "0.8rem",
                       fontWeight: 600,
-                      color: "#1e40af",
+                      color: "var(--accent-primary-hover)",
                       marginBottom: "0.5rem",
                       textTransform: "uppercase",
                       letterSpacing: "0.05em",
@@ -268,7 +268,7 @@ const AllegationDetailPage: React.FC = () => {
                       flexDirection: "column",
                       gap: "0.75rem",
                       paddingLeft: "1rem",
-                      borderLeft: "3px solid #bfdbfe",
+                      borderLeft: "3px solid var(--accent-bg-soft)",
                     }}
                   >
                     {char.rebuttals.map((reb) => (
@@ -296,7 +296,7 @@ const AllegationDetailPage: React.FC = () => {
                           <div
                             style={{
                               fontSize: "0.8rem",
-                              color: "#6b7280",
+                              color: "var(--text-muted)",
                               marginTop: "0.25rem",
                             }}
                           >
@@ -327,7 +327,7 @@ const AllegationDetailPage: React.FC = () => {
       </h2>
 
       {proof_claims.length === 0 ? (
-        <p style={{ color: "#6b7280", fontStyle: "italic" }}>
+        <p style={{ color: "var(--text-muted)", fontStyle: "italic" }}>
           No proof claims found for this allegation.
         </p>
       ) : (
@@ -349,15 +349,15 @@ const AllegationDetailPage: React.FC = () => {
                   gap: "0.5rem",
                 }}
               >
-                <span style={{ fontWeight: 600, color: "#1f2937" }}>
+                <span style={{ fontWeight: 600, color: "var(--text-primary)" }}>
                   {claim.title}
                 </span>
                 {claim.category && (
                   <span
                     style={{
                       padding: "0.15rem 0.4rem",
-                      backgroundColor: "#f3f4f6",
-                      color: "#6b7280",
+                      backgroundColor: "var(--bg-page)",
+                      color: "var(--text-muted)",
                       borderRadius: "3px",
                       fontSize: "0.7rem",
                     }}
@@ -368,7 +368,7 @@ const AllegationDetailPage: React.FC = () => {
                 <span
                   style={{
                     fontSize: "0.8rem",
-                    color: "#6b7280",
+                    color: "var(--text-muted)",
                   }}
                 >
                   {claim.evidence_count} evidence item{claim.evidence_count !== 1 ? "s" : ""}
@@ -387,7 +387,7 @@ const AllegationDetailPage: React.FC = () => {
 // ---------------------------------------------------------------------------
 
 const backButtonStyle: React.CSSProperties = {
-  color: "#2563eb",
+  color: "var(--accent-primary)",
   textDecoration: "none",
   fontSize: "0.9rem",
   background: "none",
@@ -400,8 +400,8 @@ const backButtonStyle: React.CSSProperties = {
 const sectionHeaderStyle: React.CSSProperties = {
   fontSize: "1.1rem",
   fontWeight: 600,
-  color: "#1f2937",
-  borderBottom: "1px solid #e5e7eb",
+  color: "var(--text-primary)",
+  borderBottom: "1px solid var(--border-default)",
   paddingBottom: "0.5rem",
   marginBottom: "1rem",
   display: "flex",
@@ -411,8 +411,8 @@ const sectionHeaderStyle: React.CSSProperties = {
 
 const countBadgeStyle: React.CSSProperties = {
   padding: "0.1rem 0.4rem",
-  backgroundColor: "#e5e7eb",
-  color: "#374151",
+  backgroundColor: "var(--border-default)",
+  color: "var(--text-secondary)",
   borderRadius: "10px",
   fontSize: "0.8rem",
   fontWeight: 500,
@@ -420,8 +420,8 @@ const countBadgeStyle: React.CSSProperties = {
 
 const legalCountTagStyle: React.CSSProperties = {
   padding: "0.15rem 0.4rem",
-  backgroundColor: "#ede9fe",
-  color: "#5b21b6",
+  backgroundColor: "var(--bias-purple-bg-soft)",
+  color: "var(--bias-purple-text)",
   borderRadius: "3px",
   fontSize: "0.7rem",
   fontWeight: 500,
@@ -429,15 +429,15 @@ const legalCountTagStyle: React.CSSProperties = {
 
 const cardStyle: React.CSSProperties = {
   padding: "1rem",
-  backgroundColor: "#ffffff",
-  border: "1px solid #e5e7eb",
+  backgroundColor: "var(--bg-surface)",
+  border: "1px solid var(--border-default)",
   borderRadius: "8px",
 };
 
 const charLabelStyle: React.CSSProperties = {
   padding: "0.2rem 0.5rem",
-  backgroundColor: "#fee2e2",
-  color: "#991b1b",
+  backgroundColor: "var(--state-danger-bg-soft)",
+  color: "var(--status-dropped-text)",
   borderRadius: "4px",
   fontSize: "0.8rem",
   fontWeight: 600,
@@ -446,7 +446,7 @@ const charLabelStyle: React.CSSProperties = {
 
 const sourceLineStyle: React.CSSProperties = {
   fontSize: "0.85rem",
-  color: "#4b5563",
+  color: "var(--text-secondary)",
   marginBottom: "0.4rem",
   display: "flex",
   flexWrap: "wrap",
@@ -456,8 +456,8 @@ const sourceLineStyle: React.CSSProperties = {
 
 const pageNumberStyle: React.CSSProperties = {
   padding: "0.1rem 0.4rem",
-  backgroundColor: "#dbeafe",
-  color: "#1e40af",
+  backgroundColor: "var(--accent-bg-soft)",
+  color: "var(--accent-primary-hover)",
   borderRadius: "3px",
   fontSize: "0.75rem",
   fontWeight: 600,
@@ -466,19 +466,19 @@ const pageNumberStyle: React.CSSProperties = {
 const quoteStyle: React.CSSProperties = {
   margin: "0.4rem 0 0 0",
   padding: "0.5rem 0.75rem",
-  borderLeft: "3px solid #d1d5db",
-  color: "#374151",
+  borderLeft: "3px solid var(--border-default)",
+  color: "var(--text-secondary)",
   fontStyle: "italic",
   fontSize: "0.9rem",
   lineHeight: 1.6,
-  backgroundColor: "#f9fafb",
+  backgroundColor: "var(--bg-page)",
   borderRadius: "0 4px 4px 0",
 };
 
 const rebuttalQuoteStyle: React.CSSProperties = {
   ...quoteStyle,
-  borderLeftColor: "#93c5fd",
-  backgroundColor: "#eff6ff",
+  borderLeftColor: "var(--accent-bg-soft)",
+  backgroundColor: "var(--accent-bg-soft)",
 };
 
 export default AllegationDetailPage;

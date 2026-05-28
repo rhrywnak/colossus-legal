@@ -75,10 +75,10 @@ const ExportButtons: React.FC<ExportButtonsProps> = ({
   const buttonStyle: React.CSSProperties = {
     padding: "0.35rem 0.75rem",
     fontSize: "0.8rem",
-    border: "1px solid #d1d5db",
+    border: "1px solid var(--border-default)",
     borderRadius: "5px",
-    backgroundColor: "#fff",
-    color: "#374151",
+    backgroundColor: "var(--bg-surface)",
+    color: "var(--text-secondary)",
     cursor: "pointer",
     display: "inline-flex",
     alignItems: "center",

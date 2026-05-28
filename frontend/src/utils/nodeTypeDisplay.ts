@@ -35,13 +35,13 @@ export function getSourceTypeDisplay(
 ): SourceTypeDisplay | null {
   switch (sourceType) {
     case "native_pdf":
-      return { label: "Native PDF", color: "#4CAF50", tooltip: "Text layer available — highlighting supported" };
+      return { label: "Native PDF", color: "var(--state-success-strong)", tooltip: "Text layer available — highlighting supported" };
     case "docx_converted":
-      return { label: "DOCX Converted", color: "#4CAF50", tooltip: "Text layer available — highlighting supported" };
+      return { label: "DOCX Converted", color: "var(--state-success-strong)", tooltip: "Text layer available — highlighting supported" };
     case "ocr_processed":
-      return { label: "OCR Processed", color: "#FF9800", tooltip: "OCR text layer — highlighting may have gaps" };
+      return { label: "OCR Processed", color: "var(--state-warning-strong)", tooltip: "OCR text layer — highlighting may have gaps" };
     case "scanned":
-      return { label: "Scanned", color: "#9E9E9E", tooltip: "No text layer — highlighting unavailable" };
+      return { label: "Scanned", color: "var(--text-muted)", tooltip: "No text layer — highlighting unavailable" };
     default:
       return null;
   }

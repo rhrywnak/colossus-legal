@@ -155,7 +155,7 @@ const AskPage: React.FC = () => {
       {/* Header */}
       <div style={{ marginBottom: "1.5rem" }}>
         <h1 style={{ margin: 0, fontSize: "1.75rem" }}>{pageText.ask.title}</h1>
-        <p style={{ margin: "0.25rem 0 0", color: "#6b7280", fontSize: "0.9rem" }}>
+        <p style={{ margin: "0.25rem 0 0", color: "var(--text-muted)", fontSize: "0.9rem" }}>
           {pageText.ask.subtitle}
         </p>
       </div>
@@ -166,8 +166,8 @@ const AskPage: React.FC = () => {
           onClick={() => handleTabSwitch(activeTab === "ask" ? "history" : "ask")}
           style={{
             padding: "0.5rem 1.25rem", borderRadius: "7px", cursor: "pointer",
-            border: "none", backgroundColor: "#2563eb",
-            color: "#ffffff", fontWeight: 500, fontSize: "0.84rem",
+            border: "none", backgroundColor: "var(--accent-primary)",
+            color: "var(--bg-surface)", fontWeight: 500, fontSize: "0.84rem",
           }}
         >
           {activeTab === "ask" ? pageText.ask.historyTab : pageText.ask.title}
@@ -178,11 +178,11 @@ const AskPage: React.FC = () => {
       {activeTab === "ask" && (<>
       {/* Follow-up indicator */}
       {parentQaId && (
-        <div style={{ fontSize: "0.8rem", color: "#2563eb", marginBottom: "0.5rem",
+        <div style={{ fontSize: "0.8rem", color: "var(--accent-primary)", marginBottom: "0.5rem",
           display: "flex", alignItems: "center", gap: "0.5rem" }}>
           <span>Following up on previous question</span>
           <button onClick={() => setParentQaId(null)} style={{
-            background: "none", border: "none", color: "#ef4444",
+            background: "none", border: "none", color: "var(--state-danger-strong)",
             cursor: "pointer", fontSize: "0.8rem" }}>✕ Cancel</button>
         </div>
       )}
@@ -197,7 +197,7 @@ const AskPage: React.FC = () => {
             placeholder={pageText.ask.placeholder}
             rows={3}
             style={{
-              width: "100%", padding: "0.75rem 11rem 0.75rem 1rem", border: "1px solid #d1d5db",
+              width: "100%", padding: "0.75rem 11rem 0.75rem 1rem", border: "1px solid var(--border-default)",
               borderRadius: "8px", fontSize: "1rem", fontFamily: "inherit",
               resize: "vertical", outline: "none", boxSizing: "border-box",
             }}
@@ -217,12 +217,12 @@ const AskPage: React.FC = () => {
               style={{
                 appearance: "none",
                 WebkitAppearance: "none",
-                border: "1px solid #e2e8f0",
+                border: "1px solid var(--border-default)",
                 borderRadius: "6px",
                 padding: "4px 24px 4px 8px",
                 fontSize: "0.78rem",
-                color: "#475569",
-                backgroundColor: "#f8fafc",
+                color: "var(--text-secondary)",
+                backgroundColor: "var(--bg-page)",
                 cursor: chatModels.length === 0 ? "wait" : "pointer",
                 fontFamily: "inherit",
                 backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,
@@ -249,8 +249,8 @@ const AskPage: React.FC = () => {
             style={{
               position: "absolute", bottom: "10px", right: "10px",
               width: "40px", height: "40px", borderRadius: "7px",
-              backgroundColor: loading || !question.trim() ? "#93c5fd" : "#2563eb",
-              color: "#fff", border: "none", cursor: loading ? "wait" : "pointer",
+              backgroundColor: loading || !question.trim() ? "var(--accent-bg-soft)" : "var(--accent-primary)",
+              color: "var(--bg-surface)", border: "none", cursor: loading ? "wait" : "pointer",
               display: "flex", alignItems: "center", justifyContent: "center",
               fontSize: "1.4rem", fontWeight: 700, lineHeight: 1,
             }}
@@ -265,8 +265,8 @@ const AskPage: React.FC = () => {
               type="button"
               onClick={handleClear}
               style={{
-                padding: "0.5rem 1.25rem", backgroundColor: "#f3f4f6",
-                color: "#374151", border: "1px solid #d1d5db", borderRadius: "6px",
+                padding: "0.5rem 1.25rem", backgroundColor: "var(--bg-page)",
+                color: "var(--text-secondary)", border: "1px solid var(--border-default)", borderRadius: "6px",
                 fontSize: "0.9rem", cursor: "pointer",
               }}
             >
@@ -279,13 +279,13 @@ const AskPage: React.FC = () => {
       {/* Loading phase indicator */}
       {loading && phase && (
         <div style={{
-          padding: "1.5rem", textAlign: "center", color: "#2563eb",
-          backgroundColor: "#eff6ff", borderRadius: "8px", marginBottom: "1rem",
+          padding: "1.5rem", textAlign: "center", color: "var(--accent-primary)",
+          backgroundColor: "var(--accent-bg-soft)", borderRadius: "8px", marginBottom: "1rem",
         }}>
           <div style={{ fontSize: "1.1rem", fontWeight: 500, marginBottom: "0.25rem" }}>
             {phase}
           </div>
-          <div style={{ fontSize: "0.8rem", color: "#6b7280" }}>
+          <div style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
             This usually takes 5-15 seconds
           </div>
         </div>
@@ -294,8 +294,8 @@ const AskPage: React.FC = () => {
       {/* Error */}
       {error && (
         <div style={{
-          padding: "1rem", backgroundColor: "#fef2f2", border: "1px solid #fecaca",
-          borderRadius: "8px", color: "#dc2626", marginBottom: "1rem",
+          padding: "1rem", backgroundColor: "var(--state-danger-bg-soft)", border: "1px solid var(--state-danger-border)",
+          borderRadius: "8px", color: "var(--state-danger-strong)", marginBottom: "1rem",
         }}>
           {error}
         </div>
@@ -307,8 +307,8 @@ const AskPage: React.FC = () => {
 
       {/* Historical answer header */}
       {viewingHistoryEntry && response && (
-        <div style={{ fontSize: "0.8rem", color: "#6b7280", marginBottom: "0.5rem",
-          padding: "0.5rem 0", borderBottom: "1px solid #e5e7eb" }}>
+        <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: "0.5rem",
+          padding: "0.5rem 0", borderBottom: "1px solid var(--border-default)" }}>
           Asked by {viewingHistoryEntry.asked_by} on{" "}
           {new Date(viewingHistoryEntry.asked_at).toLocaleString()} · {viewingHistoryEntry.model}
         </div>
@@ -321,7 +321,7 @@ const AskPage: React.FC = () => {
       {canFollowUp && (
         <button onClick={handleFollowUp} style={{
           marginTop: "0.75rem", padding: "0.5rem 1rem", backgroundColor: "transparent",
-          border: "1px solid #2563eb", color: "#2563eb", borderRadius: "4px",
+          border: "1px solid var(--accent-primary)", color: "var(--accent-primary)", borderRadius: "4px",
           cursor: "pointer", fontSize: "0.85rem",
         }}>
           {pageText.ask.followUpButton}
@@ -333,12 +333,12 @@ const AskPage: React.FC = () => {
       {activeTab === "history" && (
         <div>
           {historyLoading && (
-            <div style={{ textAlign: "center", color: "#6b7280", padding: "2rem 0" }}>
+            <div style={{ textAlign: "center", color: "var(--text-muted)", padding: "2rem 0" }}>
               Loading…
             </div>
           )}
           {!historyLoading && history.length === 0 && (
-            <div style={{ textAlign: "center", color: "#6b7280", padding: "2rem 0" }}>
+            <div style={{ textAlign: "center", color: "var(--text-muted)", padding: "2rem 0" }}>
               No questions yet.
             </div>
           )}

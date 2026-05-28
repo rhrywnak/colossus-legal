@@ -46,7 +46,7 @@ const groupContainerStyle: React.CSSProperties = {
 const groupHeaderStyle: React.CSSProperties = {
     fontSize: "1.05rem",
     fontWeight: 700,
-    color: "#0f172a",
+    color: "var(--text-primary)",
     marginBottom: "0.6rem",
     display: "flex",
     alignItems: "center",
@@ -58,15 +58,15 @@ const actorTypeBadgeStyle: React.CSSProperties = {
     borderRadius: "9999px",
     fontSize: "0.7rem",
     fontWeight: 600,
-    backgroundColor: "#eff6ff",
-    color: "#1d4ed8",
+    backgroundColor: "var(--accent-bg-soft)",
+    color: "var(--accent-primary)",
     textTransform: "uppercase",
     letterSpacing: "0.025em",
 };
 
 const groupCountStyle: React.CSSProperties = {
     fontSize: "0.78rem",
-    color: "#64748b",
+    color: "var(--text-muted)",
     fontWeight: 500,
 };
 

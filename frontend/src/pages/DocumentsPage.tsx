@@ -25,10 +25,10 @@ const headerRow: React.CSSProperties = {
   marginBottom: "0.25rem",
 };
 const pageTitle: React.CSSProperties = {
-  fontSize: "1.35rem", fontWeight: 700, color: "#0f172a", margin: 0,
+  fontSize: "1.35rem", fontWeight: 700, color: "var(--text-primary)", margin: 0,
 };
 const subtitle: React.CSSProperties = {
-  fontSize: "0.84rem", color: "#64748b", marginBottom: "1.25rem",
+  fontSize: "0.84rem", color: "var(--text-muted)", marginBottom: "1.25rem",
 };
 const filtersRow: React.CSSProperties = {
   display: "flex", gap: "0.75rem", marginBottom: "1.25rem", flexWrap: "wrap",
@@ -36,33 +36,33 @@ const filtersRow: React.CSSProperties = {
 };
 const filterSelect: React.CSSProperties = {
   padding: "0.4rem 0.6rem", fontSize: "0.8rem", borderRadius: "6px",
-  border: "1px solid #e2e8f0", fontFamily: "inherit", color: "#334155",
-  backgroundColor: "#ffffff",
+  border: "1px solid var(--border-default)", fontFamily: "inherit", color: "var(--text-secondary)",
+  backgroundColor: "var(--bg-surface)",
 };
 const searchInput: React.CSSProperties = {
   padding: "0.4rem 0.6rem", fontSize: "0.8rem", borderRadius: "6px",
-  border: "1px solid #e2e8f0", fontFamily: "inherit", color: "#334155",
+  border: "1px solid var(--border-default)", fontFamily: "inherit", color: "var(--text-secondary)",
   minWidth: "180px",
 };
 const uploadBtn: React.CSSProperties = {
   padding: "0.45rem 1rem", fontSize: "0.84rem", fontWeight: 600, border: "none",
-  borderRadius: "6px", backgroundColor: "#2563eb", color: "#ffffff",
+  borderRadius: "6px", backgroundColor: "var(--accent-primary)", color: "var(--bg-surface)",
   cursor: "pointer", fontFamily: "inherit",
 };
 const footerStyle: React.CSSProperties = {
-  fontSize: "0.8rem", color: "#64748b", marginTop: "1rem",
-  paddingTop: "0.75rem", borderTop: "1px solid #e2e8f0",
+  fontSize: "0.8rem", color: "var(--text-muted)", marginTop: "1rem",
+  paddingTop: "0.75rem", borderTop: "1px solid var(--border-default)",
 };
 const emptyState: React.CSSProperties = {
-  padding: "3rem", textAlign: "center", color: "#94a3b8", fontSize: "0.9rem",
+  padding: "3rem", textAlign: "center", color: "var(--text-disabled)", fontSize: "0.9rem",
 };
 const errorBox: React.CSSProperties = {
-  padding: "0.6rem 1rem", backgroundColor: "#fef2f2", border: "1px solid #fecaca",
-  borderRadius: "6px", color: "#991b1b", fontSize: "0.84rem",
+  padding: "0.6rem 1rem", backgroundColor: "var(--state-danger-bg-soft)", border: "1px solid var(--state-danger-border)",
+  borderRadius: "6px", color: "var(--status-dropped-text)", fontSize: "0.84rem",
 };
 const errorBanner: React.CSSProperties = {
-  padding: "0.6rem 1rem", backgroundColor: "#fffbeb", border: "1px solid #fde68a",
-  borderRadius: "6px", color: "#92400e", fontSize: "0.84rem",
+  padding: "0.6rem 1rem", backgroundColor: "var(--burden-warning-bg)", border: "1px solid var(--burden-warning-bg)",
+  borderRadius: "6px", color: "var(--burden-warning-text)", fontSize: "0.84rem",
   marginBottom: "1rem", cursor: "pointer",
 };
 
@@ -189,7 +189,7 @@ const DocumentsPage: React.FC = () => {
 
       {/* Complaint-first warning */}
       {documents.length === 0 && (
-        <div style={{ padding: "1rem", backgroundColor: "#fffbeb", border: "1px solid #fde68a", borderRadius: "8px", color: "#92400e", fontSize: "0.84rem", marginBottom: "1rem" }}>
+        <div style={{ padding: "1rem", backgroundColor: "var(--burden-warning-bg)", border: "1px solid var(--burden-warning-bg)", borderRadius: "8px", color: "var(--burden-warning-text)", fontSize: "0.84rem", marginBottom: "1rem" }}>
           <strong>A Complaint must be uploaded and processed first.</strong>
           <p style={{ margin: "0.25rem 0 0", fontSize: "0.8rem" }}>
             The Complaint establishes the parties, claims, and legal context that all other documents reference.
@@ -261,7 +261,7 @@ const DocumentsPage: React.FC = () => {
         <div style={footerStyle}>
           {counts.total} document{counts.total !== 1 ? "s" : ""}
           {" | "}{counts.completed} completed
-          {counts.failed > 0 && <>{" | "}<span style={{ color: "#dc2626" }}>{counts.failed} failed</span></>}
+          {counts.failed > 0 && <>{" | "}<span style={{ color: "var(--state-danger-strong)" }}>{counts.failed} failed</span></>}
           {counts.processing > 0 && <>{" | "}{counts.processing} processing</>}
           {counts.new > 0 && <>{" | "}{counts.new} new</>}
         </div>

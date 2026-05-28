@@ -24,28 +24,28 @@ const S = {
     alignItems: "center", justifyContent: "center", zIndex: 9999,
   } as React.CSSProperties,
   dialog: {
-    backgroundColor: "#fff", borderRadius: "8px", padding: "1.5rem",
+    backgroundColor: "var(--bg-surface)", borderRadius: "8px", padding: "1.5rem",
     maxWidth: "560px", width: "90%", maxHeight: "85vh", overflowY: "auto",
     boxShadow: "0 4px 24px rgba(0,0,0,0.2)",
   } as React.CSSProperties,
   title: {
-    fontSize: "1.1rem", fontWeight: 700, color: "#0f172a", marginBottom: "0.75rem",
+    fontSize: "1.1rem", fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.75rem",
   } as React.CSSProperties,
   label: {
-    display: "block", fontSize: "0.8rem", fontWeight: 600, color: "#475569",
+    display: "block", fontSize: "0.8rem", fontWeight: 600, color: "var(--text-secondary)",
     marginBottom: "0.3rem",
   } as React.CSSProperties,
   hint: {
-    fontSize: "0.72rem", color: "#64748b", marginTop: "0.2rem",
+    fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "0.2rem",
   } as React.CSSProperties,
   select: {
     width: "100%", padding: "0.45rem 0.6rem", fontSize: "0.84rem",
-    border: "1px solid #cbd5e1", borderRadius: "4px", fontFamily: "inherit",
-    boxSizing: "border-box", backgroundColor: "#fff",
+    border: "1px solid var(--border-default)", borderRadius: "4px", fontFamily: "inherit",
+    boxSizing: "border-box", backgroundColor: "var(--bg-surface)",
   } as React.CSSProperties,
   textarea: {
     width: "100%", padding: "0.45rem 0.6rem", fontSize: "0.84rem",
-    border: "1px solid #cbd5e1", borderRadius: "4px", fontFamily: "inherit",
+    border: "1px solid var(--border-default)", borderRadius: "4px", fontFamily: "inherit",
     boxSizing: "border-box", resize: "vertical" as const, minHeight: "70px",
   } as React.CSSProperties,
   fieldGroup: { marginBottom: "1rem" } as React.CSSProperties,
@@ -54,23 +54,23 @@ const S = {
   } as React.CSSProperties,
   cancelBtn: {
     padding: "0.4rem 1rem", fontSize: "0.84rem", fontWeight: 500,
-    border: "1px solid #cbd5e1", borderRadius: "4px", backgroundColor: "#fff",
-    color: "#334155", cursor: "pointer", fontFamily: "inherit",
+    border: "1px solid var(--border-default)", borderRadius: "4px", backgroundColor: "var(--bg-surface)",
+    color: "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit",
   } as React.CSSProperties,
   submitBtn: (enabled: boolean) => ({
     padding: "0.4rem 1rem", fontSize: "0.84rem", fontWeight: 600,
     border: "none", borderRadius: "4px",
-    backgroundColor: enabled ? "#2563eb" : "#94a3b8",
-    color: "#fff", cursor: enabled ? "pointer" : "not-allowed",
+    backgroundColor: enabled ? "var(--accent-primary)" : "var(--text-disabled)",
+    color: "var(--bg-surface)", cursor: enabled ? "pointer" : "not-allowed",
     fontFamily: "inherit",
   } as React.CSSProperties),
   loading: {
     padding: "1.5rem", textAlign: "center" as const,
-    color: "#64748b", fontSize: "0.84rem",
+    color: "var(--text-muted)", fontSize: "0.84rem",
   } as React.CSSProperties,
   error: {
-    padding: "0.5rem 0.75rem", backgroundColor: "#fef2f2",
-    border: "1px solid #fecaca", borderRadius: "4px", color: "#991b1b",
+    padding: "0.5rem 0.75rem", backgroundColor: "var(--state-danger-bg-soft)",
+    border: "1px solid var(--state-danger-border)", borderRadius: "4px", color: "var(--status-dropped-text)",
     fontSize: "0.76rem", marginBottom: "0.75rem",
   } as React.CSSProperties,
 };

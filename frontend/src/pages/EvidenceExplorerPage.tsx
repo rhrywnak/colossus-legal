@@ -190,7 +190,7 @@ const EvidenceExplorerPage: React.FC = () => {
               <li>2 items = Moderate (80%) &mdash; Multiple sources</li>
               <li>3+ items = Strong (90%+) &mdash; Well-supported</li>
             </ul>
-            <p style={{ margin: "0.5rem 0 0", fontSize: "0.8rem", color: "#6b7280" }}>
+            <p style={{ margin: "0.5rem 0 0", fontSize: "0.8rem", color: "var(--text-muted)" }}>
               Evidence is counted as distinct items linked via: Evidence &larr; RELIES_ON &larr; MotionClaim &rarr; PROVES &rarr; Allegation
             </p>
           </InfoPopup>

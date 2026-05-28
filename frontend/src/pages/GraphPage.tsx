@@ -12,19 +12,19 @@ import { getColor, getDisplayName } from "../hooks/useSchema";
 
 // Professional color palette (matching Explorer page)
 const COLORS = {
-  bgPage: "#f8fafc",
-  bgCard: "#ffffff",
-  border: "#e2e8f0",
-  textPrimary: "#1e293b",
-  textSecondary: "#64748b",
-  textMuted: "#94a3b8",
+  bgPage: "var(--bg-page)",
+  bgCard: "var(--bg-surface)",
+  border: "var(--border-default)",
+  textPrimary: "var(--text-primary)",
+  textSecondary: "var(--text-muted)",
+  textMuted: "var(--text-disabled)",
 };
 
 // Status badge colors
 const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
-  PROVEN: { bg: "#ecfdf5", text: "#059669" },
-  PARTIAL: { bg: "#fffbeb", text: "#d97706" },
-  UNPROVEN: { bg: "#fef2f2", text: "#dc2626" },
+  PROVEN: { bg: "var(--state-success-bg-soft)", text: "var(--status-active-text)" },
+  PARTIAL: { bg: "var(--burden-warning-bg)", text: "var(--state-warning-strong)" },
+  UNPROVEN: { bg: "var(--state-danger-bg-soft)", text: "var(--state-danger-strong)" },
 };
 
 const NODE_WIDTH = 220;
@@ -353,8 +353,8 @@ const NodePopup: React.FC<{
                       key={i}
                       style={{
                         padding: "0.25rem 0.5rem",
-                        backgroundColor: "#e0e7ff",
-                        color: "#4338ca",
+                        backgroundColor: "var(--state-info-bg-soft)",
+                        color: "var(--bias-indigo-text)",
                         borderRadius: "4px",
                         fontSize: "0.8rem",
                         fontWeight: 500,
@@ -460,7 +460,7 @@ const NodePopup: React.FC<{
                     }`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    style={{ fontSize: "0.9rem", color: "#2563eb", textDecoration: "none", fontWeight: 500 }}
+                    style={{ fontSize: "0.9rem", color: "var(--accent-primary)", textDecoration: "none", fontWeight: 500 }}
                     onMouseEnter={(e) => { e.currentTarget.style.textDecoration = "underline"; }}
                     onMouseLeave={(e) => { e.currentTarget.style.textDecoration = "none"; }}
                   >
@@ -507,7 +507,7 @@ const NodePopup: React.FC<{
               }`}
               target="_blank"
               rel="noopener noreferrer"
-              style={{ fontSize: "0.85rem", color: "#2563eb", textDecoration: "none", fontWeight: 500 }}
+              style={{ fontSize: "0.85rem", color: "var(--accent-primary)", textDecoration: "none", fontWeight: 500 }}
               onMouseEnter={(e) => { e.currentTarget.style.textDecoration = "underline"; }}
               onMouseLeave={(e) => { e.currentTarget.style.textDecoration = "none"; }}
             >
@@ -722,10 +722,10 @@ const GraphPage: React.FC = () => {
           <div
             style={{
               padding: "1rem 1.25rem",
-              backgroundColor: "#fef2f2",
+              backgroundColor: "var(--state-danger-bg-soft)",
               border: `1px solid ${COLORS.border}`,
               borderRadius: "8px",
-              color: "#dc2626",
+              color: "var(--state-danger-strong)",
               marginBottom: "1.5rem",
             }}
           >
@@ -849,7 +849,7 @@ const GraphPage: React.FC = () => {
                       refY="3.5"
                       orient="auto"
                     >
-                      <polygon points="0 0, 10 3.5, 0 7" fill="#94a3b8" />
+                      <polygon points="0 0, 10 3.5, 0 7" fill="var(--text-disabled)" />
                     </marker>
                   </defs>
 
@@ -864,7 +864,7 @@ const GraphPage: React.FC = () => {
                         <path
                           d={pathData}
                           fill="none"
-                          stroke="#cbd5e1"
+                          stroke="var(--border-default)"
                           strokeWidth={1.5}
                           markerEnd="url(#arrowhead)"
                         />

@@ -54,8 +54,8 @@ function formatFilteredCounter(
 // ─── Styles ─────────────────────────────────────────────────────────────────
 
 const containerStyle: React.CSSProperties = {
-    backgroundColor: "#ffffff",
-    border: "1px solid #e2e8f0",
+    backgroundColor: "var(--bg-surface)",
+    border: "1px solid var(--border-default)",
     borderRadius: "8px",
     padding: "1rem 1.25rem",
     marginBottom: "1rem",
@@ -78,7 +78,7 @@ const fieldStyle: React.CSSProperties = {
 const labelStyle: React.CSSProperties = {
     fontSize: "0.72rem",
     fontWeight: 700,
-    color: "#94a3b8",
+    color: "var(--text-disabled)",
     textTransform: "uppercase",
     letterSpacing: "0.05em",
     marginBottom: "0.3rem",
@@ -87,10 +87,10 @@ const labelStyle: React.CSSProperties = {
 const selectStyle: React.CSSProperties = {
     padding: "0.45rem 0.6rem",
     fontSize: "0.88rem",
-    border: "1px solid #cbd5e1",
+    border: "1px solid var(--border-default)",
     borderRadius: "6px",
-    backgroundColor: "#ffffff",
-    color: "#0f172a",
+    backgroundColor: "var(--bg-surface)",
+    color: "var(--text-primary)",
     fontFamily: "inherit",
 };
 
@@ -98,10 +98,10 @@ const clearAllBtnStyle: React.CSSProperties = {
     padding: "0.5rem 0.9rem",
     fontSize: "0.82rem",
     fontWeight: 500,
-    border: "1px solid #cbd5e1",
+    border: "1px solid var(--border-default)",
     borderRadius: "6px",
-    backgroundColor: "#ffffff",
-    color: "#1d4ed8",
+    backgroundColor: "var(--bg-surface)",
+    color: "var(--accent-primary)",
     cursor: "pointer",
     fontFamily: "inherit",
     flexShrink: 0,
@@ -110,7 +110,7 @@ const clearAllBtnStyle: React.CSSProperties = {
 const countStyle: React.CSSProperties = {
     marginTop: "0.85rem",
     fontSize: "0.85rem",
-    color: "#334155",
+    color: "var(--text-secondary)",
     fontWeight: 500,
 };
 

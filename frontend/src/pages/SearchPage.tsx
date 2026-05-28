@@ -96,14 +96,14 @@ const SearchPage: React.FC = () => {
             onChange={(e) => setInputValue(e.target.value)}
             placeholder="Search by meaning... e.g. 'bankruptcy', 'discredit Marie'"
             style={{
-              flex: 1, padding: "0.6rem 1rem", border: "1px solid #d1d5db",
+              flex: 1, padding: "0.6rem 1rem", border: "1px solid var(--border-default)",
               borderRadius: "6px", fontSize: "0.95rem", outline: "none",
             }}
           />
           <button
             type="submit"
             style={{
-              padding: "0.6rem 1.25rem", backgroundColor: "#2563eb", color: "#fff",
+              padding: "0.6rem 1.25rem", backgroundColor: "var(--accent-primary)", color: "var(--bg-surface)",
               border: "none", borderRadius: "6px", fontSize: "0.95rem",
               cursor: "pointer", fontWeight: 500,
             }}
@@ -124,9 +124,9 @@ const SearchPage: React.FC = () => {
               onClick={() => toggleType(type)}
               style={{
                 padding: "0.3rem 0.75rem", borderRadius: "16px",
-                border: active ? `2px solid ${colors.text}` : "2px solid #e5e7eb",
-                backgroundColor: active ? colors.bg : "#fff",
-                color: active ? colors.text : "#6b7280",
+                border: active ? `2px solid ${colors.text}` : "2px solid var(--border-default)",
+                backgroundColor: active ? colors.bg : "var(--bg-surface)",
+                color: active ? colors.text : "var(--text-muted)",
                 fontSize: "0.8rem", fontWeight: active ? 600 : 400, cursor: "pointer",
               }}
             >
@@ -138,7 +138,7 @@ const SearchPage: React.FC = () => {
 
       {/* Loading */}
       {loading && (
-        <div style={{ padding: "2rem", textAlign: "center", color: "#6b7280" }}>
+        <div style={{ padding: "2rem", textAlign: "center", color: "var(--text-muted)" }}>
           Searching...
         </div>
       )}
@@ -146,8 +146,8 @@ const SearchPage: React.FC = () => {
       {/* Error */}
       {error && (
         <div style={{
-          padding: "1rem", backgroundColor: "#fef2f2",
-          border: "1px solid #fecaca", borderRadius: "6px", color: "#dc2626",
+          padding: "1rem", backgroundColor: "var(--state-danger-bg-soft)",
+          border: "1px solid var(--state-danger-border)", borderRadius: "6px", color: "var(--state-danger-strong)",
         }}>
           {error}
         </div>
@@ -156,8 +156,8 @@ const SearchPage: React.FC = () => {
       {/* Results summary */}
       {!loading && searched && !error && (
         <div style={{
-          padding: "0.75rem 1rem", backgroundColor: "#f3f4f6",
-          borderRadius: "6px", marginBottom: "1rem", color: "#374151",
+          padding: "0.75rem 1rem", backgroundColor: "var(--bg-page)",
+          borderRadius: "6px", marginBottom: "1rem", color: "var(--text-secondary)",
         }}>
           Found <strong>{total}</strong> result{total !== 1 ? "s" : ""} in{" "}
           <strong>{durationMs}ms</strong>
@@ -166,7 +166,7 @@ const SearchPage: React.FC = () => {
 
       {/* Empty state */}
       {!loading && searched && !error && results.length === 0 && (
-        <div style={{ color: "#6b7280", padding: "1rem" }}>
+        <div style={{ color: "var(--text-muted)", padding: "1rem" }}>
           No results found for &ldquo;{queryFromUrl}&rdquo;
         </div>
       )}
@@ -182,8 +182,8 @@ const SearchPage: React.FC = () => {
               <div
                 key={`${hit.node_id}-${idx}`}
                 style={{
-                  padding: "1rem", backgroundColor: "#fff",
-                  border: "1px solid #e5e7eb", borderRadius: "8px",
+                  padding: "1rem", backgroundColor: "var(--bg-surface)",
+                  border: "1px solid var(--border-default)", borderRadius: "8px",
                 }}
               >
                 <div style={{
@@ -197,13 +197,13 @@ const SearchPage: React.FC = () => {
                   }}>
                     {hit.node_type}
                   </span>
-                  <span style={{ fontSize: "0.75rem", color: "#6b7280" }}>
+                  <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
                     {scorePercent}% match
                   </span>
                   {hit.page_number && (
                     <span style={{
-                      padding: "0.1rem 0.4rem", backgroundColor: "#dbeafe",
-                      color: "#1e40af", borderRadius: "3px",
+                      padding: "0.1rem 0.4rem", backgroundColor: "var(--accent-bg-soft)",
+                      color: "var(--accent-primary-hover)", borderRadius: "3px",
                       fontSize: "0.75rem", fontWeight: 600,
                     }}>
                       p. {hit.page_number}
@@ -212,14 +212,14 @@ const SearchPage: React.FC = () => {
                 </div>
                 <div style={{ fontWeight: 600, fontSize: "1rem" }}>
                   {link ? (
-                    <Link to={link} style={{ color: "#2563eb", textDecoration: "none" }}>
+                    <Link to={link} style={{ color: "var(--accent-primary)", textDecoration: "none" }}>
                       {hit.title || hit.node_id}
                     </Link>
                   ) : (
                     hit.title || hit.node_id
                   )}
                 </div>
-                <div style={{ fontSize: "0.75rem", color: "#9ca3af", marginTop: "0.25rem" }}>
+                <div style={{ fontSize: "0.75rem", color: "var(--text-disabled)", marginTop: "0.25rem" }}>
                   {hit.node_id}
                 </div>
               </div>

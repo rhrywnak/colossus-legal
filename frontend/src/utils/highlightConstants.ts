@@ -7,17 +7,17 @@
 
 /** Default highlight appearance */
 export const HIGHLIGHT_DEFAULTS = {
-  color: "#FFEB3B",
+  color: "var(--burden-warning-bg)",
   opacity: 0.4,
 } as const;
 
 /** Available highlight colors for future color picker */
 export const HIGHLIGHT_COLORS = [
-  { name: "Yellow", value: "#FFEB3B" },
-  { name: "Green", value: "#A5D6A7" },
-  { name: "Blue", value: "#90CAF9" },
-  { name: "Pink", value: "#F48FB1" },
-  { name: "Orange", value: "#FFCC80" },
+  { name: "Yellow", value: "var(--burden-warning-bg)" },
+  { name: "Green", value: "var(--state-success-bg-soft)" },
+  { name: "Blue", value: "var(--accent-bg-soft)" },
+  { name: "Pink", value: "var(--state-danger-border)" },
+  { name: "Orange", value: "var(--burden-warning-bg)" },
 ] as const;
 
 /** DOM attributes used for highlight manipulation */

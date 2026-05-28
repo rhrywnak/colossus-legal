@@ -53,14 +53,14 @@ const containerStyle: React.CSSProperties = {
   fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
   fontSize: "16px",
   lineHeight: 1.7,
-  color: "#1a1a1a",
+  color: "var(--text-primary)",
   maxWidth: "none",
 };
 
 const h1Style: React.CSSProperties = {
   fontSize: "1.5rem",
   fontWeight: 700,
-  color: "#0f172a",
+  color: "var(--text-primary)",
   marginTop: "1.5rem",
   marginBottom: "0.75rem",
   lineHeight: 1.3,
@@ -69,18 +69,18 @@ const h1Style: React.CSSProperties = {
 const h2Style: React.CSSProperties = {
   fontSize: "1.25rem",
   fontWeight: 600,
-  color: "#0f172a",
+  color: "var(--text-primary)",
   marginTop: "1.5rem",
   marginBottom: "0.6rem",
   paddingBottom: "0.3rem",
-  borderBottom: "1px solid #e5e7eb",
+  borderBottom: "1px solid var(--border-default)",
   lineHeight: 1.3,
 };
 
 const h3Style: React.CSSProperties = {
   fontSize: "1.1rem",
   fontWeight: 600,
-  color: "#1e293b",
+  color: "var(--text-primary)",
   marginTop: "1.25rem",
   marginBottom: "0.5rem",
   lineHeight: 1.3,
@@ -107,24 +107,24 @@ const liStyle: React.CSSProperties = {
 
 const strongStyle: React.CSSProperties = {
   fontWeight: 600,
-  color: "#0f172a",
+  color: "var(--text-primary)",
 };
 
 const blockquoteStyle: React.CSSProperties = {
-  borderLeft: "3px solid #d1d5db",
+  borderLeft: "3px solid var(--border-default)",
   paddingLeft: "1rem",
   margin: "1em 0",
-  color: "#4b5563",
+  color: "var(--text-secondary)",
   fontStyle: "italic",
 };
 
 const preStyle: React.CSSProperties = {
-  backgroundColor: "#f8f9fa",
+  backgroundColor: "var(--bg-page)",
   borderRadius: "6px",
   padding: "1rem",
   overflowX: "auto",
   marginBottom: "1em",
-  border: "1px solid #e5e7eb",
+  border: "1px solid var(--border-default)",
 };
 
 const codeBlockStyle: React.CSSProperties = {
@@ -136,7 +136,7 @@ const codeBlockStyle: React.CSSProperties = {
 const inlineCodeStyle: React.CSSProperties = {
   fontFamily: '"Fira Code", "Cascadia Code", "Consolas", monospace',
   fontSize: "0.875em",
-  backgroundColor: "#f1f3f5",
+  backgroundColor: "var(--bg-page)",
   padding: "0.15em 0.4em",
   borderRadius: "3px",
 };
@@ -149,15 +149,15 @@ const tableStyle: React.CSSProperties = {
 };
 
 const thStyle: React.CSSProperties = {
-  backgroundColor: "#f8f9fa",
-  border: "1px solid #dee2e6",
+  backgroundColor: "var(--bg-page)",
+  border: "1px solid var(--border-default)",
   padding: "0.5rem 0.75rem",
   textAlign: "left",
   fontWeight: 600,
 };
 
 const tdStyle: React.CSSProperties = {
-  border: "1px solid #dee2e6",
+  border: "1px solid var(--border-default)",
   padding: "0.5rem 0.75rem",
 };
 

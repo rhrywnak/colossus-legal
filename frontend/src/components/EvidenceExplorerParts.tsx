@@ -227,7 +227,7 @@ const AllegationRow: React.FC<AllegationRowProps> = ({ allegation, isExpanded, i
         <div style={{ padding: "0 1.25rem 0.75rem 3.75rem" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
             <div style={{
-              width: "200px", maxWidth: "200px", height: "4px", backgroundColor: "#e5e7eb",
+              width: "200px", maxWidth: "200px", height: "4px", backgroundColor: "var(--border-default)",
               borderRadius: "2px", overflow: "hidden",
             }}>
               <div style={{
@@ -243,7 +243,7 @@ const AllegationRow: React.FC<AllegationRowProps> = ({ allegation, isExpanded, i
                 onClick={(e) => { e.stopPropagation(); setShowEvidence((prev) => !prev); }}
                 style={{
                   marginLeft: "auto", cursor: "pointer", fontSize: "0.8rem",
-                  color: "#9ca3af", userSelect: "none",
+                  color: "var(--text-disabled)", userSelect: "none",
                 }}
               >
                 {showEvidence ? "▾ Less" : "▸ More"}
@@ -253,10 +253,10 @@ const AllegationRow: React.FC<AllegationRowProps> = ({ allegation, isExpanded, i
           {showEvidence && strength.supporting_evidence && (
             <div style={{
               marginTop: "0.5rem", marginLeft: "24px",
-              paddingLeft: "0.75rem", borderLeft: "3px solid #e5e7eb",
+              paddingLeft: "0.75rem", borderLeft: "3px solid var(--border-default)",
             }}>
               {strength.supporting_evidence.map((title, i) => (
-                <div key={i} style={{ fontSize: "0.85rem", color: "#6b7280", padding: "0.15rem 0" }}>
+                <div key={i} style={{ fontSize: "0.85rem", color: "var(--text-muted)", padding: "0.15rem 0" }}>
                   {title}
                 </div>
               ))}
@@ -276,7 +276,7 @@ const AllegationRow: React.FC<AllegationRowProps> = ({ allegation, isExpanded, i
               </div>
               <blockquote style={{
                 margin: 0, padding: "0.75rem 1rem", borderLeft: `3px solid ${COLORS.badgeLegalBg}`,
-                backgroundColor: "#fafbff", fontFamily: "Georgia, serif", fontSize: "0.9rem",
+                backgroundColor: "var(--bg-surface)", fontFamily: "Georgia, serif", fontSize: "0.9rem",
                 color: COLORS.textPrimary, lineHeight: 1.7, borderRadius: "0 6px 6px 0",
               }}>
                 {allegation.allegation}

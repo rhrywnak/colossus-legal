@@ -10,12 +10,12 @@ import {
 } from "../services/allegations";
 
 const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
-  PROVEN: { bg: "#dcfce7", text: "#166534" },
-  PARTIAL: { bg: "#fef3c7", text: "#92400e" },
-  UNPROVEN: { bg: "#fee2e2", text: "#991b1b" },
+  PROVEN: { bg: "var(--state-success-bg-soft)", text: "var(--status-active-text)" },
+  PARTIAL: { bg: "var(--burden-warning-bg)", text: "var(--burden-warning-text)" },
+  UNPROVEN: { bg: "var(--state-danger-bg-soft)", text: "var(--status-dropped-text)" },
 };
 
-const DEFAULT_STATUS_COLOR = { bg: "#f3f4f6", text: "#374151" };
+const DEFAULT_STATUS_COLOR = { bg: "var(--bg-page)", text: "var(--text-secondary)" };
 
 function getStatusStyle(status: string | undefined) {
   if (!status) return DEFAULT_STATUS_COLOR;
@@ -84,7 +84,7 @@ const AllegationsPage: React.FC = () => {
 
   if (loading) {
     return (
-      <div style={{ padding: "2rem", textAlign: "center", color: "#6b7280" }}>
+      <div style={{ padding: "2rem", textAlign: "center", color: "var(--text-muted)" }}>
         Loading allegations...
       </div>
     );
@@ -95,10 +95,10 @@ const AllegationsPage: React.FC = () => {
       <div
         style={{
           padding: "1rem",
-          backgroundColor: "#fef2f2",
-          border: "1px solid #fecaca",
+          backgroundColor: "var(--state-danger-bg-soft)",
+          border: "1px solid var(--state-danger-border)",
           borderRadius: "6px",
-          color: "#dc2626",
+          color: "var(--state-danger-strong)",
         }}
       >
         {error}
@@ -115,8 +115,8 @@ const AllegationsPage: React.FC = () => {
         <div
           style={{
             padding: "0.75rem 1rem",
-            backgroundColor: "#eff6ff",
-            border: "1px solid #bfdbfe",
+            backgroundColor: "var(--accent-bg-soft)",
+            border: "1px solid var(--accent-bg-soft)",
             borderRadius: "6px",
             marginBottom: "1rem",
             display: "flex",
@@ -124,7 +124,7 @@ const AllegationsPage: React.FC = () => {
             alignItems: "center",
           }}
         >
-          <span style={{ color: "#1e40af", fontWeight: 500 }}>
+          <span style={{ color: "var(--accent-primary-hover)", fontWeight: 500 }}>
             {activeCount ? (
               <>
                 <strong>
@@ -141,7 +141,7 @@ const AllegationsPage: React.FC = () => {
           </span>
           <Link
             to="/allegations"
-            style={{ color: "#2563eb", textDecoration: "none", fontWeight: 500 }}
+            style={{ color: "var(--accent-primary)", textDecoration: "none", fontWeight: 500 }}
           >
             Show All
           </Link>
@@ -151,10 +151,10 @@ const AllegationsPage: React.FC = () => {
       <div
         style={{
           padding: "0.75rem 1rem",
-          backgroundColor: "#f3f4f6",
+          backgroundColor: "var(--bg-page)",
           borderRadius: "6px",
           marginBottom: "1.5rem",
-          color: "#374151",
+          color: "var(--text-secondary)",
           display: "flex",
           flexWrap: "wrap",
           gap: "0.5rem",
@@ -165,32 +165,32 @@ const AllegationsPage: React.FC = () => {
         <span
           style={{
             padding: "0.25rem 0.5rem",
-            backgroundColor: "#dcfce7",
-            color: "#166534",
+            backgroundColor: "var(--state-success-bg-soft)",
+            color: "var(--status-active-text)",
             borderRadius: "4px",
             fontSize: "0.875rem",
           }}
         >
           {summary.proven} Proven
         </span>
-        <span style={{ color: "#9ca3af" }}>&bull;</span>
+        <span style={{ color: "var(--text-disabled)" }}>&bull;</span>
         <span
           style={{
             padding: "0.25rem 0.5rem",
-            backgroundColor: "#fef3c7",
-            color: "#92400e",
+            backgroundColor: "var(--burden-warning-bg)",
+            color: "var(--burden-warning-text)",
             borderRadius: "4px",
             fontSize: "0.875rem",
           }}
         >
           {summary.partial} Partial
         </span>
-        <span style={{ color: "#9ca3af" }}>&bull;</span>
+        <span style={{ color: "var(--text-disabled)" }}>&bull;</span>
         <span
           style={{
             padding: "0.25rem 0.5rem",
-            backgroundColor: "#fee2e2",
-            color: "#991b1b",
+            backgroundColor: "var(--state-danger-bg-soft)",
+            color: "var(--status-dropped-text)",
             borderRadius: "4px",
             fontSize: "0.875rem",
           }}
@@ -200,7 +200,7 @@ const AllegationsPage: React.FC = () => {
       </div>
 
       {displayedAllegations.length === 0 ? (
-        <div style={{ color: "#6b7280", padding: "1rem" }}>
+        <div style={{ color: "var(--text-muted)", padding: "1rem" }}>
           {countFilter ? "No allegations match this filter." : "No allegations found."}
         </div>
       ) : (
@@ -218,8 +218,8 @@ const AllegationsPage: React.FC = () => {
                 key={allegation.id}
                 style={{
                   padding: "1rem",
-                  backgroundColor: "#fff",
-                  border: "1px solid #e5e7eb",
+                  backgroundColor: "var(--bg-surface)",
+                  border: "1px solid var(--border-default)",
                   borderRadius: "8px",
                 }}
               >
@@ -235,8 +235,8 @@ const AllegationsPage: React.FC = () => {
                   <span
                     style={{
                       padding: "0.2rem 0.5rem",
-                      backgroundColor: "#e5e7eb",
-                      color: "#374151",
+                      backgroundColor: "var(--border-default)",
+                      color: "var(--text-secondary)",
                       borderRadius: "4px",
                       fontSize: "0.75rem",
                       fontFamily: "monospace",
@@ -248,7 +248,7 @@ const AllegationsPage: React.FC = () => {
                     <span
                       style={{
                         fontSize: "0.8rem",
-                        color: "#6b7280",
+                        color: "var(--text-muted)",
                       }}
                     >
                       ¶{allegation.paragraph}
@@ -272,8 +272,8 @@ const AllegationsPage: React.FC = () => {
                     <span
                       style={{
                         padding: "0.2rem 0.5rem",
-                        backgroundColor: "#f3f4f6",
-                        color: "#6b7280",
+                        backgroundColor: "var(--bg-page)",
+                        color: "var(--text-muted)",
                         borderRadius: "4px",
                         fontSize: "0.75rem",
                       }}
@@ -285,7 +285,7 @@ const AllegationsPage: React.FC = () => {
                     <span
                       style={{
                         fontSize: "0.75rem",
-                        color: "#6b7280",
+                        color: "var(--text-muted)",
                       }}
                     >
                       Severity: {allegation.severity}/10
@@ -306,7 +306,7 @@ const AllegationsPage: React.FC = () => {
                 {allegation.allegation && (
                   <div
                     style={{
-                      color: "#4b5563",
+                      color: "var(--text-secondary)",
                       fontSize: "0.9rem",
                       lineHeight: "1.5",
                       marginBottom: "0.5rem",
@@ -320,7 +320,7 @@ const AllegationsPage: React.FC = () => {
                   <div
                     style={{
                       fontSize: "0.8rem",
-                      color: "#6b7280",
+                      color: "var(--text-muted)",
                       fontStyle: "italic",
                     }}
                   >
@@ -332,7 +332,7 @@ const AllegationsPage: React.FC = () => {
                   <Link
                     to={`/allegations/${allegation.id}/detail`}
                     style={{
-                      color: "#2563eb",
+                      color: "var(--accent-primary)",
                       textDecoration: "none",
                       fontSize: "0.85rem",
                       fontWeight: 500,

@@ -6,16 +6,16 @@ import { AuditHealthResponse, AuditCheck, getAuditHealth } from "../../services/
 import { cardStyle, btnPrimary, msgError } from "./adminStyles";
 
 const statusColors: Record<string, { border: string; icon: string }> = {
-  pass: { border: "#10b981", icon: "pass" },
-  warn: { border: "#f59e0b", icon: "warn" },
-  fail: { border: "#ef4444", icon: "fail" },
+  pass: { border: "var(--state-success-strong)", icon: "pass" },
+  warn: { border: "var(--state-warning-strong)", icon: "warn" },
+  fail: { border: "var(--state-danger-strong)", icon: "fail" },
 };
 
 const severityBadge = (severity: string): React.CSSProperties => {
   const c: Record<string, { bg: string; text: string }> = {
-    critical: { bg: "#fee2e2", text: "#991b1b" },
-    high: { bg: "#fef3c7", text: "#92400e" },
-    low: { bg: "#f1f5f9", text: "#475569" },
+    critical: { bg: "var(--state-danger-bg-soft)", text: "var(--status-dropped-text)" },
+    high: { bg: "var(--burden-warning-bg)", text: "var(--burden-warning-text)" },
+    low: { bg: "var(--bg-page)", text: "var(--text-secondary)" },
   };
   const s = c[severity] || c.low;
   return {
@@ -58,7 +58,7 @@ const AdminAudit: React.FC = () => {
     setExpanded((prev) => ({ ...prev, [name]: !prev[name] }));
 
   if (loading && !data) {
-    return <div style={{ textAlign: "center", padding: "2rem", color: "#64748b" }}>Running health checks...</div>;
+    return <div style={{ textAlign: "center", padding: "2rem", color: "var(--text-muted)" }}>Running health checks...</div>;
   }
 
   return (
@@ -76,8 +76,8 @@ const AdminAudit: React.FC = () => {
               { label: "Complete", value: `${data.summary.completeness_pct.toFixed(0)}%` },
             ].map((s) => (
               <div key={s.label} style={{ ...cardStyle, flex: 1, textAlign: "center" }}>
-                <div style={{ fontSize: "1.4rem", fontWeight: 700, color: "#0f172a" }}>{s.value}</div>
-                <div style={{ fontSize: "0.72rem", color: "#64748b" }}>{s.label}</div>
+                <div style={{ fontSize: "1.4rem", fontWeight: 700, color: "var(--text-primary)" }}>{s.value}</div>
+                <div style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>{s.label}</div>
               </div>
             ))}
           </div>
@@ -100,7 +100,7 @@ const AdminAudit: React.FC = () => {
             <button style={btnPrimary} onClick={fetchHealth} disabled={loading}>
               {loading ? "Checking..." : "Run Health Check"}
             </button>
-            <span style={{ fontSize: "0.76rem", color: "#64748b" }}>
+            <span style={{ fontSize: "0.76rem", color: "var(--text-muted)" }}>
               Last checked: {new Date(data.checked_at).toLocaleString()}
             </span>
           </div>
@@ -131,11 +131,11 @@ const CheckCard: React.FC<CheckCardProps> = ({ check, isExpanded, onToggle, onNa
         onClick={onToggle}
       >
         <span style={{ fontSize: "1rem" }}>{statusIcon(check.status)}</span>
-        <span style={{ fontWeight: 600, fontSize: "0.84rem", color: "#0f172a", flex: 1 }}>
+        <span style={{ fontWeight: 600, fontSize: "0.84rem", color: "var(--text-primary)", flex: 1 }}>
           {check.name.replace(/_/g, " ")}
         </span>
-        <span style={{ fontSize: "0.78rem", color: "#64748b" }}>{check.message}</span>
-        <span style={{ fontSize: "0.76rem", color: "#94a3b8" }}>{isExpanded ? "\u25B2" : "\u25BC"}</span>
+        <span style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>{check.message}</span>
+        <span style={{ fontSize: "0.76rem", color: "var(--text-disabled)" }}>{isExpanded ? "\u25B2" : "\u25BC"}</span>
       </div>
 
       {isExpanded && check.details.length > 0 && (
@@ -143,16 +143,16 @@ const CheckCard: React.FC<CheckCardProps> = ({ check, isExpanded, onToggle, onNa
           {check.details.map((issue, i) => (
             <div key={i} style={{
               fontSize: "0.78rem", padding: "0.25rem 0",
-              borderBottom: i < check.details.length - 1 ? "1px solid #f1f5f9" : "none",
+              borderBottom: i < check.details.length - 1 ? "1px solid var(--bg-page)" : "none",
               display: "flex", alignItems: "center", gap: "0.4rem",
             }}>
               <span style={severityBadge(issue.severity)}>{issue.severity}</span>
-              <span style={{ color: "#64748b" }}>{issue.resource_type}</span>
-              <span style={{ color: "#0f172a", fontWeight: 500 }}>{issue.resource_id}</span>
-              <span style={{ color: "#475569" }}>— {issue.description}</span>
+              <span style={{ color: "var(--text-muted)" }}>{issue.resource_type}</span>
+              <span style={{ color: "var(--text-primary)", fontWeight: 500 }}>{issue.resource_id}</span>
+              <span style={{ color: "var(--text-secondary)" }}>— {issue.description}</span>
               {issue.resource_type === "document" && (
                 <button
-                  style={{ marginLeft: "auto", fontSize: "0.72rem", color: "#2563eb", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit" }}
+                  style={{ marginLeft: "auto", fontSize: "0.72rem", color: "var(--accent-primary)", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit" }}
                   onClick={(e) => { e.stopPropagation(); onNavigate(issue.resource_id); }}
                 >
                   Audit
@@ -164,7 +164,7 @@ const CheckCard: React.FC<CheckCardProps> = ({ check, isExpanded, onToggle, onNa
       )}
 
       {isExpanded && check.details.length === 0 && (
-        <div style={{ marginTop: "0.4rem", paddingLeft: "1.5rem", fontSize: "0.78rem", color: "#64748b" }}>
+        <div style={{ marginTop: "0.4rem", paddingLeft: "1.5rem", fontSize: "0.78rem", color: "var(--text-muted)" }}>
           No issues found.
         </div>
       )}

@@ -26,16 +26,16 @@ const PipelineProgressBar: React.FC<Props> = ({ status, percentComplete }) => {
     return (
       <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
         <div style={{
-          flex: 1, height: "6px", backgroundColor: "#e2e8f0",
+          flex: 1, height: "6px", backgroundColor: "var(--border-default)",
           borderRadius: "3px", overflow: "hidden",
         }}>
           <div style={{
             width: `${pct}%`, height: "100%", borderRadius: "3px",
-            backgroundColor: "#2563eb",
+            backgroundColor: "var(--accent-primary)",
             transition: "width 0.3s ease",
           }} />
         </div>
-        <span style={{ fontSize: "0.72rem", color: "#64748b", whiteSpace: "nowrap" }}>
+        <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", whiteSpace: "nowrap" }}>
           {pct}%
         </span>
       </div>
@@ -44,17 +44,17 @@ const PipelineProgressBar: React.FC<Props> = ({ status, percentComplete }) => {
 
   // For terminal statuses, show a colored indicator bar.
   // Full green for COMPLETED, full red for FAILED, grey for CANCELLED/NEW.
-  const color = status === "COMPLETED" ? "#22c55e"
-    : status === "FAILED" ? "#ef4444"
-    : status === "CANCELLED" ? "#94a3b8"
-    : "#e2e8f0"; // NEW — empty bar
+  const color = status === "COMPLETED" ? "var(--state-success-strong)"
+    : status === "FAILED" ? "var(--state-danger-strong)"
+    : status === "CANCELLED" ? "var(--text-disabled)"
+    : "var(--border-default)"; // NEW — empty bar
 
   const pct = status === "COMPLETED" || status === "FAILED" || status === "CANCELLED" ? 100 : 0;
 
   return (
     <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
       <div style={{
-        flex: 1, height: "6px", backgroundColor: "#e2e8f0",
+        flex: 1, height: "6px", backgroundColor: "var(--border-default)",
         borderRadius: "3px", overflow: "hidden",
       }}>
         <div style={{

@@ -29,20 +29,20 @@ const badge = (bg: string, fg: string): React.CSSProperties => ({
   fontSize: "0.68rem", fontWeight: 600, backgroundColor: bg, color: fg,
 });
 const REVIEW_BADGE: Record<string, React.CSSProperties> = {
-  approved: badge("#dcfce7", "#166534"),
-  rejected: badge("#fee2e2", "#991b1b"),
-  pending: badge("#f1f5f9", "#64748b"),
-  edited: badge("#e0e7ff", "#3730a3"),
+  approved: badge("var(--state-success-bg-soft)", "var(--status-active-text)"),
+  rejected: badge("var(--state-danger-bg-soft)", "var(--status-dropped-text)"),
+  pending: badge("var(--bg-page)", "var(--text-muted)"),
+  edited: badge("var(--state-info-bg-soft)", "var(--bias-indigo-text)"),
 };
 const CATEGORY_BADGE: Record<string, React.CSSProperties> = {
-  foundation: badge("#dbeafe", "#1e40af"),
-  structural: badge("#fef3c7", "#92400e"),
-  evidence: badge("#d1fae5", "#065f46"),
-  reference: badge("#f1f5f9", "#475569"),
+  foundation: badge("var(--accent-bg-soft)", "var(--accent-primary-hover)"),
+  structural: badge("var(--burden-warning-bg)", "var(--burden-warning-text)"),
+  evidence: badge("var(--state-success-bg-soft)", "var(--status-active-text)"),
+  reference: badge("var(--bg-page)", "var(--text-secondary)"),
 };
 const filterSel: React.CSSProperties = {
   padding: "0.3rem 0.5rem", fontSize: "0.76rem", borderRadius: "4px",
-  border: "1px solid #e2e8f0", fontFamily: "inherit", color: "#334155",
+  border: "1px solid var(--border-default)", fontFamily: "inherit", color: "var(--text-secondary)",
 };
 const actionBtn = (bg: string, fg: string, border: string): React.CSSProperties => ({
   padding: "0.2rem 0.5rem", fontSize: "0.72rem", fontWeight: 500,
@@ -50,12 +50,12 @@ const actionBtn = (bg: string, fg: string, border: string): React.CSSProperties 
   color: fg, cursor: "pointer", fontFamily: "inherit",
 });
 const secondaryBtn: React.CSSProperties = {
-  ...actionBtn("#f8fafc", "#64748b", "#e2e8f0"),
+  ...actionBtn("var(--bg-page)", "var(--text-muted)", "var(--border-default)"),
   fontSize: "0.66rem", padding: "0.15rem 0.35rem",
 };
 const cardBase: React.CSSProperties = {
-  padding: "0.6rem 0.75rem", borderRadius: "6px", border: "1px solid #e2e8f0",
-  backgroundColor: "#fff", cursor: "pointer", marginBottom: "0.4rem",
+  padding: "0.6rem 0.75rem", borderRadius: "6px", border: "1px solid var(--border-default)",
+  backgroundColor: "var(--bg-surface)", cursor: "pointer", marginBottom: "0.4rem",
   transition: "border-color 0.15s",
 };
 
@@ -72,15 +72,15 @@ function GroundingIndicator({ status }: { status: string | null }) {
   switch (status) {
     case "exact":
     case "normalized":
-      return <span style={{ fontSize: "0.66rem", color: "#059669" }} title="Verified in document">&#10003; Verified</span>;
+      return <span style={{ fontSize: "0.66rem", color: "var(--status-active-text)" }} title="Verified in document">&#10003; Verified</span>;
     case "not_found":
-      return <span style={{ fontSize: "0.66rem", color: "#d97706" }} title="Not verified">&#9888; Not verified</span>;
+      return <span style={{ fontSize: "0.66rem", color: "var(--state-warning-strong)" }} title="Not verified">&#9888; Not verified</span>;
     case "derived":
-      return <span style={{ fontSize: "0.66rem", color: "#2563eb" }} title="Derived from other entities">&#128279; Derived</span>;
+      return <span style={{ fontSize: "0.66rem", color: "var(--accent-primary)" }} title="Derived from other entities">&var(--status-active-text); Derived</span>;
     case "unverified":
-      return <span style={{ fontSize: "0.66rem", color: "#94a3b8" }} title="Unverified">&mdash; Unverified</span>;
+      return <span style={{ fontSize: "0.66rem", color: "var(--text-disabled)" }} title="Unverified">&mdash; Unverified</span>;
     case "missing_quote":
-      return <span style={{ fontSize: "0.66rem", color: "#dc2626" }} title="Missing quote">&#10007; Missing quote</span>;
+      return <span style={{ fontSize: "0.66rem", color: "var(--state-danger-strong)" }} title="Missing quote">&#10007; Missing quote</span>;
     default:
       return null;
   }
@@ -93,8 +93,8 @@ function ProvenanceLinks({ item }: { item: ExtractionItem }) {
   if (!provenance || !Array.isArray(provenance) || provenance.length === 0) return null;
 
   return (
-    <div style={{ fontSize: "0.7rem", color: "#475569", marginTop: "0.25rem", paddingLeft: "0.5rem",
-      borderLeft: "2px solid #93c5fd" }}>
+    <div style={{ fontSize: "0.7rem", color: "var(--text-secondary)", marginTop: "0.25rem", paddingLeft: "0.5rem",
+      borderLeft: "2px solid var(--accent-bg-soft)" }}>
       <div style={{ fontWeight: 600, marginBottom: "0.15rem" }}>Derived from:</div>
       {provenance.map((p, i) => (
         <div key={i} style={{ marginBottom: "0.1rem" }}>
@@ -299,26 +299,26 @@ const ReviewPanel: React.FC<ReviewPanelProps> = ({ documentId, pdfUrl, documentS
   };
 
   if (loading && items.length === 0) {
-    return <div style={{ padding: "2rem", textAlign: "center", color: "#94a3b8" }}>Loading review items...</div>;
+    return <div style={{ padding: "2rem", textAlign: "center", color: "var(--text-disabled)" }}>Loading review items...</div>;
   }
   if (error && items.length === 0) {
-    return <div style={{ padding: "2rem", textAlign: "center", color: "#dc2626" }}>{error}</div>;
+    return <div style={{ padding: "2rem", textAlign: "center", color: "var(--state-danger-strong)" }}>{error}</div>;
   }
 
   return (
     <div ref={containerRef} style={{
       display: "flex", height: "calc(100vh - 300px)", minHeight: "400px",
-      border: "1px solid #e2e8f0", borderRadius: "8px", overflow: "hidden",
+      border: "1px solid var(--border-default)", borderRadius: "8px", overflow: "hidden",
       userSelect: isDragging ? "none" : "auto",
     }}>
       {/* Left pane: items list */}
-      <div style={{ width: `${splitPercent}%`, overflow: "auto", padding: "0.75rem", backgroundColor: "#fafbfc" }}>
+      <div style={{ width: `${splitPercent}%`, overflow: "auto", padding: "0.75rem", backgroundColor: "var(--bg-surface)" }}>
         {/* Soft context note — shows when some items are already in the graph.
             Pending items remain actionable; only approved/rejected items are
             read-only post-ingest. */}
         {anyLocked && (
           <div style={{ padding: "0.5rem 0.75rem", marginBottom: "0.5rem", borderRadius: "6px",
-            backgroundColor: "#eff6ff", border: "1px solid #bfdbfe", fontSize: "0.76rem", color: "#1e40af" }}>
+            backgroundColor: "var(--accent-bg-soft)", border: "1px solid var(--accent-bg-soft)", fontSize: "0.76rem", color: "var(--accent-primary-hover)" }}>
             Items already written to the graph are read-only. Pending items can still be approved, rejected, or edited. To modify ingested items, revert ingest from the Processing tab.
           </div>
         )}
@@ -326,7 +326,7 @@ const ReviewPanel: React.FC<ReviewPanelProps> = ({ documentId, pdfUrl, documentS
         {/* Foundation summary */}
         {hasFoundation && (
           <div style={{ padding: "0.4rem 0.6rem", marginBottom: "0.5rem", borderRadius: "6px",
-            backgroundColor: "#eff6ff", border: "1px solid #bfdbfe", fontSize: "0.72rem", color: "#1e40af" }}>
+            backgroundColor: "var(--accent-bg-soft)", border: "1px solid var(--accent-bg-soft)", fontSize: "0.72rem", color: "var(--accent-primary-hover)" }}>
             <span style={{ fontWeight: 600 }}>Foundation Entities: </span>
             {(() => {
               const byType: Record<string, number> = {};
@@ -338,37 +338,37 @@ const ReviewPanel: React.FC<ReviewPanelProps> = ({ documentId, pdfUrl, documentS
 
         {actionError && (
           <div style={{ padding: "0.4rem 0.6rem", marginBottom: "0.5rem", borderRadius: "6px",
-            backgroundColor: "#fef2f2", border: "1px solid #fecaca", fontSize: "0.76rem", color: "#991b1b",
+            backgroundColor: "var(--state-danger-bg-soft)", border: "1px solid var(--state-danger-border)", fontSize: "0.76rem", color: "var(--status-dropped-text)",
             display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <span>{actionError}</span>
             <button onClick={() => setActionError(null)}
-              style={{ background: "none", border: "none", cursor: "pointer", color: "#991b1b",
+              style={{ background: "none", border: "none", cursor: "pointer", color: "var(--status-dropped-text)",
                 fontWeight: 600, fontSize: "0.8rem", fontFamily: "inherit" }}>&times;</button>
           </div>
         )}
 
         {/* Summary + Bulk actions */}
         <div style={{ display: "flex", gap: "0.75rem", alignItems: "center", marginBottom: "0.5rem", flexWrap: "wrap" }}>
-          <span style={{ fontSize: "0.76rem", color: "#334155", fontWeight: 600 }}>
+          <span style={{ fontSize: "0.76rem", color: "var(--text-secondary)", fontWeight: 600 }}>
             {pending} pending
           </span>
-          <span style={{ fontSize: "0.76rem", color: "#166534" }}>{approved} approved</span>
-          <span style={{ fontSize: "0.76rem", color: "#991b1b" }}>{rejected} rejected</span>
+          <span style={{ fontSize: "0.76rem", color: "var(--status-active-text)" }}>{approved} approved</span>
+          <span style={{ fontSize: "0.76rem", color: "var(--status-dropped-text)" }}>{rejected} rejected</span>
           {/* Bulk approve is always available — the backend filters the
               update to pending items only, so on PUBLISHED docs this only
               affects the still-reviewable set, not the ingested ones. */}
-          <button style={actionBtn("#ecfdf5", "#047857", "#a7f3d0")} onClick={handleBulkApprove}>
+          <button style={actionBtn("var(--state-success-bg-soft)", "var(--status-active-text)", "var(--state-success-bg-soft)")} onClick={handleBulkApprove}>
             Approve All Grounded
           </button>
           {bulkMsg && (
-            <span style={{ fontSize: "0.72rem", color: "#047857", fontStyle: "italic" }}>{bulkMsg}</span>
+            <span style={{ fontSize: "0.72rem", color: "var(--status-active-text)", fontStyle: "italic" }}>{bulkMsg}</span>
           )}
           {/* Delta ingest — visible only when there are approved/edited
               items still missing from Neo4j. Backend returns this count
               as summary.pending_graph_write. */}
           {(summary?.pending_graph_write ?? 0) > 0 && (
             <button
-              style={{ ...actionBtn("#eff6ff", "#1d4ed8", "#bfdbfe"), opacity: deltaBusy ? 0.6 : 1 }}
+              style={{ ...actionBtn("var(--accent-bg-soft)", "var(--accent-primary)", "var(--accent-bg-soft)"), opacity: deltaBusy ? 0.6 : 1 }}
               onClick={handleIngestDelta}
               disabled={deltaBusy}
               title="Write approved items that aren't yet in the graph"
@@ -379,11 +379,11 @@ const ReviewPanel: React.FC<ReviewPanelProps> = ({ documentId, pdfUrl, documentS
             </button>
           )}
           {deltaMsg && (
-            <span style={{ fontSize: "0.72rem", color: "#1d4ed8", fontStyle: "italic" }}>{deltaMsg}</span>
+            <span style={{ fontSize: "0.72rem", color: "var(--accent-primary)", fontStyle: "italic" }}>{deltaMsg}</span>
           )}
           {documentStatus && REVERIFY_ALLOWED_STATUSES.has(documentStatus) && (
             <button
-              style={{ ...actionBtn("#faf5ff", "#7c3aed", "#ddd6fe"), opacity: reverifyBusy ? 0.6 : 1 }}
+              style={{ ...actionBtn("var(--bias-purple-bg-soft)", "var(--bias-purple-text)", "var(--bias-purple-bg-soft)"), opacity: reverifyBusy ? 0.6 : 1 }}
               onClick={handleReverifySync}
               disabled={reverifyBusy}
               title="Re-verify all items, auto-approve grounded items, and write to graph"
@@ -395,7 +395,7 @@ const ReviewPanel: React.FC<ReviewPanelProps> = ({ documentId, pdfUrl, documentS
 
         {reverifyResult && (
           <div style={{ padding: "0.5rem 0.75rem", marginBottom: "0.5rem", borderRadius: "6px",
-            backgroundColor: "#faf5ff", border: "1px solid #ddd6fe", fontSize: "0.76rem", color: "#5b21b6" }}>
+            backgroundColor: "var(--bias-purple-bg-soft)", border: "1px solid var(--bias-purple-bg-soft)", fontSize: "0.76rem", color: "var(--bias-purple-text)" }}>
             <div style={{ fontWeight: 600, marginBottom: "0.2rem" }}>Re-verify & Sync complete</div>
             <div>
               Verified {reverifyResult.verify_results.total_items} items:
@@ -412,10 +412,10 @@ const ReviewPanel: React.FC<ReviewPanelProps> = ({ documentId, pdfUrl, documentS
               <div>{reverifyResult.ingest_delta_results.written_to_graph} written to graph.</div>
             )}
             {reverifyResult.partial_error && (
-              <div style={{ color: "#991b1b", marginTop: "0.2rem" }}>Partial error: {reverifyResult.partial_error}</div>
+              <div style={{ color: "var(--status-dropped-text)", marginTop: "0.2rem" }}>Partial error: {reverifyResult.partial_error}</div>
             )}
             <button onClick={() => setReverifyResult(null)}
-              style={{ background: "none", border: "none", cursor: "pointer", color: "#7c3aed",
+              style={{ background: "none", border: "none", cursor: "pointer", color: "var(--bias-purple-text)",
                 fontWeight: 600, fontSize: "0.72rem", fontFamily: "inherit", padding: 0, marginTop: "0.2rem" }}>Dismiss</button>
           </div>
         )}
@@ -437,7 +437,7 @@ const ReviewPanel: React.FC<ReviewPanelProps> = ({ documentId, pdfUrl, documentS
             <option value="grounded">Verified in document</option>
             <option value="ungrounded">Not verified</option>
           </select>
-          <span style={{ fontSize: "0.72rem", color: "#64748b", alignSelf: "center" }}>
+          <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", alignSelf: "center" }}>
             {filtered.length} / {items.length}
           </span>
         </div>
@@ -449,8 +449,8 @@ const ReviewPanel: React.FC<ReviewPanelProps> = ({ documentId, pdfUrl, documentS
 
           return (
             <div key={item.id}
-              style={{ ...cardBase, borderColor: selectedId === item.id ? "#2563eb" : "#e2e8f0",
-                backgroundColor: selectedId === item.id ? "#eff6ff" : "#fff",
+              style={{ ...cardBase, borderColor: selectedId === item.id ? "var(--accent-primary)" : "var(--border-default)",
+                backgroundColor: selectedId === item.id ? "var(--accent-bg-soft)" : "var(--bg-surface)",
                 opacity: isLocked ? 0.75 : 1 }}
               onClick={() => handleSelect(item)}
             >
@@ -463,7 +463,7 @@ const ReviewPanel: React.FC<ReviewPanelProps> = ({ documentId, pdfUrl, documentS
                   return (
                     <span style={{
                       display: "inline-block", padding: "0.1rem 0.4rem", borderRadius: "4px",
-                      fontSize: "0.66rem", fontWeight: 600, color: "#fff",
+                      fontSize: "0.66rem", fontWeight: 600, color: "var(--bg-surface)",
                       backgroundColor: getColor(displayType),
                     }}>{displayType}</span>
                   );
@@ -471,12 +471,12 @@ const ReviewPanel: React.FC<ReviewPanelProps> = ({ documentId, pdfUrl, documentS
                 {item.category && CATEGORY_BADGE[item.category] && (
                   <span style={CATEGORY_BADGE[item.category]}>{item.category}</span>
                 )}
-                <span style={{ fontSize: "0.82rem", fontWeight: 600, color: "#0f172a" }}>{item.label}</span>
+                <span style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--text-primary)" }}>{item.label}</span>
                 <span style={REVIEW_BADGE[(item.review_status || "pending").toLowerCase()] ?? REVIEW_BADGE.pending}>
                   {(item.review_status || "pending").toLowerCase()}
                 </span>
                 {item.grounded_page && (
-                  <span style={{ fontSize: "0.68rem", color: "#64748b" }}>p.{item.grounded_page}</span>
+                  <span style={{ fontSize: "0.68rem", color: "var(--text-muted)" }}>p.{item.grounded_page}</span>
                 )}
                 <GroundingIndicator status={item.grounding_status} />
               </div>
@@ -487,12 +487,12 @@ const ReviewPanel: React.FC<ReviewPanelProps> = ({ documentId, pdfUrl, documentS
                 return (
                   <div style={{
                     display: "flex", flexWrap: "wrap", gap: "0.7rem",
-                    fontSize: "0.72rem", color: "#475569",
+                    fontSize: "0.72rem", color: "var(--text-secondary)",
                     marginBottom: "0.35rem", lineHeight: 1.4,
                   }}>
                     {props.map((p) => (
                       <span key={p.label}>
-                        <strong style={{ color: "#334155", fontWeight: 600 }}>{p.label}:</strong>{" "}
+                        <strong style={{ color: "var(--text-secondary)", fontWeight: 600 }}>{p.label}:</strong>{" "}
                         {p.value}
                       </span>
                     ))}
@@ -501,7 +501,7 @@ const ReviewPanel: React.FC<ReviewPanelProps> = ({ documentId, pdfUrl, documentS
               })()}
 
               {item.verbatim_quote && (
-                <div style={{ fontSize: "0.74rem", color: "#64748b", fontStyle: "italic", lineHeight: 1.4,
+                <div style={{ fontSize: "0.74rem", color: "var(--text-muted)", fontStyle: "italic", lineHeight: 1.4,
                   maxHeight: "2.8em", overflow: "hidden", marginBottom: "0.35rem" }}>
                   "{item.verbatim_quote.length > 120 ? item.verbatim_quote.slice(0, 120) + "..." : item.verbatim_quote}"
                 </div>
@@ -512,7 +512,7 @@ const ReviewPanel: React.FC<ReviewPanelProps> = ({ documentId, pdfUrl, documentS
 
               {/* Locked message */}
               {isLocked && (
-                <div style={{ fontSize: "0.66rem", color: "#92400e", marginTop: "0.2rem" }}>
+                <div style={{ fontSize: "0.66rem", color: "var(--burden-warning-text)", marginTop: "0.2rem" }}>
                   Post-ingest &mdash; revert ingest to modify
                 </div>
               )}
@@ -523,27 +523,27 @@ const ReviewPanel: React.FC<ReviewPanelProps> = ({ documentId, pdfUrl, documentS
                   onClick={(e) => e.stopPropagation()}>
                   <input value={editPage} onChange={(e) => setEditPage(e.target.value)}
                     placeholder="Page" style={{ width: "3.5rem", padding: "0.2rem 0.3rem", fontSize: "0.72rem",
-                    border: "1px solid #e2e8f0", borderRadius: "4px" }} />
+                    border: "1px solid var(--border-default)", borderRadius: "4px" }} />
                   <input value={editQuote} onChange={(e) => setEditQuote(e.target.value)}
                     placeholder="Quote" style={{ flex: 1, minWidth: "120px", padding: "0.2rem 0.3rem",
-                    fontSize: "0.72rem", border: "1px solid #e2e8f0", borderRadius: "4px" }} />
-                  <button style={actionBtn("#ecfdf5", "#047857", "#a7f3d0")} onClick={saveEdit}>Save</button>
-                  <button style={actionBtn("#fff", "#64748b", "#e2e8f0")} onClick={() => setEditingId(null)}>Cancel</button>
+                    fontSize: "0.72rem", border: "1px solid var(--border-default)", borderRadius: "4px" }} />
+                  <button style={actionBtn("var(--state-success-bg-soft)", "var(--status-active-text)", "var(--state-success-bg-soft)")} onClick={saveEdit}>Save</button>
+                  <button style={actionBtn("var(--bg-surface)", "var(--text-muted)", "var(--border-default)")} onClick={() => setEditingId(null)}>Cancel</button>
                 </div>
               ) : !isLocked && actions.length > 0 ? (
                 <div style={{ display: "flex", gap: "0.3rem", marginTop: "0.2rem", flexWrap: "wrap" }}
                   onClick={(e) => e.stopPropagation()}>
                   {actions.includes("confirm") && (
-                    <button style={actionBtn("#e0e7ff", "#4338ca", "#c7d2fe")} onClick={() => handleApprove(item.id)}>Confirm</button>
+                    <button style={actionBtn("var(--state-info-bg-soft)", "var(--bias-indigo-text)", "var(--state-info-bg-soft)")} onClick={() => handleApprove(item.id)}>Confirm</button>
                   )}
                   {actions.includes("approve") && (
-                    <button style={actionBtn("#ecfdf5", "#047857", "#a7f3d0")} onClick={() => handleApprove(item.id)}>Approve</button>
+                    <button style={actionBtn("var(--state-success-bg-soft)", "var(--status-active-text)", "var(--state-success-bg-soft)")} onClick={() => handleApprove(item.id)}>Approve</button>
                   )}
                   {actions.includes("reject") && (
-                    <button style={actionBtn("#fef2f2", "#dc2626", "#fecaca")} onClick={() => handleReject(item.id)}>Reject</button>
+                    <button style={actionBtn("var(--state-danger-bg-soft)", "var(--state-danger-strong)", "var(--state-danger-border)")} onClick={() => handleReject(item.id)}>Reject</button>
                   )}
                   {actions.includes("edit") && (
-                    <button style={actionBtn("#fff", "#64748b", "#e2e8f0")} onClick={() => startEdit(item)}>Edit</button>
+                    <button style={actionBtn("var(--bg-surface)", "var(--text-muted)", "var(--border-default)")} onClick={() => startEdit(item)}>Edit</button>
                   )}
                   {actions.includes("unapprove") && (
                     <button style={secondaryBtn} onClick={() => handleUnapprove(item.id)}>Unapprove</button>
@@ -560,7 +560,7 @@ const ReviewPanel: React.FC<ReviewPanelProps> = ({ documentId, pdfUrl, documentS
 
       {/* Divider */}
       <div {...dividerProps}>
-        <div style={{ width: "2px", height: "24px", borderRadius: "1px", backgroundColor: "#94a3b8" }} />
+        <div style={{ width: "2px", height: "24px", borderRadius: "1px", backgroundColor: "var(--text-disabled)" }} />
       </div>
 
       {/* Right pane: PDF viewer */}

@@ -17,7 +17,7 @@ const tabBarStyle: React.CSSProperties = {
   display: "flex",
   gap: "0.2rem",
   marginBottom: "1.5rem",
-  borderBottom: "2px solid #e2e8f0",
+  borderBottom: "2px solid var(--border-default)",
   paddingBottom: "0",
 };
 
@@ -25,7 +25,7 @@ const tabBase: React.CSSProperties = {
   padding: "0.6rem 1.25rem",
   fontSize: "0.84rem",
   fontWeight: 500,
-  color: "#64748b",
+  color: "var(--text-muted)",
   background: "none",
   border: "none",
   borderBottom: "2px solid transparent",
@@ -37,15 +37,15 @@ const tabBase: React.CSSProperties = {
 
 const tabActive: React.CSSProperties = {
   ...tabBase,
-  color: "#2563eb",
+  color: "var(--accent-primary)",
   fontWeight: 600,
-  borderBottomColor: "#2563eb",
+  borderBottomColor: "var(--accent-primary)",
 };
 
 const deniedStyle: React.CSSProperties = {
   padding: "3rem",
   textAlign: "center",
-  color: "#64748b",
+  color: "var(--text-muted)",
   fontSize: "0.9rem",
 };
 
@@ -77,10 +77,10 @@ const TABS: { id: Tab; label: string }[] = [
 // Environment badge colors
 const envBadgeStyle = (env: string): React.CSSProperties => {
   const colors: Record<string, { bg: string; text: string; border: string }> = {
-    dev: { bg: "#fef3c7", text: "#92400e", border: "#fcd34d" },
-    prod: { bg: "#fee2e2", text: "#991b1b", border: "#fca5a5" },
+    dev: { bg: "var(--burden-warning-bg)", text: "var(--burden-warning-text)", border: "var(--burden-warning-bg)" },
+    prod: { bg: "var(--state-danger-bg-soft)", text: "var(--status-dropped-text)", border: "var(--state-danger-border)" },
   };
-  const c = colors[env] || { bg: "#f1f5f9", text: "#475569", border: "#e2e8f0" };
+  const c = colors[env] || { bg: "var(--bg-page)", text: "var(--text-secondary)", border: "var(--border-default)" };
   return {
     display: "inline-block",
     padding: "0.15rem 0.5rem",
@@ -100,7 +100,7 @@ const statusDotStyle = (ok: boolean): React.CSSProperties => ({
   width: "8px",
   height: "8px",
   borderRadius: "50%",
-  backgroundColor: ok ? "#10b981" : "#ef4444",
+  backgroundColor: ok ? "var(--state-success-strong)" : "var(--state-danger-strong)",
   marginRight: "0.3rem",
 });
 
@@ -123,7 +123,7 @@ const Admin: React.FC = () => {
 
   if (loading) {
     return (
-      <div style={{ padding: "2rem", textAlign: "center", color: "#64748b" }}>
+      <div style={{ padding: "2rem", textAlign: "center", color: "var(--text-muted)" }}>
         Loading...
       </div>
     );
@@ -132,7 +132,7 @@ const Admin: React.FC = () => {
   if (!user?.permissions.is_admin) {
     return (
       <div style={deniedStyle}>
-        <div style={{ fontSize: "1.1rem", fontWeight: 600, color: "#0f172a", marginBottom: "0.5rem" }}>
+        <div style={{ fontSize: "1.1rem", fontWeight: 600, color: "var(--text-primary)", marginBottom: "0.5rem" }}>
           Access Denied
         </div>
         Admin access is required to view this page.
@@ -143,16 +143,16 @@ const Admin: React.FC = () => {
   return (
     <div style={{ paddingTop: "1.5rem", paddingBottom: "3rem" }}>
       <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", margin: "0 0 0.5rem" }}>
-        <h1 style={{ fontSize: "1.35rem", fontWeight: 700, color: "#0f172a", margin: 0, letterSpacing: "-0.02em" }}>
+        <h1 style={{ fontSize: "1.35rem", fontWeight: 700, color: "var(--text-primary)", margin: 0, letterSpacing: "-0.02em" }}>
           Admin
         </h1>
         <span style={envBadgeStyle(environment)}>{environment}</span>
-        <span style={{ fontSize: "0.76rem", color: "#64748b", fontWeight: 500 }}>v{version}</span>
+        <span style={{ fontSize: "0.76rem", color: "var(--text-muted)", fontWeight: 500 }}>v{version}</span>
       </div>
 
       {/* Backend connectivity status */}
       {status && (
-        <div style={{ display: "flex", gap: "1rem", marginBottom: "1rem", fontSize: "0.76rem", color: "#475569" }}>
+        <div style={{ display: "flex", gap: "1rem", marginBottom: "1rem", fontSize: "0.76rem", color: "var(--text-secondary)" }}>
           <span><span style={statusDotStyle(status.neo4j_connected)} />Neo4j</span>
           <span><span style={statusDotStyle(status.qdrant_connected)} />Qdrant</span>
           <span><span style={statusDotStyle(status.postgres_connected)} />PostgreSQL</span>

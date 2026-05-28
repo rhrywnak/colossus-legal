@@ -13,8 +13,8 @@ const AnswerDisplay: React.FC<Props> = ({ response }) => {
     <div>
       {/* Answer text with markdown rendering */}
       <div style={{
-        padding: "1.5rem", backgroundColor: "#ffffff", borderRadius: "8px",
-        border: "1px solid #e5e7eb", marginBottom: "1rem",
+        padding: "1.5rem", backgroundColor: "var(--bg-surface)", borderRadius: "8px",
+        border: "1px solid var(--border-default)", marginBottom: "1rem",
       }}>
         <MarkdownAnswer content={response.answer} />
 
@@ -23,13 +23,13 @@ const AnswerDisplay: React.FC<Props> = ({ response }) => {
           <div style={{
             marginTop: "1rem",
             paddingTop: "0.75rem",
-            borderTop: "1px solid #e5e7eb",
+            borderTop: "1px solid var(--border-default)",
           }}>
             <div
               style={{
                 fontSize: "0.8rem",
                 fontWeight: 600,
-                color: "#6b7280",
+                color: "var(--text-muted)",
                 textTransform: "uppercase",
                 letterSpacing: "0.05em",
                 marginBottom: "0.5rem",
@@ -46,23 +46,23 @@ const AnswerDisplay: React.FC<Props> = ({ response }) => {
                     }`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    style={{ color: "#2563eb", textDecoration: "none" }}
+                    style={{ color: "var(--accent-primary)", textDecoration: "none" }}
                     onMouseEnter={(e) => { (e.target as HTMLElement).style.textDecoration = "underline"; }}
                     onMouseLeave={(e) => { (e.target as HTMLElement).style.textDecoration = "none"; }}
                   >
                     {source.document_title}
                     {source.page_number !== undefined && (
-                      <span style={{ color: "#6b7280", fontWeight: 400 }}> (p. {source.page_number})</span>
+                      <span style={{ color: "var(--text-muted)", fontWeight: 400 }}> (p. {source.page_number})</span>
                     )}
                   </a>
-                  <span style={{ color: "#9ca3af", fontSize: "0.8rem" }}>— {source.evidence_title}</span>
+                  <span style={{ color: "var(--text-disabled)", fontSize: "0.8rem" }}>— {source.evidence_title}</span>
                 </div>
               ))}
             </div>
           </div>
         )}
 
-        <div style={{ marginTop: "1rem", paddingTop: "0.75rem", borderTop: "1px solid #f3f4f6" }}>
+        <div style={{ marginTop: "1rem", paddingTop: "0.75rem", borderTop: "1px solid var(--bg-page)" }}>
           <ExportButtons markdown={response.answer} question={response.question} response={response} />
         </div>
       </div>

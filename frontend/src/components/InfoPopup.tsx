@@ -23,9 +23,9 @@ const InfoPopup: React.FC<InfoPopupProps> = ({ children }) => {
       <button
         onClick={() => setOpen((v) => !v)}
         style={{
-          background: "none", border: "1px solid #d1d5db", borderRadius: "50%",
+          background: "none", border: "1px solid var(--border-default)", borderRadius: "50%",
           width: "1.4rem", height: "1.4rem", cursor: "pointer", fontSize: "0.8rem",
-          color: "#6b7280", lineHeight: 1, display: "inline-flex", alignItems: "center",
+          color: "var(--text-muted)", lineHeight: 1, display: "inline-flex", alignItems: "center",
           justifyContent: "center", verticalAlign: "middle",
         }}
         title="How evidence strength is calculated"
@@ -35,10 +35,10 @@ const InfoPopup: React.FC<InfoPopupProps> = ({ children }) => {
       {open && (
         <div style={{
           position: "absolute", top: "2rem", left: 0, zIndex: 100,
-          width: "360px", padding: "1rem 1.25rem", backgroundColor: "#ffffff",
-          border: "1px solid #e5e7eb", borderRadius: "8px",
+          width: "360px", padding: "1rem 1.25rem", backgroundColor: "var(--bg-surface)",
+          border: "1px solid var(--border-default)", borderRadius: "8px",
           boxShadow: "0 4px 12px rgba(0,0,0,0.12)", fontSize: "0.85rem",
-          color: "#374151", lineHeight: 1.6,
+          color: "var(--text-secondary)", lineHeight: 1.6,
         }}>
           {children}
         </div>

@@ -101,6 +101,33 @@ an `AbortController` timeout:
 FAIL: {file}:{line} — fetch() without timeout
 ```
 
+### Rule 11: No Hardcoded Hex Color Literals
+Search for hex color literals matching the regex `#[0-9a-fA-F]{3,8}` in
+every modified `.ts` and `.tsx` file under `frontend/src/`. Each match is
+a violation:
+```
+FAIL: {file}:{line} — hardcoded hex color: "{value}" (use a var(--token) from styles/tokens.css)
+```
+**Exceptions (do NOT flag):**
+- `frontend/src/styles/tokens.css` — this is where tokens are defined.
+- Any file under a `__tests__/` directory — test fixtures may carry
+  literal color values.
+- HTML numeric character entities (`&#10007;` `&#10003;` `&#9888;`
+  `&#9432;` etc.) — these are Unicode glyphs (✓ ✕ ⚠ ⓘ), not colors. To
+  distinguish, require the hex to be inside a quoted string value and
+  NOT preceded by `&`. In practice the safe check is: flag a match only
+  when the hex is the value (or substring of the value) of a JSX style
+  property such as `color:`, `backgroundColor:`, `background:`,
+  `border:`, `borderColor:`, `borderTop:`, `borderBottom:`, `boxShadow:`,
+  `fill:`, `stroke:`, or assigned to an object key that names a color
+  role (`bg`, `text`, `bar`, `border`, `accent`, `fg`).
+
+All UI colors must come from CSS custom properties defined in
+`frontend/src/styles/tokens.css`. The 1208 historical hex literals were
+migrated in commit `refactor: migrate 1208 hardcoded hex colors to CSS
+custom properties` — any reintroduction is a regression and a violation
+of Standing Rule 2 (no hardcoded values).
+
 ## Output Format
 
 If all checks pass:

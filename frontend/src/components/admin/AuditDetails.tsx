@@ -11,10 +11,10 @@ import React from "react";
 import { DocumentEvidence } from "../../services/documentEvidence";
 
 const severityStyles: Record<string, React.CSSProperties> = {
-  critical: { backgroundColor: "#fee2e2", color: "#dc2626" },
-  high:     { backgroundColor: "#ffedd5", color: "#ea580c" },
-  medium:   { backgroundColor: "#fef9c3", color: "#a16207" },
-  low:      { backgroundColor: "#f1f5f9", color: "#64748b" },
+  critical: { backgroundColor: "var(--state-danger-bg-soft)", color: "var(--state-danger-strong)" },
+  high:     { backgroundColor: "var(--burden-warning-bg)", color: "var(--state-warning-strong)" },
+  medium:   { backgroundColor: "var(--burden-warning-bg)", color: "var(--burden-warning-text)" },
+  low:      { backgroundColor: "var(--bg-page)", color: "var(--text-muted)" },
 };
 
 const sevBadge: React.CSSProperties = {
@@ -39,13 +39,13 @@ const AuditDetails: React.FC<AuditDetailsProps> = ({ evidence }) => {
 
   return (
     <div style={{
-      fontSize: "0.74rem", color: "#475569", lineHeight: "1.5",
-      borderTop: "1px solid #e2e8f0", paddingTop: "0.4rem", marginTop: "0.15rem",
+      fontSize: "0.74rem", color: "var(--text-secondary)", lineHeight: "1.5",
+      borderTop: "1px solid var(--border-default)", paddingTop: "0.4rem", marginTop: "0.15rem",
     }}>
       {/* Verification details */}
       {ver && ver.status !== "pending" && (
         <div style={{ marginBottom: evidence.flags.length > 0 ? "0.4rem" : 0 }}>
-          <span style={{ fontWeight: 600, color: "#334155" }}>
+          <span style={{ fontWeight: 600, color: "var(--text-secondary)" }}>
             {ver.status === "verified" ? "Verified" : "Rejected"}
           </span>
           {" by "}
@@ -53,8 +53,8 @@ const AuditDetails: React.FC<AuditDetailsProps> = ({ evidence }) => {
           {" — "}{formatDate(ver.verified_at)}
           {ver.notes && (
             <div style={{
-              marginTop: "0.2rem", fontStyle: "italic", color: "#64748b",
-              paddingLeft: "0.5rem", borderLeft: "2px solid #e2e8f0",
+              marginTop: "0.2rem", fontStyle: "italic", color: "var(--text-muted)",
+              paddingLeft: "0.5rem", borderLeft: "2px solid var(--border-default)",
             }}>
               {ver.notes}
             </div>
@@ -66,7 +66,7 @@ const AuditDetails: React.FC<AuditDetailsProps> = ({ evidence }) => {
       {evidence.flags.map((flag, i) => (
         <div key={i} style={{
           marginBottom: i < evidence.flags.length - 1 ? "0.35rem" : 0,
-          paddingLeft: "0.5rem", borderLeft: "2px solid #fecaca",
+          paddingLeft: "0.5rem", borderLeft: "2px solid var(--state-danger-border)",
         }}>
           <span style={{ ...sevBadge, ...(severityStyles[flag.severity] || severityStyles.low) }}>
             {flag.severity}
@@ -74,7 +74,7 @@ const AuditDetails: React.FC<AuditDetailsProps> = ({ evidence }) => {
           {flag.description && (
             <span style={{ marginLeft: "0.35rem" }}>{flag.description}</span>
           )}
-          <div style={{ fontSize: "0.68rem", color: "#94a3b8" }}>
+          <div style={{ fontSize: "0.68rem", color: "var(--text-disabled)" }}>
             {flag.flagged_by} — {formatDate(flag.flagged_at)}
           </div>
         </div>

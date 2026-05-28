@@ -35,7 +35,7 @@ const pageStyle: React.CSSProperties = {
 const headerStyle: React.CSSProperties = {
     fontSize: "1.55rem",
     fontWeight: 700,
-    color: "#0f172a",
+    color: "var(--text-primary)",
     letterSpacing: "-0.02em",
     margin: 0,
     marginBottom: "0.4rem",
@@ -43,16 +43,16 @@ const headerStyle: React.CSSProperties = {
 
 const subtitleStyle: React.CSSProperties = {
     fontSize: "0.84rem",
-    color: "#64748b",
+    color: "var(--text-muted)",
     marginBottom: "1.5rem",
 };
 
 const messageBoxStyle: React.CSSProperties = {
     padding: "1rem 1.25rem",
-    backgroundColor: "#fef2f2",
-    border: "1px solid #fecaca",
+    backgroundColor: "var(--state-danger-bg-soft)",
+    border: "1px solid var(--state-danger-border)",
     borderRadius: "6px",
-    color: "#dc2626",
+    color: "var(--state-danger-strong)",
     marginBottom: "1rem",
     display: "flex",
     alignItems: "center",
@@ -63,10 +63,10 @@ const retryBtnStyle: React.CSSProperties = {
     padding: "0.3rem 0.7rem",
     fontSize: "0.78rem",
     fontWeight: 500,
-    border: "1px solid #fca5a5",
+    border: "1px solid var(--state-danger-border)",
     borderRadius: "5px",
-    backgroundColor: "#ffffff",
-    color: "#dc2626",
+    backgroundColor: "var(--bg-surface)",
+    color: "var(--state-danger-strong)",
     cursor: "pointer",
     fontFamily: "inherit",
 };
@@ -74,9 +74,9 @@ const retryBtnStyle: React.CSSProperties = {
 const emptyBoxStyle: React.CSSProperties = {
     padding: "2.5rem 1.5rem",
     textAlign: "center",
-    color: "#64748b",
-    backgroundColor: "#ffffff",
-    border: "1px dashed #e2e8f0",
+    color: "var(--text-muted)",
+    backgroundColor: "var(--bg-surface)",
+    border: "1px dashed var(--border-default)",
     borderRadius: "8px",
 };
 
@@ -85,10 +85,10 @@ const clearBtnStyle: React.CSSProperties = {
     padding: "0.4rem 0.9rem",
     fontSize: "0.82rem",
     fontWeight: 500,
-    border: "1px solid #cbd5e1",
+    border: "1px solid var(--border-default)",
     borderRadius: "6px",
-    backgroundColor: "#ffffff",
-    color: "#1d4ed8",
+    backgroundColor: "var(--bg-surface)",
+    color: "var(--accent-primary)",
     cursor: "pointer",
     fontFamily: "inherit",
 };

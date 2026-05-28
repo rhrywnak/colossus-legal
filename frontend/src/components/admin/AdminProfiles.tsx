@@ -35,9 +35,9 @@ import {
 // ── Styles ──────────────────────────────────────────────────────
 
 const tableContainer: React.CSSProperties = {
-  backgroundColor: "#ffffff",
+  backgroundColor: "var(--bg-surface)",
   borderRadius: "8px",
-  border: "1px solid #e2e8f0",
+  border: "1px solid var(--border-default)",
   overflow: "hidden",
 };
 const th: React.CSSProperties = {
@@ -45,26 +45,26 @@ const th: React.CSSProperties = {
   textAlign: "left",
   fontSize: "0.76rem",
   fontWeight: 600,
-  color: "#64748b",
-  borderBottom: "1px solid #e2e8f0",
-  backgroundColor: "#f8fafc",
+  color: "var(--text-muted)",
+  borderBottom: "1px solid var(--border-default)",
+  backgroundColor: "var(--bg-page)",
 };
 const td: React.CSSProperties = {
   padding: "0.6rem 1rem",
   fontSize: "0.84rem",
-  color: "#334155",
-  borderBottom: "1px solid #f1f5f9",
+  color: "var(--text-secondary)",
+  borderBottom: "1px solid var(--bg-page)",
 };
 const emptyStyle: React.CSSProperties = {
   padding: "3rem",
   textAlign: "center",
-  color: "#94a3b8",
+  color: "var(--text-disabled)",
   fontSize: "0.9rem",
 };
 const panelStyle: React.CSSProperties = {
-  backgroundColor: "#ffffff",
+  backgroundColor: "var(--bg-surface)",
   borderRadius: "8px",
-  border: "1px solid #e2e8f0",
+  border: "1px solid var(--border-default)",
   padding: "1rem 1.25rem",
   marginBottom: "1rem",
 };
@@ -87,7 +87,7 @@ const actionBtnRow: React.CSSProperties = {
 };
 const detailRowStyle: React.CSSProperties = {
   ...td,
-  backgroundColor: "#f8fafc",
+  backgroundColor: "var(--bg-page)",
   whiteSpace: "pre-wrap",
   fontFamily: "ui-monospace, Menlo, monospace",
   fontSize: "0.78rem",
@@ -284,7 +284,7 @@ const AdminProfiles: React.FC = () => {
     return <div style={emptyStyle}>Loading profiles...</div>;
   }
   if (listError) {
-    return <div style={{ ...emptyStyle, color: "#dc2626" }}>{listError}</div>;
+    return <div style={{ ...emptyStyle, color: "var(--state-danger-strong)" }}>{listError}</div>;
   }
 
   const formProfile =
@@ -298,7 +298,7 @@ const AdminProfiles: React.FC = () => {
       {formProfile && (
         <div style={panelStyle}>
           <div style={toolbarStyle}>
-            <div style={{ fontSize: "0.95rem", fontWeight: 600, color: "#0f172a" }}>
+            <div style={{ fontSize: "0.95rem", fontWeight: 600, color: "var(--text-primary)" }}>
               {mode.kind === "create"
                 ? "New Profile"
                 : `Edit ${mode.kind === "edit" ? mode.originalName : ""}`}
@@ -509,7 +509,7 @@ const AdminProfiles: React.FC = () => {
       {mode.kind === "list" && (
         <>
           <div style={toolbarStyle}>
-            <div style={{ fontSize: "0.82rem", color: "#64748b" }}>
+            <div style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>
               {rows?.length ?? 0} profile{(rows?.length ?? 0) === 1 ? "" : "s"}
             </div>
             <button style={btnPrimary} onClick={startCreate} disabled={busy}>

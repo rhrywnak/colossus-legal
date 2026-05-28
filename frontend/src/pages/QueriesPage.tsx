@@ -28,19 +28,19 @@ const ResultsTable: React.FC<{
   result: QueryResultResponse;
   onClear: () => void;
 }> = ({ result, onClear }) => (
-  <div style={{ marginTop: "2rem", borderTop: "2px solid #2563eb", paddingTop: "1.5rem" }}>
+  <div style={{ marginTop: "2rem", borderTop: "2px solid var(--accent-primary)", paddingTop: "1.5rem" }}>
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
       <div>
         <h2 style={{ margin: 0, fontSize: "1.25rem" }}>{result.title}</h2>
-        <span style={{ fontSize: "0.85rem", color: "#6b7280" }}>
+        <span style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>
           {result.row_count} result{result.row_count !== 1 ? "s" : ""}
         </span>
       </div>
       <button
         onClick={onClear}
         style={{
-          padding: "0.4rem 1rem", backgroundColor: "#f3f4f6", border: "1px solid #d1d5db",
-          borderRadius: "6px", cursor: "pointer", fontSize: "0.85rem", color: "#374151",
+          padding: "0.4rem 1rem", backgroundColor: "var(--bg-page)", border: "1px solid var(--border-default)",
+          borderRadius: "6px", cursor: "pointer", fontSize: "0.85rem", color: "var(--text-secondary)",
         }}
       >
         Clear Results
@@ -48,7 +48,7 @@ const ResultsTable: React.FC<{
     </div>
 
     {result.row_count === 0 ? (
-      <div style={{ padding: "1rem", color: "#6b7280", backgroundColor: "#f9fafb", borderRadius: "6px" }}>
+      <div style={{ padding: "1rem", color: "var(--text-muted)", backgroundColor: "var(--bg-page)", borderRadius: "6px" }}>
         No results found for this query.
       </div>
     ) : (
@@ -60,8 +60,8 @@ const ResultsTable: React.FC<{
                 <th
                   key={col}
                   style={{
-                    textAlign: "left", padding: "0.6rem 0.75rem", backgroundColor: "#f9fafb",
-                    borderBottom: "2px solid #e5e7eb", fontWeight: 600, color: "#374151",
+                    textAlign: "left", padding: "0.6rem 0.75rem", backgroundColor: "var(--bg-page)",
+                    borderBottom: "2px solid var(--border-default)", fontWeight: 600, color: "var(--text-secondary)",
                     whiteSpace: "nowrap", position: "sticky", top: 0,
                   }}
                 >
@@ -72,7 +72,7 @@ const ResultsTable: React.FC<{
           </thead>
           <tbody>
             {result.rows.map((row, i) => (
-              <tr key={i} style={{ backgroundColor: i % 2 === 0 ? "#ffffff" : "#f9fafb" }}>
+              <tr key={i} style={{ backgroundColor: i % 2 === 0 ? "var(--bg-surface)" : "var(--bg-page)" }}>
                 {result.columns.map((col) => {
                   const raw = formatCell(row[col]);
                   return (
@@ -80,8 +80,8 @@ const ResultsTable: React.FC<{
                       key={col}
                       title={raw.length > 100 ? raw : undefined}
                       style={{
-                        padding: "0.5rem 0.75rem", borderBottom: "1px solid #e5e7eb",
-                        color: "#374151", maxWidth: "350px", lineHeight: 1.4,
+                        padding: "0.5rem 0.75rem", borderBottom: "1px solid var(--border-default)",
+                        color: "var(--text-secondary)", maxWidth: "350px", lineHeight: 1.4,
                       }}
                     >
                       {truncate(raw, 120)}
@@ -133,11 +133,11 @@ const QueriesPage: React.FC = () => {
   };
 
   if (loading) {
-    return <div style={{ padding: "2rem", textAlign: "center", color: "#6b7280" }}>Loading queries...</div>;
+    return <div style={{ padding: "2rem", textAlign: "center", color: "var(--text-muted)" }}>Loading queries...</div>;
   }
   if (error) {
     return (
-      <div style={{ padding: "1rem", backgroundColor: "#fef2f2", border: "1px solid #fecaca", borderRadius: "6px", color: "#dc2626" }}>
+      <div style={{ padding: "1rem", backgroundColor: "var(--state-danger-bg-soft)", border: "1px solid var(--state-danger-border)", borderRadius: "6px", color: "var(--state-danger-strong)" }}>
         {error}
       </div>
     );
@@ -148,15 +148,15 @@ const QueriesPage: React.FC = () => {
       <Breadcrumb items={[{ label: "Dashboard", to: "/" }, { label: "Quick Queries" }]} />
 
       <h1 style={{ marginBottom: "0.25rem" }}>Quick Queries</h1>
-      <p style={{ color: "#6b7280", fontSize: "0.9rem", marginTop: 0, marginBottom: "1.5rem" }}>
+      <p style={{ color: "var(--text-muted)", fontSize: "0.9rem", marginTop: 0, marginBottom: "1.5rem" }}>
         Pre-built analytical queries — click to run
       </p>
 
       {/* Run error banner */}
       {runError && (
         <div style={{
-          padding: "0.75rem 1rem", backgroundColor: "#fef2f2", border: "1px solid #fecaca",
-          borderRadius: "6px", color: "#dc2626", marginBottom: "1rem",
+          padding: "0.75rem 1rem", backgroundColor: "var(--state-danger-bg-soft)", border: "1px solid var(--state-danger-border)",
+          borderRadius: "6px", color: "var(--state-danger-strong)", marginBottom: "1rem",
         }}>
           {runError}
         </div>
@@ -168,11 +168,11 @@ const QueriesPage: React.FC = () => {
           <div style={{ marginBottom: "0.75rem" }}>
             <h3 style={{
               margin: 0, fontSize: "0.75rem", fontWeight: 700, textTransform: "uppercase",
-              letterSpacing: "0.05em", color: "#6b7280",
+              letterSpacing: "0.05em", color: "var(--text-muted)",
             }}>
               {cat.name}
             </h3>
-            <span style={{ fontSize: "0.85rem", color: "#9ca3af" }}>{cat.description}</span>
+            <span style={{ fontSize: "0.85rem", color: "var(--text-disabled)" }}>{cat.description}</span>
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: "0.75rem" }}>
@@ -182,16 +182,16 @@ const QueriesPage: React.FC = () => {
                 <div
                   key={q.id}
                   style={{
-                    padding: "1rem", backgroundColor: "#fff", border: "1px solid #e5e7eb",
+                    padding: "1rem", backgroundColor: "var(--bg-surface)", border: "1px solid var(--border-default)",
                     borderRadius: "8px", display: "flex", flexDirection: "column",
                     justifyContent: "space-between", minHeight: "110px",
                   }}
                 >
                   <div>
-                    <div style={{ fontWeight: 600, fontSize: "0.95rem", color: "#1f2937", marginBottom: "0.35rem" }}>
+                    <div style={{ fontWeight: 600, fontSize: "0.95rem", color: "var(--text-primary)", marginBottom: "0.35rem" }}>
                       {q.title}
                     </div>
-                    <div style={{ fontSize: "0.8rem", color: "#6b7280", lineHeight: 1.4 }}>
+                    <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", lineHeight: 1.4 }}>
                       {q.description}
                     </div>
                   </div>
@@ -200,8 +200,8 @@ const QueriesPage: React.FC = () => {
                     onClick={() => handleRun(q.id)}
                     style={{
                       marginTop: "0.75rem", alignSelf: "flex-start",
-                      padding: "0.35rem 0.9rem", backgroundColor: isRunning ? "#dbeafe" : "#2563eb",
-                      color: isRunning ? "#1e40af" : "#fff", border: "none", borderRadius: "6px",
+                      padding: "0.35rem 0.9rem", backgroundColor: isRunning ? "var(--accent-bg-soft)" : "var(--accent-primary)",
+                      color: isRunning ? "var(--accent-primary-hover)" : "var(--bg-surface)", border: "none", borderRadius: "6px",
                       cursor: isRunning || runningId !== null ? "not-allowed" : "pointer",
                       fontSize: "0.8rem", fontWeight: 600,
                       opacity: runningId !== null && !isRunning ? 0.5 : 1,

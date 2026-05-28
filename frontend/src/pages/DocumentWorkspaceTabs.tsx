@@ -37,24 +37,24 @@ const ALL_TABS = [
 // ── Styles ──────────────────────────────────────────────────────
 
 const S = {
-  backLink: { fontSize: "0.84rem", color: "#2563eb", textDecoration: "none", fontWeight: 500 } as React.CSSProperties,
-  pageTitle: { fontSize: "1.35rem", fontWeight: 700, color: "#0f172a", marginBottom: "0.15rem" } as React.CSSProperties,
+  backLink: { fontSize: "0.84rem", color: "var(--accent-primary)", textDecoration: "none", fontWeight: 500 } as React.CSSProperties,
+  pageTitle: { fontSize: "1.35rem", fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.15rem" } as React.CSSProperties,
   metaRow: {
-    display: "flex", gap: "1.25rem", fontSize: "0.84rem", color: "#64748b",
+    display: "flex", gap: "1.25rem", fontSize: "0.84rem", color: "var(--text-muted)",
     marginBottom: "1rem", alignItems: "center", flexWrap: "wrap",
   } as React.CSSProperties,
-  tabBar: { display: "flex", gap: "0.15rem", borderBottom: "2px solid #e2e8f0", marginBottom: "1.25rem" } as React.CSSProperties,
+  tabBar: { display: "flex", gap: "0.15rem", borderBottom: "2px solid var(--border-default)", marginBottom: "1.25rem" } as React.CSSProperties,
   tabBase: {
-    padding: "0.5rem 1rem", fontSize: "0.84rem", fontWeight: 500, color: "#64748b",
+    padding: "0.5rem 1rem", fontSize: "0.84rem", fontWeight: 500, color: "var(--text-muted)",
     cursor: "pointer", border: "none", background: "none", fontFamily: "inherit",
     borderBottom: "2px solid transparent", marginBottom: "-2px", transition: "color 0.15s ease",
   } as React.CSSProperties,
   tabActive: {
-    padding: "0.5rem 1rem", fontSize: "0.84rem", fontWeight: 600, color: "#2563eb",
+    padding: "0.5rem 1rem", fontSize: "0.84rem", fontWeight: 600, color: "var(--accent-primary)",
     cursor: "pointer", border: "none", background: "none", fontFamily: "inherit",
-    borderBottom: "2px solid #2563eb", marginBottom: "-2px", transition: "color 0.15s ease",
+    borderBottom: "2px solid var(--accent-primary)", marginBottom: "-2px", transition: "color 0.15s ease",
   } as React.CSSProperties,
-  empty: { padding: "3rem", textAlign: "center", color: "#94a3b8", fontSize: "0.9rem" } as React.CSSProperties,
+  empty: { padding: "3rem", textAlign: "center", color: "var(--text-disabled)", fontSize: "0.9rem" } as React.CSSProperties,
 };
 
 // ── Component ───────────────────────────────────────────────────
@@ -153,7 +153,7 @@ const DocumentWorkspaceTabs: React.FC = () => {
 
   // Early returns
   if (loading) return <div style={S.empty}>Loading...</div>;
-  if (error) return <div style={{ ...S.empty, color: "#dc2626" }}>{error}</div>;
+  if (error) return <div style={{ ...S.empty, color: "var(--state-danger-strong)" }}>{error}</div>;
   if (!doc) return <div style={S.empty}>Document not found.</div>;
 
   // Access gate — backend computes can_view based on role + status
@@ -185,8 +185,8 @@ const DocumentWorkspaceTabs: React.FC = () => {
               padding: "0.3rem 0.75rem",
               fontSize: "0.78rem",
               fontWeight: 600,
-              color: "#fff",
-              backgroundColor: "#dc2626",
+              color: "var(--bg-surface)",
+              backgroundColor: "var(--state-danger-strong)",
               border: "none",
               borderRadius: "4px",
               cursor: "pointer",

@@ -27,15 +27,15 @@ const ScoreBar: React.FC<{ score: number }> = ({ score }) => (
     display: "inline-flex", alignItems: "center", gap: "0.35rem",
   }}>
     <div style={{
-      width: "80px", height: "6px", backgroundColor: "#e5e7eb",
+      width: "80px", height: "6px", backgroundColor: "var(--border-default)",
       borderRadius: "3px", overflow: "hidden",
     }}>
       <div style={{
         width: `${Math.min(score, 1) * 100}%`, height: "100%",
-        backgroundColor: "#3b82f6", borderRadius: "3px",
+        backgroundColor: "var(--accent-primary)", borderRadius: "3px",
       }} />
     </div>
-    <span style={{ fontSize: "0.75rem", color: "#6b7280", minWidth: "2rem" }}>
+    <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", minWidth: "2rem" }}>
       {score.toFixed(2)}
     </span>
   </div>
@@ -47,24 +47,24 @@ const DetailRow: React.FC<{ d: RetrievalDetail }> = ({ d }) => {
     .filter(Boolean).join(", ");
 
   return (
-    <div style={{ padding: "0.3rem 0", borderBottom: "1px solid #f3f4f6" }}>
+    <div style={{ padding: "0.3rem 0", borderBottom: "1px solid var(--bg-page)" }}>
       <div style={{
         display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap",
       }}>
         <NodeBadge nodeType={d.node_type} />
-        <span style={{ fontSize: "0.82rem", color: "#111827", flex: 1, minWidth: 0 }}>
+        <span style={{ fontSize: "0.82rem", color: "var(--text-primary)", flex: 1, minWidth: 0 }}>
           {truncate(d.title, 60)}
         </span>
         {d.origin === "qdrant" && <ScoreBar score={d.score} />}
         {source && (
-          <span style={{ fontSize: "0.75rem", color: "#6b7280", whiteSpace: "nowrap" }}>
+          <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", whiteSpace: "nowrap" }}>
             {source}
           </span>
         )}
       </div>
       {d.quote_preview && (
         <div style={{
-          fontSize: "0.75rem", color: "#9ca3af", fontStyle: "italic",
+          fontSize: "0.75rem", color: "var(--text-disabled)", fontStyle: "italic",
           marginTop: "0.15rem", paddingLeft: "0.5rem",
         }}>
           "{d.quote_preview}"
@@ -77,7 +77,7 @@ const DetailRow: React.FC<{ d: RetrievalDetail }> = ({ d }) => {
 /** Section header for vector / graph groups. */
 const SectionHeader: React.FC<{ label: string; count: number }> = ({ label, count }) => (
   <div style={{
-    fontSize: "0.78rem", fontWeight: 600, color: "#374151",
+    fontSize: "0.78rem", fontWeight: 600, color: "var(--text-secondary)",
     marginTop: "0.6rem", marginBottom: "0.25rem",
   }}>
     {label} ({count})
@@ -104,9 +104,9 @@ const RetrievalDetailsPanel: React.FC<{ response: AskResponse }> = ({ response }
       <div
         onClick={() => setExpanded(!expanded)}
         style={{
-          padding: "0.5rem 1rem", backgroundColor: "#f9fafb",
-          border: "1px solid #e5e7eb", borderRadius: expanded ? "6px 6px 0 0" : "6px",
-          fontSize: "0.82rem", color: "#6b7280", cursor: "pointer",
+          padding: "0.5rem 1rem", backgroundColor: "var(--bg-page)",
+          border: "1px solid var(--border-default)", borderRadius: expanded ? "6px 6px 0 0" : "6px",
+          fontSize: "0.82rem", color: "var(--text-muted)", cursor: "pointer",
           userSelect: "none",
         }}
       >
@@ -116,8 +116,8 @@ const RetrievalDetailsPanel: React.FC<{ response: AskResponse }> = ({ response }
       {/* Expanded content */}
       {expanded && (
         <div style={{
-          padding: "0.5rem 1rem", border: "1px solid #e5e7eb", borderTop: "none",
-          borderRadius: "0 0 6px 6px", backgroundColor: "#ffffff",
+          padding: "0.5rem 1rem", border: "1px solid var(--border-default)", borderTop: "none",
+          borderRadius: "0 0 6px 6px", backgroundColor: "var(--bg-surface)",
         }}>
           {qdrantHits.length > 0 && (
             <>

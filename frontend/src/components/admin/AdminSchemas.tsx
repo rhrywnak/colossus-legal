@@ -33,11 +33,11 @@ const columns: FileManagerColumn<SchemaInfo>[] = [
     header: "Entity Types",
     render: (r) => (
       <span>
-        <span style={{ color: "#0f172a", fontWeight: 500 }}>
+        <span style={{ color: "var(--text-primary)", fontWeight: 500 }}>
           {r.entity_type_count}
         </span>
         {r.entity_types.length > 0 && (
-          <span style={{ color: "#64748b", marginLeft: "0.5rem" }}>
+          <span style={{ color: "var(--text-muted)", marginLeft: "0.5rem" }}>
             {r.entity_types.slice(0, 3).join(", ")}
             {r.entity_types.length > 3 ? "…" : ""}
           </span>

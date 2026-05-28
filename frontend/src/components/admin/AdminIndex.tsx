@@ -2,18 +2,18 @@ import React, { useState } from "react";
 import { triggerReindex, ReindexResponse } from "../../services/admin";
 
 const cardStyle: React.CSSProperties = {
-  backgroundColor: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "10px",
+  backgroundColor: "var(--bg-surface)", border: "1px solid var(--border-default)", borderRadius: "10px",
   padding: "1.25rem 1.5rem",
 };
 
 const btnPrimary: React.CSSProperties = {
-  backgroundColor: "#2563eb", color: "#fff", border: "none", borderRadius: "6px",
+  backgroundColor: "var(--accent-primary)", color: "var(--bg-surface)", border: "none", borderRadius: "6px",
   padding: "0.55rem 1.25rem", fontSize: "0.84rem", fontWeight: 600, cursor: "pointer",
   fontFamily: "inherit",
 };
 
 const btnDanger: React.CSSProperties = {
-  backgroundColor: "#dc2626", color: "#fff", border: "none", borderRadius: "6px",
+  backgroundColor: "var(--state-danger-strong)", color: "var(--bg-surface)", border: "none", borderRadius: "6px",
   padding: "0.55rem 1.25rem", fontSize: "0.84rem", fontWeight: 600, cursor: "pointer",
   fontFamily: "inherit",
 };
@@ -42,10 +42,10 @@ const AdminIndex: React.FC = () => {
   return (
     <div>
       <div style={cardStyle}>
-        <div style={{ fontSize: "0.9rem", fontWeight: 600, color: "#0f172a", marginBottom: "0.5rem" }}>
+        <div style={{ fontSize: "0.9rem", fontWeight: 600, color: "var(--text-primary)", marginBottom: "0.5rem" }}>
           Qdrant Vector Index
         </div>
-        <p style={{ fontSize: "0.84rem", color: "#475569", margin: "0 0 1rem", lineHeight: 1.5 }}>
+        <p style={{ fontSize: "0.84rem", color: "var(--text-secondary)", margin: "0 0 1rem", lineHeight: 1.5 }}>
           Incremental mode embeds only new nodes not already in Qdrant.
           Full rebuild deletes the collection and re-embeds everything (30-120 seconds).
         </p>
@@ -61,12 +61,12 @@ const AdminIndex: React.FC = () => {
             </button>
           ) : (
             <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-              <span style={{ fontSize: "0.82rem", color: "#dc2626", fontWeight: 500 }}>Are you sure?</span>
+              <span style={{ fontSize: "0.82rem", color: "var(--state-danger-strong)", fontWeight: 500 }}>Are you sure?</span>
               <button style={btnDanger} onClick={() => handleReindex("full")} disabled={loading}>
                 Yes, Rebuild
               </button>
               <button
-                style={{ ...btnDanger, backgroundColor: "#f1f5f9", color: "#334155" }}
+                style={{ ...btnDanger, backgroundColor: "var(--bg-page)", color: "var(--text-secondary)" }}
                 onClick={() => setConfirmFull(false)}
               >
                 Cancel
@@ -76,20 +76,20 @@ const AdminIndex: React.FC = () => {
         </div>
 
         {loading && (
-          <div style={{ marginTop: "1rem", padding: "1rem", backgroundColor: "#eff6ff", borderRadius: "6px", fontSize: "0.84rem", color: "#2563eb" }}>
+          <div style={{ marginTop: "1rem", padding: "1rem", backgroundColor: "var(--accent-bg-soft)", borderRadius: "6px", fontSize: "0.84rem", color: "var(--accent-primary)" }}>
             Running embedding pipeline... This may take up to 2 minutes.
           </div>
         )}
 
         {error && (
-          <div style={{ marginTop: "1rem", padding: "0.65rem 1rem", backgroundColor: "#fef2f2", border: "1px solid #fecaca", borderRadius: "6px", fontSize: "0.84rem", color: "#dc2626" }}>
+          <div style={{ marginTop: "1rem", padding: "0.65rem 1rem", backgroundColor: "var(--state-danger-bg-soft)", border: "1px solid var(--state-danger-border)", borderRadius: "6px", fontSize: "0.84rem", color: "var(--state-danger-strong)" }}>
             {error}
           </div>
         )}
 
         {result && (
-          <div style={{ marginTop: "1rem", padding: "1rem", backgroundColor: "#ecfdf5", border: "1px solid #a7f3d0", borderRadius: "8px" }}>
-            <div style={{ fontSize: "0.82rem", fontWeight: 600, color: "#047857", marginBottom: "0.5rem" }}>
+          <div style={{ marginTop: "1rem", padding: "1rem", backgroundColor: "var(--state-success-bg-soft)", border: "1px solid var(--state-success-bg-soft)", borderRadius: "8px" }}>
+            <div style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--status-active-text)", marginBottom: "0.5rem" }}>
               Reindex Complete
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "0.75rem" }}>
@@ -100,8 +100,8 @@ const AdminIndex: React.FC = () => {
                 { label: "Duration", value: `${(result.duration_ms / 1000).toFixed(1)}s` },
               ].map((s) => (
                 <div key={s.label} style={{ textAlign: "center" }}>
-                  <div style={{ fontSize: "1.1rem", fontWeight: 700, color: "#0f172a" }}>{s.value}</div>
-                  <div style={{ fontSize: "0.72rem", color: "#64748b" }}>{s.label}</div>
+                  <div style={{ fontSize: "1.1rem", fontWeight: 700, color: "var(--text-primary)" }}>{s.value}</div>
+                  <div style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>{s.label}</div>
                 </div>
               ))}
             </div>

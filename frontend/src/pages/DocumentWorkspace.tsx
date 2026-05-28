@@ -128,7 +128,7 @@ const DocumentWorkspace: React.FC = () => {
 
   if (loading && !data) {
     return (
-      <div style={{ padding: "3rem", textAlign: "center", color: "#64748b" }}>
+      <div style={{ padding: "3rem", textAlign: "center", color: "var(--text-muted)" }}>
         Loading workspace...
       </div>
     );
@@ -137,8 +137,8 @@ const DocumentWorkspace: React.FC = () => {
   if (error && !data) {
     return (
       <div style={{ padding: "3rem", textAlign: "center" }}>
-        <div style={{ color: "#dc2626", marginBottom: "1rem" }}>{error}</div>
-        <Link to="/admin" style={{ color: "#2563eb", fontSize: "0.84rem" }}>
+        <div style={{ color: "var(--state-danger-strong)", marginBottom: "1rem" }}>{error}</div>
+        <Link to="/admin" style={{ color: "var(--accent-primary)", fontSize: "0.84rem" }}>
           Back to Admin
         </Link>
       </div>
@@ -150,16 +150,16 @@ const DocumentWorkspace: React.FC = () => {
       {/* Top bar */}
       <div style={{
         display: "flex", alignItems: "center", justifyContent: "space-between",
-        padding: "0.6rem 1.25rem", borderBottom: "1px solid #e2e8f0",
-        backgroundColor: "#f8fafc",
+        padding: "0.6rem 1.25rem", borderBottom: "1px solid var(--border-default)",
+        backgroundColor: "var(--bg-page)",
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
-          <Link to="/admin" style={{ color: "#2563eb", fontSize: "0.82rem", textDecoration: "none" }}>
+          <Link to="/admin" style={{ color: "var(--accent-primary)", fontSize: "0.82rem", textDecoration: "none" }}>
             Back
           </Link>
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-              <span style={{ fontSize: "0.95rem", fontWeight: 600, color: "#0f172a" }}>
+              <span style={{ fontSize: "0.95rem", fontWeight: 600, color: "var(--text-primary)" }}>
                 {data?.document_title || docId}
               </span>
               {(() => {
@@ -169,7 +169,7 @@ const DocumentWorkspace: React.FC = () => {
                   <span
                     title={st.tooltip}
                     style={{
-                      backgroundColor: st.color, color: "#fff",
+                      backgroundColor: st.color, color: "var(--bg-surface)",
                       padding: "0.1rem 0.45rem", borderRadius: "4px",
                       fontSize: "0.65rem", fontWeight: 600,
                     }}
@@ -179,7 +179,7 @@ const DocumentWorkspace: React.FC = () => {
                 );
               })()}
             </div>
-            <div style={{ fontSize: "0.74rem", color: "#64748b" }}>
+            <div style={{ fontSize: "0.74rem", color: "var(--text-muted)" }}>
               {mode} mode
             </div>
           </div>
@@ -188,23 +188,23 @@ const DocumentWorkspace: React.FC = () => {
           <StatBadge
             label="Items"
             value={filteredItems.length}
-            color="#334155"
+            color="var(--text-secondary)"
             suffix={filterType !== "all" ? ` / ${allItems.length}` : undefined}
           />
-          <StatBadge label="Verified" value={data?.verified_count ?? 0} color="#047857" />
-          <StatBadge label="Flagged" value={data?.flagged_count ?? 0} color="#dc2626" />
+          <StatBadge label="Verified" value={data?.verified_count ?? 0} color="var(--status-active-text)" />
+          <StatBadge label="Flagged" value={data?.flagged_count ?? 0} color="var(--state-danger-strong)" />
         </div>
       </div>
 
       {error && (
         <div style={{
-          padding: "0.5rem 1.25rem", backgroundColor: "#fef2f2",
-          borderBottom: "1px solid #fecaca", fontSize: "0.82rem", color: "#dc2626",
+          padding: "0.5rem 1.25rem", backgroundColor: "var(--state-danger-bg-soft)",
+          borderBottom: "1px solid var(--state-danger-border)", fontSize: "0.82rem", color: "var(--state-danger-strong)",
         }}>
           {error}
           <button onClick={() => setError("")} style={{
             marginLeft: "0.5rem", background: "none", border: "none",
-            color: "#dc2626", cursor: "pointer", fontFamily: "inherit",
+            color: "var(--state-danger-strong)", cursor: "pointer", fontFamily: "inherit",
           }}>dismiss</button>
         </div>
       )}
@@ -224,12 +224,12 @@ const DocumentWorkspace: React.FC = () => {
         </div>
 
         <div {...dividerProps}>
-          <div style={{ width: "2px", height: "24px", borderRadius: "1px", backgroundColor: "#94a3b8" }} />
+          <div style={{ width: "2px", height: "24px", borderRadius: "1px", backgroundColor: "var(--text-disabled)" }} />
         </div>
 
         <div style={{
           width: `${100 - splitPercent}%`, overflow: "auto", padding: "0.75rem",
-          backgroundColor: "#fafbfc",
+          backgroundColor: "var(--bg-surface)",
         }}>
           {modal.kind === "verify" && (
             <InlineVerifyForm
@@ -275,7 +275,7 @@ const DocumentWorkspace: React.FC = () => {
           ))}
 
           {filteredItems.length === 0 && (
-            <div style={{ textAlign: "center", padding: "2rem", color: "#64748b", fontSize: "0.84rem" }}>
+            <div style={{ textAlign: "center", padding: "2rem", color: "var(--text-muted)", fontSize: "0.84rem" }}>
               No content linked to this document.
             </div>
           )}
@@ -290,9 +290,9 @@ const StatBadge: React.FC<{ label: string; value: number; color: string; suffix?
 }) => (
   <div style={{ textAlign: "center" }}>
     <div style={{ fontSize: "1.1rem", fontWeight: 700, color }}>
-      {value}{suffix && <span style={{ fontSize: "0.78rem", fontWeight: 500, color: "#94a3b8" }}>{suffix}</span>}
+      {value}{suffix && <span style={{ fontSize: "0.78rem", fontWeight: 500, color: "var(--text-disabled)" }}>{suffix}</span>}
     </div>
-    <div style={{ fontSize: "0.68rem", color: "#64748b" }}>{label}</div>
+    <div style={{ fontSize: "0.68rem", color: "var(--text-muted)" }}>{label}</div>
   </div>
 );
 

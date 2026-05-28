@@ -129,12 +129,12 @@ const AdminDocuments: React.FC = () => {
       {/* Stats bar */}
       <div style={{ display: "flex", gap: "1rem", marginBottom: "1rem" }}>
         <div style={{ ...cardStyle, flex: 1, textAlign: "center" }}>
-          <div style={{ fontSize: "1.5rem", fontWeight: 700, color: "#0f172a" }}>{docs.length}</div>
-          <div style={{ fontSize: "0.76rem", color: "#64748b" }}>Documents</div>
+          <div style={{ fontSize: "1.5rem", fontWeight: 700, color: "var(--text-primary)" }}>{docs.length}</div>
+          <div style={{ fontSize: "0.76rem", color: "var(--text-muted)" }}>Documents</div>
         </div>
         <div style={{ ...cardStyle, flex: 1, textAlign: "center" }}>
-          <div style={{ fontSize: "1.5rem", fontWeight: 700, color: "#0f172a" }}>{totalEvidence}</div>
-          <div style={{ fontSize: "0.76rem", color: "#64748b" }}>Evidence Items</div>
+          <div style={{ fontSize: "1.5rem", fontWeight: 700, color: "var(--text-primary)" }}>{totalEvidence}</div>
+          <div style={{ fontSize: "0.76rem", color: "var(--text-muted)" }}>Evidence Items</div>
         </div>
       </div>
 
@@ -156,8 +156,8 @@ const AdminDocuments: React.FC = () => {
         style={{
           ...cardStyle,
           marginBottom: "1rem",
-          border: dragOver ? "2px dashed #2563eb" : "2px dashed #e2e8f0",
-          backgroundColor: dragOver ? "#eff6ff" : "#fafbfc",
+          border: dragOver ? "2px dashed var(--accent-primary)" : "2px dashed var(--border-default)",
+          backgroundColor: dragOver ? "var(--accent-bg-soft)" : "var(--bg-surface)",
           textAlign: "center",
           padding: "1.25rem",
           transition: "all 0.15s ease",
@@ -168,7 +168,7 @@ const AdminDocuments: React.FC = () => {
       >
         {uploadFile ? (
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "0.75rem" }}>
-            <span style={{ fontSize: "0.84rem", color: "#0f172a", fontWeight: 500 }}>
+            <span style={{ fontSize: "0.84rem", color: "var(--text-primary)", fontWeight: 500 }}>
               {uploadFile.name} ({(uploadFile.size / 1024).toFixed(0)} KB)
             </span>
             <button style={btnPrimary} onClick={handleUpload} disabled={uploading}>
@@ -178,7 +178,7 @@ const AdminDocuments: React.FC = () => {
           </div>
         ) : (
           <div>
-            <div style={{ fontSize: "0.84rem", color: "#64748b", marginBottom: "0.5rem" }}>
+            <div style={{ fontSize: "0.84rem", color: "var(--text-muted)", marginBottom: "0.5rem" }}>
               Drag & drop a PDF here, or click to select
             </div>
             <input
@@ -202,7 +202,7 @@ const AdminDocuments: React.FC = () => {
       {/* Register form */}
       {showRegister && (
         <div style={{ ...cardStyle, marginBottom: "1rem" }}>
-          <div style={{ fontSize: "0.9rem", fontWeight: 600, color: "#0f172a", marginBottom: "0.75rem" }}>
+          <div style={{ fontSize: "0.9rem", fontWeight: 600, color: "var(--text-primary)", marginBottom: "0.75rem" }}>
             Register New Document
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
@@ -240,7 +240,7 @@ const AdminDocuments: React.FC = () => {
       {/* Import evidence form */}
       {showImport && (
         <div style={{ ...cardStyle, marginBottom: "1rem" }}>
-          <div style={{ fontSize: "0.9rem", fontWeight: 600, color: "#0f172a", marginBottom: "0.75rem" }}>
+          <div style={{ fontSize: "0.9rem", fontWeight: 600, color: "var(--text-primary)", marginBottom: "0.75rem" }}>
             Import Evidence JSON
           </div>
           <div style={{ marginBottom: "0.5rem" }}>
@@ -265,27 +265,27 @@ const AdminDocuments: React.FC = () => {
 
       {/* Document table */}
       <div style={cardStyle}>
-        {loading ? <div style={{ textAlign: "center", padding: "2rem", color: "#64748b" }}>Loading...</div> : (
+        {loading ? <div style={{ textAlign: "center", padding: "2rem", color: "var(--text-muted)" }}>Loading...</div> : (
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.84rem" }}>
             <thead>
-              <tr style={{ borderBottom: "2px solid #e2e8f0" }}>
+              <tr style={{ borderBottom: "2px solid var(--border-default)" }}>
                 {["Title", "Type", "Status", "Items", "PDF", ""].map((h, i) => (
-                  <th key={i} style={{ textAlign: i === 3 ? "right" : i === 0 || i === 1 ? "left" : "center", padding: "0.5rem", color: "#64748b", fontWeight: 600 }}>{h}</th>
+                  <th key={i} style={{ textAlign: i === 3 ? "right" : i === 0 || i === 1 ? "left" : "center", padding: "0.5rem", color: "var(--text-muted)", fontWeight: 600 }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {docs.map((d) => (
-                <tr key={d.id} style={{ borderBottom: "1px solid #f1f5f9" }}>
-                  <td style={{ padding: "0.5rem", color: "#0f172a", fontWeight: 500 }}>{d.title}</td>
-                  <td style={{ padding: "0.5rem", color: "#475569", textTransform: "capitalize" }}>{d.doc_type ?? "-"}</td>
+                <tr key={d.id} style={{ borderBottom: "1px solid var(--bg-page)" }}>
+                  <td style={{ padding: "0.5rem", color: "var(--text-primary)", fontWeight: 500 }}>{d.title}</td>
+                  <td style={{ padding: "0.5rem", color: "var(--text-secondary)", textTransform: "capitalize" }}>{d.doc_type ?? "-"}</td>
                   <td style={{ padding: "0.5rem", textAlign: "center" }}><StatusBadge status={d.status} /></td>
-                  <td style={{ padding: "0.5rem", textAlign: "right", color: "#0f172a", fontWeight: 500 }}>{d.evidence_count}</td>
+                  <td style={{ padding: "0.5rem", textAlign: "right", color: "var(--text-primary)", fontWeight: 500 }}>{d.evidence_count}</td>
                   <td style={{ padding: "0.5rem", textAlign: "center" }}>
-                    {d.has_pdf ? <span style={{ color: "#047857" }}>Yes</span> : <span style={{ color: "#dc2626" }}>No</span>}
+                    {d.has_pdf ? <span style={{ color: "var(--status-active-text)" }}>Yes</span> : <span style={{ color: "var(--state-danger-strong)" }}>No</span>}
                   </td>
                   <td style={{ padding: "0.5rem", textAlign: "center" }}>
-                    <button style={{ fontSize: "0.74rem", color: "#2563eb", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", fontWeight: 500 }}
+                    <button style={{ fontSize: "0.74rem", color: "var(--accent-primary)", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", fontWeight: 500 }}
                       onClick={() => navigate(`/admin/documents/${d.id}/audit`)}>Audit</button>
                   </td>
                 </tr>

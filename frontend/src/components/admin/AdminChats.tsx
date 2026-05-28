@@ -9,35 +9,35 @@ import {
 // ── Styles ────────────────────────────────────────────────────────────────────
 
 const cardStyle: React.CSSProperties = {
-  backgroundColor: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "10px",
+  backgroundColor: "var(--bg-surface)", border: "1px solid var(--border-default)", borderRadius: "10px",
   padding: "1.25rem 1.5rem",
 };
 
 const btnDanger: React.CSSProperties = {
-  backgroundColor: "#dc2626", color: "#fff", border: "none", borderRadius: "6px",
+  backgroundColor: "var(--state-danger-strong)", color: "var(--bg-surface)", border: "none", borderRadius: "6px",
   padding: "0.4rem 0.85rem", fontSize: "0.8rem", fontWeight: 600, cursor: "pointer",
   fontFamily: "inherit",
 };
 
 const btnSecondary: React.CSSProperties = {
-  backgroundColor: "#f1f5f9", color: "#334155", border: "1px solid #e2e8f0",
+  backgroundColor: "var(--bg-page)", color: "var(--text-secondary)", border: "1px solid var(--border-default)",
   borderRadius: "6px", padding: "0.4rem 0.85rem", fontSize: "0.8rem", fontWeight: 500,
   cursor: "pointer", fontFamily: "inherit",
 };
 
 const inputStyle: React.CSSProperties = {
-  padding: "0.4rem 0.65rem", border: "1px solid #e2e8f0", borderRadius: "6px",
+  padding: "0.4rem 0.65rem", border: "1px solid var(--border-default)", borderRadius: "6px",
   fontSize: "0.84rem", fontFamily: "inherit",
 };
 
 const msgSuccess: React.CSSProperties = {
-  padding: "0.65rem 1rem", backgroundColor: "#ecfdf5", border: "1px solid #a7f3d0",
-  borderRadius: "6px", fontSize: "0.84rem", color: "#047857", marginBottom: "1rem",
+  padding: "0.65rem 1rem", backgroundColor: "var(--state-success-bg-soft)", border: "1px solid var(--state-success-bg-soft)",
+  borderRadius: "6px", fontSize: "0.84rem", color: "var(--status-active-text)", marginBottom: "1rem",
 };
 
 const msgError: React.CSSProperties = {
-  padding: "0.65rem 1rem", backgroundColor: "#fef2f2", border: "1px solid #fecaca",
-  borderRadius: "6px", fontSize: "0.84rem", color: "#dc2626", marginBottom: "1rem",
+  padding: "0.65rem 1rem", backgroundColor: "var(--state-danger-bg-soft)", border: "1px solid var(--state-danger-border)",
+  borderRadius: "6px", fontSize: "0.84rem", color: "var(--state-danger-strong)", marginBottom: "1rem",
 };
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -148,19 +148,19 @@ const AdminChats: React.FC = () => {
           disabled={selected.size === 0 || submitting}>
           Delete Selected ({selected.size})
         </button>
-        <button style={{ ...btnDanger, backgroundColor: "#7f1d1d" }}
+        <button style={{ ...btnDanger, backgroundColor: "var(--status-dropped-text)" }}
           onClick={() => setConfirmDeleteAll(true)} disabled={submitting}>
           Delete All
         </button>
-        <div style={{ marginLeft: "auto", fontSize: "0.82rem", color: "#64748b" }}>
+        <div style={{ marginLeft: "auto", fontSize: "0.82rem", color: "var(--text-muted)" }}>
           {total} total entries
         </div>
       </div>
 
       {/* Delete all confirmation */}
       {confirmDeleteAll && (
-        <div style={{ ...cardStyle, marginBottom: "1rem", borderColor: "#fecaca" }}>
-          <div style={{ fontSize: "0.84rem", color: "#dc2626", fontWeight: 600, marginBottom: "0.5rem" }}>
+        <div style={{ ...cardStyle, marginBottom: "1rem", borderColor: "var(--state-danger-border)" }}>
+          <div style={{ fontSize: "0.84rem", color: "var(--state-danger-strong)", fontWeight: 600, marginBottom: "0.5rem" }}>
             This will permanently delete ALL chat entries. Type DELETE to confirm:
           </div>
           <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
@@ -181,36 +181,36 @@ const AdminChats: React.FC = () => {
       {/* Entries table */}
       <div style={cardStyle}>
         {loading ? (
-          <div style={{ textAlign: "center", padding: "2rem", color: "#64748b" }}>Loading...</div>
+          <div style={{ textAlign: "center", padding: "2rem", color: "var(--text-muted)" }}>Loading...</div>
         ) : entries.length === 0 ? (
-          <div style={{ textAlign: "center", padding: "2rem", color: "#64748b" }}>No entries found</div>
+          <div style={{ textAlign: "center", padding: "2rem", color: "var(--text-muted)" }}>No entries found</div>
         ) : (
           <>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.84rem" }}>
               <thead>
-                <tr style={{ borderBottom: "2px solid #e2e8f0" }}>
+                <tr style={{ borderBottom: "2px solid var(--border-default)" }}>
                   <th style={{ width: "32px", padding: "0.5rem 0.5rem 0.5rem 0" }}>
                     <input type="checkbox" checked={selected.size === entries.length && entries.length > 0}
                       onChange={toggleSelectAll} />
                   </th>
-                  <th style={{ textAlign: "left", padding: "0.5rem", color: "#64748b", fontWeight: 600 }}>Question</th>
-                  <th style={{ textAlign: "left", padding: "0.5rem", color: "#64748b", fontWeight: 600 }}>User</th>
-                  <th style={{ textAlign: "left", padding: "0.5rem", color: "#64748b", fontWeight: 600 }}>Date</th>
-                  <th style={{ textAlign: "left", padding: "0.5rem", color: "#64748b", fontWeight: 600 }}>Model</th>
+                  <th style={{ textAlign: "left", padding: "0.5rem", color: "var(--text-muted)", fontWeight: 600 }}>Question</th>
+                  <th style={{ textAlign: "left", padding: "0.5rem", color: "var(--text-muted)", fontWeight: 600 }}>User</th>
+                  <th style={{ textAlign: "left", padding: "0.5rem", color: "var(--text-muted)", fontWeight: 600 }}>Date</th>
+                  <th style={{ textAlign: "left", padding: "0.5rem", color: "var(--text-muted)", fontWeight: 600 }}>Model</th>
                 </tr>
               </thead>
               <tbody>
                 {entries.map((e) => (
-                  <tr key={e.id} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                  <tr key={e.id} style={{ borderBottom: "1px solid var(--bg-page)" }}>
                     <td style={{ padding: "0.5rem 0.5rem 0.5rem 0" }}>
                       <input type="checkbox" checked={selected.has(e.id)} onChange={() => toggleSelect(e.id)} />
                     </td>
-                    <td style={{ padding: "0.5rem", color: "#0f172a", maxWidth: "400px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    <td style={{ padding: "0.5rem", color: "var(--text-primary)", maxWidth: "400px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {e.question_preview}
                     </td>
-                    <td style={{ padding: "0.5rem", color: "#475569" }}>{e.asked_by}</td>
-                    <td style={{ padding: "0.5rem", color: "#475569", whiteSpace: "nowrap" }}>{formatDate(e.asked_at)}</td>
-                    <td style={{ padding: "0.5rem", color: "#475569", fontSize: "0.78rem" }}>{e.model}</td>
+                    <td style={{ padding: "0.5rem", color: "var(--text-secondary)" }}>{e.asked_by}</td>
+                    <td style={{ padding: "0.5rem", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>{formatDate(e.asked_at)}</td>
+                    <td style={{ padding: "0.5rem", color: "var(--text-secondary)", fontSize: "0.78rem" }}>{e.model}</td>
                   </tr>
                 ))}
               </tbody>
@@ -221,7 +221,7 @@ const AdminChats: React.FC = () => {
               <div style={{ display: "flex", justifyContent: "center", gap: "0.5rem", marginTop: "1rem", alignItems: "center" }}>
                 <button style={btnSecondary} onClick={() => loadEntries(offset - PAGE_SIZE)}
                   disabled={offset === 0}>Prev</button>
-                <span style={{ fontSize: "0.82rem", color: "#64748b" }}>
+                <span style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>
                   Page {currentPage} of {totalPages}
                 </span>
                 <button style={btnSecondary} onClick={() => loadEntries(offset + PAGE_SIZE)}

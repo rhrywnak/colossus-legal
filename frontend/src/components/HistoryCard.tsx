@@ -32,12 +32,12 @@ export function HistoryCard({ entry, onClick, onRate, onDelete }: Props) {
       onMouseLeave={() => setIsHovered(false)}
       style={{
         position: "relative",
-        border: `1px solid ${isHovered ? "#999" : "#e0e0e0"}`,
+        border: `1px solid ${isHovered ? "var(--text-muted)" : "var(--border-default)"}`,
         borderRadius: "6px",
         padding: "0.75rem 1rem",
         marginBottom: "0.75rem",
         cursor: "pointer",
-        backgroundColor: isHovered ? "#fafafa" : "transparent",
+        backgroundColor: isHovered ? "var(--bg-surface)" : "transparent",
       }}
     >
       {onDelete && (
@@ -52,10 +52,10 @@ export function HistoryCard({ entry, onClick, onRate, onDelete }: Props) {
           style={{
             position: "absolute", top: "0.5rem", right: "0.5rem",
             background: "none", border: "none", cursor: "pointer",
-            color: "#999", fontSize: "1.1rem", padding: "0.25rem",
+            color: "var(--text-muted)", fontSize: "1.1rem", padding: "0.25rem",
           }}
-          onMouseEnter={(e) => (e.currentTarget.style.color = "#e53e3e")}
-          onMouseLeave={(e) => (e.currentTarget.style.color = "#999")}
+          onMouseEnter={(e) => (e.currentTarget.style.color = "var(--state-danger-strong)")}
+          onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-muted)")}
         >
           ×
         </button>
@@ -63,7 +63,7 @@ export function HistoryCard({ entry, onClick, onRate, onDelete }: Props) {
       <div style={{ fontWeight: 500, marginBottom: "0.4rem" }}>
         {entry.question_preview}
       </div>
-      <div style={{ fontSize: "0.8rem", color: "#666", marginBottom: "0.4rem" }}>
+      <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: "0.4rem" }}>
         <span>{entry.asked_by}</span>
         <span> · </span>
         <span>{formattedDate}</span>

@@ -11,12 +11,12 @@ import {
 // ---------------------------------------------------------------------------
 
 const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
-  PROVEN: { bg: "#dcfce7", text: "#166534" },
-  PARTIAL: { bg: "#fef3c7", text: "#92400e" },
-  UNPROVEN: { bg: "#fee2e2", text: "#991b1b" },
+  PROVEN: { bg: "var(--state-success-bg-soft)", text: "var(--status-active-text)" },
+  PARTIAL: { bg: "var(--burden-warning-bg)", text: "var(--burden-warning-text)" },
+  UNPROVEN: { bg: "var(--state-danger-bg-soft)", text: "var(--status-dropped-text)" },
 };
 
-const DEFAULT_STATUS_COLOR = { bg: "#f3f4f6", text: "#374151" };
+const DEFAULT_STATUS_COLOR = { bg: "var(--bg-page)", text: "var(--text-secondary)" };
 
 function getStatusStyle(status: string | undefined) {
   if (!status) return DEFAULT_STATUS_COLOR;
@@ -25,17 +25,17 @@ function getStatusStyle(status: string | undefined) {
 
 // Characterization labels get warm/red tones — they are George's attacks
 const CHAR_COLORS: Record<string, { bg: string; text: string }> = {
-  frivolous: { bg: "#fee2e2", text: "#991b1b" },
-  false: { bg: "#fee2e2", text: "#991b1b" },
-  unfounded: { bg: "#fee2e2", text: "#991b1b" },
-  "far fetched": { bg: "#ffedd5", text: "#9a3412" },
-  "ill-conceived, unsupported": { bg: "#ffedd5", text: "#9a3412" },
-  "scattershot, wholly ungrounded in fact": { bg: "#ffedd5", text: "#9a3412" },
-  "not meritorious": { bg: "#fef3c7", text: "#92400e" },
-  "not relevant": { bg: "#fef3c7", text: "#92400e" },
+  frivolous: { bg: "var(--state-danger-bg-soft)", text: "var(--status-dropped-text)" },
+  false: { bg: "var(--state-danger-bg-soft)", text: "var(--status-dropped-text)" },
+  unfounded: { bg: "var(--state-danger-bg-soft)", text: "var(--status-dropped-text)" },
+  "far fetched": { bg: "var(--burden-warning-bg)", text: "var(--burden-warning-text)" },
+  "ill-conceived, unsupported": { bg: "var(--burden-warning-bg)", text: "var(--burden-warning-text)" },
+  "scattershot, wholly ungrounded in fact": { bg: "var(--burden-warning-bg)", text: "var(--burden-warning-text)" },
+  "not meritorious": { bg: "var(--burden-warning-bg)", text: "var(--burden-warning-text)" },
+  "not relevant": { bg: "var(--burden-warning-bg)", text: "var(--burden-warning-text)" },
 };
 
-const DEFAULT_CHAR_COLOR = { bg: "#fef3c7", text: "#92400e" };
+const DEFAULT_CHAR_COLOR = { bg: "var(--burden-warning-bg)", text: "var(--burden-warning-text)" };
 
 function getCharColor(label: string) {
   return CHAR_COLORS[label.toLowerCase()] || DEFAULT_CHAR_COLOR;
@@ -86,7 +86,7 @@ const DecompositionPage: React.FC = () => {
   // -- Loading state --------------------------------------------------------
   if (loading) {
     return (
-      <div style={{ padding: "2rem", textAlign: "center", color: "#6b7280" }}>
+      <div style={{ padding: "2rem", textAlign: "center", color: "var(--text-muted)" }}>
         Loading decomposition...
       </div>
     );
@@ -98,10 +98,10 @@ const DecompositionPage: React.FC = () => {
       <div
         style={{
           padding: "1rem",
-          backgroundColor: "#fef2f2",
-          border: "1px solid #fecaca",
+          backgroundColor: "var(--state-danger-bg-soft)",
+          border: "1px solid var(--state-danger-border)",
           borderRadius: "6px",
-          color: "#dc2626",
+          color: "var(--state-danger-strong)",
         }}
       >
         {error}
@@ -118,10 +118,10 @@ const DecompositionPage: React.FC = () => {
       <div
         style={{
           padding: "0.75rem 1rem",
-          backgroundColor: "#f3f4f6",
+          backgroundColor: "var(--bg-page)",
           borderRadius: "6px",
           marginBottom: "1.5rem",
-          color: "#374151",
+          color: "var(--text-secondary)",
           display: "flex",
           flexWrap: "wrap",
           gap: "0.75rem",
@@ -132,8 +132,8 @@ const DecompositionPage: React.FC = () => {
         <span
           style={{
             padding: "0.25rem 0.5rem",
-            backgroundColor: summary.all_proven ? "#dcfce7" : "#fef3c7",
-            color: summary.all_proven ? "#166534" : "#92400e",
+            backgroundColor: summary.all_proven ? "var(--state-success-bg-soft)" : "var(--burden-warning-bg)",
+            color: summary.all_proven ? "var(--status-active-text)" : "var(--burden-warning-text)",
             borderRadius: "4px",
             fontSize: "0.875rem",
             fontWeight: 600,
@@ -141,24 +141,24 @@ const DecompositionPage: React.FC = () => {
         >
           All Proven: {summary.all_proven ? "\u2713" : "\u2717"}
         </span>
-        <span style={{ color: "#9ca3af" }}>&bull;</span>
+        <span style={{ color: "var(--text-disabled)" }}>&bull;</span>
         <span
           style={{
             padding: "0.25rem 0.5rem",
-            backgroundColor: "#ffedd5",
-            color: "#9a3412",
+            backgroundColor: "var(--burden-warning-bg)",
+            color: "var(--burden-warning-text)",
             borderRadius: "4px",
             fontSize: "0.875rem",
           }}
         >
           {summary.total_characterizations} Characterizations
         </span>
-        <span style={{ color: "#9ca3af" }}>&bull;</span>
+        <span style={{ color: "var(--text-disabled)" }}>&bull;</span>
         <span
           style={{
             padding: "0.25rem 0.5rem",
-            backgroundColor: "#dbeafe",
-            color: "#1e40af",
+            backgroundColor: "var(--accent-bg-soft)",
+            color: "var(--accent-primary-hover)",
             borderRadius: "4px",
             fontSize: "0.875rem",
           }}
@@ -169,7 +169,7 @@ const DecompositionPage: React.FC = () => {
 
       {/* Table */}
       {allegations.length === 0 ? (
-        <div style={{ color: "#6b7280", padding: "1rem" }}>
+        <div style={{ color: "var(--text-muted)", padding: "1rem" }}>
           No allegations found.
         </div>
       ) : (
@@ -184,7 +184,7 @@ const DecompositionPage: React.FC = () => {
             <thead>
               <tr
                 style={{
-                  borderBottom: "2px solid #e5e7eb",
+                  borderBottom: "2px solid var(--border-default)",
                   textAlign: "left",
                 }}
               >
@@ -207,11 +207,11 @@ const DecompositionPage: React.FC = () => {
                     key={a.id}
                     onClick={() => navigate(`/allegations/${a.id}/detail`)}
                     style={{
-                      borderBottom: "1px solid #e5e7eb",
+                      borderBottom: "1px solid var(--border-default)",
                       cursor: "pointer",
                     }}
                     onMouseEnter={(e) => {
-                      e.currentTarget.style.backgroundColor = "#f9fafb";
+                      e.currentTarget.style.backgroundColor = "var(--bg-page)";
                     }}
                     onMouseLeave={(e) => {
                       e.currentTarget.style.backgroundColor = "transparent";
@@ -223,7 +223,7 @@ const DecompositionPage: React.FC = () => {
                         style={{
                           fontWeight: 600,
                           marginBottom: "0.2rem",
-                          color: "#1f2937",
+                          color: "var(--text-primary)",
                         }}
                       >
                         {a.title}
@@ -231,7 +231,7 @@ const DecompositionPage: React.FC = () => {
                       <div
                         style={{
                           fontSize: "0.8rem",
-                          color: "#6b7280",
+                          color: "var(--text-muted)",
                           fontFamily: "monospace",
                         }}
                       >
@@ -296,11 +296,11 @@ const DecompositionPage: React.FC = () => {
                     {/* Rebuttal count */}
                     <td style={{ ...tdStyle, textAlign: "center" }}>
                       {a.rebuttal_count > 0 ? (
-                        <span style={{ fontWeight: 600, color: "#1e40af" }}>
+                        <span style={{ fontWeight: 600, color: "var(--accent-primary-hover)" }}>
                           {a.rebuttal_count}
                         </span>
                       ) : (
-                        <span style={{ color: "#9ca3af" }}>0</span>
+                        <span style={{ color: "var(--text-disabled)" }}>0</span>
                       )}
                     </td>
                   </tr>
@@ -321,7 +321,7 @@ const DecompositionPage: React.FC = () => {
 const thStyle: React.CSSProperties = {
   padding: "0.75rem 0.5rem",
   fontWeight: 600,
-  color: "#374151",
+  color: "var(--text-secondary)",
   fontSize: "0.8rem",
   textTransform: "uppercase",
   letterSpacing: "0.05em",

@@ -32,16 +32,16 @@ const badgeBase: React.CSSProperties = {
 const statusBadge = (status: string): React.CSSProperties => {
   switch (status) {
     case "verified":
-      return { ...badgeBase, backgroundColor: "#dcfce7", color: "#166534" };
+      return { ...badgeBase, backgroundColor: "var(--state-success-bg-soft)", color: "var(--status-active-text)" };
     case "rejected":
-      return { ...badgeBase, backgroundColor: "#fee2e2", color: "#991b1b" };
+      return { ...badgeBase, backgroundColor: "var(--state-danger-bg-soft)", color: "var(--status-dropped-text)" };
     default:
-      return { ...badgeBase, backgroundColor: "#f1f5f9", color: "#64748b" };
+      return { ...badgeBase, backgroundColor: "var(--bg-page)", color: "var(--text-muted)" };
   }
 };
 
 const severityColor: Record<string, string> = {
-  critical: "#dc2626", high: "#ea580c", medium: "#d97706", low: "#65a30d",
+  critical: "var(--state-danger-strong)", high: "var(--state-warning-strong)", medium: "var(--state-warning-strong)", low: "var(--state-success-strong)",
 };
 
 // ── Component ────────────────────────────────────────────────────
@@ -65,8 +65,8 @@ const EvidenceCard: React.FC<EvidenceCardProps> = ({
       style={{
         padding: "0.75rem 1rem",
         borderRadius: "8px",
-        border: isSelected ? "2px solid #2563eb" : "1px solid #e2e8f0",
-        backgroundColor: isSelected ? "#eff6ff" : "#fff",
+        border: isSelected ? "2px solid var(--accent-primary)" : "1px solid var(--border-default)",
+        backgroundColor: isSelected ? "var(--accent-bg-soft)" : "var(--bg-surface)",
         cursor: "pointer",
         transition: "border-color 0.15s, background-color 0.15s",
         marginBottom: "0.5rem",
@@ -78,17 +78,17 @@ const EvidenceCard: React.FC<EvidenceCardProps> = ({
           <span style={{
             display: "inline-block", padding: "0.1rem 0.45rem", borderRadius: "4px",
             fontSize: "0.68rem", fontWeight: 600, backgroundColor: nodeColor,
-            color: "#fff", whiteSpace: "nowrap", flexShrink: 0, lineHeight: "1.4",
+            color: "var(--bg-surface)", whiteSpace: "nowrap", flexShrink: 0, lineHeight: "1.4",
           }}>
             {nodeLabel}
           </span>
-          <span style={{ fontSize: "0.84rem", fontWeight: 600, color: "#0f172a" }}>
+          <span style={{ fontSize: "0.84rem", fontWeight: 600, color: "var(--text-primary)" }}>
             {evidence.title || evidence.id}
           </span>
         </div>
         {pageLabel && (
           <span style={{
-            ...badgeBase, backgroundColor: "#e0e7ff", color: "#3730a3",
+            ...badgeBase, backgroundColor: "var(--state-info-bg-soft)", color: "var(--bias-indigo-text)",
             whiteSpace: "nowrap", flexShrink: 0,
           }}>
             {pageLabel}
@@ -98,15 +98,15 @@ const EvidenceCard: React.FC<EvidenceCardProps> = ({
 
       {/* Speaker */}
       {evidence.speaker && (
-        <div style={{ fontSize: "0.76rem", color: "#475569", marginBottom: "0.35rem" }}>
+        <div style={{ fontSize: "0.76rem", color: "var(--text-secondary)", marginBottom: "0.35rem" }}>
           — {evidence.speaker}
         </div>
       )}
 
       {/* Verbatim quote */}
       <div style={{
-        fontSize: "0.78rem", color: "#334155", fontStyle: evidence.verbatim_quote ? "italic" : "normal",
-        borderLeft: "3px solid #e2e8f0", paddingLeft: "0.6rem",
+        fontSize: "0.78rem", color: "var(--text-secondary)", fontStyle: evidence.verbatim_quote ? "italic" : "normal",
+        borderLeft: "3px solid var(--border-default)", paddingLeft: "0.6rem",
         marginBottom: "0.5rem", lineHeight: "1.45",
         maxHeight: "4.5em", overflow: "hidden",
       }}>
@@ -127,14 +127,14 @@ const EvidenceCard: React.FC<EvidenceCardProps> = ({
         {evidence.flags.length > 0 && (
           <span style={{
             ...badgeBase,
-            backgroundColor: "#fef3c7",
-            color: severityColor[evidence.flags[0].severity] || "#d97706",
+            backgroundColor: "var(--burden-warning-bg)",
+            color: severityColor[evidence.flags[0].severity] || "var(--state-warning-strong)",
           }}>
             {evidence.flags.length} flag{evidence.flags.length > 1 ? "s" : ""}
           </span>
         )}
         {evidence.kind && (
-          <span style={{ ...badgeBase, backgroundColor: "#f1f5f9", color: "#64748b" }}>
+          <span style={{ ...badgeBase, backgroundColor: "var(--bg-page)", color: "var(--text-muted)" }}>
             {evidence.kind}
           </span>
         )}
@@ -147,7 +147,7 @@ const EvidenceCard: React.FC<EvidenceCardProps> = ({
             onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
             style={{
               background: "none", border: "none", padding: 0, cursor: "pointer",
-              fontSize: "0.72rem", color: "#2563eb", fontFamily: "inherit", fontWeight: 500,
+              fontSize: "0.72rem", color: "var(--accent-primary)", fontFamily: "inherit", fontWeight: 500,
             }}
           >
             {expanded ? "Hide details" : "Show details"}
@@ -162,8 +162,8 @@ const EvidenceCard: React.FC<EvidenceCardProps> = ({
           onClick={(e) => { e.stopPropagation(); onVerify(evidence); }}
           style={{
             padding: "0.25rem 0.6rem", fontSize: "0.74rem", fontWeight: 500,
-            border: "1px solid #a7f3d0", borderRadius: "5px",
-            backgroundColor: "#ecfdf5", color: "#047857", cursor: "pointer",
+            border: "1px solid var(--state-success-bg-soft)", borderRadius: "5px",
+            backgroundColor: "var(--state-success-bg-soft)", color: "var(--status-active-text)", cursor: "pointer",
             fontFamily: "inherit",
           }}
         >
@@ -173,8 +173,8 @@ const EvidenceCard: React.FC<EvidenceCardProps> = ({
           onClick={(e) => { e.stopPropagation(); onFlag(evidence); }}
           style={{
             padding: "0.25rem 0.6rem", fontSize: "0.74rem", fontWeight: 500,
-            border: "1px solid #fecaca", borderRadius: "5px",
-            backgroundColor: "#fef2f2", color: "#dc2626", cursor: "pointer",
+            border: "1px solid var(--state-danger-border)", borderRadius: "5px",
+            backgroundColor: "var(--state-danger-bg-soft)", color: "var(--state-danger-strong)", cursor: "pointer",
             fontFamily: "inherit",
           }}
         >

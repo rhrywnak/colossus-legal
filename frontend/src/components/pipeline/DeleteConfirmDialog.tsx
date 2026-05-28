@@ -28,38 +28,38 @@ const S = {
     alignItems: "center", justifyContent: "center", zIndex: 9999,
   } as React.CSSProperties,
   dialog: {
-    backgroundColor: "#fff", borderRadius: "8px", padding: "1.5rem",
+    backgroundColor: "var(--bg-surface)", borderRadius: "8px", padding: "1.5rem",
     maxWidth: "480px", width: "90%", boxShadow: "0 4px 24px rgba(0,0,0,0.2)",
   } as React.CSSProperties,
   title: {
-    fontSize: "1.1rem", fontWeight: 700, color: "#0f172a", marginBottom: "0.75rem",
+    fontSize: "1.1rem", fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.75rem",
   } as React.CSSProperties,
   message: {
-    fontSize: "0.88rem", color: "#334155", lineHeight: 1.5, marginBottom: "0.5rem",
+    fontSize: "0.88rem", color: "var(--text-secondary)", lineHeight: 1.5, marginBottom: "0.5rem",
   } as React.CSSProperties,
   list: {
-    fontSize: "0.84rem", color: "#475569", lineHeight: 1.6,
+    fontSize: "0.84rem", color: "var(--text-secondary)", lineHeight: 1.6,
     marginBottom: "0.75rem", paddingLeft: "1.25rem",
   } as React.CSSProperties,
   warning: {
-    fontWeight: 600, color: "#dc2626", fontSize: "0.88rem",
+    fontWeight: 600, color: "var(--state-danger-strong)", fontSize: "0.88rem",
     marginBottom: "1rem",
   } as React.CSSProperties,
   reasonLabel: {
-    fontSize: "0.84rem", fontWeight: 600, color: "#334155",
+    fontSize: "0.84rem", fontWeight: 600, color: "var(--text-secondary)",
     marginBottom: "0.25rem", display: "block",
   } as React.CSSProperties,
   reasonInput: {
     width: "100%", padding: "0.5rem 0.6rem", fontSize: "0.84rem",
-    border: "1px solid #cbd5e1", borderRadius: "4px", fontFamily: "inherit",
-    color: "#334155", marginBottom: "0.75rem", boxSizing: "border-box",
+    border: "1px solid var(--border-default)", borderRadius: "4px", fontFamily: "inherit",
+    color: "var(--text-secondary)", marginBottom: "0.75rem", boxSizing: "border-box",
   } as React.CSSProperties,
   reasonHint: {
-    fontSize: "0.76rem", color: "#94a3b8", marginBottom: "0.75rem",
+    fontSize: "0.76rem", color: "var(--text-disabled)", marginBottom: "0.75rem",
   } as React.CSSProperties,
   errorBox: {
-    padding: "0.5rem 0.75rem", backgroundColor: "#fef2f2",
-    border: "1px solid #fecaca", borderRadius: "4px", color: "#991b1b",
+    padding: "0.5rem 0.75rem", backgroundColor: "var(--state-danger-bg-soft)",
+    border: "1px solid var(--state-danger-border)", borderRadius: "4px", color: "var(--status-dropped-text)",
     fontSize: "0.8rem", marginBottom: "0.75rem",
   } as React.CSSProperties,
   buttons: {
@@ -67,18 +67,18 @@ const S = {
   } as React.CSSProperties,
   cancelBtn: {
     padding: "0.4rem 1rem", fontSize: "0.84rem", fontWeight: 500,
-    border: "1px solid #cbd5e1", borderRadius: "4px", backgroundColor: "#fff",
-    color: "#334155", cursor: "pointer", fontFamily: "inherit",
+    border: "1px solid var(--border-default)", borderRadius: "4px", backgroundColor: "var(--bg-surface)",
+    color: "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit",
   } as React.CSSProperties,
   deleteBtn: {
     padding: "0.4rem 1rem", fontSize: "0.84rem", fontWeight: 600,
-    border: "none", borderRadius: "4px", backgroundColor: "#dc2626",
-    color: "#fff", cursor: "pointer", fontFamily: "inherit",
+    border: "none", borderRadius: "4px", backgroundColor: "var(--state-danger-strong)",
+    color: "var(--bg-surface)", cursor: "pointer", fontFamily: "inherit",
   } as React.CSSProperties,
   deleteBtnDisabled: {
     padding: "0.4rem 1rem", fontSize: "0.84rem", fontWeight: 600,
-    border: "none", borderRadius: "4px", backgroundColor: "#94a3b8",
-    color: "#fff", cursor: "not-allowed", fontFamily: "inherit",
+    border: "none", borderRadius: "4px", backgroundColor: "var(--text-disabled)",
+    color: "var(--bg-surface)", cursor: "not-allowed", fontFamily: "inherit",
   } as React.CSSProperties,
 };
 

@@ -17,14 +17,14 @@
  * Used by ContentPanel, ReviewPanel, and anywhere a solid badge is needed.
  */
 const DEFAULT_COLORS: Record<string, string> = {
-  ComplaintAllegation: "#3B82F6",  // blue
-  Evidence:           "#10B981",   // green
-  Person:             "#8B5CF6",   // purple
-  Organization:       "#F59E0B",   // amber
-  Harm:               "#EF4444",   // red
-  LegalCount:         "#6366F1",   // indigo
-  MotionClaim:        "#EC4899",   // pink
-  Document:           "#6B7280",   // gray
+  ComplaintAllegation: "var(--accent-primary)",  // blue
+  Evidence:           "var(--state-success-strong)",   // green
+  Person:             "var(--bias-purple-text)",   // purple
+  Organization:       "var(--state-warning-strong)",   // amber
+  Harm:               "var(--state-danger-strong)",   // red
+  LegalCount:         "var(--bias-indigo-text)",   // indigo
+  MotionClaim:        "var(--bias-pink-text)",   // pink
+  Document:           "var(--text-muted)",   // gray
 };
 
 /**
@@ -32,17 +32,17 @@ const DEFAULT_COLORS: Record<string, string> = {
  * Used by RetrievalDetailsPanel, SearchPage, and anywhere a subtle badge is needed.
  */
 const DEFAULT_BADGE_COLORS: Record<string, { bg: string; text: string }> = {
-  Evidence:            { bg: "#dbeafe", text: "#1e40af" },
-  ComplaintAllegation: { bg: "#ede9fe", text: "#5b21b6" },
-  MotionClaim:         { bg: "#fef3c7", text: "#92400e" },
-  Harm:                { bg: "#fee2e2", text: "#991b1b" },
-  LegalCount:          { bg: "#d1fae5", text: "#065f46" },
-  Document:            { bg: "#e0e7ff", text: "#3730a3" },
-  Person:              { bg: "#fce7f3", text: "#9d174d" },
-  Organization:        { bg: "#f3e8ff", text: "#6b21a8" },
+  Evidence:            { bg: "var(--accent-bg-soft)", text: "var(--accent-primary-hover)" },
+  ComplaintAllegation: { bg: "var(--bias-purple-bg-soft)", text: "var(--bias-purple-text)" },
+  MotionClaim:         { bg: "var(--burden-warning-bg)", text: "var(--burden-warning-text)" },
+  Harm:                { bg: "var(--state-danger-bg-soft)", text: "var(--status-dropped-text)" },
+  LegalCount:          { bg: "var(--state-success-bg-soft)", text: "var(--status-active-text)" },
+  Document:            { bg: "var(--state-info-bg-soft)", text: "var(--bias-indigo-text)" },
+  Person:              { bg: "var(--bias-pink-bg-soft)", text: "var(--bias-pink-text)" },
+  Organization:        { bg: "var(--bias-purple-bg-soft)", text: "var(--bias-purple-text)" },
 };
 
-const DEFAULT_BADGE_FALLBACK = { bg: "#f3f4f6", text: "#374151" };
+const DEFAULT_BADGE_FALLBACK = { bg: "var(--bg-page)", text: "var(--text-secondary)" };
 
 /**
  * Plural display labels for filter chips and UI sections.

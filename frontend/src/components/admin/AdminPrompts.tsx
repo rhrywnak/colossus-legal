@@ -24,7 +24,7 @@ const columns: FileManagerColumn<TemplateInfo>[] = [
   {
     header: "Preview",
     render: (r) => (
-      <span style={{ color: "#64748b" }}>
+      <span style={{ color: "var(--text-muted)" }}>
         {r.preview.slice(0, 100)}
         {r.preview.length > 100 ? "…" : ""}
       </span>

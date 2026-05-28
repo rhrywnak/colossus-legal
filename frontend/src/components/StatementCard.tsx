@@ -26,15 +26,15 @@ function groupCharacterizations(chars: { allegation_id: string; characterization
 
 const StatementCard: React.FC<{ stmt: StatementDetail }> = ({ stmt }) => (
   <div style={{
-    padding: "1rem", backgroundColor: "#fff",
-    border: "1px solid #e5e7eb", borderRadius: "8px", marginBottom: "0.75rem",
+    padding: "1rem", backgroundColor: "var(--bg-surface)",
+    border: "1px solid var(--border-default)", borderRadius: "8px", marginBottom: "0.75rem",
   }}>
     {/* Title + page badge + kind badge */}
     <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" }}>
-      <span style={{ fontWeight: 600, fontSize: "0.95rem", color: "#1f2937" }}>{stmt.title}</span>
+      <span style={{ fontWeight: 600, fontSize: "0.95rem", color: "var(--text-primary)" }}>{stmt.title}</span>
       {stmt.page_number != null && (
         <span style={{
-          padding: "0.1rem 0.4rem", backgroundColor: "#dbeafe", color: "#1e40af",
+          padding: "0.1rem 0.4rem", backgroundColor: "var(--accent-bg-soft)", color: "var(--accent-primary-hover)",
           borderRadius: "3px", fontSize: "0.75rem", fontWeight: 600,
         }}>
           p. {stmt.page_number}
@@ -42,7 +42,7 @@ const StatementCard: React.FC<{ stmt: StatementDetail }> = ({ stmt }) => (
       )}
       {stmt.kind && (
         <span style={{
-          padding: "0.1rem 0.4rem", backgroundColor: "#f3f4f6", color: "#6b7280",
+          padding: "0.1rem 0.4rem", backgroundColor: "var(--bg-page)", color: "var(--text-muted)",
           borderRadius: "3px", fontSize: "0.7rem",
         }}>
           {stmt.kind}
@@ -54,8 +54,8 @@ const StatementCard: React.FC<{ stmt: StatementDetail }> = ({ stmt }) => (
     {stmt.verbatim_quote && (
       <blockquote style={{
         margin: "0 0 0.5rem 0", padding: "0.5rem 0.75rem",
-        borderLeft: "3px solid #93c5fd", backgroundColor: "#eff6ff",
-        color: "#374151", fontStyle: "italic", fontSize: "0.9rem", lineHeight: 1.6,
+        borderLeft: "3px solid var(--accent-bg-soft)", backgroundColor: "var(--accent-bg-soft)",
+        color: "var(--text-secondary)", fontStyle: "italic", fontSize: "0.9rem", lineHeight: 1.6,
         borderRadius: "0 4px 4px 0",
       }}>
         {stmt.verbatim_quote}
@@ -64,7 +64,7 @@ const StatementCard: React.FC<{ stmt: StatementDetail }> = ({ stmt }) => (
 
     {/* Significance */}
     {stmt.significance && (
-      <div style={{ fontSize: "0.85rem", color: "#4b5563", marginBottom: "0.5rem", lineHeight: 1.5 }}>
+      <div style={{ fontSize: "0.85rem", color: "var(--text-secondary)", marginBottom: "0.5rem", lineHeight: 1.5 }}>
         {stmt.significance}
       </div>
     )}
@@ -77,7 +77,7 @@ const StatementCard: React.FC<{ stmt: StatementDetail }> = ({ stmt }) => (
             display: "flex", flexWrap: "wrap", alignItems: "center", gap: "0.5rem",
           }}>
             <span style={{
-              padding: "0.15rem 0.4rem", backgroundColor: "#fef3c7", color: "#92400e",
+              padding: "0.15rem 0.4rem", backgroundColor: "var(--burden-warning-bg)", color: "var(--burden-warning-text)",
               borderRadius: "4px", fontSize: "0.75rem", fontWeight: 600,
             }}>
               Characterized as &ldquo;{label}&rdquo;
@@ -90,7 +90,7 @@ const StatementCard: React.FC<{ stmt: StatementDetail }> = ({ stmt }) => (
                     href={`/allegations/${aid}/detail`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    style={{ color: "#2563eb", textDecoration: "none" }}
+                    style={{ color: "var(--accent-primary)", textDecoration: "none" }}
                   >
                     {aid}
                   </a>
@@ -106,25 +106,25 @@ const StatementCard: React.FC<{ stmt: StatementDetail }> = ({ stmt }) => (
     {stmt.rebutted_by.length > 0 && (
       <div style={{ marginTop: "0.5rem" }}>
         <div style={{
-          fontSize: "0.75rem", fontWeight: 600, color: "#059669",
+          fontSize: "0.75rem", fontWeight: 600, color: "var(--status-active-text)",
           textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "0.35rem",
         }}>
           Rebutted ({stmt.rebutted_by.length})
         </div>
-        <div style={{ paddingLeft: "0.75rem", borderLeft: "3px solid #bbf7d0" }}>
+        <div style={{ paddingLeft: "0.75rem", borderLeft: "3px solid var(--state-success-bg-soft)" }}>
           {stmt.rebutted_by.map((reb) => (
             <div key={reb.evidence_id} style={{ marginBottom: "0.5rem" }}>
               {reb.verbatim_quote && (
                 <blockquote style={{
                   margin: "0 0 0.25rem 0", padding: "0.4rem 0.6rem",
-                  borderLeft: "3px solid #86efac", backgroundColor: "#f0fdf4",
-                  color: "#374151", fontStyle: "italic", fontSize: "0.85rem",
+                  borderLeft: "3px solid var(--state-success-bg-soft)", backgroundColor: "var(--state-success-bg-soft)",
+                  color: "var(--text-secondary)", fontStyle: "italic", fontSize: "0.85rem",
                   lineHeight: 1.5, borderRadius: "0 4px 4px 0",
                 }}>
                   {reb.verbatim_quote}
                 </blockquote>
               )}
-              <div style={{ fontSize: "0.8rem", color: "#6b7280" }}>
+              <div style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
                 {reb.stated_by && <span>&mdash; {reb.stated_by}</span>}
                 {reb.document_title && (
                   <span style={{ marginLeft: "0.5rem", fontStyle: "italic" }}>

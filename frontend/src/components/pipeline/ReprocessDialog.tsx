@@ -20,33 +20,33 @@ const overlay: React.CSSProperties = {
   display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000,
 };
 const card: React.CSSProperties = {
-  backgroundColor: "#ffffff", borderRadius: "12px", padding: "1.75rem",
+  backgroundColor: "var(--bg-surface)", borderRadius: "12px", padding: "1.75rem",
   maxWidth: "480px", width: "90%", boxShadow: "0 20px 60px rgba(0,0,0,0.15)",
 };
 const optionStyle = (selected: boolean): React.CSSProperties => ({
-  padding: "0.75rem 1rem", border: `2px solid ${selected ? "#2563eb" : "#e2e8f0"}`,
+  padding: "0.75rem 1rem", border: `2px solid ${selected ? "var(--accent-primary)" : "var(--border-default)"}`,
   borderRadius: "8px", cursor: "pointer", marginBottom: "0.5rem",
-  backgroundColor: selected ? "#eff6ff" : "#ffffff",
+  backgroundColor: selected ? "var(--accent-bg-soft)" : "var(--bg-surface)",
   transition: "all 0.15s ease",
 });
 const optionTitle: React.CSSProperties = {
-  fontSize: "0.88rem", fontWeight: 600, color: "#0f172a",
+  fontSize: "0.88rem", fontWeight: 600, color: "var(--text-primary)",
 };
 const optionDesc: React.CSSProperties = {
-  fontSize: "0.76rem", color: "#64748b", marginTop: "0.15rem",
+  fontSize: "0.76rem", color: "var(--text-muted)", marginTop: "0.15rem",
 };
 const btnRow: React.CSSProperties = {
   display: "flex", justifyContent: "flex-end", gap: "0.5rem", marginTop: "1rem",
 };
 const btnCancel: React.CSSProperties = {
-  padding: "0.45rem 1rem", fontSize: "0.84rem", fontWeight: 500, border: "1px solid #e2e8f0",
-  borderRadius: "6px", backgroundColor: "#ffffff", color: "#64748b", cursor: "pointer",
+  padding: "0.45rem 1rem", fontSize: "0.84rem", fontWeight: 500, border: "1px solid var(--border-default)",
+  borderRadius: "6px", backgroundColor: "var(--bg-surface)", color: "var(--text-muted)", cursor: "pointer",
   fontFamily: "inherit",
 };
 const btnContinue = (enabled: boolean): React.CSSProperties => ({
   padding: "0.45rem 1rem", fontSize: "0.84rem", fontWeight: 600, border: "none",
-  borderRadius: "6px", backgroundColor: enabled ? "#2563eb" : "#94a3b8",
-  color: "#ffffff", cursor: enabled ? "pointer" : "default", fontFamily: "inherit",
+  borderRadius: "6px", backgroundColor: enabled ? "var(--accent-primary)" : "var(--text-disabled)",
+  color: "var(--bg-surface)", cursor: enabled ? "pointer" : "default", fontFamily: "inherit",
 });
 
 const OPTIONS: { value: ReprocessOption; title: string; description: string }[] = [
@@ -91,10 +91,10 @@ const ReprocessDialog: React.FC<ReprocessDialogProps> = ({ open, documentId, onC
   return (
     <div style={overlay} onClick={onClose}>
       <div style={card} onClick={(e) => e.stopPropagation()}>
-        <h2 style={{ margin: "0 0 1rem", fontSize: "1.1rem", fontWeight: 700, color: "#0f172a" }}>
+        <h2 style={{ margin: "0 0 1rem", fontSize: "1.1rem", fontWeight: 700, color: "var(--text-primary)" }}>
           Re-process Document
         </h2>
-        <p style={{ fontSize: "0.84rem", color: "#64748b", marginBottom: "1rem" }}>
+        <p style={{ fontSize: "0.84rem", color: "var(--text-muted)", marginBottom: "1rem" }}>
           Choose how to re-process this document:
         </p>
 
@@ -110,7 +110,7 @@ const ReprocessDialog: React.FC<ReprocessDialogProps> = ({ open, documentId, onC
         ))}
 
         {error && (
-          <div style={{ padding: "0.5rem 0.75rem", backgroundColor: "#fef2f2", border: "1px solid #fecaca", borderRadius: "6px", color: "#991b1b", fontSize: "0.76rem", marginTop: "0.5rem" }}>
+          <div style={{ padding: "0.5rem 0.75rem", backgroundColor: "var(--state-danger-bg-soft)", border: "1px solid var(--state-danger-border)", borderRadius: "6px", color: "var(--status-dropped-text)", fontSize: "0.76rem", marginTop: "0.5rem" }}>
             {error}
           </div>
         )}

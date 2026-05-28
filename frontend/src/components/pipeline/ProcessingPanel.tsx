@@ -27,68 +27,68 @@ import { getDocumentConfig, PatchConfigInput } from "../../services/configApi";
 // ── Styles ──────────────────────────────────────────────────────
 
 const containerStyle: React.CSSProperties = {
-  backgroundColor: "#ffffff", borderRadius: "8px", border: "1px solid #e2e8f0",
+  backgroundColor: "var(--bg-surface)", borderRadius: "8px", border: "1px solid var(--border-default)",
   overflow: "hidden",
 };
 const headerStyle: React.CSSProperties = {
-  padding: "0.6rem 0.85rem", fontWeight: 600, fontSize: "0.84rem", color: "#334155",
-  backgroundColor: "#f8fafc", borderBottom: "1px solid #e2e8f0",
+  padding: "0.6rem 0.85rem", fontWeight: 600, fontSize: "0.84rem", color: "var(--text-secondary)",
+  backgroundColor: "var(--bg-page)", borderBottom: "1px solid var(--border-default)",
   display: "flex", alignItems: "center", gap: "0.5rem",
 };
 const spinnerStyle: React.CSSProperties = {
   width: "14px", height: "14px",
-  border: "2px solid #e2e8f0",
-  borderTopColor: "#2563eb",
+  border: "2px solid var(--border-default)",
+  borderTopColor: "var(--accent-primary)",
   borderRadius: "50%",
   animation: "colossus-spin 0.8s linear infinite",
   display: "inline-block",
 };
 const configBlock: React.CSSProperties = {
   marginTop: "1rem", padding: "0.6rem 0.75rem",
-  backgroundColor: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "6px",
+  backgroundColor: "var(--bg-page)", border: "1px solid var(--border-default)", borderRadius: "6px",
 };
 const configLabel: React.CSSProperties = {
-  fontSize: "0.72rem", fontWeight: 600, color: "#64748b",
+  fontSize: "0.72rem", fontWeight: 600, color: "var(--text-muted)",
   textTransform: "uppercase", letterSpacing: "0.03em", marginBottom: "0.4rem",
 };
 const reprocessSubtitle: React.CSSProperties = {
-  marginTop: "0.3rem", fontSize: "0.72rem", color: "#64748b",
+  marginTop: "0.3rem", fontSize: "0.72rem", color: "var(--text-muted)",
 };
 const bodyStyle: React.CSSProperties = {
   padding: "1rem 0.85rem",
 };
 const errorBox: React.CSSProperties = {
-  padding: "0.6rem 1rem", backgroundColor: "#fef2f2", border: "1px solid #fecaca",
-  borderRadius: "6px", color: "#991b1b", fontSize: "0.84rem", marginBottom: "1rem",
+  padding: "0.6rem 1rem", backgroundColor: "var(--state-danger-bg-soft)", border: "1px solid var(--state-danger-border)",
+  borderRadius: "6px", color: "var(--status-dropped-text)", fontSize: "0.84rem", marginBottom: "1rem",
 };
 const suggestionBox: React.CSSProperties = {
-  padding: "0.6rem 1rem", backgroundColor: "#fffbeb", border: "1px solid #fde68a",
-  borderRadius: "6px", color: "#92400e", fontSize: "0.84rem", marginTop: "0.75rem",
+  padding: "0.6rem 1rem", backgroundColor: "var(--burden-warning-bg)", border: "1px solid var(--burden-warning-bg)",
+  borderRadius: "6px", color: "var(--burden-warning-text)", fontSize: "0.84rem", marginTop: "0.75rem",
 };
 const summaryLine: React.CSSProperties = {
-  fontSize: "0.84rem", color: "#334155", marginBottom: "0.35rem",
+  fontSize: "0.84rem", color: "var(--text-secondary)", marginBottom: "0.35rem",
 };
 const mutedText: React.CSSProperties = {
-  fontSize: "0.84rem", color: "#64748b",
+  fontSize: "0.84rem", color: "var(--text-muted)",
 };
 const progressBarOuter: React.CSSProperties = {
-  width: "100%", height: "10px", backgroundColor: "#e2e8f0",
+  width: "100%", height: "10px", backgroundColor: "var(--border-default)",
   borderRadius: "5px", overflow: "hidden", marginTop: "0.5rem",
 };
 const btnPrimary = (enabled: boolean): React.CSSProperties => ({
   padding: "0.35rem 0.85rem", fontSize: "0.8rem", fontWeight: 600,
-  border: "1px solid #2563eb", borderRadius: "6px",
+  border: "1px solid var(--accent-primary)", borderRadius: "6px",
   cursor: enabled ? "pointer" : "default",
-  backgroundColor: enabled ? "#2563eb" : "#e2e8f0",
-  color: enabled ? "#ffffff" : "#94a3b8",
+  backgroundColor: enabled ? "var(--accent-primary)" : "var(--border-default)",
+  color: enabled ? "var(--bg-surface)" : "var(--text-disabled)",
   fontFamily: "inherit",
 });
 const btnDanger = (enabled: boolean): React.CSSProperties => ({
   padding: "0.35rem 0.85rem", fontSize: "0.8rem", fontWeight: 600,
-  border: "1px solid #dc2626", borderRadius: "6px",
+  border: "1px solid var(--state-danger-strong)", borderRadius: "6px",
   cursor: enabled ? "pointer" : "default",
-  backgroundColor: enabled ? "#dc2626" : "#e2e8f0",
-  color: enabled ? "#ffffff" : "#94a3b8",
+  backgroundColor: enabled ? "var(--state-danger-strong)" : "var(--border-default)",
+  color: enabled ? "var(--bg-surface)" : "var(--text-disabled)",
   fontFamily: "inherit",
 });
 
@@ -106,15 +106,15 @@ function humanizeModelName(model: string): string {
 function cardTitle(statusGroup: string, hasFailedSteps: boolean):
   { text: string; color: string; showSpinner: boolean }
 {
-  if (statusGroup === "completed") return { text: "Processing Complete", color: "#15803d", showSpinner: false };
-  if (statusGroup === "failed") return { text: "Processing Failed", color: "#dc2626", showSpinner: false };
-  if (statusGroup === "cancelled") return { text: "Processing Cancelled", color: "#64748b", showSpinner: false };
+  if (statusGroup === "completed") return { text: "Processing Complete", color: "var(--status-active-text)", showSpinner: false };
+  if (statusGroup === "failed") return { text: "Processing Failed", color: "var(--state-danger-strong)", showSpinner: false };
+  if (statusGroup === "cancelled") return { text: "Processing Cancelled", color: "var(--text-muted)", showSpinner: false };
   if (statusGroup === "processing") {
     // Failure-transition gap: step already failed but doc row not yet FAILED.
-    if (hasFailedSteps) return { text: "Processing Failed", color: "#dc2626", showSpinner: false };
-    return { text: "Processing...", color: "#2563eb", showSpinner: true };
+    if (hasFailedSteps) return { text: "Processing Failed", color: "var(--state-danger-strong)", showSpinner: false };
+    return { text: "Processing...", color: "var(--accent-primary)", showSpinner: true };
   }
-  return { text: "Processing", color: "#334155", showSpinner: false };
+  return { text: "Processing", color: "var(--text-secondary)", showSpinner: false };
 }
 
 // ── Component ───────────────────────────────────────────────────
@@ -238,7 +238,7 @@ const ProcessingPanel: React.FC<ProcessingPanelProps> = ({
         </div>
       )}
       {doc.error_message && (
-        <div style={{ ...summaryLine, color: "#dc2626" }}>
+        <div style={{ ...summaryLine, color: "var(--state-danger-strong)" }}>
           Error: {doc.error_message}
         </div>
       )}
@@ -266,7 +266,7 @@ const ProcessingPanel: React.FC<ProcessingPanelProps> = ({
         <div style={{ ...summaryLine, marginTop: "0.4rem" }}>
           Chunk {doc.chunks_processed ?? 0} of {doc.chunks_total} analyzed
           {(doc.entities_found ?? 0) > 0 && (
-            <span style={{ color: "#64748b" }}> — {doc.entities_found} entities found so far</span>
+            <span style={{ color: "var(--text-muted)" }}> — {doc.entities_found} entities found so far</span>
           )}
         </div>
       )}
@@ -279,7 +279,7 @@ const ProcessingPanel: React.FC<ProcessingPanelProps> = ({
         <div style={{
           width: `${doc.percent_complete ?? 0}%`,
           height: "100%",
-          backgroundColor: "#2563eb",
+          backgroundColor: "var(--accent-primary)",
           borderRadius: "5px",
           transition: "width 0.3s ease",
         }} />
@@ -305,7 +305,7 @@ const ProcessingPanel: React.FC<ProcessingPanelProps> = ({
           <div style={summaryLine}>
             Chunks: {doc.run_chunk_count} total
             {doc.run_chunks_succeeded != null && <>, {doc.run_chunks_succeeded} succeeded</>}
-            {(doc.run_chunks_failed ?? 0) > 0 && <>, <span style={{ color: "#dc2626" }}>{doc.run_chunks_failed} failed</span></>}
+            {(doc.run_chunks_failed ?? 0) > 0 && <>, <span style={{ color: "var(--state-danger-strong)" }}>{doc.run_chunks_failed} failed</span></>}
           </div>
         )}
         {entitiesCreated > 0 && (() => {
@@ -320,7 +320,7 @@ const ProcessingPanel: React.FC<ProcessingPanelProps> = ({
         })()}
         {entitiesCreated > 0 ? (
           <>
-            <div style={{ ...summaryLine, color: "#16a34a" }}>
+            <div style={{ ...summaryLine, color: "var(--state-success-strong)" }}>
               {entitiesCreated} entities created
             </div>
             <div style={summaryLine}>
@@ -328,12 +328,12 @@ const ProcessingPanel: React.FC<ProcessingPanelProps> = ({
             </div>
           </>
         ) : (
-          <div style={{ ...summaryLine, color: "#64748b", fontStyle: "italic" }}>
+          <div style={{ ...summaryLine, color: "var(--text-muted)", fontStyle: "italic" }}>
             See Review tab for extracted items.
           </div>
         )}
         {(doc.entities_flagged ?? 0) > 0 && (
-          <div style={{ ...summaryLine, color: "#d97706" }}>
+          <div style={{ ...summaryLine, color: "var(--state-warning-strong)" }}>
             {doc.entities_flagged} entities flagged (ungrounded)
           </div>
         )}
@@ -373,7 +373,7 @@ const ProcessingPanel: React.FC<ProcessingPanelProps> = ({
         </div>
       )}
       {doc.error_message && (
-        <div style={{ ...summaryLine, color: "#dc2626" }}>
+        <div style={{ ...summaryLine, color: "var(--state-danger-strong)" }}>
           Error: {doc.error_message}
         </div>
       )}

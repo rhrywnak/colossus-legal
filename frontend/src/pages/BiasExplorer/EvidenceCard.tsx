@@ -27,19 +27,19 @@ import type { BiasInstance } from "./types";
 // tag does not require touching this file (the fallback handles it).
 
 const TAG_PALETTE: Record<string, { bg: string; text: string }> = {
-    disparagement: { bg: "#fee2e2", text: "#991b1b" },
-    selective_enforcement: { bg: "#ffedd5", text: "#9a3412" },
-    financial_misconduct: { bg: "#fef3c7", text: "#92400e" },
-    secrecy: { bg: "#e0e7ff", text: "#3730a3" },
-    coordination: { bg: "#dbeafe", text: "#1e40af" },
-    lies_under_oath: { bg: "#fce7f3", text: "#9d174d" },
-    conflict_of_interest: { bg: "#f3e8ff", text: "#6b21a8" },
-    evasive_responses: { bg: "#dcfce7", text: "#166534" },
-    judicial_bias: { bg: "#ede9fe", text: "#5b21b6" },
-    due_process_violation: { bg: "#fef9c3", text: "#854d0e" },
+    disparagement: { bg: "var(--state-danger-bg-soft)", text: "var(--status-dropped-text)" },
+    selective_enforcement: { bg: "var(--burden-warning-bg)", text: "var(--burden-warning-text)" },
+    financial_misconduct: { bg: "var(--burden-warning-bg)", text: "var(--burden-warning-text)" },
+    secrecy: { bg: "var(--state-info-bg-soft)", text: "var(--bias-indigo-text)" },
+    coordination: { bg: "var(--accent-bg-soft)", text: "var(--accent-primary-hover)" },
+    lies_under_oath: { bg: "var(--bias-pink-bg-soft)", text: "var(--bias-pink-text)" },
+    conflict_of_interest: { bg: "var(--bias-purple-bg-soft)", text: "var(--bias-purple-text)" },
+    evasive_responses: { bg: "var(--state-success-bg-soft)", text: "var(--status-active-text)" },
+    judicial_bias: { bg: "var(--bias-purple-bg-soft)", text: "var(--bias-purple-text)" },
+    due_process_violation: { bg: "var(--burden-warning-bg)", text: "var(--burden-warning-text)" },
 };
 
-const FALLBACK_TAG_PILL = { bg: "#f1f5f9", text: "#334155" };
+const FALLBACK_TAG_PILL = { bg: "var(--bg-page)", text: "var(--text-secondary)" };
 
 function tagPillStyle(tag: string): React.CSSProperties {
     const palette = TAG_PALETTE[tag] ?? FALLBACK_TAG_PILL;
@@ -64,8 +64,8 @@ function formatTagLabel(raw: string): string {
 // ─── Styles ─────────────────────────────────────────────────────────────────
 
 const cardStyle: React.CSSProperties = {
-    backgroundColor: "#ffffff",
-    border: "1px solid #e2e8f0",
+    backgroundColor: "var(--bg-surface)",
+    border: "1px solid var(--border-default)",
     borderRadius: "8px",
     padding: "0.85rem 1rem",
     boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
@@ -82,13 +82,13 @@ const headerRow: React.CSSProperties = {
 const speakerStyle: React.CSSProperties = {
     fontSize: "0.82rem",
     fontWeight: 600,
-    color: "#1d4ed8",
+    color: "var(--accent-primary)",
 };
 
 const titleStyle: React.CSSProperties = {
     fontSize: "0.95rem",
     fontWeight: 700,
-    color: "#0f172a",
+    color: "var(--text-primary)",
     marginBottom: "0.4rem",
 };
 
@@ -96,7 +96,7 @@ const quoteWrapBase: React.CSSProperties = {
     fontFamily: "Georgia, serif",
     fontStyle: "italic",
     fontSize: "0.88rem",
-    color: "#334155",
+    color: "var(--text-secondary)",
     lineHeight: 1.55,
     marginBottom: "0.45rem",
     whiteSpace: "pre-wrap",
@@ -116,7 +116,7 @@ const showMoreLink: React.CSSProperties = {
     padding: 0,
     fontFamily: "inherit",
     fontSize: "0.8rem",
-    color: "#1d4ed8",
+    color: "var(--accent-primary)",
     cursor: "pointer",
     fontWeight: 500,
 };
@@ -127,30 +127,30 @@ const footerRow: React.CSSProperties = {
     alignItems: "center",
     gap: "0.45rem",
     fontSize: "0.78rem",
-    color: "#64748b",
+    color: "var(--text-muted)",
     marginTop: "0.4rem",
 };
 
 const docTitleStyle: React.CSSProperties = {
     fontWeight: 600,
-    color: "#334155",
+    color: "var(--text-secondary)",
 };
 
 const pdfBtnStyle: React.CSSProperties = {
     padding: "0.2rem 0.55rem",
     fontSize: "0.74rem",
     fontWeight: 500,
-    border: "1px solid #cbd5e1",
+    border: "1px solid var(--border-default)",
     borderRadius: "5px",
-    backgroundColor: "#f8fafc",
-    color: "#1d4ed8",
+    backgroundColor: "var(--bg-page)",
+    color: "var(--accent-primary)",
     textDecoration: "none",
     fontFamily: "inherit",
 };
 
 const aboutLineStyle: React.CSSProperties = {
     fontSize: "0.78rem",
-    color: "#475569",
+    color: "var(--text-secondary)",
     marginTop: "0.4rem",
 };
 

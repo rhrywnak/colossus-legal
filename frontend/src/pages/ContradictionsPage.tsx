@@ -18,11 +18,11 @@ const ContradictionsPage: React.FC = () => {
   }, []);
 
   if (loading) {
-    return <div style={{ padding: "2rem", textAlign: "center", color: "#6b7280" }}>Loading impeachment evidence...</div>;
+    return <div style={{ padding: "2rem", textAlign: "center", color: "var(--text-muted)" }}>Loading impeachment evidence...</div>;
   }
   if (error) {
     return (
-      <div style={{ padding: "1rem", backgroundColor: "#fef2f2", border: "1px solid #fecaca", borderRadius: "6px", color: "#dc2626" }}>
+      <div style={{ padding: "1rem", backgroundColor: "var(--state-danger-bg-soft)", border: "1px solid var(--state-danger-border)", borderRadius: "6px", color: "var(--state-danger-strong)" }}>
         {error}
       </div>
     );
@@ -31,12 +31,12 @@ const ContradictionsPage: React.FC = () => {
   return (
     <div>
       <h1 style={{ marginBottom: "0.5rem" }}>Impeachment Evidence ({total})</h1>
-      <p style={{ color: "#6b7280", marginBottom: "1.5rem", fontSize: "0.9rem" }}>
+      <p style={{ color: "var(--text-muted)", marginBottom: "1.5rem", fontSize: "0.9rem" }}>
         Prior statements contradicted by later admissions under oath — key material for cross-examination.
       </p>
 
       {contradictions.length === 0 ? (
-        <div style={{ color: "#6b7280", padding: "1rem" }}>No impeachment evidence found.</div>
+        <div style={{ color: "var(--text-muted)", padding: "1rem" }}>No impeachment evidence found.</div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
           {contradictions.map((c, i) => (

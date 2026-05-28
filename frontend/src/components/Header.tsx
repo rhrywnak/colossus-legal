@@ -27,8 +27,8 @@ const headerStyle: React.CSSProperties = {
   justifyContent: "space-between",
   padding: "0 2rem",
   height: "56px",
-  backgroundColor: "#ffffff",
-  borderBottom: "1px solid #e2e8f0",
+  backgroundColor: "var(--bg-surface)",
+  borderBottom: "1px solid var(--border-default)",
   position: "sticky",
   top: 0,
   zIndex: 100,
@@ -45,14 +45,14 @@ const logoStyle: React.CSSProperties = {
 const logoIconStyle: React.CSSProperties = {
   width: "30px",
   height: "30px",
-  backgroundColor: "#2563eb",
+  backgroundColor: "var(--accent-primary)",
   borderRadius: "7px",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
   fontWeight: 700,
   fontSize: "0.9rem",
-  color: "#ffffff",
+  color: "var(--bg-surface)",
 };
 
 const navContainerStyle: React.CSSProperties = {
@@ -71,14 +71,14 @@ const navLinkBase: React.CSSProperties = {
   padding: "0.4rem 0.6rem",
   borderRadius: "6px",
   transition: "all 0.15s ease",
-  color: "#64748b",
+  color: "var(--text-muted)",
   whiteSpace: "nowrap",
 };
 
 const navLinkActive: React.CSSProperties = {
   ...navLinkBase,
-  color: "#2563eb",
-  backgroundColor: "#eff6ff",
+  color: "var(--accent-primary)",
+  backgroundColor: "var(--accent-bg-soft)",
   fontWeight: 600,
 };
 
@@ -94,7 +94,7 @@ const userBadgeStyle: React.CSSProperties = {
   alignItems: "center",
   gap: "0.5rem",
   fontSize: "0.84rem",
-  color: "#334155",
+  color: "var(--text-secondary)",
   fontWeight: 500,
 };
 
@@ -102,29 +102,29 @@ const avatarStyle: React.CSSProperties = {
   width: "32px",
   height: "32px",
   borderRadius: "50%",
-  backgroundColor: "#2563eb",
+  backgroundColor: "var(--accent-primary)",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
   fontWeight: 600,
   fontSize: "0.72rem",
-  color: "#ffffff",
+  color: "var(--bg-surface)",
 };
 
 // ─── Dropdown styles ────────────────────────────────────────────────────────
 const dropdownStyle: React.CSSProperties = {
   position: "absolute", top: "100%", right: 0, marginTop: "0.35rem",
-  minWidth: "220px", backgroundColor: "#ffffff", borderRadius: "8px",
-  border: "1px solid #e2e8f0", boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+  minWidth: "220px", backgroundColor: "var(--bg-surface)", borderRadius: "8px",
+  border: "1px solid var(--border-default)", boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
   zIndex: 200, overflow: "hidden",
 };
 const dropdownItem: React.CSSProperties = {
   display: "block", width: "100%", padding: "0.5rem 1rem", fontSize: "0.82rem",
-  color: "#334155", textDecoration: "none", border: "none", background: "none",
+  color: "var(--text-secondary)", textDecoration: "none", border: "none", background: "none",
   textAlign: "left", cursor: "pointer", fontFamily: "inherit",
 };
 const dropdownDivider: React.CSSProperties = {
-  height: "1px", backgroundColor: "#e2e8f0", margin: "0.25rem 0",
+  height: "1px", backgroundColor: "var(--border-default)", margin: "0.25rem 0",
 };
 
 // ─── Helper: is this nav item active? ────────────────────────────────────────
@@ -161,13 +161,13 @@ const Header: React.FC = () => {
       <Link to="/" style={logoStyle}>
         <div style={logoIconStyle}>C</div>
         <div>
-          <span style={{ fontWeight: 700, fontSize: "1.05rem", color: "#0f172a", letterSpacing: "-0.01em" }}>
+          <span style={{ fontWeight: 700, fontSize: "1.05rem", color: "var(--text-primary)", letterSpacing: "-0.01em" }}>
             Colossus
           </span>
-          <span style={{ fontWeight: 400, color: "#94a3b8", marginLeft: "0.2rem" }}>
+          <span style={{ fontWeight: 400, color: "var(--text-disabled)", marginLeft: "0.2rem" }}>
             Legal
           </span>
-          <span style={{ fontSize: "0.72rem", color: "#94a3b8", marginLeft: "0.35rem", fontWeight: 400 }}>
+          <span style={{ fontSize: "0.72rem", color: "var(--text-disabled)", marginLeft: "0.35rem", fontWeight: 400 }}>
             v{__APP_VERSION__}
           </span>
         </div>
@@ -182,13 +182,13 @@ const Header: React.FC = () => {
             style={isActive(item.path, location.pathname) ? navLinkActive : navLinkBase}
             onMouseEnter={(e) => {
               if (!isActive(item.path, location.pathname)) {
-                e.currentTarget.style.color = "#1e293b";
-                e.currentTarget.style.backgroundColor = "#f1f5f9";
+                e.currentTarget.style.color = "var(--text-primary)";
+                e.currentTarget.style.backgroundColor = "var(--bg-page)";
               }
             }}
             onMouseLeave={(e) => {
               if (!isActive(item.path, location.pathname)) {
-                e.currentTarget.style.color = "#64748b";
+                e.currentTarget.style.color = "var(--text-muted)";
                 e.currentTarget.style.backgroundColor = "transparent";
               }
             }}
@@ -203,13 +203,13 @@ const Header: React.FC = () => {
             style={isActive(item.path, location.pathname) ? navLinkActive : navLinkBase}
             onMouseEnter={(e) => {
               if (!isActive(item.path, location.pathname)) {
-                e.currentTarget.style.color = "#1e293b";
-                e.currentTarget.style.backgroundColor = "#f1f5f9";
+                e.currentTarget.style.color = "var(--text-primary)";
+                e.currentTarget.style.backgroundColor = "var(--bg-page)";
               }
             }}
             onMouseLeave={(e) => {
               if (!isActive(item.path, location.pathname)) {
-                e.currentTarget.style.color = "#64748b";
+                e.currentTarget.style.color = "var(--text-muted)";
                 e.currentTarget.style.backgroundColor = "transparent";
               }
             }}
@@ -222,7 +222,7 @@ const Header: React.FC = () => {
       {/* Right — User dropdown */}
       <div style={rightSectionStyle}>
         {loading ? (
-          <span style={{ fontSize: "0.84rem", color: "#94a3b8" }}>...</span>
+          <span style={{ fontSize: "0.84rem", color: "var(--text-disabled)" }}>...</span>
         ) : (
           <div ref={dropdownRef} style={{ position: "relative" }}>
             <div
@@ -237,16 +237,16 @@ const Header: React.FC = () => {
               <div style={dropdownStyle}>
                 {/* User info */}
                 <div style={{ padding: "0.6rem 1rem" }}>
-                  <div style={{ fontSize: "0.84rem", fontWeight: 600, color: "#0f172a" }}>
+                  <div style={{ fontSize: "0.84rem", fontWeight: 600, color: "var(--text-primary)" }}>
                     {userName}
                   </div>
                   {user?.email && (
-                    <div style={{ fontSize: "0.76rem", color: "#64748b", marginTop: "0.1rem" }}>
+                    <div style={{ fontSize: "0.76rem", color: "var(--text-muted)", marginTop: "0.1rem" }}>
                       {user.email}
                     </div>
                   )}
                   {user?.groups && user.groups.length > 0 && (
-                    <div style={{ fontSize: "0.72rem", color: "#94a3b8", marginTop: "0.15rem" }}>
+                    <div style={{ fontSize: "0.72rem", color: "var(--text-disabled)", marginTop: "0.15rem" }}>
                       {user.groups.join(", ")}
                     </div>
                   )}
@@ -259,7 +259,7 @@ const Header: React.FC = () => {
                   target="_blank"
                   rel="noopener noreferrer"
                   style={dropdownItem}
-                  onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "#f1f5f9"; }}
+                  onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "var(--bg-page)"; }}
                   onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "transparent"; }}
                   onClick={() => setDropdownOpen(false)}
                 >
@@ -270,7 +270,7 @@ const Header: React.FC = () => {
                   target="_blank"
                   rel="noopener noreferrer"
                   style={dropdownItem}
-                  onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "#f1f5f9"; }}
+                  onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "var(--bg-page)"; }}
                   onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "transparent"; }}
                   onClick={() => setDropdownOpen(false)}
                 >
@@ -280,8 +280,8 @@ const Header: React.FC = () => {
 
                 {/* Sign out */}
                 <button
-                  style={{ ...dropdownItem, color: "#dc2626" }}
-                  onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "#fef2f2"; }}
+                  style={{ ...dropdownItem, color: "var(--state-danger-strong)" }}
+                  onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "var(--state-danger-bg-soft)"; }}
                   onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "transparent"; }}
                   onClick={() => { setDropdownOpen(false); logout(); }}
                 >

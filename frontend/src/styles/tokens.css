@@ -107,6 +107,64 @@
   --status-pending-text: #b54708;
 
   /* ---------------------------------------------------------------------------
+   * Migrated from hardcoded hex — see E2-POST
+   * ---------------------------------------------------------------------------
+   * These tokens absorbed ~1208 hardcoded hex literals previously scattered
+   * across 77 component / page files. The inline literals were a mix of
+   * Tailwind palette shades (slate-500 vs gray-500, blue-600 vs blue-500
+   * etc.) that all served the same semantic role. The migration collapses
+   * those into one canonical token per role, slightly shifting some shades
+   * to align the design system. New tokens added below; existing tokens
+   * (above) absorbed the rest.
+   *
+   * Naming follows the existing convention: --bg-*, --text-*, --border-*,
+   * --accent-*, --status-* for cross-feature primitives; --state-* for the
+   * danger/warning/success/info pill families (kept distinct from --status-*
+   * which is reserved for the case-domain statuses above); --bias-* is
+   * namespaced to the Bias Explorer feature accents.
+   * ------------------------------------------------------------------------- */
+
+  /* --text-disabled: lower-emphasis than --text-muted. Used for disabled
+     buttons, input placeholders, and chips on inactive list rows. */
+  --text-disabled: #94a3b8;
+
+  /* Danger / error pill family. The "soft" backgrounds and "border" shade
+     are paired for legible contrast on light surfaces; --state-danger-strong
+     is the solid fill used for destructive primary buttons (delete) and the
+     "HIGH" severity indicator. Distinct from --status-dropped-text (which
+     remains the text-on-light variant for case-domain dropped parties). */
+  --state-danger-bg-soft: #fef2f2;
+  --state-danger-border: #fecaca;
+  --state-danger-strong: #dc2626;
+
+  /* Warning solid-fill — progress bars, severity badges that need a
+     stronger orange than the burden-warning pair (which serve light pill
+     backgrounds + text). */
+  --state-warning-strong: #d97706;
+
+  /* Success pill family. The "soft" background is the pale green for
+     success banners; --state-success-strong is the solid fill for progress
+     bars and "PASS" indicators. The text-on-light variant uses the
+     existing --status-active-text (case-domain "active" + generic success
+     text intentionally share one token). */
+  --state-success-bg-soft: #dcfce7;
+  --state-success-strong: #16a34a;
+
+  /* Info indigo background — distinct from --accent-bg-soft (blue) so an
+     "info" pill renders apart from an "action/accent" pill in the same
+     view. Used for low-emphasis informational labels. */
+  --state-info-bg-soft: #e0e7ff;
+
+  /* Bias Explorer accent family — namespaced so the feature can re-theme
+     in isolation. Indigo/purple/pink trio used to encode bias-actor
+     categories in the BiasExplorer pages. */
+  --bias-indigo-text: #4338ca;
+  --bias-purple-text: #6b21a8;
+  --bias-purple-bg-soft: #ede9fe;
+  --bias-pink-text: #9d174d;
+  --bias-pink-bg-soft: #fce7f3;
+
+  /* ---------------------------------------------------------------------------
    * Font family stacks — §9 "Typography"
    * Token-ize the stacks so the type classes (and components) name a role
    * ("sans"/"serif"/"mono") instead of repeating a long fallback list.

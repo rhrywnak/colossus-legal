@@ -26,11 +26,11 @@ function fmtTime(secs: number): string {
 // ── Styles ──────────────────────────────────────────────────────
 
 const container: React.CSSProperties = {
-  backgroundColor: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "8px",
+  backgroundColor: "var(--bg-page)", border: "1px solid var(--border-default)", borderRadius: "8px",
   padding: "1rem 1.25rem", marginBottom: "1.25rem",
 };
 const progressBarOuter: React.CSSProperties = {
-  height: "8px", backgroundColor: "#e2e8f0", borderRadius: "4px",
+  height: "8px", backgroundColor: "var(--border-default)", borderRadius: "4px",
   overflow: "hidden", marginBottom: "0.75rem",
 };
 const bucketsRow: React.CSSProperties = {
@@ -42,7 +42,7 @@ const bucketBtn = (color: string): React.CSSProperties => ({
   fontFamily: "inherit", color,
 });
 const metaRow: React.CSSProperties = {
-  display: "flex", gap: "1.25rem", fontSize: "0.76rem", color: "#64748b",
+  display: "flex", gap: "1.25rem", fontSize: "0.76rem", color: "var(--text-muted)",
   flexWrap: "wrap",
 };
 
@@ -64,29 +64,29 @@ const BatchProgressHeader: React.FC<BatchProgressHeaderProps> = ({
 
   if (completed === total) {
     return (
-      <div style={{ ...container, textAlign: "center", fontSize: "0.9rem", color: "#16a34a" }}>
+      <div style={{ ...container, textAlign: "center", fontSize: "0.9rem", color: "var(--state-success-strong)" }}>
         All {total} documents completed
       </div>
     );
   }
 
   const bucketLabels: { key: keyof typeof buckets; label: string; color: string }[] = [
-    { key: "failed", label: "Failed", color: "#dc2626" },
-    { key: "processing", label: "Processing", color: "#d97706" },
-    { key: "new", label: "New", color: "#2563eb" },
-    { key: "cancelled", label: "Cancelled", color: "#64748b" },
-    { key: "completed", label: "Completed", color: "#16a34a" },
+    { key: "failed", label: "Failed", color: "var(--state-danger-strong)" },
+    { key: "processing", label: "Processing", color: "var(--state-warning-strong)" },
+    { key: "new", label: "New", color: "var(--accent-primary)" },
+    { key: "cancelled", label: "Cancelled", color: "var(--text-muted)" },
+    { key: "completed", label: "Completed", color: "var(--state-success-strong)" },
   ];
 
   return (
     <div style={container}>
       {/* Progress bar */}
-      <div style={{ fontSize: "0.8rem", color: "#334155", marginBottom: "0.35rem", fontWeight: 500 }}>
+      <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)", marginBottom: "0.35rem", fontWeight: 500 }}>
         {completed} / {total} completed ({pct}%)
       </div>
       <div style={progressBarOuter}>
         <div style={{
-          width: `${pct}%`, height: "100%", backgroundColor: "#16a34a",
+          width: `${pct}%`, height: "100%", backgroundColor: "var(--state-success-strong)",
           borderRadius: "4px", transition: "width 0.3s ease",
         }} />
       </div>

@@ -4,14 +4,14 @@ import { getPersons, PersonDto } from "../services/persons";
 import { useEffect } from "react";
 
 const ROLE_COLORS: Record<string, { bg: string; text: string }> = {
-  plaintiff: { bg: "#dcfce7", text: "#166534" },
-  defendant: { bg: "#fee2e2", text: "#991b1b" },
-  attorney: { bg: "#dbeafe", text: "#1e40af" },
-  witness: { bg: "#f3f4f6", text: "#374151" },
-  judge: { bg: "#f3e8ff", text: "#6b21a8" },
+  plaintiff: { bg: "var(--state-success-bg-soft)", text: "var(--status-active-text)" },
+  defendant: { bg: "var(--state-danger-bg-soft)", text: "var(--status-dropped-text)" },
+  attorney: { bg: "var(--accent-bg-soft)", text: "var(--accent-primary-hover)" },
+  witness: { bg: "var(--bg-page)", text: "var(--text-secondary)" },
+  judge: { bg: "var(--bias-purple-bg-soft)", text: "var(--bias-purple-text)" },
 };
 
-const DEFAULT_ROLE_COLOR = { bg: "#f3f4f6", text: "#374151" };
+const DEFAULT_ROLE_COLOR = { bg: "var(--bg-page)", text: "var(--text-secondary)" };
 
 function getRoleStyle(role: string | undefined) {
   if (!role) return DEFAULT_ROLE_COLOR;
@@ -73,7 +73,7 @@ const InfoModal: React.FC<{ onClose: () => void }> = ({ onClose }) => (
     <div
       onClick={(e) => e.stopPropagation()}
       style={{
-        backgroundColor: "#fff", borderRadius: "12px", padding: "2rem",
+        backgroundColor: "var(--bg-surface)", borderRadius: "12px", padding: "2rem",
         maxWidth: "520px", width: "90%", position: "relative", boxShadow: "0 20px 60px rgba(0,0,0,0.15)",
       }}
     >
@@ -82,15 +82,15 @@ const InfoModal: React.FC<{ onClose: () => void }> = ({ onClose }) => (
         style={{
           position: "absolute", top: "0.75rem", right: "0.75rem",
           background: "none", border: "none", fontSize: "1.25rem",
-          cursor: "pointer", color: "#6b7280", lineHeight: 1,
+          cursor: "pointer", color: "var(--text-muted)", lineHeight: 1,
         }}
       >
         &times;
       </button>
-      <h2 style={{ margin: "0 0 1rem 0", fontSize: "1.15rem", color: "#1f2937" }}>
+      <h2 style={{ margin: "0 0 1rem 0", fontSize: "1.15rem", color: "var(--text-primary)" }}>
         About This Page
       </h2>
-      <div style={{ color: "#374151", fontSize: "0.9rem", lineHeight: 1.7, whiteSpace: "pre-line" }}>
+      <div style={{ color: "var(--text-secondary)", fontSize: "0.9rem", lineHeight: 1.7, whiteSpace: "pre-line" }}>
         {INFO_TEXT}
       </div>
     </div>
@@ -131,11 +131,11 @@ const People: React.FC = () => {
   const roleGroups = useMemo(() => groupByRole(persons), [persons]);
 
   if (loading) {
-    return <div style={{ padding: "2rem", textAlign: "center", color: "#6b7280" }}>Loading persons...</div>;
+    return <div style={{ padding: "2rem", textAlign: "center", color: "var(--text-muted)" }}>Loading persons...</div>;
   }
   if (error) {
     return (
-      <div style={{ padding: "1rem", backgroundColor: "#fef2f2", border: "1px solid #fecaca", borderRadius: "6px", color: "#dc2626" }}>
+      <div style={{ padding: "1rem", backgroundColor: "var(--state-danger-bg-soft)", border: "1px solid var(--state-danger-border)", borderRadius: "6px", color: "var(--state-danger-strong)" }}>
         {error}
       </div>
     );
@@ -150,7 +150,7 @@ const People: React.FC = () => {
           title="About this page"
           style={{
             background: "none", border: "none", cursor: "pointer",
-            fontSize: "1.1rem", color: "#9ca3af", lineHeight: 1, padding: "0.25rem",
+            fontSize: "1.1rem", color: "var(--text-disabled)", lineHeight: 1, padding: "0.25rem",
           }}
         >
           &#9432;
@@ -160,14 +160,14 @@ const People: React.FC = () => {
       {showInfo && <InfoModal onClose={() => setShowInfo(false)} />}
 
       {persons.length === 0 ? (
-        <div style={{ color: "#6b7280", padding: "1rem" }}>No persons found in the database.</div>
+        <div style={{ color: "var(--text-muted)", padding: "1rem" }}>No persons found in the database.</div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
           {roleGroups.map((group, gi) => (
             <div key={group.role}>
-              {gi > 0 && <div style={{ borderTop: "1px solid #e5e7eb", marginBottom: "0.75rem" }} />}
+              {gi > 0 && <div style={{ borderTop: "1px solid var(--border-default)", marginBottom: "0.75rem" }} />}
               <div style={{
-                fontSize: "0.7rem", fontWeight: 700, color: "#9ca3af",
+                fontSize: "0.7rem", fontWeight: 700, color: "var(--text-disabled)",
                 textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "0.5rem",
               }}>
                 {pluralRole(group.role, group.persons.length)} ({group.persons.length})
@@ -179,8 +179,8 @@ const People: React.FC = () => {
                     <div
                       key={person.id}
                       style={{
-                        padding: "1rem", backgroundColor: "#fff",
-                        border: "1px solid #e5e7eb", borderRadius: "8px",
+                        padding: "1rem", backgroundColor: "var(--bg-surface)",
+                        border: "1px solid var(--border-default)", borderRadius: "8px",
                       }}
                     >
                       <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
@@ -196,14 +196,14 @@ const People: React.FC = () => {
                         )}
                       </div>
                       {person.description && (
-                        <div style={{ marginTop: "0.5rem", color: "#6b7280", fontSize: "0.9rem" }}>
+                        <div style={{ marginTop: "0.5rem", color: "var(--text-muted)", fontSize: "0.9rem" }}>
                           {person.description}
                         </div>
                       )}
                       <div style={{ marginTop: "0.5rem" }}>
                         <Link
                           to={`/people/${person.id}`}
-                          style={{ color: "#2563eb", textDecoration: "none", fontSize: "0.85rem", fontWeight: 500 }}
+                          style={{ color: "var(--accent-primary)", textDecoration: "none", fontSize: "0.85rem", fontWeight: 500 }}
                         >
                           View Detail &rarr;
                         </Link>

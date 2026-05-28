@@ -34,21 +34,21 @@ function truncate(text: string, max = 60): string {
 // ── Styles ──────────────────────────────────────────────────────
 
 const cardStyle: React.CSSProperties = {
-  backgroundColor: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "8px",
+  backgroundColor: "var(--bg-surface)", border: "1px solid var(--border-default)", borderRadius: "8px",
   padding: "1rem 1.25rem", marginBottom: "0.75rem",
   transition: "box-shadow 0.15s ease",
 };
 const cardTitleLink: React.CSSProperties = {
-  fontSize: "0.95rem", fontWeight: 600, color: "#0f172a", textDecoration: "none",
+  fontSize: "0.95rem", fontWeight: 600, color: "var(--text-primary)", textDecoration: "none",
 };
 const metaText: React.CSSProperties = {
-  fontSize: "0.76rem", color: "#64748b",
+  fontSize: "0.76rem", color: "var(--text-muted)",
 };
 
 /** Small action button factory. */
 const smallBtn = (bg: string): React.CSSProperties => ({
   padding: "0.2rem 0.6rem", fontSize: "0.72rem", fontWeight: 600, border: "none",
-  borderRadius: "4px", backgroundColor: bg, color: "#ffffff", cursor: "pointer",
+  borderRadius: "4px", backgroundColor: bg, color: "var(--bg-surface)", cursor: "pointer",
   fontFamily: "inherit",
 });
 
@@ -62,19 +62,19 @@ const badgeBase: React.CSSProperties = {
 };
 const badgeAmber: React.CSSProperties = {
   ...badgeBase,
-  backgroundColor: "#fffbeb",
-  border: "1px solid #fde68a",
-  color: "#92400e",
+  backgroundColor: "var(--burden-warning-bg)",
+  border: "1px solid var(--burden-warning-bg)",
+  color: "var(--burden-warning-text)",
 };
 const badgeNeutral: React.CSSProperties = {
   ...badgeBase,
-  backgroundColor: "#f1f5f9",
-  border: "1px solid #e2e8f0",
-  color: "#64748b",
+  backgroundColor: "var(--bg-page)",
+  border: "1px solid var(--border-default)",
+  color: "var(--text-muted)",
 };
 const badgePlain: React.CSSProperties = {
   fontSize: "0.72rem",
-  color: "#64748b",
+  color: "var(--text-muted)",
   marginRight: "0.4rem",
 };
 
@@ -154,10 +154,10 @@ const DocumentCard: React.FC<DocumentCardProps> = ({ doc, isAdmin, onRefresh }) 
             <div style={{ marginBottom: "0.4rem" }}>{renderContentInfo(doc)}</div>
             {isAdmin && (
               <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-                <button style={smallBtn("#2563eb")} onClick={handleProcess}>Configure</button>
+                <button style={smallBtn("var(--accent-primary)")} onClick={handleProcess}>Configure</button>
                 <Link
                   to={`/documents/${doc.id}`}
-                  style={{ ...metaText, fontSize: "0.72rem", color: "#dc2626", textDecoration: "underline" }}
+                  style={{ ...metaText, fontSize: "0.72rem", color: "var(--state-danger-strong)", textDecoration: "underline" }}
                   onClick={(e) => e.stopPropagation()}
                 >
                   Delete
@@ -176,18 +176,18 @@ const DocumentCard: React.FC<DocumentCardProps> = ({ doc, isAdmin, onRefresh }) 
             </div>
             <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
               {/* inline progress bar */}
-              <div style={{ height: "6px", backgroundColor: "#e2e8f0", borderRadius: "3px", flex: 1 }}>
+              <div style={{ height: "6px", backgroundColor: "var(--border-default)", borderRadius: "3px", flex: 1 }}>
                 <div style={{
                   width: `${doc.percent_complete ?? 0}%`, height: "100%",
-                  backgroundColor: "#2563eb", borderRadius: "3px",
+                  backgroundColor: "var(--accent-primary)", borderRadius: "3px",
                   transition: "width 0.3s ease",
                 }} />
               </div>
-              <span style={{ fontSize: "0.72rem", color: "#64748b" }}>
+              <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
                 {doc.percent_complete ?? 0}%
               </span>
               {isAdmin && (
-                <button style={smallBtn("#d97706")} onClick={handleCancel}>Cancel</button>
+                <button style={smallBtn("var(--state-warning-strong)")} onClick={handleCancel}>Cancel</button>
               )}
             </div>
           </>
@@ -219,7 +219,7 @@ const DocumentCard: React.FC<DocumentCardProps> = ({ doc, isAdmin, onRefresh }) 
                 {doc.error_suggestion ? `Suggestion: ${doc.error_suggestion}` : ""}
               </span>
               {isAdmin && (
-                <button style={smallBtn("#2563eb")} onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowReprocess(true); }}>Re-process</button>
+                <button style={smallBtn("var(--accent-primary)")} onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowReprocess(true); }}>Re-process</button>
               )}
             </div>
           </>
@@ -234,10 +234,10 @@ const DocumentCard: React.FC<DocumentCardProps> = ({ doc, isAdmin, onRefresh }) 
             </div>
             {isAdmin && (
               <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-                <button style={smallBtn("#2563eb")} onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowReprocess(true); }}>Re-process</button>
+                <button style={smallBtn("var(--accent-primary)")} onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowReprocess(true); }}>Re-process</button>
                 <Link
                   to={`/documents/${doc.id}`}
-                  style={{ ...metaText, fontSize: "0.72rem", color: "#dc2626", textDecoration: "underline" }}
+                  style={{ ...metaText, fontSize: "0.72rem", color: "var(--state-danger-strong)", textDecoration: "underline" }}
                   onClick={(e) => e.stopPropagation()}
                 >
                   Delete
@@ -285,7 +285,7 @@ const DocumentCard: React.FC<DocumentCardProps> = ({ doc, isAdmin, onRefresh }) 
           textDecoration: "none",
           color: "inherit",
           display: "block",
-          borderLeft: isFailed ? "3px solid #dc2626" : undefined,
+          borderLeft: isFailed ? "3px solid var(--state-danger-strong)" : undefined,
         }}
         onMouseEnter={(e) => { e.currentTarget.style.boxShadow = "0 2px 8px rgba(0,0,0,0.08)"; }}
         onMouseLeave={(e) => { e.currentTarget.style.boxShadow = "none"; }}

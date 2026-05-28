@@ -19,27 +19,27 @@ const S = {
     alignItems: "center", justifyContent: "center", zIndex: 9999,
   } as React.CSSProperties,
   dialog: {
-    backgroundColor: "#fff", borderRadius: "8px", padding: "1.5rem",
+    backgroundColor: "var(--bg-surface)", borderRadius: "8px", padding: "1.5rem",
     maxWidth: "480px", width: "90%", boxShadow: "0 4px 24px rgba(0,0,0,0.2)",
   } as React.CSSProperties,
   title: {
-    fontSize: "1rem", fontWeight: 700, color: "#0f172a", marginBottom: "0.5rem",
+    fontSize: "1rem", fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.5rem",
   } as React.CSSProperties,
   message: {
-    fontSize: "0.84rem", color: "#334155", marginBottom: "1rem", lineHeight: 1.5,
+    fontSize: "0.84rem", color: "var(--text-secondary)", marginBottom: "1rem", lineHeight: 1.5,
   } as React.CSSProperties,
   buttons: {
     display: "flex", justifyContent: "flex-end", gap: "0.5rem",
   } as React.CSSProperties,
   cancelBtn: {
     padding: "0.4rem 1rem", fontSize: "0.84rem", fontWeight: 500,
-    border: "1px solid #cbd5e1", borderRadius: "4px", backgroundColor: "#fff",
-    color: "#334155", cursor: "pointer", fontFamily: "inherit",
+    border: "1px solid var(--border-default)", borderRadius: "4px", backgroundColor: "var(--bg-surface)",
+    color: "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit",
   } as React.CSSProperties,
   confirmBtn: {
     padding: "0.4rem 1rem", fontSize: "0.84rem", fontWeight: 600,
-    border: "none", borderRadius: "4px", backgroundColor: "#d97706",
-    color: "#fff", cursor: "pointer", fontFamily: "inherit",
+    border: "none", borderRadius: "4px", backgroundColor: "var(--state-warning-strong)",
+    color: "var(--bg-surface)", cursor: "pointer", fontFamily: "inherit",
   } as React.CSSProperties,
 };
 

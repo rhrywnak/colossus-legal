@@ -4,27 +4,27 @@ import { MotionClaimWithEvidence, EvidenceWithDocument } from "../services/evide
 
 // Professional color palette (shared with EvidenceExplorerPage)
 export const COLORS = {
-  bgPage: "#f8fafc",
-  bgCard: "#ffffff",
-  border: "#e2e8f0",
-  textPrimary: "#1e293b",
-  textSecondary: "#64748b",
-  textMuted: "#94a3b8",
-  accentExpanded: "#059669",
-  accentMotionClaim: "#3b82f6",
-  accentEvidence: "#8b5cf6",
-  badgeIdBg: "#f1f5f9",
-  badgeIdText: "#475569",
-  badgeProvenBg: "#ecfdf5",
-  badgeProvenText: "#059669",
-  badgePartialBg: "#fffbeb",
-  badgePartialText: "#d97706",
-  badgeUnprovenBg: "#fef2f2",
-  badgeUnprovenText: "#dc2626",
-  badgeLegalBg: "#e0e7ff",
-  badgeLegalText: "#4338ca",
-  badgeParaBg: "#dbeafe",
-  badgeParaText: "#1e40af",
+  bgPage: "var(--bg-page)",
+  bgCard: "var(--bg-surface)",
+  border: "var(--border-default)",
+  textPrimary: "var(--text-primary)",
+  textSecondary: "var(--text-muted)",
+  textMuted: "var(--text-disabled)",
+  accentExpanded: "var(--status-active-text)",
+  accentMotionClaim: "var(--accent-primary)",
+  accentEvidence: "var(--bias-purple-text)",
+  badgeIdBg: "var(--bg-page)",
+  badgeIdText: "var(--text-secondary)",
+  badgeProvenBg: "var(--state-success-bg-soft)",
+  badgeProvenText: "var(--status-active-text)",
+  badgePartialBg: "var(--burden-warning-bg)",
+  badgePartialText: "var(--state-warning-strong)",
+  badgeUnprovenBg: "var(--state-danger-bg-soft)",
+  badgeUnprovenText: "var(--state-danger-strong)",
+  badgeLegalBg: "var(--state-info-bg-soft)",
+  badgeLegalText: "var(--bias-indigo-text)",
+  badgeParaBg: "var(--accent-bg-soft)",
+  badgeParaText: "var(--accent-primary-hover)",
 };
 
 export const STATUS_STYLES: Record<string, { bg: string; text: string }> = {
@@ -65,7 +65,7 @@ export const DocumentLink: React.FC<DocumentLinkProps> = ({ document }) => (
     <span style={{ color: COLORS.textSecondary }}>Source:</span>
     <Link
       to={`/documents/${document.id}`}
-      style={{ color: "#2563eb", textDecoration: "none", fontWeight: 500 }}
+      style={{ color: "var(--accent-primary)", textDecoration: "none", fontWeight: 500 }}
       onMouseEnter={(e) => { e.currentTarget.style.textDecoration = "underline"; }}
       onMouseLeave={(e) => { e.currentTarget.style.textDecoration = "none"; }}
     >

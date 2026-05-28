@@ -29,8 +29,8 @@ export const InlineVerifyForm: React.FC<VerifyFormProps> = ({
   evidence, status, notes, submitting,
   onStatusChange, onNotesChange, onSubmit, onCancel,
 }) => (
-  <div style={{ ...cardStyle, marginBottom: "0.75rem", border: "2px solid #a7f3d0" }}>
-    <div style={{ fontSize: "0.84rem", fontWeight: 600, color: "#0f172a", marginBottom: "0.5rem" }}>
+  <div style={{ ...cardStyle, marginBottom: "0.75rem", border: "2px solid var(--state-success-bg-soft)" }}>
+    <div style={{ fontSize: "0.84rem", fontWeight: 600, color: "var(--text-primary)", marginBottom: "0.5rem" }}>
       Verify: {evidence.title || evidence.id}
     </div>
     <div style={{ marginBottom: "0.5rem" }}>
@@ -76,8 +76,8 @@ export const InlineFlagForm: React.FC<FlagFormProps> = ({
   evidence, severity, description, submitting,
   onSeverityChange, onDescriptionChange, onSubmit, onCancel,
 }) => (
-  <div style={{ ...cardStyle, marginBottom: "0.75rem", border: "2px solid #fecaca" }}>
-    <div style={{ fontSize: "0.84rem", fontWeight: 600, color: "#0f172a", marginBottom: "0.5rem" }}>
+  <div style={{ ...cardStyle, marginBottom: "0.75rem", border: "2px solid var(--state-danger-border)" }}>
+    <div style={{ fontSize: "0.84rem", fontWeight: 600, color: "var(--text-primary)", marginBottom: "0.5rem" }}>
       Flag: {evidence.title || evidence.id}
     </div>
     <div style={{ marginBottom: "0.5rem" }}>
@@ -99,7 +99,7 @@ export const InlineFlagForm: React.FC<FlagFormProps> = ({
       />
     </div>
     <div style={{ display: "flex", gap: "0.4rem" }}>
-      <button style={{ ...btnPrimary, backgroundColor: "#dc2626" }} onClick={onSubmit} disabled={submitting}>
+      <button style={{ ...btnPrimary, backgroundColor: "var(--state-danger-strong)" }} onClick={onSubmit} disabled={submitting}>
         {submitting ? "Saving..." : "Submit Flag"}
       </button>
       <button style={btnSecondary} onClick={onCancel}>Cancel</button>

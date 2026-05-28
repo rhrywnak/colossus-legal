@@ -28,7 +28,7 @@ interface UseResizablePanesResult {
 const dividerBaseStyle: React.CSSProperties = {
   width: "6px",
   cursor: "col-resize",
-  backgroundColor: "#e2e8f0",
+  backgroundColor: "var(--border-default)",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
@@ -81,7 +81,7 @@ export function useResizablePanes({
       onMouseDown: handleMouseDown,
       style: {
         ...dividerBaseStyle,
-        backgroundColor: isDragging ? "#94a3b8" : "#e2e8f0",
+        backgroundColor: isDragging ? "var(--text-disabled)" : "var(--border-default)",
       },
     },
     isDragging,

@@ -41,9 +41,9 @@ import { fetchResolvedConfig, ResolvedView } from "../../services/pipelineApi";
 // ── Styles ──────────────────────────────────────────────────────
 
 const containerStyle: React.CSSProperties = {
-  backgroundColor: "#ffffff",
+  backgroundColor: "var(--bg-surface)",
   borderRadius: "8px",
-  border: "1px solid #e2e8f0",
+  border: "1px solid var(--border-default)",
   overflow: "hidden",
   marginBottom: "1rem",
 };
@@ -51,9 +51,9 @@ const headerStyle: React.CSSProperties = {
   padding: "0.6rem 0.85rem",
   fontWeight: 600,
   fontSize: "0.84rem",
-  color: "#334155",
-  backgroundColor: "#f8fafc",
-  borderBottom: "1px solid #e2e8f0",
+  color: "var(--text-secondary)",
+  backgroundColor: "var(--bg-page)",
+  borderBottom: "1px solid var(--border-default)",
 };
 const bodyStyle: React.CSSProperties = { padding: "1rem 0.85rem" };
 const fieldGrid: React.CSSProperties = {
@@ -65,18 +65,18 @@ const fieldGrid: React.CSSProperties = {
 };
 const fieldLabel: React.CSSProperties = {
   fontSize: "0.82rem",
-  color: "#64748b",
+  color: "var(--text-muted)",
   fontWeight: 500,
 };
 const fieldLabelModified: React.CSSProperties = {
   ...fieldLabel,
-  color: "#0f172a",
+  color: "var(--text-primary)",
   fontWeight: 700,
 };
 const inputStyle: React.CSSProperties = {
   width: "100%",
   padding: "0.35rem 0.55rem",
-  border: "1px solid #e2e8f0",
+  border: "1px solid var(--border-default)",
   borderRadius: "6px",
   fontSize: "0.82rem",
   fontFamily: "inherit",
@@ -88,30 +88,30 @@ const modifiedBadge: React.CSSProperties = {
   padding: "0.05rem 0.4rem",
   fontSize: "0.68rem",
   fontWeight: 600,
-  color: "#2563eb",
-  backgroundColor: "#dbeafe",
+  color: "var(--accent-primary)",
+  backgroundColor: "var(--accent-bg-soft)",
   borderRadius: "4px",
 };
 const btnPrimary = (enabled: boolean): React.CSSProperties => ({
   padding: "0.35rem 0.85rem",
   fontSize: "0.8rem",
   fontWeight: 600,
-  border: "1px solid #2563eb",
+  border: "1px solid var(--accent-primary)",
   borderRadius: "6px",
   cursor: enabled ? "pointer" : "default",
-  backgroundColor: enabled ? "#2563eb" : "#e2e8f0",
-  color: enabled ? "#ffffff" : "#94a3b8",
+  backgroundColor: enabled ? "var(--accent-primary)" : "var(--border-default)",
+  color: enabled ? "var(--bg-surface)" : "var(--text-disabled)",
   fontFamily: "inherit",
 });
 const btnSecondary = (enabled: boolean): React.CSSProperties => ({
   padding: "0.35rem 0.85rem",
   fontSize: "0.8rem",
   fontWeight: 500,
-  border: "1px solid #cbd5e1",
+  border: "1px solid var(--border-default)",
   borderRadius: "6px",
   cursor: enabled ? "pointer" : "default",
-  backgroundColor: enabled ? "#ffffff" : "#f1f5f9",
-  color: enabled ? "#334155" : "#94a3b8",
+  backgroundColor: enabled ? "var(--bg-surface)" : "var(--bg-page)",
+  color: enabled ? "var(--text-secondary)" : "var(--text-disabled)",
   fontFamily: "inherit",
 });
 const btnRow: React.CSSProperties = {
@@ -121,16 +121,16 @@ const btnRow: React.CSSProperties = {
 };
 const errorBox: React.CSSProperties = {
   padding: "0.6rem 0.85rem",
-  backgroundColor: "#fef2f2",
-  border: "1px solid #fecaca",
+  backgroundColor: "var(--state-danger-bg-soft)",
+  border: "1px solid var(--state-danger-border)",
   borderRadius: "6px",
-  color: "#991b1b",
+  color: "var(--status-dropped-text)",
   fontSize: "0.82rem",
   marginBottom: "0.75rem",
 };
 const previewContainer: React.CSSProperties = {
   marginTop: "1rem",
-  border: "1px solid #e2e8f0",
+  border: "1px solid var(--border-default)",
   borderRadius: "6px",
   overflow: "hidden",
 };
@@ -138,16 +138,16 @@ const previewHeader: React.CSSProperties = {
   padding: "0.5rem 0.75rem",
   fontSize: "0.8rem",
   fontWeight: 600,
-  color: "#334155",
-  backgroundColor: "#f8fafc",
-  borderBottom: "1px solid #e2e8f0",
+  color: "var(--text-secondary)",
+  backgroundColor: "var(--bg-page)",
+  borderBottom: "1px solid var(--border-default)",
 };
 const previewMeta: React.CSSProperties = {
   padding: "0.5rem 0.75rem",
   fontSize: "0.78rem",
-  color: "#334155",
-  backgroundColor: "#fdfdfd",
-  borderBottom: "1px solid #f1f5f9",
+  color: "var(--text-secondary)",
+  backgroundColor: "var(--bg-surface)",
+  borderBottom: "1px solid var(--bg-page)",
 };
 const previewTextarea: React.CSSProperties = {
   width: "100%",
@@ -164,14 +164,14 @@ const previewTextarea: React.CSSProperties = {
 const subKeyEditorContainer: React.CSSProperties = {
   marginTop: "0.85rem",
   padding: "0.6rem 0.75rem",
-  border: "1px solid #e2e8f0",
+  border: "1px solid var(--border-default)",
   borderRadius: "6px",
-  backgroundColor: "#fafbfc",
+  backgroundColor: "var(--bg-surface)",
 };
 const subKeyEditorHeader: React.CSSProperties = {
   fontSize: "0.78rem",
   fontWeight: 600,
-  color: "#334155",
+  color: "var(--text-secondary)",
   marginBottom: "0.4rem",
 };
 const subKeyRow: React.CSSProperties = {
@@ -184,10 +184,10 @@ const subKeyRow: React.CSSProperties = {
 const resetBtn: React.CSSProperties = {
   padding: "0.15rem 0.5rem",
   fontSize: "0.72rem",
-  border: "1px solid #cbd5e1",
+  border: "1px solid var(--border-default)",
   borderRadius: "4px",
-  backgroundColor: "#ffffff",
-  color: "#64748b",
+  backgroundColor: "var(--bg-surface)",
+  color: "var(--text-muted)",
   cursor: "pointer",
   fontFamily: "inherit",
 };
@@ -197,43 +197,43 @@ const resetBtnHidden: React.CSSProperties = {
 };
 const resolvedSectionStyle: React.CSSProperties = {
   marginTop: "1rem",
-  border: "1px solid #e2e8f0",
+  border: "1px solid var(--border-default)",
   borderRadius: "6px",
-  backgroundColor: "#fafbfc",
+  backgroundColor: "var(--bg-surface)",
 };
 const resolvedSummaryStyle: React.CSSProperties = {
   padding: "0.5rem 0.75rem",
   cursor: "pointer",
   fontSize: "0.82rem",
   fontWeight: 600,
-  color: "#334155",
+  color: "var(--text-secondary)",
   userSelect: "none",
 };
 const resolvedBodyStyle: React.CSSProperties = {
   padding: "0.6rem 0.85rem",
-  borderTop: "1px solid #e2e8f0",
+  borderTop: "1px solid var(--border-default)",
   fontSize: "0.78rem",
-  color: "#334155",
+  color: "var(--text-secondary)",
   lineHeight: 1.5,
 };
 const resolvedKey: React.CSSProperties = {
   display: "inline-block",
   minWidth: "150px",
-  color: "#64748b",
+  color: "var(--text-muted)",
 };
 const resolvedHashStyle: React.CSSProperties = {
   fontFamily: "ui-monospace, Menlo, monospace",
   fontSize: "0.74rem",
-  color: "#0f172a",
+  color: "var(--text-primary)",
   padding: "0 0.25rem",
-  backgroundColor: "#f1f5f9",
+  backgroundColor: "var(--bg-page)",
   borderRadius: "3px",
 };
 const resolvedMapStyle: React.CSSProperties = {
   margin: "0.25rem 0 0.6rem 0.5rem",
   padding: "0.4rem 0.6rem",
-  backgroundColor: "#ffffff",
-  border: "1px solid #e2e8f0",
+  backgroundColor: "var(--bg-surface)",
+  border: "1px solid var(--border-default)",
   borderRadius: "4px",
   fontFamily: "ui-monospace, Menlo, monospace",
   fontSize: "0.74rem",
@@ -305,11 +305,11 @@ function formatContentLine(
 
 const contentInfoStyle: React.CSSProperties = {
   fontSize: "0.82rem",
-  color: "#334155",
+  color: "var(--text-secondary)",
   marginBottom: "0.85rem",
   padding: "0.5rem 0.75rem",
-  backgroundColor: "#f8fafc",
-  border: "1px solid #e2e8f0",
+  backgroundColor: "var(--bg-page)",
+  border: "1px solid var(--border-default)",
   borderRadius: "6px",
 };
 
@@ -795,7 +795,7 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
     return (
       <div style={containerStyle}>
         <div style={headerStyle}>Processing Configuration</div>
-        <div style={{ ...bodyStyle, color: "#64748b" }}>Loading configuration...</div>
+        <div style={{ ...bodyStyle, color: "var(--text-muted)" }}>Loading configuration...</div>
       </div>
     );
   }
@@ -827,7 +827,7 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
       <div style={containerStyle}>
         <div style={headerStyle}>Processing Configuration</div>
         <div style={bodyStyle}>
-          <div style={{ color: "#64748b", fontSize: "0.84rem" }}>
+          <div style={{ color: "var(--text-muted)", fontSize: "0.84rem" }}>
             No profile found for document type "{documentType}" or "default".
             You can still process with system defaults, or create a profile in
             Admin › Profiles.
@@ -911,7 +911,7 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
             {(() => {
               const fb = invalidModelFallbackOption(effective.model, models);
               return fb ? (
-                <option value={fb.value} disabled style={{ color: "#dc2626" }}>
+                <option value={fb.value} disabled style={{ color: "var(--state-danger-strong)" }}>
                   {fb.label}
                 </option>
               ) : null;
@@ -1028,7 +1028,7 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
             {isModified("run_pass2") && <span style={modifiedBadge}>modified</span>}
           </label>
           <div>
-            <label style={{ fontSize: "0.82rem", color: "#334155" }}>
+            <label style={{ fontSize: "0.82rem", color: "var(--text-secondary)" }}>
               <input
                 type="checkbox"
                 checked={resolved.run_pass2}
@@ -1070,7 +1070,7 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
                       <option
                         value={fb.value}
                         disabled
-                        style={{ color: "#dc2626" }}
+                        style={{ color: "var(--state-danger-strong)" }}
                       >
                         {fb.label}
                       </option>
@@ -1086,7 +1086,7 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
                   style={{
                     marginTop: "0.25rem",
                     fontSize: "0.75rem",
-                    color: "#64748b",
+                    color: "var(--text-muted)",
                   }}
                 >
                   Defaults to the Pass 1 model when the profile doesn't set one.
@@ -1199,7 +1199,7 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
           </button>
         </div>
         {previewDisabled && (
-          <div style={{ marginTop: "0.4rem", fontSize: "0.76rem", color: "#64748b" }}>
+          <div style={{ marginTop: "0.4rem", fontSize: "0.76rem", color: "var(--text-muted)" }}>
             Preview available after text extraction.
           </div>
         )}
@@ -1230,7 +1230,7 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
                 )}
               </div>
               {preview.notes.length > 0 && (
-                <ul style={{ margin: "0.35rem 0 0", paddingLeft: "1.1rem", color: "#64748b" }}>
+                <ul style={{ margin: "0.35rem 0 0", paddingLeft: "1.1rem", color: "var(--text-muted)" }}>
                   {preview.notes.map((n, i) => (
                     <li key={i}>{n}</li>
                   ))}

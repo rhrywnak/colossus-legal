@@ -25,7 +25,7 @@ export function StarRating({ value, onChange }: Props) {
           style={{
             cursor: "pointer",
             fontSize: "1.2rem",
-            color: display >= star ? "#f5a623" : "#ccc",
+            color: display >= star ? "var(--state-warning-strong)" : "var(--text-disabled)",
           }}
         >
           ★

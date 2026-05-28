@@ -30,21 +30,21 @@ interface PdfViewerProps {
 const toolbarStyle: React.CSSProperties = {
   display: "flex", alignItems: "center", justifyContent: "center",
   gap: "0.5rem", padding: "0.5rem 0.75rem",
-  backgroundColor: "#f8fafc", borderBottom: "1px solid #e2e8f0",
-  fontSize: "0.82rem", color: "#475569",
+  backgroundColor: "var(--bg-page)", borderBottom: "1px solid var(--border-default)",
+  fontSize: "0.82rem", color: "var(--text-secondary)",
   position: "sticky", top: 0, zIndex: 10,
 };
 
 const navBtnStyle: React.CSSProperties = {
   padding: "0.25rem 0.6rem", fontSize: "0.8rem", fontWeight: 500,
-  border: "1px solid #e2e8f0", borderRadius: "4px",
-  backgroundColor: "#fff", color: "#334155", cursor: "pointer",
+  border: "1px solid var(--border-default)", borderRadius: "4px",
+  backgroundColor: "var(--bg-surface)", color: "var(--text-secondary)", cursor: "pointer",
   fontFamily: "inherit",
 };
 
 const pageInputStyle: React.CSSProperties = {
   width: "3rem", textAlign: "center", padding: "0.2rem 0.3rem",
-  border: "1px solid #e2e8f0", borderRadius: "4px",
+  border: "1px solid var(--border-default)", borderRadius: "4px",
   fontSize: "0.82rem", fontFamily: "inherit",
 };
 
@@ -196,7 +196,7 @@ const PdfViewer: React.FC<PdfViewerProps> = ({
     <div
       ref={containerRef}
       className={className}
-      style={{ display: "flex", flexDirection: "column", height: "100%", backgroundColor: "#fff" }}
+      style={{ display: "flex", flexDirection: "column", height: "100%", backgroundColor: "var(--bg-surface)" }}
     >
       {/* Toolbar */}
       <div style={toolbarStyle}>
@@ -216,7 +216,7 @@ const PdfViewer: React.FC<PdfViewerProps> = ({
           Next
         </button>
 
-        <span style={{ borderLeft: "1px solid #e2e8f0", height: "1.2rem", margin: "0 0.25rem" }} />
+        <span style={{ borderLeft: "1px solid var(--border-default)", height: "1.2rem", margin: "0 0.25rem" }} />
 
         <button style={zoomBtnStyle} disabled={zoomLevel <= ZOOM_STEPS[0]} onClick={zoomOut}>
           −
@@ -238,13 +238,13 @@ const PdfViewer: React.FC<PdfViewerProps> = ({
           flex: 1,
           overflowY: "auto",
           overflowX: zoomLevel > 1.0 ? "auto" : "hidden",
-          backgroundColor: "#f1f5f9",
+          backgroundColor: "var(--bg-page)",
         }}
       >
         {error ? (
-          <div style={{ padding: "2rem", color: "#dc2626", fontSize: "0.84rem", textAlign: "center" }}>
+          <div style={{ padding: "2rem", color: "var(--state-danger-strong)", fontSize: "0.84rem", textAlign: "center" }}>
             {error}<br />
-            <span style={{ color: "#64748b", fontSize: "0.76rem" }}>URL: {src}</span>
+            <span style={{ color: "var(--text-muted)", fontSize: "0.76rem" }}>URL: {src}</span>
           </div>
         ) : (
           <Document
@@ -252,7 +252,7 @@ const PdfViewer: React.FC<PdfViewerProps> = ({
             onLoadSuccess={onLoadSuccess}
             onLoadError={onLoadError}
             loading={
-              <div style={{ padding: "3rem", color: "#64748b", fontSize: "0.84rem" }}>
+              <div style={{ padding: "3rem", color: "var(--text-muted)", fontSize: "0.84rem" }}>
                 Loading PDF...
               </div>
             }
@@ -273,7 +273,7 @@ const PdfViewer: React.FC<PdfViewerProps> = ({
                   renderTextLayer={true}
                   onRenderTextLayerSuccess={() => handleTextLayerReady(pn)}
                   loading={
-                    <div style={{ padding: "2rem", color: "#64748b", fontSize: "0.82rem" }}>
+                    <div style={{ padding: "2rem", color: "var(--text-muted)", fontSize: "0.82rem" }}>
                       Rendering page {pn}...
                     </div>
                   }

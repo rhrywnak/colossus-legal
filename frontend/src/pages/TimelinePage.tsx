@@ -74,11 +74,11 @@ const TimelinePage: React.FC = () => {
   }, [data, location.hash]);
 
   if (loading) {
-    return <div style={{ padding: "2rem", textAlign: "center", color: "#64748b" }}>Loading timeline...</div>;
+    return <div style={{ padding: "2rem", textAlign: "center", color: "var(--text-muted)" }}>Loading timeline...</div>;
   }
 
   if (!data) {
-    return <div style={{ padding: "2rem", textAlign: "center", color: "#64748b" }}>Failed to load timeline data.</div>;
+    return <div style={{ padding: "2rem", textAlign: "center", color: "var(--text-muted)" }}>Failed to load timeline data.</div>;
   }
 
   const filteredEvents = filter
@@ -91,10 +91,10 @@ const TimelinePage: React.FC = () => {
     <div style={{ paddingTop: "2rem", paddingBottom: "4rem" }}>
       {/* Header */}
       <div style={{ marginBottom: "1.5rem" }}>
-        <h1 style={{ fontSize: "1.5rem", fontWeight: 700, color: "#0f172a", margin: 0, marginBottom: "0.3rem" }}>
+        <h1 style={{ fontSize: "1.5rem", fontWeight: 700, color: "var(--text-primary)", margin: 0, marginBottom: "0.3rem" }}>
           Case Timeline
         </h1>
-        <p style={{ fontSize: "0.84rem", color: "#64748b", margin: 0 }}>
+        <p style={{ fontSize: "0.84rem", color: "var(--text-muted)", margin: 0 }}>
           {filteredEvents.length} event{filteredEvents.length !== 1 ? "s" : ""}
           {filter ? ` in ${data.categories[filter]?.label}` : ""} across {data.phases.length} phases
         </p>
@@ -108,9 +108,9 @@ const TimelinePage: React.FC = () => {
             padding: "0.3rem 0.75rem", borderRadius: "9999px", fontSize: "0.76rem",
             fontWeight: 600, cursor: "pointer", border: "1px solid",
             fontFamily: "inherit", transition: "all 0.15s ease",
-            backgroundColor: filter === null ? "#0f172a" : "#ffffff",
-            color: filter === null ? "#ffffff" : "#475569",
-            borderColor: filter === null ? "#0f172a" : "#e2e8f0",
+            backgroundColor: filter === null ? "var(--text-primary)" : "var(--bg-surface)",
+            color: filter === null ? "var(--bg-surface)" : "var(--text-secondary)",
+            borderColor: filter === null ? "var(--text-primary)" : "var(--border-default)",
           }}
         >
           All
@@ -126,9 +126,9 @@ const TimelinePage: React.FC = () => {
                 padding: "0.3rem 0.75rem", borderRadius: "9999px", fontSize: "0.76rem",
                 fontWeight: 600, cursor: "pointer", border: "1px solid",
                 fontFamily: "inherit", transition: "all 0.15s ease",
-                backgroundColor: active ? cat.color : "#ffffff",
-                color: active ? "#ffffff" : cat.color,
-                borderColor: active ? cat.color : "#e2e8f0",
+                backgroundColor: active ? cat.color : "var(--bg-surface)",
+                color: active ? "var(--bg-surface)" : cat.color,
+                borderColor: active ? cat.color : "var(--border-default)",
               }}
             >
               {cat.label}
@@ -153,10 +153,10 @@ const TimelinePage: React.FC = () => {
               borderLeft: `4px solid ${phase.color}`, paddingLeft: "1rem",
               marginBottom: "1rem",
             }}>
-              <div style={{ fontSize: "1.05rem", fontWeight: 700, color: "#0f172a" }}>
+              <div style={{ fontSize: "1.05rem", fontWeight: 700, color: "var(--text-primary)" }}>
                 {phase.label}
               </div>
-              <div style={{ fontSize: "0.78rem", color: "#64748b" }}>
+              <div style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
                 {phase.date_range} {"\u00b7"} {phaseEvents.length} event{phaseEvents.length !== 1 ? "s" : ""}
               </div>
             </div>
@@ -169,14 +169,14 @@ const TimelinePage: React.FC = () => {
                   <div
                     key={evt.id}
                     style={{
-                      backgroundColor: "#ffffff", border: "1px solid #e2e8f0",
+                      backgroundColor: "var(--bg-surface)", border: "1px solid var(--border-default)",
                       borderRadius: "8px", padding: "1rem 1.25rem",
                       display: "flex", gap: "1rem", alignItems: "flex-start",
                     }}
                   >
                     {/* Dot + date column */}
                     <div style={{ flexShrink: 0, width: "90px", textAlign: "right", paddingTop: "0.15rem" }}>
-                      <div style={{ fontSize: "0.72rem", color: "#64748b", fontWeight: 500, whiteSpace: "nowrap" }}>
+                      <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", fontWeight: 500, whiteSpace: "nowrap" }}>
                         {formatDate(evt.date, evt.approximate)}
                       </div>
                     </div>
@@ -184,14 +184,14 @@ const TimelinePage: React.FC = () => {
                     {/* Dot */}
                     <div style={{
                       width: "10px", height: "10px", borderRadius: "50%",
-                      backgroundColor: cat?.color ?? "#94a3b8",
+                      backgroundColor: cat?.color ?? "var(--text-disabled)",
                       flexShrink: 0, marginTop: "0.3rem",
                     }} />
 
                     {/* Content */}
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.25rem" }}>
-                        <span style={{ fontSize: "0.88rem", fontWeight: 600, color: "#0f172a" }}>
+                        <span style={{ fontSize: "0.88rem", fontWeight: 600, color: "var(--text-primary)" }}>
                           {evt.title}
                         </span>
                         {cat && (
@@ -204,7 +204,7 @@ const TimelinePage: React.FC = () => {
                           </span>
                         )}
                       </div>
-                      <div style={{ fontSize: "0.82rem", color: "#475569", lineHeight: 1.55, fontFamily: "'Georgia', serif" }}>
+                      <div style={{ fontSize: "0.82rem", color: "var(--text-secondary)", lineHeight: 1.55, fontFamily: "'Georgia', serif" }}>
                         {evt.description}
                       </div>
                       {evt.document_id && evt.document_label && (
@@ -214,7 +214,7 @@ const TimelinePage: React.FC = () => {
                           rel="noopener noreferrer"
                           style={{
                             display: "inline-block", marginTop: "0.4rem",
-                            fontSize: "0.78rem", color: "#2563eb", textDecoration: "none", fontWeight: 500,
+                            fontSize: "0.78rem", color: "var(--accent-primary)", textDecoration: "none", fontWeight: 500,
                           }}
                         >
                           {evt.document_label} {"\u2192"}
@@ -225,7 +225,7 @@ const TimelinePage: React.FC = () => {
                 );
               })}
               {phaseEvents.length === 0 && (
-                <div style={{ fontSize: "0.82rem", color: "#94a3b8", fontStyle: "italic", padding: "0.5rem 0" }}>
+                <div style={{ fontSize: "0.82rem", color: "var(--text-disabled)", fontStyle: "italic", padding: "0.5rem 0" }}>
                   No events in this phase match the current filter.
                 </div>
               )}

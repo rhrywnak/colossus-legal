@@ -3,13 +3,13 @@ import { Link } from "react-router-dom";
 import { getMotionClaims, MotionClaimDto } from "../services/motionClaims";
 
 const CATEGORY_COLORS: Record<string, { bg: string; text: string }> = {
-  admission: { bg: "#dcfce7", text: "#166534" },
-  factual_allegation: { bg: "#dbeafe", text: "#1e40af" },
-  argument: { bg: "#f3f4f6", text: "#374151" },
-  evidence_summary: { bg: "#f3e8ff", text: "#6b21a8" },
+  admission: { bg: "var(--state-success-bg-soft)", text: "var(--status-active-text)" },
+  factual_allegation: { bg: "var(--accent-bg-soft)", text: "var(--accent-primary-hover)" },
+  argument: { bg: "var(--bg-page)", text: "var(--text-secondary)" },
+  evidence_summary: { bg: "var(--bias-purple-bg-soft)", text: "var(--bias-purple-text)" },
 };
 
-const DEFAULT_CATEGORY_COLOR = { bg: "#f3f4f6", text: "#374151" };
+const DEFAULT_CATEGORY_COLOR = { bg: "var(--bg-page)", text: "var(--text-secondary)" };
 
 function getCategoryStyle(category: string | undefined) {
   if (!category) return DEFAULT_CATEGORY_COLOR;
@@ -54,7 +54,7 @@ const MotionClaimsPage: React.FC = () => {
 
   if (loading) {
     return (
-      <div style={{ padding: "2rem", textAlign: "center", color: "#6b7280" }}>
+      <div style={{ padding: "2rem", textAlign: "center", color: "var(--text-muted)" }}>
         Loading motion claims...
       </div>
     );
@@ -65,10 +65,10 @@ const MotionClaimsPage: React.FC = () => {
       <div
         style={{
           padding: "1rem",
-          backgroundColor: "#fef2f2",
-          border: "1px solid #fecaca",
+          backgroundColor: "var(--state-danger-bg-soft)",
+          border: "1px solid var(--state-danger-border)",
           borderRadius: "6px",
-          color: "#dc2626",
+          color: "var(--state-danger-strong)",
         }}
       >
         {error}
@@ -84,10 +84,10 @@ const MotionClaimsPage: React.FC = () => {
       <div
         style={{
           padding: "0.5rem 1rem",
-          backgroundColor: "#f3f4f6",
+          backgroundColor: "var(--bg-page)",
           borderRadius: "6px",
           marginBottom: "1rem",
-          color: "#374151",
+          color: "var(--text-secondary)",
         }}
       >
         <strong>{total}</strong> Motion Claims
@@ -139,7 +139,7 @@ const MotionClaimsPage: React.FC = () => {
 
       {/* Claims list */}
       {claims.length === 0 ? (
-        <div style={{ color: "#6b7280", padding: "1rem" }}>
+        <div style={{ color: "var(--text-muted)", padding: "1rem" }}>
           No motion claims found.
         </div>
       ) : (
@@ -158,8 +158,8 @@ const MotionClaimsPage: React.FC = () => {
                 key={claim.id}
                 style={{
                   padding: "1rem",
-                  backgroundColor: "#fff",
-                  border: "1px solid #e5e7eb",
+                  backgroundColor: "var(--bg-surface)",
+                  border: "1px solid var(--border-default)",
                   borderRadius: "8px",
                   borderLeft: `4px solid ${categoryStyle.text}`,
                 }}
@@ -192,7 +192,7 @@ const MotionClaimsPage: React.FC = () => {
                   <span
                     style={{
                       fontSize: "0.75rem",
-                      color: "#9ca3af",
+                      color: "var(--text-disabled)",
                     }}
                   >
                     {claim.id}
@@ -214,12 +214,12 @@ const MotionClaimsPage: React.FC = () => {
                 {claim.claim_text && (
                   <div
                     style={{
-                      color: "#4b5563",
+                      color: "var(--text-secondary)",
                       fontSize: "0.9rem",
                       lineHeight: "1.5",
                       marginBottom: "0.5rem",
                       padding: "0.5rem",
-                      backgroundColor: "#f9fafb",
+                      backgroundColor: "var(--bg-page)",
                       borderRadius: "4px",
                     }}
                   >
@@ -232,8 +232,8 @@ const MotionClaimsPage: React.FC = () => {
                   <div
                     style={{
                       fontSize: "0.85rem",
-                      color: "#166534",
-                      backgroundColor: "#dcfce7",
+                      color: "var(--status-active-text)",
+                      backgroundColor: "var(--state-success-bg-soft)",
                       padding: "0.4rem 0.6rem",
                       borderRadius: "4px",
                       marginBottom: "0.5rem",
@@ -248,7 +248,7 @@ const MotionClaimsPage: React.FC = () => {
                   <div
                     style={{
                       fontSize: "0.8rem",
-                      color: "#6b7280",
+                      color: "var(--text-muted)",
                       marginBottom: "0.5rem",
                     }}
                   >
@@ -256,7 +256,7 @@ const MotionClaimsPage: React.FC = () => {
                     <Link
                       to={`/documents/${claim.source_document_id}`}
                       style={{
-                        color: "#2563eb",
+                        color: "var(--accent-primary)",
                         textDecoration: "none",
                       }}
                     >
@@ -272,7 +272,7 @@ const MotionClaimsPage: React.FC = () => {
                     flexWrap: "wrap",
                     gap: "1rem",
                     fontSize: "0.8rem",
-                    color: "#6b7280",
+                    color: "var(--text-muted)",
                     marginTop: "0.5rem",
                   }}
                 >

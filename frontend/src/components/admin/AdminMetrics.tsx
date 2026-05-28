@@ -14,30 +14,30 @@ const cardRow: React.CSSProperties = {
   display: "flex", gap: "1rem", marginBottom: "1.5rem", flexWrap: "wrap",
 };
 const card: React.CSSProperties = {
-  flex: "1 1 140px", padding: "0.75rem 1rem", backgroundColor: "#ffffff",
-  borderRadius: "8px", border: "1px solid #e2e8f0",
+  flex: "1 1 140px", padding: "0.75rem 1rem", backgroundColor: "var(--bg-surface)",
+  borderRadius: "8px", border: "1px solid var(--border-default)",
 };
 const cardValue: React.CSSProperties = {
-  fontSize: "1.5rem", fontWeight: 700, color: "#0f172a",
+  fontSize: "1.5rem", fontWeight: 700, color: "var(--text-primary)",
 };
 const cardLabel: React.CSSProperties = {
-  fontSize: "0.76rem", color: "#64748b", marginTop: "0.1rem",
+  fontSize: "0.76rem", color: "var(--text-muted)", marginTop: "0.1rem",
 };
 const tableContainer: React.CSSProperties = {
-  backgroundColor: "#ffffff", borderRadius: "8px", border: "1px solid #e2e8f0",
+  backgroundColor: "var(--bg-surface)", borderRadius: "8px", border: "1px solid var(--border-default)",
   overflow: "hidden",
 };
 const th: React.CSSProperties = {
   padding: "0.6rem 1rem", textAlign: "left", fontSize: "0.76rem",
-  fontWeight: 600, color: "#64748b", borderBottom: "1px solid #e2e8f0",
-  backgroundColor: "#f8fafc",
+  fontWeight: 600, color: "var(--text-muted)", borderBottom: "1px solid var(--border-default)",
+  backgroundColor: "var(--bg-page)",
 };
 const td: React.CSSProperties = {
-  padding: "0.6rem 1rem", fontSize: "0.84rem", color: "#334155",
-  borderBottom: "1px solid #f1f5f9",
+  padding: "0.6rem 1rem", fontSize: "0.84rem", color: "var(--text-secondary)",
+  borderBottom: "1px solid var(--bg-page)",
 };
 const emptyStyle: React.CSSProperties = {
-  padding: "3rem", textAlign: "center", color: "#94a3b8", fontSize: "0.9rem",
+  padding: "3rem", textAlign: "center", color: "var(--text-disabled)", fontSize: "0.9rem",
 };
 
 // ── Helpers ─────────────────────────────────────────────────────
@@ -73,7 +73,7 @@ const AdminMetrics: React.FC = () => {
   }, []);
 
   if (loading) return <div style={emptyStyle}>Loading metrics...</div>;
-  if (error) return <div style={{ ...emptyStyle, color: "#dc2626" }}>{error}</div>;
+  if (error) return <div style={{ ...emptyStyle, color: "var(--state-danger-strong)" }}>{error}</div>;
   if (!metrics) return <div style={emptyStyle}>No metrics available.</div>;
 
   const completed = metrics.documents_by_status["COMPLETED"] ?? 0;
@@ -101,7 +101,7 @@ const AdminMetrics: React.FC = () => {
         <div style={card}>
           <div style={cardValue}>{metrics.total_documents}</div>
           <div style={cardLabel}>Documents</div>
-          <div style={{ fontSize: "0.72rem", color: "#94a3b8", marginTop: "0.15rem" }}>
+          <div style={{ fontSize: "0.72rem", color: "var(--text-disabled)", marginTop: "0.15rem" }}>
             {Object.entries(metrics.documents_by_status)
               .map(([status, count]) => `${count} ${status.toLowerCase()}`)
               .join(", ")}
@@ -131,21 +131,21 @@ const AdminMetrics: React.FC = () => {
           <div style={card}>
             <div style={cardValue}>{metrics.estimates.documents_remaining}</div>
             <div style={cardLabel}>Docs Remaining</div>
-            <div style={{ fontSize: "0.72rem", color: "#94a3b8", marginTop: "0.15rem" }}>
+            <div style={{ fontSize: "0.72rem", color: "var(--text-disabled)", marginTop: "0.15rem" }}>
               Confidence: {metrics.estimates.confidence}
             </div>
           </div>
         </div>
       ) : (
-        <div style={{ fontSize: "0.8rem", color: "#94a3b8", marginBottom: "1.5rem" }}>
+        <div style={{ fontSize: "0.8rem", color: "var(--text-disabled)", marginBottom: "1.5rem" }}>
           Not enough data to estimate remaining time.
         </div>
       )}
 
       {/* Step performance table */}
-      <h2 style={{ fontSize: "1rem", fontWeight: 600, color: "#334155", marginBottom: "0.75rem" }}>
+      <h2 style={{ fontSize: "1rem", fontWeight: 600, color: "var(--text-secondary)", marginBottom: "0.75rem" }}>
         Step Performance
-        <span style={{ fontSize: "0.76rem", fontWeight: 400, color: "#94a3b8", marginLeft: "0.5rem" }}>
+        <span style={{ fontSize: "0.76rem", fontWeight: 400, color: "var(--text-disabled)", marginLeft: "0.5rem" }}>
           {metrics.total_steps_executed} runs, {metrics.failed_steps} failed
         </span>
       </h2>
@@ -174,18 +174,18 @@ const AdminMetrics: React.FC = () => {
                     <td style={td}>{fmtDuration(step.avg_duration_secs)}</td>
                     <td style={td}>
                       <div style={{
-                        height: "8px", backgroundColor: "#e2e8f0", borderRadius: "4px",
+                        height: "8px", backgroundColor: "var(--border-default)", borderRadius: "4px",
                         overflow: "hidden",
                       }}>
                         <div style={{
                           width: `${pct}%`, height: "100%", borderRadius: "4px",
-                          backgroundColor: isMax ? "#f59e0b" : "#2563eb",
+                          backgroundColor: isMax ? "var(--state-warning-strong)" : "var(--accent-primary)",
                           transition: "width 0.3s ease",
                         }} />
                       </div>
                     </td>
                     <td style={td}>{step.count}</td>
-                    <td style={{ ...td, color: step.failure_count > 0 ? "#dc2626" : "#64748b" }}>
+                    <td style={{ ...td, color: step.failure_count > 0 ? "var(--state-danger-strong)" : "var(--text-muted)" }}>
                       {step.failure_count}
                     </td>
                   </tr>

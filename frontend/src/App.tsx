@@ -46,7 +46,7 @@ const App: React.FC = () => {
   return (
     <AuthProvider>
       <CaseProvider>
-        <div style={{ fontFamily: "'Inter', sans-serif", backgroundColor: "#f0f2f5", minHeight: "100vh" }}>
+        <div style={{ fontFamily: "'Inter', sans-serif", backgroundColor: "var(--bg-page)", minHeight: "100vh" }}>
           <Header />
           <main style={{ maxWidth: "1080px", margin: "0 auto", padding: "0 2rem" }}>
             <Routes>

@@ -26,15 +26,15 @@ import { getStrengthStyle } from "../utils/strengthColors";
 // ============================================================================
 
 const pageStyle: React.CSSProperties = {
-  backgroundColor: "#f9fafb",
+  backgroundColor: "var(--bg-page)",
   minHeight: "calc(100vh - 100px)",
   margin: "-1.5rem",
   padding: "1.5rem",
 };
 
 const cardStyle: React.CSSProperties = {
-  backgroundColor: "#ffffff",
-  border: "1px solid #e5e7eb",
+  backgroundColor: "var(--bg-surface)",
+  border: "1px solid var(--border-default)",
   borderRadius: "8px",
   padding: "1.5rem",
   marginBottom: "1rem",
@@ -43,7 +43,7 @@ const cardStyle: React.CSSProperties = {
 const titleStyle: React.CSSProperties = {
   fontSize: "1.75rem",
   fontWeight: 700,
-  color: "#1f2937",
+  color: "var(--text-primary)",
   margin: 0,
   marginBottom: "1.5rem",
 };
@@ -51,7 +51,7 @@ const titleStyle: React.CSSProperties = {
 const sectionTitleStyle: React.CSSProperties = {
   fontSize: "0.75rem",
   fontWeight: 600,
-  color: "#6b7280",
+  color: "var(--text-muted)",
   textTransform: "uppercase",
   letterSpacing: "0.05em",
   marginBottom: "1rem",
@@ -60,7 +60,7 @@ const sectionTitleStyle: React.CSSProperties = {
 
 const tabBarStyle: React.CSSProperties = {
   display: "flex",
-  borderBottom: "1px solid #e5e7eb",
+  borderBottom: "1px solid var(--border-default)",
   marginBottom: "1.5rem",
   gap: "0.5rem",
 };
@@ -73,7 +73,7 @@ const tabButtonBaseStyle: React.CSSProperties = {
   cursor: "pointer",
   fontSize: "0.9rem",
   fontWeight: 500,
-  color: "#6b7280",
+  color: "var(--text-muted)",
   display: "flex",
   alignItems: "center",
   gap: "0.5rem",
@@ -82,8 +82,8 @@ const tabButtonBaseStyle: React.CSSProperties = {
 
 const tabButtonActiveStyle: React.CSSProperties = {
   ...tabButtonBaseStyle,
-  color: "#2563eb",
-  borderBottomColor: "#2563eb",
+  color: "var(--accent-primary)",
+  borderBottomColor: "var(--accent-primary)",
 };
 
 const tabBadgeStyle: React.CSSProperties = {
@@ -102,8 +102,8 @@ const tableStyle: React.CSSProperties = {
 const thStyle: React.CSSProperties = {
   textAlign: "left",
   padding: "0.75rem 1rem",
-  borderBottom: "2px solid #e5e7eb",
-  color: "#374151",
+  borderBottom: "2px solid var(--border-default)",
+  color: "var(--text-secondary)",
   fontWeight: 600,
   fontSize: "0.8rem",
   textTransform: "uppercase",
@@ -111,8 +111,8 @@ const thStyle: React.CSSProperties = {
 
 const tdStyle: React.CSSProperties = {
   padding: "0.75rem 1rem",
-  borderBottom: "1px solid #f3f4f6",
-  color: "#374151",
+  borderBottom: "1px solid var(--bg-page)",
+  color: "var(--text-secondary)",
   verticalAlign: "top",
 };
 
@@ -128,13 +128,13 @@ const badgeStyle: React.CSSProperties = {
 const progressBarContainerStyle: React.CSSProperties = {
   width: "100%",
   height: "8px",
-  backgroundColor: "#e5e7eb",
+  backgroundColor: "var(--border-default)",
   borderRadius: "4px",
   overflow: "hidden",
 };
 
 const linkStyle: React.CSSProperties = {
-  color: "#2563eb",
+  color: "var(--accent-primary)",
   textDecoration: "none",
   fontWeight: 500,
 };
@@ -142,7 +142,7 @@ const linkStyle: React.CSSProperties = {
 const expandButtonStyle: React.CSSProperties = {
   backgroundColor: "transparent",
   border: "none",
-  color: "#6b7280",
+  color: "var(--text-muted)",
   cursor: "pointer",
   padding: "0.25rem 0.5rem",
   fontSize: "0.8rem",
@@ -167,8 +167,8 @@ const TabButton: React.FC<{
     <button
       style={{
         ...(isActive ? tabButtonActiveStyle : tabButtonBaseStyle),
-        color: isActive ? "#2563eb" : hovered ? "#374151" : "#6b7280",
-        borderBottomColor: isActive ? "#2563eb" : hovered ? "#d1d5db" : "transparent",
+        color: isActive ? "var(--accent-primary)" : hovered ? "var(--text-secondary)" : "var(--text-muted)",
+        borderBottomColor: isActive ? "var(--accent-primary)" : hovered ? "var(--border-default)" : "transparent",
       }}
       onClick={onClick}
       onMouseEnter={() => setHovered(true)}
@@ -179,8 +179,8 @@ const TabButton: React.FC<{
         <span
           style={{
             ...tabBadgeStyle,
-            backgroundColor: badgeColor?.bg || "#f3f4f6",
-            color: badgeColor?.text || "#374151",
+            backgroundColor: badgeColor?.bg || "var(--bg-page)",
+            color: badgeColor?.text || "var(--text-secondary)",
           }}
         >
           {badge}
@@ -209,7 +209,7 @@ const StrengthBar: React.FC<{ percent: number; category: string }> = ({
           }}
         />
       </div>
-      <span style={{ fontSize: "0.8rem", color: "#6b7280", minWidth: "3rem" }}>
+      <span style={{ fontSize: "0.8rem", color: "var(--text-muted)", minWidth: "3rem" }}>
         {percent}%
       </span>
     </div>
@@ -257,7 +257,7 @@ const AllegationRow: React.FC<{ allegation: AllegationStrength }> = ({
             {allegation.allegation || "No description"}
           </div>
           {allegation.paragraph && (
-            <div style={{ fontSize: "0.75rem", color: "#9ca3af" }}>
+            <div style={{ fontSize: "0.75rem", color: "var(--text-disabled)" }}>
               {allegation.paragraph}
             </div>
           )}
@@ -285,12 +285,12 @@ const AllegationRow: React.FC<{ allegation: AllegationStrength }> = ({
       </tr>
       {expanded && (
         <tr>
-          <td colSpan={6} style={{ ...tdStyle, backgroundColor: "#f9fafb" }}>
+          <td colSpan={6} style={{ ...tdStyle, backgroundColor: "var(--bg-page)" }}>
             <div style={{ padding: "0.5rem" }}>
               {allegation.supporting_evidence &&
                 allegation.supporting_evidence.length > 0 && (
                   <div style={{ marginBottom: "0.5rem" }}>
-                    <strong style={{ fontSize: "0.8rem", color: "#374151" }}>
+                    <strong style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>
                       Supporting Evidence:
                     </strong>
                     <ul
@@ -298,7 +298,7 @@ const AllegationRow: React.FC<{ allegation: AllegationStrength }> = ({
                         margin: "0.25rem 0 0 1rem",
                         padding: 0,
                         fontSize: "0.85rem",
-                        color: "#6b7280",
+                        color: "var(--text-muted)",
                       }}
                     >
                       {allegation.supporting_evidence.map((e, i) => (
@@ -313,14 +313,14 @@ const AllegationRow: React.FC<{ allegation: AllegationStrength }> = ({
                     padding: "0.5rem",
                     backgroundColor:
                       allegation.strength_category === "gap"
-                        ? "#fee2e2"
-                        : "#fef3c7",
+                        ? "var(--state-danger-bg-soft)"
+                        : "var(--burden-warning-bg)",
                     borderRadius: "4px",
                     fontSize: "0.85rem",
                     color:
                       allegation.strength_category === "gap"
-                        ? "#991b1b"
-                        : "#92400e",
+                        ? "var(--status-dropped-text)"
+                        : "var(--burden-warning-text)",
                   }}
                 >
                   <strong>Note:</strong> {allegation.gap_notes}
@@ -360,15 +360,15 @@ const DocumentCoverageRow: React.FC<{ doc: DocumentCoverage }> = ({ doc }) => {
                 height: "100%",
                 backgroundColor:
                   linkedPercent >= 80
-                    ? "#22c55e"
+                    ? "var(--state-success-strong)"
                     : linkedPercent >= 50
-                    ? "#3b82f6"
-                    : "#f59e0b",
+                    ? "var(--accent-primary)"
+                    : "var(--state-warning-strong)",
                 borderRadius: "4px",
               }}
             />
           </div>
-          <span style={{ fontSize: "0.8rem", color: "#6b7280" }}>
+          <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
             {linkedPercent}%
           </span>
         </div>
@@ -389,7 +389,7 @@ const GapAnalysisContent: React.FC<{
       style={{
         marginBottom: "1rem",
         padding: "0.75rem 1rem",
-        backgroundColor: "#f3f4f6",
+        backgroundColor: "var(--bg-page)",
         borderRadius: "6px",
         display: "flex",
         gap: "1.5rem",
@@ -397,24 +397,24 @@ const GapAnalysisContent: React.FC<{
       }}
     >
       <span>
-        <strong style={{ color: "#22c55e" }}>{gap_analysis.strong_evidence}</strong>{" "}
+        <strong style={{ color: "var(--state-success-strong)" }}>{gap_analysis.strong_evidence}</strong>{" "}
         Strong
       </span>
       <span>
-        <strong style={{ color: "#3b82f6" }}>{gap_analysis.moderate_evidence}</strong>{" "}
+        <strong style={{ color: "var(--accent-primary)" }}>{gap_analysis.moderate_evidence}</strong>{" "}
         Moderate
       </span>
       <span>
-        <strong style={{ color: "#f59e0b" }}>{gap_analysis.weak_evidence}</strong>{" "}
+        <strong style={{ color: "var(--state-warning-strong)" }}>{gap_analysis.weak_evidence}</strong>{" "}
         Weak
       </span>
       <span>
-        <strong style={{ color: "#ef4444" }}>{gap_analysis.gaps}</strong> Gaps
+        <strong style={{ color: "var(--state-danger-strong)" }}>{gap_analysis.gaps}</strong> Gaps
       </span>
     </div>
 
     {gap_analysis.allegations.length === 0 ? (
-      <div style={{ color: "#6b7280", padding: "1rem" }}>
+      <div style={{ color: "var(--text-muted)", padding: "1rem" }}>
         No allegations found.
       </div>
     ) : (
@@ -449,13 +449,13 @@ const ImpeachmentContent: React.FC<{
 }> = ({ total, fullContradictions }) => (
   <div style={cardStyle}>
     {fullContradictions.length === 0 ? (
-      <div style={{ padding: "2rem", textAlign: "center", color: "#059669", backgroundColor: "#dcfce7", borderRadius: "6px" }}>
+      <div style={{ padding: "2rem", textAlign: "center", color: "var(--status-active-text)", backgroundColor: "var(--state-success-bg-soft)", borderRadius: "6px" }}>
         No impeachment evidence found.
       </div>
     ) : (
       <>
-        <div style={{ color: "#6b7280", fontSize: "0.9rem", marginBottom: "1rem" }}>
-          Found <strong style={{ color: "#f59e0b" }}>{total}</strong> instances of impeachment evidence
+        <div style={{ color: "var(--text-muted)", fontSize: "0.9rem", marginBottom: "1rem" }}>
+          Found <strong style={{ color: "var(--state-warning-strong)" }}>{total}</strong> instances of impeachment evidence
         </div>
         {fullContradictions.map((c, i) => (
           <ImpeachmentCard key={i} contradiction={c} />
@@ -473,7 +473,7 @@ const EvidenceCoverageContent: React.FC<{
       style={{
         marginBottom: "1rem",
         padding: "0.75rem 1rem",
-        backgroundColor: "#f3f4f6",
+        backgroundColor: "var(--bg-page)",
         borderRadius: "6px",
         display: "flex",
         gap: "1.5rem",
@@ -484,19 +484,19 @@ const EvidenceCoverageContent: React.FC<{
         <strong>{evidence_coverage.total_evidence_nodes}</strong> Total Evidence
       </span>
       <span>
-        <strong style={{ color: "#22c55e" }}>
+        <strong style={{ color: "var(--state-success-strong)" }}>
           {evidence_coverage.linked_to_allegations}
         </strong>{" "}
         Linked
       </span>
       <span>
-        <strong style={{ color: "#f59e0b" }}>{evidence_coverage.unlinked}</strong>{" "}
+        <strong style={{ color: "var(--state-warning-strong)" }}>{evidence_coverage.unlinked}</strong>{" "}
         Unlinked
       </span>
     </div>
 
     {evidence_coverage.by_document.length === 0 ? (
-      <div style={{ color: "#6b7280", padding: "1rem" }}>
+      <div style={{ color: "var(--text-muted)", padding: "1rem" }}>
         No documents found.
       </div>
     ) : (
@@ -586,7 +586,7 @@ const AnalysisPage: React.FC = () => {
 
   if (loading) {
     return (
-      <div style={{ padding: "2rem", textAlign: "center", color: "#6b7280" }}>
+      <div style={{ padding: "2rem", textAlign: "center", color: "var(--text-muted)" }}>
         Loading analysis data...
       </div>
     );
@@ -597,10 +597,10 @@ const AnalysisPage: React.FC = () => {
       <div
         style={{
           padding: "1rem",
-          backgroundColor: "#fef2f2",
-          border: "1px solid #fecaca",
+          backgroundColor: "var(--state-danger-bg-soft)",
+          border: "1px solid var(--state-danger-border)",
           borderRadius: "6px",
-          color: "#dc2626",
+          color: "var(--state-danger-strong)",
         }}
       >
         {error}
@@ -610,7 +610,7 @@ const AnalysisPage: React.FC = () => {
 
   if (!data) {
     return (
-      <div style={{ padding: "2rem", textAlign: "center", color: "#6b7280" }}>
+      <div style={{ padding: "2rem", textAlign: "center", color: "var(--text-muted)" }}>
         No analysis data available
       </div>
     );
@@ -629,21 +629,21 @@ const AnalysisPage: React.FC = () => {
       id: "gap-analysis",
       label: "Gap Analysis",
       badge: gap_analysis.gaps,
-      badgeColor: gap_analysis.gaps > 0 ? { bg: "#fee2e2", text: "#991b1b" } : undefined,
+      badgeColor: gap_analysis.gaps > 0 ? { bg: "var(--state-danger-bg-soft)", text: "var(--status-dropped-text)" } : undefined,
     },
     {
       id: "contradictions",
       label: "Impeachment Evidence",
       badge: contradictions_summary.total,
       badgeColor:
-        contradictions_summary.total > 0 ? { bg: "#fef3c7", text: "#92400e" } : undefined,
+        contradictions_summary.total > 0 ? { bg: "var(--burden-warning-bg)", text: "var(--burden-warning-text)" } : undefined,
     },
     {
       id: "evidence-coverage",
       label: "Evidence Coverage",
       badge: evidence_coverage.unlinked,
       badgeColor:
-        evidence_coverage.unlinked > 0 ? { bg: "#fef3c7", text: "#92400e" } : undefined,
+        evidence_coverage.unlinked > 0 ? { bg: "var(--burden-warning-bg)", text: "var(--burden-warning-text)" } : undefined,
     },
   ];
 

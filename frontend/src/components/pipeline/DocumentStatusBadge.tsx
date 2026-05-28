@@ -1,14 +1,14 @@
 import React from "react";
 
 const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
-  NEW: { bg: "#eff6ff", text: "#2563eb" },
-  PROCESSING: { bg: "#fffbeb", text: "#d97706" },
-  COMPLETED: { bg: "#f0fdf4", text: "#16a34a" },
-  FAILED: { bg: "#fef2f2", text: "#dc2626" },
-  CANCELLED: { bg: "#f8fafc", text: "#64748b" },
+  NEW: { bg: "var(--accent-bg-soft)", text: "var(--accent-primary)" },
+  PROCESSING: { bg: "var(--burden-warning-bg)", text: "var(--state-warning-strong)" },
+  COMPLETED: { bg: "var(--state-success-bg-soft)", text: "var(--state-success-strong)" },
+  FAILED: { bg: "var(--state-danger-bg-soft)", text: "var(--state-danger-strong)" },
+  CANCELLED: { bg: "var(--bg-page)", text: "var(--text-muted)" },
 };
 
-const DEFAULT_COLOR = { bg: "#f1f5f9", text: "#64748b" };
+const DEFAULT_COLOR = { bg: "var(--bg-page)", text: "var(--text-muted)" };
 
 interface Props {
   status: string;

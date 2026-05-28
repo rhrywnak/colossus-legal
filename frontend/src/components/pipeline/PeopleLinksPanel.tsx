@@ -17,17 +17,17 @@ interface PeopleLinksPanelProps {
 const PEOPLE_TYPES = new Set(["Person", "Organization"]);
 
 const cardStyle: React.CSSProperties = {
-  backgroundColor: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "8px",
+  backgroundColor: "var(--bg-surface)", border: "1px solid var(--border-default)", borderRadius: "8px",
   padding: "0.75rem 1rem", marginBottom: "0.5rem",
   display: "flex", alignItems: "center", justifyContent: "space-between",
 };
 const groupTitle: React.CSSProperties = {
-  fontSize: "0.88rem", fontWeight: 600, color: "#334155", marginBottom: "0.5rem",
+  fontSize: "0.88rem", fontWeight: 600, color: "var(--text-secondary)", marginBottom: "0.5rem",
   marginTop: "1rem",
 };
 const emptyStyle: React.CSSProperties = {
-  padding: "3rem", textAlign: "center", color: "#94a3b8", fontSize: "0.9rem",
-  backgroundColor: "#ffffff", borderRadius: "8px", border: "1px solid #e2e8f0",
+  padding: "3rem", textAlign: "center", color: "var(--text-disabled)", fontSize: "0.9rem",
+  backgroundColor: "var(--bg-surface)", borderRadius: "8px", border: "1px solid var(--border-default)",
 };
 
 interface EntityGroup {
@@ -86,9 +86,9 @@ const PeopleLinksPanel: React.FC<PeopleLinksPanelProps> = ({ documentId, items, 
           {grouped.people.map((p) => (
             <div key={p.label} style={cardStyle}>
               <div>
-                <span style={{ fontSize: "0.88rem", fontWeight: 600, color: "#0f172a" }}>{p.label}</span>
+                <span style={{ fontSize: "0.88rem", fontWeight: 600, color: "var(--text-primary)" }}>{p.label}</span>
               </div>
-              <span style={{ fontSize: "0.76rem", color: "#64748b" }}>
+              <span style={{ fontSize: "0.76rem", color: "var(--text-muted)" }}>
                 {p.count} reference{p.count !== 1 ? "s" : ""}
               </span>
             </div>
@@ -102,9 +102,9 @@ const PeopleLinksPanel: React.FC<PeopleLinksPanelProps> = ({ documentId, items, 
           {grouped.orgs.map((o) => (
             <div key={o.label} style={cardStyle}>
               <div>
-                <span style={{ fontSize: "0.88rem", fontWeight: 600, color: "#0f172a" }}>{o.label}</span>
+                <span style={{ fontSize: "0.88rem", fontWeight: 600, color: "var(--text-primary)" }}>{o.label}</span>
               </div>
-              <span style={{ fontSize: "0.76rem", color: "#64748b" }}>
+              <span style={{ fontSize: "0.76rem", color: "var(--text-muted)" }}>
                 {o.count} reference{o.count !== 1 ? "s" : ""}
               </span>
             </div>

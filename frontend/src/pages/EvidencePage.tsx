@@ -3,13 +3,13 @@ import { Link } from "react-router-dom";
 import { getEvidence, EvidenceDto } from "../services/evidence";
 
 const KIND_COLORS: Record<string, { bg: string; text: string }> = {
-  testimonial: { bg: "#dbeafe", text: "#1e40af" },
-  sworn_testimony: { bg: "#dbeafe", text: "#1e40af" },
-  documentary: { bg: "#dcfce7", text: "#166534" },
-  physical: { bg: "#ffedd5", text: "#9a3412" },
+  testimonial: { bg: "var(--accent-bg-soft)", text: "var(--accent-primary-hover)" },
+  sworn_testimony: { bg: "var(--accent-bg-soft)", text: "var(--accent-primary-hover)" },
+  documentary: { bg: "var(--state-success-bg-soft)", text: "var(--status-active-text)" },
+  physical: { bg: "var(--burden-warning-bg)", text: "var(--burden-warning-text)" },
 };
 
-const DEFAULT_KIND_COLOR = { bg: "#f3f4f6", text: "#374151" };
+const DEFAULT_KIND_COLOR = { bg: "var(--bg-page)", text: "var(--text-secondary)" };
 
 function getKindStyle(kind: string | undefined) {
   if (!kind) return DEFAULT_KIND_COLOR;
@@ -59,7 +59,7 @@ const EvidencePage: React.FC = () => {
 
   if (loading) {
     return (
-      <div style={{ padding: "2rem", textAlign: "center", color: "#6b7280" }}>
+      <div style={{ padding: "2rem", textAlign: "center", color: "var(--text-muted)" }}>
         Loading evidence...
       </div>
     );
@@ -70,10 +70,10 @@ const EvidencePage: React.FC = () => {
       <div
         style={{
           padding: "1rem",
-          backgroundColor: "#fef2f2",
-          border: "1px solid #fecaca",
+          backgroundColor: "var(--state-danger-bg-soft)",
+          border: "1px solid var(--state-danger-border)",
           borderRadius: "6px",
-          color: "#dc2626",
+          color: "var(--state-danger-strong)",
         }}
       >
         {error}
@@ -92,22 +92,22 @@ const EvidencePage: React.FC = () => {
       <div
         style={{
           padding: "0.75rem 1rem",
-          backgroundColor: "#f3f4f6",
+          backgroundColor: "var(--bg-page)",
           borderRadius: "6px",
           marginBottom: "1.5rem",
-          color: "#374151",
+          color: "var(--text-secondary)",
         }}
       >
         <strong>{total} Evidence Items</strong>
         {kindSummary && (
-          <span style={{ marginLeft: "1rem", color: "#6b7280" }}>
+          <span style={{ marginLeft: "1rem", color: "var(--text-muted)" }}>
             ({kindSummary})
           </span>
         )}
       </div>
 
       {evidence.length === 0 ? (
-        <div style={{ color: "#6b7280", padding: "1rem" }}>
+        <div style={{ color: "var(--text-muted)", padding: "1rem" }}>
           No evidence found.
         </div>
       ) : (
@@ -127,8 +127,8 @@ const EvidencePage: React.FC = () => {
                 key={item.id}
                 style={{
                   padding: "1rem",
-                  backgroundColor: "#fff",
-                  border: "1px solid #e5e7eb",
+                  backgroundColor: "var(--bg-surface)",
+                  border: "1px solid var(--border-default)",
                   borderRadius: "8px",
                 }}
               >
@@ -146,8 +146,8 @@ const EvidencePage: React.FC = () => {
                     <span
                       style={{
                         padding: "0.2rem 0.5rem",
-                        backgroundColor: "#e5e7eb",
-                        color: "#374151",
+                        backgroundColor: "var(--border-default)",
+                        color: "var(--text-secondary)",
                         borderRadius: "4px",
                         fontSize: "0.75rem",
                         fontFamily: "monospace",
@@ -174,7 +174,7 @@ const EvidencePage: React.FC = () => {
                     <span
                       style={{
                         fontSize: "0.75rem",
-                        color: "#6b7280",
+                        color: "var(--text-muted)",
                       }}
                     >
                       Weight: {item.weight}/10
@@ -184,8 +184,8 @@ const EvidencePage: React.FC = () => {
                     <span
                       style={{
                         padding: "0.1rem 0.4rem",
-                        backgroundColor: "#dbeafe",
-                        color: "#1e40af",
+                        backgroundColor: "var(--accent-bg-soft)",
+                        color: "var(--accent-primary-hover)",
                         borderRadius: "3px",
                         fontSize: "0.75rem",
                         fontWeight: 600,
@@ -198,7 +198,7 @@ const EvidencePage: React.FC = () => {
                     <span
                       style={{
                         fontSize: "0.75rem",
-                        color: "#6b7280",
+                        color: "var(--text-muted)",
                       }}
                     >
                       &mdash; {item.stated_by}
@@ -224,7 +224,7 @@ const EvidencePage: React.FC = () => {
                   <div
                     style={{
                       fontStyle: "italic",
-                      color: "#6b7280",
+                      color: "var(--text-muted)",
                       fontSize: "0.9rem",
                       marginBottom: "0.5rem",
                     }}
@@ -237,12 +237,12 @@ const EvidencePage: React.FC = () => {
                 {item.answer && (
                   <div
                     style={{
-                      color: "#1f2937",
+                      color: "var(--text-primary)",
                       fontSize: "0.9rem",
                       lineHeight: "1.5",
                       marginBottom: "0.5rem",
                       paddingLeft: "0.75rem",
-                      borderLeft: "3px solid #e5e7eb",
+                      borderLeft: "3px solid var(--border-default)",
                     }}
                   >
                     {item.answer}
@@ -255,9 +255,9 @@ const EvidencePage: React.FC = () => {
                     style={{
                       margin: "0.5rem 0",
                       padding: "0.5rem 0.75rem",
-                      borderLeft: "3px solid #d1d5db",
-                      backgroundColor: "#f9fafb",
-                      color: "#374151",
+                      borderLeft: "3px solid var(--border-default)",
+                      backgroundColor: "var(--bg-page)",
+                      color: "var(--text-secondary)",
                       fontStyle: "italic",
                       fontSize: "0.9rem",
                       lineHeight: 1.6,
@@ -274,11 +274,11 @@ const EvidencePage: React.FC = () => {
                     style={{
                       marginTop: "0.5rem",
                       padding: "0.5rem",
-                      backgroundColor: critical ? "#fef3c7" : "#f9fafb",
+                      backgroundColor: critical ? "var(--burden-warning-bg)" : "var(--bg-page)",
                       borderRadius: "4px",
                       fontSize: "0.85rem",
-                      color: critical ? "#92400e" : "#4b5563",
-                      borderLeft: critical ? "3px solid #f59e0b" : "none",
+                      color: critical ? "var(--burden-warning-text)" : "var(--text-secondary)",
+                      borderLeft: critical ? "3px solid var(--state-warning-strong)" : "none",
                     }}
                   >
                     {item.significance}
@@ -288,16 +288,16 @@ const EvidencePage: React.FC = () => {
                 {/* Source document link */}
                 {item.document_id && item.document_title && (
                   <div style={{ marginTop: "0.75rem", fontSize: "0.8rem" }}>
-                    <span style={{ color: "#6b7280" }}>Source: </span>
+                    <span style={{ color: "var(--text-muted)" }}>Source: </span>
                     <Link
                       to={`/documents/${item.document_id}`}
-                      style={{ color: "#2563eb", textDecoration: "none" }}
+                      style={{ color: "var(--accent-primary)", textDecoration: "none" }}
                       onMouseEnter={(e) => { e.currentTarget.style.textDecoration = "underline"; }}
                       onMouseLeave={(e) => { e.currentTarget.style.textDecoration = "none"; }}
                     >
                       {item.document_title}
                       {item.page_number !== undefined && (
-                        <span style={{ color: "#6b7280" }}> (p. {item.page_number})</span>
+                        <span style={{ color: "var(--text-muted)" }}> (p. {item.page_number})</span>
                       )}
                     </Link>
                   </div>

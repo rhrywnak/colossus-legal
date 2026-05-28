@@ -10,7 +10,7 @@ const Breadcrumb: React.FC<{ items: BreadcrumbItem[] }> = ({ items }) => (
   <nav
     style={{
       fontSize: "0.85rem",
-      color: "#6b7280",
+      color: "var(--text-muted)",
       marginBottom: "1rem",
       display: "flex",
       flexWrap: "wrap",
@@ -22,11 +22,11 @@ const Breadcrumb: React.FC<{ items: BreadcrumbItem[] }> = ({ items }) => (
       <React.Fragment key={item.label}>
         {i > 0 && <span style={{ margin: "0 0.25rem" }}>&gt;</span>}
         {item.to ? (
-          <Link to={item.to} style={{ color: "#2563eb", textDecoration: "none" }}>
+          <Link to={item.to} style={{ color: "var(--accent-primary)", textDecoration: "none" }}>
             {item.label}
           </Link>
         ) : (
-          <span style={{ color: "#374151", fontWeight: 500 }}>{item.label}</span>
+          <span style={{ color: "var(--text-secondary)", fontWeight: 500 }}>{item.label}</span>
         )}
       </React.Fragment>
     ))}
