@@ -1,8 +1,24 @@
 import React, { useEffect, useState } from "react";
 import CaseHeader from "../components/CaseHeader";
 import CountCard from "../components/CountCard";
-import { CaseHeaderResponse, getCaseHeader } from "../services/caseHeader";
+import ElementDetailPanel from "../components/ElementDetailPanel";
+import { CaseHeaderResponse, DEFAULT_CASE_SLUG, getCaseHeader } from "../services/caseHeader";
 import { CountDetail, getCausesOfAction } from "../services/causesOfAction";
+
+/**
+ * Identity of the Element row the user most recently clicked. The Home page
+ * owns this state so the floating panel can render at the page root (outside
+ * the table flow) and so clicking a *different* row updates the same panel
+ * instance in place (no close/reopen flicker).
+ *
+ * The three pieces — id, name, count — are exactly what the panel needs to
+ * render its header immediately, before its own /detail fetch resolves.
+ */
+type SelectedElement = {
+  elementId: string;
+  elementName: string;
+  allegationCount: number;
+};
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
@@ -30,6 +46,11 @@ const Home: React.FC = () => {
   const [counts, setCounts] = useState<CountDetail[] | null>(null);
   const [coaLoading, setCoaLoading] = useState(true);
   const [coaError, setCoaError] = useState<string | null>(null);
+
+  // The Element row currently driving the floating detail panel. `null` =
+  // the panel is closed. Clicking a different row mutates this in place; the
+  // panel re-fetches against the new id (see ElementDetailPanel useEffect).
+  const [selectedElement, setSelectedElement] = useState<SelectedElement | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -154,11 +175,31 @@ const Home: React.FC = () => {
           // 32px gap between stacked cards (§7).
           <div style={{ display: "flex", flexDirection: "column", gap: "32px" }}>
             {counts.map((count) => (
-              <CountCard key={count.count_number} count={count} />
+              <CountCard
+                key={count.count_number}
+                count={count}
+                onElementClick={(elementId, elementName, allegationCount) =>
+                  setSelectedElement({ elementId, elementName, allegationCount })
+                }
+              />
             ))}
           </div>
         )}
       </section>
+
+      {/* Floating Element detail panel (E2). Conditionally rendered at the
+          page root so it sits above the table flow. A click on a different
+          Element row updates `selectedElement` and the panel re-fetches in
+          place — no close/reopen needed. */}
+      {selectedElement && (
+        <ElementDetailPanel
+          caseSlug={DEFAULT_CASE_SLUG}
+          elementId={selectedElement.elementId}
+          elementName={selectedElement.elementName}
+          allegationCount={selectedElement.allegationCount}
+          onClose={() => setSelectedElement(null)}
+        />
+      )}
     </div>
   );
 };

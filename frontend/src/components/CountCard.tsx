@@ -14,10 +14,21 @@
 // =============================================================================
 
 import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { CountDetail, ElementDetail } from "../services/causesOfAction";
 import BurdenBadge from "./BurdenBadge";
 import AuthorityPopover from "./AuthorityPopover";
+
+/**
+ * Click handler the parent passes in so it can open the Element detail
+ * panel. The row supplies the three pieces of context the panel needs at
+ * open time so the panel header can render immediately, before its own
+ * fetch resolves.
+ */
+export type ElementClickHandler = (
+  elementId: string,
+  elementName: string,
+  allegationCount: number,
+) => void;
 
 // ─── Pure helpers (exported for unit testing — no DOM, no React) ─────────────
 
@@ -72,19 +83,6 @@ export function sortElements(elements: ElementDetail[]): ElementDetail[] {
   });
 }
 
-/**
- * Build the click-through URL for an Element row: the Evidence tab, filtered to
- * this Element's allegations (§8). The id is URL-encoded defensively.
- *
- * NOTE (Phase 2D): `/evidence` redirects to `/explorer` preserving the query
- * (see App.tsx `RedirectPreservingQuery`), so `element_id` reaches the Evidence
- * Explorer. The Evidence page does not yet read it, so the actual allegation
- * filtering is separate, later work.
- */
-export function buildEvidenceUrl(elementId: string): string {
-  return `/evidence?element_id=${encodeURIComponent(elementId)}`;
-}
-
 // ─── Shared inline styles ────────────────────────────────────────────────────
 // CONST: table cell spacing is the §9 spacing spec — 12px vertical / 16px
 // horizontal — a fixed design-system layout value, not env-configurable. The
@@ -101,15 +99,16 @@ const TD_STYLE: React.CSSProperties = {
 // ─── ElementRow (internal) ───────────────────────────────────────────────────
 
 /**
- * One table row for a canonical Element. The entire row is clickable and
- * navigates to the Evidence tab for this Element (§8). Hover paints a subtle
- * page-colored highlight so the affordance is obvious.
+ * One table row for a canonical Element. The entire row is clickable. Click
+ * fires `onElementClick(element_id, element_name, allegation_count)` so the
+ * parent can open the Element detail panel (CC Instruction E2). Hover paints
+ * a subtle page-colored highlight so the affordance is obvious.
  */
-const ElementRow: React.FC<{ element: ElementDetail; elementNumber: string }> = ({
-  element,
-  elementNumber,
-}) => {
-  const navigate = useNavigate();
+const ElementRow: React.FC<{
+  element: ElementDetail;
+  elementNumber: string;
+  onElementClick: ElementClickHandler;
+}> = ({ element, elementNumber, onElementClick }) => {
   const [hovered, setHovered] = useState(false);
 
   const proof = element.what_plaintiff_must_prove?.trim()
@@ -118,7 +117,13 @@ const ElementRow: React.FC<{ element: ElementDetail; elementNumber: string }> = 
 
   return (
     <tr
-      onClick={() => navigate(buildEvidenceUrl(element.element_id))}
+      onClick={() =>
+        onElementClick(
+          element.element_id,
+          element.element_name,
+          element.allegation_count,
+        )
+      }
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
@@ -159,8 +164,13 @@ const ElementRow: React.FC<{ element: ElementDetail; elementNumber: string }> = 
  * CountCard — one Cause-of-Action card.
  *
  * @param count one Count's data from the causes-of-action endpoint
+ * @param onElementClick fires when any Element row is clicked; the parent
+ *   (Home) uses this to open the Element detail panel.
  */
-const CountCard: React.FC<{ count: CountDetail }> = ({ count }) => {
+const CountCard: React.FC<{
+  count: CountDetail;
+  onElementClick: ElementClickHandler;
+}> = ({ count, onElementClick }) => {
   const roman = toRomanNumeral(count.count_number);
   const title = count.count_name ? `COUNT ${roman} — ${count.count_name}` : `COUNT ${roman}`;
 
@@ -231,6 +241,7 @@ const CountCard: React.FC<{ count: CountDetail }> = ({ count }) => {
                   count.count_number,
                   element.order_in_count ?? i + 1,
                 )}
+                onElementClick={onElementClick}
               />
             ))}
           </tbody>

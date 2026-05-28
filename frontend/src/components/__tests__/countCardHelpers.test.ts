@@ -1,15 +1,18 @@
 /**
  * Pure-helper tests for CountCard.
  *
- * Locks the display/navigation contracts behind the Causes of Action tables:
- * Roman-numeral headers, the "{count}.{order}" Element ordinal, the §7 sort
- * (order_in_count asc, null last, element_name secondary), and the §8
- * click-through URL. Per §11 test-auditor: happy path, fallback path, and the
- * boundary between them are all covered. No DOM / RTL — pure functions only.
+ * Locks the display contracts behind the Causes of Action tables: Roman-
+ * numeral headers, the "{count}.{order}" Element ordinal, and the §7 sort
+ * (order_in_count asc, null last, element_name secondary). Per §11 test-
+ * auditor: happy path, fallback path, and the boundary between them are all
+ * covered. No DOM / RTL — pure functions only.
+ *
+ * Note (E2): the §8 click-through URL helper (`buildEvidenceUrl`) was removed
+ * — clicking an Element row now opens the Element detail panel via an
+ * `onElementClick` callback rather than navigating to /evidence.
  */
 import { describe, expect, it } from "vitest";
 import {
-  buildEvidenceUrl,
   formatElementNumber,
   sortElements,
   toRomanNumeral,
@@ -91,12 +94,3 @@ describe("sortElements", () => {
   });
 });
 
-describe("buildEvidenceUrl", () => {
-  it("builds the Evidence tab URL with the element id", () => {
-    expect(buildEvidenceUrl("el-123")).toBe("/evidence?element_id=el-123");
-  });
-
-  it("URL-encodes ids with special characters", () => {
-    expect(buildEvidenceUrl("a b&c")).toBe("/evidence?element_id=a%20b%26c");
-  });
-});
