@@ -17,6 +17,7 @@ pub mod claim_repository;
 pub mod contradiction_repository;
 pub mod decomposition_repository;
 pub mod document_repository;
+pub mod element_detail_repository;
 pub mod embedding_repository;
 pub mod evidence_chain_repository;
 pub mod evidence_repository;

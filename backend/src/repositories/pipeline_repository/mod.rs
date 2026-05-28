@@ -83,7 +83,13 @@ pub use report_queries::{
 pub enum PipelineRepoError {
     #[error("Database error: {0}")]
     Database(String),
-    #[error("Document not found: {0}")]
+    /// A lookup by stable id returned zero rows. Generic across entity types
+    /// — the payload identifies *which* record was missing (e.g. a
+    /// `document_id`, an `authored_entities.entity_id`).
+    ///
+    /// Mapped to `AppError::NotFound` → HTTP 404 by API handlers (see
+    /// `api::pipeline::config_handler` for the pattern).
+    #[error("Record not found: {0}")]
     NotFound(String),
     /// JSONB column on a `pipeline_config` row decoded from the database
     /// but failed to deserialize into the expected typed shape.

@@ -36,6 +36,7 @@ pub mod claims;
 pub mod contradictions;
 pub mod decomposition;
 pub mod documents;
+pub mod element_detail;
 pub mod embed;
 pub mod evidence;
 pub mod evidence_chain;
@@ -100,6 +101,14 @@ fn case_routes() -> Router<AppState> {
         .route(
             "/cases/:slug/causes-of-action",
             get(causes_of_action::get_causes_of_action),
+        )
+        .route(
+            "/cases/:slug/elements/:element_id/detail",
+            get(element_detail::get_element_detail),
+        )
+        .route(
+            "/cases/:slug/elements/:element_id/notes",
+            patch(element_detail::patch_element_notes),
         )
 }
 

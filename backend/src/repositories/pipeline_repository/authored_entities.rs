@@ -30,6 +30,7 @@
 use sqlx::PgPool;
 
 use super::PipelineRepoError;
+use crate::models::document_status::ENTITY_ELEMENT;
 
 // ── Record types ─────────────────────────────────────────────────
 
@@ -166,6 +167,57 @@ pub async fn get_authored_entity(
         .fetch_optional(pool)
         .await?;
     Ok(row)
+}
+
+/// Update the `review_notes` column for the Element row whose `entity_id`
+/// matches. Passing `None` clears the notes (sets the column to SQL NULL);
+/// passing `Some("")` writes an empty string — these are intentionally
+/// distinguishable states (Rule 1: distinct observables).
+///
+/// Returns [`PipelineRepoError::NotFound`] when zero rows were updated, so
+/// the API handler can map that to HTTP 404. A successful update bumps
+/// `updated_at = NOW()` on the row.
+///
+/// ## Rust Learning: `impl PgExecutor<'_>` instead of `&PgPool`
+///
+/// `PgExecutor` is the sqlx trait for "anything you can run a query on" —
+/// a pool, a transaction, a single connection. Taking the trait at the
+/// boundary means a caller inside a transaction can pass `&mut *tx`
+/// without forcing every helper to know about transactions. A bare
+/// `&PgPool` still satisfies the bound, so the simple call site (the API
+/// handler) passes `&pool` unchanged. Same idiom as
+/// [`upsert_authored_entity`].
+pub async fn update_element_review_notes(
+    executor: impl sqlx::PgExecutor<'_>,
+    entity_id: &str,
+    review_notes: Option<&str>,
+) -> Result<(), PipelineRepoError> {
+    let result = sqlx::query(
+        "UPDATE authored_entities \
+         SET review_notes = $1, updated_at = NOW() \
+         WHERE entity_id = $2 AND entity_type = $3",
+    )
+    // Defensive `AND entity_type = $3` clause keeps a stray entity_id
+    // collision with a different entity type (LegalCount, future authored
+    // types) from silently mutating the wrong row. The canonical
+    // `ENTITY_ELEMENT` constant is the single source of truth for the
+    // label string — both the Cypher label parameter on the read side and
+    // this SQL discriminator on the write side bind to it.
+    .bind(review_notes)
+    .bind(entity_id)
+    .bind(ENTITY_ELEMENT)
+    .execute(executor)
+    .await?;
+
+    if result.rows_affected() == 0 {
+        // Distinct observable: the SQL succeeded, the row simply did not
+        // exist. Caller maps to 404. Payload identifies which id was
+        // missing so the operator log is actionable (Rule 1).
+        return Err(PipelineRepoError::NotFound(format!(
+            "authored_entities Element entity_id={entity_id}"
+        )));
+    }
+    Ok(())
 }
 
 /// Delete every authored entity for a case. Returns the number of rows
