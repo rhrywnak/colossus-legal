@@ -11,5 +11,14 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+    <!-- Theme overrides: served from public/ at the static root. Placed at
+         the END of <body> deliberately — Vite's production build injects
+         the bundled CSS <link> at the end of <head>, so an in-<head>
+         override link would lose the cascade. CSS-in-<body> is valid
+         HTML5 (HTML Living Standard §4.2.4); CSS resolution is by source
+         order, so this :root override wins over the bundle's tokens.css.
+         Operators edit (or volume-mount) this file in the container to
+         change colors without rebuilding. -->
+    <link rel="stylesheet" href="/theme-overrides.css" />
   </body>
 </html>

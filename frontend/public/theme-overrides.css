@@ -1,0 +1,10 @@
+/* Custom color overrides — edit token values to change colors without rebuilding.
+   This file is served statically and loaded after tokens.css.
+   Any :root variable defined here overrides the default in tokens.css.
+
+   Example:
+   :root {
+     --bg-page: #e8e8e8;
+     --accent-primary: #2e7d32;
+   }
+*/
