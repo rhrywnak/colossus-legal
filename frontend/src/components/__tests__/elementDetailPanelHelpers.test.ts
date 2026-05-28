@@ -1,13 +1,18 @@
 /**
  * Pure-helper tests for ElementDetailPanel.
  *
- * Locks the panel's three pure logic surfaces:
- *  - parseLeadingParagraph: numeric prefix extraction with range support
- *    ("16-18" → 16) and the documented null fallback for non-numeric input.
+ * Locks the panel's two render-helper surfaces:
  *  - sortAllegationsByParagraph: numeric ascending sort, non-numeric last,
  *    stable preservation of original order for ties.
  *  - formatElementHeader: composes "Element {N}.{M} — {name}" when count
  *    metadata is present; falls back to "Element — {name}" otherwise.
+ *
+ * The underlying `parseLeadingParagraph` primitive moved to
+ * `utils/paragraphSort.ts` and is tested there (see
+ * `utils/__tests__/paragraphSort.test.ts`). The sort tests below still
+ * exercise it transitively, which is the right level of coverage for a
+ * helper that *composes* `parseLeadingParagraph` — we don't re-test the
+ * primitive here.
  *
  * No DOM / RTL — pure functions only. Matches the project precedent
  * (CountCard pure helpers, frontend has no jsdom setup per CLAUDE.md §30).
@@ -15,7 +20,6 @@
 import { describe, expect, it } from "vitest";
 import {
   formatElementHeader,
-  parseLeadingParagraph,
   sortAllegationsByParagraph,
 } from "../ElementDetailPanel";
 import type { AllegationSummary } from "../../services/elementDetailService";
@@ -30,30 +34,6 @@ const makeAllegation = (
   verbatim_quote: null,
   source_section: "Common",
   ...overrides,
-});
-
-describe("parseLeadingParagraph", () => {
-  it("parses a plain integer string", () => {
-    expect(parseLeadingParagraph("10")).toBe(10);
-    expect(parseLeadingParagraph("73")).toBe(73);
-  });
-
-  it("returns the leading int for a range prefix", () => {
-    expect(parseLeadingParagraph("16-18")).toBe(16);
-  });
-
-  it("returns null for a non-numeric input", () => {
-    expect(parseLeadingParagraph("abc")).toBeNull();
-  });
-
-  it("returns null for an empty string", () => {
-    expect(parseLeadingParagraph("")).toBeNull();
-  });
-
-  it("returns null when the string starts with a non-digit", () => {
-    expect(parseLeadingParagraph("¶7")).toBeNull();
-    expect(parseLeadingParagraph("-3")).toBeNull();
-  });
 });
 
 describe("sortAllegationsByParagraph", () => {

@@ -24,6 +24,7 @@ import {
   fetchElementDetail,
   saveElementNotes,
 } from "../services/elementDetailService";
+import { parseLeadingParagraph } from "../utils/paragraphSort";
 
 // ─── Public props ───────────────────────────────────────────────────────────
 
@@ -90,27 +91,6 @@ const PANEL_Z_INDEX = 1000;
 const NOTES_EXPANDED_MIN_HEIGHT_PX = 120;
 
 // ─── Pure helpers (exported for unit testing — no DOM, no React) ────────────
-
-/**
- * Parse the leading numeric prefix of a paragraph_number string. Returns
- * `null` for inputs with no leading digit. Range strings like `"16-18"`
- * yield `16` (the start of the range) so they sort by their first
- * paragraph.
- *
- * ## React/TS Learning: pure helpers as named exports
- * Defining this at module scope (not inside the component) keeps it pure
- * and unit-testable without rendering React. The component imports and
- * uses it via [`sortAllegationsByParagraph`].
- */
-export function parseLeadingParagraph(paragraphNumber: string): number | null {
-  let i = 0;
-  while (i < paragraphNumber.length && paragraphNumber[i] >= "0" && paragraphNumber[i] <= "9") {
-    i++;
-  }
-  if (i === 0) return null;
-  const parsed = Number.parseInt(paragraphNumber.slice(0, i), 10);
-  return Number.isFinite(parsed) ? parsed : null;
-}
 
 /**
  * Sort Allegations by parsed paragraph_number ascending. Non-numeric entries

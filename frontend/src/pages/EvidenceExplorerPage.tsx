@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { getAllegations, AllegationDto } from "../services/allegations";
 import { getEvidenceChain, EvidenceChainResponse } from "../services/evidenceChain";
 import { getAnalysis, AllegationStrength } from "../services/analysisApi";
@@ -7,6 +7,29 @@ import { useCase } from "../context/CaseContext";
 import { COLORS } from "../components/EvidenceChainParts";
 import { CountGroup, CountSection } from "../components/EvidenceExplorerParts";
 import InfoPopup from "../components/InfoPopup";
+import { parseLeadingParagraph } from "../utils/paragraphSort";
+
+/**
+ * Sort comparator: order Allegations by their complaint paragraph number
+ * ascending, falling back to original-index stability for ties and pushing
+ * non-numeric paragraph values to the end.
+ *
+ * Used twice in groupByCount() — once per real Count, once for the
+ * Unassigned bucket — so the inline closure stays at the call site and the
+ * primitive parse lives in utils/paragraphSort.ts. Previous behavior sorted
+ * by stable_entity_id (`a.id`) which produced essentially random order.
+ */
+function compareByParagraph(
+  a: { paragraph?: string },
+  b: { paragraph?: string },
+): number {
+  const pa = a.paragraph != null ? parseLeadingParagraph(a.paragraph) : null;
+  const pb = b.paragraph != null ? parseLeadingParagraph(b.paragraph) : null;
+  if (pa === null && pb === null) return 0;
+  if (pa === null) return 1; // non-numeric → end
+  if (pb === null) return -1;
+  return pa - pb;
+}
 
 const UNASSIGNED_BUCKET_NAME = "Unassigned";
 
@@ -60,7 +83,9 @@ function groupByCount(
   const groups: CountGroup[] = Array.from(byId.values())
     .map((g) => ({
       ...g,
-      allegations: g.allegations.sort((a, b) => a.id.localeCompare(b.id)),
+      // Sort by complaint paragraph (numeric ascending) instead of by raw
+      // stable_entity_id, which produced essentially random visual order.
+      allegations: g.allegations.sort(compareByParagraph),
     }))
     .sort((a, b) => a.countNumber - b.countNumber);
 
@@ -69,7 +94,7 @@ function groupByCount(
       countName: UNASSIGNED_BUCKET_NAME,
       countId: null,
       countNumber: 999,
-      allegations: other.sort((a, b) => a.id.localeCompare(b.id)),
+      allegations: other.sort(compareByParagraph),
     });
   }
 
@@ -86,6 +111,12 @@ const EvidenceExplorerPage: React.FC = () => {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [chainCache, setChainCache] = useState<Map<string, EvidenceChainResponse>>(new Map());
   const [loadingIds, setLoadingIds] = useState<Set<string>>(new Set());
+  // Per-allegation chain-fetch error messages. Distinct from `loadingIds`
+  // (still in flight) and `chainCache` (succeeded) so the three states are
+  // mutually exclusive observables (Standing Rule 1). Populated by
+  // fetchChain's catch arm; rendered as an inline "Failed to load —
+  // Retry" block inside the expanded row.
+  const [errorIds, setErrorIds] = useState<Map<string, string>>(new Map());
   const [collapsedCounts, setCollapsedCounts] = useState<Set<string>>(new Set());
   const [strengthMap, setStrengthMap] = useState<Map<string, AllegationStrength>>(new Map());
 
@@ -130,26 +161,72 @@ const EvidenceExplorerPage: React.FC = () => {
     }
   }, [countGroups, collapsedCounts.size]);
 
-  const handleToggle = async (allegationId: string) => {
+  /**
+   * Fetch the evidence chain for one Allegation. Pulled out of
+   * `handleToggle` so the Retry button (rendered inside an already-expanded
+   * row that errored) can re-run the fetch without going through the toggle
+   * state machine.
+   *
+   * The row is always set to `expanded` after this call — on success so
+   * the chain becomes visible, on failure so the inline error + Retry
+   * affordance can render. This keeps the user from having to re-click an
+   * already-expanded row to retry.
+   */
+  const fetchChain = useCallback(async (allegationId: string) => {
+    setLoadingIds((prev) => new Set(prev).add(allegationId));
+    // Clear any prior error before the new attempt — a successful retry
+    // must remove the stale "Failed to load" indicator.
+    setErrorIds((prev) => {
+      if (!prev.has(allegationId)) return prev;
+      const n = new Map(prev);
+      n.delete(allegationId);
+      return n;
+    });
+    try {
+      const chain = await getEvidenceChain(allegationId);
+      setChainCache((prev) => new Map(prev).set(allegationId, chain));
+      setExpandedIds((prev) => new Set(prev).add(allegationId));
+    } catch (err) {
+      // Distinct observable per Standing Rule 1: log for the operator AND
+      // surface to the user (the previous behavior swallowed the failure
+      // visually, leaving the row collapsed with no indication of why).
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Failed to load evidence chain";
+      console.error("Failed to fetch evidence chain:", err);
+      setErrorIds((prev) => new Map(prev).set(allegationId, message));
+      // Expand the row so the inline error message is visible — otherwise
+      // the user clicked but the row stayed collapsed silently.
+      setExpandedIds((prev) => new Set(prev).add(allegationId));
+    } finally {
+      setLoadingIds((prev) => { const n = new Set(prev); n.delete(allegationId); return n; });
+    }
+  }, []);
+
+  const handleToggle = (allegationId: string) => {
     if (expandedIds.has(allegationId)) {
       setExpandedIds((prev) => { const n = new Set(prev); n.delete(allegationId); return n; });
+      // Collapsing clears any error so the next open attempt is fresh.
+      setErrorIds((prev) => {
+        if (!prev.has(allegationId)) return prev;
+        const n = new Map(prev);
+        n.delete(allegationId);
+        return n;
+      });
       return;
     }
     if (chainCache.has(allegationId)) {
       setExpandedIds((prev) => new Set(prev).add(allegationId));
       return;
     }
-    setLoadingIds((prev) => new Set(prev).add(allegationId));
-    try {
-      const chain = await getEvidenceChain(allegationId);
-      setChainCache((prev) => new Map(prev).set(allegationId, chain));
-      setExpandedIds((prev) => new Set(prev).add(allegationId));
-    } catch (err) {
-      console.error("Failed to fetch evidence chain:", err);
-    } finally {
-      setLoadingIds((prev) => { const n = new Set(prev); n.delete(allegationId); return n; });
-    }
+    fetchChain(allegationId);
   };
+
+  const handleRetry = useCallback(
+    (allegationId: string) => fetchChain(allegationId),
+    [fetchChain],
+  );
 
   const toggleCount = (countName: string) => {
     setCollapsedCounts((prev) => {
@@ -215,7 +292,9 @@ const EvidenceExplorerPage: React.FC = () => {
                 expandedIds={expandedIds}
                 loadingIds={loadingIds}
                 chainCache={chainCache}
+                errorMap={errorIds}
                 onToggleAllegation={handleToggle}
+                onRetryAllegation={handleRetry}
                 strengthMap={strengthMap}
               />
             ))}
