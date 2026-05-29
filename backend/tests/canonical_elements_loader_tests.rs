@@ -20,6 +20,10 @@ use colossus_legal_backend::canonical_elements::loader::{self, RunOptions};
 use colossus_legal_backend::canonical_elements::plan::ChangeKind;
 use colossus_legal_backend::canonical_elements::schema::CountFile;
 use colossus_legal_backend::canonical_elements::CanonicalLoaderError;
+// Aliased to keep it distinct from `canonical_elements::schema` (the YAML
+// definition types) imported above; this is the shared relationship-name
+// vocabulary so the test Cypher matches the production constants.
+use colossus_legal_backend::neo4j::schema as graph_schema;
 use colossus_legal_backend::repositories::pipeline_repository::{
     delete_authored_entities_for_case, delete_authored_relationships_by_type,
     list_authored_entities,
@@ -615,12 +619,15 @@ async fn first_run_wipes_orphan_elements_and_their_edges() {
     };
     reset_and_seed(&graph).await;
 
-    // Seed 5 wrong Elements on Count 1, each with 2 incoming PROVES_ELEMENT edges.
+    // Seed 5 wrong Elements on Count 1, each with 2 incoming BEARS_ON edges.
     for i in 0..5 {
         let eid = format!("element-wrong-{i}");
         graph
             .run(
-                query("MATCH (c:LegalCount {count_number: 1}) CREATE (c)-[:HAS_ELEMENT]->(:Element {id: $eid})")
+                query(&format!(
+                    "MATCH (c:LegalCount {{count_number: 1}}) CREATE (c)-[:{has_element}]->(:Element {{id: $eid}})",
+                    has_element = graph_schema::HAS_ELEMENT,
+                ))
                     .param("eid", eid.clone()),
             )
             .await
@@ -628,7 +635,10 @@ async fn first_run_wipes_orphan_elements_and_their_edges() {
         for j in 0..2 {
             graph
                 .run(
-                    query("MATCH (e:Element {id: $eid}) CREATE (:Allegation {id: $aid})-[:PROVES_ELEMENT]->(e)")
+                    query(&format!(
+                        "MATCH (e:Element {{id: $eid}}) CREATE (:Allegation {{id: $aid}})-[:{bears_on}]->(e)",
+                        bears_on = graph_schema::BEARS_ON,
+                    ))
                         .param("eid", eid.clone())
                         .param("aid", format!("alleg-{i}-{j}")),
                 )
@@ -657,7 +667,10 @@ async fn first_run_wipes_orphan_elements_and_their_edges() {
     assert_eq!(
         scalar(
             &graph,
-            "MATCH ()-[r:PROVES_ELEMENT]->() RETURN count(r) AS n"
+            &format!(
+                "MATCH ()-[r:{bears_on}]->() RETURN count(r) AS n",
+                bears_on = graph_schema::BEARS_ON,
+            )
         )
         .await,
         0
@@ -789,7 +802,10 @@ async fn count_three_declarations_carry_operative_flag() {
     );
     // And it is attached to LegalCount 3 via SEEKS_DECLARATION.
     assert_eq!(
-        scalar(&graph, "MATCH (:LegalCount {count_number:3})-[:SEEKS_DECLARATION]->(:DeclarationSought) RETURN count(*) AS n").await,
+        scalar(&graph, &format!(
+            "MATCH (:LegalCount {{count_number:3}})-[:{seeks_declaration}]->(:DeclarationSought) RETURN count(*) AS n",
+            seeks_declaration = graph_schema::SEEKS_DECLARATION,
+        )).await,
         2
     );
 }

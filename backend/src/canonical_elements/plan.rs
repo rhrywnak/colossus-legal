@@ -41,7 +41,7 @@ pub struct CountPlan {
     pub breach_theories: Vec<NodePlan<TheoryDef>>,
     pub improper_act_theories: Vec<NodePlan<TheoryDef>>,
     pub declarations: Vec<NodePlan<DeclarationDef>>,
-    /// Orphan `Element` nodes (and their `PROVES_ELEMENT` edges) currently
+    /// Orphan `Element` nodes (and their `BEARS_ON` edges) currently
     /// attached to this Count that the wipe will delete.
     pub orphan_elements: u64,
     pub orphan_proves_edges: u64,

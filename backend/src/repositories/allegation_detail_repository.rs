@@ -18,31 +18,45 @@ use crate::dto::decomposition::{
     AllegationDetailResponse, AllegationInfo, CharacterizationDetail, ProofClaimSummary,
     RebuttalDetail,
 };
+use crate::neo4j::schema;
 use crate::repositories::decomposition_repository::DecompositionRepositoryError;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Query constants
+// Query builders
+//
+// Each query interpolates its relationship types from `neo4j::schema` so the
+// names live in one place. A Rust `const` cannot call `format!`, so these are
+// `fn -> String` builders (the `fetch_hashes` pattern from
+// `canonical_elements::cypher`). None of these queries contains a literal
+// `{ }` node-property map — bindings use `labels(x)[0]` — so no `{{`/`}}`
+// brace-escaping is needed.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Allegation info query.
 ///
 /// v5.1 migration: `Allegation -[:SUPPORTS]-> LegalCount` (v4 direct edge)
-/// became `Allegation -[:PROVES_ELEMENT]-> Element <-[:HAS_ELEMENT]- LegalCount`
+/// became `Allegation -[:BEARS_ON]-> Element <-[:HAS_ELEMENT]- LegalCount`
 /// (two-hop). Prose body field renamed `a.allegation` → `a.summary`;
 /// `a.evidence_status` was dropped. Cypher aliases preserve the wire field
 /// names so `AllegationInfo` is unchanged; `status` arrives as `null` and
 /// gets `unwrap_or_default()`-coerced to `""` in the row reader, which the
 /// frontend `getStatusStyle` falls back from to `DEFAULT_STATUS_COLOR`.
-const ALLEGATION_INFO_QUERY: &str = "
+fn allegation_info_query() -> String {
+    format!(
+        "
     MATCH (a) WHERE a.id = $id AND labels(a)[0] = $allegation_label
-    OPTIONAL MATCH (a)-[:PROVES_ELEMENT]->(el)
-                    <-[:HAS_ELEMENT]-(lc)
+    OPTIONAL MATCH (a)-[:{bears_on}]->(el)
+                    <-[:{has_element}]-(lc)
       WHERE labels(lc)[0] = $count_label
     RETURN a.id AS id,
            a.title AS title,
            a.summary AS description,
            NULL AS status,
-           collect(DISTINCT lc.title) AS legal_counts";
+           collect(DISTINCT lc.title) AS legal_counts",
+        bears_on = schema::BEARS_ON,
+        has_element = schema::HAS_ELEMENT,
+    )
+}
 
 /// Characterization query — relationship-anchored, label-agnostic for evidence
 /// nodes. Uses CHARACTERIZES and REBUTS relationship types as anchors.
@@ -50,14 +64,16 @@ const ALLEGATION_INFO_QUERY: &str = "
 ///
 /// Returns empty in v2 (no CHARACTERIZES relationships yet). Will populate
 /// when cross-document analysis relationships are created.
-const CHARACTERIZATION_QUERY: &str = "
+fn characterization_query() -> String {
+    format!(
+        "
     MATCH (a) WHERE a.id = $id AND labels(a)[0] = $allegation_label
-    OPTIONAL MATCH (charE)-[c:CHARACTERIZES]->(a)
-    OPTIONAL MATCH (charE)-[:CONTAINED_IN]->(charDoc)
-    OPTIONAL MATCH (charE)-[:STATED_BY]->(charSpeaker)
-    OPTIONAL MATCH (rebE)-[:REBUTS]->(charE)
-    OPTIONAL MATCH (rebE)-[:CONTAINED_IN]->(rebDoc)
-    OPTIONAL MATCH (rebE)-[:STATED_BY]->(rebSpeaker)
+    OPTIONAL MATCH (charE)-[c:{characterizes}]->(a)
+    OPTIONAL MATCH (charE)-[:{contained_in}]->(charDoc)
+    OPTIONAL MATCH (charE)-[:{stated_by}]->(charSpeaker)
+    OPTIONAL MATCH (rebE)-[:{rebuts}]->(charE)
+    OPTIONAL MATCH (rebE)-[:{contained_in}]->(rebDoc)
+    OPTIONAL MATCH (rebE)-[:{stated_by}]->(rebSpeaker)
     RETURN c.characterization AS label,
            charE.id AS char_evidence_id,
            charE.verbatim_quote AS char_quote,
@@ -70,21 +86,33 @@ const CHARACTERIZATION_QUERY: &str = "
            rebE.page_number AS reb_page,
            rebDoc.title AS reb_doc_title,
            rebSpeaker.name AS reb_speaker
-    ORDER BY charE.id, rebE.id";
+    ORDER BY charE.id, rebE.id",
+        characterizes = schema::CHARACTERIZES,
+        contained_in = schema::CONTAINED_IN,
+        stated_by = schema::STATED_BY,
+        rebuts = schema::REBUTS,
+    )
+}
 
 // TODO: B-1 Approach C — MotionClaim nodes don't exist in v2. This query
 // returns empty results gracefully. Will work once motion briefs are
 // processed and MotionClaim/PROVES/RELIES_ON relationships are created.
-const PROOF_CLAIMS_QUERY: &str = "
+fn proof_claims_query() -> String {
+    format!(
+        "
     MATCH (a) WHERE a.id = $id AND labels(a)[0] = $allegation_label
-    OPTIONAL MATCH (mc)-[:PROVES]->(a)
+    OPTIONAL MATCH (mc)-[:{proves}]->(a)
       WHERE labels(mc)[0] = 'MotionClaim'
-    OPTIONAL MATCH (mc)-[:RELIES_ON]->(e)
+    OPTIONAL MATCH (mc)-[:{relies_on}]->(e)
     RETURN mc.id AS mc_id,
            mc.title AS mc_title,
            mc.category AS mc_category,
            count(DISTINCT e) AS evidence_count
-    ORDER BY mc.id";
+    ORDER BY mc.id",
+        proves = schema::PROVES,
+        relies_on = schema::RELIES_ON,
+    )
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Repository
@@ -130,7 +158,7 @@ impl AllegationDetailRepository {
         let mut result = self
             .graph
             .execute(
-                query(ALLEGATION_INFO_QUERY)
+                query(&allegation_info_query())
                     .param("id", allegation_id)
                     .param("allegation_label", "Allegation")
                     .param("count_label", "LegalCount"),
@@ -167,7 +195,7 @@ impl AllegationDetailRepository {
         let mut result = self
             .graph
             .execute(
-                query(CHARACTERIZATION_QUERY)
+                query(&characterization_query())
                     .param("id", allegation_id)
                     .param("allegation_label", "Allegation"),
             )
@@ -221,7 +249,7 @@ impl AllegationDetailRepository {
         let mut result = self
             .graph
             .execute(
-                query(PROOF_CLAIMS_QUERY)
+                query(&proof_claims_query())
                     .param("id", allegation_id)
                     .param("allegation_label", "Allegation"),
             )

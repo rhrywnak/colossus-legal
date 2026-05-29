@@ -15,6 +15,7 @@ use neo4rs::{query, Graph};
 use super::case_summary_repository::CaseSummaryRepositoryError;
 use crate::dto::case_summary::ElementInfo;
 use crate::models::document_status::{ENTITY_ALLEGATION, ENTITY_ELEMENT, ENTITY_LEGAL_COUNT};
+use crate::neo4j::schema;
 
 /// Fetch every Element attached to a LegalCount in a single round trip
 /// and group the result by `count_id`.
@@ -47,11 +48,11 @@ pub(super) async fn get_elements_per_count(
     let mut rows: Vec<(String, ElementInfo)> = Vec::new();
     let mut result = graph
         .execute(
-            query(
-                "MATCH (lc)-[:HAS_ELEMENT]->(el)
+            query(&format!(
+                "MATCH (lc)-[:{has_element}]->(el)
                    WHERE labels(lc)[0] = $count_label
                      AND labels(el)[0] = $element_label
-                 OPTIONAL MATCH (a)-[:PROVES_ELEMENT]->(el)
+                 OPTIONAL MATCH (a)-[:{bears_on}]->(el)
                    WHERE labels(a)[0] = $allegation_label
                  RETURN lc.id AS count_id,
                         el.id AS element_id,
@@ -60,7 +61,9 @@ pub(super) async fn get_elements_per_count(
                         el.order_in_count AS order_in_count,
                         el.controlling_authority AS controlling_authority,
                         count(DISTINCT a) AS allegation_count",
-            )
+                has_element = schema::HAS_ELEMENT,
+                bears_on = schema::BEARS_ON,
+            ))
             .param("count_label", ENTITY_LEGAL_COUNT)
             .param("element_label", ENTITY_ELEMENT)
             .param("allegation_label", ENTITY_ALLEGATION),

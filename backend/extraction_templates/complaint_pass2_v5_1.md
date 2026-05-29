@@ -29,12 +29,12 @@ A colleague read this civil complaint and extracted five types of entities:
 
 ## Why These Relationships Matter
 
-The relationships you create form the proof chains the attorney will use at trial. The element-level granularity (PROVES_ELEMENT instead of count-level SUPPORTS) is the whole point of v5: at trial, the attorney must prove EACH element of a cause of action, not just argue the Count generally.
+The relationships you create form the proof chains the attorney will use at trial. The element-level granularity (BEARS_ON instead of count-level SUPPORTS) is the whole point of v5: at trial, the attorney must prove EACH element of a cause of action, not just argue the Count generally.
 
 The relationships you create answer questions like:
 
-- **"Which Allegations prove the duty element of Count I?"** → traverses PROVES_ELEMENT to a specific Element
-- **"Are there any unproven elements in Count III?"** → finds Elements with no incoming PROVES_ELEMENT relationships (a gap in the case)
+- **"Which Allegations prove the duty element of Count I?"** → traverses BEARS_ON to a specific Element
+- **"Are there any unproven elements in Count III?"** → finds Elements with no incoming BEARS_ON relationships (a gap in the case)
 - **"What damages does this misconduct support?"** → traverses CAUSED_BY then DAMAGES_FOR
 - **"Which Allegations are about this defendant?"** → traverses ABOUT
 
@@ -46,7 +46,7 @@ Every relationship you create or miss directly affects the attorney's ability to
 
 HAS_ELEMENT and ANCHORED_IN are no longer created by Pass 2. They are handled by the canonical Element loader. Do NOT create these relationship types.
 
-### PROVES_ELEMENT (Allegation → Element) — THE CENTRAL RELATIONSHIP OF V5
+### BEARS_ON (Allegation → Element) — THE CENTRAL RELATIONSHIP OF V5
 
 **What it means legally:** This Allegation, if proven true at trial, would help establish this specific Element of a LegalCount. The Allegation provides factual support for proving that element.
 
@@ -103,7 +103,7 @@ Every cause of action has ELEMENTS — specific things the plaintiff must prove 
   3. **Overt act** in furtherance
   4. **Damages**
 
-**How to determine PROVES_ELEMENT:**
+**How to determine BEARS_ON:**
 
 This is the deepest reasoning task in Pass 2. Follow these steps for EACH Allegation in the entity list:
 
@@ -115,14 +115,14 @@ What factual claim is this Allegation making? What action, omission, or pattern 
 
 The Element's `what_plaintiff_must_prove` property (or `title`) describes what must be proven (the drafter's pleading of the duty, breach, etc.). Read it carefully. The Allegation's claim either contributes evidence to proving that, or it does not.
 
-**Step C: If YES, create PROVES_ELEMENT.** If NO, do not.
+**Step C: If YES, create BEARS_ON.** If NO, do not.
 
 A well-pled Allegation typically proves 1–3 Elements, often spanning multiple Counts. It's normal for a single Allegation to:
 - Prove the breach element of one Count AND the damages element of another Count
 - Prove only one Element (e.g., a paragraph identifying when an event occurred may only establish causation for one specific Count)
 - Prove zero Elements (a procedural or contextual paragraph that adds context but doesn't prove any specific element)
 
-**Worked examples of PROVES_ELEMENT reasoning:**
+**Worked examples of BEARS_ON reasoning:**
 
 **Example 1.** Allegation summary: "Defendant withdrew $50,000 from the trust account without court authorization"
 - Element "duty" (breach of fiduciary) — does this prove a duty existed? NO (the relationship is a precondition; the withdrawal doesn't establish the relationship existed)
@@ -130,7 +130,7 @@ A well-pled Allegation typically proves 1–3 Elements, often spanning multiple 
 - Element "damages" (breach of fiduciary) — does this prove damages? YES ($50,000 IS the damage)
 - Element "misrepresentation" (fraud) — does this prove a misrepresentation? NO (no statement was made; this is a financial action)
 - Element "ulterior purpose" (abuse of process) — does this prove abuse of process? NO (this is a financial action, not misuse of court process)
-→ Create PROVES_ELEMENT to "breach" (breach of fiduciary) and "damages" (breach of fiduciary).
+→ Create BEARS_ON to "breach" (breach of fiduciary) and "damages" (breach of fiduciary).
 
 **Example 2.** Allegation summary: "Defendants made false statements to the court about plaintiff's conduct"
 - Element "duty" (breach of fiduciary, if defendants owed a duty of candor) — POSSIBLY YES
@@ -139,32 +139,32 @@ A well-pled Allegation typically proves 1–3 Elements, often spanning multiple 
 - Element "pattern" (fraud) — YES if there's a pattern of false statements
 - Element "specific lies" (abuse of process) — YES, false statements to the court ARE specific lies
 - Element "ulterior purpose" (abuse of process) — POSSIBLY, depends on whether the purpose was harassment vs legitimate advocacy
-→ Create PROVES_ELEMENT to multiple Elements across multiple Counts.
+→ Create BEARS_ON to multiple Elements across multiple Counts.
 
 **Example 3.** Allegation summary: "Defendant was not authorized under its corporate charter to serve as personal representative"
 - Element "authorized scope" (declaratory relief) — YES, this directly proves the corporate-scope element
 - Element "conduct outside scope" (declaratory relief) — YES, acting as PR when not authorized IS the conduct outside scope
 - Element "duty" (breach of fiduciary) — POSSIBLY (acting without authority is itself a breach of duty)
 - Element "misrepresentation" (fraud) — YES if the lack of authority was concealed
-→ Create PROVES_ELEMENT to multiple Elements across multiple Counts.
+→ Create BEARS_ON to multiple Elements across multiple Counts.
 
 **Example 4.** Allegation summary: "Plaintiff hereby incorporates paragraphs 1 through 71 as though fully reinstated herein"
 - This is a procedural incorporation paragraph. It contains no factual content of its own.
-→ Create ZERO PROVES_ELEMENT relationships. The substantive paragraphs (¶1-71) prove what they prove on their own; the incorporation paragraph adds nothing.
+→ Create ZERO BEARS_ON relationships. The substantive paragraphs (¶1-71) prove what they prove on their own; the incorporation paragraph adds nothing.
 
-**CRITICAL — Incorporation by reference is NOT automatic PROVES_ELEMENT:**
+**CRITICAL — Incorporation by reference is NOT automatic BEARS_ON:**
 
 Complaints use a legal convention where each Count says "Plaintiff hereby incorporates paragraphs 1 through X." This means the FACTS from those paragraphs are AVAILABLE as context for the Count. It does NOT mean every fact in that range automatically proves every Element of the Count.
 
-Incorporation makes the facts part of the Count's record. PROVES_ELEMENT means the fact actually helps prove a specific Element of that Count's legal theory. You must still evaluate each Allegation against each Element on its merits.
+Incorporation makes the facts part of the Count's record. BEARS_ON means the fact actually helps prove a specific Element of that Count's legal theory. You must still evaluate each Allegation against each Element on its merits.
 
-**Think of it this way:** Incorporation is like putting all the evidence on the table. PROVES_ELEMENT is deciding which pieces of evidence actually prove your point on a specific element.
+**Think of it this way:** Incorporation is like putting all the evidence on the table. BEARS_ON is deciding which pieces of evidence actually prove your point on a specific element.
 
 **Common mistakes to avoid:**
-- Creating PROVES_ELEMENT for every Allegation in the incorporation range — WRONG. Evaluate legal relevance per Element.
-- Only creating PROVES_ELEMENT when the Allegation explicitly mentions the Element by name — TOO NARROW. An Allegation about unauthorized financial transactions proves a fiduciary duty's breach element even without using the words "fiduciary" or "breach."
-- Missing PROVES_ELEMENT when the Allegation relates to an Element but uses different terminology — READ the substance, not the labels. "Defendants treated heirs differently" proves the breach element of fiduciary duty even though it doesn't use the word "breach."
-- Creating PROVES_ELEMENT from count_section paragraphs to elements of OTHER Counts — be careful. A count_section paragraph is part of its own Count's structural completeness; it may also prove elements of other Counts if the underlying facts support multiple legal theories. Evaluate each case individually.
+- Creating BEARS_ON for every Allegation in the incorporation range — WRONG. Evaluate legal relevance per Element.
+- Only creating BEARS_ON when the Allegation explicitly mentions the Element by name — TOO NARROW. An Allegation about unauthorized financial transactions proves a fiduciary duty's breach element even without using the words "fiduciary" or "breach."
+- Missing BEARS_ON when the Allegation relates to an Element but uses different terminology — READ the substance, not the labels. "Defendants treated heirs differently" proves the breach element of fiduciary duty even though it doesn't use the word "breach."
+- Creating BEARS_ON from count_section paragraphs to elements of OTHER Counts — be careful. A count_section paragraph is part of its own Count's structural completeness; it may also prove elements of other Counts if the underlying facts support multiple legal theories. Evaluate each case individually.
 
 ### ABOUT (Allegation → Party)
 
@@ -233,11 +233,11 @@ For each LegalCount in the entity list:
 3. Read each Element's `what_plaintiff_must_prove` — this is what must be proven for that Count
 4. Note this framework mentally for Step 3
 
-### Step 3: Create PROVES_ELEMENT relationships (the deep reasoning step)
+### Step 3: Create BEARS_ON relationships (the deep reasoning step)
 For each Allegation in the entity list:
 1. Read its `summary` and `verbatim_quote`
 2. For EACH Element across all Counts, ask: "If this Allegation's factual claim were proven true, would it help establish this specific Element?"
-3. If YES → create PROVES_ELEMENT from the Allegation to that Element
+3. If YES → create BEARS_ON from the Allegation to that Element
 4. If NO → do not create
 
 An Allegation will typically prove some Elements but not all. Procedural paragraphs (incorporation, headings) typically prove zero Elements. Substantive paragraphs typically prove 1–3 Elements across one or more Counts.
@@ -279,7 +279,7 @@ Return a JSON object with a single top-level key "relationships":
 {
   "relationships": [
     {
-      "relationship_type": "PROVES_ELEMENT",
+      "relationship_type": "BEARS_ON",
       "from_entity": "allegation-008",
       "to_entity": "ctx:element-1-2"
     },
@@ -313,13 +313,13 @@ Return a JSON object with a single top-level key "relationships":
 - [ ] Did I identify all canonical Elements in the entity list (ctx: prefixed IDs)?
 - [ ] Do NOT create HAS_ELEMENT or ANCHORED_IN relationships — these are handled by the loader
 
-### PROVES_ELEMENT (Step 3) — the central reasoning step
+### BEARS_ON (Step 3) — the central reasoning step
 - [ ] For EACH LegalCount, did I identify its Elements via HAS_ELEMENT?
 - [ ] For EACH Allegation, did I evaluate it against EACH Element across all Counts?
-- [ ] Did I create PROVES_ELEMENT based on whether the Allegation's facts help prove the Element's pleading text?
-- [ ] Did I avoid creating PROVES_ELEMENT purely based on incorporation paragraph ranges?
-- [ ] Did procedural paragraphs (incorporation, headings) correctly produce zero PROVES_ELEMENT?
-- [ ] Does every Element have at least one PROVES_ELEMENT incoming (otherwise it's an unproven element — a gap)?
+- [ ] Did I create BEARS_ON based on whether the Allegation's facts help prove the Element's pleading text?
+- [ ] Did I avoid creating BEARS_ON purely based on incorporation paragraph ranges?
+- [ ] Did procedural paragraphs (incorporation, headings) correctly produce zero BEARS_ON?
+- [ ] Does every Element have at least one BEARS_ON incoming (otherwise it's an unproven element — a gap)?
 
 ### ABOUT (Step 4)
 - [ ] Does every Allegation have at least one ABOUT relationship?

@@ -128,6 +128,40 @@ migrated in commit `refactor: migrate 1208 hardcoded hex colors to CSS
 custom properties` — any reintroduction is a regression and a violation
 of Standing Rule 2 (no hardcoded values).
 
+For every modified `.rs` file in `backend/src/` and `backend/tests/`:
+
+### Rule 12: No Bare Relationship-Name Literals in Cypher
+Search for a bare, UPPER_SNAKE relationship-type name written directly
+inside Cypher relationship syntax — i.e. a name of 3+ chars matching
+`[A-Z][A-Z0-9_]{2,}` that appears in any of these bracket positions:
+```
+-[:NAME]->        <-[:NAME]-        -[:NAME]-
+[r:NAME]          [var:NAME]        <-[:NAME]->
+```
+Each match is a violation:
+```
+FAIL: {file}:{line} — bare relationship literal "NAME" in Cypher (use a neo4j::schema constant via format!, e.g. -[:{rel}]-> with rel = schema::NAME)
+```
+Relationship types are graph-schema identifiers; they must be defined
+once in `backend/src/neo4j/schema.rs` and interpolated from there
+(`crate::neo4j::schema::NAME`, or `colossus_legal_backend::neo4j::schema`
+in `tests/`) via `format!`, so a rename is a single-line edit and the
+read queries cannot drift apart. A correctly migrated query reads
+`-[:{has_element}]->` with `has_element = schema::HAS_ELEMENT` — the
+lowercase `{placeholder}` is NOT a violation; only the bare uppercase
+name is.
+
+**Exceptions (do NOT flag):**
+- `backend/src/neo4j/schema.rs` — this is where the constants are
+  defined; the string literals there ARE the source of truth.
+- `///` doc-comment and `//` comment lines — prose may name a
+  relationship for explanation (it is not query construction).
+- Postgres data-value strings — a relationship name used as a SQL
+  column value (`relationship_type = "..."`, a `.param(...)` value, or a
+  `WHERE relationship_type = $n` bind) is data, not Cypher relationship
+  syntax. Only flag a name inside the Cypher `[ ]` bracket positions
+  listed above.
+
 ## Output Format
 
 If all checks pass:

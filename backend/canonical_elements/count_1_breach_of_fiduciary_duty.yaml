@@ -132,7 +132,7 @@ elements:
 # Breach theory registry
 #
 # These are theories of HOW Element 1.2 (breach) was satisfied, not separate
-# Elements. When mapping an Allegation to Element 1.2, the PROVES_ELEMENT edge
+# Elements. When mapping an Allegation to Element 1.2, the BEARS_ON edge
 # carries an optional `breach_theory` property with one of these values.
 #
 # Authority for treating these as theories rather than separate Elements:
@@ -220,7 +220,7 @@ breach_theories:
 #    CFS (principal) and Phillips (agent) is relevant. Some breach acts are
 #    attributable to Phillips directly (e.g., his statements to court);
 #    others to CFS as principal (e.g., failure to supervise Phillips);
-#    most to both jointly. The PROVES_ELEMENT edge can carry an optional
+#    most to both jointly. The BEARS_ON edge can carry an optional
 #    `defendant_attribution` property: "cfs", "phillips", or "joint".
 #
 # 2. Allegations referencing Archdiocese of Detroit (e.g., ¶80-82) are

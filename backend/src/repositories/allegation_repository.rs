@@ -2,9 +2,9 @@
 //
 // ## Why paragraph-based grouping?
 //
-// The previous query traversed `Allegation -[:PROVES_ELEMENT]-> Element
+// The previous query traversed `Allegation -[:BEARS_ON]-> Element
 // <-[:HAS_ELEMENT]- LegalCount` to determine which Count each allegation
-// belonged to. Because the LLM non-deterministically assigned PROVES_ELEMENT
+// belonged to. Because the LLM non-deterministically assigned BEARS_ON
 // links, Common Allegations (¶7-71) sometimes appeared under specific Counts
 // and sometimes had no link at all, falling into a frontend "Jurisdictional
 // & Procedural" fallback bucket.

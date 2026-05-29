@@ -21,7 +21,7 @@ The complaint is the FOUNDATION document of a civil lawsuit. It defines the enti
 
 - **LegalCounts** are the legal theories under which the plaintiff is suing. They are the top of the proof chain.
 
-- **Elements** are what the plaintiff must prove for each LegalCount to win at trial. **Elements are NOT extracted by this pipeline.** They are canonical authored entities loaded separately from curated YAML files. Pass 2 will see them in cross-document context and create PROVES_ELEMENT relationships linking Allegations to Elements.
+- **Elements** are what the plaintiff must prove for each LegalCount to win at trial. **Elements are NOT extracted by this pipeline.** They are canonical authored entities loaded separately from curated YAML files. Pass 2 will see them in cross-document context and create BEARS_ON relationships linking Allegations to Elements.
 
 - **Allegations** are the paragraph-level factual claims. Some are common-allegation paragraphs (factual narrative, before any Count) and others are count-section paragraphs (within a Count, often restating or applying facts to elements). The relationship Pass 2 builds — which Allegations prove which Elements — depends on you extracting ALL of them with correct `kind` classification.
 

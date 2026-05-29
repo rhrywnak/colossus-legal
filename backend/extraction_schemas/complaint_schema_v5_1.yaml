@@ -37,7 +37,7 @@
 #   - ANCHORED_IN relationship REMOVED. Depended on extracted Element
 #     anchor_paragraph_numbers; canonical Elements use a different
 #     anchoring model.
-#   - PROVES_ELEMENT RETAINED. Pass 2 targets canonical Elements from the
+#   - BEARS_ON RETAINED. Pass 2 targets canonical Elements from the
 #     cross-document context (prefixed ctx:element-*).
 #
 # Extraction entity backbone: Party / LegalCount / Allegation / Harm.
@@ -177,8 +177,8 @@ entity_types:
         description: "When the harm occurred"
 
 relationship_types:
-  - name: PROVES_ELEMENT
-    description: "Allegation proves Element. Pass 2 targets canonical Elements from cross-document context (prefixed ctx:element-*). THE central reasoning relationship of v5."
+  - name: BEARS_ON
+    description: "Allegation bears on Element. Pass 2 targets canonical Elements from cross-document context (prefixed ctx:element-*). THE central reasoning relationship of v5."
   - name: ABOUT
     description: "Allegation is about (against, concerning) this party"
   - name: CAUSED_BY
@@ -217,12 +217,12 @@ relationship_properties:
     description: "When the relationship was first created (Cypher datetime() at write time; preserved on subsequent re-ingests via coalesce)"
 
 valid_patterns:
-  # PROVES_ELEMENT is intentionally NOT listed here. Element is no longer an
+  # BEARS_ON is intentionally NOT listed here. Element is no longer an
   # extraction entity (removed in v5.1a — see header), so it cannot appear as a
   # pattern endpoint. Pass 2 targets canonical Elements from cross-document
-  # context (ctx:element-*); those PROVES_ELEMENT edges are persisted via
+  # context (ctx:element-*); those BEARS_ON edges are persisted via
   # authored_relationships (CC Instruction C), not the pattern-validated
-  # extraction_relationships path. PROVES_ELEMENT remains in relationship_types
+  # extraction_relationships path. BEARS_ON remains in relationship_types
   # above as a valid type the LLM produces.
   - from: Allegation
     relationship: ABOUT

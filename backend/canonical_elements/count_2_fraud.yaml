@@ -373,7 +373,7 @@ elements:
 #    both made the false statements; both concealed the same facts). Some
 #    are Phillips-only (his statements to the appellate court in his April
 #    11, 2011 brief; his individual responses to interrogatories). The
-#    PROVES_ELEMENT edge can carry an optional `defendant_attribution`
+#    BEARS_ON edge can carry an optional `defendant_attribution`
 #    property: "cfs", "phillips", or "joint".
 #
 # 3. The Motion for Default documents are the strongest source for Count II

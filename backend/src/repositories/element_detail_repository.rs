@@ -4,8 +4,8 @@
 //! This module reaches into two stores in a single endpoint:
 //!
 //! - **Neo4j** — the Element node itself, its parent `LegalCount` (via
-//!   `HAS_ELEMENT`), and every `Allegation` that proves it (via
-//!   `PROVES_ELEMENT`). One Cypher with two `OPTIONAL MATCH` hops, decoded
+//!   `HAS_ELEMENT`), and every `Allegation` that bears on it (via
+//!   `BEARS_ON`). One Cypher with two `OPTIONAL MATCH` hops, decoded
 //!   into a flat list of rows.
 //! - **Postgres `authored_entities`** — the human-authored `review_notes`
 //!   column added by the `add_review_notes_to_authored_entities` migration.
@@ -27,6 +27,7 @@ use serde::Serialize;
 use sqlx::PgPool;
 
 use crate::models::document_status::{ENTITY_ALLEGATION, ENTITY_ELEMENT, ENTITY_LEGAL_COUNT};
+use crate::neo4j::schema;
 use crate::repositories::pipeline_repository::PipelineRepoError;
 
 // ── Error type ────────────────────────────────────────────────────
@@ -123,13 +124,21 @@ pub struct AllegationSummary {
 
 // ── Cypher and SQL constants ──────────────────────────────────────
 
-/// Fetches: Element properties, parent LegalCount (OPTIONAL), and every
-/// Allegation that PROVES_ELEMENT this Element (OPTIONAL).
+/// Build the detail Cypher: Element properties, parent LegalCount (OPTIONAL),
+/// and every Allegation that bears on this Element (OPTIONAL).
+///
+/// ## Why a `fn -> String` and not a `const`
+///
+/// Relationship types come from `neo4j::schema` so the read stays in lockstep
+/// with one constant; a Rust `const` cannot call `format!`, so the query is
+/// built by a function (the `fetch_hashes` pattern in
+/// `canonical_elements::cypher`). No literal `{ }` braces appear here (node
+/// bindings use `labels(x)[0]`, not property maps), so no `{{`/`}}` escaping.
 ///
 /// ## Why label filters on every node binding
 ///
-/// `(a)-[:PROVES_ELEMENT]->(e)` with no label restriction would match any
-/// node-type proving an Element. House style — established in
+/// `(a)-[:{bears_on}]->(e)` with no label restriction would match any
+/// node-type bearing on an Element. House style — established in
 /// `causes_of_action_repository.rs` — is to gate every node binding with
 /// `labels(x)[0] = $label` and read the label name from `ENTITY_*`
 /// constants, so we never hardcode a domain string in a Cypher clause.
@@ -137,10 +146,12 @@ pub struct AllegationSummary {
 /// `e.id` for the Element matches the `id` *property* (not Neo4j's internal
 /// id) — that is the canonical, content-stable identifier the loader writes
 /// and the one Postgres stores in `authored_entities.entity_id`.
-const ELEMENT_DETAIL_CYPHER: &str = "MATCH (e) \
+fn element_detail_cypher() -> String {
+    format!(
+        "MATCH (e) \
        WHERE e.id = $element_id AND labels(e)[0] = $element_label \
-     OPTIONAL MATCH (lc)-[:HAS_ELEMENT]->(e) WHERE labels(lc)[0] = $count_label \
-     OPTIONAL MATCH (a)-[:PROVES_ELEMENT]->(e) WHERE labels(a)[0] = $allegation_label \
+     OPTIONAL MATCH (lc)-[:{has_element}]->(e) WHERE labels(lc)[0] = $count_label \
+     OPTIONAL MATCH (a)-[:{bears_on}]->(e) WHERE labels(a)[0] = $allegation_label \
      RETURN \
        e.id                         AS element_id, \
        e.element_name               AS element_name, \
@@ -152,7 +163,11 @@ const ELEMENT_DETAIL_CYPHER: &str = "MATCH (e) \
        a.paragraph_number           AS paragraph_number, \
        a.summary                    AS summary, \
        a.title                      AS title, \
-       a.verbatim_quote             AS verbatim_quote";
+       a.verbatim_quote             AS verbatim_quote",
+        has_element = schema::HAS_ELEMENT,
+        bears_on = schema::BEARS_ON,
+    )
+}
 
 /// Defensive Postgres lookup: filter by entity_id (uniquely constrained) AND
 /// entity_type to keep a stray id collision with a different entity_type from
@@ -268,7 +283,7 @@ pub async fn fetch_element_with_allegations(
     const OP_GRAPH: &str = "fetch_element_with_allegations";
     const OP_PG: &str = "fetch_review_notes";
 
-    let q = query(ELEMENT_DETAIL_CYPHER)
+    let q = query(&element_detail_cypher())
         .param("element_id", element_id)
         .param("element_label", ENTITY_ELEMENT)
         .param("count_label", ENTITY_LEGAL_COUNT)
@@ -355,7 +370,7 @@ pub async fn fetch_element_with_allegations(
         element_id: element_id.to_string(),
     })?;
 
-    // De-duplicate by allegation_id. A canonical PROVES_ELEMENT MERGE on
+    // De-duplicate by allegation_id. A canonical BEARS_ON MERGE on
     // (a, e) ought to be unique, but two ingest passes can leave a duplicate
     // edge briefly; the panel shouldn't render the same row twice.
     allegations.sort_by(|x, y| x.allegation_id.cmp(&y.allegation_id));

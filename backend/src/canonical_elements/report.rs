@@ -132,7 +132,7 @@ impl ChangeReport {
         if c.orphan_elements > 0 || c.orphan_proves_edges > 0 {
             writeln!(
                 f,
-                "{p}  PROVES_ELEMENT edges deleted (orphans): {}",
+                "{p}  BEARS_ON edges deleted (orphans): {}",
                 self.deleted(c.orphan_proves_edges)
             )?;
         }
@@ -200,7 +200,7 @@ impl ChangeReport {
         )?;
         writeln!(
             f,
-            "{p}  PROVES_ELEMENT orphan edges deleted: {}",
+            "{p}  BEARS_ON orphan edges deleted: {}",
             self.deleted(t.orphan_proves)
         )?;
         if self.plan.unattributed_orphan_elements > 0
@@ -208,7 +208,7 @@ impl ChangeReport {
         {
             writeln!(
                 f,
-                "{p}  (unattributed orphans: {} Elements, {} PROVES_ELEMENT edges)",
+                "{p}  (unattributed orphans: {} Elements, {} BEARS_ON edges)",
                 self.plan.unattributed_orphan_elements, self.plan.unattributed_orphan_proves_edges
             )?;
         }

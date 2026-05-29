@@ -13,6 +13,10 @@ use neo4rs::{query, Graph};
 use std::collections::{HashMap, HashSet};
 
 use super::graph_expander::{ExpandedNode, ExpandedRelationship, GraphExpanderError};
+use super::graph_expansion_cypher::{
+    allegation_expansion_cypher, evidence_expansion_cypher, motion_claim_expansion_cypher,
+};
+use crate::neo4j::schema;
 
 /// Safe extraction: get a String from a Neo4j row, returning "" if null/missing.
 pub(crate) fn get_str(row: &neo4rs::Row, key: &str) -> String {
@@ -69,24 +73,11 @@ pub async fn expand_evidence(
     let mut nodes = Vec::new();
     let mut rels = Vec::new();
 
-    let cypher = "MATCH (e:Evidence {id: $id})
-        OPTIONAL MATCH (e)-[:STATED_BY]->(speaker)
-        OPTIONAL MATCH (e)-[:ABOUT]->(subject)
-        OPTIONAL MATCH (e)-[:CONTAINED_IN]->(doc:Document)
-        OPTIONAL MATCH (e)-[:CHARACTERIZES]->(allegation:Allegation)
-        OPTIONAL MATCH (e)<-[:REBUTS]-(rebuttal:Evidence)
-        OPTIONAL MATCH (e)-[:CONTRADICTS]-(contradiction:Evidence)
-        RETURN e.id AS eid, e.title AS etitle, e.verbatim_quote AS equote,
-               e.significance AS esig, e.page_number AS epage,
-               speaker.id AS sid, speaker.name AS sname,
-               subject.id AS subid, subject.name AS subname,
-               doc.id AS did, doc.title AS dtitle, doc.document_type AS dtype,
-               allegation.id AS aid, allegation.title AS atitle,
-               NULL AS astatus,
-               rebuttal.id AS rid, rebuttal.title AS rtitle,
-               contradiction.id AS cid, contradiction.title AS ctitle";
-
-    let mut result = graph.execute(query(cypher).param("id", id)).await?;
+    // Cypher (with its relationship types interpolated from `neo4j::schema`)
+    // lives in `graph_expansion_cypher` so this module stays under the
+    // 300-line cap; the rendered edge labels below still come from `schema`.
+    let cypher = evidence_expansion_cypher();
+    let mut result = graph.execute(query(&cypher).param("id", id)).await?;
 
     while let Some(row) = result.next().await? {
         if let Some(n) = try_extract_node(
@@ -106,13 +97,13 @@ pub async fn expand_evidence(
 
         let sid = get_str(&row, "sid");
         if let Some(n) = try_extract_node(&row, "sid", "Person", &[("sname", "name")], seen) {
-            rels.push(ExpandedRelationship::new(id, &sid, "STATED_BY"));
+            rels.push(ExpandedRelationship::new(id, &sid, schema::STATED_BY));
             nodes.push(n);
         }
 
         let subid = get_str(&row, "subid");
         if let Some(n) = try_extract_node(&row, "subid", "Person", &[("subname", "name")], seen) {
-            rels.push(ExpandedRelationship::new(id, &subid, "ABOUT"));
+            rels.push(ExpandedRelationship::new(id, &subid, schema::ABOUT));
             nodes.push(n);
         }
 
@@ -124,7 +115,7 @@ pub async fn expand_evidence(
             &[("dtitle", "title"), ("dtype", "document_type")],
             seen,
         ) {
-            rels.push(ExpandedRelationship::new(id, &did, "CONTAINED_IN"));
+            rels.push(ExpandedRelationship::new(id, &did, schema::CONTAINED_IN));
             nodes.push(n);
         }
 
@@ -136,19 +127,19 @@ pub async fn expand_evidence(
             &[("atitle", "title"), ("astatus", "evidence_status")],
             seen,
         ) {
-            rels.push(ExpandedRelationship::new(id, &aid, "CHARACTERIZES"));
+            rels.push(ExpandedRelationship::new(id, &aid, schema::CHARACTERIZES));
             nodes.push(n);
         }
 
         let rid = get_str(&row, "rid");
         if let Some(n) = try_extract_node(&row, "rid", "Evidence", &[("rtitle", "title")], seen) {
-            rels.push(ExpandedRelationship::new(&rid, id, "REBUTS"));
+            rels.push(ExpandedRelationship::new(&rid, id, schema::REBUTS));
             nodes.push(n);
         }
 
         let cid = get_str(&row, "cid");
         if let Some(n) = try_extract_node(&row, "cid", "Evidence", &[("ctitle", "title")], seen) {
-            rels.push(ExpandedRelationship::new(id, &cid, "CONTRADICTS"));
+            rels.push(ExpandedRelationship::new(id, &cid, schema::CONTRADICTS));
             nodes.push(n);
         }
     }
@@ -165,13 +156,13 @@ pub async fn expand_evidence(
 /// v5.1 migration (parallel to the repositories migration in 2b51d38):
 ///   - Label `:ComplaintAllegation` → `:Allegation`.
 ///   - Direct `:SUPPORTS` edge → two-hop through Element via
-///     `:PROVES_ELEMENT` and `:HAS_ELEMENT`.
+///     `:BEARS_ON` and `:HAS_ELEMENT`.
 ///   - Property `a.evidence_status` dropped (NULL).
 ///   - Property `a.allegation` (v4 prose) → `a.summary`.
 ///   - `a.title` kept (v5.1 has the short-label property).
 ///
 /// `RETURN DISTINCT` dedupes the cartesian fan-out from the two-hop
-/// (one Allegation proving multiple Elements of the same Count).
+/// (one Allegation bearing on multiple Elements of the same Count).
 /// Rust-side `seen: HashSet<String>` would catch it too, but Cypher-side
 /// dedup matches the migration discipline.
 pub async fn expand_allegation(
@@ -182,26 +173,8 @@ pub async fn expand_allegation(
     let mut nodes = Vec::new();
     let mut rels = Vec::new();
 
-    let cypher = "MATCH (a:Allegation {id: $id})
-        OPTIONAL MATCH (claim:MotionClaim)-[:PROVES]->(a)
-        OPTIONAL MATCH (claim)-[:RELIES_ON]->(evidence:Evidence)
-        OPTIONAL MATCH (evidence)-[:CONTAINED_IN]->(doc:Document)
-        OPTIONAL MATCH (evidence)-[:STATED_BY]->(speaker)
-        OPTIONAL MATCH (a)-[:PROVES_ELEMENT]->(el)
-                        <-[:HAS_ELEMENT]-(count:LegalCount)
-        OPTIONAL MATCH (harm:Harm)-[:CAUSED_BY]->(a)
-        RETURN DISTINCT a.id AS aid, a.title AS atitle,
-               NULL AS astatus,
-               a.summary AS aalleg,
-               claim.id AS cid, claim.title AS ctitle,
-               evidence.id AS eid, evidence.title AS etitle,
-               evidence.verbatim_quote AS equote,
-               doc.id AS did, doc.title AS dtitle,
-               speaker.id AS sid, speaker.name AS sname,
-               count.id AS lcid, count.title AS lctitle,
-               harm.id AS hid, harm.title AS htitle, harm.amount AS hamount";
-
-    let mut result = graph.execute(query(cypher).param("id", id)).await?;
+    let cypher = allegation_expansion_cypher();
+    let mut result = graph.execute(query(&cypher).param("id", id)).await?;
 
     while let Some(row) = result.next().await? {
         if let Some(n) = try_extract_node(
@@ -221,7 +194,7 @@ pub async fn expand_allegation(
         let cid = get_str(&row, "cid");
         if let Some(n) = try_extract_node(&row, "cid", "MotionClaim", &[("ctitle", "title")], seen)
         {
-            rels.push(ExpandedRelationship::new(&cid, id, "PROVES"));
+            rels.push(ExpandedRelationship::new(&cid, id, schema::PROVES));
             nodes.push(n);
         }
 
@@ -234,7 +207,7 @@ pub async fn expand_allegation(
             seen,
         ) {
             if !cid.is_empty() {
-                rels.push(ExpandedRelationship::new(&cid, &eid, "RELIES_ON"));
+                rels.push(ExpandedRelationship::new(&cid, &eid, schema::RELIES_ON));
             }
             nodes.push(n);
         }
@@ -242,7 +215,7 @@ pub async fn expand_allegation(
         let did = get_str(&row, "did");
         if let Some(n) = try_extract_node(&row, "did", "Document", &[("dtitle", "title")], seen) {
             if !eid.is_empty() {
-                rels.push(ExpandedRelationship::new(&eid, &did, "CONTAINED_IN"));
+                rels.push(ExpandedRelationship::new(&eid, &did, schema::CONTAINED_IN));
             }
             nodes.push(n);
         }
@@ -254,7 +227,7 @@ pub async fn expand_allegation(
         let lcid = get_str(&row, "lcid");
         if let Some(n) = try_extract_node(&row, "lcid", "LegalCount", &[("lctitle", "title")], seen)
         {
-            rels.push(ExpandedRelationship::new(id, &lcid, "SUPPORTS"));
+            rels.push(ExpandedRelationship::new(id, &lcid, schema::SUPPORTS));
             nodes.push(n);
         }
 
@@ -266,7 +239,7 @@ pub async fn expand_allegation(
             &[("htitle", "title"), ("hamount", "amount")],
             seen,
         ) {
-            rels.push(ExpandedRelationship::new(&hid, id, "CAUSED_BY"));
+            rels.push(ExpandedRelationship::new(&hid, id, schema::CAUSED_BY));
             nodes.push(n);
         }
     }
@@ -287,22 +260,8 @@ pub async fn expand_motion_claim(
     let mut nodes = Vec::new();
     let mut rels = Vec::new();
 
-    let cypher = "MATCH (m:MotionClaim {id: $id})
-        OPTIONAL MATCH (m)-[:RELIES_ON]->(evidence:Evidence)
-        OPTIONAL MATCH (evidence)-[:CONTAINED_IN]->(doc:Document)
-        OPTIONAL MATCH (evidence)-[:STATED_BY]->(speaker)
-        OPTIONAL MATCH (m)-[:PROVES]->(allegation:Allegation)
-        OPTIONAL MATCH (m)-[:APPEARS_IN]->(motion_doc:Document)
-        RETURN m.id AS mid, m.title AS mtitle, m.claim_text AS mtext,
-               m.significance AS msig,
-               evidence.id AS eid, evidence.title AS etitle,
-               evidence.verbatim_quote AS equote,
-               doc.id AS did, doc.title AS dtitle,
-               speaker.id AS sid, speaker.name AS sname,
-               allegation.id AS aid, allegation.title AS atitle,
-               motion_doc.id AS mdid, motion_doc.title AS mdtitle";
-
-    let mut result = graph.execute(query(cypher).param("id", id)).await?;
+    let cypher = motion_claim_expansion_cypher();
+    let mut result = graph.execute(query(&cypher).param("id", id)).await?;
 
     while let Some(row) = result.next().await? {
         if let Some(n) = try_extract_node(
@@ -327,14 +286,14 @@ pub async fn expand_motion_claim(
             &[("etitle", "title"), ("equote", "verbatim_quote")],
             seen,
         ) {
-            rels.push(ExpandedRelationship::new(id, &eid, "RELIES_ON"));
+            rels.push(ExpandedRelationship::new(id, &eid, schema::RELIES_ON));
             nodes.push(n);
         }
 
         let did = get_str(&row, "did");
         if let Some(n) = try_extract_node(&row, "did", "Document", &[("dtitle", "title")], seen) {
             if !eid.is_empty() {
-                rels.push(ExpandedRelationship::new(&eid, &did, "CONTAINED_IN"));
+                rels.push(ExpandedRelationship::new(&eid, &did, schema::CONTAINED_IN));
             }
             nodes.push(n);
         }
@@ -345,13 +304,13 @@ pub async fn expand_motion_claim(
 
         let aid = get_str(&row, "aid");
         if let Some(n) = try_extract_node(&row, "aid", "Allegation", &[("atitle", "title")], seen) {
-            rels.push(ExpandedRelationship::new(id, &aid, "PROVES"));
+            rels.push(ExpandedRelationship::new(id, &aid, schema::PROVES));
             nodes.push(n);
         }
 
         let mdid = get_str(&row, "mdid");
         if let Some(n) = try_extract_node(&row, "mdid", "Document", &[("mdtitle", "title")], seen) {
-            rels.push(ExpandedRelationship::new(id, &mdid, "APPEARS_IN"));
+            rels.push(ExpandedRelationship::new(id, &mdid, schema::APPEARS_IN));
             nodes.push(n);
         }
     }

@@ -1,3 +1,13 @@
+//! Neo4j connection helpers and graph-schema vocabulary.
+//!
+//! This module owns everything that is intrinsic to the graph layer rather
+//! than to any one feature: how we open the connection, and the canonical
+//! names of the relationship types the data model defines. The latter live
+//! in [`schema`] so that every read query, every loader, and every test
+//! references one constant instead of repeating a bare string literal.
+
+pub mod schema;
+
 use crate::config::AppConfig;
 use neo4rs::{Graph, Query};
 use tracing::info;

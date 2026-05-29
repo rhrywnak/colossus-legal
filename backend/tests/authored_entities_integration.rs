@@ -26,6 +26,7 @@
 use sqlx::PgPool;
 
 use colossus_legal_backend::config::AppConfig;
+use colossus_legal_backend::neo4j::schema;
 use colossus_legal_backend::repositories::pipeline_repository::{
     delete_authored_entities_for_case, delete_authored_relationships_by_type, get_authored_entity,
     list_authored_entities, list_authored_relationships, upsert_authored_entity,
@@ -256,7 +257,7 @@ async fn delete_authored_entities_for_case_clears_all() -> TestResult<()> {
 async fn upsert_and_list_authored_relationship_roundtrip() -> TestResult<()> {
     let pool = pipeline_pool().await?;
     let slug = test_slug("rel_roundtrip");
-    reset_case(&pool, &slug, &["PROVES_ELEMENT"]).await?;
+    reset_case(&pool, &slug, &[schema::BEARS_ON]).await?;
 
     let props = serde_json::json!({ "confidence": 0.9 });
     let id = upsert_authored_relationship(
@@ -264,7 +265,7 @@ async fn upsert_and_list_authored_relationship_roundtrip() -> TestResult<()> {
         &slug,
         "allegation-1",
         "el-1",
-        "PROVES_ELEMENT",
+        schema::BEARS_ON,
         Some(&props),
         "mapped",
         Some("mapper"),
@@ -272,12 +273,12 @@ async fn upsert_and_list_authored_relationship_roundtrip() -> TestResult<()> {
     .await?;
     assert!(id > 0);
 
-    let rels = list_authored_relationships(&pool, &slug, Some("PROVES_ELEMENT")).await?;
+    let rels = list_authored_relationships(&pool, &slug, Some(schema::BEARS_ON)).await?;
     assert_eq!(rels.len(), 1);
     let r = &rels[0];
     assert_eq!(r.from_entity_id, "allegation-1");
     assert_eq!(r.to_entity_id, "el-1");
-    assert_eq!(r.relationship_type, "PROVES_ELEMENT");
+    assert_eq!(r.relationship_type, schema::BEARS_ON);
     assert_eq!(r.provenance, "mapped");
     assert_eq!(r.created_by.as_deref(), Some("mapper"));
     assert_eq!(
@@ -285,7 +286,7 @@ async fn upsert_and_list_authored_relationship_roundtrip() -> TestResult<()> {
         0.9
     );
 
-    delete_authored_relationships_by_type(&pool, &slug, "PROVES_ELEMENT").await?;
+    delete_authored_relationships_by_type(&pool, &slug, schema::BEARS_ON).await?;
     Ok(())
 }
 
@@ -295,7 +296,7 @@ async fn upsert_and_list_authored_relationship_roundtrip() -> TestResult<()> {
 async fn upsert_authored_relationship_updates_properties() -> TestResult<()> {
     let pool = pipeline_pool().await?;
     let slug = test_slug("rel_update");
-    reset_case(&pool, &slug, &["PROVES_ELEMENT"]).await?;
+    reset_case(&pool, &slug, &[schema::BEARS_ON]).await?;
 
     let p1 = serde_json::json!({ "confidence": 0.5 });
     let id1 = upsert_authored_relationship(
@@ -303,7 +304,7 @@ async fn upsert_authored_relationship_updates_properties() -> TestResult<()> {
         &slug,
         "allegation-2",
         "el-2",
-        "PROVES_ELEMENT",
+        schema::BEARS_ON,
         Some(&p1),
         "mapped",
         None,
@@ -316,7 +317,7 @@ async fn upsert_authored_relationship_updates_properties() -> TestResult<()> {
         &slug,
         "allegation-2",
         "el-2",
-        "PROVES_ELEMENT",
+        schema::BEARS_ON,
         Some(&p2),
         "authored",
         None,
@@ -324,14 +325,14 @@ async fn upsert_authored_relationship_updates_properties() -> TestResult<()> {
     .await?;
 
     assert_eq!(id1, id2, "same edge must upsert in place, not duplicate");
-    let rels = list_authored_relationships(&pool, &slug, Some("PROVES_ELEMENT")).await?;
+    let rels = list_authored_relationships(&pool, &slug, Some(schema::BEARS_ON)).await?;
     assert_eq!(rels.len(), 1, "no duplicate edge created");
     let props = rels[0].properties.as_ref().expect("properties present");
     assert_eq!(props["confidence"], 0.95, "properties must be updated");
     assert_eq!(props["note"], "revised");
     assert_eq!(rels[0].provenance, "authored");
 
-    delete_authored_relationships_by_type(&pool, &slug, "PROVES_ELEMENT").await?;
+    delete_authored_relationships_by_type(&pool, &slug, schema::BEARS_ON).await?;
     Ok(())
 }
 
@@ -341,7 +342,7 @@ async fn upsert_authored_relationship_updates_properties() -> TestResult<()> {
 async fn list_authored_relationships_filters_by_type() -> TestResult<()> {
     let pool = pipeline_pool().await?;
     let slug = test_slug("rel_list");
-    let types = ["HAS_ELEMENT", "PROVES_ELEMENT"];
+    let types = [schema::HAS_ELEMENT, schema::BEARS_ON];
     reset_case(&pool, &slug, &types).await?;
 
     upsert_authored_relationship(
@@ -349,7 +350,7 @@ async fn list_authored_relationships_filters_by_type() -> TestResult<()> {
         &slug,
         "count-1",
         "el-a",
-        "HAS_ELEMENT",
+        schema::HAS_ELEMENT,
         None,
         "canonical",
         None,
@@ -360,7 +361,7 @@ async fn list_authored_relationships_filters_by_type() -> TestResult<()> {
         &slug,
         "count-1",
         "el-b",
-        "HAS_ELEMENT",
+        schema::HAS_ELEMENT,
         None,
         "canonical",
         None,
@@ -371,7 +372,7 @@ async fn list_authored_relationships_filters_by_type() -> TestResult<()> {
         &slug,
         "allegation-x",
         "el-a",
-        "PROVES_ELEMENT",
+        schema::BEARS_ON,
         None,
         "mapped",
         None,
@@ -383,13 +384,13 @@ async fn list_authored_relationships_filters_by_type() -> TestResult<()> {
         3
     );
     assert_eq!(
-        list_authored_relationships(&pool, &slug, Some("HAS_ELEMENT"))
+        list_authored_relationships(&pool, &slug, Some(schema::HAS_ELEMENT))
             .await?
             .len(),
         2
     );
     assert_eq!(
-        list_authored_relationships(&pool, &slug, Some("PROVES_ELEMENT"))
+        list_authored_relationships(&pool, &slug, Some(schema::BEARS_ON))
             .await?
             .len(),
         1
@@ -405,7 +406,7 @@ async fn list_authored_relationships_filters_by_type() -> TestResult<()> {
 async fn delete_authored_relationships_by_type_is_selective() -> TestResult<()> {
     let pool = pipeline_pool().await?;
     let slug = test_slug("rel_delete");
-    let types = ["HAS_ELEMENT", "PROVES_ELEMENT"];
+    let types = [schema::HAS_ELEMENT, schema::BEARS_ON];
     reset_case(&pool, &slug, &types).await?;
 
     upsert_authored_relationship(
@@ -413,7 +414,7 @@ async fn delete_authored_relationships_by_type_is_selective() -> TestResult<()> 
         &slug,
         "count-9",
         "el-9",
-        "HAS_ELEMENT",
+        schema::HAS_ELEMENT,
         None,
         "canonical",
         None,
@@ -424,19 +425,19 @@ async fn delete_authored_relationships_by_type_is_selective() -> TestResult<()> 
         &slug,
         "allegation-9",
         "el-9",
-        "PROVES_ELEMENT",
+        schema::BEARS_ON,
         None,
         "mapped",
         None,
     )
     .await?;
 
-    let removed = delete_authored_relationships_by_type(&pool, &slug, "PROVES_ELEMENT").await?;
-    assert_eq!(removed, 1, "only the one PROVES_ELEMENT edge is removed");
+    let removed = delete_authored_relationships_by_type(&pool, &slug, schema::BEARS_ON).await?;
+    assert_eq!(removed, 1, "only the one BEARS_ON edge is removed");
 
     let remaining = list_authored_relationships(&pool, &slug, None).await?;
     assert_eq!(remaining.len(), 1, "HAS_ELEMENT edge must remain");
-    assert_eq!(remaining[0].relationship_type, "HAS_ELEMENT");
+    assert_eq!(remaining[0].relationship_type, schema::HAS_ELEMENT);
 
     reset_case(&pool, &slug, &types).await?;
     Ok(())

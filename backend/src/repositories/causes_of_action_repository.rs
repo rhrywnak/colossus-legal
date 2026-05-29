@@ -14,6 +14,7 @@
 use neo4rs::{query, Graph};
 
 use crate::models::document_status::{ENTITY_ALLEGATION, ENTITY_ELEMENT, ENTITY_LEGAL_COUNT};
+use crate::neo4j::schema;
 
 /// Errors from the causes-of-action reads. Context (operation + source) is for
 /// operator logs, never the HTTP body (Standing Rule 1).
@@ -49,7 +50,7 @@ pub(crate) struct CountRow {
 }
 
 /// One `Element` row, tagged with its parent `count_number` for joining, and
-/// its computed incoming-`PROVES_ELEMENT` count.
+/// its computed incoming-`BEARS_ON` count.
 #[derive(Debug, Clone)]
 pub(crate) struct ElementRow {
     pub count_number: i64,
@@ -63,9 +64,11 @@ pub(crate) struct ElementRow {
 }
 
 // Full Cypher as named constants (no magic strings inline). Node labels are
-// parameterized via the shared ENTITY_* constants; relationship types
-// (HAS_ELEMENT, PROVES_ELEMENT) are fixed schema identifiers and live inside
-// the query text (Cypher cannot parameterize relationship types).
+// parameterized via the shared ENTITY_* constants; relationship types are
+// fixed schema identifiers interpolated from `neo4j::schema` (Cypher cannot
+// parameterize relationship types). `COUNTS_QUERY` carries no relationship
+// type, so it stays a plain `const`; the Element query does, so it is built by
+// `elements_query()` below.
 const COUNTS_QUERY: &str = "MATCH (lc) WHERE labels(lc)[0] = $count_label \
      RETURN lc.count_number          AS count_number, \
             lc.title                 AS count_name, \
@@ -78,13 +81,28 @@ const COUNTS_QUERY: &str = "MATCH (lc) WHERE labels(lc)[0] = $count_label \
             lc.special_note          AS special_note \
      ORDER BY lc.count_number";
 
-// `count(DISTINCT a)` is required: the OPTIONAL MATCH yields a null `a` for
-// Elements with no Allegations, and DISTINCT collapses that to 0 (a plain
-// `count(a)` would also return 0 for nulls, but DISTINCT also de-dupes an
-// Allegation that proves the same Element more than once).
-const ELEMENTS_QUERY: &str = "MATCH (lc)-[:HAS_ELEMENT]->(el) \
+/// Build the Element query. The relationship types are interpolated from
+/// `neo4j::schema` so this query and every other read stay in lockstep with one
+/// constant.
+///
+/// ## Rust Learning: why a `fn -> String` and not a `const`
+///
+/// A Rust `const` must be a compile-time literal — it cannot call `format!`.
+/// To interpolate the `schema::*` relationship-name constants we return an
+/// owned `String` from a function instead, matching the `fetch_hashes` builder
+/// pattern in `canonical_elements::cypher`. There are no literal `{ }` braces
+/// in this Cypher (it uses `labels(lc)[0]`, not a node-property map), so no
+/// `{{`/`}}` escaping is needed.
+///
+/// `count(DISTINCT a)` is required: the OPTIONAL MATCH yields a null `a` for
+/// Elements with no Allegations, and DISTINCT collapses that to 0 (a plain
+/// `count(a)` would also return 0 for nulls, but DISTINCT also de-dupes an
+/// Allegation that bears on the same Element more than once).
+fn elements_query() -> String {
+    format!(
+        "MATCH (lc)-[:{has_element}]->(el) \
        WHERE labels(lc)[0] = $count_label AND labels(el)[0] = $element_label \
-     OPTIONAL MATCH (a)-[:PROVES_ELEMENT]->(el) WHERE labels(a)[0] = $allegation_label \
+     OPTIONAL MATCH (a)-[:{bears_on}]->(el) WHERE labels(a)[0] = $allegation_label \
      RETURN lc.count_number             AS count_number, \
             el.id                       AS element_id, \
             el.order_in_count           AS order_in_count, \
@@ -92,7 +110,11 @@ const ELEMENTS_QUERY: &str = "MATCH (lc)-[:HAS_ELEMENT]->(el) \
             el.what_plaintiff_must_prove AS what_plaintiff_must_prove, \
             el.controlling_authority    AS controlling_authority, \
             el.theory_variant           AS theory_variant, \
-            count(DISTINCT a)           AS allegation_count";
+            count(DISTINCT a)           AS allegation_count",
+        has_element = schema::HAS_ELEMENT,
+        bears_on = schema::BEARS_ON,
+    )
+}
 
 /// Map a row-decode failure to the typed error.
 fn decode(operation: &'static str) -> impl Fn(neo4rs::DeError) -> CausesRepoError {
@@ -143,7 +165,7 @@ pub(crate) async fn fetch_counts(graph: &Graph) -> Result<Vec<CountRow>, CausesR
 /// builder groups them by `count_number`.
 pub(crate) async fn fetch_elements(graph: &Graph) -> Result<Vec<ElementRow>, CausesRepoError> {
     const OP: &str = "fetch_elements";
-    let q = query(ELEMENTS_QUERY)
+    let q = query(&elements_query())
         .param("count_label", ENTITY_LEGAL_COUNT)
         .param("element_label", ENTITY_ELEMENT)
         .param("allegation_label", ENTITY_ALLEGATION);

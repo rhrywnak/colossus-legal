@@ -7,6 +7,7 @@
 use neo4rs::{query, Graph};
 
 use crate::dto::case_summary::{CaseSummaryResponse, LegalCountInfo, PersonCharacterizationCount};
+use crate::neo4j::schema;
 
 use super::case_summary_elements;
 
@@ -229,16 +230,18 @@ impl CaseSummaryRepository {
         let mut result = self
             .graph
             .execute(
-                query(
+                query(&format!(
                     "MATCH (lc) WHERE labels(lc)[0] = $count_label
-                     OPTIONAL MATCH (a)-[:PROVES_ELEMENT]->(el)
-                                     <-[:HAS_ELEMENT]-(lc)
+                     OPTIONAL MATCH (a)-[:{bears_on}]->(el)
+                                     <-[:{has_element}]-(lc)
                        WHERE labels(a)[0] = $allegation_label
                      RETURN lc.id AS id, lc.title AS name,
                             lc.count_number AS count_number,
                             count(DISTINCT a) AS allegation_count
                      ORDER BY lc.count_number",
-                )
+                    bears_on = schema::BEARS_ON,
+                    has_element = schema::HAS_ELEMENT,
+                ))
                 .param("count_label", "LegalCount")
                 .param("allegation_label", "Allegation"),
             )

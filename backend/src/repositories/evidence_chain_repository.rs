@@ -5,6 +5,7 @@ use crate::dto::{
     ChainAllegation, ChainDocument, ChainSummary, EvidenceChainResponse, EvidenceWithDocument,
     MotionClaimWithEvidence,
 };
+use crate::neo4j::schema;
 
 #[derive(Clone)]
 pub struct EvidenceChainRepository {
@@ -44,21 +45,29 @@ impl EvidenceChainRepository {
         // v5.1 migration:
         //   - Label `:ComplaintAllegation` → `:Allegation`.
         //   - Direct `:SUPPORTS` edge to LegalCount → two-hop through Element
-        //     via `:PROVES_ELEMENT` and `:HAS_ELEMENT`.
+        //     via `:BEARS_ON` and `:HAS_ELEMENT`.
         //   - Property `a.paragraph` → `a.paragraph_number`.
         //   - Property `a.evidence_status` dropped; returned as `NULL`.
         //   - `a.title` kept — v5.1 has a `title` property (the LLM's short
         //     label) and the frontend renders it as the node label.
         // The `collect(DISTINCT c.title)` already deduplicates LegalCounts
-        // across the two-hop fan-out (one Allegation may prove multiple
+        // across the two-hop fan-out (one Allegation may bear on multiple
         // Elements of the same Count).
-        let cypher = "
-            MATCH (a:Allegation {id: $allegation_id})
-            OPTIONAL MATCH (a)-[:PROVES_ELEMENT]->(el)
-                            <-[:HAS_ELEMENT]-(c:LegalCount)
-            OPTIONAL MATCH (m:MotionClaim)-[:PROVES]->(a)
-            OPTIONAL MATCH (m)-[:RELIES_ON]->(e:Evidence)
-            OPTIONAL MATCH (e)-[:CONTAINED_IN]->(d:Document)
+        //
+        // ## Rust Learning: `{{` / `}}` escapes a literal brace in `format!`
+        //
+        // The node-property map `{id: $allegation_id}` must reach Cypher with
+        // single braces, but `format!` treats `{`/`}` as placeholder syntax —
+        // so the literal braces are doubled (`{{`/`}}`) while the relationship
+        // names are the real `{name}` placeholders filled from `neo4j::schema`.
+        let cypher = format!(
+            "
+            MATCH (a:Allegation {{id: $allegation_id}})
+            OPTIONAL MATCH (a)-[:{bears_on}]->(el)
+                            <-[:{has_element}]-(c:LegalCount)
+            OPTIONAL MATCH (m:MotionClaim)-[:{proves}]->(a)
+            OPTIONAL MATCH (m)-[:{relies_on}]->(e:Evidence)
+            OPTIONAL MATCH (e)-[:{contained_in}]->(d:Document)
             RETURN a.id AS a_id, a.title AS a_title,
                    a.paragraph_number AS a_paragraph,
                    NULL AS a_status,
@@ -67,9 +76,15 @@ impl EvidenceChainRepository {
                    e.id AS e_id, e.title AS e_title, e.question AS e_question,
                    e.answer AS e_answer, e.page_number AS e_page,
                    d.id AS d_id, d.title AS d_title
-        ";
+        ",
+            bears_on = schema::BEARS_ON,
+            has_element = schema::HAS_ELEMENT,
+            proves = schema::PROVES,
+            relies_on = schema::RELIES_ON,
+            contained_in = schema::CONTAINED_IN,
+        );
 
-        let q = query(cypher).param("allegation_id", allegation_id);
+        let q = query(&cypher).param("allegation_id", allegation_id);
         let mut result = self.graph.execute(q).await?;
 
         let mut allegation: Option<ChainAllegation> = None;

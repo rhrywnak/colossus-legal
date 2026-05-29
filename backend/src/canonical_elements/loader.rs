@@ -5,7 +5,7 @@
 //! 1. **Global orphan wipe** — `DETACH DELETE` every Element/theory/declaration
 //!    not present in the YAML. This is inherently global (it can't be scoped to
 //!    one Count), so it runs first, in its own auto-committed statements, and
-//!    removes the wrong Elements plus their `PROVES_ELEMENT` edges.
+//!    removes the wrong Elements plus their `BEARS_ON` edges.
 //! 2. **Per-Count upserts** — each Count's LegalCount update and child upserts
 //!    run in their own transaction, so a partial failure can't leave a single
 //!    Count half-loaded. Unchanged nodes are skipped (idempotency).

@@ -151,7 +151,7 @@ elements:
 #
 # These are theories of HOW Element 4-2 (improper act) was satisfied, not
 # separate Elements. When mapping an Allegation to Element 4-2, the
-# PROVES_ELEMENT edge carries an optional `improper_act_theory` property
+# BEARS_ON edge carries an optional `improper_act_theory` property
 # with one of these values.
 #
 # Authority for treating these as theories rather than separate Elements:
@@ -257,7 +257,7 @@ improper_act_theories:
 #    and Phillips both made the false statements; both responded falsely
 #    in discovery; both colluded). Some are Phillips-only (statements in
 #    his individual briefs to the appellate court). Some are CFS-only
-#    (Articles-of-Incorporation-related billings). The PROVES_ELEMENT
+#    (Articles-of-Incorporation-related billings). The BEARS_ON
 #    edge can carry an optional `defendant_attribution` property: "cfs",
 #    "phillips", or "joint".
 #

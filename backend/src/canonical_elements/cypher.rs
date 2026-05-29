@@ -22,6 +22,10 @@
 
 use super::schema::{CountMetadata, DeclarationDef, ElementDef, TheoryDef};
 use super::PROVENANCE_CANONICAL;
+// Aliased to `graph_schema` to keep it distinct from `super::schema` (the YAML
+// definition types). This is the shared relationship-name vocabulary so the
+// upsert/read Cypher here references the same constants as the repository reads.
+use crate::neo4j::schema as graph_schema;
 use neo4rs::{query, Query};
 
 // CONST: These are Neo4j node labels and relationship discriminators — they
@@ -95,22 +99,24 @@ pub fn fetch_legal_count_state(count_number: u32) -> Query {
 }
 
 /// Attribute soon-to-be-deleted orphan Elements (and their incoming
-/// `PROVES_ELEMENT` edges) to the Count they currently hang off, for the
+/// `BEARS_ON` edges) to the Count they currently hang off, for the
 /// per-Count report. `count_number` is null for orphans with no parent Count
 /// (the "unattributed" bucket).
 ///
 /// Domain note: the 17 structurally-wrong Elements from the May extraction are
-/// the orphans this sweeps; their `PROVES_ELEMENT` edges (Allegation→Element)
+/// the orphans this sweeps; their `BEARS_ON` edges (Allegation→Element)
 /// are what the `DETACH DELETE` later removes.
 pub fn orphan_element_attribution(yaml_element_ids: Vec<String>) -> Query {
-    query(
+    query(&format!(
         "MATCH (e:Element) WHERE NOT e.id IN $yaml_ids \
-         OPTIONAL MATCH (c:LegalCount)-[:HAS_ELEMENT]->(e) \
-         OPTIONAL MATCH (e)<-[r:PROVES_ELEMENT]-() \
+         OPTIONAL MATCH (c:LegalCount)-[:{has_element}]->(e) \
+         OPTIONAL MATCH (e)<-[r:{bears_on}]-() \
          RETURN c.count_number AS count_number, \
                 count(DISTINCT e) AS orphan_elements, \
                 count(r) AS proves_edges",
-    )
+        has_element = graph_schema::HAS_ELEMENT,
+        bears_on = graph_schema::BEARS_ON,
+    ))
     .param("yaml_ids", yaml_element_ids)
 }
 
@@ -120,8 +126,8 @@ pub fn orphan_element_attribution(yaml_element_ids: Vec<String>) -> Query {
 
 /// Upsert one `Element` and attach it to its `LegalCount` via `HAS_ELEMENT`.
 pub fn upsert_element(count_number: u32, e: &ElementDef, content_hash: &str) -> Query {
-    query(
-        "MERGE (e:Element {id: $id}) \
+    query(&format!(
+        "MERGE (e:Element {{id: $id}}) \
          SET e.element_name = $element_name, \
              e.title = $title, \
              e.order_in_count = $order_in_count, \
@@ -134,9 +140,10 @@ pub fn upsert_element(count_number: u32, e: &ElementDef, content_hash: &str) -> 
              e.content_hash = $content_hash, \
              e.updated_at = datetime() \
          WITH e \
-         MATCH (c:LegalCount {count_number: $count_number}) \
-         MERGE (c)-[:HAS_ELEMENT]->(e)",
-    )
+         MATCH (c:LegalCount {{count_number: $count_number}}) \
+         MERGE (c)-[:{has_element}]->(e)",
+        has_element = graph_schema::HAS_ELEMENT,
+    ))
     .param("id", e.id.as_str())
     .param("element_name", e.element_name.as_str())
     .param("title", e.title.as_str())
@@ -178,8 +185,9 @@ fn upsert_theory(
              t.updated_at = datetime() \
          WITH t \
          MATCH (c:LegalCount {{count_number: $count_number}}) \
-         MERGE (c)-[r:HAS_THEORY]->(t) \
-         SET r.theory_kind = $theory_kind"
+         MERGE (c)-[r:{has_theory}]->(t) \
+         SET r.theory_kind = $theory_kind",
+        has_theory = graph_schema::HAS_THEORY,
     ))
     .param("key", t.key.as_str())
     .param("definition", t.definition.as_str())
@@ -215,8 +223,8 @@ pub fn upsert_improper_act_theory(count_number: u32, t: &TheoryDef, content_hash
 
 /// Upsert one `DeclarationSought` and attach it via `SEEKS_DECLARATION`.
 pub fn upsert_declaration(count_number: u32, d: &DeclarationDef, content_hash: &str) -> Query {
-    query(
-        "MERGE (d:DeclarationSought {id: $id}) \
+    query(&format!(
+        "MERGE (d:DeclarationSought {{id: $id}}) \
          SET d.declaration = $declaration, \
              d.legal_basis = $legal_basis, \
              d.operative = $operative, \
@@ -225,9 +233,10 @@ pub fn upsert_declaration(count_number: u32, d: &DeclarationDef, content_hash: &
              d.content_hash = $content_hash, \
              d.updated_at = datetime() \
          WITH d \
-         MATCH (c:LegalCount {count_number: $count_number}) \
-         MERGE (c)-[:SEEKS_DECLARATION]->(d)",
-    )
+         MATCH (c:LegalCount {{count_number: $count_number}}) \
+         MERGE (c)-[:{seeks_declaration}]->(d)",
+        seeks_declaration = graph_schema::SEEKS_DECLARATION,
+    ))
     .param("id", d.id.as_str())
     .param("declaration", d.declaration.as_str())
     .param("legal_basis", d.legal_basis.as_str())
@@ -328,7 +337,7 @@ pub fn set_legal_count_id(count_number: u32, count_id: &str) -> Query {
 
 /// Build a `DETACH DELETE` for orphans of `label` whose `key_prop` is not in
 /// the kept-keys list. `RETURN count(...)` reports how many were deleted.
-/// `DETACH` also removes incoming relationships (e.g. `PROVES_ELEMENT`).
+/// `DETACH` also removes incoming relationships (e.g. `BEARS_ON`).
 fn wipe_orphans(label: &str, key_prop: &str, kept_keys: Vec<String>) -> Query {
     query(&format!(
         "MATCH (n:{label}) WHERE NOT n.{key_prop} IN $kept \
@@ -338,7 +347,7 @@ fn wipe_orphans(label: &str, key_prop: &str, kept_keys: Vec<String>) -> Query {
 }
 
 /// Delete every `Element` whose id is not in the YAML (the wrong Elements),
-/// detaching their `PROVES_ELEMENT` edges in the process.
+/// detaching their `BEARS_ON` edges in the process.
 pub fn wipe_orphan_elements(yaml_element_ids: Vec<String>) -> Query {
     wipe_orphans(ELEMENT_LABEL, "id", yaml_element_ids)
 }

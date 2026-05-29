@@ -91,7 +91,7 @@ pub struct ElementDetail {
     /// Theory variant for Count II elements (`silent_fraud` /
     /// `common_law_fraud`); `null` for other Counts.
     pub theory_variant: Option<String>,
-    /// Count of incoming `PROVES_ELEMENT` edges (Allegations proving this
+    /// Count of incoming `BEARS_ON` edges (Allegations bearing on this
     /// Element). Computed from the graph, currently 0 for all until the
     /// Allegation-to-Element mapping pass runs.
     pub allegation_count: i64,

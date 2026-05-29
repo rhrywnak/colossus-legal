@@ -47,14 +47,14 @@ pub(crate) async fn read_hashes(
 /// Per-Count and unattributed orphan-Element/edge counts.
 #[derive(Default)]
 pub(crate) struct OrphanAttribution {
-    /// `count_number → (orphan Elements, incoming PROVES_ELEMENT edges)`.
+    /// `count_number → (orphan Elements, incoming BEARS_ON edges)`.
     pub(crate) per_count: HashMap<u32, (u64, u64)>,
     /// Orphans not attached to any Count: `(elements, edges)`.
     pub(crate) unattributed: (u64, u64),
 }
 
 /// Pre-query (before any deletion) how many orphan Elements and incoming
-/// `PROVES_ELEMENT` edges hang off each Count, plus the unattributed bucket.
+/// `BEARS_ON` edges hang off each Count, plus the unattributed bucket.
 pub(crate) async fn read_orphan_attribution(
     graph: &Graph,
     yaml_element_ids: Vec<String>,

@@ -2,6 +2,7 @@ use neo4rs::{query, Graph};
 use std::collections::{HashMap, HashSet};
 
 use crate::dto::{GraphEdge, GraphNode, GraphNodeType, GraphResponse};
+use crate::neo4j::schema;
 
 #[derive(Clone)]
 pub struct GraphRepository {
@@ -44,7 +45,7 @@ impl GraphRepository {
         // v5.1 migration:
         //   - `:ComplaintAllegation` → `:Allegation`.
         //   - Direct `:SUPPORTS` edge → two-hop through Element via
-        //     `:PROVES_ELEMENT` and `:HAS_ELEMENT`.
+        //     `:BEARS_ON` and `:HAS_ELEMENT`.
         //   - Property `a.evidence_status` dropped; returned as `NULL`
         //     (the GraphNode `subtitle` field is `Option<String>` —
         //     null degrades cleanly to "no subtitle").
@@ -52,48 +53,54 @@ impl GraphRepository {
         //     uses it as the node label).
         //
         // `RETURN DISTINCT` dedupes the cartesian fan-out from the
-        // two-hop: one Allegation proving multiple Elements of the same
+        // two-hop: one Allegation bearing on multiple Elements of the same
         // Count would otherwise produce multiple identical rows for the
         // (a, c, m, e, d) tuple. Rust-side `HashSet<GraphEdge>` already
         // dedupes the edges, but Cypher-side dedup keeps the wire
         // transfer small and matches the agreed migration discipline.
         //
-        // The rendered `relationship: "SUPPORTS"` label is the legal
+        // The rendered `relationship: schema::SUPPORTS` label is the legal
         // meaning (Allegation supports LegalCount) — the graph still
         // displays this synthetic edge between Allegation and
         // LegalCount, NOT the two intermediate edges through Element.
-        // Switching the rendered label to `PROVES_ELEMENT` would expose
+        // Switching the rendered label to `BEARS_ON` would expose
         // the implementation, not the user's mental model.
-        let cypher = if count_id.is_some() {
-            "MATCH (c:LegalCount {id: $count_id})
-             OPTIONAL MATCH (a:Allegation)-[:PROVES_ELEMENT]->(el)
-                             <-[:HAS_ELEMENT]-(c)
-             OPTIONAL MATCH (m:MotionClaim)-[:PROVES]->(a)
-             OPTIONAL MATCH (m)-[:RELIES_ON]->(e:Evidence)
-             OPTIONAL MATCH (e)-[:CONTAINED_IN]->(d:Document)
-             RETURN DISTINCT c.id AS c_id, c.title AS c_title,
-                    a.id AS a_id, a.title AS a_title, NULL AS a_status,
-                    m.id AS m_id, m.title AS m_title,
-                    e.id AS e_id, e.title AS e_title,
-                    d.id AS d_id, d.title AS d_title"
+        //
+        // ## Rust Learning: `{head}` interpolation avoids brace-escaping
+        //
+        // The only Cypher containing literal `{ }` braces (the node-property
+        // map `{id: $count_id}`) is built as a separate `&str` and spliced in
+        // via the `{head}` placeholder. Because `format!` does not re-scan
+        // interpolated *values* for placeholders, those braces never need the
+        // `{{`/`}}` doubling that an inline property map would require.
+        let head = if count_id.is_some() {
+            "MATCH (c:LegalCount {id: $count_id})"
         } else {
-            "MATCH (c:LegalCount)
-             OPTIONAL MATCH (a:Allegation)-[:PROVES_ELEMENT]->(el)
-                             <-[:HAS_ELEMENT]-(c)
-             OPTIONAL MATCH (m:MotionClaim)-[:PROVES]->(a)
-             OPTIONAL MATCH (m)-[:RELIES_ON]->(e:Evidence)
-             OPTIONAL MATCH (e)-[:CONTAINED_IN]->(d:Document)
+            "MATCH (c:LegalCount)"
+        };
+        let cypher = format!(
+            "{head}
+             OPTIONAL MATCH (a:Allegation)-[:{bears_on}]->(el)
+                             <-[:{has_element}]-(c)
+             OPTIONAL MATCH (m:MotionClaim)-[:{proves}]->(a)
+             OPTIONAL MATCH (m)-[:{relies_on}]->(e:Evidence)
+             OPTIONAL MATCH (e)-[:{contained_in}]->(d:Document)
              RETURN DISTINCT c.id AS c_id, c.title AS c_title,
                     a.id AS a_id, a.title AS a_title, NULL AS a_status,
                     m.id AS m_id, m.title AS m_title,
                     e.id AS e_id, e.title AS e_title,
-                    d.id AS d_id, d.title AS d_title"
-        };
+                    d.id AS d_id, d.title AS d_title",
+            bears_on = schema::BEARS_ON,
+            has_element = schema::HAS_ELEMENT,
+            proves = schema::PROVES,
+            relies_on = schema::RELIES_ON,
+            contained_in = schema::CONTAINED_IN,
+        );
 
         let q = if let Some(cid) = count_id {
-            query(cypher).param("count_id", cid)
+            query(&cypher).param("count_id", cid)
         } else {
-            query(cypher)
+            query(&cypher)
         };
 
         let mut result = self.graph.execute(q).await?;
@@ -129,7 +136,7 @@ impl GraphRepository {
                     edges_set.insert(GraphEdge {
                         source: a_id,
                         target: c_id,
-                        relationship: "SUPPORTS".to_string(),
+                        relationship: schema::SUPPORTS.to_string(),
                     });
                 }
             }
@@ -151,7 +158,7 @@ impl GraphRepository {
                     edges_set.insert(GraphEdge {
                         source: m_id,
                         target: a_id,
-                        relationship: "PROVES".to_string(),
+                        relationship: schema::PROVES.to_string(),
                     });
                 }
             }
@@ -173,7 +180,7 @@ impl GraphRepository {
                     edges_set.insert(GraphEdge {
                         source: m_id.clone(),
                         target: e_id,
-                        relationship: "RELIES_ON".to_string(),
+                        relationship: schema::RELIES_ON.to_string(),
                     });
                 }
             }
@@ -195,7 +202,7 @@ impl GraphRepository {
                     edges_set.insert(GraphEdge {
                         source: e_id,
                         target: d_id,
-                        relationship: "CONTAINED_IN".to_string(),
+                        relationship: schema::CONTAINED_IN.to_string(),
                     });
                 }
             }
