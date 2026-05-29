@@ -333,6 +333,106 @@ pub async fn delete_authored_relationships_by_type(
     Ok(result.rows_affected())
 }
 
+// ── Single-edge operations (B2 mapping-correction tool) ───────────
+//
+// These three helpers operate on ONE edge identified by the unique triple
+// `(from_entity_id, to_entity_id, relationship_type)` — the granularity the
+// `fix_bears_on_mapping` correction tool needs. The case-global / by-type /
+// by-document helpers above are too coarse for correcting an individual
+// Allegation→Element mapping.
+
+/// Provenance marker for human-authored edges. This is the load-bearing field
+/// for durability against pipeline reconciliation: BOTH reconciliation paths
+/// filter on `provenance = 'extracted'`
+/// ([`delete_extracted_authored_relationships_for_document`] and the
+/// `list_extracted_*` feed that re-writes Neo4j), so an `'authored'` row is
+/// excluded from both and survives any complaint reprocess. Matches the
+/// table's column default in the migration.
+pub const PROVENANCE_AUTHORED: &str = "authored";
+
+/// Fetch a single authored relationship by its unique edge triple, or `None`
+/// if no such row exists. Used by the correction tool for `--dry-run` state
+/// reporting and idempotency checks (is this pair already authored?).
+pub async fn get_authored_relationship(
+    pool: &PgPool,
+    from_entity_id: &str,
+    to_entity_id: &str,
+    relationship_type: &str,
+) -> Result<Option<AuthoredRelationshipRecord>, PipelineRepoError> {
+    let sql = format!(
+        "SELECT {RELATIONSHIP_COLUMNS} FROM authored_relationships \
+         WHERE from_entity_id = $1 AND to_entity_id = $2 AND relationship_type = $3"
+    );
+    let row = sqlx::query_as::<_, AuthoredRelationshipRecord>(&sql)
+        .bind(from_entity_id)
+        .bind(to_entity_id)
+        .bind(relationship_type)
+        .fetch_optional(pool)
+        .await?;
+    Ok(row)
+}
+
+/// Delete exactly one authored relationship identified by its unique edge
+/// triple. Returns the number of rows removed — 0 means the row was already
+/// absent (idempotent: a re-run after a partial failure is a no-op). Unlike
+/// [`delete_authored_relationships_by_type`], this touches a single edge, not
+/// every edge of a type.
+pub async fn delete_authored_relationship(
+    executor: impl sqlx::PgExecutor<'_>,
+    from_entity_id: &str,
+    to_entity_id: &str,
+    relationship_type: &str,
+) -> Result<u64, PipelineRepoError> {
+    let result = sqlx::query(
+        "DELETE FROM authored_relationships \
+         WHERE from_entity_id = $1 AND to_entity_id = $2 AND relationship_type = $3",
+    )
+    .bind(from_entity_id)
+    .bind(to_entity_id)
+    .bind(relationship_type)
+    .execute(executor)
+    .await?;
+    Ok(result.rows_affected())
+}
+
+/// Promote an existing extracted edge to human-authored, making the correction
+/// durable. Sets `provenance = 'authored'` (the field reconciliation filters
+/// on), records the human decision in `created_by`, and bumps `updated_at`.
+///
+/// Returns the number of rows updated — 0 means the triple did not exist (the
+/// caller reports "not found"; an already-authored row updates to the same
+/// values, so a re-run is idempotent).
+///
+/// ## Durability note (from M5 research)
+///
+/// Nulling `document_id` here is **hygiene, not the protection**: a future
+/// Pass-2 re-extraction of the same pair will re-populate `document_id` via
+/// [`insert_extracted_authored_relationship`]'s `ON CONFLICT` (which refreshes
+/// `document_id` but PRESERVES `provenance`). The row stays durable because it
+/// remains `provenance = 'authored'` — that, not the NULL `document_id`, is
+/// what keeps both reconciliation paths from clobbering it.
+pub async fn promote_relationship_to_authored(
+    executor: impl sqlx::PgExecutor<'_>,
+    from_entity_id: &str,
+    to_entity_id: &str,
+    relationship_type: &str,
+    created_by: &str,
+) -> Result<u64, PipelineRepoError> {
+    let result = sqlx::query(
+        "UPDATE authored_relationships \
+         SET provenance = $4, document_id = NULL, created_by = $5, updated_at = NOW() \
+         WHERE from_entity_id = $1 AND to_entity_id = $2 AND relationship_type = $3",
+    )
+    .bind(from_entity_id)
+    .bind(to_entity_id)
+    .bind(relationship_type)
+    .bind(PROVENANCE_AUTHORED)
+    .bind(created_by)
+    .execute(executor)
+    .await?;
+    Ok(result.rows_affected())
+}
+
 // ── Extracted cross-tier edges (Pass-2 PROVES_ELEMENT etc.) ───────
 //
 // These rows differ from the canonical loader's: they carry a `document_id`

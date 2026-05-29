@@ -8,6 +8,7 @@ pub mod config;
 pub mod database;
 pub mod dto;
 pub mod error;
+pub mod mapping_correction;
 pub mod models;
 pub mod neo4j;
 pub mod pipeline;
