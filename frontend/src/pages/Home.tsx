@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import CaseHeader from "../components/CaseHeader";
 import CountCard from "../components/CountCard";
 import ElementDetailPanel from "../components/ElementDetailPanel";
@@ -39,6 +40,7 @@ type SelectedElement = {
  * `cancelled = true` so we never setState on an unmounted component.
  */
 const Home: React.FC = () => {
+  const navigate = useNavigate();
   const [header, setHeader] = useState<CaseHeaderResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -180,6 +182,11 @@ const Home: React.FC = () => {
                 count={count}
                 onElementClick={(elementId, elementName, allegationCount) =>
                   setSelectedElement({ elementId, elementName, allegationCount })
+                }
+                onOpenCount={() =>
+                  navigate(
+                    `/cases/${encodeURIComponent(DEFAULT_CASE_SLUG)}/counts/${count.count_number}`,
+                  )
                 }
               />
             ))}

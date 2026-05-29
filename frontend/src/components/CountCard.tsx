@@ -166,11 +166,16 @@ const ElementRow: React.FC<{
  * @param count one Count's data from the causes-of-action endpoint
  * @param onElementClick fires when any Element row is clicked; the parent
  *   (Home) uses this to open the Element detail panel.
+ * @param onOpenCount fires when the Count header is clicked; the parent (Home)
+ *   navigates to the routed Count-detail page. Additive — the Element-row →
+ *   panel behavior above is unchanged (the popup is removed in a later step).
  */
 const CountCard: React.FC<{
   count: CountDetail;
   onElementClick: ElementClickHandler;
-}> = ({ count, onElementClick }) => {
+  onOpenCount: () => void;
+}> = ({ count, onElementClick, onOpenCount }) => {
+  const [headerHovered, setHeaderHovered] = useState(false);
   const roman = toRomanNumeral(count.count_number);
   const title = count.count_name ? `COUNT ${roman} — ${count.count_name}` : `COUNT ${roman}`;
 
@@ -192,8 +197,31 @@ const CountCard: React.FC<{
         padding: "24px",
       }}
     >
-      {/* Count header */}
-      <div className="count-header">{title}</div>
+      {/* Count header — clickable, navigates to the routed Count-detail page.
+          A button-styled-as-heading keeps it keyboard-accessible while reading
+          as the card title. */}
+      <div
+        className="count-header"
+        role="link"
+        tabIndex={0}
+        onClick={onOpenCount}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onOpenCount();
+          }
+        }}
+        onMouseEnter={() => setHeaderHovered(true)}
+        onMouseLeave={() => setHeaderHovered(false)}
+        style={{
+          cursor: "pointer",
+          color: headerHovered ? "var(--accent-primary)" : undefined,
+          textDecoration: headerHovered ? "underline" : "none",
+        }}
+        title="Open Count detail"
+      >
+        {title}
+      </div>
       <div
         className="burden-strip"
         style={{ marginTop: "4px", display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}
