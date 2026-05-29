@@ -75,6 +75,15 @@ RUN mkdir src && \
 # to download and compile DEPENDENCIES, not our code.
 RUN cargo build --release 2>/dev/null || true
 
+# Remove the dummy source tree before copying the real source.
+# COPY only adds/overwrites files — it never deletes. If a placeholder file
+# (e.g. src/neo4j.rs) has no real counterpart to overwrite it, it survives into
+# the build. When neo4j became a directory module (src/neo4j/mod.rs), the leftover
+# placeholder src/neo4j.rs collided with it: error[E0761] file for module `neo4j`
+# found at both "src/neo4j.rs" and "src/neo4j/mod.rs". Wiping src/ first guarantees
+# the real source is the only source. (target/ is untouched, so cached deps remain.)
+RUN rm -rf src
+
 # Now copy the real source code and migrations
 COPY src/ src/
 COPY migrations/ migrations/
