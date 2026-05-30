@@ -1,45 +1,34 @@
 // =============================================================================
 // CaseHeader.tsx — the case caption block at the top of the Home page
 // -----------------------------------------------------------------------------
-// Renders (top to bottom, per HOME_PAGE_REDESIGN_v2.md §6):
-//   1. Title          — serif H1 with an italicized "v." (legal convention)
+// A compact 5-line caption (top to bottom):
+//   1. Title          — serif H1 (display_title_full), the ONLY serif element
 //   2. Metadata strip — court · Case No. · Filed … · Status (+ transfer note)
-//   3. Parties block  — plaintiffs (left) / defendants (right, + DROPPED)
-//   4. Counsel block  — one self-labeled line per counsel-of-record
+//   3. Column headers — PLAINTIFF | DEFENDANTS
+//   4. Names row      — plaintiff(s) left; defendants right, active + dropped on
+//                       ONE line, the dropped names muted with "(Dropped)"
+//   5. Counsel        — one self-labeled line per counsel-of-record
 //
-// This is a PRESENTATIONAL component: it receives the API payload via props and
-// never fetches. The fetch + loading/error states live in Home.tsx (Phase 2C
-// instruction rule 1). All colors come from Phase 2A tokens (var(--…)); all
-// typography uses the token utility classes from styles/tokens.css.
+// Typography is deliberately minimal: ONE serif (the H1 title) + ONE 14px sans
+// size for everything else. Hierarchy comes from weight (the uppercase column
+// headers are 600) and color tokens (--text-primary for names, --text-secondary
+// for metadata/counsel, --text-muted for dropped parties), NOT from many sizes.
+//
+// PRESENTATIONAL: it receives the API payload via props and never fetches. The
+// fetch + loading/error states live in Home.tsx. All colors come from tokens
+// (var(--…)); no hardcoded color hex.
 // =============================================================================
 
 import React from "react";
 import {
   CaseHeaderResponse,
   CounselContact,
+  CourtInfo,
+  DroppedDefendant,
+  HeaderParty,
 } from "../services/caseHeader";
 
 // ─── Pure helpers (exported for unit testing — no DOM, no React) ─────────────
-
-/**
- * Split a case title on the legal " v. " separator so the caller can italicize
- * the "v." per convention. Returns `null` when there is no " v. " — the caller
- * then renders the title verbatim (defensive: not every title is adversarial,
- * e.g. "In re Estate of …").
- *
- * Splits on the FIRST occurrence only: "A v. B v. C" → left "A", right "B v. C".
- */
-export function splitOnVersus(
-  title: string,
-): { left: string; right: string } | null {
-  const sep = " v. ";
-  const i = title.indexOf(sep);
-  if (i === -1) return null;
-  return {
-    left: title.slice(0, i),
-    right: title.slice(i + sep.length),
-  };
-}
 
 /**
  * Format an ISO "YYYY-MM-DD" date as a long US date ("November 1, 2013").
@@ -90,8 +79,8 @@ export function isCaseNumberPending(value: string | null | undefined): boolean {
 /**
  * Build one counsel line: "{role}'s Counsel: {attorney} ({bar}) — {firm}".
  * Omits the "(bar)" parenthetical when bar_number is null/empty and the
- * "— firm" suffix when firm_name is null/empty (Phase 2C rule: omit, don't
- * print empty parentheses or a dangling dash).
+ * "— firm" suffix when firm_name is null/empty (rule: omit, don't print empty
+ * parentheses or a dangling dash).
  */
 export function formatCounselLine(c: CounselContact): string {
   const bar = c.bar_number && c.bar_number.trim() !== "" ? ` (${c.bar_number})` : "";
@@ -99,15 +88,51 @@ export function formatCounselLine(c: CounselContact): string {
   return `${c.represents_role}'s Counsel: ${c.attorney_name}${bar}${firm}`;
 }
 
-// ─── Shared inline styles ────────────────────────────────────────────────────
-// Party-name typography (§6: 14px, 400, --text-primary). No dedicated token
-// class exists for it, so we reference the color token inline. Dropped names
-// override only the color.
+/**
+ * Label for a dropped defendant on the shared defendants line: "{name} (Dropped)".
+ * The "(Dropped)" marker is a fixed literal for every non-active defendant
+ * regardless of the party's specific lifecycle word (dropped / dismissed /
+ * settled) — the caller renders the whole label in the muted color token.
+ */
+export function formatDroppedDefendant(name: string): string {
+  return `${name} (Dropped)`;
+}
 
+/**
+ * Resolve the case title to render: prefer `display_title_full`, fall back to
+ * `display_title`, then to a clear placeholder. Trims so a whitespace-only
+ * value is treated as absent (Rule 1: never render a blank title).
+ */
+export function resolveTitle(data: CaseHeaderResponse): string {
+  if (data.display_title_full && data.display_title_full.trim() !== "") {
+    return data.display_title_full;
+  }
+  if (data.display_title && data.display_title.trim() !== "") {
+    return data.display_title;
+  }
+  return "Case title unavailable";
+}
+
+// ─── Shared inline styles ────────────────────────────────────────────────────
+// ONE sans size (14px) for the whole header below the H1. Names use the primary
+// text color; metadata/counsel use the secondary color. No dedicated token class
+// exists for these exact combinations, so the color tokens are referenced inline.
+
+/** Party-name typography: 14px / 400 / primary. Dropped names override the color. */
 const NAME_STYLE: React.CSSProperties = {
+  fontFamily: "var(--font-sans)",
   fontSize: "14px",
   fontWeight: 400,
   color: "var(--text-primary)",
+  lineHeight: 1.5,
+};
+
+/** Metadata-strip and counsel typography: 14px / 400 / secondary. */
+const META_STYLE: React.CSSProperties = {
+  fontFamily: "var(--font-sans)",
+  fontSize: "14px",
+  fontWeight: 400,
+  color: "var(--text-secondary)",
   lineHeight: 1.5,
 };
 
@@ -119,7 +144,7 @@ const PartyColumn: React.FC<{ label: string; names: string[] }> = ({
   names,
 }) => (
   <div style={{ flex: 1, minWidth: 0 }}>
-    <div className="h2-section-header" style={{ marginBottom: "8px" }}>
+    <div className="h2-section-header" style={{ marginBottom: "4px" }}>
       {label}
     </div>
     {names.map((name, i) => (
@@ -130,22 +155,49 @@ const PartyColumn: React.FC<{ label: string; names: string[] }> = ({
   </div>
 );
 
-// ─── Component ───────────────────────────────────────────────────────────────
+/**
+ * The defendants column: a DEFENDANTS header over a SINGLE names line — active
+ * defendants comma-joined, then each dropped defendant (after a " · ") shown
+ * muted with the "(Dropped)" marker. Collapses what used to be a separate
+ * DROPPED sub-block into one line.
+ */
+const DefendantsColumn: React.FC<{
+  active: HeaderParty[];
+  dropped: DroppedDefendant[];
+}> = ({ active, dropped }) => (
+  <div style={{ flex: 1, minWidth: 0 }}>
+    <div className="h2-section-header" style={{ marginBottom: "4px" }}>
+      {pluralizePartyLabel("DEFENDANT", active.length)}
+    </div>
+    <div style={NAME_STYLE}>
+      {active.map((d) => d.name).join(", ")}
+      {dropped.map((d, i) => (
+        <React.Fragment key={d.party_id}>
+          {/* Separator before each dropped name when anything precedes it. */}
+          {active.length > 0 || i > 0 ? " · " : ""}
+          <span style={{ color: "var(--text-muted)" }}>
+            {formatDroppedDefendant(d.name)}
+          </span>
+        </React.Fragment>
+      ))}
+    </div>
+  </div>
+);
 
 /**
- * CaseHeader — the read-only case caption for the Home page.
- *
- * @param data the payload from GET /api/cases/:slug (see services/caseHeader.ts)
+ * The metadata strip: "court · Case No. {n|[pending]} · Filed {date} · Status:
+ * {label}" with an optional "(transferred from …)" tail. Built as discrete
+ * nodes so the [pending] and active-status values can carry their own token
+ * colors, then interleaved with " · ".
  */
-const CaseHeader: React.FC<{ data: CaseHeaderResponse }> = ({ data }) => {
-  const { court, parties, counsel } = data;
-  const isActive = data.status.toLowerCase() === "active";
-  const statusLabel =
-    data.status.charAt(0).toUpperCase() + data.status.slice(1);
+const MetadataStrip: React.FC<{ court: CourtInfo; status: string }> = ({
+  court,
+  status,
+}) => {
+  const isActive = status.toLowerCase() === "active";
+  const statusLabel = status.charAt(0).toUpperCase() + status.slice(1);
   const filed = formatFiledDate(court.filed_date);
 
-  // Build the metadata strip as discrete nodes so the [pending] and status
-  // values can carry their own token colors, then interleave " · " between them.
   const segments: React.ReactNode[] = [];
   if (court.name) segments.push(<span key="court">{court.name}</span>);
   segments.push(
@@ -168,80 +220,54 @@ const CaseHeader: React.FC<{ data: CaseHeaderResponse }> = ({ data }) => {
     </span>,
   );
 
-  // Title: split on " v. " to italicize the "v."; fall back to verbatim (or a
-  // clear placeholder if the title is somehow missing — Rule 1, no blank render).
-  const titleParts = data.display_title ? splitOnVersus(data.display_title) : null;
+  return (
+    <div style={{ ...META_STYLE, marginTop: "8px" }}>
+      {segments.map((seg, i) => (
+        <React.Fragment key={i}>
+          {i > 0 ? " · " : ""}
+          {seg}
+        </React.Fragment>
+      ))}
+      {court.transferred_from && <> (transferred from {court.transferred_from})</>}
+    </div>
+  );
+};
+
+// ─── Component ───────────────────────────────────────────────────────────────
+
+/**
+ * CaseHeader — the read-only, compact case caption for the Home page.
+ *
+ * @param data the payload from GET /api/cases/:slug (see services/caseHeader.ts)
+ */
+const CaseHeader: React.FC<{ data: CaseHeaderResponse }> = ({ data }) => {
+  const { court, parties, counsel } = data;
 
   return (
-    // No bottom margin: the Causes of Action placeholder below supplies the
-    // inter-section gap via its own top padding (it's out of scope to edit).
     <header>
-      {/* 1. Title */}
-      {!data.display_title ? (
-        <h1 className="h1-case-title">Case title unavailable</h1>
-      ) : titleParts ? (
-        <h1 className="h1-case-title">
-          {titleParts.left} <em>v.</em> {titleParts.right}
-        </h1>
-      ) : (
-        <h1 className="h1-case-title">{data.display_title}</h1>
-      )}
+      {/* 1. Title — full caption, the only serif element */}
+      <h1 className="h1-case-title">{resolveTitle(data)}</h1>
 
-      {/* 2. Court / metadata strip (24px below the title) */}
-      <div className="metadata" style={{ marginTop: "24px" }}>
-        {segments.map((seg, i) => (
-          <React.Fragment key={i}>
-            {i > 0 ? " · " : ""}
-            {seg}
-          </React.Fragment>
-        ))}
-        {court.transferred_from && <> (transferred from {court.transferred_from})</>}
-      </div>
+      {/* 2. Metadata strip */}
+      <MetadataStrip court={court} status={data.status} />
 
-      {/* 3. Parties block (16px below the strip): plaintiffs left, defendants right */}
-      <div style={{ display: "flex", gap: "32px", marginTop: "16px" }}>
+      {/* 3 + 4. Column headers + names: plaintiffs left, defendants right */}
+      <div style={{ display: "flex", gap: "32px", marginTop: "12px" }}>
         <PartyColumn
           label={pluralizePartyLabel("PLAINTIFF", parties.plaintiffs.length)}
           names={parties.plaintiffs.map((p) => p.name)}
         />
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div className="h2-section-header" style={{ marginBottom: "8px" }}>
-            {pluralizePartyLabel("DEFENDANT", parties.active_defendants.length)}
-          </div>
-          {parties.active_defendants.map((d) => (
-            <div key={d.party_id} style={NAME_STYLE}>
-              {d.name}
-            </div>
-          ))}
-          {parties.dropped_defendants.length > 0 && (
-            <>
-              <div
-                style={{
-                  borderTop: "1px solid var(--border-default)",
-                  margin: "12px 0 8px",
-                }}
-              />
-              <div className="h2-section-header" style={{ marginBottom: "8px" }}>
-                DROPPED
-              </div>
-              {parties.dropped_defendants.map((d) => (
-                <div
-                  key={d.party_id}
-                  style={{ ...NAME_STYLE, color: "var(--status-dropped-text)" }}
-                >
-                  {d.name}
-                </div>
-              ))}
-            </>
-          )}
-        </div>
+        <DefendantsColumn
+          active={parties.active_defendants}
+          dropped={parties.dropped_defendants}
+        />
       </div>
 
-      {/* 4. Counsel block (16px below parties): one self-labeled line per record */}
+      {/* 5. Counsel — one self-labeled line per record, directly beneath names */}
       {counsel.length > 0 && (
-        <div style={{ marginTop: "16px" }}>
+        <div style={{ marginTop: "8px" }}>
           {counsel.map((c) => (
-            <div key={c.counsel_id} className="metadata" style={{ lineHeight: 1.6 }}>
+            <div key={c.counsel_id} style={META_STYLE}>
               {formatCounselLine(c)}
             </div>
           ))}

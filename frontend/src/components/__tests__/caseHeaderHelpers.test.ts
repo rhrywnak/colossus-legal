@@ -1,39 +1,65 @@
 /**
  * Pure-helper tests for CaseHeader.
  *
- * Locks the display contracts behind the case header: the "v." title split,
- * long-date formatting (timezone-stable), party-label pluralization, the
- * [pending] case-number rule, and the counsel-line formatting (with its
+ * Locks the display contracts behind the case header: title resolution
+ * (full → short → placeholder), long-date formatting (timezone-stable),
+ * party-label pluralization, the [pending] case-number rule, the dropped-
+ * defendant "(Dropped)" label, and the counsel-line formatting (with its
  * omit-when-empty branches). Per §11 test-auditor: every branch — happy path,
  * fallback path, and the boundary between them — has a test.
  *
- * No DOM / RTL — these are pure functions. Pattern matches
- * `configurationPanelHelpers.test.ts`.
+ * No DOM / RTL — these are pure functions.
  */
 import { describe, expect, it } from "vitest";
 import {
   formatCounselLine,
+  formatDroppedDefendant,
   formatFiledDate,
   isCaseNumberPending,
   pluralizePartyLabel,
-  splitOnVersus,
+  resolveTitle,
 } from "../CaseHeader";
-import type { CounselContact } from "../../services/caseHeader";
+import type {
+  CaseHeaderResponse,
+  CounselContact,
+} from "../../services/caseHeader";
 
-describe("splitOnVersus", () => {
-  it("splits a title on the first ' v. '", () => {
-    expect(splitOnVersus("Awad v. Catholic Family Service")).toEqual({
-      left: "Awad",
-      right: "Catholic Family Service",
-    });
+describe("resolveTitle", () => {
+  const base: CaseHeaderResponse = {
+    case_id: "case-1",
+    case_slug: "awad_v_catholic_family_service",
+    display_title: "Awad v. CFS",
+    display_title_full: "Marie Awad v. Catholic Family Service & George Phillips",
+    court: {
+      name: null,
+      jurisdiction: null,
+      case_number: null,
+      filed_date: null,
+      transferred_from: null,
+      transfer_date: null,
+    },
+    status: "active",
+    complaint_document_id: null,
+    parties: { plaintiffs: [], active_defendants: [], dropped_defendants: [] },
+    counsel: [],
+  };
+
+  it("prefers display_title_full when present", () => {
+    expect(resolveTitle(base)).toBe(
+      "Marie Awad v. Catholic Family Service & George Phillips",
+    );
   });
 
-  it("returns null when there is no ' v. '", () => {
-    expect(splitOnVersus("In re Estate of Smith")).toBeNull();
+  it("falls back to display_title when full is null/blank", () => {
+    expect(resolveTitle({ ...base, display_title_full: null })).toBe("Awad v. CFS");
+    expect(resolveTitle({ ...base, display_title_full: "   " })).toBe("Awad v. CFS");
   });
 
-  it("splits only on the first occurrence", () => {
-    expect(splitOnVersus("A v. B v. C")).toEqual({ left: "A", right: "B v. C" });
+  it("falls back to the placeholder when both are blank", () => {
+    expect(
+      // @ts-ignore — exercising the defensive empty-string path
+      resolveTitle({ ...base, display_title_full: null, display_title: "" }),
+    ).toBe("Case title unavailable");
   });
 });
 
@@ -79,6 +105,14 @@ describe("isCaseNumberPending", () => {
 
   it("is not pending for a real docket number", () => {
     expect(isCaseNumberPending("13-12345-CZ")).toBe(false);
+  });
+});
+
+describe("formatDroppedDefendant", () => {
+  it("appends the (Dropped) marker", () => {
+    expect(formatDroppedDefendant("Archdiocese of Detroit")).toBe(
+      "Archdiocese of Detroit (Dropped)",
+    );
   });
 });
 
