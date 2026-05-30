@@ -40,5 +40,3 @@ backend/.env.local
 # whether these stay in the repo or move elsewhere).
 backend/test_audit/
 .claude/
-.claude/
-.claude/
