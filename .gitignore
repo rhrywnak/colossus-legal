@@ -41,3 +41,4 @@ backend/.env.local
 backend/test_audit/
 .claude/
 .claude/
+.claude/
