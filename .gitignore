@@ -39,3 +39,4 @@ backend/.env.local
 # Working artifacts for the codebase test audit (Roman decides later
 # whether these stay in the repo or move elsewhere).
 backend/test_audit/
+.claude/
