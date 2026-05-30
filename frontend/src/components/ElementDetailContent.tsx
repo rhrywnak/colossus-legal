@@ -175,15 +175,16 @@ const PARAGRAPH_LABEL_STYLE: React.CSSProperties = {
 
 const SUMMARY_TEXT_STYLE: React.CSSProperties = {
   fontFamily: "var(--font-sans)",
-  fontSize: "12px",
-  color: "var(--text-muted)",
+  fontSize: "13px",
+  color: "var(--text-secondary)",
   marginLeft: "8px",
 };
 
+// Layout-only style for the verbatim quote. Typography (size/weight/color/font)
+// comes from the `.proof-text` utility class in tokens.css — the design system's
+// canonical body/proof treatment — so this object keeps only spacing and the
+// dynamic left border.
 const QUOTE_TEXT_STYLE_BASE: React.CSSProperties = {
-  fontFamily: "var(--font-sans)",
-  fontSize: "12px",
-  color: "var(--text-secondary)",
   marginTop: "6px",
   paddingLeft: "8px",
   lineHeight: 1.45,
@@ -488,6 +489,7 @@ const AllegationSection: React.FC<{
         </div>
         {a.verbatim_quote && (
           <div
+            className="proof-text"
             style={{
               ...QUOTE_TEXT_STYLE_BASE,
               borderLeft: `3px solid ${accentColor}`,

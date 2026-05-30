@@ -328,6 +328,7 @@ const ELEMENT_NAME_STYLE: React.CSSProperties = {
   flex: 1,
   fontFamily: "var(--font-sans)",
   fontSize: "14px",
+  fontWeight: 500,
   color: "var(--text-primary)",
 };
 
