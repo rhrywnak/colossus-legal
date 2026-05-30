@@ -67,9 +67,6 @@ describe("fetchStaticJson", () => {
 describe("getCaseSummaryDoc", () => {
   const valid = {
     summary: "s",
-    venue: "v",
-    filed: "f",
-    status: "active",
     count_descriptions: { "1": "first count" },
   };
 
@@ -88,23 +85,23 @@ describe("getCaseSummaryDoc", () => {
     await expect(getCaseSummaryDoc()).resolves.toEqual(doc);
   });
 
-  it("throws when a required string field is missing", async () => {
-    // @ts-ignore — missing `status`
+  it("throws when summary is missing", async () => {
+    // @ts-ignore — summary absent
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
-      json: async () => ({ summary: "s", venue: "v", filed: "f", count_descriptions: {} }),
+      json: async () => ({ count_descriptions: {} }),
     });
 
     await expect(getCaseSummaryDoc()).rejects.toThrow(/missing required fields/);
   });
 
   it("throws when count_descriptions is absent", async () => {
-    // @ts-ignore — all strings present, container missing
+    // @ts-ignore — summary present, container missing
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
-      json: async () => ({ summary: "s", venue: "v", filed: "f", status: "active" }),
+      json: async () => ({ summary: "s" }),
     });
 
     await expect(getCaseSummaryDoc()).rejects.toThrow(/missing required fields/);

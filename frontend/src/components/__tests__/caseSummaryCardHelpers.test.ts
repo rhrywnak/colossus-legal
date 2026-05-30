@@ -1,29 +1,12 @@
 /**
  * Pure-helper tests for CaseSummaryCard.
  *
- * Locks the venue line wording and — critically — the null-safety of the
- * complaint link (Standing Rule 1: a missing complaint id must produce NO link,
- * never a broken one). No DOM / RTL — pure functions only.
+ * Locks — critically — the null-safety of the complaint link (Standing Rule 1:
+ * a missing complaint id must produce NO link, never a broken one). No DOM /
+ * RTL — pure functions only.
  */
 import { describe, expect, it } from "vitest";
-import { complaintFileHref, formatVenueLine } from "../CaseSummaryCard";
-import type { CaseSummaryDoc } from "../../services/caseSummaryDoc";
-
-const doc: CaseSummaryDoc = {
-  summary: "Marie Awad alleges breach of fiduciary duty.",
-  venue: "Bay County Circuit Court",
-  filed: "November 1, 2013",
-  status: "Active (transferred from Macomb County Circuit Court)",
-  count_descriptions: {},
-};
-
-describe("formatVenueLine", () => {
-  it("composes venue · Filed {date} · status", () => {
-    expect(formatVenueLine(doc)).toBe(
-      "Bay County Circuit Court · Filed November 1, 2013 · Active (transferred from Macomb County Circuit Court)",
-    );
-  });
-});
+import { complaintFileHref } from "../CaseSummaryCard";
 
 describe("complaintFileHref", () => {
   it("returns the file route URL when an id is present", () => {

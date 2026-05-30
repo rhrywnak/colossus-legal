@@ -1,9 +1,10 @@
 // =============================================================================
 // caseSummaryDoc.ts — client for the static /data/case-summary.json file
 // -----------------------------------------------------------------------------
-// The Home page's Case Summary card reads its plain-language prose and venue
-// facts from a bundled static file (NOT the backend). This is intentionally a
-// static file for Stage 1: the text is editorial/case-specific and does not
+// The Home page reads two editorial, case-specific pieces from this bundled
+// static file (NOT the backend): the Case Summary card's plain-language prose
+// (`summary`) and the per-Count card descriptions (`count_descriptions`). It is
+// intentionally a static file for Stage 1: the text is editorial and does not
 // change per request, so it ships with the frontend rather than adding a backend
 // endpoint. (The complaint *document link* still resolves dynamically from the
 // case-header API — see CaseSummaryCard — so no document id is hardcoded here.)
@@ -17,8 +18,10 @@ import { fetchStaticJson } from "./staticData";
 /**
  * The shape of `/data/case-summary.json`.
  *
- * `summary`/`venue`/`filed`/`status` are required prose strings the Case Summary
- * card composes into a paragraph + a venue/filed/status line.
+ * `summary` is the required plain-language paragraph the Case Summary card
+ * renders. (The venue/filed/status facts that used to live here were dropped:
+ * they exactly duplicated the CaseHeader metadata strip rendered directly above
+ * the card, so the redundant line — and its data — were removed.)
  *
  * `count_descriptions` maps a Count's `count_number` (as a STRING key, e.g.
  * "1".."4") to a one-line plain-language description rendered on that Count's
@@ -31,9 +34,6 @@ import { fetchStaticJson } from "./staticData";
  */
 export type CaseSummaryDoc = {
   summary: string;
-  venue: string;
-  filed: string;
-  status: string;
   count_descriptions: Record<string, string>;
 };
 
@@ -51,7 +51,7 @@ const CASE_SUMMARY_LABEL = "case summary";
  *
  * @returns the validated {@link CaseSummaryDoc}
  * @throws Error on fetch/timeout/non-2xx/invalid-JSON (via {@link fetchStaticJson})
- *   or when any required string field is missing
+ *   or when `summary`/`count_descriptions` are missing or the wrong type
  */
 export async function getCaseSummaryDoc(): Promise<CaseSummaryDoc> {
   const data = await fetchStaticJson(CASE_SUMMARY_PATH, CASE_SUMMARY_LABEL);
@@ -64,17 +64,11 @@ export async function getCaseSummaryDoc(): Promise<CaseSummaryDoc> {
     typeof parsed.count_descriptions === "object" &&
     parsed.count_descriptions !== null &&
     !Array.isArray(parsed.count_descriptions);
-  if (
-    typeof parsed.summary !== "string" ||
-    typeof parsed.venue !== "string" ||
-    typeof parsed.filed !== "string" ||
-    typeof parsed.status !== "string" ||
-    !countDescriptionsOk
-  ) {
+  if (typeof parsed.summary !== "string" || !countDescriptionsOk) {
     throw new Error(
       `${CASE_SUMMARY_LABEL} at ${CASE_SUMMARY_PATH} is missing required fields ` +
-        `(expected summary, venue, filed, status as strings and count_descriptions ` +
-        `as an object). Fix ${CASE_SUMMARY_PATH} and redeploy the frontend ` +
+        `(expected summary as a string and count_descriptions as an object). ` +
+        `Fix ${CASE_SUMMARY_PATH} and redeploy the frontend ` +
         `(reloading the page will not help — the file itself is malformed).`,
     );
   }

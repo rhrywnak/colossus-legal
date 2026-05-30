@@ -1,11 +1,14 @@
 // =============================================================================
 // CaseSummaryCard.tsx — Home page "Case Summary" card
 // -----------------------------------------------------------------------------
-// A plain-language case paragraph + a venue/filed/status line, and a null-safe
-// "View Complaint →" link. The prose comes from the static /data/case-summary.json
-// file (services/caseSummaryDoc); the complaint link target is resolved
-// DYNAMICALLY from the case-header response's `complaint_document_id` (passed in
-// as a prop) so no document id is hardcoded (Standing Rule 2).
+// A plain-language case paragraph and a null-safe "View Complaint →" link. The
+// prose comes from the static /data/case-summary.json file (services/
+// caseSummaryDoc); the complaint link target is resolved DYNAMICALLY from the
+// case-header response's `complaint_document_id` (passed in as a prop) so no
+// document id is hardcoded (Standing Rule 2).
+//
+// (A venue/filed/status line used to render here but was removed — it exactly
+// duplicated the CaseHeader metadata strip shown directly above this card.)
 // =============================================================================
 
 import React, { useEffect, useState } from "react";
@@ -13,14 +16,6 @@ import { API_BASE_URL } from "../services/api";
 import { CaseSummaryDoc, getCaseSummaryDoc } from "../services/caseSummaryDoc";
 
 // ─── Pure helpers (exported for unit testing — no DOM, no React) ─────────────
-
-/**
- * Compose the secondary metadata line: "{venue} · Filed {filed} · {status}".
- * Pure so the exact wording/separators are locked by a test.
- */
-export function formatVenueLine(doc: CaseSummaryDoc): string {
-  return `${doc.venue} · Filed ${doc.filed} · ${doc.status}`;
-}
 
 /**
  * Build the complaint PDF URL the document file route accepts, or `null` when
@@ -57,8 +52,6 @@ const SUMMARY_PARAGRAPH_STYLE: React.CSSProperties = {
   marginTop: "8px",
   lineHeight: 1.6,
 };
-
-const VENUE_LINE_STYLE: React.CSSProperties = { marginTop: "10px" };
 
 const VIEW_COMPLAINT_LINK_STYLE: React.CSSProperties = {
   display: "inline-block",
@@ -142,9 +135,6 @@ const CaseSummaryCard: React.FC<CaseSummaryCardProps> = ({
       <p className="proof-text" style={SUMMARY_PARAGRAPH_STYLE}>
         {doc.summary}
       </p>
-      <div className="metadata" style={VENUE_LINE_STYLE}>
-        {formatVenueLine(doc)}
-      </div>
       {/* Null-safe: render the link only when a complaint id is present. */}
       {complaintHref && (
         <a
