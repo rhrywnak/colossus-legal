@@ -6,6 +6,7 @@ import TimelineBand from "../components/TimelineBand";
 import CountCard from "../components/CountCard";
 import { CaseHeaderResponse, DEFAULT_CASE_SLUG, getCaseHeader } from "../services/caseHeader";
 import { CountDetail, getCausesOfAction } from "../services/causesOfAction";
+import { getCaseSummaryDoc } from "../services/caseSummaryDoc";
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
@@ -41,6 +42,14 @@ const Home: React.FC = () => {
   const [counts, setCounts] = useState<CountDetail[] | null>(null);
   const [coaLoading, setCoaLoading] = useState(true);
   const [coaError, setCoaError] = useState<string | null>(null);
+
+  // Per-Count plain-language descriptions, keyed by count_number (as a string),
+  // from the static case-summary doc. Supplementary content for the Count cards:
+  // the cards render fine without it (each shows no description line), so a load
+  // failure here must NOT block or error the Causes of Action section.
+  const [countDescriptions, setCountDescriptions] = useState<
+    Record<string, string>
+  >({});
 
   useEffect(() => {
     let cancelled = false;
@@ -95,6 +104,35 @@ const Home: React.FC = () => {
     }
 
     load();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Load the per-Count descriptions from the static case-summary doc.
+  //
+  // ## React Learning: a deliberately non-blocking fetch
+  // Unlike the two fetches above (which gate the page / the CoA section), these
+  // descriptions are supplementary — the Count cards degrade gracefully without
+  // them. So on failure we do NOT setError/block; we log a contextual message
+  // (Rule 1: the failure is observable, not swallowed) and leave the map empty,
+  // and the cards simply omit their description line. The same file is also read
+  // by CaseSummaryCard, which surfaces a visible card-level error if it is truly
+  // broken — so the user still gets one clear error rather than two.
+  useEffect(() => {
+    let cancelled = false;
+
+    getCaseSummaryDoc()
+      .then((doc) => {
+        if (!cancelled) setCountDescriptions(doc.count_descriptions);
+      })
+      .catch((err: unknown) => {
+        const message =
+          err instanceof Error ? err.message : "unknown error";
+        // Observable, not silent — but non-fatal for this section.
+        console.error(`Home: could not load Count descriptions — ${message}`);
+      });
 
     return () => {
       cancelled = true;
@@ -171,12 +209,22 @@ const Home: React.FC = () => {
             No Counts loaded for this case.
           </div>
         ) : (
-          // 32px gap between stacked cards (§7).
-          <div style={{ display: "flex", flexDirection: "column", gap: "32px" }}>
+          // 2-column grid matching the frozen PROD layout. `1fr 1fr` keeps the
+          // two columns equal; 16px gap is the project's card-gap spacing step.
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(2, 1fr)",
+              gap: "16px",
+            }}
+          >
             {counts.map((count) => (
               <CountCard
                 key={count.count_number}
                 count={count}
+                // Look up by count_number (string) — the only stable id the
+                // causes-of-action payload exposes (no count slug on the wire).
+                description={countDescriptions[String(count.count_number)]}
                 onOpenCount={() =>
                   navigate(
                     `/cases/${encodeURIComponent(DEFAULT_CASE_SLUG)}/counts/${count.count_number}`,

@@ -15,14 +15,26 @@
 import { fetchStaticJson } from "./staticData";
 
 /**
- * The shape of `/data/case-summary.json`. All four fields are required prose
- * strings; the card composes them into a paragraph + a venue/filed/status line.
+ * The shape of `/data/case-summary.json`.
+ *
+ * `summary`/`venue`/`filed`/`status` are required prose strings the Case Summary
+ * card composes into a paragraph + a venue/filed/status line.
+ *
+ * `count_descriptions` maps a Count's `count_number` (as a STRING key, e.g.
+ * "1".."4") to a one-line plain-language description rendered on that Count's
+ * Home card. We key on `count_number` because the causes-of-action payload
+ * exposes no stable count id — only `count_number` and `count_name` — and
+ * `count_number` is the guaranteed-present, drift-proof identifier (a name
+ * could change wording; the ordinal will not). A Count with no entry here gets
+ * no description line (the card degrades gracefully), so individual keys are
+ * optional even though the container itself is required.
  */
 export type CaseSummaryDoc = {
   summary: string;
   venue: string;
   filed: string;
   status: string;
+  count_descriptions: Record<string, string>;
 };
 
 /** Resource path + label kept next to the loader so both stay in sync. */
@@ -45,16 +57,24 @@ export async function getCaseSummaryDoc(): Promise<CaseSummaryDoc> {
   const data = await fetchStaticJson(CASE_SUMMARY_PATH, CASE_SUMMARY_LABEL);
 
   const parsed = data as Partial<CaseSummaryDoc>;
+  // Validate the CONTAINER of count_descriptions (a present, non-null, non-array
+  // object), not each key: per-count entries are intentionally optional so a
+  // Count without a description renders no description line rather than throwing.
+  const countDescriptionsOk =
+    typeof parsed.count_descriptions === "object" &&
+    parsed.count_descriptions !== null &&
+    !Array.isArray(parsed.count_descriptions);
   if (
     typeof parsed.summary !== "string" ||
     typeof parsed.venue !== "string" ||
     typeof parsed.filed !== "string" ||
-    typeof parsed.status !== "string"
+    typeof parsed.status !== "string" ||
+    !countDescriptionsOk
   ) {
     throw new Error(
       `${CASE_SUMMARY_LABEL} at ${CASE_SUMMARY_PATH} is missing required fields ` +
-        `(expected summary, venue, filed, status as strings). ` +
-        `Fix ${CASE_SUMMARY_PATH} and redeploy the frontend ` +
+        `(expected summary, venue, filed, status as strings and count_descriptions ` +
+        `as an object). Fix ${CASE_SUMMARY_PATH} and redeploy the frontend ` +
         `(reloading the page will not help — the file itself is malformed).`,
     );
   }

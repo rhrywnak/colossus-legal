@@ -176,10 +176,12 @@
   --font-sans: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     sans-serif;
 
-  /* --font-serif: reserved for the H1 case title only — §9's "one deliberate
-     lawyerly gesture". We do NOT load a serif webfont; the stack degrades to
-     Georgia, which the app already uses elsewhere. If 'Source Serif Pro' or
-     'Charter' happen to be installed locally they win, otherwise Georgia. */
+  /* --font-serif: §9's "one deliberate lawyerly gesture". Used for the H1 case
+     title and the plain-language Count card descriptions on the Home page — the
+     serif prose voice that distinguishes editorial narrative from UI chrome. We
+     do NOT load a serif webfont; the stack degrades to Georgia, which the app
+     already uses elsewhere. If 'Source Serif Pro' or 'Charter' happen to be
+     installed locally they win, otherwise Georgia. */
   --font-serif: "Source Serif Pro", "Charter", Georgia, serif;
 
   /* --font-mono: element numbers in the Causes of Action table. Uses the OS

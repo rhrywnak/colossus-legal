@@ -14,6 +14,7 @@ const doc: CaseSummaryDoc = {
   venue: "Bay County Circuit Court",
   filed: "November 1, 2013",
   status: "Active (transferred from Macomb County Circuit Court)",
+  count_descriptions: {},
 };
 
 describe("formatVenueLine", () => {

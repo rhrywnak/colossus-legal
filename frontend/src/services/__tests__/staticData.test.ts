@@ -70,6 +70,7 @@ describe("getCaseSummaryDoc", () => {
     venue: "v",
     filed: "f",
     status: "active",
+    count_descriptions: { "1": "first count" },
   };
 
   it("returns the validated doc when all fields are present", async () => {
@@ -79,12 +80,42 @@ describe("getCaseSummaryDoc", () => {
     await expect(getCaseSummaryDoc()).resolves.toEqual(valid);
   });
 
-  it("throws when a required field is missing", async () => {
+  it("accepts an empty count_descriptions object (per-key entries are optional)", async () => {
+    const doc = { ...valid, count_descriptions: {} };
+    // @ts-ignore
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => doc });
+
+    await expect(getCaseSummaryDoc()).resolves.toEqual(doc);
+  });
+
+  it("throws when a required string field is missing", async () => {
     // @ts-ignore — missing `status`
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
-      json: async () => ({ summary: "s", venue: "v", filed: "f" }),
+      json: async () => ({ summary: "s", venue: "v", filed: "f", count_descriptions: {} }),
+    });
+
+    await expect(getCaseSummaryDoc()).rejects.toThrow(/missing required fields/);
+  });
+
+  it("throws when count_descriptions is absent", async () => {
+    // @ts-ignore — all strings present, container missing
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ summary: "s", venue: "v", filed: "f", status: "active" }),
+    });
+
+    await expect(getCaseSummaryDoc()).rejects.toThrow(/missing required fields/);
+  });
+
+  it("throws when count_descriptions is an array, not an object", async () => {
+    // @ts-ignore — arrays are objects in JS; the validator must reject them
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ ...valid, count_descriptions: [] }),
     });
 
     await expect(getCaseSummaryDoc()).rejects.toThrow(/missing required fields/);
