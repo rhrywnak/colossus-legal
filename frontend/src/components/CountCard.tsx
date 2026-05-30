@@ -1,16 +1,15 @@
 // =============================================================================
-// CountCard.tsx — one Cause-of-Action card for the Home page (§7)
+// CountCard.tsx — one Cause-of-Action SUMMARY card for the Home page
 // -----------------------------------------------------------------------------
-// A full-width card per legal Count: a header (COUNT <roman> — <name> + a
-// burden/authority line) over a four-column table of canonical Elements.
+// Home is a dashboard: each Count renders as a single clickable summary surface
+// (header + burden/authority strip + a one-line element/allegation summary) that
+// navigates to the routed Count-detail page. The per-Element table that used to
+// live here moved to that detail page (CountDetailPage); Home no longer shows
+// Element rows.
+//
 // Data comes from GET /api/cases/:slug/causes-of-action (services/causesOfAction.ts).
-//
-// PRESENTATIONAL: receives one Count's data via props; the fetch lives in
-// Home.tsx. All colors are var(--token); typography uses the tokens.css classes.
-//
-// Scope (Phase 2D): the burden and authority are PLAIN TEXT here — the burden
-// pill (BurdenBadge) and the authority popover (AuthorityPopover) arrive in
-// Phase 2E. The "ⓘ" is a static glyph for now, not an interactive trigger.
+// PRESENTATIONAL: one Count's data via props; the fetch lives in Home.tsx.
+// Colors are var(--token); typography uses the tokens.css utility classes.
 // =============================================================================
 
 import React, { useState } from "react";
@@ -18,19 +17,13 @@ import { CountDetail, ElementDetail } from "../services/causesOfAction";
 import BurdenBadge from "./BurdenBadge";
 import AuthorityPopover from "./AuthorityPopover";
 
-/**
- * Click handler the parent passes in so it can open the Element detail
- * panel. The row supplies the three pieces of context the panel needs at
- * open time so the panel header can render immediately, before its own
- * fetch resolves.
- */
-export type ElementClickHandler = (
-  elementId: string,
-  elementName: string,
-  allegationCount: number,
-) => void;
-
-// ─── Pure helpers (exported for unit testing — no DOM, no React) ─────────────
+// ─── Pure helpers (exported for unit testing + reused by CountDetailPage) ─────
+//
+// NOTE: `formatElementNumber` and `sortElements` are imported by
+// CountDetailPage.tsx (and locked by countCardHelpers.test.ts). They are kept
+// exported here even though the Home summary card no longer renders an Element
+// table — removing them would break the detail page. `toRomanNumeral` is still
+// used below for the card header.
 
 /**
  * Convert a positive integer to a Roman numeral (1 → "I", 4 → "IV", 9 → "IX").
@@ -56,23 +49,23 @@ export function toRomanNumeral(n: number): string {
 }
 
 /**
- * Build the Element ordinal shown in the "#" column: "{countNumber}.{order}",
- * e.g. Count 1 / order 1 → "1.1", Count 2 / order 11 → "2.11". The count number
- * stays Arabic here (the Roman form is only for the header).
+ * Build the Element ordinal "{countNumber}.{order}" (e.g. Count 2 / order 11 →
+ * "2.11"). Used by CountDetailPage's Element list. The count number stays Arabic
+ * here (the Roman form is only for the header).
  */
 export function formatElementNumber(countNumber: number, order: number): string {
   return `${countNumber}.${order}`;
 }
 
 /**
- * Sort Elements for display: `order_in_count` ascending, with null ordering last,
- * then `element_name` alphabetically as the tie-breaker (§7 sort order).
+ * Sort Elements for display: `order_in_count` ascending, null last, then
+ * `element_name` alphabetically as the tie-breaker (§7 sort order). Used by
+ * CountDetailPage.
  *
  * ## React/TS Learning: returns a NEW array
- * `Array.prototype.sort` mutates in place. Sorting `props.elements` directly
- * would mutate the parent's data and can cause subtle render bugs. We copy with
- * `[...elements]` first so this helper is pure — same input, same output, no
- * side effects — which also makes it trivially unit-testable.
+ * `Array.prototype.sort` mutates in place. Copying with `[...elements]` first
+ * keeps this helper pure — same input, same output, no side effects — which
+ * also makes it trivially unit-testable.
  */
 export function sortElements(elements: ElementDetail[]): ElementDetail[] {
   return [...elements].sort((a, b) => {
@@ -83,145 +76,77 @@ export function sortElements(elements: ElementDetail[]): ElementDetail[] {
   });
 }
 
-// ─── Shared inline styles ────────────────────────────────────────────────────
-// CONST: table cell spacing is the §9 spacing spec — 12px vertical / 16px
-// horizontal — a fixed design-system layout value, not env-configurable. The
-// column widths (60/280/120px) in the <colgroup> below are likewise the §7
-// table-layout spec, and the pill/hover colors are var(--token) references.
+// ─── Styles (inline + tokens; no new hex) ────────────────────────────────────
+//
+// Card chrome (decision A/B): a 1px resting border in --border-default; on hover
+// the border becomes --accent-primary plus a soft shadow. The shadow is an
+// inline rgba of the accent color at low alpha — the established panel/popover
+// precedent for shadows (no shadow token exists) — not a new named color.
 
-const TH_STYLE: React.CSSProperties = { textAlign: "left", padding: "12px 16px" };
-const TD_STYLE: React.CSSProperties = {
-  padding: "12px 16px",
-  borderTop: "1px solid var(--border-default)",
-  verticalAlign: "top",
-};
-
-// ─── ElementRow (internal) ───────────────────────────────────────────────────
-
-/**
- * One table row for a canonical Element. The entire row is clickable. Click
- * fires `onElementClick(element_id, element_name, allegation_count)` so the
- * parent can open the Element detail panel (CC Instruction E2). Hover paints
- * a subtle page-colored highlight so the affordance is obvious.
- */
-const ElementRow: React.FC<{
-  element: ElementDetail;
-  elementNumber: string;
-  onElementClick: ElementClickHandler;
-}> = ({ element, elementNumber, onElementClick }) => {
-  const [hovered, setHovered] = useState(false);
-
-  const proof = element.what_plaintiff_must_prove?.trim()
-    ? element.what_plaintiff_must_prove
-    : "—"; // null/blank → em dash, never an empty cell (Rule 1)
-
-  return (
-    <tr
-      onClick={() =>
-        onElementClick(
-          element.element_id,
-          element.element_name,
-          element.allegation_count,
-        )
-      }
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{
-        cursor: "pointer",
-        backgroundColor: hovered ? "var(--bg-page)" : "transparent",
-      }}
-    >
-      <td className="element-number" style={TD_STYLE}>{elementNumber}</td>
-      <td className="element-name" style={TD_STYLE}>{element.element_name}</td>
-      <td className="proof-text" style={TD_STYLE}>{proof}</td>
-      <td style={TD_STYLE}>
-        {element.allegation_count > 0 ? (
-          <span
-            style={{
-              display: "inline-block",
-              padding: "2px 10px",
-              borderRadius: "12px",
-              backgroundColor: "var(--accent-bg-soft)",
-              color: "var(--accent-primary)",
-              fontSize: "13px",
-              fontWeight: 600,
-            }}
-          >
-            {element.allegation_count}
-          </span>
-        ) : (
-          // Zero mapped allegations → muted "0" (§7 empty state per row).
-          <span style={{ color: "var(--text-muted)" }}>0</span>
-        )}
-      </td>
-    </tr>
-  );
+const SUMMARY_LINE_STYLE: React.CSSProperties = {
+  marginTop: "12px",
+  fontFamily: "var(--font-sans)",
+  fontSize: "14px",
+  color: "var(--text-secondary)",
 };
 
 // ─── CountCard ───────────────────────────────────────────────────────────────
 
 /**
- * CountCard — one Cause-of-Action card.
+ * CountCard — one Cause-of-Action summary card.
  *
  * @param count one Count's data from the causes-of-action endpoint
- * @param onElementClick fires when any Element row is clicked; the parent
- *   (Home) uses this to open the Element detail panel.
- * @param onOpenCount fires when the Count header is clicked; the parent (Home)
- *   navigates to the routed Count-detail page. Additive — the Element-row →
- *   panel behavior above is unchanged (the popup is removed in a later step).
+ * @param onOpenCount fires when the card is activated (click or Enter/Space);
+ *   Home navigates to the routed Count-detail page.
  */
 const CountCard: React.FC<{
   count: CountDetail;
-  onElementClick: ElementClickHandler;
   onOpenCount: () => void;
-}> = ({ count, onElementClick, onOpenCount }) => {
-  const [headerHovered, setHeaderHovered] = useState(false);
+}> = ({ count, onOpenCount }) => {
+  const [hovered, setHovered] = useState(false);
   const roman = toRomanNumeral(count.count_number);
   const title = count.count_name ? `COUNT ${roman} — ${count.count_name}` : `COUNT ${roman}`;
 
-  // Burden → styled pill (BurdenBadge); primary authority → text + the ⓘ
-  // popover of all controlling authorities (AuthorityPopover). Phase 2E.
   const burden = count.burden_of_proof?.trim() ? count.burden_of_proof : null;
   const primaryAuthority = count.controlling_authority_primary?.trim()
     ? count.controlling_authority_primary
     : null;
 
-  const elements = sortElements(count.elements);
-
   return (
+    // The whole card is the click target ("single clickable summary surface").
+    // role="link" + tabIndex + Enter/Space keep it keyboard-accessible.
     <div
+      role="link"
+      tabIndex={0}
+      onClick={onOpenCount}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onOpenCount();
+        }
+      }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      title="Open Count detail"
       style={{
-        border: "1px solid var(--border-default)",
+        border: `1px solid ${hovered ? "var(--accent-primary)" : "var(--border-default)"}`,
         backgroundColor: "var(--bg-surface)",
         borderRadius: "8px",
         padding: "24px",
+        cursor: "pointer",
+        boxShadow: hovered ? "0 2px 8px rgba(21, 112, 239, 0.12)" : "none",
+        transition: "border-color 0.15s ease, box-shadow 0.15s ease",
       }}
     >
-      {/* Count header — clickable, navigates to the routed Count-detail page.
-          A button-styled-as-heading keeps it keyboard-accessible while reading
-          as the card title. */}
+      {/* Header reads as the card title; it echoes the hover via color so the
+          whole surface clearly signals it is clickable. */}
       <div
         className="count-header"
-        role="link"
-        tabIndex={0}
-        onClick={onOpenCount}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            onOpenCount();
-          }
-        }}
-        onMouseEnter={() => setHeaderHovered(true)}
-        onMouseLeave={() => setHeaderHovered(false)}
-        style={{
-          cursor: "pointer",
-          color: headerHovered ? "var(--accent-primary)" : undefined,
-          textDecoration: headerHovered ? "underline" : "none",
-        }}
-        title="Open Count detail"
+        style={{ color: hovered ? "var(--accent-primary)" : undefined }}
       >
         {title}
       </div>
+
       <div
         className="burden-strip"
         style={{ marginTop: "4px", display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}
@@ -231,50 +156,30 @@ const CountCard: React.FC<{
         {primaryAuthority && (
           <>
             <span>· {primaryAuthority}</span>
-            {/* Renders the ⓘ trigger only when there are authorities to show. */}
-            <AuthorityPopover authorities={count.controlling_authorities} />
+            {/* The ⓘ popover is interactive; stop the click from bubbling up to
+                the card's navigate handler so opening the popover stays put. */}
+            <span
+              onClick={(e) => e.stopPropagation()}
+              onKeyDown={(e) => e.stopPropagation()}
+            >
+              <AuthorityPopover authorities={count.controlling_authorities} />
+            </span>
           </>
         )}
       </div>
 
-      {/* Element table — or the empty-Count message (§7 empty state per Count) */}
-      {elements.length === 0 ? (
-        <div style={{ marginTop: "16px", color: "var(--text-muted)", fontSize: "14px" }}>
-          No Elements loaded for this Count. Run the canonical Element loader.
-        </div>
-      ) : (
-        <table style={{ width: "100%", borderCollapse: "collapse", marginTop: "16px" }}>
-          <colgroup>
-            <col style={{ width: "60px" }} />
-            <col style={{ width: "280px" }} />
-            <col />
-            <col style={{ width: "120px" }} />
-          </colgroup>
-          <thead>
-            <tr>
-              <th className="table-col-header" style={TH_STYLE}>#</th>
-              <th className="table-col-header" style={TH_STYLE}>Element</th>
-              <th className="table-col-header" style={TH_STYLE}>What Plaintiff Must Prove</th>
-              <th className="table-col-header" style={TH_STYLE}>Allegations</th>
-            </tr>
-          </thead>
-          <tbody>
-            {elements.map((element, i) => (
-              <ElementRow
-                key={element.element_id}
-                element={element}
-                // Use the canonical order_in_count; fall back to 1-based row
-                // position when it's null so the ordinal is never "1.null".
-                elementNumber={formatElementNumber(
-                  count.count_number,
-                  element.order_in_count ?? i + 1,
-                )}
-                onElementClick={onElementClick}
-              />
-            ))}
-          </tbody>
-        </table>
-      )}
+      {/* Summary line (§2.3): "{N} Elements · {allegation slot}". The element
+          count is real (count.elements.length). The allegation slot is a PENDING
+          placeholder — we do NOT sum per-Element allegation_count, which would
+          double-count allegations mapped to two Elements in the same Count.
+          PROOF-MATRIX SWAP POINT: in Stage 2, replace the muted placeholder span
+          below with the real deduped total — `{count.allegation_total} allegations`
+          in --text-secondary — a value/color swap inside this same span, no
+          layout change. */}
+      <div style={SUMMARY_LINE_STYLE}>
+        {count.elements.length} Elements ·{" "}
+        <span style={{ color: "var(--text-muted)" }}>— allegations</span>
+      </div>
     </div>
   );
 };

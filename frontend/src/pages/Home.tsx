@@ -1,25 +1,11 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import CaseHeader from "../components/CaseHeader";
+import CaseSummaryCard from "../components/CaseSummaryCard";
+import TimelineBand from "../components/TimelineBand";
 import CountCard from "../components/CountCard";
-import ElementDetailPanel from "../components/ElementDetailPanel";
 import { CaseHeaderResponse, DEFAULT_CASE_SLUG, getCaseHeader } from "../services/caseHeader";
 import { CountDetail, getCausesOfAction } from "../services/causesOfAction";
-
-/**
- * Identity of the Element row the user most recently clicked. The Home page
- * owns this state so the floating panel can render at the page root (outside
- * the table flow) and so clicking a *different* row updates the same panel
- * instance in place (no close/reopen flicker).
- *
- * The three pieces — id, name, count — are exactly what the panel needs to
- * render its header immediately, before its own /detail fetch resolves.
- */
-type SelectedElement = {
-  elementId: string;
-  elementName: string;
-  allegationCount: number;
-};
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
@@ -28,7 +14,14 @@ type SelectedElement = {
  *
  * Two independent reads drive the page:
  *   - GET /api/cases/:slug                  → the CaseHeader (title, parties, counsel)
- *   - GET /api/cases/:slug/causes-of-action → the stacked CountCard tables
+ *                                              and the complaint_document_id used by
+ *                                              the Case Summary card's "View Complaint".
+ *   - GET /api/cases/:slug/causes-of-action → the stacked Count summary cards.
+ *
+ * Layout, top to bottom: CaseHeader → Case Summary card → Timeline band →
+ * Causes of Action. The Case Summary card and Timeline band own their own
+ * (static-file) fetches and render their own loading/error, so neither blocks
+ * the rest of the page.
  *
  * The header fetch gates the page (loading/error/empty early-returns); the
  * causes-of-action fetch renders its own loading/error state inside the section,
@@ -48,11 +41,6 @@ const Home: React.FC = () => {
   const [counts, setCounts] = useState<CountDetail[] | null>(null);
   const [coaLoading, setCoaLoading] = useState(true);
   const [coaError, setCoaError] = useState<string | null>(null);
-
-  // The Element row currently driving the floating detail panel. `null` =
-  // the panel is closed. Clicking a different row mutates this in place; the
-  // panel re-fetches against the new id (see ElementDetailPanel useEffect).
-  const [selectedElement, setSelectedElement] = useState<SelectedElement | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -150,13 +138,22 @@ const Home: React.FC = () => {
 
   return (
     <div style={{ paddingTop: "32px", paddingBottom: "4rem" }}>
-      {/* 2A (rebuilt): the full case header — title, court strip, parties, counsel */}
+      {/* 1. Case header — title, court strip, parties, counsel */}
       <CaseHeader data={header} />
 
-      {/* 2C (rebuilt): Causes of Action — full-width Count tables (Phase 2D),
-          replacing the Phase 2B placeholder. The header fetch above has
-          already resolved; this section manages its own loading/error so a
-          slow Count query doesn't blank the header. */}
+      {/* 2. Case Summary card — static prose + null-safe "View Complaint" link.
+          The complaint id is resolved dynamically from the case-header payload. */}
+      <div style={{ paddingTop: "32px" }}>
+        <CaseSummaryCard complaintDocumentId={header.complaint_document_id} />
+      </div>
+
+      {/* 3. Timeline band — compact per-phase pills from /data/timeline.json */}
+      <TimelineBand />
+
+      {/* 4. Causes of Action — stacked Count summary cards. The header fetch
+          above has resolved; this section manages its own loading/error so a
+          slow Count query doesn't blank the page. Clicking a card navigates to
+          the routed Count-detail page. */}
       <section style={{ paddingTop: "32px" }}>
         <h2 className="h2-section-header" style={{ marginBottom: "16px" }}>
           Causes of Action
@@ -180,9 +177,6 @@ const Home: React.FC = () => {
               <CountCard
                 key={count.count_number}
                 count={count}
-                onElementClick={(elementId, elementName, allegationCount) =>
-                  setSelectedElement({ elementId, elementName, allegationCount })
-                }
                 onOpenCount={() =>
                   navigate(
                     `/cases/${encodeURIComponent(DEFAULT_CASE_SLUG)}/counts/${count.count_number}`,
@@ -193,20 +187,6 @@ const Home: React.FC = () => {
           </div>
         )}
       </section>
-
-      {/* Floating Element detail panel (E2). Conditionally rendered at the
-          page root so it sits above the table flow. A click on a different
-          Element row updates `selectedElement` and the panel re-fetches in
-          place — no close/reopen needed. */}
-      {selectedElement && (
-        <ElementDetailPanel
-          caseSlug={DEFAULT_CASE_SLUG}
-          elementId={selectedElement.elementId}
-          elementName={selectedElement.elementName}
-          allegationCount={selectedElement.allegationCount}
-          onClose={() => setSelectedElement(null)}
-        />
-      )}
     </div>
   );
 };
