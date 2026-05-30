@@ -73,6 +73,10 @@
      The quiet companion to --accent-primary's saturated foreground. */
   --accent-bg-soft: #e0f2fe;
 
+  /* Accent hover shadow — interactive cards (Count cards, Case Summary card).
+     Channels match --accent-primary (#1570ef). */
+  --shadow-accent: 0 2px 8px rgba(21, 112, 239, 0.12);
+
   /* ---------------------------------------------------------------------------
    * Status / semantic colors — §9 "Status / semantic colors"
    * Used sparingly (§9 principle), only to encode meaning, never decoration.

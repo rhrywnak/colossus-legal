@@ -80,9 +80,9 @@ export function sortElements(elements: ElementDetail[]): ElementDetail[] {
 // ─── Styles (inline + tokens; no new color hex) ──────────────────────────────
 //
 // Card chrome (PROD layout): 1px resting border in --border-default; on hover
-// the border becomes --accent-primary plus a soft shadow. The shadow is an
-// inline rgba of the accent color at low alpha — the established panel/popover
-// precedent for shadows (no shadow token exists) — not a new named color.
+// the border becomes --accent-primary plus a soft shadow from the
+// --shadow-accent token (defined in tokens.css; its channels match
+// --accent-primary) — no inline color literal here.
 
 /**
  * "COUNT {roman}" eyebrow. Blue, bold, uppercase, tracked — the PROD treatment.
@@ -218,7 +218,7 @@ const CountCard: React.FC<{
         borderRadius: "10px",
         padding: "1.15rem 1.25rem",
         cursor: "pointer",
-        boxShadow: hovered ? "0 2px 8px rgba(21, 112, 239, 0.12)" : "none",
+        boxShadow: hovered ? "var(--shadow-accent)" : "none",
         transition: "border-color 0.15s ease, box-shadow 0.15s ease",
       }}
     >
