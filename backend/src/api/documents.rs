@@ -1,14 +1,10 @@
 use axum::{
-    body::Body,
     extract::{Path, State},
-    http::{header, StatusCode},
     response::Response,
     Json,
 };
 use chrono::DateTime;
 use serde_json::json;
-use tokio::fs::File;
-use tokio_util::io::ReaderStream;
 
 use crate::{
     auth::{require_edit, AuthUser},
@@ -153,58 +149,31 @@ pub async fn update_document(
     Ok(Json(DocumentDto::from(updated)))
 }
 
-/// Serve a document's PDF file
+/// Serve a document's source file.
+///
+/// ## Why this delegates to the pipeline file module
+/// The on-disk file location lives in the **Postgres** `documents.file_path`
+/// column (written at upload time), NOT on the Neo4j `Document` node — the
+/// ingest pipeline never sets a path on the graph node. So this public route
+/// reuses the single Postgres-backed serving function shared with the admin
+/// file route (`pipeline::file::serve_document_file`): one implementation, two
+/// thin handlers, no drift.
+///
+/// (Previously this handler read the Neo4j node's `file_path`, which is always
+/// null for pipeline-ingested documents — so it 404'd for the entire corpus,
+/// including the complaint behind the "View Complaint" link.)
+///
+/// Auth: requires an authenticated `AuthUser`. The model is
+/// "authenticated users may view all documents"; anonymous access (the prior
+/// `Option<AuthUser>`) was an oversight and is removed so this route matches
+/// the admin file route.
 pub async fn get_document_file(
-    user: Option<AuthUser>,
+    user: AuthUser,
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Response, AppError> {
-    if let Some(ref u) = user {
-        tracing::info!("{} GET /documents/{}/file", u.username, id);
-    }
-    // 1. Get document from Neo4j
-    let repo = DocumentRepository::new(state.graph.clone());
-    let document = repo.get_document_by_id(&id).await.map_err(map_repo_error)?;
-
-    // 2. Check if file_path exists
-    let file_path = document.file_path.ok_or_else(|| AppError::NotFound {
-        message: "Document has no associated file".to_string(),
-    })?;
-
-    // 3. Validate filename (security: prevent path traversal)
-    if file_path.contains("..") || file_path.contains('/') || file_path.contains('\\') {
-        return Err(AppError::BadRequest {
-            message: "Invalid file path".to_string(),
-            details: json!({}),
-        });
-    }
-
-    // 4. Build full path
-    let full_path = format!("{}/{}", state.config.document_storage_path, file_path);
-
-    // 5. Open file
-    let file = File::open(&full_path)
-        .await
-        .map_err(|_| AppError::NotFound {
-            message: "File not found on disk".to_string(),
-        })?;
-
-    // 6. Stream response
-    let stream = ReaderStream::new(file);
-    let body = Body::from_stream(stream);
-
-    // 7. Return with PDF headers
-    Response::builder()
-        .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, "application/pdf")
-        .header(
-            header::CONTENT_DISPOSITION,
-            format!("inline; filename=\"{file_path}\""),
-        )
-        .body(body)
-        .map_err(|_| AppError::Internal {
-            message: "failed to build response".to_string(),
-        })
+    tracing::info!("{} GET /documents/{}/file", user.username, id);
+    crate::api::pipeline::file::serve_document_file(&state, &id).await
 }
 
 fn map_repo_error(err: DocumentRepositoryError) -> AppError {

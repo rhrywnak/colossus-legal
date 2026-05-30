@@ -24,7 +24,7 @@ mod document_response;
 mod document_types;
 mod errors;
 pub(crate) mod extract_text;
-mod file;
+pub mod file;
 pub mod graph_migrations;
 mod graph_validation;
 mod history;
