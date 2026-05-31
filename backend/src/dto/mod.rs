@@ -17,6 +17,7 @@ pub mod hearing;
 pub mod motion_claim;
 pub mod person;
 pub mod person_detail;
+pub mod proof_matrix;
 pub mod query;
 pub mod schema;
 
