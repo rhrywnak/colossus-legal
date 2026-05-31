@@ -138,12 +138,16 @@ const METRICS_STYLE: React.CSSProperties = {
  * @param count the Count whose summary this renders
  * @param eyebrow the precomputed "COUNT {roman}" label (shared with aria-label)
  * @param description resolved plain-language sentence; omitted when absent/blank
+ * @param allegationTotal deduped allegation total from the proof-matrix rollup,
+ *   looked up in Home by `count_number`; `undefined` while pending or absent, in
+ *   which case the muted `—` placeholder is shown instead
  */
 const CountCardContent: React.FC<{
   count: CountDetail;
   eyebrow: string;
   description?: string;
-}> = ({ count, eyebrow, description }) => {
+  allegationTotal?: number;
+}> = ({ count, eyebrow, description, allegationTotal }) => {
   // Graceful degradation: a missing OR blank description renders no line.
   const hasDescription = description != null && description.trim() !== "";
 
@@ -159,16 +163,25 @@ const CountCardContent: React.FC<{
       {hasDescription && <div style={DESCRIPTION_STYLE}>{description}</div>}
 
       {/* 4. Metrics line: "{N} Elements · {allegation slot}". The element count
-          is real (count.elements.length). The allegation slot is a PENDING
-          placeholder — we do NOT sum per-Element allegation_count, which would
-          double-count allegations mapped to two Elements in the same Count.
-          PROOF-MATRIX SWAP POINT: in Stage 2, replace the muted placeholder span
-          below with the real deduped total — `{count.allegation_total} allegations`
-          in --text-secondary — a value/color swap inside this same span, no
-          layout change. */}
+          is real (count.elements.length). The allegation slot shows the real
+          deduped total from the proof-matrix rollup (GET .../proof-matrix/rollup,
+          via services/proofMatrix.ts), looked up in Home by count_number and
+          passed as `allegationTotal`. This is the backend's deduped count shown
+          verbatim — we do NOT sum per-Element allegation_count, which would
+          double-count an Allegation mapped to two Elements of the same Count.
+          When the total is present it renders in --text-secondary (matching the
+          "{N} Elements" text beside it); while pending or absent it falls back
+          to the muted `—` placeholder — a value/color swap inside this same span,
+          no layout change. */}
       <div style={METRICS_STYLE}>
         {count.elements.length} Elements ·{" "}
-        <span style={{ color: "var(--text-muted)" }}>— allegations</span>
+        {allegationTotal != null ? (
+          <span style={{ color: "var(--text-secondary)" }}>
+            {allegationTotal} allegations
+          </span>
+        ) : (
+          <span style={{ color: "var(--text-muted)" }}>— allegations</span>
+        )}
       </div>
     </>
   );
@@ -182,14 +195,17 @@ const CountCardContent: React.FC<{
  * @param count one Count's data from the causes-of-action endpoint
  * @param description resolved plain-language sentence for this Count (looked up
  *   in Home by `count_number`); when absent/blank no description line renders
+ * @param allegationTotal deduped allegation total from the proof-matrix rollup
+ *   (looked up in Home by `count_number`); `undefined` while pending/absent
  * @param onOpenCount fires when the card is activated (click or Enter/Space);
  *   Home navigates to the routed Count-detail page.
  */
 const CountCard: React.FC<{
   count: CountDetail;
   description?: string;
+  allegationTotal?: number;
   onOpenCount: () => void;
-}> = ({ count, description, onOpenCount }) => {
+}> = ({ count, description, allegationTotal, onOpenCount }) => {
   const [hovered, setHovered] = useState(false);
   const eyebrow = `COUNT ${toRomanNumeral(count.count_number)}`;
 
@@ -226,6 +242,7 @@ const CountCard: React.FC<{
         count={count}
         eyebrow={eyebrow}
         description={description}
+        allegationTotal={allegationTotal}
       />
     </div>
   );

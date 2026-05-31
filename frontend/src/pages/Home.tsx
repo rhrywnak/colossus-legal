@@ -7,6 +7,10 @@ import CountCard from "../components/CountCard";
 import { CaseHeaderResponse, DEFAULT_CASE_SLUG, getCaseHeader } from "../services/caseHeader";
 import { CountDetail, getCausesOfAction } from "../services/causesOfAction";
 import { getCaseSummaryDoc } from "../services/caseSummaryDoc";
+import {
+  getProofMatrixRollup,
+  indexAllegationTotals,
+} from "../services/proofMatrix";
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
@@ -49,6 +53,14 @@ const Home: React.FC = () => {
   // failure here must NOT block or error the Causes of Action section.
   const [countDescriptions, setCountDescriptions] = useState<
     Record<string, string>
+  >({});
+
+  // Per-Count deduped allegation totals, keyed by count_number, from the
+  // proof-matrix rollup endpoint. Supplementary content for the Count cards:
+  // each card degrades to a muted `—` without it, so a load failure here must
+  // NOT block or error the Causes of Action section.
+  const [allegationTotals, setAllegationTotals] = useState<
+    Record<number, number>
   >({});
 
   useEffect(() => {
@@ -132,6 +144,31 @@ const Home: React.FC = () => {
           err instanceof Error ? err.message : "unknown error";
         // Observable, not silent — but non-fatal for this section.
         console.error(`Home: could not load Count descriptions — ${message}`);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Load the per-Count deduped allegation totals from the proof-matrix rollup.
+  //
+  // ## React Learning: another deliberately non-blocking fetch
+  // Like the descriptions above, these totals are supplementary — the Count
+  // cards render a muted `—` without them. So on failure we do NOT setError or
+  // block; we log a contextual message (Rule 1: the failure is observable, not
+  // swallowed) and leave the map empty, and each card keeps its `—` placeholder.
+  useEffect(() => {
+    let cancelled = false;
+
+    getProofMatrixRollup()
+      .then((rollup) => {
+        if (!cancelled) setAllegationTotals(indexAllegationTotals(rollup.counts));
+      })
+      .catch((err: unknown) => {
+        const message = err instanceof Error ? err.message : "unknown error";
+        // Observable, not silent — but non-fatal for this section.
+        console.error(`Home: could not load allegation totals — ${message}`);
       });
 
     return () => {
@@ -225,6 +262,9 @@ const Home: React.FC = () => {
                 // Look up by count_number (string) — the only stable id the
                 // causes-of-action payload exposes (no count slug on the wire).
                 description={countDescriptions[String(count.count_number)]}
+                // Deduped allegation total from the proof-matrix rollup, keyed
+                // by count_number; undefined while pending → card shows `—`.
+                allegationTotal={allegationTotals[count.count_number]}
                 onOpenCount={() =>
                   navigate(
                     `/cases/${encodeURIComponent(DEFAULT_CASE_SLUG)}/counts/${count.count_number}`,
