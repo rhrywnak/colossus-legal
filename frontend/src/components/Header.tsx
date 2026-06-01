@@ -2,13 +2,18 @@ import React, { useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { logout } from "../services/auth";
+import { DEFAULT_CASE_SLUG } from "../services/caseHeader";
 
 const AUTHENTIK_SETTINGS_URL = "https://auth.cogmai.com/if/user/#/settings";
 
 // ─── Navigation items ────────────────────────────────────────────────────────
+// The Proof Matrix route carries a `:slug` param; the single-case deployment
+// resolves it to DEFAULT_CASE_SLUG, the same constant Home uses to build its
+// per-Count links. Every other item is a static path.
 const NAV_ITEMS = [
   { label: "Home", path: "/" },
   { label: "Evidence", path: "/explorer" },
+  { label: "Proof Matrix", path: `/cases/${DEFAULT_CASE_SLUG}/proof-matrix` },
   { label: "People", path: "/people" },
   { label: "Bias", path: "/bias-explorer" },
   { label: "Documents", path: "/documents" },

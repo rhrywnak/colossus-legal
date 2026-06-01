@@ -9,6 +9,7 @@ import ContradictionsPage from "./pages/ContradictionsPage";
 import DecompositionPage from "./pages/DecompositionPage";
 import AllegationDetailPage from "./pages/AllegationDetailPage";
 import CountDetailPage from "./pages/CountDetailPage";
+import ProofMatrixPage from "./pages/ProofMatrixPage";
 import BiasExplorer from "./pages/BiasExplorer";
 import EvidenceExplorerPage from "./pages/EvidenceExplorerPage";
 import GraphPage from "./pages/GraphPage";
@@ -66,6 +67,7 @@ const App: React.FC = () => {
               <Route path="/decomposition" element={<DecompositionPage />} />
               <Route path="/allegations/:id/detail" element={<AllegationDetailPage />} />
               <Route path="/cases/:slug/counts/:countId" element={<CountDetailPage />} />
+              <Route path="/cases/:slug/proof-matrix" element={<ProofMatrixPage />} />
               <Route path="/contradictions" element={<ContradictionsPage />} />
               <Route path="/explorer" element={<EvidenceExplorerPage />} />
               <Route path="/bias-explorer" element={<BiasExplorer />} />
