@@ -27,6 +27,7 @@ import Breadcrumb from "../components/Breadcrumb";
 import BurdenBadge from "../components/BurdenBadge";
 import AuthorityPopover from "../components/AuthorityPopover";
 import ElementDetailContent from "../components/ElementDetailContent";
+import ElementRow from "../components/ElementRow";
 import {
   toRomanNumeral,
   formatElementNumber,
@@ -213,44 +214,16 @@ const CountDetailPage: React.FC = () => {
           </div>
         ) : (
           <div role="tablist" aria-label="Elements of this Count">
-            {elements.map((el, i) => {
-              const isSelected = el.element_id === selectedElementId;
-              return (
-                <div
-                  key={el.element_id}
-                  role="tab"
-                  tabIndex={0}
-                  aria-selected={isSelected}
-                  onClick={() => setSelectedElementId(el.element_id)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      setSelectedElementId(el.element_id);
-                    }
-                  }}
-                  style={{
-                    ...ELEMENT_ROW_STYLE,
-                    backgroundColor: isSelected
-                      ? "var(--accent-bg-soft)"
-                      : "transparent",
-                    borderLeft: isSelected
-                      ? "3px solid var(--accent-primary)"
-                      : "3px solid transparent",
-                  }}
-                >
-                  <span style={ELEMENT_NUMBER_STYLE}>
-                    {formatElementNumber(
-                      count.count_number,
-                      el.order_in_count ?? i + 1,
-                    )}
-                  </span>
-                  <span style={ELEMENT_NAME_STYLE}>{el.element_name}</span>
-                  <span style={el.allegation_count > 0 ? BADGE_STYLE : ZERO_BADGE_STYLE}>
-                    {el.allegation_count}
-                  </span>
-                </div>
-              );
-            })}
+            {elements.map((el, i) => (
+              <ElementRow
+                key={el.element_id}
+                element={el}
+                countNumber={count.count_number}
+                index={i}
+                selected={el.element_id === selectedElementId}
+                onSelect={setSelectedElementId}
+              />
+            ))}
           </div>
         )}
       </div>
@@ -305,46 +278,6 @@ const LIST_HEADER_STYLE: React.CSSProperties = {
   textTransform: "uppercase",
   color: "var(--text-secondary)",
   marginBottom: "8px",
-};
-
-const ELEMENT_ROW_STYLE: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: "12px",
-  padding: "10px 12px",
-  cursor: "pointer",
-  borderRadius: "6px",
-};
-
-const ELEMENT_NUMBER_STYLE: React.CSSProperties = {
-  fontFamily: "var(--font-mono)",
-  fontSize: "13px",
-  fontWeight: 700,
-  color: "var(--text-secondary)",
-  minWidth: "32px",
-};
-
-const ELEMENT_NAME_STYLE: React.CSSProperties = {
-  flex: 1,
-  fontFamily: "var(--font-sans)",
-  fontSize: "14px",
-  fontWeight: 500,
-  color: "var(--text-primary)",
-};
-
-const BADGE_STYLE: React.CSSProperties = {
-  display: "inline-block",
-  padding: "2px 10px",
-  borderRadius: "12px",
-  backgroundColor: "var(--accent-bg-soft)",
-  color: "var(--accent-primary)",
-  fontSize: "13px",
-  fontWeight: 600,
-};
-
-const ZERO_BADGE_STYLE: React.CSSProperties = {
-  color: "var(--text-muted)",
-  fontSize: "13px",
 };
 
 export default CountDetailPage;
