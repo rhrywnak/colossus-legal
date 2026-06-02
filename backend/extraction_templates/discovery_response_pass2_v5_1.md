@@ -4,7 +4,8 @@ TEMPLATE AUTHORING RULES:
 - Prose references to schema or context must NOT use the literal placeholder syntax.
 - Use plain English in prose. Reserve the placeholder syntax for actual substitution sites.
 - This block is stripped before the prompt reaches the LLM (see strip_authoring_comments in llm_extract.rs).
-- Pass 2 receives: {{entities_json}} (pass 1 output), {{schema_json}}, {{context}} (cross-document entities), {{global_rules}}, {{admin_instructions}}.
+- Pass 2 receives: {{entities_json}} (pass-1 output PLUS any cross-document entities, the latter prefixed with `ctx:` in their IDs), {{schema_json}}, {{global_rules}}, {{admin_instructions}}.
+- The {{context}} placeholder is INERT in this pipeline (always substituted empty). Cross-document entities arrive inside {{entities_json}} as `ctx:`-prefixed entries, NOT in a separate context block.
 - Pass 2 does NOT receive {{document_text}} — it works only from entities.
 -->
 # Discovery Response Relationship Extraction — Pass 2: Relationships Only (v5.1)
@@ -33,7 +34,7 @@ A colleague — also a senior litigation paralegal — read a sworn discovery re
 **What was intentionally NOT extracted:**
 - Caption and signature block text — these are metadata, not content
 - Relationships — that's YOUR job in this pass
-- Entities from other documents — those are provided separately in the cross-document context block if available
+- Entities from other documents — those appear in the same entity list, prefixed with `ctx:` in their IDs, when prior documents have been processed
 
 ## Why These Relationships Matter
 
@@ -81,7 +82,7 @@ The ABOUT test: **"Is this Q&A asking about or revealing information about this 
 
 ### 3. CORROBORATES (Evidence → Allegation from complaint)
 
-**This relationship requires cross-document context.** If the context block contains complaint entities (Allegation nodes), you can create CORROBORATES relationships. If there is no context, skip this relationship type entirely.
+**This is a cross-document relationship.** The entity list may include entities from other documents, prefixed with `ctx:` in their IDs (a v5.1 complaint emits entity_type "Allegation"; older v4 complaints emit "ComplaintAllegation"). If the entity list contains such `ctx:`-prefixed complaint Allegation entities, create CORROBORATES relationships to them. If no `ctx:`-prefixed entities are present, skip this relationship type entirely.
 
 **The corroboration test:** "Does this sworn answer independently confirm a factual claim from the complaint?"
 
@@ -124,7 +125,7 @@ Complaint Allegation ¶32: (same allegation about characterization)
 
 ### 4. CONTRADICTS (Evidence → Evidence from another document)
 
-**This relationship requires cross-document context.** If the context block contains Evidence or Assertion entities from other documents, you can create CONTRADICTS relationships.
+**This is a cross-document relationship.** If the entity list contains `ctx:`-prefixed Evidence or Assertion entities from other documents, you can create CONTRADICTS relationships to them.
 
 **The contradiction test:** "Did the SAME person say something materially different in another document?"
 
@@ -133,11 +134,11 @@ Key requirements:
 - **Materially different.** Not just a minor variation in wording — the substance of the statements conflicts.
 - **Different documents.** Contradictions within the same document are handled by Pass 1's pattern_tags (lies_under_oath). CONTRADICTS is for cross-document contradictions.
 
-If no cross-document context is available, skip CONTRADICTS entirely.
+If no `ctx:`-prefixed entities from other documents are present, skip CONTRADICTS entirely.
 
 ### 5. REBUTS (Evidence → Evidence or Assertion from another document)
 
-**This relationship requires cross-document context.**
+**This is a cross-document relationship.** It targets `ctx:`-prefixed Evidence or Assertion entities from other documents in the entity list.
 
 **The rebuttal test:** "Does this person's sworn answer directly counter what a DIFFERENT person claimed?"
 
@@ -145,7 +146,7 @@ Key requirements:
 - **Different speakers.** The respondent of this discovery response said X; a different person said the opposite in another document.
 - **Direct opposition.** The statements address the same fact and reach opposite conclusions.
 
-If no cross-document context is available, skip REBUTS entirely.
+If no `ctx:`-prefixed entities from other documents are present, skip REBUTS entirely.
 
 ### 6. CHARACTERIZES (Evidence → Party)
 
@@ -175,16 +176,16 @@ For each Evidence entity, read the question and answer. Identify every party the
 ### Step 3: Create all CHARACTERIZES relationships
 Re-read each Evidence entity. If the answer contains evaluative language about a party, create a CHARACTERIZES relationship.
 
-### Step 4: Create cross-document relationships (if context is available)
-If the context block contains entities from the complaint or other documents:
+### Step 4: Create cross-document relationships (if `ctx:`-prefixed entities are present)
+Look through the entity list for entities from other documents — their IDs are prefixed with `ctx:` (complaint Allegations, or Evidence/Assertion from other documents). If any are present:
 
 4a. For each Evidence entity with statement_type "admission" or "partial_admission", check whether it corroborates any complaint Allegation. Apply the corroboration test. Create CORROBORATES relationships.
 
 4b. For each Evidence entity with statement_type "evasive", check whether the evasion implicitly acknowledges a complaint Allegation. Apply the evasive-corroboration test. Create CORROBORATES relationships where appropriate.
 
-4c. If context contains Evidence or Assertion entities from other documents by the same speaker, check for contradictions. Create CONTRADICTS relationships.
+4c. If the entity list contains `ctx:`-prefixed Evidence or Assertion entities from other documents by the same speaker, check for contradictions. Create CONTRADICTS relationships.
 
-4d. If context contains Evidence or Assertion entities from other documents by different speakers, check for rebuttals. Create REBUTS relationships.
+4d. If the entity list contains `ctx:`-prefixed Evidence or Assertion entities from other documents by different speakers, check for rebuttals. Create REBUTS relationships.
 
 ### Step 5: Verify completeness
 Run through the completeness checklist below.
@@ -206,12 +207,6 @@ Run through the completeness checklist below.
 The following entities were extracted in Pass 1. Use ONLY these entity IDs when creating relationships. Do NOT invent new entity IDs.
 
 {{entities_json}}
-
-## Cross-Document Context
-
-The following entities are from previously processed documents in this case. Use these as targets for CORROBORATES, CONTRADICTS, and REBUTS relationships when the evidence warrants it. If this section is empty, skip all cross-document relationship types.
-
-{{context}}
 
 ## Output Format
 
@@ -257,19 +252,19 @@ Return ONLY the JSON object. No markdown fences, no explanation, no preamble.
 - [ ] Did I create CHARACTERIZES for admissions about characterizing parties (unintelligible, unreasonable, demanding, etc.)?
 - [ ] Did I avoid creating CHARACTERIZES for purely factual descriptions?
 
-**CORROBORATES checks (only if context available):**
+**CORROBORATES checks (only if `ctx:`-prefixed complaint entities are present):**
 - [ ] For each admission, did I check whether it confirms a complaint Allegation?
 - [ ] For each evasive response, did I consider whether the evasion implicitly acknowledges a complaint Allegation?
 - [ ] Did I apply the three-part corroboration test (same facts, independent source, confirmation)?
 - [ ] Did I avoid creating CORROBORATES from denials?
 
-**Cross-document checks (only if context available):**
+**Cross-document checks (only if `ctx:`-prefixed entities from other documents are present):**
 - [ ] Did I check for CONTRADICTS between this respondent's statements here and in other documents?
 - [ ] Did I check for REBUTS between this respondent's statements and different speakers' statements?
 
 **General negative checks:**
 - [ ] Did I avoid creating any new entities?
-- [ ] Did I use only entity IDs from the Pass 1 list and the context block?
+- [ ] Did I use only entity IDs from the provided entity list (including any `ctx:`-prefixed cross-document entries)?
 - [ ] Did I avoid including an "entities" key?
 
 Return ONLY the JSON object with a "relationships" array. No "entities" key. No markdown fences, no explanation, no preamble.
