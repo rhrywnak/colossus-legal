@@ -87,6 +87,9 @@ fn build_count(c: CountRow, elements: Vec<ElementDetail>) -> Result<CountDetail,
 }
 
 fn to_element_detail(e: ElementRow) -> ElementDetail {
+    // Derive the coverage label here (DB-free) so it is unit-testable without
+    // Neo4j, alongside the rest of the shaping.
+    let proof_status = derive_proof_status(e.allegation_count, e.covered_allegation_count);
     ElementDetail {
         element_id: e.element_id,
         order_in_count: e.order_in_count,
@@ -95,6 +98,51 @@ fn to_element_detail(e: ElementRow) -> ElementDetail {
         controlling_authority: e.controlling_authority,
         theory_variant: e.theory_variant,
         allegation_count: e.allegation_count,
+        supporting_evidence_count: e.supporting_evidence_count,
+        covered_allegation_count: e.covered_allegation_count,
+        proof_status: proof_status.to_string(),
+    }
+}
+
+/// Derive the Element's coverage label from `total` allegations (`T`) and
+/// `covered` allegations (`C`, those with >=1 corroborating Evidence).
+///
+/// Domain note: the label reports **presence of evidence**, not legal
+/// sufficiency — there is intentionally no `"proven"`. The four states are
+/// mutually exclusive and total over the valid input domain (`0 <= C <= T`):
+///
+/// - `T == 0` → `"no_allegations"` — an Element with nothing mapped to it yet.
+///   This is a *distinct* state, NOT a gap: you cannot have an evidence gap on
+///   an Element that has no allegations to cover (Rule 1: distinct observables).
+/// - `C == 0 && T > 0` → `"gap"` — allegations exist, none are corroborated.
+/// - `0 < C < T` → `"partial"` — some allegations corroborated, some not.
+/// - `C == T && T > 0` → `"supported"` — every allegation has corroboration.
+///
+/// ## Rust Learning: `&'static str` return for an enum-like label
+///
+/// The four outputs are compile-time string literals living in the binary, so
+/// we return a borrowed `&'static str` (zero allocation). The caller
+/// `.to_string()`s it into the owned `ElementDetail.proof_status` for the wire.
+///
+/// ## Behavior on impossible input
+///
+/// `covered` is a `count(DISTINCT …)` over a *subset* of the allegations that
+/// `total` counts, so valid graph data always satisfies `0 <= C <= T`. The
+/// match still totals over all `i64` pairs without panicking:
+/// - `C > T` (e.g. a hypothetical double-count bug) is absorbed by the
+///   `c >= t` arm → `"supported"`, the nearest honest label (everything mapped
+///   is corroborated).
+/// - The trailing `_` arm catches any other malformed pair (e.g. a negative
+///   `covered` from a corrupt query) → `"partial"`, a benign label rather than
+///   a crash.
+fn derive_proof_status(total: i64, covered: i64) -> &'static str {
+    match (total, covered) {
+        (0, _) => "no_allegations",
+        (t, 0) if t > 0 => "gap",
+        (t, c) if c >= t => "supported",
+        // 0 < C < T (normal partial coverage), plus the defensive catch for any
+        // impossible pair the arms above don't claim — both shape to "partial".
+        _ => "partial",
     }
 }
 
@@ -123,6 +171,22 @@ mod tests {
         order: Option<i64>,
         alleg: i64,
     ) -> ElementRow {
+        // Existing tests cover sorting/grouping where the evidence metrics are
+        // irrelevant, so default them to 0. The proof-status / evidence flow is
+        // exercised by `element_row_with_evidence` below.
+        element_row_with_evidence(count_number, id, name, order, alleg, 0, 0)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn element_row_with_evidence(
+        count_number: i64,
+        id: &str,
+        name: &str,
+        order: Option<i64>,
+        alleg: i64,
+        supporting: i64,
+        covered: i64,
+    ) -> ElementRow {
         ElementRow {
             count_number,
             element_id: id.into(),
@@ -132,6 +196,8 @@ mod tests {
             controlling_authority: None,
             theory_variant: None,
             allegation_count: alleg,
+            supporting_evidence_count: supporting,
+            covered_allegation_count: covered,
         }
     }
 
@@ -292,6 +358,85 @@ mod tests {
             vec!["Ordered One", "Ordered Two", "Alpha", "Beta"],
             "ordered (asc) first, then unordered alphabetically"
         );
+    }
+
+    // ── proof_status derivation ───────────────────────────────────
+
+    #[test]
+    fn proof_status_no_allegations_when_total_zero() {
+        // T == 0: no mapped allegations — a distinct state, NOT a gap.
+        assert_eq!(derive_proof_status(0, 0), "no_allegations");
+    }
+
+    #[test]
+    fn proof_status_gap_when_allegations_exist_but_none_covered() {
+        // C == 0 && T > 0.
+        assert_eq!(derive_proof_status(5, 0), "gap");
+        assert_eq!(derive_proof_status(1, 0), "gap");
+    }
+
+    #[test]
+    fn proof_status_partial_when_some_but_not_all_covered() {
+        // 0 < C < T.
+        assert_eq!(derive_proof_status(5, 2), "partial");
+        assert_eq!(derive_proof_status(2, 1), "partial");
+    }
+
+    #[test]
+    fn proof_status_supported_when_all_allegations_covered() {
+        // C == T && T > 0.
+        assert_eq!(derive_proof_status(5, 5), "supported");
+        assert_eq!(derive_proof_status(1, 1), "supported");
+    }
+
+    #[test]
+    fn proof_status_c_greater_than_t_absorbed_as_supported() {
+        // C > T cannot arise from the DISTINCT-counted Cypher (covered is a
+        // subset of total). If a future query bug produced it, the `c >= t` arm
+        // claims it → "supported" (everything mapped is corroborated), not a panic.
+        assert_eq!(derive_proof_status(2, 3), "supported");
+    }
+
+    #[test]
+    fn proof_status_negative_covered_falls_to_partial_not_panic() {
+        // The trailing `_` defensive arm: a corrupt negative `covered` is shaped
+        // into the benign "partial" label rather than crashing the read.
+        assert_eq!(derive_proof_status(5, -1), "partial");
+    }
+
+    #[test]
+    fn evidence_metrics_and_status_flow_through_to_element_detail() {
+        // 3 allegations, 2 covered by 4 distinct evidence items → "partial",
+        // and the two raw counts surface verbatim on the DTO.
+        let r = build(
+            vec![count_row(1)],
+            vec![element_row_with_evidence(1, "e1", "E", Some(1), 3, 4, 2)],
+        );
+        let el = &r.counts[0].elements[0];
+        assert_eq!(el.allegation_count, 3);
+        assert_eq!(el.supporting_evidence_count, 4);
+        assert_eq!(el.covered_allegation_count, 2);
+        assert_eq!(el.proof_status, "partial");
+    }
+
+    #[test]
+    fn element_with_no_evidence_is_gap_with_zero_supporting() {
+        let r = build(
+            vec![count_row(1)],
+            vec![element_row_with_evidence(1, "e1", "E", Some(1), 4, 0, 0)],
+        );
+        let el = &r.counts[0].elements[0];
+        assert_eq!(el.supporting_evidence_count, 0);
+        assert_eq!(el.proof_status, "gap");
+    }
+
+    #[test]
+    fn element_with_no_allegations_is_no_allegations_status() {
+        let r = build(
+            vec![count_row(1)],
+            vec![element_row_with_evidence(1, "e1", "E", Some(1), 0, 0, 0)],
+        );
+        assert_eq!(r.counts[0].elements[0].proof_status, "no_allegations");
     }
 
     #[test]

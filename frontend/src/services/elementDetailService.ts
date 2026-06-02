@@ -17,11 +17,39 @@ import { authFetch } from "./auth";
 // ─── Types — mirror Rust DTOs in element_detail_repository.rs ───────────────
 
 /**
+ * One piece of Evidence corroborating an Allegation. Backend source:
+ * `EvidenceRef` in element_detail_repository.rs (Part 2). Named
+ * `SupportingEvidence` here — NOT `EvidenceRef` — to stay distinct from the
+ * differently-shaped matrix-column `EvidenceRef` in `proofMatrix.ts`; two
+ * different shapes must not share a name.
+ *
+ * `source_document_id` is nullable: when an Evidence node has no `CONTAINED_IN`
+ * Document (a data gap the backend warn-logs), the locator renders as text with
+ * no PDF link rather than a dead link (Rule 1: distinguishable states).
+ */
+export type SupportingEvidence = {
+  id: string;
+  verbatim_quote: string | null;
+  /** PDF page number — the click-through locator. */
+  page_number: number | null;
+  /** Interrogatory / request id, e.g. "Q74". */
+  paragraph: string | null;
+  /** Page range when the Q&A spans pages, e.g. "pages 10-11". */
+  page_note: string | null;
+  source_document_id: string | null;
+  source_document_title: string | null;
+};
+
+/**
  * One mapped Allegation as it appears in the detail panel's list. Backend
  * source: `AllegationSummary` in element_detail_repository.rs.
  *
  * `source_section` is one of "Common" | "Dedicated" | "Unknown". The panel
  * uses it to group the list under labeled section dividers.
+ *
+ * `supporting_evidence` is the Evidence corroborating this Allegation; an
+ * **empty array is the visible gap** (an Allegation with no corroboration),
+ * rendered explicitly — never omitted (Rule 1).
  */
 export type AllegationSummary = {
   allegation_id: string;
@@ -30,6 +58,7 @@ export type AllegationSummary = {
   title: string | null;
   verbatim_quote: string | null;
   source_section: string;
+  supporting_evidence: SupportingEvidence[];
 };
 
 /**

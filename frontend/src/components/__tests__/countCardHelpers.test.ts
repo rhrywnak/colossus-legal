@@ -27,6 +27,9 @@ const makeElement = (overrides: Partial<ElementDetail> = {}): ElementDetail => (
   controlling_authority: null,
   theory_variant: null,
   allegation_count: 0,
+  supporting_evidence_count: 0,
+  covered_allegation_count: 0,
+  proof_status: "no_allegations",
   ...overrides,
 });
 

@@ -25,6 +25,7 @@ import {
   saveElementNotes,
 } from "../services/elementDetailService";
 import { parseLeadingParagraph } from "../utils/paragraphSort";
+import AllegationSection from "./ElementAllegationList";
 
 export interface ElementDetailContentProps {
   caseSlug: string;
@@ -138,56 +139,6 @@ const ALLEGATIONS_HEADER_STYLE: React.CSSProperties = {
   color: "var(--text-secondary)",
   textTransform: "uppercase",
   letterSpacing: "0.05em",
-};
-
-const SECTION_DIVIDER_STYLE_BASE: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: "8px",
-  margin: "12px 0 8px",
-  fontFamily: "var(--font-sans)",
-  fontSize: "11px",
-  fontWeight: 700,
-  letterSpacing: "0.05em",
-  textTransform: "uppercase",
-};
-
-const SECTION_DIVIDER_RULE_STYLE: React.CSSProperties = {
-  flex: 1,
-  height: "1px",
-  backgroundColor: "var(--border-default)",
-};
-
-const ALLEGATION_CARD_STYLE: React.CSSProperties = {
-  padding: "10px 12px",
-  marginBottom: "8px",
-  border: "1px solid var(--border-default)",
-  borderRadius: "8px",
-  backgroundColor: "var(--bg-surface)",
-};
-
-const PARAGRAPH_LABEL_STYLE: React.CSSProperties = {
-  fontFamily: "var(--font-mono)",
-  fontSize: "15px",
-  fontWeight: 700,
-  color: "var(--text-primary)",
-};
-
-const SUMMARY_TEXT_STYLE: React.CSSProperties = {
-  fontFamily: "var(--font-sans)",
-  fontSize: "13px",
-  color: "var(--text-secondary)",
-  marginLeft: "8px",
-};
-
-// Layout-only style for the verbatim quote. Typography (size/weight/color/font)
-// comes from the `.proof-text` utility class in tokens.css — the design system's
-// canonical body/proof treatment — so this object keeps only spacing and the
-// dynamic left border.
-const QUOTE_TEXT_STYLE_BASE: React.CSSProperties = {
-  marginTop: "6px",
-  paddingLeft: "8px",
-  lineHeight: 1.45,
 };
 
 const STATUS_INDICATOR_STYLE: React.CSSProperties = {
@@ -457,50 +408,5 @@ const ElementDetailContent: React.FC<ElementDetailContentProps> = ({
     </div>
   );
 };
-
-// ─── AllegationSection (ported) ──────────────────────────────────────────────
-
-const AllegationSection: React.FC<{
-  label: string;
-  labelColor: string;
-  labelBg: string;
-  accentColor: string;
-  allegations: AllegationSummary[];
-}> = ({ label, labelColor, labelBg, accentColor, allegations }) => (
-  <div>
-    <div style={SECTION_DIVIDER_STYLE_BASE}>
-      <span
-        style={{
-          color: labelColor,
-          backgroundColor: labelBg,
-          padding: "2px 8px",
-          borderRadius: "12px",
-        }}
-      >
-        {label}
-      </span>
-      <span style={SECTION_DIVIDER_RULE_STYLE} />
-    </div>
-    {allegations.map((a) => (
-      <div key={a.allegation_id} style={ALLEGATION_CARD_STYLE}>
-        <div>
-          <span style={PARAGRAPH_LABEL_STYLE}>¶{a.paragraph_number}</span>
-          {a.summary && <span style={SUMMARY_TEXT_STYLE}>{a.summary}</span>}
-        </div>
-        {a.verbatim_quote && (
-          <div
-            className="proof-text"
-            style={{
-              ...QUOTE_TEXT_STYLE_BASE,
-              borderLeft: `3px solid ${accentColor}`,
-            }}
-          >
-            {a.verbatim_quote}
-          </div>
-        )}
-      </div>
-    ))}
-  </div>
-);
 
 export default ElementDetailContent;

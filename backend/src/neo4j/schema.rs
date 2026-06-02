@@ -57,6 +57,16 @@ pub const PROVES: &str = "PROVES";
 /// of evidence.
 pub const RELIES_ON: &str = "RELIES_ON";
 
+/// `Evidence -[:CORROBORATES]-> Allegation`. A discovery/evidence item
+/// independently confirms (corroborates) a complaint Allegation.
+///
+/// Domain note: this is the cross-document proof edge the discovery pass-2
+/// extraction authors — Phillips' sworn admission corroborating a complaint
+/// paragraph. Combined with `BEARS_ON` + `HAS_ELEMENT` it forms the proof
+/// chain `Evidence → Allegation → Element → LegalCount` the Proof Matrix walks.
+/// Label-only (no edge properties).
+pub const CORROBORATES: &str = "CORROBORATES";
+
 /// `Evidence -[:CONTAINED_IN]-> Document`. The evidence item appears within
 /// this source document.
 pub const CONTAINED_IN: &str = "CONTAINED_IN";
@@ -109,6 +119,7 @@ mod tests {
         assert_eq!(ABOUT, "ABOUT");
         assert_eq!(PROVES, "PROVES");
         assert_eq!(RELIES_ON, "RELIES_ON");
+        assert_eq!(CORROBORATES, "CORROBORATES");
         assert_eq!(CONTAINED_IN, "CONTAINED_IN");
         assert_eq!(STATED_BY, "STATED_BY");
         assert_eq!(CHARACTERIZES, "CHARACTERIZES");
