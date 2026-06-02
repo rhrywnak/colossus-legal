@@ -17,6 +17,10 @@ pub mod claim_repository;
 pub mod contradiction_repository;
 pub mod decomposition_repository;
 pub mod document_repository;
+// Private — row-folding helper for element_detail_repository. Sibling (not a
+// sub-module) to mirror the established split pattern and keep both files under
+// the 300-line module limit.
+mod element_detail_fold;
 pub mod element_detail_repository;
 pub mod embedding_repository;
 pub mod evidence_chain_repository;

@@ -13,7 +13,9 @@
 
 use neo4rs::{query, Graph};
 
-use crate::models::document_status::{ENTITY_ALLEGATION, ENTITY_ELEMENT, ENTITY_LEGAL_COUNT};
+use crate::models::document_status::{
+    ENTITY_ALLEGATION, ENTITY_ELEMENT, ENTITY_EVIDENCE, ENTITY_LEGAL_COUNT,
+};
 use crate::neo4j::schema;
 
 /// Errors from the causes-of-action reads. Context (operation + source) is for
@@ -49,8 +51,16 @@ pub(crate) struct CountRow {
     pub special_note: Option<String>,
 }
 
-/// One `Element` row, tagged with its parent `count_number` for joining, and
-/// its computed incoming-`BEARS_ON` count.
+/// One `Element` row, tagged with its parent `count_number` for joining, plus
+/// the three graph-computed proof metrics for the Proof Matrix.
+///
+/// Domain note: the trio `allegation_count` / `supporting_evidence_count` /
+/// `covered_allegation_count` are, respectively, the proof denominator (how
+/// many Allegations bear on this Element), the SUPPORTING magnitude (how many
+/// distinct Evidence items corroborate any of them), and the coverage numerator
+/// (how many of those Allegations have at least one corroboration). The builder
+/// derives `proof_status` from the denominator + numerator — see
+/// `causes_of_action_builder::derive_proof_status`.
 #[derive(Debug, Clone)]
 pub(crate) struct ElementRow {
     pub count_number: i64,
@@ -61,6 +71,8 @@ pub(crate) struct ElementRow {
     pub controlling_authority: Option<String>,
     pub theory_variant: Option<String>,
     pub allegation_count: i64,
+    pub supporting_evidence_count: i64,
+    pub covered_allegation_count: i64,
 }
 
 // Full Cypher as named constants (no magic strings inline). Node labels are
@@ -98,11 +110,24 @@ const COUNTS_QUERY: &str = "MATCH (lc) WHERE labels(lc)[0] = $count_label \
 /// Elements with no Allegations, and DISTINCT collapses that to 0 (a plain
 /// `count(a)` would also return 0 for nulls, but DISTINCT also de-dupes an
 /// Allegation that bears on the same Element more than once).
+///
+/// ## Why the second OPTIONAL MATCH reuses `a` instead of a fresh branch
+///
+/// The proof chain is `(Evidence)-[:CORROBORATES]->(Allegation)-[:BEARS_ON]->(Element)`.
+/// Hanging `(a)<-[:CORROBORATES]-(ev)` off the *same* `a` already bound by the
+/// allegation OPTIONAL MATCH gives us both extra metrics from one extra hop:
+/// `count(DISTINCT ev)` is the distinct supporting Evidence, and
+/// `count(DISTINCT CASE WHEN ev IS NOT NULL THEN a END)` is the count of
+/// Allegations that have at least one corroboration. The cartesian fan-out of
+/// `(allegation × evidence)` rows is harmless because every metric is a
+/// `count(DISTINCT …)` — duplicates collapse. A separate `(ac)<-[:CORROBORATES]`
+/// branch would compute the identical numbers with one more join, so we don't.
 fn elements_query() -> String {
     format!(
         "MATCH (lc)-[:{has_element}]->(el) \
        WHERE labels(lc)[0] = $count_label AND labels(el)[0] = $element_label \
      OPTIONAL MATCH (a)-[:{bears_on}]->(el) WHERE labels(a)[0] = $allegation_label \
+     OPTIONAL MATCH (a)<-[:{corroborates}]-(ev) WHERE labels(ev)[0] = $evidence_label \
      RETURN lc.count_number             AS count_number, \
             el.id                       AS element_id, \
             el.order_in_count           AS order_in_count, \
@@ -110,9 +135,12 @@ fn elements_query() -> String {
             el.what_plaintiff_must_prove AS what_plaintiff_must_prove, \
             el.controlling_authority    AS controlling_authority, \
             el.theory_variant           AS theory_variant, \
-            count(DISTINCT a)           AS allegation_count",
+            count(DISTINCT a)           AS allegation_count, \
+            count(DISTINCT ev)          AS supporting_evidence_count, \
+            count(DISTINCT CASE WHEN ev IS NOT NULL THEN a END) AS covered_allegation_count",
         has_element = schema::HAS_ELEMENT,
         bears_on = schema::BEARS_ON,
+        corroborates = schema::CORROBORATES,
     )
 }
 
@@ -168,7 +196,8 @@ pub(crate) async fn fetch_elements(graph: &Graph) -> Result<Vec<ElementRow>, Cau
     let q = query(&elements_query())
         .param("count_label", ENTITY_LEGAL_COUNT)
         .param("element_label", ENTITY_ELEMENT)
-        .param("allegation_label", ENTITY_ALLEGATION);
+        .param("allegation_label", ENTITY_ALLEGATION)
+        .param("evidence_label", ENTITY_EVIDENCE);
     let mut stream = graph
         .execute(q)
         .await
@@ -195,6 +224,8 @@ pub(crate) async fn fetch_elements(graph: &Graph) -> Result<Vec<ElementRow>, Cau
             controlling_authority: row.get("controlling_authority").map_err(decode(OP))?,
             theory_variant: row.get("theory_variant").map_err(decode(OP))?,
             allegation_count: row.get("allegation_count").map_err(decode(OP))?,
+            supporting_evidence_count: row.get("supporting_evidence_count").map_err(decode(OP))?,
+            covered_allegation_count: row.get("covered_allegation_count").map_err(decode(OP))?,
         });
     }
     Ok(rows)

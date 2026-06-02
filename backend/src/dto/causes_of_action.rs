@@ -92,7 +92,21 @@ pub struct ElementDetail {
     /// `common_law_fraud`); `null` for other Counts.
     pub theory_variant: Option<String>,
     /// Count of incoming `BEARS_ON` edges (Allegations bearing on this
-    /// Element). Computed from the graph, currently 0 for all until the
-    /// Allegation-to-Element mapping pass runs.
+    /// Element) — the proof **denominator** `T`.
     pub allegation_count: i64,
+    /// Number of DISTINCT Evidence items corroborating any Allegation that
+    /// bears on this Element — the SUPPORTING magnitude. Walks
+    /// `(Evidence)-[:CORROBORATES]->(Allegation)-[:BEARS_ON]->(Element)`.
+    pub supporting_evidence_count: i64,
+    /// Number of this Element's Allegations that have >=1 incoming
+    /// `CORROBORATES` — the coverage **numerator** `C` (`C <= allegation_count`).
+    pub covered_allegation_count: i64,
+    /// Coverage label derived in the builder from `T = allegation_count` and
+    /// `C = covered_allegation_count`: one of `"no_allegations"`, `"gap"`,
+    /// `"partial"`, `"supported"`.
+    ///
+    /// Domain note: this is **presence-of-evidence**, NOT a legal-sufficiency
+    /// claim — there is deliberately no `"proven"` state. A lowercase string the
+    /// frontend can `switch` on. See `causes_of_action_builder::derive_proof_status`.
+    pub proof_status: String,
 }

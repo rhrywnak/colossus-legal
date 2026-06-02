@@ -26,7 +26,10 @@ use neo4rs::{query, Graph};
 use serde::Serialize;
 use sqlx::PgPool;
 
-use crate::models::document_status::{ENTITY_ALLEGATION, ENTITY_ELEMENT, ENTITY_LEGAL_COUNT};
+use super::element_detail_fold::DetailFold;
+use crate::models::document_status::{
+    ENTITY_ALLEGATION, ENTITY_DOCUMENT, ENTITY_ELEMENT, ENTITY_EVIDENCE, ENTITY_LEGAL_COUNT,
+};
 use crate::neo4j::schema;
 use crate::repositories::pipeline_repository::PipelineRepoError;
 
@@ -120,6 +123,35 @@ pub struct AllegationSummary {
     /// classifier, not a precise count attribution. See
     /// [`source_section_for`].
     pub source_section: &'static str,
+    /// Evidence items that corroborate this Allegation
+    /// (`(Evidence)-[:CORROBORATES]->(Allegation)`), deduped by id.
+    ///
+    /// Domain note: an **empty vec is the visible gap** — an Allegation with no
+    /// corroborating Evidence renders as an explicit "no evidence" row in the
+    /// panel, so gaps are honest, not hidden. Never omitted (Rule 1: empty and
+    /// absent stay distinguishable).
+    pub supporting_evidence: Vec<EvidenceRef>,
+}
+
+/// One corroborating Evidence item, with enough fields for a source-PDF
+/// click-through (`page_number` locates the page; the source Document supplies
+/// the file).
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct EvidenceRef {
+    pub id: String,
+    pub verbatim_quote: Option<String>,
+    /// PDF page number where the Q&A appears — the click-through locator.
+    pub page_number: Option<i64>,
+    /// Interrogatory / request id, e.g. `"Q74"`, `"RFA 9"`.
+    pub paragraph: Option<String>,
+    /// Page range when the Q&A spans pages, e.g. `"pages 10-11"`.
+    pub page_note: Option<String>,
+    /// `Document.id` of the source PDF, reached via
+    /// `(Evidence)-[:CONTAINED_IN]->(Document)`. `None` when the Evidence node
+    /// carries no `CONTAINED_IN` edge — a distinguishable data-gap (logged at
+    /// `warn`), not an error and not a dropped item (Rule 1).
+    pub source_document_id: Option<String>,
+    pub source_document_title: Option<String>,
 }
 
 // ── Cypher and SQL constants ──────────────────────────────────────
@@ -152,6 +184,8 @@ fn element_detail_cypher() -> String {
        WHERE e.id = $element_id AND labels(e)[0] = $element_label \
      OPTIONAL MATCH (lc)-[:{has_element}]->(e) WHERE labels(lc)[0] = $count_label \
      OPTIONAL MATCH (a)-[:{bears_on}]->(e) WHERE labels(a)[0] = $allegation_label \
+     OPTIONAL MATCH (a)<-[:{corroborates}]-(ev) WHERE labels(ev)[0] = $evidence_label \
+     OPTIONAL MATCH (ev)-[:{contained_in}]->(d) WHERE labels(d)[0] = $document_label \
      RETURN \
        e.id                         AS element_id, \
        e.element_name               AS element_name, \
@@ -163,9 +197,18 @@ fn element_detail_cypher() -> String {
        a.paragraph_number           AS paragraph_number, \
        a.summary                    AS summary, \
        a.title                      AS title, \
-       a.verbatim_quote             AS verbatim_quote",
+       a.verbatim_quote             AS verbatim_quote, \
+       ev.id                        AS evidence_id, \
+       ev.verbatim_quote            AS evidence_quote, \
+       ev.page_number               AS evidence_page_number, \
+       ev.paragraph                 AS evidence_paragraph, \
+       ev.page_note                 AS evidence_page_note, \
+       d.id                         AS source_document_id, \
+       d.title                      AS source_document_title",
         has_element = schema::HAS_ELEMENT,
         bears_on = schema::BEARS_ON,
+        corroborates = schema::CORROBORATES,
+        contained_in = schema::CONTAINED_IN,
     )
 }
 
@@ -232,34 +275,7 @@ pub(crate) fn source_section_for(paragraph_number: &str) -> &'static str {
     }
 }
 
-// ── Internal row aggregator ───────────────────────────────────────
-
-/// Element + parent-Count columns captured from the first decoded row. We use
-/// a named struct rather than a tuple so the call site stays readable and
-/// clippy's `type_complexity` lint stays quiet.
-struct ElementHeader {
-    element_id: String,
-    element_name: String,
-    what_plaintiff_must_prove: String,
-    order_in_count: Option<i64>,
-    count_number: Option<i64>,
-    count_name: Option<String>,
-}
-
 // ── Main read fn ──────────────────────────────────────────────────
-
-/// Decode helper: maps neo4rs row-decode errors into the typed variant.
-///
-/// ## Rust Learning: returning `impl Fn(_) -> _`
-///
-/// `decode_err("op")` returns a closure that captures the operation name.
-/// Used as `row.get("x").map_err(decode_err(OP))` so every column decode
-/// reuses the same captured context without restating it inline. The `move`
-/// would be required if the closure outlived the local, but here the
-/// returned closure is consumed immediately by `map_err`.
-fn decode_err(operation: &'static str) -> impl Fn(neo4rs::DeError) -> ElementDetailRepoError {
-    move |source| ElementDetailRepoError::Neo4jDecode { operation, source }
-}
 
 /// Fetch an Element with its parent Count, mapped Allegations, and the
 /// human-authored `review_notes` from Postgres. The two reads run sequentially
@@ -267,11 +283,13 @@ fn decode_err(operation: &'static str) -> impl Fn(neo4rs::DeError) -> ElementDet
 /// Neo4j miss the function returns [`ElementDetailRepoError::NotFound`] before
 /// touching Postgres.
 ///
-/// The Cypher emits one row per (Element, parent Count, mapped Allegation)
-/// triple. We aggregate in Rust: the Element / Count columns repeat across
-/// rows (same Element) and the Allegation columns vary per row; an Element
-/// with zero mapped Allegations still produces a single row with NULL
-/// Allegation columns thanks to `OPTIONAL MATCH`.
+/// The Cypher emits one row per (Element, parent Count, mapped Allegation,
+/// corroborating Evidence) tuple. We aggregate in Rust via
+/// [`DetailFold::push_row`]: the Element / Count columns repeat across rows
+/// (same Element), Allegations are folded by id, and each Allegation's
+/// corroborating Evidence is collected (deduped) from its rows. An Element with
+/// zero mapped Allegations still produces a single row with NULL Allegation
+/// columns thanks to `OPTIONAL MATCH`.
 ///
 /// Final allegation ordering is by parsed-integer `paragraph_number` — see
 /// the in-fn comment for why we sort in Rust rather than `ORDER BY` in Cypher.
@@ -287,7 +305,9 @@ pub async fn fetch_element_with_allegations(
         .param("element_id", element_id)
         .param("element_label", ENTITY_ELEMENT)
         .param("count_label", ENTITY_LEGAL_COUNT)
-        .param("allegation_label", ENTITY_ALLEGATION);
+        .param("allegation_label", ENTITY_ALLEGATION)
+        .param("evidence_label", ENTITY_EVIDENCE)
+        .param("document_label", ENTITY_DOCUMENT);
 
     let mut stream =
         graph
@@ -298,13 +318,11 @@ pub async fn fetch_element_with_allegations(
                 source,
             })?;
 
-    // First row carries the Element + Count columns; subsequent rows just add
-    // more Allegations. We accumulate Allegations into a Vec, dedup'd by
-    // allegation_id (an Allegation could in principle prove the same Element
-    // more than once via duplicate edges).
-    let mut element_fields: Option<ElementHeader> = None;
-    let mut allegations: Vec<AllegationSummary> = Vec::new();
-
+    // Fold the fanned-out rows: Element header once, Allegations deduped by id,
+    // each Allegation's corroborating Evidence collected (see `DetailFold`). The
+    // stream loop stays here because `DetachedRowStream`'s type is not nameable
+    // in a helper signature (see the `DetailFold` doc comment).
+    let mut fold = DetailFold::default();
     while let Some(row) =
         stream
             .next()
@@ -314,68 +332,20 @@ pub async fn fetch_element_with_allegations(
                 source,
             })?
     {
-        // Element / Count columns: capture once on the first row. They are
-        // identical on every subsequent row (same Element, same Count).
-        if element_fields.is_none() {
-            // `element_name` and `what_plaintiff_must_prove` are required
-            // properties on a canonical Element node. We decode them as
-            // non-Option — a missing value here is a data-shape bug, not a
-            // recoverable state, so the decode error propagates as 500.
-            let row_element_id: String = row.get("element_id").map_err(decode_err(OP_GRAPH))?;
-            let element_name: String = row.get("element_name").map_err(decode_err(OP_GRAPH))?;
-            let what_plaintiff_must_prove: String = row
-                .get("what_plaintiff_must_prove")
-                .map_err(decode_err(OP_GRAPH))?;
-            let order_in_count: Option<i64> =
-                row.get("order_in_count").map_err(decode_err(OP_GRAPH))?;
-            let count_number: Option<i64> =
-                row.get("count_number").map_err(decode_err(OP_GRAPH))?;
-            let count_name: Option<String> = row.get("count_name").map_err(decode_err(OP_GRAPH))?;
-            element_fields = Some(ElementHeader {
-                element_id: row_element_id,
-                element_name,
-                what_plaintiff_must_prove,
-                order_in_count,
-                count_number,
-                count_name,
-            });
-        }
-
-        // Allegation columns: each is Option because OPTIONAL MATCH yields
-        // NULLs when no Allegation proves this Element.
-        let allegation_id: Option<String> =
-            row.get("allegation_id").map_err(decode_err(OP_GRAPH))?;
-        let paragraph_number: Option<String> =
-            row.get("paragraph_number").map_err(decode_err(OP_GRAPH))?;
-        // Only assemble an AllegationSummary when both keys are present —
-        // either being NULL means this row carries no Allegation.
-        if let (Some(id), Some(paragraph)) = (allegation_id, paragraph_number) {
-            let summary: Option<String> = row.get("summary").map_err(decode_err(OP_GRAPH))?;
-            let title: Option<String> = row.get("title").map_err(decode_err(OP_GRAPH))?;
-            let verbatim_quote: Option<String> =
-                row.get("verbatim_quote").map_err(decode_err(OP_GRAPH))?;
-            let section = source_section_for(&paragraph);
-            allegations.push(AllegationSummary {
-                allegation_id: id,
-                paragraph_number: paragraph,
-                summary,
-                title,
-                verbatim_quote,
-                source_section: section,
-            });
-        }
+        fold.push_row(&row, OP_GRAPH)?;
     }
 
-    let header = element_fields.ok_or_else(|| ElementDetailRepoError::NotFound {
-        element_id: element_id.to_string(),
-    })?;
+    let header = fold
+        .header
+        .ok_or_else(|| ElementDetailRepoError::NotFound {
+            element_id: element_id.to_string(),
+        })?;
+    let mut allegations = fold.allegations;
 
-    // De-duplicate by allegation_id. A canonical BEARS_ON MERGE on
-    // (a, e) ought to be unique, but two ingest passes can leave a duplicate
-    // edge briefly; the panel shouldn't render the same row twice.
-    allegations.sort_by(|x, y| x.allegation_id.cmp(&y.allegation_id));
-    allegations.dedup_by(|x, y| x.allegation_id == y.allegation_id);
-
+    // Allegations are already unique (folded by id in `DetailFold::push_row`,
+    // which also absorbs duplicate BEARS_ON edges a mid-ingest race could
+    // leave), so the historical sort-by-id + `dedup_by` step is no longer needed.
+    //
     // Sort by paragraph_number numerically (parse the leading int prefix so
     // ranges like "16-18" sort by 16). Falls back to lexicographic for
     // anything we can't parse — keeps the order stable instead of panicking.
@@ -481,6 +451,15 @@ mod tests {
             title: Some("Title".to_string()),
             verbatim_quote: None,
             source_section: "Common",
+            supporting_evidence: vec![EvidenceRef {
+                id: "evidence-074".to_string(),
+                verbatim_quote: Some("That is my recollection.".to_string()),
+                page_number: Some(22),
+                paragraph: Some("Q74".to_string()),
+                page_note: None,
+                source_document_id: Some("doc-phillips".to_string()),
+                source_document_title: Some("Phillips Discovery Response".to_string()),
+            }],
         };
         let value = serde_json::to_value(&summary).expect("serializes cleanly");
         assert_eq!(
@@ -492,8 +471,54 @@ mod tests {
                 "title": "Title",
                 "verbatim_quote": null,
                 "source_section": "Common",
+                "supporting_evidence": [{
+                    "id": "evidence-074",
+                    "verbatim_quote": "That is my recollection.",
+                    "page_number": 22,
+                    "paragraph": "Q74",
+                    "page_note": null,
+                    "source_document_id": "doc-phillips",
+                    "source_document_title": "Phillips Discovery Response",
+                }],
             })
         );
+    }
+
+    /// An Allegation with no corroborating Evidence serializes its
+    /// `supporting_evidence` as an **empty array, present** — never omitted.
+    /// That empty array is the visible gap the panel renders (Rule 1: empty and
+    /// absent stay distinguishable).
+    #[test]
+    fn allegation_with_no_evidence_serializes_empty_array_not_omitted() {
+        let summary = AllegationSummary {
+            allegation_id: "allegation-99".to_string(),
+            paragraph_number: "73".to_string(),
+            summary: None,
+            title: None,
+            verbatim_quote: None,
+            source_section: "Dedicated",
+            supporting_evidence: vec![],
+        };
+        let value = serde_json::to_value(&summary).expect("serializes cleanly");
+        assert_eq!(value["supporting_evidence"], json!([]));
+    }
+
+    /// An Evidence item with no source Document keeps `source_document_id: null`
+    /// (the warn-logged data-gap state) rather than being dropped or erroring.
+    #[test]
+    fn evidence_ref_without_document_serializes_null_source_id() {
+        let ev = EvidenceRef {
+            id: "evidence-041".to_string(),
+            verbatim_quote: Some("The accountings speak for themselves.".to_string()),
+            page_number: Some(15),
+            paragraph: Some("Q41".to_string()),
+            page_note: Some("pages 15-16".to_string()),
+            source_document_id: None,
+            source_document_title: None,
+        };
+        let value = serde_json::to_value(&ev).expect("serializes cleanly");
+        assert_eq!(value["source_document_id"], json!(null));
+        assert_eq!(value["page_note"], json!("pages 15-16"));
     }
 
     /// ¶10 falls inside `COMMON_PARA_START..=COMMON_PARA_END`. Documents the
