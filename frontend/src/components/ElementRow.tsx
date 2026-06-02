@@ -51,11 +51,15 @@ export interface ElementRowProps {
   // ── Matrix-variant props (optional; the legacy variant ignores them) ────────
   /** 'legacy' (default) = PM3's single-badge row; 'matrix' = PM4's 5 columns. */
   variant?: "legacy" | "matrix";
-  /** Supporting evidence refs; empty today (honest pending state). */
-  supportingEvidence?: EvidenceRef[];
-  /** Opposing evidence refs; empty today (honest pending state). */
+  /**
+   * Supporting column magnitude — the backend's `supporting_evidence_count`
+   * (DISTINCT corroborating Evidence). The column shows this count; the
+   * per-evidence chips live in the expanded detail, not the column.
+   */
+  supportingCount?: number;
+  /** Opposing evidence refs; empty today (no CONTRADICTS/REBUTS edges yet). */
   opposingEvidence?: EvidenceRef[];
-  /** Proof status; `'pending'` for every Element in v1. */
+  /** Backend-derived proof status; rendered as-is, never re-computed (Rule 19). */
   proofStatus?: ElementProofStatus;
   /** Whether this matrix row is expanded (drives the caret + highlight). */
   expanded?: boolean;
@@ -163,12 +167,26 @@ const MatrixRow: React.FC<ElementRowProps> = (props) => {
       <span style={element.allegation_count > 0 ? BADGE_STYLE : ZERO_BADGE_STYLE}>
         {element.allegation_count}
       </span>
-      <EvidenceCell items={props.supportingEvidence ?? []} />
+      <SupportingCountCell count={props.supportingCount ?? 0} />
       <EvidenceCell items={props.opposingEvidence ?? []} />
-      <StatusPill status={props.proofStatus ?? "pending"} />
+      <StatusPill status={props.proofStatus ?? "no_allegations"} />
     </div>
   );
 };
+
+/**
+ * Supporting column cell: the corroborating-evidence magnitude. Renders the
+ * number when > 0, or the muted "—" empty treatment (matching `EvidenceCell`'s
+ * empty state) when 0. It only DISPLAYS the backend count — no derivation.
+ */
+const SupportingCountCell: React.FC<{ count: number }> = ({ count }) =>
+  count > 0 ? (
+    <span style={SUPPORTING_COUNT_STYLE}>{count}</span>
+  ) : (
+    <span style={SUPPORTING_EMPTY_STYLE} title="No supporting evidence">
+      —
+    </span>
+  );
 
 /**
  * ElementRow — switch on the explicit `variant` (default 'legacy'). PM3 passes
@@ -217,6 +235,22 @@ const BADGE_STYLE: React.CSSProperties = {
 const ZERO_BADGE_STYLE: React.CSSProperties = {
   color: "var(--text-muted)",
   fontSize: "13px",
+};
+
+// Supporting-count cell: a plain numeric magnitude (text, not an accent pill, so
+// it reads as a count and not as the allegation badge), and the muted "—" empty
+// treatment matching EvidenceCell.
+const SUPPORTING_COUNT_STYLE: React.CSSProperties = {
+  fontFamily: "var(--font-sans)",
+  fontSize: "13px",
+  fontWeight: 600,
+  color: "var(--text-primary)",
+};
+
+const SUPPORTING_EMPTY_STYLE: React.CSSProperties = {
+  fontFamily: "var(--font-sans)",
+  fontSize: "13px",
+  color: "var(--text-muted)",
 };
 
 // ─── Matrix row styles (PM4 only) ────────────────────────────────────────────

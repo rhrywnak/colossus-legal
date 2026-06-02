@@ -16,6 +16,7 @@
 import { API_BASE_URL } from "./api";
 import { authFetch } from "./auth";
 import { DEFAULT_CASE_SLUG } from "./caseHeader";
+import { ElementProofStatus } from "./proofMatrix";
 
 /** A controlling authority (case / statute / jury instruction / court rule). */
 export type Authority = {
@@ -43,6 +44,20 @@ export type ElementDetail = {
   controlling_authority: string | null;
   theory_variant: string | null;
   allegation_count: number;
+  /**
+   * Proof-Matrix fields (Part 2), mirroring the Rust `ElementDetail` DTO. All
+   * three are computed by the backend; the frontend renders them as-is (Rule 19
+   * — no client-side derivation).
+   *
+   * - `supporting_evidence_count`: DISTINCT Evidence corroborating any allegation
+   *   bearing on this Element — the Supporting column magnitude.
+   * - `covered_allegation_count`: allegations with >=1 corroboration (the
+   *   coverage numerator; carried for completeness, not currently rendered).
+   * - `proof_status`: the backend-derived coverage label.
+   */
+  supporting_evidence_count: number;
+  covered_allegation_count: number;
+  proof_status: ElementProofStatus;
 };
 
 /** One Count with its canonical metadata and Elements. */

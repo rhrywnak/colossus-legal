@@ -6,10 +6,12 @@
 // `ProofMatrixPage` so that page stays within the 300-line module limit and so
 // the row+detail unit reads as one thing.
 //
-// The evidence columns are honest empties (Charter §8): `supportingEvidence` and
-// `opposingEvidence` are `[]` and `proofStatus` is `'pending'`, because no
-// evidence data exists yet. `ElementDetailContent` self-fetches the real
-// allegation detail and is mounted unchanged.
+// Part 2: the Supporting column and Status pill now show REAL backend data —
+// `element.supporting_evidence_count` and `element.proof_status` (both computed
+// by the backend; rendered as-is, never derived here — Rule 19). The Opposing
+// column stays an honest empty (`[]`) because no CONTRADICTS/REBUTS edges exist
+// on the processed document yet. `ElementDetailContent` self-fetches the
+// per-allegation evidence detail.
 // =============================================================================
 
 import React from "react";
@@ -56,9 +58,9 @@ const MatrixRowWithDetail: React.FC<MatrixRowWithDetailProps> = ({
       selected={false}
       onSelect={NOOP_SELECT}
       variant="matrix"
-      supportingEvidence={[]}
+      supportingCount={element.supporting_evidence_count}
       opposingEvidence={[]}
-      proofStatus="pending"
+      proofStatus={element.proof_status}
       expanded={expanded}
       onToggleExpand={onToggleExpand}
     />

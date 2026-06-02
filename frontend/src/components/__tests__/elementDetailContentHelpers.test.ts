@@ -23,6 +23,7 @@ const makeAllegation = (
   title: null,
   verbatim_quote: null,
   source_section: "Common",
+  supporting_evidence: [],
   ...overrides,
 });
 

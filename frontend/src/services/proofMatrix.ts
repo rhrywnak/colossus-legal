@@ -49,10 +49,20 @@ export type EvidenceRef = {
 };
 
 /**
- * Proof status for one Element. Every Element is `'pending'` in v1 (no evidence
- * data); the other three are valid shapes the cell can render once data lands.
+ * Proof status for one Element — the EXACT lowercase values the backend's
+ * `derive_proof_status` emits (Part 2 aligned these to the wire). Computed by
+ * the backend from coverage; the frontend only renders it (Rule 19 — no
+ * client-side status derivation).
+ *
+ * Domain note: this is **presence-of-evidence**, NOT legal sufficiency — there
+ * is intentionally no `"proven"`. `"no_allegations"` (nothing mapped to the
+ * Element) is distinct from `"gap"` (allegations mapped, none corroborated).
  */
-export type ElementProofStatus = "proven" | "partial" | "gap" | "pending";
+export type ElementProofStatus =
+  | "no_allegations"
+  | "gap"
+  | "partial"
+  | "supported";
 
 /**
  * Fetch the per-Count deduped allegation rollup for `slug` (defaults to the
