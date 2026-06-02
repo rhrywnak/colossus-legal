@@ -21,9 +21,9 @@
 //     be double-counted — the exact dedup the rollup endpoint fixes). On a failed
 //     or pending rollup the selector degrades to a muted `—`.
 //
-// Part 3 (not here) adds the Supporting / Opposing / Status columns and the
-// row-expand (ElementDetailContent). This part renders no evidence columns, no
-// placeholder cells, and wires no row expansion.
+// Part 3 added the Supporting / Opposing / Status columns (honest "discovery
+// pending" empties — no evidence data exists yet) and row-expand: clicking an
+// Element reveals its live mapped-allegation detail via ElementDetailContent.
 //
 // The component is split into a data hook + small presentational pieces so every
 // function stays within the 50-line limit (CLAUDE.md Rule 18).
@@ -33,7 +33,11 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import Breadcrumb from "../components/Breadcrumb";
 import CountSelector from "../components/CountSelector";
-import ElementRow from "../components/ElementRow";
+import MatrixRowWithDetail from "../components/MatrixRowWithDetail";
+import {
+  PROOF_MATRIX_GRID_TEMPLATE,
+  PROOF_MATRIX_COLUMN_LABELS,
+} from "../components/proofMatrixColumns";
 import { sortElements } from "../components/CountCard";
 import { CountDetail, getCausesOfAction } from "../services/causesOfAction";
 import {
@@ -41,16 +45,6 @@ import {
   indexAllegationTotals,
 } from "../services/proofMatrix";
 import { DEFAULT_CASE_SLUG } from "../services/caseHeader";
-
-/**
- * Element rows are non-interactive in Part 2: there is no per-Element selection
- * or expand until Part 3 wires `ElementDetailContent`. ElementRow requires an
- * `onSelect` prop, so we pass this shared no-op — a single stable reference (not
- * a fresh closure per render). This is a deliberate inert state, not a swallowed
- * action (Rule 1): Part 3 replaces it with the real expand handler. (Consuming
- * ElementRow this way needs no change to ElementRow itself.)
- */
-const NOOP_SELECT = (): void => {};
 
 /** What the page needs from its two reads, after shaping. */
 interface ProofMatrixData {
@@ -155,31 +149,43 @@ function useProofMatrixData(slug: string): ProofMatrixData {
 }
 
 /**
- * Column header + the selected Count's Element rows. The header labels the two
- * LIVE columns only ("Element", "Mapped Allegations"); Part 3 extends ElementRow
- * and this header together with Supporting / Opposing / Status — no placeholder
- * cells are pre-rendered here.
+ * Column header + the selected Count's Element rows, as the five-column matrix.
+ * Header and rows share `PROOF_MATRIX_GRID_TEMPLATE`, so they stay aligned. The
+ * three evidence columns render honest "discovery pending" empties (no data
+ * exists yet); Mapped Allegations is the real per-Element count.
+ *
+ * Owns the single-open-accordion `expandedElementId` state. The page keys this
+ * table by Count, so switching Counts remounts it and collapses any open row.
  */
-const ElementTable: React.FC<{ count: CountDetail }> = ({ count }) => {
+const ElementTable: React.FC<{ count: CountDetail; caseSlug: string }> = ({
+  count,
+  caseSlug,
+}) => {
   const elements = sortElements(count.elements);
+  const [expandedElementId, setExpandedElementId] = useState<string | null>(null);
+  const toggleExpand = (elementId: string) =>
+    setExpandedElementId((prev) => (prev === elementId ? null : elementId));
+
   return (
     <div style={{ ...CARD_STYLE, marginTop: "20px" }}>
       <div style={COLUMN_HEADER_STYLE}>
-        <span>Element</span>
-        <span>Mapped Allegations</span>
+        {PROOF_MATRIX_COLUMN_LABELS.map((label) => (
+          <span key={label}>{label}</span>
+        ))}
       </div>
       {elements.length === 0 ? (
         <div style={MESSAGE_STYLE}>No Elements loaded for this Count.</div>
       ) : (
         <div>
           {elements.map((el, i) => (
-            <ElementRow
+            <MatrixRowWithDetail
               key={el.element_id}
               element={el}
               countNumber={count.count_number}
               index={i}
-              selected={false}
-              onSelect={NOOP_SELECT}
+              caseSlug={caseSlug}
+              expanded={expandedElementId === el.element_id}
+              onToggleExpand={toggleExpand}
             />
           ))}
         </div>
@@ -196,7 +202,8 @@ const ElementTable: React.FC<{ count: CountDetail }> = ({ count }) => {
 const ProofMatrixContent: React.FC<{
   sortedCounts: CountDetail[];
   allegationTotals: Record<number, number>;
-}> = ({ sortedCounts, allegationTotals }) => {
+  caseSlug: string;
+}> = ({ sortedCounts, allegationTotals, caseSlug }) => {
   const [selectedCountNumber, setSelectedCountNumber] = useState<number>(
     sortedCounts[0].count_number,
   );
@@ -221,7 +228,13 @@ const ProofMatrixContent: React.FC<{
         allegationTotals={allegationTotals}
         onSelect={setSelectedCountNumber}
       />
-      <ElementTable count={selected} />
+      {/* Key by Count: switching Counts remounts the table, collapsing any
+          expanded row (the single-open accordion resets per Count). */}
+      <ElementTable
+        key={selected.count_number}
+        count={selected}
+        caseSlug={caseSlug}
+      />
     </>
   );
 };
@@ -260,6 +273,7 @@ const ProofMatrixPage: React.FC = () => {
         <ProofMatrixContent
           sortedCounts={sortedCounts}
           allegationTotals={allegationTotals}
+          caseSlug={slug}
         />
       )}
     </div>
@@ -282,14 +296,16 @@ const SUBTITLE_STYLE: React.CSSProperties = {
   color: "var(--text-secondary)",
 };
 
-// Column header row. "Element" sits over the number+name columns (left),
-// "Mapped Allegations" over the badge (right) — `space-between` aligns them to
-// the row's outer edges, matching ElementRow's horizontal padding.
+// Column header row. Uses the SAME grid template as the matrix ElementRow (and a
+// matching 3px transparent left border + 12px side padding) so every header
+// label sits exactly over its column.
 const COLUMN_HEADER_STYLE: React.CSSProperties = {
-  display: "flex",
+  display: "grid",
+  gridTemplateColumns: PROOF_MATRIX_GRID_TEMPLATE,
   alignItems: "center",
-  justifyContent: "space-between",
+  gap: "12px",
   padding: "0 12px 8px",
+  borderLeft: "3px solid transparent",
   borderBottom: "1px solid var(--border-default)",
   marginBottom: "8px",
   fontFamily: "var(--font-sans)",

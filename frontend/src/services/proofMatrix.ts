@@ -32,6 +32,28 @@ export type ProofMatrixRollupResponse = {
   counts: CountRollup[];
 };
 
+// ─── Structural-column types (PM4) ──────────────────────────────────────────
+// The shape the Proof Matrix's evidence columns will hold once discovery is
+// processed. There is NO endpoint feeding these yet — zero Evidence nodes exist
+// — so today every Element's supporting/opposing arrays are empty and its status
+// is 'pending'. Defining the shape now means Stage 2 swaps the data source, not
+// the component. Declared as `type` aliases to match this file's existing DTO
+// style (CountRollup above), rather than `interface`.
+
+/** A reference to one piece of evidence, as a column cell renders it. */
+export type EvidenceRef = {
+  id: string;
+  label: string;
+  document_id: string;
+  page: number;
+};
+
+/**
+ * Proof status for one Element. Every Element is `'pending'` in v1 (no evidence
+ * data); the other three are valid shapes the cell can render once data lands.
+ */
+export type ElementProofStatus = "proven" | "partial" | "gap" | "pending";
+
 /**
  * Fetch the per-Count deduped allegation rollup for `slug` (defaults to the
  * single seeded case).
