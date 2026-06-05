@@ -12,9 +12,8 @@
 //! - [`documents_state`](super::documents_state) — small read-only
 //!   queries (`is_cancelled`, `count_documents`,
 //!   `has_document_of_type`).
-//! - [`documents_delete`](super::documents_delete) — transactional
-//!   deletion paths (`delete_document_extraction_data`,
-//!   `delete_all_document_data`).
+//! - [`documents_delete`](super::documents_delete) — the transactional
+//!   full-deletion path (`delete_all_document_data`).
 //!
 //! Pre-existing call sites continue to reach these functions through
 //! `super::documents::*` (e.g. `pipeline_repository::documents::is_cancelled`),
@@ -26,7 +25,7 @@
 //! read/state, or delete/transactional — and add a `pub use` line below.
 //! Do NOT add function definitions to this file.
 
-pub use super::documents_delete::{delete_all_document_data, delete_document_extraction_data};
+pub use super::documents_delete::delete_all_document_data;
 pub use super::documents_progress::{
     mark_document_cancelled, set_restate_invocation_id, update_document_failure,
     update_processing_progress,

@@ -249,6 +249,19 @@ async fn seed_postgres(pool: &PgPool, doc_id: &str) -> TestResult<()> {
     .fetch_one(pool)
     .await?;
 
+    // review_edit_history references extraction_items(id) under a RESTRICT FK.
+    // Seeding one row makes `cleanup_postgres` a fail-before/pass-after
+    // regression: if POSTGRES_DELETE_ORDER did not clear this table first, the
+    // extraction_items delete would abort the transaction (EP3-PRE-3 Fix C).
+    sqlx::query(
+        "INSERT INTO review_edit_history \
+         (item_id, field_changed, old_value, new_value, changed_by) \
+         VALUES ($1, 'review_status', 'PENDING', 'APPROVED', 'test-user')",
+    )
+    .bind(item_id)
+    .execute(pool)
+    .await?;
+
     sqlx::query(
         "INSERT INTO extraction_relationships \
          (run_id, document_id, from_item_id, to_item_id, relationship_type) \
@@ -352,6 +365,7 @@ async fn cleanup_postgres_clears_all_step_tables() -> TestResult<()> {
     assert_eq!(
         tables,
         vec![
+            "review_edit_history",
             "extraction_relationships",
             "extraction_items",
             "extraction_runs",
@@ -359,8 +373,9 @@ async fn cleanup_postgres_clears_all_step_tables() -> TestResult<()> {
             "pipeline_config",
         ]
     );
+    // 5 base rows seeded + 1 review_edit_history row = 6 cleared.
     let total: u64 = report.tables_cleared.iter().map(|(_, n)| *n).sum();
-    assert_eq!(total, 5);
+    assert_eq!(total, 6);
     assert_eq!(count_postgres_for(&ctx.pipeline_pool, &doc_id).await?, 0);
 
     drop_documents_row(&ctx.pipeline_pool, &doc_id).await?;
@@ -382,7 +397,7 @@ async fn cleanup_all_success_path() -> TestResult<()> {
     assert_eq!(report.neo4j.nodes_by_source_document, 2);
     assert_eq!(report.neo4j.nodes_by_source_document_id, 1);
     assert_eq!(report.qdrant.vectors_deleted, 1);
-    assert_eq!(report.postgres.tables_cleared.len(), 5);
+    assert_eq!(report.postgres.tables_cleared.len(), 6);
 
     assert_eq!(count_neo4j_for(&ctx.graph, &doc_id).await?, 0);
     assert_eq!(
