@@ -268,11 +268,19 @@ pub async fn cleanup_qdrant(
 
 /// PostgreSQL delete order. Listed FK-safe: children before parents.
 ///
+/// `review_edit_history` MUST be first: its `item_id` FK to
+/// `extraction_items(id)` is RESTRICT (migration
+/// `20260411_f5_review_edit_history.sql`), so deleting items while any history
+/// row survives aborts the whole transaction. This mirrors the same
+/// children-first clear in `documents_delete::delete_extraction_tier_rows` —
+/// the full-delete endpoint and this saga path must not diverge.
+///
 /// `pipeline_steps` and `document_audit_log` are intentionally omitted —
 /// the former is framework-owned (colossus-pipeline), the latter must
 /// survive deletion by design.
 #[rustfmt::skip]
 const POSTGRES_DELETE_ORDER: &[(&str, &str)] = &[
+    ("review_edit_history",       "DELETE FROM review_edit_history WHERE item_id IN (SELECT id FROM extraction_items WHERE document_id = $1)"),
     ("extraction_relationships", "DELETE FROM extraction_relationships WHERE document_id = $1"),
     ("extraction_items",          "DELETE FROM extraction_items WHERE document_id = $1"),
     ("extraction_runs",           "DELETE FROM extraction_runs WHERE document_id = $1"),

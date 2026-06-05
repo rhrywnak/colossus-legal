@@ -23,6 +23,7 @@ use crate::error::AppError;
 use crate::models::document_status::{
     STATUS_COMPLETED, STATUS_INDEXED, STATUS_INGESTED, STATUS_PUBLISHED,
 };
+use crate::pipeline::steps::cleanup;
 use crate::repositories::pipeline_repository;
 use crate::services::qdrant_service;
 use crate::state::AppState;
@@ -292,92 +293,34 @@ async fn build_audit_snapshot(
 
 // ── Neo4j cleanup ───────────────────────────────────────────────
 
-/// Remove all Neo4j nodes associated with a document.
+/// Remove all Neo4j state associated with a document, best-effort.
 ///
-/// ## Property names across node types
+/// ## Why this delegates to the canonical `cleanup::cleanup_neo4j`
 ///
-/// Different node types use different property names for the source document:
-/// - `source_document` — Person, Organization, Allegation, Harm, LegalCount, Element
-/// - `source_document_id` — Document nodes
+/// This endpoint and the pipeline's own teardown both need the identical
+/// Neo4j cleanup: DETACH DELETE every node owned by the document (matched on
+/// the scalar `source_document` for Allegation/Harm/LegalCount/Person/Org and
+/// `source_document_id` for Document nodes), then strip the deleted id from
+/// surviving shared Party nodes' `source_documents` arrays. Rather than keep a
+/// second, drifting copy of that Cypher here, we call the one canonical
+/// implementation in [`crate::pipeline::steps::cleanup::cleanup_neo4j`]. Nodes
+/// owned by a *different* document (or carrying no `source_document` at all,
+/// e.g. canonical Elements) are never matched by the deletes, so they survive.
 ///
-/// Person/Org nodes can belong to multiple documents (via `source_documents` array).
-/// For simplicity, we delete all nodes where this is their `source_document`,
-/// which handles the single-document case. Multi-document Person/Org nodes
-/// retain their `source_documents` array with this doc removed — but since we
-/// DETACH DELETE by `source_document`, only nodes originally created for this
-/// doc get removed. Nodes shared across documents survive.
-///
-/// Best-effort: logs errors but does not fail the request.
+/// Best-effort: the delete endpoint must not fail if Neo4j is unreachable, so
+/// we log the typed [`CleanupError`] (which already carries the `doc_id`) and
+/// return. The PostgreSQL deletion still proceeds; the audit log records the
+/// intended cleanup for later verification.
 pub(super) async fn cleanup_neo4j(state: &AppState, document_id: &str) {
-    // Delete nodes where source_document matches (Allegation, Harm, LegalCount, Person, Org)
-    match state
-        .graph
-        .execute(
-            neo4rs::query("MATCH (n) WHERE n.source_document = $doc_id DETACH DELETE n RETURN count(n) AS removed")
-                .param("doc_id", document_id),
-        )
-        .await
-    {
-        Ok(mut result) => {
-            let removed: i64 = match result.next().await {
-                Ok(Some(row)) => row.get("removed").unwrap_or(0),
-                Ok(None) => {
-                    tracing::warn!(
-                        document_id = %document_id,
-                        "Neo4j delete (source_document) returned no result row"
-                    );
-                    0
-                }
-                Err(e) => {
-                    tracing::error!(
-                        document_id = %document_id,
-                        error = %e,
-                        "Failed to read Neo4j delete count — deletion may have succeeded but count is unknown"
-                    );
-                    0
-                }
-            };
-            tracing::info!(doc_id = %document_id, removed, "Neo4j: deleted nodes by source_document");
+    match cleanup::cleanup_neo4j(document_id, &state.graph).await {
+        Ok(report) => {
+            // `report` carries per-property delete counts plus shared-array
+            // strip count — distinct observables for "deleted N", "stripped M",
+            // and "no-op" (all zero) states.
+            tracing::info!(doc_id = %document_id, ?report, "Neo4j: delete-path cleanup complete");
         }
         Err(e) => {
-            tracing::error!(doc_id = %document_id, error = %e, "Neo4j cleanup failed (source_document)");
-        }
-    }
-
-    // Delete Document node where source_document_id matches
-    match state
-        .graph
-        .execute(
-            neo4rs::query("MATCH (n) WHERE n.source_document_id = $doc_id DETACH DELETE n RETURN count(n) AS removed")
-                .param("doc_id", document_id),
-        )
-        .await
-    {
-        Ok(mut result) => {
-            let removed: i64 = match result.next().await {
-                Ok(Some(row)) => row.get("removed").unwrap_or(0),
-                Ok(None) => {
-                    tracing::warn!(
-                        document_id = %document_id,
-                        "Neo4j delete (source_document_id) returned no result row"
-                    );
-                    0
-                }
-                Err(e) => {
-                    tracing::error!(
-                        document_id = %document_id,
-                        error = %e,
-                        "Failed to read Neo4j delete count — deletion may have succeeded but count is unknown"
-                    );
-                    0
-                }
-            };
-            if removed > 0 {
-                tracing::info!(doc_id = %document_id, removed, "Neo4j: deleted nodes by source_document_id");
-            }
-        }
-        Err(e) => {
-            tracing::error!(doc_id = %document_id, error = %e, "Neo4j cleanup failed (source_document_id)");
+            tracing::error!(doc_id = %document_id, error = %e, "Neo4j cleanup failed (delete path)");
         }
     }
 }
