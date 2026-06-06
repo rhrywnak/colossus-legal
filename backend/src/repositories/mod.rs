@@ -33,6 +33,8 @@ pub mod person_detail_repository;
 pub mod person_repository;
 pub mod pipeline_repository;
 pub mod proof_matrix_repository;
+pub mod proof_review_builder;
+pub mod proof_review_repository;
 pub mod qa_repository;
 pub mod query_repository;
 pub mod rebuttals_repository;

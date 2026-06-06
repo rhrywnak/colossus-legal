@@ -18,6 +18,7 @@ pub mod motion_claim;
 pub mod person;
 pub mod person_detail;
 pub mod proof_matrix;
+pub mod proof_review;
 pub mod query;
 pub mod schema;
 

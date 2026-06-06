@@ -141,6 +141,70 @@ pub const PARTY_SUBTYPES: &[&str] = &[ENTITY_PARTY, ENTITY_PERSON, ENTITY_ORGANI
 
 pub const REL_CONTAINED_IN: &str = "CONTAINED_IN";
 
+// ── Evidence statement_type / evidence_strength vocabulary ──────
+//
+// lowercase snake_case. These are *property values* carried on `Evidence`
+// nodes (the `statement_type` and `evidence_strength` properties), emitted by
+// the discovery v5_2 extraction schema — the answer-classification vocabulary
+// the Proof-Review reads group and filter on.
+//
+// They live here, alongside the node-label and review-status constants, for
+// the same reason those do: they are fixed graph vocabulary, not environment-
+// or case-specific configuration. The v5_2 schema decides these strings;
+// changing one is a data-model migration, not a config edit (so Standing Rule
+// 2 — "no hardcoded values" — does not pull them into runtime config). They
+// are gathered here so every Cypher read and Rust filter references one
+// constant instead of a bare `"partial_admission"` literal scattered across
+// query strings (Rule 12).
+
+/// `statement_type` for a discovery answer that admits the matter asserted.
+pub const STMT_ADMISSION: &str = "admission";
+/// `statement_type` for an answer that admits in part / with qualification.
+/// This is also the v1 "borderline" (hedged-partial) queue discriminator —
+/// see `proof_review_builder`.
+pub const STMT_PARTIAL_ADMISSION: &str = "partial_admission";
+/// `statement_type` for an evasive (non-responsive) answer.
+pub const STMT_EVASIVE: &str = "evasive";
+/// `statement_type` for an answer that is purely an objection.
+pub const STMT_OBJECTION: &str = "objection";
+/// `statement_type` for an answer that refers the question elsewhere.
+pub const STMT_REFERRAL: &str = "referral";
+/// `statement_type` for an answer that denies the matter asserted.
+pub const STMT_DENIAL: &str = "denial";
+
+/// `evidence_strength` carried by a sworn party admission — the strongest
+/// corroboration tier. Defined here as named graph vocabulary so a future
+/// query that filters on it does not reintroduce a bare literal.
+///
+/// Domain note: the original Proof-Review design also named an
+/// `evidence_strength = "sworn_party_evasion"` value for the borderline queue.
+/// That value does **not** exist in the graph, so v1 keys borderline off
+/// `STMT_PARTIAL_ADMISSION` instead (see `proof_review_builder`); no constant
+/// is defined for the non-existent value, by design.
+pub const EVIDENCE_STRENGTH_SWORN_PARTY_ADMISSION: &str = "sworn_party_admission";
+
+/// The two `statement_type` values that an `Evidence`→`Allegation`
+/// `CORROBORATES` edge carries: a corroboration is either a full or a partial
+/// admission. The Proof-Review summary groups corroborations by these.
+///
+/// ## Rust Learning: `&[&str]` set constants
+///
+/// A `pub const NAME: &[&str] = &[A, B]` is a compile-time slice of string
+/// slices living in the binary's read-only data. Cypher reads bind it directly
+/// as a list parameter (`WHERE x IN $set`, via `.param("set", SET.to_vec())`),
+/// and Rust filters call `SET.contains(&value)`. Mirrors `PARTY_SUBTYPES`
+/// above. Referencing the *set* — never a re-typed list of literals — is what
+/// keeps the vocabulary in exactly one place.
+pub const CORROBORATING_STATEMENT_TYPES: &[&str] = &[STMT_ADMISSION, STMT_PARTIAL_ADMISSION];
+
+/// The `statement_type` values for preserved-but-unlinked *non-answers*:
+/// answers the corroboration bar deliberately excluded (they produce no
+/// `CORROBORATES` edge). The Proof-Review "excluded" read selects Evidence with
+/// one of these types and no outgoing `CORROBORATES`, proving the bar excluded
+/// the right things and deleted nothing.
+pub const NON_ANSWER_STATEMENT_TYPES: &[&str] =
+    &[STMT_EVASIVE, STMT_OBJECTION, STMT_REFERRAL, STMT_DENIAL];
+
 // ── Tests ───────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -197,6 +261,47 @@ mod tests {
         assert!(PARTY_SUBTYPES.contains(&ENTITY_PERSON));
         assert!(PARTY_SUBTYPES.contains(&ENTITY_ORGANIZATION));
         assert_eq!(PARTY_SUBTYPES.len(), 3);
+    }
+
+    #[test]
+    fn statement_type_values_are_lowercase() {
+        for s in [
+            STMT_ADMISSION,
+            STMT_PARTIAL_ADMISSION,
+            STMT_EVASIVE,
+            STMT_OBJECTION,
+            STMT_REFERRAL,
+            STMT_DENIAL,
+        ] {
+            assert!(
+                s.chars().all(|c| c.is_lowercase() || c == '_'),
+                "statement_type '{s}' must be lowercase/underscore"
+            );
+        }
+        assert!(EVIDENCE_STRENGTH_SWORN_PARTY_ADMISSION
+            .chars()
+            .all(|c| c.is_lowercase() || c == '_'));
+    }
+
+    /// The two statement_type sets must be disjoint: a `statement_type` is
+    /// either a corroboration (admission/partial) or a non-answer
+    /// (evasive/objection/referral/denial), never both. If they ever overlap,
+    /// the Proof-Review summary would double-count an Evidence node in both the
+    /// corroborating and the excluded buckets — a real, silent miscount this
+    /// test catches at `cargo test` time.
+    #[test]
+    fn corroborating_and_non_answer_sets_are_disjoint() {
+        for c in CORROBORATING_STATEMENT_TYPES {
+            assert!(
+                !NON_ANSWER_STATEMENT_TYPES.contains(c),
+                "statement_type '{c}' is in both the corroborating and non-answer sets"
+            );
+        }
+        // Pin the membership so an accidental edit to either set is caught.
+        assert_eq!(CORROBORATING_STATEMENT_TYPES.len(), 2);
+        assert_eq!(NON_ANSWER_STATEMENT_TYPES.len(), 4);
+        assert!(CORROBORATING_STATEMENT_TYPES.contains(&STMT_ADMISSION));
+        assert!(CORROBORATING_STATEMENT_TYPES.contains(&STMT_PARTIAL_ADMISSION));
     }
 
     #[test]
