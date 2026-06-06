@@ -3,17 +3,28 @@ import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { logout } from "../services/auth";
 import { DEFAULT_CASE_SLUG } from "../services/caseHeader";
+import NavDropdown, { type NavLeaf } from "./NavDropdown";
 
 const AUTHENTIK_SETTINGS_URL = "https://auth.cogmai.com/if/user/#/settings";
 
 // ─── Navigation items ────────────────────────────────────────────────────────
-// The Proof Matrix route carries a `:slug` param; the single-case deployment
-// resolves it to DEFAULT_CASE_SLUG, the same constant Home uses to build its
-// per-Count links. Every other item is a static path.
-const NAV_ITEMS = [
+// Most items are a flat link (`path`). "Proof Matrix" is a dropdown GROUP
+// (`children`): the Matrix grid and the new Proof Review page live under one
+// nav-group `Proof Matrix ▾`. Both routes carry a `:slug` param; the single-case
+// deployment resolves it to DEFAULT_CASE_SLUG, the same constant Home uses.
+// `NavLeaf` is imported from the extracted NavDropdown component.
+type NavItem = { label: string; path?: string; children?: NavLeaf[] };
+
+const NAV_ITEMS: NavItem[] = [
   { label: "Home", path: "/" },
   { label: "Evidence", path: "/explorer" },
-  { label: "Proof Matrix", path: `/cases/${DEFAULT_CASE_SLUG}/proof-matrix` },
+  {
+    label: "Proof Matrix",
+    children: [
+      { label: "Matrix", path: `/cases/${DEFAULT_CASE_SLUG}/proof-matrix` },
+      { label: "Proof Review", path: `/cases/${DEFAULT_CASE_SLUG}/proof-review` },
+    ],
+  },
   { label: "People", path: "/people" },
   { label: "Bias", path: "/bias-explorer" },
   { label: "Documents", path: "/documents" },
@@ -180,27 +191,36 @@ const Header: React.FC = () => {
 
       {/* Center — Nav links */}
       <nav style={navContainerStyle}>
-        {NAV_ITEMS.map((item) => (
-          <Link
-            key={item.path}
-            to={item.path}
-            style={isActive(item.path, location.pathname) ? navLinkActive : navLinkBase}
-            onMouseEnter={(e) => {
-              if (!isActive(item.path, location.pathname)) {
-                e.currentTarget.style.color = "var(--text-primary)";
-                e.currentTarget.style.backgroundColor = "var(--bg-page)";
-              }
-            }}
-            onMouseLeave={(e) => {
-              if (!isActive(item.path, location.pathname)) {
-                e.currentTarget.style.color = "var(--text-muted)";
-                e.currentTarget.style.backgroundColor = "transparent";
-              }
-            }}
-          >
-            {item.label}
-          </Link>
-        ))}
+        {NAV_ITEMS.map((item) =>
+          item.children ? (
+            <NavDropdown
+              key={item.label}
+              label={item.label}
+              items={item.children}
+              currentPath={location.pathname}
+            />
+          ) : (
+            <Link
+              key={item.path}
+              to={item.path!}
+              style={isActive(item.path!, location.pathname) ? navLinkActive : navLinkBase}
+              onMouseEnter={(e) => {
+                if (!isActive(item.path!, location.pathname)) {
+                  e.currentTarget.style.color = "var(--text-primary)";
+                  e.currentTarget.style.backgroundColor = "var(--bg-page)";
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!isActive(item.path!, location.pathname)) {
+                  e.currentTarget.style.color = "var(--text-muted)";
+                  e.currentTarget.style.backgroundColor = "transparent";
+                }
+              }}
+            >
+              {item.label}
+            </Link>
+          ),
+        )}
         {user?.permissions.is_admin && ADMIN_ITEMS.map((item) => (
           <Link
             key={item.path}
