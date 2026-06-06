@@ -47,6 +47,7 @@ pub mod logout;
 pub mod persons;
 pub mod pipeline;
 pub mod proof_matrix;
+pub mod proof_review;
 pub mod qa;
 pub mod queries;
 pub mod schema;
@@ -114,6 +115,10 @@ fn case_routes() -> Router<AppState> {
         .route(
             "/cases/:slug/proof-matrix/rollup",
             get(proof_matrix::get_proof_matrix_rollup),
+        )
+        .route(
+            "/cases/:slug/proof-review",
+            get(proof_review::get_proof_review),
         )
 }
 
