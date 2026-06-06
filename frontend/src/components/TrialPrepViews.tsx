@@ -186,7 +186,14 @@ export const ScenarioCard: React.FC<{
   const status = statusMeta(scenario.status);
   const flag = patternFlagText(scenario.baseless_repeat_count);
   return (
-    <div style={scenarioCardStyle}>
+    // The WHOLE card is the navigation target (matches the app's clickable-card
+    // pattern). `<Link>` renders an <a>, so we reset its default underline/blue
+    // to keep the card's visual styling — children carry their own colors; only
+    // the trailing "Open scenario →" hint is accent-colored.
+    <Link
+      to={`/cases/${slug}/trial-prep/${scenario.id}`}
+      style={{ ...scenarioCardStyle, textDecoration: "none", color: "var(--text-primary)" }}
+    >
       <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
         <span
           style={{
@@ -215,13 +222,12 @@ export const ScenarioCard: React.FC<{
       <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)" }}>
         {scenarioMetaLine(scenario)}
       </div>
-      <Link
-        to={`/cases/${slug}/trial-prep/${scenario.id}`}
-        style={{ fontSize: "0.82rem", color: "var(--accent-primary)", textDecoration: "none", marginTop: "auto" }}
-      >
+      {/* Visual affordance only — the whole card navigates, so this is plain
+          text, not a separate link. */}
+      <span style={{ fontSize: "0.82rem", color: "var(--accent-primary)", marginTop: "auto" }}>
         Open scenario →
-      </Link>
-    </div>
+      </span>
+    </Link>
   );
 };
 
