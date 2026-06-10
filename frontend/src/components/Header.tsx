@@ -8,25 +8,34 @@ import NavDropdown, { type NavLeaf } from "./NavDropdown";
 const AUTHENTIK_SETTINGS_URL = "https://auth.cogmai.com/if/user/#/settings";
 
 // ─── Navigation items ────────────────────────────────────────────────────────
-// Most items are a flat link (`path`). "Proof Matrix" is a dropdown GROUP
-// (`children`): the Matrix grid and the new Proof Review page live under one
-// nav-group `Proof Matrix ▾`. Both routes carry a `:slug` param; the single-case
-// deployment resolves it to DEFAULT_CASE_SLUG, the same constant Home uses.
-// `NavLeaf` is imported from the extracted NavDropdown component.
+// Most items are a flat link (`path`); two are dropdown GROUPS (`children`),
+// each rendered by the shared NavDropdown component:
+//   • "Proof Matrix ▾" — Matrix grid · Proof Review · Evidence explorer
+//   • "Trial Prep ▾"   — War Room dashboard · Bias · People
+// Evidence/Bias/People keep their existing routes/pages — only their nav
+// PLACEMENT moved under these groups. The case-scoped leaves (Matrix, Proof
+// Review, War Room) carry a `:slug` param resolved to DEFAULT_CASE_SLUG, the
+// single-case constant Home uses. `NavLeaf` is imported from NavDropdown.
 type NavItem = { label: string; path?: string; children?: NavLeaf[] };
 
 const NAV_ITEMS: NavItem[] = [
   { label: "Home", path: "/" },
-  { label: "Evidence", path: "/explorer" },
   {
     label: "Proof Matrix",
     children: [
       { label: "Matrix", path: `/cases/${DEFAULT_CASE_SLUG}/proof-matrix` },
       { label: "Proof Review", path: `/cases/${DEFAULT_CASE_SLUG}/proof-review` },
+      { label: "Evidence", path: "/explorer" },
     ],
   },
-  { label: "People", path: "/people" },
-  { label: "Bias", path: "/bias-explorer" },
+  {
+    label: "Trial Prep",
+    children: [
+      { label: "War Room", path: `/cases/${DEFAULT_CASE_SLUG}/trial-prep` },
+      { label: "Bias", path: "/bias-explorer" },
+      { label: "People", path: "/people" },
+    ],
+  },
   { label: "Documents", path: "/documents" },
   { label: "Chat", path: "/ask" },
 ];

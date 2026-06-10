@@ -11,6 +11,8 @@ import AllegationDetailPage from "./pages/AllegationDetailPage";
 import CountDetailPage from "./pages/CountDetailPage";
 import ProofMatrixPage from "./pages/ProofMatrixPage";
 import ProofReviewPage from "./pages/ProofReviewPage";
+import TrialPrepDashboardPage from "./pages/TrialPrepDashboardPage";
+import ScenarioDetailPage from "./pages/ScenarioDetailPage";
 import BiasExplorer from "./pages/BiasExplorer";
 import EvidenceExplorerPage from "./pages/EvidenceExplorerPage";
 import GraphPage from "./pages/GraphPage";
@@ -70,6 +72,8 @@ const App: React.FC = () => {
               <Route path="/cases/:slug/counts/:countId" element={<CountDetailPage />} />
               <Route path="/cases/:slug/proof-matrix" element={<ProofMatrixPage />} />
               <Route path="/cases/:slug/proof-review" element={<ProofReviewPage />} />
+              <Route path="/cases/:slug/trial-prep" element={<TrialPrepDashboardPage />} />
+              <Route path="/cases/:slug/trial-prep/:scenarioId" element={<ScenarioDetailPage />} />
               <Route path="/contradictions" element={<ContradictionsPage />} />
               <Route path="/explorer" element={<EvidenceExplorerPage />} />
               <Route path="/bias-explorer" element={<BiasExplorer />} />
