@@ -2,7 +2,7 @@
 
 > **Read this FIRST, every session.** It is the standing context for all coding work in this repo. Then read the specific instruction Roman provides for the current task.
 >
-> Last updated: 2026-05-03
+> Last updated: 2026-06-17
 
 ---
 
@@ -16,9 +16,11 @@
 | Frontend | React + Vite + TypeScript | `frontend/` (port 5473) |
 | Knowledge Graph | Neo4j 5.x Community | DEV `bolt://10.10.100.200:7687`, PROD `bolt://10.10.100.110:7687` |
 | Vector Store | Qdrant | DEV `http://10.10.100.200:6333` (REST), `:6334` (gRPC); same hosts on PROD |
-| Relational Store | PostgreSQL — `colossus_legal` database | DEV `10.10.100.200`, PROD `10.10.100.110` |
+| Relational Store | PostgreSQL — **two databases on the same host**: `colossus_legal` (main pool) and `colossus_legal_v2` (pipeline pool, `state.pipeline_pool`). DEV `10.10.100.200`, PROD `10.10.100.110` | see note below |
 | Auth | Authentik SSO via Traefik ForwardAuth | `X-authentik-*` headers reach backend |
 | RAG Pipeline | `colossus-rag` crate (Rig framework + Claude API) | shared workspace |
+
+> **Postgres: two databases (corrected 2026-06-17).** There are two Postgres databases, not one. `colossus_legal` is the main DB; `colossus_legal_v2` is the **pipeline** DB accessed via `state.pipeline_pool` (`database.rs`, `state.rs`). Pipeline/authored state — including `authored_entities` and `authored_relationships`, and (when built) the scenario tables — lives in `colossus_legal_v2`. When adding a table, decide its DB home explicitly; do not assume `colossus_legal`.
 
 **Repos in this project:**
 - `colossus-legal` — application (this repo)
@@ -340,7 +342,11 @@ Browser → Traefik (TLS termination)
         → Backend (port 3403; reads X-authentik-* headers; backend enforces auth on its API routes)
         → Neo4j (10.10.100.200:7687 DEV, 10.10.100.110:7687 PROD)
         → Qdrant (10.10.100.200:6334 gRPC DEV / PROD same host as PROD DB server)
-        → PostgreSQL (colossus_legal db on the DEV/PROD DB hosts)
+        → PostgreSQL (TWO databases on the DEV/PROD DB hosts:
+             colossus_legal      — main pool
+             colossus_legal_v2   — pipeline pool (state.pipeline_pool);
+                                    holds authored_entities, authored_relationships,
+                                    and the scenario tables when built)
 
 RAG pipeline (Chat / Ask):
   Question → Router → QdrantRetriever → Neo4jExpander → LegalAssembler → RigSynthesizer → Answer
