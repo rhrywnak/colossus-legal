@@ -56,7 +56,7 @@ The knowledge graph answers trial preparation questions by following relationshi
 - **"What did Phillips say about Marie?"** → follows ABOUT edges from Evidence to Party. If you miss an ABOUT relationship, the graph can't show what topics Phillips addressed regarding Marie.
 - **"Does Phillips' discovery response support the complaint's allegation about the $50,000?"** → follows CORROBORATES edges from Evidence to complaint Allegations. If you miss this, the Proof Matrix shows gaps where evidence actually exists.
 - **"Did Phillips say something different in his CoA brief?"** → follows CONTRADICTS edges between Evidence from different documents. This is impeachment material.
-- **"Does Phillips' admission rebut CFS's claim?"** → follows REBUTS edges between Evidence from different documents.
+- **"Does Phillips' answer rebut a claim — a different speaker's statement, or a complaint allegation?"** → follows REBUTS edges from Evidence to a different speaker's Evidence, or to a complaint Allegation the answer counters.
 
 ## Relationship Types — What to Create
 
@@ -146,7 +146,7 @@ Evidence (Q102), statement_type=evasive: answer = "Catholic Family Service does 
 Evidence (Q11), statement_type=denial: answer = "To our knowledge, sanctions were never pursued with regard to Nadia Awad."
 → A denial is not a concession. **Create no CORROBORATES edge.** If cross-document context contains a conflicting statement by the same or a different speaker, this may support CONTRADICTS/REBUTS — but never CORROBORATES.
 
-### 4. CONTRADICTS (Evidence → Evidence from another document)
+### 4. CONTRADICTS (Evidence → Evidence from another document; or → Allegation in the anchored-claim case)
 
 **This relationship requires cross-document context.** If the context block contains Evidence or Assertion entities from other documents, you can create CONTRADICTS relationships.
 
@@ -156,18 +156,30 @@ Key requirements:
 - **Same speaker.** The respondent of this discovery response said X here, and said something materially different in another document.
 - **Materially different.** Not just a minor variation in wording — the substance of the statements conflicts.
 - **Different documents.** Contradictions within the same document are handled by Pass 1's pattern_tags (lies_under_oath). CONTRADICTS is for cross-document contradictions.
+- **Target.** The usual target is the SAME speaker's foreign Evidence (impeachment) — that is unchanged. In the narrow case where the contradicted claim is itself anchored as a complaint **Allegation** AND the same-speaker semantics still apply, the target may be that Allegation. Do not use CONTRADICTS for a *different* speaker opposing an allegation — that is REBUTS (§5).
 
 If no cross-document context is available, skip CONTRADICTS entirely.
 
-### 5. REBUTS (Evidence → Evidence or Assertion from another document)
+### 5. REBUTS (Evidence → Evidence/Assertion from another document, OR → Allegation from the complaint)
 
 **This relationship requires cross-document context.**
 
-**The rebuttal test:** "Does this person's sworn answer directly counter what a DIFFERENT person claimed?"
+**The rebuttal test:** "Does this person's sworn answer directly counter — oppose or defeat — what a DIFFERENT party claimed?"
+
+REBUTS now has two valid target types. Decide by *what* the answer opposes:
+- **REBUTS → foreign Evidence/Assertion** (impeachment): the answer opposes what a DIFFERENT speaker swore in another document.
+- **REBUTS → Allegation** (the new capability): the answer directly counters the fact a complaint **Allegation** asserts — it opposes the allegation rather than conceding it. A `denial` answer that denies the fact an Allegation asserts is the canonical case (§3 Step B routes denials away from CORROBORATES "to the opposing/contradiction analysis"; this is that analysis's concrete target).
+
+**Decision rule — REBUTS vs CORROBORATES against the same Allegation.** Both can target an Allegation, so judge the *direction* from the answer text: if the answer CONFIRMS the alleged fact (a substantive concession, §3), it is **CORROBORATES**; if it COUNTERS or denies the alleged fact, it is **REBUTS**. The same answer is never both for the same fact.
 
 Key requirements:
-- **Different speakers.** The respondent of this discovery response said X; a different person said the opposite in another document.
+- **Different parties.** The respondent said X; a different person — or the complaint itself, via an Allegation — asserted the opposite.
 - **Direct opposition.** The statements address the same fact and reach opposite conclusions.
+
+**Worked example — REBUTS → Allegation (denial that opposes an allegation).**
+Evidence (Q11), statement_type=denial: answer = "To our knowledge, a conservatorship was never necessary for Marie Awad — she managed her own affairs throughout."
+Allegation (ctx:allegation-031): "A conservatorship over Marie Awad was necessary because she was unable to manage her financial affairs."
+→ The sworn denial opposes the exact fact the Allegation asserts. It does NOT concede it, so this is not CORROBORATES (§3, denial row). **Create REBUTS from this Evidence to ctx:allegation-031.**
 
 If no cross-document context is available, skip REBUTS entirely.
 
@@ -206,9 +218,11 @@ If the context block contains entities from the complaint or other documents:
 
 4b. Do NOT create CORROBORATES from `evasive`, `objection`, or `referral` answers. These are non-answers (MCR 2.309(B), 2.313) and confirm no fact. Leave them unlinked — they remain in the graph as Evidence for separate evasion-pattern analysis. Do NOT create CORROBORATES from `denial` answers either; route those to CONTRADICTS/REBUTS only if cross-document context warrants.
 
-4c. If context contains Evidence or Assertion entities from other documents by the same speaker, check for contradictions. Create CONTRADICTS relationships.
+4c. If context contains Evidence or Assertion entities from other documents by the same speaker, check for contradictions. Create CONTRADICTS relationships. (Narrow case only: if the contradicted claim is itself anchored as an Allegation and the same-speaker semantics still apply, the CONTRADICTS target may be that Allegation — see §4.)
 
-4d. If context contains Evidence or Assertion entities from other documents by different speakers, check for rebuttals. Create REBUTS relationships.
+4d. If context contains Evidence or Assertion entities from other documents by different speakers, check for rebuttals against those statements. Create REBUTS relationships to that foreign Evidence.
+
+4e. If context contains complaint Allegations, check each Evidence — especially `denial` answers routed here by 4b — for a statement that directly COUNTERS the fact an Allegation asserts (opposing it, not conceding it). Create a REBUTS relationship from the Evidence to that Allegation (§5 decision rule). If the answer instead CONFIRMS the allegation's fact, that is CORROBORATES (§3), not REBUTS — never both for the same fact.
 
 ### Step 5: Verify completeness
 Run through the completeness checklist below.
@@ -288,8 +302,8 @@ Return ONLY the JSON object. No markdown fences, no explanation, no preamble.
 - [ ] Did I avoid creating CORROBORATES from denials?
 
 **Cross-document checks (only if context available):**
-- [ ] Did I check for CONTRADICTS between this respondent's statements here and in other documents?
-- [ ] Did I check for REBUTS between this respondent's statements and different speakers' statements?
+- [ ] Did I check for CONTRADICTS between this respondent's statements here and in other documents (and, in the narrow anchored-claim case, against an Allegation)?
+- [ ] Did I check for REBUTS — both against different speakers' foreign Evidence AND against complaint Allegations this answer directly counters (e.g. a denial opposing an allegation's fact)?
 
 **General negative checks:**
 - [ ] Did I avoid creating any new entities?
