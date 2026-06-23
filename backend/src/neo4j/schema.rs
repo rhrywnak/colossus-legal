@@ -86,8 +86,18 @@ pub const CHARACTERIZES: &str = "CHARACTERIZES";
 /// target statement or allegation.
 pub const CONTRADICTS: &str = "CONTRADICTS";
 
-/// `MotionClaim -[:REBUTS]-> target`. The claim rebuts (answers/refutes) the
-/// target.
+/// `Evidence -[:REBUTS]-> (Evidence | Allegation)`. A sworn statement directly
+/// counters / defeats what a *different* speaker asserted: either that speaker's
+/// foreign Evidence in another document (impeachment) or a complaint Allegation
+/// whose fact this statement denies.
+///
+/// Domain note: produced by the evidence-anchoring pass-2 extraction (discovery,
+/// affidavit) over cross-document context — the same context+prompt+id-resolution
+/// path that carries `CORROBORATES -> Allegation`. The pairing is the key
+/// distinction: against an Allegation, CORROBORATES means the answer *confirms*
+/// the alleged fact, REBUTS means it *counters* it. Label-only (no edge
+/// properties). The legacy `MotionClaim -[:REBUTS]->` framing predated the
+/// three-tier model and no longer names the actual producer.
 pub const REBUTS: &str = "REBUTS";
 
 /// `Allegation -[:CAUSED_BY]-> cause`. The harm or event was caused by the

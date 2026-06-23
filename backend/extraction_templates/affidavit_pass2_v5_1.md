@@ -114,14 +114,17 @@ Step 3: The test for CORROBORATES:
 - Compare the factual claims — do they conflict?
 - Minor differences in phrasing are NOT contradictions. The factual substance must conflict.
 
-### REBUTS (Evidence → Evidence from another document by a DIFFERENT speaker)
+### REBUTS (Evidence → Evidence from another document by a DIFFERENT speaker, OR → a complaint Allegation this testimony counters)
 
-**What it means:** This affiant's statement directly counters what a DIFFERENT person claimed in another document. This is not the same person being inconsistent — it's two different witnesses disagreeing about the facts.
+**What it means:** This affiant's statement directly counters what a DIFFERENT party claimed. It may counter EITHER (a) a DIFFERENT speaker's sworn Evidence in another document (two witnesses disagreeing), OR (b) a complaint **Allegation** whose fact this testimony defeats. This is not the same person being inconsistent — that is CONTRADICTS.
+
+**Decision rule — REBUTS vs CORROBORATES against the same Allegation.** Both can target an Allegation, so judge the *direction* of the testimony: if the affiant's firsthand testimony CONFIRMS the alleged fact, it is **CORROBORATES**; if it COUNTERS or defeats the alleged fact, it is **REBUTS**. The same testimony is never both for the same fact.
 
 **How to evaluate REBUTS:**
-- Look for Evidence entities from other documents where the STATED_BY party is DIFFERENT from this affiant
-- Does this affiant's testimony directly counter the other person's claim?
-- Example: Defendant's discovery response says "conservatorship was necessary." Caregiver's affidavit says "the decedent was fully competent and opposed conservatorship." → REBUTS
+- For an Evidence target: look for Evidence entities from other documents where the STATED_BY party is DIFFERENT from this affiant, and ask whether this affiant's testimony directly counters that claim.
+- For an Allegation target: look at the complaint Allegations in context and ask whether this affiant's testimony directly counters the fact one asserts.
+- Example (Evidence target): Defendant's discovery response says "conservatorship was necessary." Caregiver's affidavit says "the decedent was fully competent and opposed conservatorship." → REBUTS the Evidence.
+- Example (Allegation target): The complaint Allegation premises a guardianship on the decedent's incompetence; the caregiver's sworn "Emil was fully competent and managed his own affairs" defeats that fact → REBUTS that Allegation.
 
 ## Entities from Pass 1
 
@@ -158,9 +161,9 @@ For each Evidence entity:
 If the entity list includes entities from other documents (IDs prefixed with `ctx:` or entities with entity_type "Allegation" or "ComplaintAllegation"):
 
 For each Evidence entity in this affidavit:
-1. Scan ALL complaint allegations — does this statement confirm any of them? → CORROBORATES
-2. Scan Evidence from other documents by the SAME speaker — any conflicts? → CONTRADICTS
-3. Scan Evidence from other documents by DIFFERENT speakers — does this statement counter any? → REBUTS
+1. Scan ALL complaint allegations — does this testimony CONFIRM the fact one asserts? → CORROBORATES that Allegation.
+2. Scan Evidence from other documents by the SAME speaker — any conflicts? → CONTRADICTS (narrow case only: if the conflicting claim is itself anchored as an Allegation and same-speaker semantics apply, the target may be that Allegation).
+3. Scan for anything this testimony COUNTERS: a DIFFERENT speaker's foreign Evidence, OR a complaint Allegation whose fact this testimony defeats → REBUTS. (Same Allegation, opposite directions: confirm → CORROBORATES, counter → REBUTS, never both for one fact.)
 
 ### Step 5: Verify completeness
 - Every Evidence entity has STATED_BY
@@ -193,6 +196,11 @@ Return a JSON object with a single top-level key "relationships":
       "relationship_type": "REBUTS",
       "from_entity": "evidence-jones-003",
       "to_entity": "ctx:evidence-defendant-q12"
+    },
+    {
+      "relationship_type": "REBUTS",
+      "from_entity": "evidence-jones-005",
+      "to_entity": "ctx:allegation-022"
     }
   ]
 }
@@ -213,7 +221,7 @@ Return a JSON object with a single top-level key "relationships":
 ### Cross-document verification
 - [ ] Did I scan ALL complaint allegations for CORROBORATES matches?
 - [ ] Did I check for CONTRADICTS (same speaker, conflicting statements)?
-- [ ] Did I check for REBUTS (different speaker, opposing claims)?
+- [ ] Did I check for REBUTS — both a different speaker's foreign Evidence this testimony counters, AND any complaint Allegation whose fact this testimony directly defeats?
 - [ ] Did I only create cross-document relationships where the factual substance genuinely matches or conflicts?
 
 ### General verification
