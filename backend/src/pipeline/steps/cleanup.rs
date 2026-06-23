@@ -278,10 +278,22 @@ pub async fn cleanup_qdrant(
 /// `pipeline_steps` and `document_audit_log` are intentionally omitted —
 /// the former is framework-owned (colossus-pipeline), the latter must
 /// survive deletion by design.
+//
+// DELETE-FK-FIX: the `extraction_relationships` step matches rows on BOTH
+// item-endpoint FKs, not just the owning `document_id`. A relationship another
+// document owns can point AT this document's items (allegation-anchored
+// REBUTS/CONTRADICTS, commit `60b9131`); leaving it behind trips the RESTRICT
+// FK (`extraction_relationships_{from,to}_item_id_fkey`) on the
+// `extraction_items` delete and rolls the saga's transaction back. The widening
+// mirrors `documents_delete::DELETE_RELATIONSHIPS_TOUCHING_DOCUMENT` (kept as a
+// separate copy by design — this saga path must not depend on the endpoint
+// helper). The correlated subquery binds `$1` once and needs no Rust-side id
+// collection; see that constant for the full `IN (SELECT …)` vs. `= ANY`
+// rationale.
 #[rustfmt::skip]
 const POSTGRES_DELETE_ORDER: &[(&str, &str)] = &[
     ("review_edit_history",       "DELETE FROM review_edit_history WHERE item_id IN (SELECT id FROM extraction_items WHERE document_id = $1)"),
-    ("extraction_relationships", "DELETE FROM extraction_relationships WHERE document_id = $1"),
+    ("extraction_relationships",  "DELETE FROM extraction_relationships WHERE document_id = $1 OR from_item_id IN (SELECT id FROM extraction_items WHERE document_id = $1) OR to_item_id IN (SELECT id FROM extraction_items WHERE document_id = $1)"),
     ("extraction_items",          "DELETE FROM extraction_items WHERE document_id = $1"),
     ("extraction_runs",           "DELETE FROM extraction_runs WHERE document_id = $1"),
     ("document_text",             "DELETE FROM document_text WHERE document_id = $1"),
@@ -447,6 +459,32 @@ mod tests {
         assert!(
             display.contains("doc-7"),
             "Partial Display must include doc_id, got: {display}"
+        );
+    }
+
+    /// DELETE-FK-FIX guard for the saga path: the relationships clear must
+    /// match BOTH item-endpoint FKs, not just the owning `document_id`. If this
+    /// regresses, a single-document teardown rolls back whenever another
+    /// document's relationship points at this document's items.
+    #[test]
+    fn postgres_delete_order_relationships_covers_both_fk_endpoints() {
+        let (_, sql) = POSTGRES_DELETE_ORDER
+            .iter()
+            .find(|(table, _)| *table == "extraction_relationships")
+            .expect("extraction_relationships step must exist in POSTGRES_DELETE_ORDER");
+        assert!(
+            sql.contains("document_id = $1"),
+            "must still clear rows this document owns"
+        );
+        assert!(
+            sql.contains(
+                "from_item_id IN (SELECT id FROM extraction_items WHERE document_id = $1)"
+            ),
+            "must clear rows pointing FROM this document's items"
+        );
+        assert!(
+            sql.contains("to_item_id IN (SELECT id FROM extraction_items WHERE document_id = $1)"),
+            "must clear rows pointing TO this document's items (the RESTRICT endpoint)"
         );
     }
 }

@@ -16,6 +16,49 @@ use sqlx::PgPool;
 use super::authored_entities::delete_extracted_authored_relationships_for_document;
 use super::PipelineRepoError;
 
+/// Widened relationships-DELETE: clears every `extraction_relationships` row
+/// that *touches* this document, not merely the rows it owns.
+///
+/// ## Why three predicates, not one (DELETE-FK-FIX)
+///
+/// A relationship row references three things: the owning `document_id`, and
+/// two `extraction_items` endpoints (`from_item_id`, `to_item_id`), both under
+/// a RESTRICT foreign key (`extraction_relationships_from_item_id_fkey` /
+/// `..._to_item_id_fkey`, PostgreSQL default-named — the migration declares the
+/// FKs inline with no `CONSTRAINT` name). Since the allegation-anchored
+/// REBUTS/CONTRADICTS work (commit `60b9131`), one document can own a
+/// relationship whose endpoint is an item belonging to a *different* document.
+///
+/// The old predicate (`WHERE document_id = $1`) deleted only owned rows. When
+/// another document owned an edge pointing AT this document's items, that edge
+/// survived; the subsequent `DELETE FROM extraction_items` then tripped the
+/// RESTRICT FK and rolled the whole transaction back. That is the defect that
+/// blocked single-document deletes three times (worked around 2026-06-18 by
+/// deleting George and CFS together).
+///
+/// The fix matches rows on either FK endpoint as well as ownership.
+///
+/// ## Rust Learning: subquery `IN (SELECT …)` vs. `IN ($1, $2, …)` vs. `= ANY`
+///
+/// We want "every relationship whose endpoint is one of this document's item
+/// ids". The tempting Rust move — fetch the ids into a `Vec<i32>` and splice
+/// them into `IN ($1, $2, …)` — does NOT work with sqlx: sqlx binds one
+/// positional parameter per `$n` and will not expand a `Vec` into a Postgres
+/// IN-list. The Postgres-native way to bind a collection is `= ANY($1::int[])`
+/// with the slice bound as a single array parameter (`&[i32]`, borrowed for the
+/// bind and dropped after `execute` — no move needed).
+///
+/// Here we use neither: a correlated **subquery** keeps the id set inside the
+/// one SQL statement. That is strictly better for this case — it runs in a
+/// single round-trip (no SELECT-then-DELETE), stays atomic inside the caller's
+/// transaction, needs no Rust-side `Vec<i32>` to materialise, and matches the
+/// `review_edit_history` delete a few lines below that already uses this idiom.
+/// `$1` is bound once (a borrowed `&str`) and reused by all three predicates.
+const DELETE_RELATIONSHIPS_TOUCHING_DOCUMENT: &str = "DELETE FROM extraction_relationships \
+     WHERE document_id = $1 \
+        OR from_item_id IN (SELECT id FROM extraction_items WHERE document_id = $1) \
+        OR to_item_id IN (SELECT id FROM extraction_items WHERE document_id = $1)";
+
 /// Delete the extraction-tier rows for a document, children-before-parents,
 /// inside the caller's transaction.
 ///
@@ -66,8 +109,12 @@ async fn delete_extraction_tier_rows(
     .execute(&mut *conn)
     .await?;
 
-    // Relationships reference both extraction_items and extraction_runs.
-    sqlx::query("DELETE FROM extraction_relationships WHERE document_id = $1")
+    // Relationships reference both extraction_items and extraction_runs. We
+    // must clear rows this document OWNS *and* rows another document owns that
+    // point at this document's items, or the RESTRICT FK on the item endpoints
+    // blocks the extraction_items delete below. See
+    // `DELETE_RELATIONSHIPS_TOUCHING_DOCUMENT` for the full rationale.
+    sqlx::query(DELETE_RELATIONSHIPS_TOUCHING_DOCUMENT)
         .bind(document_id)
         .execute(&mut *conn)
         .await?;
@@ -173,4 +220,38 @@ pub async fn delete_all_document_data(
 
     txn.commit().await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    //! SQL-shape tests. There is no `#[sqlx::test]` / live-DB harness in this
+    //! repo, so the FK widening is verified here by asserting the generated
+    //! SQL matches relationships on BOTH foreign-key endpoints — the exact
+    //! property whose absence caused the recurring delete failure. The
+    //! end-to-end behaviour (a delete of a document whose items are targeted by
+    //! another document's relationship succeeds) is verified manually on DEV.
+    use super::*;
+
+    /// The widened DELETE must constrain on the owning `document_id` AND on
+    /// each item-endpoint FK. If a future edit narrows it back to only
+    /// `document_id`, this test fails and names the regression.
+    #[test]
+    fn delete_relationships_sql_covers_both_fk_endpoints() {
+        let sql = DELETE_RELATIONSHIPS_TOUCHING_DOCUMENT;
+        assert!(
+            sql.contains("document_id = $1"),
+            "must still clear rows this document owns"
+        );
+        assert!(
+            sql.contains(
+                "from_item_id IN (SELECT id FROM extraction_items WHERE document_id = $1)"
+            ),
+            "must clear rows pointing FROM this document's items (from_item_id FK)"
+        );
+        assert!(
+            sql.contains("to_item_id IN (SELECT id FROM extraction_items WHERE document_id = $1)"),
+            "must clear rows pointing TO this document's items (to_item_id FK) — \
+             the endpoint that caused the recurring RESTRICT rollback"
+        );
+    }
 }

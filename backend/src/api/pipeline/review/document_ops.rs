@@ -80,6 +80,22 @@ pub async fn revert_ingest_handler(
 
 // ── Reprocess ──────────────────────────────────────────────────
 
+/// Widened relationships-DELETE for the reprocess path (DELETE-FK-FIX).
+///
+/// Identical in intent to
+/// `documents_delete::DELETE_RELATIONSHIPS_TOUCHING_DOCUMENT` (kept as a
+/// separate copy by design — the three delete paths are fixed in place, not
+/// refactored into one shared helper). Matches every relationship that touches
+/// this document: rows it owns (`document_id`) AND rows another document owns
+/// that point at this document's items via either RESTRICT FK (`from_item_id` /
+/// `to_item_id`). Without the endpoint predicates a foreign relationship
+/// targeting this document's items survives and trips the FK on the
+/// `extraction_items` delete, rolling the reprocess back.
+const REPROCESS_DELETE_RELATIONSHIPS_SQL: &str = "DELETE FROM extraction_relationships \
+     WHERE document_id = $1 \
+        OR from_item_id IN (SELECT id FROM extraction_items WHERE document_id = $1) \
+        OR to_item_id IN (SELECT id FROM extraction_items WHERE document_id = $1)";
+
 /// POST /documents/:id/reprocess — full reset to TEXT_EXTRACTED for re-extraction.
 ///
 /// Cleans Neo4j + Qdrant (best-effort), deletes extraction data in FK-safe
@@ -137,12 +153,12 @@ pub async fn reprocess_handler(
         message: format!("Delete review_edit_history: {e}"),
     })?;
 
-    sqlx::query("DELETE FROM extraction_relationships WHERE document_id = $1")
+    sqlx::query(REPROCESS_DELETE_RELATIONSHIPS_SQL)
         .bind(&doc_id)
         .execute(&mut *txn)
         .await
         .map_err(|e| AppError::Internal {
-            message: format!("Delete extraction_relationships: {e}"),
+            message: format!("Delete extraction_relationships for reprocess of '{doc_id}': {e}"),
         })?;
 
     sqlx::query("DELETE FROM extraction_items WHERE document_id = $1")
@@ -292,4 +308,35 @@ pub async fn bulk_approve_handler(
         skipped_ungrounded,
         remaining_pending,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// DELETE-FK-FIX guard for the reprocess path: the relationships clear must
+    /// match BOTH item-endpoint FKs, not just the owning `document_id`. Without
+    /// this, reprocessing a document whose items are targeted by another
+    /// document's relationship rolls back on the RESTRICT FK. There is no
+    /// `#[sqlx::test]` / live-DB harness in this repo, so the widening is
+    /// verified by asserting the SQL covers both endpoints; the end-to-end
+    /// behaviour is verified manually on DEV.
+    #[test]
+    fn reprocess_delete_relationships_sql_covers_both_fk_endpoints() {
+        let sql = REPROCESS_DELETE_RELATIONSHIPS_SQL;
+        assert!(
+            sql.contains("document_id = $1"),
+            "must still clear rows this document owns"
+        );
+        assert!(
+            sql.contains(
+                "from_item_id IN (SELECT id FROM extraction_items WHERE document_id = $1)"
+            ),
+            "must clear rows pointing FROM this document's items"
+        );
+        assert!(
+            sql.contains("to_item_id IN (SELECT id FROM extraction_items WHERE document_id = $1)"),
+            "must clear rows pointing TO this document's items (the RESTRICT endpoint)"
+        );
+    }
 }
