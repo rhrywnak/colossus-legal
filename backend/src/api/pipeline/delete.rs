@@ -111,7 +111,34 @@ pub async fn delete_document(
         message: format!("Failed to write audit log: {e}"),
     })?;
 
-    // 4. Neo4j cleanup (best-effort, for documents that have been ingested)
+    // 4. Delete all PostgreSQL data in FK-safe order, atomically — and FIRST,
+    // before any cross-store deletion (DELETE-ORDER-FIX).
+    //
+    // This delegates to delete_all_document_data in the repository, which
+    // wraps all DELETEs in a single transaction. Either all data is removed
+    // or none is — no partial deletion states.
+    //
+    // Why this runs BEFORE the Neo4j/Qdrant cleanup below: Postgres is the
+    // source of truth. This step used to run AFTER the cross-store deletes, so
+    // a failing/rolled-back PG transaction left the document half-wiped — gone
+    // from the graph and vector stores but still present in Postgres (the
+    // 2026-06-18 George inconsistency on the first failed delete). A PRE-commit
+    // cross-store wipe is destructive and unrecoverable; a POST-commit
+    // cross-store failure is recoverable — it is logged, and the audit log
+    // written in step 3 already records the intended cleanup for an operator to
+    // replay. Commit Postgres first, then do the best-effort external deletes.
+    // Do not reorder these back.
+    //
+    // See documents.rs:delete_all_document_data for the detailed explanation
+    // of delete ordering and why we do not use ON DELETE CASCADE on documents(id).
+    pipeline_repository::documents::delete_all_document_data(&state.pipeline_pool, &document_id)
+        .await
+        .map_err(|e| AppError::Internal {
+            message: format!("Failed to delete document data for '{document_id}': {e}"),
+        })?;
+
+    // 5. Neo4j cleanup (best-effort, for documents that have been ingested).
+    // Post-commit: a failure here is recoverable, not a half-wipe.
     let needs_graph_cleanup = matches!(
         previous_status.as_str(),
         STATUS_COMPLETED | STATUS_PUBLISHED | STATUS_INGESTED | STATUS_INDEXED
@@ -120,7 +147,8 @@ pub async fn delete_document(
         cleanup_neo4j(&state, &document_id).await;
     }
 
-    // 5. Qdrant cleanup (best-effort, for documents that have been indexed)
+    // 6. Qdrant cleanup (best-effort, for documents that have been indexed).
+    // Post-commit: a failure here is recoverable, not a half-wipe.
     let needs_vector_cleanup = matches!(
         previous_status.as_str(),
         STATUS_COMPLETED | STATUS_PUBLISHED | STATUS_INDEXED
@@ -128,20 +156,6 @@ pub async fn delete_document(
     if needs_vector_cleanup {
         cleanup_qdrant(&state, &document_id).await;
     }
-
-    // 6. Delete all PostgreSQL data in FK-safe order, atomically.
-    //
-    // This delegates to delete_all_document_data in the repository, which
-    // wraps all DELETEs in a single transaction. Either all data is removed
-    // or none is — no partial deletion states.
-    //
-    // See documents.rs:delete_all_document_data for the detailed explanation
-    // of delete ordering and why we do not use ON DELETE CASCADE on documents(id).
-    pipeline_repository::documents::delete_all_document_data(&state.pipeline_pool, &document_id)
-        .await
-        .map_err(|e| AppError::Internal {
-            message: format!("Failed to delete document data: {e}"),
-        })?;
 
     // 7. Delete PDF file from disk (warn on failure, don't fail the request)
     let full_path = format!(

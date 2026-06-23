@@ -131,15 +131,14 @@ pub async fn reprocess_handler(
         });
     }
 
-    cleanup_neo4j(&state, &doc_id).await;
-    cleanup_qdrant(&state, &doc_id).await;
-
+    // Cross-store cleanup is deliberately deferred until AFTER the Postgres
+    // transaction commits — see the post-commit block below (DELETE-ORDER-FIX).
     let mut txn = state
         .pipeline_pool
         .begin()
         .await
         .map_err(|e| AppError::Internal {
-            message: format!("Transaction begin: {e}"),
+            message: format!("Failed to begin reprocess transaction for '{doc_id}': {e}"),
         })?;
 
     sqlx::query(
@@ -206,8 +205,20 @@ pub async fn reprocess_handler(
         })?;
 
     txn.commit().await.map_err(|e| AppError::Internal {
-        message: format!("Transaction commit: {e}"),
+        message: format!("Failed to commit reprocess transaction for '{doc_id}': {e}"),
     })?;
+
+    // Cross-store cleanup AFTER the Postgres commit (DELETE-ORDER-FIX).
+    //
+    // Why: Postgres is the source of truth. These deletes used to run BEFORE
+    // the transaction, so a failing/rolled-back PG reprocess left the document
+    // half-wiped — purged from Neo4j + Qdrant but still fully present in
+    // Postgres. A PRE-commit cross-store wipe is destructive and unrecoverable;
+    // a POST-commit failure is recoverable (best-effort, logged inside each
+    // helper). Run them only once the extraction tier is durably cleared. Do
+    // not reorder these back above the transaction.
+    cleanup_neo4j(&state, &doc_id).await;
+    cleanup_qdrant(&state, &doc_id).await;
 
     log_admin_action(
         &state.audit_repo,
