@@ -22,6 +22,7 @@ use crate::pipeline::config::{
 };
 use crate::pipeline::registry::PipelineRegistry;
 use crate::pipeline::validation::validate_profile;
+use crate::pipeline::workflow_steps::STEP_UPLOAD;
 use crate::repositories::audit_repository::log_admin_action;
 use crate::repositories::pipeline_repository::{self, steps, PipelineConfigInput};
 use crate::state::AppState;
@@ -586,7 +587,7 @@ pub async fn upload_document(
     if let Ok(step_id) = steps::record_step_start(
         &state.pipeline_pool,
         &doc_id,
-        "upload",
+        STEP_UPLOAD,
         &user.username,
         &serde_json::json!({"filename": original_name, "document_type": document_type}),
     )

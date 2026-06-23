@@ -88,6 +88,13 @@ pub mod verify;
 // `PipelineRegistry::step_label()` in `pipeline/registry.rs`. Renaming
 // any of these constants requires a coordinated edit of all three.
 
+/// Step name for the initial upload step (file landed, `documents` row created).
+///
+/// Recorded in `api/pipeline/upload.rs`. Named here so the reprocess path can
+/// refer to it by constant rather than a bare `"upload"` literal when deciding
+/// which step rows survive a re-extraction.
+pub const STEP_UPLOAD: &str = "upload";
+
 /// Step name for the text-extraction step (PDF/DOCX/TXT → `document_text`).
 pub const STEP_EXTRACT_TEXT: &str = "extract_text";
 
