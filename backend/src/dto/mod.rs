@@ -20,6 +20,7 @@ pub mod person_detail;
 pub mod proof_matrix;
 pub mod proof_review;
 pub mod query;
+pub mod scenario;
 pub mod schema;
 
 // Re-export DTOs / request types from submodules
@@ -46,4 +47,9 @@ pub use harm::{HarmDto, HarmsResponse};
 pub use hearing::{HearingCreateRequest, HearingUpdateRequest};
 pub use motion_claim::{MotionClaimDto, MotionClaimsResponse};
 pub use person::{PersonCreateRequest, PersonDto, PersonUpdateRequest, PersonsResponse};
+pub use scenario::{
+    ScenarioContradiction, ScenarioContradictionEvidence, ScenarioContradictionsResponse,
+    ScenarioRebuttalFact, ScenarioRebuttalFactsResponse, ScenarioRelatedAllegation,
+    ScenarioRelatedAllegationsResponse,
+};
 pub use schema::SchemaResponse;

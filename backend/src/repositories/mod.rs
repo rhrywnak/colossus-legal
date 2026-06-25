@@ -38,6 +38,7 @@ pub mod proof_review_repository;
 pub mod qa_repository;
 pub mod query_repository;
 pub mod rebuttals_repository;
+pub mod scenario_repository;
 pub mod schema_repository;
 
 pub use allegation_detail_repository::AllegationDetailRepository;
@@ -56,4 +57,5 @@ pub use person_detail_repository::PersonDetailRepository;
 pub use person_repository::PersonRepository;
 pub use query_repository::QueryRepository;
 pub use rebuttals_repository::RebuttalsRepository;
+pub use scenario_repository::ScenarioRepository;
 pub use schema_repository::SchemaRepository;
