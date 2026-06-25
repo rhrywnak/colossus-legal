@@ -153,3 +153,42 @@ pub struct ScenarioRelatedAllegationsResponse {
     pub anchor_id: String,
     pub allegations: Vec<ScenarioRelatedAllegation>,
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Page composition (task 0.4)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// The identity parameters that select a scenario, bound and passed to the
+/// page-assembly.
+///
+/// These are the same bound composite ids the 0.3 methods take (the
+/// `doc-...:evidence:<hash>` form) — `wielder_id` is the person whose claims the
+/// scenario is built around; `anchor_id` is the evidence the scenario's
+/// allegations hang off. For this task they arrive as function arguments; in a
+/// later phase they will be read from the scenario `definition` row. The struct
+/// is the seam for that change: adding a `definition_id` later is additive.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ScenarioPageParams {
+    pub wielder_id: String,
+    pub anchor_id: String,
+}
+
+/// One assembled scenario page — the graph-only sections, for now.
+///
+/// ## Why hold the three `*Response` types directly
+///
+/// Each section is exactly the return type of its 0.3 method, so assembly is a
+/// lossless move with no remapping (the per-section `total` / echoed id survive).
+/// The FULL scenario page (design v2 §2) will also carry Postgres-backed
+/// sections — the scenario `definition`, the confirmed-reference-set, and
+/// authored `responses` — which DO NOT EXIST YET (Phase 1). This struct is
+/// shaped so those land as ADDITIONAL fields without reshaping the three that
+/// exist today.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ScenarioPage {
+    pub rebuttal_facts: ScenarioRebuttalFactsResponse,
+    pub contradictions: ScenarioContradictionsResponse,
+    pub related_allegations: ScenarioRelatedAllegationsResponse,
+}

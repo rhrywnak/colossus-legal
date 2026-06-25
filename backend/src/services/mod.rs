@@ -12,3 +12,4 @@ pub mod graph_expansion_minor;
 pub mod graph_expansion_queries;
 pub mod import_validator;
 pub mod qdrant_service;
+pub mod scenario_page;

@@ -49,7 +49,7 @@ pub use motion_claim::{MotionClaimDto, MotionClaimsResponse};
 pub use person::{PersonCreateRequest, PersonDto, PersonUpdateRequest, PersonsResponse};
 pub use scenario::{
     ScenarioContradiction, ScenarioContradictionEvidence, ScenarioContradictionsResponse,
-    ScenarioRebuttalFact, ScenarioRebuttalFactsResponse, ScenarioRelatedAllegation,
-    ScenarioRelatedAllegationsResponse,
+    ScenarioPage, ScenarioPageParams, ScenarioRebuttalFact, ScenarioRebuttalFactsResponse,
+    ScenarioRelatedAllegation, ScenarioRelatedAllegationsResponse,
 };
 pub use schema::SchemaResponse;
