@@ -25,8 +25,10 @@ use sqlx::PgPool;
 
 use colossus_legal_backend::config::AppConfig;
 use colossus_legal_backend::repositories::pipeline_repository::{
-    delete_scenarios_for_case, get_scenario, insert_scenario, list_fact_refs_for_scenario,
-    list_scenarios_for_case, upsert_fact_ref,
+    delete_scenarios_for_case, get_scenario, insert_response_item, insert_scenario,
+    insert_scenario_response, list_fact_refs_for_item, list_fact_refs_for_scenario,
+    list_items_for_response, list_responses_for_scenario, list_scenarios_for_case, upsert_fact_ref,
+    upsert_response_item_fact_ref,
 };
 
 type TestResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
@@ -41,6 +43,8 @@ fn test_slug(tag: &str) -> String {
 
 /// Connect to the live pipeline database from env (`.env` honored).
 async fn pipeline_pool() -> TestResult<PgPool> {
+    // best-effort: a missing .env is normal when the live URL comes from the
+    // shell env in CI / live-infra runs; the connect below fails loudly if unset.
     dotenvy::dotenv().ok();
     let config = AppConfig::from_env()?;
     let pool = sqlx::postgres::PgPoolOptions::new()
@@ -392,6 +396,199 @@ async fn it_rejects_a_fact_ref_for_a_nonexistent_scenario() -> TestResult<()> {
     assert!(
         result.is_err(),
         "upsert_fact_ref must fail when scenario_id references no scenario (FK violation)"
+    );
+
+    Ok(())
+}
+
+// ── scenario responses model (task 1.6) ───────────────────────────
+
+/// THE slice test — the storage-layer proof that 1.6 closes the minimal slice.
+///
+/// scenario (1.1) → tag a graph fact into it (1.2) → response (1.6) → item →
+/// reference a HUMAN-AUTHORED graph node id on the item. Asserts the item's
+/// fact-ref holds the graph node id and that NO fact content is stored anywhere
+/// in the response tables — the id is the only link; content is read live from
+/// the graph at compose time.
+#[tokio::test]
+#[ignore]
+async fn it_closes_the_minimal_slice() -> TestResult<()> {
+    let pool = pipeline_pool().await?;
+    let slug = test_slug("slice");
+    delete_scenarios_for_case(&pool, &slug).await?;
+
+    // 1.1: a scenario.
+    let scenario = make_scenario(&pool, "Concealment lens", &slug).await?;
+
+    // 1.2: tag a graph fact into the scenario (a human-authored node, 0.2 path).
+    let human_node = "human-fact-7f3a";
+    upsert_fact_ref(&pool, scenario, human_node, Some("wielder"), true, None).await?;
+
+    // 1.6: a response, an item, and the item's evidence reference.
+    let response = insert_scenario_response(
+        &pool,
+        scenario,
+        Some("Direct answer"),
+        "She concealed it.",
+        "draft",
+        "human",
+    )
+    .await?;
+    let item =
+        insert_response_item(&pool, response, 0, "Point one: the waiver was hidden.").await?;
+    upsert_response_item_fact_ref(&pool, item, human_node, Some("rests on Humphrey's note"))
+        .await?;
+
+    // The item's fact-ref holds ONLY the graph node id (the link) + a note.
+    let refs = list_fact_refs_for_item(&pool, item).await?;
+    assert_eq!(refs.len(), 1);
+    assert_eq!(refs[0].graph_node_id, human_node);
+    assert_eq!(refs[0].response_item_id, item);
+
+    // No fact content leaks into the response tables: the response/item carry the
+    // human's authored text, but the EVIDENCE is referenced by id only — there is
+    // no quote/citation column to hold graph content (enforced structurally by the
+    // Rule-21 scan; here we assert the link round-trips and the id is all we got).
+    let responses = list_responses_for_scenario(&pool, scenario).await?;
+    assert_eq!(responses.len(), 1);
+    assert_eq!(responses[0].id, response);
+    let items = list_items_for_response(&pool, response).await?;
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].id, item);
+
+    delete_scenarios_for_case(&pool, &slug).await?;
+    Ok(())
+}
+
+/// The four-link cascade: deleting the SCENARIO must wipe its response, that
+/// response's item, AND that item's fact-ref — proving cascade reaches from the
+/// 1.1 table all the way down. If any link is non-cascading, this fails.
+#[tokio::test]
+#[ignore]
+async fn it_cascades_the_full_chain_on_scenario_delete() -> TestResult<()> {
+    let pool = pipeline_pool().await?;
+    let slug = test_slug("chain_cascade");
+    delete_scenarios_for_case(&pool, &slug).await?;
+
+    let scenario = make_scenario(&pool, "Doomed lens", &slug).await?;
+    let response =
+        insert_scenario_response(&pool, scenario, None, "answer", "draft", "human").await?;
+    let item = insert_response_item(&pool, response, 0, "item").await?;
+    upsert_response_item_fact_ref(&pool, item, "node-1", None).await?;
+
+    // Precondition: the full chain exists.
+    assert_eq!(list_responses_for_scenario(&pool, scenario).await?.len(), 1);
+    assert_eq!(list_items_for_response(&pool, response).await?.len(), 1);
+    assert_eq!(list_fact_refs_for_item(&pool, item).await?.len(), 1);
+
+    // Delete the chain-top scenario.
+    delete_scenarios_for_case(&pool, &slug).await?;
+
+    // Every descendant must be gone via ON DELETE CASCADE.
+    assert!(
+        list_responses_for_scenario(&pool, scenario)
+            .await?
+            .is_empty(),
+        "deleting the scenario must cascade to its responses"
+    );
+    assert!(
+        list_items_for_response(&pool, response).await?.is_empty(),
+        "deleting the scenario must cascade to response_items"
+    );
+    assert!(
+        list_fact_refs_for_item(&pool, item).await?.is_empty(),
+        "deleting the scenario must cascade to response_item_fact_refs"
+    );
+
+    Ok(())
+}
+
+/// Items list back in `item_index` order regardless of insertion order.
+#[tokio::test]
+#[ignore]
+async fn it_lists_response_items_in_index_order() -> TestResult<()> {
+    let pool = pipeline_pool().await?;
+    let slug = test_slug("item_order");
+    delete_scenarios_for_case(&pool, &slug).await?;
+
+    let scenario = make_scenario(&pool, "Lens", &slug).await?;
+    let response =
+        insert_scenario_response(&pool, scenario, None, "answer", "draft", "human").await?;
+
+    // Insert out of order: 2, 0, 1.
+    insert_response_item(&pool, response, 2, "third").await?;
+    insert_response_item(&pool, response, 0, "first").await?;
+    insert_response_item(&pool, response, 1, "second").await?;
+
+    let items = list_items_for_response(&pool, response).await?;
+    let order: Vec<i32> = items.iter().map(|i| i.item_index).collect();
+    assert_eq!(order, vec![0, 1, 2], "items must list in item_index order");
+    assert_eq!(items[0].text, "first");
+    assert_eq!(items[2].text, "third");
+
+    delete_scenarios_for_case(&pool, &slug).await?;
+    Ok(())
+}
+
+/// Re-tagging the same (item, node) pair updates the row in place (composite-key
+/// upsert) — one row remains, with the new note.
+#[tokio::test]
+#[ignore]
+async fn it_upserts_a_response_item_fact_ref_in_place() -> TestResult<()> {
+    let pool = pipeline_pool().await?;
+    let slug = test_slug("item_ref_upsert");
+    delete_scenarios_for_case(&pool, &slug).await?;
+
+    let scenario = make_scenario(&pool, "Lens", &slug).await?;
+    let response =
+        insert_scenario_response(&pool, scenario, None, "answer", "draft", "human").await?;
+    let item = insert_response_item(&pool, response, 0, "item").await?;
+    let node = "node-42";
+
+    upsert_response_item_fact_ref(&pool, item, node, Some("first reason")).await?;
+    upsert_response_item_fact_ref(&pool, item, node, Some("revised reason")).await?;
+
+    let refs = list_fact_refs_for_item(&pool, item).await?;
+    assert_eq!(
+        refs.len(),
+        1,
+        "re-tagging must update in place, not duplicate"
+    );
+    assert_eq!(refs[0].note.as_deref(), Some("revised reason"));
+
+    delete_scenarios_for_case(&pool, &slug).await?;
+    Ok(())
+}
+
+/// A response whose `scenario_id` names no scenario must be rejected by the FK
+/// (the violation path called out in `insert_scenario_response`'s `# Errors`).
+#[tokio::test]
+#[ignore]
+async fn it_rejects_a_response_for_a_nonexistent_scenario() -> TestResult<()> {
+    let pool = pipeline_pool().await?;
+
+    let orphan = uuid::Uuid::new_v4();
+    let result = insert_scenario_response(&pool, orphan, None, "answer", "draft", "human").await;
+    assert!(
+        result.is_err(),
+        "insert_scenario_response must fail when scenario_id references no scenario (FK)"
+    );
+
+    Ok(())
+}
+
+/// An item whose `response_id` names no response must be rejected by the FK
+/// (the violation path called out in `insert_response_item`'s `# Errors`).
+#[tokio::test]
+#[ignore]
+async fn it_rejects_an_item_for_a_nonexistent_response() -> TestResult<()> {
+    let pool = pipeline_pool().await?;
+
+    let orphan = uuid::Uuid::new_v4();
+    let result = insert_response_item(&pool, orphan, 0, "item").await;
+    assert!(
+        result.is_err(),
+        "insert_response_item must fail when response_id references no response (FK)"
     );
 
     Ok(())

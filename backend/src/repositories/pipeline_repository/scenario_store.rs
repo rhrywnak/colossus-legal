@@ -308,49 +308,54 @@ mod tests {
             .unwrap_or_else(|e| panic!("read migration {}: {e}", path.display()))
     }
 
-    /// Rule 21 disk/code invariant, shared by the scenarios and
-    /// scenario_fact_refs scans: assert a migration's column-DEFINITION lines
-    /// (a) contain no case-content token and (b) include every expected column.
+    /// True if `line` (already trimmed + lowercased) is a column-definition line
+    /// within a `CREATE TABLE` body — i.e. it names one of the SQL types these
+    /// tables use and is not a `--` comment / PRIMARY KEY / CONSTRAINT / CHECK
+    /// clause. `" integer"` is included so `item_index INTEGER` is recognized.
+    fn is_column_line(lower: &str) -> bool {
+        !lower.starts_with("--")
+            && !lower.starts_with("primary key")
+            && !lower.starts_with("constraint")
+            && !lower.starts_with("check")
+            && (lower.contains(" text")
+                || lower.contains(" uuid")
+                || lower.contains(" jsonb")
+                || lower.contains(" boolean")
+                || lower.contains(" integer")
+                || lower.contains(" timestamptz")
+                || lower.contains("text["))
+    }
+
+    /// Rule 21 disk/code invariant, shared by every scenario-family migration
+    /// scan: assert a migration's column-DEFINITION lines (a) contain no
+    /// case-content token and (b) include every expected column.
     ///
     /// Scans the migration text rather than a live DB so it runs in CI (no
     /// database needed), mirroring the canonical-loader filesystem-scan tests.
-    /// Only column-definition lines are checked — identified by the SQL types
-    /// these tables use — so the COMMENTs (which deliberately *say* "quotes,
-    /// citations, or facts" to document the prohibition) do not trip it.
+    /// Handles a migration that declares MULTIPLE tables: it walks EVERY
+    /// `CREATE TABLE ( ... )` block and unions their column lines. Bounding to
+    /// the table bodies means the multi-line `COMMENT ON` prose (which
+    /// deliberately *says* "quotes, citations, or facts" to document the
+    /// prohibition) can never be mistaken for a column.
     fn assert_no_case_content(sql: &str, sanity_col: &str, expected: &[&str]) {
-        // Bound the scan to the `CREATE TABLE ( ... )` block. The COMMENT ON
-        // statements deliberately mention "quotes/citations/facts" to document
-        // the prohibition, and span multiple string-literal lines; scanning only
-        // the table body means that prose can never be mistaken for a column.
-        let start = sql
-            .find("CREATE TABLE")
-            .expect("migration has a CREATE TABLE");
-        let body = &sql[start..];
-        let end = body.find(");").expect("CREATE TABLE block closed with );");
-        let body = &body[..end];
+        let mut column_lines: Vec<&str> = Vec::new();
+        let mut rest = sql;
+        while let Some(start) = rest.find("CREATE TABLE") {
+            let after = &rest[start..];
+            let end = after.find(");").expect("CREATE TABLE block closed with );");
+            let body = &after[..end];
+            for line in body.lines().map(str::trim) {
+                if is_column_line(&line.to_ascii_lowercase()) {
+                    column_lines.push(line);
+                }
+            }
+            // Advance past this block's closer so the next iteration finds the
+            // next CREATE TABLE (COMMENT prose between tables is skipped — it is
+            // outside any table body).
+            rest = &after[end + 2..];
+        }
 
-        let column_lines: Vec<&str> = body
-            .lines()
-            .map(str::trim)
-            .filter(|l| {
-                let lower = l.to_ascii_lowercase();
-                // Within the table body, exclude inline `--` comments and the
-                // PRIMARY KEY / CONSTRAINT / CHECK clauses; what remains and
-                // names a SQL type is a column definition.
-                !lower.starts_with("--")
-                    && !lower.starts_with("primary key")
-                    && !lower.starts_with("constraint")
-                    && !lower.starts_with("check")
-                    && (lower.contains(" text")
-                        || lower.contains(" uuid")
-                        || lower.contains(" jsonb")
-                        || lower.contains(" boolean")
-                        || lower.contains(" timestamptz")
-                        || lower.contains("text["))
-            })
-            .collect();
-
-        // Sanity: we actually located the column block.
+        // Sanity: we actually located at least one column block.
         assert!(
             column_lines.iter().any(|l| l.starts_with(sanity_col)),
             "column-line filter failed to find {sanity_col}; lines: {column_lines:?}"
@@ -423,6 +428,39 @@ mod tests {
                 "confirmed",
                 "note",
                 "tagged_at",
+            ],
+        );
+    }
+
+    /// Rule 21 (scenario responses, 1.6): the three response tables must never
+    /// grow a case-content column — evidence is referenced by graph node id and
+    /// read live from the graph, never stored. This migration declares THREE
+    /// tables in one file, exercising the multi-block scan.
+    #[test]
+    fn responses_migration_declares_no_case_content_columns() {
+        let sql = read_migration("20260626135022_create_scenario_responses_tables.sql");
+        assert_no_case_content(
+            &sql,
+            "scenario_id",
+            &[
+                // scenario_responses
+                "scenario_id",
+                "label",
+                "status",
+                "origin",
+                "updated_at",
+                // response_items
+                "response_id",
+                "item_index",
+                // response_item_fact_refs
+                "response_item_id",
+                "graph_node_id",
+                "note",
+                "tagged_at",
+                // shared across tables (id / text / created_at)
+                "id",
+                "text",
+                "created_at",
             ],
         );
     }

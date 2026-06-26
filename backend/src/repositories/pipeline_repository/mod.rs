@@ -31,10 +31,14 @@
 //! - `authored_entities.rs` — CRUD for the Tier-1 `authored_entities` and
 //!   Tier-3 `authored_relationships` tables (three-tier architecture,
 //!   Option A). Human-authored, not extracted; no FK to pipeline tables.
-//! - `scenario_store.rs` — CRUD for the `scenarios` table: a scenario's
-//!   authored definition (spine columns + a `definition` jsonb), no case
-//!   content. Free fns (not a `Repository` struct) to avoid colliding with the
-//!   Neo4j `ScenarioRepository`.
+//! - `scenario_store.rs` — CRUD for the `scenarios` (1.1) and
+//!   `scenario_fact_refs` (1.2) tables: a scenario's authored definition and its
+//!   per-scenario fact references, no case content. Free fns (not a `Repository`
+//!   struct) to avoid colliding with the Neo4j `ScenarioRepository`.
+//! - `scenario_responses.rs` — CRUD for the scenario responses model (1.6):
+//!   `scenario_responses` / `response_items` / `response_item_fact_refs`. Split
+//!   from `scenario_store.rs` to stay under the 300-line limit; same tag-not-copy
+//!   discipline (evidence referenced by graph node id, never copied).
 //! - `models.rs`, `report_queries.rs`, `review.rs`, `steps.rs`,
 //!   `users.rs` — other table-scoped repository modules.
 
@@ -59,6 +63,7 @@ pub mod review_actions;
 pub mod review_edit_history;
 pub mod review_grounding;
 pub mod review_items;
+pub mod scenario_responses;
 pub mod scenario_store;
 pub mod steps;
 pub mod users;
@@ -74,6 +79,7 @@ pub use report_queries::{
     get_per_pass_relationship_breakdown, get_relationship_breakdown_by_type, PerPassRunMetadata,
     RelationshipTypeCount,
 };
+pub use scenario_responses::*;
 pub use scenario_store::*;
 
 // ── Error type ───────────────────────────────────────────────────
