@@ -190,51 +190,161 @@ pub async fn delete_scenarios_for_case(
     Ok(result.rows_affected())
 }
 
+// ── scenario_fact_refs (task 1.2) ────────────────────────────────
+
+/// A row from `scenario_fact_refs` — one graph fact's reference into one
+/// scenario, with the role it plays *there*.
+///
+/// ## Rust Learning: composite-key identity, no surrogate id
+///
+/// Unlike [`ScenarioRecord`] (whose identity is a server-minted `scenario_id`
+/// uuid), a fact reference's identity *is* its business key — the pair
+/// `(scenario_id, graph_node_id)`, which is the table's composite PRIMARY KEY.
+/// There is no surrogate `id` column and no `id` field here: the caller always
+/// already holds both halves of the key, so there is nothing for the database to
+/// mint and return. That is why [`upsert_fact_ref`] returns `()` rather than an
+/// id (contrast [`insert_scenario`], which returns the uuid the DB generated).
+///
+/// Holds NO case content: `graph_node_id` is a pointer into Neo4j; the fact's
+/// quote/speaker/citation are read live from the graph at compose time.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct ScenarioFactRefRecord {
+    pub scenario_id: uuid::Uuid,
+    pub graph_node_id: String,
+    pub role_in_this_scenario: Option<String>,
+    pub confirmed: bool,
+    pub note: Option<String>,
+    pub tagged_at: chrono::DateTime<chrono::Utc>,
+}
+
+// CONST: column projection locked to the `scenario_fact_refs` schema — a
+// structural schema-coupling invariant, NOT a deployment-time config value (same
+// rationale as `SCENARIO_COLUMNS`). Changing it requires a migration plus a
+// matching `ScenarioFactRefRecord` field update.
+const SCENARIO_FACT_REF_COLUMNS: &str =
+    "scenario_id, graph_node_id, role_in_this_scenario, confirmed, note, tagged_at";
+
+/// Tag a graph fact into a scenario, or re-tag it in place (composite-key
+/// upsert on `(scenario_id, graph_node_id)`).
+///
+/// Re-tagging the same pair is a normal edit, not an error: `ON CONFLICT
+/// (scenario_id, graph_node_id) DO UPDATE` overwrites the role / confirmed /
+/// note and advances `tagged_at`. The SAME `graph_node_id` under a *different*
+/// `scenario_id` is a *different* row — that is how one fact is shared across
+/// scenarios with a per-scenario role.
+///
+/// Returns `()`: the caller already holds the identity (the composite key), so
+/// nothing is server-minted to hand back (contrast [`insert_scenario`]).
+///
+/// `role_in_this_scenario` is intentionally unvalidated here — the role
+/// vocabulary is owned by the task-1.3 code lookup; this layer stores whatever
+/// the validated caller passes (or `None`).
+///
+/// # Errors
+/// Returns [`PipelineRepoError`] if the write fails — notably a foreign-key
+/// violation if `scenario_id` names no existing scenario.
+pub async fn upsert_fact_ref(
+    executor: impl sqlx::PgExecutor<'_>,
+    scenario_id: uuid::Uuid,
+    graph_node_id: &str,
+    role_in_this_scenario: Option<&str>,
+    confirmed: bool,
+    note: Option<&str>,
+) -> Result<(), PipelineRepoError> {
+    sqlx::query(
+        r#"INSERT INTO scenario_fact_refs
+               (scenario_id, graph_node_id, role_in_this_scenario, confirmed, note)
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (scenario_id, graph_node_id) DO UPDATE SET
+               role_in_this_scenario = EXCLUDED.role_in_this_scenario,
+               confirmed             = EXCLUDED.confirmed,
+               note                  = EXCLUDED.note,
+               tagged_at             = NOW()"#,
+    )
+    .bind(scenario_id)
+    .bind(graph_node_id)
+    .bind(role_in_this_scenario)
+    .bind(confirmed)
+    .bind(note)
+    .execute(executor)
+    .await?;
+    Ok(())
+}
+
+/// List every fact reference for one scenario, oldest tag first.
+///
+/// The composite PK's leading column (`scenario_id`) serves this `WHERE`, so no
+/// separate index is needed.
+///
+/// # Errors
+/// Returns [`PipelineRepoError`] if the query fails.
+pub async fn list_fact_refs_for_scenario(
+    pool: &PgPool,
+    scenario_id: uuid::Uuid,
+) -> Result<Vec<ScenarioFactRefRecord>, PipelineRepoError> {
+    let sql = format!(
+        "SELECT {SCENARIO_FACT_REF_COLUMNS} FROM scenario_fact_refs \
+         WHERE scenario_id = $1 ORDER BY tagged_at, graph_node_id"
+    );
+    let rows = sqlx::query_as::<_, ScenarioFactRefRecord>(&sql)
+        .bind(scenario_id)
+        .fetch_all(pool)
+        .await?;
+    Ok(rows)
+}
+
 // ── Tests ────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
 
-    /// Path to the scenarios migration on disk.
-    fn migration_sql() -> String {
+    /// Read a pipeline migration file by name from disk.
+    fn read_migration(filename: &str) -> String {
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("pipeline_migrations")
-            .join("20260626115557_create_scenarios_table.sql");
+            .join(filename);
         std::fs::read_to_string(&path)
             .unwrap_or_else(|e| panic!("read migration {}: {e}", path.display()))
     }
 
-    /// Rule 21 disk/code invariant: the `scenarios` table must never grow a
-    /// case-content column. Quotes, citations, and facts live in the graph
-    /// (referenced by `scenario_fact_refs`, task 1.2), never in this table.
+    /// Rule 21 disk/code invariant, shared by the scenarios and
+    /// scenario_fact_refs scans: assert a migration's column-DEFINITION lines
+    /// (a) contain no case-content token and (b) include every expected column.
     ///
-    /// This scans the migration text rather than the live DB so it runs in CI
-    /// (no database needed), mirroring the canonical-loader filesystem-scan
-    /// tests. The COMMENTs deliberately *say* "quotes, citations, or facts" to
-    /// document the prohibition, so we only forbid these tokens in column
-    /// *definition* lines — identified by the leading whitespace + identifier +
-    /// type shape — not anywhere in the file.
-    #[test]
-    fn migration_declares_no_case_content_columns() {
-        let sql = migration_sql();
+    /// Scans the migration text rather than a live DB so it runs in CI (no
+    /// database needed), mirroring the canonical-loader filesystem-scan tests.
+    /// Only column-definition lines are checked — identified by the SQL types
+    /// these tables use — so the COMMENTs (which deliberately *say* "quotes,
+    /// citations, or facts" to document the prohibition) do not trip it.
+    fn assert_no_case_content(sql: &str, sanity_col: &str, expected: &[&str]) {
+        // Bound the scan to the `CREATE TABLE ( ... )` block. The COMMENT ON
+        // statements deliberately mention "quotes/citations/facts" to document
+        // the prohibition, and span multiple string-literal lines; scanning only
+        // the table body means that prose can never be mistaken for a column.
+        let start = sql
+            .find("CREATE TABLE")
+            .expect("migration has a CREATE TABLE");
+        let body = &sql[start..];
+        let end = body.find(");").expect("CREATE TABLE block closed with );");
+        let body = &body[..end];
 
-        // Column-definition lines look like `    <name>  <TYPE>...`. COMMENT
-        // and CONSTRAINT lines do not start a bare identifier followed by a SQL
-        // type, so this isolates the actual columns.
-        let column_lines: Vec<&str> = sql
+        let column_lines: Vec<&str> = body
             .lines()
             .map(str::trim)
             .filter(|l| {
                 let lower = l.to_ascii_lowercase();
-                // Heuristic: a column line names one of the SQL types this table
-                // uses and is not a COMMENT/CONSTRAINT/CHECK line.
-                !lower.starts_with("comment")
+                // Within the table body, exclude inline `--` comments and the
+                // PRIMARY KEY / CONSTRAINT / CHECK clauses; what remains and
+                // names a SQL type is a column definition.
+                !lower.starts_with("--")
+                    && !lower.starts_with("primary key")
                     && !lower.starts_with("constraint")
                     && !lower.starts_with("check")
                     && (lower.contains(" text")
                         || lower.contains(" uuid")
                         || lower.contains(" jsonb")
+                        || lower.contains(" boolean")
                         || lower.contains(" timestamptz")
                         || lower.contains("text["))
             })
@@ -242,8 +352,8 @@ mod tests {
 
         // Sanity: we actually located the column block.
         assert!(
-            column_lines.iter().any(|l| l.starts_with("scenario_id")),
-            "column-line filter failed to find scenario_id; lines: {column_lines:?}"
+            column_lines.iter().any(|l| l.starts_with(sanity_col)),
+            "column-line filter failed to find {sanity_col}; lines: {column_lines:?}"
         );
 
         const FORBIDDEN: [&str; 6] = [
@@ -259,30 +369,61 @@ mod tests {
             for token in FORBIDDEN {
                 assert!(
                     !lower.contains(token),
-                    "scenarios must hold NO case content — forbidden token '{token}' \
+                    "table must hold NO case content — forbidden token '{token}' \
                      in column line: {line}"
                 );
             }
         }
 
-        // And the expected spine + definition columns are all present.
-        const EXPECTED: [&str; 10] = [
-            "scenario_id",
-            "name",
-            "direction",
-            "status",
-            "case_slug",
-            "feeds_count_id",
-            "anchor_allegation_ids",
-            "definition",
-            "created_at",
-            "updated_at",
-        ];
-        for col in EXPECTED {
+        for col in expected {
             assert!(
                 column_lines.iter().any(|l| l.starts_with(col)),
                 "expected column '{col}' missing from migration"
             );
         }
+    }
+
+    /// Rule 21 (scenarios): the table must never grow a case-content column —
+    /// quotes/citations/facts live in the graph (referenced by
+    /// `scenario_fact_refs`), never here.
+    #[test]
+    fn scenarios_migration_declares_no_case_content_columns() {
+        let sql = read_migration("20260626115557_create_scenarios_table.sql");
+        assert_no_case_content(
+            &sql,
+            "scenario_id",
+            &[
+                "scenario_id",
+                "name",
+                "direction",
+                "status",
+                "case_slug",
+                "feeds_count_id",
+                "anchor_allegation_ids",
+                "definition",
+                "created_at",
+                "updated_at",
+            ],
+        );
+    }
+
+    /// Rule 21 (scenario_fact_refs): the reference table must never grow a
+    /// case-content column — facts are read live from the graph by id, never
+    /// stored here.
+    #[test]
+    fn fact_refs_migration_declares_no_case_content_columns() {
+        let sql = read_migration("20260626122424_create_scenario_fact_refs_table.sql");
+        assert_no_case_content(
+            &sql,
+            "scenario_id",
+            &[
+                "scenario_id",
+                "graph_node_id",
+                "role_in_this_scenario",
+                "confirmed",
+                "note",
+                "tagged_at",
+            ],
+        );
     }
 }

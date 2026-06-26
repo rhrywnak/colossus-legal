@@ -25,7 +25,8 @@ use sqlx::PgPool;
 
 use colossus_legal_backend::config::AppConfig;
 use colossus_legal_backend::repositories::pipeline_repository::{
-    delete_scenarios_for_case, get_scenario, insert_scenario, list_scenarios_for_case,
+    delete_scenarios_for_case, get_scenario, insert_scenario, list_fact_refs_for_scenario,
+    list_scenarios_for_case, upsert_fact_ref,
 };
 
 type TestResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
@@ -246,5 +247,152 @@ async fn it_rejects_bad_status() -> TestResult<()> {
     assert!(rows.is_empty(), "a rejected insert must write no row");
 
     delete_scenarios_for_case(&pool, &slug).await?;
+    Ok(())
+}
+
+// ── scenario_fact_refs (task 1.2) ─────────────────────────────────
+
+/// Insert a bare scenario for a slug and return its id.
+async fn make_scenario(pool: &PgPool, name: &str, slug: &str) -> TestResult<uuid::Uuid> {
+    let id = insert_scenario(
+        pool,
+        name,
+        "offense",
+        "draft",
+        slug,
+        None,
+        None,
+        &json!({ "schema_v": 1 }),
+    )
+    .await?;
+    Ok(id)
+}
+
+/// THE sharing test — the Phase-1 validation primitive.
+///
+/// The SAME `graph_node_id` is referenced by TWO different scenarios with TWO
+/// different roles. Both rows must exist, each carrying its own role. This proves
+/// a fact is *shared* across scenarios with a per-scenario role, never *owned*.
+#[tokio::test]
+#[ignore]
+async fn it_shares_a_fact_across_scenarios_with_distinct_roles() -> TestResult<()> {
+    let pool = pipeline_pool().await?;
+    let slug = test_slug("fact_sharing");
+    // Deleting the scenarios cascades to their fact refs (clean start).
+    delete_scenarios_for_case(&pool, &slug).await?;
+
+    let offense = make_scenario(&pool, "Offense lens", &slug).await?;
+    let defense = make_scenario(&pool, "Defense lens", &slug).await?;
+
+    // One graph node, tagged into both scenarios under different roles.
+    let node = "person-jeffrey-humphrey";
+    upsert_fact_ref(&pool, offense, node, Some("wielder"), true, None).await?;
+    upsert_fact_ref(&pool, defense, node, Some("target"), true, None).await?;
+
+    let offense_refs = list_fact_refs_for_scenario(&pool, offense).await?;
+    let defense_refs = list_fact_refs_for_scenario(&pool, defense).await?;
+
+    assert_eq!(offense_refs.len(), 1);
+    assert_eq!(defense_refs.len(), 1);
+    assert_eq!(offense_refs[0].graph_node_id, node);
+    assert_eq!(defense_refs[0].graph_node_id, node);
+    // Same node, different role per scenario — the whole point.
+    assert_eq!(
+        offense_refs[0].role_in_this_scenario.as_deref(),
+        Some("wielder")
+    );
+    assert_eq!(
+        defense_refs[0].role_in_this_scenario.as_deref(),
+        Some("target")
+    );
+
+    delete_scenarios_for_case(&pool, &slug).await?;
+    Ok(())
+}
+
+/// Re-tagging the same (scenario, node) pair updates the existing row in place
+/// (composite-key upsert) — exactly one row remains, with the new role.
+#[tokio::test]
+#[ignore]
+async fn it_upserts_a_fact_ref_in_place() -> TestResult<()> {
+    let pool = pipeline_pool().await?;
+    let slug = test_slug("fact_upsert");
+    delete_scenarios_for_case(&pool, &slug).await?;
+
+    let scenario = make_scenario(&pool, "Lens", &slug).await?;
+    let node = "alleg-42";
+
+    upsert_fact_ref(&pool, scenario, node, Some("seed_support"), false, None).await?;
+    // Re-tag the SAME pair with a different role + confirmed + note.
+    upsert_fact_ref(
+        &pool,
+        scenario,
+        node,
+        Some("wielder"),
+        true,
+        Some("reclassified after review"),
+    )
+    .await?;
+
+    let refs = list_fact_refs_for_scenario(&pool, scenario).await?;
+    assert_eq!(
+        refs.len(),
+        1,
+        "re-tagging must update in place, not duplicate"
+    );
+    assert_eq!(refs[0].role_in_this_scenario.as_deref(), Some("wielder"));
+    assert!(refs[0].confirmed);
+    assert_eq!(refs[0].note.as_deref(), Some("reclassified after review"));
+
+    delete_scenarios_for_case(&pool, &slug).await?;
+    Ok(())
+}
+
+/// Deleting a scenario removes its fact refs via `ON DELETE CASCADE` — no manual
+/// cleanup of the child table is needed.
+#[tokio::test]
+#[ignore]
+async fn it_cascades_fact_refs_on_scenario_delete() -> TestResult<()> {
+    let pool = pipeline_pool().await?;
+    let slug = test_slug("fact_cascade");
+    delete_scenarios_for_case(&pool, &slug).await?;
+
+    let scenario = make_scenario(&pool, "Doomed lens", &slug).await?;
+    upsert_fact_ref(&pool, scenario, "node-1", Some("wielder"), true, None).await?;
+    assert_eq!(
+        list_fact_refs_for_scenario(&pool, scenario).await?.len(),
+        1,
+        "precondition: the fact ref exists before the scenario is deleted"
+    );
+
+    // Delete the parent scenario; the FK cascade must remove the child ref.
+    delete_scenarios_for_case(&pool, &slug).await?;
+
+    let refs = list_fact_refs_for_scenario(&pool, scenario).await?;
+    assert!(
+        refs.is_empty(),
+        "ON DELETE CASCADE must remove fact refs when their scenario is deleted"
+    );
+
+    Ok(())
+}
+
+/// A fact ref whose `scenario_id` names no scenario must be rejected by the
+/// foreign key — proving `REFERENCES scenarios(scenario_id)` is enforced, not
+/// merely declared. (This is the FK-violation path called out in
+/// `upsert_fact_ref`'s `# Errors`.)
+#[tokio::test]
+#[ignore]
+async fn it_rejects_a_fact_ref_for_a_nonexistent_scenario() -> TestResult<()> {
+    let pool = pipeline_pool().await?;
+
+    // A random uuid that was never inserted into `scenarios`.
+    let orphan = uuid::Uuid::new_v4();
+    let result = upsert_fact_ref(&pool, orphan, "node-x", Some("wielder"), false, None).await;
+    assert!(
+        result.is_err(),
+        "upsert_fact_ref must fail when scenario_id references no scenario (FK violation)"
+    );
+
     Ok(())
 }
