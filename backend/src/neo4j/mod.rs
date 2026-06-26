@@ -6,6 +6,7 @@
 //! in [`schema`] so that every read query, every loader, and every test
 //! references one constant instead of repeating a bare string literal.
 
+pub mod human_facts;
 pub mod schema;
 
 use crate::config::AppConfig;
