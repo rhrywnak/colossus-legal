@@ -155,6 +155,61 @@ pub struct ScenarioRelatedAllegationsResponse {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Method 4 — allegation-anchored evidence (task 0.3c)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// One piece of evidence that rebuts or corroborates a given allegation.
+///
+/// This is the INVERSE of `ScenarioRelatedAllegation`: that method anchors on an
+/// Evidence id and returns the Allegations it targets; this one anchors on an
+/// Allegation id and returns the Evidence pointing AT it, carrying the per-edge
+/// polarity (`REBUTS` vs `CORROBORATES`) plus the document and speaker joins.
+///
+/// Domain note: `polarity` is the relationship type itself (`type(r)`), not an
+/// edge property — the populated axis is `(:Evidence)-[:REBUTS|CORROBORATES]->
+/// (:Allegation)` and these edges carry no `topic`/other properties, so the
+/// distinction lives only in the edge label. `polarity` is therefore required
+/// (an edge always has a type), while the descriptive columns are optional
+/// because the Evidence node or its joins may legitimately omit them.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AnchoredEvidenceFact {
+    pub evidence_id: String,
+
+    /// `"REBUTS"` or `"CORROBORATES"` — sourced from `type(r)`, always present.
+    pub polarity: String,
+
+    pub allegation_id: String,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub paragraph_number: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verbatim_quote: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub page_number: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub document: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stated_by: Option<String>,
+}
+
+/// Response for `ScenarioRepository::anchored_allegation_evidence`.
+///
+/// `allegation_id` echoes back the anchor the caller asked about, mirroring how
+/// the other responses echo their `wielder_id` / `anchor_id` so a consumer
+/// holding several fragments can attribute each without threading context.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AnchoredAllegationEvidenceResponse {
+    pub allegation_id: String,
+    pub facts: Vec<AnchoredEvidenceFact>,
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Page composition (task 0.4)
 // ─────────────────────────────────────────────────────────────────────────────
 

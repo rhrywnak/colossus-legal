@@ -20,9 +20,9 @@
 use neo4rs::{query, DeError, Graph, Row};
 
 use crate::dto::scenario::{
-    ScenarioContradiction, ScenarioContradictionEvidence, ScenarioContradictionsResponse,
-    ScenarioRebuttalFact, ScenarioRebuttalFactsResponse, ScenarioRelatedAllegation,
-    ScenarioRelatedAllegationsResponse,
+    AnchoredAllegationEvidenceResponse, AnchoredEvidenceFact, ScenarioContradiction,
+    ScenarioContradictionEvidence, ScenarioContradictionsResponse, ScenarioRebuttalFact,
+    ScenarioRebuttalFactsResponse, ScenarioRelatedAllegation, ScenarioRelatedAllegationsResponse,
 };
 use crate::neo4j::schema;
 
@@ -72,6 +72,56 @@ pub enum ScenarioRepositoryError {
     /// string.
     #[error("required column '{column}' was null or absent")]
     MissingRequired { column: String },
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Polarity selector (task 0.3c)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Which evidence→allegation edges `anchored_allegation_evidence` returns.
+///
+/// ## Rust Learning: a closed enum instead of a free `&str` rel-name parameter
+///
+/// The traversal filters on the *relationship type* (`REBUTS` vs
+/// `CORROBORATES`). That type is NOT user input — accepting an arbitrary
+/// `&str` rel-name would both admit names the graph never uses and invite a
+/// label injected into the query text. A three-variant enum closes the set:
+/// the only rel types that can reach the Cypher are the two `schema::`
+/// constants below, mapped from the variant. The single varying input — the
+/// allegation id — stays a bound `$allegation_id` parameter, never interpolated.
+///
+/// Domain note: against an Allegation, `REBUTS` means the evidence *counters*
+/// the alleged fact and `CORROBORATES` means it *confirms* it (see
+/// `schema::REBUTS` / `schema::CORROBORATES`). `Both` returns the full picture.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EvidencePolarity {
+    /// Only `REBUTS` edges — evidence that counters the allegation.
+    Rebutting,
+    /// Only `CORROBORATES` edges — evidence that confirms the allegation.
+    Corroborating,
+    /// Both `REBUTS` and `CORROBORATES` edges.
+    Both,
+}
+
+impl EvidencePolarity {
+    /// The `schema::` relationship-type constants this polarity selects.
+    ///
+    /// ## Rust Learning: `&'static [&'static str]` via const promotion
+    ///
+    /// Each arm builds an array literal whose elements are all compile-time
+    /// constants (`schema::REBUTS` / `schema::CORROBORATES` are `const &str`).
+    /// Because the array is itself a constant expression, the compiler promotes
+    /// the borrow to `'static` — so we can return a borrowed slice from a fn
+    /// that owns no backing storage. The list is sourced ONLY from the `schema::`
+    /// constants, never re-spelled literals, so a rename in `schema.rs` flows
+    /// here automatically.
+    fn rel_types(self) -> &'static [&'static str] {
+        match self {
+            EvidencePolarity::Rebutting => &[schema::REBUTS],
+            EvidencePolarity::Corroborating => &[schema::CORROBORATES],
+            EvidencePolarity::Both => &[schema::REBUTS, schema::CORROBORATES],
+        }
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -196,6 +246,52 @@ impl ScenarioRepository {
             allegations,
         })
     }
+
+    /// Method 4 — evidence anchored on an allegation (task 0.3c).
+    ///
+    /// The INVERSE of `related_allegations`: where that method anchors on an
+    /// Evidence id and returns the Allegations it targets, this one anchors on
+    /// an **Allegation** id (the bound `$allegation_id`, matched on `id`) and
+    /// returns the **Evidence** pointing at it, carrying the per-edge polarity
+    /// plus the document and speaker joins.
+    ///
+    /// `polarity` selects which edges count: `Rebutting` → `REBUTS` only,
+    /// `Corroborating` → `CORROBORATES` only, `Both` → either. The rel-type
+    /// filter is built from `schema::` constants via the closed
+    /// [`EvidencePolarity`] enum — no rel name is ever a free string parameter.
+    ///
+    /// Domain note: the populated axis is `(:Evidence)-[r]->(:Allegation)` and
+    /// these edges carry NO properties (no `r.topic`), so the polarity lives in
+    /// `type(r)` alone. Two distinct evidence nodes may carry identical
+    /// `verbatim_quote` text — that is real data, not a duplicate; both rows are
+    /// returned and any display-level dedup is a later UI concern.
+    pub async fn anchored_allegation_evidence(
+        &self,
+        allegation_id: &str,
+        polarity: EvidencePolarity,
+    ) -> Result<AnchoredAllegationEvidenceResponse, ScenarioRepositoryError> {
+        let cypher = anchored_allegation_evidence_cypher(polarity);
+        let mut result = self
+            .graph
+            .execute(query(&cypher).param("allegation_id", allegation_id))
+            .await?;
+
+        let mut facts = Vec::new();
+        while let Some(row) = result.next().await? {
+            facts.push(map_anchored_evidence_fact(&row)?);
+        }
+
+        tracing::debug!(
+            allegation_id,
+            ?polarity,
+            count = facts.len(),
+            "scenario anchored_allegation_evidence"
+        );
+        Ok(AnchoredAllegationEvidenceResponse {
+            allegation_id: allegation_id.to_string(),
+            facts,
+        })
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -279,6 +375,46 @@ fn related_allegations_cypher() -> String {
     )
 }
 
+/// Build the allegation-anchored evidence query for a given polarity.
+///
+/// The `type(r) IN [...]` list is assembled from the polarity's `schema::`
+/// constants. `type(r)` evaluates to a string, so each rel name is emitted as a
+/// quoted Cypher string literal. These names are fixed (the closed
+/// `EvidencePolarity` enum → `schema::` constants), NOT user input — so building
+/// the in-list this way is safe; the only varying input, the allegation id,
+/// stays the bound `$allegation_id` parameter.
+///
+/// The graph pattern below is the shape verified live against DEV on 2026-06-27
+/// (the 0.3c shape-verification probes) — directions, labels, and the two
+/// `OPTIONAL MATCH` hops are not to be altered, only the polarity list injected.
+fn anchored_allegation_evidence_cypher(polarity: EvidencePolarity) -> String {
+    let rel_list = polarity
+        .rel_types()
+        .iter()
+        .map(|t| format!("'{t}'"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "MATCH (e:Evidence)-[r]->(a:Allegation {{id: $allegation_id}})
+         WHERE type(r) IN [{rel_list}]
+         OPTIONAL MATCH (e)-[:{contained_in}]->(doc:Document)
+         OPTIONAL MATCH (e)-[:{stated_by}]->(spk)
+         RETURN e.id AS evidence_id,
+                type(r) AS polarity,
+                a.id AS allegation_id,
+                a.paragraph_number AS paragraph_number,
+                e.verbatim_quote AS verbatim_quote,
+                e.page_number AS page_number,
+                doc.title AS document,
+                CASE WHEN spk:Person OR spk:Organization
+                     THEN spk.name ELSE null END AS stated_by
+         ORDER BY e.id",
+        rel_list = rel_list,
+        contained_in = schema::CONTAINED_IN,
+        stated_by = schema::STATED_BY,
+    )
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Row → DTO mappers
 // ─────────────────────────────────────────────────────────────────────────────
@@ -329,6 +465,27 @@ fn map_related_allegation(row: &Row) -> Result<ScenarioRelatedAllegation, Scenar
         summary: decode_opt_str(row, "summary")?,
         title: decode_opt_str(row, "title")?,
         paragraph_number: decode_opt_str(row, "paragraph_number")?,
+    })
+}
+
+/// Map one allegation-anchored evidence row.
+///
+/// Domain note: `polarity` (the edge's `type(r)`) is required — an edge always
+/// has a type — alongside `evidence_id` and `allegation_id`. The descriptive
+/// columns (`paragraph_number`, `verbatim_quote`, `page_number`, `document`,
+/// `stated_by`) are optional: a node or join may legitimately omit them, and
+/// per the tightened decode discipline an absent/null value degrades to `None`
+/// while a wrong-type value surfaces as a named `Decode` error.
+fn map_anchored_evidence_fact(row: &Row) -> Result<AnchoredEvidenceFact, ScenarioRepositoryError> {
+    Ok(AnchoredEvidenceFact {
+        evidence_id: decode_required_str(row, "evidence_id")?,
+        polarity: decode_required_str(row, "polarity")?,
+        allegation_id: decode_required_str(row, "allegation_id")?,
+        paragraph_number: decode_opt_str(row, "paragraph_number")?,
+        verbatim_quote: decode_opt_str(row, "verbatim_quote")?,
+        page_number: decode_opt_str(row, "page_number")?,
+        document: decode_opt_str(row, "document")?,
+        stated_by: decode_opt_str(row, "stated_by")?,
     })
 }
 
@@ -494,5 +651,64 @@ mod tests {
         assert!(related_allegations_cypher().contains("$anchor_id"));
         // Relationship names come from schema:: constants, not re-spelled.
         assert!(related_allegations_cypher().contains(schema::CORROBORATES));
+    }
+
+    // ── Task 0.3c — polarity → rel-type mapping (pure) ──────────────────────
+
+    #[test]
+    fn polarity_rebutting_selects_only_rebuts() {
+        assert_eq!(EvidencePolarity::Rebutting.rel_types(), &[schema::REBUTS]);
+    }
+
+    #[test]
+    fn polarity_corroborating_selects_only_corroborates() {
+        assert_eq!(
+            EvidencePolarity::Corroborating.rel_types(),
+            &[schema::CORROBORATES]
+        );
+    }
+
+    #[test]
+    fn polarity_both_selects_rebuts_and_corroborates() {
+        assert_eq!(
+            EvidencePolarity::Both.rel_types(),
+            &[schema::REBUTS, schema::CORROBORATES]
+        );
+    }
+
+    #[test]
+    fn anchored_cypher_binds_param_and_carries_no_case_identity() {
+        // The allegation id is a bind, never interpolated; no party name leaked.
+        for polarity in [
+            EvidencePolarity::Rebutting,
+            EvidencePolarity::Corroborating,
+            EvidencePolarity::Both,
+        ] {
+            let cypher = anchored_allegation_evidence_cypher(polarity);
+            assert!(cypher.contains("$allegation_id"));
+            assert!(!cypher.to_lowercase().contains("phillips"));
+            assert!(!cypher.contains("doc-awad"));
+            // The verified shape must NOT depend on an edge property.
+            assert!(!cypher.contains("r.topic"));
+        }
+    }
+
+    #[test]
+    fn anchored_cypher_injects_polarity_rel_types_as_quoted_literals() {
+        // Each polarity emits exactly its schema:: rel names, quoted, in the
+        // `type(r) IN [...]` list — and only those.
+        let rebut = anchored_allegation_evidence_cypher(EvidencePolarity::Rebutting);
+        assert!(rebut.contains(&format!("type(r) IN ['{}']", schema::REBUTS)));
+        assert!(!rebut.contains(schema::CORROBORATES));
+
+        let corrob = anchored_allegation_evidence_cypher(EvidencePolarity::Corroborating);
+        assert!(corrob.contains(&format!("type(r) IN ['{}']", schema::CORROBORATES)));
+
+        let both = anchored_allegation_evidence_cypher(EvidencePolarity::Both);
+        assert!(both.contains(&format!(
+            "type(r) IN ['{}', '{}']",
+            schema::REBUTS,
+            schema::CORROBORATES
+        )));
     }
 }
