@@ -60,12 +60,6 @@ document_types:
     description: "Court opinion, order, or ruling"
     sort_order: 5
 
-  - name: motion
-    display_name: "Motion"
-    profile_file: motion.yaml
-    description: "Motion filed with the court (procedural request)"
-    sort_order: 6
-
   - name: default
     display_name: "Other / Unknown"
     profile_file: default.yaml
