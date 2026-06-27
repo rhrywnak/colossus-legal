@@ -1,25 +1,36 @@
-# court_ruling_v2.yaml
-# Processing profile for court rulings, opinions, orders, and judgments.
-# Uses structured chunking with section_heading strategy because court
-# rulings use uppercase section headings (LEGAL ANALYSIS, FINDINGS OF FACT,
-# ORDER, OPINION AND ORDER, etc.).
+# Processing profile for the evidence-anchoring pipeline — Court Ruling (v5.2)
+#
+# Version: 5.2   Date: 2026-06-27 (task 3.4 build)
+#
+# Court opinions, orders, and judgments. Each discrete court determination is a
+# sworn-authority Evidence node; the court is the speaker (STATED_BY judge).
+# Findings/conclusions/orders anchor to complaint Allegations (CORROBORATES if
+# they confirm, REBUTS — the defense axis — if they counter). Recitations of a
+# party's position are tagged party_recitation at pass 1 and produce NO edge at
+# pass 2.
+#
+# v5.2: schema, pass1, and pass2 templates all at v5.2. Cross-document context
+# required for CORROBORATES / REBUTS relationships (the complaint Allegation
+# nodes). Structured chunking with section_heading strategy because rulings use
+# uppercase section headings (LEGAL ANALYSIS, FACTOR 1, II. ANALYSIS, ORDER).
 
 name: court_ruling
-display_name: Court Ruling
+display_name: "Court Ruling (v5.2)"
 document_type: court_ruling
 description: >
-  Court ruling, opinion, order, or judgment issued by a judge.
-  Structured chunking splits at uppercase section headings to maintain
-  legal analysis coherence while keeping chunks focused for extraction quality.
+  Court ruling, opinion, order, or judgment issued by a judge —
+  evidence-anchoring pipeline. Each court determination becomes an Evidence
+  entity; findings anchor to complaint Allegations on the defense axis.
 
-schema_file: court_ruling_v4.yaml
+schema_file: court_ruling_schema_v5_2.yaml
 
-template_file: pass1_court_ruling_v4.md
+template_file: court_ruling_pass1_v5_2.md
 global_rules_file: global_rules_v4.md
-pass2_template_file: pass2_court_ruling_v4.md
+pass2_template_file: court_ruling_pass2_v5_2.md
 system_prompt_file: legal_extraction_system.md
 
-extraction_model: claude-sonnet-4-6
+extraction_model: claude-opus-4-6
+pass2_extraction_model: claude-opus-4-6
 
 chunking_mode: structured
 chunk_size: 8000
@@ -37,5 +48,12 @@ chunking_config:
   mode: structured
   strategy: section_heading
   units_per_chunk: 5
+  # unit_overlap: 0 mirrors the proven prior court_ruling chunking. A "section"
+  # is a self-contained unit of legal analysis (e.g. one MRPC 1.5 factor), so a
+  # finding does not straddle a heading boundary the way a Q&A might; pass-1
+  # captures each determination within its own section. (Contrast discovery's
+  # qa_pair overlap:1, where atomic Q&A units benefit from a 1-unit carry.)
   unit_overlap: 0
   request_timeout_secs: 1800
+
+pipeline_type: evidence_anchoring

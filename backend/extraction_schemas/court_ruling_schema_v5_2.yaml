@@ -1,0 +1,199 @@
+# Extraction schema for court rulings — v5.2 (evidence-anchoring pipeline)
+#
+# Date: 2026-06-27 (task 3.4 build)
+#
+# Purpose: Extract the court's own adjudicated determinations — findings of
+# fact, conclusions of law, and orders — from a court opinion, order, or
+# judgment, and anchor them to the case backbone produced by the complaint
+# case-structuring pipeline. Court rulings are the MOST authoritative evidence
+# class in the case: they are adjudicated findings, not party advocacy.
+#
+# THE CENTRAL DESIGN REQUIREMENT — findings vs. recitations:
+#   A ruling contains two kinds of statements that look similar but are
+#   evidentiarily opposite:
+#     1. FINDINGS / CONCLUSIONS / ORDERS — the court's OWN determinations.
+#        These are the adverse anchors the defense axis hangs off. EXTRACT and
+#        (in pass 2) anchor them.
+#     2. RECITATIONS — the court restating a party's position WITHOUT adopting
+#        it ("CFS maintained that…", "Awad contends that…"). A recitation is
+#        NOT a court finding. Treating one as a finding would FABRICATE an
+#        adverse determination the court never made.
+#   This schema gives recitations their own `statement_type` value
+#   (`party_recitation`). Pass 1 TAGS them (they remain inspectable Evidence
+#   nodes); pass 2 GATES them (they NEVER produce a finding-edge). This mirrors
+#   how the discovery schema preserves evasive/objection answers as
+#   Evidence-without-CORROBORATES rather than dropping them — only genuine
+#   court determinations make adverse-axis edges, exactly as only genuine
+#   concessions make CORROBORATES edges in discovery.
+#
+# v5.2 alignment with discovery_response_schema_v5_1.yaml:
+#   - Same v5.1 entity contract: Party + Evidence, verbatim_quote a top-level
+#     entity field (NOT a schema property), relationship_properties for
+#     provenance, completeness_rules.
+#   - Cross-document relationship semantics (CORROBORATES, CONTRADICTS, REBUTS)
+#     documented in relationship_types for LLM guidance; valid_patterns
+#     restricted to LOCAL entity types only per the schema-parser constraint.
+#   - REBUTS is present (it was absent in court_ruling_v4): a court finding that
+#     COUNTERS a complaint Allegation is the defense-axis primary edge.
+#
+# Property names match PROD Neo4j and existing pipeline code per memory rule
+# #14. verbatim_quote remains a top-level entity field, NOT a schema property.
+
+# NOTE: pipeline_type (evidence_anchoring) is declared in the PROFILE
+# (court_ruling.yaml), not here. The extraction-schema loader
+# (colossus_extract::ExtractionSchema) deserializes the canonical key set only
+# — document_type / version / description / entity_types / relationship_types /
+# relationship_properties / valid_patterns / extraction_rules /
+# completeness_rules — and no shipped schema (discovery/complaint/affidavit)
+# carries a top-level pipeline_type key. Adding one risks a deny_unknown_fields
+# load failure (CLAUDE.md §21 disk-consistency test). It lives in the profile,
+# which is its real home.
+document_type: court_ruling
+version: "5.2"
+description: "Court ruling — opinion, order, or judgment issued by a judge. Each discrete court determination is an Evidence entity; the court is the speaker (STATED_BY judge). Recitations of a party's position are tagged and never anchored. Evidence-anchoring pipeline."
+
+entity_types:
+  - name: Party
+    required: true
+    min_count: 2
+    grounding_mode: name_match
+    category: reference
+    description: "A person or organization named in the ruling. Includes the issuing judge/court, every named party (appellant, appellee, personal representative, heirs), and every attorney, witness, or third party referenced."
+    properties:
+      - name: party_name
+        type: string
+        required: true
+        description: "Full name as it appears in the document"
+      - name: role
+        type: string
+        required: true
+        description: "judge, plaintiff, defendant, appellant, appellee, petitioner, respondent, attorney, witness, personal_representative, fiduciary, conservator, guardian_ad_litem, interested_party, decedent, third_party"
+      - name: party_type
+        type: string
+        required: true
+        description: "person or organization"
+      - name: aliases
+        type: string
+        description: "Other names or references used for this party, comma-separated"
+
+  - name: Evidence
+    required: true
+    min_count: 1
+    grounding_mode: verbatim
+    category: evidence
+    description: "One discrete court statement — a finding of fact, a conclusion of law, an order, OR a recitation of a party's position. The verbatim_quote is the exact text of the court's statement. Each distinct determination is a separate Evidence entity, analogous to one-Evidence-per-Q&A in discovery. Recitations ARE extracted (tagged party_recitation) so they remain inspectable, but pass 2 creates no edge from them."
+    properties:
+      - name: title
+        type: string
+        required: true
+        description: "Short descriptive title summarizing what this statement determines or recites, e.g. 'Court finds Marie's real objection was self-interest' — NOT just a page or section label."
+      - name: summary
+        type: string
+        required: true
+        description: "One-sentence summary of the finding, conclusion, order, or recited position."
+      - name: section
+        type: string
+        description: "The ruling section heading this statement appears under, if any, e.g. 'LEGAL ANALYSIS', 'FACTOR 1', 'II. ANALYSIS', 'ORDER'. Rulings use uppercase section headings; this aids the human reviewer."
+      - name: page_number
+        type: integer
+        required: true
+        description: "PDF page number where this statement appears"
+      - name: page_note
+        type: string
+        description: "If the statement spans multiple pages, note the range, e.g. 'pages 4-5'"
+      - name: kind
+        type: string
+        required: true
+        description: "Always 'documentary' for court rulings (the court's written adjudication)."
+      - name: evidence_strength
+        type: string
+        required: true
+        description: "court_finding (adjudicated finding of fact — the highest-authority value, outranking a sworn party admission), court_legal_conclusion (a holding / conclusion of law), court_order (an operative directive), recited_party_position (a party_recitation the court did NOT adopt — lowest authority, produces no finding-edge)."
+      - name: statement_type
+        type: string
+        required: true
+        description: "court_finding (the court's own adjudicated determination of fact), legal_conclusion (the court's conclusion of law / holding, e.g. 'We affirm', 'did not abuse its discretion'), court_order (operative directive, e.g. 'it is ordered that…'), party_recitation (the court RESTATING a party's position without adopting it — 'CFS maintained that…', 'Awad contends that…'; this is the TAG pass 2 gates on; a party_recitation NEVER produces a finding-edge)."
+      - name: significance
+        type: string
+        required: true
+        description: "Why this statement matters for trial preparation. For a finding, what adverse fact does it establish that Marie must rebut, or what allegation does it confirm? For a recitation, whose position is being restated and why it is NOT a court finding."
+      - name: weight
+        type: integer
+        description: "1-10 scale of evidentiary weight (10 = most authoritative/damaging). Adjudicated findings are typically 8-10. Recitations carry low standalone weight (1-3) because the court did not adopt them."
+      - name: pattern_tags
+        type: string
+        description: "Comma-separated tags for defense-axis / Count-IV analysis: judicial_bias, selective_enforcement, disparagement, unsupported_finding, procedural_irregularity, disproportionate_penalty"
+      - name: legal_basis
+        type: string
+        description: "Statute, court rule, or case law the court cites as the basis for this finding, conclusion, or order, e.g. 'MCL 700.3720', 'MCR 2.114', 'MRPC 1.5'."
+      - name: event_date
+        type: string
+        description: "Date referenced in the statement if applicable"
+
+relationship_types:
+  - name: STATED_BY
+    description: "Evidence stated by Party. For court rulings the STATED_BY party is ALWAYS the issuing judge/court (role=judge), even when the finding discusses other parties — the court is the speaker of its own findings. This mirrors discovery's mechanical respondent-STATED_BY: exactly one STATED_BY per Evidence, pointing at the judge."
+  - name: ABOUT
+    description: "Evidence is about (concerning) this Party. A single finding may be ABOUT multiple parties — create one ABOUT relationship for each party the statement concerns. A finding characterizing one party's conduct is ABOUT that party; an order directing payment from a party's assets is ABOUT that party."
+  - name: CORROBORATES
+    description: "This court finding independently CONFIRMS a factual claim from the complaint (an Allegation node). The corroboration test: the court's own determination establishes a fact that an Allegation asserts. Only court_finding / legal_conclusion / court_order may corroborate — a party_recitation never can (the court did not adopt the recited fact). A court finding is an ADJUDICATED determination, the most authoritative evidence class. NOTE: CORROBORATES targets Allegation nodes from the complaint schema — these are cross-document relationships. The LLM should identify which complaint allegations each finding corroborates using the previously-extracted Allegation entities supplied in the entity list. See court_ruling_pass2_v5_2.md Stage 2 for the decision procedure. Deliberately NOT listed in valid_patterns (Allegation is a foreign entity type)."
+  - name: CONTRADICTS
+    description: "This court statement conflicts with a statement by the SAME court in a DIFFERENT ruling (cross-document, same-speaker impeachment) — the primary target is a foreign Evidence node. CONTRADICTS may ALSO target a complaint Allegation in the narrow case where the contradicted claim is itself anchored as an Allegation AND the same-speaker semantics still apply. This is rare across rulings; REBUTS (a court finding that counters an Allegation) is the dominant defense-axis edge, not CONTRADICTS. NOTE: CONTRADICTS targets Evidence (or, in the anchored-claim case, Allegation) nodes from other documents — cross-document relationships documented here for LLM guidance and deliberately NOT listed in valid_patterns."
+  - name: REBUTS
+    description: "This court finding directly COUNTERS or DEFEATS the fact a complaint Allegation asserts — the defense-axis PRIMARY edge (absent in the v4 court_ruling schema; added here). The rebuttal test: does the court's own determination oppose, defeat, or undermine the fact an Allegation asserts? Example: a finding that Marie's objections were frivolous, or that 'her real objection was that her name was not on this account', defeats Marie's allegation that the defendants acted wrongfully — these become the adverse anchors she must rebut on cross-examination. Distinguish from CORROBORATES, which also targets an Allegation: CORROBORATES means the finding CONFIRMS the allegation's fact; REBUTS means it COUNTERS it. The same finding is never both for the same fact. A party_recitation never REBUTS — only the court's own determination can. NOTE: REBUTS targets Allegation (or foreign Evidence/Assertion) nodes from other documents — cross-document relationships documented here for LLM guidance and deliberately NOT listed in valid_patterns."
+  - name: CHARACTERIZES
+    description: "Evidence characterizes a Party: a court FINDING that labels or evaluates a party's conduct, character, competence, or motive in evaluative terms (e.g. calling Marie's argument 'disingenuous', her objections 'frivolous', describing her 'assault on everyone connected with the probate action', or finding she 'wanted her sisters punished'). Create one CHARACTERIZES relationship from the Evidence to each Party it characterizes. This makes the court's ADOPTED characterizations graph-traversable for the Count-IV accusation-pattern analysis, complementing the disparagement pattern_tag (tag = filter, edge = traversal). CRITICAL: only the COURT'S OWN characterization counts — a party_recitation that contains a characterization is the PARTY characterizing, not the court, and is gated out at pass-2 Stage 1 (no CHARACTERIZES edge). A finding may carry BOTH a CHARACTERIZES (to the party it labels) and a REBUTS/CORROBORATES (to an allegation it counters/confirms) — they are not mutually exclusive. Target is a Party entity in the same document. The pass-2 template (court_ruling_pass2_v5_2.md §6) instructs the LLM to emit these; this entry registers the type the template produces. Mirrors discovery_response_schema_v5_1.yaml's CHARACTERIZES — like it, a local Party-target edge that is deliberately NOT listed in valid_patterns (discovery omits it there too; valid_patterns carries only the mandatory structural STATED_BY/ABOUT patterns)."
+
+# Required provenance properties applied to every relationship written to
+# Neo4j (per LEGAL_DATA_MODEL_v5_1.md §5.4). Populated by the ingest stage
+# at write time, not by the LLM extractor.
+relationship_properties:
+  - name: source_document_id
+    type: string
+    required: true
+    description: "ID of the Document whose extraction produced this relationship"
+  - name: extraction_run_id
+    type: string
+    required: true
+    description: "Identifier of the specific pipeline run that created this relationship (format: 'run-{i32}' for pipeline-extracted, 'manual-{user_id}-{ts}' for hand-authored, 'repair-{...}' for repair runs)"
+  - name: created_at
+    type: timestamp
+    required: true
+    description: "When the relationship was first created (Cypher datetime() at write time; preserved on subsequent re-ingests via coalesce)"
+
+# valid_patterns can ONLY reference entity types defined in THIS schema.
+# Cross-document relationships (CORROBORATES / REBUTS / CONTRADICTS → Allegation
+# from the complaint) are described in relationship_types above for LLM guidance
+# but are NOT listed here — the schema parser would reject references to entity
+# types not defined locally, and an Allegation endpoint here is fatal at schema
+# load. The edges persist via the context-whitelist + prompt-prose +
+# id-resolution mechanism (identical to discovery), NOT via valid_patterns.
+valid_patterns:
+  - from: Evidence
+    relationship: STATED_BY
+    to: Party
+  - from: Evidence
+    relationship: ABOUT
+    to: Party
+
+extraction_rules:
+  - "Extract EVERY discrete court statement as a separate Evidence entity — each finding of fact, conclusion of law, order, AND each recitation of a party's position"
+  - "The verbatim_quote field is the exact text of the court's statement — copy it character for character"
+  - "Classify every statement: court_finding, legal_conclusion, court_order, or party_recitation"
+  - "ATTRIBUTION VOICE is the test: if the subject is a PARTY and the verb is a speech-act of assertion ('CFS maintained', 'Awad contends', 'According to Awad'), it is a party_recitation — the court is restating, not finding"
+  - "If the voice is the court's OWN determination with no party-attribution ('the Court finds', 'It is inequitable', 'We affirm', declarative court voice), it is court_finding / legal_conclusion / court_order"
+  - "Do NOT drop recitations — extract them as party_recitation so they remain inspectable; pass 2 will create no edge from them"
+  - "When a recitation is nested inside a finding ('While claiming that X, the court finds Y'), extract the finding and set verbatim_quote to the court's DETERMINATIVE clause only — do not let the nested recited claim contaminate the finding"
+  - "When the court quotes and adopts/affirms a lower court (e.g. the COA quoting the probate judge's bench sanction), the attribution is to a COURT, not a party — classify court_finding / legal_conclusion, NOT party_recitation"
+  - "Extract ALL parties including the issuing judge (role=judge), every named party, attorneys, and referenced third parties"
+  - "Note the statute, court rule, or case law cited as legal_basis when present"
+
+completeness_rules:
+  - type: entity_count
+    entity: Party
+    min: 2
+    message: "Expected at least the issuing judge + one named party"
+  - type: entity_count
+    entity: Evidence
+    min: 1
+    message: "A ruling with zero extracted determinations suggests extraction failure"
