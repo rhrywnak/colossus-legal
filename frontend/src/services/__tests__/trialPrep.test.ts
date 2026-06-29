@@ -10,8 +10,13 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { TrialPrepDashboard } from "../../pages/trialPrepData";
-import { getTrialPrepDashboard } from "../trialPrep";
+import type {
+  ScenarioDetail,
+  TrialPrepDashboard,
+} from "../../pages/trialPrepData";
+import { getScenarioDetailLive, getTrialPrepDashboard } from "../trialPrep";
+
+const SLUG = "awad_v_catholic_family_service";
 
 // A minimal-but-valid payload: the two load-bearing fields the client validates
 // (`metrics` present, `scenarios` an array) plus the one live card.
@@ -92,6 +97,102 @@ describe("getTrialPrepDashboard", () => {
 
     await expect(getTrialPrepDashboard()).rejects.toThrow(
       /missing "scenarios"\/"metrics"/,
+    );
+  });
+});
+
+// A minimal-but-valid detail payload: the two load-bearing fields the client
+// validates (`attack` string, `timeline` array) plus one evidence turn.
+const validDetail: ScenarioDetail = {
+  id: "00000000-0000-0000-0000-000000000000",
+  attack: "Marie is obstructive and uncooperative",
+  status: "draft",
+  pattern_summary: null,
+  timeline: [
+    {
+      kind: "evidence",
+      grounded: true,
+      speaker: "George Phillips",
+      date: null,
+      text: "the quote",
+      relationship_type: "rebuts",
+      source_document: "doc-x",
+      page_number: 54,
+      paragraph: "¶54",
+      repeated_after_rebuttal: false,
+    },
+  ],
+  responses: [],
+  notes: null,
+};
+
+describe("getScenarioDetailLive", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("returns the typed detail when the response is valid", async () => {
+    // @ts-ignore
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => validDetail,
+    });
+
+    await expect(getScenarioDetailLive(SLUG, "abc")).resolves.toEqual(
+      validDetail,
+    );
+  });
+
+  it("returns null on a 404 (deleted/unknown scenario)", async () => {
+    // @ts-ignore
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      json: async () => ({ error: "scenario not found" }),
+    });
+
+    await expect(getScenarioDetailLive(SLUG, "abc")).resolves.toBeNull();
+  });
+
+  it("throws with the status on a non-404 non-OK response", async () => {
+    // @ts-ignore
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      json: async () => {
+        throw new Error("should not be called on non-OK");
+      },
+    });
+
+    await expect(getScenarioDetailLive(SLUG, "abc")).rejects.toThrow(/HTTP 500/);
+  });
+
+  it("throws when the body is not valid JSON", async () => {
+    // @ts-ignore
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => {
+        throw new Error("Unexpected token < in JSON");
+      },
+    });
+
+    await expect(getScenarioDetailLive(SLUG, "abc")).rejects.toThrow(
+      /was not valid JSON/,
+    );
+  });
+
+  it("throws on a contract mismatch (missing attack/timeline)", async () => {
+    // @ts-ignore — valid JSON, wrong shape
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ id: "x" }),
+    });
+
+    await expect(getScenarioDetailLive(SLUG, "abc")).rejects.toThrow(
+      /missing "attack"\/"timeline"/,
     );
   });
 });

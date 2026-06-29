@@ -16,7 +16,7 @@
 // share one shape (the backend serde DTO mirrors it field-for-field).
 // =============================================================================
 
-import type { TrialPrepDashboard } from "../pages/trialPrepData";
+import type { ScenarioDetail, TrialPrepDashboard } from "../pages/trialPrepData";
 import { API_BASE_URL } from "./api";
 import { authFetch } from "./auth";
 import { DEFAULT_CASE_SLUG } from "./caseHeader";
@@ -69,4 +69,56 @@ export async function getTrialPrepDashboard(
   }
 
   return parsed as TrialPrepDashboard;
+}
+
+/**
+ * Fetch one scenario's detail via
+ * `GET /api/cases/:slug/trial-prep/scenarios/:scenarioId`.
+ *
+ * Returns `null` on a 404 (a deleted/unknown scenario) so the page shows its
+ * "Scenario not found" empty state rather than an error banner. Any OTHER
+ * failure throws a contextual error (Standing Rule 1), mirroring
+ * {@link getTrialPrepDashboard}.
+ *
+ * @returns the typed detail payload, or `null` when no such scenario exists
+ * @throws Error on a non-404 non-2xx, an unparseable body, or a body missing
+ *   `attack`/`timeline`
+ */
+export async function getScenarioDetailLive(
+  slug: string,
+  scenarioId: string,
+): Promise<ScenarioDetail | null> {
+  const response = await authFetch(
+    `${API_BASE_URL}/api/cases/${encodeURIComponent(slug)}/trial-prep/scenarios/${encodeURIComponent(scenarioId)}`,
+  );
+
+  // A real 404 (deleted/unknown id) is not an error — it's the empty state.
+  if (response.status === 404) {
+    return null;
+  }
+  if (!response.ok) {
+    throw new Error(
+      `Failed to load scenario "${scenarioId}" for "${slug}" (HTTP ${response.status}). Try reloading the page.`,
+    );
+  }
+
+  let data: unknown;
+  try {
+    data = await response.json();
+  } catch {
+    throw new Error(
+      `Scenario detail response for "${scenarioId}" was not valid JSON (the backend may be down).`,
+    );
+  }
+
+  // Validate the fields the page renders, so a contract drift throws here (with
+  // context) rather than as an `undefined` deep in the timeline render.
+  const parsed = data as Partial<ScenarioDetail>;
+  if (typeof parsed.attack !== "string" || !Array.isArray(parsed.timeline)) {
+    throw new Error(
+      `Scenario detail response for "${scenarioId}" is missing "attack"/"timeline" — ` +
+        `backend/frontend contract mismatch. If this persists, report it to the site administrator.`,
+    );
+  }
+  return parsed as ScenarioDetail;
 }
