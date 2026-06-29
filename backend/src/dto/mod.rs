@@ -22,6 +22,7 @@ pub mod proof_review;
 pub mod query;
 pub mod scenario;
 pub mod schema;
+pub mod trial_prep;
 
 // Re-export DTOs / request types from submodules
 pub use allegation::{AllegationDto, AllegationSummary, AllegationsResponse};
@@ -53,3 +54,6 @@ pub use scenario::{
     ScenarioRelatedAllegation, ScenarioRelatedAllegationsResponse,
 };
 pub use schema::SchemaResponse;
+pub use trial_prep::{
+    ScenarioStatus, ScenarioSummary, TrialPrepAlert, TrialPrepDashboard, TrialPrepMetrics,
+};

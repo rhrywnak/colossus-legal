@@ -52,6 +52,7 @@ pub mod qa;
 pub mod queries;
 pub mod schema;
 pub mod search;
+pub mod trial_prep;
 
 /// API router — all routes are relative (no `/api/` prefix).
 ///
@@ -119,6 +120,10 @@ fn case_routes() -> Router<AppState> {
         .route(
             "/cases/:slug/proof-review",
             get(proof_review::get_proof_review),
+        )
+        .route(
+            "/cases/:slug/trial-prep/dashboard",
+            get(trial_prep::get_trial_prep_dashboard),
         )
 }
 
@@ -275,8 +280,7 @@ async fn me_with_tracking(user: AuthUser, State(state): State<AppState>) -> Json
     tokio::spawn(async move {
         known_users::upsert_known_user(&pool, &username, &display_name, &email)
             .await
-            // best-effort: passive user-tracking upsert in a detached task; a
-            // DB failure must never fail or delay the /api/me response.
+            // best-effort: passive user-tracking upsert in a detached task; a DB failure must never fail or delay the /api/me response.
             .ok();
     });
 
