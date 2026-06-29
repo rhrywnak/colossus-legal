@@ -110,13 +110,11 @@ export interface StatusMeta {
  */
 export function statusMeta(status: ScenarioStatus): StatusMeta {
   switch (status) {
+    case "draft":
+      return { label: "Draft", color: "var(--text-muted)" };
+    case "needs_evidence":
+      return { label: "Needs evidence", color: "var(--state-warning-strong)" };
     case "ready":
       return { label: "Ready", color: "var(--state-success-strong)" };
-    case "review":
-      return { label: "In review", color: "var(--accent-primary)" };
-    case "drafted":
-      return { label: "Drafted", color: "var(--text-muted)" };
-    case "needs_response":
-      return { label: "Needs response", color: "var(--state-warning-strong)" };
   }
 }

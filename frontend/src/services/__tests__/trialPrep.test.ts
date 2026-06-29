@@ -29,7 +29,7 @@ const validResponse: TrialPrepDashboard = {
     {
       id: "marie-obstructive",
       attack: "Marie is obstructive and uncooperative",
-      status: "review",
+      status: "draft",
       instance_count: 4,
       response_count: 1,
       speakers: ["CFS", "George Phillips"],
