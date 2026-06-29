@@ -41,7 +41,7 @@ const makeSummary = (
 ): ScenarioSummary => ({
   id: "s1",
   attack: "An attack",
-  status: "review",
+  status: "draft",
   instance_count: 4,
   response_count: 2,
   speakers: ["George Phillips", "CFS"],
@@ -168,26 +168,22 @@ describe("statusMeta", () => {
   it("maps each status to its exact label and token color", () => {
     // Lock the full contract per status so a label typo or a token rename is
     // caught (the dashboard dot and the detail header both read these).
-    expect(statusMeta("drafted")).toEqual({
-      label: "Drafted",
+    expect(statusMeta("draft")).toEqual({
+      label: "Draft",
       color: "var(--text-muted)",
     });
-    expect(statusMeta("review")).toEqual({
-      label: "In review",
-      color: "var(--accent-primary)",
+    expect(statusMeta("needs_evidence")).toEqual({
+      label: "Needs evidence",
+      color: "var(--state-warning-strong)",
     });
     expect(statusMeta("ready")).toEqual({
       label: "Ready",
       color: "var(--state-success-strong)",
     });
-    expect(statusMeta("needs_response")).toEqual({
-      label: "Needs response",
-      color: "var(--state-warning-strong)",
-    });
   });
 
   it("returns a design-token color for every status", () => {
-    const statuses: ScenarioStatus[] = ["drafted", "review", "ready", "needs_response"];
+    const statuses: ScenarioStatus[] = ["draft", "needs_evidence", "ready"];
     for (const s of statuses) {
       expect(statusMeta(s).color).toMatch(/^var\(--/);
     }

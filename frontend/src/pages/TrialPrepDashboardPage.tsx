@@ -21,6 +21,7 @@ import {
   MetricsBand,
   ScenarioCard,
 } from "../components/TrialPrepViews";
+import ScenarioCreateForm from "../components/ScenarioCreateForm";
 import { DEFAULT_CASE_SLUG } from "../services/caseHeader";
 import { getTrialPrepDashboard } from "../services/trialPrep";
 import type { TrialPrepDashboard } from "./trialPrepData";
@@ -57,6 +58,25 @@ const errorStyle: React.CSSProperties = {
   borderRadius: "6px",
   color: "var(--state-danger-strong)",
 };
+const headerRowStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "flex-start",
+  justifyContent: "space-between",
+  gap: "1rem",
+  marginBottom: "1.25rem",
+};
+const newScenarioButtonStyle: React.CSSProperties = {
+  flexShrink: 0,
+  padding: "8px 16px",
+  fontFamily: "var(--font-sans)",
+  fontSize: "14px",
+  fontWeight: 600,
+  color: "var(--accent-primary)",
+  backgroundColor: "var(--accent-bg-soft)",
+  border: "1px solid var(--accent-primary)",
+  borderRadius: "6px",
+  cursor: "pointer",
+};
 
 /**
  * Gating read: the dashboard payload. A failure here blanks the page with a
@@ -64,7 +84,10 @@ const errorStyle: React.CSSProperties = {
  * gating fetch. The `cancelled` flag stops a navigate-away mid-flight from
  * setting state on an unmounted component.
  */
-function useTrialPrepDashboard(slug: string): {
+function useTrialPrepDashboard(
+  slug: string,
+  refreshKey: number,
+): {
   dashboard: TrialPrepDashboard | null;
   loading: boolean;
   error: string | null;
@@ -95,7 +118,8 @@ function useTrialPrepDashboard(slug: string): {
     return () => {
       cancelled = true;
     };
-  }, [slug]);
+    // `refreshKey` re-runs the fetch after a create so the new card appears.
+  }, [slug, refreshKey]);
 
   return { dashboard, loading, error };
 }
@@ -104,7 +128,11 @@ const TrialPrepDashboardPage: React.FC = () => {
   const { slug: slugParam } = useParams<{ slug: string }>();
   const slug = slugParam ?? DEFAULT_CASE_SLUG;
 
-  const { dashboard, loading, error } = useTrialPrepDashboard(slug);
+  // Bumping `refreshKey` re-runs the gating fetch (e.g. after a create).
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [showForm, setShowForm] = useState(false);
+
+  const { dashboard, loading, error } = useTrialPrepDashboard(slug, refreshKey);
 
   if (loading)
     return <div style={messageStyle}>Loading Trial Prep dashboard…</div>;
@@ -117,15 +145,35 @@ const TrialPrepDashboardPage: React.FC = () => {
   return (
     <div style={containerStyle}>
       <Breadcrumb items={[{ label: "Dashboard", to: "/" }, { label: "Trial Prep" }]} />
-      <div style={{ marginBottom: "1.25rem" }}>
-        <h1 className="count-header" style={{ margin: 0 }}>
-          Trial Prep — War Room
-        </h1>
-        <div style={subtitleStyle}>
-          System-generated cross-examination scenarios — the attacks, their
-          recorded instances, and Marie's rehearsable responses.
+      <div style={headerRowStyle}>
+        <div>
+          <h1 className="count-header" style={{ margin: 0 }}>
+            Trial Prep — War Room
+          </h1>
+          <div style={subtitleStyle}>
+            System-generated cross-examination scenarios — the attacks, their
+            recorded instances, and Marie's rehearsable responses.
+          </div>
         </div>
+        <button
+          type="button"
+          onClick={() => setShowForm((v) => !v)}
+          style={newScenarioButtonStyle}
+        >
+          {showForm ? "Close" : "New scenario"}
+        </button>
       </div>
+
+      {showForm && (
+        <ScenarioCreateForm
+          slug={slug}
+          onCreated={() => {
+            setShowForm(false);
+            setRefreshKey((k) => k + 1);
+          }}
+          onCancel={() => setShowForm(false)}
+        />
+      )}
 
       <MetricsBand metrics={dashboard.metrics} />
 

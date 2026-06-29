@@ -11,7 +11,7 @@
 // ─── Contract types ──────────────────────────────────────────────────────────
 
 /** Scenario lifecycle. Drives the status dot and labels. */
-export type ScenarioStatus = "drafted" | "review" | "ready" | "needs_response";
+export type ScenarioStatus = "draft" | "needs_evidence" | "ready";
 
 /** One dashboard scenario card. */
 export interface ScenarioSummary {

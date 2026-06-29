@@ -35,7 +35,7 @@ const DASHBOARD: TrialPrepDashboard = {
     {
       id: "too-many-attorneys",
       attack: "Marie hired too many attorneys",
-      status: "review",
+      status: "draft",
       instance_count: 4,
       response_count: 2,
       speakers: ["George Phillips", "CFS"],
@@ -53,7 +53,7 @@ const DASHBOARD: TrialPrepDashboard = {
     {
       id: "marie-obstructive",
       attack: "Marie is obstructive and uncooperative",
-      status: "review",
+      status: "draft",
       instance_count: 6,
       response_count: 1,
       speakers: ["CFS", "George Phillips"],
@@ -62,7 +62,7 @@ const DASHBOARD: TrialPrepDashboard = {
     {
       id: "selective-sanctions",
       attack: "Sanctions were never selectively pursued",
-      status: "drafted",
+      status: "draft",
       instance_count: 2,
       response_count: 1,
       speakers: ["CFS"],
@@ -71,7 +71,7 @@ const DASHBOARD: TrialPrepDashboard = {
     {
       id: "bias-who-gained",
       attack: "Bias — who gained from the decisions?",
-      status: "needs_response",
+      status: "needs_evidence",
       instance_count: 1,
       response_count: 0,
       speakers: ["George Phillips"],
@@ -84,7 +84,7 @@ const SCENARIO_DETAILS: Record<string, ScenarioDetail> = {
   "too-many-attorneys": {
     id: "too-many-attorneys",
     attack: "Marie hired too many attorneys",
-    status: "review",
+    status: "draft",
     pattern_summary: null,
     timeline: [
       {
@@ -178,7 +178,7 @@ const SCENARIO_DETAILS: Record<string, ScenarioDetail> = {
   "marie-obstructive": {
     id: "marie-obstructive",
     attack: "Marie is obstructive and uncooperative",
-    status: "review",
+    status: "draft",
     pattern_summary: "repeated 3× after rebuttal",
     timeline: [
       {
@@ -243,7 +243,7 @@ const SCENARIO_DETAILS: Record<string, ScenarioDetail> = {
   "selective-sanctions": {
     id: "selective-sanctions",
     attack: "Sanctions were never selectively pursued",
-    status: "drafted",
+    status: "draft",
     pattern_summary: null,
     timeline: [
       {
@@ -284,7 +284,7 @@ const SCENARIO_DETAILS: Record<string, ScenarioDetail> = {
   "bias-who-gained": {
     id: "bias-who-gained",
     attack: "Bias — who gained from the decisions?",
-    status: "needs_response",
+    status: "needs_evidence",
     pattern_summary: null,
     timeline: [
       {
