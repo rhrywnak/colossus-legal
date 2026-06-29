@@ -1,13 +1,14 @@
 //! `GET /api/cases/:slug/trial-prep/dashboard` — the War Room dashboard payload.
 //!
-//! Thin vertical slice (see CC_WARROOM_WIRING_STEP2_BUILD): the response is a
-//! full, valid `TrialPrepDashboard` in which exactly ONE number is graph-derived
-//! — `marie-obstructive`'s `instance_count` (the ¶54 REBUTS count). Everything
-//! else is the slice baseline produced by [`ScenarioDashboardAssembler`].
+//! The response is a full `TrialPrepDashboard` assembled by
+//! [`ScenarioDashboardAssembler`] from the case's real `scenarios` rows
+//! (Postgres pipeline DB) plus each card's live REBUTS count from the graph.
+//! With no scenarios authored yet the dashboard is honestly empty (no cards,
+//! zeroed metrics, no alerts).
 //!
-//! Struct-repo handler pattern (precedent: `claims.rs`): construct a
-//! `ScenarioRepository` from `state.graph.clone()`, hand it to the assembler,
-//! return JSON. Observability + the bland 500 body mirror `proof_matrix.rs`.
+//! Handler pattern (precedent: `claims.rs`): build the assembler from
+//! `state.graph.clone()` + `state.pipeline_pool.clone()`, call it with the case
+//! slug, return JSON. Observability + the bland 500 body mirror `proof_matrix.rs`.
 
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -60,15 +61,9 @@ impl IntoResponse for TrialPrepEndpointError {
 /// `GET /api/cases/:slug/trial-prep/dashboard`. No auth required, matching the
 /// other case-scoped reads; the user is logged when present.
 ///
-/// ## Why `slug` is accepted but not used to resolve the anchor
-///
-/// The `:slug` is bound for URL consistency with its sibling case routes
-/// (`/cases/:slug/...`); dropping it would make this route an inconsistent
-/// outlier. The slice does not need it to resolve the anchor — the anchor is the
-/// hardcoded ¶54 id inside the assembler's scaffolding block. It is not dead,
-/// though: it is recorded on the span (`fields(slug = …)`) and the access log
-/// line, so the requested case is visible in traces until real slug→scenario
-/// resolution lands.
+/// `slug` selects which case's scenarios to assemble — it is passed to the
+/// assembler, which lists that case's rows from Postgres and computes each card's
+/// live count from the graph.
 #[instrument(skip(state, user), fields(slug = %slug))]
 pub async fn get_trial_prep_dashboard(
     user: Option<AuthUser>,
@@ -79,11 +74,14 @@ pub async fn get_trial_prep_dashboard(
         info!(username = %u.username, "GET /api/cases/{slug}/trial-prep/dashboard");
     }
 
-    // Struct-repo pattern: Graph is Arc-backed, so the clone is cheap.
-    let assembler = ScenarioDashboardAssembler::new(ScenarioRepository::new(state.graph.clone()));
+    // Both handles are cheap clones (Graph and PgPool are each Arc-backed).
+    let assembler = ScenarioDashboardAssembler::new(
+        ScenarioRepository::new(state.graph.clone()),
+        state.pipeline_pool.clone(),
+    );
 
     let dashboard = assembler
-        .assemble()
+        .assemble(&slug)
         .await
         .map_err(internal("assemble trial-prep dashboard"))?;
 

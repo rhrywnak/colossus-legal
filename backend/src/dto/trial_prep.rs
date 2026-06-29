@@ -22,21 +22,25 @@ use serde::{Deserialize, Serialize};
 
 /// Scenario lifecycle — drives the status dot and labels on each card.
 ///
+/// The vocabulary is the real `scenarios` table CHECK set: `draft`,
+/// `needs_evidence`, `ready` (it replaced the old placeholder set
+/// `drafted/review/ready/needs_response` when the dashboard began reading real
+/// scenarios — Chunk 2). This enum is the single source of truth for the
+/// vocabulary: the dashboard assembler parses a DB status string back THROUGH
+/// this enum's `Deserialize` rather than re-spelling the tokens.
+///
 /// ## Rust Learning: `#[serde(rename_all = "snake_case")]` on a unit enum
 ///
 /// Serde serializes a fieldless enum variant as the variant *name* by default,
-/// i.e. `NeedsResponse` → `"NeedsResponse"`. The frontend union is
-/// `"drafted" | "review" | "ready" | "needs_response"` (lowercase, snake_case),
-/// so `rename_all = "snake_case"` rewrites each variant to the wire token the TS
-/// type expects: `NeedsResponse` → `"needs_response"`. Without this attribute the
-/// card's status would never match and the dot would render wrong.
+/// i.e. `NeedsEvidence` → `"NeedsEvidence"`. The wire/DB tokens are snake_case
+/// (`"needs_evidence"`), so `rename_all = "snake_case"` rewrites each variant on
+/// BOTH serialize and deserialize. Without it the status dot would never match.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ScenarioStatus {
-    Drafted,
-    Review,
+    Draft,
+    NeedsEvidence,
     Ready,
-    NeedsResponse,
 }
 
 /// One dashboard scenario card — mirrors `ScenarioSummary` in `trialPrepData.ts`.
@@ -107,21 +111,29 @@ mod tests {
     #[test]
     fn status_serializes_to_contract_tokens() {
         assert_eq!(
-            serde_json::to_value(ScenarioStatus::Drafted).expect("serialize"),
-            json!("drafted")
+            serde_json::to_value(ScenarioStatus::Draft).expect("serialize"),
+            json!("draft")
         );
         assert_eq!(
-            serde_json::to_value(ScenarioStatus::Review).expect("serialize"),
-            json!("review")
+            serde_json::to_value(ScenarioStatus::NeedsEvidence).expect("serialize"),
+            json!("needs_evidence")
         );
         assert_eq!(
             serde_json::to_value(ScenarioStatus::Ready).expect("serialize"),
             json!("ready")
         );
+    }
+
+    /// The same tokens must DESERIALIZE back to the variants (the assembler relies
+    /// on this to parse a DB status string), and an unknown token must error
+    /// rather than silently pick a default.
+    #[test]
+    fn status_deserializes_from_contract_tokens() {
         assert_eq!(
-            serde_json::to_value(ScenarioStatus::NeedsResponse).expect("serialize"),
-            json!("needs_response")
+            serde_json::from_value::<ScenarioStatus>(json!("needs_evidence")).expect("parse"),
+            ScenarioStatus::NeedsEvidence
         );
+        assert!(serde_json::from_value::<ScenarioStatus>(json!("bogus")).is_err());
     }
 
     /// The whole payload must serialize field-for-field to the `trialPrepData.ts`
@@ -147,7 +159,7 @@ mod tests {
                 ScenarioSummary {
                     id: "marie-obstructive".to_string(),
                     attack: "Marie is obstructive".to_string(),
-                    status: ScenarioStatus::Review,
+                    status: ScenarioStatus::NeedsEvidence,
                     instance_count: 4,
                     response_count: 1,
                     speakers: vec!["CFS".to_string()],
@@ -156,7 +168,7 @@ mod tests {
                 ScenarioSummary {
                     id: "selective-sanctions".to_string(),
                     attack: "Selective sanctions".to_string(),
-                    status: ScenarioStatus::Drafted,
+                    status: ScenarioStatus::Draft,
                     instance_count: 2,
                     response_count: 1,
                     speakers: vec!["CFS".to_string()],
@@ -184,7 +196,7 @@ mod tests {
                     {
                         "id": "marie-obstructive",
                         "attack": "Marie is obstructive",
-                        "status": "review",
+                        "status": "needs_evidence",
                         "instance_count": 4,
                         "response_count": 1,
                         "speakers": ["CFS"],
@@ -193,7 +205,7 @@ mod tests {
                     {
                         "id": "selective-sanctions",
                         "attack": "Selective sanctions",
-                        "status": "drafted",
+                        "status": "draft",
                         "instance_count": 2,
                         "response_count": 1,
                         "speakers": ["CFS"],
@@ -214,7 +226,7 @@ mod tests {
         let card = ScenarioSummary {
             id: "selective-sanctions".to_string(),
             attack: "Selective sanctions".to_string(),
-            status: ScenarioStatus::Drafted,
+            status: ScenarioStatus::Draft,
             instance_count: 2,
             response_count: 1,
             speakers: vec!["CFS".to_string()],
