@@ -50,6 +50,7 @@ pub mod proof_matrix;
 pub mod proof_review;
 pub mod qa;
 pub mod queries;
+pub mod scenarios;
 pub mod schema;
 pub mod search;
 pub mod trial_prep;
@@ -124,6 +125,14 @@ fn case_routes() -> Router<AppState> {
         .route(
             "/cases/:slug/trial-prep/dashboard",
             get(trial_prep::get_trial_prep_dashboard),
+        )
+        .route(
+            "/cases/:slug/scenarios",
+            get(scenarios::list_scenarios).post(scenarios::create_scenario),
+        )
+        .route(
+            "/cases/:slug/scenarios/:scenario_id",
+            get(scenarios::get_scenario_by_id),
         )
 }
 

@@ -21,6 +21,7 @@ pub mod proof_matrix;
 pub mod proof_review;
 pub mod query;
 pub mod scenario;
+pub mod scenario_crud;
 pub mod schema;
 pub mod trial_prep;
 
@@ -53,6 +54,7 @@ pub use scenario::{
     ScenarioPage, ScenarioPageParams, ScenarioRebuttalFact, ScenarioRebuttalFactsResponse,
     ScenarioRelatedAllegation, ScenarioRelatedAllegationsResponse,
 };
+pub use scenario_crud::{ScenarioCreateRequest, ScenarioDto};
 pub use schema::SchemaResponse;
 pub use trial_prep::{
     ScenarioStatus, ScenarioSummary, TrialPrepAlert, TrialPrepDashboard, TrialPrepMetrics,
