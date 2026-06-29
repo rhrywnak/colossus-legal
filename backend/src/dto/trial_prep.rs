@@ -100,6 +100,58 @@ pub struct TrialPrepDashboard {
     pub scenarios: Vec<ScenarioSummary>,
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Scenario detail (the per-scenario page payload) — mirrors `ScenarioDetail` /
+// `ExchangeTurn` / `MarieResponse` in `trialPrepData.ts`.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// One turn in a scenario's exchange timeline — mirrors `ExchangeTurn`.
+///
+/// All optional display fields are `Option<…>` serialized present-as-null
+/// (no `skip_serializing_if`), matching the TS `T | null` contract. `kind` is a
+/// string (the assembler emits the neutral `"evidence"` for graph facts);
+/// `page_number` is an `i64` (the assembler parses the graph fact's string page
+/// to a number, or `null` when un-parseable).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExchangeTurn {
+    pub kind: String,
+    pub grounded: bool,
+    pub speaker: Option<String>,
+    pub date: Option<String>,
+    pub text: String,
+    pub relationship_type: Option<String>,
+    pub source_document: Option<String>,
+    pub page_number: Option<i64>,
+    pub paragraph: Option<String>,
+    pub repeated_after_rebuttal: bool,
+}
+
+/// One rehearsable response — mirrors `MarieResponse`. Not wired yet (the
+/// detail payload returns an empty `responses` vec this chunk), but typed so the
+/// vec element is well-defined.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MarieResponse {
+    pub id: String,
+    pub label: String,
+    pub text: String,
+    pub authored_by: String,
+}
+
+/// The full per-scenario detail payload — mirrors `ScenarioDetail`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ScenarioDetail {
+    pub id: String,
+    pub attack: String,
+    pub status: ScenarioStatus,
+    pub pattern_summary: Option<String>,
+    pub timeline: Vec<ExchangeTurn>,
+    pub responses: Vec<MarieResponse>,
+    pub notes: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -242,6 +294,58 @@ mod tests {
         assert!(
             obj["baseless_repeat_count"].is_null(),
             "None must serialize as JSON null, not be omitted"
+        );
+    }
+
+    /// The detail payload serializes to the `trialPrepData.ts` ScenarioDetail
+    /// contract: snake_case keys, `pattern_summary`/`notes`/`date` present-as-null,
+    /// and an evidence turn carrying `kind`/`relationship_type`/`page_number`.
+    #[test]
+    fn scenario_detail_serializes_to_contract_shape() {
+        let detail = ScenarioDetail {
+            id: "00000000-0000-0000-0000-000000000000".to_string(),
+            attack: "Marie is obstructive".to_string(),
+            status: ScenarioStatus::Draft,
+            pattern_summary: None,
+            timeline: vec![ExchangeTurn {
+                kind: "evidence".to_string(),
+                grounded: true,
+                speaker: Some("George Phillips".to_string()),
+                date: None,
+                text: "the quote".to_string(),
+                relationship_type: Some("rebuts".to_string()),
+                source_document: Some("doc-x".to_string()),
+                page_number: Some(54),
+                paragraph: Some("¶54".to_string()),
+                repeated_after_rebuttal: false,
+            }],
+            responses: Vec::new(),
+            notes: None,
+        };
+
+        let value = serde_json::to_value(&detail).expect("detail serializes");
+        assert_eq!(
+            value,
+            json!({
+                "id": "00000000-0000-0000-0000-000000000000",
+                "attack": "Marie is obstructive",
+                "status": "draft",
+                "pattern_summary": null,
+                "timeline": [{
+                    "kind": "evidence",
+                    "grounded": true,
+                    "speaker": "George Phillips",
+                    "date": null,
+                    "text": "the quote",
+                    "relationship_type": "rebuts",
+                    "source_document": "doc-x",
+                    "page_number": 54,
+                    "paragraph": "¶54",
+                    "repeated_after_rebuttal": false
+                }],
+                "responses": [],
+                "notes": null
+            })
         );
     }
 }

@@ -46,7 +46,11 @@ export type ExchangeTurnKind =
   | "accusation"
   | "accusation_repeat"
   | "rebuttal"
-  | "defense_counter";
+  | "defense_counter"
+  // Graph-evidence turn (Chunk 4): a fact anchored to the scenario's allegation.
+  // Its REBUTS/CORROBORATES polarity is carried in `relationship_type`, NOT the
+  // kind, so no accusation/rebuttal litigation narrative is fabricated.
+  | "evidence";
 
 export interface ExchangeTurn {
   kind: ExchangeTurnKind;

@@ -127,6 +127,10 @@ fn case_routes() -> Router<AppState> {
             get(trial_prep::get_trial_prep_dashboard),
         )
         .route(
+            "/cases/:slug/trial-prep/scenarios/:scenario_id",
+            get(trial_prep::get_trial_prep_scenario_detail),
+        )
+        .route(
             "/cases/:slug/scenarios",
             get(scenarios::list_scenarios).post(scenarios::create_scenario),
         )

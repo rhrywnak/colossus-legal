@@ -9,7 +9,7 @@
 // (no editing) in Stage 1.
 // =============================================================================
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 
 import Breadcrumb from "../components/Breadcrumb";
@@ -19,7 +19,8 @@ import {
   TimelineTurn,
 } from "../components/TrialPrepViews";
 import { DEFAULT_CASE_SLUG } from "../services/caseHeader";
-import { getScenarioDetail } from "./trialPrepPlaceholder";
+import { getScenarioDetailLive } from "../services/trialPrep";
+import type { ScenarioDetail } from "./trialPrepData";
 import { sortTimelineByDate, statusMeta } from "./trialPrepHelpers";
 
 const containerStyle: React.CSSProperties = {
@@ -61,6 +62,21 @@ const patternHeadline: React.CSSProperties = {
   fontSize: "0.86rem",
   fontWeight: 600,
 };
+// Gating styles mirror TrialPrepDashboardPage (tokens only — Rule 2).
+const messageStyle: React.CSSProperties = {
+  padding: "2rem",
+  textAlign: "center",
+  color: "var(--text-muted)",
+  fontSize: "14px",
+};
+const errorStyle: React.CSSProperties = {
+  margin: "1rem 0",
+  padding: "1rem",
+  backgroundColor: "var(--state-danger-bg-soft)",
+  border: "1px solid var(--state-danger-border)",
+  borderRadius: "6px",
+  color: "var(--state-danger-strong)",
+};
 
 const ScenarioDetailPage: React.FC = () => {
   const { slug: slugParam, scenarioId } = useParams<{
@@ -68,16 +84,70 @@ const ScenarioDetailPage: React.FC = () => {
     scenarioId: string;
   }>();
   const slug = slugParam ?? DEFAULT_CASE_SLUG;
-  const scenario = scenarioId ? getScenarioDetail(scenarioId) : null;
-
   const backCrumb = { label: "Trial Prep", to: `/cases/${slug}/trial-prep` };
 
+  // Gating fetch (mirrors TrialPrepDashboardPage). `null` after load = a real
+  // 404, which renders the "Scenario not found" empty state — distinct from a
+  // fetch error (banner) and from still-loading.
+  const [scenario, setScenario] = useState<ScenarioDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!scenarioId) {
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    getScenarioDetailLive(slug, scenarioId)
+      .then((data) => {
+        if (cancelled) return;
+        setScenario(data);
+        setLoading(false);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Failed to load the scenario. Try reloading the page.",
+        );
+        setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [slug, scenarioId]);
+
+  // Breadcrumb shown on every gating state (loading / error / not-found).
+  const gatingCrumb = (
+    <Breadcrumb
+      items={[{ label: "Dashboard", to: "/" }, backCrumb, { label: "Scenario" }]}
+    />
+  );
+
+  if (loading) {
+    return (
+      <div style={containerStyle}>
+        {gatingCrumb}
+        <div style={messageStyle}>Loading scenario…</div>
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <div style={containerStyle}>
+        {gatingCrumb}
+        <div style={errorStyle}>{error}</div>
+      </div>
+    );
+  }
   if (!scenario) {
     return (
       <div style={containerStyle}>
-        <Breadcrumb
-          items={[{ label: "Dashboard", to: "/" }, backCrumb, { label: "Scenario" }]}
-        />
+        {gatingCrumb}
         <EmptyState message="Scenario not found." />
       </div>
     );

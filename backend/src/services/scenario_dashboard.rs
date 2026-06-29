@@ -29,13 +29,14 @@
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::dto::scenario::AnchoredAllegationEvidenceResponse;
+use crate::dto::scenario::{AnchoredAllegationEvidenceResponse, AnchoredEvidenceFact};
 use crate::dto::trial_prep::{
-    ScenarioStatus, ScenarioSummary, TrialPrepDashboard, TrialPrepMetrics,
+    ExchangeTurn, ScenarioDetail, ScenarioStatus, ScenarioSummary, TrialPrepDashboard,
+    TrialPrepMetrics,
 };
 use crate::neo4j::schema;
 use crate::repositories::pipeline_repository::{
-    list_scenarios_for_case, PipelineRepoError, ScenarioRecord,
+    get_scenario, list_scenarios_for_case, PipelineRepoError, ScenarioRecord,
 };
 use crate::repositories::scenario_repository::{
     EvidencePolarity, ScenarioRepository, ScenarioRepositoryError,
@@ -52,6 +53,8 @@ use crate::repositories::scenario_repository::{
 /// Each variant names a different thing that can go wrong, so a handler logging
 /// `{}` gets the WHAT and the WHERE (Standing Rule 1):
 /// - `Store` — the Postgres list failed; carries the `case_slug` (the WHERE).
+/// - `Fetch` — fetching ONE scenario by id from Postgres failed; carries the
+///   `scenario_id` (the WHERE).
 /// - `Repository` — a graph traversal failed; carries the scenario id AND the
 ///   offending anchor allegation id (attached via `.map_err`), mirroring how
 ///   `ScenarioRepositoryError` itself names the offending column.
@@ -65,6 +68,15 @@ pub enum ScenarioDashboardError {
     #[error("listing scenarios for case '{case_slug}' failed: {source}")]
     Store {
         case_slug: String,
+        #[source]
+        source: PipelineRepoError,
+    },
+
+    /// Fetching one scenario by id from Postgres failed (the detail read).
+    /// Names the scenario id (the WHERE) alongside the wrapped store cause.
+    #[error("fetching scenario '{scenario_id}' failed: {source}")]
+    Fetch {
+        scenario_id: String,
         #[source]
         source: PipelineRepoError,
     },
@@ -148,6 +160,46 @@ impl ScenarioDashboardAssembler {
         })
     }
 
+    /// Assemble ONE scenario's detail: the Postgres record plus its anchor
+    /// allegations' graph evidence shaped into a timeline.
+    ///
+    /// `Ok(None)` when no such scenario row exists — the handler maps that to a
+    /// 404 (a legitimately-absent / deleted id, distinct from a read error).
+    /// Responses / pattern / notes are empty/None for this chunk (not wired) —
+    /// an honest partial, the same principle as the dashboard.
+    #[tracing::instrument(skip(self), fields(scenario_id = %scenario_id, step = "assemble_detail"))]
+    pub async fn assemble_detail(
+        &self,
+        scenario_id: Uuid,
+    ) -> Result<Option<ScenarioDetail>, ScenarioDashboardError> {
+        let record = get_scenario(&self.pipeline_pool, scenario_id)
+            .await
+            .map_err(|source| ScenarioDashboardError::Fetch {
+                scenario_id: scenario_id.to_string(),
+                source,
+            })?;
+        let Some(record) = record else {
+            return Ok(None);
+        };
+
+        // Collect every anchor's evidence facts (0 anchors → empty timeline).
+        let mut facts = Vec::new();
+        for anchor in record.anchor_allegation_ids.as_deref().unwrap_or(&[]) {
+            let evidence = self
+                .repo
+                .anchored_allegation_evidence(anchor, EvidencePolarity::Both)
+                .await
+                .map_err(|source| ScenarioDashboardError::Repository {
+                    scenario_id: record.scenario_id.to_string(),
+                    allegation_id: anchor.clone(),
+                    source: Box::new(source),
+                })?;
+            facts.extend(evidence.facts);
+        }
+
+        Ok(Some(build_detail(&record, &facts)?))
+    }
+
     /// Sum the live REBUTS count across all of a scenario's anchor allegations.
     ///
     /// A scenario may have 0, 1, or several anchors (`Option<Vec<String>>`). No
@@ -180,6 +232,62 @@ impl ScenarioDashboardAssembler {
 // ─────────────────────────────────────────────────────────────────────────────
 // Pure shaping (no I/O — unit-tested)
 // ─────────────────────────────────────────────────────────────────────────────
+
+// CONST: the timeline `kind` for a graph-evidence turn. A deliberately NEUTRAL,
+// honest label — NOT one of the litigation-narrative kinds
+// (accusation/rebuttal/…). The REBUTS/CORROBORATES polarity is carried in the
+// turn's `relationship_type`, so the UI shows the polarity as a pill and never
+// fabricates an accusation/rebuttal meaning the graph does not assert. Matches
+// the `"evidence"` member of the frontend `ExchangeTurnKind` union.
+const EVIDENCE_TURN_KIND: &str = "evidence";
+
+/// Pure: shape a scenario record + its collected graph facts into the detail
+/// payload. `responses`/`pattern_summary`/`notes` are empty/None for this chunk
+/// (their sources are not wired yet) — honest, not placeholder.
+fn build_detail(
+    record: &ScenarioRecord,
+    facts: &[AnchoredEvidenceFact],
+) -> Result<ScenarioDetail, ScenarioDashboardError> {
+    Ok(ScenarioDetail {
+        id: record.scenario_id.to_string(),
+        attack: record.name.clone(),
+        status: parse_status(&record.status, record.scenario_id)?,
+        pattern_summary: None,
+        timeline: facts.iter().map(fact_to_turn).collect(),
+        responses: Vec::new(),
+        notes: None,
+    })
+}
+
+/// Pure: map one anchored graph fact onto a timeline turn.
+///
+/// Domain note: `kind` is the neutral `EVIDENCE_TURN_KIND`; the fact's
+/// REBUTS/CORROBORATES polarity rides in `relationship_type` (lowercased), so the
+/// screen labels the turn "evidence" with a "rebuts"/"corroborates" pill — never
+/// a fabricated accusation/rebuttal narrative. Every graph fact is `grounded`
+/// (it carries a citation); `date` is `null` (the facts have no date here, and
+/// null sorts last); `repeated_after_rebuttal` is `false` (pattern analysis is
+/// not wired).
+fn fact_to_turn(fact: &AnchoredEvidenceFact) -> ExchangeTurn {
+    ExchangeTurn {
+        kind: EVIDENCE_TURN_KIND.to_string(),
+        grounded: true,
+        speaker: fact.stated_by.clone(),
+        date: None,
+        text: fact.verbatim_quote.clone().unwrap_or_default(),
+        relationship_type: Some(fact.polarity.to_lowercase()),
+        source_document: fact.document.clone(),
+        // The fact carries `page_number` as a String; the turn's contract wants
+        // `number | null`. Parse it; an un-parseable value (e.g. "iv", "12-13")
+        // degrades to `None` rather than guessing.
+        page_number: fact
+            .page_number
+            .as_deref()
+            .and_then(|p| p.parse::<i64>().ok()),
+        paragraph: fact.paragraph_number.clone(),
+        repeated_after_rebuttal: false,
+    }
+}
 
 /// Count the facts whose edge is a REBUTS.
 ///
@@ -440,5 +548,80 @@ mod tests {
         // Only `Some(n > 0)` is a pattern: `Some(0)` ("analysed, none found") and
         // `None` ("pending") must NOT increment the signal.
         assert_eq!(m.baseless_repeat_patterns, 1);
+    }
+
+    /// A fully-populated anchored fact (every descriptive column present unless
+    /// `page` is None), for exercising the fact → turn mapping.
+    fn full_fact(polarity: &str, page: Option<&str>) -> AnchoredEvidenceFact {
+        AnchoredEvidenceFact {
+            evidence_id: "ev-1".to_string(),
+            polarity: polarity.to_string(),
+            allegation_id: "doc-x:allegation:abc".to_string(),
+            paragraph_number: Some("¶54".to_string()),
+            verbatim_quote: Some("the quote".to_string()),
+            page_number: page.map(|s| s.to_string()),
+            document: Some("doc-x".to_string()),
+            stated_by: Some("George Phillips".to_string()),
+        }
+    }
+
+    #[test]
+    fn fact_to_turn_maps_a_rebuts_fact() {
+        let turn = fact_to_turn(&full_fact(schema::REBUTS, Some("54")));
+        // kind is the neutral "evidence"; polarity rides in relationship_type.
+        assert_eq!(turn.kind, "evidence");
+        assert!(turn.grounded);
+        assert_eq!(turn.relationship_type.as_deref(), Some("rebuts"));
+        assert_eq!(turn.speaker.as_deref(), Some("George Phillips"));
+        assert_eq!(turn.text, "the quote");
+        assert_eq!(turn.page_number, Some(54));
+        assert_eq!(turn.paragraph.as_deref(), Some("¶54"));
+        assert_eq!(turn.source_document.as_deref(), Some("doc-x"));
+        assert_eq!(turn.date, None);
+        assert!(!turn.repeated_after_rebuttal);
+    }
+
+    #[test]
+    fn fact_to_turn_lowercases_corroborates_polarity() {
+        let turn = fact_to_turn(&full_fact(schema::CORROBORATES, Some("3")));
+        assert_eq!(turn.relationship_type.as_deref(), Some("corroborates"));
+    }
+
+    #[test]
+    fn fact_to_turn_unparseable_page_is_none() {
+        // A non-numeric page string degrades to None rather than guessing.
+        let turn = fact_to_turn(&full_fact(schema::REBUTS, Some("iv")));
+        assert_eq!(turn.page_number, None);
+    }
+
+    #[test]
+    fn fact_to_turn_missing_quote_is_empty_string() {
+        let mut f = full_fact(schema::REBUTS, None);
+        f.verbatim_quote = None;
+        let turn = fact_to_turn(&f);
+        assert_eq!(turn.text, "");
+        assert_eq!(turn.page_number, None);
+    }
+
+    #[test]
+    fn build_detail_shapes_record_and_facts() {
+        let facts = vec![
+            full_fact(schema::REBUTS, Some("1")),
+            full_fact(schema::CORROBORATES, Some("2")),
+        ];
+        let detail = build_detail(&record("ready", None), &facts).expect("builds");
+        assert_eq!(detail.attack, "Marie is obstructive");
+        assert_eq!(detail.status, ScenarioStatus::Ready);
+        assert_eq!(detail.id, "00000000-0000-0000-0000-000000000000");
+        assert_eq!(detail.timeline.len(), 2); // one turn per fact
+                                              // Unwired sections are honestly empty/None.
+        assert!(detail.responses.is_empty());
+        assert_eq!(detail.pattern_summary, None);
+        assert_eq!(detail.notes, None);
+    }
+
+    #[test]
+    fn build_detail_propagates_unknown_status() {
+        assert!(build_detail(&record("bogus", None), &[]).is_err());
     }
 }

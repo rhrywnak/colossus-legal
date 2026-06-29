@@ -16,31 +16,36 @@ use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::Serialize;
 use tracing::{error, info, instrument};
+use uuid::Uuid;
 
 use crate::auth::AuthUser;
-use crate::dto::trial_prep::TrialPrepDashboard;
+use crate::dto::trial_prep::{ScenarioDetail, TrialPrepDashboard};
 use crate::repositories::scenario_repository::ScenarioRepository;
 use crate::services::scenario_dashboard::ScenarioDashboardAssembler;
 use crate::state::AppState;
 
-/// Error type for this endpoint.
+/// Error type for the trial-prep endpoints.
 ///
-/// ## Why a single `Internal` variant (no 404)
-///
-/// Unlike `proof_matrix` (which 404s when the canonical structure is unloaded),
-/// the dashboard ALWAYS returns a full baseline payload: an unloaded graph simply
-/// yields `instance_count: 0` for the live card, which is a valid, observable
-/// state — not "not found". The only failure is a genuine graph read error,
-/// collapsed to an opaque 500 whose detail is logged for operators and never
-/// returned to the client (Standing Rule 1).
+/// The dashboard read only ever fails internally (it always has a valid payload
+/// otherwise), so it uses `Internal`. The scenario-detail read adds two client
+/// errors: a malformed `scenario_id` (`BadRequest`) and an absent scenario
+/// (`NotFound` — the legitimate deleted/unknown id). Every 5xx detail is logged
+/// for operators and never returned to the client (Standing Rule 1); the 4xx
+/// bodies carry only a short, non-sensitive reason.
 pub enum TrialPrepEndpointError {
-    /// Graph error or row-decode failure → HTTP 500 (logged, not returned).
+    /// Graph/store error or row-decode failure → HTTP 500 (logged, not returned).
     Internal,
+    /// No scenario with the requested id → HTTP 404.
+    NotFound,
+    /// A malformed path value (e.g. a non-UUID scenario id) → HTTP 400.
+    BadRequest { reason: &'static str },
 }
 
-/// 500 body: exactly `{"error":"internal server error"}` — nothing else.
+/// Error body: a single `error` string. Reused for the 400/404/500 responses; it
+/// never carries Cypher, a store cause, or a `details` object (Standing Rule 1 —
+/// no leak to the client).
 #[derive(Serialize)]
-struct InternalErrorBody {
+struct ErrorBody {
     error: &'static str,
 }
 
@@ -49,11 +54,21 @@ impl IntoResponse for TrialPrepEndpointError {
         match self {
             TrialPrepEndpointError::Internal => (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(InternalErrorBody {
+                Json(ErrorBody {
                     error: "internal server error",
                 }),
             )
                 .into_response(),
+            TrialPrepEndpointError::NotFound => (
+                StatusCode::NOT_FOUND,
+                Json(ErrorBody {
+                    error: "scenario not found",
+                }),
+            )
+                .into_response(),
+            TrialPrepEndpointError::BadRequest { reason } => {
+                (StatusCode::BAD_REQUEST, Json(ErrorBody { error: reason })).into_response()
+            }
         }
     }
 }
@@ -88,6 +103,42 @@ pub async fn get_trial_prep_dashboard(
     Ok(Json(dashboard))
 }
 
+/// `GET /api/cases/:slug/trial-prep/scenarios/:scenario_id` — one scenario's
+/// detail (its record + its anchor allegations' graph evidence as a timeline).
+///
+/// `slug` selects the case (logged); the scenario is identified by the
+/// globally-unique `scenario_id`. A malformed id → 400; an absent scenario → 404
+/// (the legitimate deleted/unknown id); a store/graph failure → a logged 500.
+#[instrument(skip(state, user), fields(slug = %slug, scenario_id = %scenario_id))]
+pub async fn get_trial_prep_scenario_detail(
+    user: Option<AuthUser>,
+    State(state): State<AppState>,
+    Path((slug, scenario_id)): Path<(String, String)>,
+) -> Result<Json<ScenarioDetail>, TrialPrepEndpointError> {
+    if let Some(u) = &user {
+        info!(username = %u.username, "GET /api/cases/{slug}/trial-prep/scenarios/{scenario_id}");
+    }
+
+    // A malformed uuid is a client error (400), not a server fault.
+    let id = Uuid::parse_str(&scenario_id).map_err(|_| TrialPrepEndpointError::BadRequest {
+        reason: "scenario_id must be a valid UUID",
+    })?;
+
+    let assembler = ScenarioDashboardAssembler::new(
+        ScenarioRepository::new(state.graph.clone()),
+        state.pipeline_pool.clone(),
+    );
+
+    // `None` from the assembler ⇒ no such scenario row ⇒ 404 (distinct from a
+    // store/graph error, which the `internal` closure collapses to a logged 500).
+    assembler
+        .assemble_detail(id)
+        .await
+        .map_err(internal("assemble scenario detail"))?
+        .map(Json)
+        .ok_or(TrialPrepEndpointError::NotFound)
+}
+
 /// Map any displayable error to a logged `Internal` (500). `op` names the failed
 /// step for the operator log; the client only ever sees the bland 500 body.
 ///
@@ -99,7 +150,10 @@ pub async fn get_trial_prep_dashboard(
 /// at a handler that logs (Standing Rule 1).
 fn internal<E: std::fmt::Display>(op: &'static str) -> impl Fn(E) -> TrialPrepEndpointError {
     move |e| {
-        error!(error = %e, operation = op, "trial-prep dashboard request failed");
+        // `op` (the `operation` field) carries the specific step; the message
+        // stays generic so it never contradicts the operation (this closure is
+        // shared by the dashboard and scenario-detail handlers).
+        error!(error = %e, operation = op, "trial-prep request failed");
         TrialPrepEndpointError::Internal
     }
 }
@@ -114,7 +168,7 @@ mod tests {
     /// the client" requirement at the serialization boundary.
     #[test]
     fn internal_server_error_body_does_not_leak_detail() {
-        let body = InternalErrorBody {
+        let body = ErrorBody {
             error: "internal server error",
         };
         let value = serde_json::to_value(&body).expect("body serializes");
@@ -128,5 +182,23 @@ mod tests {
     fn internal_variant_maps_to_500() {
         let response = TrialPrepEndpointError::Internal.into_response();
         assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    /// `NotFound` (absent scenario) must map to HTTP 404.
+    #[test]
+    fn not_found_variant_maps_to_404() {
+        let response = TrialPrepEndpointError::NotFound.into_response();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    /// `BadRequest` (malformed uuid) must map to HTTP 400 and echo only the bland
+    /// reason — no internal detail.
+    #[test]
+    fn bad_request_variant_maps_to_400() {
+        let response = TrialPrepEndpointError::BadRequest {
+            reason: "scenario_id must be a valid UUID",
+        }
+        .into_response();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 }
