@@ -25,6 +25,9 @@ use crate::dto::scenario::{
     ScenarioRebuttalFactsResponse, ScenarioRelatedAllegation, ScenarioRelatedAllegationsResponse,
 };
 use crate::neo4j::schema;
+use crate::repositories::scenario_decode::{
+    decode_opt_int_as_str, decode_opt_str, decode_required_str,
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Error type
@@ -421,15 +424,17 @@ fn anchored_allegation_evidence_cypher(polarity: EvidencePolarity) -> String {
 
 /// Map one REBUTS row into a typed fact.
 ///
-/// Domain note: `page_number` is treated as a string property here (the
-/// rebuttals feature's existing contract); a non-string value would surface as
-/// a `Decode` error rather than silently vanish.
+/// Domain note: `page_number` is stored in the graph as a Bolt INTEGER but the
+/// fact's wire contract is `Option<String>`, so it is decoded via
+/// `decode_opt_int_as_str` (a non-integer value surfaces as a named `Decode`
+/// error rather than silently vanishing). Every other column here is a genuine
+/// string decoded via `decode_opt_str`.
 fn map_rebuttal_fact(row: &Row) -> Result<ScenarioRebuttalFact, ScenarioRepositoryError> {
     Ok(ScenarioRebuttalFact {
         evidence_id: decode_required_str(row, "evidence_id")?,
         topic: decode_opt_str(row, "topic")?,
         verbatim_quote: decode_opt_str(row, "verbatim_quote")?,
-        page_number: decode_opt_str(row, "page_number")?,
+        page_number: decode_opt_int_as_str(row, "page_number")?,
         document: decode_opt_str(row, "document")?,
         stated_by: decode_opt_str(row, "stated_by")?,
     })
@@ -475,7 +480,9 @@ fn map_related_allegation(row: &Row) -> Result<ScenarioRelatedAllegation, Scenar
 /// columns (`paragraph_number`, `verbatim_quote`, `page_number`, `document`,
 /// `stated_by`) are optional: a node or join may legitimately omit them, and
 /// per the tightened decode discipline an absent/null value degrades to `None`
-/// while a wrong-type value surfaces as a named `Decode` error.
+/// while a wrong-type value surfaces as a named `Decode` error. `page_number` is
+/// the lone Bolt INTEGER among them, decoded via `decode_opt_int_as_str` into the
+/// `Option<String>` wire type; the rest are genuine strings (`decode_opt_str`).
 fn map_anchored_evidence_fact(row: &Row) -> Result<AnchoredEvidenceFact, ScenarioRepositoryError> {
     Ok(AnchoredEvidenceFact {
         evidence_id: decode_required_str(row, "evidence_id")?,
@@ -483,133 +490,25 @@ fn map_anchored_evidence_fact(row: &Row) -> Result<AnchoredEvidenceFact, Scenari
         allegation_id: decode_required_str(row, "allegation_id")?,
         paragraph_number: decode_opt_str(row, "paragraph_number")?,
         verbatim_quote: decode_opt_str(row, "verbatim_quote")?,
-        page_number: decode_opt_str(row, "page_number")?,
+        page_number: decode_opt_int_as_str(row, "page_number")?,
         document: decode_opt_str(row, "document")?,
         stated_by: decode_opt_str(row, "stated_by")?,
     })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Tightened decode helpers (operate on neo4rs::Row)
+// Tests
 // ─────────────────────────────────────────────────────────────────────────────
 //
-// Why: this deliberately tightens decode against the house `.ok()` /
-// `.unwrap_or_default()` convention, which collapses BOTH "column null/absent"
-// AND "present but wrong type" into None/empty. The scenario surface is what
-// Chuck and Marie read at trial prep, so a malformed fact must fail VISIBLY
-// (Standing Rule 1, no silent failure). This is scoped to new code only — the
-// older repositories are intentionally left on the `.ok()` convention (Roman
-// parked that remediation; see DECISION_LOG 2026-06-25).
-//
-// The classifier/`require` decision logic is split out as pure functions (no
-// `Row` involved) so the error paths are unit-testable without a live graph —
-// matching how the rest of this module's repositories are exercised (no
-// repository unit-constructs a `neo4rs::Row`; the async queries are
-// integration-tested against a graph fixture).
-
-/// Decide what a `row.get::<Option<String>>(col)` outcome means under the
-/// tightened discipline.
-///
-/// ## Rust Learning: telling null from type-mismatch via `Option<T>`
-///
-/// `neo4rs` deserializes a Bolt `Null` into `Option<T>` as `Ok(None)`, a
-/// present value of the right type as `Ok(Some(v))`, and a present value of the
-/// WRONG type as `Err(DeError::InvalidType { .. })`. An entirely absent column
-/// (e.g. a `RETURN` alias typo) is `Err(DeError::NoSuchProperty)`. So decoding
-/// into `Option<String>` and then classifying the result is exactly the
-/// three-way distinction we want.
-fn classify_opt_str(
-    column: &str,
-    raw: Result<Option<String>, DeError>,
-) -> Result<Option<String>, ScenarioRepositoryError> {
-    match raw {
-        // Present + correct (`Some`) or present + null (`None`) — both fine.
-        Ok(value) => Ok(value),
-        // Column not in the row at all: degrade to `None` like a null, per the
-        // approved discipline (a legitimately-absent column is not an error).
-        Err(DeError::NoSuchProperty) => Ok(None),
-        // Present but the wrong Bolt type for a String — the case the `.ok()`
-        // convention would silently swallow. Surface it, named, with column.
-        Err(source) => Err(ScenarioRepositoryError::Decode {
-            column: column.to_string(),
-            source,
-        }),
-    }
-}
-
-/// Promote a decoded optional into a required value, or a named error.
-fn require(column: &str, decoded: Option<String>) -> Result<String, ScenarioRepositoryError> {
-    decoded.ok_or_else(|| ScenarioRepositoryError::MissingRequired {
-        column: column.to_string(),
-    })
-}
-
-/// Decode an optional string column (null/absent → `None`; wrong type → error).
-fn decode_opt_str(row: &Row, column: &str) -> Result<Option<String>, ScenarioRepositoryError> {
-    classify_opt_str(column, row.get::<Option<String>>(column))
-}
-
-/// Decode a required string column (null/absent → `MissingRequired` error).
-fn decode_required_str(row: &Row, column: &str) -> Result<String, ScenarioRepositoryError> {
-    require(column, decode_opt_str(row, column)?)
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Tests — pure decode-decision logic (error paths included)
-// ─────────────────────────────────────────────────────────────────────────────
+// The tightened decode helpers (`classify_*` / `decode_*` / `require` /
+// `render_opt_int_as_str`) and their pure decision-logic tests now live in the
+// sibling `scenario_decode` module (extracted to keep this module under the
+// 300-line ceiling). The tests below cover what remains here: the error-type
+// Display contract, the Cypher builders, and the polarity → rel-type mapping.
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn classify_passes_present_value_through() {
-        let out = classify_opt_str("topic", Ok(Some("conversion".to_string())));
-        assert_eq!(out.expect("ok"), Some("conversion".to_string()));
-    }
-
-    #[test]
-    fn classify_null_value_is_none() {
-        let out = classify_opt_str("topic", Ok(None));
-        assert_eq!(out.expect("ok"), None);
-    }
-
-    #[test]
-    fn classify_absent_column_is_none() {
-        // An absent column (alias typo / OPTIONAL MATCH miss) degrades to None.
-        let out = classify_opt_str("topic", Err(DeError::NoSuchProperty));
-        assert_eq!(out.expect("ok"), None);
-    }
-
-    #[test]
-    fn classify_type_mismatch_is_named_decode_error() {
-        // A present-but-wrong-type value must NOT silently become None — it is a
-        // named Decode error carrying the column. (DeError::Other stands in for
-        // an InvalidType here; both take the same non-NoSuchProperty branch.)
-        let out = classify_opt_str("page_number", Err(DeError::Other("expected string".into())));
-        match out {
-            Err(ScenarioRepositoryError::Decode { column, .. }) => {
-                assert_eq!(column, "page_number")
-            }
-            other => panic!("expected Decode error, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn require_returns_present_value() {
-        let out = require("evidence_id", Some("evidence-001".to_string()));
-        assert_eq!(out.expect("ok"), "evidence-001");
-    }
-
-    #[test]
-    fn require_missing_is_named_error() {
-        match require("evidence_id", None) {
-            Err(ScenarioRepositoryError::MissingRequired { column }) => {
-                assert_eq!(column, "evidence_id")
-            }
-            other => panic!("expected MissingRequired error, got {other:?}"),
-        }
-    }
 
     #[test]
     fn errors_display_human_readable_messages() {
