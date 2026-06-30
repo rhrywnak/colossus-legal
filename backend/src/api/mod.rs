@@ -1,7 +1,7 @@
 use axum::{
     extract::{DefaultBodyLimit, State},
     http::StatusCode,
-    routing::{get, patch, post, put},
+    routing::{delete, get, patch, post, put},
     Json, Router,
 };
 
@@ -50,6 +50,7 @@ pub mod proof_matrix;
 pub mod proof_review;
 pub mod qa;
 pub mod queries;
+pub mod scenario_facts;
 pub mod scenarios;
 pub mod schema;
 pub mod search;
@@ -137,6 +138,17 @@ fn case_routes() -> Router<AppState> {
         .route(
             "/cases/:slug/scenarios/:scenario_id",
             get(scenarios::get_scenario_by_id),
+        )
+        // Scenario fact curation (Phase A): save / list / remove the graph facts
+        // a human curates onto a scenario. Reads are open (Option<AuthUser>);
+        // the write routes enforce `require_edit` inside their handlers.
+        .route(
+            "/cases/:slug/scenarios/:scenario_id/facts",
+            get(scenario_facts::list_scenario_facts).post(scenario_facts::add_scenario_fact),
+        )
+        .route(
+            "/cases/:slug/scenarios/:scenario_id/facts/:graph_node_id",
+            delete(scenario_facts::remove_scenario_fact),
         )
 }
 

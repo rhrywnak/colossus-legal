@@ -158,9 +158,17 @@ const aboutLineStyle: React.CSSProperties = {
 
 interface Props {
     instance: BiasInstance;
+    /**
+     * Optional action rendered at the right of the header row — e.g. an
+     * "Add to scenario" button on a bias candidate, or a "Remove" button on a
+     * saved scenario fact. Kept as an opaque slot so this card stays
+     * presentation-only: it knows nothing about scenarios or curation, and the
+     * same card renders both a candidate and a saved fact (one card, two uses).
+     */
+    action?: React.ReactNode;
 }
 
-const EvidenceCard: React.FC<Props> = ({ instance }) => {
+const EvidenceCard: React.FC<Props> = ({ instance, action }) => {
     const [expanded, setExpanded] = useState(false);
 
     const speakerName = instance.stated_by?.name;
@@ -184,7 +192,8 @@ const EvidenceCard: React.FC<Props> = ({ instance }) => {
 
     return (
         <div style={cardStyle}>
-            {/* Header — speaker + pattern chips */}
+            {/* Header — speaker + pattern chips, plus an optional action at the
+                far right (pushed there by margin-left:auto on its wrapper). */}
             <div style={headerRow}>
                 {speakerName && <span style={speakerStyle}>{speakerName}</span>}
                 {instance.pattern_tags.map((t) => (
@@ -192,6 +201,7 @@ const EvidenceCard: React.FC<Props> = ({ instance }) => {
                         {formatTagLabel(t)}
                     </span>
                 ))}
+                {action && <span style={{ marginLeft: "auto" }}>{action}</span>}
             </div>
 
             {/* Title */}

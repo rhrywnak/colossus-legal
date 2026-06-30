@@ -13,15 +13,12 @@ import React, { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 
 import Breadcrumb from "../components/Breadcrumb";
-import {
-  EmptyState,
-  ResponseCard,
-  TimelineTurn,
-} from "../components/TrialPrepViews";
+import ScenarioCurationPanel from "../components/ScenarioCurationPanel";
+import { EmptyState, ResponseCard } from "../components/TrialPrepViews";
 import { DEFAULT_CASE_SLUG } from "../services/caseHeader";
 import { getScenarioDetailLive } from "../services/trialPrep";
 import type { ScenarioDetail } from "./trialPrepData";
-import { sortTimelineByDate, statusMeta } from "./trialPrepHelpers";
+import { statusMeta } from "./trialPrepHelpers";
 
 const containerStyle: React.CSSProperties = {
   paddingTop: "32px",
@@ -154,7 +151,6 @@ const ScenarioDetailPage: React.FC = () => {
   }
 
   const status = statusMeta(scenario.status);
-  const timeline = sortTimelineByDate(scenario.timeline);
 
   return (
     <div style={containerStyle}>
@@ -182,11 +178,11 @@ const ScenarioDetailPage: React.FC = () => {
       <div style={sectionLabel}>The attack</div>
       <div style={attackBox}>{scenario.attack}</div>
 
-      <div style={sectionLabel}>Exchange timeline</div>
-      {timeline.length === 0 ? (
-        <EmptyState message="No exchange turns recorded for this scenario." />
-      ) : (
-        timeline.map((turn, i) => <TimelineTurn key={i} turn={turn} />)
+      {/* Phase A: the curated-facts binder replaces the old (broken)
+          allegation-anchored timeline. `scenarioId` is defined here (the
+          detail loaded via it), but the guard keeps the type honest. */}
+      {scenarioId && (
+        <ScenarioCurationPanel slug={slug} scenarioId={scenarioId} />
       )}
 
       <div style={sectionLabel}>Marie's responses</div>

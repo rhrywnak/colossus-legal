@@ -372,6 +372,92 @@ impl BiasRepository {
 
         Ok(state.finish())
     }
+
+    /// Fetch full card content for a fixed set of Evidence ids.
+    ///
+    /// ## Why this lives on `BiasRepository`
+    ///
+    /// The scenario curation page (task 1.x) persists only graph node ids in
+    /// `scenario_fact_refs`; to render a saved fact it needs the same card
+    /// content the Bias Explorer already assembles — quote, speaker, ABOUT
+    /// subjects, document, pattern tags. Rather than duplicate the row→
+    /// `BiasInstance` mapping (the `BiasRow` / `AggregationState` collapse, the
+    /// `parse_pattern_tags` CSV split) in a second repository — which would
+    /// drift from this one — the scenario API reuses this reader. The returned
+    /// shape *is* the bias card shape, so one frontend card renders both.
+    ///
+    /// ## How it differs from `execute_filtered_query`
+    ///
+    /// - The anchor is `WHERE e.id IN $ids`, not a pattern/actor filter.
+    /// - `STATED_BY` is an **OPTIONAL MATCH**, not a required one: a saved fact
+    ///   must never silently vanish for lack of a speaker (a human deliberately
+    ///   curated it). A speaker-less row yields `stated_by` with an empty name,
+    ///   which the card renders as "no speaker" rather than dropping the fact.
+    /// - There is **no `pattern_tags` gate**: a curated fact is shown whether or
+    ///   not it carries bias tags.
+    ///
+    /// A `graph_node_id` that names no live node simply returns no row — the
+    /// caller (the join in `api::scenario_facts`) is responsible for noticing a
+    /// reference with no content and surfacing it, so a stale ref is observable
+    /// rather than silently absent (Standing Rule 1).
+    ///
+    /// # Errors
+    /// Returns [`BiasRepositoryError`] if the Cypher fails to execute or stream.
+    pub async fn evidence_by_ids(
+        &self,
+        ids: &[String],
+    ) -> Result<Vec<BiasInstance>, BiasRepositoryError> {
+        // RETURN columns are identical to `execute_filtered_query` so the same
+        // `BiasRow::from_row` decoder and `AggregationState` collapse apply
+        // unchanged. `coalesce(..,'')` mirrors the bias query: a null actor
+        // (no STATED_BY edge) decodes to an empty string, not a decode error.
+        // Relationship-type names come from the `schema::` constants (not bare
+        // string literals) so a rename in `schema.rs` flows to this read query
+        // automatically and the curation reader cannot drift from the rest of
+        // the graph layer (Rule 16 — no magic strings). The Cypher contains no
+        // other `{`/`}`, so a plain `format!` needs no brace-doubling.
+        let cypher = format!(
+            "
+            MATCH (e:Evidence)
+            WHERE e.id IN $ids
+            OPTIONAL MATCH (e)-[:{stated_by}]->(actor)
+            OPTIONAL MATCH (e)-[:{about}]->(subject)
+            OPTIONAL MATCH (e)-[:{contained_in}]->(d:Document)
+            RETURN
+              e.id AS evidence_id,
+              coalesce(e.title, '') AS title,
+              e.verbatim_quote AS verbatim_quote,
+              e.page_number AS page_number,
+              e.pattern_tags AS pattern_tags_raw,
+              coalesce(actor.id, '') AS actor_id,
+              coalesce(actor.name, '') AS actor_name,
+              CASE WHEN actor IS NULL THEN '' ELSE labels(actor)[0] END AS actor_type,
+              subject.id AS subject_id,
+              subject.name AS subject_name,
+              CASE WHEN subject IS NULL THEN NULL ELSE labels(subject)[0] END AS subject_type,
+              d.id AS document_id,
+              d.title AS document_title,
+              d.document_type AS document_type
+        ",
+            stated_by = crate::neo4j::schema::STATED_BY,
+            about = crate::neo4j::schema::ABOUT,
+            contained_in = crate::neo4j::schema::CONTAINED_IN,
+        );
+
+        let q = query(&cypher).param("ids", ids.to_vec());
+
+        let mut result = self.graph.execute(q).await?;
+        let mut state = AggregationState::new();
+        while let Some(row) = result.next().await? {
+            if let Some(extracted) = BiasRow::from_row(&row) {
+                state.absorb(extracted);
+            }
+        }
+        // `finish()` returns `(count, instances)`; the count is the list length,
+        // which the caller can recompute, so only the instances are returned.
+        let (_count, instances) = state.finish();
+        Ok(instances)
+    }
 }
 
 // ─── Pure helpers (no I/O — easy to unit-test) ──────────────────────────────
