@@ -293,6 +293,33 @@ pub async fn list_fact_refs_for_scenario(
     Ok(rows)
 }
 
+/// Remove one fact reference from a scenario by its composite key.
+///
+/// Returns the number of rows deleted: `1` when the `(scenario_id,
+/// graph_node_id)` pair existed, `0` when it did not. The handler turns a `0`
+/// into a `404` (nothing to remove) and a `1` into a `204` — so "removed" and
+/// "was never there" stay distinct observables (Standing Rule 1), rather than
+/// both collapsing into a silent success.
+///
+/// Mirrors [`delete_scenarios_for_case`]'s shape (executor-generic, returns
+/// `rows_affected()`); the only difference is the composite-key `WHERE`.
+///
+/// # Errors
+/// Returns [`PipelineRepoError`] if the delete fails.
+pub async fn delete_fact_ref(
+    executor: impl sqlx::PgExecutor<'_>,
+    scenario_id: uuid::Uuid,
+    graph_node_id: &str,
+) -> Result<u64, PipelineRepoError> {
+    let result =
+        sqlx::query("DELETE FROM scenario_fact_refs WHERE scenario_id = $1 AND graph_node_id = $2")
+            .bind(scenario_id)
+            .bind(graph_node_id)
+            .execute(executor)
+            .await?;
+    Ok(result.rows_affected())
+}
+
 // ── Tests ────────────────────────────────────────────────────────
 
 #[cfg(test)]

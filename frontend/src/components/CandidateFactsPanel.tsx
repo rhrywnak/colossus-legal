@@ -1,0 +1,269 @@
+// =============================================================================
+// CandidateFactsPanel — find bias-tagged Evidence and add it to a scenario.
+// =============================================================================
+//
+// Phase A curation, candidate side. A collapsible panel on the scenario detail
+// page that runs the EXISTING bias query (no new retrieval) so a human can
+// browse pre-tagged Evidence and click "Add to scenario" on the ones that
+// belong. Reuses the bias EvidenceCard for each row (with an Add action in its
+// header slot), so a candidate and a saved fact render identically.
+//
+// The subject filter is seeded from the server-resolved default subject
+// (CASE_DEFAULT_SUBJECT_NAME); no case-specific name is hardcoded here
+// (Standing Rule 2). If that default is unset on a deployment, the panel opens
+// with no subject pre-selected and the user picks one.
+
+import React, { useEffect, useState } from "react";
+
+import {
+  getAvailableFilters,
+  runBiasQuery,
+  type BiasInstance,
+  type BiasQueryFilters,
+} from "../services/bias";
+import { addScenarioFact } from "../services/scenarioFacts";
+import EvidenceCard from "../pages/BiasExplorer/EvidenceCard";
+
+interface Props {
+  slug: string;
+  scenarioId: string;
+  /** Node ids already saved on this scenario — their Add button reads "Added". */
+  savedIds: Set<string>;
+  /** Called after a successful add so the parent can refresh the saved list. */
+  onAdded: () => void;
+}
+
+const toggleStyle: React.CSSProperties = {
+  background: "var(--bg-surface)",
+  border: "1px solid var(--border-default)",
+  borderRadius: "6px",
+  padding: "0.5rem 0.9rem",
+  fontSize: "0.85rem",
+  fontWeight: 600,
+  color: "var(--text-primary)",
+  cursor: "pointer",
+};
+
+const panelStyle: React.CSSProperties = {
+  marginTop: "0.75rem",
+  border: "1px solid var(--border-default)",
+  borderRadius: "8px",
+  padding: "0.9rem",
+  backgroundColor: "var(--bg-page)",
+};
+
+const controlRow: React.CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  alignItems: "center",
+  gap: "0.6rem",
+  marginBottom: "0.75rem",
+};
+
+const selectStyle: React.CSSProperties = {
+  padding: "0.35rem 0.5rem",
+  fontSize: "0.82rem",
+  border: "1px solid var(--border-default)",
+  borderRadius: "5px",
+  backgroundColor: "var(--bg-surface)",
+  color: "var(--text-primary)",
+};
+
+const messageStyle: React.CSSProperties = {
+  fontSize: "0.84rem",
+  color: "var(--text-muted)",
+  padding: "0.5rem 0",
+};
+
+const errorStyle: React.CSSProperties = {
+  margin: "0.5rem 0",
+  padding: "0.6rem 0.8rem",
+  backgroundColor: "var(--state-danger-bg-soft)",
+  border: "1px solid var(--state-danger-border)",
+  borderRadius: "6px",
+  color: "var(--state-danger-strong)",
+  fontSize: "0.82rem",
+};
+
+const addBtnStyle: React.CSSProperties = {
+  padding: "0.2rem 0.6rem",
+  fontSize: "0.74rem",
+  fontWeight: 600,
+  border: "1px solid var(--accent-primary)",
+  borderRadius: "5px",
+  backgroundColor: "var(--accent-bg-soft)",
+  color: "var(--accent-primary)",
+  cursor: "pointer",
+};
+
+const addedLabelStyle: React.CSSProperties = {
+  fontSize: "0.74rem",
+  fontWeight: 600,
+  color: "var(--text-disabled)",
+};
+
+const ALL_PATTERNS = "";
+
+const CandidateFactsPanel: React.FC<Props> = ({
+  slug,
+  scenarioId,
+  savedIds,
+  onAdded,
+}) => {
+  const [open, setOpen] = useState(false);
+
+  const [patternTags, setPatternTags] = useState<string[]>([]);
+  const [defaultSubjectId, setDefaultSubjectId] = useState<string | undefined>();
+  const [patternTag, setPatternTag] = useState<string>(ALL_PATTERNS);
+
+  const [instances, setInstances] = useState<BiasInstance[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Per-row add error (keyed by evidence_id) — an add failure is shown on the
+  // row that failed, not as a page-level banner.
+  const [addError, setAddError] = useState<{ id: string; message: string } | null>(
+    null,
+  );
+
+  // Load the filter vocabulary once, the first time the panel is opened.
+  useEffect(() => {
+    if (!open || patternTags.length > 0) return;
+    let cancelled = false;
+    getAvailableFilters()
+      .then((filters) => {
+        if (cancelled) return;
+        setPatternTags(filters.pattern_tags);
+        setDefaultSubjectId(filters.default_subject_id);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Failed to load the candidate filters.",
+        );
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, patternTags.length]);
+
+  // Run the bias query whenever the panel is open and the filter changes. The
+  // subject is the server-resolved default; the pattern tag is user-chosen.
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    const filters: BiasQueryFilters = {
+      subject_id: defaultSubjectId,
+      pattern_tag: patternTag === ALL_PATTERNS ? undefined : patternTag,
+    };
+    runBiasQuery(filters)
+      .then((result) => {
+        if (cancelled) return;
+        setInstances(result.instances);
+        setLoading(false);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Failed to load candidate facts. Try again.",
+        );
+        setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, defaultSubjectId, patternTag]);
+
+  const handleAdd = (evidenceId: string) => {
+    setAddError(null);
+    addScenarioFact(slug, scenarioId, { graph_node_id: evidenceId })
+      .then(() => onAdded())
+      .catch((err: unknown) => {
+        setAddError({
+          id: evidenceId,
+          message:
+            err instanceof Error ? err.message : "Failed to add this fact.",
+        });
+      });
+  };
+
+  if (!open) {
+    return (
+      <button type="button" style={toggleStyle} onClick={() => setOpen(true)}>
+        + Find candidate facts
+      </button>
+    );
+  }
+
+  return (
+    <div>
+      <button type="button" style={toggleStyle} onClick={() => setOpen(false)}>
+        − Hide candidate facts
+      </button>
+      <div style={panelStyle}>
+        <div style={controlRow}>
+          <label style={{ fontSize: "0.82rem", color: "var(--text-secondary)" }}>
+            Pattern:{" "}
+            <select
+              style={selectStyle}
+              value={patternTag}
+              onChange={(e) => setPatternTag(e.target.value)}
+            >
+              <option value={ALL_PATTERNS}>All patterns</option>
+              {patternTags.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        {error && <div style={errorStyle}>{error}</div>}
+
+        {loading ? (
+          <div style={messageStyle}>Loading candidate facts…</div>
+        ) : instances.length === 0 ? (
+          <div style={messageStyle}>No candidate facts match this filter.</div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+            {instances.map((inst) => {
+              const alreadySaved = savedIds.has(inst.evidence_id);
+              return (
+                <div key={inst.evidence_id}>
+                  <EvidenceCard
+                    instance={inst}
+                    action={
+                      alreadySaved ? (
+                        <span style={addedLabelStyle}>Added</span>
+                      ) : (
+                        <button
+                          type="button"
+                          style={addBtnStyle}
+                          onClick={() => handleAdd(inst.evidence_id)}
+                        >
+                          Add to scenario
+                        </button>
+                      )
+                    }
+                  />
+                  {addError?.id === inst.evidence_id && (
+                    <div style={errorStyle}>{addError.message}</div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default CandidateFactsPanel;
