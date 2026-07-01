@@ -256,6 +256,10 @@ fn build_detail(
         timeline: facts.iter().map(fact_to_turn).collect(),
         responses: Vec::new(),
         notes: None,
+        // Carry the authored definition through opaquely — `record` is already in
+        // hand (no extra fetch), and the column is an opaque `serde_json::Value`,
+        // so no transform applies (contrast `attack`/`status`, which reshape).
+        definition: record.definition.clone(),
     })
 }
 
@@ -391,7 +395,10 @@ mod tests {
             case_slug: "awad_v_catholic_family_service".to_string(),
             feeds_count_id: None,
             anchor_allegation_ids: anchors,
-            definition: serde_json::json!({}),
+            // Non-empty so the `build_detail` carry-through assertion is
+            // meaningful (an authored definition, not the un-authored `{}`).
+            // `record_to_card` ignores this field, so bumping it is safe.
+            definition: serde_json::json!({ "attack_text": "Marie is obstructive", "schema_v": 1 }),
             created_at: ts,
             updated_at: ts,
         }
@@ -609,7 +616,8 @@ mod tests {
             full_fact(schema::REBUTS, Some("1")),
             full_fact(schema::CORROBORATES, Some("2")),
         ];
-        let detail = build_detail(&record("ready", None), &facts).expect("builds");
+        let rec = record("ready", None);
+        let detail = build_detail(&rec, &facts).expect("builds");
         assert_eq!(detail.attack, "Marie is obstructive");
         assert_eq!(detail.status, ScenarioStatus::Ready);
         assert_eq!(detail.id, "00000000-0000-0000-0000-000000000000");
@@ -618,6 +626,9 @@ mod tests {
         assert!(detail.responses.is_empty());
         assert_eq!(detail.pattern_summary, None);
         assert_eq!(detail.notes, None);
+        // Carry-through: the authored definition rides through unchanged (opaque
+        // Value, no transform) — the B2a contract at the service layer.
+        assert_eq!(detail.definition, rec.definition);
     }
 
     #[test]

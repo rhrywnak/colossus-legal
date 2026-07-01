@@ -150,6 +150,13 @@ pub struct ScenarioDetail {
     pub timeline: Vec<ExchangeTurn>,
     pub responses: Vec<MarieResponse>,
     pub notes: Option<String>,
+    /// The scenario's authored definition body, carried opaquely from the
+    /// Postgres `scenarios.definition` column (same `serde_json::Value` shape as
+    /// `ScenarioDto.definition`). `{}` for an un-authored scenario. The typed
+    /// shape (`ScenarioDefinition`, 8 keys) lives at the CRUD boundary in
+    /// `dto/scenario_crud.rs`; this endpoint stays JSON-opaque so the War Room
+    /// payload never has to re-model it.
+    pub definition: serde_json::Value,
 }
 
 #[cfg(test)]
@@ -321,6 +328,15 @@ mod tests {
             }],
             responses: Vec::new(),
             notes: None,
+            // A non-empty authored definition so the assertion PROVES the body is
+            // carried into the payload (not merely that an empty key exists). Only
+            // the required pair (attack_text + schema_v) is needed to be a valid
+            // shape; the extra keys exercise the opaque passthrough.
+            definition: json!({
+                "attack_text": "Marie is obstructive",
+                "schema_v": 1,
+                "wielders": ["George Phillips"]
+            }),
         };
 
         let value = serde_json::to_value(&detail).expect("detail serializes");
@@ -344,7 +360,12 @@ mod tests {
                     "repeated_after_rebuttal": false
                 }],
                 "responses": [],
-                "notes": null
+                "notes": null,
+                "definition": {
+                    "attack_text": "Marie is obstructive",
+                    "schema_v": 1,
+                    "wielders": ["George Phillips"]
+                }
             })
         );
     }

@@ -13,7 +13,7 @@
 // `ScenarioDto` mirrors the backend `dto/scenario_crud.rs` field-for-field.
 // =============================================================================
 
-import type { ScenarioStatus } from "../pages/trialPrepData";
+import type { ScenarioDefinition, ScenarioStatus } from "../pages/trialPrepData";
 import { API_BASE_URL } from "./api";
 import { authFetch } from "./auth";
 import { DEFAULT_CASE_SLUG } from "./caseHeader";
@@ -51,6 +51,25 @@ export interface ScenarioCreatePayload {
   feeds_count_id?: string;
   anchor_allegation_ids?: string[];
   definition?: unknown;
+}
+
+/**
+ * The update-scenario request body (mirrors the backend `ScenarioUpdateRequest`).
+ * Partial update: every field is optional and an ABSENT field leaves that column
+ * unchanged (the backend merges provided fields via SQL COALESCE).
+ *
+ * Two deliberate omissions, matching the backend: `direction` is NOT updatable
+ * (offense/defense is scenario identity), and `case_slug` is NOT here (the URL
+ * path is the only source of the case). Unlike `ScenarioCreatePayload.definition`
+ * (opaque `unknown`), this `definition` is the TYPED `ScenarioDefinition` — the
+ * authoring form builds a real definition, and the backend re-validates it.
+ */
+export interface ScenarioUpdatePayload {
+  name?: string;
+  status?: ScenarioStatus;
+  feeds_count_id?: string;
+  anchor_allegation_ids?: string[];
+  definition?: ScenarioDefinition;
 }
 
 /**
@@ -164,4 +183,71 @@ export async function listScenarios(
     );
   }
   return data as ScenarioDto[];
+}
+
+/**
+ * Update a scenario via `PUT /api/cases/:slug/scenarios/:scenarioId` (B1's
+ * partial-update route). Returns the updated `ScenarioDto`.
+ *
+ * Mirrors {@link createScenario}'s idiom exactly, for `PUT`: `authFetch`
+ * (credentials + 30s timeout), the backend's field-named `message` surfaced on a
+ * non-2xx, and boundary validation of the load-bearing response fields so a
+ * contract drift throws HERE rather than deep in a component.
+ *
+ * A `PUT` to a missing/cross-case scenario returns 404 — which is an ERROR here
+ * (the caller is editing a scenario it just loaded), not an empty state. It is
+ * surfaced as a thrown, contextual error like any other non-2xx; this function
+ * never returns null.
+ *
+ * @throws Error on any non-2xx (with the HTTP status and the backend's message
+ *   when present — a 404 for an unknown id, a 400 for a malformed definition), an
+ *   unparseable body, or a body missing the load-bearing fields.
+ */
+export async function updateScenario(
+  slug: string = DEFAULT_CASE_SLUG,
+  scenarioId: string,
+  payload: ScenarioUpdatePayload,
+): Promise<ScenarioDto> {
+  // authFetch adds credentials + a 30s timeout (AbortController) — Rule 13.
+  const response = await authFetch(
+    `${API_BASE_URL}/api/cases/${encodeURIComponent(slug)}/scenarios/${encodeURIComponent(scenarioId)}`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+  );
+
+  if (!response.ok) {
+    const detail = await readErrorMessage(response);
+    throw new Error(
+      `Failed to update scenario "${scenarioId}" for "${slug}" (HTTP ${response.status}${detail}).`,
+    );
+  }
+
+  let data: unknown;
+  try {
+    data = await response.json();
+  } catch {
+    throw new Error(
+      `Update-scenario response for "${scenarioId}" was not valid JSON (the backend may be down).`,
+    );
+  }
+
+  // Validate the fields the caller relies on, so a backend rename/omission throws
+  // HERE (with context) rather than surfacing as an `undefined` later.
+  const parsed = data as Partial<ScenarioDto>;
+  if (
+    typeof parsed.scenario_id !== "string" ||
+    typeof parsed.name !== "string" ||
+    typeof parsed.status !== "string" ||
+    !Array.isArray(parsed.anchor_allegation_ids)
+  ) {
+    throw new Error(
+      `Update-scenario response for "${scenarioId}" is missing required fields ` +
+        `(scenario_id/name/status/anchor_allegation_ids) — backend/frontend contract mismatch. ` +
+        `If this persists, report it to the site administrator.`,
+    );
+  }
+  return parsed as ScenarioDto;
 }

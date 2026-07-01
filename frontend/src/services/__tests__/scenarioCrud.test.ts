@@ -11,8 +11,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createScenario,
   listScenarios,
+  updateScenario,
   type ScenarioCreatePayload,
   type ScenarioDto,
+  type ScenarioUpdatePayload,
 } from "../scenarioCrud";
 
 const SLUG = "awad_v_catholic_family_service";
@@ -155,5 +157,99 @@ describe("listScenarios", () => {
     });
 
     await expect(listScenarios(SLUG)).rejects.toThrow(/was not an array/);
+  });
+});
+
+describe("updateScenario", () => {
+  const SCENARIO_ID = "00000000-0000-0000-0000-000000000000";
+
+  const updatePayload: ScenarioUpdatePayload = {
+    definition: {
+      attack_text: "Marie is obstructive and uncooperative",
+      wielders: ["CFS", "George Phillips"],
+      seed_phrases: ["uncooperative"],
+      anti_seed_phrases: [],
+      schema_v: 1,
+    },
+  };
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("PUTs the payload to the scenario-scoped URL and parses the response", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => validDto,
+    });
+    // @ts-ignore — minimal mock of the fetch Response we use
+    global.fetch = fetchMock;
+
+    await expect(
+      updateScenario(SLUG, SCENARIO_ID, updatePayload),
+    ).resolves.toEqual(validDto);
+
+    const [url, options] = fetchMock.mock.calls[0];
+    expect(url).toContain(`/api/cases/${SLUG}/scenarios/${SCENARIO_ID}`);
+    expect(options.method).toBe("PUT");
+    expect(JSON.parse(options.body)).toEqual(updatePayload);
+  });
+
+  it("throws with context on a 404 (a PUT to a missing scenario is an error, not an empty state)", async () => {
+    // @ts-ignore
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      json: async () => ({ error: "not_found", message: "scenario not found" }),
+    });
+
+    await expect(
+      updateScenario(SLUG, SCENARIO_ID, updatePayload),
+    ).rejects.toThrow(/HTTP 404.*scenario not found/);
+  });
+
+  it("throws with the backend's message on a non-2xx (e.g. a malformed definition → 400)", async () => {
+    // @ts-ignore
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      json: async () => ({
+        error: "validation_error",
+        message: "definition.attack_text is required",
+      }),
+    });
+
+    await expect(
+      updateScenario(SLUG, SCENARIO_ID, updatePayload),
+    ).rejects.toThrow(/HTTP 400.*attack_text is required/);
+  });
+
+  it("throws when the body is not valid JSON", async () => {
+    // @ts-ignore
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => {
+        throw new Error("Unexpected token < in JSON");
+      },
+    });
+
+    await expect(
+      updateScenario(SLUG, SCENARIO_ID, updatePayload),
+    ).rejects.toThrow(/was not valid JSON/);
+  });
+
+  it("throws on a contract mismatch (response missing load-bearing fields)", async () => {
+    // @ts-ignore — valid JSON, wrong shape (no scenario_id / anchor_allegation_ids)
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ name: "x" }),
+    });
+
+    await expect(
+      updateScenario(SLUG, SCENARIO_ID, updatePayload),
+    ).rejects.toThrow(/contract mismatch/);
   });
 });

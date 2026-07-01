@@ -14,6 +14,7 @@ import { useParams } from "react-router-dom";
 
 import Breadcrumb from "../components/Breadcrumb";
 import ScenarioCurationPanel from "../components/ScenarioCurationPanel";
+import ScenarioDefinitionForm from "../components/ScenarioDefinitionForm";
 import { EmptyState, ResponseCard } from "../components/TrialPrepViews";
 import { DEFAULT_CASE_SLUG } from "../services/caseHeader";
 import { getScenarioDetailLive } from "../services/trialPrep";
@@ -89,6 +90,11 @@ const ScenarioDetailPage: React.FC = () => {
   const [scenario, setScenario] = useState<ScenarioDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Bumped after the definition form saves, to re-fetch the scenario (the same
+  // idiom ScenarioCurationPanel uses). Keyed into the load effect below so the
+  // page re-loads and the form re-fills from the persisted definition — a
+  // re-fetch, not a hand-merged response, is the source of truth.
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     if (!scenarioId) {
@@ -116,7 +122,7 @@ const ScenarioDetailPage: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [slug, scenarioId]);
+  }, [slug, scenarioId, refreshKey]);
 
   // Breadcrumb shown on every gating state (loading / error / not-found).
   const gatingCrumb = (
@@ -177,6 +183,19 @@ const ScenarioDetailPage: React.FC = () => {
 
       <div style={sectionLabel}>The attack</div>
       <div style={attackBox}>{scenario.attack}</div>
+
+      {/* B2a: author this scenario's definition (theme + seeds). Sits between the
+          attack and the curated-facts binder — authoring, then seeding. On save
+          it bumps `refreshKey` so the page re-fetches and the form re-fills from
+          the persisted definition. */}
+      {scenarioId && (
+        <ScenarioDefinitionForm
+          slug={slug}
+          scenarioId={scenarioId}
+          definition={scenario.definition}
+          onSaved={() => setRefreshKey((k) => k + 1)}
+        />
+      )}
 
       {/* Phase A: the curated-facts binder replaces the old (broken)
           allegation-anchored timeline. `scenarioId` is defined here (the
