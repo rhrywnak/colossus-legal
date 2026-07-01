@@ -190,6 +190,100 @@ pub async fn delete_scenarios_for_case(
     Ok(result.rows_affected())
 }
 
+/// Apply a partial update to one scenario and return the merged row.
+///
+/// ## The partial merge happens IN SQL, via `COALESCE`
+///
+/// Each mutable field is an `Option`: `Some(v)` writes `v`; `None` leaves the
+/// column at its existing value. The merge is done by the database
+/// (`COALESCE($n, column)`), NOT in Rust. `direction` is deliberately absent from
+/// the SET list — offense/defense is a scenario's identity, not a mutable field
+/// (mirrors `ScenarioUpdateRequest` omitting it).
+///
+/// ## Why this reads the row back with `RETURNING` (unlike `insert_scenario`)
+///
+/// `insert_scenario` can hand its caller a DTO built from the request values — it
+/// wrote exactly those. An UPDATE cannot: a partial update leaves the
+/// non-provided columns at their pre-existing DB values, which the caller does
+/// not hold. So the `RETURNING {SCENARIO_COLUMNS}` row — decoded by the SAME
+/// `query_as::<_, ScenarioRecord>` mechanism `get_scenario` uses — is the only
+/// source of truth for the merged result, and this function returns the record
+/// rather than `()`.
+///
+/// ## Two accepted B1 semantics (documented, NOT worked around)
+///
+/// - **`COALESCE` conflates "absent" with "null".** A `None` argument means
+///   "field absent → keep existing"; there is therefore NO way through this
+///   function to deliberately set `feeds_count_id` or `anchor_allegation_ids`
+///   back to SQL NULL. Clearing a nullable field via `PUT` is unsupported in B1.
+///   (Fixing it would need `Option<Option<T>>` or a presence sentinel — out of
+///   scope.)
+/// - **`definition` is a WHOLE-VALUE replace, not a deep merge.** A provided
+///   `definition` overwrites the entire jsonb blob; it does not merge key-by-key
+///   into the existing one. Correct for B1 — the typed `ScenarioDefinition` is
+///   authored and replaced as one unit. (Row-level partial update + definition-
+///   level whole replace is intentional, not a bug.)
+///
+/// The `WHERE scenario_id = $1 AND case_slug = $7` is the cross-case fence: an
+/// update reached through the wrong case path matches zero rows (same discipline
+/// the reads use), which surfaces as [`PipelineRepoError::NotFound`] — never a
+/// silent no-op (Standing Rule 1).
+///
+/// # Errors
+/// - [`PipelineRepoError::NotFound`] if no row matches `(scenario_id, case_slug)`
+///   — a missing id OR a cross-case mismatch (indistinguishable by design, so
+///   neither confirms the row exists under another case).
+/// - [`PipelineRepoError`] (via the `From<sqlx::Error>` conversion) on any other
+///   DB failure — including a CHECK violation if a bad `status` slips past the
+///   handler's validation.
+// Eight parameters (executor + scenario_id + the `case_slug` fence + five mutable
+// fields) trips `clippy::too_many_arguments`, exactly as `insert_scenario` does.
+// Each is a distinct required value; a params struct buys nothing and would
+// diverge from the sibling writer, so we carry the same allow for the same reason.
+#[allow(clippy::too_many_arguments)]
+pub async fn update_scenario(
+    executor: impl sqlx::PgExecutor<'_>,
+    scenario_id: uuid::Uuid,
+    case_slug: &str,
+    name: Option<&str>,
+    status: Option<&str>,
+    feeds_count_id: Option<&str>,
+    anchor_allegation_ids: Option<&[String]>,
+    definition: Option<&serde_json::Value>,
+) -> Result<ScenarioRecord, PipelineRepoError> {
+    // RETURNING reuses the shared projection so the read-back can never drift
+    // from `get_scenario`'s column set. `updated_at` is already in
+    // `SCENARIO_COLUMNS`, so it is NOT re-listed here.
+    let sql = format!(
+        "UPDATE scenarios SET \
+             name                  = COALESCE($2, name), \
+             status                = COALESCE($3, status), \
+             feeds_count_id        = COALESCE($4, feeds_count_id), \
+             anchor_allegation_ids = COALESCE($5, anchor_allegation_ids), \
+             definition            = COALESCE($6, definition), \
+             updated_at            = now() \
+         WHERE scenario_id = $1 AND case_slug = $7 \
+         RETURNING {SCENARIO_COLUMNS}"
+    );
+
+    // Bind order matches $1..$7 above. A `None` binds as SQL NULL, so the
+    // corresponding `COALESCE` keeps the column's existing value.
+    let row = sqlx::query_as::<_, ScenarioRecord>(&sql)
+        .bind(scenario_id)
+        .bind(name)
+        .bind(status)
+        .bind(feeds_count_id)
+        .bind(anchor_allegation_ids)
+        .bind(definition)
+        .bind(case_slug)
+        .fetch_optional(executor)
+        .await?;
+
+    // Zero rows ⇒ no scenario with that id in that case. Loud, specific NotFound —
+    // never a silent success. Mirrors the `authored_entities` update precedent.
+    row.ok_or_else(|| PipelineRepoError::NotFound(scenario_id.to_string()))
+}
+
 // ── scenario_fact_refs (task 1.2) ────────────────────────────────
 
 /// A row from `scenario_fact_refs` — one graph fact's reference into one
@@ -333,6 +427,38 @@ mod tests {
             .join(filename);
         std::fs::read_to_string(&path)
             .unwrap_or_else(|e| panic!("read migration {}: {e}", path.display()))
+    }
+
+    /// Compile-only guard on `update_scenario`'s signature.
+    ///
+    /// This function is NEVER invoked (`#[allow(dead_code)]`) — it exists purely
+    /// so the compiler type-checks the exact argument list B1 depends on:
+    /// executor-generic (a `&PgPool` satisfies the bound), the cross-case
+    /// `case_slug` fence, the five `Option`-wrapped mutable fields in their
+    /// COALESCE bind order, and the `Result<ScenarioRecord, PipelineRepoError>`
+    /// return. A drift in the parameter list — which would silently break the
+    /// bind order or drop the fence — fails the build HERE rather than at a far
+    /// call site. The module's other tests are filesystem migration-scans that
+    /// cannot exercise live SQL, so this compile check is the store-layer
+    /// discipline for a function whose real behavior lives in the `--ignored`
+    /// integration suite.
+    #[allow(dead_code)]
+    async fn update_scenario_signature_is_stable(pool: &sqlx::PgPool) {
+        // Named binding with an explicit type asserts the return shape; the
+        // leading underscore suppresses the unused-variable warning. This is a
+        // typed binding, NOT a `let _ = ` Result discard (Standing Rule 1).
+        let _result: Result<super::ScenarioRecord, super::PipelineRepoError> =
+            super::update_scenario(
+                pool,
+                uuid::Uuid::nil(),
+                "awad_v_catholic_family_service",
+                Some("Marie is obstructive"),
+                Some("draft"),
+                Some("count-1"),
+                Some(&["allegation-1".to_string()][..]),
+                Some(&serde_json::json!({ "attack_text": "x", "schema_v": 1 })),
+            )
+            .await;
     }
 
     /// True if `line` (already trimmed + lowercased) is a column-definition line

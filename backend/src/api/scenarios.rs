@@ -22,10 +22,11 @@ use uuid::Uuid;
 
 use crate::{
     auth::{require_edit, AuthUser},
-    dto::{ScenarioCreateRequest, ScenarioDto},
+    dto::{ScenarioCreateRequest, ScenarioDto, ScenarioUpdateRequest},
     error::AppError,
     repositories::pipeline_repository::{
-        get_scenario, insert_scenario, list_scenarios_for_case, ScenarioRecord,
+        get_scenario, insert_scenario, list_scenarios_for_case,
+        update_scenario as update_scenario_row, PipelineRepoError, ScenarioRecord,
     },
     state::AppState,
 };
@@ -245,6 +246,116 @@ pub async fn create_scenario(
     Ok((StatusCode::CREATED, Json(dto)))
 }
 
+/// Map an `update_scenario` store error onto the HTTP surface.
+///
+/// `NotFound` (no row for the `(scenario_id, case_slug)` pair — a missing id OR a
+/// cross-case mismatch) becomes a `404`, so the response never confirms the row
+/// exists under a different case (the write-side of the read fence). Anything
+/// else is an unexpected server fault (`500`), logged with its cause so the
+/// failure is observable (Standing Rule 1). Extracted from the handler to keep it
+/// under the function-length limit.
+fn map_update_error(error: PipelineRepoError, slug: &str) -> AppError {
+    match error {
+        PipelineRepoError::NotFound(_) => {
+            tracing::debug!("scenario not found for update");
+            AppError::NotFound {
+                message: "scenario not found".to_string(),
+            }
+        }
+        other => {
+            tracing::error!(error = %other, case_slug = %slug, "failed to update scenario");
+            AppError::Internal {
+                message: "failed to update scenario".to_string(),
+            }
+        }
+    }
+}
+
+/// `PUT /cases/:slug/scenarios/:scenario_id` — partially update a scenario.
+///
+/// Mirrors [`create_scenario`]'s auth / extractor / pool / error shape. The
+/// differences are the whole point of B1: every body field is optional (absent =
+/// leave unchanged), `direction` is not updatable, and — unlike create — the
+/// response is built from the row the store reads back via `RETURNING`, because a
+/// partial update leaves non-provided fields at DB values the handler does not
+/// hold.
+///
+/// The cross-case fence lives in the store's `WHERE ... AND case_slug = $`: an
+/// update reached through the wrong `:slug` matches zero rows and surfaces as a
+/// `404` (same as the read fence), never confirming the row exists under another
+/// case.
+#[tracing::instrument(skip(state, user, payload), fields(slug = %slug, scenario_id = %scenario_id))]
+pub async fn update_scenario(
+    user: AuthUser,
+    State(state): State<AppState>,
+    Path((slug, scenario_id)): Path<(String, String)>,
+    Json(payload): Json<ScenarioUpdateRequest>,
+) -> Result<(StatusCode, Json<ScenarioDto>), AppError> {
+    require_edit(&user)?;
+    tracing::info!(
+        "{} PUT /cases/{}/scenarios/{}",
+        user.username,
+        slug,
+        scenario_id
+    );
+
+    // A malformed uuid is a client error (400), not a server fault (500) — same
+    // as `get_scenario_by_id`.
+    let id = Uuid::parse_str(&scenario_id).map_err(|_| AppError::BadRequest {
+        message: "scenario_id must be a valid UUID".to_string(),
+        details: json!({ "field": "scenario_id" }),
+    })?;
+
+    // Validate ONLY the fields being changed; an absent field is left untouched,
+    // so there is nothing to validate. A bad `status` would otherwise surface as
+    // a 500 from the CHECK constraint instead of a named 400.
+    if let Some(ref name) = payload.name {
+        validate_name(name)?;
+    }
+    if let Some(ref status) = payload.status {
+        validate_status(status)?;
+    }
+
+    // Typed definition → opaque jsonb for the store (symmetric with create). A
+    // MALFORMED definition body was already rejected as a 400 by the JSON
+    // extractor before this handler ran (the loud boundary). `to_value` failing
+    // here is a serialization fault we surface rather than unwrap (Standing
+    // Rule 1); `.transpose()` turns `Option<Result<_>>` into `Result<Option<_>>`.
+    let definition = payload
+        .definition
+        .as_ref()
+        .map(|d| d.to_value())
+        .transpose()
+        .map_err(|e| {
+            tracing::error!(error = %e, case_slug = %slug, "failed to serialize scenario definition");
+            AppError::Internal {
+                message: "failed to serialize scenario definition".to_string(),
+            }
+        })?;
+
+    // Trim a provided name to match create's normalization; owned so the `&str`
+    // bind below borrows from a live value.
+    let name = payload.name.as_ref().map(|n| n.trim().to_string());
+
+    let record = update_scenario_row(
+        &state.pipeline_pool,
+        id,
+        &slug,
+        name.as_deref(),
+        payload.status.as_deref(),
+        payload.feeds_count_id.as_deref(),
+        payload.anchor_allegation_ids.as_deref(),
+        definition.as_ref(),
+    )
+    .await
+    .map_err(|e| map_update_error(e, &slug))?;
+
+    // The merged row read back by RETURNING is the source of truth (a partial
+    // update leaves non-provided fields at their prior DB values). 200, symmetric
+    // with create's 201.
+    Ok((StatusCode::OK, Json(to_dto(record))))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -335,5 +446,31 @@ mod tests {
         ];
         let dto = to_dto(sample_record(Some(ids.clone())));
         assert_eq!(dto.anchor_allegation_ids, ids);
+    }
+
+    #[test]
+    fn map_update_error_not_found_becomes_404() {
+        // A store `NotFound` (missing id OR cross-case mismatch) must surface as a
+        // 404, so the response never confirms the row exists under another case.
+        match map_update_error(
+            PipelineRepoError::NotFound("some-uuid".to_string()),
+            "awad_v_cfs",
+        ) {
+            AppError::NotFound { message } => assert!(message.contains("not found")),
+            other => panic!("expected NotFound → 404, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn map_update_error_other_becomes_500() {
+        // Any non-NotFound store error is an unexpected server fault → 500, never a
+        // silent success (Standing Rule 1).
+        match map_update_error(
+            PipelineRepoError::Database("conn refused".to_string()),
+            "awad_v_cfs",
+        ) {
+            AppError::Internal { message } => assert!(message.contains("update scenario")),
+            other => panic!("expected Internal → 500, got {other:?}"),
+        }
     }
 }

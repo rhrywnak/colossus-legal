@@ -55,7 +55,9 @@ pub use scenario::{
     ScenarioPage, ScenarioPageParams, ScenarioRebuttalFact, ScenarioRebuttalFactsResponse,
     ScenarioRelatedAllegation, ScenarioRelatedAllegationsResponse,
 };
-pub use scenario_crud::{ScenarioCreateRequest, ScenarioDto};
+pub use scenario_crud::{
+    ScenarioCreateRequest, ScenarioDefinition, ScenarioDto, ScenarioUpdateRequest,
+};
 pub use scenario_facts::{AddFactRequest, ScenarioFactDto};
 pub use schema::SchemaResponse;
 pub use trial_prep::{
