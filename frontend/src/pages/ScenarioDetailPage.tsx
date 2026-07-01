@@ -201,7 +201,11 @@ const ScenarioDetailPage: React.FC = () => {
           allegation-anchored timeline. `scenarioId` is defined here (the
           detail loaded via it), but the guard keeps the type honest. */}
       {scenarioId && (
-        <ScenarioCurationPanel slug={slug} scenarioId={scenarioId} />
+        <ScenarioCurationPanel
+          slug={slug}
+          scenarioId={scenarioId}
+          definition={scenario.definition}
+        />
       )}
 
       <div style={sectionLabel}>Marie's responses</div>

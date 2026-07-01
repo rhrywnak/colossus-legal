@@ -13,16 +13,19 @@
 // (Standing Rule 2). If that default is unset on a deployment, the panel opens
 // with no subject pre-selected and the user picks one.
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 
 import {
   getAvailableFilters,
   runBiasQuery,
+  type ActorOption,
   type BiasInstance,
   type BiasQueryFilters,
 } from "../services/bias";
 import { addScenarioFact } from "../services/scenarioFacts";
 import EvidenceCard from "../pages/BiasExplorer/EvidenceCard";
+import type { ScenarioDefinition } from "../pages/trialPrepData";
+import { seedFiltersFromDefinition } from "./candidateSeed";
 
 interface Props {
   slug: string;
@@ -31,6 +34,9 @@ interface Props {
   savedIds: Set<string>;
   /** Called after a successful add so the parent can refresh the saved list. */
   onAdded: () => void;
+  /** This scenario's authored definition (B2a). When it carries an `attack_text`,
+   *  the panel auto-seeds its filters to that theme; absent / `{}` → fallback. */
+  definition?: ScenarioDefinition;
 }
 
 const toggleStyle: React.CSSProperties = {
@@ -109,12 +115,31 @@ const CandidateFactsPanel: React.FC<Props> = ({
   scenarioId,
   savedIds,
   onAdded,
+  definition,
 }) => {
   const [open, setOpen] = useState(false);
 
   const [patternTags, setPatternTags] = useState<string[]>([]);
   const [defaultSubjectId, setDefaultSubjectId] = useState<string | undefined>();
   const [patternTag, setPatternTag] = useState<string>(ALL_PATTERNS);
+  // Retained from the vocab load so a definition's target/wielder NAMES can be
+  // resolved to ids (B2b). Today the fetch discards these; the seed needs them.
+  const [subjects, setSubjects] = useState<ActorOption[]>([]);
+  const [actors, setActors] = useState<ActorOption[]>([]);
+
+  // Resolve the definition into primitive seed inputs. The loop guard lives in
+  // effect (b): it depends on this seed's PRIMITIVE fields (strings/bool), NOT the
+  // seed object — so even if this memo recomputed on every render, a seed with
+  // identical primitives cannot re-fire the query. (`patternTags` is a memo dep
+  // because a seed phrase matches against it.) In practice the memo is also
+  // stable: `subjects`/`actors`/`patternTags` are set once by effect (a) and not
+  // re-created (its `patternTags.length > 0` guard blocks a refetch on re-open);
+  // if that guard ever changes, the memo may recompute but the primitive-dep
+  // guard in effect (b) still prevents a query loop.
+  const seed = useMemo(
+    () => seedFiltersFromDefinition(definition, subjects, actors, patternTags),
+    [definition, subjects, actors, patternTags],
+  );
 
   const [instances, setInstances] = useState<BiasInstance[]>([]);
   const [loading, setLoading] = useState(false);
@@ -135,13 +160,19 @@ const CandidateFactsPanel: React.FC<Props> = ({
         if (cancelled) return;
         setPatternTags(filters.pattern_tags);
         setDefaultSubjectId(filters.default_subject_id);
+        // Retain the actor/subject vocab for name→id seeding (B2b).
+        setSubjects(filters.subjects);
+        setActors(filters.actors);
       })
       .catch((err: unknown) => {
         if (cancelled) return;
+        // The service-layer message already names the bias-filters endpoint;
+        // append recovery guidance (the dropdowns are empty without the vocab, so
+        // the user needs to know it's retryable — Standing Rule 1).
         setError(
           err instanceof Error
-            ? err.message
-            : "Failed to load the candidate filters.",
+            ? `${err.message} — close and reopen the panel to retry.`
+            : "Failed to load the candidate filters — close and reopen the panel to retry.",
         );
       });
     return () => {
@@ -149,17 +180,33 @@ const CandidateFactsPanel: React.FC<Props> = ({
     };
   }, [open, patternTags.length]);
 
-  // Run the bias query whenever the panel is open and the filter changes. The
-  // subject is the server-resolved default; the pattern tag is user-chosen.
+  // Run the bias query whenever the panel is open and the filter changes.
+  //
+  // For an AUTHORED scenario (`seed.defined`) the filters are seeded from the
+  // definition: the target's subject and the first wielder's actor, plus the
+  // seeded tag as a default the user can still override. For an un-authored
+  // scenario the behavior is exactly as before — case-default subject, no actor,
+  // user-driven tag. Depends on the seed's PRIMITIVE fields (not the object) so a
+  // new object identity per render cannot loop the query.
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
     setLoading(true);
     setError(null);
-    const filters: BiasQueryFilters = {
-      subject_id: defaultSubjectId,
-      pattern_tag: patternTag === ALL_PATTERNS ? undefined : patternTag,
-    };
+    const userTag = patternTag === ALL_PATTERNS ? undefined : patternTag;
+    const filters: BiasQueryFilters = seed.defined
+      ? {
+          // Seed wins; fall back to the case default only if the target did not
+          // resolve. `actor_id` is a new dimension — undefined when the wielder
+          // is absent/unresolved. The user's tag choice overrides the seed's.
+          subject_id: seed.subjectId ?? defaultSubjectId,
+          actor_id: seed.actorId,
+          pattern_tag: userTag ?? seed.patternTag,
+        }
+      : {
+          subject_id: defaultSubjectId,
+          pattern_tag: userTag,
+        };
     runBiasQuery(filters)
       .then((result) => {
         if (cancelled) return;
@@ -178,7 +225,15 @@ const CandidateFactsPanel: React.FC<Props> = ({
     return () => {
       cancelled = true;
     };
-  }, [open, defaultSubjectId, patternTag]);
+  }, [
+    open,
+    defaultSubjectId,
+    patternTag,
+    seed.defined,
+    seed.subjectId,
+    seed.actorId,
+    seed.patternTag,
+  ]);
 
   const handleAdd = (evidenceId: string) => {
     setAddError(null);
@@ -224,6 +279,17 @@ const CandidateFactsPanel: React.FC<Props> = ({
             </select>
           </label>
         </div>
+
+        {/* B2b: a definition named a party the graph vocab couldn't match. Muted
+            advisory (not an error) — the panel simply didn't filter on it, so the
+            miss is visible rather than silently defaulting to the case subject. */}
+        {seed.defined &&
+          seed.unresolved.map((u) => (
+            <div key={`${u.field}:${u.name}`} style={messageStyle}>
+              Couldn't match “{u.name}” ({u.field}) to a known party — not
+              filtering on it.
+            </div>
+          ))}
 
         {error && <div style={errorStyle}>{error}</div>}
 

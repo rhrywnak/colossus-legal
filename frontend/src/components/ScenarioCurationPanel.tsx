@@ -18,10 +18,14 @@ import {
 } from "../services/scenarioFacts";
 import EvidenceCard from "../pages/BiasExplorer/EvidenceCard";
 import CandidateFactsPanel from "./CandidateFactsPanel";
+import type { ScenarioDefinition } from "../pages/trialPrepData";
 
 interface Props {
   slug: string;
   scenarioId: string;
+  /** This scenario's authored definition (B2a). Pure pass-through — the binder
+   *  does not consume it; it forwards it to CandidateFactsPanel for seeding. */
+  definition?: ScenarioDefinition;
 }
 
 const sectionLabel: React.CSSProperties = {
@@ -72,7 +76,11 @@ const removeBtnStyle: React.CSSProperties = {
   cursor: "pointer",
 };
 
-const ScenarioCurationPanel: React.FC<Props> = ({ slug, scenarioId }) => {
+const ScenarioCurationPanel: React.FC<Props> = ({
+  slug,
+  scenarioId,
+  definition,
+}) => {
   const [facts, setFacts] = useState<ScenarioFactDto[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -173,6 +181,7 @@ const ScenarioCurationPanel: React.FC<Props> = ({ slug, scenarioId }) => {
         scenarioId={scenarioId}
         savedIds={savedIds}
         onAdded={bump}
+        definition={definition}
       />
     </div>
   );
