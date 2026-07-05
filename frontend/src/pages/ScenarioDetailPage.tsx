@@ -18,7 +18,7 @@ import ScenarioDefinitionForm from "../components/ScenarioDefinitionForm";
 import ScenarioDeleteConfirm from "../components/ScenarioDeleteConfirm";
 import { EmptyState, ResponseCard } from "../components/TrialPrepViews";
 import { DEFAULT_CASE_SLUG } from "../services/caseHeader";
-import { deleteScenario } from "../services/scenarioCrud";
+import { deleteScenario, updateScenario } from "../services/scenarioCrud";
 import { getScenarioDetailLive } from "../services/trialPrep";
 import type { ScenarioDetail } from "./trialPrepData";
 import { statusMeta } from "./trialPrepHelpers";
@@ -65,6 +65,46 @@ const deleteBtnStyle: React.CSSProperties = {
   color: "var(--state-danger-strong)",
   cursor: "pointer",
 };
+// Inline title editor (D1.6). The input is sized to read like the title it
+// replaces; Save/Cancel are compact neutral/accent buttons.
+const titleInputStyle: React.CSSProperties = {
+  flex: "1 1 auto",
+  minWidth: 0,
+  fontSize: "1.5rem",
+  fontWeight: 700,
+  padding: "0.2rem 0.5rem",
+  border: "1px solid var(--border-default)",
+  borderRadius: "6px",
+  backgroundColor: "var(--bg-surface)",
+  color: "var(--text-primary)",
+};
+const titleSaveBtn: React.CSSProperties = {
+  border: "1px solid var(--accent-primary)",
+  borderRadius: "6px",
+  padding: "0.35rem 0.8rem",
+  fontSize: "0.8rem",
+  fontWeight: 600,
+  backgroundColor: "var(--accent-bg-soft)",
+  color: "var(--accent-primary)",
+  cursor: "pointer",
+};
+const titleSaveBtnDisabled: React.CSSProperties = {
+  ...titleSaveBtn,
+  opacity: 0.5,
+  cursor: "not-allowed",
+};
+const titleCancelBtn: React.CSSProperties = {
+  border: "1px solid var(--border-default)",
+  borderRadius: "6px",
+  padding: "0.35rem 0.8rem",
+  fontSize: "0.8rem",
+  fontWeight: 600,
+  backgroundColor: "var(--bg-surface)",
+  color: "var(--text-secondary)",
+  cursor: "pointer",
+};
+// The title in view mode reads as a clickable affordance (hover cursor).
+const titleViewStyle: React.CSSProperties = { margin: 0, cursor: "pointer" };
 const patternHeadline: React.CSSProperties = {
   marginTop: "0.75rem",
   padding: "0.6rem 0.9rem",
@@ -118,6 +158,72 @@ const ScenarioDetailPage: React.FC = () => {
   const [showDelete, setShowDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  // ── Inline title-rename state machine (D1.6) ───────────────────────────────
+  //
+  // A tiny two-state UI: VIEW (the <h1>, click to edit) ↔ EDIT (an input +
+  // Save/Cancel). `titleDraft` is LOCAL, editable text; it is deliberately kept
+  // separate from the fetched `scenario.attack` so typing never mutates the
+  // displayed source-of-truth until a save actually persists.
+  //
+  // Domain note: the field being edited is the scenario's top-level NAME. On this
+  // payload the name arrives (confusingly) as `scenario.attack` — the backend
+  // `build_detail` maps the `name` column onto the DTO's `attack` field. It is NOT
+  // `attack_text` (the accusation), which lives in `scenario.definition`. So we
+  // SEED the draft from `scenario.attack` but SEND `{ name }`.
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState("");
+  const [savingTitle, setSavingTitle] = useState(false);
+  const [titleError, setTitleError] = useState<string | null>(null);
+
+  // Validation parity with the backend `validate_name`: a name must be
+  // non-empty / non-whitespace. Save is disabled otherwise (and while in flight).
+  const canSaveTitle =
+    titleDraft.trim().length > 0 && !savingTitle;
+
+  const beginEditTitle = () => {
+    if (!scenario) return;
+    setTitleDraft(scenario.attack); // seed from the persisted name (see note above)
+    setTitleError(null);
+    setEditingTitle(true);
+  };
+
+  const cancelEditTitle = () => {
+    setEditingTitle(false);
+    setTitleError(null);
+  };
+
+  const handleSaveTitle = () => {
+    if (!scenarioId) return;
+    const trimmed = titleDraft.trim();
+    if (!trimmed) return; // guarded even though Save is disabled when empty
+
+    setSavingTitle(true);
+    setTitleError(null);
+    // Send the TOP-LEVEL name (never attack_text) through the same PUT the define
+    // form uses. On success we do NOT optimistically show `trimmed`: we bump
+    // `refreshKey` and let the re-fetch supply the title. Why: the persisted value
+    // can differ from the draft (the backend trims `name`), so the RELOAD is the
+    // source of truth, not the local input — the same discipline the define form
+    // follows via `onSaved`.
+    updateScenario(slug, scenarioId, { name: trimmed })
+      .then(() => {
+        setEditingTitle(false);
+        setSavingTitle(false);
+        setRefreshKey((k) => k + 1);
+      })
+      .catch((err: unknown) => {
+        // Standing Rule 1: a failed rename stays visible and the editor stays OPEN
+        // with the user's text intact — we never silently revert, and never let
+        // the title show a name that was not actually saved.
+        setTitleError(
+          err instanceof Error
+            ? err.message
+            : "Failed to rename the scenario. Try again.",
+        );
+        setSavingTitle(false);
+      });
+  };
 
   const handleDelete = () => {
     if (!scenarioId) return;
@@ -209,26 +315,74 @@ const ScenarioDetailPage: React.FC = () => {
       />
 
       <div style={{ display: "flex", alignItems: "center", gap: "1rem", marginBottom: "0.5rem" }}>
-        <h1 className="count-header" style={{ margin: 0 }}>
-          {scenario.attack}
-        </h1>
-        {/* Deferred "Binder" affordance — inert/greyed in Stage 1. */}
-        <span style={binderStyle} aria-disabled="true" title="Coming soon">
-          Binder
-        </span>
-        {scenarioId && (
-          <button
-            type="button"
-            style={deleteBtnStyle}
-            onClick={() => {
-              setDeleteError(null);
-              setShowDelete(true);
-            }}
-          >
-            Delete scenario
-          </button>
+        {editingTitle ? (
+          // EDIT mode: an input over the local draft + Save/Cancel. Enter saves
+          // (when valid), Escape cancels — keyboard parity with the buttons.
+          <>
+            <input
+              autoFocus
+              aria-label="Scenario name"
+              style={titleInputStyle}
+              value={titleDraft}
+              disabled={savingTitle}
+              onChange={(e) => setTitleDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && canSaveTitle) handleSaveTitle();
+                if (e.key === "Escape") cancelEditTitle();
+              }}
+            />
+            <button
+              type="button"
+              style={canSaveTitle ? titleSaveBtn : titleSaveBtnDisabled}
+              onClick={handleSaveTitle}
+              disabled={!canSaveTitle}
+            >
+              {savingTitle ? "Saving…" : "Save"}
+            </button>
+            <button
+              type="button"
+              style={titleCancelBtn}
+              onClick={cancelEditTitle}
+              disabled={savingTitle}
+            >
+              Cancel
+            </button>
+          </>
+        ) : (
+          // VIEW mode: the title reads as a clickable affordance. `scenario.attack`
+          // holds the top-level NAME (see the state-machine note above), so clicking
+          // it opens the NAME editor — not the accusation/define surface.
+          <>
+            <h1
+              className="count-header"
+              style={titleViewStyle}
+              title="Click to rename"
+              onClick={beginEditTitle}
+            >
+              {scenario.attack}
+            </h1>
+            {/* Deferred "Binder" affordance — inert/greyed in Stage 1. */}
+            <span style={binderStyle} aria-disabled="true" title="Coming soon">
+              Binder
+            </span>
+            {scenarioId && (
+              <button
+                type="button"
+                style={deleteBtnStyle}
+                onClick={() => {
+                  setDeleteError(null);
+                  setShowDelete(true);
+                }}
+              >
+                Delete scenario
+              </button>
+            )}
+          </>
         )}
       </div>
+      {/* A failed rename stays visible here; the editor above stays open with the
+          user's text intact (never a silent revert / false success). */}
+      {editingTitle && titleError && <div style={errorStyle}>{titleError}</div>}
       <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: "1rem" }}>
         Status: <span style={{ color: status.color, fontWeight: 600 }}>{status.label}</span>
       </div>
