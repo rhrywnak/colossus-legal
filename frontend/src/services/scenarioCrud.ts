@@ -251,3 +251,38 @@ export async function updateScenario(
   }
   return parsed as ScenarioDto;
 }
+
+/**
+ * Hard-delete a scenario via `DELETE /api/cases/:slug/scenarios/:scenarioId`.
+ *
+ * The backend returns `204 No Content` on success — so, unlike create/update,
+ * there is NO body to parse: the resolved promise (void) IS the success signal.
+ * A non-2xx (404 for an unknown id / wrong case, 400 for a malformed id, 500 for
+ * a store fault) is surfaced as a thrown, contextual error — never swallowed, so
+ * the caller can keep the confirm dialog open and show the failure rather than
+ * report a delete that did not happen (Standing Rule 1).
+ *
+ * Mirrors `removeScenarioFact`'s no-body DELETE idiom, plus `updateScenario`'s
+ * `readErrorMessage` so the backend's message reaches the user on a 4xx.
+ *
+ * @throws Error on any non-2xx (with the HTTP status and the backend's message
+ *   when present).
+ */
+export async function deleteScenario(
+  slug: string = DEFAULT_CASE_SLUG,
+  scenarioId: string,
+): Promise<void> {
+  // authFetch adds credentials + a 30s timeout (AbortController) — Rule 13.
+  const response = await authFetch(
+    `${API_BASE_URL}/api/cases/${encodeURIComponent(slug)}/scenarios/${encodeURIComponent(scenarioId)}`,
+    { method: "DELETE" },
+  );
+
+  if (!response.ok) {
+    const detail = await readErrorMessage(response);
+    throw new Error(
+      `Failed to delete scenario "${scenarioId}" for "${slug}" (HTTP ${response.status}${detail}).`,
+    );
+  }
+  // 204 No Content — nothing to read back; the absence of a throw is success.
+}

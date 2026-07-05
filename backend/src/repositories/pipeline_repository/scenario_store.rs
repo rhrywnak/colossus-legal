@@ -190,6 +190,49 @@ pub async fn delete_scenarios_for_case(
     Ok(result.rows_affected())
 }
 
+/// Hard-delete ONE scenario, scoped by both its id AND its case. Returns the
+/// number of rows removed (0 or 1).
+///
+/// ## Why the `case_slug` is in the WHERE clause, not checked afterwards
+///
+/// `scenario_id` is globally unique, so `WHERE scenario_id = $1` alone would
+/// delete a row regardless of which case's URL reached it. Pinning the delete to
+/// `scenario_id = $1 AND case_slug = $2` makes the case-isolation fence atomic:
+/// a delete aimed through the wrong `:slug` matches zero rows and removes nothing,
+/// so the caller cannot delete — nor even confirm the existence of — a scenario in
+/// another case. This mirrors `update_scenario`'s fence exactly.
+///
+/// ## Rust Learning: `rows_affected()` vs `RETURNING` as the "did it delete?" signal
+///
+/// Two ways to know whether a `DELETE` hit a row. `RETURNING <cols>` sends the
+/// deleted row back — useful only if the caller needs the row's data. Here the
+/// caller just needs "0 or 1"; a `DELETE` with no `RETURNING` still reports how
+/// many rows it touched via `result.rows_affected()`. So we take the cheaper
+/// signal — no row is read back — and let the HANDLER turn `0` into a 404 and `1`
+/// into a 204. This matches the same-module deletes (`delete_scenarios_for_case`,
+/// `delete_fact_ref`), which all return `rows_affected()`.
+///
+/// The FK chain does the rest: `scenario_fact_refs` and `scenario_responses`
+/// (and, below them, `response_items` → `response_item_fact_refs`) all declare
+/// `ON DELETE CASCADE` back to `scenarios`, so deleting the row here takes its
+/// curated facts and responses with it in the same statement — no manual cascade.
+///
+/// # Errors
+/// Returns [`PipelineRepoError`] if the delete fails (a genuine store fault; a
+/// no-such-row is NOT an error here — it is `Ok(0)`, which the handler maps to 404).
+pub async fn delete_scenario(
+    executor: impl sqlx::PgExecutor<'_>,
+    scenario_id: uuid::Uuid,
+    case_slug: &str,
+) -> Result<u64, PipelineRepoError> {
+    let result = sqlx::query("DELETE FROM scenarios WHERE scenario_id = $1 AND case_slug = $2")
+        .bind(scenario_id)
+        .bind(case_slug)
+        .execute(executor)
+        .await?;
+    Ok(result.rows_affected())
+}
+
 /// Apply a partial update to one scenario and return the merged row.
 ///
 /// ## The partial merge happens IN SQL, via `COALESCE`

@@ -137,7 +137,9 @@ fn case_routes() -> Router<AppState> {
         )
         .route(
             "/cases/:slug/scenarios/:scenario_id",
-            get(scenarios::get_scenario_by_id).put(scenarios::update_scenario),
+            get(scenarios::get_scenario_by_id)
+                .put(scenarios::update_scenario)
+                .delete(scenarios::delete_scenario),
         )
         // Scenario fact curation (Phase A): save / list / remove the graph facts
         // a human curates onto a scenario. Reads are open (Option<AuthUser>);

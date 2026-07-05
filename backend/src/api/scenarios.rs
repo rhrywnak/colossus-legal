@@ -25,8 +25,9 @@ use crate::{
     dto::{ScenarioCreateRequest, ScenarioDto, ScenarioUpdateRequest},
     error::AppError,
     repositories::pipeline_repository::{
-        get_scenario, insert_scenario, list_scenarios_for_case,
-        update_scenario as update_scenario_row, PipelineRepoError, ScenarioRecord,
+        delete_scenario as delete_scenario_row, get_scenario, insert_scenario,
+        list_scenarios_for_case, update_scenario as update_scenario_row, PipelineRepoError,
+        ScenarioRecord,
     },
     state::AppState,
 };
@@ -271,6 +272,35 @@ fn map_update_error(error: PipelineRepoError, slug: &str) -> AppError {
     }
 }
 
+/// Map a delete's `rows_affected` count onto the HTTP outcome.
+///
+/// ## Rust Learning: a pure mapper split out from the fallible IO
+///
+/// The delete itself is `async` and can fail (a store fault → `Result::Err`,
+/// handled in the caller). But the DECISION "did anything get deleted?" is pure:
+/// given the row count, `0` is a 404 and `1` a 204 — no IO, no `async`. Splitting
+/// that decision into this small `fn` (rather than inlining it in the handler)
+/// makes it unit-testable WITHOUT a database — a plain `assert` over inputs, the
+/// same way `map_update_error` is tested. It mirrors the "no silent success" rule:
+/// a delete that matched no row is a loud 404, never a 204 pretending it worked.
+///
+/// A count above 1 cannot occur — `scenario_id` is the primary key, so the
+/// `(scenario_id, case_slug)` fence matches at most one row — but we treat "≥ 1"
+/// as success rather than asserting `== 1`, so an impossible count is still a
+/// clean 204 rather than a panic.
+fn delete_rows_to_status(rows_affected: u64) -> Result<StatusCode, AppError> {
+    if rows_affected == 0 {
+        // Valid uuid, no matching row in this case — a real miss OR a cross-case
+        // mismatch (the fence makes them indistinguishable by design, so the
+        // response never confirms the row exists under another case).
+        tracing::debug!("no scenario deleted (unknown id or wrong case)");
+        return Err(AppError::NotFound {
+            message: "scenario not found".to_string(),
+        });
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
+
 /// `PUT /cases/:slug/scenarios/:scenario_id` — partially update a scenario.
 ///
 /// Mirrors [`create_scenario`]'s auth / extractor / pool / error shape. The
@@ -354,6 +384,63 @@ pub async fn update_scenario(
     // update leaves non-provided fields at their prior DB values). 200, symmetric
     // with create's 201.
     Ok((StatusCode::OK, Json(to_dto(record))))
+}
+
+/// `DELETE /cases/:slug/scenarios/:scenario_id` — hard-delete one scenario.
+///
+/// Scenarios are disposable prep artifacts (the evidence lives in the graph, not
+/// here), so this is a HARD delete: the row is removed and the `ON DELETE CASCADE`
+/// chain takes its curated facts and responses with it. Success is `204 No
+/// Content` (no body). A valid uuid that names no row in this case is `404`; a
+/// malformed uuid is `400`; a store fault is `500`.
+///
+/// ## Rust Learning: `Path((slug, scenario_id))` and `Result<StatusCode, AppError>`
+///
+/// The two path segments are destructured straight out of the `Path` extractor
+/// tuple — `Path((slug, scenario_id)): Path<(String, String)>` binds both in one
+/// pattern. The return type `Result<StatusCode, AppError>` is the whole HTTP
+/// contract in one line: the `Ok` arm carries the status to send, and every `?`
+/// below turns an error into an `AppError` that Axum renders as the right status —
+/// so the error path never has to hand-build a response.
+///
+/// The `#[instrument]` span carries `slug` + `scenario_id` (mirroring the peer
+/// handlers), so every event below — including the store-fault `tracing::error!`
+/// — inherits WHICH scenario failed without re-stating it.
+#[tracing::instrument(skip(state, user), fields(slug = %slug, scenario_id = %scenario_id))]
+pub async fn delete_scenario(
+    user: AuthUser,
+    State(state): State<AppState>,
+    Path((slug, scenario_id)): Path<(String, String)>,
+) -> Result<StatusCode, AppError> {
+    require_edit(&user)?;
+    tracing::info!(
+        "{} DELETE /cases/{}/scenarios/{}",
+        user.username,
+        slug,
+        scenario_id
+    );
+
+    // A malformed uuid is a client error (400), not a server fault (500) — same as
+    // get_scenario_by_id / update_scenario.
+    let id = Uuid::parse_str(&scenario_id).map_err(|_| AppError::BadRequest {
+        message: "scenario_id must be a valid UUID".to_string(),
+        details: json!({ "field": "scenario_id" }),
+    })?;
+
+    // The store delete returns the row count (a no-such-row is Ok(0), NOT an
+    // error). A genuine store fault (Err) is a 500 we log with context; the `?`
+    // threads that PipelineRepoError into the HTTP mapping.
+    let rows_affected = delete_scenario_row(&state.pipeline_pool, id, &slug)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, case_slug = %slug, "failed to delete scenario");
+            AppError::Internal {
+                message: "failed to delete scenario".to_string(),
+            }
+        })?;
+
+    // 0 rows → 404, ≥ 1 → 204. The count-to-status decision is pure and tested.
+    delete_rows_to_status(rows_affected)
 }
 
 #[cfg(test)]
@@ -471,6 +558,36 @@ mod tests {
         ) {
             AppError::Internal { message } => assert!(message.contains("update scenario")),
             other => panic!("expected Internal → 500, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn delete_rows_zero_becomes_404() {
+        // A delete that matched no row (unknown id OR wrong case) must be a 404 —
+        // never a silent 204 pretending the delete happened (Standing Rule 1).
+        match delete_rows_to_status(0) {
+            Err(AppError::NotFound { message }) => assert!(message.contains("not found")),
+            other => panic!("expected 0 rows → NotFound (404), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn delete_rows_one_becomes_204() {
+        // Exactly one row deleted (the normal case, since scenario_id is the PK) is
+        // a 204 No Content.
+        match delete_rows_to_status(1) {
+            Ok(status) => assert_eq!(status, StatusCode::NO_CONTENT),
+            other => panic!("expected 1 row → 204, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn delete_rows_many_still_succeeds_204() {
+        // The PK fence makes a count above 1 impossible, but the mapper treats
+        // "≥ 1" as success rather than panicking on an unexpected count.
+        match delete_rows_to_status(2) {
+            Ok(status) => assert_eq!(status, StatusCode::NO_CONTENT),
+            other => panic!("expected ≥1 rows → 204, got {other:?}"),
         }
     }
 }

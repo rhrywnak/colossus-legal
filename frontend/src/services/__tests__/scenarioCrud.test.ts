@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   createScenario,
+  deleteScenario,
   listScenarios,
   updateScenario,
   type ScenarioCreatePayload,
@@ -254,5 +255,74 @@ describe("updateScenario", () => {
     await expect(
       updateScenario(SLUG, SCENARIO_ID, updatePayload),
     ).rejects.toThrow(/contract mismatch/);
+  });
+});
+
+describe("deleteScenario", () => {
+  const SCENARIO_ID = "00000000-0000-0000-0000-000000000000";
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("DELETEs the scenario-scoped URL and resolves void on 204 (no body read)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 204,
+      // No `json` on purpose: a 204 has no body. If deleteScenario tried to parse
+      // it, this mock would surface that as a TypeError — so the test also guards
+      // against an accidental body read.
+    });
+    // @ts-ignore — minimal mock of the fetch Response we use
+    global.fetch = fetchMock;
+
+    await expect(deleteScenario(SLUG, SCENARIO_ID)).resolves.toBeUndefined();
+
+    const [url, options] = fetchMock.mock.calls[0];
+    expect(url).toContain(`/api/cases/${SLUG}/scenarios/${SCENARIO_ID}`);
+    expect(options.method).toBe("DELETE");
+    expect(options.body).toBeUndefined(); // DELETE carries no body
+  });
+
+  it("throws with context on a 404 (unknown id / wrong case), surfacing the backend message", async () => {
+    // @ts-ignore
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      json: async () => ({ error: "not_found", message: "scenario not found" }),
+    });
+
+    await expect(deleteScenario(SLUG, SCENARIO_ID)).rejects.toThrow(
+      /HTTP 404.*scenario not found/,
+    );
+  });
+
+  it("throws with context on a 400 (malformed uuid)", async () => {
+    // @ts-ignore
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      json: async () => ({
+        error: "bad_request",
+        message: "scenario_id must be a valid UUID",
+      }),
+    });
+
+    await expect(deleteScenario(SLUG, "not-a-uuid")).rejects.toThrow(
+      /HTTP 400.*valid UUID/,
+    );
+  });
+
+  it("throws on a 500 store fault (never resolves as if the delete succeeded)", async () => {
+    // @ts-ignore — a non-ok with no JSON body still throws with the status.
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      json: async () => {
+        throw new Error("no body");
+      },
+    });
+
+    await expect(deleteScenario(SLUG, SCENARIO_ID)).rejects.toThrow(/HTTP 500/);
   });
 });

@@ -25,10 +25,10 @@ use sqlx::PgPool;
 
 use colossus_legal_backend::config::AppConfig;
 use colossus_legal_backend::repositories::pipeline_repository::{
-    delete_scenarios_for_case, get_scenario, insert_response_item, insert_scenario,
-    insert_scenario_response, list_fact_refs_for_item, list_fact_refs_for_scenario,
-    list_items_for_response, list_responses_for_scenario, list_scenarios_for_case, upsert_fact_ref,
-    upsert_response_item_fact_ref,
+    delete_scenario, delete_scenarios_for_case, get_scenario, insert_response_item,
+    insert_scenario, insert_scenario_response, list_fact_refs_for_item,
+    list_fact_refs_for_scenario, list_items_for_response, list_responses_for_scenario,
+    list_scenarios_for_case, upsert_fact_ref, upsert_response_item_fact_ref,
 };
 
 type TestResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
@@ -589,6 +589,54 @@ async fn it_rejects_an_item_for_a_nonexistent_response() -> TestResult<()> {
     assert!(
         result.is_err(),
         "insert_response_item must fail when response_id references no response (FK)"
+    );
+
+    Ok(())
+}
+
+// ── delete_scenario (D1.5) — the case-isolation fence ─────────────────────────
+
+/// The single-scenario hard delete is fenced by `(scenario_id AND case_slug)`:
+/// deleting through the OWNING case removes exactly the one row (rows_affected 1),
+/// and a delete aimed at a real scenario through the WRONG case slug removes
+/// nothing (rows_affected 0) and leaves the row intact. The 0-vs-1 count is the
+/// signal the handler turns into 404-vs-204, so this proves the fence at the store
+/// layer where it actually lives.
+#[tokio::test]
+#[ignore]
+async fn it_deletes_one_scenario_scoped_by_case() -> TestResult<()> {
+    let pool = pipeline_pool().await?;
+    let slug = test_slug("delete_fence");
+    let other_slug = test_slug("delete_fence_other");
+    delete_scenarios_for_case(&pool, &slug).await?;
+    delete_scenarios_for_case(&pool, &other_slug).await?;
+
+    let scenario = make_scenario(&pool, "Doomed lens", &slug).await?;
+
+    // Wrong case: the fence matches zero rows and the scenario survives.
+    let wrong_case = delete_scenario(&pool, scenario, &other_slug).await?;
+    assert_eq!(
+        wrong_case, 0,
+        "a delete through the wrong case_slug must match zero rows"
+    );
+    assert!(
+        get_scenario(&pool, scenario).await?.is_some(),
+        "the scenario must still exist after a wrong-case delete"
+    );
+
+    // Owning case: exactly one row deleted, and it is gone.
+    let owning_case = delete_scenario(&pool, scenario, &slug).await?;
+    assert_eq!(owning_case, 1, "the owning-case delete must remove one row");
+    assert!(
+        get_scenario(&pool, scenario).await?.is_none(),
+        "the scenario must be gone after the owning-case delete"
+    );
+
+    // A second delete of the same id now matches nothing (idempotent 0 → 404).
+    let repeat = delete_scenario(&pool, scenario, &slug).await?;
+    assert_eq!(
+        repeat, 0,
+        "re-deleting an already-deleted scenario is 0 rows"
     );
 
     Ok(())

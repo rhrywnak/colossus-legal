@@ -10,13 +10,15 @@
 // =============================================================================
 
 import React, { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 
 import Breadcrumb from "../components/Breadcrumb";
 import ScenarioCurationPanel from "../components/ScenarioCurationPanel";
 import ScenarioDefinitionForm from "../components/ScenarioDefinitionForm";
+import ScenarioDeleteConfirm from "../components/ScenarioDeleteConfirm";
 import { EmptyState, ResponseCard } from "../components/TrialPrepViews";
 import { DEFAULT_CASE_SLUG } from "../services/caseHeader";
+import { deleteScenario } from "../services/scenarioCrud";
 import { getScenarioDetailLive } from "../services/trialPrep";
 import type { ScenarioDetail } from "./trialPrepData";
 import { statusMeta } from "./trialPrepHelpers";
@@ -50,6 +52,19 @@ const binderStyle: React.CSSProperties = {
   color: "var(--text-disabled)",
   cursor: "not-allowed",
 };
+// Delete affordance sits at the far end of the header row (marginLeft:auto),
+// visually separated from the title so it is not a mis-click target.
+const deleteBtnStyle: React.CSSProperties = {
+  marginLeft: "auto",
+  border: "1px solid var(--state-danger-border)",
+  borderRadius: "6px",
+  padding: "0.35rem 0.8rem",
+  fontSize: "0.8rem",
+  fontWeight: 600,
+  backgroundColor: "var(--state-danger-bg-soft)",
+  color: "var(--state-danger-strong)",
+  cursor: "pointer",
+};
 const patternHeadline: React.CSSProperties = {
   marginTop: "0.75rem",
   padding: "0.6rem 0.9rem",
@@ -82,6 +97,7 @@ const ScenarioDetailPage: React.FC = () => {
     scenarioId: string;
   }>();
   const slug = slugParam ?? DEFAULT_CASE_SLUG;
+  const navigate = useNavigate();
   const backCrumb = { label: "Trial Prep", to: `/cases/${slug}/trial-prep` };
 
   // Gating fetch (mirrors TrialPrepDashboardPage). `null` after load = a real
@@ -95,6 +111,34 @@ const ScenarioDetailPage: React.FC = () => {
   // page re-loads and the form re-fills from the persisted definition — a
   // re-fetch, not a hand-merged response, is the source of truth.
   const [refreshKey, setRefreshKey] = useState(0);
+
+  // Delete flow: `showDelete` gates the confirm modal; `deleting` disables it
+  // while the DELETE is in flight; `deleteError` keeps the modal open and shows
+  // the failure (the modal closing is never treated as proof the delete worked).
+  const [showDelete, setShowDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  const handleDelete = () => {
+    if (!scenarioId) return;
+    setDeleting(true);
+    setDeleteError(null);
+    deleteScenario(slug, scenarioId)
+      .then(() => {
+        // The row is gone — leave the (now-dead) detail page for the dashboard.
+        navigate(`/cases/${slug}/trial-prep`);
+      })
+      .catch((err: unknown) => {
+        // Standing Rule 1: a failed DELETE stays visible IN the modal; we do NOT
+        // navigate away or close, which would imply a success that did not happen.
+        setDeleteError(
+          err instanceof Error
+            ? err.message
+            : "Failed to delete the scenario. Try again.",
+        );
+        setDeleting(false);
+      });
+  };
 
   useEffect(() => {
     if (!scenarioId) {
@@ -172,6 +216,18 @@ const ScenarioDetailPage: React.FC = () => {
         <span style={binderStyle} aria-disabled="true" title="Coming soon">
           Binder
         </span>
+        {scenarioId && (
+          <button
+            type="button"
+            style={deleteBtnStyle}
+            onClick={() => {
+              setDeleteError(null);
+              setShowDelete(true);
+            }}
+          >
+            Delete scenario
+          </button>
+        )}
       </div>
       <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: "1rem" }}>
         Status: <span style={{ color: status.color, fontWeight: 600 }}>{status.label}</span>
@@ -223,6 +279,25 @@ const ScenarioDetailPage: React.FC = () => {
             {scenario.notes}
           </div>
         </>
+      )}
+
+      {showDelete && (
+        <ScenarioDeleteConfirm
+          title="Delete this scenario?"
+          message={
+            `“${scenario.attack}” and its curated facts and responses will be ` +
+            `permanently deleted. This cannot be undone. (The underlying evidence ` +
+            `in the case graph is not affected.)`
+          }
+          confirmLabel="Delete scenario"
+          busy={deleting}
+          error={deleteError}
+          onConfirm={handleDelete}
+          onCancel={() => {
+            setShowDelete(false);
+            setDeleteError(null);
+          }}
+        />
       )}
     </div>
   );
