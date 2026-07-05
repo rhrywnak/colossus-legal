@@ -166,11 +166,14 @@ describe("updateScenario", () => {
   const updatePayload: ScenarioUpdatePayload = {
     definition: {
       attack_text: "Marie is obstructive and uncooperative",
-      wielders: ["CFS", "George Phillips"],
-      seed_phrases: ["uncooperative"],
-      anti_seed_phrases: [],
-      schema_v: 1,
+      target: "person-marie-awad",
+      wielders: [
+        { party_id: "org-cfs", actor_role: "originated" },
+        { party_id: "person-george-phillips", actor_role: "repeated" },
+      ],
+      schema_v: 2,
     },
+    anchor_allegation_ids: ["54"],
   };
 
   afterEach(() => {

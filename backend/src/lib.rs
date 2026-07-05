@@ -6,6 +6,7 @@ pub mod canonical_elements;
 pub mod cli;
 pub mod config;
 pub mod database;
+pub mod domain;
 pub mod dto;
 pub mod error;
 pub mod models;

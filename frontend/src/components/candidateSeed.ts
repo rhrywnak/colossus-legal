@@ -8,115 +8,85 @@
 // logic is unit-tested without component-test infra (CLAUDE.md Rule 30 — the
 // panel itself has none).
 //
+// D1 rebuild: with the definition now storing `target` and `wielders[].party_id`
+// as GRAPH NODE IDS chosen from the live vocabulary (not free text), seeding is
+// ID-BASED — a direct id lookup against the vocab, no name normalization. The
+// retired `seed_phrases` → pattern-tag branch is gone (the field no longer
+// exists); the panel's own pattern dropdown remains the sole tag source.
+//
 // The panel calls `seedFiltersFromDefinition` and consumes the primitive fields
-// of the result; it never reaches back into the definition object. See the panel
-// for how the result drives the actual `BiasQueryFilters`.
+// of the result; it never reaches back into the definition object.
 
 import type { ScenarioDefinition } from "../pages/trialPrepData";
 import type { ActorOption } from "../services/bias";
+import { parseScenarioDefinition } from "./scenarioDefinitionGuard";
 
 /**
- * The seed inputs the panel should apply. Any `*Id`/`patternTag` left `undefined`
- * means "don't constrain this dimension" — the panel falls back for that field.
+ * The seed inputs the panel should apply. Any `*Id` left `undefined` means "don't
+ * constrain this dimension" — the panel falls back for that field.
  */
 export interface SeedResult {
-  /** Resolved `subject_id` from `definition.target`, or undefined (unresolved/absent). */
+  /** `subject_id` from `definition.target` when it is a known subject, else undefined. */
   subjectId?: string;
-  /** Resolved `actor_id` from `definition.wielders[0]`, or undefined. */
+  /** `actor_id` from `definition.wielders[0].party_id` when known, else undefined. */
   actorId?: string;
-  /** A KNOWN pattern tag (vocab casing) matched from `seed_phrases[0]`, or undefined —
-   *  never a raw seed phrase. */
-  patternTag?: string;
-  /** Names the definition asked for but the vocab could not resolve — surfaced to
-   *  the user, never silently dropped. Empty when everything resolved (or the
-   *  scenario is un-authored, in which case `defined` is false). */
-  unresolved: Array<{ field: "target" | "wielder"; name: string }>;
-  /** false = the scenario has no authored definition (no `attack_text`) → the
-   *  panel uses its FALLBACK path entirely (default subject, no actor, user tag). */
+  /** Ids the definition named but the CURRENT vocab does not contain — surfaced to
+   *  the user, never silently applied as a filter that would return nothing. Empty
+   *  when everything resolved (or the scenario is un-authored → `defined` false). */
+  unresolved: Array<{ field: "target" | "wielder"; id: string }>;
+  /** false = no clean v2 definition (un-authored / retired v1 / malformed) → the
+   *  panel uses its FALLBACK path entirely (default subject, no actor). */
   defined: boolean;
-}
-
-/**
- * Normalize a name for matching: trim + lowercase. Deliberately LOCAL — we do
- * NOT reuse `pdfHighlight.normalizeText` (a PDF-quote util; wrong coupling). A
- * definition's `target`/`wielders` are authored free-text; the vocab `name`
- * comes from the graph, so both sides are normalized before an equality match.
- */
-const norm = (s: string): string => s.trim().toLowerCase();
-
-/**
- * Resolve a free-text `name` to an id against a vocab list by normalized equality.
- * First match wins (the `AvailableFilters` contract does not guarantee `name`
- * uniqueness, so a deterministic first-match tie-break is applied). Returns
- * undefined when nothing matches.
- */
-function resolveId(name: string, options: ActorOption[]): string | undefined {
-  const wanted = norm(name);
-  return options.find((o) => norm(o.name) === wanted)?.id;
 }
 
 /**
  * Derive the candidate-panel seed from a scenario's authored definition.
  *
- * Never throws. Missing/empty arrays are normal (the backend emits `wielders` /
- * `seed_phrases` / `anti_seed_phrases` as `[]` by default), so each is guarded.
+ * Never throws. The raw definition is routed through the shared v2 guard, so a
+ * `{}` sentinel, a retired v1 body, or a malformed body all collapse to the
+ * un-authored fallback (`{ defined: false }`) rather than mis-seeding.
  *
- * - `!definition?.attack_text` → `{ defined: false, unresolved: [] }`. The wire
- *   delivers `{}` (not `undefined`) for an un-authored scenario, so the "not yet
- *   defined" test keys on `attack_text`, not on `undefined`.
- * - `target` (a name) → resolve against `subjects` → `subjectId`; unresolved →
- *   recorded in `unresolved`.
- * - `wielders[0]` ONLY (the bias request takes a single `actor_id`, so only the
- *   FIRST wielder seeds it; any others are ignored) → resolve against `actors` →
- *   `actorId`; unresolved → recorded in `unresolved`.
- * - `seed_phrases[0]` → `patternTag` ONLY on an exact normalized match to a known
- *   `patternTags` entry (returning the vocab's casing, not the seed's); otherwise
- *   left undefined. No fuzzy matching.
+ * - No clean v2 definition → `{ defined: false, unresolved: [] }`.
+ * - `target` (a subject node id) present in `subjects` → `subjectId`; a stale id
+ *   (not in the current vocab) → recorded in `unresolved`, not applied.
+ * - `wielders[0].party_id` ONLY (the bias request takes a single `actor_id`, so
+ *   only the FIRST wielder seeds it; any others are ignored) → same id lookup
+ *   against `actors`.
  */
 export function seedFiltersFromDefinition(
   definition: ScenarioDefinition | undefined,
   subjects: ActorOption[],
   actors: ActorOption[],
-  patternTags: string[],
 ): SeedResult {
-  // Un-authored scenario: full fallback, nothing to surface.
-  if (!definition?.attack_text) {
+  // Route through the v2 guard: only a clean, current-schema body seeds.
+  const parsed = parseScenarioDefinition(definition);
+  if (!parsed) {
     return { defined: false, unresolved: [] };
   }
 
   const unresolved: SeedResult["unresolved"] = [];
   let subjectId: string | undefined;
   let actorId: string | undefined;
-  let patternTag: string | undefined;
 
-  // target → subject_id
-  const target = definition.target?.trim();
-  if (target) {
-    const id = resolveId(target, subjects);
-    if (id) {
-      subjectId = id;
+  // target → subject_id (direct id membership check against the vocab).
+  const targetId = parsed.target?.trim();
+  if (targetId) {
+    if (subjects.some((s) => s.id === targetId)) {
+      subjectId = targetId;
     } else {
-      unresolved.push({ field: "target", name: target });
+      unresolved.push({ field: "target", id: targetId });
     }
   }
 
-  // wielders[0] → actor_id (only the first wielder; the request is single-actor).
-  const firstWielder = (definition.wielders ?? [])[0]?.trim();
-  if (firstWielder) {
-    const id = resolveId(firstWielder, actors);
-    if (id) {
-      actorId = id;
+  // wielders[0].party_id → actor_id (only the first wielder; single-actor request).
+  const firstWielderId = parsed.wielders[0]?.party_id?.trim();
+  if (firstWielderId) {
+    if (actors.some((a) => a.id === firstWielderId)) {
+      actorId = firstWielderId;
     } else {
-      unresolved.push({ field: "wielder", name: firstWielder });
+      unresolved.push({ field: "wielder", id: firstWielderId });
     }
   }
 
-  // seed_phrases[0] → pattern_tag (exact normalized match to a known tag only).
-  const firstSeed = (definition.seed_phrases ?? [])[0]?.trim();
-  if (firstSeed) {
-    const wanted = norm(firstSeed);
-    patternTag = patternTags.find((t) => norm(t) === wanted);
-  }
-
-  return { subjectId, actorId, patternTag, unresolved, defined: true };
+  return { subjectId, actorId, unresolved, defined: true };
 }

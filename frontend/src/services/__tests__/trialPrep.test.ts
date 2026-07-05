@@ -124,6 +124,7 @@ const validDetail: ScenarioDetail = {
   ],
   responses: [],
   notes: null,
+  anchor_allegation_ids: [],
 };
 
 describe("getScenarioDetailLive", () => {

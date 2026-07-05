@@ -130,15 +130,12 @@ const CandidateFactsPanel: React.FC<Props> = ({
   // Resolve the definition into primitive seed inputs. The loop guard lives in
   // effect (b): it depends on this seed's PRIMITIVE fields (strings/bool), NOT the
   // seed object — so even if this memo recomputed on every render, a seed with
-  // identical primitives cannot re-fire the query. (`patternTags` is a memo dep
-  // because a seed phrase matches against it.) In practice the memo is also
-  // stable: `subjects`/`actors`/`patternTags` are set once by effect (a) and not
-  // re-created (its `patternTags.length > 0` guard blocks a refetch on re-open);
-  // if that guard ever changes, the memo may recompute but the primitive-dep
-  // guard in effect (b) still prevents a query loop.
+  // identical primitives cannot re-fire the query. Seeding is id-based now, so the
+  // vocab it needs is `subjects`/`actors` (set once by effect (a)); `patternTags`
+  // is no longer a seed input (the retired seed-phrase → tag branch is gone).
   const seed = useMemo(
-    () => seedFiltersFromDefinition(definition, subjects, actors, patternTags),
-    [definition, subjects, actors, patternTags],
+    () => seedFiltersFromDefinition(definition, subjects, actors),
+    [definition, subjects, actors],
   );
 
   const [instances, setInstances] = useState<BiasInstance[]>([]);
@@ -198,10 +195,10 @@ const CandidateFactsPanel: React.FC<Props> = ({
       ? {
           // Seed wins; fall back to the case default only if the target did not
           // resolve. `actor_id` is a new dimension — undefined when the wielder
-          // is absent/unresolved. The user's tag choice overrides the seed's.
+          // is absent/unresolved. The pattern tag is entirely user-driven now.
           subject_id: seed.subjectId ?? defaultSubjectId,
           actor_id: seed.actorId,
-          pattern_tag: userTag ?? seed.patternTag,
+          pattern_tag: userTag,
         }
       : {
           subject_id: defaultSubjectId,
@@ -232,7 +229,6 @@ const CandidateFactsPanel: React.FC<Props> = ({
     seed.defined,
     seed.subjectId,
     seed.actorId,
-    seed.patternTag,
   ]);
 
   const handleAdd = (evidenceId: string) => {
@@ -280,14 +276,14 @@ const CandidateFactsPanel: React.FC<Props> = ({
           </label>
         </div>
 
-        {/* B2b: a definition named a party the graph vocab couldn't match. Muted
+        {/* B2b: a definition names a party id no longer in the graph vocab. Muted
             advisory (not an error) — the panel simply didn't filter on it, so the
             miss is visible rather than silently defaulting to the case subject. */}
         {seed.defined &&
           seed.unresolved.map((u) => (
-            <div key={`${u.field}:${u.name}`} style={messageStyle}>
-              Couldn't match “{u.name}” ({u.field}) to a known party — not
-              filtering on it.
+            <div key={`${u.field}:${u.id}`} style={messageStyle}>
+              A {u.field} party this scenario names is no longer in the vocabulary
+              — not filtering on it.
             </div>
           ))}
 

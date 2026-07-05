@@ -193,6 +193,7 @@ const ScenarioDetailPage: React.FC = () => {
           slug={slug}
           scenarioId={scenarioId}
           definition={scenario.definition}
+          anchorAllegationIds={scenario.anchor_allegation_ids}
           onSaved={() => setRefreshKey((k) => k + 1)}
         />
       )}

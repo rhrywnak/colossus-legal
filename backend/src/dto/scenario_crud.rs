@@ -17,6 +17,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::domain::actor_role::ActorRole;
+
 /// One scenario as the wire sees it.
 ///
 /// Mirrors `ScenarioRecord` (the Postgres row) with two wire adaptations:
@@ -85,12 +87,56 @@ pub struct ScenarioCreateRequest {
 // changing it requires a simultaneous schema change and a matching migration /
 // reader update (B2). So it cannot live in YAML/env (Standing Rule 2 does not
 // apply — same rationale as `SCENARIO_COLUMNS`).
-pub const CURRENT_SCHEMA_V: u32 = 1;
+//
+// v2 (D1): the authoring form was rebuilt. `seed_phrases`, `anti_seed_phrases`
+// and `notes` were retired (Amendment 1 — never rendered, or superseded); `target`
+// became a party node id chosen from live vocabulary (was free text); `wielders`
+// became a list of `{party_id, actor_role}` (was a flat `Vec<String>`). A stored
+// v1 body therefore no longer parses as this shape — which is intended: the reader
+// treats a v1/`{}`/unparseable body as "not yet authored (v2)" and the form opens
+// blank. There is deliberately NO migration (existing rows are `{}` bar disposable
+// dev-test rows) — `schema_v` is the guard, not a data backfill.
+pub const CURRENT_SCHEMA_V: u32 = 2;
+
+/// One party named as a **wielder** of a scenario's attack, with the role it
+/// plays in the accusation chain.
+///
+/// ## Rust Learning: a nested DTO validated by a domain enum
+///
+/// `party_id` is a graph node id chosen from the live bias vocabulary in the UI —
+/// never free text (D1's core rule: a user can never name a party the graph does
+/// not know). `actor_role` is an [`ActorRole`], so an unknown role token fails to
+/// deserialize the whole `Wielder` (and thus the whole definition) at the parse
+/// boundary — the loud failure Standing Rule 1 requires, rather than a silently
+/// accepted junk role.
+///
+/// Like [`ScenarioDefinition`] this omits `#[serde(deny_unknown_fields)]` for
+/// forward compatibility: a newer build that adds a key to a wielder entry must
+/// still deserialize on older code.
+///
+/// Domain note: a scenario can list SEVERAL wielders — e.g. an accusation that CFS
+/// originated, a judge later repeated, and a report adopted. The single-actor v1
+/// model (`wielders[0]`) could not represent that chain; the list can.
+// serde: allows unknown fields because of forward-compatibility with newer
+// `schema_v` builds — a wielder entry written by a newer build that added a key
+// must still deserialize on older code (same stance as `ScenarioDefinition`; the
+// `actor_role` enum is still the loud gate for a bad role token).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Wielder {
+    /// Graph party node id (from `available-filters` actors), never free text.
+    pub party_id: String,
+    /// This party's role in the accusation chain — validated against the versioned
+    /// [`ActorRole`] lookup at parse time.
+    pub actor_role: ActorRole,
+}
 
 /// A scenario's authored **definition** — the themed body that (in Phase B) seeds
-/// its candidate-facts panel toward this scenario's attack. This is the typed
-/// mirror of the eight keys documented on the `scenarios.definition` column
-/// comment (`20260626115557_create_scenarios_table.sql`).
+/// its candidate-facts panel toward this scenario's attack.
+///
+/// Rebuilt in D1 (schema v2): the retired keys (`seed_phrases`,
+/// `anti_seed_phrases`, `notes`) are gone; `target` is now a party node id and
+/// `wielders` a list of [`Wielder`] entries. See [`CURRENT_SCHEMA_V`] for the
+/// v1→v2 story.
 ///
 /// ## Rust Learning: parse-don't-validate at the jsonb boundary
 ///
@@ -131,26 +177,20 @@ pub struct ScenarioDefinition {
     /// Plain-language gloss of what the attack actually asserts. Optional.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub attack_meaning: Option<String>,
-    /// Who wields this attack (actor names/ids). Absent → `[]` (a definition may
-    /// legitimately not name a wielder yet).
-    #[serde(default)]
-    pub wielders: Vec<String>,
-    /// Who the attack targets. Optional.
+    /// Who the attack is ABOUT — a party node id from the live vocabulary
+    /// (`available-filters` subjects), never free text. Optional (a definition may
+    /// not yet name a target).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub target: Option<String>,
-    /// Phrases that steer the candidate search TOWARD this theme. Absent → `[]`.
+    /// Who makes or repeats this attack — a list of `{party_id, actor_role}`
+    /// entries. Absent → `[]` (a definition may legitimately not name a wielder
+    /// yet). See [`Wielder`].
     #[serde(default)]
-    pub seed_phrases: Vec<String>,
-    /// Phrases that steer the candidate search AWAY (known false positives).
-    /// Absent → `[]`.
-    #[serde(default)]
-    pub anti_seed_phrases: Vec<String>,
-    /// Free-form authoring notes. Optional.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub notes: Option<String>,
+    pub wielders: Vec<Wielder>,
     /// The definition schema version this body was authored under. REQUIRED so a
     /// reader can compare it against [`CURRENT_SCHEMA_V`] and surface a
-    /// newer-than-understood definition rather than silently mis-parsing it.
+    /// newer-than-understood (or older, now-retired) definition rather than
+    /// silently mis-parsing it.
     pub schema_v: u32,
 }
 
@@ -164,7 +204,7 @@ impl ScenarioDefinition {
     ///
     /// `serde_json::to_value` is fallible in general (a custom `Serialize` impl
     /// can error, e.g. a map with non-string keys). This all-scalar /
-    /// `Vec<String>` shape never actually triggers that — but we propagate the
+    /// `Vec<Wielder>` shape never actually triggers that — but we propagate the
     /// `Result` rather than `unwrap`, so that IF serialization ever failed it
     /// would be an observable error, not a panic (Standing Rule 1).
     ///
@@ -234,16 +274,22 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    /// Build a fully-populated definition for the round-trip tests.
+    /// Build a fully-populated v2 definition for the round-trip tests.
     fn full_definition() -> ScenarioDefinition {
         ScenarioDefinition {
             attack_text: "Marie is obstructive and uncooperative".to_string(),
             attack_meaning: Some("paints her as refusing every reasonable request".to_string()),
-            wielders: vec!["CFS".to_string(), "George Phillips".to_string()],
-            target: Some("Marie Awad".to_string()),
-            seed_phrases: vec!["uncooperative".to_string(), "obstructive".to_string()],
-            anti_seed_phrases: vec!["produced on schedule".to_string()],
-            notes: Some("Count IV signal — repeated after rebuttal".to_string()),
+            target: Some("person-marie-awad".to_string()),
+            wielders: vec![
+                Wielder {
+                    party_id: "org-cfs".to_string(),
+                    actor_role: ActorRole::Originated,
+                },
+                Wielder {
+                    party_id: "person-judge-tighe".to_string(),
+                    actor_role: ActorRole::Repeated,
+                },
+            ],
             schema_v: CURRENT_SCHEMA_V,
         }
     }
@@ -256,12 +302,12 @@ mod tests {
         let def = ScenarioDefinition {
             attack_text: "Marie hired too many attorneys".to_string(),
             attack_meaning: None,
-            wielders: vec!["George Phillips".to_string()],
             target: None,
-            seed_phrases: vec![],
-            anti_seed_phrases: vec![],
-            notes: None,
-            schema_v: 1,
+            wielders: vec![Wielder {
+                party_id: "person-george-phillips".to_string(),
+                actor_role: ActorRole::Originated,
+            }],
+            schema_v: CURRENT_SCHEMA_V,
         };
         let value = def.to_value().expect("serialize to value");
 
@@ -269,11 +315,12 @@ mod tests {
             value["attack_text"],
             json!("Marie hired too many attorneys")
         );
-        assert_eq!(value["wielders"], json!(["George Phillips"]));
-        // Empty Vec fields serialize as [] (present), never omitted.
-        assert_eq!(value["seed_phrases"], json!([]));
-        assert_eq!(value["anti_seed_phrases"], json!([]));
-        assert_eq!(value["schema_v"], json!(1));
+        // Each wielder is an object with a party id + a snake_case role token.
+        assert_eq!(
+            value["wielders"],
+            json!([{ "party_id": "person-george-phillips", "actor_role": "originated" }])
+        );
+        assert_eq!(value["schema_v"], json!(CURRENT_SCHEMA_V));
         // None optionals are OMITTED (skip_serializing_if), not written as null —
         // so "absent" and "null" stay distinct in the stored jsonb (Rule 1).
         assert!(
@@ -281,7 +328,13 @@ mod tests {
             "None optional is omitted"
         );
         assert!(value.get("target").is_none());
-        assert!(value.get("notes").is_none());
+        // The retired v1 keys must never be emitted by a v2 write.
+        assert!(value.get("seed_phrases").is_none(), "seed_phrases retired");
+        assert!(
+            value.get("anti_seed_phrases").is_none(),
+            "anti_seed_phrases retired"
+        );
+        assert!(value.get("notes").is_none(), "notes retired");
     }
 
     // ── Read-path conversion: Value -> ScenarioDefinition ───────────────
@@ -297,38 +350,69 @@ mod tests {
             parsed.attack_meaning.as_deref(),
             Some("paints her as refusing every reasonable request")
         );
+        assert_eq!(parsed.target.as_deref(), Some("person-marie-awad"));
         assert_eq!(
             parsed.wielders,
-            vec!["CFS".to_string(), "George Phillips".to_string()]
-        );
-        assert_eq!(parsed.target.as_deref(), Some("Marie Awad"));
-        assert_eq!(
-            parsed.seed_phrases,
-            vec!["uncooperative".to_string(), "obstructive".to_string()]
-        );
-        assert_eq!(
-            parsed.anti_seed_phrases,
-            vec!["produced on schedule".to_string()]
-        );
-        assert_eq!(
-            parsed.notes.as_deref(),
-            Some("Count IV signal — repeated after rebuttal")
+            vec![
+                Wielder {
+                    party_id: "org-cfs".to_string(),
+                    actor_role: ActorRole::Originated,
+                },
+                Wielder {
+                    party_id: "person-judge-tighe".to_string(),
+                    actor_role: ActorRole::Repeated,
+                },
+            ]
         );
         assert_eq!(parsed.schema_v, CURRENT_SCHEMA_V);
     }
 
     #[test]
-    fn from_value_defaults_absent_vecs_to_empty() {
-        // A minimal valid definition: only the two required keys. The three Vec
-        // fields are absent and must default to [] via #[serde(default)], not error.
-        let value = json!({ "attack_text": "The $50,000 was a gift", "schema_v": 1 });
+    fn from_value_defaults_absent_wielders_to_empty() {
+        // A minimal valid definition: only the two required keys. `wielders` is
+        // absent and must default to [] via #[serde(default)], not error.
+        let value =
+            json!({ "attack_text": "The $50,000 was a gift", "schema_v": CURRENT_SCHEMA_V });
         let parsed = ScenarioDefinition::from_value(value).expect("minimal definition parses");
 
         assert_eq!(parsed.attack_text, "The $50,000 was a gift");
         assert!(parsed.wielders.is_empty());
-        assert!(parsed.seed_phrases.is_empty());
-        assert!(parsed.anti_seed_phrases.is_empty());
-        assert_eq!(parsed.schema_v, 1);
+        assert!(parsed.target.is_none());
+        assert_eq!(parsed.schema_v, CURRENT_SCHEMA_V);
+    }
+
+    #[test]
+    fn from_value_rejects_unknown_actor_role() {
+        // Standing Rule 1 at the definition boundary: a wielder carrying a role
+        // this build does not define fails the WHOLE parse — a junk role can never
+        // be silently stored. (The v1→v2 rebuild's core promise: no junk parties,
+        // no junk roles.)
+        let value = json!({
+            "attack_text": "Sanctions were selectively pursued",
+            "schema_v": CURRENT_SCHEMA_V,
+            "wielders": [{ "party_id": "org-cfs", "actor_role": "invented_role" }]
+        });
+        assert!(
+            ScenarioDefinition::from_value(value).is_err(),
+            "a wielder with an unknown actor_role must not parse"
+        );
+    }
+
+    #[test]
+    fn from_value_rejects_v1_wielder_shape() {
+        // A stored v1 body has `wielders` as bare strings. Under v2 that shape can
+        // no longer parse (a string is not a {party_id, actor_role} object) — which
+        // is the intended guard: the reader treats a v1 body as "not yet authored
+        // under v2" and the form opens blank, rather than mis-reading old data.
+        let value = json!({
+            "attack_text": "Marie is obstructive",
+            "schema_v": 1,
+            "wielders": ["CFS", "George Phillips"]
+        });
+        assert!(
+            ScenarioDefinition::from_value(value).is_err(),
+            "a v1 flat-string wielders list must not parse as v2"
+        );
     }
 
     #[test]
@@ -347,7 +431,7 @@ mod tests {
     fn from_value_rejects_missing_attack_text() {
         // attack_text is the one field with no default — a definition without it
         // has nothing to seed from, so it must fail loudly at this boundary.
-        let value = json!({ "schema_v": 1, "wielders": ["CFS"] });
+        let value = json!({ "schema_v": CURRENT_SCHEMA_V });
         assert!(
             ScenarioDefinition::from_value(value).is_err(),
             "a definition missing attack_text must not parse"

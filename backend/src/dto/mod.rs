@@ -56,7 +56,7 @@ pub use scenario::{
     ScenarioRelatedAllegation, ScenarioRelatedAllegationsResponse,
 };
 pub use scenario_crud::{
-    ScenarioCreateRequest, ScenarioDefinition, ScenarioDto, ScenarioUpdateRequest,
+    ScenarioCreateRequest, ScenarioDefinition, ScenarioDto, ScenarioUpdateRequest, Wielder,
 };
 pub use scenario_facts::{AddFactRequest, ScenarioFactDto};
 pub use schema::SchemaResponse;

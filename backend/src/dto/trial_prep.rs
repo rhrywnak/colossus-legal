@@ -150,10 +150,17 @@ pub struct ScenarioDetail {
     pub timeline: Vec<ExchangeTurn>,
     pub responses: Vec<MarieResponse>,
     pub notes: Option<String>,
+    /// Complaint-paragraph anchors this scenario touches (the `scenarios`
+    /// `anchor_allegation_ids` column). Flattened from `Option<Vec<String>>` to a
+    /// plain `Vec<String>` (`None` → `[]`) so the client never distinguishes null
+    /// from empty — same convention as `ScenarioDto`. The define form (D1)
+    /// pre-fills its allegation picker from this and writes edits back through the
+    /// update route, so the value must round-trip on the detail payload.
+    pub anchor_allegation_ids: Vec<String>,
     /// The scenario's authored definition body, carried opaquely from the
     /// Postgres `scenarios.definition` column (same `serde_json::Value` shape as
     /// `ScenarioDto.definition`). `{}` for an un-authored scenario. The typed
-    /// shape (`ScenarioDefinition`, 8 keys) lives at the CRUD boundary in
+    /// shape (`ScenarioDefinition`) lives at the CRUD boundary in
     /// `dto/scenario_crud.rs`; this endpoint stays JSON-opaque so the War Room
     /// payload never has to re-model it.
     pub definition: serde_json::Value,
@@ -328,14 +335,15 @@ mod tests {
             }],
             responses: Vec::new(),
             notes: None,
+            anchor_allegation_ids: vec!["54".to_string(), "55".to_string()],
             // A non-empty authored definition so the assertion PROVES the body is
             // carried into the payload (not merely that an empty key exists). Only
             // the required pair (attack_text + schema_v) is needed to be a valid
             // shape; the extra keys exercise the opaque passthrough.
             definition: json!({
                 "attack_text": "Marie is obstructive",
-                "schema_v": 1,
-                "wielders": ["George Phillips"]
+                "schema_v": 2,
+                "wielders": [{ "party_id": "person-george-phillips", "actor_role": "originated" }]
             }),
         };
 
@@ -361,10 +369,11 @@ mod tests {
                 }],
                 "responses": [],
                 "notes": null,
+                "anchor_allegation_ids": ["54", "55"],
                 "definition": {
                     "attack_text": "Marie is obstructive",
-                    "schema_v": 1,
-                    "wielders": ["George Phillips"]
+                    "schema_v": 2,
+                    "wielders": [{ "party_id": "person-george-phillips", "actor_role": "originated" }]
                 }
             })
         );

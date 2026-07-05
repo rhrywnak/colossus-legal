@@ -256,6 +256,10 @@ fn build_detail(
         timeline: facts.iter().map(fact_to_turn).collect(),
         responses: Vec::new(),
         notes: None,
+        // Flatten the row's `Option<Vec<String>>` to `[]` when absent — the wire
+        // never sees null for a list it only iterates (mirrors `ScenarioDto`). The
+        // define form pre-fills its allegation picker from this.
+        anchor_allegation_ids: record.anchor_allegation_ids.clone().unwrap_or_default(),
         // Carry the authored definition through opaquely — `record` is already in
         // hand (no extra fetch), and the column is an opaque `serde_json::Value`,
         // so no transform applies (contrast `attack`/`status`, which reshape).
@@ -626,9 +630,23 @@ mod tests {
         assert!(detail.responses.is_empty());
         assert_eq!(detail.pattern_summary, None);
         assert_eq!(detail.notes, None);
+        // A `None` anchor column flattens to `[]` on the wire (never null).
+        assert!(detail.anchor_allegation_ids.is_empty());
         // Carry-through: the authored definition rides through unchanged (opaque
         // Value, no transform) — the B2a contract at the service layer.
         assert_eq!(detail.definition, rec.definition);
+    }
+
+    #[test]
+    fn build_detail_flattens_present_anchor_allegation_ids() {
+        // With anchors present they must ride through to the detail payload so the
+        // define form (D1) can pre-fill its allegation picker.
+        let rec = record("draft", Some(vec!["54".to_string(), "55".to_string()]));
+        let detail = build_detail(&rec, &[]).expect("builds");
+        assert_eq!(
+            detail.anchor_allegation_ids,
+            vec!["54".to_string(), "55".to_string()]
+        );
     }
 
     #[test]

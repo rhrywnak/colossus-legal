@@ -1,14 +1,14 @@
 /**
- * Unit tests for the pure candidate-panel seed logic (B2b).
+ * Unit tests for the pure candidate-panel seed logic (B2b, D1 id-based rebuild).
  *
  * The panel that consumes this has no component-test infra (Rule 30), so all the
- * risk-bearing behavior — name resolution, normalization, exact-tag matching,
- * partial seeding, and the un-authored fallback — is pinned here.
+ * risk-bearing behavior — id resolution, the schema-v2 guard, single-actor
+ * seeding, stale-id surfacing, and the un-authored fallback — is pinned here.
  */
 import { describe, expect, it } from "vitest";
 
 import { seedFiltersFromDefinition } from "../candidateSeed";
-import type { ScenarioDefinition } from "../../pages/trialPrepData";
+import type { ScenarioDefinition, Wielder } from "../../pages/trialPrepData";
 import type { ActorOption } from "../../services/bias";
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
@@ -28,148 +28,112 @@ const ACTORS: ActorOption[] = [
   actor("person-george", "George Phillips"),
   actor("org-cfs", "CFS"),
 ];
-const PATTERN_TAGS = ["Disparagement", "obstruction", "selective_sanctions"];
 
-/** A fully-authored definition, overridable per test. */
+const wielder = (party_id: string, actor_role: Wielder["actor_role"] = "originated"): Wielder => ({
+  party_id,
+  actor_role,
+});
+
+/** A fully-authored v2 definition, overridable per test. */
 const def = (over: Partial<ScenarioDefinition> = {}): ScenarioDefinition => ({
-  attack_text: "Marie is obstructive",
+  attack_text: "She refused to divide the property amicably",
   wielders: [],
-  seed_phrases: [],
-  anti_seed_phrases: [],
-  schema_v: 1,
+  schema_v: 2,
   ...over,
 });
 
-// ── Un-authored fallback ─────────────────────────────────────────────────────
+// ── Un-authored / stale fallback ─────────────────────────────────────────────
 
-describe("seedFiltersFromDefinition — un-authored fallback", () => {
-  it("returns defined:false with no seeds/unresolved when definition is undefined", () => {
-    const seed = seedFiltersFromDefinition(undefined, SUBJECTS, ACTORS, PATTERN_TAGS);
+describe("seedFiltersFromDefinition — fallback cases", () => {
+  it("returns defined:false when definition is undefined", () => {
+    const seed = seedFiltersFromDefinition(undefined, SUBJECTS, ACTORS);
     expect(seed.defined).toBe(false);
     expect(seed.unresolved).toEqual([]);
     expect(seed.subjectId).toBeUndefined();
     expect(seed.actorId).toBeUndefined();
-    expect(seed.patternTag).toBeUndefined();
   });
 
   it("treats the wire's `{}` (no attack_text) as un-authored", () => {
-    // The backend delivers `{}` for an un-authored scenario — a truthy object
-    // lacking attack_text. Cast because `{}` does not satisfy the type, which is
-    // exactly the runtime shape the guard must catch.
-    const seed = seedFiltersFromDefinition(
-      {} as ScenarioDefinition,
-      SUBJECTS,
-      ACTORS,
-      PATTERN_TAGS,
-    );
+    const seed = seedFiltersFromDefinition({} as ScenarioDefinition, SUBJECTS, ACTORS);
     expect(seed.defined).toBe(false);
     expect(seed.unresolved).toEqual([]);
   });
 
+  it("treats a retired v1 body (schema_v 1) as un-authored", () => {
+    // A v1 body would otherwise carry attack_text + string wielders; the schema_v
+    // guard rejects it so a stale row is authored afresh, not mis-seeded.
+    const v1 = { attack_text: "old", schema_v: 1, wielders: ["CFS"] } as unknown as ScenarioDefinition;
+    const seed = seedFiltersFromDefinition(v1, SUBJECTS, ACTORS);
+    expect(seed.defined).toBe(false);
+  });
+
   it("treats an empty attack_text as un-authored", () => {
-    const seed = seedFiltersFromDefinition(
-      def({ attack_text: "" }),
-      SUBJECTS,
-      ACTORS,
-      PATTERN_TAGS,
-    );
+    const seed = seedFiltersFromDefinition(def({ attack_text: "" }), SUBJECTS, ACTORS);
     expect(seed.defined).toBe(false);
   });
 });
 
-// ── target → subject_id ──────────────────────────────────────────────────────
+// ── target → subject_id (id-based) ───────────────────────────────────────────
 
 describe("seedFiltersFromDefinition — target resolution", () => {
-  it("resolves target to a subjectId despite case/whitespace differences", () => {
+  it("passes a known target id through as subjectId", () => {
     const seed = seedFiltersFromDefinition(
-      def({ target: "  marie awad  " }), // different case + surrounding space
+      def({ target: "person-marie" }),
       SUBJECTS,
       ACTORS,
-      PATTERN_TAGS,
     );
     expect(seed.defined).toBe(true);
     expect(seed.subjectId).toBe("person-marie");
     expect(seed.unresolved).toEqual([]);
   });
 
-  it("records an unresolved target and leaves subjectId undefined", () => {
+  it("records a stale target id (not in vocab) as unresolved, not applied", () => {
     const seed = seedFiltersFromDefinition(
-      def({ target: "Someone Not In The Vocab" }),
+      def({ target: "person-deleted" }),
       SUBJECTS,
       ACTORS,
-      PATTERN_TAGS,
     );
     expect(seed.subjectId).toBeUndefined();
-    expect(seed.unresolved).toEqual([
-      { field: "target", name: "Someone Not In The Vocab" },
-    ]);
+    expect(seed.unresolved).toEqual([{ field: "target", id: "person-deleted" }]);
   });
 });
 
-// ── wielders[0] → actor_id ───────────────────────────────────────────────────
+// ── wielders[0].party_id → actor_id ──────────────────────────────────────────
 
 describe("seedFiltersFromDefinition — wielder resolution", () => {
   it("resolves wielders[0] to an actorId and ignores later wielders", () => {
     const seed = seedFiltersFromDefinition(
-      def({ wielders: ["george phillips", "CFS"] }), // second is a valid actor too
+      def({ wielders: [wielder("person-george"), wielder("org-cfs", "repeated")] }),
       SUBJECTS,
       ACTORS,
-      PATTERN_TAGS,
     );
     expect(seed.actorId).toBe("person-george"); // resolved from [0]
-    // The second wielder ("CFS") is ignored — a single actor_id only.
-    expect(seed.unresolved).toEqual([]);
+    expect(seed.unresolved).toEqual([]); // the second wielder is simply ignored
   });
 
-  it("records an unresolved wielder and leaves actorId undefined", () => {
+  it("records a stale wielder id as unresolved", () => {
     const seed = seedFiltersFromDefinition(
-      def({ wielders: ["Nobody Here"] }),
+      def({ wielders: [wielder("person-ghost")] }),
       SUBJECTS,
       ACTORS,
-      PATTERN_TAGS,
     );
     expect(seed.actorId).toBeUndefined();
-    expect(seed.unresolved).toEqual([{ field: "wielder", name: "Nobody Here" }]);
-  });
-});
-
-// ── seed_phrases[0] → pattern_tag ────────────────────────────────────────────
-
-describe("seedFiltersFromDefinition — pattern tag matching", () => {
-  it("matches seed_phrases[0] to a known tag and returns the VOCAB casing", () => {
-    const seed = seedFiltersFromDefinition(
-      def({ seed_phrases: ["disparagement"] }), // lowercase; vocab is "Disparagement"
-      SUBJECTS,
-      ACTORS,
-      PATTERN_TAGS,
-    );
-    expect(seed.patternTag).toBe("Disparagement");
-  });
-
-  it("leaves patternTag undefined when no tag matches (no fuzzy)", () => {
-    const seed = seedFiltersFromDefinition(
-      def({ seed_phrases: ["not a known tag"] }),
-      SUBJECTS,
-      ACTORS,
-      PATTERN_TAGS,
-    );
-    expect(seed.patternTag).toBeUndefined();
+    expect(seed.unresolved).toEqual([{ field: "wielder", id: "person-ghost" }]);
   });
 });
 
 // ── Partial seeding ──────────────────────────────────────────────────────────
 
 describe("seedFiltersFromDefinition — partial seeding", () => {
-  it("seeds what resolves and surfaces what does not (target ok, wielder unresolved)", () => {
+  it("seeds what resolves and surfaces what does not (target ok, wielder stale)", () => {
     const seed = seedFiltersFromDefinition(
-      def({ target: "Marie Awad", wielders: ["Ghost Actor"] }),
+      def({ target: "person-marie", wielders: [wielder("person-ghost")] }),
       SUBJECTS,
       ACTORS,
-      PATTERN_TAGS,
     );
-    expect(seed.subjectId).toBe("person-marie"); // partial: subject seeded
-    expect(seed.actorId).toBeUndefined(); // wielder not seeded
-    expect(seed.unresolved).toEqual([{ field: "wielder", name: "Ghost Actor" }]);
+    expect(seed.subjectId).toBe("person-marie");
+    expect(seed.actorId).toBeUndefined();
+    expect(seed.unresolved).toEqual([{ field: "wielder", id: "person-ghost" }]);
     expect(seed.defined).toBe(true);
   });
 });

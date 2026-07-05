@@ -81,27 +81,46 @@ export interface MarieResponse {
 }
 
 /**
+ * A party's role in a scenario's accusation chain. MIRRORS the backend
+ * `ActorRole` enum (`backend/src/domain/actor_role.rs`, serde `snake_case`). The
+ * backend enum is the validation source of truth — a value not in this union is
+ * rejected on save (there is deliberately no `/roles` endpoint for three
+ * near-constant tokens). The picker's display strings live in the label config
+ * (`components/scenarioFormLabels.ts`), never here.
+ */
+export type ActorRole = "originated" | "repeated" | "adopted";
+
+/**
+ * One wielder entry — the typed mirror of the backend `Wielder` struct. `party_id`
+ * is a graph node id chosen from the live vocabulary (never free text).
+ */
+export interface Wielder {
+  party_id: string;
+  actor_role: ActorRole;
+}
+
+/**
  * A scenario's authored definition body — the typed mirror of the backend
  * `ScenarioDefinition` (`backend/src/dto/scenario_crud.rs`). Must stay
  * field-for-field with that struct.
  *
- * Required-vs-optional follows the backend serde attrs exactly:
+ * Rebuilt in D1 (schema v2). Required-vs-optional follows the backend serde attrs:
  * - `attack_text` and `schema_v` are the REQUIRED pair (no serde default/skip on
- *   the backend — B1's parse contract rejects a definition missing either).
- * - `attack_meaning` / `target` / `notes` are `Option` + `skip_serializing_if` →
- *   optional (omitted when absent).
- * - `wielders` / `seed_phrases` / `anti_seed_phrases` are `#[serde(default)]` on
- *   the backend, so a read ALWAYS sees them as `[]` (never absent); they are
- *   non-optional here for reads, though an authoring form may start them empty.
+ *   the backend — the parse contract rejects a definition missing either).
+ * - `attack_meaning` / `target` are `Option` + `skip_serializing_if` → optional
+ *   (omitted when absent). `target` is a party node id (from `available-filters`
+ *   subjects), never free text.
+ * - `wielders` is `#[serde(default)]` on the backend, so a read ALWAYS sees it as
+ *   `[]` (never absent); non-optional here for reads, though the form may start
+ *   it empty.
+ *
+ * Retired in v2 (were present in v1): `seed_phrases`, `anti_seed_phrases`, `notes`.
  */
 export interface ScenarioDefinition {
   attack_text: string;
   attack_meaning?: string;
-  wielders: string[];
   target?: string;
-  seed_phrases: string[];
-  anti_seed_phrases: string[];
-  notes?: string;
+  wielders: Wielder[];
   schema_v: number;
 }
 
@@ -116,7 +135,7 @@ export interface ScenarioDefinition {
 // CONST: mirrors backend CURRENT_SCHEMA_V — a build-time coupling invariant, NOT
 // a deployment knob (the backend const is not frontend-reachable; the two must
 // move together on any schema bump). Cannot live in env/config.
-export const CURRENT_SCHEMA_V = 1;
+export const CURRENT_SCHEMA_V = 2;
 
 /** The full scenario exchange shown on the detail page. */
 export interface ScenarioDetail {
@@ -128,11 +147,16 @@ export interface ScenarioDetail {
   timeline: ExchangeTurn[];
   responses: MarieResponse[];
   notes: string | null;
+  /** Complaint-paragraph anchors this scenario touches (always an array; the
+   *  backend flattens a SQL NULL to `[]`). The define form pre-fills its
+   *  allegation picker from this. */
+  anchor_allegation_ids: string[];
   /**
    * The authored definition, opaque on the wire (backend sends the raw jsonb).
    * OPTIONAL: an un-authored scenario legitimately lacks one (the backend sends
-   * `{}`, which does NOT satisfy this typed shape — treat a missing/`{}`
-   * definition as "not yet defined"). Present only once a scenario is authored.
+   * `{}` — or a now-retired v1 body — neither of which satisfies this typed v2
+   * shape; treat any of those as "not yet defined"). Present only once a scenario
+   * is authored under the current schema.
    */
   definition?: ScenarioDefinition;
 }
