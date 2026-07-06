@@ -458,6 +458,108 @@ impl BiasRepository {
         let (_count, instances) = state.finish();
         Ok(instances)
     }
+
+    /// Every Evidence node ABOUT a given subject — **ungated by `pattern_tags`**.
+    ///
+    /// ## Why this is a separate method, not a flag on `execute_filtered_query`
+    ///
+    /// The Theme Scan (D2b) needs an *exhaustive* candidate set: every Evidence
+    /// node concerning the subject, whether or not it carries bias `pattern_tags`.
+    /// The Bias Explorer's `execute_filtered_query` deliberately does the
+    /// opposite — it gates on `pattern_tags IS NOT NULL AND <> ''` because bias
+    /// browsing only wants *tagged* evidence. Those are two different recall
+    /// guarantees for two different callers.
+    ///
+    /// Folding them into one body behind a `include_untagged: bool` would couple
+    /// both callers' correctness to a single function: a future edit for one
+    /// caller could silently change the other's recall — the exact trap Standing
+    /// Rule 1 (no silent state changes) warns against. Two features, two queries:
+    /// each recall guarantee stays local to its own method and greppable by name.
+    /// This is an API-design decision, not stylistic preference. **Do not add a
+    /// gate here, and do not touch `execute_filtered_query`.**
+    ///
+    /// ## Shape and ordering
+    ///
+    /// Returns the SAME `BiasInstance` shape (quote, speaker, ABOUT subjects,
+    /// document, pattern tags) so D2b consumes exactly one type — no total-count
+    /// tuple, because the scan reads the whole set. Rows are ordered by `e.id`
+    /// so a re-scan sees candidates in a stable order (supports the re-scan/diff
+    /// and rejected-sample honesty checks in D2b).
+    ///
+    /// The subject is a REQUIRED match — it *is* the scan's scope. Only the
+    /// speaker is optional (see the `OPTIONAL MATCH` note below).
+    ///
+    /// # Errors
+    /// Returns [`BiasRepositoryError`] if the Cypher fails to execute or stream.
+    pub async fn all_evidence_about_subject(
+        &self,
+        subject_id: &str,
+    ) -> Result<Vec<BiasInstance>, BiasRepositoryError> {
+        // RETURN columns are identical to `evidence_by_ids` /
+        // `execute_filtered_query`, so the same `BiasRow::from_row` decoder and
+        // `AggregationState` collapse apply unchanged. Relationship-type names
+        // come from the `schema::` constants (not bare string literals) so a
+        // rename in `schema.rs` flows here automatically (Rule 16 — no magic
+        // strings). `EXISTS { ... }` (not a second top-level MATCH) fixes the
+        // subject as the scope WITHOUT multiplying `e` rows, mirroring
+        // `execute_filtered_query`'s subject filter — minus the `$subject_id IS
+        // NULL OR` (subject is required here) and minus the `pattern_tags` gate.
+        //
+        // STATED_BY is an **OPTIONAL MATCH**, deliberately: a plain MATCH would
+        // silently drop Evidence with no speaker edge, breaking the scan's
+        // exhaustive-recall guarantee. Documentary evidence (letters, records)
+        // may legitimately have no STATED_BY — speaker is metadata, not a
+        // filter. The scan must see every Evidence node ABOUT the subject; a
+        // speaker-less row decodes `stated_by` to an empty-name actor (the
+        // `coalesce`/`CASE WHEN actor IS NULL` projection below), which the DTO
+        // already types as `Option`, so no DTO change is needed.
+        //
+        // The Cypher contains no other `{`/`}` beyond the `EXISTS { ... }` block,
+        // whose literal braces must be doubled (`{{` / `}}`) so `format!` treats
+        // them as text and only substitutes the named `schema::` placeholders.
+        let cypher = format!(
+            "
+            MATCH (e:Evidence)
+            WHERE EXISTS {{ MATCH (e)-[:{about}]->(s) WHERE s.id = $subject_id }}
+            OPTIONAL MATCH (e)-[:{stated_by}]->(actor)
+            OPTIONAL MATCH (e)-[:{about}]->(subject)
+            OPTIONAL MATCH (e)-[:{contained_in}]->(d:Document)
+            RETURN
+              e.id AS evidence_id,
+              coalesce(e.title, '') AS title,
+              e.verbatim_quote AS verbatim_quote,
+              e.page_number AS page_number,
+              e.pattern_tags AS pattern_tags_raw,
+              coalesce(actor.id, '') AS actor_id,
+              coalesce(actor.name, '') AS actor_name,
+              CASE WHEN actor IS NULL THEN '' ELSE labels(actor)[0] END AS actor_type,
+              subject.id AS subject_id,
+              subject.name AS subject_name,
+              CASE WHEN subject IS NULL THEN NULL ELSE labels(subject)[0] END AS subject_type,
+              d.id AS document_id,
+              d.title AS document_title,
+              d.document_type AS document_type
+            ORDER BY e.id
+        ",
+            about = crate::neo4j::schema::ABOUT,
+            stated_by = crate::neo4j::schema::STATED_BY,
+            contained_in = crate::neo4j::schema::CONTAINED_IN,
+        );
+
+        let q = query(&cypher).param("subject_id", subject_id);
+
+        let mut result = self.graph.execute(q).await?;
+        let mut state = AggregationState::new();
+        while let Some(row) = result.next().await? {
+            if let Some(extracted) = BiasRow::from_row(&row) {
+                state.absorb(extracted);
+            }
+        }
+        // `finish()` returns `(count, instances)`; the scan reads the whole set,
+        // so only the instances are returned (the count is the list length).
+        let (_count, instances) = state.finish();
+        Ok(instances)
+    }
 }
 
 // ─── Pure helpers (no I/O — easy to unit-test) ──────────────────────────────

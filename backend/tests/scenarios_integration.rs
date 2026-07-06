@@ -290,8 +290,8 @@ async fn it_shares_a_fact_across_scenarios_with_distinct_roles() -> TestResult<(
 
     // One graph node, tagged into both scenarios under different roles.
     let node = "person-jeffrey-humphrey";
-    upsert_fact_ref(&pool, offense, node, Some("wielder"), true, None).await?;
-    upsert_fact_ref(&pool, defense, node, Some("target"), true, None).await?;
+    upsert_fact_ref(&pool, offense, node, Some("wielder"), true, None, None).await?;
+    upsert_fact_ref(&pool, defense, node, Some("target"), true, None, None).await?;
 
     let offense_refs = list_fact_refs_for_scenario(&pool, offense).await?;
     let defense_refs = list_fact_refs_for_scenario(&pool, defense).await?;
@@ -326,7 +326,16 @@ async fn it_upserts_a_fact_ref_in_place() -> TestResult<()> {
     let scenario = make_scenario(&pool, "Lens", &slug).await?;
     let node = "alleg-42";
 
-    upsert_fact_ref(&pool, scenario, node, Some("seed_support"), false, None).await?;
+    upsert_fact_ref(
+        &pool,
+        scenario,
+        node,
+        Some("seed_support"),
+        false,
+        None,
+        None,
+    )
+    .await?;
     // Re-tag the SAME pair with a different role + confirmed + note.
     upsert_fact_ref(
         &pool,
@@ -335,6 +344,7 @@ async fn it_upserts_a_fact_ref_in_place() -> TestResult<()> {
         Some("wielder"),
         true,
         Some("reclassified after review"),
+        None,
     )
     .await?;
 
@@ -352,6 +362,102 @@ async fn it_upserts_a_fact_ref_in_place() -> TestResult<()> {
     Ok(())
 }
 
+/// The `confidence` column (D2a substrate for Theme Scan) round-trips through
+/// `upsert_fact_ref`: `Some(x)` stores the float, `None` stores SQL `NULL`, and
+/// the `ON CONFLICT` update path overwrites confidence from `EXCLUDED` — so a
+/// re-tag can both set and clear it. We read the column back with a raw query
+/// because `list_fact_refs_for_scenario` deliberately does NOT surface
+/// confidence yet (it stays write-only until D3 chooses to render it), so the
+/// record projection is unchanged. Asserting the raw column proves the write
+/// reached the row regardless of what the read projection exposes.
+#[tokio::test]
+#[ignore]
+async fn it_round_trips_fact_ref_confidence() -> TestResult<()> {
+    let pool = pipeline_pool().await?;
+    let slug = test_slug("fact_confidence");
+    delete_scenarios_for_case(&pool, &slug).await?;
+
+    let scenario = make_scenario(&pool, "Scan lens", &slug).await?;
+
+    // Reads the raw `confidence` column for one (scenario, node) pair. Returns
+    // `Option<f32>`: `None` distinguishes SQL NULL (human/pre-scan) from a stored
+    // float — the two states must stay observably distinct (Standing Rule 1).
+    async fn read_confidence(
+        pool: &sqlx::PgPool,
+        scenario: uuid::Uuid,
+        node: &str,
+    ) -> TestResult<Option<f32>> {
+        let value = sqlx::query_scalar::<_, Option<f32>>(
+            "SELECT confidence FROM scenario_fact_refs \
+             WHERE scenario_id = $1 AND graph_node_id = $2",
+        )
+        .bind(scenario)
+        .bind(node)
+        .fetch_one(pool)
+        .await?;
+        Ok(value)
+    }
+
+    // Scan path: a suggestion (confirmed = false) carrying a model confidence.
+    let scan_node = "evidence-scan-1";
+    upsert_fact_ref(
+        &pool,
+        scenario,
+        scan_node,
+        Some("seed_support"),
+        false,
+        Some("proposed by theme scan"),
+        Some(0.87_f32),
+    )
+    .await?;
+    let stored = read_confidence(&pool, scenario, scan_node).await?;
+    assert_eq!(
+        stored,
+        Some(0.87_f32),
+        "Some(confidence) must round-trip as the stored REAL value"
+    );
+
+    // Human path: no model confidence — the column must be SQL NULL, not 0.0.
+    let human_node = "evidence-human-1";
+    upsert_fact_ref(
+        &pool,
+        scenario,
+        human_node,
+        Some("wielder"),
+        true,
+        None,
+        None,
+    )
+    .await?;
+    assert_eq!(
+        read_confidence(&pool, scenario, human_node).await?,
+        None,
+        "None must write SQL NULL (a hand-curated fact has no model confidence)"
+    );
+
+    // Update path: re-tagging the scan node with None must CLEAR confidence to
+    // NULL via `confidence = EXCLUDED.confidence` — proving the ON CONFLICT
+    // branch is wired, not just the insert branch.
+    upsert_fact_ref(
+        &pool,
+        scenario,
+        scan_node,
+        Some("wielder"),
+        true,
+        None,
+        None,
+    )
+    .await?;
+    assert_eq!(
+        read_confidence(&pool, scenario, scan_node).await?,
+        None,
+        "the ON CONFLICT update must overwrite confidence from EXCLUDED (here: clear it)"
+    );
+
+    delete_scenarios_for_case(&pool, &slug).await?;
+    Ok(())
+}
+
 /// Deleting a scenario removes its fact refs via `ON DELETE CASCADE` — no manual
 /// cleanup of the child table is needed.
 #[tokio::test]
@@ -362,7 +468,7 @@ async fn it_cascades_fact_refs_on_scenario_delete() -> TestResult<()> {
     delete_scenarios_for_case(&pool, &slug).await?;
 
     let scenario = make_scenario(&pool, "Doomed lens", &slug).await?;
-    upsert_fact_ref(&pool, scenario, "node-1", Some("wielder"), true, None).await?;
+    upsert_fact_ref(&pool, scenario, "node-1", Some("wielder"), true, None, None).await?;
     assert_eq!(
         list_fact_refs_for_scenario(&pool, scenario).await?.len(),
         1,
@@ -392,7 +498,7 @@ async fn it_rejects_a_fact_ref_for_a_nonexistent_scenario() -> TestResult<()> {
 
     // A random uuid that was never inserted into `scenarios`.
     let orphan = uuid::Uuid::new_v4();
-    let result = upsert_fact_ref(&pool, orphan, "node-x", Some("wielder"), false, None).await;
+    let result = upsert_fact_ref(&pool, orphan, "node-x", Some("wielder"), false, None, None).await;
     assert!(
         result.is_err(),
         "upsert_fact_ref must fail when scenario_id references no scenario (FK violation)"
@@ -422,7 +528,16 @@ async fn it_closes_the_minimal_slice() -> TestResult<()> {
 
     // 1.2: tag a graph fact into the scenario (a human-authored node, 0.2 path).
     let human_node = "human-fact-7f3a";
-    upsert_fact_ref(&pool, scenario, human_node, Some("wielder"), true, None).await?;
+    upsert_fact_ref(
+        &pool,
+        scenario,
+        human_node,
+        Some("wielder"),
+        true,
+        None,
+        None,
+    )
+    .await?;
 
     // 1.6: a response, an item, and the item's evidence reference.
     let response = insert_scenario_response(

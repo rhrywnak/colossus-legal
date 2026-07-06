@@ -182,6 +182,10 @@ pub async fn add_scenario_fact(
     // confirmed = true: a human curated it. role / note are accepted but not yet
     // surfaced by any UI (Phase A) — the columns round-trip, ready for a later
     // phase, without forcing the client to send a value.
+    //
+    // confidence = None: this is the HUMAN path. A hand-curated fact has no model
+    // confidence, so NULL is the correct, permanent value here — not a stand-in.
+    // Only the Theme Scan (D2b) writes a Some(_) confidence.
     upsert_fact_ref(
         &state.pipeline_pool,
         id,
@@ -189,6 +193,7 @@ pub async fn add_scenario_fact(
         payload.role.as_deref(),
         true,
         payload.note.as_deref(),
+        None,
     )
     .await
     .map_err(|e| {

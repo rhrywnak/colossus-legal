@@ -377,6 +377,20 @@ const SCENARIO_FACT_REF_COLUMNS: &str =
 /// vocabulary is owned by the task-1.3 code lookup; this layer stores whatever
 /// the validated caller passes (or `None`).
 ///
+/// ## Rust Learning: `Option<f32>` ↔ SQL `NULL`, and why `f32`
+///
+/// `confidence: Option<f32>` is the type-level statement "this value may be
+/// absent." sqlx maps `Option<T>` to SQL automatically: `Some(0.9)` binds the
+/// float `0.9`; `None` binds `NULL`. So the human-path callers that pass `None`
+/// are not using a placeholder — `None` IS the correct, permanent semantics: a
+/// hand-curated fact has no *model* confidence, so its column is genuinely NULL.
+/// Only the Theme Scan (D2b) writes `Some(_)`.
+///
+/// `f32` (SQL `REAL`) not `f64` (`DOUBLE PRECISION`): the model emits a
+/// ~2-decimal confidence in `[0.0, 1.0]`; `REAL`'s ~7 significant digits is
+/// ample and the column is half the width. A deliberate width choice, matched
+/// to the `REAL` column added by the 2026-07-06 migration.
+///
 /// # Errors
 /// Returns [`PipelineRepoError`] if the write fails — notably a foreign-key
 /// violation if `scenario_id` names no existing scenario.
@@ -387,15 +401,17 @@ pub async fn upsert_fact_ref(
     role_in_this_scenario: Option<&str>,
     confirmed: bool,
     note: Option<&str>,
+    confidence: Option<f32>,
 ) -> Result<(), PipelineRepoError> {
     sqlx::query(
         r#"INSERT INTO scenario_fact_refs
-               (scenario_id, graph_node_id, role_in_this_scenario, confirmed, note)
-           VALUES ($1, $2, $3, $4, $5)
+               (scenario_id, graph_node_id, role_in_this_scenario, confirmed, note, confidence)
+           VALUES ($1, $2, $3, $4, $5, $6)
            ON CONFLICT (scenario_id, graph_node_id) DO UPDATE SET
                role_in_this_scenario = EXCLUDED.role_in_this_scenario,
                confirmed             = EXCLUDED.confirmed,
                note                  = EXCLUDED.note,
+               confidence            = EXCLUDED.confidence,
                tagged_at             = NOW()"#,
     )
     .bind(scenario_id)
@@ -403,6 +419,7 @@ pub async fn upsert_fact_ref(
     .bind(role_in_this_scenario)
     .bind(confirmed)
     .bind(note)
+    .bind(confidence)
     .execute(executor)
     .await?;
     Ok(())
