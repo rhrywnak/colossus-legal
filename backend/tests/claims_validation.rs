@@ -147,6 +147,8 @@ async fn create_claim_rejects_empty_title() -> TestResult<()> {
         registry: std::sync::Arc::new(
             colossus_legal_backend::pipeline::registry::PipelineRegistry::stub_for_tests(),
         ),
+        theme_scan_provider: None,
+        theme_scan_semaphore: std::sync::Arc::new(tokio::sync::Semaphore::new(1)),
     };
 
     let payload = ClaimCreateRequest {
@@ -193,6 +195,8 @@ async fn create_claim_rejects_invalid_status() -> TestResult<()> {
         registry: std::sync::Arc::new(
             colossus_legal_backend::pipeline::registry::PipelineRegistry::stub_for_tests(),
         ),
+        theme_scan_provider: None,
+        theme_scan_semaphore: std::sync::Arc::new(tokio::sync::Semaphore::new(1)),
     };
 
     let payload = ClaimCreateRequest {
@@ -239,6 +243,8 @@ async fn get_claim_returns_404_when_missing() -> TestResult<()> {
         registry: std::sync::Arc::new(
             colossus_legal_backend::pipeline::registry::PipelineRegistry::stub_for_tests(),
         ),
+        theme_scan_provider: None,
+        theme_scan_semaphore: std::sync::Arc::new(tokio::sync::Semaphore::new(1)),
     };
 
     let response = get_claim(
@@ -295,6 +301,8 @@ async fn update_claim_rejects_invalid_status() -> TestResult<()> {
         registry: std::sync::Arc::new(
             colossus_legal_backend::pipeline::registry::PipelineRegistry::stub_for_tests(),
         ),
+        theme_scan_provider: None,
+        theme_scan_semaphore: std::sync::Arc::new(tokio::sync::Semaphore::new(1)),
     };
 
     let payload = ClaimUpdateRequest {
@@ -347,6 +355,8 @@ async fn happy_path_create_and_get_claim() -> TestResult<()> {
         registry: std::sync::Arc::new(
             colossus_legal_backend::pipeline::registry::PipelineRegistry::stub_for_tests(),
         ),
+        theme_scan_provider: None,
+        theme_scan_semaphore: std::sync::Arc::new(tokio::sync::Semaphore::new(1)),
     };
 
     let payload = ClaimCreateRequest {

@@ -81,6 +81,8 @@ async fn setup_app() -> TestResult<Router> {
         registry: std::sync::Arc::new(
             colossus_legal_backend::pipeline::registry::PipelineRegistry::stub_for_tests(),
         ),
+        theme_scan_provider: None,
+        theme_scan_semaphore: std::sync::Arc::new(tokio::sync::Semaphore::new(1)),
     };
     Ok(router().with_state(state))
 }

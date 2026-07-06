@@ -51,6 +51,7 @@ pub mod proof_review;
 pub mod qa;
 pub mod queries;
 pub mod scenario_facts;
+pub mod scenario_theme_scan;
 pub mod scenarios;
 pub mod schema;
 pub mod search;
@@ -151,6 +152,13 @@ fn case_routes() -> Router<AppState> {
         .route(
             "/cases/:slug/scenarios/:scenario_id/facts/:graph_node_id",
             delete(scenario_facts::remove_scenario_fact),
+        )
+        // Theme Scan (D2b): LLM-judge every candidate quote about the scenario's
+        // subject and persist the relevant verdicts as confirmed=false
+        // suggestions. Edit-gated inside the handler (writes + real LLM spend).
+        .route(
+            "/cases/:slug/scenarios/:scenario_id/theme-scan",
+            post(scenario_theme_scan::run_scenario_theme_scan),
         )
 }
 

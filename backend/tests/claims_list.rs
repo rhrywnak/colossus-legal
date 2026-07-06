@@ -143,6 +143,8 @@ async fn get_claims_returns_non_empty_when_data_exists() -> TestResult<()> {
         registry: std::sync::Arc::new(
             colossus_legal_backend::pipeline::registry::PipelineRegistry::stub_for_tests(),
         ),
+        theme_scan_provider: None,
+        theme_scan_semaphore: std::sync::Arc::new(tokio::sync::Semaphore::new(1)),
     };
     let response = list_claims(None, State(state)).await.into_response();
 
@@ -201,6 +203,8 @@ async fn get_claims_returns_empty_when_no_data() -> TestResult<()> {
         registry: std::sync::Arc::new(
             colossus_legal_backend::pipeline::registry::PipelineRegistry::stub_for_tests(),
         ),
+        theme_scan_provider: None,
+        theme_scan_semaphore: std::sync::Arc::new(tokio::sync::Semaphore::new(1)),
     };
     let response = list_claims(None, State(state)).await.into_response();
 

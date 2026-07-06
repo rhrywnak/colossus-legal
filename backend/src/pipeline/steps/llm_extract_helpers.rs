@@ -7,76 +7,16 @@
 //! reusable and independently testable.
 
 use sqlx::PgPool;
-use tokio::time::Duration;
-
-use colossus_extract::{LlmProvider, LlmResponse, PipelineError};
 
 use crate::repositories::pipeline_repository::extraction;
 
-/// Maximum retry attempts per LLM call on rate-limit (429) errors.
-pub(crate) const MAX_RETRIES_PER_CHUNK: u32 = 3;
-
-/// Call the LLM provider with rate-limit-aware retry.
-///
-/// On `PipelineError::RateLimited`, sleeps exactly `retry_after_secs` and
-/// retries. Max [`MAX_RETRIES_PER_CHUNK`] attempts. Any other error returns
-/// immediately.
-///
-/// The `chunk_idx` / `chunk_total` pair is used only for logging.
-///
-/// When `system` is `Some`, the call routes through
-/// [`LlmProvider::invoke_with_system`] so providers with a native
-/// system-prompt field (Anthropic Messages API) populate it instead of
-/// concatenating system+user into a single prompt.
-pub(crate) async fn call_with_rate_limit_retry(
-    provider: &dyn LlmProvider,
-    system: Option<&str>,
-    prompt: &str,
-    max_tokens: u32,
-    chunk_idx: usize,
-    chunk_total: usize,
-) -> Result<LlmResponse, PipelineError> {
-    let mut attempt = 0u32;
-    loop {
-        let result = match system {
-            Some(s) => provider.invoke_with_system(s, prompt, max_tokens).await,
-            None => provider.invoke(prompt, max_tokens).await,
-        };
-        match result {
-            Ok(response) => return Ok(response),
-            Err(PipelineError::RateLimited { retry_after_secs }) => {
-                attempt += 1;
-                if attempt > MAX_RETRIES_PER_CHUNK {
-                    return Err(PipelineError::LlmProvider(format!(
-                        "chunk {}/{}: exhausted {} rate-limit retries",
-                        chunk_idx + 1,
-                        chunk_total,
-                        MAX_RETRIES_PER_CHUNK
-                    )));
-                }
-
-                tracing::warn!(
-                    chunk = chunk_idx,
-                    retry_after_secs,
-                    attempt,
-                    "Rate limited, sleeping before retry"
-                );
-
-                // Single sleep, no per-second cancel polling. The
-                // legacy Worker's `cancel_watcher` race in
-                // `colossus-pipeline/src/worker/executor.rs` still
-                // cancels the whole step future at the
-                // `tokio::select!`, so mid-sleep cancellation still
-                // works at the step level — granularity drops from
-                // ~1s to ~retry_after_secs. The Restate path kills
-                // the awaiting future directly via SDK abort.
-                tokio::time::sleep(Duration::from_secs(retry_after_secs)).await;
-                // Loop continues — retry the call
-            }
-            Err(other) => return Err(other),
-        }
-    }
-}
+// The rate-limit retry wrapper moved to the crate root (`crate::llm_retry`) so
+// the Theme Scan service can share it without importing a pipeline step's
+// internals (an inverted layering dependency). Re-exported here under the
+// original path so this module's existing callers (`llm_extract`,
+// `llm_extract_pass2`) keep their `use super::call_with_rate_limit_retry`
+// imports unchanged.
+pub(crate) use crate::llm_retry::call_with_rate_limit_retry;
 
 /// Parse an LLM response as a JSON Value containing entities and relationships.
 ///

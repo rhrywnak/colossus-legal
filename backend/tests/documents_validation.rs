@@ -123,6 +123,8 @@ async fn create_document_rejects_empty_title() -> TestResult<()> {
         registry: std::sync::Arc::new(
             colossus_legal_backend::pipeline::registry::PipelineRegistry::stub_for_tests(),
         ),
+        theme_scan_provider: None,
+        theme_scan_semaphore: std::sync::Arc::new(tokio::sync::Semaphore::new(1)),
     };
 
     let payload = base_create_payload("", "pdf");
@@ -165,6 +167,8 @@ async fn create_document_rejects_invalid_doc_type() -> TestResult<()> {
         registry: std::sync::Arc::new(
             colossus_legal_backend::pipeline::registry::PipelineRegistry::stub_for_tests(),
         ),
+        theme_scan_provider: None,
+        theme_scan_semaphore: std::sync::Arc::new(tokio::sync::Semaphore::new(1)),
     };
 
     let payload = base_create_payload("Valid Title", "invalid-type");
@@ -207,6 +211,8 @@ async fn create_document_rejects_invalid_created_at() -> TestResult<()> {
         registry: std::sync::Arc::new(
             colossus_legal_backend::pipeline::registry::PipelineRegistry::stub_for_tests(),
         ),
+        theme_scan_provider: None,
+        theme_scan_semaphore: std::sync::Arc::new(tokio::sync::Semaphore::new(1)),
     };
 
     let mut payload = base_create_payload("Valid Title", "pdf");
@@ -250,6 +256,8 @@ async fn get_document_returns_404_when_missing() -> TestResult<()> {
         registry: std::sync::Arc::new(
             colossus_legal_backend::pipeline::registry::PipelineRegistry::stub_for_tests(),
         ),
+        theme_scan_provider: None,
+        theme_scan_semaphore: std::sync::Arc::new(tokio::sync::Semaphore::new(1)),
     };
 
     let response = get_document(
@@ -294,6 +302,8 @@ async fn update_document_rejects_invalid_doc_type() -> TestResult<()> {
         registry: std::sync::Arc::new(
             colossus_legal_backend::pipeline::registry::PipelineRegistry::stub_for_tests(),
         ),
+        theme_scan_provider: None,
+        theme_scan_semaphore: std::sync::Arc::new(tokio::sync::Semaphore::new(1)),
     };
 
     let payload = base_create_payload("Title", "complaint");
@@ -360,6 +370,8 @@ async fn update_document_returns_404_when_missing() -> TestResult<()> {
         registry: std::sync::Arc::new(
             colossus_legal_backend::pipeline::registry::PipelineRegistry::stub_for_tests(),
         ),
+        theme_scan_provider: None,
+        theme_scan_semaphore: std::sync::Arc::new(tokio::sync::Semaphore::new(1)),
     };
 
     let update_payload = DocumentUpdateRequest {
@@ -416,6 +428,8 @@ async fn happy_path_create_get_update_document() -> TestResult<()> {
         registry: std::sync::Arc::new(
             colossus_legal_backend::pipeline::registry::PipelineRegistry::stub_for_tests(),
         ),
+        theme_scan_provider: None,
+        theme_scan_semaphore: std::sync::Arc::new(tokio::sync::Semaphore::new(1)),
     };
 
     let mut payload = base_create_payload("Happy Title", "complaint");

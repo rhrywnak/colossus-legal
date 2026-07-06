@@ -113,6 +113,32 @@ pub struct AppConfig {
     /// fallback slug — case-specific data lives in configuration, never in
     /// code (Standing Rule 2).
     pub case_slug: Option<String>,
+
+    /// Anthropic model id the Theme Scan judge (D2b) uses, read from
+    /// `THEME_SCAN_MODEL`.
+    ///
+    /// `None` is a first-class state meaning "use the Chat default model"
+    /// (`DEFAULT_CHAT_MODEL`, resolved at startup in `main.rs`). We keep the
+    /// scan's model SEPARATE from Chat's rather than hardcoding them equal: the
+    /// scan (a deterministic relevance judge) and Chat (a natural-variation
+    /// synthesis endpoint) are different jobs, and sharing one id would let a
+    /// "tune the chat model" change silently alter scan judgments — the
+    /// mixed-provenance hazard. Setting `THEME_SCAN_MODEL` lets them diverge; a
+    /// value here overrides the Chat default for the scan only.
+    pub theme_scan_model: Option<String>,
+
+    /// Maximum number of Theme Scan LLM verdict calls in flight at once, read
+    /// from `THEME_SCAN_CONCURRENCY` (default 4).
+    ///
+    /// The scan judges every candidate quote with an independent LLM call and
+    /// drives them concurrently. This bounds that fan-out via a DEDICATED
+    /// semaphore — deliberately NOT the pipeline's `llm_semaphore`, so a running
+    /// scan cannot starve document extraction (and vice-versa). The provider's
+    /// own rate-limit-retry wrapper absorbs any 429 from the higher combined
+    /// concurrency. A magic default is disallowed (Standing Rule 2); the `4`
+    /// here is the documented forward-compatible default, overridable per
+    /// deployment without a rebuild.
+    pub theme_scan_concurrency: usize,
 }
 
 impl AppConfig {
@@ -236,6 +262,25 @@ impl AppConfig {
         // best-effort: env-var-unset → None is the documented success path here
         let case_slug = std::env::var("CASE_SLUG").ok();
 
+        // THEME_SCAN_MODEL — optional. `.ok()` maps "unset" → `None`, which
+        // main.rs resolves to `DEFAULT_CHAT_MODEL` when it builds the scan
+        // provider. Kept separate from the Chat model so the two jobs can
+        // diverge (see the field doc). No hardcoded model id here — model
+        // selection is a deployment decision (Standing Rule 2).
+        // best-effort: env-var-unset → None is the documented success path here
+        let theme_scan_model = std::env::var("THEME_SCAN_MODEL").ok();
+
+        // THEME_SCAN_CONCURRENCY — optional, defaults to 4. Same best-effort
+        // parse shape as RERANK_THRESHOLD above: unset OR unparseable → the
+        // documented default. Each `.ok()`/`.and_then` feeds the next
+        // combinator and the final value is captured by `.unwrap_or(4)` — this
+        // is combinator chaining, NOT a discarded `Result` (Standing Rule 1).
+        let theme_scan_concurrency: usize = std::env::var("THEME_SCAN_CONCURRENCY")
+            .ok() // best-effort: env-var-unset → None → unwrap_or(4)
+            .and_then(|v| v.parse().ok()) // best-effort: parse-failure → None → unwrap_or(4)
+            .filter(|&n| n > 0) // a zero cap would deadlock the semaphore — treat as unset
+            .unwrap_or(4);
+
         Ok(Self {
             neo4j_uri,
             neo4j_user,
@@ -260,6 +305,8 @@ impl AppConfig {
             restate_ingress_url,
             case_default_subject_name,
             case_slug,
+            theme_scan_model,
+            theme_scan_concurrency,
         })
     }
 }

@@ -9,6 +9,7 @@ pub mod database;
 pub mod domain;
 pub mod dto;
 pub mod error;
+pub(crate) mod llm_retry;
 pub mod models;
 pub mod neo4j;
 pub mod pipeline;

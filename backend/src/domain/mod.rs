@@ -10,7 +10,8 @@
 // Why a `domain` module and not `dto`? These are not wire shapes — they are the
 // case-agnostic vocabulary that wire DTOs (e.g. `ScenarioDefinition`'s `Wielder`)
 // are validated against. Keeping them here means the same lookup can be reused by
-// later work (task 1.3's fact-role vocabulary is expected to mirror the pattern
-// `actor_role` establishes) without reaching into the CRUD dto layer.
+// later work (task 1.3's fact-role vocabulary mirrors the pattern `actor_role`
+// establishes) without reaching into the CRUD dto layer.
 
 pub mod actor_role;
+pub mod fact_role;

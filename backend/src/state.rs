@@ -5,6 +5,7 @@ use colossus_extract::{EmbeddingProvider, LlmProvider};
 use neo4rs::Graph;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
+use tokio::sync::Semaphore;
 
 use crate::config::AppConfig;
 use crate::pipeline::registry::PipelineRegistry;
@@ -85,6 +86,27 @@ pub struct AppState {
     /// operation, but with the registry the directory layout can
     /// move without recompiling the backend.
     pub registry: Arc<PipelineRegistry>,
+
+    /// Dedicated LLM provider for the Theme Scan judge (D2b), built once at
+    /// startup from `THEME_SCAN_MODEL` (or the Chat default) with
+    /// `temperature = Some(0.0)` — DETERMINISTIC, unlike the natural-variation
+    /// `chat_providers`. Determinism is the reproducible-judge property the
+    /// scan requires: it makes the rejected-sample honesty check and
+    /// prompt-tuning meaningful across re-runs.
+    ///
+    /// `None` when `ANTHROPIC_API_KEY` is unset — the Theme Scan route then
+    /// returns 503, mirroring how `rag_pipeline` / `chat_providers` treat a
+    /// missing key (the scan cannot judge without the model, and a silent
+    /// no-op would violate Standing Rule 1).
+    pub theme_scan_provider: Option<Arc<dyn LlmProvider>>,
+
+    /// Dedicated concurrency cap for Theme Scan LLM calls, sized from
+    /// `config.theme_scan_concurrency` (default 4). A scan drives its per-quote
+    /// verdicts with `buffer_unordered`, each acquiring a permit here, so the
+    /// cap holds ACROSS concurrent scans — not just within one. Deliberately
+    /// separate from the pipeline's `llm_semaphore` so a scan and document
+    /// extraction never starve each other (D2b STEP-1 concurrency decision).
+    pub theme_scan_semaphore: Arc<Semaphore>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

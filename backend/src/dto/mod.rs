@@ -24,6 +24,7 @@ pub mod scenario;
 pub mod scenario_crud;
 pub mod scenario_facts;
 pub mod schema;
+pub mod theme_scan;
 pub mod trial_prep;
 
 // Re-export DTOs / request types from submodules
@@ -60,6 +61,7 @@ pub use scenario_crud::{
 };
 pub use scenario_facts::{AddFactRequest, ScenarioFactDto};
 pub use schema::SchemaResponse;
+pub use theme_scan::{ThemeScanRejected, ThemeScanSuggestion, ThemeScanSummary};
 pub use trial_prep::{
     ScenarioStatus, ScenarioSummary, TrialPrepAlert, TrialPrepDashboard, TrialPrepMetrics,
 };

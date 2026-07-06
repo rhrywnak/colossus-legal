@@ -9,6 +9,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::signal;
+use tokio::sync::Semaphore;
 use tower_http::cors::CorsLayer;
 use tracing_subscriber::EnvFilter;
 
@@ -293,6 +294,19 @@ async fn run_serve(config: AppConfig, graph: neo4rs::Graph, http_client: reqwest
     let embedding_provider = colossus_extract::providers::embedding_provider_from_env()
         .expect("Failed to construct embedding provider — check EMBEDDING_PROVIDER env var");
 
+    // Build the dedicated Theme Scan judge provider (D2b). Unlike the Chat map
+    // above, this is a SINGLE provider pinned to `temperature = Some(0.0)` for
+    // deterministic verdicts, on its own model (`THEME_SCAN_MODEL`, falling back
+    // to the Chat default). `None` when ANTHROPIC_API_KEY is unset — the scan
+    // route then returns 503, exactly like `rag_pipeline`.
+    let theme_scan_provider = build_theme_scan_provider(&config);
+
+    // Dedicated concurrency cap for the scan's per-quote LLM fan-out, separate
+    // from the pipeline's `llm_semaphore` so a scan cannot starve extraction.
+    // `theme_scan_concurrency` is guaranteed > 0 by the config parse (a zero cap
+    // would deadlock the semaphore), so `Semaphore::new` gets a usable size.
+    let theme_scan_semaphore = Arc::new(Semaphore::new(config.theme_scan_concurrency));
+
     // Shared application state (global AppState)
     let state = AppState {
         graph,
@@ -307,6 +321,8 @@ async fn run_serve(config: AppConfig, graph: neo4rs::Graph, http_client: reqwest
         chat_providers,
         default_chat_model: DEFAULT_CHAT_MODEL.to_string(),
         registry,
+        theme_scan_provider,
+        theme_scan_semaphore,
     };
 
     // Ensure the Qdrant collection exists with the correct dimensions.
@@ -654,6 +670,63 @@ async fn build_chat_providers(
         "Chat provider map built"
     );
     map
+}
+
+/// Build the single deterministic Theme Scan judge provider (D2b).
+///
+/// Distinct from [`build_chat_providers`] in three ways that matter:
+/// - ONE provider, not a per-model map (the scan uses exactly one model).
+/// - `temperature = Some(0.0)` — deterministic verdicts, so a re-run of the
+///   same quotes against the same accusation yields the same relevance/role.
+///   The rejected-sample honesty check and prompt-tuning both rely on this.
+/// - Its own model id: `THEME_SCAN_MODEL`, falling back to [`DEFAULT_CHAT_MODEL`]
+///   when unset. The scan and Chat stay decoupled so tuning one never silently
+///   moves the other (the mixed-provenance hazard).
+///
+/// Returns `None` when `ANTHROPIC_API_KEY` is unset (the scan route surfaces
+/// that as 503) or when provider construction fails (logged, non-fatal — the
+/// rest of the app still starts). Mirrors `build_chat_providers`' non-fatal
+/// posture: a scan-only capability being unavailable must not stop the server.
+fn build_theme_scan_provider(config: &AppConfig) -> Option<Arc<dyn LlmProvider>> {
+    use colossus_legal_backend::services::theme_scan::THEME_SCAN_MAX_TOKENS;
+
+    let api_key = match &config.anthropic_api_key {
+        Some(k) => k.clone(),
+        None => {
+            tracing::info!(
+                "ANTHROPIC_API_KEY not set; Theme Scan provider is None (scan route → 503)"
+            );
+            return None;
+        }
+    };
+
+    // `THEME_SCAN_MODEL` unset → use the Chat default model id. This is the ONE
+    // place the fallback is resolved; `config.theme_scan_model` stays `None` to
+    // preserve the "was it explicitly set?" distinction (Standing Rule 1).
+    let model_id = config
+        .theme_scan_model
+        .clone()
+        .unwrap_or_else(|| DEFAULT_CHAT_MODEL.to_string());
+
+    match AnthropicProvider::new(
+        api_key,
+        model_id.clone(),
+        THEME_SCAN_MAX_TOKENS,
+        Some(0.0), // deterministic judge — the D2b reproducibility requirement
+        None,      // request_timeout_secs: provider default (600s)
+    ) {
+        Ok(provider) => {
+            tracing::info!(model = %model_id, "Theme Scan provider built (temperature=0.0)");
+            Some(Arc::new(provider) as Arc<dyn LlmProvider>)
+        }
+        Err(e) => {
+            tracing::error!(
+                model = %model_id, error = %e,
+                "Failed to construct Theme Scan provider — scan route will return 503"
+            );
+            None
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
