@@ -39,6 +39,7 @@ use crate::bias::repository::{BiasRepository, BiasRepositoryError};
 use crate::dto::scenario_crud::ScenarioDefinition;
 use crate::dto::ThemeScanSummary;
 use crate::repositories::pipeline_repository::{get_scenario, PipelineRepoError, ScenarioRecord};
+use crate::services::scenario_subject::{resolve_scenario_subject, SubjectResolveError};
 use crate::services::theme_scan_judge::{judge_all, persist_and_summarize};
 use crate::state::AppState;
 
@@ -254,12 +255,31 @@ async fn prepare_scan(
 
 /// Resolve the scan subject and read every candidate quote about it (the ungated
 /// `all_evidence_about_subject` set — the 100%-recall input to the judge).
+///
+/// Subject resolution is delegated to the shared
+/// [`crate::services::scenario_subject::resolve_scenario_subject`] so the scan
+/// and the 1a.2 gather endpoint read the SAME subject pool by construction (see
+/// that module's docs). The shared resolver's own error is mapped back into the
+/// scan's existing [`ThemeScanError`] variants here — the scan's error surface
+/// is unchanged; only where those variants are *constructed* moved.
 async fn read_candidates(
     state: &AppState,
     definition: &ScenarioDefinition,
     scenario_id: Uuid,
 ) -> Result<Vec<BiasInstance>, ThemeScanError> {
-    let subject_id = resolve_subject_id(state, definition, scenario_id).await?;
+    let subject_id = resolve_scenario_subject(state, definition)
+        .await
+        .map_err(|e| match e {
+            SubjectResolveError::DefaultLookupFailed { source } => {
+                ThemeScanError::SubjectResolveFailed {
+                    scenario_id,
+                    source,
+                }
+            }
+            SubjectResolveError::Unresolvable => {
+                ThemeScanError::SubjectUnresolvable { scenario_id }
+            }
+        })?;
     tracing::debug!(%scenario_id, subject_id = %subject_id, "theme scan: subject resolved");
 
     let repo = BiasRepository::new(state.graph.clone());
@@ -303,36 +323,6 @@ async fn load_scenario_fenced(
         });
     }
     Ok(record)
-}
-
-/// Resolve the subject a scan runs over: the definition's `target` if it names
-/// one, else the case-default subject (`CASE_DEFAULT_SUBJECT_NAME` → id via the
-/// Bias Explorer's resolver), else a typed `SubjectUnresolvable`.
-async fn resolve_subject_id(
-    state: &AppState,
-    definition: &ScenarioDefinition,
-    scenario_id: Uuid,
-) -> Result<String, ThemeScanError> {
-    if let Some(target) = definition.target.as_deref() {
-        if !target.trim().is_empty() {
-            return Ok(target.to_string());
-        }
-    }
-
-    // Fall back to the case default, reusing the Bias Explorer's public resolver
-    // so the scan and the "About" filter agree on the default subject.
-    let repo = BiasRepository::new(state.graph.clone());
-    let filters = repo
-        .available_filters(state.config.case_default_subject_name.as_deref())
-        .await
-        .map_err(|source| ThemeScanError::SubjectResolveFailed {
-            scenario_id,
-            source,
-        })?;
-
-    filters
-        .default_subject_id
-        .ok_or(ThemeScanError::SubjectUnresolvable { scenario_id })
 }
 
 #[cfg(test)]

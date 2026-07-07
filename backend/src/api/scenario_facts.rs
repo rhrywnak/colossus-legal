@@ -57,7 +57,11 @@ use crate::{
 ///
 /// A bad UUID is a client error, not a server fault — mirrors
 /// `api::scenarios::get_scenario_by_id`.
-fn parse_scenario_id(raw: &str) -> Result<Uuid, AppError> {
+///
+/// `pub(crate)` so the sibling `api::scenario_gather` handler reuses the exact
+/// same 400 discipline rather than re-deriving it (the gather feature was split
+/// into its own module for the 300-line rule, but shares this fence).
+pub(crate) fn parse_scenario_id(raw: &str) -> Result<Uuid, AppError> {
     Uuid::parse_str(raw).map_err(|_| AppError::BadRequest {
         message: "scenario_id must be a valid UUID".to_string(),
         details: json!({ "field": "scenario_id" }),
@@ -79,7 +83,10 @@ fn parse_scenario_id(raw: &str) -> Result<Uuid, AppError> {
 ///   unique, so reaching a real scenario through the wrong case path returns
 ///   `NotFound` (not `Forbidden`) — the response never confirms the row exists
 ///   under some other case.
-async fn ensure_scenario_in_case(
+///
+/// `pub(crate)` so the sibling `api::scenario_gather` handler reuses the same
+/// existence-and-case fence (see `parse_scenario_id`).
+pub(crate) async fn ensure_scenario_in_case(
     state: &AppState,
     scenario_id: Uuid,
     slug: &str,

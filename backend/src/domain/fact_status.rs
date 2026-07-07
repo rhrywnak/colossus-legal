@@ -117,6 +117,80 @@ impl FactStatus {
     }
 }
 
+/// The error produced when a raw status token cannot be decoded into a
+/// [`FactStatus`] this build defines.
+///
+/// ## Rust Learning: a typed parse error carrying the offending value
+///
+/// The error is a real `struct` with a `token: String` field, NOT a unit `()`
+/// or a bare string. Carrying the bad token means the failure names *what* was
+/// wrong (Standing Rule 1): a log or a `?`-propagated error can show
+/// `token = "archived"`, so an operator sees the exact value that no code path
+/// understands — not just "parse failed". `#[derive(thiserror::Error)]` writes
+/// the `Display`/`Error` impls from the `#[error("…")]` template, the same
+/// pattern `ThemeScanError` and `BiasRepositoryError` use.
+#[derive(Debug, thiserror::Error)]
+#[error("unknown fact-status token '{token}' — not one of undecided/included/dropped")]
+pub struct FactStatusParseError {
+    /// The token that failed to decode. `pub` so a caller can log it or fold it
+    /// into a richer error of its own.
+    pub token: String,
+}
+
+/// ## Rust Learning: `TryFrom<&str>` — the READ boundary (parse-don't-validate, deferred half)
+///
+/// 1a.1 gave `FactStatus` its WRITE boundary — [`FactStatus::code`], turning a
+/// typed variant into a wire token. This is the matching READ boundary: a raw
+/// token becomes a typed variant, or a loud [`FactStatusParseError`]. Together
+/// they make `FactStatus` a true *parse* type — an illegitimate state cannot
+/// cross the boundary in EITHER direction, so downstream code that holds a
+/// `FactStatus` never has to re-ask "is this a valid state?".
+///
+/// ### Why the existing `Deserialize` derive doesn't serve this
+///
+/// serde's derived `Deserialize` already turns `"dropped"` into
+/// `FactStatus::Dropped` — but only from a *serde/JSON value* (see the
+/// `deserializes_known_tokens` test). The database column arrives as a raw
+/// `String` (sqlx decodes `TEXT` to `String`, not to a serde `Value`), so
+/// decoding it through serde would mean wrapping it in a `serde_json::Value`
+/// first. `TryFrom<&str>` decodes the `&str` directly — the right boundary for
+/// the sqlx column. This new `&str`-boundary reject test is the sibling of the
+/// JSON-boundary [`rejects_unknown_status_token`] test.
+///
+/// The match arms EXACTLY reverse [`FactStatus::code`]; any other token is an
+/// `Err`, never a silent default (Standing Rule 1).
+impl TryFrom<&str> for FactStatus {
+    type Error = FactStatusParseError;
+
+    fn try_from(token: &str) -> Result<Self, Self::Error> {
+        match token {
+            "undecided" => Ok(FactStatus::Undecided),
+            "included" => Ok(FactStatus::Included),
+            "dropped" => Ok(FactStatus::Dropped),
+            other => Err(FactStatusParseError {
+                token: other.to_string(),
+            }),
+        }
+    }
+}
+
+/// A thin `TryFrom<String>` that delegates to the `&str` impl.
+///
+/// ## Rust Learning: two `TryFrom` impls, one source of truth
+///
+/// Callers sometimes hold an owned `String` (a row field moved out of a record)
+/// and sometimes a borrowed `&str`. Providing both spares every call site an
+/// `.as_str()` or `.to_string()` dance. The owned impl does NOT re-list the
+/// match arms — it borrows and forwards to the `&str` impl, so the decode rule
+/// lives in exactly one place and the two can never drift.
+impl TryFrom<String> for FactStatus {
+    type Error = FactStatusParseError;
+
+    fn try_from(token: String) -> Result<Self, Self::Error> {
+        FactStatus::try_from(token.as_str())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -171,5 +245,41 @@ mod tests {
         // the column to 'undecided'. Pin that the neutral state's token matches
         // the SQL literal the migration writes, so the two cannot drift.
         assert_eq!(FactStatus::Undecided.code(), "undecided");
+    }
+
+    #[test]
+    fn try_from_round_trips_every_variant_via_code() {
+        // The READ boundary must be the exact inverse of the WRITE boundary:
+        // decoding a variant's own `code()` token must yield that same variant,
+        // for EVERY variant. This closes the loop `variant -> code() -> try_from
+        // -> variant` so a future edit that adds a variant to `code()` but forgets
+        // the `try_from` arm (or vice versa) fails here.
+        for &status in FactStatus::ALL {
+            let decoded = FactStatus::try_from(status.code())
+                .expect("a token produced by code() must decode back");
+            assert_eq!(decoded, status, "round-trip mismatch for {status:?}");
+        }
+    }
+
+    #[test]
+    fn try_from_owned_string_delegates_to_str() {
+        // The `String` impl must agree with the `&str` impl (it forwards to it).
+        let decoded = FactStatus::try_from("included".to_string()).expect("known token");
+        assert_eq!(decoded, FactStatus::Included);
+    }
+
+    #[test]
+    fn try_from_rejects_unknown_token_loudly() {
+        // The `&str`-boundary sibling of `rejects_unknown_status_token` (which
+        // guards the JSON boundary). A token this build does not define is a LOUD
+        // error carrying the offending value — never a silent default to
+        // Undecided, which would mis-bucket a fact the Theme Scan re-judges
+        // (Standing Rule 1).
+        let err = FactStatus::try_from("archived").expect_err("unknown token must not decode");
+        assert_eq!(err.token, "archived", "the error must carry the bad token");
+        assert!(
+            err.to_string().contains("archived"),
+            "the Display message must surface the bad token: {err}"
+        );
     }
 }

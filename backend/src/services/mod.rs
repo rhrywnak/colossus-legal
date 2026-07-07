@@ -14,6 +14,7 @@ pub mod import_validator;
 pub mod qdrant_service;
 pub mod scenario_dashboard;
 pub mod scenario_page;
+pub mod scenario_subject;
 pub mod theme_scan;
 pub mod theme_scan_judge;
 pub mod theme_scan_parse;

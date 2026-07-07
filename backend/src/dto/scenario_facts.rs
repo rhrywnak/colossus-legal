@@ -19,6 +19,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::bias::dto::BiasInstance;
+use crate::domain::fact_status::FactStatus;
 
 /// Request body for `POST /cases/:slug/scenarios/:scenario_id/facts`.
 ///
@@ -79,4 +80,50 @@ pub struct ScenarioFactDto {
     /// resolves to no live Evidence node — a stale reference, surfaced rather
     /// than dropped.
     pub content: Option<BiasInstance>,
+}
+
+/// One candidate in the scenario workbench pool (1a.2 gather endpoint).
+///
+/// A candidate is a live Evidence node ABOUT the scenario's subject, tagged with
+/// its derived workbench `status` for THIS scenario (`undecided` when no human
+/// has ruled on it, `included`/`dropped` when one has).
+///
+/// ## Rust Learning: the `Option` is the invariant, made visible in the type
+///
+/// Contrast `content: BiasInstance` here (NON-optional) with
+/// [`ScenarioFactDto::content`] above (`Option<BiasInstance>`). That older DTO
+/// is driven by SAVED references, and a saved reference can outlive the graph
+/// node it points at — so its content may be absent (`null`), and the type says
+/// so. This DTO is driven by the LIVE graph pool itself: every candidate exists
+/// because the graph just returned it, so its content is present BY
+/// CONSTRUCTION. There is no "ref outlived its node" case to represent, so there
+/// is no `Option`. The question "can this be absent?" is answered in the type,
+/// not deferred to a runtime `null` check — the two DTOs' shapes encode their
+/// two different provenances.
+#[derive(Debug, Clone, Serialize)]
+pub struct CandidateDto {
+    /// The live graph card content — present by construction (the pool drives
+    /// output; every entry is a node the graph just returned).
+    pub content: BiasInstance,
+    /// This candidate's derived workbench state for this scenario.
+    pub status: FactStatus,
+    /// The role recorded on the fact-ref, if one exists for this node. `None`
+    /// for an undecided candidate (no ref row) or a ref that recorded no role.
+    pub role: Option<String>,
+    /// The note recorded on the fact-ref, if any.
+    pub note: Option<String>,
+}
+
+/// Response body for `GET /cases/:slug/scenarios/:scenario_id/facts/gather`.
+///
+/// Two lists, deliberately separate (not one list the client must partition):
+/// `pool` holds the working candidates (undecided + included), `dropped` holds
+/// the scenario-scoped exclusions on their own so a later "un-drop" tray has its
+/// data ready without re-deriving anything.
+#[derive(Debug, Clone, Serialize)]
+pub struct GatherCandidatesResponse {
+    /// Undecided + included candidates — the working pool.
+    pub pool: Vec<CandidateDto>,
+    /// Dropped candidates, kept in their own list (not omitted, not mixed in).
+    pub dropped: Vec<CandidateDto>,
 }

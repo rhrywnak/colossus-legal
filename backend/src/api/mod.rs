@@ -51,6 +51,7 @@ pub mod proof_review;
 pub mod qa;
 pub mod queries;
 pub mod scenario_facts;
+pub mod scenario_gather;
 pub mod scenario_theme_scan;
 pub mod scenarios;
 pub mod schema;
@@ -78,6 +79,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .merge(session_routes())
         .merge(case_routes())
+        .merge(scenario_routes())
         .merge(claim_routes())
         .merge(document_routes())
         .merge(entity_routes())
@@ -132,6 +134,15 @@ fn case_routes() -> Router<AppState> {
             "/cases/:slug/trial-prep/scenarios/:scenario_id",
             get(trial_prep::get_trial_prep_scenario_detail),
         )
+}
+
+/// Scenario authoring + curation routes (the `/cases/:slug/scenarios/...`
+/// cluster). Split out of `case_routes` as its own group so each route-group
+/// function stays under the function-size limit and the scenario surface reads
+/// as one unit. Merged independently in `router()`; paths are distinct from the
+/// other groups', so merge order does not matter.
+fn scenario_routes() -> Router<AppState> {
+    Router::new()
         .route(
             "/cases/:slug/scenarios",
             get(scenarios::list_scenarios).post(scenarios::create_scenario),
@@ -152,6 +163,14 @@ fn case_routes() -> Router<AppState> {
         .route(
             "/cases/:slug/scenarios/:scenario_id/facts/:graph_node_id",
             delete(scenario_facts::remove_scenario_fact),
+        )
+        // Candidate-workbench gather (Phase 1a.2): read-only pool of every
+        // Evidence node ABOUT the scenario's subject, each tagged with its
+        // derived workbench status. Open read (Option<AuthUser>), like the
+        // sibling facts list.
+        .route(
+            "/cases/:slug/scenarios/:scenario_id/facts/gather",
+            get(scenario_gather::gather_scenario_candidates),
         )
         // Theme Scan (D2b): LLM-judge every candidate quote about the scenario's
         // subject and persist the relevant verdicts as confirmed=false
