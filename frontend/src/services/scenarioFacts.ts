@@ -28,8 +28,13 @@ export type ScenarioFactDto = {
   content: BiasInstance | null;
 };
 
-/** Body for adding a fact. `role`/`note` are accepted by the backend but not
- *  surfaced in Phase A — callers send only `graph_node_id` for now. */
+/**
+ * Body for adding a fact.
+ *
+ * @deprecated (1a.6) Superseded by the workbench `applyFactAction(…, "include")`
+ * in `scenarioGather.ts`. Left in place — a follow-up cleanup chunk removes it
+ * together with {@link addScenarioFact}. Not used by the workbench UI.
+ */
 export type AddFactBody = {
   graph_node_id: string;
   role?: string;
@@ -50,6 +55,10 @@ function factsUrl(slug: string, scenarioId: string): string {
  *
  * Idempotent on `(scenario, graph_node_id)`: re-adding the same fact updates it
  * in place rather than erroring.
+ *
+ * @deprecated (1a.6) The workbench now includes a candidate via
+ * `applyFactAction(slug, scenarioId, nodeId, "include")` in `scenarioGather.ts`.
+ * No caller remains; left for a follow-up cleanup chunk (one concern per chunk).
  */
 export async function addScenarioFact(
   slug: string,
@@ -75,6 +84,11 @@ export async function addScenarioFact(
  * A 404 means the fact was not on this scenario (already removed elsewhere);
  * it is surfaced as an error so the caller can refresh and reconcile, never
  * swallowed.
+ *
+ * @deprecated (1a.6) The workbench excludes a fact with the reversible
+ * `applyFactAction(…, "drop")` (a scenario-scoped status flip), not this hard
+ * row delete. Whether a true hard-delete affordance is ever needed is a PRODUCT
+ * question — left in place rather than silently foreclosed by the cutover.
  */
 export async function removeScenarioFact(
   slug: string,

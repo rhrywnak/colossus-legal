@@ -1,41 +1,52 @@
 // =============================================================================
-// CandidateFactsPanel — find bias-tagged Evidence and add it to a scenario.
+// CandidateFactsPanel — the scenario candidate workbench (Phase 1a.6).
 // =============================================================================
 //
-// Phase A curation, candidate side. A collapsible panel on the scenario detail
-// page that runs the EXISTING bias query (no new retrieval) so a human can
-// browse pre-tagged Evidence and click "Add to scenario" on the ones that
-// belong. Reuses the bias EvidenceCard for each row (with an Add action in its
-// header slot), so a candidate and a saved fact render identically.
+// Cut over from the old bias-query finder to the gather workbench: it loads the
+// full candidate pool (`GET …/facts/gather` — every Evidence node ABOUT the
+// scenario's subject, each with its three-state status), narrows it with a
+// client-side STATUS filter (default `undecided`), and lets a human rule on each
+// candidate (include / drop / un-drop via `POST …/facts/:id/action`).
 //
-// The subject filter is seeded from the server-resolved default subject
-// (CASE_DEFAULT_SUBJECT_NAME); no case-specific name is hardcoded here
-// (Standing Rule 2). If that default is unset on a deployment, the panel opens
-// with no subject pre-selected and the user picks one.
+// One gather-driven, status-grouped list is the whole surface (the 1a.6 merge):
+// the old separate "Curated facts" saved-list is now just the `included` filter.
+// The orphan guarantee is preserved separately — see the `listScenarioFacts`
+// call and `findOrphans` below.
+//
+// The subject is resolved SERVER-SIDE by the gather endpoint (definition.target
+// → case default), so this panel no longer seeds filters from the definition and
+// no case-specific name is hardcoded here (Standing Rule 2).
 
 import React, { useEffect, useMemo, useState } from "react";
 
 import {
-  getAvailableFilters,
-  runBiasQuery,
-  type ActorOption,
-  type BiasInstance,
-  type BiasQueryFilters,
-} from "../services/bias";
-import { addScenarioFact } from "../services/scenarioFacts";
+  applyFactAction,
+  gatherCandidates,
+  type CandidateDto,
+  type FactAction,
+} from "../services/scenarioGather";
+import { listScenarioFacts, type ScenarioFactDto } from "../services/scenarioFacts";
 import EvidenceCard from "../pages/BiasExplorer/EvidenceCard";
 import type { ScenarioDefinition } from "../pages/trialPrepData";
-import { seedFiltersFromDefinition } from "./candidateSeed";
+import {
+  ACTION_LABEL,
+  actionsForStatus,
+  filterByStatus,
+  findOrphans,
+  orphansVisibleUnder,
+  STATUS_FILTERS,
+  STATUS_FILTER_LABEL,
+  type StatusFilter,
+} from "./candidateWorkbench";
 
 interface Props {
   slug: string;
   scenarioId: string;
-  /** Node ids already saved on this scenario — their Add button reads "Added". */
-  savedIds: Set<string>;
-  /** Called after a successful add so the parent can refresh the saved list. */
-  onAdded: () => void;
-  /** This scenario's authored definition (B2a). When it carries an `attack_text`,
-   *  the panel auto-seeds its filters to that theme; absent / `{}` → fallback. */
+  /** @deprecated (1a.6) Vestigial. The gather endpoint resolves the subject
+   *  server-side (definition.target → case default), so the panel no longer
+   *  seeds filters from the definition. Kept on the signature only to preserve
+   *  the mount contract; a follow-up tidy chunk removes it (and `candidateSeed`).
+   */
   definition?: ScenarioDefinition;
 }
 
@@ -91,123 +102,89 @@ const errorStyle: React.CSSProperties = {
   fontSize: "0.82rem",
 };
 
-const addBtnStyle: React.CSSProperties = {
-  padding: "0.2rem 0.6rem",
-  fontSize: "0.74rem",
-  fontWeight: 600,
-  border: "1px solid var(--accent-primary)",
-  borderRadius: "5px",
-  backgroundColor: "var(--accent-bg-soft)",
-  color: "var(--accent-primary)",
-  cursor: "pointer",
+const staleCardStyle: React.CSSProperties = {
+  backgroundColor: "var(--bg-surface)",
+  border: "1px dashed var(--state-warning-strong)",
+  borderRadius: "8px",
+  padding: "0.85rem 1rem",
+  fontSize: "0.82rem",
+  color: "var(--text-secondary)",
 };
 
-const addedLabelStyle: React.CSSProperties = {
-  fontSize: "0.74rem",
-  fontWeight: 600,
-  color: "var(--text-disabled)",
+// One button style per ruling. `include` reads as the affirmative accent; `drop`
+// as the danger exclusion; `undrop` as a neutral recovery.
+const actionBtnStyle: Record<FactAction, React.CSSProperties> = {
+  include: {
+    padding: "0.2rem 0.6rem",
+    fontSize: "0.74rem",
+    fontWeight: 600,
+    border: "1px solid var(--accent-primary)",
+    borderRadius: "5px",
+    backgroundColor: "var(--accent-bg-soft)",
+    color: "var(--accent-primary)",
+    cursor: "pointer",
+  },
+  drop: {
+    padding: "0.2rem 0.6rem",
+    fontSize: "0.74rem",
+    fontWeight: 600,
+    border: "1px solid var(--state-danger-border)",
+    borderRadius: "5px",
+    backgroundColor: "var(--state-danger-bg-soft)",
+    color: "var(--state-danger-strong)",
+    cursor: "pointer",
+  },
+  undrop: {
+    padding: "0.2rem 0.6rem",
+    fontSize: "0.74rem",
+    fontWeight: 600,
+    border: "1px solid var(--border-default)",
+    borderRadius: "5px",
+    backgroundColor: "var(--bg-surface)",
+    color: "var(--text-primary)",
+    cursor: "pointer",
+  },
 };
 
-const ALL_PATTERNS = "";
-
-const CandidateFactsPanel: React.FC<Props> = ({
-  slug,
-  scenarioId,
-  savedIds,
-  onAdded,
-  definition,
-}) => {
+const CandidateFactsPanel: React.FC<Props> = ({ slug, scenarioId }) => {
   const [open, setOpen] = useState(false);
 
-  const [patternTags, setPatternTags] = useState<string[]>([]);
-  const [defaultSubjectId, setDefaultSubjectId] = useState<string | undefined>();
-  const [patternTag, setPatternTag] = useState<string>(ALL_PATTERNS);
-  // Retained from the vocab load so a definition's target/wielder NAMES can be
-  // resolved to ids (B2b). Today the fetch discards these; the seed needs them.
-  const [subjects, setSubjects] = useState<ActorOption[]>([]);
-  const [actors, setActors] = useState<ActorOption[]>([]);
-
-  // Resolve the definition into primitive seed inputs. The loop guard lives in
-  // effect (b): it depends on this seed's PRIMITIVE fields (strings/bool), NOT the
-  // seed object — so even if this memo recomputed on every render, a seed with
-  // identical primitives cannot re-fire the query. Seeding is id-based now, so the
-  // vocab it needs is `subjects`/`actors` (set once by effect (a)); `patternTags`
-  // is no longer a seed input (the retired seed-phrase → tag branch is gone).
-  const seed = useMemo(
-    () => seedFiltersFromDefinition(definition, subjects, actors),
-    [definition, subjects, actors],
-  );
-
-  const [instances, setInstances] = useState<BiasInstance[]>([]);
+  const [candidates, setCandidates] = useState<CandidateDto[] | null>(null);
+  const [orphans, setOrphans] = useState<ScenarioFactDto[]>([]);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("undecided");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Per-row add error (keyed by evidence_id) — an add failure is shown on the
+  // Per-row action error (keyed by node id) — a ruling failure is shown on the
   // row that failed, not as a page-level banner.
-  const [addError, setAddError] = useState<{ id: string; message: string } | null>(
+  const [actionError, setActionError] = useState<{ id: string; message: string } | null>(
     null,
   );
 
-  // Load the filter vocabulary once, the first time the panel is opened.
-  useEffect(() => {
-    if (!open || patternTags.length > 0) return;
-    let cancelled = false;
-    getAvailableFilters()
-      .then((filters) => {
-        if (cancelled) return;
-        setPatternTags(filters.pattern_tags);
-        setDefaultSubjectId(filters.default_subject_id);
-        // Retain the actor/subject vocab for name→id seeding (B2b).
-        setSubjects(filters.subjects);
-        setActors(filters.actors);
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return;
-        // The service-layer message already names the bias-filters endpoint;
-        // append recovery guidance (the dropdowns are empty without the vocab, so
-        // the user needs to know it's retryable — Standing Rule 1).
-        setError(
-          err instanceof Error
-            ? `${err.message} — close and reopen the panel to retry.`
-            : "Failed to load the candidate filters — close and reopen the panel to retry.",
-        );
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [open, patternTags.length]);
+  // Bumped after a successful ruling to re-fetch the whole pool, so the UI is a
+  // pure reflection of persisted state (no optimistic drift).
+  const [refreshKey, setRefreshKey] = useState(0);
 
-  // Run the bias query whenever the panel is open and the filter changes.
-  //
-  // For an AUTHORED scenario (`seed.defined`) the filters are seeded from the
-  // definition: the target's subject and the first wielder's actor, plus the
-  // seeded tag as a default the user can still override. For an un-authored
-  // scenario the behavior is exactly as before — case-default subject, no actor,
-  // user-driven tag. Depends on the seed's PRIMITIVE fields (not the object) so a
-  // new object identity per render cannot loop the query.
+  // Load the whole pool + the saved list (for the orphan check) whenever the
+  // panel is open. Both come from ONE fetch each; the status filter then works
+  // in memory (see `filterByStatus`). `listScenarioFacts` is fetched alongside
+  // gather ONLY to surface confirmed facts whose graph node has vanished (they
+  // are absent from the pool-driven gather response — `findOrphans`).
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
     setLoading(true);
     setError(null);
-    const userTag = patternTag === ALL_PATTERNS ? undefined : patternTag;
-    const filters: BiasQueryFilters = seed.defined
-      ? {
-          // Seed wins; fall back to the case default only if the target did not
-          // resolve. `actor_id` is a new dimension — undefined when the wielder
-          // is absent/unresolved. The pattern tag is entirely user-driven now.
-          subject_id: seed.subjectId ?? defaultSubjectId,
-          actor_id: seed.actorId,
-          pattern_tag: userTag,
-        }
-      : {
-          subject_id: defaultSubjectId,
-          pattern_tag: userTag,
-        };
-    runBiasQuery(filters)
-      .then((result) => {
+    Promise.all([
+      gatherCandidates(slug, scenarioId),
+      listScenarioFacts(slug, scenarioId),
+    ])
+      .then(([gather, saved]) => {
         if (cancelled) return;
-        setInstances(result.instances);
+        const combined = [...gather.pool, ...gather.dropped];
+        const knownIds = new Set(combined.map((c) => c.content.evidence_id));
+        setCandidates(combined);
+        setOrphans(findOrphans(saved, knownIds));
         setLoading(false);
       })
       .catch((err: unknown) => {
@@ -222,24 +199,22 @@ const CandidateFactsPanel: React.FC<Props> = ({
     return () => {
       cancelled = true;
     };
-  }, [
-    open,
-    defaultSubjectId,
-    patternTag,
-    seed.defined,
-    seed.subjectId,
-    seed.actorId,
-  ]);
+  }, [open, slug, scenarioId, refreshKey]);
 
-  const handleAdd = (evidenceId: string) => {
-    setAddError(null);
-    addScenarioFact(slug, scenarioId, { graph_node_id: evidenceId })
-      .then(() => onAdded())
+  const visible = useMemo(
+    () => filterByStatus(candidates ?? [], statusFilter),
+    [candidates, statusFilter],
+  );
+
+  const handleAction = (graphNodeId: string, action: FactAction) => {
+    setActionError(null);
+    applyFactAction(slug, scenarioId, graphNodeId, action)
+      .then(() => setRefreshKey((k) => k + 1))
       .catch((err: unknown) => {
-        setAddError({
-          id: evidenceId,
+        setActionError({
+          id: graphNodeId,
           message:
-            err instanceof Error ? err.message : "Failed to add this fact.",
+            err instanceof Error ? err.message : "Failed to apply this ruling.",
         });
       });
   };
@@ -247,10 +222,18 @@ const CandidateFactsPanel: React.FC<Props> = ({
   if (!open) {
     return (
       <button type="button" style={toggleStyle} onClick={() => setOpen(true)}>
-        + Find candidate facts
+        + Candidate facts
       </button>
     );
   }
+
+  const showOrphans = orphansVisibleUnder(statusFilter) && orphans.length > 0;
+  // Exclude the error state: on a failed load `candidates` stays null, which
+  // would otherwise render the "no matches" empty-state text UNDER the error
+  // banner — making a load failure read as an empty filter result. The banner
+  // is the observable; the empty-state message must yield to it (Standing Rule 1
+  // — distinct states, distinct observables).
+  const nothingToShow = !loading && !error && visible.length === 0 && !showOrphans;
 
   return (
     <div>
@@ -260,67 +243,67 @@ const CandidateFactsPanel: React.FC<Props> = ({
       <div style={panelStyle}>
         <div style={controlRow}>
           <label style={{ fontSize: "0.82rem", color: "var(--text-secondary)" }}>
-            Pattern:{" "}
+            Status:{" "}
             <select
               style={selectStyle}
-              value={patternTag}
-              onChange={(e) => setPatternTag(e.target.value)}
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
             >
-              <option value={ALL_PATTERNS}>All patterns</option>
-              {patternTags.map((t) => (
-                <option key={t} value={t}>
-                  {t}
+              {STATUS_FILTERS.map((s) => (
+                <option key={s} value={s}>
+                  {STATUS_FILTER_LABEL[s]}
                 </option>
               ))}
             </select>
           </label>
         </div>
 
-        {/* B2b: a definition names a party id no longer in the graph vocab. Muted
-            advisory (not an error) — the panel simply didn't filter on it, so the
-            miss is visible rather than silently defaulting to the case subject. */}
-        {seed.defined &&
-          seed.unresolved.map((u) => (
-            <div key={`${u.field}:${u.id}`} style={messageStyle}>
-              A {u.field} party this scenario names is no longer in the vocabulary
-              — not filtering on it.
-            </div>
-          ))}
-
         {error && <div style={errorStyle}>{error}</div>}
 
         {loading ? (
           <div style={messageStyle}>Loading candidate facts…</div>
-        ) : instances.length === 0 ? (
+        ) : nothingToShow ? (
           <div style={messageStyle}>No candidate facts match this filter.</div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
-            {instances.map((inst) => {
-              const alreadySaved = savedIds.has(inst.evidence_id);
-              return (
-                <div key={inst.evidence_id}>
-                  <EvidenceCard
-                    instance={inst}
-                    action={
-                      alreadySaved ? (
-                        <span style={addedLabelStyle}>Added</span>
-                      ) : (
+            {visible.map((c) => (
+              <div key={c.content.evidence_id}>
+                <EvidenceCard
+                  instance={c.content}
+                  action={
+                    <span style={{ display: "flex", gap: "0.4rem" }}>
+                      {actionsForStatus(c.status).map((action) => (
                         <button
+                          key={action}
                           type="button"
-                          style={addBtnStyle}
-                          onClick={() => handleAdd(inst.evidence_id)}
+                          style={actionBtnStyle[action]}
+                          onClick={() =>
+                            handleAction(c.content.evidence_id, action)
+                          }
                         >
-                          Add to scenario
+                          {ACTION_LABEL[action]}
                         </button>
-                      )
-                    }
-                  />
-                  {addError?.id === inst.evidence_id && (
-                    <div style={errorStyle}>{addError.message}</div>
-                  )}
+                      ))}
+                    </span>
+                  }
+                />
+                {actionError?.id === c.content.evidence_id && (
+                  <div style={errorStyle}>{actionError.message}</div>
+                )}
+              </div>
+            ))}
+
+            {/* Orphan guarantee: saved facts whose graph node has vanished are
+                absent from the pool-driven gather response, so they are surfaced
+                here (never silently dropped — Standing Rule 1). Informational in
+                1a.6; a ruling affordance on a stale card is out of scope. */}
+            {showOrphans &&
+              orphans.map((o) => (
+                <div key={o.graph_node_id} style={staleCardStyle}>
+                  Saved fact <code>{o.graph_node_id}</code> — content unavailable
+                  (the source node may have been removed).
                 </div>
-              );
-            })}
+              ))}
           </div>
         )}
       </div>
