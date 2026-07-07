@@ -164,6 +164,14 @@ fn scenario_routes() -> Router<AppState> {
             "/cases/:slug/scenarios/:scenario_id/facts/:graph_node_id",
             delete(scenario_facts::remove_scenario_fact),
         )
+        // Candidate-workbench ruling (Phase 1a.3): include / drop / un-drop one
+        // candidate via a typed action enum. Edit-gated inside the handler. A
+        // static `action` child under the `:graph_node_id` param — beside the
+        // `/facts/gather` static sibling that matchit 0.7.3 already accepts.
+        .route(
+            "/cases/:slug/scenarios/:scenario_id/facts/:graph_node_id/action",
+            post(scenario_facts::apply_fact_action),
+        )
         // Candidate-workbench gather (Phase 1a.2): read-only pool of every
         // Evidence node ABOUT the scenario's subject, each tagged with its
         // derived workbench status. Open read (Option<AuthUser>), like the

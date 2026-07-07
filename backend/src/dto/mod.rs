@@ -59,7 +59,10 @@ pub use scenario::{
 pub use scenario_crud::{
     ScenarioCreateRequest, ScenarioDefinition, ScenarioDto, ScenarioUpdateRequest, Wielder,
 };
-pub use scenario_facts::{AddFactRequest, CandidateDto, GatherCandidatesResponse, ScenarioFactDto};
+pub use scenario_facts::{
+    AddFactRequest, CandidateDto, FactAction, FactActionRequest, GatherCandidatesResponse,
+    ScenarioFactDto,
+};
 pub use schema::SchemaResponse;
 pub use theme_scan::{ThemeScanRejected, ThemeScanSuggestion, ThemeScanSummary};
 pub use trial_prep::{
