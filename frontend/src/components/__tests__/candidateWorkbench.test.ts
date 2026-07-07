@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   actionsForStatus,
+  countByStatus,
   filterByStatus,
   findOrphans,
   orphansVisibleUnder,
@@ -94,6 +95,49 @@ describe("findOrphans", () => {
   it("returns nothing when every saved ref is known to gather", () => {
     const known = new Set(["ev-i1", "ev-d1"]);
     expect(findOrphans([savedRef("ev-i1"), savedRef("ev-d1")], known)).toEqual([]);
+  });
+});
+
+// ── countByStatus ──────────────────────────────────────────────────────────────
+
+describe("countByStatus", () => {
+  it("counts each status and the total from a mixed list", () => {
+    // POOL fixture has 2 undecided, 1 included, 1 dropped.
+    expect(countByStatus(POOL)).toEqual({
+      undecided: 2,
+      included: 1,
+      dropped: 1,
+      total: 4,
+    });
+  });
+
+  it("returns all zeros for an empty list", () => {
+    expect(countByStatus([])).toEqual({
+      undecided: 0,
+      included: 0,
+      dropped: 0,
+      total: 0,
+    });
+  });
+
+  it("puts every item in one bucket for a single-status list", () => {
+    const allIncluded = [
+      candidate("ev-a", "included"),
+      candidate("ev-b", "included"),
+      candidate("ev-c", "included"),
+    ];
+    expect(countByStatus(allIncluded)).toEqual({
+      undecided: 0,
+      included: 3,
+      dropped: 0,
+      total: 3,
+    });
+  });
+
+  it("keeps total equal to the input length (a derivation, never a stored number)", () => {
+    const counts = countByStatus(POOL);
+    expect(counts.total).toBe(POOL.length);
+    expect(counts.undecided + counts.included + counts.dropped).toBe(POOL.length);
   });
 });
 

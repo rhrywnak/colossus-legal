@@ -54,6 +54,36 @@ export function filterByStatus(
 }
 
 /**
+ * Count candidates per status in a single pass.
+ *
+ * TS-learning: this is a pure single-pass fold — the returned counts are a
+ * DERIVATION of the candidate list, re-derived on every render from the same
+ * state the list renders from, never a separately-stored number that could drift
+ * out of sync with the list. That is precisely why a status summary built on
+ * this can never disagree with the rendered rows: both read this one source.
+ *
+ * Folds the LIVE (status-known) pool ONLY. Orphaned facts (statusless saved refs
+ * missing from the pool) are NOT handled here — that is a call-site policy (the
+ * component folds `orphans.length` into `included`), kept out of this fold so the
+ * helper stays honest and independently testable.
+ */
+export function countByStatus(candidates: CandidateDto[]): {
+  undecided: number;
+  included: number;
+  dropped: number;
+  total: number;
+} {
+  return candidates.reduce(
+    (acc, c) => {
+      acc[c.status] += 1;
+      acc.total += 1;
+      return acc;
+    },
+    { undecided: 0, included: 0, dropped: 0, total: 0 },
+  );
+}
+
+/**
  * The ruling buttons a candidate offers, given its current status.
  *
  * - `undecided` → Include or Drop (rule on a fresh candidate).

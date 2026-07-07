@@ -31,6 +31,7 @@ import type { ScenarioDefinition } from "../pages/trialPrepData";
 import {
   ACTION_LABEL,
   actionsForStatus,
+  countByStatus,
   filterByStatus,
   findOrphans,
   orphansVisibleUnder,
@@ -146,6 +147,44 @@ const actionBtnStyle: Record<FactAction, React.CSSProperties> = {
   },
 };
 
+// Status summary row — replicates the Document → Review screen's count line
+// (ReviewPanel.tsx) by construction: same markup shape, same theme tokens, so
+// the two read identically without extracting a shared component (rule of three:
+// two consumers, one shipped, does not justify extraction). Token mapping:
+// undecided → Review's neutral "pending", included → its green "approved",
+// dropped → its red "rejected". No hex (Rule 11); tokens only (Rule 2).
+const summaryRowStyle: React.CSSProperties = {
+  display: "flex",
+  gap: "0.75rem",
+  alignItems: "center",
+  marginBottom: "0.5rem",
+  flexWrap: "wrap",
+};
+
+const undecidedCountStyle: React.CSSProperties = {
+  fontSize: "0.76rem",
+  color: "var(--text-secondary)",
+  fontWeight: 600,
+};
+
+const includedCountStyle: React.CSSProperties = {
+  fontSize: "0.76rem",
+  color: "var(--status-active-text)",
+};
+
+const droppedCountStyle: React.CSSProperties = {
+  fontSize: "0.76rem",
+  color: "var(--status-dropped-text)",
+};
+
+// The "x of y" count beside the filter dropdown — matches ReviewPanel's
+// `{filtered.length} / {items.length}` span (tokens + size), worded "of".
+const xOfYStyle: React.CSSProperties = {
+  fontSize: "0.72rem",
+  color: "var(--text-muted)",
+  alignSelf: "center",
+};
+
 const CandidateFactsPanel: React.FC<Props> = ({ slug, scenarioId }) => {
   const [open, setOpen] = useState(false);
 
@@ -235,6 +274,19 @@ const CandidateFactsPanel: React.FC<Props> = ({ slug, scenarioId }) => {
   // — distinct states, distinct observables).
   const nothingToShow = !loading && !error && visible.length === 0 && !showOrphans;
 
+  // Counts are derived from state already on screen (the gather pool + orphans),
+  // re-derived each render — they cannot drift from the rendered list. Orphans
+  // (statusless saved refs missing from the pool) are folded into `included`
+  // HERE at the call site: a conservative over-approximation matching where 1a.6
+  // renders them (under the included/all filters), so the count agrees with the
+  // list. It never under-counts a confirmed fact (the ratified guarantee).
+  const counts = countByStatus(candidates ?? []);
+  const includedShown = counts.included + orphans.length;
+  const totalShown = counts.total + orphans.length;
+  // "x of y" numerator: rows visible under the current filter — orphans add in
+  // only when the filter actually shows them (so it equals the rendered count).
+  const shownCount = visible.length + (showOrphans ? orphans.length : 0);
+
   return (
     <div>
       <button type="button" style={toggleStyle} onClick={() => setOpen(false)}>
@@ -256,7 +308,24 @@ const CandidateFactsPanel: React.FC<Props> = ({ slug, scenarioId }) => {
               ))}
             </select>
           </label>
+          {candidates !== null && (
+            <span style={xOfYStyle}>
+              {shownCount} of {totalShown}
+            </span>
+          )}
         </div>
+
+        {/* Status summary — all three totals at once, so a ruling is watchable
+            (drop one → undecided ticks down, dropped ticks up, in one glance).
+            Shown once the pool has loaded; hidden during the first load / on an
+            error so it never displays misleading zeros (Standing Rule 1). */}
+        {candidates !== null && (
+          <div style={summaryRowStyle}>
+            <span style={undecidedCountStyle}>{counts.undecided} undecided</span>
+            <span style={includedCountStyle}>{includedShown} included</span>
+            <span style={droppedCountStyle}>{counts.dropped} dropped</span>
+          </div>
+        )}
 
         {error && <div style={errorStyle}>{error}</div>}
 
