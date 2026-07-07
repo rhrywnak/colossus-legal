@@ -8,9 +8,9 @@
 //!    construction: nothing is pre-filtered by keyword or embedding);
 //! 2. asks the deterministic LLM judge to rate each quote against the
 //!    `attack_meaning`, returning `{relevant, proposed_role, reason, confidence}`;
-//! 3. writes each RELEVANT verdict to `scenario_fact_refs` as a `confirmed=false`
-//!    suggestion (idempotent per-row upsert); irrelevant verdicts are counted and
-//!    sampled but never persisted;
+//! 3. writes each RELEVANT verdict to `scenario_fact_refs` as an `undecided`
+//!    suggestion (idempotent per-row upsert), awaiting a human include/drop
+//!    ruling; irrelevant verdicts are counted and sampled but never persisted;
 //! 4. returns a [`ThemeScanSummary`] with the counts, the written suggestions,
 //!    and a rejected sample for the honesty check.
 //!

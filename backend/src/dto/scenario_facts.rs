@@ -50,6 +50,16 @@ pub struct AddFactRequest {
 /// (the persisted reference). `content` is the live graph card content for that
 /// node id.
 ///
+/// ## Why `status` is intentionally NOT surfaced here (yet)
+///
+/// The `scenario_fact_refs.status` column (Phase 1a.1 — `undecided` / `included`
+/// / `dropped`) is deliberately absent from this DTO. 1a.1 is the data-layer
+/// replacement only; surfacing the three-state status on the read path is
+/// 1a.2/1a.3 work, gated on the workbench UI that actually consumes it. Exposing
+/// it now would ship a field nothing reads (zero frontend consumers today) — the
+/// premature exposure the scope fence exists to prevent. When the workbench lands
+/// it is added here (as a raw token or a decoded `FactStatus`, decided then).
+///
 /// ## Why `content` is `Option` (and is NOT skipped when `None`)
 ///
 /// A reference can outlive the graph node it points at — if the Evidence node

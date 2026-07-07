@@ -24,6 +24,7 @@ use serde_json::json;
 use sqlx::PgPool;
 
 use colossus_legal_backend::config::AppConfig;
+use colossus_legal_backend::domain::fact_status::FactStatus;
 use colossus_legal_backend::repositories::pipeline_repository::{
     delete_scenario, delete_scenarios_for_case, get_scenario, insert_response_item,
     insert_scenario, insert_scenario_response, list_fact_refs_for_item,
@@ -290,8 +291,26 @@ async fn it_shares_a_fact_across_scenarios_with_distinct_roles() -> TestResult<(
 
     // One graph node, tagged into both scenarios under different roles.
     let node = "person-jeffrey-humphrey";
-    upsert_fact_ref(&pool, offense, node, Some("wielder"), true, None, None).await?;
-    upsert_fact_ref(&pool, defense, node, Some("target"), true, None, None).await?;
+    upsert_fact_ref(
+        &pool,
+        offense,
+        node,
+        Some("wielder"),
+        FactStatus::Included,
+        None,
+        None,
+    )
+    .await?;
+    upsert_fact_ref(
+        &pool,
+        defense,
+        node,
+        Some("target"),
+        FactStatus::Included,
+        None,
+        None,
+    )
+    .await?;
 
     let offense_refs = list_fact_refs_for_scenario(&pool, offense).await?;
     let defense_refs = list_fact_refs_for_scenario(&pool, defense).await?;
@@ -331,18 +350,18 @@ async fn it_upserts_a_fact_ref_in_place() -> TestResult<()> {
         scenario,
         node,
         Some("seed_support"),
-        false,
+        FactStatus::Undecided,
         None,
         None,
     )
     .await?;
-    // Re-tag the SAME pair with a different role + confirmed + note.
+    // Re-tag the SAME pair with a different role + status + note.
     upsert_fact_ref(
         &pool,
         scenario,
         node,
         Some("wielder"),
-        true,
+        FactStatus::Included,
         Some("reclassified after review"),
         None,
     )
@@ -355,7 +374,7 @@ async fn it_upserts_a_fact_ref_in_place() -> TestResult<()> {
         "re-tagging must update in place, not duplicate"
     );
     assert_eq!(refs[0].role_in_this_scenario.as_deref(), Some("wielder"));
-    assert!(refs[0].confirmed);
+    assert_eq!(refs[0].status, FactStatus::Included.code());
     assert_eq!(refs[0].note.as_deref(), Some("reclassified after review"));
 
     delete_scenarios_for_case(&pool, &slug).await?;
@@ -398,14 +417,14 @@ async fn it_round_trips_fact_ref_confidence() -> TestResult<()> {
         Ok(value)
     }
 
-    // Scan path: a suggestion (confirmed = false) carrying a model confidence.
+    // Scan path: a suggestion (status = undecided) carrying a model confidence.
     let scan_node = "evidence-scan-1";
     upsert_fact_ref(
         &pool,
         scenario,
         scan_node,
         Some("seed_support"),
-        false,
+        FactStatus::Undecided,
         Some("proposed by theme scan"),
         Some(0.87_f32),
     )
@@ -424,7 +443,7 @@ async fn it_round_trips_fact_ref_confidence() -> TestResult<()> {
         scenario,
         human_node,
         Some("wielder"),
-        true,
+        FactStatus::Included,
         None,
         None,
     )
@@ -443,7 +462,7 @@ async fn it_round_trips_fact_ref_confidence() -> TestResult<()> {
         scenario,
         scan_node,
         Some("wielder"),
-        true,
+        FactStatus::Included,
         None,
         None,
     )
@@ -468,7 +487,16 @@ async fn it_cascades_fact_refs_on_scenario_delete() -> TestResult<()> {
     delete_scenarios_for_case(&pool, &slug).await?;
 
     let scenario = make_scenario(&pool, "Doomed lens", &slug).await?;
-    upsert_fact_ref(&pool, scenario, "node-1", Some("wielder"), true, None, None).await?;
+    upsert_fact_ref(
+        &pool,
+        scenario,
+        "node-1",
+        Some("wielder"),
+        FactStatus::Included,
+        None,
+        None,
+    )
+    .await?;
     assert_eq!(
         list_fact_refs_for_scenario(&pool, scenario).await?.len(),
         1,
@@ -498,7 +526,16 @@ async fn it_rejects_a_fact_ref_for_a_nonexistent_scenario() -> TestResult<()> {
 
     // A random uuid that was never inserted into `scenarios`.
     let orphan = uuid::Uuid::new_v4();
-    let result = upsert_fact_ref(&pool, orphan, "node-x", Some("wielder"), false, None, None).await;
+    let result = upsert_fact_ref(
+        &pool,
+        orphan,
+        "node-x",
+        Some("wielder"),
+        FactStatus::Undecided,
+        None,
+        None,
+    )
+    .await;
     assert!(
         result.is_err(),
         "upsert_fact_ref must fail when scenario_id references no scenario (FK violation)"
@@ -533,7 +570,7 @@ async fn it_closes_the_minimal_slice() -> TestResult<()> {
         scenario,
         human_node,
         Some("wielder"),
-        true,
+        FactStatus::Included,
         None,
         None,
     )

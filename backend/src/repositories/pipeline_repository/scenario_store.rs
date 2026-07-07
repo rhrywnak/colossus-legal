@@ -30,6 +30,7 @@
 use sqlx::PgPool;
 
 use super::PipelineRepoError;
+use crate::domain::fact_status::FactStatus;
 
 // ── Record type ──────────────────────────────────────────────────
 
@@ -349,7 +350,12 @@ pub struct ScenarioFactRefRecord {
     pub scenario_id: uuid::Uuid,
     pub graph_node_id: String,
     pub role_in_this_scenario: Option<String>,
-    pub confirmed: bool,
+    /// Workbench state as its raw wire token (`undecided` / `included` /
+    /// `dropped`). Kept a raw `String` — decoded into no enum here — exactly like
+    /// `role_in_this_scenario` above: the [`crate::domain::fact_status::FactStatus`]
+    /// enum is a write-and-parse type used at the call site, not a DB-decode type
+    /// (see its module doc). Nothing branches on this value yet.
+    pub status: String,
     pub note: Option<String>,
     pub tagged_at: chrono::DateTime<chrono::Utc>,
 }
@@ -359,16 +365,25 @@ pub struct ScenarioFactRefRecord {
 // rationale as `SCENARIO_COLUMNS`). Changing it requires a migration plus a
 // matching `ScenarioFactRefRecord` field update.
 const SCENARIO_FACT_REF_COLUMNS: &str =
-    "scenario_id, graph_node_id, role_in_this_scenario, confirmed, note, tagged_at";
+    "scenario_id, graph_node_id, role_in_this_scenario, status, note, tagged_at";
 
 /// Tag a graph fact into a scenario, or re-tag it in place (composite-key
 /// upsert on `(scenario_id, graph_node_id)`).
 ///
 /// Re-tagging the same pair is a normal edit, not an error: `ON CONFLICT
-/// (scenario_id, graph_node_id) DO UPDATE` overwrites the role / confirmed /
+/// (scenario_id, graph_node_id) DO UPDATE` overwrites the role / status /
 /// note and advances `tagged_at`. The SAME `graph_node_id` under a *different*
 /// `scenario_id` is a *different* row — that is how one fact is shared across
 /// scenarios with a per-scenario role.
+///
+/// ## Rust Learning: typed `status` at the call site, raw token in the DB
+///
+/// `status: FactStatus` (the enum, not a `&str` or `bool`) makes the three-state
+/// invariant unrepresentable-when-wrong at the call site: the two writers say
+/// `FactStatus::Included` / `FactStatus::Undecided`, and a fourth state cannot be
+/// passed. The SQL binds `status.code()` — the same pattern the D2b path uses to
+/// bind `FactRole::code()` into `role_in_this_scenario`. The column itself is a
+/// plain `TEXT` validated in code, NOT a DB `CHECK` (evolvable vocabulary).
 ///
 /// Returns `()`: the caller already holds the identity (the composite key), so
 /// nothing is server-minted to hand back (contrast [`insert_scenario`]).
@@ -399,17 +414,17 @@ pub async fn upsert_fact_ref(
     scenario_id: uuid::Uuid,
     graph_node_id: &str,
     role_in_this_scenario: Option<&str>,
-    confirmed: bool,
+    status: FactStatus,
     note: Option<&str>,
     confidence: Option<f32>,
 ) -> Result<(), PipelineRepoError> {
     sqlx::query(
         r#"INSERT INTO scenario_fact_refs
-               (scenario_id, graph_node_id, role_in_this_scenario, confirmed, note, confidence)
+               (scenario_id, graph_node_id, role_in_this_scenario, status, note, confidence)
            VALUES ($1, $2, $3, $4, $5, $6)
            ON CONFLICT (scenario_id, graph_node_id) DO UPDATE SET
                role_in_this_scenario = EXCLUDED.role_in_this_scenario,
-               confirmed             = EXCLUDED.confirmed,
+               status                = EXCLUDED.status,
                note                  = EXCLUDED.note,
                confidence            = EXCLUDED.confidence,
                tagged_at             = NOW()"#,
@@ -417,7 +432,7 @@ pub async fn upsert_fact_ref(
     .bind(scenario_id)
     .bind(graph_node_id)
     .bind(role_in_this_scenario)
-    .bind(confirmed)
+    .bind(status.code())
     .bind(note)
     .bind(confidence)
     .execute(executor)
@@ -642,6 +657,69 @@ mod tests {
                 "note",
                 "tagged_at",
             ],
+        );
+    }
+
+    /// Phase 1a.1: the replace-migration must ADD `status` and DROP `confirmed`
+    /// in one forward step, and must not smuggle a case-content column into the
+    /// table via the ALTER (Rule 21). `assert_no_case_content` parses CREATE
+    /// TABLE column blocks, so this ALTER-only migration is scanned directly.
+    /// This is the sibling of `fact_refs_migration_declares_no_case_content_columns`
+    /// for the post-replace schema — the create-migration test above is left
+    /// untouched because its immutable file still declares `confirmed`.
+    #[test]
+    fn status_replace_migration_swaps_confirmed_for_status() {
+        let sql = read_migration(
+            "20260706162558_replace_confirmed_with_status_on_scenario_fact_refs.sql",
+        );
+        assert!(
+            sql.contains("ADD COLUMN status"),
+            "must add the status column"
+        );
+        assert!(
+            sql.contains("DROP COLUMN confirmed"),
+            "must drop the confirmed column"
+        );
+        // No case-content column may be introduced by the ALTER. Scan only the
+        // column-adding lines so header prose can't trip the check.
+        const FORBIDDEN: [&str; 6] = [
+            "quote",
+            "verbatim",
+            "citation",
+            "fact_text",
+            "source_document",
+            "grounding",
+        ];
+        for line in sql
+            .lines()
+            .filter(|l| l.to_ascii_uppercase().contains("ADD COLUMN"))
+        {
+            let lower = line.to_ascii_lowercase();
+            for token in FORBIDDEN {
+                assert!(
+                    !lower.contains(token),
+                    "ALTER must add NO case content — forbidden '{token}' in: {line}"
+                );
+            }
+        }
+    }
+
+    /// The live SELECT projection must track the POST-replace schema: `status`
+    /// present, `confirmed` gone. This complements the two migration-file scans
+    /// above — those assert what each migration *file* declares; this asserts the
+    /// constant the running queries actually use, closing the
+    /// record/projection/migration coupling. If a future edit reintroduces
+    /// `confirmed` or drops `status` from the projection, this fails here rather
+    /// than as an opaque decode/column error at query time.
+    #[test]
+    fn fact_ref_projection_tracks_status_not_confirmed() {
+        assert!(
+            super::SCENARIO_FACT_REF_COLUMNS.contains("status"),
+            "projection must select the status column"
+        );
+        assert!(
+            !super::SCENARIO_FACT_REF_COLUMNS.contains("confirmed"),
+            "projection must not reference the dropped confirmed column"
         );
     }
 

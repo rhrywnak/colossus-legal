@@ -41,6 +41,7 @@ use uuid::Uuid;
 use crate::{
     auth::{require_edit, AuthUser},
     bias::{dto::BiasInstance, repository::BiasRepository},
+    domain::fact_status::FactStatus,
     dto::{AddFactRequest, ScenarioFactDto},
     error::AppError,
     repositories::pipeline_repository::{
@@ -144,6 +145,10 @@ fn join_facts(
                      returning it with null content so the stale reference stays visible"
                 );
             }
+            // `r.status` is intentionally NOT copied into the DTO here: surfacing
+            // the three-state candidate status on the read path is 1a.2/1a.3 work
+            // (gated on the workbench UI that consumes it), not this data-layer
+            // chunk. See the `ScenarioFactDto` doc — the omission is a decision.
             ScenarioFactDto {
                 graph_node_id: r.graph_node_id,
                 role: r.role_in_this_scenario,
@@ -158,9 +163,9 @@ fn join_facts(
 
 /// `POST /cases/:slug/scenarios/:scenario_id/facts` — save a fact onto a scenario.
 ///
-/// The reference is stored `confirmed = true`: a human deliberately picked it.
-/// Re-posting the same `graph_node_id` is an in-place update (the store upserts
-/// on the composite key), so the route is idempotent on the pair.
+/// The reference is stored `status = FactStatus::Included`: a human deliberately
+/// picked it. Re-posting the same `graph_node_id` is an in-place update (the
+/// store upserts on the composite key), so the route is idempotent on the pair.
 #[tracing::instrument(skip(state, user, payload), fields(slug = %slug, scenario_id = %scenario_id))]
 pub async fn add_scenario_fact(
     user: AuthUser,
@@ -179,7 +184,7 @@ pub async fn add_scenario_fact(
     let id = parse_scenario_id(&scenario_id)?;
     ensure_scenario_in_case(&state, id, &slug).await?;
 
-    // confirmed = true: a human curated it. role / note are accepted but not yet
+    // status = Included: a human curated it. role / note are accepted but not yet
     // surfaced by any UI (Phase A) — the columns round-trip, ready for a later
     // phase, without forcing the client to send a value.
     //
@@ -191,7 +196,7 @@ pub async fn add_scenario_fact(
         id,
         &payload.graph_node_id,
         payload.role.as_deref(),
-        true,
+        FactStatus::Included,
         payload.note.as_deref(),
         None,
     )
@@ -332,7 +337,7 @@ mod tests {
             scenario_id,
             graph_node_id: graph_node_id.to_string(),
             role_in_this_scenario: role.map(str::to_string),
-            confirmed: true,
+            status: FactStatus::Included.code().to_string(),
             note: note.map(str::to_string),
             // A fixed epoch timestamp — the join does not read it, but the
             // struct requires one. Avoids `Utc::now()` so the test is pure.

@@ -21,6 +21,7 @@ use tokio::sync::Semaphore;
 use uuid::Uuid;
 
 use crate::bias::dto::BiasInstance;
+use crate::domain::fact_status::FactStatus;
 use crate::dto::{ThemeScanRejected, ThemeScanSuggestion, ThemeScanSummary};
 use crate::llm_retry::call_with_rate_limit_retry;
 use crate::repositories::pipeline_repository::{upsert_fact_ref, PipelineRepoError};
@@ -225,7 +226,7 @@ async fn record_outcome(
     }
 }
 
-/// Upsert one relevant verdict as a `confirmed=false` suggestion.
+/// Upsert one relevant verdict as an `undecided` suggestion.
 async fn write_relevant(
     pool: &PgPool,
     scenario_id: Uuid,
@@ -237,7 +238,8 @@ async fn write_relevant(
         scenario_id,
         &candidate.evidence_id,
         Some(verdict.proposed_role.code()),
-        false, // confirmed: a scan suggestion awaits human review
+        // A scan suggestion is UNDECIDED: it awaits a human include/drop ruling.
+        FactStatus::Undecided,
         Some(&verdict.reason),
         Some(verdict.confidence),
     )
