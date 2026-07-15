@@ -15,6 +15,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import Breadcrumb from "../components/Breadcrumb";
 import ScenarioCurationPanel from "../components/ScenarioCurationPanel";
 import ScenarioDefinitionForm from "../components/ScenarioDefinitionForm";
+import ThemeScanPanel from "../components/ThemeScanPanel";
 import ScenarioDeleteConfirm from "../components/ScenarioDeleteConfirm";
 import { EmptyState, ResponseCard } from "../components/TrialPrepViews";
 import { DEFAULT_CASE_SLUG } from "../services/caseHeader";
@@ -406,6 +407,12 @@ const ScenarioDetailPage: React.FC = () => {
           anchorAllegationIds={scenario.anchor_allegation_ids}
           onSaved={() => setRefreshKey((k) => k + 1)}
         />
+      )}
+
+      {/* Theme Scan driver: run the background LLM judge over every candidate
+          quote (per-model benchmark), with live progress + results. */}
+      {scenarioId && (
+        <ThemeScanPanel slug={slug} scenarioId={scenarioId} scenarioTitle={scenario.attack} />
       )}
 
       {/* Phase A: the curated-facts binder replaces the old (broken)
