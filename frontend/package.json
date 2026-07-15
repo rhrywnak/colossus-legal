@@ -1,6 +1,6 @@
 {
   "name": "colossus-legal-frontend",
-  "version": "2.0.0-beta.348",
+  "version": "2.0.0-beta.349",
   "private": true,
   "scripts": {
     "dev": "vite",
