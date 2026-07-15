@@ -98,6 +98,37 @@ pub struct LlmModelRecord {
 
     /// Free-form notes (e.g. "primary extraction model", "deprecated").
     pub notes: Option<String>,
+
+    // ── LLM Configuration Method, Chunk A: parameter-resolution columns ──
+    //
+    // Chunk A: read-only; operator-writable in a later chunk. These five feed
+    // the model-default layer and the constraint pass of the parameter resolver
+    // (`crate::domain::llm_params`). The write path (InsertModelInput /
+    // UpdateModelInput / insert_model / update_model) deliberately does NOT
+    // touch them here (R4) — the write surface is deferred to a later chunk.
+    /// Model-default temperature. `None` = the model-default layer is silent for
+    /// temperature. Decoded from `NUMERIC(3,2)` via the same `::float8` SELECT
+    /// cast the cost columns use (see the module doc comment).
+    pub default_temperature: Option<f64>,
+
+    /// Per-model temperature capability token (`zero-ok` / `omit`). `None` =
+    /// unknown. The vocabulary is owned by `domain::llm_params::TemperatureMode`,
+    /// not the DB; kept here as a raw `String` (the boundary maps it to the enum).
+    pub temperature_mode: Option<String>,
+
+    /// Model-default HTTP timeout in seconds. Decoded as `i32` (Postgres
+    /// `INTEGER`); the narrowing to `u64` happens at the resolver boundary
+    /// (`ModelConstraints::from_record`), never here (R3).
+    pub timeout_secs: Option<i32>,
+
+    /// Per-model structured-output capability token (`native` / `guided` /
+    /// `none`). `None` = unknown (distinct from a known `none`). Vocabulary owned
+    /// by `domain::llm_params::StructuredOutputMode`, not the DB.
+    pub structured_output_mode: Option<String>,
+
+    /// Model-default max concurrent in-flight requests. Decoded as `i32`
+    /// (Postgres `INTEGER`); advisory, wired by a later chunk.
+    pub max_concurrency: Option<i32>,
 }
 
 /// SELECT column list shared by all `llm_models` queries in this module.
@@ -108,7 +139,9 @@ const SELECT_COLUMNS: &str = "id, display_name, provider, api_endpoint, \
     max_context_tokens, max_output_tokens, \
     cost_per_input_token::float8 AS cost_per_input_token, \
     cost_per_output_token::float8 AS cost_per_output_token, \
-    is_active, created_at, notes";
+    is_active, created_at, notes, \
+    default_temperature::float8 AS default_temperature, \
+    temperature_mode, timeout_secs, structured_output_mode, max_concurrency";
 
 /// Fetch a single model by ID. Returns `None` if the ID does not exist.
 ///

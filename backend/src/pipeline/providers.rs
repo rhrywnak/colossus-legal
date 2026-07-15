@@ -185,6 +185,14 @@ mod tests {
             is_active: true,
             created_at: Utc::now(),
             notes: None,
+            // Chunk A added these read-only fields to LlmModelRecord. This test
+            // helper exercises provider_for_model, which does not read them, so
+            // they are left None/unset here (mechanical struct-literal fix only).
+            default_temperature: None,
+            temperature_mode: None,
+            timeout_secs: None,
+            structured_output_mode: None,
+            max_concurrency: None,
         }
     }
 
