@@ -30,17 +30,23 @@
 //! safe; the retry wrapper absorbs any rate-limit brush from the fan-out.
 
 use std::sync::Arc;
+use std::time::Instant;
 
+use chrono::Utc;
 use colossus_extract::LlmProvider;
 use uuid::Uuid;
 
 use crate::bias::dto::BiasInstance;
 use crate::bias::repository::{BiasRepository, BiasRepositoryError};
+use crate::domain::llm_params::{LlmConfigError, ResolvedLlmParams};
 use crate::dto::scenario_crud::ScenarioDefinition;
 use crate::dto::ThemeScanSummary;
 use crate::repositories::pipeline_repository::{get_scenario, PipelineRepoError, ScenarioRecord};
 use crate::services::scenario_subject::{resolve_scenario_subject, SubjectResolveError};
-use crate::services::theme_scan_judge::{judge_all, persist_and_summarize};
+use crate::services::theme_scan_judge::judge_all;
+use crate::services::theme_scan_persist::{persist_and_summarize, ScanRunMeta};
+use crate::services::theme_scan_provider::resolve_scan_provider;
+use crate::services::vllm_model_gate::{assert_vllm_model_loaded, VllmGateError};
 use crate::state::AppState;
 
 // CONST: the verdict token budget is a fixed protocol shape, not a deployment
@@ -48,8 +54,9 @@ use crate::state::AppState;
 // would only ever change if the verdict SHAPE changes — and that is a code change
 // (the `Verdict` struct + the prompt shipped together), never per-environment
 // tuning. Roman pinned this as a named constant (no env) in the D2b decision. It
-// is `pub` because `main::build_theme_scan_provider` reads it too, so the scan
-// provider and the per-call cap agree from one source of truth.
+// is `pub` because `theme_scan_provider::scan_task_spec` reads it as the scan's
+// TASK-layer `max_tokens`, so the resolver and the verdict cap agree from one
+// source of truth (Chunk B).
 pub const THEME_SCAN_MAX_TOKENS: u32 = 512;
 
 // CONST: the prompt VERSION this build judges with is a code decision, not a
@@ -143,10 +150,57 @@ pub enum ThemeScanError {
         source: std::io::Error,
     },
 
-    /// The scan provider is `None` (ANTHROPIC_API_KEY unset). The route surfaces
-    /// this as 503, mirroring `rag_pipeline`'s no-key handling.
-    #[error("Theme Scan LLM provider is unavailable (ANTHROPIC_API_KEY unset)")]
-    ProviderUnavailable,
+    /// Looking up the selected model row failed at the database layer.
+    #[error("failed to load model '{model_id}': {source}")]
+    ModelLookupFailed {
+        model_id: String,
+        #[source]
+        source: sqlx::Error,
+    },
+
+    /// The selected model id is not an active `llm_models` row. User-fixable
+    /// (pick a model that exists and is active) → the route maps it to 400.
+    #[error(
+        "model '{model_id}' is not an active registered model — pick a model that \
+         exists and is active"
+    )]
+    ModelNotAvailable { model_id: String },
+
+    /// The model's parameters could not be resolved/constrained (a corrupt row
+    /// value, or a task request the model cannot satisfy). Names the model and
+    /// carries the resolver's own typed cause.
+    #[error("model '{model_id}' has invalid LLM parameters: {source}")]
+    ParamsInvalid {
+        model_id: String,
+        #[source]
+        source: LlmConfigError,
+    },
+
+    /// Constructing the provider from the model row failed (e.g. a vLLM row with
+    /// no endpoint). Carries the builder's message.
+    #[error("failed to build a provider for model '{model_id}': {detail}")]
+    ProviderBuildFailed { model_id: String, detail: String },
+
+    /// HARD GATE: the selected vLLM endpoint did not answer `/v1/models`. The
+    /// scan REFUSES rather than dispatch to an unknown/unreachable model. 503.
+    #[error(
+        "vLLM endpoint '{endpoint}' is unreachable for the model gate: {detail} \
+         — verify the vLLM service is running and serving at that endpoint, or \
+         correct the model's api_endpoint in the llm_models table"
+    )]
+    VllmUnreachable { endpoint: String, detail: String },
+
+    /// HARD GATE: the vLLM endpoint answered, but the loaded model is not the one
+    /// selected — naming BOTH so the operator knows exactly what to switch. 503.
+    #[error(
+        "vLLM endpoint '{endpoint}' has the wrong model loaded: selected '{selected}' \
+         but loaded '{loaded}' — switch the vLLM model or pick the loaded one"
+    )]
+    VllmModelMismatch {
+        endpoint: String,
+        selected: String,
+        loaded: String,
+    },
 }
 
 /// Everything a scan needs to judge, resolved and validated up front.
@@ -158,6 +212,15 @@ struct PreparedScan {
     attack_meaning: Arc<str>,
     scan_prompt: Arc<str>,
     provider: Arc<dyn LlmProvider>,
+    /// The resolved+constrained parameters (drive the wire max_tokens AND the
+    /// `scan_runs` snapshot).
+    params: ResolvedLlmParams,
+    /// The resolved model id (after request/`THEME_SCAN_MODEL`/chat-default).
+    model_id: String,
+    /// Per-run fan-out cap (A5: model `max_concurrency`, else env default).
+    concurrency: usize,
+    cost_per_input_token: Option<f64>,
+    cost_per_output_token: Option<f64>,
     candidates: Vec<BiasInstance>,
 }
 
@@ -171,29 +234,27 @@ pub async fn run_theme_scan(
     state: &AppState,
     case_slug: &str,
     scenario_id: Uuid,
+    requested_model_id: Option<String>,
+    dry_run: bool,
 ) -> Result<ThemeScanSummary, ThemeScanError> {
-    let prepared = prepare_scan(state, case_slug, scenario_id).await?;
+    let prepared =
+        prepare_scan(state, case_slug, scenario_id, requested_model_id.as_deref()).await?;
     tracing::info!(
         case_slug,
         %scenario_id,
+        model_id = %prepared.model_id,
+        dry_run,
+        concurrency = prepared.concurrency,
         candidates = prepared.candidates.len(),
         "theme scan: judging candidates"
     );
 
-    let results = judge_all(
-        prepared.provider,
-        Arc::clone(&state.theme_scan_semaphore),
-        state.config.theme_scan_concurrency,
-        prepared.scan_prompt,
-        prepared.attack_meaning,
-        prepared.candidates,
-    )
-    .await;
-
-    let summary = persist_and_summarize(&state.pipeline_pool, scenario_id, results).await;
+    let summary = judge_and_record(state, scenario_id, dry_run, prepared).await;
     tracing::info!(
         case_slug,
         %scenario_id,
+        run_id = %summary.run_id,
+        dry_run,
         candidates_read = summary.candidates_read,
         relevant_written = summary.relevant_written,
         irrelevant = summary.irrelevant,
@@ -203,6 +264,48 @@ pub async fn run_theme_scan(
     Ok(summary)
 }
 
+/// Judge the prepared candidates and record the run.
+///
+/// Owns the timing (`Instant` for monotonic elapsed, `Utc::now()` for the
+/// wall-clock start), the `judge_all` fan-out, and the `scan_runs` metadata
+/// assembly + persistence. Split from [`run_theme_scan`] to keep each under the
+/// function-size limit; takes `prepared` by value since judging consumes it.
+async fn judge_and_record(
+    state: &AppState,
+    scenario_id: Uuid,
+    dry_run: bool,
+    prepared: PreparedScan,
+) -> ThemeScanSummary {
+    let started_at = Utc::now();
+    let clock = Instant::now();
+    let results = judge_all(
+        Arc::clone(&prepared.provider),
+        Arc::clone(&state.theme_scan_semaphore),
+        prepared.concurrency,
+        Arc::clone(&prepared.scan_prompt),
+        Arc::clone(&prepared.attack_meaning),
+        prepared.params,
+        prepared.candidates,
+    )
+    .await;
+    // millis fit i64 for any real scan; the impossible overflow caps rather than
+    // wrapping (Standing Rule 1).
+    let duration_ms = i64::try_from(clock.elapsed().as_millis()).unwrap_or(i64::MAX);
+
+    let meta = ScanRunMeta {
+        run_id: Uuid::new_v4(),
+        scenario_id,
+        model_id: prepared.model_id,
+        resolved_params: prepared.params,
+        dry_run,
+        cost_per_input_token: prepared.cost_per_input_token,
+        cost_per_output_token: prepared.cost_per_output_token,
+        started_at,
+        duration_ms,
+    };
+    persist_and_summarize(&state.pipeline_pool, meta, results).await
+}
+
 /// Load the scenario, validate its preconditions, and gather the inputs a scan
 /// needs: the judgment criterion, the candidate quotes, the provider, and the
 /// prompt. Every failure here is a typed, scan-aborting [`ThemeScanError`].
@@ -210,6 +313,7 @@ async fn prepare_scan(
     state: &AppState,
     case_slug: &str,
     scenario_id: Uuid,
+    requested_model_id: Option<&str>,
 ) -> Result<PreparedScan, ThemeScanError> {
     let record = load_scenario_fenced(&state.pipeline_pool, case_slug, scenario_id).await?;
 
@@ -232,10 +336,18 @@ async fn prepare_scan(
 
     let candidates = read_candidates(state, &definition, scenario_id).await?;
 
-    let provider = state
-        .theme_scan_provider
-        .clone()
-        .ok_or(ThemeScanError::ProviderUnavailable)?;
+    // Per-run provider: resolve the model id → row → params → provider via the
+    // unified seam (Chunk B), replacing the removed boot-time `theme_scan_provider`.
+    let resolved = resolve_scan_provider(state, requested_model_id).await?;
+
+    // HARD GATE (vLLM only): before any candidate is dispatched, confirm the
+    // endpoint is reachable and serving the SELECTED model. The Anthropic path
+    // has `vllm_endpoint == None` and skips this. Fail-fast, before any spend.
+    if let Some(endpoint) = &resolved.vllm_endpoint {
+        assert_vllm_model_loaded(&state.http_client, endpoint, &resolved.model_id)
+            .await
+            .map_err(gate_error_into_scan_error)?;
+    }
 
     let prompt_path = state.registry.template_path(THEME_SCAN_PROMPT);
     let scan_prompt = std::fs::read_to_string(&prompt_path).map_err(|source| {
@@ -248,9 +360,34 @@ async fn prepare_scan(
     Ok(PreparedScan {
         attack_meaning: Arc::from(attack_meaning),
         scan_prompt: Arc::from(scan_prompt),
-        provider,
+        provider: resolved.provider,
+        params: resolved.params,
+        model_id: resolved.model_id,
+        concurrency: resolved.concurrency,
+        cost_per_input_token: resolved.cost_per_input_token,
+        cost_per_output_token: resolved.cost_per_output_token,
         candidates,
     })
+}
+
+/// Map the reusable gate's domain-agnostic [`VllmGateError`] into this service's
+/// error taxonomy. The gate stays reusable (no legal-app types); the scan owns the
+/// HTTP-status and recovery-message policy, so it translates at this boundary.
+fn gate_error_into_scan_error(e: VllmGateError) -> ThemeScanError {
+    match e {
+        VllmGateError::Unreachable { endpoint, detail } => {
+            ThemeScanError::VllmUnreachable { endpoint, detail }
+        }
+        VllmGateError::Mismatch {
+            endpoint,
+            selected,
+            loaded,
+        } => ThemeScanError::VllmModelMismatch {
+            endpoint,
+            selected,
+            loaded,
+        },
+    }
 }
 
 /// Resolve the scan subject and read every candidate quote about it (the ungated
@@ -326,113 +463,5 @@ async fn load_scenario_fenced(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    // The Display strings are the operator's window into a failed scan (Standing
-    // Rule 1). These tests pin that every variant carrying interpolated context
-    // actually surfaces it — a format-string typo (wrong field, dropped
-    // `{source}`) is invisible until the error is produced at runtime otherwise.
-
-    #[test]
-    fn display_scenario_not_found_names_case_and_id() {
-        let id = Uuid::nil();
-        let s = ThemeScanError::ScenarioNotFound {
-            case_slug: "awad".to_string(),
-            scenario_id: id,
-        }
-        .to_string();
-        assert!(s.contains("awad"), "missing case slug: {s}");
-        assert!(s.contains(&id.to_string()), "missing scenario id: {s}");
-    }
-
-    #[test]
-    fn display_empty_attack_meaning_names_id_and_field() {
-        let id = Uuid::nil();
-        let s = ThemeScanError::EmptyAttackMeaning { scenario_id: id }.to_string();
-        assert!(s.contains(&id.to_string()));
-        assert!(s.contains("attack_meaning"));
-    }
-
-    #[test]
-    fn display_scenario_load_failed_surfaces_source() {
-        let id = Uuid::nil();
-        let s = ThemeScanError::ScenarioLoadFailed {
-            scenario_id: id,
-            source: PipelineRepoError::Database("connection reset".to_string()),
-        }
-        .to_string();
-        assert!(s.contains(&id.to_string()));
-        assert!(s.contains("connection reset"), "source not surfaced: {s}");
-    }
-
-    #[test]
-    fn display_definition_invalid_surfaces_id() {
-        let id = Uuid::nil();
-        // A real serde_json error (unterminated object) as the source.
-        let source = serde_json::from_str::<serde_json::Value>("{").unwrap_err();
-        let s = ThemeScanError::DefinitionInvalid {
-            scenario_id: id,
-            source,
-        }
-        .to_string();
-        assert!(s.contains(&id.to_string()));
-        assert!(s.contains("cannot parse"), "unexpected message: {s}");
-    }
-
-    #[test]
-    fn display_candidate_read_failed_names_subject_and_source() {
-        use serde::de::Error as _;
-        // BiasRepositoryError wraps a neo4rs deserialization error; construct one
-        // via serde's `custom` so the test needs no live Neo4j connection.
-        let source = BiasRepositoryError::Deserialize(neo4rs::DeError::custom("bad row"));
-        let s = ThemeScanError::CandidateReadFailed {
-            subject_id: "subj-1".to_string(),
-            source,
-        }
-        .to_string();
-        assert!(s.contains("subj-1"), "missing subject id: {s}");
-        assert!(s.contains("bad row"), "source not surfaced: {s}");
-    }
-
-    #[test]
-    fn display_subject_unresolvable_names_id_and_config_key() {
-        let id = Uuid::nil();
-        let s = ThemeScanError::SubjectUnresolvable { scenario_id: id }.to_string();
-        assert!(s.contains(&id.to_string()), "missing scenario id: {s}");
-        assert!(
-            s.contains("CASE_DEFAULT_SUBJECT_NAME"),
-            "missing the config key that fixes it: {s}"
-        );
-    }
-
-    #[test]
-    fn display_subject_resolve_failed_names_id_and_source() {
-        use serde::de::Error as _;
-        let id = Uuid::nil();
-        // Same construction as the candidate-read test: a neo4rs deserialization
-        // error via serde's `custom`, needing no live Neo4j connection.
-        let source = BiasRepositoryError::Deserialize(neo4rs::DeError::custom("subjects query"));
-        let s = ThemeScanError::SubjectResolveFailed {
-            scenario_id: id,
-            source,
-        }
-        .to_string();
-        assert!(s.contains(&id.to_string()), "missing scenario id: {s}");
-        assert!(s.contains("subjects query"), "source not surfaced: {s}");
-    }
-
-    #[test]
-    fn display_prompt_file_missing_names_path_and_source() {
-        let s = ThemeScanError::PromptFileMissing {
-            path: "/templates/theme_scan_prompt_v1.md".to_string(),
-            source: std::io::Error::new(std::io::ErrorKind::NotFound, "no such file"),
-        }
-        .to_string();
-        assert!(
-            s.contains("/templates/theme_scan_prompt_v1.md"),
-            "missing path: {s}"
-        );
-        assert!(s.contains("no such file"), "source not surfaced: {s}");
-    }
-}
+#[path = "theme_scan_tests.rs"]
+mod tests;

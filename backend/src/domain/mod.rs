@@ -17,3 +17,4 @@ pub mod actor_role;
 pub mod fact_role;
 pub mod fact_status;
 pub mod llm_params;
+pub mod llm_provider_ext;

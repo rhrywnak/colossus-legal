@@ -18,3 +18,6 @@ pub mod scenario_subject;
 pub mod theme_scan;
 pub mod theme_scan_judge;
 pub mod theme_scan_parse;
+pub mod theme_scan_persist;
+pub mod theme_scan_provider;
+pub mod vllm_model_gate;

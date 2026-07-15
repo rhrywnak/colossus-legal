@@ -15,7 +15,7 @@ use uuid::Uuid;
 
 use crate::{
     auth::{require_edit, AuthUser},
-    dto::ThemeScanSummary,
+    dto::{ScanRequest, ThemeScanSummary},
     error::AppError,
     services::theme_scan::{run_theme_scan, ThemeScanError},
     state::AppState,
@@ -26,18 +26,32 @@ use crate::{
 /// Edit-gated (`require_edit`): a scan WRITES suggestions to
 /// `scenario_fact_refs` and spends real LLM budget, so it is a mutation, not a
 /// read. The `(slug, scenario_id)` pair is case-fenced inside the service.
-#[tracing::instrument(skip(state, user), fields(slug = %slug, scenario_id = %scenario_id))]
+/// The optional JSON body carries the per-run model picker and the dry-run flag.
+///
+/// ## Rust Learning: `Option<Json<T>>` — an OPTIONAL request body
+///
+/// Axum's `Json<T>` extractor FAILS on an empty body. Wrapping it in `Option`
+/// yields `None` when there is no body (or no JSON content type) instead of a
+/// 4xx — so an empty `POST` preserves the pre-Chunk-B behavior (default model,
+/// non-dry-run). It MUST be the LAST parameter: a body-consuming extractor runs
+/// after the non-consuming ones (`AuthUser`, `State`, `Path`).
+#[tracing::instrument(skip(state, user, body), fields(slug = %slug, scenario_id = %scenario_id))]
 pub async fn run_scenario_theme_scan(
     user: AuthUser,
     State(state): State<AppState>,
     Path((slug, scenario_id)): Path<(String, String)>,
+    body: Option<Json<ScanRequest>>,
 ) -> Result<Json<ThemeScanSummary>, AppError> {
     require_edit(&user)?;
+    // No body → the neutral default request (default model, dry_run = false).
+    let req = body.map(|Json(b)| b).unwrap_or_default();
     tracing::info!(
-        "{} POST /cases/{}/scenarios/{}/theme-scan",
+        "{} POST /cases/{}/scenarios/{}/theme-scan (model={:?}, dry_run={})",
         user.username,
         slug,
-        scenario_id
+        scenario_id,
+        req.model_id,
+        req.dry_run,
     );
 
     // Parse the path id up front so a malformed id is a clean 400, never a
@@ -47,7 +61,7 @@ pub async fn run_scenario_theme_scan(
         details: json!({ "field": "scenario_id" }),
     })?;
 
-    let summary = run_theme_scan(&state, &slug, id)
+    let summary = run_theme_scan(&state, &slug, id, req.model_id, req.dry_run)
         .await
         .map_err(map_scan_error)?;
     Ok(Json(summary))
@@ -73,7 +87,20 @@ fn map_scan_error(err: ThemeScanError) -> AppError {
             message,
             details: json!({ "precondition": "subject" }),
         },
-        ThemeScanError::ProviderUnavailable => AppError::ServiceUnavailable { message },
+        // Bad model CHOICE (unknown/inactive, un-satisfiable params, or an
+        // un-buildable row like a vLLM model with no endpoint): the operator
+        // fixes it by picking a valid model — 400 with the reason.
+        ThemeScanError::ModelNotAvailable { .. }
+        | ThemeScanError::ParamsInvalid { .. }
+        | ThemeScanError::ProviderBuildFailed { .. } => AppError::BadRequest {
+            message,
+            details: json!({ "precondition": "model" }),
+        },
+        // HARD GATE refusals: the selected vLLM endpoint is down or serving the
+        // wrong model — a dependency problem the operator corrects. 503.
+        ThemeScanError::VllmUnreachable { .. } | ThemeScanError::VllmModelMismatch { .. } => {
+            AppError::ServiceUnavailable { message }
+        }
         // DB, graph, prompt-file, and definition-parse failures are server-side.
         // Log the full typed error (with its source) and return a generic 500.
         other => {
@@ -121,11 +148,52 @@ mod tests {
     }
 
     #[test]
-    fn provider_unavailable_maps_to_503() {
+    fn vllm_gate_refusals_map_to_503() {
+        let unreachable = ThemeScanError::VllmUnreachable {
+            endpoint: "http://x:8000".to_string(),
+            detail: "connection refused".to_string(),
+        };
         assert!(matches!(
-            map_scan_error(ThemeScanError::ProviderUnavailable),
+            map_scan_error(unreachable),
             AppError::ServiceUnavailable { .. }
         ));
+        let mismatch = ThemeScanError::VllmModelMismatch {
+            endpoint: "http://x:8000".to_string(),
+            selected: "qwen-14b".to_string(),
+            loaded: "qwen-7b".to_string(),
+        };
+        assert!(matches!(
+            map_scan_error(mismatch),
+            AppError::ServiceUnavailable { .. }
+        ));
+    }
+
+    #[test]
+    fn bad_model_choice_maps_to_400() {
+        let e = ThemeScanError::ModelNotAvailable {
+            model_id: "nope".to_string(),
+        };
+        assert!(matches!(map_scan_error(e), AppError::BadRequest { .. }));
+    }
+
+    #[test]
+    fn params_invalid_maps_to_400() {
+        let e = ThemeScanError::ParamsInvalid {
+            model_id: "qwen-14b".to_string(),
+            source: crate::domain::llm_params::LlmConfigError::ClearNotAllowed {
+                param: "max_tokens",
+            },
+        };
+        assert!(matches!(map_scan_error(e), AppError::BadRequest { .. }));
+    }
+
+    #[test]
+    fn provider_build_failed_maps_to_400() {
+        let e = ThemeScanError::ProviderBuildFailed {
+            model_id: "llama-3-8b".to_string(),
+            detail: "has no api_endpoint".to_string(),
+        };
+        assert!(matches!(map_scan_error(e), AppError::BadRequest { .. }));
     }
 
     #[test]

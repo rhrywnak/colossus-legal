@@ -26,9 +26,40 @@
 //! renders a bias candidate, a saved fact, AND a scan suggestion, with one
 //! graph→content mapping rather than three that can drift.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 use crate::bias::dto::BiasInstance;
+
+/// Optional request body for `POST .../theme-scan`.
+///
+/// Both fields are optional so an EMPTY body preserves the pre-Chunk-B behavior
+/// (default model, non-dry-run). The handler accepts `Option<Json<ScanRequest>>`
+/// and falls back to `ScanRequest::default()` when the body is absent.
+///
+/// ## Rust Learning: `#[serde(default)]` = "this field is optional on the wire"
+///
+/// With `#[serde(default)]`, a missing key deserializes to the field type's
+/// `Default` (`None` for `model_id`, `false` for `dry_run`) instead of failing.
+/// The DERIVE of `Default` on the struct then lets the handler synthesize the
+/// whole request when there is no body at all. Absence is legitimate here — the
+/// meaningful distinction (Standing Rule 1) is model-picked-or-default, captured
+/// by `Option`, and dry-run-or-not, captured by the bool.
+// serde: deny_unknown_fields — an unknown key in a client request body is a
+// caller mistake (a typo'd `model` for `model_id`, a stale field), and silently
+// ignoring it would let a misspelled `dry_run` run a live scan. Reject with 400.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ScanRequest {
+    /// The `llm_models.id` to judge with. `None` → the per-feature default
+    /// (`THEME_SCAN_MODEL`, else the chat default).
+    #[serde(default)]
+    pub model_id: Option<String>,
+    /// `true` = benchmark run: judge + record to the audit tables, but do NOT
+    /// upsert `scenario_fact_refs`. `false` (default) = normal workbench scan.
+    #[serde(default)]
+    pub dry_run: bool,
+}
 
 /// Result of one Theme Scan run.
 ///
@@ -39,6 +70,24 @@ use crate::bias::dto::BiasInstance;
 /// count that does not add up rather than as a silent absence.
 #[derive(Debug, Clone, Serialize)]
 pub struct ThemeScanSummary {
+    /// The `scan_runs.run_id` this scan recorded — the handle the benchmark
+    /// comparison query joins on. Present on every run (dry or not).
+    pub run_id: Uuid,
+    /// The `llm_models.id` this run judged with (the resolved model, after the
+    /// request/`THEME_SCAN_MODEL`/chat-default fallback).
+    pub model_id: String,
+    /// Whether this was a dry (benchmark) run. When `true`, `relevant_written`
+    /// counts relevant verdicts that were RECORDED but NOT upserted into
+    /// `scenario_fact_refs` (A4).
+    pub dry_run: bool,
+    /// Summed reported input tokens across the run; `None` if no call reported
+    /// usage (never a fabricated 0).
+    pub input_tokens: Option<i64>,
+    /// Summed reported output tokens; `None` if no call reported usage.
+    pub output_tokens: Option<i64>,
+    /// Computed dollar cost (tokens × per-token cost) when known; `None` for a
+    /// local vLLM model or absent usage.
+    pub computed_cost: Option<f64>,
     /// Total candidate quotes read for the subject (the ungated
     /// `all_evidence_about_subject` count — every Evidence ABOUT the subject).
     pub candidates_read: usize,
