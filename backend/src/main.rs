@@ -154,6 +154,26 @@ async fn run_serve(config: AppConfig, graph: neo4rs::Graph, http_client: reqwest
     let pg_pool = db.main_pool;
     let pipeline_pool = db.pipeline_pool;
 
+    // Startup orphan guard for background Theme Scans: any `scan_runs` row still
+    // `running` at boot was interrupted by a restart (the `tokio` judging task did
+    // not survive) — mark it `failed`. Runs AFTER init_pools (which applies the
+    // pipeline migrations that add the `status` column) and BEFORE serving. This
+    // is the authoritative orphan guard; there is no reaper daemon.
+    match colossus_legal_backend::repositories::pipeline_repository::sweep_running_scan_runs(
+        &pipeline_pool,
+    )
+    .await
+    {
+        Ok(0) => {}
+        Ok(n) => {
+            tracing::warn!(
+                swept = n,
+                "startup: marked orphaned 'running' scan runs as 'failed'"
+            )
+        }
+        Err(e) => tracing::error!(error = %e, "startup: sweep of orphaned scan runs failed"),
+    }
+
     // --- Load the pipeline configuration registry ---
     //
     // Single source of truth for the four directory paths and the

@@ -1,19 +1,31 @@
 //! Repository for the Theme Scan audit + benchmark tables (`scan_runs`,
 //! `scan_run_verdicts`) in the `colossus_legal_v2` pipeline database.
 //!
-//! Two writes, no reads yet: the scan records a per-run header and its
-//! per-candidate verdicts. The benchmark comparison query (JOIN two runs on
-//! `graph_node_id`) is run by hand on build1 for now, so this module exposes
-//! only the inserts. See the migration `20260715121130_create_scan_runs_and_verdicts`
-//! for the column semantics.
+//! ## The background-job lifecycle (this module owns the writes)
 //!
-//! ## Rust Learning: caller-owns-serialization for the JSONB snapshot
+//! A scan is a background `tokio` task, so its `scan_runs` row moves through
+//! states rather than being written once:
 //!
-//! `ScanRunRecord.resolved_params` is a `serde_json::Value` the CALLER builds,
-//! not a typed struct this module serializes. That keeps the repository dumb
-//! (it binds bytes, it does not know the resolver's shape) and puts the
-//! `{temperature, timeout_secs, max_tokens}` snapshot shape next to the code
-//! that produces it — the same division the migration comment documents.
+//! 1. [`insert_scan_run_running`] — the POST inserts the row as `running` with
+//!    the progress DENOMINATOR (`candidates_total`) known up front, then returns.
+//! 2. [`bump_scan_run_progress`] — the task calls this once per judged candidate
+//!    (`candidates_judged += 1`, the live outcome bucket `+= 1`, `last_progress_at`).
+//! 3. [`finalize_scan_run_completed`] — on success, the task writes the
+//!    authoritative final counts/tokens/cost/duration + the `summary_json`.
+//! 4. [`fail_scan_run`] — on any job error, `status = failed` + a reason.
+//! 5. [`sweep_running_scan_runs`] — at backend startup, any lingering `running`
+//!    row was orphaned by a restart → `failed` "interrupted by restart".
+//!
+//! [`get_scan_run`] reads one row back for the poll. `scan_run_verdicts` (the
+//! per-candidate detail the agreement query joins on) is still written via
+//! [`insert_scan_run_verdicts`] — `summary_json` is only a render convenience.
+//!
+//! ## Rust Learning: caller-owns-serialization for the JSONB snapshots
+//!
+//! `resolved_params` and `summary_json` are `serde_json::Value`s the CALLER
+//! builds, not typed structs this module serializes. That keeps the repository
+//! dumb (it binds bytes, it does not know the resolver/summary shape) and puts
+//! each snapshot's shape next to the code that produces it.
 
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
@@ -21,33 +33,246 @@ use uuid::Uuid;
 
 use super::PipelineRepoError;
 
-/// One row of `scan_runs` — the per-run header.
-///
-/// Counts are `i32` (Postgres `INTEGER`); token sums and duration are `i64`
-/// (`BIGINT`). `computed_cost` is a plain `f64` here and is cast to `NUMERIC` in
-/// SQL on the way in (the project does not enable the `rust_decimal` feature, so
-/// direct `NUMERIC` binding is unavailable — same pattern as
-/// `extraction_runs.cost_usd`). `resolved_params` is pre-serialized by the caller.
+// CONST: the `scan_runs.status` vocabulary, owned by code (the migration keeps NO
+// DB CHECK on the column so it can evolve without a migration). Named constants
+// rather than string literals so a typo is a compile error, not a silent bad row.
+/// `pub(crate)` so the POST handler can label the freshly-spawned run without a
+/// magic string of its own.
+pub(crate) const SCAN_STATUS_RUNNING: &str = "running";
+const SCAN_STATUS_COMPLETED: &str = "completed";
+const SCAN_STATUS_FAILED: &str = "failed";
+
+/// The message stamped on a run the startup sweep finds still `running`.
+const INTERRUPTED_BY_RESTART: &str = "interrupted by restart";
+
+// ─── 1. START (the `running` INSERT) ─────────────────────────────────────────
+
+/// The fields known when a background scan STARTS.
 #[derive(Debug, Clone)]
-pub struct ScanRunRecord {
+pub struct ScanRunStart {
     pub run_id: Uuid,
     pub scenario_id: Uuid,
     pub model_id: String,
     /// `{"temperature": <number|null>, "timeout_secs": <int>, "max_tokens": <int>}`.
     pub resolved_params: serde_json::Value,
     pub dry_run: bool,
-    pub candidates_read: i32,
+    /// The progress denominator, known from the candidate-pool read.
+    pub candidates_total: i32,
+    pub started_at: DateTime<Utc>,
+}
+
+/// Insert the run as `running`. The final tally/token/cost columns start at
+/// 0/NULL and are overwritten by [`finalize_scan_run_completed`]; `candidates_read`
+/// is set to `candidates_total` here (we DID read the whole pool to size it).
+pub async fn insert_scan_run_running(
+    pool: &PgPool,
+    start: &ScanRunStart,
+) -> Result<(), PipelineRepoError> {
+    sqlx::query(
+        r#"INSERT INTO scan_runs (
+               run_id, scenario_id, model_id, resolved_params, dry_run,
+               candidates_read, relevant_count, irrelevant_count, failed_count,
+               input_tokens, output_tokens, computed_cost, started_at, duration_ms,
+               status, candidates_total, candidates_judged, last_progress_at
+           ) VALUES (
+               $1, $2, $3, $4, $5,
+               $6, 0, 0, 0,
+               NULL, NULL, NULL, $7, 0,
+               $8, $6, 0, $7
+           )"#,
+    )
+    .bind(start.run_id)
+    .bind(start.scenario_id)
+    .bind(&start.model_id)
+    .bind(&start.resolved_params)
+    .bind(start.dry_run)
+    .bind(start.candidates_total)
+    .bind(start.started_at)
+    .bind(SCAN_STATUS_RUNNING)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+// ─── 2. PROGRESS (per-candidate bump) ────────────────────────────────────────
+
+/// Which live running-count column a judged candidate advances.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProgressBucket {
+    Relevant,
+    Irrelevant,
+    Failed,
+}
+
+/// The (fixed, code-owned) column name for a bucket. Split out so the
+/// no-injection reasoning below is unit-testable.
+fn bucket_column(bucket: ProgressBucket) -> &'static str {
+    match bucket {
+        ProgressBucket::Relevant => "relevant_count",
+        ProgressBucket::Irrelevant => "irrelevant_count",
+        ProgressBucket::Failed => "failed_count",
+    }
+}
+
+/// Bump progress for one judged candidate: `candidates_judged += 1`, the bucket's
+/// running count `+= 1`, and `last_progress_at = NOW()`.
+///
+/// ## Rust Learning: why `format!`-ing the column name is safe here
+///
+/// The column name comes from [`bucket_column`], which returns one of three
+/// `&'static str` LITERALS chosen by a Rust `match` — never from user input. So
+/// interpolating it into the SQL cannot be an injection vector (unlike binding a
+/// value, a column/table name cannot be a bound parameter, so this is the correct
+/// way to vary it). The `run_id` — the only untrusted-shaped value — is still a
+/// bound `$1` parameter. The `SET x = x + 1` increment is atomic per statement,
+/// so the concurrent `buffer_unordered` fan-out cannot lose an update.
+pub async fn bump_scan_run_progress(
+    pool: &PgPool,
+    run_id: Uuid,
+    bucket: ProgressBucket,
+) -> Result<(), PipelineRepoError> {
+    let col = bucket_column(bucket);
+    let sql = format!(
+        "UPDATE scan_runs \
+         SET candidates_judged = candidates_judged + 1, {col} = {col} + 1, \
+             last_progress_at = NOW() \
+         WHERE run_id = $1"
+    );
+    sqlx::query(&sql).bind(run_id).execute(pool).await?;
+    Ok(())
+}
+
+// ─── 3. COMPLETE (finalize) ──────────────────────────────────────────────────
+
+/// The authoritative fields settled when a scan COMPLETES.
+#[derive(Debug, Clone)]
+pub struct ScanRunFinal {
+    pub run_id: Uuid,
     pub relevant_count: i32,
     pub irrelevant_count: i32,
     pub failed_count: i32,
-    /// `None` = no call reported usage (never a fabricated 0 — Standing Rule 1).
     pub input_tokens: Option<i64>,
     pub output_tokens: Option<i64>,
-    /// `None` for a local vLLM model (no per-token cost) or absent usage.
     pub computed_cost: Option<f64>,
-    pub started_at: DateTime<Utc>,
     pub duration_ms: i64,
+    /// The finished `ThemeScanSummary`, serialized by the caller.
+    pub summary_json: serde_json::Value,
 }
+
+/// Finalize a `running` run to `completed`, overwriting the live estimates with
+/// the authoritative final counts and storing the render summary.
+pub async fn finalize_scan_run_completed(
+    pool: &PgPool,
+    final_: &ScanRunFinal,
+) -> Result<(), PipelineRepoError> {
+    // Fixed 8-decimal string mirrors the NUMERIC(12,8) column (no rust_decimal
+    // feature); None → NULL, passed through the `::numeric` cast.
+    let cost_str = final_.computed_cost.map(|c| format!("{c:.8}"));
+    sqlx::query(
+        r#"UPDATE scan_runs SET
+               status = $2,
+               relevant_count = $3, irrelevant_count = $4, failed_count = $5,
+               input_tokens = $6, output_tokens = $7, computed_cost = $8::numeric,
+               duration_ms = $9, summary_json = $10, last_progress_at = NOW()
+           WHERE run_id = $1"#,
+    )
+    .bind(final_.run_id)
+    .bind(SCAN_STATUS_COMPLETED)
+    .bind(final_.relevant_count)
+    .bind(final_.irrelevant_count)
+    .bind(final_.failed_count)
+    .bind(final_.input_tokens)
+    .bind(final_.output_tokens)
+    .bind(cost_str)
+    .bind(final_.duration_ms)
+    .bind(&final_.summary_json)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+// ─── 4. FAIL ─────────────────────────────────────────────────────────────────
+
+/// Mark a run `failed` with a reason (Standing Rule 1 — a failed run says why).
+pub async fn fail_scan_run(
+    pool: &PgPool,
+    run_id: Uuid,
+    error: &str,
+) -> Result<(), PipelineRepoError> {
+    sqlx::query(
+        "UPDATE scan_runs SET status = $2, error = $3, last_progress_at = NOW() \
+         WHERE run_id = $1",
+    )
+    .bind(run_id)
+    .bind(SCAN_STATUS_FAILED)
+    .bind(error)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+// ─── 5. STARTUP SWEEP (orphan guard) ─────────────────────────────────────────
+
+/// Fail every run still `running` at backend startup — a `running` row at boot
+/// was orphaned by a restart (the `tokio` task did not survive). Returns the
+/// number swept, for a startup log. The authoritative orphan guard, run once per
+/// boot (no reaper daemon, no no-progress timer that could kill a slow run).
+pub async fn sweep_running_scan_runs(pool: &PgPool) -> Result<u64, PipelineRepoError> {
+    let result = sqlx::query(
+        "UPDATE scan_runs SET status = $2, error = $3, last_progress_at = NOW() \
+         WHERE status = $1",
+    )
+    .bind(SCAN_STATUS_RUNNING)
+    .bind(SCAN_STATUS_FAILED)
+    .bind(INTERRUPTED_BY_RESTART)
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected())
+}
+
+// ─── 6. READ (the poll) ──────────────────────────────────────────────────────
+
+/// One `scan_runs` row as the GET poll needs it. `summary_json` is `Some` only
+/// once `status = completed`; the live counts are an in-progress estimate while
+/// `running` and authoritative once `completed`.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct ScanRunStatusRow {
+    pub run_id: Uuid,
+    pub scenario_id: Uuid,
+    pub status: String,
+    pub model_id: String,
+    pub dry_run: bool,
+    pub candidates_total: Option<i32>,
+    pub candidates_judged: i32,
+    pub relevant_count: i32,
+    pub irrelevant_count: i32,
+    pub failed_count: i32,
+    pub error: Option<String>,
+    pub summary_json: Option<serde_json::Value>,
+    pub last_progress_at: Option<DateTime<Utc>>,
+    pub started_at: DateTime<Utc>,
+}
+
+/// Read one run by id. `None` if the id does not exist (the handler maps that to
+/// 404 after the case-fence check).
+pub async fn get_scan_run(
+    pool: &PgPool,
+    run_id: Uuid,
+) -> Result<Option<ScanRunStatusRow>, PipelineRepoError> {
+    let row = sqlx::query_as::<_, ScanRunStatusRow>(
+        "SELECT run_id, scenario_id, status, model_id, dry_run, \
+                candidates_total, candidates_judged, \
+                relevant_count, irrelevant_count, failed_count, \
+                error, summary_json, last_progress_at, started_at \
+         FROM scan_runs WHERE run_id = $1",
+    )
+    .bind(run_id)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row)
+}
+
+// ─── Per-candidate verdict detail (unchanged from Chunk B) ────────────────────
 
 /// One row of `scan_run_verdicts` — a per-candidate verdict.
 ///
@@ -67,47 +292,6 @@ pub struct ScanRunVerdictRecord {
     pub raw_reply: Option<String>,
     /// `None` = judged successfully; `Some` = the per-item failure reason.
     pub error: Option<String>,
-}
-
-/// Insert the per-run header row.
-///
-/// ## Rust Learning: `$n::numeric` cast instead of the `rust_decimal` feature
-///
-/// `computed_cost` is `NUMERIC(12,8)` in Postgres. sqlx can only bind a Rust
-/// `f64` as `float8`, so we format it to a fixed-precision string and let
-/// Postgres cast `$12::numeric` — exactly what `complete_extraction_run` does
-/// for `cost_usd`. `None` binds as SQL `NULL`, which the cast passes through.
-pub async fn insert_scan_run(pool: &PgPool, run: &ScanRunRecord) -> Result<(), PipelineRepoError> {
-    // Fixed 8-decimal string mirrors the NUMERIC(12,8) column scale. None → NULL.
-    let cost_str = run.computed_cost.map(|c| format!("{c:.8}"));
-    sqlx::query(
-        r#"INSERT INTO scan_runs (
-               run_id, scenario_id, model_id, resolved_params, dry_run,
-               candidates_read, relevant_count, irrelevant_count, failed_count,
-               input_tokens, output_tokens, computed_cost, started_at, duration_ms
-           ) VALUES (
-               $1, $2, $3, $4, $5,
-               $6, $7, $8, $9,
-               $10, $11, $12::numeric, $13, $14
-           )"#,
-    )
-    .bind(run.run_id)
-    .bind(run.scenario_id)
-    .bind(&run.model_id)
-    .bind(&run.resolved_params)
-    .bind(run.dry_run)
-    .bind(run.candidates_read)
-    .bind(run.relevant_count)
-    .bind(run.irrelevant_count)
-    .bind(run.failed_count)
-    .bind(run.input_tokens)
-    .bind(run.output_tokens)
-    .bind(cost_str)
-    .bind(run.started_at)
-    .bind(run.duration_ms)
-    .execute(pool)
-    .await?;
-    Ok(())
 }
 
 /// Insert every per-candidate verdict for a run in ONE transaction.
@@ -155,29 +339,5 @@ pub async fn insert_scan_run_verdicts(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use sqlx::postgres::PgPoolOptions;
-    use std::time::Duration;
-
-    /// A pool aimed at a dead port: any real query fails fast, so a test can
-    /// prove a code path did NOT touch the database.
-    fn dead_pool() -> PgPool {
-        PgPoolOptions::new()
-            .acquire_timeout(Duration::from_millis(500))
-            .connect_lazy("postgres://127.0.0.1:1/nodb")
-            .expect("connect_lazy builds a pool without connecting")
-    }
-
-    #[tokio::test]
-    async fn insert_scan_run_verdicts_empty_is_ok_without_touching_the_pool() {
-        // The empty-slice early return is a legitimate no-op (a subject with no
-        // candidate quotes), distinct from a failure. It must return Ok WITHOUT
-        // opening a transaction — the dead pool would error on any real connect.
-        let result = insert_scan_run_verdicts(&dead_pool(), &[]).await;
-        assert!(
-            result.is_ok(),
-            "empty verdicts must be a no-op Ok, got {result:?}"
-        );
-    }
-}
+#[path = "scan_runs_tests.rs"]
+mod tests;

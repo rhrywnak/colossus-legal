@@ -191,3 +191,40 @@ fn display_vllm_mismatch_names_endpoint_and_both_models() {
     assert!(s.contains("qwen-14b"), "missing selected: {s}");
     assert!(s.contains("qwen-7b"), "missing loaded: {s}");
 }
+
+// ── Background-job error variants ─────────────────────────────────────────
+
+#[test]
+fn display_scan_run_write_failed_names_run_and_source() {
+    let s = ThemeScanError::ScanRunWriteFailed {
+        run_id: Uuid::nil(),
+        source: crate::repositories::pipeline_repository::PipelineRepoError::Database(
+            "conn reset".to_string(),
+        ),
+    }
+    .to_string();
+    assert!(s.contains(&Uuid::nil().to_string()), "missing run id: {s}");
+    assert!(s.contains("conn reset"), "source not surfaced: {s}");
+}
+
+#[test]
+fn display_scan_run_read_failed_surfaces_source() {
+    let s = ThemeScanError::ScanRunReadFailed {
+        run_id: Uuid::nil(),
+        source: crate::repositories::pipeline_repository::PipelineRepoError::Database(
+            "read boom".to_string(),
+        ),
+    }
+    .to_string();
+    assert!(s.contains("read boom"), "source not surfaced: {s}");
+}
+
+#[test]
+fn display_scan_run_not_found_names_run() {
+    let s = ThemeScanError::ScanRunNotFound {
+        run_id: Uuid::nil(),
+    }
+    .to_string();
+    assert!(s.contains(&Uuid::nil().to_string()), "missing run id: {s}");
+    assert!(s.contains("not found"), "unexpected message: {s}");
+}

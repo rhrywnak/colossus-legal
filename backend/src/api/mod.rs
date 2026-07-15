@@ -187,6 +187,12 @@ fn scenario_routes() -> Router<AppState> {
             "/cases/:slug/scenarios/:scenario_id/theme-scan",
             post(scenario_theme_scan::run_scenario_theme_scan),
         )
+        // Poll one background scan run: live progress while running, full summary
+        // when completed. Edit-gated + case-fenced inside the handler.
+        .route(
+            "/cases/:slug/scenarios/:scenario_id/scan-runs/:run_id",
+            get(scenario_theme_scan::get_scenario_scan_run),
+        )
 }
 
 /// Claim CRUD plus the motion-claims read.

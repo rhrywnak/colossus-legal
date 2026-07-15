@@ -126,15 +126,9 @@ fn meta(dry_run: bool) -> ScanRunMeta {
         run_id: Uuid::nil(),
         scenario_id: Uuid::nil(),
         model_id: "m".to_string(),
-        resolved_params: ResolvedLlmParams {
-            temperature: Some(0.0),
-            timeout_secs: 600,
-            max_tokens: 512,
-        },
         dry_run,
         cost_per_input_token: None,
         cost_per_output_token: None,
-        started_at: Utc::now(),
         duration_ms: 0,
     }
 }
@@ -174,4 +168,13 @@ async fn non_dry_run_attempts_the_write_and_counts_its_failure() {
         summary.failed, 1,
         "a real write attempt failed and was counted (the write path IS taken)"
     );
+}
+
+#[test]
+fn count_to_i32_clamps_impossible_overflow_without_panic() {
+    // A scan never has this many candidates; the guard must cap (and log), not
+    // panic or wrap (Standing Rule 1). The happy path is exercised everywhere else.
+    assert_eq!(count_to_i32(usize::MAX, "test"), i32::MAX);
+    assert_eq!(count_to_i32(0, "test"), 0);
+    assert_eq!(count_to_i32(94, "test"), 94);
 }

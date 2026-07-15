@@ -9,17 +9,14 @@
 //! 2. the `scan_runs` + `scan_run_verdicts` audit writes (EVERY run, dry or not);
 //! 3. the token/cost aggregation and the [`ThemeScanSummary`] the route returns.
 
-use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::bias::dto::BiasInstance;
 use crate::domain::fact_status::FactStatus;
-use crate::domain::llm_params::ResolvedLlmParams;
 use crate::dto::{ThemeScanRejected, ThemeScanSuggestion, ThemeScanSummary};
 use crate::repositories::pipeline_repository::{
-    insert_scan_run, insert_scan_run_verdicts, upsert_fact_ref, PipelineRepoError, ScanRunRecord,
-    ScanRunVerdictRecord,
+    insert_scan_run_verdicts, upsert_fact_ref, PipelineRepoError, ScanRunVerdictRecord,
 };
 use crate::services::theme_scan_judge::JudgeOutcome;
 use crate::services::theme_scan_parse::Verdict;
@@ -29,18 +26,18 @@ use crate::services::theme_scan_parse::Verdict;
 // spot-check; ten is a reviewable handful (moved here with the persist logic).
 const THEME_SCAN_REJECTED_SAMPLE_SIZE: usize = 10;
 
-/// The per-run facts the caller settled before judging, threaded into the audit
-/// writes. `resolved_params` is serialized to the JSONB snapshot here; the
-/// per-token costs feed [`compute_cost`].
+/// The per-run facts the persist pass needs. The `scan_runs` header row already
+/// exists as `running` (inserted at start with `resolved_params`/`started_at`),
+/// so those are NOT here — persist writes verdicts + `scenario_fact_refs` and
+/// builds the summary; the caller finalizes the header. The per-token costs feed
+/// [`compute_cost`]; `duration_ms` (the judging elapsed) lands in the summary.
 pub(crate) struct ScanRunMeta {
     pub run_id: Uuid,
     pub scenario_id: Uuid,
     pub model_id: String,
-    pub resolved_params: ResolvedLlmParams,
     pub dry_run: bool,
     pub cost_per_input_token: Option<f64>,
     pub cost_per_output_token: Option<f64>,
-    pub started_at: DateTime<Utc>,
     pub duration_ms: i64,
 }
 
@@ -77,7 +74,7 @@ pub(crate) async fn persist_and_summarize(
         meta.cost_per_output_token,
     );
 
-    write_audit(pool, &meta, candidates_read, &acc, computed_cost).await;
+    write_verdicts(pool, &meta, &acc.verdicts).await;
 
     ThemeScanSummary {
         run_id: meta.run_id,
@@ -86,6 +83,7 @@ pub(crate) async fn persist_and_summarize(
         input_tokens: acc.input_tokens,
         output_tokens: acc.output_tokens,
         computed_cost,
+        duration_ms: meta.duration_ms,
         candidates_read,
         relevant_written: acc.relevant_written,
         irrelevant: acc.irrelevant,
@@ -270,40 +268,14 @@ async fn write_relevant(
     .await
 }
 
-/// Write the `scan_runs` header + `scan_run_verdicts` detail.
+/// Write the `scan_run_verdicts` detail rows (the `scan_runs` header already
+/// exists as `running`; the caller finalizes it separately).
 ///
 /// Best-effort but LOUD: a DB failure here is logged with the run id and does NOT
-/// discard the summary the client already earned (the scan spent real budget). A
-/// missing audit row is an operator-visible error, not a silent gap.
-async fn write_audit(
-    pool: &PgPool,
-    meta: &ScanRunMeta,
-    candidates_read: usize,
-    acc: &Accumulator,
-    computed_cost: Option<f64>,
-) {
-    let header = ScanRunRecord {
-        run_id: meta.run_id,
-        scenario_id: meta.scenario_id,
-        model_id: meta.model_id.clone(),
-        resolved_params: params_snapshot(&meta.resolved_params),
-        dry_run: meta.dry_run,
-        candidates_read: count_to_i32(candidates_read, "candidates_read"),
-        relevant_count: count_to_i32(acc.relevant_written, "relevant_count"),
-        irrelevant_count: count_to_i32(acc.irrelevant, "irrelevant_count"),
-        failed_count: count_to_i32(acc.failed, "failed_count"),
-        input_tokens: acc.input_tokens,
-        output_tokens: acc.output_tokens,
-        computed_cost,
-        started_at: meta.started_at,
-        duration_ms: meta.duration_ms,
-    };
-    if let Err(e) = insert_scan_run(pool, &header).await {
-        tracing::error!(run_id = %meta.run_id, scenario_id = %meta.scenario_id, error = %e,
-            "theme scan: writing the scan_runs header failed (results still returned)");
-        return; // no header → skip the FK-dependent verdict rows.
-    }
-    if let Err(e) = insert_scan_run_verdicts(pool, &acc.verdicts).await {
+/// discard the summary the client will earn (the scan spent real budget). A
+/// missing verdict set is an operator-visible error, not a silent gap.
+async fn write_verdicts(pool: &PgPool, meta: &ScanRunMeta, verdicts: &[ScanRunVerdictRecord]) {
+    if let Err(e) = insert_scan_run_verdicts(pool, verdicts).await {
         tracing::error!(run_id = %meta.run_id, scenario_id = %meta.scenario_id, error = %e,
             "theme scan: writing scan_run_verdicts failed (results still returned)");
     }
@@ -352,19 +324,11 @@ fn tokens_to_f64(tokens: i64) -> f64 {
     i32::try_from(tokens).map(f64::from).unwrap_or(0.0)
 }
 
-/// Serialize the resolved params to the `scan_runs.resolved_params` JSONB shape.
-fn params_snapshot(p: &ResolvedLlmParams) -> serde_json::Value {
-    serde_json::json!({
-        "temperature": p.temperature,
-        "timeout_secs": p.timeout_secs,
-        "max_tokens": p.max_tokens,
-    })
-}
-
 /// Narrow a `usize` count to the `INTEGER` column type. A scan never approaches
 /// `i32::MAX` candidates; the impossible overflow is logged and capped rather
-/// than silently wrapping (Standing Rule 1).
-fn count_to_i32(n: usize, field: &str) -> i32 {
+/// than silently wrapping (Standing Rule 1). `pub(crate)` so the finalize step
+/// (in `theme_scan`) reuses the same conversion for the header counts.
+pub(crate) fn count_to_i32(n: usize, field: &str) -> i32 {
     i32::try_from(n).unwrap_or_else(|_| {
         tracing::error!(field, value = n, "theme scan: count exceeded i32 — capped");
         i32::MAX

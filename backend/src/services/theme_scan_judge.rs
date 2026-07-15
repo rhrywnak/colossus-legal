@@ -20,11 +20,14 @@ use std::sync::Arc;
 
 use colossus_extract::{LlmProvider, LlmResponse, PipelineError};
 use futures::stream::{self, StreamExt};
+use sqlx::PgPool;
 use tokio::sync::Semaphore;
+use uuid::Uuid;
 
 use crate::bias::dto::BiasInstance;
 use crate::domain::llm_params::ResolvedLlmParams;
 use crate::llm_retry::call_with_rate_limit_retry_params;
+use crate::repositories::pipeline_repository::{bump_scan_run_progress, ProgressBucket};
 use crate::services::theme_scan_parse::{parse_verdict, Verdict};
 
 /// Everything one judged candidate yields: the parsed verdict (or a per-item
@@ -41,12 +44,21 @@ pub(crate) struct JudgeOutcome {
     pub output_tokens: Option<u32>,
 }
 
-/// Judge every candidate concurrently, bounded by the dedicated semaphore.
+/// Judge every candidate concurrently, bounded by the dedicated semaphore,
+/// reporting LIVE progress to `scan_runs` as each candidate completes.
 ///
 /// Returns one `(candidate, outcome)` per input. Ordering is not preserved
 /// (`buffer_unordered`), which is irrelevant — the persist pass aggregates and
 /// each result carries its own candidate. `params` is [`ResolvedLlmParams`],
 /// which is `Copy`, so each concurrent task gets its own cheap copy (no `Arc`).
+///
+/// `pool` + `run_id` drive the per-candidate [`bump_scan_run_progress`] write
+/// (the `chunks_processed` analog). The progress write is BEST-EFFORT: a failed
+/// bump is logged and the scan continues — losing a progress tick must not lose a
+/// verdict (Standing Rule 1: the failure is observable in the log, and the final
+/// counts are authoritative regardless). The live bucket is the VERDICT-time
+/// classification; a relevant verdict whose `scenario_fact_refs` write later fails
+/// is reclassified to `failed` only at completion (ruling 2 — live is an estimate).
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn judge_all(
     provider: Arc<dyn LlmProvider>,
@@ -56,16 +68,20 @@ pub(crate) async fn judge_all(
     attack_meaning: Arc<str>,
     params: ResolvedLlmParams,
     candidates: Vec<BiasInstance>,
+    pool: PgPool,
+    run_id: Uuid,
 ) -> Vec<(BiasInstance, JudgeOutcome)> {
     let total = candidates.len();
     stream::iter(candidates.into_iter().enumerate())
         .map(|(idx, candidate)| {
             // Cheap per-item clones — the underlying provider/semaphore/text are
-            // shared, not copied; `params` is `Copy` and moves a small value.
+            // shared, not copied; `params` is `Copy`; `PgPool::clone` is an Arc
+            // bump; `run_id` is `Copy`.
             let provider = Arc::clone(&provider);
             let semaphore = Arc::clone(&semaphore);
             let scan_prompt = Arc::clone(&scan_prompt);
             let attack_meaning = Arc::clone(&attack_meaning);
+            let pool = pool.clone();
             async move {
                 let outcome = judge_one(
                     provider.as_ref(),
@@ -78,12 +94,32 @@ pub(crate) async fn judge_all(
                     total,
                 )
                 .await;
+                report_progress(&pool, run_id, &outcome).await;
                 (candidate, outcome)
             }
         })
         .buffer_unordered(concurrency)
         .collect()
         .await
+}
+
+/// The live outcome bucket for one judged candidate (verdict-time classification).
+fn outcome_bucket(outcome: &JudgeOutcome) -> ProgressBucket {
+    match &outcome.verdict {
+        Ok(v) if v.relevant => ProgressBucket::Relevant,
+        Ok(_) => ProgressBucket::Irrelevant,
+        Err(_) => ProgressBucket::Failed,
+    }
+}
+
+/// Best-effort per-candidate progress write. A failure is LOGGED (so it is
+/// observable) but never aborts the scan — a dropped progress tick is cosmetic;
+/// the verdict and the final counts are unaffected.
+async fn report_progress(pool: &PgPool, run_id: Uuid, outcome: &JudgeOutcome) {
+    let bucket = outcome_bucket(outcome);
+    if let Err(e) = bump_scan_run_progress(pool, run_id, bucket).await {
+        tracing::warn!(%run_id, error = %e, "theme scan: progress bump failed (continuing)");
+    }
 }
 
 /// Judge one candidate. Every failure mode is captured in the returned
@@ -183,6 +219,7 @@ pub(crate) fn build_user_message(attack_meaning: &str, candidate: &BiasInstance)
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::fact_role::FactRole;
 
     fn instance(id: &str) -> BiasInstance {
         BiasInstance {
@@ -195,6 +232,41 @@ mod tests {
             about: Vec::new(),
             document: None,
         }
+    }
+
+    fn outcome(verdict: Result<Verdict, String>) -> JudgeOutcome {
+        JudgeOutcome {
+            verdict,
+            raw_reply: None,
+            input_tokens: None,
+            output_tokens: None,
+        }
+    }
+
+    fn verdict(relevant: bool) -> Verdict {
+        Verdict {
+            relevant,
+            proposed_role: FactRole::Supports,
+            reason: "r".to_string(),
+            confidence: 0.9,
+        }
+    }
+
+    #[test]
+    fn outcome_bucket_classifies_the_three_live_buckets() {
+        // The live progress bucket is the VERDICT-time classification (ruling 2).
+        assert_eq!(
+            outcome_bucket(&outcome(Ok(verdict(true)))),
+            ProgressBucket::Relevant
+        );
+        assert_eq!(
+            outcome_bucket(&outcome(Ok(verdict(false)))),
+            ProgressBucket::Irrelevant
+        );
+        assert_eq!(
+            outcome_bucket(&outcome(Err("call failed".to_string()))),
+            ProgressBucket::Failed
+        );
     }
 
     #[test]

@@ -61,6 +61,52 @@ pub struct ScanRequest {
     pub dry_run: bool,
 }
 
+/// The immediate response to `POST .../theme-scan` — the scan now runs in the
+/// BACKGROUND, so the POST returns a handle instead of blocking for the summary.
+///
+/// The client polls `GET .../scan-runs/:run_id` (returning [`ScanRunStatusResponse`])
+/// until `status == "completed"`. `candidates_total` is the progress denominator,
+/// known up front, so the UI can render "judged 0 of N" immediately.
+#[derive(Debug, Clone, Serialize)]
+pub struct ScanStartedResponse {
+    pub run_id: Uuid,
+    /// Always `"running"` here — the job was just spawned.
+    pub status: String,
+    pub candidates_total: i32,
+}
+
+/// The poll response for `GET .../scan-runs/:run_id`.
+///
+/// While `running`, the counts are a LIVE, advancing ESTIMATE (the UI must show
+/// them as in-progress, not final) and `summary` is `None`. Once `completed`, the
+/// counts are authoritative and `summary` carries the full [`ThemeScanSummary`].
+/// On `failed`, `error` says why (Standing Rule 1).
+#[derive(Debug, Clone, Serialize)]
+pub struct ScanRunStatusResponse {
+    pub run_id: Uuid,
+    /// `running` | `completed` | `failed`.
+    pub status: String,
+    pub model_id: String,
+    pub dry_run: bool,
+    /// Progress denominator (may be absent only for pre-background legacy rows).
+    pub candidates_total: Option<i32>,
+    /// Progress numerator — how many candidates have been judged so far.
+    pub candidates_judged: i32,
+    /// Live-then-final outcome counts (see the struct doc).
+    pub relevant_count: i32,
+    pub irrelevant_count: i32,
+    pub failed_count: i32,
+    /// The failure reason when `status == "failed"`; `None` otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    /// The full [`ThemeScanSummary`] once `completed`, passed through VERBATIM as
+    /// the stored `summary_json` (a render convenience — the GET never re-queries
+    /// Neo4j). `None` while running/failed. The wire shape equals `ThemeScanSummary`;
+    /// the frontend types it as such.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<serde_json::Value>,
+}
+
 /// Result of one Theme Scan run.
 ///
 /// The four counts are exhaustive and non-overlapping:
@@ -88,6 +134,9 @@ pub struct ThemeScanSummary {
     /// Computed dollar cost (tokens × per-token cost) when known; `None` for a
     /// local vLLM model or absent usage.
     pub computed_cost: Option<f64>,
+    /// Wall-clock duration of the judging fan-out in milliseconds (computed at
+    /// completion). Lets the benchmark compare Opus vs Qwen latency.
+    pub duration_ms: i64,
     /// Total candidate quotes read for the subject (the ungated
     /// `all_evidence_about_subject` count — every Evidence ABOUT the subject).
     pub candidates_read: usize,
@@ -143,4 +192,38 @@ pub struct ThemeScanRejected {
     pub confidence: f32,
     /// Live graph card content for the rejected node.
     pub content: BiasInstance,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn running_status_omits_error_and_summary_keys() {
+        // The frontend's conditional rendering relies on `error`/`summary` being
+        // ABSENT (not null) while running — pin the skip_serializing_if contract.
+        let running = ScanRunStatusResponse {
+            run_id: Uuid::nil(),
+            status: "running".to_string(),
+            model_id: "m".to_string(),
+            dry_run: true,
+            candidates_total: Some(94),
+            candidates_judged: 10,
+            relevant_count: 3,
+            irrelevant_count: 6,
+            failed_count: 1,
+            error: None,
+            summary: None,
+        };
+        let v = serde_json::to_value(&running).expect("serializes");
+        assert!(
+            v.get("error").is_none(),
+            "error key must be omitted when None"
+        );
+        assert!(
+            v.get("summary").is_none(),
+            "summary key must be omitted when None"
+        );
+        assert_eq!(v["candidates_judged"], 10);
+    }
 }

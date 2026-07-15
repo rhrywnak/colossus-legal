@@ -15,9 +15,11 @@ use uuid::Uuid;
 
 use crate::{
     auth::{require_edit, AuthUser},
-    dto::{ScanRequest, ThemeScanSummary},
+    dto::{ScanRequest, ScanRunStatusResponse, ScanStartedResponse},
     error::AppError,
-    services::theme_scan::{run_theme_scan, ThemeScanError},
+    repositories::pipeline_repository::SCAN_STATUS_RUNNING,
+    services::theme_scan::ThemeScanError,
+    services::theme_scan_run::{get_scan_run_status, start_theme_scan},
     state::AppState,
 };
 
@@ -41,7 +43,7 @@ pub async fn run_scenario_theme_scan(
     State(state): State<AppState>,
     Path((slug, scenario_id)): Path<(String, String)>,
     body: Option<Json<ScanRequest>>,
-) -> Result<Json<ThemeScanSummary>, AppError> {
+) -> Result<Json<ScanStartedResponse>, AppError> {
     require_edit(&user)?;
     // No body → the neutral default request (default model, dry_run = false).
     let req = body.map(|Json(b)| b).unwrap_or_default();
@@ -61,10 +63,46 @@ pub async fn run_scenario_theme_scan(
         details: json!({ "field": "scenario_id" }),
     })?;
 
-    let summary = run_theme_scan(&state, &slug, id, req.model_id, req.dry_run)
+    // The scan runs in the background: this returns as soon as the `running` row
+    // is recorded, so the browser → Traefik → Authentik path never waits minutes.
+    let started = start_theme_scan(&state, &slug, id, req.model_id, req.dry_run)
         .await
         .map_err(map_scan_error)?;
-    Ok(Json(summary))
+    Ok(Json(ScanStartedResponse {
+        run_id: started.run_id,
+        status: SCAN_STATUS_RUNNING.to_string(),
+        candidates_total: started.candidates_total,
+    }))
+}
+
+/// `GET /cases/:slug/scenarios/:scenario_id/scan-runs/:run_id` — poll a run.
+///
+/// Edit-gated (same as the POST — it reads an edit-gated resource; ruling 3) and
+/// case-fenced inside the service. Returns the live progress while `running` and
+/// the full summary once `completed`.
+#[tracing::instrument(skip(state, user), fields(slug = %slug, scenario_id = %scenario_id, run_id = %run_id))]
+pub async fn get_scenario_scan_run(
+    user: AuthUser,
+    State(state): State<AppState>,
+    Path((slug, scenario_id, run_id)): Path<(String, String, String)>,
+) -> Result<Json<ScanRunStatusResponse>, AppError> {
+    require_edit(&user)?;
+
+    // Both path ids parse up front so a malformed id is a clean 400, not a "not
+    // found" masquerade.
+    let scenario_uuid = Uuid::parse_str(&scenario_id).map_err(|_| AppError::BadRequest {
+        message: "scenario_id must be a valid UUID".to_string(),
+        details: json!({ "field": "scenario_id" }),
+    })?;
+    let run_uuid = Uuid::parse_str(&run_id).map_err(|_| AppError::BadRequest {
+        message: "run_id must be a valid UUID".to_string(),
+        details: json!({ "field": "run_id" }),
+    })?;
+
+    let status = get_scan_run_status(&state, &slug, scenario_uuid, run_uuid)
+        .await
+        .map_err(map_scan_error)?;
+    Ok(Json(status))
 }
 
 /// Map a [`ThemeScanError`] onto its HTTP surface.
@@ -78,7 +116,9 @@ fn map_scan_error(err: ThemeScanError) -> AppError {
     // logged, never returned, for the server-side variants below.
     let message = err.to_string();
     match err {
-        ThemeScanError::ScenarioNotFound { .. } => AppError::NotFound { message },
+        ThemeScanError::ScenarioNotFound { .. } | ThemeScanError::ScanRunNotFound { .. } => {
+            AppError::NotFound { message }
+        }
         ThemeScanError::EmptyAttackMeaning { .. } => AppError::BadRequest {
             message,
             details: json!({ "precondition": "attack_meaning" }),
@@ -166,6 +206,36 @@ mod tests {
             map_scan_error(mismatch),
             AppError::ServiceUnavailable { .. }
         ));
+    }
+
+    #[test]
+    fn scan_run_write_failed_maps_to_500() {
+        let e = ThemeScanError::ScanRunWriteFailed {
+            run_id: Uuid::nil(),
+            source: crate::repositories::pipeline_repository::PipelineRepoError::Database(
+                "boom".to_string(),
+            ),
+        };
+        assert!(matches!(map_scan_error(e), AppError::Internal { .. }));
+    }
+
+    #[test]
+    fn scan_run_read_failed_maps_to_500() {
+        let e = ThemeScanError::ScanRunReadFailed {
+            run_id: Uuid::nil(),
+            source: crate::repositories::pipeline_repository::PipelineRepoError::Database(
+                "boom".to_string(),
+            ),
+        };
+        assert!(matches!(map_scan_error(e), AppError::Internal { .. }));
+    }
+
+    #[test]
+    fn scan_run_not_found_maps_to_404() {
+        let e = ThemeScanError::ScanRunNotFound {
+            run_id: Uuid::nil(),
+        };
+        assert!(matches!(map_scan_error(e), AppError::NotFound { .. }));
     }
 
     #[test]

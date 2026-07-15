@@ -30,9 +30,7 @@
 //! safe; the retry wrapper absorbs any rate-limit brush from the fan-out.
 
 use std::sync::Arc;
-use std::time::Instant;
 
-use chrono::Utc;
 use colossus_extract::LlmProvider;
 use uuid::Uuid;
 
@@ -40,11 +38,8 @@ use crate::bias::dto::BiasInstance;
 use crate::bias::repository::{BiasRepository, BiasRepositoryError};
 use crate::domain::llm_params::{LlmConfigError, ResolvedLlmParams};
 use crate::dto::scenario_crud::ScenarioDefinition;
-use crate::dto::ThemeScanSummary;
 use crate::repositories::pipeline_repository::{get_scenario, PipelineRepoError, ScenarioRecord};
 use crate::services::scenario_subject::{resolve_scenario_subject, SubjectResolveError};
-use crate::services::theme_scan_judge::judge_all;
-use crate::services::theme_scan_persist::{persist_and_summarize, ScanRunMeta};
 use crate::services::theme_scan_provider::resolve_scan_provider;
 use crate::services::vllm_model_gate::{assert_vllm_model_loaded, VllmGateError};
 use crate::state::AppState;
@@ -201,6 +196,30 @@ pub enum ThemeScanError {
         selected: String,
         loaded: String,
     },
+
+    /// Inserting the `running` `scan_runs` row failed at the start of a background
+    /// scan — the job cannot be tracked, so the POST fails rather than spawning an
+    /// untracked task. Server-side (500).
+    #[error("failed to record the start of scan run {run_id}: {source}")]
+    ScanRunWriteFailed {
+        run_id: Uuid,
+        #[source]
+        source: PipelineRepoError,
+    },
+
+    /// Reading a `scan_runs` row for the poll failed (DB error). Server-side (500).
+    #[error("failed to read scan run {run_id}: {source}")]
+    ScanRunReadFailed {
+        run_id: Uuid,
+        #[source]
+        source: PipelineRepoError,
+    },
+
+    /// No scan run with that id in this scenario/case (absent, or the case/scenario
+    /// fence rejected it). Same observable for both — a caller must not learn that
+    /// a run exists elsewhere. The route maps it to 404.
+    #[error("scan run {run_id} not found")]
+    ScanRunNotFound { run_id: Uuid },
 }
 
 /// Everything a scan needs to judge, resolved and validated up front.
@@ -208,108 +227,26 @@ pub enum ThemeScanError {
 /// Bundling these into one struct lets [`run_theme_scan`] read as a short
 /// orchestration (prepare → judge → persist) while [`prepare_scan`] owns the
 /// multi-step precondition checks.
-struct PreparedScan {
-    attack_meaning: Arc<str>,
-    scan_prompt: Arc<str>,
-    provider: Arc<dyn LlmProvider>,
+pub(crate) struct PreparedScan {
+    pub(crate) attack_meaning: Arc<str>,
+    pub(crate) scan_prompt: Arc<str>,
+    pub(crate) provider: Arc<dyn LlmProvider>,
     /// The resolved+constrained parameters (drive the wire max_tokens AND the
     /// `scan_runs` snapshot).
-    params: ResolvedLlmParams,
+    pub(crate) params: ResolvedLlmParams,
     /// The resolved model id (after request/`THEME_SCAN_MODEL`/chat-default).
-    model_id: String,
+    pub(crate) model_id: String,
     /// Per-run fan-out cap (A5: model `max_concurrency`, else env default).
-    concurrency: usize,
-    cost_per_input_token: Option<f64>,
-    cost_per_output_token: Option<f64>,
-    candidates: Vec<BiasInstance>,
-}
-
-/// Run a Theme Scan for one scenario and return its summary.
-///
-/// See the module docs for the full shape. Takes `&AppState` because a scan
-/// touches four subsystems (pipeline pool, graph, registry, the scan provider +
-/// semaphore); it is a domain service, not a reusable pipeline step, so the
-/// `AppContext`-only rule does not apply.
-pub async fn run_theme_scan(
-    state: &AppState,
-    case_slug: &str,
-    scenario_id: Uuid,
-    requested_model_id: Option<String>,
-    dry_run: bool,
-) -> Result<ThemeScanSummary, ThemeScanError> {
-    let prepared =
-        prepare_scan(state, case_slug, scenario_id, requested_model_id.as_deref()).await?;
-    tracing::info!(
-        case_slug,
-        %scenario_id,
-        model_id = %prepared.model_id,
-        dry_run,
-        concurrency = prepared.concurrency,
-        candidates = prepared.candidates.len(),
-        "theme scan: judging candidates"
-    );
-
-    let summary = judge_and_record(state, scenario_id, dry_run, prepared).await;
-    tracing::info!(
-        case_slug,
-        %scenario_id,
-        run_id = %summary.run_id,
-        dry_run,
-        candidates_read = summary.candidates_read,
-        relevant_written = summary.relevant_written,
-        irrelevant = summary.irrelevant,
-        failed = summary.failed,
-        "theme scan: complete"
-    );
-    Ok(summary)
-}
-
-/// Judge the prepared candidates and record the run.
-///
-/// Owns the timing (`Instant` for monotonic elapsed, `Utc::now()` for the
-/// wall-clock start), the `judge_all` fan-out, and the `scan_runs` metadata
-/// assembly + persistence. Split from [`run_theme_scan`] to keep each under the
-/// function-size limit; takes `prepared` by value since judging consumes it.
-async fn judge_and_record(
-    state: &AppState,
-    scenario_id: Uuid,
-    dry_run: bool,
-    prepared: PreparedScan,
-) -> ThemeScanSummary {
-    let started_at = Utc::now();
-    let clock = Instant::now();
-    let results = judge_all(
-        Arc::clone(&prepared.provider),
-        Arc::clone(&state.theme_scan_semaphore),
-        prepared.concurrency,
-        Arc::clone(&prepared.scan_prompt),
-        Arc::clone(&prepared.attack_meaning),
-        prepared.params,
-        prepared.candidates,
-    )
-    .await;
-    // millis fit i64 for any real scan; the impossible overflow caps rather than
-    // wrapping (Standing Rule 1).
-    let duration_ms = i64::try_from(clock.elapsed().as_millis()).unwrap_or(i64::MAX);
-
-    let meta = ScanRunMeta {
-        run_id: Uuid::new_v4(),
-        scenario_id,
-        model_id: prepared.model_id,
-        resolved_params: prepared.params,
-        dry_run,
-        cost_per_input_token: prepared.cost_per_input_token,
-        cost_per_output_token: prepared.cost_per_output_token,
-        started_at,
-        duration_ms,
-    };
-    persist_and_summarize(&state.pipeline_pool, meta, results).await
+    pub(crate) concurrency: usize,
+    pub(crate) cost_per_input_token: Option<f64>,
+    pub(crate) cost_per_output_token: Option<f64>,
+    pub(crate) candidates: Vec<BiasInstance>,
 }
 
 /// Load the scenario, validate its preconditions, and gather the inputs a scan
 /// needs: the judgment criterion, the candidate quotes, the provider, and the
 /// prompt. Every failure here is a typed, scan-aborting [`ThemeScanError`].
-async fn prepare_scan(
+pub(crate) async fn prepare_scan(
     state: &AppState,
     case_slug: &str,
     scenario_id: Uuid,
@@ -431,7 +368,7 @@ async fn read_candidates(
 /// case-fence is applied here: a row from a different case is reported as
 /// `ScenarioNotFound`, identical to a truly-absent id (a caller must not learn
 /// that an id exists elsewhere).
-async fn load_scenario_fenced(
+pub(crate) async fn load_scenario_fenced(
     pool: &sqlx::PgPool,
     case_slug: &str,
     scenario_id: Uuid,
