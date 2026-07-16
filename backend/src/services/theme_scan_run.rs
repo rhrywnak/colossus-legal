@@ -15,10 +15,10 @@ use chrono::Utc;
 use uuid::Uuid;
 
 use crate::domain::llm_params::ResolvedLlmParams;
-use crate::dto::{ScanRunStatusResponse, ThemeScanSummary};
+use crate::dto::{ScanRunHeader, ScanRunListResponse, ScanRunStatusResponse, ThemeScanSummary};
 use crate::repositories::pipeline_repository::{
     fail_scan_run, finalize_scan_run_completed, get_scan_run, insert_scan_run_running,
-    ScanRunFinal, ScanRunStart,
+    list_scan_runs, ScanRunFinal, ScanRunHeaderRow, ScanRunStart,
 };
 use crate::services::theme_scan::{
     load_scenario_fenced, prepare_scan, PreparedScan, ThemeScanError,
@@ -208,42 +208,6 @@ fn params_snapshot(p: &ResolvedLlmParams, prompt_file: &str) -> serde_json::Valu
     })
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The `resolved_params` JSONB snapshot must carry the resolved prompt
-    /// filename (run→prompt provenance) alongside the existing param fields.
-    #[test]
-    fn params_snapshot_records_prompt_file_alongside_params() {
-        let params = ResolvedLlmParams {
-            temperature: Some(0.0),
-            timeout_secs: 90,
-            max_tokens: 512,
-        };
-        let snapshot = params_snapshot(&params, "theme_scan_prompt_v2.md");
-
-        assert_eq!(snapshot["prompt_file"], "theme_scan_prompt_v2.md");
-        // The pre-existing fields must survive the addition.
-        assert_eq!(snapshot["timeout_secs"], 90);
-        assert_eq!(snapshot["max_tokens"], 512);
-        assert_eq!(snapshot["temperature"], 0.0);
-    }
-
-    /// A non-default (overridden) prompt filename is recorded verbatim, so a run
-    /// judged with a bumped prompt version is distinguishable in the audit trail.
-    #[test]
-    fn params_snapshot_records_an_overridden_prompt_file() {
-        let params = ResolvedLlmParams {
-            temperature: None,
-            timeout_secs: 30,
-            max_tokens: 256,
-        };
-        let snapshot = params_snapshot(&params, "theme_scan_prompt_v3.md");
-        assert_eq!(snapshot["prompt_file"], "theme_scan_prompt_v3.md");
-    }
-}
-
 /// Read the live status of one scan run for the poll endpoint.
 ///
 /// Case-fenced (Standing Rule 1 — a caller must not learn a run exists in another
@@ -280,4 +244,156 @@ pub async fn get_scan_run_status(
         error: row.error,
         summary: row.summary_json,
     })
+}
+
+/// List a scenario's scan-run HISTORY (newest first) as lightweight headers.
+///
+/// Case-fenced identically to [`get_scan_run_status`] but with **fence 1 only**:
+/// the scenario must belong to `case_slug` (else the whole list is
+/// [`ThemeScanError::ScenarioNotFound`] → 404 — a caller must not learn a
+/// scenario exists in another case). No per-row fence is needed here: the repo
+/// query is already scoped `WHERE scenario_id = $1`, so every returned row
+/// belongs to this fenced scenario by construction (contrast `get_scan_run`,
+/// keyed by `run_id` alone, which needs the extra `scenario_id` match).
+pub async fn list_scenario_scan_runs(
+    state: &AppState,
+    case_slug: &str,
+    scenario_id: Uuid,
+) -> Result<ScanRunListResponse, ThemeScanError> {
+    load_scenario_fenced(&state.pipeline_pool, case_slug, scenario_id).await?;
+
+    let rows = list_scan_runs(&state.pipeline_pool, scenario_id)
+        .await
+        .map_err(|source| ThemeScanError::ScanRunListFailed {
+            scenario_id,
+            source,
+        })?;
+
+    let runs = rows.into_iter().map(scan_run_header_from_row).collect();
+    Ok(ScanRunListResponse { runs })
+}
+
+/// Map one repository header row to its wire DTO. Pure (no I/O) and split out so
+/// the field mapping is unit-testable without a database — every column the
+/// history row shows is carried across 1:1.
+fn scan_run_header_from_row(row: ScanRunHeaderRow) -> ScanRunHeader {
+    ScanRunHeader {
+        run_id: row.run_id,
+        model_id: row.model_id,
+        dry_run: row.dry_run,
+        status: row.status,
+        candidates_total: row.candidates_total,
+        candidates_judged: row.candidates_judged,
+        relevant_count: row.relevant_count,
+        irrelevant_count: row.irrelevant_count,
+        failed_count: row.failed_count,
+        computed_cost: row.computed_cost,
+        duration_ms: row.duration_ms,
+        started_at: row.started_at,
+    }
+}
+
+// Tests live at the end of the module (idiomatic layout): a `#[cfg(test)] mod
+// tests` mid-file would leave production items after it, which clippy's
+// `items_after_test_module` lint (correctly) rejects.
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The `resolved_params` JSONB snapshot must carry the resolved prompt
+    /// filename (run→prompt provenance) alongside the existing param fields.
+    #[test]
+    fn params_snapshot_records_prompt_file_alongside_params() {
+        let params = ResolvedLlmParams {
+            temperature: Some(0.0),
+            timeout_secs: 90,
+            max_tokens: 512,
+        };
+        let snapshot = params_snapshot(&params, "theme_scan_prompt_v2.md");
+
+        assert_eq!(snapshot["prompt_file"], "theme_scan_prompt_v2.md");
+        // The pre-existing fields must survive the addition.
+        assert_eq!(snapshot["timeout_secs"], 90);
+        assert_eq!(snapshot["max_tokens"], 512);
+        assert_eq!(snapshot["temperature"], 0.0);
+    }
+
+    /// A non-default (overridden) prompt filename is recorded verbatim, so a run
+    /// judged with a bumped prompt version is distinguishable in the audit trail.
+    #[test]
+    fn params_snapshot_records_an_overridden_prompt_file() {
+        let params = ResolvedLlmParams {
+            temperature: None,
+            timeout_secs: 30,
+            max_tokens: 256,
+        };
+        let snapshot = params_snapshot(&params, "theme_scan_prompt_v3.md");
+        assert_eq!(snapshot["prompt_file"], "theme_scan_prompt_v3.md");
+    }
+
+    /// The repository header row maps 1:1 onto the wire DTO — every column the
+    /// history row shows is carried across, including the nullable `computed_cost`
+    /// and the `started_at` that drives the newest-first order. A dropped field
+    /// here would silently blank a column in the panel.
+    #[test]
+    fn scan_run_header_maps_every_row_field() {
+        let run_id = Uuid::from_u128(1);
+        let started_at = chrono::DateTime::<Utc>::from_timestamp(1_700_000_000, 0)
+            .expect("fixed in-range timestamp");
+        let row = ScanRunHeaderRow {
+            run_id,
+            model_id: "qwen-14b".to_string(),
+            dry_run: true,
+            status: "completed".to_string(),
+            candidates_total: Some(94),
+            candidates_judged: 94,
+            relevant_count: 31,
+            irrelevant_count: 60,
+            failed_count: 3,
+            computed_cost: Some(0.0125),
+            duration_ms: 45_000,
+            started_at,
+        };
+
+        let dto = scan_run_header_from_row(row);
+
+        assert_eq!(dto.run_id, run_id);
+        assert_eq!(dto.model_id, "qwen-14b");
+        assert!(dto.dry_run);
+        assert_eq!(dto.status, "completed");
+        assert_eq!(dto.candidates_total, Some(94));
+        assert_eq!(dto.candidates_judged, 94);
+        assert_eq!(dto.relevant_count, 31);
+        assert_eq!(dto.irrelevant_count, 60);
+        assert_eq!(dto.failed_count, 3);
+        assert_eq!(dto.computed_cost, Some(0.0125));
+        assert_eq!(dto.duration_ms, 45_000);
+        assert_eq!(dto.started_at, started_at);
+    }
+
+    /// A null cost (local vLLM model / no token usage) and an absent progress
+    /// denominator must survive as `None`, not collapse to a fabricated 0
+    /// (Standing Rule 1 — "no cost" is distinct from "$0.00").
+    #[test]
+    fn scan_run_header_preserves_null_cost_and_total() {
+        let row = ScanRunHeaderRow {
+            run_id: Uuid::from_u128(2),
+            model_id: "local-llama".to_string(),
+            dry_run: false,
+            status: "completed".to_string(),
+            candidates_total: None,
+            candidates_judged: 0,
+            relevant_count: 0,
+            irrelevant_count: 0,
+            failed_count: 0,
+            computed_cost: None,
+            duration_ms: 10,
+            started_at: chrono::DateTime::<Utc>::from_timestamp(0, 0).expect("epoch is in range"),
+        };
+
+        let dto = scan_run_header_from_row(row);
+
+        assert_eq!(dto.computed_cost, None);
+        assert_eq!(dto.candidates_total, None);
+    }
 }

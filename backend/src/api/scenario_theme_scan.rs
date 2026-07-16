@@ -15,11 +15,11 @@ use uuid::Uuid;
 
 use crate::{
     auth::{require_edit, AuthUser},
-    dto::{ScanRequest, ScanRunStatusResponse, ScanStartedResponse},
+    dto::{ScanRequest, ScanRunListResponse, ScanRunStatusResponse, ScanStartedResponse},
     error::AppError,
     repositories::pipeline_repository::SCAN_STATUS_RUNNING,
     services::theme_scan::ThemeScanError,
-    services::theme_scan_run::{get_scan_run_status, start_theme_scan},
+    services::theme_scan_run::{get_scan_run_status, list_scenario_scan_runs, start_theme_scan},
     state::AppState,
 };
 
@@ -103,6 +103,35 @@ pub async fn get_scenario_scan_run(
         .await
         .map_err(map_scan_error)?;
     Ok(Json(status))
+}
+
+/// `GET /cases/:slug/scenarios/:scenario_id/scan-runs` — the scenario's run
+/// history, newest first.
+///
+/// Retrieval-only: reads the already-persisted `scan_runs` headers (no verdicts,
+/// no summary — those are fetched per-run via the `:run_id` endpoint). Edit-gated
+/// and case-fenced identically to the `:run_id` poll (same `require_edit`, same
+/// `load_scenario_fenced` inside the service), so a caller cannot list another
+/// case's runs.
+#[tracing::instrument(skip(state, user), fields(slug = %slug, scenario_id = %scenario_id))]
+pub async fn list_scenario_scan_runs_handler(
+    user: AuthUser,
+    State(state): State<AppState>,
+    Path((slug, scenario_id)): Path<(String, String)>,
+) -> Result<Json<ScanRunListResponse>, AppError> {
+    require_edit(&user)?;
+
+    // Parse the path id up front so a malformed id is a clean 400, never a failed
+    // DB lookup masquerading as an empty history.
+    let scenario_uuid = Uuid::parse_str(&scenario_id).map_err(|_| AppError::BadRequest {
+        message: "scenario_id must be a valid UUID".to_string(),
+        details: json!({ "field": "scenario_id" }),
+    })?;
+
+    let runs = list_scenario_scan_runs(&state, &slug, scenario_uuid)
+        .await
+        .map_err(map_scan_error)?;
+    Ok(Json(runs))
 }
 
 /// Map a [`ThemeScanError`] onto its HTTP surface.
@@ -236,6 +265,19 @@ mod tests {
             run_id: Uuid::nil(),
         };
         assert!(matches!(map_scan_error(e), AppError::NotFound { .. }));
+    }
+
+    #[test]
+    fn scan_run_list_failed_maps_to_500() {
+        // A DB failure listing a scenario's history is server-side: a generic 500
+        // whose cause is logged, never leaked (same policy as ScanRunReadFailed).
+        let e = ThemeScanError::ScanRunListFailed {
+            scenario_id: Uuid::nil(),
+            source: crate::repositories::pipeline_repository::PipelineRepoError::Database(
+                "boom".to_string(),
+            ),
+        };
+        assert!(matches!(map_scan_error(e), AppError::Internal { .. }));
     }
 
     #[test]

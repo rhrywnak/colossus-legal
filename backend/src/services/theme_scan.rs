@@ -228,6 +228,17 @@ pub enum ThemeScanError {
     /// a run exists elsewhere. The route maps it to 404.
     #[error("scan run {run_id} not found")]
     ScanRunNotFound { run_id: Uuid },
+
+    /// Listing a scenario's scan-run history failed (DB error). Distinct from
+    /// [`Self::ScanRunReadFailed`] — that names a single `run_id`; this names the
+    /// `scenario_id` whose history could not be read (Standing Rule 1 — the error
+    /// says WHAT failed, not a fabricated run handle). Server-side (500).
+    #[error("failed to list scan runs for scenario {scenario_id}: {source}")]
+    ScanRunListFailed {
+        scenario_id: Uuid,
+        #[source]
+        source: PipelineRepoError,
+    },
 }
 
 /// Everything a scan needs to judge, resolved and validated up front.

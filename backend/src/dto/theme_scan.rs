@@ -26,6 +26,7 @@
 //! renders a bias candidate, a saved fact, AND a scan suggestion, with one
 //! graph→content mapping rather than three that can drift.
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -105,6 +106,53 @@ pub struct ScanRunStatusResponse {
     /// the frontend types it as such.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<serde_json::Value>,
+}
+
+/// One row of the scan-run HISTORY list for
+/// `GET .../scan-runs` — a lightweight HEADER, deliberately NOT the full result.
+///
+/// ## Why headers only (not `summary_json`, not verdicts)
+///
+/// The history list renders a compact per-run row (model, benchmark/real,
+/// counts, timestamp) for every run of a scenario — potentially many. Shipping
+/// each run's full `ThemeScanSummary` (suggestions + rejected sample, ~dozens of
+/// `BiasInstance`s) in the list would make it heavy for no benefit: the detail is
+/// fetched lazily via the EXISTING `GET .../scan-runs/:run_id` when a row is
+/// clicked. So this DTO carries only what a row shows. It is the retrieval
+/// counterpart to [`ScanRunStatusResponse`]; the two overlap on the header
+/// fields but differ in intent (one polls a single run, one lists them all).
+///
+/// `computed_cost` is `Option<f64>` (a null cost is meaningful — a local vLLM
+/// model has no per-token cost, or token usage was absent; Standing Rule 1) and
+/// is emitted as `null` rather than skipped so the frontend distinguishes
+/// "no cost" from a missing field. `started_at` drives the newest-first order.
+#[derive(Debug, Clone, Serialize)]
+pub struct ScanRunHeader {
+    pub run_id: Uuid,
+    pub model_id: String,
+    pub dry_run: bool,
+    /// `running` | `completed` | `failed`.
+    pub status: String,
+    /// Progress denominator (absent only for pre-background legacy rows).
+    pub candidates_total: Option<i32>,
+    pub candidates_judged: i32,
+    pub relevant_count: i32,
+    pub irrelevant_count: i32,
+    pub failed_count: i32,
+    /// Computed dollar cost, or `null` (local model / no token usage).
+    pub computed_cost: Option<f64>,
+    pub duration_ms: i64,
+    pub started_at: DateTime<Utc>,
+}
+
+/// Response for `GET .../scan-runs` — the scenario's run history, newest first.
+///
+/// Wrapped in `{ runs: [...] }` (rather than a bare array) to mirror the
+/// `/api/scan/models` `{ models: [...] }` shape and to leave room for list-level
+/// metadata later without a breaking change.
+#[derive(Debug, Clone, Serialize)]
+pub struct ScanRunListResponse {
+    pub runs: Vec<ScanRunHeader>,
 }
 
 /// Result of one Theme Scan run.

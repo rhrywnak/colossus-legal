@@ -3,7 +3,13 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { computeAgreement, costLabel, formatElapsed } from "../themeScanFormat";
+import {
+  computeAgreement,
+  costLabel,
+  formatCost,
+  formatElapsed,
+  formatRunTimestamp,
+} from "../themeScanFormat";
 import type { ThemeScanSummary } from "../../services/themeScan";
 
 function summary(overrides: Partial<ThemeScanSummary>): ThemeScanSummary {
@@ -51,6 +57,27 @@ describe("costLabel", () => {
   it("shows a dash for a local model with no cost, else a $ figure", () => {
     expect(costLabel(summary({ computed_cost: null }))).toBe("—");
     expect(costLabel(summary({ computed_cost: 0.1234 }))).toBe("$0.1234");
+  });
+});
+
+describe("formatCost", () => {
+  it("shows a dash for null (local model / no usage), else a 4-dp $ figure", () => {
+    expect(formatCost(null)).toBe("—");
+    expect(formatCost(0)).toBe("$0.0000");
+    expect(formatCost(0.0125)).toBe("$0.0125");
+  });
+});
+
+describe("formatRunTimestamp", () => {
+  it("renders a parseable ISO timestamp as a compact non-empty label", () => {
+    const label = formatRunTimestamp("2026-07-16T14:32:00Z");
+    // Locale/timezone vary by environment, so assert it produced SOMETHING other
+    // than the raw ISO string rather than pinning an exact rendering.
+    expect(label).not.toBe("2026-07-16T14:32:00Z");
+    expect(label.length).toBeGreaterThan(0);
+  });
+  it("degrades to the raw string on an unparseable value (no throw)", () => {
+    expect(formatRunTimestamp("not-a-date")).toBe("not-a-date");
   });
 });
 

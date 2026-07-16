@@ -39,3 +39,32 @@ fn bucket_column_maps_each_variant_to_its_count_column() {
     );
     assert_eq!(bucket_column(ProgressBucket::Failed), "failed_count");
 }
+
+/// SQL-shape guard for the history list. There is no `#[sqlx::test]`/live-DB
+/// harness in this repo, so the behavioural ordering/scoping is asserted by the
+/// live-DB integration test in `backend/tests/scan_run_history_integration.rs`
+/// (not run in CI). This unit test pins the two properties the panel depends on
+/// so a future edit that drops the scenario scope or reverses the order fails
+/// here and names the regression.
+#[test]
+fn list_scan_runs_sql_scopes_by_scenario_and_orders_newest_first() {
+    let sql = LIST_SCAN_RUNS_SQL;
+    assert!(
+        sql.contains("WHERE scenario_id = $1"),
+        "history must be scoped to the scenario, got: {sql}"
+    );
+    assert!(
+        sql.contains("ORDER BY started_at DESC"),
+        "history must be newest-first, got: {sql}"
+    );
+    // The cost cast is load-bearing: a bare NUMERIC would fail to decode to f64.
+    assert!(
+        sql.contains("computed_cost::float8"),
+        "computed_cost must be cast to float8 to decode, got: {sql}"
+    );
+    // Headers only — the heavy summary/verdict payload must NOT ride in the list.
+    assert!(
+        !sql.contains("summary_json"),
+        "the history list must stay light (no summary_json), got: {sql}"
+    );
+}

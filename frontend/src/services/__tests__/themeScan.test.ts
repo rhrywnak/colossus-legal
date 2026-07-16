@@ -5,7 +5,7 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { fetchScanModels, getScanRun, startThemeScan } from "../themeScan";
+import { fetchScanModels, fetchScanRuns, getScanRun, startThemeScan } from "../themeScan";
 
 const SLUG = "awad";
 const SCENARIO = "11111111-1111-1111-1111-111111111111";
@@ -79,6 +79,52 @@ describe("getScanRun", () => {
     // @ts-ignore
     global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 500, json: async () => ({}) });
     await expect(getScanRun(SLUG, SCENARIO, RUN)).rejects.toThrow(/Failed to read scan run/);
+  });
+});
+
+describe("fetchScanRuns", () => {
+  const header = {
+    run_id: RUN,
+    model_id: "qwen-14b",
+    dry_run: true,
+    status: "completed",
+    candidates_total: 94,
+    candidates_judged: 94,
+    relevant_count: 31,
+    irrelevant_count: 60,
+    failed_count: 3,
+    computed_cost: 0.0125,
+    duration_ms: 45000,
+    started_at: "2026-07-16T14:32:00Z",
+  };
+
+  it("GETs the scan-runs list URL and unwraps { runs }", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ runs: [header] }),
+    });
+    // @ts-ignore — minimal fetch mock
+    global.fetch = fetchMock;
+
+    await expect(fetchScanRuns(SLUG, SCENARIO)).resolves.toEqual([header]);
+    // The list URL is the scan-runs collection (no :run_id suffix).
+    expect(fetchMock.mock.calls[0][0]).toContain(
+      `/api/cases/${SLUG}/scenarios/${SCENARIO}/scan-runs`,
+    );
+    expect(fetchMock.mock.calls[0][0]).not.toContain(`/scan-runs/${RUN}`);
+  });
+
+  it("returns [] when the runs key is absent (unscanned scenario)", async () => {
+    // @ts-ignore
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({}) });
+    await expect(fetchScanRuns(SLUG, SCENARIO)).resolves.toEqual([]);
+  });
+
+  it("throws on a non-OK response", async () => {
+    // @ts-ignore
+    global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 500, json: async () => ({}) });
+    await expect(fetchScanRuns(SLUG, SCENARIO)).rejects.toThrow(/Failed to load scan history/);
   });
 });
 

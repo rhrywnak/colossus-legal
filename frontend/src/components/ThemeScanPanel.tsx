@@ -19,16 +19,23 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 
 import EvidenceCard from "../pages/BiasExplorer/EvidenceCard";
 import PipelineProgressBar from "./pipeline/PipelineProgressBar";
+import RunHistoryList from "./RunHistoryList";
 import { computeAgreement, costLabel, formatElapsed } from "./themeScanFormat";
 import { gatherCandidates } from "../services/scenarioGather";
 import {
   fetchScanModels,
+  fetchScanRuns,
   getScanRun,
   startThemeScan,
   type ScanModel,
+  type ScanRunHeader,
   type ScanRunStatus,
   type ThemeScanSummary,
 } from "../services/themeScan";
+
+// The panel shows at most two runs side by side (the existing comparison hero
+// takes exactly two). Selecting a third replaces the oldest selection.
+const MAX_COMPARE = 2;
 
 // CONST: frontend poll/tick cadences are not runtime-configurable (there is no
 // frontend config endpoint); POLL_INTERVAL_MS matches the DocumentsPage
@@ -59,9 +66,31 @@ const ThemeScanPanel: React.FC<Props> = ({ slug, scenarioId, scenarioTitle }) =>
   // A model-catalog load failure gets its OWN observable state, distinct from a
   // genuinely-empty registry (Standing Rule 1 — the two states must look different).
   const [modelError, setModelError] = useState<string | null>(null);
-  // Completed runs keyed by model id, so re-running one model overwrites and the
-  // two contenders sit side by side.
-  const [completed, setCompleted] = useState<Record<string, ThemeScanSummary>>({});
+
+  // ── Run history is the SOURCE OF TRUTH, hydrated from the DB (not session) ──
+  // `runs` are the persisted headers (newest first) — they survive navigation and
+  // reloads, replacing the old ephemeral `completed` map. `summaries` is a LAZY
+  // cache of each run's full result, filled by clicking a row (getScanRun).
+  // `selectedRunIds` (0, 1, or 2) drives which runs render / compare.
+  const [runs, setRuns] = useState<ScanRunHeader[]>([]);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [summaries, setSummaries] = useState<Record<string, ThemeScanSummary>>({});
+  const [selectedRunIds, setSelectedRunIds] = useState<string[]>([]);
+  // A per-run detail-load failure is distinct from the list-load failure above.
+  const [detailError, setDetailError] = useState<string | null>(null);
+
+  // Re-read the persisted history (after a scan finishes, or on mount).
+  const refreshRuns = useCallback(() => {
+    fetchScanRuns(slug, scenarioId)
+      .then((rs) => {
+        setRuns(rs);
+        setHistoryError(null);
+      })
+      .catch((e: unknown) => {
+        // A history-load failure is observable and distinct from "no runs yet".
+        setHistoryError(e instanceof Error ? e.message : "Failed to load scan history.");
+      });
+  }, [slug, scenarioId]);
 
   // ── Load the model catalog + the pre-scan candidate count on mount ──────────
   useEffect(() => {
@@ -84,7 +113,9 @@ const ThemeScanPanel: React.FC<Props> = ({ slug, scenarioId, scenarioTitle }) =>
         console.warn("Theme Scan: candidate-count fetch failed:", e);
         setCandidateCount(null);
       });
-  }, [slug, scenarioId]);
+    // Hydrate the run history from the DB — the thing that survives navigation.
+    refreshRuns();
+  }, [slug, scenarioId, refreshRuns]);
 
   // ── Poll the active run every 3s while it is running ────────────────────────
   useEffect(() => {
@@ -96,10 +127,17 @@ const ThemeScanPanel: React.FC<Props> = ({ slug, scenarioId, scenarioTitle }) =>
         if (cancelled) return;
         setPoll(status);
         if (status.status === "completed" && status.summary) {
-          setCompleted((c) => ({ ...c, [status.model_id]: status.summary as ThemeScanSummary }));
+          const summary = status.summary;
+          // Seed the lazy cache with the just-finished result, auto-select it so
+          // it renders immediately, and re-read the history so the new run appears.
+          setSummaries((m) => ({ ...m, [status.run_id]: summary }));
+          setSelectedRunIds([status.run_id]);
+          refreshRuns();
           setActiveRun(null);
         } else if (status.status === "failed") {
           setStartError(status.error ?? "The scan failed.");
+          // A failed run is also part of the history — surface it in the list.
+          refreshRuns();
           setActiveRun(null);
         }
       } catch (e) {
@@ -112,7 +150,7 @@ const ThemeScanPanel: React.FC<Props> = ({ slug, scenarioId, scenarioTitle }) =>
       cancelled = true;
       clearInterval(id);
     };
-  }, [activeRun, slug, scenarioId]);
+  }, [activeRun, slug, scenarioId, refreshRuns]);
 
   // ── Tick the elapsed timer client-side while running ────────────────────────
   useEffect(() => {
@@ -140,9 +178,54 @@ const ThemeScanPanel: React.FC<Props> = ({ slug, scenarioId, scenarioTitle }) =>
     }
   }, [selectedModel, benchmarkMode, slug, scenarioId]);
 
+  // ── Select/deselect a history run for display + comparison ──────────────────
+  // Toggling drives which run(s) render below. Capped at MAX_COMPARE: a third
+  // selection drops the OLDEST, keeping the newest two for the comparison hero.
+  // The full result is lazily fetched (getScanRun) and cached the first time a
+  // run is opened — only completed runs carry a `summary`.
+  const onToggleRun = useCallback(
+    async (runId: string) => {
+      let willSelect = false;
+      setSelectedRunIds((sel) => {
+        if (sel.includes(runId)) return sel.filter((id) => id !== runId);
+        willSelect = true;
+        const next = [...sel, runId];
+        return next.length > MAX_COMPARE ? next.slice(next.length - MAX_COMPARE) : next;
+      });
+      // Only fetch when SELECTING a run whose summary we do not already have.
+      if (!willSelect || summaries[runId]) return;
+      setDetailError(null);
+      try {
+        const status = await getScanRun(slug, scenarioId, runId);
+        if (status.summary) {
+          setSummaries((m) => ({ ...m, [runId]: status.summary as ThemeScanSummary }));
+        } else {
+          // A running/failed run has no stored result — say so, don't render blank.
+          setDetailError(
+            status.status === "failed"
+              ? `That run failed: ${status.error ?? "no reason recorded"}.`
+              : "That run has no stored result to display yet.",
+          );
+        }
+      } catch (e) {
+        setDetailError(e instanceof Error ? e.message : "Failed to load the run.");
+      }
+    },
+    [summaries, slug, scenarioId],
+  );
+
+  // The selected runs whose full summaries are loaded, keyed by run_id — this is
+  // what feeds the EXISTING results display + comparison hero (one entry → a
+  // single result; two → the hero). Order follows selection.
+  const selectedSummaries: Record<string, ThemeScanSummary> = {};
+  for (const id of selectedRunIds) {
+    const s = summaries[id];
+    if (s) selectedSummaries[id] = s;
+  }
+
   const modelName = (id: string) => models.find((m) => m.model_id === id)?.display_name ?? id;
-  const completedRuns = Object.values(completed);
   const running = activeRun !== null;
+  const hasSelectedResults = Object.keys(selectedSummaries).length > 0;
 
   return (
     <section style={S.card}>
@@ -179,8 +262,28 @@ const ThemeScanPanel: React.FC<Props> = ({ slug, scenarioId, scenarioTitle }) =>
         </div>
       )}
 
-      {completedRuns.length > 0 && (
-        <ResultsArea completed={completed} modelName={modelName} />
+      {/* Run history hydrated from the DB — survives navigation and reloads. */}
+      <RunHistoryList
+        runs={runs}
+        selectedRunIds={selectedRunIds}
+        onToggle={onToggleRun}
+        modelName={modelName}
+      />
+      {historyError && (
+        <div style={S.errorBox} role="alert">
+          {historyError}
+        </div>
+      )}
+      {detailError && (
+        <div style={S.errorBox} role="alert">
+          {detailError}
+        </div>
+      )}
+
+      {/* The EXISTING results display + comparison hero, fed by the selected runs
+          (one → a single result; two → the hero). */}
+      {hasSelectedResults && (
+        <ResultsArea completed={selectedSummaries} modelName={modelName} />
       )}
     </section>
   );
@@ -289,6 +392,9 @@ const LiveTile: React.FC<{ label: string; value: number; tone: "success" | "mute
 // ─── COMPLETE / COMPARISON ────────────────────────────────────────────────────
 
 const ResultsArea: React.FC<{
+  // Keyed by run_id (a run's stable identity — the same model can appear twice in
+  // history). The display name comes from each summary's own `model_id`, NOT the
+  // record key, so a run still labels correctly.
   completed: Record<string, ThemeScanSummary>;
   modelName: (id: string) => string;
 }> = ({ completed, modelName }) => {
@@ -303,8 +409,8 @@ const ResultsArea: React.FC<{
           <ComparisonHero a={a} b={b} modelName={modelName} />
         </div>
       )}
-      {runs.map(([modelId, summary]) => (
-        <RunResult key={modelId} summary={summary} modelName={modelName(modelId)} />
+      {runs.map(([runId, summary]) => (
+        <RunResult key={runId} summary={summary} modelName={modelName(summary.model_id)} />
       ))}
     </div>
   );

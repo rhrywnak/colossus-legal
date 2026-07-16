@@ -94,6 +94,26 @@ export type ScanModel = {
   is_default: boolean;
 };
 
+/** One row of the scan-run HISTORY list (backend `ScanRunHeader`). Headers only —
+ *  the full result (suggestions + rejected sample) is fetched lazily per-run via
+ *  [`getScanRun`] when a row is opened. `computed_cost` is `null` for a local
+ *  model or when no token usage was reported. `started_at` is ISO-8601 and drives
+ *  the newest-first order the backend already applied. */
+export type ScanRunHeader = {
+  run_id: string;
+  model_id: string;
+  dry_run: boolean;
+  status: "running" | "completed" | "failed";
+  candidates_total: number | null;
+  candidates_judged: number;
+  relevant_count: number;
+  irrelevant_count: number;
+  failed_count: number;
+  computed_cost: number | null;
+  duration_ms: number;
+  started_at: string;
+};
+
 // ─── URL helpers ─────────────────────────────────────────────────────────────
 
 function scenarioBase(slug: string, scenarioId: string): string {
@@ -139,6 +159,23 @@ export async function getScanRun(
     throw new Error(`Failed to read scan run${await readErrorMessage(response)}`);
   }
   return (await response.json()) as ScanRunStatus;
+}
+
+/** Fetch a scenario's scan-run HISTORY, newest first (backend already orders it).
+ *
+ *  Retrieval-only over the persisted `scan_runs` headers — this is the source of
+ *  truth the panel hydrates from on mount, so history survives navigation and
+ *  reloads. A non-2xx throws (Standing Rule 1); an unscanned scenario returns `[]`. */
+export async function fetchScanRuns(
+  slug: string,
+  scenarioId: string,
+): Promise<ScanRunHeader[]> {
+  const response = await authFetch(`${scenarioBase(slug, scenarioId)}/scan-runs`);
+  if (!response.ok) {
+    throw new Error(`Failed to load scan history${await readErrorMessage(response)}`);
+  }
+  const body = (await response.json()) as { runs?: ScanRunHeader[] };
+  return body.runs ?? [];
 }
 
 /** Fetch the SCAN model catalog for the picker (active AND scan_eligible ids).

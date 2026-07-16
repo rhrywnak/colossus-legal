@@ -193,6 +193,13 @@ fn scenario_routes() -> Router<AppState> {
             "/cases/:slug/scenarios/:scenario_id/scan-runs/:run_id",
             get(scenario_theme_scan::get_scenario_scan_run),
         )
+        // List a scenario's scan-run HISTORY (headers only, newest first) so the
+        // panel hydrates from the DB and survives navigation. Retrieval-only,
+        // edit-gated + case-fenced inside the handler.
+        .route(
+            "/cases/:slug/scenarios/:scenario_id/scan-runs",
+            get(scenario_theme_scan::list_scenario_scan_runs_handler),
+        )
 }
 
 /// Claim CRUD plus the motion-claims read.

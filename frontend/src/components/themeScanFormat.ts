@@ -15,9 +15,31 @@ export function formatElapsed(ms: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-/** Cost label for a run (`—` for a local model with no per-token cost). */
+/** Format a computed dollar cost (`—` when null: a local model with no per-token
+ *  cost, or a run where no token usage was reported). Shared by the completed-run
+ *  card and the history list so both render cost identically. */
+export function formatCost(cost: number | null): string {
+  return cost == null ? "—" : `$${cost.toFixed(4)}`;
+}
+
+/** Cost label for a completed run summary (delegates to [`formatCost`]). */
 export function costLabel(summary: ThemeScanSummary): string {
-  return summary.computed_cost == null ? "—" : `$${summary.computed_cost.toFixed(4)}`;
+  return formatCost(summary.computed_cost);
+}
+
+/** Format a run's ISO-8601 `started_at` as a compact local date + time for the
+ *  history row (e.g. `Jul 16, 14:32`). An unparseable value degrades to the raw
+ *  string rather than throwing (Standing Rule 1 — the row still renders and the
+ *  bad value is visible, not swallowed). */
+export function formatRunTimestamp(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 /** Relevant-set agreement between two completed runs, from their full relevant

@@ -272,6 +272,70 @@ pub async fn get_scan_run(
     Ok(row)
 }
 
+// ─── 7. LIST (the history headers) ───────────────────────────────────────────
+
+/// One row of the scan-run HISTORY list — a lightweight header, NOT the full
+/// result. Deliberately omits `summary_json` and the per-candidate verdicts: the
+/// history list renders many runs, and the detail is fetched lazily per-run via
+/// [`get_scan_run`] when a row is opened.
+///
+/// ## Rust Learning: why `computed_cost` is read via a `::float8` cast
+///
+/// `computed_cost` is `NUMERIC(12,8)` in Postgres. `sqlx` cannot decode a bare
+/// `NUMERIC` into `f64` without the `rust_decimal`/`bigdecimal` feature (which
+/// this workspace does not enable — the same reason `finalize_scan_run_completed`
+/// round-trips the value through a formatted string). Casting `computed_cost::float8`
+/// in the SELECT converts it to a Postgres `double precision`, which decodes
+/// cleanly into `Option<f64>`. `NULL` (local model / no token usage) stays `None`.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct ScanRunHeaderRow {
+    pub run_id: Uuid,
+    pub model_id: String,
+    pub dry_run: bool,
+    pub status: String,
+    pub candidates_total: Option<i32>,
+    pub candidates_judged: i32,
+    pub relevant_count: i32,
+    pub irrelevant_count: i32,
+    pub failed_count: i32,
+    pub computed_cost: Option<f64>,
+    pub duration_ms: i64,
+    pub started_at: DateTime<Utc>,
+}
+
+/// List every run of one scenario, newest first, as lightweight headers.
+///
+/// Scoped by `scenario_id` (`WHERE scenario_id = $1`), so the caller's scenario
+/// fence is sufficient — every returned row already belongs to that scenario, no
+/// per-row re-check is needed (unlike [`get_scan_run`], which is keyed by
+/// `run_id` alone and needs a scenario-match fence at the service layer). The
+/// existing `scan_runs_scenario_id_idx` covers this filter; `ORDER BY started_at
+/// DESC` gives the newest-first history the panel renders. An empty result
+/// (a scenario that was never scanned) is a legitimate empty `Vec`, distinct from
+/// an error (Standing Rule 1).
+pub async fn list_scan_runs(
+    pool: &PgPool,
+    scenario_id: Uuid,
+) -> Result<Vec<ScanRunHeaderRow>, PipelineRepoError> {
+    let rows = sqlx::query_as::<_, ScanRunHeaderRow>(LIST_SCAN_RUNS_SQL)
+        .bind(scenario_id)
+        .fetch_all(pool)
+        .await?;
+    Ok(rows)
+}
+
+/// The history-list query. Extracted as a `const` so the scenario-scoping and
+/// newest-first ordering can be asserted by a SQL-shape unit test without a live
+/// database (the house pattern — see `documents_delete.rs`). `computed_cost` is
+/// cast `::float8` because a bare `NUMERIC` is not `f64`-decodable here (see the
+/// [`ScanRunHeaderRow`] doc). Not deployment-varying — this is query text, not
+/// config, so Rule 13 does not apply.
+const LIST_SCAN_RUNS_SQL: &str = "SELECT run_id, model_id, dry_run, status, \
+     candidates_total, candidates_judged, \
+     relevant_count, irrelevant_count, failed_count, \
+     computed_cost::float8 AS computed_cost, duration_ms, started_at \
+     FROM scan_runs WHERE scenario_id = $1 ORDER BY started_at DESC";
+
 // ─── Per-candidate verdict detail (unchanged from Chunk B) ────────────────────
 
 /// One row of `scan_run_verdicts` — a per-candidate verdict.
