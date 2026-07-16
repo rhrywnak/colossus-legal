@@ -343,6 +343,7 @@ mod tests {
             evidence_id: evidence_id.to_string(),
             title: String::new(),
             verbatim_quote: None,
+            question: None,
             page_number: None,
             pattern_tags: Vec::new(),
             stated_by: None,

@@ -77,7 +77,7 @@ pub trait LlmProviderExt {
     /// provider with a native system field (Anthropic Messages API, vLLM's
     /// `role: "system"` first message) populates it. The Theme Scan routes
     /// through THIS variant because its judging prompt is a system prompt
-    /// (`theme_scan_prompt_v1.md`) — the system/user split must survive.
+    /// (`theme_scan_prompt_v2.md`) — the system/user split must survive.
     ///
     /// # Errors
     ///

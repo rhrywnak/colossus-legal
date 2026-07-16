@@ -61,7 +61,13 @@ pub const THEME_SCAN_MAX_TOKENS: u32 = 512;
 // `Verdict`/parse changes, so the version token is pinned in code on purpose.
 // Only the filename is compiled in; the directory it resolves against is
 // env-driven via the registry (Standing Rule 2 satisfied for the path).
-const THEME_SCAN_PROMPT: &str = "theme_scan_prompt_v1.md";
+// v2 (2026-07-16, discovery Q&A pairing): the user message can now carry a
+// `Question asked` line for discovery evidence, and v2 tells the judge to read
+// the answer in light of it. Bumped as a NEW file (not an in-place edit of v1)
+// on purpose: `scan_runs` record which prompt judged them, so editing v1 would
+// silently rewrite the provenance of every prior run and break benchmark
+// reproducibility. A new version + this const bump is the honest change.
+const THEME_SCAN_PROMPT: &str = "theme_scan_prompt_v2.md";
 
 /// Top-level, scan-aborting failures.
 ///

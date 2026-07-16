@@ -152,7 +152,7 @@ async fn judge_one(
 
     let user_msg = build_user_message(attack_meaning, candidate);
     // `Some(scan_prompt)` routes through `invoke_with_system_and_params`, so the
-    // judging system prompt (theme_scan_prompt_v1.md) survives (Chunk B
+    // judging system prompt (theme_scan_prompt_v2.md) survives (Chunk B
     // precondition). `params.max_tokens` (the verdict cap) reaches the wire.
     let result = call_with_rate_limit_retry_params(
         provider,
@@ -195,6 +195,23 @@ fn outcome_from_result(result: Result<LlmResponse, PipelineError>) -> JudgeOutco
 /// Build the per-quote user message: the accusation criterion plus this one
 /// quote's speaker, document, and verbatim text. Case-agnostic — all case data
 /// comes from the scenario/candidate, none is compiled in.
+///
+/// ## Two shapes, one function (discovery Q&A pairing)
+///
+/// Discovery Evidence carries the interrogatory `question` its answer responds
+/// to; documentary evidence does not. When `question` is present and non-empty
+/// we present the candidate as a Q&A pair — `Question asked` + `Answer under
+/// review` — so the judge reads a bare "Yes"/"No" answer in light of the
+/// question that gives it meaning. When it is absent (or empty), we keep the
+/// original single-`Quote:` shape unchanged, so documentary evidence sees the
+/// exact message it always has.
+///
+/// Domain note: the answer text lives in `verbatim_quote` for BOTH shapes (the
+/// discovery pass-1 template writes the sworn answer there); the question is the
+/// only added context. An empty-string question is normalized to `None`-
+/// equivalent here — a question property that exists but holds `""` carries no
+/// interpretive value, so it takes the single-quote path (Standing Rule 1: it
+/// reads identically to a genuinely absent question, which is the honest state).
 pub(crate) fn build_user_message(attack_meaning: &str, candidate: &BiasInstance) -> String {
     let speaker = candidate
         .stated_by
@@ -210,10 +227,25 @@ pub(crate) fn build_user_message(attack_meaning: &str, candidate: &BiasInstance)
         .unwrap_or("unknown");
     let quote = candidate.verbatim_quote.as_deref().unwrap_or("");
 
-    format!(
-        "ACCUSATION (what the scenario alleges):\n{attack_meaning}\n\n\
-         QUOTE UNDER REVIEW:\nSpeaker: {speaker}\nDocument: {document}\nQuote: \"{quote}\"\n"
-    )
+    // `filter(|s| !s.is_empty())` collapses `Some("")` to `None`: an empty
+    // question is treated exactly like a missing one (single-quote path).
+    let question = candidate
+        .question
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+
+    match question {
+        Some(question) => format!(
+            "ACCUSATION (what the scenario alleges):\n{attack_meaning}\n\n\
+             QUOTE UNDER REVIEW:\nSpeaker: {speaker}\nDocument: {document}\n\
+             Question asked: \"{question}\"\nAnswer under review: \"{quote}\"\n"
+        ),
+        None => format!(
+            "ACCUSATION (what the scenario alleges):\n{attack_meaning}\n\n\
+             QUOTE UNDER REVIEW:\nSpeaker: {speaker}\nDocument: {document}\nQuote: \"{quote}\"\n"
+        ),
+    }
 }
 
 #[cfg(test)]
@@ -226,6 +258,7 @@ mod tests {
             evidence_id: id.to_string(),
             title: String::new(),
             verbatim_quote: None,
+            question: None,
             page_number: None,
             pattern_tags: Vec::new(),
             stated_by: None,
@@ -296,5 +329,72 @@ mod tests {
         assert!(msg.contains("Speaker: Marie"));
         assert!(msg.contains("Document: Affidavit"));
         assert!(msg.contains("I never said that"));
+    }
+
+    #[test]
+    fn user_message_pairs_question_and_answer_when_question_present() {
+        // Discovery Q&A pairing: a bare answer is presented WITH its question,
+        // so the judge can interpret "Yes" against what was actually asked.
+        let mut c = instance("ev-3");
+        c.verbatim_quote = Some("Yes".to_string());
+        c.question = Some("Did you receive the funds on June 1?".to_string());
+        let msg = build_user_message("the accusation", &c);
+
+        assert!(
+            msg.contains("Question asked: \"Did you receive the funds on June 1?\""),
+            "question line missing: {msg}"
+        );
+        assert!(
+            msg.contains("Answer under review: \"Yes\""),
+            "answer line missing: {msg}"
+        );
+        // The single-quote label must NOT appear in the Q&A shape.
+        assert!(
+            !msg.contains("Quote: \""),
+            "Q&A shape must not use the single-quote label: {msg}"
+        );
+    }
+
+    #[test]
+    fn user_message_uses_single_quote_shape_when_question_absent() {
+        // Documentary evidence (no question) keeps the ORIGINAL message shape
+        // unchanged — no "Question asked" / "Answer under review" lines.
+        let mut c = instance("ev-4");
+        c.verbatim_quote = Some("The ledger shows a transfer.".to_string());
+        // question stays None (documentary evidence).
+        let msg = build_user_message("the accusation", &c);
+
+        assert!(
+            msg.contains("Quote: \"The ledger shows a transfer.\""),
+            "single-quote shape expected: {msg}"
+        );
+        assert!(
+            !msg.contains("Question asked:"),
+            "no question line when question is None: {msg}"
+        );
+        assert!(
+            !msg.contains("Answer under review:"),
+            "no answer line when question is None: {msg}"
+        );
+    }
+
+    #[test]
+    fn user_message_treats_empty_question_as_absent() {
+        // A `question` property that exists but holds "" (or only whitespace)
+        // carries no interpretive value — it must read identically to a missing
+        // question (the single-quote shape), not emit an empty `Question asked`.
+        let mut c = instance("ev-5");
+        c.verbatim_quote = Some("No".to_string());
+        c.question = Some("   ".to_string());
+        let msg = build_user_message("the accusation", &c);
+
+        assert!(
+            msg.contains("Quote: \"No\""),
+            "empty question must fall back to single-quote shape: {msg}"
+        );
+        assert!(
+            !msg.contains("Question asked:"),
+            "empty question must not produce a question line: {msg}"
+        );
     }
 }

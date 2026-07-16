@@ -407,15 +407,25 @@ impl BiasRepository {
         &self,
         ids: &[String],
     ) -> Result<Vec<BiasInstance>, BiasRepositoryError> {
-        // RETURN columns are identical to `execute_filtered_query` so the same
-        // `BiasRow::from_row` decoder and `AggregationState` collapse apply
-        // unchanged. `coalesce(..,'')` mirrors the bias query: a null actor
-        // (no STATED_BY edge) decodes to an empty string, not a decode error.
-        // Relationship-type names come from the `schema::` constants (not bare
-        // string literals) so a rename in `schema.rs` flows to this read query
-        // automatically and the curation reader cannot drift from the rest of
-        // the graph layer (Rule 16 — no magic strings). The Cypher contains no
-        // other `{`/`}`, so a plain `format!` needs no brace-doubling.
+        // RETURN columns are a SUPERSET of `execute_filtered_query`'s: this query
+        // and `all_evidence_about_subject` also return `e.question` (the discovery
+        // Q&A pairing), which `execute_filtered_query` does not. The SAME
+        // `BiasRow::from_row` decoder still applies to all three unchanged, because
+        // `from_row` reads every optional column with `.ok()` — a column present
+        // here but absent there decodes to `None` on that path, no code change.
+        // `coalesce(..,'')` mirrors the bias query: a null actor (no STATED_BY
+        // edge) decodes to an empty string, not a decode error. Relationship-type
+        // names come from the `schema::` constants (not bare string literals) so a
+        // rename in `schema.rs` flows to this read query automatically and the
+        // curation reader cannot drift from the rest of the graph layer (Rule 16 —
+        // no magic strings). The Cypher contains no other `{`/`}`, so a plain
+        // `format!` needs no brace-doubling.
+        //
+        // Domain note: discovery Evidence stores the interrogatory question it
+        // answers in `e.question`; documentary evidence has none (→ Cypher null →
+        // `None`). Returning it here is the curation hydrate path — the fast-follow
+        // candidate card pairs the answer with its question, exactly as the scan
+        // judge now does.
         let cypher = format!(
             "
             MATCH (e:Evidence)
@@ -427,6 +437,7 @@ impl BiasRepository {
               e.id AS evidence_id,
               coalesce(e.title, '') AS title,
               e.verbatim_quote AS verbatim_quote,
+              e.question AS question,
               e.page_number AS page_number,
               e.pattern_tags AS pattern_tags_raw,
               coalesce(actor.id, '') AS actor_id,
@@ -517,6 +528,13 @@ impl BiasRepository {
         // The Cypher contains no other `{`/`}` beyond the `EXISTS { ... }` block,
         // whose literal braces must be doubled (`{{` / `}}`) so `format!` treats
         // them as text and only substitutes the named `schema::` placeholders.
+        //
+        // Domain note: THIS is the discovery Q&A pairing fix. Discovery pass-1
+        // stores the ANSWER in `e.verbatim_quote` and the interrogatory question in
+        // `e.question`; the `e.question AS question` projection below returns it so
+        // the theme-scan judge can read a bare Yes/No answer in light of the
+        // question it responds to. Documentary evidence has no question (Cypher
+        // null → `None`), so its judge message is unchanged.
         let cypher = format!(
             "
             MATCH (e:Evidence)
@@ -528,6 +546,7 @@ impl BiasRepository {
               e.id AS evidence_id,
               coalesce(e.title, '') AS title,
               e.verbatim_quote AS verbatim_quote,
+              e.question AS question,
               e.page_number AS page_number,
               e.pattern_tags AS pattern_tags_raw,
               coalesce(actor.id, '') AS actor_id,

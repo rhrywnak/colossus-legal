@@ -155,6 +155,26 @@ pub struct BiasInstance {
     pub title: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub verbatim_quote: Option<String>,
+    /// The interrogatory question this Evidence answers, when it exists.
+    ///
+    /// ## Rust Learning: `Option` distinguishes three states, not two
+    /// Discovery Evidence stores the question the answer responds to in a
+    /// Neo4j `question` property; documentary evidence (letters, records) has
+    /// no question at all. `Option<String>` keeps those two apart: `Some(q)`
+    /// is a discovery answer with a known question, `None` is evidence with no
+    /// question. `skip_serializing_if = "Option::is_none"` then keeps the wire
+    /// shape honest — a card with no question omits the field entirely rather
+    /// than emitting `"question": null` (Standing Rule 1: distinct states,
+    /// distinct observables). An empty-string question is normalized to `None`
+    /// at the presentation boundary (see `build_user_message`), so an
+    /// empty-string question and a missing one read the same downstream.
+    ///
+    /// Domain note: for a bare answer like "Yes" or "That would be correct",
+    /// the question is what makes the answer interpretable — the theme-scan
+    /// judge reads the answer in light of it. Populated by the scan's gather
+    /// query and the curation hydrate path; `None` everywhere else.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub question: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub page_number: Option<i64>,
     pub pattern_tags: Vec<String>,
