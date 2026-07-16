@@ -198,6 +198,55 @@ impl TemperatureMode {
     }
 }
 
+/// The deterministic temperature for a `zero-ok`/`unknown` model whose row sets no
+/// explicit `default_temperature`.
+///
+/// Named (not a bare `0.0` literal) per Standing Rule 2: it is the value the
+/// extraction path has always pinned for byte-identical reruns, now sourced from
+/// ONE place instead of a per-call-site constant.
+// CONST: not directly env-configurable — a temperature IS configurable PER MODEL
+// via the `llm_models.default_temperature` column (the operator sets it there).
+// This constant is only the ABSOLUTE FALLBACK when that column is NULL, anchoring
+// the extraction determinism contract (byte-identical reruns) for rows that carry
+// no explicit default. A value of 0.0 is the determinism anchor, not a tunable.
+const ZERO_OK_DEFAULT_TEMPERATURE: f64 = 0.0;
+
+/// Derive the CONSTRUCTION-time temperature for a model from its `llm_models` row,
+/// honoring the per-model temperature capability.
+///
+/// This is the SINGLE SOURCE OF TRUTH for "row → construction temperature". It
+/// replaces the hardcoded `EXTRACTION_TEMPERATURE` in `pipeline::providers`, which
+/// ignored `temperature_mode` and so sent `temperature = 0` to EVERY Claude model
+/// — 400-ing temperature-deprecated ones (e.g. `claude-opus-4-7`).
+///
+/// - `temperature_mode = 'omit'`      → `None` (send NO temperature key; the model
+///   rejects any explicit temperature).
+/// - `'zero-ok'` / NULL (`Unknown`)   → the row's `default_temperature` if set,
+///   else [`ZERO_OK_DEFAULT_TEMPERATURE`] (extraction's long-standing pin).
+///
+/// ## Rust Learning: reuse the token→enum mapping, don't re-match strings
+///
+/// The `'omit'`/`'zero-ok'` vocabulary is owned by
+/// [`TemperatureMode::from_optional_token`] — the SAME mapping the constraint pass
+/// uses. Calling it here (rather than a second `match` on the raw column) means
+/// this construction path cannot drift from the resolver's understanding of the
+/// column, and a malformed token is the same loud [`LlmConfigError`] in both.
+///
+/// # Errors
+///
+/// [`LlmConfigError::UnknownTemperatureMode`] if the row's `temperature_mode`
+/// holds a non-empty, unrecognized token.
+pub fn construction_temperature(record: &LlmModelRecord) -> Result<Option<f64>, LlmConfigError> {
+    let mode =
+        TemperatureMode::from_optional_token(&record.id, record.temperature_mode.as_deref())?;
+    Ok(match mode {
+        TemperatureMode::Omit => None,
+        TemperatureMode::ZeroOk | TemperatureMode::Unknown => record
+            .default_temperature
+            .or(Some(ZERO_OK_DEFAULT_TEMPERATURE)),
+    })
+}
+
 /// A model's structured-output capability, owned by CODE (not a DB CHECK).
 ///
 /// Domain note: `None_` (a KNOWN "cannot") is different from `Unknown` (not
@@ -676,6 +725,63 @@ mod tests {
             structured_output_mode: structured_output_mode.map(String::from),
             max_concurrency: None,
         }
+    }
+
+    // ── construction_temperature (row → provider-construction temperature) ──
+
+    /// A record varying only the two columns `construction_temperature` reads.
+    fn ctemp_record(mode: Option<&str>, default_temperature: Option<f64>) -> LlmModelRecord {
+        let mut r = record(mode, None, None, None);
+        r.default_temperature = default_temperature;
+        r
+    }
+
+    #[test]
+    fn construction_temperature_omit_sends_none_even_with_a_default() {
+        // A temperature-deprecated model (e.g. claude-opus-4-7) omits the key —
+        // and `omit` wins even if a default_temperature is set (the model rejects it).
+        assert_eq!(
+            construction_temperature(&ctemp_record(Some("omit"), None)).expect("valid row"),
+            None
+        );
+        assert_eq!(
+            construction_temperature(&ctemp_record(Some("omit"), Some(0.7))).expect("valid row"),
+            None
+        );
+    }
+
+    #[test]
+    fn construction_temperature_zero_ok_uses_default_else_the_pin() {
+        assert_eq!(
+            construction_temperature(&ctemp_record(Some("zero-ok"), Some(0.5))).expect("valid row"),
+            Some(0.5)
+        );
+        // zero-ok + NULL default → the deterministic pin (extraction's Some(0.0)).
+        assert_eq!(
+            construction_temperature(&ctemp_record(Some("zero-ok"), None)).expect("valid row"),
+            Some(ZERO_OK_DEFAULT_TEMPERATURE)
+        );
+    }
+
+    #[test]
+    fn construction_temperature_null_mode_behaves_like_zero_ok() {
+        // NULL temperature_mode (Unknown) defaults like zero-ok for construction —
+        // this preserves the extraction models' Some(0.0) if they were ever unmarked.
+        assert_eq!(
+            construction_temperature(&ctemp_record(None, None)).expect("valid row"),
+            Some(ZERO_OK_DEFAULT_TEMPERATURE)
+        );
+        assert_eq!(
+            construction_temperature(&ctemp_record(None, Some(0.3))).expect("valid row"),
+            Some(0.3)
+        );
+    }
+
+    #[test]
+    fn construction_temperature_rejects_an_unknown_token() {
+        let err =
+            construction_temperature(&ctemp_record(Some("hot"), None)).expect_err("bad token");
+        assert!(matches!(err, LlmConfigError::UnknownTemperatureMode { .. }));
     }
 
     // ── Resolution precedence ────────────────────────────────────────────
