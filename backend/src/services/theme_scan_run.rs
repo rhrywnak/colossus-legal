@@ -59,7 +59,7 @@ pub async fn start_theme_scan(
             run_id,
             scenario_id,
             model_id: prepared.model_id.clone(),
-            resolved_params: params_snapshot(&prepared.params),
+            resolved_params: params_snapshot(&prepared.params, &prepared.prompt_file),
             dry_run,
             candidates_total,
             started_at: Utc::now(),
@@ -71,6 +71,7 @@ pub async fn start_theme_scan(
     tracing::info!(
         case_slug, %scenario_id, %run_id, model_id = %prepared.model_id, dry_run,
         concurrency = prepared.concurrency, candidates_total,
+        prompt_file = %prepared.prompt_file,
         "theme scan: started (background)"
     );
 
@@ -192,12 +193,55 @@ fn build_run_final(
 }
 
 /// Serialize the resolved params to the `scan_runs.resolved_params` JSONB shape.
-fn params_snapshot(p: &ResolvedLlmParams) -> serde_json::Value {
+///
+/// `prompt_file` is the resolved judging-prompt filename (from
+/// `THEME_SCAN_PROMPT_FILE`). Recording it here is what makes each run's
+/// provenance answerable from data — "which prompt judged this run" — now that
+/// the filename is deployment config rather than a compiled-in const. The column
+/// is JSONB (caller-owns-serialization), so this addition needs no migration.
+fn params_snapshot(p: &ResolvedLlmParams, prompt_file: &str) -> serde_json::Value {
     serde_json::json!({
         "temperature": p.temperature,
         "timeout_secs": p.timeout_secs,
         "max_tokens": p.max_tokens,
+        "prompt_file": prompt_file,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The `resolved_params` JSONB snapshot must carry the resolved prompt
+    /// filename (run→prompt provenance) alongside the existing param fields.
+    #[test]
+    fn params_snapshot_records_prompt_file_alongside_params() {
+        let params = ResolvedLlmParams {
+            temperature: Some(0.0),
+            timeout_secs: 90,
+            max_tokens: 512,
+        };
+        let snapshot = params_snapshot(&params, "theme_scan_prompt_v2.md");
+
+        assert_eq!(snapshot["prompt_file"], "theme_scan_prompt_v2.md");
+        // The pre-existing fields must survive the addition.
+        assert_eq!(snapshot["timeout_secs"], 90);
+        assert_eq!(snapshot["max_tokens"], 512);
+        assert_eq!(snapshot["temperature"], 0.0);
+    }
+
+    /// A non-default (overridden) prompt filename is recorded verbatim, so a run
+    /// judged with a bumped prompt version is distinguishable in the audit trail.
+    #[test]
+    fn params_snapshot_records_an_overridden_prompt_file() {
+        let params = ResolvedLlmParams {
+            temperature: None,
+            timeout_secs: 30,
+            max_tokens: 256,
+        };
+        let snapshot = params_snapshot(&params, "theme_scan_prompt_v3.md");
+        assert_eq!(snapshot["prompt_file"], "theme_scan_prompt_v3.md");
+    }
 }
 
 /// Read the live status of one scan run for the poll endpoint.

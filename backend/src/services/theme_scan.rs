@@ -54,20 +54,17 @@ use crate::state::AppState;
 // source of truth (Chunk B).
 pub const THEME_SCAN_MAX_TOKENS: u32 = 512;
 
-// CONST: the prompt VERSION this build judges with is a code decision, not a
-// deployment setting. The file CONTENT is tunable without a rebuild (edit + scp
-// to the registry's template dir); selecting a *different* version is a
-// deliberate, reviewed bump (`_v1` → `_v2`) that ships with any matching
-// `Verdict`/parse changes, so the version token is pinned in code on purpose.
-// Only the filename is compiled in; the directory it resolves against is
-// env-driven via the registry (Standing Rule 2 satisfied for the path).
-// v2 (2026-07-16, discovery Q&A pairing): the user message can now carry a
-// `Question asked` line for discovery evidence, and v2 tells the judge to read
-// the answer in light of it. Bumped as a NEW file (not an in-place edit of v1)
-// on purpose: `scan_runs` record which prompt judged them, so editing v1 would
-// silently rewrite the provenance of every prior run and break benchmark
-// reproducibility. A new version + this const bump is the honest change.
-const THEME_SCAN_PROMPT: &str = "theme_scan_prompt_v2.md";
+// Why no `const THEME_SCAN_PROMPT` here anymore: the prompt FILENAME (its
+// version) was a compiled-in const, so bumping the prompt version meant a
+// rebuild+deploy — a Standing-Rule-2 violation (config that varies across
+// deployments must be editable via env/YAML + restart). It now comes from
+// `AppConfig::theme_scan_prompt_file` (env `THEME_SCAN_PROMPT_FILE`, default
+// `theme_scan_prompt_v2.md`), resolved in `config.rs`. The resolved filename is
+// carried on `PreparedScan.prompt_file` and recorded per-run into
+// `scan_runs.resolved_params` — which is what actually satisfies the
+// "which prompt judged this run" provenance concern the const only pretended to.
+// The directory the filename resolves against was already env-driven via the
+// registry's `template_path` (unchanged read path).
 
 /// Top-level, scan-aborting failures.
 ///
@@ -142,9 +139,14 @@ pub enum ThemeScanError {
         source: BiasRepositoryError,
     },
 
-    /// The versioned prompt file is missing/unreadable. Fail-loud, naming the
-    /// path (mirrors the extraction template load).
-    #[error("Theme Scan prompt file not readable at '{path}': {source}")]
+    /// The configured prompt file is missing/unreadable. Fail-loud, naming the
+    /// path (mirrors the extraction template load). Now that the filename is
+    /// `THEME_SCAN_PROMPT_FILE` config, the realistic trigger is a misconfigured
+    /// env var or an un-deployed asset — so the message names the recovery action.
+    #[error(
+        "Theme Scan prompt file not readable at '{path}': {source} \
+         — deploy the file to the registry's template dir or correct THEME_SCAN_PROMPT_FILE"
+    )]
     PromptFileMissing {
         path: String,
         #[source]
@@ -242,6 +244,11 @@ pub(crate) struct PreparedScan {
     pub(crate) params: ResolvedLlmParams,
     /// The resolved model id (after request/`THEME_SCAN_MODEL`/chat-default).
     pub(crate) model_id: String,
+    /// The resolved prompt filename this run judged with (from
+    /// `THEME_SCAN_PROMPT_FILE`, default `theme_scan_prompt_v2.md`). Carried so
+    /// it can be recorded into `scan_runs.resolved_params` — the run→prompt
+    /// provenance that was previously only implied by the compiled-in const.
+    pub(crate) prompt_file: String,
     /// Per-run fan-out cap (A5: model `max_concurrency`, else env default).
     pub(crate) concurrency: usize,
     pub(crate) cost_per_input_token: Option<f64>,
@@ -292,7 +299,14 @@ pub(crate) async fn prepare_scan(
             .map_err(gate_error_into_scan_error)?;
     }
 
-    let prompt_path = state.registry.template_path(THEME_SCAN_PROMPT);
+    // The prompt filename is deployment config (env `THEME_SCAN_PROMPT_FILE`,
+    // resolved+defaulted in `config.rs`), not a compiled-in const. `template_path`
+    // resolves it against the registry's env-driven template dir — the read path
+    // is unchanged. A missing/unreadable file is still a fail-loud, filename-named
+    // `PromptFileMissing` (Standing Rule 1), so a typo in the env var is observable
+    // rather than a silent fallback.
+    let prompt_file = state.config.theme_scan_prompt_file.clone();
+    let prompt_path = state.registry.template_path(&prompt_file);
     let scan_prompt = std::fs::read_to_string(&prompt_path).map_err(|source| {
         ThemeScanError::PromptFileMissing {
             path: prompt_path,
@@ -306,6 +320,7 @@ pub(crate) async fn prepare_scan(
         provider: resolved.provider,
         params: resolved.params,
         model_id: resolved.model_id,
+        prompt_file,
         concurrency: resolved.concurrency,
         cost_per_input_token: resolved.cost_per_input_token,
         cost_per_output_token: resolved.cost_per_output_token,
