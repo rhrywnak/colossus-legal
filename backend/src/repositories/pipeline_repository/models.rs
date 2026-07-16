@@ -190,6 +190,32 @@ pub async fn list_active_models(db: &PgPool) -> Result<Vec<LlmModelRecord>, sqlx
         .await
 }
 
+/// The SQL for the scan-eligible model list. Extracted so a unit test can pin
+/// that BOTH filters are present — a future edit dropping `scan_eligible = true`
+/// would silently re-expose retired models in the scan picker.
+fn scan_eligible_models_sql() -> String {
+    format!(
+        "SELECT {SELECT_COLUMNS} FROM llm_models \
+         WHERE is_active = true AND scan_eligible = true \
+         ORDER BY display_name"
+    )
+}
+
+/// List every active AND scan-eligible model, ordered by display name.
+///
+/// Distinct from [`list_active_models`]: the scan / benchmark model picker shows
+/// only rows flagged `scan_eligible = true`, so retired-but-still-extraction-active
+/// models (e.g. `claude-opus-4-6` / `claude-sonnet-4-6`, kept `is_active = true`
+/// for the extraction profiles) stay OUT of the picker WITHOUT being deactivated.
+/// `list_active_models` is deliberately UNCHANGED — extraction resolution
+/// (`get_active_model_by_id`), the chat provider map, and model-id validation all
+/// keep seeing every active model.
+pub async fn list_scan_eligible_models(db: &PgPool) -> Result<Vec<LlmModelRecord>, sqlx::Error> {
+    sqlx::query_as::<_, LlmModelRecord>(&scan_eligible_models_sql())
+        .fetch_all(db)
+        .await
+}
+
 /// List every model — active AND inactive — ordered by display name.
 ///
 /// Used by the Admin > Models listing so operators can see (and re-activate)
@@ -304,4 +330,24 @@ pub async fn toggle_model_active(
         .bind(model_id)
         .fetch_optional(db)
         .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::scan_eligible_models_sql;
+
+    #[test]
+    fn scan_eligible_sql_filters_on_both_active_and_scan_eligible() {
+        // The scan picker must never re-expose retired models: pin that BOTH
+        // filters are in the query (a dropped clause would leak them back in).
+        let sql = scan_eligible_models_sql();
+        assert!(
+            sql.contains("is_active = true"),
+            "missing is_active filter: {sql}"
+        );
+        assert!(
+            sql.contains("scan_eligible = true"),
+            "missing scan_eligible filter: {sql}"
+        );
+    }
 }

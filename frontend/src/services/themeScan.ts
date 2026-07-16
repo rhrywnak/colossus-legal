@@ -141,9 +141,13 @@ export async function getScanRun(
   return (await response.json()) as ScanRunStatus;
 }
 
-/** Fetch the active model catalog for the picker (registry ids). */
+/** Fetch the SCAN model catalog for the picker (active AND scan_eligible ids).
+ *
+ *  Uses the dedicated `/api/scan/models` endpoint — NOT `/api/chat/models` — so
+ *  the scan picker shows only scan-eligible models (retired-but-extraction-active
+ *  Claude rows are filtered out), while the chat dropdown is left untouched. */
 export async function fetchScanModels(): Promise<ScanModel[]> {
-  const response = await authFetch(`${API_BASE_URL}/api/chat/models`);
+  const response = await authFetch(`${API_BASE_URL}/api/scan/models`);
   if (!response.ok) {
     throw new Error(`Failed to load models${await readErrorMessage(response)}`);
   }

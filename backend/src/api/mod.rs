@@ -322,6 +322,9 @@ fn interaction_routes() -> Router<AppState> {
         .route("/search", post(search::semantic_search))
         .route("/ask", post(ask::ask_the_case))
         .route("/chat/models", get(chat_models::list_chat_models))
+        // Scan/benchmark model picker — active AND scan_eligible only, so retired
+        // (but extraction-active) models stay out of the picker (ruling A).
+        .route("/scan/models", get(chat_models::list_scan_models))
         .route("/qa-history", get(qa::get_qa_history))
         .route("/qa/:id", get(qa::get_qa_entry).delete(qa::delete_qa_entry))
         .route("/qa/:id/rate", patch(qa::rate_qa_entry))

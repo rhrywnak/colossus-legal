@@ -90,9 +90,11 @@ describe("fetchScanModels", () => {
       status: 200,
       json: async () => ({ models: [{ model_id: "m1", display_name: "M1", is_default: true }] }),
     });
+    const fetchMock = global.fetch as unknown as ReturnType<typeof vi.fn>;
     await expect(fetchScanModels()).resolves.toEqual([
       { model_id: "m1", display_name: "M1", is_default: true },
     ]);
+    expect(fetchMock.mock.calls[0][0]).toContain("/api/scan/models");
 
     // @ts-ignore
     global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({}) });

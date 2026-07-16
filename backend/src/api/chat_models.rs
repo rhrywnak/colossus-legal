@@ -73,3 +73,57 @@ pub async fn list_chat_models(
         default_model,
     }))
 }
+
+/// `GET /api/scan/models` handler — the model catalog for the SCAN/benchmark
+/// picker. Identical shape to [`list_chat_models`] but sourced from
+/// `list_scan_eligible_models` (`is_active = true AND scan_eligible = true`), so
+/// retired-but-extraction-active models stay out of the scan picker without being
+/// deactivated (ruling A). Chat's `/api/chat/models` is deliberately untouched.
+///
+/// Requires AI-role auth, matching `/api/chat/models` — a model-catalog read.
+/// `default_model` / `is_default` mark the scan default: `THEME_SCAN_MODEL` when
+/// configured, else the chat default (which, being scan-ineligible, simply yields
+/// `is_default = false` for every listed model — the frontend then selects the
+/// first).
+pub async fn list_scan_models(
+    user: AuthUser,
+    State(state): State<AppState>,
+) -> Result<Json<ChatModelsResponse>, ApiError> {
+    require_ai(&user).map_err(|e| {
+        (
+            axum::http::StatusCode::FORBIDDEN,
+            Json(ErrorResponse { error: e.message }),
+        )
+    })?;
+
+    let rows = models::list_scan_eligible_models(&state.pipeline_pool)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Failed to list scan-eligible llm_models");
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("DB error: {e}"),
+                }),
+            )
+        })?;
+
+    let default_model = state
+        .config
+        .theme_scan_model
+        .clone()
+        .unwrap_or_else(|| state.default_chat_model.clone());
+    let entries = rows
+        .into_iter()
+        .map(|m| ChatModelEntry {
+            is_default: m.id == default_model,
+            model_id: m.id,
+            display_name: m.display_name,
+        })
+        .collect();
+
+    Ok(Json(ChatModelsResponse {
+        models: entries,
+        default_model,
+    }))
+}
