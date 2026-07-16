@@ -33,10 +33,6 @@ import {
   type ThemeScanSummary,
 } from "../services/themeScan";
 
-// The panel shows at most two runs side by side (the existing comparison hero
-// takes exactly two). Selecting a third replaces the oldest selection.
-const MAX_COMPARE = 2;
-
 // CONST: frontend poll/tick cadences are not runtime-configurable (there is no
 // frontend config endpoint); POLL_INTERVAL_MS matches the DocumentsPage
 // processing-poll cadence so the two polling surfaces stay consistent, and
@@ -71,7 +67,7 @@ const ThemeScanPanel: React.FC<Props> = ({ slug, scenarioId, scenarioTitle }) =>
   // `runs` are the persisted headers (newest first) — they survive navigation and
   // reloads, replacing the old ephemeral `completed` map. `summaries` is a LAZY
   // cache of each run's full result, filled by clicking a row (getScanRun).
-  // `selectedRunIds` (0, 1, or 2) drives which runs render / compare.
+  // `selectedRunIds` (0 or 1 — single-select) drives which run renders.
   const [runs, setRuns] = useState<ScanRunHeader[]>([]);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [summaries, setSummaries] = useState<Record<string, ThemeScanSummary>>({});
@@ -178,22 +174,19 @@ const ThemeScanPanel: React.FC<Props> = ({ slug, scenarioId, scenarioTitle }) =>
     }
   }, [selectedModel, benchmarkMode, slug, scenarioId]);
 
-  // ── Select/deselect a history run for display + comparison ──────────────────
-  // Toggling drives which run(s) render below. Capped at MAX_COMPARE: a third
-  // selection drops the OLDEST, keeping the newest two for the comparison hero.
-  // The full result is lazily fetched (getScanRun) and cached the first time a
-  // run is opened — only completed runs carry a `summary`.
-  const onToggleRun = useCallback(
+  // ── Select a history run for display ────────────────────────────────────────
+  // Single-select: click a row to VIEW that run (replaces any prior selection);
+  // click the already-selected row to collapse it. No multi-select/comparison
+  // (a deliberate future opt-in, not the default). Read state DIRECTLY so the
+  // fetch decision doesn't depend on the async setState updater (the old race).
+  const onSelectRun = useCallback(
     async (runId: string) => {
-      let willSelect = false;
-      setSelectedRunIds((sel) => {
-        if (sel.includes(runId)) return sel.filter((id) => id !== runId);
-        willSelect = true;
-        const next = [...sel, runId];
-        return next.length > MAX_COMPARE ? next.slice(next.length - MAX_COMPARE) : next;
-      });
-      // Only fetch when SELECTING a run whose summary we do not already have.
-      if (!willSelect || summaries[runId]) return;
+      if (selectedRunIds.length === 1 && selectedRunIds[0] === runId) {
+        setSelectedRunIds([]);
+        return;
+      }
+      setSelectedRunIds([runId]);
+      if (summaries[runId]) return;
       setDetailError(null);
       try {
         const status = await getScanRun(slug, scenarioId, runId);
@@ -211,7 +204,7 @@ const ThemeScanPanel: React.FC<Props> = ({ slug, scenarioId, scenarioTitle }) =>
         setDetailError(e instanceof Error ? e.message : "Failed to load the run.");
       }
     },
-    [summaries, slug, scenarioId],
+    [selectedRunIds, summaries, slug, scenarioId],
   );
 
   // The selected runs whose full summaries are loaded, keyed by run_id — this is
@@ -266,7 +259,7 @@ const ThemeScanPanel: React.FC<Props> = ({ slug, scenarioId, scenarioTitle }) =>
       <RunHistoryList
         runs={runs}
         selectedRunIds={selectedRunIds}
-        onToggle={onToggleRun}
+        onToggle={onSelectRun}
         modelName={modelName}
       />
       {historyError && (
