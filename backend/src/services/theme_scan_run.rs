@@ -18,7 +18,8 @@ use crate::domain::llm_params::ResolvedLlmParams;
 use crate::dto::{ScanRunHeader, ScanRunListResponse, ScanRunStatusResponse, ThemeScanSummary};
 use crate::repositories::pipeline_repository::{
     delete_scan_run, fail_scan_run, finalize_scan_run_completed, get_scan_run,
-    insert_scan_run_running, list_scan_runs, ScanRunFinal, ScanRunHeaderRow, ScanRunStart,
+    insert_scan_run_running, list_scan_runs, merge_scan_run_into_scenario, ScanRunFinal,
+    ScanRunHeaderRow, ScanRunStart,
 };
 use crate::services::theme_scan::{
     load_scenario_fenced, prepare_scan, PreparedScan, ThemeScanError,
@@ -304,6 +305,49 @@ pub async fn delete_scenario_scan_run(
         return Err(ThemeScanError::ScanRunNotFound { run_id });
     }
     Ok(())
+}
+
+/// Merge one stored scan run's relevant picks into the scenario's candidate facts.
+///
+/// The Merge (set-as-basis) feature: promote a run you already paid for into the
+/// working scenario, status-preserving, with zero LLM calls. Case-fenced with the
+/// SAME two fences as [`get_scan_run_status`] (a caller must not merge across
+/// cases or scenarios):
+///   * **fence 1** — the scenario belongs to `case_slug` ([`load_scenario_fenced`]).
+///   * **fence 2** — the run belongs to THIS scenario. A run that is absent, or
+///     that lives under a different scenario, is [`ThemeScanError::ScanRunNotFound`]
+///     → 404 (identical to the poll's fence-2). This is why fence 2 is an explicit
+///     read+compare here and not left to the merge SQL's own scenario JOIN: the
+///     JOIN would silently merge zero rows, which we must NOT collapse with a
+///     legitimate "run has no relevant picks" zero (Standing Rule 1).
+///
+/// Returns the number of picks that landed as `undecided` suggestions (new or
+/// refreshed); picks preserved as existing `included`/`dropped` curation are not
+/// counted. A completed benchmark run is the normal input, but no status gate is
+/// imposed — a run with no relevant verdicts simply merges zero.
+pub async fn merge_scenario_scan_run(
+    state: &AppState,
+    case_slug: &str,
+    scenario_id: Uuid,
+    run_id: Uuid,
+) -> Result<u64, ThemeScanError> {
+    // fence 1: the scenario belongs to the case.
+    load_scenario_fenced(&state.pipeline_pool, case_slug, scenario_id).await?;
+
+    // fence 2: the run belongs to THIS scenario (else 404) — read+compare, exactly
+    // as get_scan_run_status does, so a wrong-scenario run is a clean not-found
+    // rather than a silent zero-count merge.
+    let row = get_scan_run(&state.pipeline_pool, run_id)
+        .await
+        .map_err(|source| ThemeScanError::ScanRunReadFailed { run_id, source })?
+        .ok_or(ThemeScanError::ScanRunNotFound { run_id })?;
+    if row.scenario_id != scenario_id {
+        return Err(ThemeScanError::ScanRunNotFound { run_id });
+    }
+
+    merge_scan_run_into_scenario(&state.pipeline_pool, scenario_id, run_id)
+        .await
+        .map_err(|source| ThemeScanError::ScanRunMergeFailed { run_id, source })
 }
 
 /// Map one repository header row to its wire DTO. Pure (no I/O) and split out so

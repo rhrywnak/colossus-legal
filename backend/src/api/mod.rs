@@ -195,6 +195,13 @@ fn scenario_routes() -> Router<AppState> {
             get(scenario_theme_scan::get_scenario_scan_run)
                 .delete(scenario_theme_scan::delete_scenario_scan_run_handler),
         )
+        // Merge (set-as-basis): promote a stored run's relevant picks into the
+        // scenario's candidate facts, status-preserving, with zero LLM spend.
+        // Edit-gated + case-fenced inside the handler.
+        .route(
+            "/cases/:slug/scenarios/:scenario_id/scan-runs/:run_id/merge",
+            post(scenario_theme_scan::merge_scenario_scan_run_handler),
+        )
         // List a scenario's scan-run HISTORY (headers only, newest first) so the
         // panel hydrates from the DB and survives navigation. Retrieval-only,
         // edit-gated + case-fenced inside the handler.

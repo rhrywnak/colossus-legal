@@ -27,6 +27,7 @@ import {
   fetchScanModels,
   fetchScanRuns,
   getScanRun,
+  mergeScanRun,
   startThemeScan,
   type ScanModel,
   type ScanRunHeader,
@@ -75,6 +76,10 @@ const ThemeScanPanel: React.FC<Props> = ({ slug, scenarioId, scenarioTitle }) =>
   const [selectedRunIds, setSelectedRunIds] = useState<string[]>([]);
   // A per-run detail-load failure is distinct from the list-load failure above.
   const [detailError, setDetailError] = useState<string | null>(null);
+  // The outcome of the most recent Merge, shown as a transient notice under the
+  // results. `ok` distinguishes a success confirmation from a failure (Standing
+  // Rule 1 — the two states look different, not one collapsed "done").
+  const [mergeStatus, setMergeStatus] = useState<{ ok: boolean; text: string } | null>(null);
 
   // Re-read the persisted history (after a scan finishes, or on mount).
   const refreshRuns = useCallback(() => {
@@ -235,6 +240,29 @@ const ThemeScanPanel: React.FC<Props> = ({ slug, scenarioId, scenarioTitle }) =>
     [slug, scenarioId, refreshRuns],
   );
 
+  // ── Merge a stored run's relevant picks into the scenario ───────────────────
+  // The button owns the confirm; the panel owns the network call and the outcome
+  // notice. Replays stored verdicts (zero LLM spend); status-preserving, so a
+  // failure is surfaced (Standing Rule 1) and a success reports how many picks
+  // landed. The Candidate Facts list lives on a different page, so there is
+  // nothing to re-hydrate here — the notice is the whole feedback.
+  const onMergeRun = useCallback(
+    async (runId: string) => {
+      setMergeStatus(null);
+      try {
+        const { merged } = await mergeScanRun(slug, scenarioId, runId);
+        const noun = merged === 1 ? "pick" : "picks";
+        setMergeStatus({
+          ok: true,
+          text: `Merged ${merged} relevant ${noun} into Candidate Facts as Undecided. Your included/dropped decisions were preserved.`,
+        });
+      } catch (e) {
+        setMergeStatus({ ok: false, text: e instanceof Error ? e.message : "Failed to merge the run." });
+      }
+    },
+    [slug, scenarioId],
+  );
+
   // The selected runs whose full summaries are loaded, keyed by run_id — this is
   // what feeds the EXISTING results display + comparison hero (one entry → a
   // single result; two → the hero). Order follows selection.
@@ -305,7 +333,12 @@ const ThemeScanPanel: React.FC<Props> = ({ slug, scenarioId, scenarioTitle }) =>
       {/* The EXISTING results display + comparison hero, fed by the selected runs
           (one → a single result; two → the hero). */}
       {hasSelectedResults && (
-        <ResultsArea completed={selectedSummaries} modelName={modelName} />
+        <ResultsArea completed={selectedSummaries} modelName={modelName} onMerge={onMergeRun} />
+      )}
+      {mergeStatus && (
+        <div style={mergeStatus.ok ? S.mergeNotice : S.errorBox} role="status">
+          {mergeStatus.text}
+        </div>
       )}
     </section>
   );
@@ -419,7 +452,8 @@ const ResultsArea: React.FC<{
   // record key, so a run still labels correctly.
   completed: Record<string, ThemeScanSummary>;
   modelName: (id: string) => string;
-}> = ({ completed, modelName }) => {
+  onMerge: (runId: string) => void;
+}> = ({ completed, modelName, onMerge }) => {
   const runs = Object.entries(completed);
   const showHero = runs.length >= 2;
   const [a, b] = runs.map(([, s]) => s);
@@ -432,7 +466,12 @@ const ResultsArea: React.FC<{
         </div>
       )}
       {runs.map(([runId, summary]) => (
-        <RunResult key={runId} summary={summary} modelName={modelName(summary.model_id)} />
+        <RunResult
+          key={runId}
+          summary={summary}
+          modelName={modelName(summary.model_id)}
+          onMerge={onMerge}
+        />
       ))}
     </div>
   );
@@ -479,10 +518,11 @@ const HeroSide: React.FC<{ summary: ThemeScanSummary; modelName: string }> = ({
   </div>
 );
 
-const RunResult: React.FC<{ summary: ThemeScanSummary; modelName: string }> = ({
-  summary,
-  modelName,
-}) => {
+const RunResult: React.FC<{
+  summary: ThemeScanSummary;
+  modelName: string;
+  onMerge: (runId: string) => void;
+}> = ({ summary, modelName, onMerge }) => {
   // The judge fans out with `buffer_unordered`, so `suggestions` arrives in
   // completion order, not ranked. Present the STRONGEST findings first: sort a
   // COPY (spread before sort — Array.prototype.sort mutates in place, and the
@@ -497,6 +537,27 @@ const RunResult: React.FC<{ summary: ThemeScanSummary; modelName: string }> = ({
         <span style={S.modelChip}>{modelName}</span>
         <span style={S.completePill}>Complete</span>
         <span style={S.muted}>{formatElapsed(summary.duration_ms)}</span>
+        <button
+          type="button"
+          style={S.mergeButton}
+          onClick={(e) => {
+            // Defensive stopPropagation (harmless here — the dashboard is not a
+            // clickable row): keeps the button safe if RunResult is ever nested in
+            // a selectable container. Confirm is the guard before a write.
+            e.stopPropagation();
+            const count = summary.relevant_written;
+            const noun = count === 1 ? "pick" : "picks";
+            if (
+              window.confirm(
+                `Merge ${count} relevant ${noun}? Your included/dropped decisions are preserved.`,
+              )
+            ) {
+              onMerge(summary.run_id);
+            }
+          }}
+        >
+          Merge into scenario
+        </button>
       </div>
 
       <div style={{ ...S.tileRow, ...S.sticky }}>
@@ -664,6 +725,31 @@ const S: Record<string, React.CSSProperties> = {
     border: "1px solid var(--state-danger-strong)",
     borderRadius: "8px",
     color: "var(--state-danger-strong)",
+    fontSize: "0.85rem",
+  },
+  mergeButton: {
+    // Pinned to the right of the result header (marginLeft:auto after the muted
+    // elapsed). Accent-outlined to read as the primary action on a viewed run.
+    marginLeft: "auto",
+    fontSize: "0.78rem",
+    fontWeight: 600,
+    color: "var(--accent-primary)",
+    background: "var(--accent-bg-soft)",
+    border: "1px solid var(--accent-primary)",
+    borderRadius: "8px",
+    padding: "4px 12px",
+    cursor: "pointer",
+    fontFamily: "var(--font-sans)",
+  },
+  mergeNotice: {
+    // Success twin of errorBox — same shape, success color, so a merge outcome
+    // reads as distinct from a failure at a glance (Standing Rule 1).
+    marginTop: "12px",
+    padding: "12px 14px",
+    background: "var(--bg-page)",
+    border: "1px solid var(--state-success-strong)",
+    borderRadius: "8px",
+    color: "var(--state-success-strong)",
     fontSize: "0.85rem",
   },
 

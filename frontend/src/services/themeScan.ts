@@ -178,6 +178,34 @@ export async function fetchScanRuns(
   return body.runs ?? [];
 }
 
+/** Result of merging a stored run's relevant picks into the scenario (backend
+ *  `ScanRunMergeResponse`). `merged` is how many candidate facts were inserted or
+ *  refreshed as Undecided suggestions — your Included/Dropped decisions are
+ *  preserved and NOT counted. */
+export type ScanRunMergeResponse = {
+  merged: number;
+};
+
+/** Merge a stored run's relevant picks into the scenario's candidate facts.
+ *
+ *  Replays already-stored verdicts (zero LLM spend). Status-preserving: picks land
+ *  as Undecided suggestions, but any Included/Dropped ruling you made survives. A
+ *  non-2xx throws with the backend message (Standing Rule 1 — never swallowed). */
+export async function mergeScanRun(
+  slug: string,
+  scenarioId: string,
+  runId: string,
+): Promise<ScanRunMergeResponse> {
+  const response = await authFetch(
+    `${scenarioBase(slug, scenarioId)}/scan-runs/${encodeURIComponent(runId)}/merge`,
+    { method: "POST" },
+  );
+  if (!response.ok) {
+    throw new Error(`Failed to merge scan run${await readErrorMessage(response)}`);
+  }
+  return (await response.json()) as ScanRunMergeResponse;
+}
+
 /** Delete one scan run (and its per-candidate verdicts, which cascade backend-side).
  *
  *  DELETE is idempotent-shaped from the caller's view but the backend distinguishes

@@ -244,3 +244,19 @@ fn display_scan_run_delete_failed_names_run_and_source() {
     assert!(s.contains(&Uuid::nil().to_string()), "missing run id: {s}");
     assert!(s.contains("delete boom"), "source not surfaced: {s}");
 }
+
+#[test]
+fn display_scan_run_merge_failed_names_run_and_source() {
+    // A failed MERGE must name BOTH the run and the DB cause (Standing Rule 1) —
+    // distinct from ScanRunNotFound (run absent/wrong scenario) and from a
+    // legitimate zero-count merge (no relevant picks / all preserved).
+    let s = ThemeScanError::ScanRunMergeFailed {
+        run_id: Uuid::nil(),
+        source: crate::repositories::pipeline_repository::PipelineRepoError::Database(
+            "merge boom".to_string(),
+        ),
+    }
+    .to_string();
+    assert!(s.contains(&Uuid::nil().to_string()), "missing run id: {s}");
+    assert!(s.contains("merge boom"), "source not surfaced: {s}");
+}

@@ -10,6 +10,7 @@ import {
   fetchScanModels,
   fetchScanRuns,
   getScanRun,
+  mergeScanRun,
   startThemeScan,
 } from "../themeScan";
 
@@ -156,6 +157,36 @@ describe("deleteScanRun", () => {
     });
     await expect(deleteScanRun(SLUG, SCENARIO, RUN)).rejects.toThrow(
       /Failed to delete scan run.*scan run not found/,
+    );
+  });
+});
+
+describe("mergeScanRun", () => {
+  it("POSTs the merge URL and returns the merged count", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ merged: 12 }),
+    });
+    // @ts-ignore — minimal fetch mock
+    global.fetch = fetchMock;
+
+    await expect(mergeScanRun(SLUG, SCENARIO, RUN)).resolves.toEqual({ merged: 12 });
+
+    const [url, options] = fetchMock.mock.calls[0];
+    expect(url).toContain(`/api/cases/${SLUG}/scenarios/${SCENARIO}/scan-runs/${RUN}/merge`);
+    expect(options.method).toBe("POST");
+  });
+
+  it("throws with the backend message on a non-2xx (e.g. 404 not found)", async () => {
+    // @ts-ignore
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      json: async () => ({ message: "scan run not found" }),
+    });
+    await expect(mergeScanRun(SLUG, SCENARIO, RUN)).rejects.toThrow(
+      /Failed to merge scan run.*scan run not found/,
     );
   });
 });

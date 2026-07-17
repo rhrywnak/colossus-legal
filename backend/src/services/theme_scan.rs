@@ -251,6 +251,18 @@ pub enum ThemeScanError {
         #[source]
         source: PipelineRepoError,
     },
+
+    /// Merging one scan run's relevant picks into the scenario failed (DB error).
+    /// Distinct from [`Self::ScanRunNotFound`] (the run is absent / not in this
+    /// scenario → 404) and from a legitimate zero-count merge (the run has no
+    /// relevant picks, or every pick was preserved as human curation → 200 with
+    /// `merged = 0`). This is an actual write failure. Server-side (500).
+    #[error("failed to merge scan run {run_id}: {source}")]
+    ScanRunMergeFailed {
+        run_id: Uuid,
+        #[source]
+        source: PipelineRepoError,
+    },
 }
 
 /// Everything a scan needs to judge, resolved and validated up front.

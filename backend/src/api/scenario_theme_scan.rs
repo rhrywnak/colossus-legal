@@ -16,12 +16,16 @@ use uuid::Uuid;
 
 use crate::{
     auth::{require_edit, AuthUser},
-    dto::{ScanRequest, ScanRunListResponse, ScanRunStatusResponse, ScanStartedResponse},
+    dto::{
+        ScanRequest, ScanRunListResponse, ScanRunMergeResponse, ScanRunStatusResponse,
+        ScanStartedResponse,
+    },
     error::AppError,
     repositories::pipeline_repository::SCAN_STATUS_RUNNING,
     services::theme_scan::ThemeScanError,
     services::theme_scan_run::{
-        delete_scenario_scan_run, get_scan_run_status, list_scenario_scan_runs, start_theme_scan,
+        delete_scenario_scan_run, get_scan_run_status, list_scenario_scan_runs,
+        merge_scenario_scan_run, start_theme_scan,
     },
     state::AppState,
 };
@@ -169,6 +173,42 @@ pub async fn delete_scenario_scan_run_handler(
         .await
         .map_err(map_scan_error)?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// `POST /cases/:slug/scenarios/:scenario_id/scan-runs/:run_id/merge` — merge a
+/// stored run's relevant picks into the scenario's candidate facts.
+///
+/// Edit-gated (`require_edit` — it WRITES `scenario_fact_refs`) and case-fenced
+/// identically to [`get_scenario_scan_run`]. Replays already-stored verdicts, so
+/// it spends NO LLM budget. Returns `{ merged }` — the number of picks inserted or
+/// refreshed as `undecided` suggestions; existing human `included`/`dropped`
+/// curation is preserved and NOT counted. A run absent from this scenario is a 404.
+#[tracing::instrument(skip(state, user), fields(slug = %slug, scenario_id = %scenario_id, run_id = %run_id))]
+pub async fn merge_scenario_scan_run_handler(
+    user: AuthUser,
+    State(state): State<AppState>,
+    Path((slug, scenario_id, run_id)): Path<(String, String, String)>,
+) -> Result<Json<ScanRunMergeResponse>, AppError> {
+    require_edit(&user)?;
+
+    // Both path ids parse up front so a malformed id is a clean 400, not a "not
+    // found" masquerade (identical to the GET poll and DELETE).
+    let scenario_uuid = Uuid::parse_str(&scenario_id).map_err(|_| AppError::BadRequest {
+        message: "scenario_id must be a valid UUID".to_string(),
+        details: json!({ "field": "scenario_id" }),
+    })?;
+    let run_uuid = Uuid::parse_str(&run_id).map_err(|_| AppError::BadRequest {
+        message: "run_id must be a valid UUID".to_string(),
+        details: json!({ "field": "run_id" }),
+    })?;
+
+    let merged = merge_scenario_scan_run(&state, &slug, scenario_uuid, run_uuid)
+        .await
+        .map_err(map_scan_error)?;
+    // `rows_affected` is a u64; the ~94-candidate ceiling is nowhere near i64 range.
+    Ok(Json(ScanRunMergeResponse {
+        merged: merged as i64,
+    }))
 }
 
 /// Map a [`ThemeScanError`] onto its HTTP surface.
@@ -323,6 +363,20 @@ mod tests {
         // logged, never leaked (same policy as ScanRunReadFailed / ScanRunListFailed).
         // Distinct from ScanRunNotFound (zero rows deleted), which maps to 404.
         let e = ThemeScanError::ScanRunDeleteFailed {
+            run_id: Uuid::nil(),
+            source: crate::repositories::pipeline_repository::PipelineRepoError::Database(
+                "boom".to_string(),
+            ),
+        };
+        assert!(matches!(map_scan_error(e), AppError::Internal { .. }));
+    }
+
+    #[test]
+    fn scan_run_merge_failed_maps_to_500() {
+        // A DB failure MERGING a run's picks is server-side: a generic 500 whose
+        // cause is logged, never leaked. Distinct from ScanRunNotFound (run absent
+        // / wrong scenario → 404) and from a legitimate merged=0 (200).
+        let e = ThemeScanError::ScanRunMergeFailed {
             run_id: Uuid::nil(),
             source: crate::repositories::pipeline_repository::PipelineRepoError::Database(
                 "boom".to_string(),

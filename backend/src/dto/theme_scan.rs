@@ -155,6 +155,18 @@ pub struct ScanRunListResponse {
     pub runs: Vec<ScanRunHeader>,
 }
 
+/// Result of merging one stored run's relevant picks into a scenario.
+///
+/// `merged` is the number of candidate facts inserted or refreshed as `undecided`
+/// suggestions — picks preserved as existing human `included`/`dropped` curation
+/// are deliberately NOT counted (see `merge_scan_run_into_scenario`). `i64`
+/// because the source `rows_affected` is a `u64` count; a scan's ~94-candidate
+/// ceiling is nowhere near the `i64` range, so the cast is lossless.
+#[derive(Debug, Clone, Serialize)]
+pub struct ScanRunMergeResponse {
+    pub merged: i64,
+}
+
 /// Result of one Theme Scan run.
 ///
 /// The four counts are exhaustive and non-overlapping:

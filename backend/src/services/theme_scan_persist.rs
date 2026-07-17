@@ -13,10 +13,9 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::bias::dto::BiasInstance;
-use crate::domain::fact_status::FactStatus;
 use crate::dto::{ThemeScanRejected, ThemeScanSuggestion, ThemeScanSummary};
 use crate::repositories::pipeline_repository::{
-    insert_scan_run_verdicts, upsert_fact_ref, PipelineRepoError, ScanRunVerdictRecord,
+    insert_scan_run_verdicts, reconcile_fact_ref, PipelineRepoError, ScanRunVerdictRecord,
 };
 use crate::services::theme_scan_judge::JudgeOutcome;
 use crate::services::theme_scan_parse::Verdict;
@@ -248,21 +247,35 @@ async fn maybe_write_relevant(
     }
 }
 
-/// Upsert one relevant verdict as an `undecided` suggestion (awaits a human
-/// include/drop ruling).
+/// Reconcile one relevant verdict as an `undecided` suggestion (awaits a human
+/// include/drop ruling), status-preserving.
+///
+/// ## Why `reconcile_fact_ref`, not `upsert_fact_ref` (latent-bug fix)
+///
+/// `upsert_fact_ref` overwrites `status = EXCLUDED.status` on conflict, so a
+/// non-dry RE-scan used to silently reset a candidate the human had already
+/// `Included` or `Dropped` back to `undecided` — destroying curation on every
+/// re-run. `reconcile_fact_ref` refreshes only the LLM layer (role + confidence)
+/// and leaves an `included`/`dropped` row untouched, so re-scans are now safe.
+///
+/// ## Why no `note`
+///
+/// The reconcile deliberately never writes `note` — that column is the human's.
+/// The model's `reason` is NOT lost: it is stored per-candidate in
+/// `scan_run_verdicts.reason` (the audit record) and rides the live
+/// `ThemeScanSuggestion` card. This drops the previous (mis)use of `note` to
+/// carry the LLM reason onto the fact ref.
 async fn write_relevant(
     pool: &PgPool,
     scenario_id: Uuid,
     candidate: &BiasInstance,
     verdict: &Verdict,
 ) -> Result<(), PipelineRepoError> {
-    upsert_fact_ref(
+    reconcile_fact_ref(
         pool,
         scenario_id,
         &candidate.evidence_id,
         Some(verdict.proposed_role.code()),
-        FactStatus::Undecided,
-        Some(&verdict.reason),
         Some(verdict.confidence),
     )
     .await
