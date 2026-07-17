@@ -336,6 +336,44 @@ const LIST_SCAN_RUNS_SQL: &str = "SELECT run_id, model_id, dry_run, status, \
      computed_cost::float8 AS computed_cost, duration_ms, started_at \
      FROM scan_runs WHERE scenario_id = $1 ORDER BY started_at DESC";
 
+// ─── 8. DELETE (remove one run) ──────────────────────────────────────────────
+
+/// The delete query. Extracted as a `const` (house pattern, mirrors
+/// [`LIST_SCAN_RUNS_SQL`]) so a SQL-shape unit test can assert the `scenario_id`
+/// fence without a live database. The `scan_run_verdicts` child rows cascade via
+/// their `run_id` foreign key (`ON DELETE CASCADE`, migration 20260715121130), so
+/// this single statement removes the run AND its per-candidate verdicts. Not
+/// deployment-varying — query text, not config, so Rule 13 does not apply.
+const DELETE_SCAN_RUN_SQL: &str = "DELETE FROM scan_runs WHERE run_id = $1 AND scenario_id = $2";
+
+/// Delete one scan run, scoped by BOTH `run_id` AND `scenario_id`.
+///
+/// The `scenario_id` in the `WHERE` is the case-fence made durable at the SQL
+/// layer (Standing Rule 1 — a caller cannot delete a run that belongs to another
+/// scenario, even with a valid `run_id`): a run in a different scenario matches
+/// zero rows, indistinguishable from a truly-absent id. Returns the number of
+/// rows deleted so the caller can map `0` to a 404 (not-found) rather than a
+/// silent success. The `scan_run_verdicts` detail cascades (see the SQL doc).
+///
+/// ## Rust Learning: `rows_affected()` as the found/not-found signal
+///
+/// A `DELETE` that matches nothing is NOT an error in SQL — it succeeds with zero
+/// rows touched. `sqlx`'s `PgQueryResult::rows_affected()` returns that count, so
+/// the caller distinguishes "deleted it" (`1`) from "no such run here" (`0`)
+/// without a preceding `SELECT`. One statement, one round-trip, no TOCTOU window.
+pub async fn delete_scan_run(
+    pool: &PgPool,
+    scenario_id: Uuid,
+    run_id: Uuid,
+) -> Result<u64, PipelineRepoError> {
+    let result = sqlx::query(DELETE_SCAN_RUN_SQL)
+        .bind(run_id)
+        .bind(scenario_id)
+        .execute(pool)
+        .await?;
+    Ok(result.rows_affected())
+}
+
 // ─── Per-candidate verdict detail (unchanged from Chunk B) ────────────────────
 
 /// One row of `scan_run_verdicts` — a per-candidate verdict.

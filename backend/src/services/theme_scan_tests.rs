@@ -228,3 +228,19 @@ fn display_scan_run_not_found_names_run() {
     assert!(s.contains(&Uuid::nil().to_string()), "missing run id: {s}");
     assert!(s.contains("not found"), "unexpected message: {s}");
 }
+
+#[test]
+fn display_scan_run_delete_failed_names_run_and_source() {
+    // A failed DELETE must name BOTH the run it could not delete and the DB cause
+    // (Standing Rule 1) — distinct from ScanRunNotFound, which is the legitimate
+    // "zero rows, nothing to delete" outcome, not a failure.
+    let s = ThemeScanError::ScanRunDeleteFailed {
+        run_id: Uuid::nil(),
+        source: crate::repositories::pipeline_repository::PipelineRepoError::Database(
+            "delete boom".to_string(),
+        ),
+    }
+    .to_string();
+    assert!(s.contains(&Uuid::nil().to_string()), "missing run id: {s}");
+    assert!(s.contains("delete boom"), "source not surfaced: {s}");
+}

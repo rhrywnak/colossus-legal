@@ -23,6 +23,7 @@ import RunHistoryList from "./RunHistoryList";
 import { computeAgreement, costLabel, formatElapsed } from "./themeScanFormat";
 import { gatherCandidates } from "../services/scenarioGather";
 import {
+  deleteScanRun,
   fetchScanModels,
   fetchScanRuns,
   getScanRun,
@@ -207,6 +208,33 @@ const ThemeScanPanel: React.FC<Props> = ({ slug, scenarioId, scenarioTitle }) =>
     [selectedRunIds, summaries, slug, scenarioId],
   );
 
+  // ── Delete a history run ────────────────────────────────────────────────────
+  // The row owns the confirm; the panel owns the network call, its error UI, and
+  // the post-delete state cleanup (Standing Rule 1 — a failed delete is surfaced
+  // in the history error box, never swallowed). On success: re-hydrate the history
+  // from the DB (the run is now gone), and if the deleted run was the one open
+  // below, clear the selection and drop its cached summary so the results area
+  // does not render a run that no longer exists.
+  const onDeleteRun = useCallback(
+    async (runId: string) => {
+      try {
+        await deleteScanRun(slug, scenarioId, runId);
+      } catch (e) {
+        setHistoryError(e instanceof Error ? e.message : "Failed to delete the run.");
+        return;
+      }
+      refreshRuns();
+      setSelectedRunIds((sel) => sel.filter((id) => id !== runId));
+      setSummaries((m) => {
+        if (!(runId in m)) return m;
+        const next = { ...m };
+        delete next[runId];
+        return next;
+      });
+    },
+    [slug, scenarioId, refreshRuns],
+  );
+
   // The selected runs whose full summaries are loaded, keyed by run_id — this is
   // what feeds the EXISTING results display + comparison hero (one entry → a
   // single result; two → the hero). Order follows selection.
@@ -260,6 +288,7 @@ const ThemeScanPanel: React.FC<Props> = ({ slug, scenarioId, scenarioTitle }) =>
         runs={runs}
         selectedRunIds={selectedRunIds}
         onToggle={onSelectRun}
+        onDelete={onDeleteRun}
         modelName={modelName}
       />
       {historyError && (
@@ -453,37 +482,47 @@ const HeroSide: React.FC<{ summary: ThemeScanSummary; modelName: string }> = ({
 const RunResult: React.FC<{ summary: ThemeScanSummary; modelName: string }> = ({
   summary,
   modelName,
-}) => (
-  <div style={S.runResult}>
-    <div style={S.runResultHead}>
-      <span style={S.modelChip}>{modelName}</span>
-      <span style={S.completePill}>Complete</span>
-      <span style={S.muted}>{formatElapsed(summary.duration_ms)}</span>
-    </div>
+}) => {
+  // The judge fans out with `buffer_unordered`, so `suggestions` arrives in
+  // completion order, not ranked. Present the STRONGEST findings first: sort a
+  // COPY (spread before sort — Array.prototype.sort mutates in place, and the
+  // source array lives in the cached summary) by confidence descending. Every
+  // suggestion is a RELEVANT verdict, so each carries a confidence — no
+  // null-guard is needed here (unlike a nullable field, this is always present).
+  const rankedSuggestions = [...summary.suggestions].sort((a, b) => b.confidence - a.confidence);
 
-    <div style={{ ...S.tileRow, ...S.sticky }}>
-      <LiveTile label="Read" value={summary.candidates_read} tone="muted" />
-      <LiveTile label="Relevant" value={summary.relevant_written} tone="success" />
-      <LiveTile label="Not relevant" value={summary.irrelevant} tone="muted" />
-      <LiveTile label="Failed" value={summary.failed} tone="danger" />
-    </div>
-
-    <div style={S.findingsHead}>Top relevant findings</div>
-    {summary.suggestions.length === 0 && <div style={S.muted}>No relevant quotes found.</div>}
-    {summary.suggestions.map((sug) => (
-      <div key={sug.graph_node_id} style={S.finding}>
-        <EvidenceCard
-          instance={sug.content}
-          action={
-            <span style={S.roleBadge}>
-              {sug.proposed_role} · {Math.round(sug.confidence * 100)}%
-            </span>
-          }
-        />
+  return (
+    <div style={S.runResult}>
+      <div style={S.runResultHead}>
+        <span style={S.modelChip}>{modelName}</span>
+        <span style={S.completePill}>Complete</span>
+        <span style={S.muted}>{formatElapsed(summary.duration_ms)}</span>
       </div>
-    ))}
-  </div>
-);
+
+      <div style={{ ...S.tileRow, ...S.sticky }}>
+        <LiveTile label="Read" value={summary.candidates_read} tone="muted" />
+        <LiveTile label="Relevant" value={summary.relevant_written} tone="success" />
+        <LiveTile label="Not relevant" value={summary.irrelevant} tone="muted" />
+        <LiveTile label="Failed" value={summary.failed} tone="danger" />
+      </div>
+
+      <div style={S.findingsHead}>Top relevant findings</div>
+      {rankedSuggestions.length === 0 && <div style={S.muted}>No relevant quotes found.</div>}
+      {rankedSuggestions.map((sug) => (
+        <div key={sug.graph_node_id} style={S.finding}>
+          <EvidenceCard
+            instance={sug.content}
+            action={
+              <span style={S.roleBadge}>
+                {sug.proposed_role} · {Math.round(sug.confidence * 100)}%
+              </span>
+            }
+          />
+        </div>
+      ))}
+    </div>
+  );
+};
 
 // ─── styling (tokens.css only) ────────────────────────────────────────────────
 

@@ -178,6 +178,26 @@ export async function fetchScanRuns(
   return body.runs ?? [];
 }
 
+/** Delete one scan run (and its per-candidate verdicts, which cascade backend-side).
+ *
+ *  DELETE is idempotent-shaped from the caller's view but the backend distinguishes
+ *  "deleted" (204) from "no such run in this scenario" (404); a non-2xx throws with
+ *  the backend message (Standing Rule 1 — a failed delete is observable, never
+ *  swallowed). Returns nothing on success (the backend sends 204 No Content). */
+export async function deleteScanRun(
+  slug: string,
+  scenarioId: string,
+  runId: string,
+): Promise<void> {
+  const response = await authFetch(
+    `${scenarioBase(slug, scenarioId)}/scan-runs/${encodeURIComponent(runId)}`,
+    { method: "DELETE" },
+  );
+  if (!response.ok) {
+    throw new Error(`Failed to delete scan run${await readErrorMessage(response)}`);
+  }
+}
+
 /** Fetch the SCAN model catalog for the picker (active AND scan_eligible ids).
  *
  *  Uses the dedicated `/api/scan/models` endpoint — NOT `/api/chat/models` — so

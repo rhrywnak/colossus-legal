@@ -5,7 +5,13 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { fetchScanModels, fetchScanRuns, getScanRun, startThemeScan } from "../themeScan";
+import {
+  deleteScanRun,
+  fetchScanModels,
+  fetchScanRuns,
+  getScanRun,
+  startThemeScan,
+} from "../themeScan";
 
 const SLUG = "awad";
 const SCENARIO = "11111111-1111-1111-1111-111111111111";
@@ -125,6 +131,32 @@ describe("fetchScanRuns", () => {
     // @ts-ignore
     global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 500, json: async () => ({}) });
     await expect(fetchScanRuns(SLUG, SCENARIO)).rejects.toThrow(/Failed to load scan history/);
+  });
+});
+
+describe("deleteScanRun", () => {
+  it("DELETEs the per-run URL and resolves on a 204", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 204, json: async () => ({}) });
+    // @ts-ignore — minimal fetch mock
+    global.fetch = fetchMock;
+
+    await expect(deleteScanRun(SLUG, SCENARIO, RUN)).resolves.toBeUndefined();
+
+    const [url, options] = fetchMock.mock.calls[0];
+    expect(url).toContain(`/api/cases/${SLUG}/scenarios/${SCENARIO}/scan-runs/${RUN}`);
+    expect(options.method).toBe("DELETE");
+  });
+
+  it("throws with the backend message on a non-2xx (e.g. 404 not found)", async () => {
+    // @ts-ignore
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      json: async () => ({ message: "scan run not found" }),
+    });
+    await expect(deleteScanRun(SLUG, SCENARIO, RUN)).rejects.toThrow(
+      /Failed to delete scan run.*scan run not found/,
+    );
   });
 });
 

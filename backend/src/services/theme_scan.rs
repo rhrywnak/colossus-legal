@@ -239,6 +239,18 @@ pub enum ThemeScanError {
         #[source]
         source: PipelineRepoError,
     },
+
+    /// Deleting one scan run failed (DB error). Distinct from
+    /// [`Self::ScanRunNotFound`] — that is a legitimate "no such run here" (zero
+    /// rows deleted → 404); this is an actual DB failure the delete could not
+    /// even attempt cleanly (Standing Rule 1 — the two outcomes are not
+    /// collapsed). Names the `run_id` it could not delete. Server-side (500).
+    #[error("failed to delete scan run {run_id}: {source}")]
+    ScanRunDeleteFailed {
+        run_id: Uuid,
+        #[source]
+        source: PipelineRepoError,
+    },
 }
 
 /// Everything a scan needs to judge, resolved and validated up front.

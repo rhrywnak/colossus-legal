@@ -17,8 +17,8 @@ use uuid::Uuid;
 use crate::domain::llm_params::ResolvedLlmParams;
 use crate::dto::{ScanRunHeader, ScanRunListResponse, ScanRunStatusResponse, ThemeScanSummary};
 use crate::repositories::pipeline_repository::{
-    fail_scan_run, finalize_scan_run_completed, get_scan_run, insert_scan_run_running,
-    list_scan_runs, ScanRunFinal, ScanRunHeaderRow, ScanRunStart,
+    delete_scan_run, fail_scan_run, finalize_scan_run_completed, get_scan_run,
+    insert_scan_run_running, list_scan_runs, ScanRunFinal, ScanRunHeaderRow, ScanRunStart,
 };
 use crate::services::theme_scan::{
     load_scenario_fenced, prepare_scan, PreparedScan, ThemeScanError,
@@ -271,6 +271,39 @@ pub async fn list_scenario_scan_runs(
 
     let runs = rows.into_iter().map(scan_run_header_from_row).collect();
     Ok(ScanRunListResponse { runs })
+}
+
+/// Delete one of a scenario's scan runs.
+///
+/// Case-fenced with the SAME two fences as [`get_scan_run_status`], but the
+/// second fence lives in the SQL rather than a post-read compare:
+///   * **fence 1** — the scenario must belong to `case_slug`
+///     ([`load_scenario_fenced`]); a miss is [`ThemeScanError::ScenarioNotFound`]
+///     → 404, so a caller cannot probe another case's scenarios.
+///   * **fence 2** — the delete is scoped `WHERE run_id = $1 AND scenario_id = $2`
+///     (see [`delete_scan_run`]), so a run that exists but belongs to a different
+///     scenario deletes zero rows — indistinguishable from a truly-absent id.
+///
+/// Zero rows deleted → [`ThemeScanError::ScanRunNotFound`] (→ 404), NOT a silent
+/// success (Standing Rule 1 — "I deleted it" and "there was nothing to delete"
+/// are different observable outcomes). A running run is deletable like any other;
+/// its `scan_run_verdicts` cascade with it.
+pub async fn delete_scenario_scan_run(
+    state: &AppState,
+    case_slug: &str,
+    scenario_id: Uuid,
+    run_id: Uuid,
+) -> Result<(), ThemeScanError> {
+    load_scenario_fenced(&state.pipeline_pool, case_slug, scenario_id).await?;
+
+    let rows_affected = delete_scan_run(&state.pipeline_pool, scenario_id, run_id)
+        .await
+        .map_err(|source| ThemeScanError::ScanRunDeleteFailed { run_id, source })?;
+
+    if rows_affected == 0 {
+        return Err(ThemeScanError::ScanRunNotFound { run_id });
+    }
+    Ok(())
 }
 
 /// Map one repository header row to its wire DTO. Pure (no I/O) and split out so

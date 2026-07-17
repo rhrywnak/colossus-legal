@@ -8,6 +8,7 @@
 
 use axum::{
     extract::{Path, State},
+    http::StatusCode,
     Json,
 };
 use serde_json::json;
@@ -19,7 +20,9 @@ use crate::{
     error::AppError,
     repositories::pipeline_repository::SCAN_STATUS_RUNNING,
     services::theme_scan::ThemeScanError,
-    services::theme_scan_run::{get_scan_run_status, list_scenario_scan_runs, start_theme_scan},
+    services::theme_scan_run::{
+        delete_scenario_scan_run, get_scan_run_status, list_scenario_scan_runs, start_theme_scan,
+    },
     state::AppState,
 };
 
@@ -132,6 +135,40 @@ pub async fn list_scenario_scan_runs_handler(
         .await
         .map_err(map_scan_error)?;
     Ok(Json(runs))
+}
+
+/// `DELETE /cases/:slug/scenarios/:scenario_id/scan-runs/:run_id` — delete a run.
+///
+/// Edit-gated (`require_edit`) and case-fenced identically to
+/// [`get_scenario_scan_run`] — the delete's `scenario_id` scope is the second
+/// fence (see [`delete_scenario_scan_run`]). Success is `204 No Content` (there is
+/// no body to return); an unknown run — or a run that belongs to a different
+/// scenario — is [`ThemeScanError::ScanRunNotFound`] → 404. Named
+/// `_handler` to avoid colliding with the imported service fn of the same base
+/// name (mirrors [`list_scenario_scan_runs_handler`]).
+#[tracing::instrument(skip(state, user), fields(slug = %slug, scenario_id = %scenario_id, run_id = %run_id))]
+pub async fn delete_scenario_scan_run_handler(
+    user: AuthUser,
+    State(state): State<AppState>,
+    Path((slug, scenario_id, run_id)): Path<(String, String, String)>,
+) -> Result<StatusCode, AppError> {
+    require_edit(&user)?;
+
+    // Both path ids parse up front so a malformed id is a clean 400, not a "not
+    // found" masquerade (identical to the GET poll).
+    let scenario_uuid = Uuid::parse_str(&scenario_id).map_err(|_| AppError::BadRequest {
+        message: "scenario_id must be a valid UUID".to_string(),
+        details: json!({ "field": "scenario_id" }),
+    })?;
+    let run_uuid = Uuid::parse_str(&run_id).map_err(|_| AppError::BadRequest {
+        message: "run_id must be a valid UUID".to_string(),
+        details: json!({ "field": "run_id" }),
+    })?;
+
+    delete_scenario_scan_run(&state, &slug, scenario_uuid, run_uuid)
+        .await
+        .map_err(map_scan_error)?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// Map a [`ThemeScanError`] onto its HTTP surface.
@@ -273,6 +310,20 @@ mod tests {
         // whose cause is logged, never leaked (same policy as ScanRunReadFailed).
         let e = ThemeScanError::ScanRunListFailed {
             scenario_id: Uuid::nil(),
+            source: crate::repositories::pipeline_repository::PipelineRepoError::Database(
+                "boom".to_string(),
+            ),
+        };
+        assert!(matches!(map_scan_error(e), AppError::Internal { .. }));
+    }
+
+    #[test]
+    fn scan_run_delete_failed_maps_to_500() {
+        // A DB failure DELETING a run is server-side: a generic 500 whose cause is
+        // logged, never leaked (same policy as ScanRunReadFailed / ScanRunListFailed).
+        // Distinct from ScanRunNotFound (zero rows deleted), which maps to 404.
+        let e = ThemeScanError::ScanRunDeleteFailed {
+            run_id: Uuid::nil(),
             source: crate::repositories::pipeline_repository::PipelineRepoError::Database(
                 "boom".to_string(),
             ),

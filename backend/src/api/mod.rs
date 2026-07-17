@@ -188,10 +188,12 @@ fn scenario_routes() -> Router<AppState> {
             post(scenario_theme_scan::run_scenario_theme_scan),
         )
         // Poll one background scan run: live progress while running, full summary
-        // when completed. Edit-gated + case-fenced inside the handler.
+        // when completed. DELETE removes the run (and its verdicts, which cascade).
+        // Both edit-gated + case-fenced inside the handler.
         .route(
             "/cases/:slug/scenarios/:scenario_id/scan-runs/:run_id",
-            get(scenario_theme_scan::get_scenario_scan_run),
+            get(scenario_theme_scan::get_scenario_scan_run)
+                .delete(scenario_theme_scan::delete_scenario_scan_run_handler),
         )
         // List a scenario's scan-run HISTORY (headers only, newest first) so the
         // panel hydrates from the DB and survives navigation. Retrieval-only,

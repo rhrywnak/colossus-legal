@@ -68,3 +68,23 @@ fn list_scan_runs_sql_scopes_by_scenario_and_orders_newest_first() {
         "the history list must stay light (no summary_json), got: {sql}"
     );
 }
+
+/// SQL-shape guard for the delete. The `scenario_id` predicate is the case-fence:
+/// dropping it would let any valid `run_id` delete a run in another scenario. Pin
+/// both predicates so a future edit that widens the scope fails here and names it.
+#[test]
+fn delete_scan_run_sql_is_fenced_by_run_and_scenario() {
+    let sql = DELETE_SCAN_RUN_SQL;
+    assert!(
+        sql.contains("DELETE FROM scan_runs"),
+        "must delete from scan_runs, got: {sql}"
+    );
+    assert!(
+        sql.contains("run_id = $1"),
+        "must target the run by id ($1), got: {sql}"
+    );
+    assert!(
+        sql.contains("scenario_id = $2"),
+        "must fence the delete by scenario ($2), got: {sql}"
+    );
+}
