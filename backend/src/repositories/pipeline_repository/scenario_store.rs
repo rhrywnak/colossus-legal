@@ -573,8 +573,19 @@ const MERGE_SCAN_RUN_SQL: &str = r#"INSERT INTO scenario_fact_refs
 /// ownership); the in-SQL `JOIN … r.scenario_id = $1` is a second guard, not the
 /// primary one (it cannot produce a 404 — a wrong-scenario run would merge zero
 /// rows, indistinguishable from a run with no relevant picks).
+///
+/// ## Rust Learning: `impl sqlx::PgExecutor<'_>` so the caller can wrap this in a transaction
+///
+/// This takes a generic executor rather than a concrete `&PgPool` — the same
+/// generalization [`reconcile_fact_ref`] already uses. The Merge service passes a
+/// `&mut *tx` so this `INSERT … SELECT` and the sibling `insert_scan_run_merge`
+/// (the provenance event) commit as ONE unit: either both land or neither does,
+/// so a merge can never be recorded-without-applying or applied-without-recording.
+/// The SQL text and its status-preserving semantics are UNCHANGED — only the
+/// executor type is generalized. A plain `&PgPool` still satisfies the bound for a
+/// standalone (non-transactional) merge.
 pub async fn merge_scan_run_into_scenario(
-    pool: &PgPool,
+    executor: impl sqlx::PgExecutor<'_>,
     scenario_id: uuid::Uuid,
     run_id: uuid::Uuid,
 ) -> Result<u64, PipelineRepoError> {
@@ -582,7 +593,7 @@ pub async fn merge_scan_run_into_scenario(
         .bind(scenario_id)
         .bind(FactStatus::Undecided.code())
         .bind(run_id)
-        .execute(pool)
+        .execute(executor)
         .await?;
     Ok(result.rows_affected())
 }

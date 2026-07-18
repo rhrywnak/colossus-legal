@@ -143,6 +143,14 @@ pub struct ScanRunHeader {
     pub computed_cost: Option<f64>,
     pub duration_ms: i64,
     pub started_at: DateTime<Utc>,
+    /// How many times this run has been merged into its scenario (`0` = never).
+    /// Drives the run detail: `0` → "Merge into scenario"; `>0` → "Merged N× ·
+    /// last …" plus an explicit Re-merge. Additive field (backward compatible).
+    pub merge_count: i64,
+    /// The most recent merge time, or `null` when never merged. Emitted as `null`
+    /// (not skipped) so the frontend distinguishes "never merged" from a missing
+    /// field — Standing Rule 1.
+    pub last_merged_at: Option<DateTime<Utc>>,
 }
 
 /// Response for `GET .../scan-runs` — the scenario's run history, newest first.

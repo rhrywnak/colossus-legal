@@ -301,6 +301,14 @@ pub struct ScanRunHeaderRow {
     pub computed_cost: Option<f64>,
     pub duration_ms: i64,
     pub started_at: DateTime<Utc>,
+    /// How many times this run has been merged into its scenario — `COUNT(*)` of
+    /// its `scan_run_merges` rows (`0` = never merged). BIGINT → `i64`. Drives the
+    /// run detail's "Merged N×" state; `0` shows the plain "Merge into scenario".
+    pub merge_count: i64,
+    /// The most recent merge time — `MAX(merged_at)` — or `None` when never merged.
+    /// A distinct observable from `merge_count = 0` by construction (they always
+    /// agree), shown as "last <time>" beside the count.
+    pub last_merged_at: Option<DateTime<Utc>>,
 }
 
 /// List every run of one scenario, newest first, as lightweight headers.
@@ -330,10 +338,21 @@ pub async fn list_scan_runs(
 /// cast `::float8` because a bare `NUMERIC` is not `f64`-decodable here (see the
 /// [`ScanRunHeaderRow`] doc). Not deployment-varying — this is query text, not
 /// config, so Rule 13 does not apply.
+//
+// The two correlated subqueries fold each run's merge history (the child
+// `scan_run_merges` rows) into the header: `merge_count` = how many times it was
+// merged, `last_merged_at` = when last. Correlated subqueries (not a GROUP BY
+// JOIN) keep this a drop-in extension of the existing single-row-per-run SELECT —
+// a run with zero merges still returns exactly one header row, with `merge_count`
+// = 0 and `last_merged_at` = NULL (a LEFT JOIN + GROUP BY would reach the same
+// result but restructure the whole query). The `scan_run_merges_run_id_idx`
+// covers both. Query text, not config — Rule 13 N/A.
 const LIST_SCAN_RUNS_SQL: &str = "SELECT run_id, model_id, dry_run, status, \
      candidates_total, candidates_judged, \
      relevant_count, irrelevant_count, failed_count, \
-     computed_cost::float8 AS computed_cost, duration_ms, started_at \
+     computed_cost::float8 AS computed_cost, duration_ms, started_at, \
+     (SELECT COUNT(*) FROM scan_run_merges m WHERE m.run_id = scan_runs.run_id) AS merge_count, \
+     (SELECT MAX(m.merged_at) FROM scan_run_merges m WHERE m.run_id = scan_runs.run_id) AS last_merged_at \
      FROM scan_runs WHERE scenario_id = $1 ORDER BY started_at DESC";
 
 // ─── 8. DELETE (remove one run) ──────────────────────────────────────────────

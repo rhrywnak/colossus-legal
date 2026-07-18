@@ -95,6 +95,14 @@ const RunHistoryRow: React.FC<{
         {run.dry_run ? "Benchmark" : "Real"}
       </span>
       <StatusBadge status={run.status} />
+      {/* Merged marker: a run that has been merged into the scenario reads as such
+          at a glance in the history, without opening it. Absent when never merged
+          (merge_count 0) — distinct states, distinct observables. */}
+      {run.merge_count > 0 && (
+        <span style={S.mergedChip} title={`Merged ${run.merge_count}× into this scenario`}>
+          Merged ✓
+        </span>
+      )}
       <button
         type="button"
         aria-label="Delete run"
@@ -265,6 +273,15 @@ const S: Record<string, React.CSSProperties> = {
     fontWeight: 600,
     color: "var(--text-muted)",
     marginLeft: "auto",
+  },
+  mergedChip: {
+    fontSize: "0.66rem",
+    fontWeight: 600,
+    color: "var(--state-success-strong)",
+    border: "1px solid var(--state-success-border, var(--border-default))",
+    borderRadius: "9999px",
+    padding: "1px 7px",
+    whiteSpace: "nowrap",
   },
 };
 

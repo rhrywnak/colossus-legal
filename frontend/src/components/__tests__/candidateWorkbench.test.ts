@@ -12,6 +12,7 @@ import {
   candidateBadgeLabel,
   countByStatus,
   filterByStatus,
+  filterFromScan,
   findOrphans,
   formatConfidencePct,
   orphansVisibleUnder,
@@ -238,6 +239,28 @@ describe("formatConfidencePct", () => {
     expect(formatConfidencePct(null)).toBe(UNSCORED_LABEL);
     expect(formatConfidencePct(null)).not.toBe("0%");
     expect(formatConfidencePct(null)).not.toBe("");
+  });
+});
+
+// ── filterFromScan ──────────────────────────────────────────────────────────────
+
+describe("filterFromScan", () => {
+  it("keeps only scored (confidence != null) candidates when enabled", () => {
+    const out = filterFromScan(
+      [scored("ev-s", "corroborates", 0.85), candidate("ev-h", "included")],
+      true,
+    );
+    expect(out.map((c) => c.content.evidence_id)).toEqual(["ev-s"]);
+  });
+
+  it("keeps a real 0 score (0 is a model score, not unscored)", () => {
+    const out = filterFromScan([scored("ev-zero", "contradicts", 0)], true);
+    expect(out.map((c) => c.content.evidence_id)).toEqual(["ev-zero"]);
+  });
+
+  it("is the identity filter when disabled (returns everything)", () => {
+    const input = [scored("ev-s", "rebuts", 0.5), candidate("ev-h", "undecided")];
+    expect(filterFromScan(input, false)).toHaveLength(2);
   });
 });
 

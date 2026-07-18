@@ -20,7 +20,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import EvidenceCard from "../pages/BiasExplorer/EvidenceCard";
 import PipelineProgressBar from "./pipeline/PipelineProgressBar";
 import RunHistoryList from "./RunHistoryList";
-import { computeAgreement, costLabel, formatElapsed } from "./themeScanFormat";
+import { computeAgreement, costLabel, formatElapsed, formatMergeState } from "./themeScanFormat";
 import { gatherCandidates } from "../services/scenarioGather";
 import {
   deleteScanRun,
@@ -42,6 +42,60 @@ import {
 // poll value in both surfaces together if the cadence ever changes.
 const POLL_INTERVAL_MS = 3000;
 const ELAPSED_TICK_MS = 1000;
+
+// The Theme Scan card is long; a reviewer working in Candidate Facts wants to fold
+// it away. The collapsed state is REMEMBERED PER-SCENARIO in localStorage so it
+// survives navigation/reload (decision) — one scenario collapsed does not collapse
+// another. Keyed by scenario id under a stable prefix.
+//
+// CONST: a localStorage key prefix must be STABLE across deployments — changing it
+// silently orphans every persisted per-scenario collapse preference (Standing
+// Rule 1: a config-like value whose change has an invisible cost). It is not a
+// configurable operational parameter: it cannot come from server config without a
+// blocking async fetch before the panel's first render, the frontend has no
+// build-time config registry for string constants, and the value is an internal
+// browser-API identifier, not a tunable. So it is a compiled constant by design,
+// not a hardcoded value that belongs in config (Rule 2).
+const COLLAPSE_KEY_PREFIX = "colossus.themeScan.collapsed.";
+
+/** Read the remembered collapsed state for one scenario (default expanded).
+ *  localStorage access is wrapped so a disabled/throwing store (privacy mode,
+ *  quota, SecurityError) degrades to the default rather than crashing the panel.
+ *  The failure is NOT fully swallowed: it is logged so it is observable in the
+ *  console during diagnostics (Standing Rule 1), matching how this panel handles
+ *  its other cosmetic degradation (the candidate-count fetch). No user-facing
+ *  banner — a lost collapse preference is not worth interrupting the reviewer. */
+function readCollapsed(scenarioId: string): boolean {
+  try {
+    return localStorage.getItem(COLLAPSE_KEY_PREFIX + scenarioId) === "1";
+  } catch (e) {
+    // best-effort: reading a REMEMBERED COSMETIC preference. The only failure modes
+    // are an unavailable store (privacy mode / SecurityError) — there is no user
+    // action to recover, and a banner over "your card started expanded" would be
+    // disproportionate noise. We deliberately do NOT surface it to the user; it is
+    // logged so the failure is observable in diagnostics (Standing Rule 1). Falls
+    // back to the safe default (expanded).
+    console.warn("Theme Scan: could not read collapse preference:", e);
+    return false;
+  }
+}
+
+/** Persist the collapsed state for one scenario. Best-effort — a storage failure
+ *  (quota / privacy mode) must not break the toggle. Logged (not silently
+ *  swallowed) so it is observable in diagnostics; no user-facing surface for a
+ *  cosmetic preference (Standing Rule 1 — observable, but proportionate). */
+function writeCollapsed(scenarioId: string, collapsed: boolean): void {
+  try {
+    localStorage.setItem(COLLAPSE_KEY_PREFIX + scenarioId, collapsed ? "1" : "0");
+  } catch (e) {
+    // best-effort: persisting a COSMETIC collapse preference. A storage failure
+    // (quota / privacy mode) has no user recovery and does not affect the current
+    // session — the toggle still works in-memory this visit; only its persistence
+    // is lost. Deliberately NOT surfaced to the user (a banner would be
+    // disproportionate); logged so it is observable in diagnostics (Standing Rule 1).
+    console.warn("Theme Scan: could not save collapse preference:", e);
+  }
+}
 
 interface Props {
   slug: string;
@@ -80,6 +134,21 @@ const ThemeScanPanel: React.FC<Props> = ({ slug, scenarioId, scenarioTitle }) =>
   // results. `ok` distinguishes a success confirmation from a failure (Standing
   // Rule 1 — the two states look different, not one collapsed "done").
   const [mergeStatus, setMergeStatus] = useState<{ ok: boolean; text: string } | null>(null);
+
+  // Collapsed state — remembered per-scenario (see readCollapsed/writeCollapsed).
+  // The initializer reads localStorage once; the effect re-reads if the scenario
+  // changes without a remount (a route-param change on the same component).
+  const [collapsed, setCollapsed] = useState<boolean>(() => readCollapsed(scenarioId));
+  useEffect(() => {
+    setCollapsed(readCollapsed(scenarioId));
+  }, [scenarioId]);
+  const toggleCollapsed = useCallback(() => {
+    setCollapsed((c) => {
+      const next = !c;
+      writeCollapsed(scenarioId, next);
+      return next;
+    });
+  }, [scenarioId]);
 
   // Re-read the persisted history (after a scan finishes, or on mount).
   const refreshRuns = useCallback(() => {
@@ -256,11 +325,15 @@ const ThemeScanPanel: React.FC<Props> = ({ slug, scenarioId, scenarioTitle }) =>
           ok: true,
           text: `Merged ${merged} relevant ${noun} into Candidate Facts as Undecided. Your included/dropped decisions were preserved.`,
         });
+        // Re-read the history so the merge provenance (merge_count / last_merged_at)
+        // updates immediately: the run's action flips to "Merged N× · last …" and a
+        // re-merge bumps the count — the visible proof the event was recorded.
+        refreshRuns();
       } catch (e) {
         setMergeStatus({ ok: false, text: e instanceof Error ? e.message : "Failed to merge the run." });
       }
     },
-    [slug, scenarioId],
+    [slug, scenarioId, refreshRuns],
   );
 
   // The selected runs whose full summaries are loaded, keyed by run_id — this is
@@ -270,6 +343,14 @@ const ThemeScanPanel: React.FC<Props> = ({ slug, scenarioId, scenarioTitle }) =>
   for (const id of selectedRunIds) {
     const s = summaries[id];
     if (s) selectedSummaries[id] = s;
+  }
+
+  // Merge provenance per run, from the persisted headers — so RunResult can show
+  // "Merged N× · last …" + a Re-merge, instead of a naked "Merge" on a run that was
+  // already merged. Keyed by run_id (the same identity the summaries use).
+  const mergeStateByRun: Record<string, { count: number; last: string | null }> = {};
+  for (const r of runs) {
+    mergeStateByRun[r.run_id] = { count: r.merge_count, last: r.last_merged_at };
   }
 
   const modelName = (id: string) => models.find((m) => m.model_id === id)?.display_name ?? id;
@@ -282,63 +363,83 @@ const ThemeScanPanel: React.FC<Props> = ({ slug, scenarioId, scenarioTitle }) =>
           colossus-spin, so the animation ships with the component. */}
       <style>{`@keyframes colossus-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }`}</style>
       <header style={S.header}>
-        <div>
-          <div style={S.title}>Theme Scan</div>
-          <div style={S.subtitle}>
-            {scenarioTitle}
-            {candidateCount != null && ` · ${candidateCount} candidates gathered`}
-          </div>
-        </div>
+        {/* Collapse toggle — the whole header is the click target so folding the
+            long scan card away is easy while working in Candidate Facts. State is
+            remembered per-scenario (localStorage). */}
+        <button
+          type="button"
+          style={S.collapseToggle}
+          onClick={toggleCollapsed}
+          aria-expanded={!collapsed}
+        >
+          <span style={S.collapseChevron}>{collapsed ? "▸" : "▾"}</span>
+          <span>
+            <span style={S.title}>Theme Scan</span>
+            <span style={S.subtitle}>
+              {scenarioTitle}
+              {candidateCount != null && ` · ${candidateCount} candidates gathered`}
+            </span>
+          </span>
+        </button>
       </header>
 
-      {running ? (
-        <RunningView poll={poll} modelName={modelName(activeRun.modelId)} elapsedMs={elapsedMs} />
-      ) : (
-        <SetupView
-          models={models}
-          modelError={modelError}
-          selectedModel={selectedModel}
-          onSelect={setSelectedModel}
-          benchmarkMode={benchmarkMode}
-          onToggleBenchmark={() => setBenchmarkMode((b) => !b)}
-          onRun={onRun}
-        />
-      )}
+      {!collapsed && (
+        <>
+          {running ? (
+            <RunningView poll={poll} modelName={modelName(activeRun.modelId)} elapsedMs={elapsedMs} />
+          ) : (
+            <SetupView
+              models={models}
+              modelError={modelError}
+              selectedModel={selectedModel}
+              onSelect={setSelectedModel}
+              benchmarkMode={benchmarkMode}
+              onToggleBenchmark={() => setBenchmarkMode((b) => !b)}
+              onRun={onRun}
+            />
+          )}
 
-      {startError && (
-        <div style={S.errorBox} role="alert">
-          {startError}
-        </div>
-      )}
+          {startError && (
+            <div style={S.errorBox} role="alert">
+              {startError}
+            </div>
+          )}
 
-      {/* Run history hydrated from the DB — survives navigation and reloads. */}
-      <RunHistoryList
-        runs={runs}
-        selectedRunIds={selectedRunIds}
-        onToggle={onSelectRun}
-        onDelete={onDeleteRun}
-        modelName={modelName}
-      />
-      {historyError && (
-        <div style={S.errorBox} role="alert">
-          {historyError}
-        </div>
-      )}
-      {detailError && (
-        <div style={S.errorBox} role="alert">
-          {detailError}
-        </div>
-      )}
+          {/* Run history hydrated from the DB — survives navigation and reloads. */}
+          <RunHistoryList
+            runs={runs}
+            selectedRunIds={selectedRunIds}
+            onToggle={onSelectRun}
+            onDelete={onDeleteRun}
+            modelName={modelName}
+          />
+          {historyError && (
+            <div style={S.errorBox} role="alert">
+              {historyError}
+            </div>
+          )}
+          {detailError && (
+            <div style={S.errorBox} role="alert">
+              {detailError}
+            </div>
+          )}
 
-      {/* The EXISTING results display + comparison hero, fed by the selected runs
-          (one → a single result; two → the hero). */}
-      {hasSelectedResults && (
-        <ResultsArea completed={selectedSummaries} modelName={modelName} onMerge={onMergeRun} />
-      )}
-      {mergeStatus && (
-        <div style={mergeStatus.ok ? S.mergeNotice : S.errorBox} role="status">
-          {mergeStatus.text}
-        </div>
+          {/* The EXISTING results display + comparison hero, fed by the selected
+              runs (one → a single result; two → the hero). */}
+          {hasSelectedResults && (
+            <ResultsArea
+              completed={selectedSummaries}
+              modelName={modelName}
+              onMerge={onMergeRun}
+              mergeStateByRun={mergeStateByRun}
+            />
+          )}
+          {mergeStatus && (
+            <div style={mergeStatus.ok ? S.mergeNotice : S.errorBox} role="status">
+              {mergeStatus.text}
+            </div>
+          )}
+        </>
       )}
     </section>
   );
@@ -453,7 +554,10 @@ const ResultsArea: React.FC<{
   completed: Record<string, ThemeScanSummary>;
   modelName: (id: string) => string;
   onMerge: (runId: string) => void;
-}> = ({ completed, modelName, onMerge }) => {
+  /** Per-run merge provenance (count + last time), keyed by run_id. A run absent
+   *  from the map (or with count 0) is treated as never-merged. */
+  mergeStateByRun: Record<string, { count: number; last: string | null }>;
+}> = ({ completed, modelName, onMerge, mergeStateByRun }) => {
   const runs = Object.entries(completed);
   const showHero = runs.length >= 2;
   const [a, b] = runs.map(([, s]) => s);
@@ -471,6 +575,7 @@ const ResultsArea: React.FC<{
           summary={summary}
           modelName={modelName(summary.model_id)}
           onMerge={onMerge}
+          mergeState={mergeStateByRun[runId] ?? { count: 0, last: null }}
         />
       ))}
     </div>
@@ -522,7 +627,8 @@ const RunResult: React.FC<{
   summary: ThemeScanSummary;
   modelName: string;
   onMerge: (runId: string) => void;
-}> = ({ summary, modelName, onMerge }) => {
+  mergeState: { count: number; last: string | null };
+}> = ({ summary, modelName, onMerge, mergeState }) => {
   // The judge fans out with `buffer_unordered`, so `suggestions` arrives in
   // completion order, not ranked. Present the STRONGEST findings first: sort a
   // COPY (spread before sort — Array.prototype.sort mutates in place, and the
@@ -531,32 +637,41 @@ const RunResult: React.FC<{
   // null-guard is needed here (unlike a nullable field, this is always present).
   const rankedSuggestions = [...summary.suggestions].sort((a, b) => b.confidence - a.confidence);
 
+  // Merge provenance: `null` when never merged (show the plain "Merge into
+  // scenario"); otherwise "merged N× · last …" beside an explicit Re-merge (a
+  // re-merge is a legitimate reconcile, so the affordance never disappears).
+  const mergeLabel = formatMergeState(mergeState.count, mergeState.last);
+  const merged = mergeLabel != null;
+
+  // Shared confirm-then-merge handler for both the first Merge and a Re-merge.
+  const confirmMerge = (e: React.MouseEvent) => {
+    // Defensive stopPropagation (harmless here — the dashboard is not a clickable
+    // row): keeps the button safe if RunResult is ever nested in a selectable
+    // container. Confirm is the guard before a write.
+    e.stopPropagation();
+    const count = summary.relevant_written;
+    const noun = count === 1 ? "pick" : "picks";
+    const verb = merged ? "Re-merge" : "Merge";
+    if (
+      window.confirm(
+        `${verb} ${count} relevant ${noun}? Your included/dropped decisions are preserved.`,
+      )
+    ) {
+      onMerge(summary.run_id);
+    }
+  };
+
   return (
     <div style={S.runResult}>
       <div style={S.runResultHead}>
         <span style={S.modelChip}>{modelName}</span>
         <span style={S.completePill}>Complete</span>
         <span style={S.muted}>{formatElapsed(summary.duration_ms)}</span>
-        <button
-          type="button"
-          style={S.mergeButton}
-          onClick={(e) => {
-            // Defensive stopPropagation (harmless here — the dashboard is not a
-            // clickable row): keeps the button safe if RunResult is ever nested in
-            // a selectable container. Confirm is the guard before a write.
-            e.stopPropagation();
-            const count = summary.relevant_written;
-            const noun = count === 1 ? "pick" : "picks";
-            if (
-              window.confirm(
-                `Merge ${count} relevant ${noun}? Your included/dropped decisions are preserved.`,
-              )
-            ) {
-              onMerge(summary.run_id);
-            }
-          }}
-        >
-          Merge into scenario
+        {/* Merged state reads as a durable fact, not a fresh action; the button
+            beside it is the explicit re-merge. Never-merged shows just the Merge. */}
+        {merged && <span style={S.mergedState}>Merged ✓ · {mergeLabel}</span>}
+        <button type="button" style={S.mergeButton} onClick={confirmMerge}>
+          {merged ? "Re-merge" : "Merge into scenario"}
         </button>
       </div>
 
@@ -603,8 +718,36 @@ const S: Record<string, React.CSSProperties> = {
     marginBottom: "1.5rem",
   },
   header: { display: "flex", justifyContent: "space-between", marginBottom: "16px" },
-  title: { fontSize: "1.05rem", fontWeight: 600, color: "var(--text-primary)" },
-  subtitle: { fontSize: "0.85rem", color: "var(--text-muted)", marginTop: "2px" },
+  // The header is a single full-width toggle button; the chevron + title/subtitle
+  // stack sit inside it. Reset the native button chrome so it reads as the header.
+  collapseToggle: {
+    display: "flex",
+    alignItems: "center",
+    gap: "10px",
+    width: "100%",
+    padding: 0,
+    background: "none",
+    border: "none",
+    textAlign: "left",
+    cursor: "pointer",
+    color: "inherit",
+    font: "inherit",
+  },
+  collapseChevron: {
+    fontSize: "0.8rem",
+    color: "var(--text-muted)",
+    lineHeight: 1,
+  },
+  title: { display: "block", fontSize: "1.05rem", fontWeight: 600, color: "var(--text-primary)" },
+  subtitle: { display: "block", fontSize: "0.85rem", color: "var(--text-muted)", marginTop: "2px" },
+  // "Merged ✓ · merged N× · last …" — a durable-state chip (muted, success-tinted),
+  // distinct from the actionable Merge/Re-merge button beside it.
+  mergedState: {
+    fontSize: "0.76rem",
+    fontWeight: 600,
+    color: "var(--state-success-strong)",
+    whiteSpace: "nowrap",
+  },
   muted: { color: "var(--text-muted)", fontSize: "0.82rem" },
 
   setup: { display: "flex", flexDirection: "column", gap: "14px" },

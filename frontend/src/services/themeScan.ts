@@ -112,6 +112,13 @@ export type ScanRunHeader = {
   computed_cost: number | null;
   duration_ms: number;
   started_at: string;
+  /** How many times this run has been merged into its scenario (`0` = never).
+   *  Drives the run detail: `0` → "Merge into scenario"; `>0` → "Merged N× ·
+   *  last …" plus an explicit Re-merge. */
+  merge_count: number;
+  /** ISO timestamp of the most recent merge, or `null` when never merged
+   *  (distinct from a missing field — the backend emits it explicitly). */
+  last_merged_at: string | null;
 };
 
 // ─── URL helpers ─────────────────────────────────────────────────────────────

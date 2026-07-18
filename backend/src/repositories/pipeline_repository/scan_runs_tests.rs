@@ -67,6 +67,21 @@ fn list_scan_runs_sql_scopes_by_scenario_and_orders_newest_first() {
         !sql.contains("summary_json"),
         "the history list must stay light (no summary_json), got: {sql}"
     );
+    // Merge provenance: the header must fold in each run's merge history so the
+    // run detail can show "Merged N× · last …". Both aggregates come from the
+    // scan_run_merges child; a future edit that drops either fails here.
+    assert!(
+        sql.contains("scan_run_merges"),
+        "history must read merge provenance from scan_run_merges, got: {sql}"
+    );
+    assert!(
+        sql.contains("AS merge_count"),
+        "history must expose merge_count (COUNT of merges), got: {sql}"
+    );
+    assert!(
+        sql.contains("AS last_merged_at"),
+        "history must expose last_merged_at (MAX merged_at), got: {sql}"
+    );
 }
 
 /// SQL-shape guard for the delete. The `scenario_id` predicate is the case-fence:

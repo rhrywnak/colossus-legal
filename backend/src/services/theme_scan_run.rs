@@ -18,7 +18,7 @@ use crate::domain::llm_params::ResolvedLlmParams;
 use crate::dto::{ScanRunHeader, ScanRunListResponse, ScanRunStatusResponse, ThemeScanSummary};
 use crate::repositories::pipeline_repository::{
     delete_scan_run, fail_scan_run, finalize_scan_run_completed, get_scan_run,
-    insert_scan_run_running, list_scan_runs, merge_scan_run_into_scenario, ScanRunFinal,
+    insert_scan_run_running, list_scan_runs, merge_run_into_scenario_recording, ScanRunFinal,
     ScanRunHeaderRow, ScanRunStart,
 };
 use crate::services::theme_scan::{
@@ -345,7 +345,13 @@ pub async fn merge_scenario_scan_run(
         return Err(ThemeScanError::ScanRunNotFound { run_id });
     }
 
-    merge_scan_run_into_scenario(&state.pipeline_pool, scenario_id, run_id)
+    // Merge the run's picks AND record the merge event in ONE transaction (decision:
+    // same-transaction atomicity — either both land or neither). The transaction is
+    // owned by the repository layer (`merge_run_into_scenario_recording`), matching
+    // the house pattern where multi-statement writes hold their own `pool.begin()`
+    // (e.g. `insert_scan_run_verdicts`); this service keeps only the case/scenario
+    // fences. `Utc::now()` is bound here so the timestamp is the application's.
+    merge_run_into_scenario_recording(&state.pipeline_pool, scenario_id, run_id, Utc::now())
         .await
         .map_err(|source| ThemeScanError::ScanRunMergeFailed { run_id, source })
 }
@@ -367,6 +373,8 @@ fn scan_run_header_from_row(row: ScanRunHeaderRow) -> ScanRunHeader {
         computed_cost: row.computed_cost,
         duration_ms: row.duration_ms,
         started_at: row.started_at,
+        merge_count: row.merge_count,
+        last_merged_at: row.last_merged_at,
     }
 }
 
@@ -430,6 +438,8 @@ mod tests {
             computed_cost: Some(0.0125),
             duration_ms: 45_000,
             started_at,
+            merge_count: 2,
+            last_merged_at: Some(started_at),
         };
 
         let dto = scan_run_header_from_row(row);
@@ -446,6 +456,9 @@ mod tests {
         assert_eq!(dto.computed_cost, Some(0.0125));
         assert_eq!(dto.duration_ms, 45_000);
         assert_eq!(dto.started_at, started_at);
+        // Merge provenance must ride across 1:1 — a run merged twice shows "2×".
+        assert_eq!(dto.merge_count, 2);
+        assert_eq!(dto.last_merged_at, Some(started_at));
     }
 
     /// A null cost (local vLLM model / no token usage) and an absent progress
@@ -466,11 +479,17 @@ mod tests {
             computed_cost: None,
             duration_ms: 10,
             started_at: chrono::DateTime::<Utc>::from_timestamp(0, 0).expect("epoch is in range"),
+            merge_count: 0,
+            last_merged_at: None,
         };
 
         let dto = scan_run_header_from_row(row);
 
         assert_eq!(dto.computed_cost, None);
         assert_eq!(dto.candidates_total, None);
+        // Never merged: count 0 and last-merged None must survive as-is, distinct
+        // from a merged run (Standing Rule 1) — not collapsed to a fabricated value.
+        assert_eq!(dto.merge_count, 0);
+        assert_eq!(dto.last_merged_at, None);
     }
 }

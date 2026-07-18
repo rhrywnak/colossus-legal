@@ -35,6 +35,7 @@ import {
   candidateBadgeLabel,
   countByStatus,
   filterByStatus,
+  filterFromScan,
   findOrphans,
   orphansVisibleUnder,
   sortByConfidence,
@@ -188,6 +189,31 @@ const xOfYStyle: React.CSSProperties = {
   alignSelf: "center",
 };
 
+// The "Only from scan" provenance toggle — same muted control vocabulary as the
+// status label beside it.
+const fromScanLabelStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "0.25rem",
+  fontSize: "0.82rem",
+  color: "var(--text-secondary)",
+  cursor: "pointer",
+};
+
+// Bounded scroll window for the candidate list. Keeps the flex-column layout and
+// row gap the list had before, plus a capped height so it scrolls internally
+// instead of owning the page. `minHeight` keeps a usable window on short viewports;
+// the small right padding stops the scrollbar overlapping the card borders.
+const scrollRegionStyle: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "0.6rem",
+  maxHeight: "60vh",
+  minHeight: "360px",
+  overflowY: "auto",
+  paddingRight: "0.4rem",
+};
+
 // The role/confidence badge that LEADS each candidate — "role · NN%" rendered
 // exactly like the Theme Scan panel's `roleBadge` (neutral, accent-primary text +
 // border), so a merged card visually echoes the run it came from. Per the ratified
@@ -267,6 +293,11 @@ const CandidateFactsPanel: React.FC<Props> = ({ slug, scenarioId }) => {
   const [candidates, setCandidates] = useState<CandidateDto[] | null>(null);
   const [orphans, setOrphans] = useState<ScenarioFactDto[]>([]);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("undecided");
+  // Provenance filter: when on, narrow to candidates that came from a scan/merge
+  // (scored — `confidence != null`), so "which candidates did my merge put here"
+  // is answerable without scrolling ~91 undecided rows. Orthogonal to the status
+  // dropdown (see `filterFromScan`).
+  const [fromScanOnly, setFromScanOnly] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -322,8 +353,11 @@ const CandidateFactsPanel: React.FC<Props> = ({ slug, scenarioId }) => {
   // status view internally ranked; both steps are pure, so the memo re-derives
   // only when the pool or the filter changes.
   const visible = useMemo(
-    () => sortByConfidence(filterByStatus(candidates ?? [], statusFilter)),
-    [candidates, statusFilter],
+    () =>
+      sortByConfidence(
+        filterFromScan(filterByStatus(candidates ?? [], statusFilter), fromScanOnly),
+      ),
+    [candidates, statusFilter, fromScanOnly],
   );
 
   const handleAction = (graphNodeId: string, action: FactAction) => {
@@ -347,7 +381,11 @@ const CandidateFactsPanel: React.FC<Props> = ({ slug, scenarioId }) => {
     );
   }
 
-  const showOrphans = orphansVisibleUnder(statusFilter) && orphans.length > 0;
+  // Orphans are human-saved refs whose graph node vanished — they carry NO scan
+  // confidence, so the "only from scan" view must hide them too (they did not come
+  // from a scan/merge). Gate on `!fromScanOnly` alongside the status gate.
+  const showOrphans =
+    orphansVisibleUnder(statusFilter) && !fromScanOnly && orphans.length > 0;
   // Exclude the error state: on a failed load `candidates` stays null, which
   // would otherwise render the "no matches" empty-state text UNDER the error
   // banner — making a load failure read as an empty filter result. The banner
@@ -389,6 +427,17 @@ const CandidateFactsPanel: React.FC<Props> = ({ slug, scenarioId }) => {
               ))}
             </select>
           </label>
+          {/* Provenance filter — orthogonal to the status dropdown. Narrows to
+              scored (from-scan/merge) candidates so a reviewer can see what a
+              merge put here at a glance. */}
+          <label style={fromScanLabelStyle}>
+            <input
+              type="checkbox"
+              checked={fromScanOnly}
+              onChange={(e) => setFromScanOnly(e.target.checked)}
+            />{" "}
+            Only from scan
+          </label>
           {candidates !== null && (
             <span style={xOfYStyle}>
               {shownCount} of {totalShown}
@@ -415,7 +464,10 @@ const CandidateFactsPanel: React.FC<Props> = ({ slug, scenarioId }) => {
         ) : nothingToShow ? (
           <div style={messageStyle}>No candidate facts match this filter.</div>
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+          // Bounded scroll region (~60vh, min ~360px) so the ~94-row list does not
+          // own the whole page — it scrolls within its own window while the scan
+          // card and page chrome stay put.
+          <div style={scrollRegionStyle}>
             {visible.map((c) => {
               const scored = c.confidence != null;
               return (

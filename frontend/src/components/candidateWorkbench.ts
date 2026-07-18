@@ -219,6 +219,33 @@ export function formatConfidencePct(confidence: number | null): string {
 export const UNSCORED_LABEL = "unscored";
 
 /**
+ * Narrow to candidates that came from a scan/merge — the "provenance" filter.
+ *
+ * ## Why `confidence != null` IS the provenance signal
+ *
+ * A merge (or a live scan) writes each pick with a model `confidence`; a
+ * human-curated include/drop has none (`null`). So "came from a scan/merge" is
+ * exactly "has a confidence", with no per-candidate `run_id` needed (adding one
+ * would change the merge WRITE — out of scope). This answers "which candidates did
+ * my merge put here" at a glance instead of scrolling ~91 undecided rows. It is
+ * deliberately COARSE: it does not distinguish WHICH run a pick came from (all
+ * scored picks match), which is the ratified granularity.
+ *
+ * TS-learning: the guard is `!= null` (loose), true for null AND undefined — the
+ * backend omits `confidence` when unscored, so it arrives `undefined`. A real `0`
+ * is a score (kept), distinct from unscored (dropped) — never coalesce `0` to
+ * unscored (Standing Rule 1). When `enabled` is false this is the identity filter,
+ * so the caller can bind it directly to a toggle without a branch.
+ */
+export function filterFromScan(
+  candidates: CandidateDto[],
+  enabled: boolean,
+): CandidateDto[] {
+  if (!enabled) return candidates;
+  return candidates.filter((c) => c.confidence != null);
+}
+
+/**
  * Compose the workbench badge text for a candidate — the "role · NN%" string the
  * scan-run panel renders, so a merged card visually echoes the run it came from.
  *
