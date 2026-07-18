@@ -461,6 +461,9 @@ mod tests {
             role_in_this_scenario: role.map(str::to_string),
             status: FactStatus::Included.code().to_string(),
             note: note.map(str::to_string),
+            // These join tests do not exercise confidence (that is gather's read
+            // path, tested there) — a human-curated-style None keeps them pure.
+            confidence: None,
             // A fixed epoch timestamp — the join does not read it, but the
             // struct requires one. Avoids `Utc::now()` so the test is pure.
             tagged_at: chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,

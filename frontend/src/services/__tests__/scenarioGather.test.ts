@@ -37,6 +37,7 @@ describe("gatherCandidates", () => {
         },
         status: "undecided",
         role: null,
+        confidence: null,
         note: null,
       },
     ],

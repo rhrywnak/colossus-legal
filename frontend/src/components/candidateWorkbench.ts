@@ -151,3 +151,91 @@ export function findOrphans(
 export function orphansVisibleUnder(filter: StatusFilter): boolean {
   return filter === "included" || filter === "all";
 }
+
+/**
+ * Order candidates so scored picks surface: highest confidence first, with
+ * UNSCORED (null/undefined confidence) as a distinct group pinned LAST.
+ *
+ * TS-learning: this returns a NEW array (`[...candidates]` then `.sort`) rather
+ * than sorting in place. `Array.prototype.sort` mutates its receiver; sorting the
+ * caller's `candidates` state array in place would be a subtle React bug (mutating
+ * state that a memo/render reads). Copy-then-sort keeps the helper pure — same
+ * input array unchanged, a fresh ordered array out.
+ *
+ * ## Why unscored is NOT sorted as 0
+ *
+ * A human-curated include/drop has no *model* confidence (`null`) — that is
+ * "unscored", a different state from a model score of `0` (Standing Rule 1). If we
+ * coalesced `null` to `0`, unscored rows would interleave with genuine
+ * low-confidence picks at the bottom, and a real `0.0`-scored fact could no longer
+ * be told apart from an unscored one. Instead we PARTITION: every scored row
+ * (confidence != null) sorts above every unscored row. Within the scored group,
+ * descending by confidence. Within EITHER group, ties fall back to the stable
+ * secondary key `content.evidence_id` (the graph node id) so the order is
+ * deterministic across reloads — no visual churn when two picks share a score.
+ */
+export function sortByConfidence(candidates: CandidateDto[]): CandidateDto[] {
+  const scoreOf = (c: CandidateDto): number | null =>
+    c.confidence == null ? null : c.confidence;
+
+  return [...candidates].sort((a, b) => {
+    const sa = scoreOf(a);
+    const sb = scoreOf(b);
+
+    // Partition: scored (non-null) always precedes unscored (null). Only when the
+    // two rows are on the SAME side of this partition do we compare further.
+    if (sa == null && sb == null) {
+      // Both unscored → stable secondary key only.
+      return a.content.evidence_id.localeCompare(b.content.evidence_id);
+    }
+    if (sa == null) return 1; // a unscored, b scored → a after b
+    if (sb == null) return -1; // a scored, b unscored → a before b
+
+    // Both scored → highest confidence first; ties broken by the stable node id.
+    if (sb !== sa) return sb - sa;
+    return a.content.evidence_id.localeCompare(b.content.evidence_id);
+  });
+}
+
+/**
+ * Format a candidate's model confidence as a whole-percent string, or the
+ * "unscored" marker when there is no model score.
+ *
+ * TS-learning: the guard is `== null` (loose), which is true for BOTH `null` and
+ * `undefined` — the backend omits the field when unscored (so it arrives
+ * `undefined`), while an explicit `null` is also possible; both mean "unscored".
+ * We deliberately do NOT treat `0` as unscored: `0` is a real model score
+ * (certainty the role does NOT apply) and formats as "0%", distinct from the
+ * "unscored" text. Matches the scan-run panel's `Math.round(confidence * 100)%`.
+ */
+export function formatConfidencePct(confidence: number | null): string {
+  if (confidence == null) return UNSCORED_LABEL;
+  return `${Math.round(confidence * 100)}%`;
+}
+
+/** The marker shown where "role · NN%" would sit when a candidate has no model
+ *  score — human-curated / undecided rows. A distinct word so it can never be
+ *  misread as a zero score or a blank (Standing Rule 1). */
+export const UNSCORED_LABEL = "unscored";
+
+/**
+ * Compose the workbench badge text for a candidate — the "role · NN%" string the
+ * scan-run panel renders, so a merged card visually echoes the run it came from.
+ *
+ * - scored (`confidence != null`) → `"corroborates · 85%"` (role present) or just
+ *   `"85%"` on the rare score-without-role;
+ * - unscored (`confidence == null`) → the [`UNSCORED_LABEL`] marker, regardless of
+ *   role, so scored and unscored share ONE slot and one position on the card.
+ *
+ * Pure + string-only so the panel (which has no test infra, Rule 30) stays thin
+ * wiring over a pinned helper. The caller styles scored vs unscored differently
+ * (accent badge vs muted marker); this decides only the TEXT.
+ */
+export function candidateBadgeLabel(
+  role: string | null,
+  confidence: number | null,
+): string {
+  if (confidence == null) return UNSCORED_LABEL;
+  const pct = formatConfidencePct(confidence);
+  return role ? `${role} · ${pct}` : pct;
+}

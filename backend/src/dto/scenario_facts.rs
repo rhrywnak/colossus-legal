@@ -112,6 +112,27 @@ pub struct CandidateDto {
     pub role: Option<String>,
     /// The note recorded on the fact-ref, if any.
     pub note: Option<String>,
+    /// The scan/merge model's confidence in this fact's role, in `[0.0, 1.0]`, or
+    /// `None` when the ref carries no model score (an undecided candidate with no
+    /// ref row, or a human-curated include/drop). The workbench renders `None` as
+    /// "unscored" — distinct from `Some(0.0)`, which would mean a model scored it
+    /// zero (Standing Rule 1: an unscored fact and a zero-scored fact are
+    /// different states with different observables).
+    ///
+    /// ## Rust Learning: `skip_serializing_if` keeps null OFF the wire
+    ///
+    /// With `#[serde(skip_serializing_if = "Option::is_none")]`, a `None`
+    /// confidence is *absent* from the JSON, not serialized as `"confidence":
+    /// null`. The frontend type is `number | null`, and an absent field reads back
+    /// as `undefined`/`null` there — both mean "unscored", so the frontend's
+    /// null-check covers both. Contrast `ScenarioFactDto::content`, which
+    /// deliberately does NOT skip (it must emit `null` so the client can render a
+    /// distinct "content unavailable" card). Here the absent/null collapse is
+    /// harmless because both map to the single "unscored" render; there the
+    /// distinction mattered, so it was kept. Same trait, opposite choice, each
+    /// justified by what the reader must be able to tell apart.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<f32>,
 }
 
 /// Response body for `GET /cases/:slug/scenarios/:scenario_id/facts/gather`.

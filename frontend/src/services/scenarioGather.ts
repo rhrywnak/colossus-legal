@@ -46,6 +46,20 @@ export type CandidateDto = {
   content: BiasInstance;
   status: FactStatus;
   role: string | null;
+  /**
+   * The scan/merge model's confidence in this fact's role, in `[0, 1]`, or
+   * `null`/absent when the ref carries no model score (an undecided candidate
+   * with no ref row, or a human-curated include/drop).
+   *
+   * TS-learning: the backend `#[serde(skip_serializing_if = "Option::is_none")]`
+   * means an unscored candidate OMITS this key entirely, so it deserializes as
+   * `undefined` here — not `null`. Both mean "unscored", and the workbench's
+   * null-ish check (`== null`) covers both, so it renders "unscored", never
+   * "0%". This is deliberately distinct from a real `0` (a model score of zero):
+   * `undefined`/`null` = never scored; `0` = scored zero. Do not `?? 0` this
+   * value anywhere — that would erase the distinction (Standing Rule 1).
+   */
+  confidence: number | null;
   note: string | null;
 };
 

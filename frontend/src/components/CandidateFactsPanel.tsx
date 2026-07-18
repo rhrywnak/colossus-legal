@@ -26,15 +26,18 @@ import {
   type FactAction,
 } from "../services/scenarioGather";
 import { listScenarioFacts, type ScenarioFactDto } from "../services/scenarioFacts";
-import EvidenceCard from "../pages/BiasExplorer/EvidenceCard";
+import EvidenceCard, { formatTagLabel } from "../pages/BiasExplorer/EvidenceCard";
+import type { BiasInstance } from "../services/bias";
 import type { ScenarioDefinition } from "../pages/trialPrepData";
 import {
   ACTION_LABEL,
   actionsForStatus,
+  candidateBadgeLabel,
   countByStatus,
   filterByStatus,
   findOrphans,
   orphansVisibleUnder,
+  sortByConfidence,
   STATUS_FILTERS,
   STATUS_FILTER_LABEL,
   type StatusFilter,
@@ -185,6 +188,79 @@ const xOfYStyle: React.CSSProperties = {
   alignSelf: "center",
 };
 
+// The role/confidence badge that LEADS each candidate — "role · NN%" rendered
+// exactly like the Theme Scan panel's `roleBadge` (neutral, accent-primary text +
+// border), so a merged card visually echoes the run it came from. Per the ratified
+// decision we do NOT invent a per-role color map; one neutral badge for every role.
+const badgeRowStyle: React.CSSProperties = {
+  display: "flex",
+  marginBottom: "0.3rem",
+};
+
+const roleBadgeStyle: React.CSSProperties = {
+  fontSize: "0.72rem",
+  fontWeight: 600,
+  color: "var(--accent-primary)",
+  background: "var(--bg-page)",
+  border: "1px solid var(--border-default)",
+  borderRadius: "6px",
+  padding: "2px 8px",
+  whiteSpace: "nowrap",
+};
+
+// The "unscored" marker occupies the SAME slot as the scored badge (ratified),
+// but muted and italic so a human-curated / undecided row reads as "no model
+// score" — never a zero, never a blank (Standing Rule 1: distinct states, distinct
+// observables). It deliberately drops the accent + border so it recedes next to a
+// scored badge.
+const unscoredBadgeStyle: React.CSSProperties = {
+  fontSize: "0.72rem",
+  fontWeight: 500,
+  fontStyle: "italic",
+  color: "var(--text-muted)",
+  padding: "2px 4px",
+  whiteSpace: "nowrap",
+};
+
+// Demoted pattern-tag chrome — the LEAST-INVASIVE demotion (ratified): tags are
+// pulled out of the card header and re-rendered here below the card as small,
+// muted, uncolored chips, so the role/confidence signal leads and the pattern-tag
+// palette no longer dominates. Scoped to THIS workbench only — the shared
+// `EvidenceCard` is untouched, so the Bias Explorer's colored chips are unchanged
+// (we pass the card an instance with `pattern_tags` stripped; see `withoutTags`).
+const demotedTagsRowStyle: React.CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  gap: "0.3rem",
+  marginTop: "0.3rem",
+  paddingLeft: "0.1rem",
+};
+
+const demotedTagStyle: React.CSSProperties = {
+  fontSize: "0.66rem",
+  fontWeight: 500,
+  color: "var(--text-muted)",
+  background: "var(--bg-page)",
+  border: "1px solid var(--border-default)",
+  borderRadius: "4px",
+  padding: "1px 6px",
+  whiteSpace: "nowrap",
+};
+
+/**
+ * A presentation-only copy of a candidate's content with `pattern_tags` emptied,
+ * so the shared `EvidenceCard` renders NO tag chips in its header for the
+ * workbench. The tags are then re-rendered demoted (below the card) by the panel.
+ *
+ * TS-learning: this is the zero-touch way to scope the tag demotion to the
+ * workbench without adding a prop (or scenario semantics) to `EvidenceCard`. The
+ * card stays agnostic; the panel decides its own presentation. A shallow spread is
+ * cheap and pure — the original `content` object is never mutated.
+ */
+function withoutTags(content: BiasInstance): BiasInstance {
+  return { ...content, pattern_tags: [] };
+}
+
 const CandidateFactsPanel: React.FC<Props> = ({ slug, scenarioId }) => {
   const [open, setOpen] = useState(false);
 
@@ -240,8 +316,13 @@ const CandidateFactsPanel: React.FC<Props> = ({ slug, scenarioId }) => {
     };
   }, [open, slug, scenarioId, refreshKey]);
 
+  // Filter to the chosen status, THEN order so scored merge/scan picks surface:
+  // highest-confidence first, unscored (human-curated / undecided) last as a
+  // distinct group (see `sortByConfidence`). Sorting AFTER the filter keeps each
+  // status view internally ranked; both steps are pure, so the memo re-derives
+  // only when the pool or the filter changes.
   const visible = useMemo(
-    () => filterByStatus(candidates ?? [], statusFilter),
+    () => sortByConfidence(filterByStatus(candidates ?? [], statusFilter)),
     [candidates, statusFilter],
   );
 
@@ -335,32 +416,56 @@ const CandidateFactsPanel: React.FC<Props> = ({ slug, scenarioId }) => {
           <div style={messageStyle}>No candidate facts match this filter.</div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
-            {visible.map((c) => (
-              <div key={c.content.evidence_id}>
-                <EvidenceCard
-                  instance={c.content}
-                  action={
-                    <span style={{ display: "flex", gap: "0.4rem" }}>
-                      {actionsForStatus(c.status).map((action) => (
-                        <button
-                          key={action}
-                          type="button"
-                          style={actionBtnStyle[action]}
-                          onClick={() =>
-                            handleAction(c.content.evidence_id, action)
-                          }
-                        >
-                          {ACTION_LABEL[action]}
-                        </button>
-                      ))}
+            {visible.map((c) => {
+              const scored = c.confidence != null;
+              return (
+                <div key={c.content.evidence_id}>
+                  {/* Role/confidence badge — LEADS the card so a merged pick shows
+                      "corroborates · 85%" up top (echoing the scan run); a
+                      human-curated / undecided row shows the muted "unscored"
+                      marker in the same slot (never "0%"). */}
+                  <div style={badgeRowStyle}>
+                    <span style={scored ? roleBadgeStyle : unscoredBadgeStyle}>
+                      {candidateBadgeLabel(c.role, c.confidence)}
                     </span>
-                  }
-                />
-                {actionError?.id === c.content.evidence_id && (
-                  <div style={errorStyle}>{actionError.message}</div>
-                )}
-              </div>
-            ))}
+                  </div>
+                  <EvidenceCard
+                    // Tags stripped here and re-rendered demoted below, so the
+                    // role/confidence signal leads (see `withoutTags`). Card unchanged.
+                    instance={withoutTags(c.content)}
+                    action={
+                      <span style={{ display: "flex", gap: "0.4rem" }}>
+                        {actionsForStatus(c.status).map((action) => (
+                          <button
+                            key={action}
+                            type="button"
+                            style={actionBtnStyle[action]}
+                            onClick={() =>
+                              handleAction(c.content.evidence_id, action)
+                            }
+                          >
+                            {ACTION_LABEL[action]}
+                          </button>
+                        ))}
+                      </span>
+                    }
+                  />
+                  {/* Demoted pattern tags — muted, uncolored, below the card. */}
+                  {c.content.pattern_tags.length > 0 && (
+                    <div style={demotedTagsRowStyle}>
+                      {c.content.pattern_tags.map((t) => (
+                        <span key={t} style={demotedTagStyle} title={t}>
+                          {formatTagLabel(t)}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {actionError?.id === c.content.evidence_id && (
+                    <div style={errorStyle}>{actionError.message}</div>
+                  )}
+                </div>
+              );
+            })}
 
             {/* Orphan guarantee: saved facts whose graph node has vanished are
                 absent from the pool-driven gather response, so they are surfaced

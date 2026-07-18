@@ -48,17 +48,17 @@ use crate::{
 };
 
 /// The workbench data reconcile carries from a fact-ref onto a candidate: the
-/// decoded [`FactStatus`] plus the role/note recorded on the ref.
+/// decoded [`FactStatus`] plus the role/note/confidence recorded on the ref.
 ///
 /// ## Rust Learning: a `type` alias to name a compound type
 ///
-/// A `HashMap<String, (FactStatus, Option<String>, Option<String>)>` as a
-/// function signature trips `clippy::type_complexity` — and it is genuinely hard
-/// to read. A `type` alias gives the tuple one name used everywhere, so the
+/// A `HashMap<String, (FactStatus, Option<String>, Option<String>, Option<f32>)>`
+/// as a function signature trips `clippy::type_complexity` — and it is genuinely
+/// hard to read. A `type` alias gives the tuple one name used everywhere, so the
 /// index type reads as `HashMap<String, RefEntry>`. An alias is a compile-time
 /// synonym (zero runtime cost, not a new type), so it stays positionally
-/// destructurable as `(status, role, note)` at the use site.
-type RefEntry = (FactStatus, Option<String>, Option<String>);
+/// destructurable as `(status, role, note, confidence)` at the use site.
+type RefEntry = (FactStatus, Option<String>, Option<String>, Option<f32>);
 
 // ── Pure reconcile (the inverted join) ─────────────────────────────────────────
 
@@ -105,9 +105,13 @@ fn reconcile_candidates(
 
     for content in pool {
         // Miss = a live node no human has ruled on = Undecided (persisted nowhere).
-        let (status, role, note) = match index.get(&content.evidence_id) {
-            Some((status, role, note)) => (*status, role.clone(), note.clone()),
-            None => (FactStatus::Undecided, None, None),
+        // A miss also has no confidence — an undecided candidate was never scored
+        // *for this scenario*, so `None` ("unscored") is the correct absence, not 0.
+        let (status, role, note, confidence) = match index.get(&content.evidence_id) {
+            Some((status, role, note, confidence)) => {
+                (*status, role.clone(), note.clone(), *confidence)
+            }
+            None => (FactStatus::Undecided, None, None, None),
         };
 
         let candidate = CandidateDto {
@@ -115,6 +119,7 @@ fn reconcile_candidates(
             status,
             role,
             note,
+            confidence,
         };
 
         // Dropped goes in its own list; undecided + included form the working pool.
@@ -166,7 +171,10 @@ fn build_ref_index(
                 });
             }
         };
-        index.insert(r.graph_node_id, (status, r.role_in_this_scenario, r.note));
+        index.insert(
+            r.graph_node_id,
+            (status, r.role_in_this_scenario, r.note, r.confidence),
+        );
     }
     Ok(index)
 }
@@ -353,7 +361,8 @@ mod tests {
     }
 
     /// A `scenario_fact_refs` row with the given node id, raw status token, and
-    /// optional role/note.
+    /// optional role/note. Confidence defaults to `None` (an unscored / human-
+    /// curated ref); tests that exercise the confidence path use [`scored_ref`].
     fn fact_ref(
         node: &str,
         status: &str,
@@ -366,6 +375,23 @@ mod tests {
             role_in_this_scenario: role.map(str::to_string),
             status: status.to_string(),
             note: note.map(str::to_string),
+            confidence: None,
+            tagged_at: chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
+        }
+    }
+
+    /// A merged/scanned ref: an `undecided` row carrying a model role + confidence
+    /// (exactly what the set-as-basis merge writes). Kept separate from [`fact_ref`]
+    /// so the common human-curated case stays terse while the scored case is loud
+    /// about what it is testing.
+    fn scored_ref(node: &str, role: &str, confidence: f32) -> ScenarioFactRefRecord {
+        ScenarioFactRefRecord {
+            scenario_id: Uuid::nil(),
+            graph_node_id: node.to_string(),
+            role_in_this_scenario: Some(role.to_string()),
+            status: "undecided".to_string(),
+            note: None,
+            confidence: Some(confidence),
             tagged_at: chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
         }
     }
@@ -384,6 +410,45 @@ mod tests {
         assert_eq!(response.pool[0].status, FactStatus::Undecided);
         assert!(response.pool[0].role.is_none());
         assert!(response.pool[0].note.is_none());
+        // A miss was never scored for this scenario → confidence is None ("unscored"),
+        // NOT Some(0.0). The card must be able to tell the two apart (Standing Rule 1).
+        assert!(
+            response.pool[0].confidence.is_none(),
+            "an undecided miss has no model confidence — None, never Some(0.0)"
+        );
+    }
+
+    #[test]
+    fn scored_undecided_ref_carries_role_and_confidence_into_the_pool() {
+        // The set-as-basis merge writes undecided rows with a model role + confidence.
+        // Both must survive reconcile onto the CandidateDto so the workbench can
+        // render "corroborates · 85%" (the whole point of this chunk).
+        let refs = vec![scored_ref("ev-1", "corroborates", 0.85)];
+        let response = reconcile_candidates(vec![content("ev-1")], refs).expect("known token");
+
+        assert_eq!(
+            response.pool.len(),
+            1,
+            "an undecided scored pick stays in the pool"
+        );
+        assert_eq!(response.pool[0].status, FactStatus::Undecided);
+        assert_eq!(response.pool[0].role.as_deref(), Some("corroborates"));
+        assert_eq!(response.pool[0].confidence, Some(0.85));
+    }
+
+    #[test]
+    fn human_curated_ref_has_no_confidence() {
+        // A human include with a NULL confidence column must reconcile to None, not
+        // 0.0 — a hand-curated fact carries no *model* score and reads "unscored".
+        let refs = vec![fact_ref("ev-1", "included", Some("rebuts"), None)];
+        let response = reconcile_candidates(vec![content("ev-1")], refs).expect("known token");
+
+        assert_eq!(response.pool[0].status, FactStatus::Included);
+        assert_eq!(response.pool[0].role.as_deref(), Some("rebuts"));
+        assert!(
+            response.pool[0].confidence.is_none(),
+            "a human-curated ref (NULL confidence) must be None, never Some(0.0)"
+        );
     }
 
     #[test]

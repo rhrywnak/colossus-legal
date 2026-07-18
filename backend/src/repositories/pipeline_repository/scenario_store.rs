@@ -357,6 +357,20 @@ pub struct ScenarioFactRefRecord {
     /// (see its module doc). Nothing branches on this value yet.
     pub status: String,
     pub note: Option<String>,
+    /// The scan/merge model's self-reported confidence in this fact's role, in
+    /// `[0.0, 1.0]` — or `None` when the row was authored by a human (a
+    /// hand-curated include/drop carries no *model* confidence, so the column is
+    /// genuinely NULL). The write side (`upsert_scan_*`) already persists this;
+    /// this field is what reads it back so the workbench can surface it.
+    ///
+    /// ## Rust Learning: `Option<f32>` mirrors a nullable column, and the `None`
+    /// is load-bearing — it is NOT the same as `Some(0.0)`. A NULL confidence
+    /// means "no model ever scored this" (human curation); a `0.0` would mean "a
+    /// model scored it and was certain it does NOT apply". Collapsing the two
+    /// would be a silent failure (Standing Rule 1): the reader could no longer
+    /// tell an unscored fact from a zero-scored one. The type keeps them distinct
+    /// all the way to the card, which renders `None` as "unscored", never "0%".
+    pub confidence: Option<f32>,
     pub tagged_at: chrono::DateTime<chrono::Utc>,
 }
 
@@ -364,8 +378,13 @@ pub struct ScenarioFactRefRecord {
 // structural schema-coupling invariant, NOT a deployment-time config value (same
 // rationale as `SCENARIO_COLUMNS`). Changing it requires a migration plus a
 // matching `ScenarioFactRefRecord` field update.
+//
+// `confidence` is read back here (added by the 1a workbench-usability chunk): the
+// column was already written by the scan/merge path, but the read projection had
+// never selected it, so the value never reached the gather DTO. This closes that
+// read-side gap — no migration, purely selecting an existing column.
 const SCENARIO_FACT_REF_COLUMNS: &str =
-    "scenario_id, graph_node_id, role_in_this_scenario, status, note, tagged_at";
+    "scenario_id, graph_node_id, role_in_this_scenario, status, note, confidence, tagged_at";
 
 /// Tag a graph fact into a scenario, or re-tag it in place (composite-key
 /// upsert on `(scenario_id, graph_node_id)`).
@@ -848,6 +867,13 @@ mod tests {
         assert!(
             !super::SCENARIO_FACT_REF_COLUMNS.contains("confirmed"),
             "projection must not reference the dropped confirmed column"
+        );
+        // The read projection must select `confidence` — the column the scan/merge
+        // path writes. If a future edit drops it, the gather DTO silently loses the
+        // value again (the exact regression this chunk fixed), so pin it here.
+        assert!(
+            super::SCENARIO_FACT_REF_COLUMNS.contains("confidence"),
+            "projection must select the confidence column so gather can surface it"
         );
     }
 
