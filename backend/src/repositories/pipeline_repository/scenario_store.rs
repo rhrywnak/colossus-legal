@@ -540,12 +540,23 @@ pub async fn reconcile_fact_ref(
 // selects only relevant picks — NULL (failed) and false (not-relevant) verdicts
 // are excluded, so not-relevant candidates stay unwritten, exactly as a live scan
 // leaves them.
+//
+// SELECTIVE MERGE (2026-07-19): `AND v.graph_node_id = ANY($4)` narrows the write
+// to the picks the human CHECKED (their graph_node_ids), not the whole relevant
+// set. Merge = "write the scan's judgment onto ONLY the checked picks" (ratified
+// Option A). Unchecked relevant picks are simply not selected here, so they stay
+// unscored Undecided candidates in the pool — never removed, never judgment-written.
+// Merge stays ADDITIVE: it only ever WRITES a judgment onto a checked pick; an id
+// absent from $4 is left exactly as it was (a prior score on a previously-merged
+// pick is NOT cleared by re-merging with a narrower selection — removing a judgment
+// is the human's explicit Drop, never a side effect of not re-checking).
 const MERGE_SCAN_RUN_SQL: &str = r#"INSERT INTO scenario_fact_refs
         (scenario_id, graph_node_id, role_in_this_scenario, status, confidence)
     SELECT $1, v.graph_node_id, v.proposed_role, $2, v.confidence
     FROM scan_run_verdicts v
     JOIN scan_runs r ON r.run_id = v.run_id
     WHERE v.run_id = $3 AND r.scenario_id = $1 AND v.relevant = true
+      AND v.graph_node_id = ANY($4)
     ON CONFLICT (scenario_id, graph_node_id) DO UPDATE SET
         role_in_this_scenario = EXCLUDED.role_in_this_scenario,
         confidence            = EXCLUDED.confidence,
@@ -574,6 +585,21 @@ const MERGE_SCAN_RUN_SQL: &str = r#"INSERT INTO scenario_fact_refs
 /// primary one (it cannot produce a 404 — a wrong-scenario run would merge zero
 /// rows, indistinguishable from a run with no relevant picks).
 ///
+/// `selected_ids` are the graph_node_ids the human CHECKED — only their verdicts
+/// are written (Option A). An id in the set that is NOT a relevant verdict of this
+/// run simply matches nothing (the `v.relevant = true` + run/scenario fences still
+/// apply), so passing a stray id is harmless, not an error. An EMPTY slice merges
+/// zero rows — callers disable Merge in that case (a distinct 400), so this is a
+/// defensive floor, not the normal path.
+///
+/// ## Rust Learning: binding a slice to a Postgres array parameter
+///
+/// `$4` is a `text[]`; sqlx maps a Rust `&[String]` (or `&Vec<String>`) straight
+/// onto it, and `graph_node_id = ANY($4)` is the set-membership test — one bind for
+/// the whole selection instead of building `IN ($4, $5, …$n)` with a variable
+/// placeholder count. This keeps the statement a single fixed-shape prepared query
+/// regardless of how many picks were checked.
+///
 /// ## Rust Learning: `impl sqlx::PgExecutor<'_>` so the caller can wrap this in a transaction
 ///
 /// This takes a generic executor rather than a concrete `&PgPool` — the same
@@ -581,18 +607,20 @@ const MERGE_SCAN_RUN_SQL: &str = r#"INSERT INTO scenario_fact_refs
 /// `&mut *tx` so this `INSERT … SELECT` and the sibling `insert_scan_run_merge`
 /// (the provenance event) commit as ONE unit: either both land or neither does,
 /// so a merge can never be recorded-without-applying or applied-without-recording.
-/// The SQL text and its status-preserving semantics are UNCHANGED — only the
-/// executor type is generalized. A plain `&PgPool` still satisfies the bound for a
-/// standalone (non-transactional) merge.
+/// The status-preserving reconcile tail is UNCHANGED — selection narrows WHICH
+/// verdicts are read, never how a conflict on a curated row is handled. A plain
+/// `&PgPool` still satisfies the bound for a standalone (non-transactional) merge.
 pub async fn merge_scan_run_into_scenario(
     executor: impl sqlx::PgExecutor<'_>,
     scenario_id: uuid::Uuid,
     run_id: uuid::Uuid,
+    selected_ids: &[String],
 ) -> Result<u64, PipelineRepoError> {
     let result = sqlx::query(MERGE_SCAN_RUN_SQL)
         .bind(scenario_id)
         .bind(FactStatus::Undecided.code())
         .bind(run_id)
+        .bind(selected_ids)
         .execute(executor)
         .await?;
     Ok(result.rows_affected())
@@ -986,6 +1014,14 @@ mod tests {
         assert!(
             sql.contains("v.run_id = $3") && sql.contains("r.scenario_id = $1"),
             "merge must be fenced to run + scenario: {sql}"
+        );
+        // Selective merge: narrowed to the CHECKED picks via a set-membership test
+        // on the $4 array — the whole point of Option A (write judgment onto only
+        // the chosen picks). A regression that dropped this would silently merge the
+        // entire relevant set again.
+        assert!(
+            sql.contains("v.graph_node_id = ANY($4)"),
+            "merge must be narrowed to the selected graph_node_ids ($4): {sql}"
         );
         // Same status-preserving reconcile tail: gated to undecided, never SETs
         // status, never writes note.

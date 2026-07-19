@@ -198,71 +198,88 @@ export function sortByConfidence(candidates: CandidateDto[]): CandidateDto[] {
 }
 
 /**
- * Format a candidate's model confidence as a whole-percent string, or the
- * "unscored" marker when there is no model score.
+ * Format a model confidence as a whole-percent string. Takes a NON-NULL score,
+ * because the workbench now renders the judgment strip ONLY for scored candidates
+ * (strip absence is the "unscored / human-added" signal — §2 redisplay), so the
+ * old `null → "unscored"` branch is gone (the caller decides presence/absence).
  *
- * TS-learning: the guard is `== null` (loose), which is true for BOTH `null` and
- * `undefined` — the backend omits the field when unscored (so it arrives
- * `undefined`), while an explicit `null` is also possible; both mean "unscored".
- * We deliberately do NOT treat `0` as unscored: `0` is a real model score
- * (certainty the role does NOT apply) and formats as "0%", distinct from the
- * "unscored" text. Matches the scan-run panel's `Math.round(confidence * 100)%`.
+ * TS-learning: `0` is a real model score (certainty the role does NOT apply) and
+ * formats as "0%" — never conflated with "no score" (that is now the absent strip,
+ * not a "0%"). Matches the scan-run panel's `Math.round(confidence * 100)%`.
  */
-export function formatConfidencePct(confidence: number | null): string {
-  if (confidence == null) return UNSCORED_LABEL;
+export function formatConfidencePct(confidence: number): string {
   return `${Math.round(confidence * 100)}%`;
 }
 
-/** The marker shown where "role · NN%" would sit when a candidate has no model
- *  score — human-curated / undecided rows. A distinct word so it can never be
- *  misread as a zero score or a blank (Standing Rule 1). */
-export const UNSCORED_LABEL = "unscored";
-
 /**
- * Narrow to candidates that came from a scan/merge — the "provenance" filter.
+ * The judgment-strip text for a SCORED candidate — `"corroborates · 85%"` (role
+ * present) or just `"85%"` on the rare score-without-role. Reuses the scan-run
+ * panel's shape so a merged card visually echoes the run it came from (§3).
  *
- * ## Why `confidence != null` IS the provenance signal
- *
- * A merge (or a live scan) writes each pick with a model `confidence`; a
- * human-curated include/drop has none (`null`). So "came from a scan/merge" is
- * exactly "has a confidence", with no per-candidate `run_id` needed (adding one
- * would change the merge WRITE — out of scope). This answers "which candidates did
- * my merge put here" at a glance instead of scrolling ~91 undecided rows. It is
- * deliberately COARSE: it does not distinguish WHICH run a pick came from (all
- * scored picks match), which is the ratified granularity.
- *
- * TS-learning: the guard is `!= null` (loose), true for null AND undefined — the
- * backend omits `confidence` when unscored, so it arrives `undefined`. A real `0`
- * is a score (kept), distinct from unscored (dropped) — never coalesce `0` to
- * unscored (Standing Rule 1). When `enabled` is false this is the identity filter,
- * so the caller can bind it directly to a toggle without a branch.
+ * Only ever called for scored candidates (`confidence != null`) — the caller gates
+ * on that and renders NO strip when unscored (the absence is the human/unscored
+ * signal, §2). Pure + string-only so the panel (no component test infra, Rule 30)
+ * stays thin wiring over a pinned, unit-tested helper.
  */
-export function filterFromScan(
-  candidates: CandidateDto[],
-  enabled: boolean,
-): CandidateDto[] {
-  if (!enabled) return candidates;
-  return candidates.filter((c) => c.confidence != null);
-}
-
-/**
- * Compose the workbench badge text for a candidate — the "role · NN%" string the
- * scan-run panel renders, so a merged card visually echoes the run it came from.
- *
- * - scored (`confidence != null`) → `"corroborates · 85%"` (role present) or just
- *   `"85%"` on the rare score-without-role;
- * - unscored (`confidence == null`) → the [`UNSCORED_LABEL`] marker, regardless of
- *   role, so scored and unscored share ONE slot and one position on the card.
- *
- * Pure + string-only so the panel (which has no test infra, Rule 30) stays thin
- * wiring over a pinned helper. The caller styles scored vs unscored differently
- * (accent badge vs muted marker); this decides only the TEXT.
- */
-export function candidateBadgeLabel(
-  role: string | null,
-  confidence: number | null,
-): string {
-  if (confidence == null) return UNSCORED_LABEL;
+export function roleConfidenceLabel(role: string | null, confidence: number): string {
   const pct = formatConfidencePct(confidence);
   return role ? `${role} · ${pct}` : pct;
+}
+
+/** Alphabet for the id-chip short code: digits + lowercase letters (base36). A
+ *  compiled presentation constant (the chip vocabulary), not a tunable — Rule 2
+ *  N/A, same standing as the status-label maps above. */
+const CHIP_ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyz";
+
+/** How many base36 chars the visible chip shows. 6 chars ≈ 2 billion codes —
+ *  ample for a case's few-hundred facts with no realistic collision (ratified). */
+const CHIP_LENGTH = 6;
+
+/**
+ * Derive a short, STABLE reference handle for a fact from its `evidence_id` — the
+ * `#a3f9k2`-style chip (§4). Same fact → same chip, ALWAYS; the chip never
+ * renumbers when the pool changes, because it is a pure function of the durable
+ * graph-node id, not a display-position sequence.
+ *
+ * ## Why a hash, not a truncation of the raw id
+ *
+ * The Evidence node id is an opaque, model-authored, hyphenated string
+ * (`evidence-phillips-q74`, verified against the colossus-rs minting code). Its
+ * shared human prefix means truncating the FRONT collides everything
+ * (`evidence-…` for every fact) and its length varies — so a raw truncation makes
+ * a poor, non-uniform handle. A hash folds the WHOLE id (including the
+ * discriminating tail) into a fixed-width code, so distinct facts get distinct,
+ * same-length chips. The full id remains available on hover / copy at the call
+ * site — the chip is the handle, not the identity.
+ *
+ * ## Why FNV-1a + xorshift (not `crypto.subtle`)
+ *
+ * This is a DISPLAY id, not a security digest — it needs determinism and a good
+ * spread over a tiny input space, not collision-resistance against an adversary.
+ * FNV-1a folds the id into a 32-bit seed; an xorshift32 step then advances that
+ * seed once per output char so EACH char draws from a fresh full-width value
+ * (uniform spread), rather than peeling low digits off one shrinking number. It is
+ * a few synchronous lines (no async `crypto.subtle` ceremony) and stable across
+ * runs/browsers, so the same fact renders the same chip everywhere (scan card,
+ * candidate card, two sessions). `>>> 0` keeps each step an unsigned 32-bit int
+ * (JS bitwise ops are signed-32 otherwise).
+ */
+export function shortIdChip(evidenceId: string): string {
+  let hash = 0x811c9dc5; // FNV-1a 32-bit offset basis
+  for (let i = 0; i < evidenceId.length; i++) {
+    hash ^= evidenceId.charCodeAt(i);
+    // FNV prime multiply, kept in unsigned-32 range via Math.imul + `>>> 0`.
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  let code = "";
+  for (let i = 0; i < CHIP_LENGTH; i++) {
+    // xorshift32: advance the seed so this char samples a fresh 32-bit value.
+    hash ^= hash << 13;
+    hash >>>= 0;
+    hash ^= hash >>> 17;
+    hash ^= hash << 5;
+    hash >>>= 0;
+    code += CHIP_ALPHABET[hash % CHIP_ALPHABET.length];
+  }
+  return `#${code}`;
 }

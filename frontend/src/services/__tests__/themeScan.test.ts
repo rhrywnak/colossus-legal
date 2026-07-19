@@ -171,11 +171,15 @@ describe("mergeScanRun", () => {
     // @ts-ignore — minimal fetch mock
     global.fetch = fetchMock;
 
-    await expect(mergeScanRun(SLUG, SCENARIO, RUN)).resolves.toEqual({ merged: 12 });
+    await expect(
+      mergeScanRun(SLUG, SCENARIO, RUN, ["ev-a", "ev-b"]),
+    ).resolves.toEqual({ merged: 12 });
 
     const [url, options] = fetchMock.mock.calls[0];
     expect(url).toContain(`/api/cases/${SLUG}/scenarios/${SCENARIO}/scan-runs/${RUN}/merge`);
     expect(options.method).toBe("POST");
+    // The selected picks ride in the body as graph_node_ids (selective merge).
+    expect(JSON.parse(options.body)).toEqual({ graph_node_ids: ["ev-a", "ev-b"] });
   });
 
   it("throws with the backend message on a non-2xx (e.g. 404 not found)", async () => {
@@ -185,7 +189,7 @@ describe("mergeScanRun", () => {
       status: 404,
       json: async () => ({ message: "scan run not found" }),
     });
-    await expect(mergeScanRun(SLUG, SCENARIO, RUN)).rejects.toThrow(
+    await expect(mergeScanRun(SLUG, SCENARIO, RUN, ["ev-a"])).rejects.toThrow(
       /Failed to merge scan run.*scan run not found/,
     );
   });

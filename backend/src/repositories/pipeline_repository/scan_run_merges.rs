@@ -117,8 +117,11 @@ fn narrow_rows_affected(merged: u64) -> i32 {
 /// `insert_scan_run_verdicts` and `documents_delete` also `begin()` in the repo.
 ///
 /// `merged_at` is passed in (bound from the service's `Utc::now()`) so the caller
-/// owns the timestamp, matching `scan_runs.started_at`. Returns the merged row
-/// count (the number of undecided suggestions inserted/refreshed).
+/// owns the timestamp, matching `scan_runs.started_at`. `selected_ids` are the
+/// graph_node_ids the human checked — only their verdicts are written (Option A);
+/// the recorded `rows_affected` therefore reflects the SELECTED count (minus any
+/// already-curated rows the reconcile skipped), which is the honest audit figure.
+/// Returns the merged row count (the number of undecided suggestions inserted/refreshed).
 ///
 /// # Errors
 /// [`PipelineRepoError`] if `begin`, either write, or `commit` fails — the caller
@@ -127,11 +130,12 @@ pub async fn merge_run_into_scenario_recording(
     pool: &PgPool,
     scenario_id: Uuid,
     run_id: Uuid,
+    selected_ids: &[String],
     merged_at: DateTime<Utc>,
 ) -> Result<u64, PipelineRepoError> {
     let mut tx = pool.begin().await?;
 
-    let merged = merge_scan_run_into_scenario(&mut *tx, scenario_id, run_id).await?;
+    let merged = merge_scan_run_into_scenario(&mut *tx, scenario_id, run_id, selected_ids).await?;
 
     let record = ScanRunMergeRecord {
         merge_id: Uuid::new_v4(),

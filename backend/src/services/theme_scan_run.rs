@@ -325,12 +325,26 @@ pub async fn delete_scenario_scan_run(
 /// refreshed); picks preserved as existing `included`/`dropped` curation are not
 /// counted. A completed benchmark run is the normal input, but no status gate is
 /// imposed — a run with no relevant verdicts simply merges zero.
+///
+/// `selected_ids` are the graph_node_ids the human CHECKED in the results list —
+/// merge writes the scan's judgment onto ONLY these (Option A). An empty selection
+/// is rejected up front as a 400 ([`ThemeScanError::EmptySelection`]) rather than
+/// silently merging zero rows, so "you selected nothing" stays a distinct,
+/// actionable observable from "the run had no relevant picks" (Standing Rule 1).
 pub async fn merge_scenario_scan_run(
     state: &AppState,
     case_slug: &str,
     scenario_id: Uuid,
     run_id: Uuid,
+    selected_ids: &[String],
 ) -> Result<u64, ThemeScanError> {
+    // A merge with nothing checked is a user error, not a no-op: fail loudly with a
+    // 400 so the caller knows to check at least one pick. The frontend also disables
+    // Merge until a pick is checked, so this is defence-in-depth, not the happy path.
+    if selected_ids.is_empty() {
+        return Err(ThemeScanError::EmptySelection { run_id });
+    }
+
     // fence 1: the scenario belongs to the case.
     load_scenario_fenced(&state.pipeline_pool, case_slug, scenario_id).await?;
 
@@ -351,9 +365,15 @@ pub async fn merge_scenario_scan_run(
     // the house pattern where multi-statement writes hold their own `pool.begin()`
     // (e.g. `insert_scan_run_verdicts`); this service keeps only the case/scenario
     // fences. `Utc::now()` is bound here so the timestamp is the application's.
-    merge_run_into_scenario_recording(&state.pipeline_pool, scenario_id, run_id, Utc::now())
-        .await
-        .map_err(|source| ThemeScanError::ScanRunMergeFailed { run_id, source })
+    merge_run_into_scenario_recording(
+        &state.pipeline_pool,
+        scenario_id,
+        run_id,
+        selected_ids,
+        Utc::now(),
+    )
+    .await
+    .map_err(|source| ThemeScanError::ScanRunMergeFailed { run_id, source })
 }
 
 /// Map one repository header row to its wire DTO. Pure (no I/O) and split out so

@@ -115,6 +115,12 @@ pub enum ThemeScanError {
     )]
     EmptyAttackMeaning { scenario_id: Uuid },
 
+    /// A merge was requested with no picks checked. User-fixable (check at least
+    /// one pick) → 400; kept distinct from a run that merges zero because it HAS no
+    /// relevant picks, so the two look different to the caller (Standing Rule 1).
+    #[error("no picks selected to merge from run {run_id} — check at least one pick, then Merge")]
+    EmptySelection { run_id: Uuid },
+
     /// Resolving the case-default subject failed at the graph layer.
     #[error("failed to resolve the default subject for scenario {scenario_id}: {source}")]
     SubjectResolveFailed {

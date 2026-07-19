@@ -17,8 +17,8 @@ use uuid::Uuid;
 use crate::{
     auth::{require_edit, AuthUser},
     dto::{
-        ScanRequest, ScanRunListResponse, ScanRunMergeResponse, ScanRunStatusResponse,
-        ScanStartedResponse,
+        ScanRequest, ScanRunListResponse, ScanRunMergeRequest, ScanRunMergeResponse,
+        ScanRunStatusResponse, ScanStartedResponse,
     },
     error::AppError,
     repositories::pipeline_repository::SCAN_STATUS_RUNNING,
@@ -183,11 +183,18 @@ pub async fn delete_scenario_scan_run_handler(
 /// it spends NO LLM budget. Returns `{ merged }` — the number of picks inserted or
 /// refreshed as `undecided` suggestions; existing human `included`/`dropped`
 /// curation is preserved and NOT counted. A run absent from this scenario is a 404.
-#[tracing::instrument(skip(state, user), fields(slug = %slug, scenario_id = %scenario_id, run_id = %run_id))]
+///
+/// The request body carries `graph_node_ids` — the picks the human CHECKED. Merge
+/// writes the scan's judgment onto ONLY these (Option A); an empty list is a 400
+/// ("check at least one pick"). `Json` is the LAST extractor because it consumes
+/// the request body — an Axum requirement (a body-consuming extractor must come
+/// after the borrow-only `Path`/`State`).
+#[tracing::instrument(skip(state, user, body), fields(slug = %slug, scenario_id = %scenario_id, run_id = %run_id, selected = body.graph_node_ids.len()))]
 pub async fn merge_scenario_scan_run_handler(
     user: AuthUser,
     State(state): State<AppState>,
     Path((slug, scenario_id, run_id)): Path<(String, String, String)>,
+    Json(body): Json<ScanRunMergeRequest>,
 ) -> Result<Json<ScanRunMergeResponse>, AppError> {
     require_edit(&user)?;
 
@@ -202,9 +209,10 @@ pub async fn merge_scenario_scan_run_handler(
         details: json!({ "field": "run_id" }),
     })?;
 
-    let merged = merge_scenario_scan_run(&state, &slug, scenario_uuid, run_uuid)
-        .await
-        .map_err(map_scan_error)?;
+    let merged =
+        merge_scenario_scan_run(&state, &slug, scenario_uuid, run_uuid, &body.graph_node_ids)
+            .await
+            .map_err(map_scan_error)?;
     // `rows_affected` is a u64; the ~94-candidate ceiling is nowhere near i64 range.
     Ok(Json(ScanRunMergeResponse {
         merged: merged as i64,
@@ -228,6 +236,12 @@ fn map_scan_error(err: ThemeScanError) -> AppError {
         ThemeScanError::EmptyAttackMeaning { .. } => AppError::BadRequest {
             message,
             details: json!({ "precondition": "attack_meaning" }),
+        },
+        // Nothing checked to merge — user-fixable (check a pick), so a 400 with a
+        // hint the frontend can key on, distinct from a not-found run.
+        ThemeScanError::EmptySelection { .. } => AppError::BadRequest {
+            message,
+            details: json!({ "precondition": "selection" }),
         },
         ThemeScanError::SubjectUnresolvable { .. } => AppError::BadRequest {
             message,
@@ -289,6 +303,17 @@ mod tests {
     fn subject_unresolvable_maps_to_400() {
         let e = ThemeScanError::SubjectUnresolvable {
             scenario_id: Uuid::nil(),
+        };
+        assert!(matches!(map_scan_error(e), AppError::BadRequest { .. }));
+    }
+
+    #[test]
+    fn empty_selection_maps_to_400() {
+        // A merge with nothing checked is user-fixable — a 400, distinct from a
+        // not-found run (which is a 404). Pins the arm so a future refactor cannot
+        // silently demote it to a 500 or collapse it into the not-found case.
+        let e = ThemeScanError::EmptySelection {
+            run_id: Uuid::nil(),
         };
         assert!(matches!(map_scan_error(e), AppError::BadRequest { .. }));
     }

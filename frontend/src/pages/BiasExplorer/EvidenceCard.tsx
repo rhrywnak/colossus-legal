@@ -79,6 +79,19 @@ const headerRow: React.CSSProperties = {
     marginBottom: "0.4rem",
 };
 
+// The optional lead-strip row: a light divider under it separates the host's
+// leading signal (judgment strip + id chip) from the card's own header. Only
+// rendered when a `leadBadge` is supplied, so unrelated consumers see no change.
+const leadBadgeRow: React.CSSProperties = {
+    display: "flex",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: "0.4rem",
+    marginBottom: "0.5rem",
+    paddingBottom: "0.4rem",
+    borderBottom: "1px solid var(--border-default)",
+};
+
 const speakerStyle: React.CSSProperties = {
     fontSize: "0.82rem",
     fontWeight: 600,
@@ -208,9 +221,19 @@ interface Props {
      * already uses for tag demotion — extend by prop, never fork the component.
      */
     onViewPdf?: (target: ViewPdfTarget) => void;
+    /**
+     * Optional strip rendered at the TOP of the card, INSIDE its border — e.g. the
+     * scenario workbench's `role · NN%` judgment strip + id chip, bound to the fact
+     * it judges (§2 of the merge-card redesign). Rendered before the header so it
+     * reads as the leading signal. When OMITTED (Bias Explorer, Theme Scan
+     * findings), the card renders exactly as before — no empty node, no layout
+     * shift. Same additive-optional-slot discipline as `onViewPdf`: the host owns
+     * the strip's content and meaning; the shared card only reserves the position.
+     */
+    leadBadge?: React.ReactNode;
 }
 
-const EvidenceCard: React.FC<Props> = ({ instance, action, onViewPdf }) => {
+const EvidenceCard: React.FC<Props> = ({ instance, action, onViewPdf, leadBadge }) => {
     const [expanded, setExpanded] = useState(false);
 
     const speakerName = instance.stated_by?.name;
@@ -239,6 +262,11 @@ const EvidenceCard: React.FC<Props> = ({ instance, action, onViewPdf }) => {
 
     return (
         <div style={cardStyle}>
+            {/* Optional lead strip (host-supplied), INSIDE the border and above the
+                header so a judgment/id it carries is bound to this fact. Omitted by
+                default → nothing renders (no empty node, no layout shift). */}
+            {leadBadge && <div style={leadBadgeRow}>{leadBadge}</div>}
+
             {/* Header — speaker + pattern chips, plus an optional action at the
                 far right (pushed there by margin-left:auto on its wrapper). */}
             <div style={headerRow}>

@@ -193,19 +193,29 @@ export type ScanRunMergeResponse = {
   merged: number;
 };
 
-/** Merge a stored run's relevant picks into the scenario's candidate facts.
+/** Merge the CHECKED picks of a stored run into the scenario's candidate facts.
  *
- *  Replays already-stored verdicts (zero LLM spend). Status-preserving: picks land
- *  as Undecided suggestions, but any Included/Dropped ruling you made survives. A
- *  non-2xx throws with the backend message (Standing Rule 1 — never swallowed). */
+ *  `graphNodeIds` are the picks the human selected — merge writes the scan's
+ *  judgment (role + confidence) onto ONLY these (ratified Option A); unchecked
+ *  picks stay unscored Undecided candidates in the pool, never removed. Replays
+ *  already-stored verdicts (zero LLM spend). Status-preserving: picks land as
+ *  Undecided suggestions, but any Included/Dropped ruling you made survives, and a
+ *  previously-merged pick left unchecked KEEPS its prior score (merge is additive,
+ *  never subtractive). An empty selection is a 400 (the panel disables Merge until
+ *  a pick is checked). A non-2xx throws with the backend message (Standing Rule 1). */
 export async function mergeScanRun(
   slug: string,
   scenarioId: string,
   runId: string,
+  graphNodeIds: string[],
 ): Promise<ScanRunMergeResponse> {
   const response = await authFetch(
     `${scenarioBase(slug, scenarioId)}/scan-runs/${encodeURIComponent(runId)}/merge`,
-    { method: "POST" },
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ graph_node_ids: graphNodeIds }),
+    },
   );
   if (!response.ok) {
     throw new Error(`Failed to merge scan run${await readErrorMessage(response)}`);

@@ -21,6 +21,7 @@ import EvidenceCard from "../pages/BiasExplorer/EvidenceCard";
 import PipelineProgressBar from "./pipeline/PipelineProgressBar";
 import RunHistoryList from "./RunHistoryList";
 import { computeAgreement, costLabel, formatElapsed, formatMergeState } from "./themeScanFormat";
+import { shortIdChip } from "./candidateWorkbench";
 import { gatherCandidates } from "../services/scenarioGather";
 import {
   deleteScanRun,
@@ -108,6 +109,12 @@ const ThemeScanPanel: React.FC<Props> = ({ slug, scenarioId, scenarioTitle }) =>
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
   const [benchmarkMode, setBenchmarkMode] = useState(true); // dry-run default ON
   const [candidateCount, setCandidateCount] = useState<number | null>(null);
+  // Whether the pre-scan candidate-count fetch FAILED (distinct from "loaded, count
+  // is 0" and from "still loading"). Drives a muted inline "(candidate count
+  // unavailable)" beside the subtitle so a failed `authFetch` is user-observable,
+  // not silent — the pre-scan count is a data read, so Rule 9's cosmetic best-effort
+  // carve-out does NOT apply to it (it is limited to browser-storage prefs).
+  const [countError, setCountError] = useState(false);
 
   const [activeRun, setActiveRun] = useState<{ runId: string; modelId: string } | null>(null);
   const [poll, setPoll] = useState<ScanRunStatus | null>(null);
@@ -176,13 +183,20 @@ const ThemeScanPanel: React.FC<Props> = ({ slug, scenarioId, scenarioTitle }) =>
         setModelError(e instanceof Error ? e.message : "Failed to load the model catalog.");
       });
     gatherCandidates(slug, scenarioId)
-      .then((g) => setCandidateCount(g.pool.length + g.dropped.length))
+      .then((g) => {
+        setCandidateCount(g.pool.length + g.dropped.length);
+        setCountError(false);
+      })
       .catch((e: unknown) => {
-        // The pre-scan count is cosmetic (candidates_total arrives with the run),
-        // so it degrades to "no count shown" — but the failure is still logged so
-        // it is observable in the console during diagnostics (Standing Rule 1).
+        // A failed count fetch is a DATA read failure, so it is SURFACED (a muted
+        // "(candidate count unavailable)" beside the subtitle), not silently dropped
+        // — Rule 9's best-effort carve-out is limited to cosmetic browser-storage and
+        // does not cover an `authFetch`. It is non-blocking: the scan still runs and
+        // `candidates_total` arrives with the run, so a small inline notice (not a
+        // page banner) is the proportionate surface. Also logged for diagnostics.
         console.warn("Theme Scan: candidate-count fetch failed:", e);
         setCandidateCount(null);
+        setCountError(true);
       });
     // Hydrate the run history from the DB — the thing that survives navigation.
     refreshRuns();
@@ -316,14 +330,14 @@ const ThemeScanPanel: React.FC<Props> = ({ slug, scenarioId, scenarioTitle }) =>
   // landed. The Candidate Facts list lives on a different page, so there is
   // nothing to re-hydrate here — the notice is the whole feedback.
   const onMergeRun = useCallback(
-    async (runId: string) => {
+    async (runId: string, graphNodeIds: string[]) => {
       setMergeStatus(null);
       try {
-        const { merged } = await mergeScanRun(slug, scenarioId, runId);
+        const { merged } = await mergeScanRun(slug, scenarioId, runId, graphNodeIds);
         const noun = merged === 1 ? "pick" : "picks";
         setMergeStatus({
           ok: true,
-          text: `Merged ${merged} relevant ${noun} into Candidate Facts as Undecided. Your included/dropped decisions were preserved.`,
+          text: `Merged ${merged} selected ${noun} into Candidate Facts as Undecided. Your included/dropped decisions were preserved.`,
         });
         // Re-read the history so the merge provenance (merge_count / last_merged_at)
         // updates immediately: the run's action flips to "Merged N× · last …" and a
@@ -378,6 +392,11 @@ const ThemeScanPanel: React.FC<Props> = ({ slug, scenarioId, scenarioTitle }) =>
             <span style={S.subtitle}>
               {scenarioTitle}
               {candidateCount != null && ` · ${candidateCount} candidates gathered`}
+              {/* Failed count fetch — surfaced inline (not silent), muted since it
+                  is non-blocking (the scan still runs). */}
+              {countError && (
+                <span style={S.countUnavailable}> · candidate count unavailable</span>
+              )}
             </span>
           </span>
         </button>
@@ -553,7 +572,7 @@ const ResultsArea: React.FC<{
   // record key, so a run still labels correctly.
   completed: Record<string, ThemeScanSummary>;
   modelName: (id: string) => string;
-  onMerge: (runId: string) => void;
+  onMerge: (runId: string, graphNodeIds: string[]) => void;
   /** Per-run merge provenance (count + last time), keyed by run_id. A run absent
    *  from the map (or with count 0) is treated as never-merged. */
   mergeStateByRun: Record<string, { count: number; last: string | null }>;
@@ -626,7 +645,7 @@ const HeroSide: React.FC<{ summary: ThemeScanSummary; modelName: string }> = ({
 const RunResult: React.FC<{
   summary: ThemeScanSummary;
   modelName: string;
-  onMerge: (runId: string) => void;
+  onMerge: (runId: string, graphNodeIds: string[]) => void;
   mergeState: { count: number; last: string | null };
 }> = ({ summary, modelName, onMerge, mergeState }) => {
   // The judge fans out with `buffer_unordered`, so `suggestions` arrives in
@@ -636,6 +655,24 @@ const RunResult: React.FC<{
   // suggestion is a RELEVANT verdict, so each carries a confidence — no
   // null-guard is needed here (unlike a nullable field, this is always present).
   const rankedSuggestions = [...summary.suggestions].sort((a, b) => b.confidence - a.confidence);
+
+  // Per-item merge selection (§1, ratified Option A): merge writes the scan's
+  // judgment onto ONLY the CHECKED picks. Default ALL-UNCHECKED (D1) — the human
+  // opts each pick in, so a low-confidence guess never lands unless chosen. The Set
+  // is keyed by graph_node_id; it lives here (per RunResult) so each viewed run
+  // keeps its own selection.
+  const [checked, setChecked] = useState<Set<string>>(new Set());
+  const toggleOne = (id: string) =>
+    setChecked((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const allIds = rankedSuggestions.map((s) => s.graph_node_id);
+  const allChecked = allIds.length > 0 && allIds.every((id) => checked.has(id));
+  const selectAll = () => setChecked(new Set(allIds));
+  const selectNone = () => setChecked(new Set());
 
   // Merge provenance: `null` when never merged (show the plain "Merge into
   // scenario"); otherwise "merged N× · last …" beside an explicit Re-merge (a
@@ -649,17 +686,20 @@ const RunResult: React.FC<{
     // row): keeps the button safe if RunResult is ever nested in a selectable
     // container. Confirm is the guard before a write.
     e.stopPropagation();
-    const count = summary.relevant_written;
-    const noun = count === 1 ? "pick" : "picks";
+    const ids = allIds.filter((id) => checked.has(id));
+    if (ids.length === 0) return; // Merge is disabled in this state; belt-and-suspenders.
+    const noun = ids.length === 1 ? "pick" : "picks";
     const verb = merged ? "Re-merge" : "Merge";
     if (
       window.confirm(
-        `${verb} ${count} relevant ${noun}? Your included/dropped decisions are preserved.`,
+        `${verb} ${ids.length} selected ${noun}? Your included/dropped decisions are preserved.`,
       )
     ) {
-      onMerge(summary.run_id);
+      onMerge(summary.run_id, ids);
     }
   };
+
+  const selectedCount = checked.size;
 
   return (
     <div style={S.runResult}>
@@ -670,8 +710,27 @@ const RunResult: React.FC<{
         {/* Merged state reads as a durable fact, not a fresh action; the button
             beside it is the explicit re-merge. Never-merged shows just the Merge. */}
         {merged && <span style={S.mergedState}>Merged ✓ · {mergeLabel}</span>}
-        <button type="button" style={S.mergeButton} onClick={confirmMerge}>
+        {/* Merge is DISABLED until at least one pick is checked (D2) — merging
+            nothing is a no-op, so the affordance is gated rather than firing a
+            pointless request. Re-merge is DEMOTED to a secondary style (§6.2): a
+            legitimate-but-rare reconcile, so it reads quieter than the primary
+            Merge (never removed — reconcile depends on it). */}
+        <button
+          type="button"
+          style={{
+            ...(merged ? S.remergeButton : S.mergeButton),
+            ...(selectedCount === 0 ? S.mergeButtonDisabled : {}),
+          }}
+          onClick={confirmMerge}
+          disabled={selectedCount === 0}
+          title={
+            selectedCount === 0
+              ? "Check at least one pick to merge"
+              : `${merged ? "Re-merge" : "Merge"} ${selectedCount} selected`
+          }
+        >
           {merged ? "Re-merge" : "Merge into scenario"}
+          {selectedCount > 0 ? ` (${selectedCount})` : ""}
         </button>
       </div>
 
@@ -682,18 +741,51 @@ const RunResult: React.FC<{
         <LiveTile label="Failed" value={summary.failed} tone="danger" />
       </div>
 
-      <div style={S.findingsHead}>Top relevant findings</div>
+      <div style={S.findingsHead}>
+        <span>Top relevant findings</span>
+        {/* Select-all / none convenience (D3) — only meaningful when there are
+            picks to select. */}
+        {rankedSuggestions.length > 0 && (
+          <span style={S.selectControls}>
+            <button
+              type="button"
+              style={S.selectLink}
+              onClick={allChecked ? selectNone : selectAll}
+            >
+              {allChecked ? "Select none" : "Select all"}
+            </button>
+          </span>
+        )}
+      </div>
       {rankedSuggestions.length === 0 && <div style={S.muted}>No relevant quotes found.</div>}
       {rankedSuggestions.map((sug) => (
         <div key={sug.graph_node_id} style={S.finding}>
-          <EvidenceCard
-            instance={sug.content}
-            action={
-              <span style={S.roleBadge}>
-                {sug.proposed_role} · {Math.round(sug.confidence * 100)}%
-              </span>
-            }
-          />
+          {/* The checkbox is the merge-selection affordance — checking a pick is
+              what gives it a scan judgment on merge (§1). */}
+          <label style={S.pickRow}>
+            <input
+              type="checkbox"
+              checked={checked.has(sug.graph_node_id)}
+              onChange={() => toggleOne(sug.graph_node_id)}
+            />
+            <span style={S.pickCardWrap}>
+              <EvidenceCard
+                instance={sug.content}
+                // Stable id chip (§4) leading the scan card too, so the SAME fact
+                // carries the SAME `#a3f9k2` handle here and in Candidate Facts.
+                leadBadge={
+                  <span style={S.chip} title={sug.graph_node_id}>
+                    {shortIdChip(sug.graph_node_id)}
+                  </span>
+                }
+                action={
+                  <span style={S.roleBadge}>
+                    {sug.proposed_role} · {Math.round(sug.confidence * 100)}%
+                  </span>
+                }
+              />
+            </span>
+          </label>
         </div>
       ))}
     </div>
@@ -733,13 +825,21 @@ const S: Record<string, React.CSSProperties> = {
     color: "inherit",
     font: "inherit",
   },
+  // Enlarged from 0.8rem (§6.1) — the old chevron was too small a click/touch
+  // target. A fixed square keeps it centered as the header toggle's affordance.
   collapseChevron: {
-    fontSize: "0.8rem",
+    fontSize: "1.15rem",
     color: "var(--text-muted)",
     lineHeight: 1,
+    width: "1.4rem",
+    textAlign: "center",
+    flexShrink: 0,
   },
   title: { display: "block", fontSize: "1.05rem", fontWeight: 600, color: "var(--text-primary)" },
   subtitle: { display: "block", fontSize: "0.85rem", color: "var(--text-muted)", marginTop: "2px" },
+  // The inline "count unavailable" note — danger-tinted so a failed data fetch reads
+  // as a problem (not just muted chrome), but small/inline since it is non-blocking.
+  countUnavailable: { color: "var(--state-danger-strong)", fontStyle: "italic" },
   // "Merged ✓ · merged N× · last …" — a durable-state chip (muted, success-tinted),
   // distinct from the actionable Merge/Re-merge button beside it.
   mergedState: {
@@ -951,6 +1051,9 @@ const S: Record<string, React.CSSProperties> = {
     padding: "2px 10px",
   },
   findingsHead: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
     fontSize: "0.78rem",
     fontWeight: 600,
     textTransform: "uppercase",
@@ -958,7 +1061,32 @@ const S: Record<string, React.CSSProperties> = {
     color: "var(--text-muted)",
     margin: "14px 0 8px",
   },
+  selectControls: { display: "flex", gap: "10px" },
+  // A quiet text-button for "Select all / none" — reads as a convenience link, not
+  // a primary action.
+  selectLink: {
+    background: "none",
+    border: "none",
+    padding: 0,
+    fontSize: "0.74rem",
+    fontWeight: 600,
+    textTransform: "none",
+    letterSpacing: "normal",
+    color: "var(--accent-primary)",
+    cursor: "pointer",
+    fontFamily: "var(--font-sans)",
+  },
   finding: { marginBottom: "8px" },
+  // The pick row: checkbox at the left, the card taking the rest. `align-items:
+  // flex-start` keeps the checkbox at the card's top rather than vertically centered
+  // on a tall card. The whole row is a <label> so clicking the card body toggles it.
+  pickRow: {
+    display: "flex",
+    alignItems: "flex-start",
+    gap: "10px",
+    cursor: "pointer",
+  },
+  pickCardWrap: { flex: 1, minWidth: 0 },
   roleBadge: {
     fontSize: "0.72rem",
     fontWeight: 600,
@@ -968,6 +1096,39 @@ const S: Record<string, React.CSSProperties> = {
     borderRadius: "6px",
     padding: "2px 8px",
     whiteSpace: "nowrap",
+  },
+  // The stable id chip (§4) — short monospace handle leading the scan-result card,
+  // matching the Candidate Facts chip so the same fact reads the same on both.
+  chip: {
+    fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+    fontSize: "0.7rem",
+    fontWeight: 600,
+    color: "var(--text-muted)",
+    background: "var(--bg-page)",
+    border: "1px solid var(--border-default)",
+    borderRadius: "5px",
+    padding: "1px 6px",
+    whiteSpace: "nowrap",
+  },
+  // Re-merge, DEMOTED (§6.2): a neutral outline text-button, quieter than the accent
+  // Merge, so the rare reconcile does not read as the primary action.
+  remergeButton: {
+    marginLeft: "auto",
+    fontSize: "0.78rem",
+    fontWeight: 600,
+    color: "var(--text-secondary)",
+    background: "var(--bg-surface)",
+    border: "1px solid var(--border-default)",
+    borderRadius: "8px",
+    padding: "4px 12px",
+    cursor: "pointer",
+    fontFamily: "var(--font-sans)",
+  },
+  // Disabled Merge/Re-merge (no picks checked, D2): muted + not-allowed, so the
+  // gate is visible, not just non-functional.
+  mergeButtonDisabled: {
+    opacity: 0.5,
+    cursor: "not-allowed",
   },
 };
 

@@ -28,21 +28,17 @@ import {
 import { listScenarioFacts, type ScenarioFactDto } from "../services/scenarioFacts";
 import { API_BASE_URL } from "../services/api";
 import PdfViewer from "./shared/PdfViewer";
-import EvidenceCard, {
-  formatTagLabel,
-  type ViewPdfTarget,
-} from "../pages/BiasExplorer/EvidenceCard";
-import type { BiasInstance } from "../services/bias";
+import EvidenceCard, { type ViewPdfTarget } from "../pages/BiasExplorer/EvidenceCard";
 import type { ScenarioDefinition } from "../pages/trialPrepData";
 import {
   ACTION_LABEL,
   actionsForStatus,
-  candidateBadgeLabel,
   countByStatus,
   filterByStatus,
-  filterFromScan,
   findOrphans,
   orphansVisibleUnder,
+  roleConfidenceLabel,
+  shortIdChip,
   sortByConfidence,
   STATUS_FILTERS,
   STATUS_FILTER_LABEL,
@@ -204,17 +200,6 @@ const xOfYStyle: React.CSSProperties = {
   alignSelf: "center",
 };
 
-// The "Only from scan" provenance toggle — same muted control vocabulary as the
-// status label beside it.
-const fromScanLabelStyle: React.CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  gap: "0.25rem",
-  fontSize: "0.82rem",
-  color: "var(--text-secondary)",
-  cursor: "pointer",
-};
-
 // Bounded scroll window for the candidate list. Keeps the flex-column layout and
 // row gap the list had before, plus a capped height so it scrolls internally
 // instead of owning the page. `minHeight` keeps a usable window on short viewports;
@@ -299,15 +284,21 @@ const viewerFrameStyle: React.CSSProperties = {
   minHeight: 0,
 };
 
-// The role/confidence badge that LEADS each candidate — "role · NN%" rendered
-// exactly like the Theme Scan panel's `roleBadge` (neutral, accent-primary text +
-// border), so a merged card visually echoes the run it came from. Per the ratified
-// decision we do NOT invent a per-role color map; one neutral badge for every role.
-const badgeRowStyle: React.CSSProperties = {
+// The lead strip that now renders INSIDE each candidate card (via EvidenceCard's
+// `leadBadge` slot), so the machine's judgment is bound to the fact it judges
+// (§2 — fixes the old panel-side orphaned badge). Holds the id chip and, for a
+// scored candidate only, the "role · NN%" badge. A row so the two sit side by side.
+const leadStripStyle: React.CSSProperties = {
   display: "flex",
-  marginBottom: "0.3rem",
+  alignItems: "center",
+  gap: "0.4rem",
 };
 
+// The "role · NN%" judgment badge — neutral, accent-primary text + border, echoing
+// the Theme Scan panel's `roleBadge` (§3). Per the ratified decision we do NOT
+// invent a per-role color map; one neutral badge for every role. Rendered ONLY for
+// scored candidates — its ABSENCE is the "human-added / unscored" signal (§2), so
+// there is no longer any "unscored" text marker.
 const roleBadgeStyle: React.CSSProperties = {
   fontSize: "0.72rem",
   fontWeight: 600,
@@ -319,58 +310,39 @@ const roleBadgeStyle: React.CSSProperties = {
   whiteSpace: "nowrap",
 };
 
-// The "unscored" marker occupies the SAME slot as the scored badge (ratified),
-// but muted and italic so a human-curated / undecided row reads as "no model
-// score" — never a zero, never a blank (Standing Rule 1: distinct states, distinct
-// observables). It deliberately drops the accent + border so it recedes next to a
-// scored badge.
-const unscoredBadgeStyle: React.CSSProperties = {
-  fontSize: "0.72rem",
-  fontWeight: 500,
-  fontStyle: "italic",
-  color: "var(--text-muted)",
-  padding: "2px 4px",
-  whiteSpace: "nowrap",
-};
-
-// Demoted pattern-tag chrome — the LEAST-INVASIVE demotion (ratified): tags are
-// pulled out of the card header and re-rendered here below the card as small,
-// muted, uncolored chips, so the role/confidence signal leads and the pattern-tag
-// palette no longer dominates. Scoped to THIS workbench only — the shared
-// `EvidenceCard` is untouched, so the Bias Explorer's colored chips are unchanged
-// (we pass the card an instance with `pattern_tags` stripped; see `withoutTags`).
-const demotedTagsRowStyle: React.CSSProperties = {
-  display: "flex",
-  flexWrap: "wrap",
-  gap: "0.3rem",
-  marginTop: "0.3rem",
-  paddingLeft: "0.1rem",
-};
-
-const demotedTagStyle: React.CSSProperties = {
-  fontSize: "0.66rem",
-  fontWeight: 500,
+// The stable per-card id chip (§4) — a short monospace reference handle (`#a3f9k2`)
+// derived from the fact's durable `evidence_id`. A `<button>` so it is copy-to-
+// clipboard on click; the full id rides in its `title` for hover. Muted so it reads
+// as metadata, not an action.
+const idChipStyle: React.CSSProperties = {
+  fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+  fontSize: "0.7rem",
+  fontWeight: 600,
   color: "var(--text-muted)",
   background: "var(--bg-page)",
   border: "1px solid var(--border-default)",
-  borderRadius: "4px",
+  borderRadius: "5px",
   padding: "1px 6px",
+  cursor: "pointer",
   whiteSpace: "nowrap",
 };
 
-/**
- * A presentation-only copy of a candidate's content with `pattern_tags` emptied,
- * so the shared `EvidenceCard` renders NO tag chips in its header for the
- * workbench. The tags are then re-rendered demoted (below the card) by the panel.
- *
- * TS-learning: this is the zero-touch way to scope the tag demotion to the
- * workbench without adding a prop (or scenario semantics) to `EvidenceCard`. The
- * card stays agnostic; the panel decides its own presentation. A shallow spread is
- * cheap and pure — the original `content` object is never mutated.
- */
-function withoutTags(content: BiasInstance): BiasInstance {
-  return { ...content, pattern_tags: [] };
-}
+// Inline copy-outcome notices beside the chip — a success tick and an explicit
+// failure note (Standing Rule 1: distinct states, distinct observables). Small and
+// muted/danger-tinted so they read as transient feedback, not chrome.
+const copyOkStyle: React.CSSProperties = {
+  fontSize: "0.68rem",
+  fontWeight: 600,
+  color: "var(--status-active-text)",
+  whiteSpace: "nowrap",
+};
+
+const copyFailStyle: React.CSSProperties = {
+  fontSize: "0.68rem",
+  fontWeight: 600,
+  color: "var(--state-danger-strong)",
+  whiteSpace: "nowrap",
+};
 
 const CandidateFactsPanel: React.FC<Props> = ({ slug, scenarioId }) => {
   const [open, setOpen] = useState(false);
@@ -378,11 +350,6 @@ const CandidateFactsPanel: React.FC<Props> = ({ slug, scenarioId }) => {
   const [candidates, setCandidates] = useState<CandidateDto[] | null>(null);
   const [orphans, setOrphans] = useState<ScenarioFactDto[]>([]);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("undecided");
-  // Provenance filter: when on, narrow to candidates that came from a scan/merge
-  // (scored — `confidence != null`), so "which candidates did my merge put here"
-  // is answerable without scrolling ~91 undecided rows. Orthogonal to the status
-  // dropdown (see `filterFromScan`).
-  const [fromScanOnly, setFromScanOnly] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -429,6 +396,14 @@ const CandidateFactsPanel: React.FC<Props> = ({ slug, scenarioId }) => {
   // untouched (the viewer stays put while the list refreshes underneath it).
   const [viewerTarget, setViewerTarget] = useState<ViewPdfTarget | null>(null);
 
+  // Outcome of the most recent id-chip copy, keyed by the chip's evidence_id so the
+  // notice shows on the chip the reviewer clicked. `ok` distinguishes a success tick
+  // from a copy failure (Standing Rule 1 — the two states look different), so a
+  // failed clipboard write is OBSERVABLE, not silent.
+  const [copyNotice, setCopyNotice] = useState<{ id: string; ok: boolean } | null>(
+    null,
+  );
+
   // Load the whole pool + the saved list (for the orphan check) whenever the
   // panel is open. Both come from ONE fetch each; the status filter then works
   // in memory (see `filterByStatus`). `listScenarioFacts` is fetched alongside
@@ -469,13 +444,11 @@ const CandidateFactsPanel: React.FC<Props> = ({ slug, scenarioId }) => {
   // highest-confidence first, unscored (human-curated / undecided) last as a
   // distinct group (see `sortByConfidence`). Sorting AFTER the filter keeps each
   // status view internally ranked; both steps are pure, so the memo re-derives
-  // only when the pool or the filter changes.
+  // only when the pool or the filter changes. ("Only from scan" was deleted — §2:
+  // per-item selection + the strip presence/absence make it redundant.)
   const visible = useMemo(
-    () =>
-      sortByConfidence(
-        filterFromScan(filterByStatus(candidates ?? [], statusFilter), fromScanOnly),
-      ),
-    [candidates, statusFilter, fromScanOnly],
+    () => sortByConfidence(filterByStatus(candidates ?? [], statusFilter)),
+    [candidates, statusFilter],
   );
 
   // Restore the captured scroll offset once a post-ruling refetch has re-rendered
@@ -515,6 +488,31 @@ const CandidateFactsPanel: React.FC<Props> = ({ slug, scenarioId }) => {
       });
   };
 
+  // Copy the FULL evidence_id (the chip shows only the short `#a3f9k2` handle) so a
+  // reviewer can paste the exact id when talking to Chuck / querying the DB (§4).
+  //
+  // The outcome is SURFACED on the clicked chip via `copyNotice` — a tick on
+  // success, an explicit "copy failed" (pointing at the hover tooltip) on failure —
+  // so a clipboard rejection (permission denied / insecure context / API absent) is
+  // never silent (Standing Rule 1). The failure is also logged for diagnostics. This
+  // is a UI convenience, so the surface is an inline chip notice rather than a
+  // page-level banner, but it IS a user-facing observable, not a swallowed error.
+  const copyChip = (evidenceId: string) => {
+    const clip = navigator.clipboard;
+    if (!clip) {
+      // No clipboard API (insecure context / unsupported) — say so, don't no-op.
+      setCopyNotice({ id: evidenceId, ok: false });
+      return;
+    }
+    clip
+      .writeText(evidenceId)
+      .then(() => setCopyNotice({ id: evidenceId, ok: true }))
+      .catch((e: unknown) => {
+        console.warn("Candidate facts: could not copy id to clipboard:", e);
+        setCopyNotice({ id: evidenceId, ok: false });
+      });
+  };
+
   if (!open) {
     return (
       <button type="button" style={toggleStyle} onClick={() => setOpen(true)}>
@@ -523,11 +521,10 @@ const CandidateFactsPanel: React.FC<Props> = ({ slug, scenarioId }) => {
     );
   }
 
-  // Orphans are human-saved refs whose graph node vanished — they carry NO scan
-  // confidence, so the "only from scan" view must hide them too (they did not come
-  // from a scan/merge). Gate on `!fromScanOnly` alongside the status gate.
-  const showOrphans =
-    orphansVisibleUnder(statusFilter) && !fromScanOnly && orphans.length > 0;
+  // Orphans are human-saved refs whose graph node vanished — surfaced only under
+  // the filters where a confirmed fact is expected (included / all), per the status
+  // gate.
+  const showOrphans = orphansVisibleUnder(statusFilter) && orphans.length > 0;
   // Exclude the error state: on a failed load `candidates` stays null, which
   // would otherwise render the "no matches" empty-state text UNDER the error
   // banner — making a load failure read as an empty filter result. The banner
@@ -578,17 +575,6 @@ const CandidateFactsPanel: React.FC<Props> = ({ slug, scenarioId }) => {
               ))}
             </select>
           </label>
-          {/* Provenance filter — orthogonal to the status dropdown. Narrows to
-              scored (from-scan/merge) candidates so a reviewer can see what a
-              merge put here at a glance. */}
-          <label style={fromScanLabelStyle}>
-            <input
-              type="checkbox"
-              checked={fromScanOnly}
-              onChange={(e) => setFromScanOnly(e.target.checked)}
-            />{" "}
-            Only from scan
-          </label>
           {candidates !== null && (
             <span style={xOfYStyle}>
               {shownCount} of {totalShown}
@@ -634,22 +620,43 @@ const CandidateFactsPanel: React.FC<Props> = ({ slug, scenarioId }) => {
           // node — and its `scrollTop` — survives.
           <div ref={scrollRegionRef} style={scrollRegionStyle}>
             {visible.map((c) => {
-              const scored = c.confidence != null;
               return (
                 <div key={c.content.evidence_id}>
-                  {/* Role/confidence badge — LEADS the card so a merged pick shows
-                      "corroborates · 85%" up top (echoing the scan run); a
-                      human-curated / undecided row shows the muted "unscored"
-                      marker in the same slot (never "0%"). */}
-                  <div style={badgeRowStyle}>
-                    <span style={scored ? roleBadgeStyle : unscoredBadgeStyle}>
-                      {candidateBadgeLabel(c.role, c.confidence)}
-                    </span>
-                  </div>
                   <EvidenceCard
-                    // Tags stripped here and re-rendered demoted below, so the
-                    // role/confidence signal leads (see `withoutTags`). Card unchanged.
-                    instance={withoutTags(c.content)}
+                    // Full content (tags NOT stripped) so the shared card renders
+                    // its colored pattern-tag pills — the workbench color restore
+                    // (§2). The card is unchanged; we simply stopped hiding its tags.
+                    instance={c.content}
+                    // Lead strip bound INSIDE the card (§2): the id chip always, plus
+                    // the "role · NN%" judgment badge ONLY when scored — its absence
+                    // is the human-added / unscored signal (no "unscored" text).
+                    leadBadge={
+                      <span style={leadStripStyle}>
+                        <button
+                          type="button"
+                          style={idChipStyle}
+                          title={`${c.content.evidence_id} (click to copy)`}
+                          onClick={() => copyChip(c.content.evidence_id)}
+                        >
+                          {shortIdChip(c.content.evidence_id)}
+                        </button>
+                        {c.confidence != null && (
+                          <span style={roleBadgeStyle}>
+                            {roleConfidenceLabel(c.role, c.confidence)}
+                          </span>
+                        )}
+                        {copyNotice?.id === c.content.evidence_id && (
+                          <span
+                            style={copyNotice.ok ? copyOkStyle : copyFailStyle}
+                            role="status"
+                          >
+                            {copyNotice.ok
+                              ? "copied ✓"
+                              : "copy failed — full id is in the tooltip"}
+                          </span>
+                        )}
+                      </span>
+                    }
                     // Open the source in THIS panel's side-panel viewer instead of
                     // navigating away (Bug 2). Only the workbench passes this; the
                     // card's other consumers keep their default <Link>.
@@ -671,16 +678,6 @@ const CandidateFactsPanel: React.FC<Props> = ({ slug, scenarioId }) => {
                       </span>
                     }
                   />
-                  {/* Demoted pattern tags — muted, uncolored, below the card. */}
-                  {c.content.pattern_tags.length > 0 && (
-                    <div style={demotedTagsRowStyle}>
-                      {c.content.pattern_tags.map((t) => (
-                        <span key={t} style={demotedTagStyle} title={t}>
-                          {formatTagLabel(t)}
-                        </span>
-                      ))}
-                    </div>
-                  )}
                   {actionError?.id === c.content.evidence_id && (
                     <div style={errorStyle}>{actionError.message}</div>
                   )}

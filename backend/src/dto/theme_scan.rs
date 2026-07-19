@@ -163,6 +163,33 @@ pub struct ScanRunListResponse {
     pub runs: Vec<ScanRunHeader>,
 }
 
+/// Request body for `POST …/scan-runs/:run_id/merge`.
+///
+/// `graph_node_ids` are the picks the human CHECKED in the results list — merge
+/// writes the scan's judgment onto ONLY these (ratified Option A). An empty list is
+/// rejected as a 400 by the service ([`ThemeScanError::EmptySelection`]); the
+/// frontend also disables Merge until a pick is checked, so an empty body is a
+/// defensive floor, not the normal path.
+///
+/// ## Rust Learning: `#[serde(default)]` on the field, `deny_unknown_fields` on the struct
+///
+/// A missing `graph_node_ids` key deserializes to an empty `Vec` rather than a 422
+/// deserialization error, so a malformed/empty body reaches our OWN empty-selection
+/// check and returns the domain-specific 400 ("check at least one pick") instead of a
+/// generic serde rejection — a clearer, actionable message (Standing Rule 1). But a
+/// MISSPELLED key (`graph_node_id` for `graph_node_ids`) is a caller mistake, not an
+/// absence: `deny_unknown_fields` rejects it as a 400 rather than silently merging
+/// zero — the same discipline `ScanRequest` uses, so a typo can never masquerade as
+/// "nothing selected".
+// serde: deny_unknown_fields — an unknown key here is a client bug (a typo'd
+// `graph_node_id`), and ignoring it would let a mistake read as an empty selection.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ScanRunMergeRequest {
+    #[serde(default)]
+    pub graph_node_ids: Vec<String>,
+}
+
 /// Result of merging one stored run's relevant picks into a scenario.
 ///
 /// `merged` is the number of candidate facts inserted or refreshed as `undecided`

@@ -9,15 +9,14 @@ import { describe, expect, it } from "vitest";
 
 import {
   actionsForStatus,
-  candidateBadgeLabel,
   countByStatus,
   filterByStatus,
-  filterFromScan,
   findOrphans,
   formatConfidencePct,
   orphansVisibleUnder,
+  roleConfidenceLabel,
+  shortIdChip,
   sortByConfidence,
-  UNSCORED_LABEL,
 } from "../candidateWorkbench";
 import type { CandidateDto, FactStatus } from "../../services/scenarioGather";
 import type { ScenarioFactDto } from "../../services/scenarioFacts";
@@ -231,59 +230,49 @@ describe("formatConfidencePct", () => {
     expect(formatConfidencePct(0.554)).toBe("55%");
   });
 
-  it("renders a real 0 score as '0%', distinct from unscored", () => {
+  it("renders a real 0 score as '0%' (0 is a score, never conflated with unscored)", () => {
     expect(formatConfidencePct(0)).toBe("0%");
   });
-
-  it("renders null as the 'unscored' marker, never '0%' or blank", () => {
-    expect(formatConfidencePct(null)).toBe(UNSCORED_LABEL);
-    expect(formatConfidencePct(null)).not.toBe("0%");
-    expect(formatConfidencePct(null)).not.toBe("");
-  });
 });
 
-// ── filterFromScan ──────────────────────────────────────────────────────────────
+// ── roleConfidenceLabel ─────────────────────────────────────────────────────────
 
-describe("filterFromScan", () => {
-  it("keeps only scored (confidence != null) candidates when enabled", () => {
-    const out = filterFromScan(
-      [scored("ev-s", "corroborates", 0.85), candidate("ev-h", "included")],
-      true,
-    );
-    expect(out.map((c) => c.content.evidence_id)).toEqual(["ev-s"]);
-  });
-
-  it("keeps a real 0 score (0 is a model score, not unscored)", () => {
-    const out = filterFromScan([scored("ev-zero", "contradicts", 0)], true);
-    expect(out.map((c) => c.content.evidence_id)).toEqual(["ev-zero"]);
-  });
-
-  it("is the identity filter when disabled (returns everything)", () => {
-    const input = [scored("ev-s", "rebuts", 0.5), candidate("ev-h", "undecided")];
-    expect(filterFromScan(input, false)).toHaveLength(2);
-  });
-});
-
-// ── candidateBadgeLabel ─────────────────────────────────────────────────────────
-
-describe("candidateBadgeLabel", () => {
+describe("roleConfidenceLabel", () => {
   it("composes 'role · NN%' for a scored pick (echoing the scan-run panel)", () => {
-    expect(candidateBadgeLabel("corroborates", 0.85)).toBe("corroborates · 85%");
-    expect(candidateBadgeLabel("rebuts", 0.55)).toBe("rebuts · 55%");
+    expect(roleConfidenceLabel("corroborates", 0.85)).toBe("corroborates · 85%");
+    expect(roleConfidenceLabel("rebuts", 0.55)).toBe("rebuts · 55%");
   });
 
   it("shows just the percent when a score has no role", () => {
-    expect(candidateBadgeLabel(null, 0.4)).toBe("40%");
+    expect(roleConfidenceLabel(null, 0.4)).toBe("40%");
   });
 
-  it("shows the 'unscored' marker when there is no confidence, regardless of role", () => {
-    expect(candidateBadgeLabel(null, null)).toBe(UNSCORED_LABEL);
-    // Even if a role were somehow present, no model score ⇒ unscored (the slot
-    // shows one thing; confidence is what gates it).
-    expect(candidateBadgeLabel("rebuts", null)).toBe(UNSCORED_LABEL);
+  it("keeps a real 0 score as a percent", () => {
+    expect(roleConfidenceLabel("contradicts", 0)).toBe("contradicts · 0%");
+  });
+});
+
+// ── shortIdChip ─────────────────────────────────────────────────────────────────
+
+describe("shortIdChip", () => {
+  it("is deterministic — the same fact yields the same chip, always", () => {
+    // Same-fact→same-chip is the ONE hard requirement (§4): a chip that changed
+    // between renders/sessions would be useless as a reference handle.
+    expect(shortIdChip("evidence-phillips-q74")).toBe(shortIdChip("evidence-phillips-q74"));
   });
 
-  it("keeps a real 0 score as a percent, never 'unscored'", () => {
-    expect(candidateBadgeLabel("contradicts", 0)).toBe("contradicts · 0%");
+  it("renders the '#' + fixed-width 6-char base36 handle", () => {
+    const chip = shortIdChip("evidence-phillips-q74");
+    expect(chip).toMatch(/^#[0-9a-z]{6}$/);
+  });
+
+  it("differs for ids that share a long human prefix (the raw-truncation failure)", () => {
+    // Truncating the FRONT of these collides (both start 'evidence-phillips-q7');
+    // the hash folds the whole id so the discriminating tail still separates them.
+    expect(shortIdChip("evidence-phillips-q74")).not.toBe(shortIdChip("evidence-phillips-q75"));
+  });
+
+  it("differs across unrelated ids", () => {
+    expect(shortIdChip("evidence-mock-001")).not.toBe(shortIdChip("evidence-awad-complaint-12"));
   });
 });
