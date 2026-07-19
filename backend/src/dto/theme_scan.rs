@@ -3,19 +3,26 @@
 //! The wire shape returned by
 //! `POST /cases/:slug/scenarios/:scenario_id/theme-scan`. A scan reads every
 //! candidate quote about the scenario's subject, asks the LLM judge to rate each
-//! one against the scenario's `attack_meaning`, writes the RELEVANT verdicts to
-//! `scenario_fact_refs` (as `confirmed=false` suggestions), and returns this
-//! summary so D3 can render the suggestions and the honesty-check sample.
+//! one against the scenario's `attack_meaning`, records every verdict to
+//! `scan_run_verdicts`, and returns this summary so the panel can render the
+//! relevant picks and the honesty-check sample.
+//!
+//! ## Scanning is scoring, never committing
+//!
+//! A scan writes NOTHING to `scenario_fact_refs`. The relevant picks are
+//! SUGGESTIONS awaiting the human's explicit **Merge selected**, which is the only
+//! path from a verdict into the scenario's candidate facts. Read every count in
+//! this module as "what the model thought", never as "what was added to the case".
 //!
 //! ## Why the rejected sample rides in the response, not a second endpoint
 //!
 //! Amendment 1 wants an honesty check: after a scan, show a sample of the quotes
 //! the judge REJECTED, so a human can confirm the judge is not silently dropping
-//! relevant evidence. We do NOT persist irrelevant verdicts (only relevant ones
-//! become `scenario_fact_refs` rows), so the rejected quotes exist only in the
-//! scan's own memory. Returning a bounded sample INLINE here is therefore the
-//! cheapest honest design — the scan already judged them; a separate "sample
-//! rejects" endpoint would have to re-run the whole scan to reconstruct the set.
+//! relevant evidence. The rejected quotes' CONTENT lives only in the graph and in
+//! this response (the verdict itself is recorded in `scan_run_verdicts`), so
+//! returning a bounded sample INLINE is the cheapest honest design — the scan
+//! already judged them; a separate "sample rejects" endpoint would have to re-read
+//! and re-assemble the whole set.
 //!
 //! ## Why `content` is a `BiasInstance`
 //!
@@ -34,21 +41,30 @@ use crate::bias::dto::BiasInstance;
 
 /// Optional request body for `POST .../theme-scan`.
 ///
-/// Both fields are optional so an EMPTY body preserves the pre-Chunk-B behavior
-/// (default model, non-dry-run). The handler accepts `Option<Json<ScanRequest>>`
-/// and falls back to `ScanRequest::default()` when the body is absent.
+/// The one field is optional so an EMPTY body means "scan with the default
+/// model". The handler accepts `Option<Json<ScanRequest>>` and falls back to
+/// `ScanRequest::default()` when the body is absent.
+///
+/// ## Why there is no `dry_run` any more
+///
+/// `dry_run` used to ask "should this scan auto-write its picks?". Under the
+/// unified merge model no scan ever writes — merge is the only write path — so
+/// the question has one permanent answer and the field described a distinction
+/// that no longer exists. A stale client still sending `dry_run` gets a 400 from
+/// `deny_unknown_fields` rather than a silently-ignored key: loud beats silent
+/// (Standing Rule 1), and the caller learns their assumption is out of date
+/// instead of believing they suppressed a write that was never going to happen.
 ///
 /// ## Rust Learning: `#[serde(default)]` = "this field is optional on the wire"
 ///
 /// With `#[serde(default)]`, a missing key deserializes to the field type's
-/// `Default` (`None` for `model_id`, `false` for `dry_run`) instead of failing.
-/// The DERIVE of `Default` on the struct then lets the handler synthesize the
-/// whole request when there is no body at all. Absence is legitimate here — the
-/// meaningful distinction (Standing Rule 1) is model-picked-or-default, captured
-/// by `Option`, and dry-run-or-not, captured by the bool.
+/// `Default` (`None` for `model_id`) instead of failing. The DERIVE of `Default`
+/// on the struct then lets the handler synthesize the whole request when there is
+/// no body at all. Absence is legitimate here — the meaningful distinction
+/// (Standing Rule 1) is model-picked-or-default, captured by the `Option`.
 // serde: deny_unknown_fields — an unknown key in a client request body is a
-// caller mistake (a typo'd `model` for `model_id`, a stale field), and silently
-// ignoring it would let a misspelled `dry_run` run a live scan. Reject with 400.
+// caller mistake (a typo'd `model` for `model_id`, or a retired field like
+// `dry_run`), and silently ignoring it would hide the mistake. Reject with 400.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ScanRequest {
@@ -56,10 +72,6 @@ pub struct ScanRequest {
     /// (`THEME_SCAN_MODEL`, else the chat default).
     #[serde(default)]
     pub model_id: Option<String>,
-    /// `true` = benchmark run: judge + record to the audit tables, but do NOT
-    /// upsert `scenario_fact_refs`. `false` (default) = normal workbench scan.
-    #[serde(default)]
-    pub dry_run: bool,
 }
 
 /// The immediate response to `POST .../theme-scan` — the scan now runs in the
@@ -88,7 +100,6 @@ pub struct ScanRunStatusResponse {
     /// `running` | `completed` | `failed`.
     pub status: String,
     pub model_id: String,
-    pub dry_run: bool,
     /// Progress denominator (may be absent only for pre-background legacy rows).
     pub candidates_total: Option<i32>,
     /// Progress numerator — how many candidates have been judged so far.
@@ -100,10 +111,14 @@ pub struct ScanRunStatusResponse {
     /// The failure reason when `status == "failed"`; `None` otherwise.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
-    /// The full [`ThemeScanSummary`] once `completed`, passed through VERBATIM as
-    /// the stored `summary_json` (a render convenience — the GET never re-queries
-    /// Neo4j). `None` while running/failed. The wire shape equals `ThemeScanSummary`;
-    /// the frontend types it as such.
+    /// The full [`ThemeScanSummary`] once `completed`, read from the stored
+    /// `summary_json` (a render convenience — the GET never re-queries Neo4j).
+    /// `None` while running/failed.
+    ///
+    /// Each entry in its `suggestions` array is ANNOTATED on the way out with
+    /// `ordinal` and `applied` (see [`ThemeScanSuggestion`]); the stored row itself
+    /// is never modified. So the wire shape is `ThemeScanSummary` PLUS those two
+    /// per-suggestion fields, which is how the frontend types it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<serde_json::Value>,
 }
@@ -113,8 +128,8 @@ pub struct ScanRunStatusResponse {
 ///
 /// ## Why headers only (not `summary_json`, not verdicts)
 ///
-/// The history list renders a compact per-run row (model, benchmark/real,
-/// counts, timestamp) for every run of a scenario — potentially many. Shipping
+/// The history list renders a compact per-run row (model, counts, timestamp) for
+/// every run of a scenario — potentially many. Shipping
 /// each run's full `ThemeScanSummary` (suggestions + rejected sample, ~dozens of
 /// `BiasInstance`s) in the list would make it heavy for no benefit: the detail is
 /// fetched lazily via the EXISTING `GET .../scan-runs/:run_id` when a row is
@@ -130,7 +145,6 @@ pub struct ScanRunStatusResponse {
 pub struct ScanRunHeader {
     pub run_id: Uuid,
     pub model_id: String,
-    pub dry_run: bool,
     /// `running` | `completed` | `failed`.
     pub status: String,
     /// Progress denominator (absent only for pre-background legacy rows).
@@ -143,14 +157,13 @@ pub struct ScanRunHeader {
     pub computed_cost: Option<f64>,
     pub duration_ms: i64,
     pub started_at: DateTime<Utc>,
-    /// How many times this run has been merged into its scenario (`0` = never).
-    /// Drives the run detail: `0` → "Merge into scenario"; `>0` → "Merged N× ·
-    /// last …" plus an explicit Re-merge. Additive field (backward compatible).
-    pub merge_count: i64,
-    /// The most recent merge time, or `null` when never merged. Emitted as `null`
-    /// (not skipped) so the frontend distinguishes "never merged" from a missing
-    /// field — Standing Rule 1.
-    pub last_merged_at: Option<DateTime<Utc>>,
+    // No merge_count / last_merged_at: a per-RUN merge counter is an artifact of
+    // the retired run-level merge model. Merge is now pick-keyed, so "this run was
+    // merged 2×" answers a question nobody asks — the provenance signal the human
+    // needs is per-FACT (the judgment strip on the card) and per-PICK (a
+    // suggestion's applied state, derived from `scenario_fact_refs.source_run_id`).
+    // The `scan_run_merges` audit table still records every merge event; it simply
+    // has no UI derived from it.
 }
 
 /// Response for `GET .../scan-runs` — the scenario's run history, newest first.
@@ -205,10 +218,17 @@ pub struct ScanRunMergeResponse {
 /// Result of one Theme Scan run.
 ///
 /// The four counts are exhaustive and non-overlapping:
-/// `candidates_read == relevant_written + irrelevant + failed`. This identity is
-/// the recall guarantee made observable (Standing Rule 1) — every candidate the
-/// scan read lands in exactly one bucket, so a dropped quote would show up as a
-/// count that does not add up rather than as a silent absence.
+/// `candidates_read == relevant + irrelevant + failed`. This identity is the
+/// recall guarantee made observable (Standing Rule 1) — every candidate the scan
+/// read lands in exactly one bucket, so a dropped quote would show up as a count
+/// that does not add up rather than as a silent absence.
+///
+/// ## Domain note: a summary is a SCORECARD, not a receipt
+///
+/// Nothing in this struct describes a change to the case. A scan reports what the
+/// model thought; the human's Merge selected is what commits any of it. Read
+/// `relevant: 31` as "31 picks are waiting for your decision", never as "31 facts
+/// were added".
 #[derive(Debug, Clone, Serialize)]
 pub struct ThemeScanSummary {
     /// The `scan_runs.run_id` this scan recorded — the handle the benchmark
@@ -217,10 +237,6 @@ pub struct ThemeScanSummary {
     /// The `llm_models.id` this run judged with (the resolved model, after the
     /// request/`THEME_SCAN_MODEL`/chat-default fallback).
     pub model_id: String,
-    /// Whether this was a dry (benchmark) run. When `true`, `relevant_written`
-    /// counts relevant verdicts that were RECORDED but NOT upserted into
-    /// `scenario_fact_refs` (A4).
-    pub dry_run: bool,
     /// Summed reported input tokens across the run; `None` if no call reported
     /// usage (never a fabricated 0).
     pub input_tokens: Option<i64>,
@@ -235,19 +251,29 @@ pub struct ThemeScanSummary {
     /// Total candidate quotes read for the subject (the ungated
     /// `all_evidence_about_subject` count — every Evidence ABOUT the subject).
     pub candidates_read: usize,
-    /// Verdicts judged RELEVANT and successfully written to
-    /// `scenario_fact_refs` as `confirmed=false` suggestions.
-    pub relevant_written: usize,
-    /// Verdicts judged NOT relevant to the accusation. Not written; a sample is
+    /// Verdicts judged RELEVANT to the accusation — the picks offered to the human
+    /// for selection. NOTHING is persisted to `scenario_fact_refs` on their behalf;
+    /// they become candidate facts only when the human merges them.
+    ///
+    /// (Formerly `relevant_written`, back when a scan upserted its own picks. The
+    /// name outlived the write, so it was renamed rather than left describing
+    /// something that no longer happens — Standing Rule 1 applies to field names
+    /// as much as to logs.)
+    pub relevant: usize,
+    /// Verdicts judged NOT relevant to the accusation. Never suggested; a sample is
     /// surfaced in [`Self::rejected_sample`] for the honesty check.
     pub irrelevant: usize,
-    /// Candidates whose verdict could not be produced: an LLM call that
-    /// exhausted retries, a reply that failed the strict parse, an out-of-set
-    /// role, or a write that failed. Counted, never silently dropped — each is
-    /// logged with its `evidence_id` and cause (Standing Rule 1).
+    /// Candidates whose verdict could not be produced: an LLM call that exhausted
+    /// retries, a reply that failed the strict parse, or an out-of-set role.
+    /// Counted, never silently dropped — each is logged with its `evidence_id` and
+    /// cause (Standing Rule 1).
+    ///
+    /// A failed *write* is no longer among these causes: the scan performs no
+    /// per-candidate write, so this count now means exactly "the model could not
+    /// give a usable verdict" and nothing else.
     pub failed: usize,
-    /// The written suggestions, so the client can render them without a second
-    /// round-trip. One entry per `relevant_written`.
+    /// The relevant picks, so the client can render them without a second
+    /// round-trip. One entry per [`Self::relevant`] — the two cannot disagree.
     pub suggestions: Vec<ThemeScanSuggestion>,
     /// A bounded, spread-out sample of the rejected quotes for the Amendment-1
     /// honesty check. Empty when nothing was rejected; at most
@@ -255,7 +281,28 @@ pub struct ThemeScanSummary {
     pub rejected_sample: Vec<ThemeScanRejected>,
 }
 
-/// One RELEVANT verdict written to `scenario_fact_refs`.
+/// One RELEVANT verdict — a pick offered to the human, written nowhere.
+///
+/// ## Two fields the WIRE carries that this struct does not
+///
+/// When a stored summary is served by `GET .../scan-runs/:run_id`, each suggestion
+/// is annotated with `ordinal` (`number | null`) and `applied` (`bool`) by
+/// [`crate::services::scan_run_enrich`]. They are absent here on purpose: neither
+/// is a property of the SCAN.
+///
+/// * `ordinal` is the scenario's identity for the candidate, and may be assigned
+///   after this run judged it;
+/// * `applied` changes every time the human merges, so a value frozen into the
+///   stored summary would be stale the moment it was written.
+///
+/// Baking either into this struct would make the historical record claim something
+/// that is only true at read time. `reason` stays here because it IS the model's
+/// output and never changes.
+///
+/// (The doc note that the `reason` is "stored in the row's `note` column" was true
+/// of an earlier design; the scan writes no fact-ref row at all now. The reason is
+/// persisted in `scan_run_verdicts.reason` — the audit record — and rides this
+/// card. The `note` column is the human's alone.)
 #[derive(Debug, Clone, Serialize)]
 pub struct ThemeScanSuggestion {
     /// The Evidence node id this suggestion references (the `graph_node_id`
@@ -264,11 +311,11 @@ pub struct ThemeScanSuggestion {
     /// The role the judge assigned — one of the four `FactRole` tokens
     /// (`supports` / `corroborates` / `contradicts` / `rebuts`).
     pub proposed_role: String,
-    /// The judge's one-to-two-sentence justification (stored in the row's
-    /// `note` column).
+    /// The judge's one-to-two-sentence justification. Persisted in
+    /// `scan_run_verdicts.reason` (the audit record), never on a fact ref.
     pub reason: String,
-    /// The judge's self-reported confidence in `[0.0, 1.0]` (stored in the
-    /// row's `confidence` column).
+    /// The judge's self-reported confidence in `[0.0, 1.0]`. Reaches
+    /// `scenario_fact_refs.confidence` only if the human merges this pick.
     pub confidence: f32,
     /// Live graph card content for the referenced node, so the client renders
     /// the suggestion as a normal fact card.
@@ -301,7 +348,6 @@ mod tests {
             run_id: Uuid::nil(),
             status: "running".to_string(),
             model_id: "m".to_string(),
-            dry_run: true,
             candidates_total: Some(94),
             candidates_judged: 10,
             relevant_count: 3,

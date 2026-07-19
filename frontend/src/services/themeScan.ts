@@ -42,6 +42,19 @@ export type ThemeScanSuggestion = {
   reason: string;
   confidence: number;
   content: BiasInstance;
+  /** The candidate's persisted scenario ordinal, rendered `C-{ordinal}` — the SAME
+   *  chip the fact wears in Candidate Facts, which is what makes the two listings
+   *  cross-referencable. `null` when the candidate has no ordinal yet (never a
+   *  fabricated 0: "C-0" is not a card that exists).
+   *
+   *  Annotated by the backend at read time — it is not part of the stored scan
+   *  summary, because a scenario may assign the ordinal after the run judged it. */
+  ordinal: number | null;
+  /** Whether THIS run's judgment for this pick has already been merged into the
+   *  scenario. Derived server-side from `scenario_fact_refs.source_run_id`, so it
+   *  is exact rather than inferred. An applied pick renders as applied instead of
+   *  offering a checkbox — re-merging it would be a no-op the human cannot see. */
+  applied: boolean;
 };
 
 /** One REJECTED quote surfaced for the honesty check (backend `ThemeScanRejected`). */
@@ -56,13 +69,14 @@ export type ThemeScanRejected = {
 export type ThemeScanSummary = {
   run_id: string;
   model_id: string;
-  dry_run: boolean;
   input_tokens: number | null;
   output_tokens: number | null;
   computed_cost: number | null;
   duration_ms: number;
   candidates_read: number;
-  relevant_written: number;
+  /** Verdicts judged relevant — picks awaiting the human's decision. NOT a count
+   *  of anything written: a scan never adds facts to the scenario. */
+  relevant: number;
   irrelevant: number;
   failed: number;
   suggestions: ThemeScanSuggestion[];
@@ -76,7 +90,6 @@ export type ScanRunStatus = {
   run_id: string;
   status: "running" | "completed" | "failed";
   model_id: string;
-  dry_run: boolean;
   candidates_total: number | null;
   candidates_judged: number;
   relevant_count: number;
@@ -102,7 +115,6 @@ export type ScanModel = {
 export type ScanRunHeader = {
   run_id: string;
   model_id: string;
-  dry_run: boolean;
   status: "running" | "completed" | "failed";
   candidates_total: number | null;
   candidates_judged: number;
@@ -112,13 +124,9 @@ export type ScanRunHeader = {
   computed_cost: number | null;
   duration_ms: number;
   started_at: string;
-  /** How many times this run has been merged into its scenario (`0` = never).
-   *  Drives the run detail: `0` → "Merge into scenario"; `>0` → "Merged N× ·
-   *  last …" plus an explicit Re-merge. */
-  merge_count: number;
-  /** ISO timestamp of the most recent merge, or `null` when never merged
-   *  (distinct from a missing field — the backend emits it explicitly). */
-  last_merged_at: string | null;
+  // No merge_count / last_merged_at: merge is pick-keyed, so a per-RUN merge
+  // counter answers a question the workbench no longer asks. Whether a given pick
+  // was applied is carried per-suggestion (`ThemeScanSuggestion.applied`).
 };
 
 // ─── URL helpers ─────────────────────────────────────────────────────────────
@@ -138,7 +146,7 @@ function scenarioBase(slug: string, scenarioId: string): string {
 export async function startThemeScan(
   slug: string,
   scenarioId: string,
-  body: { model_id?: string; dry_run: boolean },
+  body: { model_id?: string },
 ): Promise<ScanStartedResponse> {
   const response = await authFetch(`${scenarioBase(slug, scenarioId)}/theme-scan`, {
     method: "POST",

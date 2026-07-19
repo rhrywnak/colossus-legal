@@ -42,30 +42,16 @@ export function formatRunTimestamp(iso: string): string {
   });
 }
 
-/** Format a run's merge provenance for the run-detail label.
+/**
+ * NOTE: `formatMergeState` was REMOVED.
  *
- *  - `count === 0` → `null` (never merged): the caller renders the plain
- *    "Merge into scenario" action, no merge state.
- *  - `count > 0`  → `"merged N× · last <time>"`, reusing [`formatRunTimestamp`]
- *    for the absolute time (consistent with how history rows show `started_at`;
- *    an absolute time is purely testable — no `Date.now()`).
- *
- *  Returning `null` (not `""`) for the never-merged case keeps the two states
- *  distinct at the type level, so the component branches on presence rather than
- *  an empty string (Standing Rule 1). `lastMergedAt` is only `null` when `count`
- *  is 0 (they always agree — a merge always stamps `merged_at`); the belt-and-
- *  braces guard renders "merged N×" without the "· last …" tail if a malformed
- *  count>0/timestamp-null pair ever arrives, rather than printing "last null". */
-export function formatMergeState(
-  count: number,
-  lastMergedAt: string | null,
-): string | null {
-  if (count <= 0) return null;
-  const times = `${count}×`;
-  if (lastMergedAt == null) return `merged ${times}`;
-  return `merged ${times} · last ${formatRunTimestamp(lastMergedAt)}`;
-}
-
+ * It rendered "merged 2× · last Jul 18, 14:00" from a run's merge counters. Both
+ * the counters and the display belonged to the run-level merge model: when a RUN
+ * was the unit of merge, "how many times was this run merged" was a real question.
+ * Merge is pick-keyed now, so the provenance the human needs is per-fact (the
+ * judgment strip on the card) and per-pick (a suggestion's applied state) — never
+ * per-run. The backend no longer emits `merge_count` / `last_merged_at` at all.
+ */
 /** Relevant-set agreement between two completed runs, from their full relevant
  *  sets (`suggestions`).
  *

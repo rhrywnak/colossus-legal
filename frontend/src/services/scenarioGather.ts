@@ -61,6 +61,22 @@ export type CandidateDto = {
    */
   confidence: number | null;
   note: string | null;
+  /**
+   * The persisted, scenario-scoped candidate identifier, rendered `C-{ordinal}` —
+   * the handle a human says out loud ("look at C-14"). Assigned once, when the
+   * candidate first enters the pool, and never reused or renumbered: a dropped
+   * candidate keeps its id forever, and retired duplicate nodes leave HOLES in the
+   * sequence. Holes are correct — closing them would invalidate every reference
+   * already written down.
+   *
+   * It also defines this list's order (ascending), which the backend applies. The
+   * frontend must NOT re-sort: the list is required to be stable across visits and
+   * to never move a card when it is scored, merged, included, or dropped.
+   *
+   * `null`/absent when the candidate has no ordinal yet. Never `?? 0` this — "C-0"
+   * is not a card that exists (Standing Rule 1, same discipline as `confidence`).
+   */
+  ordinal: number | null;
 };
 
 /** The gather response: the working pool (undecided + included) and the dropped

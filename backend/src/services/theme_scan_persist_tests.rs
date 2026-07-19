@@ -75,14 +75,18 @@ fn sample_caps_and_spreads_when_over_max() {
     assert_eq!(out[4].graph_node_id, "e080");
 }
 
-// ── dry_run suppression (A4) — behavioral, using a dead pool ──────────────
+// ── "scanning is scoring" — behavioral, using a dead pool ─────────────────
 //
 // A pool aimed at a dead port never connects, so ANY real query fails fast.
-// That lets a test assert WHETHER persist attempted a `scenario_fact_refs`
-// write without a live database: dry-run must not attempt it (relevant is
-// recorded, nothing fails); a normal run must (the write fails and is
-// counted). The scan_runs audit write also fails here and is logged — it does
-// not affect the classification counts these tests assert.
+// That is what lets these tests assert WHETHER persist attempted a
+// `scenario_fact_refs` write, with no live database: if the write path still
+// existed, a dead pool would make it fail and the failure would surface in the
+// counts. Silence in the counts is therefore positive evidence that no
+// per-candidate write is attempted at all.
+//
+// (The batched `scan_run_verdicts` audit write also fails against this pool. It
+// is logged and deliberately does NOT touch the classification counts these
+// tests assert — the scan still owes the caller the summary it paid for.)
 
 use crate::domain::fact_role::FactRole;
 use sqlx::postgres::PgPoolOptions;
@@ -123,52 +127,98 @@ fn dead_pool() -> PgPool {
         .expect("connect_lazy builds a pool without connecting")
 }
 
-fn meta(dry_run: bool) -> ScanRunMeta {
+fn meta() -> ScanRunMeta {
     ScanRunMeta {
         run_id: Uuid::nil(),
         scenario_id: Uuid::nil(),
         model_id: "m".to_string(),
-        dry_run,
         cost_per_input_token: None,
         cost_per_output_token: None,
         duration_ms: 0,
     }
 }
 
+/// An irrelevant verdict — never suggested, only sampled for the honesty check.
+fn irrelevant_outcome() -> JudgeOutcome {
+    JudgeOutcome {
+        verdict: Ok(Verdict {
+            relevant: false,
+            proposed_role: FactRole::Supports,
+            reason: "unrelated to the accusation".to_string(),
+            confidence: 0.4,
+        }),
+        raw_reply: Some("{\"relevant\":false}".to_string()),
+        input_tokens: Some(10),
+        output_tokens: Some(5),
+    }
+}
+
+/// The scan must NEVER touch `scenario_fact_refs` — merge is the only write path
+/// into a scenario's candidate facts.
+///
+/// The dead pool is the instrument: if any per-candidate write were still
+/// attempted it would fail here and be counted as a per-item failure (that is
+/// precisely what the retired non-dry test asserted). A clean `failed: 0` proves
+/// the write path is gone rather than merely disabled by a flag.
 #[tokio::test]
-async fn dry_run_records_relevant_without_writing_fact_refs() {
+async fn scan_never_attempts_a_fact_ref_write_even_against_a_dead_database() {
     let summary = persist_and_summarize(
         &dead_pool(),
-        meta(true),
+        meta(),
         vec![(bias_instance("ev-1"), relevant_outcome())],
     )
     .await;
+
     assert_eq!(
-        summary.relevant_written, 1,
-        "a dry-run relevant verdict is recorded, not written"
+        summary.relevant, 1,
+        "the relevant verdict is scored and recorded"
     );
     assert_eq!(
         summary.failed, 0,
-        "no scenario_fact_refs write was attempted, so nothing failed"
+        "no scenario_fact_refs write is attempted, so a dead database cannot fail one"
     );
-    assert!(summary.dry_run);
 }
 
+/// Every relevant verdict reaches the human as a checkable suggestion.
+///
+/// This is the behavior the old write path could silently break: a database
+/// hiccup used to suppress a suggestion the scan had already paid an LLM call
+/// for. With scoring decoupled from writing, `relevant` and `suggestions.len()`
+/// are the same number by construction — and the human gets to decide on every
+/// pick the model flagged.
 #[tokio::test]
-async fn non_dry_run_attempts_the_write_and_counts_its_failure() {
+async fn every_relevant_verdict_becomes_a_suggestion_and_irrelevant_ones_do_not() {
     let summary = persist_and_summarize(
         &dead_pool(),
-        meta(false),
-        vec![(bias_instance("ev-1"), relevant_outcome())],
+        meta(),
+        vec![
+            (bias_instance("ev-1"), relevant_outcome()),
+            (bias_instance("ev-2"), irrelevant_outcome()),
+            (bias_instance("ev-3"), relevant_outcome()),
+        ],
     )
     .await;
+
+    assert_eq!(summary.relevant, 2, "two relevant verdicts");
     assert_eq!(
-        summary.relevant_written, 0,
-        "the fact_refs write was attempted and failed, so nothing was written"
+        summary.suggestions.len(),
+        summary.relevant,
+        "every relevant verdict must be offered to the human as a suggestion"
     );
+    assert_eq!(summary.irrelevant, 1, "the irrelevant one is not suggested");
+    assert_eq!(summary.failed, 0);
+    // The suggestions are the relevant candidates, not the rejected one.
+    let ids: Vec<&str> = summary
+        .suggestions
+        .iter()
+        .map(|s| s.graph_node_id.as_str())
+        .collect();
+    assert_eq!(ids, vec!["ev-1", "ev-3"]);
+    // The exhaustive-recall identity still holds with the write path removed.
     assert_eq!(
-        summary.failed, 1,
-        "a real write attempt failed and was counted (the write path IS taken)"
+        summary.candidates_read,
+        summary.relevant + summary.irrelevant + summary.failed,
+        "every candidate read must land in exactly one bucket"
     );
 }
 

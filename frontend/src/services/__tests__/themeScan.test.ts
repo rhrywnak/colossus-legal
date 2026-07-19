@@ -23,7 +23,7 @@ afterEach(() => {
 });
 
 describe("startThemeScan", () => {
-  it("POSTs the theme-scan URL with the model + dry_run body", async () => {
+  it("POSTs the theme-scan URL with the model body", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
@@ -33,13 +33,15 @@ describe("startThemeScan", () => {
     global.fetch = fetchMock;
 
     await expect(
-      startThemeScan(SLUG, SCENARIO, { model_id: "qwen-14b", dry_run: true }),
+      startThemeScan(SLUG, SCENARIO, { model_id: "qwen-14b" }),
     ).resolves.toEqual({ run_id: RUN, status: "running", candidates_total: 94 });
 
     const [url, options] = fetchMock.mock.calls[0];
     expect(url).toContain(`/api/cases/${SLUG}/scenarios/${SCENARIO}/theme-scan`);
     expect(options.method).toBe("POST");
-    expect(JSON.parse(options.body)).toEqual({ model_id: "qwen-14b", dry_run: true });
+    // Exactly the model — no dry_run. The backend rejects unknown keys with a 400,
+    // so sending a retired field would be a hard failure, not a harmless extra.
+    expect(JSON.parse(options.body)).toEqual({ model_id: "qwen-14b" });
   });
 
   it("surfaces the backend hard-gate message VERBATIM on a 503", async () => {
@@ -54,7 +56,7 @@ describe("startThemeScan", () => {
     });
 
     await expect(
-      startThemeScan(SLUG, SCENARIO, { dry_run: true }),
+      startThemeScan(SLUG, SCENARIO, {}),
     ).rejects.toThrow(/selected 'qwen-14b' but loaded 'qwen-7b'/);
   });
 });
@@ -65,7 +67,6 @@ describe("getScanRun", () => {
       run_id: RUN,
       status: "running",
       model_id: "qwen-14b",
-      dry_run: true,
       candidates_total: 94,
       candidates_judged: 37,
       relevant_count: 5,
@@ -93,7 +94,6 @@ describe("fetchScanRuns", () => {
   const header = {
     run_id: RUN,
     model_id: "qwen-14b",
-    dry_run: true,
     status: "completed",
     candidates_total: 94,
     candidates_judged: 94,

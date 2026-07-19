@@ -121,6 +121,34 @@ pub enum ThemeScanError {
     #[error("no picks selected to merge from run {run_id} — check at least one pick, then Merge")]
     EmptySelection { run_id: Uuid },
 
+    /// A delete was requested for a run whose judgments are already part of the
+    /// case. Refused as a 409 rather than performed, because deleting the run would
+    /// destroy both provenance records at once — the `scan_run_merges` events
+    /// cascade away and every `scenario_fact_refs.source_run_id` pointing at it
+    /// nulls out — leaving merged judgments in the case with no trace of their
+    /// origin. Unmerged runs remain deletable, so this never blocks junk-scan
+    /// cleanup. The counts ride the message so the human knows what is holding it.
+    #[error(
+        "scan run {run_id} has been merged ({merge_events} merge event(s), \
+         {attributed_facts} candidate fact(s) still credit it) — its provenance is \
+         retained and the run cannot be deleted"
+    )]
+    ScanRunMerged {
+        run_id: Uuid,
+        merge_events: i64,
+        attributed_facts: i64,
+    },
+
+    /// The pre-delete provenance check itself failed. Kept distinct from a
+    /// successful check: an unreadable check must never be treated as "no
+    /// provenance, go ahead and delete" (Standing Rule 1).
+    #[error("failed to check merge provenance for run {run_id} before deletion: {source}")]
+    ScanRunProvenanceCheckFailed {
+        run_id: Uuid,
+        #[source]
+        source: PipelineRepoError,
+    },
+
     /// Resolving the case-default subject failed at the graph layer.
     #[error("failed to resolve the default subject for scenario {scenario_id}: {source}")]
     SubjectResolveFailed {

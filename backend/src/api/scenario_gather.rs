@@ -1,19 +1,44 @@
 //! Scenario candidate-workbench gather (Phase 1a.2).
 //!
-//! One **read-only** route that assembles a scenario's candidate pool: every
-//! Evidence node ABOUT the scenario's subject, each tagged with its derived
-//! workbench status for THIS scenario. No writes, no migration, no LLM.
+//! One route that assembles a scenario's candidate pool: every Evidence node
+//! ABOUT the scenario's subject, each tagged with its derived workbench status
+//! and its persisted candidate identifier for THIS scenario. No LLM.
 //!
 //! - `GET /cases/:slug/scenarios/:scenario_id/facts/gather` → 200
 //!   `{ pool: [...], dropped: [...] }`
 //!
-//! ## DERIVE-ON-READ (ratified)
+//! ## DERIVE-ON-READ (ratified) — for candidate STATE
 //!
-//! The endpoint NEVER writes. It reads the graph pool, reads the persisted
-//! fact-refs, and computes each candidate's status in memory. A pool node with
-//! NO ref row is `Undecided` — persisted nowhere. There is no `INSERT`, no
-//! `upsert_fact_ref`, no `ON CONFLICT` here; only 1a.3's include/drop ever
-//! writes.
+//! Candidate **state** is never persisted here. The endpoint reads the graph pool,
+//! reads the persisted fact-refs, and computes each candidate's status in memory.
+//! A pool node with NO ref row is `Undecided` — persisted nowhere. There is no
+//! `upsert_fact_ref` and no fact-ref `INSERT` on this path; only 1a.3's
+//! include/drop ever writes a ruling.
+//!
+//! That contract is load-bearing beyond this module: `scenario_facts::join_facts`
+//! reads a fact-ref lookup MISS as "this ref points at a dead graph node", so
+//! materializing a row for every pool member would corrupt that meaning.
+//!
+//! ## The ONE deliberate exception: identity memoization
+//!
+//! Gather DOES write `scenario_candidate_ordinals` — see
+//! [`ensure_candidate_ordinals`]. This is not a breach of the contract above,
+//! because the contract protects candidate **state** (status, score, note) and an
+//! ordinal is **identity**:
+//!
+//! | | identity (`C-14`) | state (included / 0.85 / "key denial") |
+//! |---|---|---|
+//! | when it exists | the moment the candidate first appears | only once someone decides or scores something |
+//! | who authors it | the system, once, mechanically | the human, repeatedly |
+//! | may it change | never | that is the whole point |
+//!
+//! An identifier that only existed after a ruling would be useless — the human
+//! needs to say "look at C-14" precisely about candidates nobody has touched yet.
+//! And deriving it per-request instead would make it depend on the pool's current
+//! contents and ordering, which is exactly the instability the persisted design
+//! exists to prevent. So it is memoized on first sight: idempotent, append-only,
+//! never touching an existing row, and carrying no user decision (hence no
+//! edit-gate change).
 //!
 //! ## Why a separate module from `scenario_facts`
 //!
@@ -28,6 +53,7 @@ use axum::{
     extract::{Path, State},
     Json,
 };
+use chrono::Utc;
 use uuid::Uuid;
 
 use crate::{
@@ -41,7 +67,8 @@ use crate::{
     },
     error::AppError,
     repositories::pipeline_repository::{
-        get_scenario, list_fact_refs_for_scenario, ScenarioFactRefRecord,
+        assign_candidate_ordinals, get_scenario, list_candidate_ordinals,
+        list_fact_refs_for_scenario, ScenarioFactRefRecord,
     },
     services::scenario_subject::{resolve_scenario_subject, SubjectResolveError},
     state::AppState,
@@ -94,6 +121,7 @@ type RefEntry = (FactStatus, Option<String>, Option<String>, Option<f32>);
 fn reconcile_candidates(
     pool: Vec<BiasInstance>,
     refs: Vec<ScenarioFactRefRecord>,
+    ordinals: &HashMap<String, i32>,
 ) -> Result<GatherCandidatesResponse, AppError> {
     // The one fallible step (the status decode) lives in `build_ref_index`;
     // everything below is an infallible pool walk + partition.
@@ -114,12 +142,20 @@ fn reconcile_candidates(
             None => (FactStatus::Undecided, None, None, None),
         };
 
+        // A miss here means this node has no ordinal YET (assignment runs just
+        // before this walk, so in practice only a node that arrived in the same
+        // instant, or one whose assignment failed, lands here). `None` is carried
+        // honestly rather than substituted with a positional index — a made-up
+        // number would be indistinguishable from a real one (Standing Rule 1).
+        let ordinal = ordinals.get(&content.evidence_id).copied();
+
         let candidate = CandidateDto {
             content,
             status,
             role,
             note,
             confidence,
+            ordinal,
         };
 
         // Dropped goes in its own list; undecided + included form the working pool.
@@ -129,10 +165,43 @@ fn reconcile_candidates(
         }
     }
 
+    sort_by_ordinal(&mut working);
+    sort_by_ordinal(&mut dropped);
+
     Ok(GatherCandidatesResponse {
         pool: working,
         dropped,
     })
+}
+
+/// Order candidates by ascending ordinal — the workbench's one display order.
+///
+/// ## Domain note: why ordering is decided HERE, not in the browser
+///
+/// The order is part of the workbench's contract, not a presentation whim: the
+/// list must be stable across visits and must NEVER move a card because it was
+/// scanned, merged, scored, Included, or Dropped. A client-side sort (the frontend
+/// previously sorted by confidence) reintroduces exactly what the model rejects —
+/// a list that reshuffles under curation, and "the score knows better than you"
+/// ordering. Sorting once at the boundary keeps both listings agreeing that C-14
+/// sits where C-14 always sits.
+///
+/// ## Rust Learning: `sort_by_key` with a tuple makes the tie-break explicit
+///
+/// The key is `(ordinal.is_none(), ordinal, evidence_id)`. Because `false < true`,
+/// the leading bool floats numbered cards ABOVE un-numbered ones without needing a
+/// custom comparator. `Option<i32>` then orders naturally among the numbered
+/// entries, and `evidence_id` is a total tie-break so the result is deterministic
+/// even for the (transient) un-numbered ones — an unstable tail would make the
+/// list flicker between reloads.
+fn sort_by_ordinal(candidates: &mut [CandidateDto]) {
+    candidates.sort_by_key(|c| {
+        (
+            c.ordinal.is_none(),
+            c.ordinal,
+            c.content.evidence_id.clone(),
+        )
+    });
 }
 
 /// Decode the persisted fact-refs into a `graph_node_id → (status, role, note)`
@@ -251,8 +320,67 @@ pub async fn gather_scenario_candidates(
             }
         })?;
 
-    let response = reconcile_candidates(pool, refs)?;
+    // Identity memoization — the ONE deliberate write on this read path (see the
+    // module doc's derive-on-read note).
+    let ordinals = ensure_candidate_ordinals(&state.pipeline_pool, id, &pool).await?;
+
+    let response = reconcile_candidates(pool, refs, &ordinals)?;
     Ok(Json(response))
+}
+
+/// Assign ordinals to any new pool members, then read the scenario's full
+/// `graph_node_id → ordinal` index.
+///
+/// ## Why a READ endpoint is allowed to write here
+///
+/// Gather is derive-on-read by ratified decision, and that contract is intact:
+/// it protects candidate **state** — status, score, note — none of which this
+/// touches. An ordinal is **identity**, not state. It must exist for every pool
+/// member the moment it first appears (an un-numbered card cannot be referred to
+/// out loud), and it must never change afterwards, so it is memoized on first
+/// sight rather than derived per request. Deriving it instead would make the id
+/// depend on the pool's current contents and ordering — the very instability the
+/// persisted design exists to prevent.
+///
+/// The write is idempotent, so a page refresh is free; it never touches an
+/// existing row; and it carries no user decision, so no edit-gate is warranted.
+///
+/// Assignment order is the pool's own order, which is deterministic (see
+/// `BiasRepository::all_evidence_about_subject` and the aggregation's sort key).
+/// It is consulted only for candidates being numbered for the FIRST time — once
+/// persisted, an ordinal is immune to any later change in pool ordering.
+async fn ensure_candidate_ordinals(
+    pool_db: &sqlx::PgPool,
+    scenario_id: Uuid,
+    pool: &[BiasInstance],
+) -> Result<HashMap<String, i32>, AppError> {
+    let node_ids: Vec<String> = pool.iter().map(|c| c.evidence_id.clone()).collect();
+
+    let minted = assign_candidate_ordinals(pool_db, scenario_id, &node_ids, Utc::now())
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, %scenario_id,
+                "failed to assign candidate ordinals during gather");
+            AppError::Internal {
+                message: "failed to assign candidate identifiers".to_string(),
+            }
+        })?;
+
+    // Worth a log line: this is the only place new candidates are announced, and
+    // "N new candidates since last review" is a question the human actually asks.
+    if minted > 0 {
+        tracing::info!(%scenario_id, minted, "assigned ordinals to new candidates");
+    }
+
+    list_candidate_ordinals(pool_db, scenario_id)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, %scenario_id,
+                "failed to read candidate ordinals during gather");
+            AppError::Internal {
+                message: "failed to read candidate identifiers".to_string(),
+            }
+        })
 }
 
 /// Load the scenario row and resolve the subject its pool is gathered over.
@@ -342,235 +470,5 @@ fn map_subject_error(scenario_id: Uuid, err: SubjectResolveError) -> AppError {
 // ── Tests ───────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// A minimal `BiasInstance` carrying just an id — enough to drive reconcile.
-    fn content(evidence_id: &str) -> BiasInstance {
-        BiasInstance {
-            evidence_id: evidence_id.to_string(),
-            title: String::new(),
-            verbatim_quote: None,
-            question: None,
-            page_number: None,
-            pattern_tags: Vec::new(),
-            stated_by: None,
-            about: Vec::new(),
-            document: None,
-        }
-    }
-
-    /// A `scenario_fact_refs` row with the given node id, raw status token, and
-    /// optional role/note. Confidence defaults to `None` (an unscored / human-
-    /// curated ref); tests that exercise the confidence path use [`scored_ref`].
-    fn fact_ref(
-        node: &str,
-        status: &str,
-        role: Option<&str>,
-        note: Option<&str>,
-    ) -> ScenarioFactRefRecord {
-        ScenarioFactRefRecord {
-            scenario_id: Uuid::nil(),
-            graph_node_id: node.to_string(),
-            role_in_this_scenario: role.map(str::to_string),
-            status: status.to_string(),
-            note: note.map(str::to_string),
-            confidence: None,
-            tagged_at: chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
-        }
-    }
-
-    /// A merged/scanned ref: an `undecided` row carrying a model role + confidence
-    /// (exactly what the set-as-basis merge writes). Kept separate from [`fact_ref`]
-    /// so the common human-curated case stays terse while the scored case is loud
-    /// about what it is testing.
-    fn scored_ref(node: &str, role: &str, confidence: f32) -> ScenarioFactRefRecord {
-        ScenarioFactRefRecord {
-            scenario_id: Uuid::nil(),
-            graph_node_id: node.to_string(),
-            role_in_this_scenario: Some(role.to_string()),
-            status: "undecided".to_string(),
-            note: None,
-            confidence: Some(confidence),
-            tagged_at: chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
-        }
-    }
-
-    #[test]
-    fn miss_is_undecided_and_lands_in_pool() {
-        // A live pool node with NO ref row is derived Undecided, in the working
-        // pool, WITHOUT any persistence (this is a pure fn — there is nothing to
-        // persist to, which is the point of derive-on-read).
-        let response =
-            reconcile_candidates(vec![content("ev-1")], Vec::new()).expect("no decode to fail");
-
-        assert_eq!(response.pool.len(), 1);
-        assert!(response.dropped.is_empty());
-        assert_eq!(response.pool[0].content.evidence_id, "ev-1");
-        assert_eq!(response.pool[0].status, FactStatus::Undecided);
-        assert!(response.pool[0].role.is_none());
-        assert!(response.pool[0].note.is_none());
-        // A miss was never scored for this scenario → confidence is None ("unscored"),
-        // NOT Some(0.0). The card must be able to tell the two apart (Standing Rule 1).
-        assert!(
-            response.pool[0].confidence.is_none(),
-            "an undecided miss has no model confidence — None, never Some(0.0)"
-        );
-    }
-
-    #[test]
-    fn scored_undecided_ref_carries_role_and_confidence_into_the_pool() {
-        // The set-as-basis merge writes undecided rows with a model role + confidence.
-        // Both must survive reconcile onto the CandidateDto so the workbench can
-        // render "corroborates · 85%" (the whole point of this chunk).
-        let refs = vec![scored_ref("ev-1", "corroborates", 0.85)];
-        let response = reconcile_candidates(vec![content("ev-1")], refs).expect("known token");
-
-        assert_eq!(
-            response.pool.len(),
-            1,
-            "an undecided scored pick stays in the pool"
-        );
-        assert_eq!(response.pool[0].status, FactStatus::Undecided);
-        assert_eq!(response.pool[0].role.as_deref(), Some("corroborates"));
-        assert_eq!(response.pool[0].confidence, Some(0.85));
-    }
-
-    #[test]
-    fn human_curated_ref_has_no_confidence() {
-        // A human include with a NULL confidence column must reconcile to None, not
-        // 0.0 — a hand-curated fact carries no *model* score and reads "unscored".
-        let refs = vec![fact_ref("ev-1", "included", Some("rebuts"), None)];
-        let response = reconcile_candidates(vec![content("ev-1")], refs).expect("known token");
-
-        assert_eq!(response.pool[0].status, FactStatus::Included);
-        assert_eq!(response.pool[0].role.as_deref(), Some("rebuts"));
-        assert!(
-            response.pool[0].confidence.is_none(),
-            "a human-curated ref (NULL confidence) must be None, never Some(0.0)"
-        );
-    }
-
-    #[test]
-    fn included_ref_lands_in_pool_with_role_and_note() {
-        let refs = vec![fact_ref(
-            "ev-1",
-            "included",
-            Some("rebuts"),
-            Some("key denial"),
-        )];
-        let response = reconcile_candidates(vec![content("ev-1")], refs).expect("known token");
-
-        assert_eq!(
-            response.pool.len(),
-            1,
-            "included belongs in the working pool"
-        );
-        assert!(response.dropped.is_empty());
-        assert_eq!(response.pool[0].status, FactStatus::Included);
-        assert_eq!(response.pool[0].role.as_deref(), Some("rebuts"));
-        assert_eq!(response.pool[0].note.as_deref(), Some("key denial"));
-    }
-
-    #[test]
-    fn dropped_ref_lands_in_its_own_list() {
-        let refs = vec![fact_ref("ev-1", "dropped", None, None)];
-        let response = reconcile_candidates(vec![content("ev-1")], refs).expect("known token");
-
-        assert!(
-            response.pool.is_empty(),
-            "a dropped candidate must NOT appear in the working pool"
-        );
-        assert_eq!(response.dropped.len(), 1, "dropped goes in its own list");
-        assert_eq!(response.dropped[0].status, FactStatus::Dropped);
-        assert_eq!(response.dropped[0].content.evidence_id, "ev-1");
-    }
-
-    #[test]
-    fn undecided_and_included_share_the_pool_dropped_is_split_out() {
-        // Three nodes, three fates: one undecided (no ref), one included, one
-        // dropped. The pool holds the first two; dropped holds the third.
-        let pool = vec![
-            content("ev-undecided"),
-            content("ev-included"),
-            content("ev-dropped"),
-        ];
-        let refs = vec![
-            fact_ref("ev-included", "included", None, None),
-            fact_ref("ev-dropped", "dropped", None, None),
-        ];
-        let response = reconcile_candidates(pool, refs).expect("known tokens");
-
-        assert_eq!(response.pool.len(), 2);
-        assert_eq!(response.dropped.len(), 1);
-        assert_eq!(response.dropped[0].content.evidence_id, "ev-dropped");
-    }
-
-    #[test]
-    fn a_ref_with_no_matching_pool_node_is_simply_absent() {
-        // The pool drives output: a ref pointing at a node NOT in the pool (e.g.
-        // its Evidence was re-ingested under a new id) contributes no candidate.
-        // It is not invented into the output, and — being neither dropped-in-pool
-        // nor pool — it simply does not appear. (1a.3's un-drop tray, not gather,
-        // is where such a ref would resurface.)
-        let refs = vec![fact_ref("ev-orphan-ref", "included", None, None)];
-        let response = reconcile_candidates(vec![content("ev-1")], refs).expect("known token");
-
-        assert_eq!(response.pool.len(), 1);
-        assert_eq!(response.pool[0].content.evidence_id, "ev-1");
-        assert_eq!(response.pool[0].status, FactStatus::Undecided);
-    }
-
-    #[test]
-    fn unknown_status_token_errs_loudly_not_bucketed() {
-        // Standing Rule 1: a persisted status this build cannot interpret is a
-        // data-integrity fault — a loud Err, NEVER silently bucketed as undecided.
-        let refs = vec![fact_ref("ev-1", "archived", None, None)];
-        let result = reconcile_candidates(vec![content("ev-1")], refs);
-
-        assert!(
-            matches!(result, Err(AppError::Internal { .. })),
-            "an unrecognized status token must fail loudly, not default to undecided"
-        );
-    }
-
-    #[test]
-    fn fallback_definition_has_no_target() {
-        // The gather fallback must have `target: None` so the shared resolver
-        // falls through to the case default — the whole reason it exists.
-        assert!(fallback_definition().target.is_none());
-    }
-
-    #[test]
-    fn map_subject_error_unresolvable_is_503_naming_config_key() {
-        // An unresolvable subject is a MISCONFIGURATION → 503, and the message
-        // must name the env var that fixes it (distinct from a 200 empty pool).
-        let err = map_subject_error(Uuid::nil(), SubjectResolveError::Unresolvable);
-        match err {
-            AppError::ServiceUnavailable { message } => assert!(
-                message.contains("CASE_DEFAULT_SUBJECT_NAME"),
-                "503 message must name the config key: {message}"
-            ),
-            other => panic!("expected 503 ServiceUnavailable, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn map_subject_error_lookup_failed_is_internal_500() {
-        use serde::de::Error as _;
-        // A graph fault while resolving the default subject is a server-side 500,
-        // not a config problem. Construct the wrapped BiasRepositoryError via
-        // serde's `custom` so no live Neo4j is needed (mirrors theme_scan's tests).
-        let source = crate::bias::repository::BiasRepositoryError::Deserialize(
-            neo4rs::DeError::custom("subjects query failed"),
-        );
-        let err = map_subject_error(
-            Uuid::nil(),
-            SubjectResolveError::DefaultLookupFailed { source },
-        );
-        assert!(
-            matches!(err, AppError::Internal { .. }),
-            "a graph-layer lookup fault must map to 500 Internal"
-        );
-    }
-}
+#[path = "scenario_gather_tests.rs"]
+mod tests;

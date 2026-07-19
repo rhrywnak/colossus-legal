@@ -67,20 +67,26 @@ fn list_scan_runs_sql_scopes_by_scenario_and_orders_newest_first() {
         !sql.contains("summary_json"),
         "the history list must stay light (no summary_json), got: {sql}"
     );
-    // Merge provenance: the header must fold in each run's merge history so the
-    // run detail can show "Merged N× · last …". Both aggregates come from the
-    // scan_run_merges child; a future edit that drops either fails here.
+    // The history must NOT fold in per-run merge counts. This assertion is
+    // deliberately inverted from the one it replaces: under the unified merge
+    // model, merge is pick-keyed, so "this run was merged N×" is an artifact of
+    // the retired run-level model and no UI consumes it. Re-adding the subqueries
+    // would quietly resurrect that model in the header, so it fails here.
+    // (`scan_run_merges` itself is untouched — it is still written as the audit
+    // trail; it simply must not feed the history list.)
     assert!(
-        sql.contains("scan_run_merges"),
-        "history must read merge provenance from scan_run_merges, got: {sql}"
+        !sql.contains("scan_run_merges"),
+        "the history list must not read run-level merge provenance, got: {sql}"
     );
     assert!(
-        sql.contains("AS merge_count"),
-        "history must expose merge_count (COUNT of merges), got: {sql}"
+        !sql.contains("merge_count") && !sql.contains("last_merged_at"),
+        "no per-run merge counter may ride the header, got: {sql}"
     );
+    // Likewise `dry_run`: nothing may branch on it after the benchmark model was
+    // retired, and the surest way to keep that true is to stop reading it.
     assert!(
-        sql.contains("AS last_merged_at"),
-        "history must expose last_merged_at (MAX merged_at), got: {sql}"
+        !sql.contains("dry_run"),
+        "the history list must not read the deprecated dry_run column, got: {sql}"
     );
 }
 

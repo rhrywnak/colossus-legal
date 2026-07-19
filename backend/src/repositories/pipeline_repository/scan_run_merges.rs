@@ -9,14 +9,27 @@
 //! that put `scan_run_verdicts`' reads beside its parent rather than in a third
 //! file only when they grew.
 //!
-//! ## The event model (why COUNT/MAX, not a boolean)
+//! ## The event model (why a row per merge, not a boolean)
 //!
-//! Re-merge is legitimate (the reconcile is status-preserving), so a run can be
-//! merged more than once over time. This module records EACH merge as its own
-//! row; the run detail then reads `COUNT(*)` + `MAX(merged_at)` per run (see
-//! `scan_runs::LIST_SCAN_RUNS_SQL`) to show "merged N×, last at …". A single
-//! `merged_at`/boolean column could not represent that history — which is exactly
-//! why the audit table exists.
+//! Merging is legitimately repeatable — the human checks a few picks today and a
+//! few more next week, from this run or an older one — and the reconcile is
+//! status-preserving, so repetition is safe. This module records EACH merge as its
+//! own row, with the selection that produced it. A single `merged_at`/boolean
+//! column could not represent that history, which is why the table exists.
+//!
+//! ## Audit-only: nothing here feeds the UI
+//!
+//! These rows once drove a "merged N× · last …" counter on the run header. That
+//! counter belonged to the retired run-level merge model — merge is now pick-keyed,
+//! so a per-RUN merge count answers a question the workbench no longer asks, and
+//! the `LIST_SCAN_RUNS_SQL` subqueries that computed it are gone.
+//!
+//! The table remains as chain-of-custody hygiene: for a trial-preparation system,
+//! "which run's verdicts were applied, when, and to which picks" is worth keeping
+//! whether or not a screen shows it. Note it records EVENTS, including merges whose
+//! writes were entirely blocked by the reconcile guard — something the per-fact
+//! `scenario_fact_refs.source_run_id` provenance cannot express, which is why both
+//! exist.
 
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
@@ -43,6 +56,27 @@ pub struct ScanRunMergeRecord {
     /// the merge endpoint returns). A recorded `0` is a real event, distinct from
     /// "never merged" (no row) — Standing Rule 1.
     pub rows_affected: i32,
+    /// The graph_node_ids the human CHECKED for this merge, stored as a JSON array.
+    ///
+    /// ## Domain note: the selection IS the human's decision
+    ///
+    /// In the pick-keyed model the human's act is *choosing which picks get a
+    /// machine judgment*. Recording only `rows_affected` would preserve the
+    /// event's outcome but not the act — an audit trail for a trial-preparation
+    /// system needs the choice itself ("we applied the model's read of C-14, C-22
+    /// and C-31 on the 19th").
+    ///
+    /// Deliberately distinct from [`Self::rows_affected`]: this is what was
+    /// CHOSEN, that is what the status-preserving reconcile actually WROTE. They
+    /// differ whenever a chosen pick's target was already included or dropped, and
+    /// keeping both is what makes the reconcile guard's effect auditable after the
+    /// fact.
+    ///
+    /// Non-optional on the Rust side even though the column is nullable: every
+    /// merge written from here knows its selection. The column's NULL is reserved
+    /// for rows written before the column existed ("selection not recorded"),
+    /// which is a different claim from an empty array ("selected nothing").
+    pub selected_node_ids: Vec<String>,
 }
 
 // CONST: the merge-event INSERT, held as a `const` so a SQL-shape unit test can
@@ -50,8 +84,8 @@ pub struct ScanRunMergeRecord {
 // `scan_runs::LIST_SCAN_RUNS_SQL` / `DELETE_SCAN_RUN_SQL`). Query text, not
 // deployment config, so Rule 13 does not apply.
 const INSERT_SCAN_RUN_MERGE_SQL: &str = "INSERT INTO scan_run_merges \
-     (merge_id, run_id, scenario_id, merged_at, rows_affected) \
-     VALUES ($1, $2, $3, $4, $5)";
+     (merge_id, run_id, scenario_id, merged_at, rows_affected, selected_node_ids) \
+     VALUES ($1, $2, $3, $4, $5, $6)";
 
 /// Record one merge event.
 ///
@@ -62,8 +96,18 @@ const INSERT_SCAN_RUN_MERGE_SQL: &str = "INSERT INTO scan_run_merges \
 /// `INSERT … SELECT` commit together (or roll back together) — the merge and its
 /// provenance are one atomic unit. The `'_` is the elided lifetime of whatever
 /// executor is borrowed. Same generic-executor pattern as
-/// `scenario_store::reconcile_fact_ref`. Passing a plain `&PgPool` still works
+/// `scenario_store::upsert_fact_ref`. Passing a plain `&PgPool` still works
 /// (it also implements `PgExecutor`) for a standalone write.
+///
+/// ## Rust Learning: `sqlx::types::Json` binds a Rust value to a JSONB column
+///
+/// `Vec<String>` has no direct Postgres JSONB mapping — bound bare, sqlx would
+/// target `TEXT[]` and the types would not line up. Wrapping it in
+/// `sqlx::types::Json(...)` tells sqlx "serialize this with serde and send it as
+/// JSON". The wrapper borrows (`Json(&Vec<String>)`), so nothing is cloned, and
+/// serializing a `Vec<String>` cannot fail — there is no error path to swallow
+/// here, which is why this stays infallible rather than returning a serialize
+/// error the caller would have to handle.
 ///
 /// # Errors
 /// Returns [`PipelineRepoError`] if the INSERT fails. Inside a transaction that
@@ -79,9 +123,99 @@ pub async fn insert_scan_run_merge(
         .bind(record.scenario_id)
         .bind(record.merged_at)
         .bind(record.rows_affected)
+        .bind(sqlx::types::Json(&record.selected_node_ids))
         .execute(executor)
         .await?;
     Ok(())
+}
+
+/// How much provenance a run is carrying — the two independent records that a
+/// delete would destroy.
+///
+/// Returned as a pair rather than a bare `bool` so the caller's refusal message
+/// can say WHICH record exists. The two are genuinely independent: a merge whose
+/// writes were entirely blocked by the reconcile guard leaves an event with no
+/// fact-ref references, and a fact ref can outlive nothing else if its event rows
+/// were removed by an older code path. Either alone is reason to refuse.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RunProvenance {
+    /// Rows in `scan_run_merges` for this run — merges that were performed.
+    pub merge_events: i64,
+    /// Rows in `scenario_fact_refs` still attributing their judgment to this run.
+    pub attributed_facts: i64,
+}
+
+impl RunProvenance {
+    /// Whether this run has any provenance worth protecting.
+    ///
+    /// ## Domain note: why deletion is refused rather than cascaded
+    ///
+    /// Deleting a merged run destroys BOTH records at once — `scan_run_merges`
+    /// rows cascade away on the run's FK, and `source_run_id` references null out.
+    /// For a trial-preparation system that is an unacceptable chain-of-custody
+    /// loss: the case would still carry the model's judgments while losing every
+    /// trace of where they came from. Unmerged runs stay freely deletable, which
+    /// is what keeps junk-scan hygiene possible.
+    pub fn is_protected(self) -> bool {
+        self.merge_events > 0 || self.attributed_facts > 0
+    }
+}
+
+// CONST: the provenance pre-check. Two scalar subqueries in ONE round-trip rather
+// than two queries — the check runs on every delete attempt, and the two counts
+// must describe the same instant to be a coherent refusal reason. Held as a
+// `const` for the house SQL-shape-test pattern. Query text, not config.
+const COUNT_RUN_PROVENANCE_SQL: &str = "SELECT \
+     (SELECT COUNT(*) FROM scan_run_merges WHERE run_id = $1) AS merge_events, \
+     (SELECT COUNT(*) FROM scenario_fact_refs WHERE source_run_id = $1) AS attributed_facts";
+
+/// Count what a run's deletion would destroy.
+///
+/// Read BEFORE any delete so the refusal is a clean 409 rather than a
+/// half-completed cascade. Zero/zero means the run is safely deletable.
+///
+/// # Errors
+/// Returns [`PipelineRepoError`] if the query fails. A read failure must NOT be
+/// treated as "no provenance" — the caller propagates it, because silently
+/// permitting a delete on an unreadable check is exactly the destructive
+/// direction (Standing Rule 1).
+pub async fn count_run_provenance(
+    pool: &PgPool,
+    run_id: Uuid,
+) -> Result<RunProvenance, PipelineRepoError> {
+    let row: (i64, i64) = sqlx::query_as(COUNT_RUN_PROVENANCE_SQL)
+        .bind(run_id)
+        .fetch_one(pool)
+        .await?;
+    Ok(RunProvenance {
+        merge_events: row.0,
+        attributed_facts: row.1,
+    })
+}
+
+/// Every `graph_node_id` whose fact ref currently credits this run.
+///
+/// This is the "applied" state, derived exactly rather than guessed: a suggestion
+/// is already-applied precisely when a fact ref names this run as its source. The
+/// alternative signals are both wrong — a present `confidence` proves only that
+/// SOME run scored the fact, and a merge-event row proves only that a merge
+/// happened, not that this pick survived the status-preserving guard.
+///
+/// Returned as a `Vec<String>` for the caller to index however it needs (it builds
+/// a `HashSet` for O(1) membership while walking the suggestions).
+///
+/// # Errors
+/// Returns [`PipelineRepoError`] if the query fails.
+pub async fn list_applied_node_ids_for_run(
+    pool: &PgPool,
+    run_id: Uuid,
+) -> Result<Vec<String>, PipelineRepoError> {
+    let rows: Vec<(String,)> =
+        sqlx::query_as("SELECT graph_node_id FROM scenario_fact_refs WHERE source_run_id = $1")
+            .bind(run_id)
+            .fetch_all(pool)
+            .await?;
+    Ok(rows.into_iter().map(|(id,)| id).collect())
 }
 
 /// Narrow a `u64` merge row-count to the `INTEGER` column. A merge never applies
@@ -143,6 +277,11 @@ pub async fn merge_run_into_scenario_recording(
         scenario_id,
         merged_at,
         rows_affected: narrow_rows_affected(merged),
+        // The selection is recorded as the human gave it — NOT filtered down to the
+        // picks that actually landed. A pick the reconcile skipped (its target was
+        // already included/dropped) was still chosen, and the audit must say so;
+        // the difference against `rows_affected` is exactly the guard's footprint.
+        selected_node_ids: selected_ids.to_vec(),
     };
     insert_scan_run_merge(&mut *tx, &record).await?;
 
@@ -154,18 +293,21 @@ pub async fn merge_run_into_scenario_recording(
 mod tests {
     use super::*;
 
-    /// Pin the INSERT column list: the write must name exactly the five audit
+    /// Pin the INSERT column list: the write must name exactly the six audit
     /// columns, in the order the binds supply them. A SQL-shape test (no live DB)
     /// mirroring `scan_runs`' const-SQL tests — it catches a column rename or a
     /// bind/column drift that a clean compile would not.
     #[test]
-    fn insert_sql_names_the_five_audit_columns() {
+    fn insert_sql_names_the_six_audit_columns() {
         for col in [
             "merge_id",
             "run_id",
             "scenario_id",
             "merged_at",
             "rows_affected",
+            // The selection: without it the audit records the event but not the
+            // human's actual choice of picks.
+            "selected_node_ids",
         ] {
             assert!(
                 INSERT_SCAN_RUN_MERGE_SQL.contains(col),
@@ -176,13 +318,76 @@ mod tests {
             INSERT_SCAN_RUN_MERGE_SQL.contains("INSERT INTO scan_run_merges"),
             "must target the scan_run_merges table"
         );
-        // Five placeholders for five columns — a bind/column count drift is a bug.
-        for ph in ["$1", "$2", "$3", "$4", "$5"] {
+        // Six placeholders for six columns — a bind/column count drift is a bug.
+        for ph in ["$1", "$2", "$3", "$4", "$5", "$6"] {
             assert!(
                 INSERT_SCAN_RUN_MERGE_SQL.contains(ph),
                 "INSERT must bind {ph}"
             );
         }
+    }
+
+    /// Either provenance record alone must protect a run. The two are independent
+    /// (see [`RunProvenance`]), so an OR — not an AND — is the correct predicate;
+    /// an AND would let a run be deleted whenever one of the two records had
+    /// already been lost, which is exactly when the surviving one matters most.
+    #[test]
+    fn a_run_is_protected_by_either_provenance_record_alone() {
+        let none = RunProvenance {
+            merge_events: 0,
+            attributed_facts: 0,
+        };
+        assert!(
+            !none.is_protected(),
+            "an unmerged run stays deletable — junk-scan hygiene depends on it"
+        );
+
+        let events_only = RunProvenance {
+            merge_events: 1,
+            attributed_facts: 0,
+        };
+        assert!(
+            events_only.is_protected(),
+            "a merge whose writes were all blocked by the reconcile guard still \
+             happened, and its event row is the only record of it"
+        );
+
+        let facts_only = RunProvenance {
+            merge_events: 0,
+            attributed_facts: 3,
+        };
+        assert!(
+            facts_only.is_protected(),
+            "facts still crediting this run would be orphaned by the delete"
+        );
+
+        let both = RunProvenance {
+            merge_events: 2,
+            attributed_facts: 7,
+        };
+        assert!(both.is_protected());
+    }
+
+    /// SQL-shape guard for the pre-delete check: it must count BOTH records, and
+    /// must key each on the run. A check that silently queried only one table
+    /// would let a delete through in exactly the case the other table covers.
+    #[test]
+    fn provenance_check_counts_both_records_for_the_run() {
+        let sql = COUNT_RUN_PROVENANCE_SQL;
+        assert!(
+            sql.contains("FROM scan_run_merges WHERE run_id = $1"),
+            "must count merge events for this run: {sql}"
+        );
+        assert!(
+            sql.contains("FROM scenario_fact_refs WHERE source_run_id = $1"),
+            "must count facts still crediting this run: {sql}"
+        );
+        // Both aliases are load-bearing: the caller decodes positionally, so a
+        // dropped column would shift the pair and misreport the counts.
+        assert!(
+            sql.contains("AS merge_events") && sql.contains("AS attributed_facts"),
+            "both counts must be named: {sql}"
+        );
     }
 
     #[test]

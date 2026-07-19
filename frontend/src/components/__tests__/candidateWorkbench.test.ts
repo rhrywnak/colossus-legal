@@ -15,20 +15,20 @@ import {
   formatConfidencePct,
   orphansVisibleUnder,
   roleConfidenceLabel,
-  shortIdChip,
-  sortByConfidence,
+  candidateChip,
 } from "../candidateWorkbench";
 import type { CandidateDto, FactStatus } from "../../services/scenarioGather";
 import type { ScenarioFactDto } from "../../services/scenarioFacts";
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 
-const candidate = (id: string, status: FactStatus): CandidateDto => ({
+const candidate = (id: string, status: FactStatus, ordinal: number | null = null): CandidateDto => ({
   content: { evidence_id: id, title: "", pattern_tags: [], about: [] },
   status,
   role: null,
   confidence: null,
   note: null,
+  ordinal,
 });
 
 /** A scored candidate carrying a model role + confidence (what the merge writes). */
@@ -38,6 +38,7 @@ const scored = (id: string, role: string, confidence: number): CandidateDto => (
   role,
   confidence,
   note: null,
+  ordinal: null,
 });
 
 const savedRef = (id: string): ScenarioFactDto => ({
@@ -167,62 +168,38 @@ describe("orphansVisibleUnder", () => {
   });
 });
 
-// ── sortByConfidence ────────────────────────────────────────────────────────────
+// ── display order (sortByConfidence removed) ────────────────────────────────────
 
-describe("sortByConfidence", () => {
-  it("orders scored candidates highest-confidence first", () => {
-    const out = sortByConfidence([
-      scored("ev-lo", "contradicts", 0.4),
-      scored("ev-hi", "corroborates", 0.85),
-      scored("ev-mid", "rebuts", 0.55),
-    ]);
-    expect(out.map((c) => c.content.evidence_id)).toEqual(["ev-hi", "ev-mid", "ev-lo"]);
+describe("filterByStatus order preservation", () => {
+  // `sortByConfidence` is gone: order is backend-supplied ascending candidate-id
+  // order, and the workbench must not re-sort. What still needs pinning is that
+  // FILTERING does not disturb that order — a filter that reordered would
+  // reintroduce the reshuffling the removal was meant to stop.
+  it("preserves the backend's order when filtering", () => {
+    const list = [
+      candidate("ev-1", "undecided", 1),
+      candidate("ev-2", "included", 2),
+      candidate("ev-3", "undecided", 3),
+      candidate("ev-4", "included", 4),
+    ];
+
+    expect(filterByStatus(list, "all").map((c) => c.ordinal)).toEqual([1, 2, 3, 4]);
+    expect(filterByStatus(list, "included").map((c) => c.ordinal)).toEqual([2, 4]);
+    expect(filterByStatus(list, "undecided").map((c) => c.ordinal)).toEqual([1, 3]);
   });
 
-  it("pins unscored (null confidence) LAST as a distinct group, not sorted as 0", () => {
-    // The unscored rows must fall BELOW even the lowest scored pick (0.4) — proof
-    // they are partitioned last, not coalesced to 0 (which would interleave them
-    // with a genuine 0.0-ish score).
-    const out = sortByConfidence([
-      candidate("ev-uns-b", "included"),
-      scored("ev-lo", "contradicts", 0.4),
-      candidate("ev-uns-a", "undecided"),
-      scored("ev-hi", "corroborates", 0.85),
-    ]);
-    expect(out.map((c) => c.content.evidence_id)).toEqual([
-      "ev-hi",
-      "ev-lo",
-      // unscored group, ordered by the stable evidence_id secondary key
-      "ev-uns-a",
-      "ev-uns-b",
-    ]);
-  });
+  it("does not reorder when a card is scored", () => {
+    // The side-effect-free guarantee at the helper level: a high-confidence score
+    // must not promote a card. (Under the old sort, ev-3 would have jumped first.)
+    const list = [
+      candidate("ev-1", "undecided", 1),
+      candidate("ev-2", "undecided", 2),
+      { ...candidate("ev-3", "undecided", 3), role: "supports", confidence: 0.99 },
+    ];
 
-  it("keeps a real 0 score ABOVE unscored rows (0 is a score, null is not)", () => {
-    const out = sortByConfidence([
-      candidate("ev-unscored", "included"),
-      scored("ev-zero", "contradicts", 0),
-    ]);
-    expect(out.map((c) => c.content.evidence_id)).toEqual(["ev-zero", "ev-unscored"]);
-  });
-
-  it("breaks scored ties by the stable evidence_id secondary key", () => {
-    const out = sortByConfidence([
-      scored("ev-b", "rebuts", 0.7),
-      scored("ev-a", "corroborates", 0.7),
-    ]);
-    expect(out.map((c) => c.content.evidence_id)).toEqual(["ev-a", "ev-b"]);
-  });
-
-  it("does not mutate the input array (returns a fresh sorted copy)", () => {
-    const input = [scored("ev-lo", "contradicts", 0.4), scored("ev-hi", "corroborates", 0.85)];
-    const before = input.map((c) => c.content.evidence_id);
-    sortByConfidence(input);
-    expect(input.map((c) => c.content.evidence_id)).toEqual(before);
+    expect(filterByStatus(list, "all").map((c) => c.ordinal)).toEqual([1, 2, 3]);
   });
 });
-
-// ── formatConfidencePct ─────────────────────────────────────────────────────────
 
 describe("formatConfidencePct", () => {
   it("renders a fraction as a whole percent (matching the scan-run panel)", () => {
@@ -252,27 +229,29 @@ describe("roleConfidenceLabel", () => {
   });
 });
 
-// ── shortIdChip ─────────────────────────────────────────────────────────────────
+// ── candidateChip ───────────────────────────────────────────────────────────────
 
-describe("shortIdChip", () => {
-  it("is deterministic — the same fact yields the same chip, always", () => {
-    // Same-fact→same-chip is the ONE hard requirement (§4): a chip that changed
-    // between renders/sessions would be useless as a reference handle.
-    expect(shortIdChip("evidence-phillips-q74")).toBe(shortIdChip("evidence-phillips-q74"));
+describe("candidateChip", () => {
+  it("renders the ordinal as a speakable handle", () => {
+    // The whole point of replacing the hash chip: a human can say this one out
+    // loud, write it in a margin, and compare two of them.
+    expect(candidateChip(1)).toBe("C-1");
+    expect(candidateChip(14)).toBe("C-14");
+    expect(candidateChip(147)).toBe("C-147");
   });
 
-  it("renders the '#' + fixed-width 6-char base36 handle", () => {
-    const chip = shortIdChip("evidence-phillips-q74");
-    expect(chip).toMatch(/^#[0-9a-z]{6}$/);
+  it("renders nothing when the candidate has no ordinal yet", () => {
+    // null/undefined must NOT become "C-0" or "C-?" — both would read as real
+    // ids for cards that do not exist (Standing Rule 1). The caller renders no
+    // chip at all.
+    expect(candidateChip(null)).toBeNull();
+    expect(candidateChip(undefined)).toBeNull();
   });
 
-  it("differs for ids that share a long human prefix (the raw-truncation failure)", () => {
-    // Truncating the FRONT of these collides (both start 'evidence-phillips-q7');
-    // the hash folds the whole id so the discriminating tail still separates them.
-    expect(shortIdChip("evidence-phillips-q74")).not.toBe(shortIdChip("evidence-phillips-q75"));
-  });
-
-  it("differs across unrelated ids", () => {
-    expect(shortIdChip("evidence-mock-001")).not.toBe(shortIdChip("evidence-awad-complaint-12"));
+  it("renders 0 as a real id rather than treating it as absent", () => {
+    // Guards the `== null` check against a truthiness bug: 0 is falsy in JS, so a
+    // `!ordinal` test would swallow it. The backend starts sequences at 1, so this
+    // should never occur — but if it ever does, it must not silently vanish.
+    expect(candidateChip(0)).toBe("C-0");
   });
 });

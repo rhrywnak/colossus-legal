@@ -8,7 +8,6 @@ import {
   costLabel,
   formatCost,
   formatElapsed,
-  formatMergeState,
   formatRunTimestamp,
 } from "../themeScanFormat";
 import type { ThemeScanSummary } from "../../services/themeScan";
@@ -17,13 +16,12 @@ function summary(overrides: Partial<ThemeScanSummary>): ThemeScanSummary {
   return {
     run_id: "r",
     model_id: "m",
-    dry_run: true,
     input_tokens: null,
     output_tokens: null,
     computed_cost: null,
     duration_ms: 0,
     candidates_read: 0,
-    relevant_written: 0,
+    relevant: 0,
     irrelevant: 0,
     failed: 0,
     suggestions: [],
@@ -39,6 +37,10 @@ function sug(id: string, role: string) {
     reason: "r",
     confidence: 0.9,
     content: { evidence_id: id, title: "", pattern_tags: [], about: [] },
+    // Backend-annotated at read time; the agreement maths ignores both, but the
+    // fixture must be a real ThemeScanSuggestion.
+    ordinal: null,
+    applied: false,
   };
 }
 
@@ -58,26 +60,6 @@ describe("costLabel", () => {
   it("shows a dash for a local model with no cost, else a $ figure", () => {
     expect(costLabel(summary({ computed_cost: null }))).toBe("—");
     expect(costLabel(summary({ computed_cost: 0.1234 }))).toBe("$0.1234");
-  });
-});
-
-describe("formatMergeState", () => {
-  it("returns null when never merged (count 0) — the caller shows a plain Merge", () => {
-    expect(formatMergeState(0, null)).toBeNull();
-    // A stray timestamp with count 0 is still "never merged" — count governs.
-    expect(formatMergeState(0, "2026-07-18T14:00:00Z")).toBeNull();
-  });
-
-  it("renders 'merged N× · last <time>' when merged", () => {
-    const out = formatMergeState(2, "2026-07-18T14:00:00Z");
-    expect(out).toContain("merged 2×");
-    expect(out).toContain("· last ");
-    // Reuses formatRunTimestamp, so the time matches how run rows render it.
-    expect(out).toContain(formatRunTimestamp("2026-07-18T14:00:00Z"));
-  });
-
-  it("degrades to 'merged N×' (no tail) if count>0 but timestamp is null", () => {
-    expect(formatMergeState(1, null)).toBe("merged 1×");
   });
 });
 

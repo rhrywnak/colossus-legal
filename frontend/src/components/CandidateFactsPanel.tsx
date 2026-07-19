@@ -38,8 +38,7 @@ import {
   findOrphans,
   orphansVisibleUnder,
   roleConfidenceLabel,
-  shortIdChip,
-  sortByConfidence,
+  candidateChip,
   STATUS_FILTERS,
   STATUS_FILTER_LABEL,
   type StatusFilter,
@@ -54,6 +53,11 @@ interface Props {
    *  the mount contract; a follow-up tidy chunk removes it (and `candidateSeed`).
    */
   definition?: ScenarioDefinition;
+  /** Bumped by the parent when something OUTSIDE this panel changed the candidate
+   *  facts — today, a Merge selected in the Theme Scan panel. Any change to this
+   *  value re-fetches the pool, so a merged judgment strip appears immediately
+   *  instead of waiting for a manual collapse/expand or a page reload. */
+  externalRefresh?: number;
 }
 
 const toggleStyle: React.CSSProperties = {
@@ -344,7 +348,7 @@ const copyFailStyle: React.CSSProperties = {
   whiteSpace: "nowrap",
 };
 
-const CandidateFactsPanel: React.FC<Props> = ({ slug, scenarioId }) => {
+const CandidateFactsPanel: React.FC<Props> = ({ slug, scenarioId, externalRefresh }) => {
   const [open, setOpen] = useState(false);
 
   const [candidates, setCandidates] = useState<CandidateDto[] | null>(null);
@@ -362,6 +366,12 @@ const CandidateFactsPanel: React.FC<Props> = ({ slug, scenarioId }) => {
   // Bumped after a successful ruling to re-fetch the whole pool, so the UI is a
   // pure reflection of persisted state (no optimistic drift).
   const [refreshKey, setRefreshKey] = useState(0);
+
+  // A merge in the Theme Scan panel writes candidate facts THIS panel is showing,
+  // so the parent bumps `externalRefresh` and the load effect below re-runs.
+  // Without it the human merges picks and sees an unchanged list — the panels are
+  // siblings on one page, with no shared store to invalidate.
+  const refreshSignal = `${refreshKey}:${externalRefresh ?? 0}`;
 
   // --- Bug 1: preserve scroll position across a post-ruling refetch. ---------
   //
@@ -438,16 +448,16 @@ const CandidateFactsPanel: React.FC<Props> = ({ slug, scenarioId }) => {
     return () => {
       cancelled = true;
     };
-  }, [open, slug, scenarioId, refreshKey]);
+  }, [open, slug, scenarioId, refreshSignal]);
 
-  // Filter to the chosen status, THEN order so scored merge/scan picks surface:
-  // highest-confidence first, unscored (human-curated / undecided) last as a
-  // distinct group (see `sortByConfidence`). Sorting AFTER the filter keeps each
-  // status view internally ranked; both steps are pure, so the memo re-derives
-  // only when the pool or the filter changes. ("Only from scan" was deleted — §2:
-  // per-item selection + the strip presence/absence make it redundant.)
+  // Filter to the chosen status only — NO client-side sort. The backend already
+  // returns the pool in ascending candidate-id order, and that order is the
+  // workbench's contract: stable across visits, and never moving a card because it
+  // was scanned, merged, scored, Included, or Dropped. Re-sorting here (as the old
+  // `sortByConfidence` did) reshuffled the list under the person curating it.
+  // `filterByStatus` preserves input order, so C-order survives the filter.
   const visible = useMemo(
-    () => sortByConfidence(filterByStatus(candidates ?? [], statusFilter)),
+    () => filterByStatus(candidates ?? [], statusFilter),
     [candidates, statusFilter],
   );
 
@@ -632,14 +642,22 @@ const CandidateFactsPanel: React.FC<Props> = ({ slug, scenarioId }) => {
                     // is the human-added / unscored signal (no "unscored" text).
                     leadBadge={
                       <span style={leadStripStyle}>
-                        <button
-                          type="button"
-                          style={idChipStyle}
-                          title={`${c.content.evidence_id} (click to copy)`}
-                          onClick={() => copyChip(c.content.evidence_id)}
-                        >
-                          {shortIdChip(c.content.evidence_id)}
-                        </button>
+                        {/* The C-chip is the human's handle. Absent (not a
+                            placeholder) when the candidate has no ordinal yet —
+                            "C-0"/"C-?" would read as real ids. The full graph node
+                            id stays on hover and on click-to-copy: the ordinal is
+                            the human handle, the node id remains the machine
+                            identity. */}
+                        {candidateChip(c.ordinal) && (
+                          <button
+                            type="button"
+                            style={idChipStyle}
+                            title={`${c.content.evidence_id} (click to copy)`}
+                            onClick={() => copyChip(c.content.evidence_id)}
+                          >
+                            {candidateChip(c.ordinal)}
+                          </button>
+                        )}
                         {c.confidence != null && (
                           <span style={roleBadgeStyle}>
                             {roleConfidenceLabel(c.role, c.confidence)}

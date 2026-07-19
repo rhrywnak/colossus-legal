@@ -1,22 +1,30 @@
 //! Theme Scan persistence + summarize (LLM Config Chunk B).
 //!
-//! Split out of `theme_scan_judge.rs` (module-size limit). Owns three things the
+//! Split out of `theme_scan_judge.rs` (module-size limit). Owns two things the
 //! judge does not:
 //!
-//! 1. the `scenario_fact_refs` upsert for RELEVANT verdicts — SUPPRESSED on a
-//!    `dry_run` (A4: so a benchmark's two model runs do not collide on the
-//!    `(scenario_id, graph_node_id)` PK);
-//! 2. the `scan_runs` + `scan_run_verdicts` audit writes (EVERY run, dry or not);
-//! 3. the token/cost aggregation and the [`ThemeScanSummary`] the route returns.
+//! 1. the `scan_runs` + `scan_run_verdicts` audit writes (every run);
+//! 2. the token/cost aggregation and the [`ThemeScanSummary`] the route returns.
+//!
+//! ## Domain note: SCANNING IS SCORING, NEVER COMMITTING
+//!
+//! This module deliberately does NOT write `scenario_fact_refs`. Under the unified
+//! merge model there is exactly ONE write path from scan-land into a scenario's
+//! candidate facts — an explicit, human-driven **Merge selected** — and it is
+//! pick-keyed, not run-keyed. A scan produces verdicts and costs money; it never
+//! decides anything on the human's behalf.
+//!
+//! That is why the old `dry_run` distinction is gone rather than defaulted: it
+//! existed to answer "should this scan auto-write its picks?", and in this model
+//! the answer is permanently no. Nothing here branches on it, so a scan and a
+//! former "benchmark" scan are now the same operation.
 
 use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::bias::dto::BiasInstance;
 use crate::dto::{ThemeScanRejected, ThemeScanSuggestion, ThemeScanSummary};
-use crate::repositories::pipeline_repository::{
-    insert_scan_run_verdicts, reconcile_fact_ref, PipelineRepoError, ScanRunVerdictRecord,
-};
+use crate::repositories::pipeline_repository::{insert_scan_run_verdicts, ScanRunVerdictRecord};
 use crate::services::theme_scan_judge::JudgeOutcome;
 use crate::services::theme_scan_parse::Verdict;
 
@@ -34,7 +42,6 @@ pub(crate) struct ScanRunMeta {
     pub run_id: Uuid,
     pub scenario_id: Uuid,
     pub model_id: String,
-    pub dry_run: bool,
     pub cost_per_input_token: Option<f64>,
     pub cost_per_output_token: Option<f64>,
     pub duration_ms: i64,
@@ -43,7 +50,10 @@ pub(crate) struct ScanRunMeta {
 /// Running tallies + the verdict rows accumulated across one run.
 #[derive(Default)]
 struct Accumulator {
-    relevant_written: usize,
+    /// Verdicts judged relevant. Named for what it counts, not for a side effect:
+    /// the scan no longer writes anything to `scenario_fact_refs`, so the former
+    /// `relevant_written` described a write that no longer happens.
+    relevant: usize,
     irrelevant: usize,
     failed: usize,
     suggestions: Vec<ThemeScanSuggestion>,
@@ -63,7 +73,10 @@ pub(crate) async fn persist_and_summarize(
     let candidates_read = results.len();
     let mut acc = Accumulator::default();
     for (candidate, outcome) in results {
-        process_one(pool, &meta, candidate, outcome, &mut acc).await;
+        // Classification is now pure (no DB round-trip per candidate): with the
+        // fact-ref write gone, the only I/O left in this module is the single
+        // batched `write_verdicts` below.
+        process_one(&meta, candidate, outcome, &mut acc);
     }
 
     let computed_cost = compute_cost(
@@ -78,13 +91,12 @@ pub(crate) async fn persist_and_summarize(
     ThemeScanSummary {
         run_id: meta.run_id,
         model_id: meta.model_id,
-        dry_run: meta.dry_run,
         input_tokens: acc.input_tokens,
         output_tokens: acc.output_tokens,
         computed_cost,
         duration_ms: meta.duration_ms,
         candidates_read,
-        relevant_written: acc.relevant_written,
+        relevant: acc.relevant,
         irrelevant: acc.irrelevant,
         failed: acc.failed,
         suggestions: acc.suggestions,
@@ -92,11 +104,9 @@ pub(crate) async fn persist_and_summarize(
     }
 }
 
-/// Classify one judged candidate: accumulate its tokens, apply the
-/// `scenario_fact_refs` write (unless dry-run), tally it, and record its
+/// Classify one judged candidate: accumulate its tokens, tally it, and record its
 /// `scan_run_verdicts` row.
-async fn process_one(
-    pool: &PgPool,
+fn process_one(
     meta: &ScanRunMeta,
     candidate: BiasInstance,
     outcome: JudgeOutcome,
@@ -105,7 +115,7 @@ async fn process_one(
     add_tokens(&mut acc.input_tokens, outcome.input_tokens);
     add_tokens(&mut acc.output_tokens, outcome.output_tokens);
 
-    let fields = classify(pool, meta, &candidate, &outcome.verdict, acc).await;
+    let fields = classify(meta, &candidate, &outcome.verdict, acc);
 
     acc.verdicts.push(ScanRunVerdictRecord {
         run_id: meta.run_id,
@@ -131,45 +141,43 @@ struct VerdictFields {
 /// Route one candidate into the tally and produce its verdict-row fields.
 ///
 /// Three outcomes (Standing Rule 1 — distinguishable): a relevant verdict
-/// (written unless dry-run), an irrelevant verdict (sampled, never written), or a
-/// per-item failure (counted, logged with `evidence_id`).
-async fn classify(
-    pool: &PgPool,
+/// (suggested to the human, never written), an irrelevant verdict (sampled, never
+/// suggested), or a per-item failure (counted, logged with `evidence_id`).
+fn classify(
     meta: &ScanRunMeta,
     candidate: &BiasInstance,
     verdict: &Result<Verdict, String>,
     acc: &mut Accumulator,
 ) -> VerdictFields {
     match verdict {
-        Ok(v) if v.relevant => handle_relevant(pool, meta, candidate, v, acc).await,
+        Ok(v) if v.relevant => handle_relevant(candidate, v, acc),
         Ok(v) => handle_irrelevant(candidate, v, acc),
         Err(reason) => handle_failed(meta, candidate, reason, acc),
     }
 }
 
-/// A relevant verdict: write it (unless dry-run) and tally. A non-dry write
-/// failure is a counted per-item failure that still records the verdict values.
-async fn handle_relevant(
-    pool: &PgPool,
-    meta: &ScanRunMeta,
-    candidate: &BiasInstance,
-    v: &Verdict,
-    acc: &mut Accumulator,
-) -> VerdictFields {
-    let write_err = maybe_write_relevant(pool, meta, candidate, v).await;
-    match write_err {
-        None => {
-            acc.relevant_written += 1;
-            acc.suggestions.push(to_suggestion(candidate.clone(), v));
-        }
-        Some(_) => acc.failed += 1,
-    }
+/// A relevant verdict: tally it and offer it to the human as a suggestion.
+///
+/// ## What the write removal changed here
+///
+/// This used to attempt a `scenario_fact_refs` upsert and branch on the outcome:
+/// a write failure was counted as a per-item `failed` AND suppressed the
+/// suggestion, so a relevant verdict the human had already paid for could vanish
+/// from the results list because of a database hiccup. With scanning reduced to
+/// scoring, there is no write to fail — every relevant verdict now reaches the
+/// human as a checkable suggestion. `failed` is left to mean what its name says:
+/// the model could not produce a verdict.
+fn handle_relevant(candidate: &BiasInstance, v: &Verdict, acc: &mut Accumulator) -> VerdictFields {
+    acc.relevant += 1;
+    acc.suggestions.push(to_suggestion(candidate.clone(), v));
     VerdictFields {
         relevant: Some(true),
         proposed_role: Some(v.proposed_role.code().to_string()),
         confidence: Some(v.confidence),
         reason: Some(v.reason.clone()),
-        error: write_err,
+        // No write to fail, so no per-item error to record. A verdict-level error
+        // still lands here via `handle_failed`.
+        error: None,
     }
 }
 
@@ -217,68 +225,6 @@ fn handle_failed(
         reason: None,
         error: Some(reason.to_string()),
     }
-}
-
-/// Upsert a relevant verdict as an `undecided` suggestion — unless this is a
-/// dry (benchmark) run, in which case NOTHING is written to `scenario_fact_refs`
-/// (A4). Returns `Some(error)` only on a real write failure (logged here).
-async fn maybe_write_relevant(
-    pool: &PgPool,
-    meta: &ScanRunMeta,
-    candidate: &BiasInstance,
-    verdict: &Verdict,
-) -> Option<String> {
-    if meta.dry_run {
-        return None;
-    }
-    match write_relevant(pool, meta.scenario_id, candidate, verdict).await {
-        Ok(()) => None,
-        Err(e) => {
-            let msg = format!("scenario_fact_refs write failed: {e}");
-            tracing::error!(
-                run_id = %meta.run_id,
-                evidence_id = %candidate.evidence_id,
-                scenario_id = %meta.scenario_id,
-                error = %e,
-                "theme scan: writing a relevant verdict failed"
-            );
-            Some(msg)
-        }
-    }
-}
-
-/// Reconcile one relevant verdict as an `undecided` suggestion (awaits a human
-/// include/drop ruling), status-preserving.
-///
-/// ## Why `reconcile_fact_ref`, not `upsert_fact_ref` (latent-bug fix)
-///
-/// `upsert_fact_ref` overwrites `status = EXCLUDED.status` on conflict, so a
-/// non-dry RE-scan used to silently reset a candidate the human had already
-/// `Included` or `Dropped` back to `undecided` — destroying curation on every
-/// re-run. `reconcile_fact_ref` refreshes only the LLM layer (role + confidence)
-/// and leaves an `included`/`dropped` row untouched, so re-scans are now safe.
-///
-/// ## Why no `note`
-///
-/// The reconcile deliberately never writes `note` — that column is the human's.
-/// The model's `reason` is NOT lost: it is stored per-candidate in
-/// `scan_run_verdicts.reason` (the audit record) and rides the live
-/// `ThemeScanSuggestion` card. This drops the previous (mis)use of `note` to
-/// carry the LLM reason onto the fact ref.
-async fn write_relevant(
-    pool: &PgPool,
-    scenario_id: Uuid,
-    candidate: &BiasInstance,
-    verdict: &Verdict,
-) -> Result<(), PipelineRepoError> {
-    reconcile_fact_ref(
-        pool,
-        scenario_id,
-        &candidate.evidence_id,
-        Some(verdict.proposed_role.code()),
-        Some(verdict.confidence),
-    )
-    .await
 }
 
 /// Write the `scan_run_verdicts` detail rows (the `scan_runs` header already

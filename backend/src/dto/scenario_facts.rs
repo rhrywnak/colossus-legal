@@ -133,6 +133,24 @@ pub struct CandidateDto {
     /// justified by what the reader must be able to tell apart.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub confidence: Option<f32>,
+    /// This candidate's persisted, scenario-scoped ordinal — the number the human
+    /// says out loud, rendered `C-{ordinal}`.
+    ///
+    /// Assigned at gather and never renumbered, so the same fact wears the same
+    /// chip on the Candidate Facts card and on a scan-results row. It also defines
+    /// the workbench's display order: ascending ordinal, which is stable across
+    /// visits and never reshuffles when a card is scored, merged, included, or
+    /// dropped — the human's spatial memory of the list is part of their curation
+    /// state.
+    ///
+    /// `Option` because absence is a real state rather than a defect: a candidate
+    /// read in the same instant it first enters the pool, or one whose assignment
+    /// failed, has no ordinal yet. Emitting `None` (rather than a fabricated 0 or
+    /// a positional index) keeps "not yet numbered" distinguishable from "is
+    /// number N" — Standing Rule 1. The frontend renders the absence as a plain
+    /// card with no chip rather than inventing one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ordinal: Option<i32>,
 }
 
 /// Response body for `GET /cases/:slug/scenarios/:scenario_id/facts/gather`.

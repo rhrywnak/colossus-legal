@@ -55,7 +55,6 @@ pub struct ScanRunStart {
     pub model_id: String,
     /// `{"temperature": <number|null>, "timeout_secs": <int>, "max_tokens": <int>}`.
     pub resolved_params: serde_json::Value,
-    pub dry_run: bool,
     /// The progress denominator, known from the candidate-pool read.
     pub candidates_total: i32,
     pub started_at: DateTime<Utc>,
@@ -84,8 +83,12 @@ pub async fn insert_scan_run_running(
     .bind(start.run_id)
     .bind(start.scenario_id)
     .bind(&start.model_id)
-    .bind(&start.resolved_params)
-    .bind(start.dry_run)
+    // `dry_run` is bound as a literal `false`, not carried on `ScanRunStart`: no
+    // scan is a benchmark any more (scanning never writes, so there is nothing to
+    // suppress), and the caller must not be able to say otherwise. The column is
+    // NOT NULL and still owes every row an honest value, so it keeps getting one
+    // until Chunk B's migration drops it. Nothing reads it.
+    .bind(false)
     .bind(start.candidates_total)
     .bind(start.started_at)
     .bind(SCAN_STATUS_RUNNING)
@@ -241,7 +244,6 @@ pub struct ScanRunStatusRow {
     pub scenario_id: Uuid,
     pub status: String,
     pub model_id: String,
-    pub dry_run: bool,
     pub candidates_total: Option<i32>,
     pub candidates_judged: i32,
     pub relevant_count: i32,
@@ -260,7 +262,7 @@ pub async fn get_scan_run(
     run_id: Uuid,
 ) -> Result<Option<ScanRunStatusRow>, PipelineRepoError> {
     let row = sqlx::query_as::<_, ScanRunStatusRow>(
-        "SELECT run_id, scenario_id, status, model_id, dry_run, \
+        "SELECT run_id, scenario_id, status, model_id, \
                 candidates_total, candidates_judged, \
                 relevant_count, irrelevant_count, failed_count, \
                 error, summary_json, last_progress_at, started_at \
@@ -291,7 +293,6 @@ pub async fn get_scan_run(
 pub struct ScanRunHeaderRow {
     pub run_id: Uuid,
     pub model_id: String,
-    pub dry_run: bool,
     pub status: String,
     pub candidates_total: Option<i32>,
     pub candidates_judged: i32,
@@ -301,14 +302,6 @@ pub struct ScanRunHeaderRow {
     pub computed_cost: Option<f64>,
     pub duration_ms: i64,
     pub started_at: DateTime<Utc>,
-    /// How many times this run has been merged into its scenario — `COUNT(*)` of
-    /// its `scan_run_merges` rows (`0` = never merged). BIGINT → `i64`. Drives the
-    /// run detail's "Merged N×" state; `0` shows the plain "Merge into scenario".
-    pub merge_count: i64,
-    /// The most recent merge time — `MAX(merged_at)` — or `None` when never merged.
-    /// A distinct observable from `merge_count = 0` by construction (they always
-    /// agree), shown as "last <time>" beside the count.
-    pub last_merged_at: Option<DateTime<Utc>>,
 }
 
 /// List every run of one scenario, newest first, as lightweight headers.
@@ -339,20 +332,17 @@ pub async fn list_scan_runs(
 /// [`ScanRunHeaderRow`] doc). Not deployment-varying — this is query text, not
 /// config, so Rule 13 does not apply.
 //
-// The two correlated subqueries fold each run's merge history (the child
-// `scan_run_merges` rows) into the header: `merge_count` = how many times it was
-// merged, `last_merged_at` = when last. Correlated subqueries (not a GROUP BY
-// JOIN) keep this a drop-in extension of the existing single-row-per-run SELECT —
-// a run with zero merges still returns exactly one header row, with `merge_count`
-// = 0 and `last_merged_at` = NULL (a LEFT JOIN + GROUP BY would reach the same
-// result but restructure the whole query). The `scan_run_merges_run_id_idx`
-// covers both. Query text, not config — Rule 13 N/A.
-const LIST_SCAN_RUNS_SQL: &str = "SELECT run_id, model_id, dry_run, status, \
+// The merge-history subqueries that used to fold `merge_count` / `last_merged_at`
+// into each header are GONE with the run-level merge model. A per-run merge
+// counter only made sense when a run was the unit of merge; now that merge is
+// pick-keyed, the question it answered ("how many times was this run merged?") is
+// not one the workbench asks. The `scan_run_merges` rows are still written — they
+// are the audit trail — they simply no longer feed a header column. Query text,
+// not config — Rule 13 N/A.
+const LIST_SCAN_RUNS_SQL: &str = "SELECT run_id, model_id, status, \
      candidates_total, candidates_judged, \
      relevant_count, irrelevant_count, failed_count, \
-     computed_cost::float8 AS computed_cost, duration_ms, started_at, \
-     (SELECT COUNT(*) FROM scan_run_merges m WHERE m.run_id = scan_runs.run_id) AS merge_count, \
-     (SELECT MAX(m.merged_at) FROM scan_run_merges m WHERE m.run_id = scan_runs.run_id) AS last_merged_at \
+     computed_cost::float8 AS computed_cost, duration_ms, started_at \
      FROM scan_runs WHERE scenario_id = $1 ORDER BY started_at DESC";
 
 // ─── 8. DELETE (remove one run) ──────────────────────────────────────────────

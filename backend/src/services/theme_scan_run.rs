@@ -8,6 +8,7 @@
 //! The judging then runs in a spawned `tokio` task that updates the `scan_runs`
 //! row as it goes; the GET polls it.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -17,10 +18,12 @@ use uuid::Uuid;
 use crate::domain::llm_params::ResolvedLlmParams;
 use crate::dto::{ScanRunHeader, ScanRunListResponse, ScanRunStatusResponse, ThemeScanSummary};
 use crate::repositories::pipeline_repository::{
-    delete_scan_run, fail_scan_run, finalize_scan_run_completed, get_scan_run,
-    insert_scan_run_running, list_scan_runs, merge_run_into_scenario_recording, ScanRunFinal,
-    ScanRunHeaderRow, ScanRunStart,
+    count_run_provenance, delete_scan_run, fail_scan_run, finalize_scan_run_completed,
+    get_scan_run, insert_scan_run_running, list_applied_node_ids_for_run, list_candidate_ordinals,
+    list_scan_runs, merge_run_into_scenario_recording, ScanRunFinal, ScanRunHeaderRow,
+    ScanRunStart,
 };
+use crate::services::scan_run_enrich::annotate_summary_logged;
 use crate::services::theme_scan::{
     load_scenario_fenced, prepare_scan, PreparedScan, ThemeScanError,
 };
@@ -47,7 +50,6 @@ pub async fn start_theme_scan(
     case_slug: &str,
     scenario_id: Uuid,
     requested_model_id: Option<String>,
-    dry_run: bool,
 ) -> Result<ScanStarted, ThemeScanError> {
     let prepared =
         prepare_scan(state, case_slug, scenario_id, requested_model_id.as_deref()).await?;
@@ -61,7 +63,6 @@ pub async fn start_theme_scan(
             scenario_id,
             model_id: prepared.model_id.clone(),
             resolved_params: params_snapshot(&prepared.params, &prepared.prompt_file),
-            dry_run,
             candidates_total,
             started_at: Utc::now(),
         },
@@ -70,7 +71,7 @@ pub async fn start_theme_scan(
     .map_err(|source| ThemeScanError::ScanRunWriteFailed { run_id, source })?;
 
     tracing::info!(
-        case_slug, %scenario_id, %run_id, model_id = %prepared.model_id, dry_run,
+        case_slug, %scenario_id, %run_id, model_id = %prepared.model_id,
         concurrency = prepared.concurrency, candidates_total,
         prompt_file = %prepared.prompt_file,
         "theme scan: started (background)"
@@ -86,9 +87,7 @@ pub async fn start_theme_scan(
     // task. The task's own errors are handled inside it (it must never leave the
     // row stuck `running`) — the `JoinHandle` is dropped deliberately.
     let state = state.clone();
-    tokio::spawn(
-        async move { execute_scan_job(state, prepared, run_id, scenario_id, dry_run).await },
-    );
+    tokio::spawn(async move { execute_scan_job(state, prepared, run_id, scenario_id).await });
 
     Ok(ScanStarted {
         run_id,
@@ -104,9 +103,8 @@ async fn execute_scan_job(
     prepared: PreparedScan,
     run_id: Uuid,
     scenario_id: Uuid,
-    dry_run: bool,
 ) {
-    if let Err(e) = run_scan_job(&state, prepared, run_id, scenario_id, dry_run).await {
+    if let Err(e) = run_scan_job(&state, prepared, run_id, scenario_id).await {
         tracing::error!(%run_id, %scenario_id, error = %e, "theme scan: background job failed");
         if let Err(fe) = fail_scan_run(&state.pipeline_pool, run_id, &e).await {
             tracing::error!(%run_id, error = %fe,
@@ -123,7 +121,6 @@ async fn run_scan_job(
     prepared: PreparedScan,
     run_id: Uuid,
     scenario_id: Uuid,
-    dry_run: bool,
 ) -> Result<(), String> {
     let clock = Instant::now();
     let results = judge_all(
@@ -147,7 +144,6 @@ async fn run_scan_job(
             run_id,
             scenario_id,
             model_id: prepared.model_id,
-            dry_run,
             cost_per_input_token: prepared.cost_per_input_token,
             cost_per_output_token: prepared.cost_per_output_token,
             duration_ms,
@@ -164,8 +160,8 @@ async fn run_scan_job(
         .map_err(|e| format!("failed to finalize scan run: {e}"))?;
 
     tracing::info!(
-        %run_id, %scenario_id, dry_run, candidates_read = summary.candidates_read,
-        relevant = summary.relevant_written, irrelevant = summary.irrelevant,
+        %run_id, %scenario_id, candidates_read = summary.candidates_read,
+        relevant = summary.relevant, irrelevant = summary.irrelevant,
         failed = summary.failed, duration_ms, "theme scan: complete"
     );
     Ok(())
@@ -182,7 +178,7 @@ fn build_run_final(
 ) -> ScanRunFinal {
     ScanRunFinal {
         run_id,
-        relevant_count: count_to_i32(summary.relevant_written, "relevant_count"),
+        relevant_count: count_to_i32(summary.relevant, "relevant_count"),
         irrelevant_count: count_to_i32(summary.irrelevant, "irrelevant_count"),
         failed_count: count_to_i32(summary.failed, "failed_count"),
         input_tokens: summary.input_tokens,
@@ -215,6 +211,17 @@ fn params_snapshot(p: &ResolvedLlmParams, prompt_file: &str) -> serde_json::Valu
 /// case): the scenario must belong to `case_slug` (fence 1, reusing the scan's own
 /// loader), and the run must belong to that scenario (fence 2). Either miss is
 /// [`ThemeScanError::ScanRunNotFound`], identical to a truly-absent id.
+///
+/// ## The summary is ANNOTATED on the way out
+///
+/// A completed run's stored summary is a historical record and is never rewritten.
+/// Two things the results list needs are not in it, because neither belongs to the
+/// run: each pick's candidate ordinal (`C-14`, owned by the scenario) and whether
+/// this run's judgment for that pick has already been merged. Both are derived here
+/// and layered onto a copy — see [`crate::services::scan_run_enrich`].
+///
+/// This is where "applied" is computed rather than in the merge response, because a
+/// reopened HISTORICAL run needs it just as much as the one just merged.
 pub async fn get_scan_run_status(
     state: &AppState,
     case_slug: &str,
@@ -232,19 +239,55 @@ pub async fn get_scan_run_status(
         return Err(ThemeScanError::ScanRunNotFound { run_id });
     }
 
+    // Only a completed run has a summary to annotate; a running/failed one carries
+    // `None` and needs no extra reads.
+    let summary = match row.summary_json {
+        Some(mut summary) => {
+            annotate_run_summary(state, scenario_id, run_id, &mut summary).await?;
+            Some(summary)
+        }
+        None => None,
+    };
+
     Ok(ScanRunStatusResponse {
         run_id: row.run_id,
         status: row.status,
         model_id: row.model_id,
-        dry_run: row.dry_run,
         candidates_total: row.candidates_total,
         candidates_judged: row.candidates_judged,
         relevant_count: row.relevant_count,
         irrelevant_count: row.irrelevant_count,
         failed_count: row.failed_count,
         error: row.error,
-        summary: row.summary_json,
+        summary,
     })
+}
+
+/// Read the scenario's ordinals and this run's applied picks, then annotate.
+///
+/// Split from [`get_scan_run_status`] to keep it within the function-size limit.
+/// Both reads are hard failures rather than degradations: serving a results list
+/// with silently-missing chips or a silently-absent applied state would invite the
+/// human to re-merge picks that are already applied (Standing Rule 1 — a partial
+/// answer that looks complete is the failure mode to avoid).
+async fn annotate_run_summary(
+    state: &AppState,
+    scenario_id: Uuid,
+    run_id: Uuid,
+    summary: &mut serde_json::Value,
+) -> Result<(), ThemeScanError> {
+    let ordinals = list_candidate_ordinals(&state.pipeline_pool, scenario_id)
+        .await
+        .map_err(|source| ThemeScanError::ScanRunReadFailed { run_id, source })?;
+
+    let applied: HashSet<String> = list_applied_node_ids_for_run(&state.pipeline_pool, run_id)
+        .await
+        .map_err(|source| ThemeScanError::ScanRunReadFailed { run_id, source })?
+        .into_iter()
+        .collect();
+
+    annotate_summary_logged(summary, run_id, &ordinals, &applied);
+    Ok(())
 }
 
 /// List a scenario's scan-run HISTORY (newest first) as lightweight headers.
@@ -289,6 +332,22 @@ pub async fn list_scenario_scan_runs(
 /// success (Standing Rule 1 — "I deleted it" and "there was nothing to delete"
 /// are different observable outcomes). A running run is deletable like any other;
 /// its `scan_run_verdicts` cascade with it.
+///
+/// ## The provenance gate (fence 3)
+///
+/// Before deleting, the run is checked for merge provenance. A run whose judgments
+/// have entered the case is REFUSED with [`ThemeScanError::ScanRunMerged`] → 409.
+///
+/// This is a deliberate restriction, not a database constraint: the FKs would
+/// happily let the delete proceed (`scan_run_merges` cascades, `source_run_id`
+/// sets null), and that is precisely the problem — one delete would silently
+/// destroy both provenance records while leaving the merged judgments in the case.
+/// The FK behaviors stay as defence-in-depth for the unmerged path; this check is
+/// the primary guard.
+///
+/// The check runs AFTER the case fence, so it can never reveal the existence of
+/// another case's run, and BEFORE the delete, so a refusal leaves nothing
+/// half-done.
 pub async fn delete_scenario_scan_run(
     state: &AppState,
     case_slug: &str,
@@ -296,6 +355,27 @@ pub async fn delete_scenario_scan_run(
     run_id: Uuid,
 ) -> Result<(), ThemeScanError> {
     load_scenario_fenced(&state.pipeline_pool, case_slug, scenario_id).await?;
+
+    // A failed check propagates rather than defaulting to "no provenance": treating
+    // an unreadable check as permission to delete would fail in the destructive
+    // direction (Standing Rule 1).
+    let provenance = count_run_provenance(&state.pipeline_pool, run_id)
+        .await
+        .map_err(|source| ThemeScanError::ScanRunProvenanceCheckFailed { run_id, source })?;
+
+    if provenance.is_protected() {
+        tracing::info!(
+            %run_id, %scenario_id,
+            merge_events = provenance.merge_events,
+            attributed_facts = provenance.attributed_facts,
+            "refusing to delete a merged scan run; its provenance is retained"
+        );
+        return Err(ThemeScanError::ScanRunMerged {
+            run_id,
+            merge_events: provenance.merge_events,
+            attributed_facts: provenance.attributed_facts,
+        });
+    }
 
     let rows_affected = delete_scan_run(&state.pipeline_pool, scenario_id, run_id)
         .await
@@ -383,7 +463,6 @@ fn scan_run_header_from_row(row: ScanRunHeaderRow) -> ScanRunHeader {
     ScanRunHeader {
         run_id: row.run_id,
         model_id: row.model_id,
-        dry_run: row.dry_run,
         status: row.status,
         candidates_total: row.candidates_total,
         candidates_judged: row.candidates_judged,
@@ -393,123 +472,9 @@ fn scan_run_header_from_row(row: ScanRunHeaderRow) -> ScanRunHeader {
         computed_cost: row.computed_cost,
         duration_ms: row.duration_ms,
         started_at: row.started_at,
-        merge_count: row.merge_count,
-        last_merged_at: row.last_merged_at,
     }
 }
 
-// Tests live at the end of the module (idiomatic layout): a `#[cfg(test)] mod
-// tests` mid-file would leave production items after it, which clippy's
-// `items_after_test_module` lint (correctly) rejects.
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The `resolved_params` JSONB snapshot must carry the resolved prompt
-    /// filename (run→prompt provenance) alongside the existing param fields.
-    #[test]
-    fn params_snapshot_records_prompt_file_alongside_params() {
-        let params = ResolvedLlmParams {
-            temperature: Some(0.0),
-            timeout_secs: 90,
-            max_tokens: 512,
-        };
-        let snapshot = params_snapshot(&params, "theme_scan_prompt_v2.md");
-
-        assert_eq!(snapshot["prompt_file"], "theme_scan_prompt_v2.md");
-        // The pre-existing fields must survive the addition.
-        assert_eq!(snapshot["timeout_secs"], 90);
-        assert_eq!(snapshot["max_tokens"], 512);
-        assert_eq!(snapshot["temperature"], 0.0);
-    }
-
-    /// A non-default (overridden) prompt filename is recorded verbatim, so a run
-    /// judged with a bumped prompt version is distinguishable in the audit trail.
-    #[test]
-    fn params_snapshot_records_an_overridden_prompt_file() {
-        let params = ResolvedLlmParams {
-            temperature: None,
-            timeout_secs: 30,
-            max_tokens: 256,
-        };
-        let snapshot = params_snapshot(&params, "theme_scan_prompt_v3.md");
-        assert_eq!(snapshot["prompt_file"], "theme_scan_prompt_v3.md");
-    }
-
-    /// The repository header row maps 1:1 onto the wire DTO — every column the
-    /// history row shows is carried across, including the nullable `computed_cost`
-    /// and the `started_at` that drives the newest-first order. A dropped field
-    /// here would silently blank a column in the panel.
-    #[test]
-    fn scan_run_header_maps_every_row_field() {
-        let run_id = Uuid::from_u128(1);
-        let started_at = chrono::DateTime::<Utc>::from_timestamp(1_700_000_000, 0)
-            .expect("fixed in-range timestamp");
-        let row = ScanRunHeaderRow {
-            run_id,
-            model_id: "qwen-14b".to_string(),
-            dry_run: true,
-            status: "completed".to_string(),
-            candidates_total: Some(94),
-            candidates_judged: 94,
-            relevant_count: 31,
-            irrelevant_count: 60,
-            failed_count: 3,
-            computed_cost: Some(0.0125),
-            duration_ms: 45_000,
-            started_at,
-            merge_count: 2,
-            last_merged_at: Some(started_at),
-        };
-
-        let dto = scan_run_header_from_row(row);
-
-        assert_eq!(dto.run_id, run_id);
-        assert_eq!(dto.model_id, "qwen-14b");
-        assert!(dto.dry_run);
-        assert_eq!(dto.status, "completed");
-        assert_eq!(dto.candidates_total, Some(94));
-        assert_eq!(dto.candidates_judged, 94);
-        assert_eq!(dto.relevant_count, 31);
-        assert_eq!(dto.irrelevant_count, 60);
-        assert_eq!(dto.failed_count, 3);
-        assert_eq!(dto.computed_cost, Some(0.0125));
-        assert_eq!(dto.duration_ms, 45_000);
-        assert_eq!(dto.started_at, started_at);
-        // Merge provenance must ride across 1:1 — a run merged twice shows "2×".
-        assert_eq!(dto.merge_count, 2);
-        assert_eq!(dto.last_merged_at, Some(started_at));
-    }
-
-    /// A null cost (local vLLM model / no token usage) and an absent progress
-    /// denominator must survive as `None`, not collapse to a fabricated 0
-    /// (Standing Rule 1 — "no cost" is distinct from "$0.00").
-    #[test]
-    fn scan_run_header_preserves_null_cost_and_total() {
-        let row = ScanRunHeaderRow {
-            run_id: Uuid::from_u128(2),
-            model_id: "local-llama".to_string(),
-            dry_run: false,
-            status: "completed".to_string(),
-            candidates_total: None,
-            candidates_judged: 0,
-            relevant_count: 0,
-            irrelevant_count: 0,
-            failed_count: 0,
-            computed_cost: None,
-            duration_ms: 10,
-            started_at: chrono::DateTime::<Utc>::from_timestamp(0, 0).expect("epoch is in range"),
-            merge_count: 0,
-            last_merged_at: None,
-        };
-
-        let dto = scan_run_header_from_row(row);
-
-        assert_eq!(dto.computed_cost, None);
-        assert_eq!(dto.candidates_total, None);
-        // Never merged: count 0 and last-merged None must survive as-is, distinct
-        // from a merged run (Standing Rule 1) — not collapsed to a fabricated value.
-        assert_eq!(dto.merge_count, 0);
-        assert_eq!(dto.last_merged_at, None);
-    }
-}
+#[path = "theme_scan_run_tests.rs"]
+mod tests;

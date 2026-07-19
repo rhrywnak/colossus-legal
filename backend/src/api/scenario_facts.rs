@@ -464,6 +464,9 @@ mod tests {
             // These join tests do not exercise confidence (that is gather's read
             // path, tested there) — a human-curated-style None keeps them pure.
             confidence: None,
+            // Likewise unexercised here: provenance is read by the run-detail
+            // "applied" path, not by the join. None keeps these fixtures human-authored.
+            source_run_id: None,
             // A fixed epoch timestamp — the join does not read it, but the
             // struct requires one. Avoids `Utc::now()` so the test is pure.
             tagged_at: chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,

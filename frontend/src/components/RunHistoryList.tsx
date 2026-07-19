@@ -1,8 +1,8 @@
 // =============================================================================
 // RunHistoryList.tsx — the scan-run history list for the Theme Scan panel.
 // -----------------------------------------------------------------------------
-// Renders one compact row per persisted run of a scenario (model + benchmark/real
-// badge + counts + timestamp), newest first (the backend already orders them).
+// Renders one compact row per persisted run of a scenario (model + status +
+// counts + timestamp), newest first (the backend already orders them).
 // Clicking a row selects it (single-select); the parent loads that run's full
 // result (via the existing getScanRun) and renders it in the results display.
 // Each row also carries a delete control (trash icon) that removes the run.
@@ -91,18 +91,11 @@ const RunHistoryRow: React.FC<{
   >
     <div style={S.rowMain}>
       <span style={S.model}>{modelName}</span>
-      <span style={run.dry_run ? S.badgeBenchmark : S.badgeReal}>
-        {run.dry_run ? "Benchmark" : "Real"}
-      </span>
+      {/* No Benchmark/Real badge: every scan is now score-only, so the distinction
+          the badge drew no longer exists. No "Merged N×" chip either — merge is
+          pick-keyed, so whether a RUN was merged is not a meaningful state; whether
+          a given PICK was applied is shown inside the run, per suggestion. */}
       <StatusBadge status={run.status} />
-      {/* Merged marker: a run that has been merged into the scenario reads as such
-          at a glance in the history, without opening it. Absent when never merged
-          (merge_count 0) — distinct states, distinct observables. */}
-      {run.merge_count > 0 && (
-        <span style={S.mergedChip} title={`Merged ${run.merge_count}× into this scenario`}>
-          Merged ✓
-        </span>
-      )}
       <button
         type="button"
         aria-label="Delete run"
@@ -240,22 +233,6 @@ const S: Record<string, React.CSSProperties> = {
   countFailed: { color: "var(--state-danger-strong)" },
   dot: { color: "var(--text-muted)" },
   muted: { color: "var(--text-muted)" },
-  badgeBenchmark: {
-    fontSize: "0.68rem",
-    fontWeight: 600,
-    color: "var(--text-muted)",
-    border: "1px solid var(--border-default)",
-    borderRadius: "6px",
-    padding: "1px 6px",
-  },
-  badgeReal: {
-    fontSize: "0.68rem",
-    fontWeight: 600,
-    color: "var(--accent-primary)",
-    border: "1px solid var(--accent-primary)",
-    borderRadius: "6px",
-    padding: "1px 6px",
-  },
   statusCompleted: {
     fontSize: "0.68rem",
     fontWeight: 600,
@@ -273,15 +250,6 @@ const S: Record<string, React.CSSProperties> = {
     fontWeight: 600,
     color: "var(--text-muted)",
     marginLeft: "auto",
-  },
-  mergedChip: {
-    fontSize: "0.66rem",
-    fontWeight: 600,
-    color: "var(--state-success-strong)",
-    border: "1px solid var(--state-success-border, var(--border-default))",
-    borderRadius: "9999px",
-    padding: "1px 7px",
-    whiteSpace: "nowrap",
   },
 };
 

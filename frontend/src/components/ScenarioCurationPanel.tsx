@@ -26,6 +26,9 @@ interface Props {
    *  preserve the `ScenarioDetailPage` mount contract; a follow-up chunk removes
    *  it along with `candidateSeed`. */
   definition?: ScenarioDefinition;
+  /** Forwarded to `CandidateFactsPanel` — see its `externalRefresh`. This panel is
+   *  a thin wrapper, so it only relays the signal. */
+  externalRefresh?: number;
 }
 
 const sectionLabel: React.CSSProperties = {
@@ -47,6 +50,7 @@ const ScenarioCurationPanel: React.FC<Props> = ({
   slug,
   scenarioId,
   definition,
+  externalRefresh,
 }) => {
   return (
     <div>
@@ -61,6 +65,7 @@ const ScenarioCurationPanel: React.FC<Props> = ({
         slug={slug}
         scenarioId={scenarioId}
         definition={definition}
+        externalRefresh={externalRefresh}
       />
     </div>
   );

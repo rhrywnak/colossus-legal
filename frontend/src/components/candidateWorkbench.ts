@@ -153,49 +153,24 @@ export function orphansVisibleUnder(filter: StatusFilter): boolean {
 }
 
 /**
- * Order candidates so scored picks surface: highest confidence first, with
- * UNSCORED (null/undefined confidence) as a distinct group pinned LAST.
+ * NOTE: `sortByConfidence` was REMOVED here.
  *
- * TS-learning: this returns a NEW array (`[...candidates]` then `.sort`) rather
- * than sorting in place. `Array.prototype.sort` mutates its receiver; sorting the
- * caller's `candidates` state array in place would be a subtle React bug (mutating
- * state that a memo/render reads). Copy-then-sort keeps the helper pure — same
- * input array unchanged, a fresh ordered array out.
+ * Display order is now backend-supplied ascending candidate-id order, applied once
+ * by the gather endpoint. Two reasons it cannot live in the browser:
  *
- * ## Why unscored is NOT sorted as 0
+ * 1. **Ordering is a contract, not a presentation choice.** The list must be stable
+ *    across visits and must NEVER move a card because it was scanned, merged,
+ *    scored, Included, or Dropped — the human's spatial memory of the list is part
+ *    of their curation state. Confidence ordering broke both: rulings and merges
+ *    reshuffled the list under the person using it.
+ * 2. **It re-imported "the score knows better than you."** Ranking by confidence is
+ *    the same premise the per-pick merge model exists to reject: the human decides
+ *    which picks matter, and a 55% pick may be worth more than an 85% one.
  *
- * A human-curated include/drop has no *model* confidence (`null`) — that is
- * "unscored", a different state from a model score of `0` (Standing Rule 1). If we
- * coalesced `null` to `0`, unscored rows would interleave with genuine
- * low-confidence picks at the bottom, and a real `0.0`-scored fact could no longer
- * be told apart from an unscored one. Instead we PARTITION: every scored row
- * (confidence != null) sorts above every unscored row. Within the scored group,
- * descending by confidence. Within EITHER group, ties fall back to the stable
- * secondary key `content.evidence_id` (the graph node id) so the order is
- * deterministic across reloads — no visual churn when two picks share a score.
+ * Confidence is still VISIBLE on each card's judgment strip — it simply no longer
+ * decides position. Do not reintroduce a client-side sort here; if the order needs
+ * to change, it changes in the backend so both listings agree.
  */
-export function sortByConfidence(candidates: CandidateDto[]): CandidateDto[] {
-  const scoreOf = (c: CandidateDto): number | null =>
-    c.confidence == null ? null : c.confidence;
-
-  return [...candidates].sort((a, b) => {
-    const sa = scoreOf(a);
-    const sb = scoreOf(b);
-
-    // Partition: scored (non-null) always precedes unscored (null). Only when the
-    // two rows are on the SAME side of this partition do we compare further.
-    if (sa == null && sb == null) {
-      // Both unscored → stable secondary key only.
-      return a.content.evidence_id.localeCompare(b.content.evidence_id);
-    }
-    if (sa == null) return 1; // a unscored, b scored → a after b
-    if (sb == null) return -1; // a scored, b unscored → a before b
-
-    // Both scored → highest confidence first; ties broken by the stable node id.
-    if (sb !== sa) return sb - sa;
-    return a.content.evidence_id.localeCompare(b.content.evidence_id);
-  });
-}
 
 /**
  * Format a model confidence as a whole-percent string. Takes a NON-NULL score,
@@ -226,60 +201,31 @@ export function roleConfidenceLabel(role: string | null, confidence: number): st
   return role ? `${role} · ${pct}` : pct;
 }
 
-/** Alphabet for the id-chip short code: digits + lowercase letters (base36). A
- *  compiled presentation constant (the chip vocabulary), not a tunable — Rule 2
- *  N/A, same standing as the status-label maps above. */
-const CHIP_ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyz";
-
-/** How many base36 chars the visible chip shows. 6 chars ≈ 2 billion codes —
- *  ample for a case's few-hundred facts with no realistic collision (ratified). */
-const CHIP_LENGTH = 6;
-
 /**
- * Derive a short, STABLE reference handle for a fact from its `evidence_id` — the
- * `#a3f9k2`-style chip (§4). Same fact → same chip, ALWAYS; the chip never
- * renumbers when the pool changes, because it is a pure function of the durable
- * graph-node id, not a display-position sequence.
+ * Render a candidate's persisted ordinal as its display chip: `C-14`.
  *
- * ## Why a hash, not a truncation of the raw id
+ * Replaces the truncated-hash chip (`#a3f9k2`) that shipped earlier. That chip was
+ * stable but not *simple* — it could not be spoken, remembered, written in a margin
+ * note, or compared ("is C-14 before or after C-22?"). The requirement was always a
+ * handle a human uses out loud, and that means a small sequential number.
  *
- * The Evidence node id is an opaque, model-authored, hyphenated string
- * (`evidence-phillips-q74`, verified against the colossus-rs minting code). Its
- * shared human prefix means truncating the FRONT collides everything
- * (`evidence-…` for every fact) and its length varies — so a raw truncation makes
- * a poor, non-uniform handle. A hash folds the WHOLE id (including the
- * discriminating tail) into a fixed-width code, so distinct facts get distinct,
- * same-length chips. The full id remains available on hover / copy at the call
- * site — the chip is the handle, not the identity.
+ * Stability now comes from PERSISTENCE rather than derivation: the backend assigns
+ * the ordinal once, when the candidate first enters the pool, and never renumbers
+ * it — so the same fact wears the same chip on the Candidate Facts card and on a
+ * scan-results row, which is what makes the two listings cross-referencable.
+ * Deriving-vs-persisting was a false dichotomy; simplicity and stability were never
+ * actually in conflict.
  *
- * ## Why FNV-1a + xorshift (not `crypto.subtle`)
+ * Returns `null` when the candidate has no ordinal yet, so the caller renders NO
+ * chip rather than a placeholder — `C-0` and `C-?` would both read as real ids.
  *
- * This is a DISPLAY id, not a security digest — it needs determinism and a good
- * spread over a tiny input space, not collision-resistance against an adversary.
- * FNV-1a folds the id into a 32-bit seed; an xorshift32 step then advances that
- * seed once per output char so EACH char draws from a fresh full-width value
- * (uniform spread), rather than peeling low digits off one shrinking number. It is
- * a few synchronous lines (no async `crypto.subtle` ceremony) and stable across
- * runs/browsers, so the same fact renders the same chip everywhere (scan card,
- * candidate card, two sessions). `>>> 0` keeps each step an unsigned 32-bit int
- * (JS bitwise ops are signed-32 otherwise).
+ * TS-learning: `number | null | undefined` in, `string | null` out. Accepting
+ * `undefined` too means the call site can pass an omitted JSON field directly
+ * (the backend skips the key when there is no ordinal) without its own guard, and
+ * returning `null` rather than `""` makes the absent case something the component
+ * must handle explicitly instead of rendering an empty chip.
  */
-export function shortIdChip(evidenceId: string): string {
-  let hash = 0x811c9dc5; // FNV-1a 32-bit offset basis
-  for (let i = 0; i < evidenceId.length; i++) {
-    hash ^= evidenceId.charCodeAt(i);
-    // FNV prime multiply, kept in unsigned-32 range via Math.imul + `>>> 0`.
-    hash = Math.imul(hash, 0x01000193) >>> 0;
-  }
-  let code = "";
-  for (let i = 0; i < CHIP_LENGTH; i++) {
-    // xorshift32: advance the seed so this char samples a fresh 32-bit value.
-    hash ^= hash << 13;
-    hash >>>= 0;
-    hash ^= hash >>> 17;
-    hash ^= hash << 5;
-    hash >>>= 0;
-    code += CHIP_ALPHABET[hash % CHIP_ALPHABET.length];
-  }
-  return `#${code}`;
+export function candidateChip(ordinal: number | null | undefined): string | null {
+  if (ordinal == null) return null;
+  return `C-${ordinal}`;
 }

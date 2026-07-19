@@ -1,10 +1,20 @@
 //! Theme Scan HTTP route (D2b).
 //!
 //! One `POST` route that runs the LLM judge over every candidate quote about a
-//! scenario's subject and persists the relevant verdicts as `confirmed=false`
-//! suggestions. The judgment logic lives in `services::theme_scan`; this module
-//! is a thin transport shell — extract, authorize, delegate, map the typed
-//! service error onto an HTTP status.
+//! scenario's subject and records every verdict to `scan_run_verdicts`, plus the
+//! reads (poll, history) and the two writes (merge, delete) around a run.
+//!
+//! The judgment logic lives in `services::theme_scan`; this module is a thin
+//! transport shell — extract, authorize, delegate, map the typed service error
+//! onto an HTTP status.
+//!
+//! ## The scan does NOT write candidate facts
+//!
+//! An earlier version of this doc said the scan "persists the relevant verdicts as
+//! `confirmed=false` suggestions". Both halves are now wrong: the `confirmed`
+//! column was replaced by `status` in migration 20260706162558, and a scan writes
+//! nothing to `scenario_fact_refs` at all. Scanning SCORES; the human's explicit
+//! **Merge selected** is the one write path into a scenario's candidate facts.
 
 use axum::{
     extract::{Path, State},
@@ -32,18 +42,27 @@ use crate::{
 
 /// `POST /cases/:slug/scenarios/:scenario_id/theme-scan` — scan a scenario.
 ///
-/// Edit-gated (`require_edit`): a scan WRITES suggestions to
-/// `scenario_fact_refs` and spends real LLM budget, so it is a mutation, not a
-/// read. The `(slug, scenario_id)` pair is case-fenced inside the service.
-/// The optional JSON body carries the per-run model picker and the dry-run flag.
+/// ## Why this is edit-gated even though a scan writes no candidate facts
+///
+/// A scan does NOT write `scenario_fact_refs` — merge is the only path into a
+/// scenario's candidate facts, and it is explicitly human-driven. The gate is
+/// still correct, for two other reasons: a scan SPENDS REAL LLM BUDGET, and it
+/// writes the `scan_runs` / `scan_run_verdicts` audit rows. Both are mutations of
+/// the case's record and its cost, so a read-only viewer must not be able to
+/// trigger one. (This comment previously claimed the gate existed because the scan
+/// wrote suggestions into `scenario_fact_refs` — it no longer does, and the gate's
+/// real justification is budget spend plus audit writes.)
+///
+/// The `(slug, scenario_id)` pair is case-fenced inside the service. The optional
+/// JSON body carries the per-run model picker.
 ///
 /// ## Rust Learning: `Option<Json<T>>` — an OPTIONAL request body
 ///
 /// Axum's `Json<T>` extractor FAILS on an empty body. Wrapping it in `Option`
 /// yields `None` when there is no body (or no JSON content type) instead of a
-/// 4xx — so an empty `POST` preserves the pre-Chunk-B behavior (default model,
-/// non-dry-run). It MUST be the LAST parameter: a body-consuming extractor runs
-/// after the non-consuming ones (`AuthUser`, `State`, `Path`).
+/// 4xx — so an empty `POST` means "scan with the default model". It MUST be the
+/// LAST parameter: a body-consuming extractor runs after the non-consuming ones
+/// (`AuthUser`, `State`, `Path`).
 #[tracing::instrument(skip(state, user, body), fields(slug = %slug, scenario_id = %scenario_id))]
 pub async fn run_scenario_theme_scan(
     user: AuthUser,
@@ -52,15 +71,14 @@ pub async fn run_scenario_theme_scan(
     body: Option<Json<ScanRequest>>,
 ) -> Result<Json<ScanStartedResponse>, AppError> {
     require_edit(&user)?;
-    // No body → the neutral default request (default model, dry_run = false).
+    // No body → the neutral default request (default model).
     let req = body.map(|Json(b)| b).unwrap_or_default();
     tracing::info!(
-        "{} POST /cases/{}/scenarios/{}/theme-scan (model={:?}, dry_run={})",
+        "{} POST /cases/{}/scenarios/{}/theme-scan (model={:?})",
         user.username,
         slug,
         scenario_id,
         req.model_id,
-        req.dry_run,
     );
 
     // Parse the path id up front so a malformed id is a clean 400, never a
@@ -72,7 +90,7 @@ pub async fn run_scenario_theme_scan(
 
     // The scan runs in the background: this returns as soon as the `running` row
     // is recorded, so the browser → Traefik → Authentik path never waits minutes.
-    let started = start_theme_scan(&state, &slug, id, req.model_id, req.dry_run)
+    let started = start_theme_scan(&state, &slug, id, req.model_id)
         .await
         .map_err(map_scan_error)?;
     Ok(Json(ScanStartedResponse {
@@ -247,6 +265,15 @@ fn map_scan_error(err: ThemeScanError) -> AppError {
             message,
             details: json!({ "precondition": "subject" }),
         },
+        // The run's judgments are already part of the case. A 409 (not a 403 or a
+        // 400): the request is well-formed and the caller is permitted — it
+        // conflicts with the current STATE of the resource. Nothing the caller can
+        // fix by retrying or rephrasing, which is why the message explains that the
+        // provenance is retained on purpose rather than implying a transient fault.
+        ThemeScanError::ScanRunMerged { .. } => AppError::Conflict {
+            message,
+            details: json!({ "reason": "run_merged" }),
+        },
         // Bad model CHOICE (unknown/inactive, un-satisfiable params, or an
         // un-buildable row like a vLLM model with no endpoint): the operator
         // fixes it by picking a valid model — 400 with the reason.
@@ -273,179 +300,5 @@ fn map_scan_error(err: ThemeScanError) -> AppError {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use uuid::Uuid;
-
-    // `map_scan_error` is the one piece of policy in this transport shell: it
-    // decides which failures are the client's fault (4xx), which are a missing
-    // dependency (503), and which are server bugs (500). Pin each mapping so a
-    // future variant added to a wrong arm is caught here, not in production.
-
-    #[test]
-    fn not_found_maps_to_404() {
-        let e = ThemeScanError::ScenarioNotFound {
-            case_slug: "awad".to_string(),
-            scenario_id: Uuid::nil(),
-        };
-        assert!(matches!(map_scan_error(e), AppError::NotFound { .. }));
-    }
-
-    #[test]
-    fn empty_attack_meaning_maps_to_400() {
-        let e = ThemeScanError::EmptyAttackMeaning {
-            scenario_id: Uuid::nil(),
-        };
-        assert!(matches!(map_scan_error(e), AppError::BadRequest { .. }));
-    }
-
-    #[test]
-    fn subject_unresolvable_maps_to_400() {
-        let e = ThemeScanError::SubjectUnresolvable {
-            scenario_id: Uuid::nil(),
-        };
-        assert!(matches!(map_scan_error(e), AppError::BadRequest { .. }));
-    }
-
-    #[test]
-    fn empty_selection_maps_to_400() {
-        // A merge with nothing checked is user-fixable — a 400, distinct from a
-        // not-found run (which is a 404). Pins the arm so a future refactor cannot
-        // silently demote it to a 500 or collapse it into the not-found case.
-        let e = ThemeScanError::EmptySelection {
-            run_id: Uuid::nil(),
-        };
-        assert!(matches!(map_scan_error(e), AppError::BadRequest { .. }));
-    }
-
-    #[test]
-    fn vllm_gate_refusals_map_to_503() {
-        let unreachable = ThemeScanError::VllmUnreachable {
-            endpoint: "http://x:8000".to_string(),
-            detail: "connection refused".to_string(),
-        };
-        assert!(matches!(
-            map_scan_error(unreachable),
-            AppError::ServiceUnavailable { .. }
-        ));
-        let mismatch = ThemeScanError::VllmModelMismatch {
-            endpoint: "http://x:8000".to_string(),
-            selected: "qwen-14b".to_string(),
-            loaded: "qwen-7b".to_string(),
-        };
-        assert!(matches!(
-            map_scan_error(mismatch),
-            AppError::ServiceUnavailable { .. }
-        ));
-    }
-
-    #[test]
-    fn scan_run_write_failed_maps_to_500() {
-        let e = ThemeScanError::ScanRunWriteFailed {
-            run_id: Uuid::nil(),
-            source: crate::repositories::pipeline_repository::PipelineRepoError::Database(
-                "boom".to_string(),
-            ),
-        };
-        assert!(matches!(map_scan_error(e), AppError::Internal { .. }));
-    }
-
-    #[test]
-    fn scan_run_read_failed_maps_to_500() {
-        let e = ThemeScanError::ScanRunReadFailed {
-            run_id: Uuid::nil(),
-            source: crate::repositories::pipeline_repository::PipelineRepoError::Database(
-                "boom".to_string(),
-            ),
-        };
-        assert!(matches!(map_scan_error(e), AppError::Internal { .. }));
-    }
-
-    #[test]
-    fn scan_run_not_found_maps_to_404() {
-        let e = ThemeScanError::ScanRunNotFound {
-            run_id: Uuid::nil(),
-        };
-        assert!(matches!(map_scan_error(e), AppError::NotFound { .. }));
-    }
-
-    #[test]
-    fn scan_run_list_failed_maps_to_500() {
-        // A DB failure listing a scenario's history is server-side: a generic 500
-        // whose cause is logged, never leaked (same policy as ScanRunReadFailed).
-        let e = ThemeScanError::ScanRunListFailed {
-            scenario_id: Uuid::nil(),
-            source: crate::repositories::pipeline_repository::PipelineRepoError::Database(
-                "boom".to_string(),
-            ),
-        };
-        assert!(matches!(map_scan_error(e), AppError::Internal { .. }));
-    }
-
-    #[test]
-    fn scan_run_delete_failed_maps_to_500() {
-        // A DB failure DELETING a run is server-side: a generic 500 whose cause is
-        // logged, never leaked (same policy as ScanRunReadFailed / ScanRunListFailed).
-        // Distinct from ScanRunNotFound (zero rows deleted), which maps to 404.
-        let e = ThemeScanError::ScanRunDeleteFailed {
-            run_id: Uuid::nil(),
-            source: crate::repositories::pipeline_repository::PipelineRepoError::Database(
-                "boom".to_string(),
-            ),
-        };
-        assert!(matches!(map_scan_error(e), AppError::Internal { .. }));
-    }
-
-    #[test]
-    fn scan_run_merge_failed_maps_to_500() {
-        // A DB failure MERGING a run's picks is server-side: a generic 500 whose
-        // cause is logged, never leaked. Distinct from ScanRunNotFound (run absent
-        // / wrong scenario → 404) and from a legitimate merged=0 (200).
-        let e = ThemeScanError::ScanRunMergeFailed {
-            run_id: Uuid::nil(),
-            source: crate::repositories::pipeline_repository::PipelineRepoError::Database(
-                "boom".to_string(),
-            ),
-        };
-        assert!(matches!(map_scan_error(e), AppError::Internal { .. }));
-    }
-
-    #[test]
-    fn bad_model_choice_maps_to_400() {
-        let e = ThemeScanError::ModelNotAvailable {
-            model_id: "nope".to_string(),
-        };
-        assert!(matches!(map_scan_error(e), AppError::BadRequest { .. }));
-    }
-
-    #[test]
-    fn params_invalid_maps_to_400() {
-        let e = ThemeScanError::ParamsInvalid {
-            model_id: "qwen-14b".to_string(),
-            source: crate::domain::llm_params::LlmConfigError::ClearNotAllowed {
-                param: "max_tokens",
-            },
-        };
-        assert!(matches!(map_scan_error(e), AppError::BadRequest { .. }));
-    }
-
-    #[test]
-    fn provider_build_failed_maps_to_400() {
-        let e = ThemeScanError::ProviderBuildFailed {
-            model_id: "llama-3-8b".to_string(),
-            detail: "has no api_endpoint".to_string(),
-        };
-        assert!(matches!(map_scan_error(e), AppError::BadRequest { .. }));
-    }
-
-    #[test]
-    fn server_side_variants_map_to_500() {
-        // A representative server-side variant (prompt file unreadable) must be a
-        // generic 500, not leak its cause to the client.
-        let e = ThemeScanError::PromptFileMissing {
-            path: "/x".to_string(),
-            source: std::io::Error::new(std::io::ErrorKind::NotFound, "nope"),
-        };
-        assert!(matches!(map_scan_error(e), AppError::Internal { .. }));
-    }
-}
+#[path = "scenario_theme_scan_tests.rs"]
+mod tests;
