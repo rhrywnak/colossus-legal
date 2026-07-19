@@ -225,6 +225,12 @@ failed *data* operation is never best-effort.
 
 ---
 
+## 2026-07-18 | SOFTWARE ARCHITECT (Roman Approved)
+
+**Decision:** Track `.claude/agents/` in git (`.gitignore`: `.claude/*` + `!.claude/agents/`) so the four-agent enforcement gate is identical on every machine/CI; `settings.local.json`, its `.bak`, and `settings.json` stay ignored. Fixes governance drift where the Rule 9 carve-out lived only in the local working tree.
+
+---
+
 ## Template for Future Entries
 
 ```markdown

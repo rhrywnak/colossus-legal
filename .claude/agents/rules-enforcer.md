@@ -96,6 +96,19 @@ default without notification):
 ```
 FAIL: {file}:{line} — silent catch block
 ```
+Exception (direct parallel to Rule 5's `// best-effort:` carve-out): a `catch`
+around **cosmetic UI-preference persistence to browser storage**
+(`localStorage`/`sessionStorage`) — e.g. remembering a panel's collapsed state —
+may swallow the error WITHOUT a user-facing surface, IF it has a comment starting
+with `// best-effort:` explaining why (no user recovery action; a banner would be
+disproportionate) AND it remains observable via `console.warn` (or equivalent).
+Silent swallow (no annotation, or no log) is still a violation.
+This exception is TIGHTLY scoped and does NOT apply to:
+- `fetch`/`authFetch` or ANY data read/write — those keep the full Rule 1 /
+  Rule 10 requirement (explicit `.catch()` + error UI). A failed DATA operation is
+  never best-effort.
+- Anything other than reading/writing a cosmetic display preference to browser
+  storage.
 
 ### Rule 10: No Raw fetch() Without Timeout
 Search for `fetch(` calls that don't use `authFetch` or don't have

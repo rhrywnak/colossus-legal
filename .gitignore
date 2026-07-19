@@ -39,7 +39,12 @@ backend/.env.local
 # Working artifacts for the codebase test audit (Roman decides later
 # whether these stay in the repo or move elsewhere).
 backend/test_audit/
-.claude/
+# Ignore local .claude state (settings.local.json, backups, caches) but TRACK the
+# enforcement agent definitions so the four-agent gate is identical on every
+# machine/CI. A wholesale-ignored dir can't re-include a child, so the parent must
+# be `.claude/*` (not `.claude/`) for the `!` negation to take effect.
+.claude/*
+!.claude/agents/
 .venv/
 *_output.txt
 query-*.json
