@@ -148,6 +148,16 @@ const pdfBtnStyle: React.CSSProperties = {
     fontFamily: "inherit",
 };
 
+// The SAME chrome as `pdfBtnStyle`, but for the `<button>` variant used when a
+// host supplies `onViewPdf` (open-in-place instead of navigate-away). A native
+// button needs `cursor: pointer` and a `0` line-height reset the anchor got for
+// free; everything else is shared so the two variants are visually identical.
+const pdfBtnAsButtonStyle: React.CSSProperties = {
+    ...pdfBtnStyle,
+    cursor: "pointer",
+    lineHeight: "normal",
+};
+
 const aboutLineStyle: React.CSSProperties = {
     fontSize: "0.78rem",
     color: "var(--text-secondary)",
@@ -155,6 +165,22 @@ const aboutLineStyle: React.CSSProperties = {
 };
 
 // ─── Component ──────────────────────────────────────────────────────────────
+
+/**
+ * The minimum a host needs to open a candidate's source PDF in its own viewer.
+ * Emitted by the "View in PDF" control when a host supplies [`Props.onViewPdf`].
+ * Deliberately NOT a URL: the card stays agnostic about WHERE the file is served
+ * (which endpoint, which base URL) — the host builds that from the id.
+ */
+export interface ViewPdfTarget {
+    documentId: string;
+    documentTitle: string;
+    /** 1-based source page, or `null` when the evidence carries no page. */
+    page: number | null;
+    /** The verbatim quote, so the host's viewer can highlight it in place; `null`
+     *  when the evidence has no quote to anchor on. */
+    highlightText: string | null;
+}
 
 interface Props {
     instance: BiasInstance;
@@ -166,28 +192,49 @@ interface Props {
      * same card renders both a candidate and a saved fact (one card, two uses).
      */
     action?: React.ReactNode;
+    /**
+     * Optional "view the source in place" handler. When PROVIDED, the footer's
+     * "View in PDF" control becomes a `<button>` that calls this with a
+     * [`ViewPdfTarget`] — so a host (the scenario workbench) can open the PDF in
+     * its own side-panel viewer WITHOUT a route change. When OMITTED, the control
+     * stays the default `<Link>` that navigates to the document workspace, so the
+     * Bias Explorer and Theme Scan consumers are entirely unchanged.
+     *
+     * ## React Learning: additive optional prop = zero-touch extension
+     * Making this optional and branching on its presence means the two existing
+     * callers need no edit and keep their exact behavior; only the workbench,
+     * which passes it, opts into the new path. This is the same "the host decides
+     * its own presentation, the shared card stays agnostic" pattern the workbench
+     * already uses for tag demotion — extend by prop, never fork the component.
+     */
+    onViewPdf?: (target: ViewPdfTarget) => void;
 }
 
-const EvidenceCard: React.FC<Props> = ({ instance, action }) => {
+const EvidenceCard: React.FC<Props> = ({ instance, action, onViewPdf }) => {
     const [expanded, setExpanded] = useState(false);
 
     const speakerName = instance.stated_by?.name;
     const aboutNames = instance.about.map((s) => s.name).filter((n) => n && n.length > 0);
 
-    // Build the View-in-PDF target. We pass `tab=document` so the
-    // DocumentWorkspace lands on the PDF viewer when arriving from here.
-    // The DocumentWorkspace today reads `?page=` from the URL; if it does
-    // not yet honor `tab=`, the link still works (the tab parameter is
-    // ignored harmlessly).
+    // Capture the document once as a `const` so its non-null narrowing flows into
+    // the footer's button `onClick` closure below (TS narrows a `const` across
+    // closures, which it cannot do for `instance.document` re-reads).
+    const doc = instance.document;
+
+    // Build the default navigate-away target (used only when `onViewPdf` is NOT
+    // supplied). We pass `tab=document` so the DocumentWorkspace lands on the PDF
+    // viewer when arriving from here. The DocumentWorkspace today reads `?page=`
+    // from the URL; if it does not yet honor `tab=`, the link still works (the tab
+    // parameter is ignored harmlessly).
     let pdfHref: string | null = null;
-    if (instance.document) {
+    if (doc) {
         const params = new URLSearchParams();
         if (instance.page_number != null) {
             params.set("page", String(instance.page_number));
         }
         params.set("tab", "document");
         const qs = params.toString();
-        pdfHref = `/documents/${instance.document.id}${qs ? "?" + qs : ""}`;
+        pdfHref = `/documents/${doc.id}${qs ? "?" + qs : ""}`;
     }
 
     return (
@@ -230,15 +277,35 @@ const EvidenceCard: React.FC<Props> = ({ instance, action }) => {
                 </div>
             )}
 
-            {/* Footer — document + page + PDF link */}
-            {instance.document && (
+            {/* Footer — document + page + PDF control. When a host supplies
+                `onViewPdf`, the control opens the source in place (a button that
+                calls back); otherwise it stays the default navigate-away `<Link>`
+                for the Bias Explorer / Theme Scan consumers (unchanged). */}
+            {doc && (
                 <div style={footerRow}>
-                    <span style={docTitleStyle}>{instance.document.title}</span>
+                    <span style={docTitleStyle}>{doc.title}</span>
                     {instance.page_number != null && <span>p.{instance.page_number}</span>}
-                    {pdfHref && (
-                        <Link to={pdfHref} style={pdfBtnStyle}>
+                    {onViewPdf ? (
+                        <button
+                            type="button"
+                            style={pdfBtnAsButtonStyle}
+                            onClick={() =>
+                                onViewPdf({
+                                    documentId: doc.id,
+                                    documentTitle: doc.title,
+                                    page: instance.page_number ?? null,
+                                    highlightText: instance.verbatim_quote ?? null,
+                                })
+                            }
+                        >
                             View in PDF
-                        </Link>
+                        </button>
+                    ) : (
+                        pdfHref && (
+                            <Link to={pdfHref} style={pdfBtnStyle}>
+                                View in PDF
+                            </Link>
+                        )
                     )}
                 </div>
             )}

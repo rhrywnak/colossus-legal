@@ -17,7 +17,7 @@
 // → case default), so this panel no longer seeds filters from the definition and
 // no case-specific name is hardcoded here (Standing Rule 2).
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import {
   applyFactAction,
@@ -26,7 +26,12 @@ import {
   type FactAction,
 } from "../services/scenarioGather";
 import { listScenarioFacts, type ScenarioFactDto } from "../services/scenarioFacts";
-import EvidenceCard, { formatTagLabel } from "../pages/BiasExplorer/EvidenceCard";
+import { API_BASE_URL } from "../services/api";
+import PdfViewer from "./shared/PdfViewer";
+import EvidenceCard, {
+  formatTagLabel,
+  type ViewPdfTarget,
+} from "../pages/BiasExplorer/EvidenceCard";
 import type { BiasInstance } from "../services/bias";
 import type { ScenarioDefinition } from "../pages/trialPrepData";
 import {
@@ -95,6 +100,16 @@ const messageStyle: React.CSSProperties = {
   fontSize: "0.84rem",
   color: "var(--text-muted)",
   padding: "0.5rem 0",
+};
+
+// Small, non-blocking "Updating…" marker shown during a post-ruling refresh. It
+// sits above the (still-mounted) list rather than replacing it, so the refresh is
+// observable without resetting scroll (Bug 1). Muted + italic so it recedes.
+const refreshNoteStyle: React.CSSProperties = {
+  fontSize: "0.76rem",
+  fontStyle: "italic",
+  color: "var(--text-muted)",
+  padding: "0 0 0.4rem",
 };
 
 const errorStyle: React.CSSProperties = {
@@ -214,6 +229,76 @@ const scrollRegionStyle: React.CSSProperties = {
   paddingRight: "0.4rem",
 };
 
+// Bug 2 — the list ↔ viewer split. The list column and the PDF side-panel sit in
+// this flex row so the reviewer compares a card against its source WITHOUT losing
+// their place (no navigation, no modal that hides the list). `alignItems:
+// stretch` lets the viewer column match the list's height; `minWidth: 0` on both
+// columns is the classic flexbox fix that lets a flex child actually shrink (its
+// default `min-width: auto` would otherwise keep the PDF from narrowing).
+const bodyRowStyle: React.CSSProperties = {
+  display: "flex",
+  gap: "0.75rem",
+  alignItems: "stretch",
+};
+
+const listColStyle: React.CSSProperties = {
+  flex: 1,
+  minWidth: 0,
+};
+
+// The right-hand PDF panel. Fixed to the same 60vh the list scrolls within, so
+// the two columns align; `PdfViewer` fills this height (its root is `height:
+// 100%`). Bordered + clipped so the viewer's own toolbar/scroll stay inside.
+const viewerColStyle: React.CSSProperties = {
+  flex: 1,
+  minWidth: 0,
+  display: "flex",
+  flexDirection: "column",
+  height: "60vh",
+  border: "1px solid var(--border-default)",
+  borderRadius: "8px",
+  overflow: "hidden",
+  backgroundColor: "var(--bg-surface)",
+};
+
+const viewerHeaderStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "0.5rem",
+  padding: "0.4rem 0.6rem",
+  borderBottom: "1px solid var(--border-default)",
+};
+
+const viewerTitleStyle: React.CSSProperties = {
+  flex: 1,
+  minWidth: 0,
+  fontSize: "0.8rem",
+  fontWeight: 600,
+  color: "var(--text-secondary)",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
+};
+
+const viewerCloseStyle: React.CSSProperties = {
+  padding: "0.2rem 0.6rem",
+  fontSize: "0.74rem",
+  fontWeight: 600,
+  border: "1px solid var(--border-default)",
+  borderRadius: "5px",
+  backgroundColor: "var(--bg-page)",
+  color: "var(--text-primary)",
+  cursor: "pointer",
+};
+
+// `minHeight: 0` lets this flex child shrink below its content so the viewer's
+// own inner scroll (not the page) owns the overflow — the flexbox counterpart to
+// the `minWidth: 0` on the columns.
+const viewerFrameStyle: React.CSSProperties = {
+  flex: 1,
+  minHeight: 0,
+};
+
 // The role/confidence badge that LEADS each candidate — "role · NN%" rendered
 // exactly like the Theme Scan panel's `roleBadge` (neutral, accent-primary text +
 // border), so a merged card visually echoes the run it came from. Per the ratified
@@ -311,6 +396,39 @@ const CandidateFactsPanel: React.FC<Props> = ({ slug, scenarioId }) => {
   // pure reflection of persisted state (no optimistic drift).
   const [refreshKey, setRefreshKey] = useState(0);
 
+  // --- Bug 1: preserve scroll position across a post-ruling refetch. ---------
+  //
+  // A ruling triggers a full refetch (`refreshKey` bump → load effect). Two
+  // things would otherwise throw the reviewer back to the top of a long list:
+  //   1. the load effect flips `loading` true, which used to tear down the whole
+  //      scroll container and replace it with a "Loading…" message — remounting a
+  //      FRESH scroll `<div>` at `scrollTop = 0` when the refetch resolved; and
+  //   2. even with the container kept mounted, the ruled row leaves its filtered
+  //      view, so the list shrinks by one and the content under the viewport
+  //      shifts up.
+  //
+  // The fix is two-part: (a) keep the list mounted during a refresh so the scroll
+  // node persists (see the render gate on `initialLoading` below), and (b) capture
+  // the exact `scrollTop` at ruling time and restore it once the refreshed list
+  // has committed (the `useLayoutEffect` below), covering the one-row-shrink.
+  //
+  // ## React Learning: why a ref, not state
+  // `scrollTop` is imperative DOM read/write, not rendered output — storing it in
+  // `useState` would trigger extra renders and lag a frame behind the DOM. A
+  // `useRef` is a mutable box that survives renders WITHOUT causing one, which is
+  // exactly right for "remember this value between a click and the next commit".
+  const scrollRegionRef = useRef<HTMLDivElement | null>(null);
+  // Scroll offset captured when a ruling is issued; `null` means "no pending
+  // restore" (initial load, filter change, etc.) so the restore effect no-ops.
+  const pendingScrollTop = useRef<number | null>(null);
+
+  // Bug 2: the source PDF a reviewer chose to inspect, rendered in a right-hand
+  // side-panel BESIDE the list — so viewing a source never navigates away and the
+  // filter + scroll they built up survive while they compare card ↔ source.
+  // `null` = no viewer open. It is plain UI state, so a ruling refetch leaves it
+  // untouched (the viewer stays put while the list refreshes underneath it).
+  const [viewerTarget, setViewerTarget] = useState<ViewPdfTarget | null>(null);
+
   // Load the whole pool + the saved list (for the orphan check) whenever the
   // panel is open. Both come from ONE fetch each; the status filter then works
   // in memory (see `filterByStatus`). `listScenarioFacts` is fetched alongside
@@ -360,8 +478,32 @@ const CandidateFactsPanel: React.FC<Props> = ({ slug, scenarioId }) => {
     [candidates, statusFilter, fromScanOnly],
   );
 
+  // Restore the captured scroll offset once a post-ruling refetch has re-rendered
+  // the list. Keyed on `visible` (a fresh array each time the pool or filter
+  // changes): after the refetch swaps in new `candidates`, `visible` re-derives,
+  // this fires, and we put the viewport back where the reviewer left it.
+  //
+  // ## React Learning: useLayoutEffect vs useEffect
+  // `useLayoutEffect` runs SYNCHRONOUSLY after the DOM mutates but BEFORE the
+  // browser paints, so we set `scrollTop` in the same frame the new rows commit —
+  // the user never sees a flash at the top. A plain `useEffect` runs after paint,
+  // which would show a visible jump-then-correct. Scroll restoration is the
+  // textbook case for `useLayoutEffect`.
+  useLayoutEffect(() => {
+    if (pendingScrollTop.current == null) return;
+    const el = scrollRegionRef.current;
+    if (el) el.scrollTop = pendingScrollTop.current;
+    // Clear so a later filter change (which also re-derives `visible`) does not
+    // yank the viewport back to a stale ruling offset.
+    pendingScrollTop.current = null;
+  }, [visible]);
+
   const handleAction = (graphNodeId: string, action: FactAction) => {
     setActionError(null);
+    // Capture where the reviewer is BEFORE the refetch re-renders the list, so the
+    // restore effect above can put them back (Bug 1). A click never scrolls, so
+    // reading it here (rather than mid-fetch) is accurate.
+    pendingScrollTop.current = scrollRegionRef.current?.scrollTop ?? null;
     applyFactAction(slug, scenarioId, graphNodeId, action)
       .then(() => setRefreshKey((k) => k + 1))
       .catch((err: unknown) => {
@@ -392,6 +534,15 @@ const CandidateFactsPanel: React.FC<Props> = ({ slug, scenarioId }) => {
   // is the observable; the empty-state message must yield to it (Standing Rule 1
   // — distinct states, distinct observables).
   const nothingToShow = !loading && !error && visible.length === 0 && !showOrphans;
+
+  // Bug 1: distinguish the FIRST load (no pool yet — a full-panel loader is the
+  // right observable) from a post-ruling REFRESH (pool already on screen). On a
+  // refresh we keep the list mounted so its scroll node survives (and the restore
+  // effect can put the viewport back); the in-flight state stays observable via a
+  // small non-blocking "Updating…" note instead of tearing the list down — the two
+  // states remain distinct (Standing Rule 1), just no longer at the cost of scroll.
+  const initialLoading = loading && candidates === null;
+  const refreshing = loading && candidates !== null;
 
   // Counts are derived from state already on screen (the gather pool + orphans),
   // re-derived each render — they cannot drift from the rendered list. Orphans
@@ -459,15 +610,29 @@ const CandidateFactsPanel: React.FC<Props> = ({ slug, scenarioId }) => {
 
         {error && <div style={errorStyle}>{error}</div>}
 
-        {loading ? (
+        {/* In-flight observable for a post-ruling refresh — the list stays put
+            (scroll preserved) while this note marks that persisted state is being
+            re-read, so "refreshing" is never a silent state (Standing Rule 1). */}
+        {refreshing && <div style={refreshNoteStyle}>Updating…</div>}
+
+        {/* List ↔ viewer split (Bug 2). The list column always renders; the PDF
+            side-panel appears beside it only when a reviewer opens a source, so
+            the candidate list stays visible for card ↔ source comparison and no
+            filter/scroll is lost to a navigation. */}
+        <div style={bodyRowStyle}>
+          <div style={listColStyle}>
+        {initialLoading ? (
           <div style={messageStyle}>Loading candidate facts…</div>
         ) : nothingToShow ? (
           <div style={messageStyle}>No candidate facts match this filter.</div>
         ) : (
           // Bounded scroll region (~60vh, min ~360px) so the ~94-row list does not
           // own the whole page — it scrolls within its own window while the scan
-          // card and page chrome stay put.
-          <div style={scrollRegionStyle}>
+          // card and page chrome stay put. `scrollRegionRef` lets the restore
+          // effect return the viewport to where the reviewer was after a ruling
+          // refetch (Bug 1); the list is kept mounted across a refresh so this
+          // node — and its `scrollTop` — survives.
+          <div ref={scrollRegionRef} style={scrollRegionStyle}>
             {visible.map((c) => {
               const scored = c.confidence != null;
               return (
@@ -485,6 +650,10 @@ const CandidateFactsPanel: React.FC<Props> = ({ slug, scenarioId }) => {
                     // Tags stripped here and re-rendered demoted below, so the
                     // role/confidence signal leads (see `withoutTags`). Card unchanged.
                     instance={withoutTags(c.content)}
+                    // Open the source in THIS panel's side-panel viewer instead of
+                    // navigating away (Bug 2). Only the workbench passes this; the
+                    // card's other consumers keep their default <Link>.
+                    onViewPdf={setViewerTarget}
                     action={
                       <span style={{ display: "flex", gap: "0.4rem" }}>
                         {actionsForStatus(c.status).map((action) => (
@@ -532,6 +701,45 @@ const CandidateFactsPanel: React.FC<Props> = ({ slug, scenarioId }) => {
               ))}
           </div>
         )}
+          </div>
+
+          {/* Right-hand PDF side-panel (Bug 2). Uses the PUBLIC file endpoint —
+              `/api/documents/:id/file`, the documented "any authenticated user may
+              view" route — so a non-admin reviewer is never 403'd by binding to the
+              incidentally-open admin route. `PdfViewer` renders its OWN error UI on
+              a failed load (a 403/404 shows the message + URL), so a load failure is
+              observable here without extra handling (Standing Rule 1); it also owns
+              its own fetch, so this panel adds no untimed `fetch` (Rule 13). */}
+          {viewerTarget && (
+            <div style={viewerColStyle}>
+              <div style={viewerHeaderStyle}>
+                <span style={viewerTitleStyle} title={viewerTarget.documentTitle}>
+                  {viewerTarget.documentTitle}
+                </span>
+                {viewerTarget.page != null && (
+                  <span style={xOfYStyle}>p.{viewerTarget.page}</span>
+                )}
+                <button
+                  type="button"
+                  style={viewerCloseStyle}
+                  onClick={() => setViewerTarget(null)}
+                >
+                  Close
+                </button>
+              </div>
+              <div style={viewerFrameStyle}>
+                <PdfViewer
+                  src={`${API_BASE_URL}/api/documents/${encodeURIComponent(
+                    viewerTarget.documentId,
+                  )}/file`}
+                  page={viewerTarget.page ?? 1}
+                  highlightText={viewerTarget.highlightText}
+                  highlightPage={viewerTarget.page}
+                />
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
