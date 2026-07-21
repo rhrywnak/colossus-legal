@@ -66,10 +66,6 @@ fn cleanup_error_partial_display_names_subsystems() {
     );
 }
 
-/// DELETE-FK-FIX guard for the saga path: the relationships clear must
-/// match BOTH item-endpoint FKs, not just the owning `document_id`. If this
-/// regresses, a single-document teardown rolls back whenever another
-/// document's relationship points at this document's items.
 // ── R5: the shared-node deletion guard ────────────────────────────────────
 
 /// A node owned by ONE document still deletes — the common case is unchanged.
@@ -143,6 +139,10 @@ fn party_delete_cypher_guards_every_property_it_is_built_for() {
     }
 }
 
+/// DELETE-FK-FIX guard for the saga path: the relationships clear must
+/// match BOTH item-endpoint FKs, not just the owning `document_id`. If this
+/// regresses, a single-document teardown rolls back whenever another
+/// document's relationship points at this document's items.
 #[test]
 fn postgres_delete_order_relationships_covers_both_fk_endpoints() {
     let (_, sql) = POSTGRES_DELETE_ORDER

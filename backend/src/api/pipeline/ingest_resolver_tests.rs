@@ -3,16 +3,23 @@
 //! Split into a sibling file (via `#[path]`) so the resolver module stays small —
 //! the house pattern (`theme_scan_persist_tests.rs`, `scan_runs_tests.rs`).
 //!
-//! These pin the two policies that stand between the extraction output and the
+//! These pin the policies that stand between the extraction output and the
 //! graph's identity model:
 //!
-//! 1. the **party_type adapter**, without which person matching cannot run at all;
-//! 2. the **auto-merge policy** — exact and normalized bind, fuzzy never does.
+//! 1. the **party_type adapter**, without which person matching cannot run at all
+//!    — pinned both as a pure function AND as wired into the conversion path;
+//! 2. the **auto-merge policy** — exact and normalized bind, fuzzy never does;
+//! 3. the **resolver/writer filter contract** — the resolver must consider every
+//!    row the party writer will write.
 //!
-//! Both are pure-function testable, so the whole identity contract is exercised
-//! with no Neo4j and no pipeline.
+//! `resolve_parties` reaches no external service (`NormalizedEntityResolver` does
+//! only in-memory string comparison), so the whole identity contract is exercised
+//! here with no Neo4j and no pipeline — including the behavioral tests, which
+//! call the production entry point rather than its private helpers.
 
 use super::*;
+
+use crate::models::document_status::ENTITY_PARTY;
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -22,6 +29,44 @@ fn props(party_type: &str) -> serde_json::Value {
         "role": "judge",
         "party_type": party_type,
     })
+}
+
+/// Build a Party row shaped the way the pipeline DB hands it to Ingest.
+///
+/// Only the four fields the resolver reads carry meaning — `entity_type` (the
+/// filter), and `item_data`'s `label` (what the matcher compares) plus
+/// `party_name` / `party_type` (identity and candidate-type selection).
+/// `resolve_parties` reads no other field on `ExtractionItemRecord` — in
+/// particular it does NOT filter on `review_status` or `graph_status`, because
+/// approval is enforced upstream by the `get_approved_items_for_document` query
+/// that loads these rows. The remaining fields are therefore inert scaffolding
+/// held at neutral values, and a failing test here is traceable to one of the
+/// four above rather than to an implicit status filter.
+fn party_item(id: i32, entity_type: &str, name: &str, party_type: &str) -> ExtractionItemRecord {
+    ExtractionItemRecord {
+        id,
+        run_id: 1,
+        document_id: "doc-1".to_string(),
+        entity_type: entity_type.to_string(),
+        item_data: serde_json::json!({
+            "label": name,
+            "properties": {
+                "party_name": name,
+                "role": "judge",
+                "party_type": party_type,
+            },
+        }),
+        verbatim_quote: None,
+        grounding_status: None,
+        grounded_page: None,
+        review_status: "approved".to_string(),
+        reviewed_by: None,
+        reviewed_at: None,
+        review_notes: None,
+        graph_status: "pending".to_string(),
+        neo4j_node_id: None,
+        resolved_entity_type: None,
+    }
 }
 
 // ── The party_type adapter (R1) ──────────────────────────────────────────────
@@ -87,6 +132,65 @@ fn missing_or_non_object_properties_pass_through_unchanged() {
     );
 }
 
+/// The adapter is WIRED, not merely correct.
+///
+/// The five tests above call [`normalize_party_type`] directly, so all of them
+/// still pass if the call in [`to_extracted_entity`] is deleted — which is
+/// precisely how the fix is reverted. This test closes that gap by going through
+/// the real entry point: a template-shaped `party_type: "person"` row is handed
+/// to the production [`resolve_parties`], and the assertion is that it MATCHED an
+/// existing Person node.
+///
+/// That match is only reachable if the conversion path normalized the token:
+/// upstream `compatible_type` selects Person candidates on `"individual"` and
+/// returns FALSE for `"person"`, so without the adapter the candidate list is
+/// empty, the matcher has nothing to compare, and the party resolves as a new
+/// entity with a slug id.
+///
+/// ## Why through `resolve_parties` rather than exposing `to_extracted_entity`
+///
+/// Testing via the nearest public caller needs no `pub(crate)` widening and no
+/// `#[cfg(test)]` accessor — production visibility stays as designed. It also
+/// buys strictly more: it exercises the adapter, the filter, the real
+/// three-step matcher and the upstream type contract together. A unit test on a
+/// widened `to_extracted_entity` would assert the token is `"individual"` and
+/// still pass if upstream changed the token it expects — this one fails, which
+/// is the correct outcome for a broken contract.
+#[tokio::test]
+async fn a_person_matches_an_existing_node_through_the_real_conversion_path() {
+    // The id deliberately is NOT `person-{slug(label)}`. Had it been
+    // "person-karen-a-tighe", the id the NEW-entity branch mints from the same
+    // name would be byte-identical, and the second assertion below would hold
+    // whether or not the party actually matched — proving nothing. An id no slug
+    // can produce makes "reused the existing node" and "minted a fresh one" two
+    // distinguishable outcomes.
+    let existing = vec![KnownEntity {
+        entity_type: ENTITY_PERSON.to_string(),
+        id: "person-legacy-0417".to_string(),
+        label: "Karen A. Tighe".to_string(),
+        properties: serde_json::json!({"name": "Karen A. Tighe", "role": "judge"}),
+    }];
+    // The shape every extraction template emits: party_type "person".
+    let items = vec![party_item(1, ENTITY_PARTY, "Karen A. Tighe", "person")];
+
+    let (map, summary) = resolve_parties(&items, &existing)
+        .await
+        .expect("resolution is pure in-memory and cannot fail here");
+
+    assert_eq!(
+        summary.matched_existing, 1,
+        "a template-shaped 'person' row must reach the resolver as 'individual' \
+         and match the existing Person node; 0 here means the adapter is not \
+         wired into the conversion path and every name variant mints a new node"
+    );
+    assert_eq!(
+        map.get("Karen A. Tighe").map(|r| r.neo4j_id.as_str()),
+        Some("person-legacy-0417"),
+        "the matched party must reuse the EXISTING node id; a slug-derived id here \
+         means resolution fell through to the new-entity branch"
+    );
+}
+
 // ── The auto-merge policy (rulings #2 / #3) ──────────────────────────────────
 
 /// Only exact and normalized matches may bind two parties together.
@@ -147,22 +251,88 @@ fn demoted_matches_are_reported_as_not_merged() {
 
 // ── The writer/resolver filter symmetry (R4) ─────────────────────────────────
 
-/// The resolver must consider every entity type the WRITER will process.
+/// The resolver must ADMIT every entity type the writer will process.
 ///
-/// `create_party_nodes` accepts all of PARTY_SUBTYPES. This filter previously
-/// accepted only the raw "Party", so on a re-ingest of an already-ingested run —
-/// where rows carry the resolved "Person"/"Organization" label — the resolver
-/// skipped them, returned an empty map, and the writer fell through to a
-/// slug-derived id, creating duplicates. The two filters must agree.
-#[test]
-fn resolver_filter_matches_the_writer_filter() {
-    for resolved_form in ["Party", "Person", "Organization"] {
+/// `create_party_nodes` filters on all of `PARTY_SUBTYPES`; `resolve_parties`
+/// must use the same predicate. If the two disagree, a row the writer will write
+/// gets no resolution decision, and the writer falls through to a slug-derived id
+/// — the duplicate-node path.
+///
+/// This asserts on `resolve_parties`'s OUTPUT, not on the contents of
+/// `PARTY_SUBTYPES`. The previous version of this test checked that the constant
+/// contained three strings, which was already true before the fix and is
+/// separately guarded in `document_status`; it therefore passed unchanged when
+/// the filter was reverted to `i.entity_type == "Party"`. `total_parties` is
+/// computed directly from the filtered list, so it observes the predicate itself.
+///
+/// ## Scope note: a contract guard, not a live-bug regression test
+///
+/// The re-ingest scenario this fix was written for cannot currently arise:
+/// `ITEM_SELECT_COLUMNS` projects the RAW `entity_type` (the COALESCE onto
+/// `resolved_entity_type` was removed in `dc03f84`), so Ingest always sees
+/// `"Party"` regardless of how many times a document is processed. Aligning the
+/// two filters is still correct — the writer's filter is the wider one, and a
+/// resolver that ignores rows the writer writes is a defect waiting for the next
+/// producer — but this test guards the CONTRACT between the two functions, and
+/// should not be read as proof that a re-ingest duplicate path was closed.
+#[tokio::test]
+async fn resolver_admits_every_party_type_the_writer_writes() {
+    // One row per subtype, each with a distinct name so the per-name dedup
+    // inside resolve_parties cannot collapse them and mask a dropped row.
+    let items: Vec<ExtractionItemRecord> = PARTY_SUBTYPES
+        .iter()
+        .enumerate()
+        .map(|(i, subtype)| party_item(i as i32, subtype, &format!("Party Number {i}"), "person"))
+        .collect();
+    // No existing nodes: this test is about which rows are CONSIDERED, so every
+    // row resolving as a new entity is the expected outcome.
+    let existing: Vec<KnownEntity> = Vec::new();
+
+    let (map, summary) = resolve_parties(&items, &existing)
+        .await
+        .expect("resolution is pure in-memory and cannot fail here");
+
+    assert_eq!(
+        summary.total_parties,
+        PARTY_SUBTYPES.len(),
+        "every subtype the writer accepts must reach the resolver; a short count \
+         means the two filters disagree and the writer will write rows that got \
+         no resolution decision"
+    );
+    for (i, subtype) in PARTY_SUBTYPES.iter().enumerate() {
+        let name = format!("Party Number {i}");
         assert!(
-            PARTY_SUBTYPES.contains(&resolved_form),
-            "{resolved_form} must be resolvable — the writer processes it"
+            map.contains_key(&name),
+            "{subtype} row produced no resolution-map entry, so the writer would \
+             fall through to a slug-derived id"
         );
     }
-    // And the filter must not be so wide it drags in non-party entities.
-    assert!(!PARTY_SUBTYPES.contains(&"Evidence"));
-    assert!(!PARTY_SUBTYPES.contains(&"Allegation"));
+}
+
+/// The filter must not be so wide it drags in non-party entities.
+///
+/// Those are written by `create_entity_node`'s generic path, which is the
+/// INVERSE of the writer's Party filter; resolving them here would give them a
+/// party id and double-write them.
+#[tokio::test]
+async fn resolver_ignores_entities_the_party_writer_does_not_own() {
+    let items = vec![
+        party_item(1, "Evidence", "Exhibit A", "person"),
+        party_item(2, "Allegation", "Count One", "person"),
+    ];
+    let existing: Vec<KnownEntity> = Vec::new();
+
+    let (map, summary) = resolve_parties(&items, &existing)
+        .await
+        .expect("resolution is pure in-memory and cannot fail here");
+
+    assert_eq!(
+        summary.total_parties, 0,
+        "non-party entities must not be resolved as parties"
+    );
+    assert!(
+        map.is_empty(),
+        "non-party entities must contribute no resolution-map entries; an entry \
+         here would hand a party id to an entity the generic writer also writes"
+    );
 }
