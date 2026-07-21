@@ -66,6 +66,12 @@ document_types:
     description: "Hearing transcript — line-numbered speaker-labeled colloquy before a judge"
     sort_order: 6
 
+  - name: motion
+    display_name: "Motion (v5.3)"
+    profile_file: motion_v5_3.yaml
+    description: "Motion filed with the court — dated, attorney-authored assertions with exhibit citations"
+    sort_order: 7
+
   - name: default
     display_name: "Other / Unknown"
     profile_file: default.yaml
