@@ -1,0 +1,233 @@
+# Extraction schema for court transcripts — v5.3 (evidence-anchoring pipeline)
+#
+# Date: 2026-07-21 (rebuild-plan task 1.2a)
+#
+# Purpose: Extract the dated, on-the-record colloquy of a hearing — who said
+# what, to whom, on what date — from a line-numbered speaker-labeled hearing
+# transcript, and anchor it to the case backbone produced by the complaint
+# case-structuring pipeline.
+#
+# WHY THIS TYPE EXISTS (design v1 §1):
+#   A transcript is the ONLY source in which an accusation and its
+#   contemporaneous rebuttal share one dated occasion. The repeat-after-rebuttal
+#   pattern cannot be evidenced without it. Transcripts also carry both ends of
+#   the actor chain: the origination of a disparagement pattern (counsel's
+#   characterizations on the record) and its later adoption from the bench.
+#
+# THE CENTRAL DESIGN REQUIREMENT — the two-axis statement model:
+#   A court ruling has ONE speaker (the court), so its `statement_type` can
+#   carry both "who is speaking" and "is this the speaker's own determination"
+#   on a single axis (court_finding vs party_recitation). A transcript has MANY
+#   speakers, so those two questions come apart and need two properties:
+#
+#     statement_type — WHO is speaking, by role:
+#                      judicial_statement / attorney_argument /
+#                      party_statement / witness_testimony
+#     attribution    — WHOSE POSITION it is:
+#                      own_determination / recitation
+#
+#   Pass 1 tags both; pass 2 GATES on `attribution == recitation` for EVERY
+#   speaker type. A judge restating a party's position, and an attorney quoting
+#   opposing counsel's words in order to complain about them, are both
+#   recitations: the speaker is reporting someone else's assertion, not making
+#   one. Neither produces a finding-edge. This generalises the court_ruling
+#   recitation gate, which could only express the judicial case.
+#
+# THE SPEAKER-WEIGHT LAW (design v1 §4) — enforced in the pass-2 template, not
+# here (this schema stays case-agnostic and pipeline-generic):
+#   judicial_statement  → full court_ruling edge semantics
+#   attorney_argument   → ABOUT / CHARACTERIZES / REBUTS-as-dated-event.
+#                         CORROBORATES **never** — argument is not proof.
+#   party_statement     → ABOUT only (unsworn: evidence THAT it was said,
+#                         not evidence OF its content)
+#   witness_testimony   → RESERVED. Extracted and preserved, but produces no
+#                         CORROBORATES until a transcript-specific corroboration
+#                         bar is authored and ratified (ruling 2026-07-21 B3).
+#
+# v5.3 alignment with court_ruling_schema_v5_2.yaml:
+#   - Same v5.1 entity contract: Party + Evidence, verbatim_quote a top-level
+#     entity field (NOT a schema property), relationship_properties for
+#     provenance, completeness_rules.
+#   - Cross-document relationship semantics (CORROBORATES, CONTRADICTS, REBUTS)
+#     documented in relationship_types for LLM guidance; valid_patterns
+#     restricted to LOCAL entity types only per the schema-parser constraint.
+#   - No new node types: a colloquy Statement IS an Evidence node.
+#
+# NOTE: pipeline_type (evidence_anchoring) is declared in the PROFILE
+# (court_transcript_v5_3.yaml), not here. The extraction-schema loader
+# (colossus_extract::ExtractionSchema) deserializes the canonical key set only
+# — document_type / version / description / entity_types / relationship_types /
+# relationship_properties / valid_patterns / extraction_rules /
+# completeness_rules — and no shipped schema carries a top-level pipeline_type
+# key. Adding one risks a deny_unknown_fields load failure.
+document_type: court_transcript
+version: "5.3"
+description: "Court transcript — the line-numbered, speaker-labeled record of a hearing before a judge. Each discrete utterance is an Evidence entity attributed to its speaker (STATED_BY that speaker, NOT uniformly the judge). Statements carry two axes: statement_type (who is speaking, by role) and attribution (whose position it is). Recitations are tagged and never anchored. Evidence-anchoring pipeline."
+
+entity_types:
+  - name: Party
+    required: true
+    min_count: 2
+    grounding_mode: name_match
+    category: reference
+    description: "A person or organization appearing in or named in the transcript. Includes the presiding judge, every attorney in the APPEARANCES block, every party those attorneys represent, every lay speaker who addresses the court, and any third party or organization referenced on the record."
+    properties:
+      - name: party_name
+        type: string
+        required: true
+        description: "The party's ONE canonical name, used identically in every document"
+      - name: role
+        type: string
+        required: true
+        description: "judge, plaintiff, defendant, appellant, appellee, petitioner, respondent, attorney, witness, personal_representative, fiduciary, conservator, guardian_ad_litem, interested_party, decedent, third_party"
+      - name: party_type
+        type: string
+        required: true
+        description: "person or organization"
+      - name: aliases
+        type: string
+        description: "Other names, speaker labels, titles, and misspellings used for this party in this document, comma-separated. For a transcript this ALWAYS includes the speaker label as printed (e.g. 'MR. PHILLIPS', 'THE COURT') and every label variant the document drifts between (e.g. 'NADIA AWAD' and 'NADIA')."
+
+  - name: Evidence
+    required: true
+    min_count: 1
+    grounding_mode: verbatim
+    category: evidence
+    description: "One discrete on-the-record utterance — everything one speaker says in one turn before another speaker takes over. The verbatim_quote is the exact spoken text including false starts and (inaudible) markers. Each turn is a separate Evidence entity, analogous to one-Evidence-per-Q&A in discovery and one-Evidence-per-determination in a ruling. Recitations ARE extracted (tagged attribution=recitation) so they remain inspectable, but pass 2 creates no finding-edge from them."
+    properties:
+      - name: title
+        type: string
+        required: true
+        description: "Short descriptive title summarizing what this utterance says or does, e.g. 'Counsel characterizes objections as shrill and accusatory' — NOT just a speaker or page label."
+      - name: summary
+        type: string
+        required: true
+        description: "One-sentence summary of what the speaker said, asserted, ruled, or recited."
+      - name: speaker
+        type: string
+        required: true
+        description: "The canonical party_name of the person who spoke this turn, resolved from the speaker label via the APPEARANCES block and the introduction lines. NOT the raw label — 'George Phillips', not 'MR. PHILLIPS'. This is the graph's join key to the Party node and must match that node's party_name exactly."
+      - name: speaker_role
+        type: string
+        required: true
+        description: "The speaker's function at this hearing: judge, attorney, party, or witness. Distinct from the Party node's `role`, which is the speaker's role in the CASE — an attorney is speaker_role=attorney here and role=attorney there, but an interested party who addresses the court is speaker_role=party and may carry any case role."
+      - name: represents
+        type: string
+        description: "For speaker_role=attorney: the canonical party_name of the party this attorney speaks FOR at this hearing. Omit for non-attorneys. This is what preserves 'who spoke for whom' across time — the same party may be represented by different counsel at different hearings, and an argument's weight depends on whose argument it is, not merely on who voiced it."
+      - name: statement_type
+        type: string
+        required: true
+        description: "WHO is speaking, by role — the first of the two axes. judicial_statement (the presiding judge speaking, whether ruling, questioning, or restating), attorney_argument (counsel speaking — argument, representation, or concession), party_statement (an unsworn party or interested person addressing the court directly), witness_testimony (a sworn witness testifying under oath). Determined by the speaker, never by content."
+      - name: attribution
+        type: string
+        required: true
+        description: "WHOSE POSITION this utterance states — the second axis, and the one pass 2 gates on. own_determination (the speaker is asserting, ruling, arguing, conceding, or testifying in their own voice) or recitation (the speaker is restating, summarizing, or quoting SOMEONE ELSE'S position — 'So basically, you're asking the court to...', 'Counsel says my client was unreasonable', reading another party's letter aloud). A recitation reports an assertion; it does not make one. Applies to EVERY speaker type: a judge restating a party's position and an attorney quoting opposing counsel's words are both recitations."
+      - name: page_number
+        type: integer
+        required: true
+        description: "PDF page number where this utterance appears, read from the '--- Page N ---' marker in the document text"
+      - name: page_note
+        type: string
+        description: "If the utterance spans multiple pages, note the range, e.g. 'pages 16-17'"
+      - name: transcript_line_ref
+        type: string
+        description: "ADVISORY ONLY — the printed line-number span for this utterance if the gutter numbers are legible in the extracted text, e.g. '13-21'. This is a reading convenience for a human returning to the paper transcript. It is NEVER a grounding key and is NEVER used to locate or verify text: grounding runs on verbatim_quote against the page. The extraction layer does not reliably preserve line layout, so OMIT this property whenever the numbers are absent, garbled, or uncertain — a wrong line reference is worse than none."
+      - name: kind
+        type: string
+        required: true
+        description: "Always 'testimonial' for transcripts (the spoken record of a proceeding), including for the judge's own statements."
+      - name: evidence_strength
+        type: string
+        required: true
+        description: "bench_ruling (a judicial_statement that rules, orders, or finds — the highest-authority value this type produces), judicial_remark (a judicial_statement that questions, manages, or comments without deciding), attorney_assertion (an attorney_argument in the attorney's own voice — argument or representation, NOT proof), sworn_testimony (witness_testimony under oath), unsworn_statement (a party_statement — evidence THAT it was said, not evidence OF its content), recited_position (ANY statement_type with attribution=recitation — the speaker did not adopt it; lowest authority; produces no finding-edge)."
+      - name: significance
+        type: string
+        required: true
+        description: "Why this utterance matters for trial preparation. For a bench ruling, what it decides and what adverse fact it establishes. For an attorney characterization, whose conduct is being characterized and in what terms. For a concession made on the record, what was conceded and by whom. For a recitation, whose position is being restated and why it is NOT that speaker's own assertion."
+      - name: weight
+        type: integer
+        description: "1-10 scale of evidentiary weight (10 = most authoritative/damaging). Bench rulings 8-10; sworn testimony 6-8; attorney assertions 3-5 (argument, not evidence); unsworn party statements 2-4; recitations 1-3 regardless of who spoke them."
+      - name: pattern_tags
+        type: string
+        description: "Comma-separated tags for defense-axis / Count-IV analysis: judicial_bias, selective_enforcement, disparagement, unsupported_finding, procedural_irregularity, disproportionate_penalty"
+      - name: legal_basis
+        type: string
+        description: "Statute, court rule, or case law cited on the record, e.g. 'MCL 700.3720', 'MCR 2.114', 'MRPC 1.5'."
+      - name: event_date
+        type: string
+        description: "ISO-8601. The hearing date from the caption is carried on EVERY utterance — that dated occasion is what makes a transcript uniquely able to evidence an accusation and its contemporaneous rebuttal. If the SPEAKER references a different, earlier event inside the utterance ('the letter of November 16 of 2009'), record THAT date here instead: it is the date the statement is about. The hearing date remains recoverable from the Document node."
+      - name: off_record
+        type: boolean
+        description: "true when this utterance falls between an off-record and a subsequent on-record parenthetical. Off-record passages bound an occasion and are rarely transcribed; the flag exists so a gap in the colloquy is visibly a recess rather than a dropped extraction."
+
+relationship_types:
+  - name: STATED_BY
+    description: "Evidence stated by Party. For a transcript the STATED_BY target is the SPEAKER OF THAT TURN, resolved per utterance from the speaker label — NOT uniformly the judge. This is the sharpest difference from court_ruling, where the court is the speaker of every statement in the document. Exactly one STATED_BY per Evidence entity, as in every other type; the count of STATED_BY must equal the count of Evidence."
+  - name: ABOUT
+    description: "Evidence is about (concerning) this Party. A single utterance may be ABOUT multiple parties — create one ABOUT relationship for each party the statement concerns. ABOUT is topical and structural, never directional: it carries no support, opposition, confirmation, or denial. It is created for recitations too, because a recited position is still ABOUT its subject."
+  - name: CORROBORATES
+    description: "This on-the-record statement independently CONFIRMS a factual claim from the complaint (an Allegation node). SEVERELY RESTRICTED for transcripts by the speaker-weight law: only a judicial_statement with attribution=own_determination — a bench ruling or finding — may corroborate. An attorney_argument NEVER corroborates, however confident or well-argued: argument is advocacy, not proof, and admitting it would let a party manufacture corroboration for its own allegations by asserting them in open court. A party_statement is unsworn and never corroborates. A witness_testimony is RESERVED — see the pass-2 template; no corroboration bar for sworn testimony has been authored, so it produces no CORROBORATES edge today. A recitation never corroborates regardless of speaker. NOTE: CORROBORATES targets Allegation nodes from the complaint schema — cross-document, documented here for LLM guidance and deliberately NOT listed in valid_patterns."
+  - name: CONTRADICTS
+    description: "This statement conflicts with a statement by the SAME speaker on a DIFFERENT occasion (cross-document, same-speaker impeachment) — the primary target is a foreign Evidence node. For transcripts this is the natural home of the repeat-after-rebuttal pattern: a speaker who asserts something on one dated record after it was rebutted on an earlier dated record. May ALSO target a complaint Allegation in the narrow case where the contradicted claim is itself anchored as an Allegation AND the same-speaker semantics still apply. NOTE: cross-document, documented here for LLM guidance and deliberately NOT listed in valid_patterns."
+  - name: REBUTS
+    description: "This statement directly COUNTERS or DEFEATS the fact a complaint Allegation asserts. Two distinct uses in a transcript, and the difference matters. (1) From a judicial_statement: the court's own determination defeats the alleged fact — the adverse anchor, identical in force to the court_ruling case. (2) From an attorney_argument: the ASSERTION OF A REBUTTAL, on the record, on a date. This does not establish that the allegation is false; it establishes that it was contested, by whom, and when. That dated contest is the evidentiary payload — it is what makes a later repetition of the same accusation a repetition-after-rebuttal rather than a first assertion. A recitation never rebuts. NOTE: cross-document, documented here for LLM guidance and deliberately NOT listed in valid_patterns."
+  - name: CHARACTERIZES
+    description: "Evidence characterizes a Party: a statement that labels or evaluates a party's conduct, character, competence, cooperation, or motive in evaluative terms — calling someone's filings 'shrill', 'pathetic', 'contentious', 'frivolous', or their administration 'outstanding'. Create one CHARACTERIZES relationship from the Evidence to each Party it characterizes. Unlike CORROBORATES, this edge is NOT restricted by speaker weight: an attorney's characterization of an opposing party is the single most important thing a transcript contributes to the accusation-pattern analysis, because counsel's on-record characterizations are where a disparagement pattern originates. What IS restricted is attribution — a speaker RECITING someone else's characterization ('counsel called my client shrill') is reporting it, not making it, and produces no CHARACTERIZES edge. Target is a Party entity in the same document, or a cross-document Allegation where the characterization bears on what that Allegation asserts about the party. Deliberately NOT listed in valid_patterns, mirroring court_ruling and discovery."
+
+# Required provenance properties applied to every relationship written to
+# Neo4j (per LEGAL_DATA_MODEL_v5_1.md §5.4). Populated by the ingest stage
+# at write time, not by the LLM extractor.
+relationship_properties:
+  - name: source_document_id
+    type: string
+    required: true
+    description: "ID of the Document whose extraction produced this relationship"
+  - name: extraction_run_id
+    type: string
+    required: true
+    description: "Identifier of the specific pipeline run that created this relationship (format: 'run-{i32}' for pipeline-extracted, 'manual-{user_id}-{ts}' for hand-authored, 'repair-{...}' for repair runs)"
+  - name: created_at
+    type: timestamp
+    required: true
+    description: "When the relationship was first created (Cypher datetime() at write time; preserved on subsequent re-ingests via coalesce)"
+
+# valid_patterns can ONLY reference entity types defined in THIS schema.
+# Cross-document relationships (CORROBORATES / REBUTS / CONTRADICTS /
+# CHARACTERIZES → Allegation from the complaint) are described in
+# relationship_types above for LLM guidance but are NOT listed here — the schema
+# parser rejects references to entity types not defined locally, and an
+# Allegation endpoint here is fatal at schema load, for EVERY extraction using
+# this schema, not merely for the offending edge. The cross-document edges
+# persist via the context-whitelist + prompt-prose + id-resolution mechanism
+# (identical to court_ruling and discovery), NOT via valid_patterns.
+valid_patterns:
+  - from: Evidence
+    relationship: STATED_BY
+    to: Party
+  - from: Evidence
+    relationship: ABOUT
+    to: Party
+
+extraction_rules:
+  - "Extract EVERY discrete on-the-record utterance as a separate Evidence entity — one entity per speaker turn, including short acknowledgements when they carry meaning (a concession, an agreement, a refusal)"
+  - "The verbatim_quote field is the exact spoken text — copy it character for character, INCLUDING false starts ('we--we want'), interruptions, and (inaudible) markers; never clean up, complete, or reconstruct speech"
+  - "Resolve every speaker label to a canonical party_name using the APPEARANCES block and any on-record introduction; the raw label goes in the Party's aliases, never in the speaker property"
+  - "Classify every utterance on BOTH axes: statement_type by WHO is speaking (judicial_statement / attorney_argument / party_statement / witness_testimony) and attribution by WHOSE POSITION it states (own_determination / recitation)"
+  - "statement_type is determined by the SPEAKER, never by content — a judge asking a hostile question is still judicial_statement; an attorney conceding a point is still attorney_argument"
+  - "attribution is recitation whenever the speaker is restating, summarizing, quoting, or reading aloud someone else's position, regardless of who the speaker is — this includes a judge restating a party's request and an attorney quoting opposing counsel's words"
+  - "Carry the hearing date from the caption as event_date on every utterance, in ISO-8601; where the speaker references a different dated event inside the utterance, record that date instead"
+  - "Extract ALL parties including the presiding judge (role=judge), every attorney in the APPEARANCES block, every party they represent, and every lay speaker who addresses the court"
+  - "For an attorney speaker, record which party they represent at this hearing in the represents property — the same party may be represented by different counsel on different dates"
+  - "Take no entities from stage directions or parentheticals; use off-record and on-record markers only to bound the occasion and to set the off_record flag"
+  - "Take no entities from the certificate page; use it only to sanity-check the page count"
+  - "Note the statute, court rule, or case law cited on the record as legal_basis when present"
+
+completeness_rules:
+  - type: entity_count
+    entity: Party
+    min: 2
+    message: "Expected at least the presiding judge + one appearing attorney or party"
+  - type: entity_count
+    entity: Evidence
+    min: 1
+    message: "A transcript with zero extracted utterances suggests extraction failure — check that the speaker-label boundary pattern matched"

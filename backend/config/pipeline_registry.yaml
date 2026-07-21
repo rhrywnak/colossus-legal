@@ -60,6 +60,12 @@ document_types:
     description: "Court opinion, order, or ruling"
     sort_order: 5
 
+  - name: court_transcript
+    display_name: "Court Transcript (v5.3)"
+    profile_file: court_transcript_v5_3.yaml
+    description: "Hearing transcript — line-numbered speaker-labeled colloquy before a judge"
+    sort_order: 6
+
   - name: default
     display_name: "Other / Unknown"
     profile_file: default.yaml
