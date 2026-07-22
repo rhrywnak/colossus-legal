@@ -92,7 +92,55 @@ OCR_FLOOR_NONWS_CHARS = 50
 # Share of pages allowed to sit under the floor before the document is judged
 # unextracted. Not zero: a genuine cover sheet or exhibit divider is legitimately
 # near-empty, and failing on one blank page would make the gate noise.
+#
+# This threshold is deliberately NOT raised to accommodate documents with large
+# bound appendices — see EXHIBIT-SEPARATOR RECOGNITION below. Raising it would
+# blunt the check for the failure it actually exists to catch: a scanned filing
+# whose OCR step never ran, where EVERY page is under the floor.
 MAX_EMPTY_PAGE_RATIO = 0.25
+
+# ── exhibit-separator recognition ────────────────────────────────────────────
+# A filing with a bound appendix puts one near-empty separator sheet ("EXHIBIT"
+# plus a numeral) in front of each attached instrument. Those pages are under
+# the OCR floor by their nature, not by any failure — the sheet really is almost
+# blank.
+#
+# Measured against the corpus: a 71-page appellee's brief on appeal carries 19
+# such sheets, which is 26.8% of the document. Without this exemption it FAILS
+# the ratio check above as a false positive, on a document that extracted
+# perfectly. The remedy is to recognise the separators, not to loosen the limit.
+#
+# ⚠ DO NOT use OCR confidence to identify these pages. Measured separator
+# confidence across the corpus ranges from 0.429 to 0.972, while a genuine
+# appendix CONTENT page sits at 0.782 — the ranges overlap completely, in both
+# directions. Confidence reports how sure the engine was about the characters it
+# read, which says nothing about what kind of page it read.
+#
+# The discriminator that DOES separate them cleanly is structural: separator
+# sheets carry a handful of text lines (measured 2-12) against 20-133 on a real
+# page, and their content is essentially the word EXHIBIT and a numeral.
+#
+# Note this only ever RECLASSIFIES pages that are already under the OCR floor.
+# A page carrying real text cannot be exempted by it, so a genuinely unextracted
+# document is still caught in full.
+SEPARATOR_MAX_LINES = 12
+SEPARATOR_TOKEN_RE = re.compile(r"\bEXHIBIT\b", re.IGNORECASE)
+
+# Ceiling on the share of pages that may be exhibit separators before the
+# document is judged unextracted anyway.
+#
+# Without this, the exemption above becomes a hole big enough to swallow the
+# check it modifies: a document where EVERY page is a near-empty sheet reading
+# "EXHIBIT 1", "EXHIBIT 2" … would have every page exempted and would PASS,
+# reporting that it "carries real text". That is precisely failure-mode 1 —
+# a scanned filing whose OCR never ran — wearing the exemption as a disguise.
+#
+# One half is the principled bound, not a tuned number: a separator sheet exists
+# to introduce an instrument, so each one is followed by at least one page of
+# content. Separators can therefore never legitimately outnumber the pages they
+# introduce. Corpus check: 19/71 = 27% for the appellee's brief with its 19-exhibit
+# appendix, 1/32 = 3% for the reply brief.
+MAX_SEPARATOR_RATIO = 0.5
 
 # Rough chars-per-token for English legal prose. Deliberately conservative —
 # over-estimating tokens makes the gate fire early, which is the safe direction.
@@ -212,20 +260,152 @@ def nonws(s: str) -> int:
     return sum(1 for c in s if not c.isspace())
 
 
+def is_exhibit_separator(body: str) -> bool:
+    """True when a page looks like a bound-appendix exhibit separator sheet.
+
+    Only meaningful for pages ALREADY under the OCR floor — this is a
+    reclassification of near-empty pages, never a way for a page with real text
+    to escape the check.
+
+    Two conditions, both required:
+      - few non-blank lines (SEPARATOR_MAX_LINES), which is what distinguishes a
+        divider sheet from a page of prose that merely OCR'd badly, and
+      - the literal token EXHIBIT somewhere on the page.
+
+    Deliberately NOT keyed on OCR confidence: see the note at
+    SEPARATOR_MAX_LINES for the measurements showing why confidence cannot
+    separate these pages from real ones.
+    """
+    lines = [ln for ln in body.splitlines() if ln.strip()]
+    if len(lines) > SEPARATOR_MAX_LINES:
+        return False
+    return SEPARATOR_TOKEN_RE.search(body) is not None
+
+
+def _print_page_list(pages: list[int]) -> None:
+    """Print a page-number list, capped at 15 with a '+N more' tail.
+
+    Shared by the separator and empty-page summaries so the two populations
+    are rendered identically.
+    """
+    shown = ", ".join(str(p) for p in pages[:15])
+    more = "" if len(pages) <= 15 else f" … +{len(pages) - 15} more"
+    print(f"    page numbers: {shown}{more}")
+
+
+def _report_page_populations(
+    total_pages: int, separators: list[int], empty: list[int], ratio: float
+) -> None:
+    """Print the two under-floor populations as two distinct observables.
+
+    A separator sheet is expected structure; an unexplained near-empty page is
+    a symptom. Standing Rule 1 — different operational states, different lines.
+    """
+    print(f"pages           : {total_pages}")
+    print(f"exhibit separators (excluded from the ratio): {len(separators)}")
+    if separators:
+        _print_page_list(separators)
+        print(
+            f"    first separator is page {separators[0]} — the bound appendix "
+            "starts here and is OUT OF SCOPE for extraction."
+        )
+    print(
+        f"pages under OCR floor ({OCR_FLOOR_NONWS_CHARS} non-ws chars, "
+        f"separators excluded): {len(empty)} ({ratio:.0%})"
+    )
+    if empty:
+        _print_page_list(empty)
+    print()
+
+
+def _fail_empty_page_ratio(ratio: float) -> bool:
+    """FAIL when too many NON-separator pages sit under the OCR floor."""
+    if ratio <= MAX_EMPTY_PAGE_RATIO:
+        return False
+    print(
+        f"RESULT: FAIL — {ratio:.0%} of pages are under the OCR floor "
+        f"(limit {MAX_EMPTY_PAGE_RATIO:.0%})."
+    )
+    print()
+    print("  The model would be asked to extract from pages that carry no")
+    print("  usable text. Nothing in the pipeline errors on this — it simply")
+    print("  extracts less and reports success. Check, in this order:")
+    print("    1. Is this a scanned PDF whose OCR step has not run yet?")
+    print("    2. Did the OCR service return empty for these pages?")
+    print("    3. Are the listed pages genuinely blank (dividers, backs)?")
+    print()
+    print("  Note: recognised exhibit separator sheets are ALREADY excluded")
+    print("  from this count. The pages listed above are near-empty for some")
+    print("  other reason.")
+    return True
+
+
+def _fail_separator_ratio(separator_ratio: float) -> bool:
+    """FAIL when separators outnumber the content they can introduce.
+
+    Guards the separator exemption from becoming a hole big enough to pass a
+    wholly-unextracted document whose blank pages merely say EXHIBIT.
+    """
+    if separator_ratio <= MAX_SEPARATOR_RATIO:
+        return False
+    print(
+        f"RESULT: FAIL — {separator_ratio:.0%} of pages are exhibit "
+        f"separators (limit {MAX_SEPARATOR_RATIO:.0%})."
+    )
+    print()
+    print("  A separator sheet introduces an instrument, so separators can")
+    print("  never legitimately outnumber the pages they introduce. Either:")
+    print("    1. This document never extracted, and the near-empty pages")
+    print("       merely happen to carry the word EXHIBIT; or")
+    print("    2. This is a pure exhibit compilation, not a filing — in")
+    print("       which case it should be split into its constituent")
+    print("       documents and onboarded separately, not run as one.")
+    return True
+
+
+def _fail_token_budget(est_tokens: int) -> bool:
+    """FAIL when the whole-document prompt would exceed the token ceiling."""
+    if est_tokens <= MAX_DOC_TOKENS:
+        return False
+    print(
+        f"RESULT: FAIL — estimated {est_tokens:,} document tokens exceeds "
+        f"the {MAX_DOC_TOKENS:,} ceiling."
+    )
+    print()
+    print("  Full-document mode sends this in ONE request, on top of the")
+    print("  template, schema and global rules. At this size the extraction")
+    print("  degrades or truncates rather than failing outright. Either this")
+    print("  document needs a chunked profile, or it is a compilation that")
+    print("  should be split into its constituent documents first.")
+    return True
+
+
+def _fail_page_count(actual_pages: int, expect_pages: int | None) -> bool:
+    """FAIL when the extracted page count disagrees with the source PDF."""
+    if expect_pages is None or actual_pages == expect_pages:
+        return False
+    print(f"RESULT: FAIL — extracted {actual_pages} pages, expected {expect_pages}.")
+    print()
+    print("  Pages went missing before the model sees them. Extraction is")
+    print("  per-page and a dropped page is silent downstream.")
+    return True
+
+
 def run_full_mode(text: str, expect_pages: int | None) -> int:
     """Full-document mode: check the text is real, sized, and complete.
 
     There is no boundary pattern in this mode, so there is nothing to verify
     about chunking. What can go wrong is that the document never extracted, is
-    too large for one prompt, or lost pages on the way in.
+    too large for one prompt, or lost pages on the way in. Each of those is one
+    `_fail_*` check below; all accumulate into `failed` so a single run reports
+    every failure rather than short-circuiting on the first.
     """
     pages = split_pages(text)
-    total_nonws = nonws(text)
     est_tokens = len(text) // CHARS_PER_TOKEN
 
     print(f"mode            : full (whole document in one prompt)")
     print(f"characters      : {len(text):,}")
-    print(f"non-whitespace  : {total_nonws:,}")
+    print(f"non-whitespace  : {nonws(text):,}")
     print(f"est. doc tokens : {est_tokens:,}  (ceiling {MAX_DOC_TOKENS:,})")
 
     if not pages:
@@ -239,62 +419,31 @@ def run_full_mode(text: str, expect_pages: int | None) -> int:
         print("  this file before reading anything else into the result.")
         return 1
 
-    empty = [p for p, body in pages if nonws(body) < OCR_FLOOR_NONWS_CHARS]
+    # Split the under-floor pages into expected structure (separators) and
+    # symptom (everything else). Only the latter counts toward the OCR-floor
+    # ratio; the separator population is bounded by its own check below.
+    under_floor = [(p, body) for p, body in pages if nonws(body) < OCR_FLOOR_NONWS_CHARS]
+    separators = [p for p, body in under_floor if is_exhibit_separator(body)]
+    empty = [p for p, body in under_floor if not is_exhibit_separator(body)]
     ratio = len(empty) / len(pages)
-    print(f"pages           : {len(pages)}")
-    print(
-        f"pages under OCR floor ({OCR_FLOOR_NONWS_CHARS} non-ws chars): "
-        f"{len(empty)} ({ratio:.0%})"
-    )
-    if empty:
-        shown = ", ".join(str(p) for p in empty[:15])
-        more = "" if len(empty) <= 15 else f" … +{len(empty) - 15} more"
-        print(f"    page numbers: {shown}{more}")
-    print()
+    separator_ratio = len(separators) / len(pages)
 
-    failed = False
+    _report_page_populations(len(pages), separators, empty, ratio)
 
-    if ratio > MAX_EMPTY_PAGE_RATIO:
-        print(
-            f"RESULT: FAIL — {ratio:.0%} of pages are under the OCR floor "
-            f"(limit {MAX_EMPTY_PAGE_RATIO:.0%})."
-        )
-        print()
-        print("  The model would be asked to extract from pages that carry no")
-        print("  usable text. Nothing in the pipeline errors on this — it simply")
-        print("  extracts less and reports success. Check, in this order:")
-        print("    1. Is this a scanned PDF whose OCR step has not run yet?")
-        print("    2. Did the OCR service return empty for these pages?")
-        print("    3. Are the listed pages genuinely blank (dividers, backs)?")
-        failed = True
-
-    if est_tokens > MAX_DOC_TOKENS:
-        print(
-            f"RESULT: FAIL — estimated {est_tokens:,} document tokens exceeds "
-            f"the {MAX_DOC_TOKENS:,} ceiling."
-        )
-        print()
-        print("  Full-document mode sends this in ONE request, on top of the")
-        print("  template, schema and global rules. At this size the extraction")
-        print("  degrades or truncates rather than failing outright. Either this")
-        print("  document needs a chunked profile, or it is a compilation that")
-        print("  should be split into its constituent documents first.")
-        failed = True
-
-    if expect_pages is not None and len(pages) != expect_pages:
-        print(
-            f"RESULT: FAIL — extracted {len(pages)} pages, expected {expect_pages}."
-        )
-        print()
-        print("  Pages went missing before the model sees them. Extraction is")
-        print("  per-page and a dropped page is silent downstream.")
-        failed = True
+    # Evaluate every check — `or`-into-a-flag, not short-circuit — so the
+    # operator sees all failures in one run.
+    failed = _fail_empty_page_ratio(ratio)
+    failed = _fail_separator_ratio(separator_ratio) or failed
+    failed = _fail_token_budget(est_tokens) or failed
+    failed = _fail_page_count(len(pages), expect_pages) or failed
 
     if failed:
         return 1
 
+    plural = "" if len(separators) == 1 else "s"
+    sep_note = f", {len(separators)} exhibit separator{plural}" if separators else ""
     print(f"RESULT: PASS — {len(pages)} pages, {est_tokens:,} est. tokens, "
-          f"{ratio:.0%} under the OCR floor.")
+          f"{ratio:.0%} under the OCR floor{sep_note}.")
     print("  The whole document will fit one prompt and carries real text.")
     print("  Safe to proceed to the paid run, subject to the rest of the")
     print("  spend-gate discipline.")

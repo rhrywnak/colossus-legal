@@ -257,7 +257,7 @@ If a pattern you see is not in this list, leave `pattern_tags` off entirely and 
 
 **Output format for `pattern_tags`:** a comma-separated string drawn from the list above. **When no tag applies, OMIT the property entirely — never emit an empty string.** An absent property means "no pattern identified"; an empty string is a value that means nothing and clutters every query that reads this field. **The same rule applies to every optional property** — `exhibit_refs`, `relief_sought`, `legal_basis`, `page_note`, `asserted_against`, `event_date`: omit the key rather than emitting `""`.
 
-*(Reserved — not for this document type: `misrepresentation`, `evasion`, `admission_against_interest`, `concealment` belong to the brief templates and must not be used here.)*
+*(Reserved — not for this document type: `misrepresentation`, `evasion`, `admission_against_interest`, `concealment` belong to `appellate_brief_pass1_v5_3.md` and must not be used here.)*
 
 ## Worked Examples
 

@@ -188,7 +188,7 @@ If a pattern you see is not in this list, leave `pattern_tags` off entirely and 
 
 **Output format for `pattern_tags`:** a comma-separated string of tags drawn from the list above (e.g. `"selective_enforcement,disparagement"`). **When no tag applies, OMIT the property entirely — never emit an empty string.** An absent property means "no pattern identified"; an empty string is a value that means nothing and clutters every query that reads this field.
 
-*(Reserved — not for this document type: `misrepresentation`, `evasion`, `admission_against_interest`, `concealment` belong to the brief templates and must not be used here.)*
+*(Reserved — not for this document type: `misrepresentation`, `evasion`, `admission_against_interest`, `concealment` belong to `appellate_brief_pass1_v5_3.md` and must not be used here.)*
 
 
 ## Worked Examples

@@ -48,12 +48,6 @@ document_types:
     description: "Sworn statement by a witness"
     sort_order: 3
 
-  - name: brief
-    display_name: "Legal Brief"
-    profile_file: brief.yaml
-    description: "Written legal argument filed with the court"
-    sort_order: 4
-
   - name: court_ruling
     display_name: "Court Ruling"
     profile_file: court_ruling.yaml
@@ -71,6 +65,18 @@ document_types:
     profile_file: motion_v5_3.yaml
     description: "Motion filed with the court — dated, attorney-authored assertions with exhibit citations"
     sort_order: 7
+
+  # Replaces the superseded `brief` entry (sort_order 4), removed in the same
+  # commit along with brief.yaml and the three v4 brief artifacts. The v4 set
+  # was two generations stale — it produced MotionClaim nodes and used a
+  # pre-two-axis statement_type vocabulary — and its profile carried a stale
+  # profile-level `is_default: true` that no code owned. Only the "a brief is
+  # not sworn, so it never corroborates" rule was carried forward.
+  - name: appellate_brief
+    display_name: "Appellate Brief (v5.3)"
+    profile_file: appellate_brief_v5_3.yaml
+    description: "Appellate brief — appellant's brief, reply brief, or appellee's response; dated attorney advocacy with record and exhibit citations"
+    sort_order: 8
 
   - name: default
     display_name: "Other / Unknown"
