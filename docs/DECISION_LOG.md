@@ -189,6 +189,48 @@ Prioritized allegations with strongest evidence from CFS and Phillips interrogat
 
 ---
 
+## 2026-07-18 | SOFTWARE ARCHITECT (Roman Approved)
+
+### Decision
+Added a **tightly-scoped best-effort carve-out to the "No silent failures" frontend
+rule** (Standing Rule 1 in `CLAUDE.md`, and Rule 9 in `.claude/agents/rules-enforcer.md`).
+A `catch` around reading/writing a **cosmetic UI preference to browser storage**
+(`localStorage`/`sessionStorage` — e.g. remembering a panel's collapsed state) may
+degrade to a default WITHOUT a user-facing banner, provided it (a) carries a
+`// best-effort:` comment and (b) stays observable via `console.warn`. Worded as the
+direct parallel to the existing `.ok()` `// best-effort:` carve-out (rules-enforcer
+Rule 5).
+
+### Rationale
+The Theme Scan card's per-scenario collapse state is persisted to `localStorage`
+(the ratified "remember collapse" decision). A storage failure (privacy mode / quota)
+has no user recovery action, and a user-facing banner for a lost cosmetic preference
+is disproportionate noise. The rule previously admitted no exception, forcing either a
+disproportionate UI surface or dropping persistence. The carve-out resolves that while
+keeping the failure observable (`console.warn`) and keeping the **full** explicit
+`.catch()` + error-UI requirement for `fetch`/`authFetch` and ANY data read/write — a
+failed *data* operation is never best-effort.
+
+### Impacts
+- Data Architect: None
+- DB Engineer: None
+- Software Architect: Governing-doc change — `CLAUDE.md` Standing Rule 1 and the
+  `rules-enforcer` agent now both carry the carve-out. Applies ONLY to cosmetic
+  browser-storage preferences; not a general catch-suppression loophole.
+
+### Action Required
+- [x] Update `CLAUDE.md` Standing Rule 1 frontend bullet
+- [x] Update `.claude/agents/rules-enforcer.md` Rule 9
+- [x] Log here
+
+---
+
+## 2026-07-18 | SOFTWARE ARCHITECT (Roman Approved)
+
+**Decision:** Track `.claude/agents/` in git (`.gitignore`: `.claude/*` + `!.claude/agents/`) so the four-agent enforcement gate is identical on every machine/CI; `settings.local.json`, its `.bak`, and `settings.json` stay ignored. Fixes governance drift where the Rule 9 carve-out lived only in the local working tree.
+
+---
+
 ## Template for Future Entries
 
 ```markdown

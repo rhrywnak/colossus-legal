@@ -59,9 +59,16 @@ pub use scenario::{
 pub use scenario_crud::{
     ScenarioCreateRequest, ScenarioDefinition, ScenarioDto, ScenarioUpdateRequest, Wielder,
 };
-pub use scenario_facts::{AddFactRequest, ScenarioFactDto};
+pub use scenario_facts::{
+    AddFactRequest, CandidateDto, FactAction, FactActionRequest, GatherCandidatesResponse,
+    ScenarioFactDto,
+};
 pub use schema::SchemaResponse;
-pub use theme_scan::{ThemeScanRejected, ThemeScanSuggestion, ThemeScanSummary};
+pub use theme_scan::{
+    ScanRequest, ScanRunHeader, ScanRunListResponse, ScanRunMergeRequest, ScanRunMergeResponse,
+    ScanRunStatusResponse, ScanStartedResponse, ThemeScanRejected, ThemeScanSuggestion,
+    ThemeScanSummary,
+};
 pub use trial_prep::{
     ScenarioStatus, ScenarioSummary, TrialPrepAlert, TrialPrepDashboard, TrialPrepMetrics,
 };

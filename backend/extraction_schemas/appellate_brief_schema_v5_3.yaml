@@ -1,0 +1,246 @@
+# Extraction schema for appellate briefs — v5.3 (evidence-anchoring pipeline)
+#
+# Date: 2026-07-21 (rebuild-plan, appellate_brief onboarding)
+#
+# Purpose: Extract the dated, attorney-authored assertions an appellate brief
+# makes — what is claimed, against whom, on what record and exhibit citations,
+# and what relief is asked of the appellate court — and anchor them to the case
+# backbone produced by the complaint case-structuring pipeline.
+#
+# THIS IS A REBUILD, NOT A PATCH. The v4 brief templates were two generations
+# stale (they produced MotionClaim nodes and used a pre-two-axis statement_type
+# vocabulary). They are deleted in the same commit that adds this file. The one
+# rule carried forward from v4 is the load-bearing negative: A BRIEF IS NOT
+# SWORN, therefore it never corroborates. See CORROBORATES below.
+#
+# WHY THIS TYPE EXISTS:
+#   1. The adoption-chain record. Briefs are where one side states, in citable
+#      dated form, that the lower court adopted the other side's arguments
+#      wholesale. The reply brief in this corpus makes exactly that its thesis.
+#   2. Dated rebuttal assertions. A brief answers a specific prior filing on a
+#      specific date, which is what makes a repetition chain provable.
+#   3. BOTH SIDES, THREE SUB-GENRES, ONE TYPE. Appellant's brief (full
+#      apparatus), reply brief (short form), appellee's response (counter-
+#      prefixed apparatus). Accusation-side and rebuttal-side content land under
+#      one schema, which is what lets the pattern layer see an exchange rather
+#      than two unrelated documents.
+#
+# THE TWO-AXIS STATEMENT MODEL (inherited from court_transcript v5.3 via motion):
+#   statement_type — WHAT KIND of assertion: factual_assertion /
+#                    attorney_argument / relief_request / legal_standard
+#   attribution    — WHOSE POSITION it states: own_determination / recitation
+#
+#   The statement_type enum is SHARED VERBATIM with motion_schema_v5_3.yaml.
+#   Briefs and motions are the same genus — attorney advocacy filings — and a
+#   shared enum keeps the pass-2 edge law identical and the query layer uniform
+#   across the genus. Do not add a brief-specific value to it.
+#
+#   Pass 1 tags both axes; pass 2 GATES every finding-edge on attribution ==
+#   recitation. For a brief the recitation case is constant and heavier than for
+#   a motion: a brief quotes the opposing brief, the lower court's opinion, and
+#   the record on nearly every page. When the appellant quotes the trial judge's
+#   characterization of a party in order to attack it, that characterization
+#   belongs to the OPINION's processing. What the brief contributes is only
+#   "counsel cited this characterization, on this date".
+#
+# A BRIEF NEVER CORROBORATES:
+#   Attorney-authored and unsworn. Its assertions CITE affidavits, transcripts
+#   and exhibits; the proof lives in those instruments when each is processed as
+#   its own document. This is the v4 keeper rule and the load-bearing negative
+#   of this type.
+#
+# SCOPE — THE BRIEF PROPER ONLY (SPEC_EXTENSION §8; ruling 2026-07-21 B1):
+#   An appellate brief is commonly filed with its appendix bound into the same
+#   PDF. In the corpus: the appellee's response is 71 pages of which 24 are the
+#   brief and 47 are an appendix of 19 exhibits — hearing transcript pages,
+#   billing statements, proofs of service, faxed attachments. The appellant's
+#   reply brief is 32 pages of which 13 are the brief and 19 are bound exhibits
+#   including a contract and sworn affidavits.
+#   Those are separate document types with their own authors and their own
+#   authority. Attributing a bound hearing transcript to the filing attorney
+#   would record a judge's words as counsel's argument.
+#   This schema therefore covers the brief proper only — caption through
+#   signature block. Bound instruments are referenced by exhibit_refs and
+#   onboarded separately. The pass-1 template enforces the boundary; nothing
+#   mechanical can.
+#
+#   NOTE the corpus also contains a brief with NO appendix at all (the
+#   appellant's 28-page brief on appeal is brief matter end to end). A missing
+#   exhibit boundary is normal, not a sign the gate failed.
+#
+# NOTE: pipeline_type (evidence_anchoring) is declared in the PROFILE
+# (appellate_brief_v5_3.yaml), not here. The extraction-schema loader
+# deserializes the canonical key set only; a top-level pipeline_type risks a
+# load failure.
+document_type: appellate_brief
+version: "5.3"
+description: "Appellate brief — a dated, attorney-authored argument filed with the Court of Appeals, in one of three sub-genres: appellant's brief on appeal (full apparatus), reply brief (short form), or appellee's response (counter-prefixed apparatus). Each discrete assertion is an Evidence entity attributed to the FILING PARTY. Assertions carry two axes: statement_type (what kind of assertion) and attribution (whose position it states). Quoted opposing-brief, opinion and record material is a recitation and is never anchored. Covers the brief proper only; a bound appendix is separate documents. A brief is unsworn and never corroborates. Evidence-anchoring pipeline."
+
+entity_types:
+  - name: Party
+    required: true
+    min_count: 2
+    grounding_mode: name_match
+    category: reference
+    description: "A person or organization named in the brief — the appellant, the appellee, every attorney of record from the caption and signature block, the judge whose ruling is under review, and any third party whose conduct the brief puts at issue."
+    properties:
+      - name: party_name
+        type: string
+        required: true
+        description: "The party's ONE canonical name, used identically in every document"
+      - name: role
+        type: string
+        required: true
+        description: "judge, plaintiff, defendant, appellant, appellee, petitioner, respondent, attorney, witness, personal_representative, fiduciary, conservator, guardian_ad_litem, interested_party, decedent, third_party"
+      - name: party_type
+        type: string
+        required: true
+        description: "person or organization"
+      - name: aliases
+        type: string
+        description: "Other names, titles, and misspellings used for this party in this document, comma-separated. Briefs refer to parties by APPELLATE POSITION more often than by name ('Appellant', 'the Appellee', 'the estate'), and often by first name alone after an initial parenthetical definition ('Marie Awad (\"Marie\")'). Both forms belong here."
+
+  - name: Evidence
+    required: true
+    min_count: 1
+    grounding_mode: verbatim
+    category: evidence
+    description: "One discrete assertion the brief makes — a factual claim, an argumentative characterization, a request for appellate relief, or an applied legal standard. The verbatim_quote is the exact text of the assertion as filed. Each distinct assertion is a separate Evidence entity, analogous to one-Evidence-per-determination in a ruling and one-Evidence-per-turn in a transcript. Assertions restating an opposing brief, the lower court's opinion, or the record ARE extracted (tagged attribution=recitation) so they remain inspectable, but pass 2 creates no finding-edge from them."
+    properties:
+      - name: title
+        type: string
+        required: true
+        description: "Short descriptive title summarizing what this assertion claims or demands — not a section or heading label."
+      - name: summary
+        type: string
+        required: true
+        description: "One-sentence summary of the assertion, argument, demand, or restated position."
+      - name: filed_by
+        type: string
+        required: true
+        description: "Canonical party_name of the party on whose behalf this brief was filed — taken from the brief's title line ('APPELLANT'S BRIEF ON APPEAL', 'APPELLEE'S BRIEF ON APPEAL', 'APPELLANT'S REPLY BRIEF') and the signature block, NOT from caption position. Uniform across every Evidence entity in the document. Named filed_by rather than the motion's `movant` because a brief has a filing party, not a movant; the query layer unifies the two through STATED_BY, which is identical across both types. DESCRIPTIVE property consumed by the scenario filtering and query layer; it does NOT alter edge derivation, which is decided by statement_type and attribution alone."
+      - name: appellate_role
+        type: string
+        required: true
+        description: "The filing party's position in the appeal: appellant or appellee. Per-document and uniform across every Evidence entity, exactly like filed_by. This is the brief-level polarity that lets the query layer ask 'what did the appellee side assert' without resolving party names first. An appellant's brief and a reply brief both carry appellant; a response brief carries appellee. DESCRIPTIVE property consumed by the scenario filtering and query layer; it does NOT alter edge derivation."
+      - name: asserted_against
+        type: string
+        description: "Canonical party_name of the party this particular assertion targets — usually the opposing party, but a brief frequently asserts against the JUDGE whose ruling is under review, or against a third party whose conduct it puts at issue. Omit where an assertion targets no one in particular (a bare procedural recital, an applied standard). DESCRIPTIVE property consumed by the scenario filtering and query layer; it does NOT alter edge derivation."
+      - name: statement_type
+        type: string
+        required: true
+        description: "WHAT KIND of assertion this is — the first of the two axes. SHARED VERBATIM with the motion schema. factual_assertion (a claim about what happened or what the record shows, typically record-cited), attorney_argument (evaluative or characterizing advocacy prose), relief_request (what the brief asks the appellate court to do — the WHEREFORE in Relief Requested, and any operative 'this Court should reverse/affirm' clause), legal_standard (recitation of a rule or case, extracted ONLY where applied to these facts; never for bare boilerplate — see the repeated-Standard-of-Review note in the pass-1 template)."
+      - name: attribution
+        type: string
+        required: true
+        description: "WHOSE POSITION this assertion states — the second axis, and the one pass 2 gates on. own_determination (the filing party asserting, arguing, or demanding in its own voice) or recitation (the filing party restating, summarizing, or quoting SOMEONE ELSE'S position — the opposing brief, the lower court's opinion or bench ruling, a quoted passage of the record, a block-quoted case). A recitation reports an assertion; it does not make one. Briefs quote the opposing brief and the opinion under review constantly, and that quoted material is a separate document with its own processing — so a recitation contributes only the fact that counsel cited it, on this date."
+      - name: exhibit_refs
+        type: string
+        description: "Record and exhibit citations attached to this assertion, comma-separated, as written. FOUR citation forms appear in this genre and all four belong here: (1) a footnote marker resolved to the exhibit it names at the foot of the page ('Exhibit 1'); (2) an inline appendix citation with title, date and pin cite ('Exh 11 Transcript 3/15/10, p.7'); (3) a parenthetical RECORD citation by title and date carrying no exhibit number ('Order Appointing Personal Representative, July 23, 2009'); (4) a bare record citation in running text ('Petition Regarding Scheduling 2/23/10, paragraph 3'). Forms 3 and 4 have no exhibit to resolve to — record them as written. Omit entirely when the assertion cites nothing."
+      - name: relief_sought
+        type: string
+        description: "For statement_type=relief_request only: what is asked of the appellate court, in plain terms ('reverse the Order for Complete Estate Settlement and remand for hearings on the objections'; 'affirm and award appellee its costs'). Omit for every other statement_type."
+      - name: page_number
+        type: integer
+        required: true
+        description: "PDF page number where this assertion appears, read from the '--- Page N ---' marker in the document text. NOT the printed folio: appellate briefs number front matter in roman numerals and restart at arabic 1 for the body, so in this corpus one brief's printed page 1 is PDF page 9. Always the PDF marker."
+      - name: page_note
+        type: string
+        description: "If the assertion spans multiple pages, note the range, e.g. 'pages 12-13'"
+      - name: kind
+        type: string
+        required: true
+        description: "Always 'documentary' for briefs (a filed written instrument)."
+      - name: evidence_strength
+        type: string
+        required: true
+        description: "attorney_assertion (a factual_assertion or attorney_argument in the filing party's own voice — advocacy, never proof, however well cited), relief_demand (a relief_request — a demand, not evidence), applied_legal_standard (a legal_standard applied to these facts), recited_position (ANY statement_type with attribution=recitation — counsel restated it rather than asserting it; produces no finding-edge)."
+      - name: significance
+        type: string
+        required: true
+        description: "Why this assertion matters for trial preparation. For a factual assertion, what it claims and which record material is said to support it. For an argument, whose conduct or character is being characterized and in what terms. For a relief request, what is asked of the appellate court. For a recitation, whose position is being restated and why it is NOT the filing party's own assertion."
+      - name: weight
+        type: integer
+        description: "1-10 scale of evidentiary weight. Briefs are unsworn advocacy and sit LOW on this scale regardless of how forcefully written or how densely cited: record-cited factual assertions 3-5, bare argument 2-4, relief requests 1-2, recitations 1-3. A brief's value to the case is its dated, attributable content, not its evidentiary weight — do not raise the number because an assertion is important or because the brief cites nineteen exhibits."
+      - name: pattern_tags
+        type: string
+        description: "Comma-separated tags for defense-axis and accusation-pattern analysis. This type carries TEN tags — the six shared across the v5.3 filing types plus four reserved for the brief genre by the court_ruling, court_transcript, motion and discovery templates: judicial_bias, selective_enforcement, disparagement, unsupported_finding, procedural_irregularity, disproportionate_penalty, misrepresentation, evasion, admission_against_interest, concealment. The four brief-specific tags exist because a reply brief's core work is arguing that the opposing brief misstated the record — a pattern the other filing types do not concentrate."
+      - name: legal_basis
+        type: string
+        description: "Statute, court rule, or case law cited for this assertion, e.g. 'MCR 2.613(C)', 'MCL 700.3715', 'In re Sloan Estate, 212 Mich App 357 (1995)'. This is where the Standard of Review sections land — as legal_basis on the assertion that applies the standard, not as Evidence entities of their own."
+      - name: event_date
+        type: string
+        description: "ISO-8601. The brief's FILING date, from the signature block or cover letter, carried on every assertion — a brief is a dated filing and that date is what places it in a repetition chain. If the assertion references a different dated event (a record document cited by date, 'a certified letter, dated 11/16/09'), record THAT date instead: it is the date the assertion is about. Record what THIS document states, even where another document in the case states a different date for the same event — the disagreement is case signal and reconciling it here would destroy it."
+
+relationship_types:
+  - name: STATED_BY
+    description: "Evidence stated by Party. For a brief the STATED_BY target is the FILING PARTY — identified from the brief's title line and signature block — for every Evidence entity in the document. A filing speaks for its party; signing counsel is extracted as a Party but assertions attribute to the client, exactly as a court ruling attributes every determination to the issuing court rather than to a clerk. Exactly one STATED_BY per Evidence; the count must equal the count of Evidence entities. NOTE this is the opposite of a transcript, where the speaker changes with every turn — a brief has one voice throughout."
+  - name: ABOUT
+    description: "Evidence is about (concerning) this Party. A single assertion may be ABOUT multiple parties — create one ABOUT relationship for each party it concerns. Briefs are ABOUT the reviewing judge far more often than motions are, because the judge's conduct is the subject under review. ABOUT is topical and structural, never directional: it carries no support, opposition, confirmation, or denial. It is created for recitations too, because a restated position is still ABOUT its subject."
+  - name: CORROBORATES
+    description: "NEVER EMITTED BY THIS DOCUMENT TYPE. Declared so the type's position is explicit rather than merely absent. This is the one rule carried forward from the superseded v4 brief template, and it is the load-bearing negative of the genre: a brief is attorney-authored and UNSWORN. Its assertions cite affidavits, transcripts and exhibits, and the proof lives in those instruments when each is processed as its own document. Counsel's description of what an attached affidavit shows is advocacy, not evidence of what the affidavit says. Admitting it would let a party manufacture corroboration for its own allegations by filing a well-drafted brief, after which the corroboration tally would measure how forcefully something was argued rather than how well it was proven. The temptation is strongest in this type precisely because appellate briefs are the most heavily cited documents in the corpus. There is no exception and no statement_type that unlocks it."
+  - name: CONTRADICTS
+    description: "This assertion conflicts with an assertion by the SAME party in a DIFFERENT document (cross-document, same-speaker impeachment). For briefs this is the paper side of the repetition chain: a party asserting something on appeal that it, or the record, had already contradicted below. Both endpoints carry dates, which is what makes the sequence provable. NOTE: cross-document, documented here for LLM guidance and deliberately NOT listed in valid_patterns."
+  - name: REBUTS
+    description: "This assertion directly COUNTERS or DEFEATS a fact asserted elsewhere — as a DATED ASSERTION OF REBUTTAL, not as an adjudicated defeat. A brief cannot defeat a claim; only a court can. What a brief establishes is that the claim was contested, by whom, on what date, and on what record citations. TWO TARGET CLASSES, both first-class for this type: (1) complaint Allegations, as for every v5.3 type; and (2) FOREIGN EVIDENCE FROM ANOTHER BRIEF — this is the type that answers other filings by name. An appellee's response answers the appellant's brief line by line, and a reply brief answers the response. That exchange is the densest dated-contest material in the corpus, and brief-to-brief REBUTS is how it is recorded. A recitation never rebuts. NOTE: cross-document, documented here for LLM guidance and deliberately NOT listed in valid_patterns."
+  - name: CHARACTERIZES
+    description: "Evidence characterizes a Party: an assertion that labels or evaluates a party's conduct, character, competence, or motive in evaluative terms — calling accusations 'scurrilous' or 'ill-conceived', a party's objections an 'assault', conduct 'disingenuous', a party 'demanding and uncooperative'. Create one CHARACTERIZES relationship from the Evidence to each Party it characterizes. Briefs are where an accusation pattern is most concentrated and most precisely dated, because a brief is drafted, signed, served and docketed on a known date — and because this type carries BOTH sides of the exchange, the pattern layer sees accusation and counter-accusation under one schema. NOT restricted by the unsworn nature of the document — the edge records that this party characterized that party in these terms on this date, and asserts nothing about whether the characterization is accurate. It IS restricted by attribution: counsel quoting the opposing brief's characterization in order to attack it is reporting it, not making it. May also target a cross-document Allegation where the characterization bears on what that Allegation asserts about the party. Deliberately NOT listed in valid_patterns, mirroring court_ruling, discovery, court_transcript and motion."
+
+# Required provenance properties applied to every relationship written to
+# Neo4j (per LEGAL_DATA_MODEL_v5_1.md §5.4). Populated by the ingest stage
+# at write time, not by the LLM extractor.
+relationship_properties:
+  - name: source_document_id
+    type: string
+    required: true
+    description: "ID of the Document whose extraction produced this relationship"
+  - name: extraction_run_id
+    type: string
+    required: true
+    description: "Identifier of the specific pipeline run that created this relationship (format: 'run-{i32}' for pipeline-extracted, 'manual-{user_id}-{ts}' for hand-authored, 'repair-{...}' for repair runs)"
+  - name: created_at
+    type: timestamp
+    required: true
+    description: "When the relationship was first created (Cypher datetime() at write time; preserved on subsequent re-ingests via coalesce)"
+
+# valid_patterns can ONLY reference entity types defined in THIS schema.
+# Cross-document relationships (REBUTS / CONTRADICTS / CHARACTERIZES →
+# Allegation from the complaint, and REBUTS → foreign Evidence from another
+# brief) are described in relationship_types above for LLM guidance but are NOT
+# listed here — the schema parser rejects references to entity types not defined
+# locally, and an Allegation endpoint here is fatal at schema load, for EVERY
+# extraction using this schema, not merely for the offending edge. The
+# cross-document edges persist via the context-whitelist + prompt-prose +
+# id-resolution mechanism, identical to every other v5.3 type.
+valid_patterns:
+  - from: Evidence
+    relationship: STATED_BY
+    to: Party
+  - from: Evidence
+    relationship: ABOUT
+    to: Party
+
+extraction_rules:
+  - "Extract the BRIEF PROPER ONLY — caption through signature block. Everything after the first exhibit separator page is a bound instrument belonging to another document type and is out of scope"
+  - "A brief with NO bound appendix is normal — the absence of an exhibit boundary is not a failure of the scope gate"
+  - "Extract EVERY discrete assertion in the brief proper as a separate Evidence entity — each argument heading, each question in the Statement of Questions Involved, each paragraph of the Statement of Facts making a distinct claim"
+  - "The verbatim_quote field is the exact filed text of the assertion — copy it character for character, including any fused footnote marker"
+  - "Classify every assertion on BOTH axes: statement_type (what kind of assertion) and attribution (whose position it states)"
+  - "attribution is recitation whenever the filing party is restating, summarizing, or quoting someone else's position — the opposing brief, the lower court's opinion or bench ruling, a passage of the record, a block-quoted case"
+  - "Attribute every assertion to the FILING PARTY, identified from the brief's title line and signature block rather than from caption position"
+  - "Carry the filing date as event_date on every assertion, in ISO-8601; where an assertion references a different dated event, record that date instead — and record what THIS document says, never reconciling a date against another document"
+  - "Record all four citation forms in exhibit_refs: resolved footnote markers, inline appendix citations, parenthetical record citations by title and date, and bare record citations in running text"
+  - "Extract a bare recitation of a legal standard as legal_basis on the assertion that applies it — do not create a separate Evidence entity for boilerplate rule text that is not applied to these facts, and do not create three entities where a brief repeats the same Standard of Review block once per argument section"
+  - "Extract ALL parties named in the caption and signature block, including every attorney of record, the judge whose ruling is under review, and any third party whose conduct the brief puts at issue"
+  - "Do NOT extract service affiants, notaries, or clerical signatories from a proof of service as Party entities — they are not participants in the case"
+  - "Skip the Table of Contents, the Table or Index of Authorities, and any cover or transmittal letter — no Evidence entities from any of them"
+
+completeness_rules:
+  - type: entity_count
+    entity: Party
+    min: 2
+    message: "Expected at least the appellant and the appellee"
+  - type: entity_count
+    entity: Evidence
+    min: 1
+    message: "A brief with zero extracted assertions suggests extraction failure — check that the brief proper was reached and that the scope gate did not fire on the caption"

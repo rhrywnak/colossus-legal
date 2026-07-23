@@ -8,6 +8,8 @@
 //! - `POST   /cases/:slug/scenarios/:scenario_id/facts`            → 201
 //! - `DELETE /cases/:slug/scenarios/:scenario_id/facts/:graph_node_id` → 204
 //! - `GET    /cases/:slug/scenarios/:scenario_id/facts`            → 200 `[…]`
+//! - `POST   /cases/:slug/scenarios/:scenario_id/facts/:graph_node_id/action` → 200
+//!   — the Phase 1a.3 workbench ruling (`include` / `drop` / `undrop`).
 //!
 //! ## CRITICAL — the pipeline pool
 //!
@@ -42,7 +44,7 @@ use crate::{
     auth::{require_edit, AuthUser},
     bias::{dto::BiasInstance, repository::BiasRepository},
     domain::fact_status::FactStatus,
-    dto::{AddFactRequest, ScenarioFactDto},
+    dto::{AddFactRequest, FactAction, FactActionRequest, ScenarioFactDto},
     error::AppError,
     repositories::pipeline_repository::{
         delete_fact_ref, get_scenario, list_fact_refs_for_scenario, upsert_fact_ref,
@@ -57,7 +59,11 @@ use crate::{
 ///
 /// A bad UUID is a client error, not a server fault — mirrors
 /// `api::scenarios::get_scenario_by_id`.
-fn parse_scenario_id(raw: &str) -> Result<Uuid, AppError> {
+///
+/// `pub(crate)` so the sibling `api::scenario_gather` handler reuses the exact
+/// same 400 discipline rather than re-deriving it (the gather feature was split
+/// into its own module for the 300-line rule, but shares this fence).
+pub(crate) fn parse_scenario_id(raw: &str) -> Result<Uuid, AppError> {
     Uuid::parse_str(raw).map_err(|_| AppError::BadRequest {
         message: "scenario_id must be a valid UUID".to_string(),
         details: json!({ "field": "scenario_id" }),
@@ -79,7 +85,10 @@ fn parse_scenario_id(raw: &str) -> Result<Uuid, AppError> {
 ///   unique, so reaching a real scenario through the wrong case path returns
 ///   `NotFound` (not `Forbidden`) — the response never confirms the row exists
 ///   under some other case.
-async fn ensure_scenario_in_case(
+///
+/// `pub(crate)` so the sibling `api::scenario_gather` handler reuses the same
+/// existence-and-case fence (see `parse_scenario_id`).
+pub(crate) async fn ensure_scenario_in_case(
     state: &AppState,
     scenario_id: Uuid,
     slug: &str,
@@ -252,6 +261,118 @@ pub async fn remove_scenario_fact(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// Map a human [`FactAction`] (imperative verb) to the [`FactStatus`] the ref
+/// becomes (state). This is the one translation between the two vocabularies.
+///
+/// ## Rust Learning: an exhaustive `match` is the compiler-checklist
+///
+/// This `match` has NO `_ =>` arm, on purpose. An enum `match` with no catch-all
+/// is compile-checked for exhaustiveness: if a fourth `FactAction` is ever added,
+/// THIS function stops compiling until its arm is written. The compiler becomes
+/// the checklist — you cannot ship a new action that some code path silently
+/// ignores. Adding a `_ =>` arm would throw that guarantee away (it would swallow
+/// the new variant into whatever default it names), so we deliberately omit one.
+/// This is the control-flow twin of the data-level guarantee `FactStatus::ALL`
+/// gives, and of the closed-enum parse boundary on [`FactAction`] itself.
+///
+/// ## Domain note: the non-identity mapping
+///
+/// `Undrop → Undecided` is why `FactAction` and `FactStatus` are separate types:
+/// "un-drop" is a verb with no matching state. Un-drop returns a candidate to the
+/// pool for reconsideration — deliberately `Undecided`, never `Included` (the
+/// human only recovered it, they did not confirm it).
+fn action_to_status(action: FactAction) -> FactStatus {
+    match action {
+        FactAction::Include => FactStatus::Included,
+        FactAction::Drop => FactStatus::Dropped,
+        FactAction::Undrop => FactStatus::Undecided,
+    }
+}
+
+/// `POST /cases/:slug/scenarios/:scenario_id/facts/:graph_node_id/action` — a
+/// human ruling (include / drop / un-drop) on one candidate.
+///
+/// Phase 1a.3: the write side of the candidate workbench. This is the first
+/// producer of `FactStatus::Dropped`. All three actions write through the single
+/// always-overwrite [`upsert_fact_ref`] — there is no second writer and no
+/// status-only path (ratified: a human ruling always overwrites the current
+/// status). Reload stays derive-on-read (`api::scenario_gather`), which this
+/// route does not touch.
+///
+/// ## Why role / note / confidence are all `None`
+///
+/// `upsert_fact_ref` overwrites role, note, AND confidence — not status alone —
+/// so a ruling here nulls any Theme-Scan-proposed role/confidence on the row.
+/// That is correct, not lossy: NONE of these three actions is the scan-acceptance
+/// path. Drop and un-drop don't need a proposed role (a dropped/undecided
+/// candidate's role is meaningless), and `action=include` here is a human picking
+/// a RAW candidate, not accepting a scan suggestion. Under all three rulings there
+/// is no scan judgment that *should* survive, so nulling it is the right outcome.
+///
+/// ## SEAM for 1a.4 (scan-acceptance) — do NOT fold it into this route
+///
+/// Accepting a scan suggestion while KEEPING its proposed role is 1a.4, and it
+/// cannot reuse this route: `confidence` (and the proposed role) are effectively
+/// write-only — `confidence` is absent from `SCENARIO_FACT_REF_COLUMNS` /
+/// `ScenarioFactRefRecord`, so no reader can fetch a proposed role/confidence back
+/// to re-supply it on accept. 1a.4's accept path must therefore CARRY the proposed
+/// role in its request (from the suggestion the UI already holds), not try to
+/// preserve it in the DB. Named here so 1a.4 does not inherit a silent role-loss.
+///
+/// A status-flip is an idempotent ruling, not a creation, so it returns `200 OK`
+/// (contrast `add_scenario_fact`'s `201` for a genuine save).
+#[tracing::instrument(
+    skip(state, user, payload),
+    fields(slug = %slug, scenario_id = %scenario_id, graph_node_id = %graph_node_id, action = ?payload.action)
+)]
+pub async fn apply_fact_action(
+    user: AuthUser,
+    State(state): State<AppState>,
+    Path((slug, scenario_id, graph_node_id)): Path<(String, String, String)>,
+    Json(payload): Json<FactActionRequest>,
+) -> Result<StatusCode, AppError> {
+    require_edit(&user)?;
+    tracing::info!(
+        "{} POST /cases/{}/scenarios/{}/facts/{}/action ({:?})",
+        user.username,
+        slug,
+        scenario_id,
+        graph_node_id,
+        payload.action
+    );
+
+    let id = parse_scenario_id(&scenario_id)?;
+    ensure_scenario_in_case(&state, id, &slug).await?;
+
+    let status = action_to_status(payload.action);
+
+    // role / note / confidence = None on every action — see the doc comment above:
+    // no scan judgment should survive an include/drop/undrop ruling.
+    upsert_fact_ref(
+        &state.pipeline_pool,
+        id,
+        &graph_node_id,
+        None,
+        status,
+        None,
+        None,
+    )
+    .await
+    .map_err(|e| {
+        tracing::error!(
+            error = %e,
+            graph_node_id = %graph_node_id,
+            action = ?payload.action,
+            "failed to apply fact action"
+        );
+        AppError::Internal {
+            message: "failed to apply fact action".to_string(),
+        }
+    })?;
+
+    Ok(StatusCode::OK)
+}
+
 /// `GET /cases/:slug/scenarios/:scenario_id/facts` — list saved facts with content.
 ///
 /// Reads the stored references, then reads their live graph content by id and
@@ -317,6 +438,7 @@ mod tests {
             evidence_id: evidence_id.to_string(),
             title: String::new(),
             verbatim_quote: Some(quote.to_string()),
+            question: None,
             page_number: None,
             pattern_tags: Vec::new(),
             stated_by: None,
@@ -339,6 +461,12 @@ mod tests {
             role_in_this_scenario: role.map(str::to_string),
             status: FactStatus::Included.code().to_string(),
             note: note.map(str::to_string),
+            // These join tests do not exercise confidence (that is gather's read
+            // path, tested there) — a human-curated-style None keeps them pure.
+            confidence: None,
+            // Likewise unexercised here: provenance is read by the run-detail
+            // "applied" path, not by the join. None keeps these fixtures human-authored.
+            source_run_id: None,
             // A fixed epoch timestamp — the join does not read it, but the
             // struct requires one. Avoids `Utc::now()` so the test is pure.
             tagged_at: chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
@@ -444,5 +572,15 @@ mod tests {
             Some("context"),
             "the stored role/note still travel even when content is gone",
         );
+    }
+
+    #[test]
+    fn action_to_status_maps_each_verb_to_its_state() {
+        // Pin the one non-identity translation the workbench depends on: `undrop`
+        // returns a candidate to the pool as `Undecided`, NOT `Included`. If a
+        // future edit swapped an arm, this fails here rather than mis-ruling a fact.
+        assert_eq!(action_to_status(FactAction::Include), FactStatus::Included);
+        assert_eq!(action_to_status(FactAction::Drop), FactStatus::Dropped);
+        assert_eq!(action_to_status(FactAction::Undrop), FactStatus::Undecided);
     }
 }

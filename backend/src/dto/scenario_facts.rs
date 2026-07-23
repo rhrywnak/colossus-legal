@@ -19,6 +19,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::bias::dto::BiasInstance;
+use crate::domain::fact_status::FactStatus;
 
 /// Request body for `POST /cases/:slug/scenarios/:scenario_id/facts`.
 ///
@@ -79,4 +80,181 @@ pub struct ScenarioFactDto {
     /// resolves to no live Evidence node — a stale reference, surfaced rather
     /// than dropped.
     pub content: Option<BiasInstance>,
+}
+
+/// One candidate in the scenario workbench pool (1a.2 gather endpoint).
+///
+/// A candidate is a live Evidence node ABOUT the scenario's subject, tagged with
+/// its derived workbench `status` for THIS scenario (`undecided` when no human
+/// has ruled on it, `included`/`dropped` when one has).
+///
+/// ## Rust Learning: the `Option` is the invariant, made visible in the type
+///
+/// Contrast `content: BiasInstance` here (NON-optional) with
+/// [`ScenarioFactDto::content`] above (`Option<BiasInstance>`). That older DTO
+/// is driven by SAVED references, and a saved reference can outlive the graph
+/// node it points at — so its content may be absent (`null`), and the type says
+/// so. This DTO is driven by the LIVE graph pool itself: every candidate exists
+/// because the graph just returned it, so its content is present BY
+/// CONSTRUCTION. There is no "ref outlived its node" case to represent, so there
+/// is no `Option`. The question "can this be absent?" is answered in the type,
+/// not deferred to a runtime `null` check — the two DTOs' shapes encode their
+/// two different provenances.
+#[derive(Debug, Clone, Serialize)]
+pub struct CandidateDto {
+    /// The live graph card content — present by construction (the pool drives
+    /// output; every entry is a node the graph just returned).
+    pub content: BiasInstance,
+    /// This candidate's derived workbench state for this scenario.
+    pub status: FactStatus,
+    /// The role recorded on the fact-ref, if one exists for this node. `None`
+    /// for an undecided candidate (no ref row) or a ref that recorded no role.
+    pub role: Option<String>,
+    /// The note recorded on the fact-ref, if any.
+    pub note: Option<String>,
+    /// The scan/merge model's confidence in this fact's role, in `[0.0, 1.0]`, or
+    /// `None` when the ref carries no model score (an undecided candidate with no
+    /// ref row, or a human-curated include/drop). The workbench renders `None` as
+    /// "unscored" — distinct from `Some(0.0)`, which would mean a model scored it
+    /// zero (Standing Rule 1: an unscored fact and a zero-scored fact are
+    /// different states with different observables).
+    ///
+    /// ## Rust Learning: `skip_serializing_if` keeps null OFF the wire
+    ///
+    /// With `#[serde(skip_serializing_if = "Option::is_none")]`, a `None`
+    /// confidence is *absent* from the JSON, not serialized as `"confidence":
+    /// null`. The frontend type is `number | null`, and an absent field reads back
+    /// as `undefined`/`null` there — both mean "unscored", so the frontend's
+    /// null-check covers both. Contrast `ScenarioFactDto::content`, which
+    /// deliberately does NOT skip (it must emit `null` so the client can render a
+    /// distinct "content unavailable" card). Here the absent/null collapse is
+    /// harmless because both map to the single "unscored" render; there the
+    /// distinction mattered, so it was kept. Same trait, opposite choice, each
+    /// justified by what the reader must be able to tell apart.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<f32>,
+    /// This candidate's persisted, scenario-scoped ordinal — the number the human
+    /// says out loud, rendered `C-{ordinal}`.
+    ///
+    /// Assigned at gather and never renumbered, so the same fact wears the same
+    /// chip on the Candidate Facts card and on a scan-results row. It also defines
+    /// the workbench's display order: ascending ordinal, which is stable across
+    /// visits and never reshuffles when a card is scored, merged, included, or
+    /// dropped — the human's spatial memory of the list is part of their curation
+    /// state.
+    ///
+    /// `Option` because absence is a real state rather than a defect: a candidate
+    /// read in the same instant it first enters the pool, or one whose assignment
+    /// failed, has no ordinal yet. Emitting `None` (rather than a fabricated 0 or
+    /// a positional index) keeps "not yet numbered" distinguishable from "is
+    /// number N" — Standing Rule 1. The frontend renders the absence as a plain
+    /// card with no chip rather than inventing one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ordinal: Option<i32>,
+}
+
+/// Response body for `GET /cases/:slug/scenarios/:scenario_id/facts/gather`.
+///
+/// Two lists, deliberately separate (not one list the client must partition):
+/// `pool` holds the working candidates (undecided + included), `dropped` holds
+/// the scenario-scoped exclusions on their own so a later "un-drop" tray has its
+/// data ready without re-deriving anything.
+#[derive(Debug, Clone, Serialize)]
+pub struct GatherCandidatesResponse {
+    /// Undecided + included candidates — the working pool.
+    pub pool: Vec<CandidateDto>,
+    /// Dropped candidates, kept in their own list (not omitted, not mixed in).
+    pub dropped: Vec<CandidateDto>,
+}
+
+/// A human ruling on one candidate in the workbench (Phase 1a.3).
+///
+/// The three variants are the *imperative verbs* a reviewer performs; the
+/// handler maps each to the [`crate::domain::fact_status::FactStatus`] the row
+/// becomes (see `api::scenario_facts::action_to_status`).
+///
+/// ## Rust Learning: why `FactAction` is a SEPARATE enum from `FactStatus`
+///
+/// It would be tempting to reuse `FactStatus` here — but the two vocabularies are
+/// not the same. `FactStatus` names *states* (`undecided`/`included`/`dropped`);
+/// `FactAction` names *verbs* (`include`/`drop`/`undrop`). Crucially the mapping
+/// is NON-identity: `Undrop → Undecided`. There is no `undrop` state. If we
+/// reused one enum, that non-identity translation would have nowhere to live, and
+/// `undrop` would masquerade as a state it isn't. Two enums plus an explicit
+/// `match` keep "what the human asked" and "what the row becomes" as distinct
+/// types, with the translation a visible, exhaustive function rather than an
+/// accident of naming.
+///
+/// ## Rust Learning: `#[serde(rename_all = "snake_case")]` on a closed enum
+///
+/// serde maps each variant to its snake_case wire token (`include`/`drop`/
+/// `undrop`). Because the enum is *closed* (no catch-all), a token this build
+/// does not define — e.g. `"archive"` — fails to deserialize: a LOUD 400 at the
+/// HTTP parse boundary, before the handler ever runs. That is the same
+/// parse-don't-validate discipline `FactStatus`'s `TryFrom` gives the DB column,
+/// one layer out (HTTP body vs. sqlx `String`).
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FactAction {
+    /// The human confirms this candidate as a fact of the scenario → `Included`.
+    Include,
+    /// The human excludes it from THIS scenario → `Dropped` (scenario-scoped; the
+    /// graph node is untouched and still visible elsewhere).
+    Drop,
+    /// The human recovers it from the dropped tray → `Undecided` (back to the
+    /// pool for reconsideration — deliberately NOT `Included`).
+    Undrop,
+}
+
+/// Request body for `POST /cases/:slug/scenarios/:scenario_id/facts/:graph_node_id/action`.
+///
+/// `graph_node_id` and the scenario come from the URL path; the body carries only
+/// the ruling. `deny_unknown_fields` rejects a typo'd key (e.g. `"actn"`) as a
+/// 400 rather than silently ignoring it — the same loud-boundary stance as
+/// [`AddFactRequest`] (Standing Rule 1).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FactActionRequest {
+    /// The ruling to apply. An unknown token fails to parse (see [`FactAction`]).
+    pub action: FactAction,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn fact_action_deserializes_each_snake_case_token() {
+        // The wire tokens are the contract the action route depends on — pin them.
+        let include: FactActionRequest =
+            serde_json::from_value(json!({ "action": "include" })).expect("include parses");
+        assert!(matches!(include.action, FactAction::Include));
+        let drop: FactActionRequest =
+            serde_json::from_value(json!({ "action": "drop" })).expect("drop parses");
+        assert!(matches!(drop.action, FactAction::Drop));
+        let undrop: FactActionRequest =
+            serde_json::from_value(json!({ "action": "undrop" })).expect("undrop parses");
+        assert!(matches!(undrop.action, FactAction::Undrop));
+    }
+
+    #[test]
+    fn unknown_action_token_is_a_loud_parse_error() {
+        // The closed enum makes an undefined verb a 400 at the parse boundary,
+        // never a silently-ignored action (Standing Rule 1).
+        let result: Result<FactActionRequest, _> =
+            serde_json::from_value(json!({ "action": "archive" }));
+        assert!(result.is_err(), "an unknown action token must not parse");
+    }
+
+    #[test]
+    fn extra_field_is_rejected_by_deny_unknown_fields() {
+        // A typo'd/extra key fails loudly rather than being dropped.
+        let result: Result<FactActionRequest, _> =
+            serde_json::from_value(json!({ "action": "drop", "actn": "drop" }));
+        assert!(
+            result.is_err(),
+            "deny_unknown_fields must reject an extra key"
+        );
+    }
 }

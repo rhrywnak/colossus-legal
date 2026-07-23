@@ -1,13 +1,24 @@
 //! Theme Scan HTTP route (D2b).
 //!
 //! One `POST` route that runs the LLM judge over every candidate quote about a
-//! scenario's subject and persists the relevant verdicts as `confirmed=false`
-//! suggestions. The judgment logic lives in `services::theme_scan`; this module
-//! is a thin transport shell — extract, authorize, delegate, map the typed
-//! service error onto an HTTP status.
+//! scenario's subject and records every verdict to `scan_run_verdicts`, plus the
+//! reads (poll, history) and the two writes (merge, delete) around a run.
+//!
+//! The judgment logic lives in `services::theme_scan`; this module is a thin
+//! transport shell — extract, authorize, delegate, map the typed service error
+//! onto an HTTP status.
+//!
+//! ## The scan does NOT write candidate facts
+//!
+//! An earlier version of this doc said the scan "persists the relevant verdicts as
+//! `confirmed=false` suggestions". Both halves are now wrong: the `confirmed`
+//! column was replaced by `status` in migration 20260706162558, and a scan writes
+//! nothing to `scenario_fact_refs` at all. Scanning SCORES; the human's explicit
+//! **Merge selected** is the one write path into a scenario's candidate facts.
 
 use axum::{
     extract::{Path, State},
+    http::StatusCode,
     Json,
 };
 use serde_json::json;
@@ -15,29 +26,59 @@ use uuid::Uuid;
 
 use crate::{
     auth::{require_edit, AuthUser},
-    dto::ThemeScanSummary,
+    dto::{
+        ScanRequest, ScanRunListResponse, ScanRunMergeRequest, ScanRunMergeResponse,
+        ScanRunStatusResponse, ScanStartedResponse,
+    },
     error::AppError,
-    services::theme_scan::{run_theme_scan, ThemeScanError},
+    repositories::pipeline_repository::SCAN_STATUS_RUNNING,
+    services::theme_scan::ThemeScanError,
+    services::theme_scan_run::{
+        delete_scenario_scan_run, get_scan_run_status, list_scenario_scan_runs,
+        merge_scenario_scan_run, start_theme_scan,
+    },
     state::AppState,
 };
 
 /// `POST /cases/:slug/scenarios/:scenario_id/theme-scan` — scan a scenario.
 ///
-/// Edit-gated (`require_edit`): a scan WRITES suggestions to
-/// `scenario_fact_refs` and spends real LLM budget, so it is a mutation, not a
-/// read. The `(slug, scenario_id)` pair is case-fenced inside the service.
-#[tracing::instrument(skip(state, user), fields(slug = %slug, scenario_id = %scenario_id))]
+/// ## Why this is edit-gated even though a scan writes no candidate facts
+///
+/// A scan does NOT write `scenario_fact_refs` — merge is the only path into a
+/// scenario's candidate facts, and it is explicitly human-driven. The gate is
+/// still correct, for two other reasons: a scan SPENDS REAL LLM BUDGET, and it
+/// writes the `scan_runs` / `scan_run_verdicts` audit rows. Both are mutations of
+/// the case's record and its cost, so a read-only viewer must not be able to
+/// trigger one. (This comment previously claimed the gate existed because the scan
+/// wrote suggestions into `scenario_fact_refs` — it no longer does, and the gate's
+/// real justification is budget spend plus audit writes.)
+///
+/// The `(slug, scenario_id)` pair is case-fenced inside the service. The optional
+/// JSON body carries the per-run model picker.
+///
+/// ## Rust Learning: `Option<Json<T>>` — an OPTIONAL request body
+///
+/// Axum's `Json<T>` extractor FAILS on an empty body. Wrapping it in `Option`
+/// yields `None` when there is no body (or no JSON content type) instead of a
+/// 4xx — so an empty `POST` means "scan with the default model". It MUST be the
+/// LAST parameter: a body-consuming extractor runs after the non-consuming ones
+/// (`AuthUser`, `State`, `Path`).
+#[tracing::instrument(skip(state, user, body), fields(slug = %slug, scenario_id = %scenario_id))]
 pub async fn run_scenario_theme_scan(
     user: AuthUser,
     State(state): State<AppState>,
     Path((slug, scenario_id)): Path<(String, String)>,
-) -> Result<Json<ThemeScanSummary>, AppError> {
+    body: Option<Json<ScanRequest>>,
+) -> Result<Json<ScanStartedResponse>, AppError> {
     require_edit(&user)?;
+    // No body → the neutral default request (default model).
+    let req = body.map(|Json(b)| b).unwrap_or_default();
     tracing::info!(
-        "{} POST /cases/{}/scenarios/{}/theme-scan",
+        "{} POST /cases/{}/scenarios/{}/theme-scan (model={:?})",
         user.username,
         slug,
-        scenario_id
+        scenario_id,
+        req.model_id,
     );
 
     // Parse the path id up front so a malformed id is a clean 400, never a
@@ -47,10 +88,153 @@ pub async fn run_scenario_theme_scan(
         details: json!({ "field": "scenario_id" }),
     })?;
 
-    let summary = run_theme_scan(&state, &slug, id)
+    // The scan runs in the background: this returns as soon as the `running` row
+    // is recorded, so the browser → Traefik → Authentik path never waits minutes.
+    let started = start_theme_scan(&state, &slug, id, req.model_id)
         .await
         .map_err(map_scan_error)?;
-    Ok(Json(summary))
+    Ok(Json(ScanStartedResponse {
+        run_id: started.run_id,
+        status: SCAN_STATUS_RUNNING.to_string(),
+        candidates_total: started.candidates_total,
+    }))
+}
+
+/// `GET /cases/:slug/scenarios/:scenario_id/scan-runs/:run_id` — poll a run.
+///
+/// Edit-gated (same as the POST — it reads an edit-gated resource; ruling 3) and
+/// case-fenced inside the service. Returns the live progress while `running` and
+/// the full summary once `completed`.
+#[tracing::instrument(skip(state, user), fields(slug = %slug, scenario_id = %scenario_id, run_id = %run_id))]
+pub async fn get_scenario_scan_run(
+    user: AuthUser,
+    State(state): State<AppState>,
+    Path((slug, scenario_id, run_id)): Path<(String, String, String)>,
+) -> Result<Json<ScanRunStatusResponse>, AppError> {
+    require_edit(&user)?;
+
+    // Both path ids parse up front so a malformed id is a clean 400, not a "not
+    // found" masquerade.
+    let scenario_uuid = Uuid::parse_str(&scenario_id).map_err(|_| AppError::BadRequest {
+        message: "scenario_id must be a valid UUID".to_string(),
+        details: json!({ "field": "scenario_id" }),
+    })?;
+    let run_uuid = Uuid::parse_str(&run_id).map_err(|_| AppError::BadRequest {
+        message: "run_id must be a valid UUID".to_string(),
+        details: json!({ "field": "run_id" }),
+    })?;
+
+    let status = get_scan_run_status(&state, &slug, scenario_uuid, run_uuid)
+        .await
+        .map_err(map_scan_error)?;
+    Ok(Json(status))
+}
+
+/// `GET /cases/:slug/scenarios/:scenario_id/scan-runs` — the scenario's run
+/// history, newest first.
+///
+/// Retrieval-only: reads the already-persisted `scan_runs` headers (no verdicts,
+/// no summary — those are fetched per-run via the `:run_id` endpoint). Edit-gated
+/// and case-fenced identically to the `:run_id` poll (same `require_edit`, same
+/// `load_scenario_fenced` inside the service), so a caller cannot list another
+/// case's runs.
+#[tracing::instrument(skip(state, user), fields(slug = %slug, scenario_id = %scenario_id))]
+pub async fn list_scenario_scan_runs_handler(
+    user: AuthUser,
+    State(state): State<AppState>,
+    Path((slug, scenario_id)): Path<(String, String)>,
+) -> Result<Json<ScanRunListResponse>, AppError> {
+    require_edit(&user)?;
+
+    // Parse the path id up front so a malformed id is a clean 400, never a failed
+    // DB lookup masquerading as an empty history.
+    let scenario_uuid = Uuid::parse_str(&scenario_id).map_err(|_| AppError::BadRequest {
+        message: "scenario_id must be a valid UUID".to_string(),
+        details: json!({ "field": "scenario_id" }),
+    })?;
+
+    let runs = list_scenario_scan_runs(&state, &slug, scenario_uuid)
+        .await
+        .map_err(map_scan_error)?;
+    Ok(Json(runs))
+}
+
+/// `DELETE /cases/:slug/scenarios/:scenario_id/scan-runs/:run_id` — delete a run.
+///
+/// Edit-gated (`require_edit`) and case-fenced identically to
+/// [`get_scenario_scan_run`] — the delete's `scenario_id` scope is the second
+/// fence (see [`delete_scenario_scan_run`]). Success is `204 No Content` (there is
+/// no body to return); an unknown run — or a run that belongs to a different
+/// scenario — is [`ThemeScanError::ScanRunNotFound`] → 404. Named
+/// `_handler` to avoid colliding with the imported service fn of the same base
+/// name (mirrors [`list_scenario_scan_runs_handler`]).
+#[tracing::instrument(skip(state, user), fields(slug = %slug, scenario_id = %scenario_id, run_id = %run_id))]
+pub async fn delete_scenario_scan_run_handler(
+    user: AuthUser,
+    State(state): State<AppState>,
+    Path((slug, scenario_id, run_id)): Path<(String, String, String)>,
+) -> Result<StatusCode, AppError> {
+    require_edit(&user)?;
+
+    // Both path ids parse up front so a malformed id is a clean 400, not a "not
+    // found" masquerade (identical to the GET poll).
+    let scenario_uuid = Uuid::parse_str(&scenario_id).map_err(|_| AppError::BadRequest {
+        message: "scenario_id must be a valid UUID".to_string(),
+        details: json!({ "field": "scenario_id" }),
+    })?;
+    let run_uuid = Uuid::parse_str(&run_id).map_err(|_| AppError::BadRequest {
+        message: "run_id must be a valid UUID".to_string(),
+        details: json!({ "field": "run_id" }),
+    })?;
+
+    delete_scenario_scan_run(&state, &slug, scenario_uuid, run_uuid)
+        .await
+        .map_err(map_scan_error)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// `POST /cases/:slug/scenarios/:scenario_id/scan-runs/:run_id/merge` — merge a
+/// stored run's relevant picks into the scenario's candidate facts.
+///
+/// Edit-gated (`require_edit` — it WRITES `scenario_fact_refs`) and case-fenced
+/// identically to [`get_scenario_scan_run`]. Replays already-stored verdicts, so
+/// it spends NO LLM budget. Returns `{ merged }` — the number of picks inserted or
+/// refreshed as `undecided` suggestions; existing human `included`/`dropped`
+/// curation is preserved and NOT counted. A run absent from this scenario is a 404.
+///
+/// The request body carries `graph_node_ids` — the picks the human CHECKED. Merge
+/// writes the scan's judgment onto ONLY these (Option A); an empty list is a 400
+/// ("check at least one pick"). `Json` is the LAST extractor because it consumes
+/// the request body — an Axum requirement (a body-consuming extractor must come
+/// after the borrow-only `Path`/`State`).
+#[tracing::instrument(skip(state, user, body), fields(slug = %slug, scenario_id = %scenario_id, run_id = %run_id, selected = body.graph_node_ids.len()))]
+pub async fn merge_scenario_scan_run_handler(
+    user: AuthUser,
+    State(state): State<AppState>,
+    Path((slug, scenario_id, run_id)): Path<(String, String, String)>,
+    Json(body): Json<ScanRunMergeRequest>,
+) -> Result<Json<ScanRunMergeResponse>, AppError> {
+    require_edit(&user)?;
+
+    // Both path ids parse up front so a malformed id is a clean 400, not a "not
+    // found" masquerade (identical to the GET poll and DELETE).
+    let scenario_uuid = Uuid::parse_str(&scenario_id).map_err(|_| AppError::BadRequest {
+        message: "scenario_id must be a valid UUID".to_string(),
+        details: json!({ "field": "scenario_id" }),
+    })?;
+    let run_uuid = Uuid::parse_str(&run_id).map_err(|_| AppError::BadRequest {
+        message: "run_id must be a valid UUID".to_string(),
+        details: json!({ "field": "run_id" }),
+    })?;
+
+    let merged =
+        merge_scenario_scan_run(&state, &slug, scenario_uuid, run_uuid, &body.graph_node_ids)
+            .await
+            .map_err(map_scan_error)?;
+    // `rows_affected` is a u64; the ~94-candidate ceiling is nowhere near i64 range.
+    Ok(Json(ScanRunMergeResponse {
+        merged: merged as i64,
+    }))
 }
 
 /// Map a [`ThemeScanError`] onto its HTTP surface.
@@ -64,16 +248,46 @@ fn map_scan_error(err: ThemeScanError) -> AppError {
     // logged, never returned, for the server-side variants below.
     let message = err.to_string();
     match err {
-        ThemeScanError::ScenarioNotFound { .. } => AppError::NotFound { message },
+        ThemeScanError::ScenarioNotFound { .. } | ThemeScanError::ScanRunNotFound { .. } => {
+            AppError::NotFound { message }
+        }
         ThemeScanError::EmptyAttackMeaning { .. } => AppError::BadRequest {
             message,
             details: json!({ "precondition": "attack_meaning" }),
+        },
+        // Nothing checked to merge — user-fixable (check a pick), so a 400 with a
+        // hint the frontend can key on, distinct from a not-found run.
+        ThemeScanError::EmptySelection { .. } => AppError::BadRequest {
+            message,
+            details: json!({ "precondition": "selection" }),
         },
         ThemeScanError::SubjectUnresolvable { .. } => AppError::BadRequest {
             message,
             details: json!({ "precondition": "subject" }),
         },
-        ThemeScanError::ProviderUnavailable => AppError::ServiceUnavailable { message },
+        // The run's judgments are already part of the case. A 409 (not a 403 or a
+        // 400): the request is well-formed and the caller is permitted — it
+        // conflicts with the current STATE of the resource. Nothing the caller can
+        // fix by retrying or rephrasing, which is why the message explains that the
+        // provenance is retained on purpose rather than implying a transient fault.
+        ThemeScanError::ScanRunMerged { .. } => AppError::Conflict {
+            message,
+            details: json!({ "reason": "run_merged" }),
+        },
+        // Bad model CHOICE (unknown/inactive, un-satisfiable params, or an
+        // un-buildable row like a vLLM model with no endpoint): the operator
+        // fixes it by picking a valid model — 400 with the reason.
+        ThemeScanError::ModelNotAvailable { .. }
+        | ThemeScanError::ParamsInvalid { .. }
+        | ThemeScanError::ProviderBuildFailed { .. } => AppError::BadRequest {
+            message,
+            details: json!({ "precondition": "model" }),
+        },
+        // HARD GATE refusals: the selected vLLM endpoint is down or serving the
+        // wrong model — a dependency problem the operator corrects. 503.
+        ThemeScanError::VllmUnreachable { .. } | ThemeScanError::VllmModelMismatch { .. } => {
+            AppError::ServiceUnavailable { message }
+        }
         // DB, graph, prompt-file, and definition-parse failures are server-side.
         // Log the full typed error (with its source) and return a generic 500.
         other => {
@@ -86,56 +300,5 @@ fn map_scan_error(err: ThemeScanError) -> AppError {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use uuid::Uuid;
-
-    // `map_scan_error` is the one piece of policy in this transport shell: it
-    // decides which failures are the client's fault (4xx), which are a missing
-    // dependency (503), and which are server bugs (500). Pin each mapping so a
-    // future variant added to a wrong arm is caught here, not in production.
-
-    #[test]
-    fn not_found_maps_to_404() {
-        let e = ThemeScanError::ScenarioNotFound {
-            case_slug: "awad".to_string(),
-            scenario_id: Uuid::nil(),
-        };
-        assert!(matches!(map_scan_error(e), AppError::NotFound { .. }));
-    }
-
-    #[test]
-    fn empty_attack_meaning_maps_to_400() {
-        let e = ThemeScanError::EmptyAttackMeaning {
-            scenario_id: Uuid::nil(),
-        };
-        assert!(matches!(map_scan_error(e), AppError::BadRequest { .. }));
-    }
-
-    #[test]
-    fn subject_unresolvable_maps_to_400() {
-        let e = ThemeScanError::SubjectUnresolvable {
-            scenario_id: Uuid::nil(),
-        };
-        assert!(matches!(map_scan_error(e), AppError::BadRequest { .. }));
-    }
-
-    #[test]
-    fn provider_unavailable_maps_to_503() {
-        assert!(matches!(
-            map_scan_error(ThemeScanError::ProviderUnavailable),
-            AppError::ServiceUnavailable { .. }
-        ));
-    }
-
-    #[test]
-    fn server_side_variants_map_to_500() {
-        // A representative server-side variant (prompt file unreadable) must be a
-        // generic 500, not leak its cause to the client.
-        let e = ThemeScanError::PromptFileMissing {
-            path: "/x".to_string(),
-            source: std::io::Error::new(std::io::ErrorKind::NotFound, "nope"),
-        };
-        assert!(matches!(map_scan_error(e), AppError::Internal { .. }));
-    }
-}
+#[path = "scenario_theme_scan_tests.rs"]
+mod tests;

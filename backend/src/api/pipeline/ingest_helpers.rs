@@ -204,6 +204,116 @@ pub async fn create_document_node(
     Ok(neo4j_id)
 }
 
+/// Split a template's comma-joined `aliases` value into a clean list.
+///
+/// The extraction templates emit `aliases` as one string
+/// (`"Defendant Phillips, Phillips"`) because that is what the schema declares.
+/// Neo4j stores it as a LIST so Cypher can test membership directly, which is
+/// what alias-aware matching will need — so the split happens here, at the
+/// boundary, exactly once.
+///
+/// ## Rust Learning: a three-state enum instead of `Option`
+///
+/// This returned `Option<Vec<String>>` and could not say enough. `None` collapsed
+/// two genuinely different situations: "this party has no aliases" (normal, and
+/// most parties) and "aliases were present but in the wrong SHAPE" — an LLM
+/// emitting `["a","b"]` instead of `"a, b"`. The second is a template or model
+/// defect that silently loses real data, and it looked exactly like the first.
+///
+/// Three variants, three observables (Standing Rule 1). The parse stays pure and
+/// unit-testable; the CALLER owns the logging, because only the caller knows the
+/// document and node this value came from.
+enum AliasField {
+    /// No aliases to record: the property is absent, null, or holds only
+    /// separators/whitespace. The overwhelmingly common case — not logged.
+    Absent,
+    /// A usable, de-blanked list.
+    Parsed(Vec<String>),
+    /// Present but not a string. The value is NOT coerced — a wrong shape must
+    /// not be stringified into nonsense — but it IS reported, because real alias
+    /// data was just dropped.
+    Malformed,
+}
+
+/// Split a template's comma-joined `aliases` value into a clean list.
+fn parse_aliases(value: &serde_json::Value) -> AliasField {
+    // Absent/null is the normal "no aliases" case, distinct from a wrong shape.
+    if value.is_null() {
+        return AliasField::Absent;
+    }
+    let Some(raw) = value.as_str() else {
+        return AliasField::Malformed;
+    };
+    let list: Vec<String> = raw
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect();
+    if list.is_empty() {
+        // A stray "" or ", ," records nothing — and must not be written as a
+        // one-element list holding an empty string, a value that matches nothing
+        // and clutters every query reading the field.
+        AliasField::Absent
+    } else {
+        AliasField::Parsed(list)
+    }
+}
+
+/// Name the JSON type of a value, for logs that report a wrong-shaped property.
+fn json_type_name(value: &serde_json::Value) -> &'static str {
+    match value {
+        serde_json::Value::Null => "null",
+        serde_json::Value::Bool(_) => "boolean",
+        serde_json::Value::Number(_) => "number",
+        serde_json::Value::String(_) => "string",
+        serde_json::Value::Array(_) => "array",
+        serde_json::Value::Object(_) => "object",
+    }
+}
+
+/// Build the Party MERGE statement.
+///
+/// Extracted as a pure function so a unit test can pin the exact ON CREATE /
+/// ON MATCH semantics without a live Neo4j — the house pattern already used by
+/// `build_relationship_cypher` and `build_cross_tier_edge_cypher` below.
+///
+/// ## What each clause is for
+///
+/// * `n.name` is KEPT and unchanged. The resolver's `fetch_existing_parties`,
+///   the Bias Explorer, and every existing query read it; dropping or renaming
+///   it would break all of them. `n.party_name` is added ALONGSIDE it, carrying
+///   the same value, so the property the templates and schemas have always
+///   specified finally exists on the node.
+/// * `n.aliases` is a LIST, seeded ON CREATE and APPENDED ON MATCH — never
+///   overwritten. A second document contributing a new variant must add to the
+///   set, not replace what the first document recorded.
+/// * The ON MATCH append also folds in `$incoming_name` when it differs from the
+///   stored `n.name`. First writer wins the canonical form (ruling 2026-07-20
+///   #4), but the losing variant is preserved as an alias rather than discarded —
+///   it is exactly the string a later reader may search for.
+/// * `coalesce(n.aliases, [])` guards the pre-existing nodes in the graph, whose
+///   `aliases` is currently NULL: appending to NULL would yield NULL and silently
+///   erase the incoming aliases.
+/// * The final list comprehension deduplicates while preserving order.
+fn build_party_merge_cypher(label: &str) -> String {
+    format!(
+        "MERGE (n:{label} {{id: $id}}) \
+         ON CREATE SET n.name = $name, n.party_name = $name, n.role = $role, \
+           n.aliases = $aliases, \
+           n.source_document = $doc, n.source_documents = [$doc] \
+         ON MATCH SET n.party_name = coalesce(n.party_name, n.name), \
+           n.aliases = reduce(acc = [], x IN \
+             coalesce(n.aliases, []) + $aliases + \
+             CASE WHEN n.name IS NOT NULL AND n.name <> $name THEN [$name] ELSE [] END \
+             | CASE WHEN x IN acc THEN acc ELSE acc + x END), \
+           n.source_documents = CASE \
+             WHEN NOT $doc IN coalesce(n.source_documents, []) \
+             THEN coalesce(n.source_documents, []) + $doc \
+             ELSE n.source_documents END"
+    )
+}
+
 /// Create or merge Party nodes (Person/Organization) using entity resolution.
 ///
 /// ## Rust Learning: MERGE for cross-document entity resolution
@@ -212,6 +322,16 @@ pub async fn create_document_node(
 /// The same person (e.g., "Marie Awad") can appear in multiple documents.
 /// MERGE matches on the node ID and either creates a new node or updates
 /// the existing one by appending the new document to `source_documents`.
+///
+/// ## Why this writer is special-cased (and what that cost us)
+///
+/// Party items are dispatched here and EXCLUDED from `create_entity_node`'s
+/// generic property loop, so a Party node only ever receives the properties this
+/// function names explicitly. Until now that list was `name`, `role`, and the
+/// source-document bookkeeping — which is why `party_name` and `aliases` were
+/// absent from every Person and Organization node in the graph despite every
+/// template emitting them. They were not dropped by a failed conversion; they
+/// were simply never read. Both are now written.
 pub async fn create_party_nodes(
     txn: &mut neo4rs::Txn,
     items: &[ExtractionItemRecord],
@@ -239,6 +359,26 @@ pub async fn create_party_nodes(
             .or_else(|| props["full_name"].as_str())
             .unwrap_or("unknown");
         let role = props["role"].as_str().unwrap_or("");
+        // Templates emit aliases as a comma-joined string; Neo4j stores a list.
+        let aliases = match parse_aliases(&props["aliases"]) {
+            AliasField::Parsed(list) => list,
+            AliasField::Absent => Vec::new(),
+            AliasField::Malformed => {
+                // Real alias data was just dropped. Coercing the wrong shape would
+                // write nonsense onto a Party node; saying nothing would make this
+                // identical to a party that simply has no aliases. So: drop the
+                // value, keep the party, and name the defect.
+                tracing::warn!(
+                    item_id = item.id,
+                    doc_id = %doc_id,
+                    party = %name,
+                    value_type = %json_type_name(&props["aliases"]),
+                    "Party `aliases` is present but not a comma-separated string; \
+                     dropping it rather than coercing — check the extraction template"
+                );
+                Vec::new()
+            }
+        };
         // Support both "party_type" (complaint.yaml) and "entity_kind" (general_legal.yaml)
         let party_type = props["party_type"]
             .as_str()
@@ -252,14 +392,30 @@ pub async fn create_party_nodes(
             ENTITY_PERSON
         };
 
-        // Look up resolved ID from the resolution map
-        let neo4j_id = resolution_map
-            .get(name)
-            .map(|(id, _)| id.clone())
-            .unwrap_or_else(|| {
-                let prefix = if is_org { "org" } else { "person" };
-                format!("{prefix}-{}", slug(name))
-            });
+        // Look up the resolution decision for this party.
+        let resolved = resolution_map.get(name);
+        let neo4j_id = resolved.map(|r| r.neo4j_id.clone()).unwrap_or_else(|| {
+            let prefix = if is_org { "org" } else { "person" };
+            format!("{prefix}-{}", slug(name))
+        });
+
+        // Ruling 2026-07-20 #4: when two documents disagree on a party's canonical
+        // form, the FIRST writer's name stays authoritative — but the disagreement
+        // must be visible, and the losing variant must not be lost. The Cypher
+        // below folds the incoming name into `aliases`; this log makes the
+        // divergence observable to an operator rather than silently absorbed.
+        if let Some(existing) = resolved.and_then(|r| r.existing_name.as_deref()) {
+            if existing != name {
+                tracing::warn!(
+                    node_id = %neo4j_id,
+                    existing_name = %existing,
+                    incoming_name = %name,
+                    doc_id = %doc_id,
+                    "Canonical-name disagreement between documents; keeping the \
+                     existing name and preserving the incoming form as an alias"
+                );
+            }
+        }
 
         pg_to_neo4j.insert(item.id, neo4j_id.clone());
         pg_to_label.insert(item.id, label.to_string());
@@ -269,20 +425,13 @@ pub async fn create_party_nodes(
             continue;
         }
 
-        let cypher = format!(
-            "MERGE (n:{label} {{id: $id}}) \
-             ON CREATE SET n.name = $name, n.role = $role, \
-               n.source_document = $doc, n.source_documents = [$doc] \
-             ON MATCH SET n.source_documents = CASE \
-               WHEN NOT $doc IN coalesce(n.source_documents, []) \
-               THEN coalesce(n.source_documents, []) + $doc \
-               ELSE n.source_documents END"
-        );
+        let cypher = build_party_merge_cypher(label);
         txn.run(
             query(&cypher)
                 .param("id", neo4j_id.as_str())
                 .param("name", name)
                 .param("role", role)
+                .param("aliases", aliases.clone())
                 .param("doc", doc_id),
         )
         .await
@@ -1225,6 +1374,168 @@ mod tests {
     //
     // No async / Neo4j integration tests live in this module; the live
     // Cypher path is exercised by the DEV deploy verification step.
+
+    // ── Party writer: party_name, aliases, and the canonical-form rule ────────
+
+    /// `party_name` must be written ALONGSIDE `name`, never instead of it.
+    ///
+    /// Every Person/Organization node in the graph today has `party_name = null`
+    /// because this writer mapped the template's `party_name` onto `n.name` and
+    /// stored nothing else. Adding the property is the fix; keeping `name` is what
+    /// stops the fix from breaking `fetch_existing_parties`, the Bias Explorer, and
+    /// every existing query.
+    #[test]
+    fn party_merge_cypher_writes_party_name_and_keeps_name() {
+        let cypher = build_party_merge_cypher("Person");
+        assert!(
+            cypher.contains("n.name = $name"),
+            "n.name must survive — existing readers depend on it: {cypher}"
+        );
+        assert!(
+            cypher.contains("n.party_name = $name"),
+            "party_name must be written, not just renamed onto name: {cypher}"
+        );
+    }
+
+    /// Aliases seed on create and APPEND on match — a second document must never
+    /// overwrite what the first recorded.
+    #[test]
+    fn party_merge_cypher_seeds_aliases_on_create_and_appends_on_match() {
+        let cypher = build_party_merge_cypher("Person");
+        let (on_create, on_match) = cypher
+            .split_once("ON MATCH")
+            .expect("the statement has both an ON CREATE and an ON MATCH arm");
+
+        assert!(
+            on_create.contains("n.aliases = $aliases"),
+            "ON CREATE must seed the alias list: {on_create}"
+        );
+        assert!(
+            on_match.contains("coalesce(n.aliases, [])") && on_match.contains("$aliases"),
+            "ON MATCH must append to the existing list: {on_match}"
+        );
+        // coalesce is load-bearing: every pre-existing node has aliases = NULL, and
+        // appending to NULL yields NULL — silently erasing the incoming aliases.
+        assert!(
+            on_match.contains("coalesce(n.aliases, [])"),
+            "appending must guard against a NULL aliases on legacy nodes: {on_match}"
+        );
+    }
+
+    /// The losing canonical form is preserved as an alias (ruling #4 / Q2).
+    ///
+    /// First writer wins the name, but nothing is lost: when the incoming name
+    /// disagrees with the stored one, the incoming form joins the alias set. It is
+    /// exactly the string a later reader might search for.
+    #[test]
+    fn party_merge_cypher_preserves_a_losing_canonical_name_as_an_alias() {
+        let cypher = build_party_merge_cypher("Person");
+        let on_match = cypher.split_once("ON MATCH").expect("has ON MATCH").1;
+        assert!(
+            on_match.contains("n.name <> $name") && on_match.contains("[$name]"),
+            "a disagreeing incoming name must be folded into aliases: {on_match}"
+        );
+        // And the stored name must NOT be reassigned — first writer wins.
+        assert!(
+            !on_match.contains("n.name = $name"),
+            "ON MATCH must never overwrite the canonical name: {on_match}"
+        );
+    }
+
+    /// Comma-joined template output becomes a clean Neo4j list.
+    /// Convenience for asserting on the parsed list.
+    fn parsed(v: &serde_json::Value) -> Option<Vec<String>> {
+        match parse_aliases(v) {
+            AliasField::Parsed(list) => Some(list),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn parse_aliases_splits_and_trims() {
+        let v = serde_json::json!("Defendant Phillips, Phillips");
+        assert_eq!(
+            parsed(&v),
+            Some(vec![
+                "Defendant Phillips".to_string(),
+                "Phillips".to_string()
+            ])
+        );
+    }
+
+    /// Absent, empty, and whitespace-only all mean "no aliases" — and must produce
+    /// NO property rather than a list containing an empty string.
+    ///
+    /// Standing Rule 1: `[""]` is a value that matches nothing and clutters every
+    /// query reading the field; it must be distinguishable from a real alias.
+    #[test]
+    fn parse_aliases_treats_empty_input_as_absent_never_as_a_blank_entry() {
+        for empty in [
+            serde_json::Value::Null,
+            serde_json::json!(""),
+            serde_json::json!("   "),
+            serde_json::json!(", ,"),
+        ] {
+            assert!(
+                matches!(parse_aliases(&empty), AliasField::Absent),
+                "{empty:?} records no aliases — and must never become [\"\"]"
+            );
+        }
+    }
+
+    /// A wrong-SHAPED aliases value must be distinguishable from having none.
+    ///
+    /// An LLM emitting `["a","b"]` instead of `"a, b"` is a template/model defect
+    /// that silently loses real data. Both cases used to return `None` and write
+    /// an empty list with nothing logged, so the defect was invisible. Malformed
+    /// is now its own state, which the caller reports (Standing Rule 1).
+    #[test]
+    fn parse_aliases_reports_a_wrong_shape_rather_than_calling_it_absent() {
+        for malformed in [
+            serde_json::json!(["a", "b"]),
+            serde_json::json!(42),
+            serde_json::json!(true),
+            serde_json::json!({"a": "b"}),
+        ] {
+            assert!(
+                matches!(parse_aliases(&malformed), AliasField::Malformed),
+                "{malformed:?} is present-but-wrong-shape, NOT absent — dropping it \
+                 silently is the failure mode this batch exists to remove"
+            );
+        }
+    }
+
+    /// The log field must name the actual type so the defect is diagnosable.
+    #[test]
+    fn json_type_name_names_every_shape() {
+        assert_eq!(json_type_name(&serde_json::Value::Null), "null");
+        assert_eq!(json_type_name(&serde_json::json!("x")), "string");
+        assert_eq!(json_type_name(&serde_json::json!(["x"])), "array");
+        assert_eq!(json_type_name(&serde_json::json!({"x": 1})), "object");
+        assert_eq!(json_type_name(&serde_json::json!(1)), "number");
+        assert_eq!(json_type_name(&serde_json::json!(true)), "boolean");
+    }
+
+    /// Stray separators must not become empty aliases.
+    #[test]
+    fn parse_aliases_drops_empty_tokens_between_separators() {
+        let v = serde_json::json!("Phillips,, ,Mr. Phillips");
+        assert_eq!(
+            parsed(&v),
+            Some(vec!["Phillips".to_string(), "Mr. Phillips".to_string()])
+        );
+    }
+
+    /// The alias append must deduplicate — re-ingesting the same document twice
+    /// must not grow the list.
+    #[test]
+    fn party_merge_cypher_deduplicates_the_alias_list() {
+        let cypher = build_party_merge_cypher("Person");
+        assert!(
+            cypher.contains("CASE WHEN x IN acc THEN acc ELSE acc + x END"),
+            "the append must dedupe, or repeated ingests grow the list: {cypher}"
+        );
+    }
 
     #[test]
     fn validate_relationship_provenance_rejects_empty_source_document_id() {

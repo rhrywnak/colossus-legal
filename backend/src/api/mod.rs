@@ -51,6 +51,7 @@ pub mod proof_review;
 pub mod qa;
 pub mod queries;
 pub mod scenario_facts;
+pub mod scenario_gather;
 pub mod scenario_theme_scan;
 pub mod scenarios;
 pub mod schema;
@@ -78,6 +79,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .merge(session_routes())
         .merge(case_routes())
+        .merge(scenario_routes())
         .merge(claim_routes())
         .merge(document_routes())
         .merge(entity_routes())
@@ -132,6 +134,15 @@ fn case_routes() -> Router<AppState> {
             "/cases/:slug/trial-prep/scenarios/:scenario_id",
             get(trial_prep::get_trial_prep_scenario_detail),
         )
+}
+
+/// Scenario authoring + curation routes (the `/cases/:slug/scenarios/...`
+/// cluster). Split out of `case_routes` as its own group so each route-group
+/// function stays under the function-size limit and the scenario surface reads
+/// as one unit. Merged independently in `router()`; paths are distinct from the
+/// other groups', so merge order does not matter.
+fn scenario_routes() -> Router<AppState> {
+    Router::new()
         .route(
             "/cases/:slug/scenarios",
             get(scenarios::list_scenarios).post(scenarios::create_scenario),
@@ -153,12 +164,50 @@ fn case_routes() -> Router<AppState> {
             "/cases/:slug/scenarios/:scenario_id/facts/:graph_node_id",
             delete(scenario_facts::remove_scenario_fact),
         )
+        // Candidate-workbench ruling (Phase 1a.3): include / drop / un-drop one
+        // candidate via a typed action enum. Edit-gated inside the handler. A
+        // static `action` child under the `:graph_node_id` param — beside the
+        // `/facts/gather` static sibling that matchit 0.7.3 already accepts.
+        .route(
+            "/cases/:slug/scenarios/:scenario_id/facts/:graph_node_id/action",
+            post(scenario_facts::apply_fact_action),
+        )
+        // Candidate-workbench gather (Phase 1a.2): read-only pool of every
+        // Evidence node ABOUT the scenario's subject, each tagged with its
+        // derived workbench status. Open read (Option<AuthUser>), like the
+        // sibling facts list.
+        .route(
+            "/cases/:slug/scenarios/:scenario_id/facts/gather",
+            get(scenario_gather::gather_scenario_candidates),
+        )
         // Theme Scan (D2b): LLM-judge every candidate quote about the scenario's
         // subject and persist the relevant verdicts as confirmed=false
         // suggestions. Edit-gated inside the handler (writes + real LLM spend).
         .route(
             "/cases/:slug/scenarios/:scenario_id/theme-scan",
             post(scenario_theme_scan::run_scenario_theme_scan),
+        )
+        // Poll one background scan run: live progress while running, full summary
+        // when completed. DELETE removes the run (and its verdicts, which cascade).
+        // Both edit-gated + case-fenced inside the handler.
+        .route(
+            "/cases/:slug/scenarios/:scenario_id/scan-runs/:run_id",
+            get(scenario_theme_scan::get_scenario_scan_run)
+                .delete(scenario_theme_scan::delete_scenario_scan_run_handler),
+        )
+        // Merge (set-as-basis): promote a stored run's relevant picks into the
+        // scenario's candidate facts, status-preserving, with zero LLM spend.
+        // Edit-gated + case-fenced inside the handler.
+        .route(
+            "/cases/:slug/scenarios/:scenario_id/scan-runs/:run_id/merge",
+            post(scenario_theme_scan::merge_scenario_scan_run_handler),
+        )
+        // List a scenario's scan-run HISTORY (headers only, newest first) so the
+        // panel hydrates from the DB and survives navigation. Retrieval-only,
+        // edit-gated + case-fenced inside the handler.
+        .route(
+            "/cases/:slug/scenarios/:scenario_id/scan-runs",
+            get(scenario_theme_scan::list_scenario_scan_runs_handler),
         )
 }
 
@@ -289,6 +338,9 @@ fn interaction_routes() -> Router<AppState> {
         .route("/search", post(search::semantic_search))
         .route("/ask", post(ask::ask_the_case))
         .route("/chat/models", get(chat_models::list_chat_models))
+        // Scan/benchmark model picker — active AND scan_eligible only, so retired
+        // (but extraction-active) models stay out of the picker (ruling A).
+        .route("/scan/models", get(chat_models::list_scan_models))
         .route("/qa-history", get(qa::get_qa_history))
         .route("/qa/:id", get(qa::get_qa_entry).delete(qa::delete_qa_entry))
         .route("/qa/:id/rate", patch(qa::rate_qa_entry))

@@ -1,0 +1,113 @@
+# Processing profile for the evidence-anchoring pipeline — Motion (v5.3)
+#
+# Version: 5.3   Date: 2026-07-21 (rebuild-plan task 1.3)
+#
+# Motions filed with the court: dated, attorney-authored requests for relief
+# supported by factual assertions and argument citing exhibits. Every assertion
+# is an Evidence node attributed to the MOVANT (one voice throughout, unlike a
+# transcript). Assertions carry two axes — statement_type and attribution — and
+# pass 2 gates every finding-edge on attribution=recitation, which is what stops
+# an opponent's quoted discovery answers being extracted a second time as the
+# movant's own claims.
+#
+# A motion NEVER corroborates. It is unsworn advocacy; its assertions cite
+# exhibits, and the proof lives in the exhibit when that exhibit is processed as
+# its own document.
+#
+# CHUNKING — full document. Read this before changing it.
+# Verified empirically against both corpus samples' real extracted text:
+#
+#   numbered_paragraph / qa_pair (^\d+\.\s)
+#     42-page text-PDF motion : 0 matches  -> silent whole-document fallback
+#     30-page scanned motion  : 4 matches, margin numbers only, nothing across
+#                               24 pages of bound exhibits
+#   section_heading
+#     42-page text-PDF motion : 6 matches, ALL WRONG — the caption block, then
+#                               stray uppercase tokens mid-argument (it fired on
+#                               "MCR" and on "HVAC"). The document's real
+#                               headings are Title Case ("Statement of Facts",
+#                               "Standards of Review", "Argument") which its
+#                               [A-Z][A-Z\s]{3,} run cannot match — and there are
+#                               only three of them in 42 pages regardless.
+#     30-page scanned motion  : 26 matches in 8 sampled pages, mostly caption and
+#                               exhibit-header fragments.
+#
+# The two samples are also structurally incompatible with each other — one is
+# continuous Title-Case-headed prose, the other is rule-citation headings over
+# margin-numbered grounds over lettered sub-items, followed by 24 pages of
+# heterogeneous attachments. No single boundary pattern serves both.
+#
+# So: full document. This is the majority mode in this repo (complaint_v5_1,
+# affidavit, default) and not a fallback. It also carries three properties this
+# type specifically needs:
+#   1. It sidesteps the incompatibility entirely.
+#   2. It has no silent-fallback hazard — that failure belongs to structured
+#      mode's no_boundary_matches path, which cannot arise here.
+#   3. It is the ONLY mode under which the model can see the motion -> exhibit
+#      boundary and stop at it. A chunk containing only an exhibit page gives the
+#      model no way to know it is reading an attachment rather than the motion,
+#      and the scope gate in pass 1 would be unenforceable.
+# Size is comfortable: the 42-page sample is ~86k characters, roughly 21.5k
+# tokens.
+#
+# ⚠ FULL MODE FAILS QUIETLY IN THREE WAYS. This is why the gate below is
+# mandatory rather than advisory — none of these raises an error, and all three
+# produce a run that looks successful in the logs:
+#
+#   1. The document never extracted. A scanned filing whose OCR step has not run
+#      leaves every page under the pipeline's own 50-non-whitespace-character
+#      floor. The model is handed blank pages and extracts almost nothing; the
+#      pipeline reports success on an empty result. The corpus's scanned motion
+#      sits at 351 characters across 30 pages in exactly this state today.
+#   2. The document is too large for one prompt. Full mode sends everything in a
+#      single request; past the context budget the extraction TRUNCATES or
+#      degrades rather than failing, so the output is partial and nothing says
+#      so. A motion with a large bound exhibit set can reach this.
+#   3. Pages go missing before the model sees them. Extraction is per-page and a
+#      dropped page is invisible downstream — there is no count anywhere that
+#      would disagree.
+#
+# Before any paid run, the dry-run gate is:
+#   scripts/transcript-chunk-preflight.py --mode full <extracted-text> \
+#       --expect-pages <page count of the source PDF>
+# which checks the per-page text floor, the token estimate against budget, and
+# the page count. Pass --expect-pages: without it, failure 3 above is not
+# checked at all. Required, not a convenience.
+
+name: motion
+display_name: "Motion (v5.3)"
+document_type: motion
+description: >
+  Motion filed with the court — a dated, attorney-authored request for relief
+  supported by factual assertions and argument citing exhibits. Assertions
+  anchor to complaint Allegations as dated rebuttals, and filed
+  characterizations of an opposing party feed the accusation-pattern analysis.
+  Covers the parent motion only; bound exhibits are separate documents.
+
+schema_file: motion_schema_v5_3.yaml
+
+template_file: motion_pass1_v5_3.md
+global_rules_file: global_rules_v4.md
+pass2_template_file: motion_pass2_v5_3.md
+system_prompt_file: legal_extraction_system.md
+
+extraction_model: claude-opus-4-6
+pass2_extraction_model: claude-opus-4-6
+
+# Full-document mode: chunk_size and chunk_overlap are inert and explicitly
+# null, matching complaint_v5_1 rather than carrying misleading values.
+chunking_mode: full
+chunk_size: null
+chunk_overlap: null
+
+max_tokens: 32000
+temperature: 0.0
+
+auto_approve_grounded: true
+run_pass2: true
+
+# NOT the default type — the registry carries exactly one is_default entry and a
+# second would panic validate() at boot.
+is_default: false
+
+pipeline_type: evidence_anchoring

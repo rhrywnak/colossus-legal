@@ -2391,6 +2391,31 @@ The real prompt body.";
         assert!(out.contains("The real prompt body."));
     }
 
+    /// Match an ACTIVE pass-1 or pass-2 extraction template by filename,
+    /// across BOTH naming conventions present on disk (per
+    /// `TEMPLATE_NAMING_CONVENTION_v1`):
+    ///
+    /// - current `type_pass_version` (infix), e.g. `court_ruling_pass2_v5_2.md`;
+    /// - legacy  `passN_type_version` (prefix), e.g. `pass2_complaint_v4.md`.
+    ///
+    /// Version-agnostic ON PURPOSE. The `_v4` / `_v5_2` suffix is a HUMAN
+    /// signal — the profile YAML, not the filename, is the runtime source of
+    /// truth (`TEMPLATE_NAMING_CONVENTION_v1` §"the one fact"). A glob keyed on
+    /// `_v4.md` therefore silently stopped covering the active v5 templates the
+    /// moment `court_ruling`/`complaint` migrated to the new convention — the
+    /// exact vacuous-pass these guards exist to catch. Keying on the pass-marker
+    /// (`pass1`/`pass2`) instead follows a template across a version bump.
+    ///
+    /// Retired templates in `superseded/` are excluded by construction: the
+    /// caller's `read_dir` is non-recursive, so it never descends into that
+    /// subdirectory (nor `guides/`).
+    ///
+    /// `pass` is `"pass1"` or `"pass2"`.
+    fn is_active_pass_template(name: &str, pass: &str) -> bool {
+        name.ends_with(".md")
+            && (name.starts_with(&format!("{pass}_")) || name.contains(&format!("_{pass}_")))
+    }
+
     /// Roman's Step 1 directive G #1: every Pass-2 template on disk
     /// must carry the AUTHORING_NOTE block at the top. Catches a
     /// future template author who copy-pastes from a non-Pass-2
@@ -2405,7 +2430,7 @@ The real prompt body.";
             let entry = entry.unwrap();
             let path = entry.path();
             let name = entry.file_name().to_string_lossy().into_owned();
-            if !name.starts_with("pass2_") || !name.ends_with("_v4.md") {
+            if !is_active_pass_template(&name, "pass2") {
                 continue;
             }
             pass2_count += 1;
@@ -2417,14 +2442,16 @@ The real prompt body.";
                  convention established in commit-of-instruction-F"
             );
         }
-        // Floor guards against a broken glob / empty dir making the test
-        // pass vacuously. Three pass-2 v4 templates remain on disk
-        // (brief, complaint, court_ruling) after the affidavit and
-        // discovery_response v4 templates were removed as orphans in the
-        // three-tier dead-code cleanup. Bump this if a v4 template is added.
+        // Floor guards against a broken glob / empty dir making the test pass
+        // vacuously. With the convention-agnostic matcher this counts every
+        // active pass-2 template (v5 `type_pass` + any remaining `passN_type`
+        // legacy files), superseded/ excluded. Comfortably ≥3 today; the floor
+        // is an intent guard, not an exact count — raise it if the active set
+        // grows, but never let it fall below what proves the glob still matches.
         assert!(
             pass2_count >= 3,
-            "expected at least 3 Pass-2 v4 templates, found {pass2_count}"
+            "expected at least 3 active Pass-2 templates, found {pass2_count} \
+             — has the glob drifted from the naming convention again?"
         );
     }
 
@@ -2454,11 +2481,11 @@ The real prompt body.";
             let entry = entry.unwrap();
             let path = entry.path();
             let name = entry.file_name().to_string_lossy().into_owned();
-            // Match `pass1_..._v4.md` and `pass2_..._v4.md`. Other
-            // markdown files in the directory (universal templates,
-            // legacy versions) aren't covered by the v4 contract.
-            if !(name.starts_with("pass1_") || name.starts_with("pass2_"))
-                || !name.ends_with("_v4.md")
+            // Match every active pass-1/pass-2 template regardless of naming
+            // convention or version (see `is_active_pass_template`). Universal
+            // templates (`global_rules_v4.md`, `legal_extraction_system.md`)
+            // and superseded/ files are not pass templates and are skipped.
+            if !(is_active_pass_template(&name, "pass1") || is_active_pass_template(&name, "pass2"))
             {
                 continue;
             }
@@ -2489,15 +2516,15 @@ The real prompt body.";
                 }
             }
         }
-        // Floor guards against a broken glob / empty dir. Six v4 templates
-        // remain (3 pass-1 + 3 pass-2: brief, complaint, court_ruling)
-        // after the affidavit and discovery_response v4 templates were
-        // removed as orphans in the three-tier dead-code cleanup. Bump this
-        // if a v4 template is added.
+        // Floor guards against a broken glob / empty dir. Counts every active
+        // pass-1 + pass-2 template across both naming conventions (v5
+        // `type_pass` + any remaining `passN_type` legacy files), superseded/
+        // excluded. Comfortably ≥6 today; an intent guard, not an exact count —
+        // it fails loudly if the glob ever drifts off the naming convention.
         assert!(
             scanned >= 6,
-            "expected at least 6 v4 templates (3 pass-1 + 3 pass-2), \
-             scanned {scanned}"
+            "expected at least 6 active pass templates (pass-1 + pass-2), \
+             scanned {scanned} — has the glob drifted from the convention?"
         );
     }
 

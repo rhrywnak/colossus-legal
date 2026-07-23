@@ -15,6 +15,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import Breadcrumb from "../components/Breadcrumb";
 import ScenarioCurationPanel from "../components/ScenarioCurationPanel";
 import ScenarioDefinitionForm from "../components/ScenarioDefinitionForm";
+import ThemeScanPanel from "../components/ThemeScanPanel";
 import ScenarioDeleteConfirm from "../components/ScenarioDeleteConfirm";
 import { EmptyState, ResponseCard } from "../components/TrialPrepViews";
 import { DEFAULT_CASE_SLUG } from "../services/caseHeader";
@@ -151,6 +152,13 @@ const ScenarioDetailPage: React.FC = () => {
   // page re-loads and the form re-fills from the persisted definition — a
   // re-fetch, not a hand-merged response, is the source of truth.
   const [refreshKey, setRefreshKey] = useState(0);
+
+  // Bumped when the Theme Scan panel merges picks into this scenario's candidate
+  // facts. Kept SEPARATE from `refreshKey` (which re-loads the whole scenario
+  // detail): a merge changes only the candidate facts, so re-fetching the
+  // definition, responses, and everything else would be needless work and would
+  // flash the whole page. One signal, one consumer.
+  const [factsRefresh, setFactsRefresh] = useState(0);
 
   // Delete flow: `showDelete` gates the confirm modal; `deleting` disables it
   // while the DELETE is in flight; `deleteError` keeps the modal open and shows
@@ -408,6 +416,20 @@ const ScenarioDetailPage: React.FC = () => {
         />
       )}
 
+      {/* Theme Scan driver: run the background LLM judge over every candidate
+          quote, with live progress + results. A merge here writes candidate facts
+          the curation panel below is displaying, so the two are coupled through
+          `factsRefresh`: this page owns the signal because the panels are siblings
+          with no shared store. */}
+      {scenarioId && (
+        <ThemeScanPanel
+          slug={slug}
+          scenarioId={scenarioId}
+          scenarioTitle={scenario.attack}
+          onFactsChanged={() => setFactsRefresh((k) => k + 1)}
+        />
+      )}
+
       {/* Phase A: the curated-facts binder replaces the old (broken)
           allegation-anchored timeline. `scenarioId` is defined here (the
           detail loaded via it), but the guard keeps the type honest. */}
@@ -416,6 +438,7 @@ const ScenarioDetailPage: React.FC = () => {
           slug={slug}
           scenarioId={scenarioId}
           definition={scenario.definition}
+          externalRefresh={factsRefresh}
         />
       )}
 
