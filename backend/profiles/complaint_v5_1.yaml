@@ -20,7 +20,7 @@ description: "Foundation document for the case-structuring pipeline. Produces Pa
 schema_file: complaint_schema_v5_1.yaml
 
 # Templates — points to v5.1 templates
-template_file: complaint_pass1_v5_1.md
+template_file: complaint_pass1_v5_3.md
 pass2_template_file: complaint_pass2_v5_1.md
 
 # System prompt — same as v4/v5 (general legal extraction persona)
