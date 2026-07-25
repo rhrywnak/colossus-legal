@@ -26,7 +26,8 @@ pub enum CanonicalMatchType {
     Exact,
     /// Case-insensitive match after whitespace collapse and character
     /// normalization (smart quotes, dashes, ligatures, invisible chars,
-    /// hyphenated line breaks). See `normalize_text` for the full list.
+    /// hyphenated line breaks, transcript gutter line-numbers). See
+    /// `normalize_text` for the full list.
     Normalized,
     /// Snippet not found in any page of canonical text.
     NotFound,
@@ -67,6 +68,69 @@ fn strip_leading_page_number(text: &str) -> &str {
         }
     }
     text
+}
+
+/// Strip standalone gutter line-number lines (transcript margin numerals).
+///
+/// ## Domain note: line-numbered hearing transcripts
+/// A court reporter prints a line number (1–25) in the left margin of
+/// every line of a hearing transcript. OCR (Surya) and PDF text
+/// extraction interleave those numerals into the text stream as
+/// standalone lines, e.g.:
+///
+/// ```text
+/// George Phillips on behalf of
+/// 14
+/// Catholic Family Service, the
+/// 15
+/// personal representative.
+/// ```
+///
+/// The verbatim quote the LLM emits carries no such numerals. Once
+/// `normalize_text` collapses whitespace, the stored page reads
+/// `"...behalf of 14 catholic family service..."` while the quote reads
+/// `"...behalf of catholic family service..."`, so the quote is no longer
+/// a contiguous substring and grounding returns `not_found`. A short,
+/// single-line quote never spans a gutter numeral and still matches —
+/// which is exactly the observed "short quotes verify, long quotes fail"
+/// pattern on the first court_transcript run.
+///
+/// This removes any line that, after trimming, is composed ONLY of a 1–2
+/// digit number (the gutter range 1–25). It must run BEFORE whitespace
+/// collapse, because the collapse erases the line structure it keys on.
+///
+/// ## Why scoped to 1–2 digits
+/// Bounding the strip to 1–2 digit lines avoids removing a legitimately
+/// standalone longer number a quote might genuinely span — a year
+/// (`2009`), a dollar figure, a 3-digit page number. It mirrors the
+/// existing `strip_*_page_number` precedent but applies per-line across
+/// the whole page rather than only at a page boundary.
+///
+/// ## Why this is safe for already-verified documents
+/// A document with no standalone 1–2 digit line has no line to remove, so
+/// this returns its text unchanged (see the identity test). Because
+/// `normalize_text` runs it on both sides of every comparison, the change
+/// is a no-op for every non-line-numbered document type.
+fn strip_gutter_line_numbers(text: &str) -> String {
+    text.lines()
+        .filter(|line| {
+            let trimmed = line.trim();
+            // Drop the line only when it is ENTIRELY a 1–2 digit numeral.
+            // ASCII digits are one byte each, so byte length equals digit
+            // count here.
+            //
+            // CONST: the 1–2 digit bound is a fixed legal-formatting
+            // invariant, NOT a configurable threshold — deliberately not a
+            // ProcessingProfile setting. U.S. court reporters number 1–25
+            // lines per page, so a gutter numeral is always 1–2 digits. A
+            // larger bound would strip legitimately standalone years (4
+            // digits), page numbers (3 digits), and dollar figures a quote
+            // may span — the exact false positives this scoping exists to
+            // avoid. It cannot vary by document type or environment.
+            !(matches!(trimmed.len(), 1 | 2) && trimmed.bytes().all(|b| b.is_ascii_digit()))
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// Search for a snippet in the canonical text representation.
@@ -182,13 +246,19 @@ pub fn find_in_canonical_text(
 /// LLM-emitted straight quotes never match stored text containing smart
 /// quotes, and em-dashes / ligatures cause systematic `not_found` results.
 ///
-/// Order matters — hyphenated line breaks must be rejoined before
-/// whitespace collapsing, otherwise the trailing `-\n` would be flattened
-/// to `- ` and the word would stay split.
+/// Order matters — hyphenated line breaks must be rejoined, and gutter
+/// line-numbers stripped, BEFORE whitespace collapsing: both operate on
+/// line structure that the collapse destroys. The trailing `-\n` would be
+/// flattened to `- ` (leaving the word split), and a standalone `\n14\n`
+/// gutter numeral would be smeared into `" 14 "` mid-sentence (where it
+/// can no longer be told apart from a spoken number) if the collapse ran
+/// first.
 ///
 /// Handles:
 /// * invisible characters (soft hyphen U+00AD, zero-width space U+200B, BOM U+FEFF)
 /// * hyphenated line breaks (word-split across lines with a trailing `-`)
+/// * transcript gutter line-numbers (standalone 1–2 digit lines — see
+///   `strip_gutter_line_numbers`)
 /// * paragraph markers (`¶`)
 /// * smart quotes — both single (U+2018/U+2019) and double (U+201C/U+201D)
 /// * em dash (U+2014) and en dash (U+2013) → plain hyphen
@@ -207,6 +277,14 @@ pub fn normalize_text(text: &str) -> String {
 
     // 2. Rejoin hyphenated line breaks BEFORE whitespace collapsing
     s = rejoin_hyphenated_breaks(&s);
+
+    // 2b. Strip standalone gutter line-numbers (transcript margin numerals)
+    //     BEFORE whitespace collapse — see `strip_gutter_line_numbers`.
+    //     Applied here (inside normalize_text) so BOTH the snippet and the
+    //     stored page pass through it: the operation is symmetric, and a
+    //     document without gutter numerals has no such lines, so its text —
+    //     and therefore its grounding — is byte-for-byte unchanged.
+    s = strip_gutter_line_numbers(&s);
 
     // 3. Replace paragraph markers
     s = s.replace('¶', " ");
@@ -630,5 +708,184 @@ mod tests {
         let result = find_in_canonical_text(snippet, &pages);
         assert_eq!(result.match_type, CanonicalMatchType::Exact);
         assert_eq!(result.page_number, Some(3));
+    }
+
+    // ── gutter line-number stripping (transcript margin numerals) ────
+    // FIX 1 for the court_transcript maiden-run grounding failures: OCR
+    // interleaves the 1–25 gutter numerals as standalone lines, breaking
+    // the normalized substring for multi-line quotes.
+
+    #[test]
+    fn test_strip_gutter_line_numbers_removes_standalone_numeral() {
+        assert_eq!(strip_gutter_line_numbers("alpha\n14\nbeta"), "alpha\nbeta");
+    }
+
+    #[test]
+    fn test_strip_gutter_line_numbers_handles_surrounding_whitespace() {
+        // Gutter numeral padded by spaces (indented margin) and a 1-digit case.
+        assert_eq!(
+            strip_gutter_line_numbers("alpha\n  7  \nbeta"),
+            "alpha\nbeta"
+        );
+    }
+
+    #[test]
+    fn test_strip_gutter_line_numbers_keeps_three_digit_lines() {
+        // 3+ digit standalone numbers are OUT of the gutter range (1–25) and
+        // could be a real page number or figure a quote spans — never stripped.
+        assert_eq!(
+            strip_gutter_line_numbers("alpha\n122\nbeta"),
+            "alpha\n122\nbeta"
+        );
+    }
+
+    #[test]
+    fn test_strip_gutter_line_numbers_keeps_mixed_numeral_lines() {
+        // Anything but a bare 1–2 digit line survives: numbered-paragraph
+        // markers, "Page N", ranges, citations.
+        for text in [
+            "content\n3.",        // has a dot
+            "content\nPage 3",    // has letters
+            "content\n3 of 17",   // has words
+            "content\nMCR 2.114", // citation
+        ] {
+            assert_eq!(strip_gutter_line_numbers(text), text, "must keep: {text:?}");
+        }
+    }
+
+    #[test]
+    fn test_strip_gutter_line_numbers_leading_position() {
+        // The filter is position-agnostic: a gutter numeral on the FIRST line
+        // (a page that continues mid-transcript) is stripped like any other.
+        assert_eq!(strip_gutter_line_numbers("1\nalpha\nbeta"), "alpha\nbeta");
+    }
+
+    #[test]
+    fn test_strip_gutter_line_numbers_trailing_position() {
+        // Gutter numeral as the terminal line with NO trailing newline —
+        // `str::lines()` yields it as a final line and it is stripped.
+        assert_eq!(strip_gutter_line_numbers("alpha\nbeta\n5"), "alpha\nbeta");
+    }
+
+    #[test]
+    fn test_strip_gutter_line_numbers_consecutive_numerals() {
+        // Two adjacent gutter lines with no intervening text — a common OCR
+        // artifact in dense passages (a blank transcript line prints a bare
+        // numeral). Both are removed.
+        assert_eq!(
+            strip_gutter_line_numbers("alpha\n7\n8\nbeta"),
+            "alpha\nbeta"
+        );
+    }
+
+    #[test]
+    fn test_strip_gutter_line_numbers_two_vs_three_digit_boundary() {
+        // The tightest expression of the 1–2 digit bound: "99" (2 digits) is
+        // stripped; "100" (3 digits) is kept. This is the exact boundary the
+        // scoping exists to hold.
+        assert_eq!(strip_gutter_line_numbers("alpha\n99\nbeta"), "alpha\nbeta");
+        assert_eq!(
+            strip_gutter_line_numbers("alpha\n100\nbeta"),
+            "alpha\n100\nbeta"
+        );
+    }
+
+    #[test]
+    fn test_gutter_numeral_between_lines_now_grounds() {
+        // The maiden-run failure: an appearance line OCR split across gutter
+        // numerals 14/15. Before the strip, those broke the normalized
+        // substring; now the multi-line quote grounds (Normalized tier).
+        let pages = vec![(
+            3,
+            "George Phillips on behalf of\n14\nCatholic Family Service,\n15\nthe personal representative."
+                .to_string(),
+        )];
+        let result = find_in_canonical_text(
+            "George Phillips on behalf of Catholic Family Service, the personal representative.",
+            &pages,
+        );
+        assert_eq!(result.match_type, CanonicalMatchType::Normalized);
+        assert_eq!(result.page_number, Some(3));
+    }
+
+    #[test]
+    fn test_short_transcript_turn_still_grounds_exact() {
+        // The "short quotes verify" half of the pattern must keep working:
+        // a single-line turn matches exactly even with a gutter numeral nearby.
+        let pages = vec![(
+            2,
+            "THE WITNESS: Yes, I can.\n7\nTHE COURT: Thank you.".to_string(),
+        )];
+        let result = find_in_canonical_text("Yes, I can.", &pages);
+        assert_eq!(result.match_type, CanonicalMatchType::Exact);
+        assert_eq!(result.page_number, Some(2));
+    }
+
+    /// MANDATED behavior test (Roman's ruling): the six already-verified,
+    /// non-transcript documents' grounding must be provably unchanged.
+    ///
+    /// The rigorous form of that guarantee: `strip_gutter_line_numbers` is
+    /// the IDENTITY function on any text that contains no standalone 1–2
+    /// digit line. If it returns such text byte-for-byte, then
+    /// `normalize_text` — and therefore every grounding decision — is
+    /// unchanged for those documents. This corpus mirrors the number-bearing
+    /// content of the six verified doc types (discovery Q&A, complaint
+    /// allegations, court-ruling citations, affidavit dates, dollar figures,
+    /// deposition page ranges, multi-digit record pages). None carries a bare
+    /// gutter numeral, so the strip is a no-op on all of them.
+    #[test]
+    fn test_gutter_strip_is_identity_on_non_transcript_documents() {
+        let corpus = [
+            // discovery_response — sworn Q&A with an interrogatory number inline
+            "Answer to Q74: That is my recollection.",
+            // court_ruling — a citation and a finding
+            "Many of those objections were frivolous, and sanctions under MCR 2.114 are in order.",
+            // complaint — numbered allegation paragraphs (dot-suffixed, multi-line)
+            "10. During the accounting period the trustee failed to disclose the fees.\n11. The auctioneer realized $6,000 less than the costs.",
+            // affidavit — a dated statement with a multi-digit day
+            "I sent a certified letter on November 16, 2009 requesting an accounting.",
+            // discovery — dollar figures and 3-digit page markers a quote may span
+            "the $50,000 was not gifted, per page 122 of the record",
+            // appellate_brief — a deposition page range
+            "pages 12-15 of the deposition were entered as Exhibit 7",
+            // correspondence — a bare year on its own is 4 digits, out of range
+            "2009\nwas the operative year for the accounting",
+        ];
+        for page in corpus {
+            assert_eq!(
+                strip_gutter_line_numbers(page),
+                page,
+                "gutter strip must be identity on non-transcript text (verified docs unchanged): {page:?}"
+            );
+        }
+    }
+
+    /// Companion to the identity test, one level up: for the same
+    /// non-transcript corpus, a representative quote still grounds exactly
+    /// as it did before the change — the numbers survive normalization.
+    #[test]
+    fn test_non_transcript_grounding_unchanged_end_to_end() {
+        let pages = vec![
+            (
+                1,
+                "the $50,000 was not gifted, per page 122 of the record".to_string(),
+            ),
+            (2, "sanctions under MCR 2.114 are in order".to_string()),
+            (
+                3,
+                "certified letter on November 16, 2009 requesting an accounting".to_string(),
+            ),
+        ];
+        // Dollar figure + multi-digit page number preserved:
+        let r1 = find_in_canonical_text("$50,000 was not gifted, per page 122", &pages);
+        assert_eq!(r1.match_type, CanonicalMatchType::Exact);
+        assert_eq!(r1.page_number, Some(1));
+        // Citation number preserved (case-normalized match):
+        let r2 = find_in_canonical_text("MCR 2.114", &pages);
+        assert_eq!(r2.match_type, CanonicalMatchType::Exact);
+        // Date with a 2-digit day is NOT a standalone gutter line — preserved:
+        let r3 = find_in_canonical_text("November 16, 2009", &pages);
+        assert_eq!(r3.match_type, CanonicalMatchType::Exact);
+        assert_eq!(r3.page_number, Some(3));
     }
 }
