@@ -34,7 +34,7 @@ But a transcript is a trap if read carelessly, because **the same sentence means
 
 Getting that wrong fabricates evidence. So this extraction classifies every utterance on **two independent axes** — see below. Both are required on every Evidence entity.
 
-**Completeness is non-negotiable:** every discrete utterance becomes a node. Do NOT drop recitations — tag them. Do NOT drop short turns that carry meaning ("That's fine, your Honor." is a concession). Do NOT merge two speakers into one node.
+**Completeness is non-negotiable — within the materiality bar.** Every discrete *substantive* utterance becomes a node: everything a speaker asserts, rules, testifies, concedes, characterizes, or recites. Pure hearing housekeeping is NOT a node — appearance placements, scheduling exchanges, bare acknowledgments, court management (see "Materiality" in Anatomy §3). **The test is MEANING, not length.** A short turn that carries meaning IS extracted ("That's fine, your Honor." is a concession); a short turn that is only procedure is NOT ("Yes, I can." confirming you can be heard). Do NOT drop recitations — tag them. Do NOT merge two speakers into one node.
 
 ## What Is a Court Transcript?
 
@@ -54,7 +54,26 @@ It is **not** an opinion and contains no section headings, no numbered paragraph
 
 ### 3. The Colloquy Body — THE CORE
 - **Contains:** the line-numbered, speaker-labeled exchange. This is where every Evidence entity comes from.
-- **Extract from here:** one Evidence entity per speaker turn. See the classification rules below.
+- **Extract from here:** one Evidence entity per *substantive* speaker turn — every turn that asserts, rules, testifies, concedes, characterizes, or recites a position. Apply the materiality bar immediately below, then the two-axis classification rules further down.
+
+#### Materiality — what is NOT worth a node
+
+Create an Evidence node only for an utterance with evidentiary, dated, or pattern value. Do NOT create a node for pure hearing housekeeping: it is already captured structurally — the caption/APPEARANCES block builds the speaker registry and each attorney's `represents` — and as Evidence it only adds noise that buries the substantive record a reviewer must find.
+
+**The test is MEANING, not length. Length never decides.** A short turn that carries meaning is extracted; a short turn that is only procedure is skipped.
+
+**Worked negatives — DO NOT create an Evidence node for these:**
+
+- **Appearance placement.** `MR. PHILLIPS: George Phillips on behalf of Catholic Family Service, the personal representative.` — the attorney is stating his appearance. It makes no assertion and is already captured by the speaker registry and `represents`. NO node.
+- **Scheduling / calendar exchange.** `THE COURT: Can we set the next hearing for the 20th? / MR. SHARP: The 20th works.` — pure calendaring. NO node — *unless* the court actually orders something, which is a `bench_ruling` and IS extracted.
+- **Bare acknowledgment / court management.** `"Yes, I can."` (confirming you can be heard), `"Okay."`, `"Thank you, your Honor."`, `"Court calls the case."`, `"Please be seated."`, `"We're on the record."` — procedural glue with no substantive content. NO node.
+
+**Worked positives — these ARE extracted even though short (meaning, not length):**
+
+- A **concession** — `"That's fine, your Honor."`, or `"we have no qualms with the personal property being... sold at auction."` (a dated cooperation statement).
+- An **admission, characterization, ruling, or objection of substance** — however brief.
+
+When in doubt, ask: *does this utterance assert, rule, testify, concede, characterize, or recite a position?* If yes, extract it. If it is only appearance, scheduling, acknowledgment, or court management, skip it.
 
 ### 4. Parentheticals and Stage Directions
 - **Contains:** `(At 10:37 a.m., off record)`, `(Marie raised her hand.)`, `(inaudible)`.
@@ -118,7 +137,7 @@ Each party gets exactly **one** `party_name`, used identically in every document
 - Pronouns; cities, states, counties
 
 ### Evidence
-Each discrete on-the-record utterance is ONE Evidence entity — everything one speaker says in one turn, until another speaker takes over. This is the core extraction target.
+Each discrete *substantive* on-the-record utterance is ONE Evidence entity — everything one speaker says in one turn, until another speaker takes over, provided the turn clears the materiality bar in Anatomy §3 (it asserts, rules, testifies, concedes, characterizes, or recites a position). Pure housekeeping turns — appearance, scheduling, bare acknowledgment, court management — are not Evidence. This is the core extraction target.
 
 The `verbatim_quote` is the exact spoken text, at the TOP LEVEL of the entity (not inside properties).
 
@@ -524,7 +543,7 @@ Return ONLY the JSON object. No markdown fences, no explanation, no preamble.
 - [ ] Does every attorney-spoken Evidence carry `represents`?
 
 **Evidence checks:**
-- [ ] Did I create an Evidence entity for EVERY discrete speaker turn, including short ones that carry meaning?
+- [ ] Did I create an Evidence entity for every SUBSTANTIVE speaker turn — including short ones that carry meaning (concessions, admissions, characterizations, rulings) — while skipping pure housekeeping?
 - [ ] Does every Evidence entity have verbatim_quote at the TOP LEVEL (not inside properties)?
 - [ ] Did I keep false starts, interruptions, and (inaudible) exactly as printed, without cleaning up or reconstructing?
 - [ ] Did I set `statement_type` from the SPEAKER's role, not from what the statement says?
@@ -534,6 +553,7 @@ Return ONLY the JSON object. No markdown fences, no explanation, no preamble.
 - [ ] For a turn spanning pages, did I set page_number to the START page and record the span in page_note?
 
 **Negative checks:**
+- [ ] Did I apply the materiality bar — SKIPPING pure housekeeping (appearance placements, scheduling exchanges, bare acknowledgments, court management) while KEEPING every short turn that carries meaning (a concession, admission, characterization, or ruling)?
 - [ ] Did I tag as `recitation` every case of a speaker restating someone else's position — INCLUDING a judge restating a request and an attorney quoting opposing counsel?
 - [ ] Did I avoid recording a quoted slur as the quoting speaker's own characterization?
 - [ ] Did I avoid raising an attorney's `weight` because the content seemed important? (Argument is low weight and may still be high pattern value.)
