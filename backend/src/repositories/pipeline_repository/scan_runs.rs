@@ -83,6 +83,7 @@ pub async fn insert_scan_run_running(
     .bind(start.run_id)
     .bind(start.scenario_id)
     .bind(&start.model_id)
+    .bind(&start.resolved_params)
     // `dry_run` is bound as a literal `false`, not carried on `ScanRunStart`: no
     // scan is a benchmark any more (scanning never writes, so there is nothing to
     // suppress), and the caller must not be able to say otherwise. The column is
