@@ -4,6 +4,8 @@ pub mod analysis_repository;
 pub mod audit_repository;
 pub mod case_header_builder;
 pub mod case_header_repository;
+pub mod case_health_builder;
+pub mod case_health_repository;
 pub mod case_repository;
 pub mod causes_of_action_builder;
 pub mod causes_of_action_decode;

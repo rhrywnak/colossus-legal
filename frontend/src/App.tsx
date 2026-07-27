@@ -8,6 +8,7 @@ import AnalysisPage from "./pages/AnalysisPage";
 import ContradictionsPage from "./pages/ContradictionsPage";
 import DecompositionPage from "./pages/DecompositionPage";
 import AllegationDetailPage from "./pages/AllegationDetailPage";
+import CaseHealthPage from "./pages/CaseHealthPage";
 import CountDetailPage from "./pages/CountDetailPage";
 import ProofMatrixPage from "./pages/ProofMatrixPage";
 import ProofReviewPage from "./pages/ProofReviewPage";
@@ -70,6 +71,7 @@ const App: React.FC = () => {
               <Route path="/decomposition" element={<DecompositionPage />} />
               <Route path="/allegations/:id/detail" element={<AllegationDetailPage />} />
               <Route path="/cases/:slug/counts/:countId" element={<CountDetailPage />} />
+              <Route path="/cases/:slug/case-health" element={<CaseHealthPage />} />
               <Route path="/cases/:slug/proof-matrix" element={<ProofMatrixPage />} />
               <Route path="/cases/:slug/proof-review" element={<ProofReviewPage />} />
               <Route path="/cases/:slug/trial-prep" element={<TrialPrepDashboardPage />} />
