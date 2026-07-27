@@ -276,24 +276,81 @@ Switch to read-only forensic mode immediately if:
 
 **NO code edits until Opus reviews the forensic report.**
 
-Report format:
+Report format — a forensic report is a report, so it carries the §7 markers:
 ```
+=== REPORT START ===
+
 ⚠️ DIVERGENCE DETECTED
 
 Expected: [what should have happened]
 Actual: [what actually happened]
 Evidence: [exact command output]
 
-ENTERING FORENSIC MODE. Awaiting instructions.
+=== REPORT END ===
+
+STOP — ENTERING FORENSIC MODE. No code edits until Opus reviews this.
+Awaiting instructions.
 ```
 
 ---
 
-## 7. COMPLETION REPORT
+## 7. REPORTING
 
-Every task ends with a completion report in this format:
+### Report delineation — MANDATORY on every report
+
+**Every report you produce begins with `=== REPORT START ===` and ends with
+`=== REPORT END ===` followed by your STOP line.**
+
+This applies to:
+- Build reports and completion reports
+- Read-and-report outputs
+- Gate summaries
+- **Chat replies that constitute a report** — the markers are not a file
+  convention, they travel with the report itself
+
+Applies to reports delivered as FILES and to reports pasted into CHAT alike.
+
+```
+=== REPORT START ===
+
+[the report]
+
+=== REPORT END ===
+
+STOP — [what state the work is in]
+
+[items addressed to the operator]
+```
+
+**What may sit outside the markers.** Only items explicitly addressed to the
+operator — a "needing you" flag, a blocking question, a ruling request — placed
+AFTER `=== REPORT END ===` and the STOP line. Nothing else. Findings,
+verification results, caveats, test counts and file lists all belong INSIDE the
+markers; moving one outside to give it prominence defeats the purpose.
+
+**Where the line falls.** A report SUMMARIZES work or findings; a STOP-gate
+request SEEKS APPROVAL before work begins. The §3 pre-coding analysis is the
+latter and needs no markers. Anything carrying findings, verification results,
+test counts or a gate verdict is the former and does. When genuinely unsure,
+use the markers — a wrapped conversational reply costs nothing, an unwrapped
+report costs the reader the boundary.
+
+**Why.** A report is a record, and a record needs an edge. Without one, a
+reader cannot tell where the reported findings stop and the conversational
+framing begins — which matters most exactly when a report is long or carries a
+correction, i.e. when it is being relied upon. The markers make the boundary
+mechanical rather than a matter of the reader's judgement.
+
+### Completion report format
+
+Every task ends with a completion report in this format. Note the markers: a
+template that omitted them would, followed literally, produce a report that
+violates the rule above — which is exactly the trap the §6 forensic template
+used to carry.
 
 ```markdown
+=== REPORT START ===
+
 ## Completion Report — [Task ID]
 
 **Commit:** [hash] — [message]
@@ -320,6 +377,10 @@ Every task ends with a completion report in this format:
 - [ ] All public items have doc comments
 - [ ] No version bumps
 - [ ] Only approved files modified (git diff --name-only verified)
+
+=== REPORT END ===
+
+STOP — [what state the work is in]
 ```
 
 ---
@@ -341,6 +402,10 @@ Every task ends with a completion report in this format:
 ❌ Swallow errors silently with .ok() without a log warning
 ❌ Leave stubs without a comment: // Stub — full implementation in [task]
 ❌ Write a public function without a doc comment
+❌ Deliver a report without the === REPORT START === / === REPORT END === markers
+❌ Place findings, verification results, caveats or test counts outside the
+   report markers — only operator-addressed items belong after
+   === REPORT END === (§7)
 ❌ Continue to next task without explicit instruction from Roman or Opus
 
 ---
@@ -357,6 +422,8 @@ Every task ends with a completion report in this format:
 ✅ Use named constants for every string and number that has meaning
 ✅ Stop and report if anything diverges from the task spec
 ✅ Provide a completion report with exact test counts and build results
+✅ Wrap EVERY report — file or chat — in === REPORT START === / === REPORT END ===
+   followed by the STOP line (§7)
 
 ---
 
