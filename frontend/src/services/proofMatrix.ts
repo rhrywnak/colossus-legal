@@ -33,20 +33,21 @@ export type ProofMatrixRollupResponse = {
 };
 
 // ─── Structural-column types (PM4) ──────────────────────────────────────────
-// The shape the Proof Matrix's evidence columns will hold once discovery is
-// processed. There is NO endpoint feeding these yet — zero Evidence nodes exist
-// — so today every Element's supporting/opposing arrays are empty and its status
-// is 'pending'. Defining the shape now means Stage 2 swaps the data source, not
-// the component. Declared as `type` aliases to match this file's existing DTO
-// style (CountRollup above), rather than `interface`.
-
-/** A reference to one piece of evidence, as a column cell renders it. */
-export type EvidenceRef = {
-  id: string;
-  label: string;
-  document_id: string;
-  page: number;
-};
+//
+// `EvidenceRef` used to live here: a placeholder shape for "what the evidence
+// columns will hold once discovery is processed", declared while both columns
+// were fed empty arrays. It was deleted on 2026-07-27 with the last thing that
+// rendered it. The anticipated shape never became the real one — the Supporting
+// and Disputes columns show backend-computed COUNTS, and the items behind them
+// come from the element-detail endpoint as `AllegationEvidence`
+// (services/elementDetailService.ts), a different shape carrying the source
+// locator the placeholder lacked.
+//
+// Worth remembering rather than just deleting: the placeholder outlived its
+// premise. It was defined on the assumption that zero Evidence nodes existed,
+// and stayed after that stopped being true — which is why the Disputes column
+// sat blank over 41 real REBUTS edges. Shapes designed ahead of their data need
+// a reason to be revisited, not just a comment saying Stage 2 will swap them.
 
 /**
  * Proof status for one Element — the EXACT lowercase values the backend's

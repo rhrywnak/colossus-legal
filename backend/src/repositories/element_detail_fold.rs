@@ -6,10 +6,21 @@
 //! (Rule 17) — the same split `causes_of_action_builder.rs` makes against
 //! `causes_of_action_repository.rs` (pure shaping in its own file).
 //!
-//! The detail Cypher emits one row per `(Element × Allegation × Evidence ×
-//! Document)` tuple. [`DetailFold`] collapses that stream: the Element header is
-//! captured once, Allegations are deduped by id, and each Allegation's
-//! corroborating Evidence is collected (deduped by evidence id).
+//! The detail Cypher emits one row per `(Element × Allegation × corroborating
+//! Evidence × disputing Evidence)` COMBINATION. [`DetailFold`] collapses that
+//! stream: the Element header is captured once, Allegations are deduped by id,
+//! and each Allegation's corroborating and disputing Evidence are collected into
+//! separate buckets, each deduped by evidence id.
+//!
+//! ## The two evidence legs multiply, and the dedup is what makes that safe
+//!
+//! Adding the dispute leg turned an `(allegation × corroborating)` fan-out into a
+//! CARTESIAN one: an Allegation with 3 corroborations and 2 rebuttals produces 6
+//! rows, and each corroborating item now appears on 2 of them. The fold is
+//! unaffected only because [`push_evidence_deduped`] keys on evidence id, so a
+//! repeat is a no-op — which is why that dedup is a tested invariant rather than
+//! a defensive nicety. Anything added here that ACCUMULATES per row (a sum, a
+//! counter) rather than deduping would be silently multiplied by the other leg.
 
 use std::collections::HashMap;
 
@@ -79,41 +90,97 @@ fn decode_allegation(
         verbatim_quote: row.get("verbatim_quote").map_err(decode_err(op))?,
         source_section: section,
         supporting_evidence: Vec::new(),
+        disputing_evidence: Vec::new(),
     })
 }
 
-/// Decode the Evidence + source-Document columns from a row. Returns `None`
-/// when the row carries no Evidence (the `OPTIONAL MATCH` produced NULLs — e.g.
-/// an Allegation with no corroboration).
+/// Which of the two evidence legs a set of row columns belongs to.
 ///
-/// When an Evidence node is present but has no `CONTAINED_IN` Document,
-/// `source_document_id` is `None`: we keep the item (it still corroborates the
-/// Allegation) and emit a `warn` so the data gap is observable (Rule 1) — we do
-/// not drop the evidence and we do not fail the request.
+/// ## Rust Learning: a tiny enum instead of a `&str` flag
+///
+/// The two legs project identically-shaped column sets under different names
+/// (`evidence_*` / `source_document_*` vs `disputing_*`). Passing the leg as an
+/// enum rather than a bare string means a typo is a compile error, and the
+/// column names live in exactly one `match` instead of being spelled at each
+/// call site.
+#[derive(Clone, Copy)]
+enum EvidenceLeg {
+    /// `(Evidence)-[:CORROBORATES]->(Allegation)`.
+    Supporting,
+    /// `(Evidence)-[:REBUTS]->(Allegation)`.
+    Disputing,
+}
+
+impl EvidenceLeg {
+    /// The row aliases this leg projects: `(id, quote, page, paragraph,
+    /// page_note, document_id, document_title)`.
+    fn columns(self) -> [&'static str; 7] {
+        match self {
+            EvidenceLeg::Supporting => [
+                "evidence_id",
+                "evidence_quote",
+                "evidence_page_number",
+                "evidence_paragraph",
+                "evidence_page_note",
+                "source_document_id",
+                "source_document_title",
+            ],
+            EvidenceLeg::Disputing => [
+                "disputing_id",
+                "disputing_quote",
+                "disputing_page_number",
+                "disputing_paragraph",
+                "disputing_page_note",
+                "disputing_document_id",
+                "disputing_document_title",
+            ],
+        }
+    }
+
+    /// Word used in the data-gap warning, so an operator reading the log can
+    /// tell which leg is missing its source document.
+    fn label(self) -> &'static str {
+        match self {
+            EvidenceLeg::Supporting => "corroborating",
+            EvidenceLeg::Disputing => "disputing",
+        }
+    }
+}
+
+/// Decode one leg's Evidence + source-Document columns from a row. Returns
+/// `None` when the row carries no Evidence on that leg (the `OPTIONAL MATCH`
+/// produced NULLs — e.g. an Allegation nothing disputes).
+///
+/// When an Evidence node is present but has no `CONTAINED_IN` Document, the
+/// document id is `None`: we keep the item (it still bears on the Allegation)
+/// and emit a `warn` so the data gap is observable (Rule 1) — we do not drop the
+/// evidence and we do not fail the request.
 fn decode_evidence(
     row: &neo4rs::Row,
+    leg: EvidenceLeg,
     op: &'static str,
 ) -> Result<Option<EvidenceRef>, ElementDetailRepoError> {
-    let id: Option<String> = row.get("evidence_id").map_err(decode_err(op))?;
+    let [c_id, c_quote, c_page, c_para, c_note, c_doc_id, c_doc_title] = leg.columns();
+    let id: Option<String> = row.get(c_id).map_err(decode_err(op))?;
     // No Evidence on this row → nothing to attach.
     let Some(id) = id else {
         return Ok(None);
     };
-    let source_document_id: Option<String> =
-        row.get("source_document_id").map_err(decode_err(op))?;
+    let source_document_id: Option<String> = row.get(c_doc_id).map_err(decode_err(op))?;
     if source_document_id.is_none() {
         tracing::warn!(
             evidence_id = %id,
-            "corroborating Evidence has no CONTAINED_IN Document — source-PDF click-through unavailable; \
-             re-run discovery pass-2 extraction for the source document or verify its CONTAINED_IN edge was authored"
+            leg = leg.label(),
+            "Evidence has no CONTAINED_IN Document — source-PDF click-through unavailable; \
+             re-run pass-2 extraction for the source document or verify its CONTAINED_IN edge was authored"
         );
     }
     Ok(Some(EvidenceRef {
-        verbatim_quote: row.get("evidence_quote").map_err(decode_err(op))?,
-        page_number: row.get("evidence_page_number").map_err(decode_err(op))?,
-        paragraph: row.get("evidence_paragraph").map_err(decode_err(op))?,
-        page_note: row.get("evidence_page_note").map_err(decode_err(op))?,
-        source_document_title: row.get("source_document_title").map_err(decode_err(op))?,
+        verbatim_quote: row.get(c_quote).map_err(decode_err(op))?,
+        page_number: row.get(c_page).map_err(decode_err(op))?,
+        paragraph: row.get(c_para).map_err(decode_err(op))?,
+        page_note: row.get(c_note).map_err(decode_err(op))?,
+        source_document_title: row.get(c_doc_title).map_err(decode_err(op))?,
         // `id` is moved last — it is borrowed by the `warn` above.
         source_document_id,
         id,
@@ -198,8 +265,11 @@ impl DetailFold {
                 i
             }
         };
-        if let Some(ev) = decode_evidence(row, op)? {
+        if let Some(ev) = decode_evidence(row, EvidenceLeg::Supporting, op)? {
             push_evidence_deduped(&mut self.allegations[idx].supporting_evidence, ev);
+        }
+        if let Some(dv) = decode_evidence(row, EvidenceLeg::Disputing, op)? {
+            push_evidence_deduped(&mut self.allegations[idx].disputing_evidence, dv);
         }
         Ok(())
     }
@@ -233,6 +303,31 @@ mod tests {
         assert_eq!(bucket.len(), 1);
         assert_eq!(bucket[0].id, "evidence-074");
         assert_eq!(bucket[0].page_number, Some(22), "first write wins");
+    }
+
+    /// The two legs project disjoint column sets — a leg reading the other's
+    /// aliases would attach disputing items to the supporting bucket, which
+    /// renders as a rebuttal shown under "supporting evidence": the worst
+    /// possible display error on a proof surface.
+    #[test]
+    fn the_two_evidence_legs_read_disjoint_columns() {
+        let supporting = EvidenceLeg::Supporting.columns();
+        let disputing = EvidenceLeg::Disputing.columns();
+        for s in supporting {
+            assert!(
+                !disputing.contains(&s),
+                "column `{s}` is claimed by both legs"
+            );
+        }
+        assert_eq!(supporting.len(), disputing.len(), "legs must be parallel");
+    }
+
+    /// Each leg names itself in the data-gap warning, so an operator reading the
+    /// log can tell WHICH side is missing its source document.
+    #[test]
+    fn each_leg_labels_itself_for_the_operator_log() {
+        assert_eq!(EvidenceLeg::Supporting.label(), "corroborating");
+        assert_eq!(EvidenceLeg::Disputing.label(), "disputing");
     }
 
     /// Distinct evidence ids both land in the bucket, preserving insertion order.

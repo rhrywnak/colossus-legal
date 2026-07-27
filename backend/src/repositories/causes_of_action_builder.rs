@@ -100,6 +100,11 @@ fn to_element_detail(e: ElementRow) -> ElementDetail {
         allegation_count: e.allegation_count,
         supporting_evidence_count: e.supporting_evidence_count,
         covered_allegation_count: e.covered_allegation_count,
+        // Passed through untouched, and deliberately NOT fed to
+        // `derive_proof_status`: the verdict vocabulary stays exactly what it was
+        // (Case State ruling — one element-verdict vocabulary in the codebase).
+        // Disputes is an additional column beside the verdict, never an input to it.
+        disputing_evidence_count: e.disputing_evidence_count,
         proof_status: proof_status.to_string(),
     }
 }
@@ -174,7 +179,7 @@ mod tests {
         // Existing tests cover sorting/grouping where the evidence metrics are
         // irrelevant, so default them to 0. The proof-status / evidence flow is
         // exercised by `element_row_with_evidence` below.
-        element_row_with_evidence(count_number, id, name, order, alleg, 0, 0)
+        element_row_with_evidence(count_number, id, name, order, alleg, 0, 0, 0)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -186,6 +191,7 @@ mod tests {
         alleg: i64,
         supporting: i64,
         covered: i64,
+        disputing: i64,
     ) -> ElementRow {
         ElementRow {
             count_number,
@@ -198,6 +204,7 @@ mod tests {
             allegation_count: alleg,
             supporting_evidence_count: supporting,
             covered_allegation_count: covered,
+            disputing_evidence_count: disputing,
         }
     }
 
@@ -410,7 +417,7 @@ mod tests {
         // and the two raw counts surface verbatim on the DTO.
         let r = build(
             vec![count_row(1)],
-            vec![element_row_with_evidence(1, "e1", "E", Some(1), 3, 4, 2)],
+            vec![element_row_with_evidence(1, "e1", "E", Some(1), 3, 4, 2, 0)],
         );
         let el = &r.counts[0].elements[0];
         assert_eq!(el.allegation_count, 3);
@@ -419,11 +426,56 @@ mod tests {
         assert_eq!(el.proof_status, "partial");
     }
 
+    /// The Disputes magnitude reaches the DTO verbatim. Without this, deleting
+    /// the passthrough line in `to_element_detail` would leave every test green
+    /// while the column silently reported 0 — which is precisely the failure the
+    /// Disputes work was written to end.
+    #[test]
+    fn disputing_evidence_count_flows_through_to_element_detail() {
+        let r = build(
+            vec![count_row(1)],
+            vec![element_row_with_evidence(1, "e1", "E", Some(1), 3, 4, 2, 5)],
+        );
+        assert_eq!(r.counts[0].elements[0].disputing_evidence_count, 5);
+    }
+
+    /// **Disputes must never move the Status pill.** An Element whose every
+    /// allegation is corroborated reads `supported` no matter how heavily the
+    /// record disputes it — that Element is the one worth arguing about, and
+    /// netting the two would hide it.
+    ///
+    /// This pins the single most important design claim in the Disputes change.
+    /// `derive_proof_status` takes only `(total, covered)`, so the isolation is
+    /// structural — but a future edit could pass a third argument, and this test
+    /// is what would catch it.
+    #[test]
+    fn disputes_never_alter_the_proof_status_verdict() {
+        // 3 allegations, all 3 covered, and 7 disputing items.
+        let disputed = build(
+            vec![count_row(1)],
+            vec![element_row_with_evidence(1, "e1", "E", Some(1), 3, 4, 3, 7)],
+        );
+        // The same Element with nothing disputing it.
+        let undisputed = build(
+            vec![count_row(1)],
+            vec![element_row_with_evidence(1, "e1", "E", Some(1), 3, 4, 3, 0)],
+        );
+
+        assert_eq!(disputed.counts[0].elements[0].proof_status, "supported");
+        assert_eq!(
+            disputed.counts[0].elements[0].proof_status,
+            undisputed.counts[0].elements[0].proof_status,
+            "the dispute count must be invisible to the verdict"
+        );
+        // …while still being reported beside it.
+        assert_eq!(disputed.counts[0].elements[0].disputing_evidence_count, 7);
+    }
+
     #[test]
     fn element_with_no_evidence_is_gap_with_zero_supporting() {
         let r = build(
             vec![count_row(1)],
-            vec![element_row_with_evidence(1, "e1", "E", Some(1), 4, 0, 0)],
+            vec![element_row_with_evidence(1, "e1", "E", Some(1), 4, 0, 0, 0)],
         );
         let el = &r.counts[0].elements[0];
         assert_eq!(el.supporting_evidence_count, 0);
@@ -434,7 +486,7 @@ mod tests {
     fn element_with_no_allegations_is_no_allegations_status() {
         let r = build(
             vec![count_row(1)],
-            vec![element_row_with_evidence(1, "e1", "E", Some(1), 0, 0, 0)],
+            vec![element_row_with_evidence(1, "e1", "E", Some(1), 0, 0, 0, 0)],
         );
         assert_eq!(r.counts[0].elements[0].proof_status, "no_allegations");
     }

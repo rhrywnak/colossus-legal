@@ -131,6 +131,20 @@ pub struct AllegationSummary {
     /// panel, so gaps are honest, not hidden. Never omitted (Rule 1: empty and
     /// absent stay distinguishable).
     pub supporting_evidence: Vec<EvidenceRef>,
+
+    /// Evidence items that DISPUTE this Allegation
+    /// (`(Evidence)-[:REBUTS]->(Allegation)`), deduped by id — the exact mirror
+    /// of `supporting_evidence`, and the items behind the Proof Matrix's
+    /// "Disputes" column.
+    ///
+    /// Domain note: "Disputes", not "Contradicts" — CONTRADICTS is reserved for
+    /// the future evidence-vs-evidence impeachment layer, and one word for two
+    /// different relationships would make them read as one.
+    ///
+    /// Empty is again the honest state, and it means something different from
+    /// the supporting side: no evidence disputes this Allegation *yet*. Never
+    /// omitted.
+    pub disputing_evidence: Vec<EvidenceRef>,
 }
 
 /// One corroborating Evidence item, with enough fields for a source-PDF
@@ -186,6 +200,8 @@ fn element_detail_cypher() -> String {
      OPTIONAL MATCH (a)-[:{bears_on}]->(e) WHERE labels(a)[0] = $allegation_label \
      OPTIONAL MATCH (a)<-[:{corroborates}]-(ev) WHERE labels(ev)[0] = $evidence_label \
      OPTIONAL MATCH (ev)-[:{contained_in}]->(d) WHERE labels(d)[0] = $document_label \
+     OPTIONAL MATCH (a)<-[:{rebuts}]-(dv) WHERE labels(dv)[0] = $evidence_label \
+     OPTIONAL MATCH (dv)-[:{contained_in}]->(dd) WHERE labels(dd)[0] = $document_label \
      RETURN \
        e.id                         AS element_id, \
        e.element_name               AS element_name, \
@@ -204,10 +220,18 @@ fn element_detail_cypher() -> String {
        ev.paragraph                 AS evidence_paragraph, \
        ev.page_note                 AS evidence_page_note, \
        d.id                         AS source_document_id, \
-       d.title                      AS source_document_title",
+       d.title                      AS source_document_title, \
+       dv.id                        AS disputing_id, \
+       dv.verbatim_quote            AS disputing_quote, \
+       dv.page_number               AS disputing_page_number, \
+       dv.paragraph                 AS disputing_paragraph, \
+       dv.page_note                 AS disputing_page_note, \
+       dd.id                        AS disputing_document_id, \
+       dd.title                     AS disputing_document_title",
         has_element = schema::HAS_ELEMENT,
         bears_on = schema::BEARS_ON,
         corroborates = schema::CORROBORATES,
+        rebuts = schema::REBUTS,
         contained_in = schema::CONTAINED_IN,
     )
 }
@@ -460,6 +484,15 @@ mod tests {
                 source_document_id: Some("doc-phillips".to_string()),
                 source_document_title: Some("Phillips Discovery Response".to_string()),
             }],
+            disputing_evidence: vec![EvidenceRef {
+                id: "evidence-041".to_string(),
+                verbatim_quote: Some("No, that never happened.".to_string()),
+                page_number: Some(15),
+                paragraph: Some("Q41".to_string()),
+                page_note: None,
+                source_document_id: Some("doc-affidavit".to_string()),
+                source_document_title: Some("Humphrey Affidavit".to_string()),
+            }],
         };
         let value = serde_json::to_value(&summary).expect("serializes cleanly");
         assert_eq!(
@@ -480,13 +513,23 @@ mod tests {
                     "source_document_id": "doc-phillips",
                     "source_document_title": "Phillips Discovery Response",
                 }],
+                "disputing_evidence": [{
+                    "id": "evidence-041",
+                    "verbatim_quote": "No, that never happened.",
+                    "page_number": 15,
+                    "paragraph": "Q41",
+                    "page_note": null,
+                    "source_document_id": "doc-affidavit",
+                    "source_document_title": "Humphrey Affidavit",
+                }],
             })
         );
     }
 
-    /// An Allegation with no corroborating Evidence serializes its
-    /// `supporting_evidence` as an **empty array, present** — never omitted.
-    /// That empty array is the visible gap the panel renders (Rule 1: empty and
+    /// An Allegation with no Evidence on either leg serializes BOTH buckets as
+    /// **empty arrays, present** — never omitted. Those empty arrays are the
+    /// visible gaps the panel renders, and they mean different things: nothing
+    /// corroborates this Allegation, and nothing disputes it (Rule 1: empty and
     /// absent stay distinguishable).
     #[test]
     fn allegation_with_no_evidence_serializes_empty_array_not_omitted() {
@@ -498,9 +541,76 @@ mod tests {
             verbatim_quote: None,
             source_section: "Dedicated",
             supporting_evidence: vec![],
+            disputing_evidence: vec![],
         };
         let value = serde_json::to_value(&summary).expect("serializes cleanly");
         assert_eq!(value["supporting_evidence"], json!([]));
+        assert_eq!(value["disputing_evidence"], json!([]));
+    }
+
+    /// The detail Cypher must carry BOTH evidence legs, each optional and each
+    /// hanging off the Allegation.
+    ///
+    /// ## Why this test matters more than it looks
+    ///
+    /// If the REBUTS branch were dropped, nothing would fail loudly:
+    /// `decode_evidence(row, EvidenceLeg::Disputing, op)` would read a missing
+    /// `disputing_id` as `None` and return `Ok(None)` on every row, so every
+    /// Allegation would report `disputing_evidence: []` — an empty list that
+    /// renders identically to "nothing disputes this Allegation". That silent
+    /// zero over real edges is exactly the defect the Disputes work exists to
+    /// end, so the query's shape is pinned rather than trusted.
+    #[test]
+    fn detail_cypher_carries_both_evidence_legs_optionally_off_the_allegation() {
+        let q = element_detail_cypher();
+
+        assert!(q.contains(&format!(
+            "OPTIONAL MATCH (a)<-[:{}]-(ev)",
+            schema::CORROBORATES
+        )));
+        assert!(q.contains(&format!("OPTIONAL MATCH (a)<-[:{}]-(dv)", schema::REBUTS)));
+        // Evidence reaches an Element only THROUGH an Allegation — never a
+        // direct edge, which is the traversal that produced the false
+        // `to_element: 0` finding on 2026-07-26.
+        assert!(!q.contains(&format!("(e)<-[:{}]-", schema::REBUTS)));
+        assert!(!q.contains(&format!("(e)<-[:{}]-", schema::CORROBORATES)));
+    }
+
+    /// Every `disputing_*` alias the fold decodes must be projected. A renamed
+    /// or dropped alias would decode to `None` and silently empty the bucket.
+    #[test]
+    fn detail_cypher_projects_every_disputing_alias_the_fold_reads() {
+        let q = element_detail_cypher();
+        for alias in [
+            "AS disputing_id",
+            "AS disputing_quote",
+            "AS disputing_page_number",
+            "AS disputing_paragraph",
+            "AS disputing_page_note",
+            "AS disputing_document_id",
+            "AS disputing_document_title",
+        ] {
+            assert!(q.contains(alias), "missing RETURN alias `{alias}`");
+        }
+    }
+
+    /// Node labels stay parameter-bound on BOTH legs — including the dispute
+    /// leg's Evidence and its source Document — so no domain label is inlined
+    /// into the Cypher (Rule 12 / Rule 16).
+    #[test]
+    fn detail_cypher_parameterizes_every_node_label_on_both_legs() {
+        let q = element_detail_cypher();
+        for binding in [
+            "labels(e)[0] = $element_label",
+            "labels(lc)[0] = $count_label",
+            "labels(a)[0] = $allegation_label",
+            "labels(ev)[0] = $evidence_label",
+            "labels(dv)[0] = $evidence_label",
+            "labels(d)[0] = $document_label",
+            "labels(dd)[0] = $document_label",
+        ] {
+            assert!(q.contains(binding), "missing label binding `{binding}`");
+        }
     }
 
     /// An Evidence item with no source Document keeps `source_document_id: null`

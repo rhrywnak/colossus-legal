@@ -426,6 +426,85 @@ measure", rendered `—`, and is never collapsed to `0`. Only failure mode is `5
 
 ---
 
+## 2026-07-27 | SOFTWARE ARCHITECT (Roman Approved) — honesty batch
+
+### Decision
+Retire every displayed figure the metric inventory found to be fabricated,
+permanently zero by construction, or mislabeled; wire the one column that was
+blank over real data. No replacements invented — a real coverage verdict is Case
+State work, and a substitute made up here would repeat the mistake being fixed.
+
+**Retired:** `calculate_strength` — the "evidence strength" percentage on
+`/explorer` came from a five-row lookup table keyed on the evidence count
+(0 → 25%, 1 → 60%, 2 → 80%, 3 → 90%, 4+ → 95%), carrying no information the count
+does not while presenting as a measurement, with an InfoPopup publishing the
+invented scale to the user as method. Gone with it: the strength categories, the
+strong/moderate/weak/gap buckets, the badge, the bars, and the client-side
+per-Count breakdown. **Deleted:** `allegations_proven` (it counted Allegations
+whose own quote was locatable in their own PDF and called that "proven" — that is
+verifiability, not evidentiary support); `CaseStats.evidence_count` and its twins
+`evidence_total` / `evidence_grounded` (hardcoded `0` with the false comment
+"Evidence nodes don't exist in v2"); Decomposition `proven_count` / `all_proven`
+(compared against a `status` property the v5.1 migration dropped and the query
+returned as literal NULL, so both were zero/false by construction — the whole
+unreachable `GET /decomposition` endpoint went with them). **Removed from the War
+Room band:** "Baseless repeat patterns" and "No response yet", both derived from
+hardcoded stub card fields, so one was structurally 0 and the other always
+equalled the scenario count; the stub fields themselves are untouched, and the
+figures return when their sources are real. **Fixed:** `d.document_type` in
+**six** Cypher queries (three in `bias`, plus `embedding_repository`,
+`graph_expansion_minor`, `graph_expansion_cypher`) — a property no write path has
+ever set. **Wired:** the Proof Matrix's "Opposing" column, which received a
+hardcoded `[]` over 41 real `Evidence -[:REBUTS]-> Allegation` edges, is now
+**"Disputes"**, fed by a real per-Element count with the items in the expanded row.
+
+### Rationale
+These figures were live in a trial-prep product in active use. A fabricated
+percentage and a structural zero are worse than a blank: both read as
+measurements, and a reader has no way to tell them from real results. The
+`document_type` class is subtler still — reading a Postgres column name off a
+graph node returns NULL rather than erroring, so the failure mode is a plausible
+empty field. It survived for months in six queries.
+
+"Disputes" is deliberate: not "Contradicts", reserved for the future
+evidence-vs-evidence impeachment layer, since one word for two relationships
+would make them read as one; and not "Opposing", which describes a party's
+posture rather than what the record disputes.
+
+### Impacts
+- **Data Architect:** None to the graph — read-only throughout, no schema change,
+  no migration, no data patch.
+- **DB Engineer:** None.
+- **Software Architect:** API contract changes below. The Proof Matrix keeps ONE
+  element-verdict vocabulary: `disputing_evidence_count` is layered beside
+  `derive_proof_status` and is deliberately **not** an input to it — support and
+  dispute are independent readings, and an Element that is both well corroborated
+  and heavily disputed is the one worth arguing about.
+
+### API contract changes
+`GET /api/cases/:slug/causes-of-action` — each element gains
+`disputing_evidence_count: i64`. `GET /api/cases/:slug/elements/:id/detail` —
+each allegation gains `disputing_evidence: EvidenceRef[]` (empty array present,
+never omitted). `GET /api/analysis` — loses `strength_percent`,
+`strength_category`, `gap_notes`, the four bucket counts, `contradictions_summary`
+and `evidence_coverage`. `GET /api/case` / `/api/case-summary` — lose
+`allegations_proven`, `evidence_count`, `evidence_total`, `evidence_grounded`.
+`GET /api/cases/:slug/trial-prep/dashboard` — metrics band loses
+`baseless_repeat_patterns` and `no_response_yet`. `GET /decomposition` — removed.
+Routes `/analysis` and `/decomposition` retired (both were unreachable from any
+link or nav item).
+
+### Action Required
+- [x] Retire `calculate_strength` and its displays; delete the three false figures
+- [x] `d.document_type` → `d.doc_type` in all six queries
+- [x] Rule-21 filesystem scan in `neo4j::schema` failing the build on recurrence
+- [x] Ship the Disputes column and its expanded items
+- [x] Document the Proof Matrix queries — `docs/PROOF_MATRIX_QUERIES.md`
+- [ ] Roman: build + deploy the next beta and verify on DEV
+- [ ] Software Architect: Case State owns the replacement coverage verdict
+
+---
+
 ## Template for Future Entries
 
 ```markdown

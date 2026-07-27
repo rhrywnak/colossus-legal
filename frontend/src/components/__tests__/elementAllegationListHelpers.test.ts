@@ -9,11 +9,11 @@
 import { describe, expect, it } from "vitest";
 import { locatorLabel, pdfHref } from "../ElementAllegationList";
 import { API_BASE_URL } from "../../services/api";
-import type { SupportingEvidence } from "../../services/elementDetailService";
+import type { AllegationEvidence } from "../../services/elementDetailService";
 
 const makeEvidence = (
-  overrides: Partial<SupportingEvidence> = {},
-): SupportingEvidence => ({
+  overrides: Partial<AllegationEvidence> = {},
+): AllegationEvidence => ({
   id: "evidence-074",
   verbatim_quote: "That is my recollection.",
   page_number: 22,

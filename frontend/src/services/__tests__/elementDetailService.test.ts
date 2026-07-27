@@ -114,6 +114,68 @@ describe("fetchElementDetail", () => {
     ).rejects.toThrow(/missing the "allegations" array/);
   });
 
+  /**
+   * The panel reads `.length` on BOTH evidence legs of every allegation to
+   * choose between the item list and the empty state. A missing key would throw
+   * a TypeError mid-render — and this app has no React error boundary, so that
+   * is a BLANK PAGE, not an error message. The boundary check turns it into a
+   * sentence naming the offending allegation.
+   */
+  it.each([
+    ["supporting_evidence", { disputing_evidence: [] }],
+    ["disputing_evidence", { supporting_evidence: [] }],
+  ])("throws when an allegation is missing %s", async (_leg, legs) => {
+    // @ts-ignore — valid JSON, wrong shape (one evidence leg absent)
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        ...validResponse,
+        allegations: [{ allegation_id: "a-1", paragraph_number: "10", ...legs }],
+      }),
+    });
+
+    await expect(fetchElementDetail("case", "el-1")).rejects.toThrow(
+      /missing its "supporting_evidence" or "disputing_evidence" array/,
+    );
+  });
+
+  /** The error names WHICH allegation is malformed, so it is actionable. */
+  it("names the offending allegation in the contract-mismatch error", async () => {
+    // @ts-ignore
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        ...validResponse,
+        allegations: [
+          { allegation_id: "a-ok", supporting_evidence: [], disputing_evidence: [] },
+          { allegation_id: "a-broken", supporting_evidence: [] },
+        ],
+      }),
+    });
+
+    await expect(fetchElementDetail("case", "el-1")).rejects.toThrow(/a-broken/);
+  });
+
+  /** Both legs present but empty is VALID — that is the honest "no evidence"
+   *  state the panel renders explicitly, not a contract mismatch. */
+  it("accepts allegations whose evidence legs are present but empty", async () => {
+    // @ts-ignore
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        ...validResponse,
+        allegations: [
+          { allegation_id: "a-1", supporting_evidence: [], disputing_evidence: [] },
+        ],
+      }),
+    });
+
+    await expect(fetchElementDetail("case", "el-1")).resolves.toBeTruthy();
+  });
+
   it("URL-encodes the slug and element id", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

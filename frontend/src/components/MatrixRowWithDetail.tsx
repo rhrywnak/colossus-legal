@@ -6,12 +6,16 @@
 // `ProofMatrixPage` so that page stays within the 300-line module limit and so
 // the row+detail unit reads as one thing.
 //
-// Part 2: the Supporting column and Status pill now show REAL backend data —
-// `element.supporting_evidence_count` and `element.proof_status` (both computed
-// by the backend; rendered as-is, never derived here — Rule 19). The Opposing
-// column stays an honest empty (`[]`) because no CONTRADICTS/REBUTS edges exist
-// on the processed document yet. `ElementDetailContent` self-fetches the
-// per-allegation evidence detail.
+// Every column shows REAL backend data, rendered as-is and never derived here
+// (Rule 19): `supporting_evidence_count`, `disputing_evidence_count` and
+// `proof_status` are all computed by the causes-of-action query.
+//
+// The Disputes column was previously fed a hardcoded `[]` on the grounds that no
+// REBUTS edges existed — a claim that stopped being true without anyone
+// noticing, leaving a blank column over 41 real `Evidence -[:REBUTS]->
+// Allegation` edges. It is now wired to the backend count, and the items behind
+// it appear in the expanded detail via `ElementDetailContent`, which
+// self-fetches them.
 // =============================================================================
 
 import React from "react";
@@ -59,7 +63,7 @@ const MatrixRowWithDetail: React.FC<MatrixRowWithDetailProps> = ({
       onSelect={NOOP_SELECT}
       variant="matrix"
       supportingCount={element.supporting_evidence_count}
-      opposingEvidence={[]}
+      disputingCount={element.disputing_evidence_count}
       proofStatus={element.proof_status}
       expanded={expanded}
       onToggleExpand={onToggleExpand}
