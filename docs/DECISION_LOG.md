@@ -231,6 +231,201 @@ failed *data* operation is never best-effort.
 
 ---
 
+## 2026-07-27 | SOFTWARE ARCHITECT (Roman Approved)
+
+### Decision
+**Verification queries are written from the code's write paths, never from assumed
+property names.** Any figure used to judge the knowledge base — in an assessment, a
+report, or a dashboard — must be produced by a query whose property and label names
+were read out of the code that WRITES them.
+
+### Rationale
+Two of the four alarm findings in the 2026-07-26 graph assessment were measurement
+errors, not data problems:
+
+- **`document_type` NULL on all 9 Document nodes.** The property has never existed.
+  Every write path — `api::pipeline::ingest_helpers::create_document_node` (both the
+  full and delta ingest paths) and `repositories::document_repository` — writes
+  `doc_type`. A live query on 2026-07-27 confirmed `doc_type` populated on all nine
+  nodes (discovery_response ×2, court_ruling ×2, affidavit ×2, complaint,
+  correspondence, court_transcript). `file_name` is likewise not a real property; the
+  display name is `title`.
+- **`to_element: 0`.** A query for direct `Evidence → Element` edges, which were never
+  part of the design. The spine is
+  `LegalCount → HAS_ELEMENT → Element ← BEARS_ON ← Allegation ← Evidence` and is intact.
+
+Both errors pointed at real-looking crises and cost real investigation time. A wrong
+property name returns NULL rather than an error, so the failure mode is a plausible
+finding, not a visible fault — which is precisely why it needs a rule rather than
+care.
+
+### Impacts
+- Data Architect: The v1 §9 "hard prerequisite" (populate `document_type` before the
+  by-type rollup) is **DELETED**. The by-type rollup is unblocked.
+- DB Engineer: None. No schema change; no data patch was made or is needed.
+- Software Architect: New surfaces that display graph figures carry a documented-query
+  artifact (see the Case Health entry below). Case Health pins the correct spellings by
+  test — `documents_query_reads_the_properties_the_write_path_actually_sets` fails the
+  build if `document_type` or `file_name` appears in its generated Cypher.
+
+### Action Required
+- [x] Correct the requirement document (`CASE_HEALTH_DASHBOARD_REQUIREMENT_v1_1.md` §1)
+- [x] Pin the correct property names by test in `case_health_repository_tests.rs`
+- [x] Record the spot-check query in `docs/CASE_HEALTH_QUERIES.md` §5.3
+- [ ] Data Architect: apply the same discipline when authoring future assessment queries
+
+---
+
+## 2026-07-27 | SOFTWARE ARCHITECT (Roman Approved)
+
+### Decision
+**The corpus connection headline is the PROBATIVE rate, and `ABOUT` is excluded from
+it.** Two tiers, defined once in `backend/src/domain/connection_tier.rs`:
+
+- **Probative** — Evidence with ≥1 `CORROBORATES` / `REBUTS` / `CHARACTERIZES` edge to
+  an `Allegation`. **This is the headline.**
+- **Topical** — probative plus `ABOUT` → `Allegation`. Displayed beside the headline,
+  separately labeled.
+
+The two are never blended into a single number, on any surface.
+
+### Rationale
+`CORROBORATES`, `REBUTS` and `CHARACTERIZES` each say something about whether an
+allegation is TRUE — they move the proof one way or the other. `ABOUT` deliberately
+says only that an item is on the subject. Counting `ABOUT` in the headline inflates
+precisely the number this instrument exists to keep honest: a corpus of 500 items all
+merely "about" the case would report as fully connected while proving nothing.
+
+The 24% figure from the 2026-07-26 assessment blended the two and is superseded. The
+honest headline is lower than 24%. That is the point.
+
+The topical rate is not noise and is not hidden — it is the honest measure of "material
+the E→E edge layer could promote". It is simply a different claim, so it gets its own
+label and its own one-line explanation on screen.
+
+### Impacts
+- Data Architect: The connection metric is two-tier wherever it appears.
+- DB Engineer: None.
+- Software Architect: `CONNECTION_TIER_LOOKUP_V` (currently `1`) versions the partition
+  and ships in the payload, so a future snapshot delta can refuse to compare rates
+  computed under different definitions. The partition lives in code, not config —
+  which edges are probative is a fact about the v5 schema, not about a case or a
+  deployment, so another Colossus case renders with zero code changes.
+
+### Action Required
+- [x] Implement in `domain::connection_tier` with the ABOUT-exclusion pinned by test
+- [x] Ship both rates, separately labeled, in Pane 1
+- [ ] Software Architect: apply the same two-tier treatment in Panes 2–4 (later chunks)
+
+---
+
+## 2026-07-27 | SOFTWARE ARCHITECT (Roman Approved)
+
+### Decision
+**One element-verdict vocabulary in the codebase.** Pane 2 of Case Health (a later
+chunk) will WRAP the existing `causes_of_action_repository::elements_query` +
+`causes_of_action_builder::derive_proof_status` computation and its four-state verdict
+(`no_allegations` / `gap` / `partial` / `supported`). No second element-verdict
+vocabulary may be introduced. REBUTS exposure is layered on as additional columns
+BESIDE the existing verdict, never altering it. The thresholds stay compiled-in for v1;
+configurability is deferred, not redesigned.
+
+### Rationale
+The Proof Matrix page already ships `derive_proof_status` to the frontend
+(`services/proofMatrix.ts`). A parallel `covered / thin / naked` vocabulary computed
+from the same graph would give the same Element two verdicts on two pages, and they
+would eventually disagree — the reader would then have no way to know which page was
+lying. One vocabulary, extended where it is thin, is strictly better than two that
+agree today.
+
+Chunk 1 (Pane 1) introduces **no** verdict at all: it reports rates and counts and
+renders no judgement, so it cannot violate this rule.
+
+### Impacts
+- Data Architect: None.
+- DB Engineer: None.
+- Software Architect: Binding constraint on the Pane 2 chunk. Threshold configurability
+  is a separate, later decision.
+
+### Action Required
+- [x] Chunk 1 ships no verdict vocabulary
+- [ ] Software Architect: Pane 2 chunk wraps `derive_proof_status` rather than
+      duplicating it
+
+---
+
+## 2026-07-27 | DATA ARCHITECT (Roman Approved)
+
+### Decision
+**"Themes with zero candidates" is deleted from the Case Health Pane 3 requirement.**
+No theme concept exists in storage.
+
+### Rationale
+A read of the code found no theme entity anywhere: `ScenarioDefinition`
+(`dto::scenario_crud`, schema_v 2) carries only `attack_text`, `attack_meaning`,
+`target`, `wielders`, `schema_v` — the D1 rebuild retired `seed_phrases` /
+`anti_seed_phrases` / `notes` with no successor; the `scenarios`,
+`scenario_fact_refs`, `scan_runs` and `scan_run_verdicts` tables have no theme column.
+"Theme Scan" names the ACTIVITY (judging candidates against a scenario's single
+`attack_text`), not a stored structure.
+
+Introducing themes would be a `ScenarioDefinition` schema_v bump — a change to the
+scenario workbench, which the requirement itself declares complete and closed. Not
+worth it to satisfy one dashboard bullet.
+
+### Impacts
+- Data Architect: Requirement §6 amended. Pane 3 reports what is actually stored:
+  candidate pool size, include/drop/undecided counts, source-document distribution of
+  the included set, scan-run history with verdict counts, plus the structural
+  capability flags (which query the graph, not scenario storage).
+- DB Engineer: None — no migration, and explicitly no new theme table.
+- Software Architect: Pane 3 chunk scoped accordingly. Note for that chunk: **undecided
+  candidates have no `scenario_fact_refs` row** (derive-on-read is the ratified
+  contract), so the undecided count must be computed as
+  `pool − included − dropped`, never as a row count.
+
+### Action Required
+- [x] Amend the requirement (`CASE_HEALTH_DASHBOARD_REQUIREMENT_v1_1.md` §6)
+- [x] Ensure nothing in Chunk 1's payload anticipates a theme concept
+- [ ] Software Architect: honour the derive-on-read note when Pane 3 is built
+
+---
+
+## 2026-07-27 | SOFTWARE ARCHITECT (Roman Approved)
+
+### Decision
+**New read-only API surface: `GET /api/cases/:slug/case-health/inventory`**, rendered at
+the top-level frontend route `/cases/:slug/case-health` ("Case Health"). Chunk 1 of the
+Case Health dashboard — Pane 1, Graph Inventory. Every figure it displays is
+reproducible by a query documented in **`docs/CASE_HEALTH_QUERIES.md`**.
+
+### Rationale
+Graph health was invisible: eight documents were processed and judged on grounding rate
+while the metric that matters — how much extracted Evidence is wired into an Allegation
+— existed nowhere in the product and had to be hand-queried. Pane 1 alone makes that
+class of blindness structurally impossible.
+
+### Impacts
+- Data Architect: None — read-only, no schema change, no write path.
+- DB Engineer: None — Neo4j reads only, no Postgres, no migration.
+- Software Architect: New API contract (see below). Payload shaped so a snapshot/delta
+  attaches later without a breaking change: the measurement lives in one `GraphInventory`
+  struct carried as `current`, with a `previous` sibling that is always absent today.
+
+### API contract
+`GET /api/cases/:slug/case-health/inventory` → `200`
+`{ case_slug, connection_tier_lookup_v, edge_classes[], current{…}, previous? }`.
+`current` = `{ computed_at, corpus{…}, node_labels[], unlabeled_node_count,
+edge_triples[], documents[] }`. Rates are `number | null` — `null` means "nothing to
+measure", rendered `—`, and is never collapsed to `0`. Only failure mode is `500`
+`{"error":"internal server error"}`; an empty graph is a legitimate `200`, not a `404`.
+
+### Action Required
+- [x] Backend, frontend, tests, documented-query artifact
+- [ ] Roman: build + deploy the next beta and verify on DEV
+
+---
+
 ## Template for Future Entries
 
 ```markdown
