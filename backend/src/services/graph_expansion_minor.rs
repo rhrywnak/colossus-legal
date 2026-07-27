@@ -104,7 +104,7 @@ pub async fn expand_document(
     let cypher = "MATCH (d:Document {id: $id})
         OPTIONAL MATCH (evidence:Evidence)-[:CONTAINED_IN]->(d)
         OPTIONAL MATCH (evidence)-[:STATED_BY]->(speaker)
-        RETURN d.id AS did, d.title AS dtitle, d.document_type AS dtype,
+        RETURN d.id AS did, d.title AS dtitle, d.doc_type AS dtype,
                evidence.id AS eid, evidence.title AS etitle,
                speaker.id AS sid, speaker.name AS sname
         LIMIT 20";

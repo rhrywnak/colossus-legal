@@ -1,13 +1,23 @@
+//!
+//! ## Why no `deny_unknown_fields` in this module
+//!
+//! Response shapes only; the reasoning is in `dto::case_dto`.
+
 // =============================================================================
 // backend/src/dto/decomposition.rs
 // =============================================================================
 //
 // Data Transfer Objects for the Decomposition API (Phase F, Feature F.1)
 //
-// Three endpoints:
-//   GET /decomposition             — Overview of all 18 allegations
+// Two endpoints:
 //   GET /allegations/:id/detail    — Deep dive into one allegation
 //   GET /rebuttals                 — All REBUTS grouped by George's claims
+//
+// The former `GET /decomposition` overview was retired in the 2026-07-27
+// honesty batch: its `proven_count` / `all_proven` summary tested an allegation
+// `status` property the v5.1 migration had already dropped (the query returned a
+// literal NULL), so both figures were permanently zero/false by construction,
+// and no other surface consumed the endpoint.
 //
 // RUST PATTERN: Nested response structs
 // ─────────────────────────────────────
@@ -19,52 +29,11 @@
 use serde::{Deserialize, Serialize};
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Endpoint 1: GET /decomposition
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// Top-level response for the decomposition overview.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DecompositionResponse {
-    pub allegations: Vec<AllegationOverview>,
-    pub summary: DecompositionSummary,
-}
-
-/// One row in the decomposition table.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AllegationOverview {
-    pub id: String,
-    pub title: String,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub status: Option<String>,
-
-    /// All labels George applied: ["frivolous", "false", "unfounded", ...]
-    pub characterizations: Vec<String>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub characterized_by: Option<String>,
-
-    pub proof_count: i64,
-    pub rebuttal_count: i64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DecompositionSummary {
-    pub total_allegations: i64,
-    pub proven_count: i64,
-    pub all_proven: bool,
-    pub total_characterizations: i64,
-    pub total_rebuttals: i64,
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Endpoint 2: GET /allegations/:id/detail
+// Endpoint 1: GET /allegations/:id/detail
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Full detail view for a single allegation.
+// serde: allows unknown fields because this is a response shape whose only deserializer is a test — see the module note.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AllegationDetailResponse {
     pub allegation: AllegationInfo,
@@ -72,6 +41,7 @@ pub struct AllegationDetailResponse {
     pub proof_claims: Vec<ProofClaimSummary>,
 }
 
+// serde: allows unknown fields because this is a response shape whose only deserializer is a test — see the module note.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AllegationInfo {
     pub id: String,
@@ -86,6 +56,7 @@ pub struct AllegationInfo {
 }
 
 /// One characterization George made, with the rebuttal chain.
+// serde: allows unknown fields because this is a response shape whose only deserializer is a test — see the module note.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CharacterizationDetail {
     pub label: String,
@@ -107,6 +78,7 @@ pub struct CharacterizationDetail {
 }
 
 /// One piece of evidence that disproves a characterization.
+// serde: allows unknown fields because this is a response shape whose only deserializer is a test — see the module note.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RebuttalDetail {
     pub evidence_id: String,
@@ -127,6 +99,7 @@ pub struct RebuttalDetail {
     pub stated_by: Option<String>,
 }
 
+// serde: allows unknown fields because this is a response shape whose only deserializer is a test — see the module note.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProofClaimSummary {
     pub id: String,
@@ -139,15 +112,17 @@ pub struct ProofClaimSummary {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Endpoint 3: GET /rebuttals
+// Endpoint 2: GET /rebuttals
 // ─────────────────────────────────────────────────────────────────────────────
 
+// serde: allows unknown fields because this is a response shape whose only deserializer is a test — see the module note.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RebuttalsResponse {
     pub george_claims: Vec<GeorgeClaimWithRebuttals>,
     pub summary: RebuttalsSummary,
 }
 
+// serde: allows unknown fields because this is a response shape whose only deserializer is a test — see the module note.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GeorgeClaimWithRebuttals {
     pub claim_id: String,
@@ -163,6 +138,7 @@ pub struct GeorgeClaimWithRebuttals {
     pub rebuttal_count: i64,
 }
 
+// serde: allows unknown fields because this is a response shape whose only deserializer is a test — see the module note.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RebuttalsSummary {
     pub total_george_claims_rebutted: i64,
@@ -171,6 +147,7 @@ pub struct RebuttalsSummary {
     pub unrebutted_reasons: Vec<UnrebuttedReason>,
 }
 
+// serde: allows unknown fields because this is a response shape whose only deserializer is a test — see the module note.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UnrebuttedReason {
     pub claim: String,

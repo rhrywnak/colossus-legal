@@ -34,8 +34,6 @@ export type LegalCountSummary = {
 
 export type CaseStats = {
   allegations_total: number;
-  allegations_proven: number;
-  evidence_count: number;
   document_count: number;
   damages_total: number;
   legal_counts: number;

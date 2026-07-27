@@ -16,8 +16,15 @@
 //! ## Module layout
 //!
 //! - `dto` — request and response DTOs (no business logic).
-//! - `repository` — Cypher queries and the orchestration layer; the only
-//!   place that talks to Neo4j for bias-related reads.
+//! - `queries` — EVERY Cypher builder this module runs, as pure `fn -> String`
+//!   functions interpolating the `neo4j::schema` relationship constants (Cypher
+//!   cannot parameterize a relationship type). Split from `repository` so the
+//!   query TEXT is shape-testable without a graph and neither file crosses the
+//!   module-size limit. The boundary is deliberately total: a builder left
+//!   inline in `repository` would be the one nobody thinks to shape-test, which
+//!   is how `d.document_type` survived in three of these queries for months.
+//! - `repository` — execution, parameter binding and the orchestration layer;
+//!   the only place that talks to Neo4j for bias-related reads.
 //! - `aggregation` — pure row-collapsing logic (no I/O) used by the
 //!   repository to dedupe (Evidence, ABOUT-subject) rows into one
 //!   `BiasInstance` per Evidence with a sorted, deduplicated about list.
@@ -35,6 +42,7 @@
 pub mod aggregation;
 pub mod dto;
 pub mod handlers;
+pub(crate) mod queries;
 pub mod repository;
 
 #[cfg(test)]

@@ -34,7 +34,6 @@ export type CaseSummaryResponse = {
   case_number?: string;
 
   allegations_total: number;
-  allegations_proven: number;
   legal_counts: number;
   legal_count_details: LegalCountInfo[];
 
@@ -48,8 +47,6 @@ export type CaseSummaryResponse = {
   rebuttals_total: number;
   unique_characterization_labels: string[];
 
-  evidence_total: number;
-  evidence_grounded: number;
   documents_total: number;
 
   plaintiffs: string[];

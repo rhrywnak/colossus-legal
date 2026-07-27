@@ -31,9 +31,6 @@ export interface TrialPrepDashboard {
     ready: number;
     drafted_or_review: number;
     instances: number;
-    /** The Count IV signal — accusations repeated after a proven rebuttal. */
-    baseless_repeat_patterns: number;
-    no_response_yet: number;
   };
   /** Living-binder notices ("N new instances …"). Empty array = no alerts. */
   alerts: { message: string }[];

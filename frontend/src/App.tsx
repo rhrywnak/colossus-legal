@@ -4,9 +4,7 @@ import Header from "./components/Header";
 import { AuthProvider } from "./context/AuthContext";
 import { CaseProvider } from "./context/CaseContext";
 import AllegationsPage from "./pages/AllegationsPage";
-import AnalysisPage from "./pages/AnalysisPage";
 import ContradictionsPage from "./pages/ContradictionsPage";
-import DecompositionPage from "./pages/DecompositionPage";
 import AllegationDetailPage from "./pages/AllegationDetailPage";
 import CaseHealthPage from "./pages/CaseHealthPage";
 import CountDetailPage from "./pages/CountDetailPage";
@@ -57,7 +55,6 @@ const App: React.FC = () => {
           <main style={{ maxWidth: "1080px", margin: "0 auto", padding: "0 2rem" }}>
             <Routes>
               <Route path="/" element={<Home />} />
-              <Route path="/analysis" element={<AnalysisPage />} />
               <Route path="/allegations" element={<AllegationsPage />} />
               <Route path="/claims" element={<MotionClaimsPage />} />
               <Route path="/documents" element={<DocumentsPage />} />
@@ -68,7 +65,6 @@ const App: React.FC = () => {
               <Route path="/people/:id" element={<PersonDetailPage />} />
               <Route path="/hearings" element={<Hearings />} />
               <Route path="/decisions" element={<Decisions />} />
-              <Route path="/decomposition" element={<DecompositionPage />} />
               <Route path="/allegations/:id/detail" element={<AllegationDetailPage />} />
               <Route path="/cases/:slug/counts/:countId" element={<CountDetailPage />} />
               <Route path="/cases/:slug/case-health" element={<CaseHealthPage />} />

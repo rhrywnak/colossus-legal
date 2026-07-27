@@ -272,7 +272,6 @@ fn entity_routes() -> Router<AppState> {
 /// and rebuttals.
 fn decomposition_routes() -> Router<AppState> {
     Router::new()
-        .route("/decomposition", get(decomposition::list_decomposition))
         .route(
             "/allegations/:id/detail",
             get(decomposition::get_allegation_detail),

@@ -50,7 +50,6 @@ pub use analysis_repository::AnalysisRepository;
 pub use case_repository::CaseRepository;
 pub use case_summary_repository::CaseSummaryRepository;
 pub use contradiction_repository::ContradictionRepository;
-pub use decomposition_repository::DecompositionRepository;
 pub use evidence_chain_repository::EvidenceChainRepository;
 pub use evidence_repository::EvidenceRepository;
 pub use graph_repository::GraphRepository;

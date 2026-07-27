@@ -140,7 +140,7 @@ pub async fn fetch_all_embeddable_nodes(
             "MATCH (d:Document)
              RETURN d.id AS id, 'Document' AS node_type,
                     d.title AS title,
-                    d.document_type AS document_type,
+                    d.doc_type AS document_type,
                     d.date AS date,
                     d.page_count AS page_count,
                     d.file_path AS file_path",

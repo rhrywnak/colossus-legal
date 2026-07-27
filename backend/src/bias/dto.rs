@@ -10,15 +10,21 @@
 //! - `#[serde(skip_serializing_if = "Option::is_none")]` — when the field is
 //!   `None`, it is omitted from the JSON output entirely (rather than
 //!   serialized as `null`). This preserves the *missing vs. empty*
-//!   distinction the standing rules require, e.g. a missing
-//!   `Document.document_type` round-trips as "absent" rather than as the
-//!   string `"unknown"`.
+//!   distinction the standing rules require, e.g. a Document node with no
+//!   type round-trips as "absent" rather than as the string `"unknown"`.
 //! - `#[serde(default)]` on a struct — every absent field deserializes to
 //!   its `Default` value. Combined with `#[derive(Default)]` on
 //!   `BiasQueryFilters`, the client can `POST {}` and it deserializes to
 //!   "all actors, all patterns" rather than failing.
 //! - Snake_case is implicit: every field below is already snake_case, so
 //!   no `rename_all` is needed. The frontend mirrors these names verbatim.
+//!
+//! ## Why `deny_unknown_fields` is absent here
+//!
+//! The response shapes below are produced by the backend and rendered by the
+//! client; nothing deserializes them but a test. `BiasQueryFilters` is the one
+//! REQUEST shape, and it deliberately allows unknown fields for the opposite
+//! reason spelled out above — `#[serde(default)]` lets a client `POST {}`.
 
 use serde::{Deserialize, Serialize};
 
@@ -42,6 +48,7 @@ use serde::{Deserialize, Serialize};
 /// We expose this as a server-resolved id rather than asking the frontend
 /// to match a name string, so case-specific data stays out of the JS
 /// bundle (Standing Rule 2 again).
+// serde: allows unknown fields because this is a response shape whose only deserializer is a test — see the module note.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AvailableFilters {
     pub actors: Vec<ActorOption>,
@@ -60,6 +67,7 @@ pub struct AvailableFilters {
 ///
 /// `tagged_statement_count` is the count used for both sorting and the
 /// "George Phillips (114)" badge in the dropdown.
+// serde: allows unknown fields because this is a response shape whose only deserializer is a test — see the module note.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ActorOption {
     pub id: String,
@@ -89,6 +97,7 @@ pub struct ActorOption {
 /// Combined with `#[derive(Default)]`, an empty JSON body `{}` deserializes
 /// to "all None". Every new field added below should also default sensibly,
 /// or the existing clients break.
+// serde: allows unknown fields because this is a response shape whose only deserializer is a test — see the module note.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct BiasQueryFilters {
@@ -128,6 +137,7 @@ pub struct BiasQueryFilters {
 /// the wire shape stays observable: a request that matches everything in
 /// a small graph (X == Y, no filter applied) is distinguishable from a
 /// request that happens to filter down to the full set.
+// serde: allows unknown fields because this is a response shape whose only deserializer is a test — see the module note.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BiasQueryResult {
     pub total_count: i64,
@@ -149,6 +159,7 @@ pub struct BiasQueryResult {
 /// for every row this endpoint returns. We keep it `Option` for forward
 /// compatibility: the day someone wants "all evidence" without the
 /// STATED_BY constraint, the DTO already supports it.
+// serde: allows unknown fields because this is a response shape whose only deserializer is a test — see the module note.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BiasInstance {
     pub evidence_id: String,
@@ -187,10 +198,23 @@ pub struct BiasInstance {
 
 /// Reference to the source document an Evidence node was extracted from.
 ///
-/// `document_type` is `Option` so a document with no `document_type`
-/// property in the graph is distinguishable from one whose type is
-/// the empty string. (Standing Rule 1: distinct states, distinct
-/// observables.)
+/// `document_type` is `Option` so a Document node carrying no type is
+/// distinguishable from one whose type is the empty string. (Standing Rule 1:
+/// distinct states, distinct observables.)
+///
+/// ## The wire name and the graph property deliberately differ
+///
+/// The wire field is `document_type`; the Neo4j property it is read from is
+/// **`doc_type`**, which is what every write path actually sets —
+/// `api::pipeline::ingest_helpers::create_document_node` and
+/// `repositories::document_repository`. Until 2026-07-27 the three queries here
+/// selected `d.document_type`, a property no writer has ever set, so this field
+/// was `None` on every bias, candidate-workbench and Theme Scan card that has
+/// ever been served — not because the graph lacked the data, but because the
+/// read asked for a name that does not exist. The queries now select
+/// `d.doc_type AS document_type`, keeping the established wire name while
+/// reading the real property.
+// serde: allows unknown fields because this is a response shape whose only deserializer is a test — see the module note.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DocumentRef {
     pub id: String,

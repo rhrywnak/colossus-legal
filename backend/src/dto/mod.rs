@@ -30,17 +30,12 @@ pub mod trial_prep;
 
 // Re-export DTOs / request types from submodules
 pub use allegation::{AllegationDto, AllegationSummary, AllegationsResponse};
-pub use analysis::{
-    AllegationStrength, AnalysisResponse, ContradictionBrief, ContradictionsSummary,
-    DocumentCoverage, EvidenceCoverage, GapAnalysis,
-};
+pub use analysis::{AllegationStrength, AnalysisResponse, GapAnalysis};
 pub use case_dto::{CaseInfo, CaseResponse, CaseStats, LegalCountSummary, PartiesGroup, PartyDto};
 pub use claim::{ClaimCreateRequest, ClaimDto, ClaimUpdateRequest};
 pub use contradiction::{ContradictionDto, ContradictionEvidence, ContradictionsResponse};
 pub use decision::{DecisionCreateRequest, DecisionUpdateRequest};
-pub use decomposition::{
-    AllegationDetailResponse, AllegationOverview, DecompositionResponse, RebuttalsResponse,
-};
+pub use decomposition::{AllegationDetailResponse, RebuttalsResponse};
 pub use document::{DocumentCreateRequest, DocumentDto, DocumentUpdateRequest};
 pub use evidence::{EvidenceCreateRequest, EvidenceDto, EvidenceResponse, EvidenceUpdateRequest};
 pub use evidence_chain::{

@@ -17,32 +17,9 @@ use axum::{
 };
 
 use crate::auth::AuthUser;
-use crate::dto::decomposition::{
-    AllegationDetailResponse, DecompositionResponse, RebuttalsResponse,
-};
-use crate::repositories::{
-    AllegationDetailRepository, DecompositionRepository, RebuttalsRepository,
-};
+use crate::dto::decomposition::{AllegationDetailResponse, RebuttalsResponse};
+use crate::repositories::{AllegationDetailRepository, RebuttalsRepository};
 use crate::state::AppState;
-
-/// GET /decomposition — Overview of all 18 allegations with characterizations
-pub async fn list_decomposition(
-    user: Option<AuthUser>,
-    State(state): State<AppState>,
-) -> Result<Json<DecompositionResponse>, StatusCode> {
-    if let Some(ref u) = user {
-        tracing::info!("{} GET /decomposition", u.username);
-    }
-    let repo = DecompositionRepository::new(state.graph.clone());
-
-    match repo.get_decomposition().await {
-        Ok(response) => Ok(Json(response)),
-        Err(e) => {
-            tracing::error!("Failed to fetch decomposition: {:?}", e);
-            Err(StatusCode::INTERNAL_SERVER_ERROR)
-        }
-    }
-}
 
 /// GET /allegations/:id/detail — Deep dive into one allegation
 pub async fn get_allegation_detail(

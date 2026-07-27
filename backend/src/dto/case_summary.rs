@@ -1,6 +1,15 @@
+//! Response DTOs for `GET /api/case-summary`.
+//!
+//! ## Why no `deny_unknown_fields` in this module
+//!
+//! Response shapes only — see `dto::case_dto` for the reasoning; two structs
+//! below (`LegalCountInfo`, `ElementInfo`) do carry the attribute for historical
+//! reasons and are left as they are.
+
 use serde::{Deserialize, Serialize};
 
 /// Response for GET /case-summary — analytical dashboard data
+// serde: allows unknown fields because this is a response shape whose only deserializer is a test — see the module note.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CaseSummaryResponse {
     // Case identity
@@ -11,8 +20,11 @@ pub struct CaseSummaryResponse {
     pub case_number: Option<String>,
 
     // Proof strength
+    //
+    // `allegations_proven` was removed on 2026-07-27: it counted Allegations
+    // whose own quote was locatable in their own source PDF and called that
+    // "proven". See `dto::case_dto::CaseStats` for the full note.
     pub allegations_total: i64,
-    pub allegations_proven: i64,
     pub legal_counts: i64,
     pub legal_count_details: Vec<LegalCountInfo>,
 
@@ -29,8 +41,6 @@ pub struct CaseSummaryResponse {
     pub unique_characterization_labels: Vec<String>,
 
     // Evidence strength
-    pub evidence_total: i64,
-    pub evidence_grounded: i64,
     pub documents_total: i64,
 
     // Parties
@@ -86,6 +96,7 @@ pub struct ElementInfo {
 }
 
 /// How many characterizations a specific person made
+// serde: allows unknown fields because this is a response shape whose only deserializer is a test — see the module note.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PersonCharacterizationCount {
     pub person: String,

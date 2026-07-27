@@ -139,4 +139,98 @@ mod tests {
         assert_eq!(APPEARS_IN, "APPEARS_IN");
         assert_eq!(SUPPORTS, "SUPPORTS");
     }
+
+    /// No Cypher anywhere in `src/` may read `document_type` off a `Document`
+    /// node — the property does not exist there and never has.
+    ///
+    /// ## Why this is a filesystem scan and not a review item
+    ///
+    /// Every write path sets **`doc_type`**
+    /// (`api::pipeline::ingest_helpers::create_document_node`,
+    /// `repositories::document_repository`). The Postgres column of the same
+    /// name — `documents.document_type` — is a DIFFERENT store, which is exactly
+    /// what makes the mistake so easy: the name is right somewhere. Reading it
+    /// from the graph returns NULL rather than an error, so the failure mode is a
+    /// plausible-looking empty field, not a visible fault.
+    ///
+    /// That is the class of defect review misses. SIX separate queries carried it
+    /// — three in `bias`, one in `embedding_repository`, one in
+    /// `graph_expansion_minor`, one in `graph_expansion_cypher` — and none was
+    /// noticed until a metric inventory went looking. The sixth was found only
+    /// because it used the alias `doc` instead of `d`, and a first version of
+    /// this very test missed it. Standing rule 21: when an invariant must hold
+    /// across many files, assert it by scanning the files.
+    ///
+    /// ## What the scan matches, and its one known limit
+    ///
+    /// It flags `.document_type AS ` — the Cypher RETURN-projection form, which
+    /// is how every one of the six sites was written and how a property read is
+    /// always spelled in this codebase's queries. Matching on the alias (` AS `)
+    /// rather than on a node-binding name is what makes it alias-agnostic: `d`,
+    /// `doc` or anything else is caught, while Rust field access
+    /// (`document.document_type`) and SQL without an alias cannot match, because
+    /// neither contains ` AS ` on the same line.
+    ///
+    /// Known limit, stated rather than hidden: a Cypher predicate that reads the
+    /// property without projecting it (`WHERE d.document_type = $x`) would slip
+    /// through. No such read exists today; widen the pattern if one appears.
+    #[test]
+    fn no_cypher_reads_document_type_from_a_document_node() {
+        use std::fs;
+        use std::path::Path;
+
+        /// The forbidden spelling: a Cypher projection of `document_type`.
+        const FORBIDDEN: &str = ".document_type AS ";
+
+        /// Path fragments whose occurrences are legitimate: SQL against the
+        /// Postgres column of the same name, or prose about this rule.
+        ///
+        /// `repositories/pipeline_repository/` is exempt as a whole DIRECTORY,
+        /// not file by file: that module is the Postgres layer by construction
+        /// (it talks to `state.pipeline_pool` and nothing else), so
+        /// `documents.document_type` there is the real column. SQL uses ` AS `
+        /// too, which is why the projection pattern alone cannot separate them.
+        const ALLOWED: &[&str] = &[
+            "repositories/pipeline_repository/", // Postgres-only module
+            "bias/dto.rs",                       // the doc comment explaining the fix
+            "neo4j/schema.rs",                   // this test
+            // Asserts the same invariant for the Case Health queries, so it
+            // names the forbidden spelling in its own failure message.
+            "repositories/case_health_repository_tests.rs",
+        ];
+
+        fn scan(dir: &Path, forbidden: &str, allowed: &[&str], hits: &mut Vec<String>) {
+            let entries = fs::read_dir(dir).expect("src/ is readable");
+            for entry in entries {
+                let path = entry.expect("dir entry readable").path();
+                if path.is_dir() {
+                    scan(&path, forbidden, allowed, hits);
+                } else if path.extension().and_then(|e| e.to_str()) == Some("rs") {
+                    let rel = path
+                        .strip_prefix(env!("CARGO_MANIFEST_DIR"))
+                        .unwrap_or(&path)
+                        .to_string_lossy()
+                        .replace("src/", "");
+                    if allowed.iter().any(|a| rel.contains(a)) {
+                        continue;
+                    }
+                    let text = fs::read_to_string(&path).expect("source file is UTF-8");
+                    for (i, line) in text.lines().enumerate() {
+                        if line.contains(forbidden) {
+                            hits.push(format!("{rel}:{}", i + 1));
+                        }
+                    }
+                }
+            }
+        }
+
+        let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut hits = Vec::new();
+        scan(&src, FORBIDDEN, ALLOWED, &mut hits);
+        assert!(
+            hits.is_empty(),
+            "`document_type` is not a property of a Document node — the write \
+             paths set `doc_type`. Found at: {hits:?}"
+        );
+    }
 }

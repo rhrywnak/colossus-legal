@@ -2,35 +2,13 @@ import { API_BASE_URL } from "./api";
 import { authFetch } from "./auth";
 
 // =============================================================================
-// Endpoint 1: GET /decomposition — Overview of all allegations
-// =============================================================================
-
-export type AllegationOverview = {
-  id: string;
-  title: string;
-  description?: string;
-  status?: string;
-  characterizations: string[];
-  characterized_by?: string;
-  proof_count: number;
-  rebuttal_count: number;
-};
-
-export type DecompositionSummary = {
-  total_allegations: number;
-  proven_count: number;
-  all_proven: boolean;
-  total_characterizations: number;
-  total_rebuttals: number;
-};
-
-export type DecompositionResponse = {
-  allegations: AllegationOverview[];
-  summary: DecompositionSummary;
-};
-
-// =============================================================================
-// Endpoint 2: GET /api/allegations/:id/detail — Deep dive into one allegation
+// Endpoint 1: GET /allegations/:id/detail — deep dive into one allegation
+//
+// The former `GET /decomposition` overview client was removed on 2026-07-27 with
+// the unreachable page that was its only caller: its summary reported a
+// `proven_count` / `all_proven` pair the backend derived from an allegation
+// `status` property the v5.1 migration had dropped, so both were permanently
+// zero/false by construction.
 // =============================================================================
 
 export type AllegationInfo = {
@@ -74,7 +52,7 @@ export type AllegationDetailResponse = {
 };
 
 // =============================================================================
-// Endpoint 3: GET /rebuttals — George's claims grouped with rebuttals
+// Endpoint 2: GET /rebuttals — George's claims grouped with rebuttals
 // =============================================================================
 
 export type GeorgeClaimWithRebuttals = {
@@ -106,16 +84,6 @@ export type RebuttalsResponse = {
 // =============================================================================
 // Fetch functions
 // =============================================================================
-
-export async function getDecomposition(): Promise<DecompositionResponse> {
-  const response = await authFetch(`${API_BASE_URL}/api/decomposition`);
-
-  if (!response.ok) {
-    throw new Error(`Failed to fetch decomposition: ${response.status}`);
-  }
-
-  return response.json();
-}
 
 export async function getAllegationDetail(
   allegationId: string
