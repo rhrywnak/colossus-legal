@@ -25,6 +25,7 @@ import DocumentWorkspaceTabs from "./pages/DocumentWorkspaceTabs";
 import HarmsPage from "./pages/HarmsPage";
 import Hearings from "./pages/Hearings";
 import Home from "./pages/Home";
+import NotFoundPage from "./pages/NotFoundPage";
 import Admin from "./pages/Admin";
 import People from "./pages/People";
 import PersonDetailPage from "./pages/PersonDetailPage";
@@ -83,6 +84,14 @@ const App: React.FC = () => {
               <Route path="/admin" element={<Admin />} />
               <Route path="/pipeline" element={<Navigate to="/documents" replace />} />
               <Route path="/pipeline/:id" element={<Navigate to="/documents" replace />} />
+              {/* Catch-all, and it must stay LAST: React Router v6 ranks routes by
+                  specificity rather than declaration order, so `*` cannot shadow a
+                  real route — but keeping it last is what makes that obvious to a
+                  reader adding the next one. Without it an unmatched URL rendered
+                  the Header over an empty <main>, which reads as a page that
+                  failed to load rather than one that does not exist (the
+                  /analysis and /decomposition retirement is what exposed it). */}
+              <Route path="*" element={<NotFoundPage />} />
             </Routes>
           </main>
         </div>
