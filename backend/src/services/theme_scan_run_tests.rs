@@ -2,41 +2,11 @@
 //!
 //! Split into a sibling file (via `#[path]`) so the lifecycle module stays within
 //! the module-size limit — the house pattern (`theme_scan_persist_tests.rs`,
-//! `scan_runs_tests.rs`). Pure mapping tests: the params snapshot and the
-//! repository-row → wire-DTO carry, both exercised without a database.
+//! `scan_runs_tests.rs`). Pure mapping tests: the repository-row → wire-DTO
+//! carry, exercised without a database. (The params-snapshot tests moved with
+//! `params_snapshot` itself into `theme_scan_start_tests.rs`.)
 
 use super::*;
-
-/// The `resolved_params` JSONB snapshot must carry the resolved prompt
-/// filename (run→prompt provenance) alongside the existing param fields.
-#[test]
-fn params_snapshot_records_prompt_file_alongside_params() {
-    let params = ResolvedLlmParams {
-        temperature: Some(0.0),
-        timeout_secs: 90,
-        max_tokens: 512,
-    };
-    let snapshot = params_snapshot(&params, "theme_scan_prompt_v2.md");
-
-    assert_eq!(snapshot["prompt_file"], "theme_scan_prompt_v2.md");
-    // The pre-existing fields must survive the addition.
-    assert_eq!(snapshot["timeout_secs"], 90);
-    assert_eq!(snapshot["max_tokens"], 512);
-    assert_eq!(snapshot["temperature"], 0.0);
-}
-
-/// A non-default (overridden) prompt filename is recorded verbatim, so a run
-/// judged with a bumped prompt version is distinguishable in the audit trail.
-#[test]
-fn params_snapshot_records_an_overridden_prompt_file() {
-    let params = ResolvedLlmParams {
-        temperature: None,
-        timeout_secs: 30,
-        max_tokens: 256,
-    };
-    let snapshot = params_snapshot(&params, "theme_scan_prompt_v3.md");
-    assert_eq!(snapshot["prompt_file"], "theme_scan_prompt_v3.md");
-}
 
 /// The repository header row maps 1:1 onto the wire DTO — every column the
 /// history row shows is carried across, including the nullable `computed_cost`

@@ -64,7 +64,8 @@ pub const THEME_SCAN_MAX_TOKENS: u32 = 512;
 // `scan_runs.resolved_params` — which is what actually satisfies the
 // "which prompt judged this run" provenance concern the const only pretended to.
 // The directory the filename resolves against was already env-driven via the
-// registry's `template_path` (unchanged read path).
+// registry's `template_path` (unchanged read path). The read itself now lives in
+// [`load_scan_prompt`], called at the very start of a scan — see its doc.
 
 /// Top-level, scan-aborting failures.
 ///
@@ -239,15 +240,27 @@ pub enum ThemeScanError {
         loaded: String,
     },
 
-    /// Inserting the `running` `scan_runs` row failed at the start of a background
-    /// scan — the job cannot be tracked, so the POST fails rather than spawning an
-    /// untracked task. Server-side (500).
+    /// Writing the `scan_runs` row at the start of a background scan failed —
+    /// either the stub INSERT or the promote UPDATE. The job cannot be tracked, so
+    /// the POST fails rather than spawning an untracked task. Server-side (500).
     #[error("failed to record the start of scan run {run_id}: {source}")]
     ScanRunWriteFailed {
         run_id: Uuid,
         #[source]
         source: PipelineRepoError,
     },
+
+    /// The promote-to-`running` UPDATE matched zero rows: the stub row this scan
+    /// just wrote is no longer in its birth state (deleted, or already moved on).
+    /// Distinct from [`Self::ScanRunWriteFailed`] — the write itself SUCCEEDED and
+    /// simply found nothing to promote, which is a different diagnosis. Refused
+    /// rather than continued: judging would spend real LLM budget on a run whose
+    /// progress and outcome nothing can report. Server-side (500).
+    #[error(
+        "scan run {run_id} could not be promoted to running — its start record is \
+         gone or already terminal, so the scan was not launched"
+    )]
+    ScanRunNotPromotable { run_id: Uuid },
 
     /// Reading a `scan_runs` row for the poll failed (DB error). Server-side (500).
     #[error("failed to read scan run {run_id}: {source}")]
@@ -325,16 +338,56 @@ pub(crate) struct PreparedScan {
     pub(crate) candidates: Vec<BiasInstance>,
 }
 
-/// Load the scenario, validate its preconditions, and gather the inputs a scan
-/// needs: the judgment criterion, the candidate quotes, the provider, and the
-/// prompt. Every failure here is a typed, scan-aborting [`ThemeScanError`].
+/// The judging prompt, read from disk before a scan is allowed to start.
+///
+/// Carries the FILENAME alongside the text because the filename is the run's
+/// prompt provenance (recorded into `scan_runs.resolved_params`), and the text is
+/// what the judge actually sends.
+pub(crate) struct ScanPrompt {
+    pub(crate) file: String,
+    pub(crate) text: String,
+}
+
+/// Read the configured judging prompt — the TEMPLATE PRESENCE CHECK that runs
+/// before a scan records anything at all.
+///
+/// The prompt filename is deployment config (env `THEME_SCAN_PROMPT_FILE`,
+/// resolved+defaulted in `config.rs`), not a compiled-in const; `template_path`
+/// resolves it against the registry's env-driven template dir.
+///
+/// ## Why this is the FIRST thing a scan start does
+///
+/// A missing prompt file is the cheapest possible failure — no scenario read, no
+/// provider, no LLM budget, no run row — and for eleven days it was also one of
+/// the two causes of scans that appeared to do nothing. Checking it at the door
+/// means the caller gets a message naming the exact path, and no half-started run
+/// is recorded for a scan that could never have run. The read IS the check: an
+/// exists()-then-read would race, and would still have to handle the read error.
+pub(crate) fn load_scan_prompt(state: &AppState) -> Result<ScanPrompt, ThemeScanError> {
+    let file = state.config.theme_scan_prompt_file.clone();
+    let path = state.registry.template_path(&file);
+    let text = std::fs::read_to_string(&path)
+        .map_err(|source| ThemeScanError::PromptFileMissing { path, source })?;
+    Ok(ScanPrompt { file, text })
+}
+
+/// Validate the loaded scenario's preconditions and gather the remaining inputs a
+/// scan needs: the judgment criterion, the candidate quotes, and the provider.
+/// Every failure here is a typed, scan-aborting [`ThemeScanError`].
+///
+/// Takes an ALREADY-LOADED (and already case-fenced) `record` and an
+/// already-read `prompt` rather than fetching either itself. Both moved out to
+/// the caller for ordering reasons, not for tidiness: the prompt check must
+/// happen before anything is recorded, and the scenario must be known to exist
+/// before the run stub is inserted (its `scenario_id` is a foreign key). See
+/// `theme_scan_start::start_theme_scan` for the order and why it matters.
 pub(crate) async fn prepare_scan(
     state: &AppState,
-    case_slug: &str,
-    scenario_id: Uuid,
+    record: ScenarioRecord,
+    prompt: ScanPrompt,
     requested_model_id: Option<&str>,
 ) -> Result<PreparedScan, ThemeScanError> {
-    let record = load_scenario_fenced(&state.pipeline_pool, case_slug, scenario_id).await?;
+    let scenario_id = record.scenario_id;
 
     let definition: ScenarioDefinition =
         serde_json::from_value(record.definition).map_err(|source| {
@@ -368,28 +421,13 @@ pub(crate) async fn prepare_scan(
             .map_err(gate_error_into_scan_error)?;
     }
 
-    // The prompt filename is deployment config (env `THEME_SCAN_PROMPT_FILE`,
-    // resolved+defaulted in `config.rs`), not a compiled-in const. `template_path`
-    // resolves it against the registry's env-driven template dir — the read path
-    // is unchanged. A missing/unreadable file is still a fail-loud, filename-named
-    // `PromptFileMissing` (Standing Rule 1), so a typo in the env var is observable
-    // rather than a silent fallback.
-    let prompt_file = state.config.theme_scan_prompt_file.clone();
-    let prompt_path = state.registry.template_path(&prompt_file);
-    let scan_prompt = std::fs::read_to_string(&prompt_path).map_err(|source| {
-        ThemeScanError::PromptFileMissing {
-            path: prompt_path,
-            source,
-        }
-    })?;
-
     Ok(PreparedScan {
         attack_meaning: Arc::from(attack_meaning),
-        scan_prompt: Arc::from(scan_prompt),
+        scan_prompt: Arc::from(prompt.text),
         provider: resolved.provider,
         params: resolved.params,
         model_id: resolved.model_id,
-        prompt_file,
+        prompt_file: prompt.file,
         concurrency: resolved.concurrency,
         cost_per_input_token: resolved.cost_per_input_token,
         cost_per_output_token: resolved.cost_per_output_token,

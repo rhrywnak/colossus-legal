@@ -64,6 +64,7 @@ pub mod review_edit_history;
 pub mod review_grounding;
 pub mod review_items;
 pub mod scan_run_merges;
+pub mod scan_run_verdicts;
 pub mod scan_runs;
 pub mod scenario_candidate_ordinals;
 pub mod scenario_responses;
@@ -83,6 +84,7 @@ pub use report_queries::{
     RelationshipTypeCount,
 };
 pub use scan_run_merges::*;
+pub use scan_run_verdicts::*;
 pub use scan_runs::*;
 pub use scenario_candidate_ordinals::*;
 pub use scenario_responses::*;

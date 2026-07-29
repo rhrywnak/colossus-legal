@@ -29,7 +29,8 @@ use uuid::Uuid;
 
 use colossus_legal_backend::config::AppConfig;
 use colossus_legal_backend::repositories::pipeline_repository::{
-    delete_scenario, insert_scan_run_running, insert_scenario, list_scan_runs, ScanRunStart,
+    delete_scenario, insert_scan_run_stub, insert_scenario, list_scan_runs,
+    promote_scan_run_running, ScanRunStart, ScanRunStub,
 };
 
 type TestResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
@@ -73,25 +74,44 @@ async fn insert_test_scenario(pool: &PgPool, slug: &str, name: &str) -> TestResu
 
 /// Insert one `running` scan_runs row with a chosen `started_at` (the column the
 /// history orders by). Content beyond the timestamp is irrelevant to ordering.
+///
+/// Drives the REAL two-step start path — stub, then promote — rather than a
+/// hand-written INSERT, so this helper doubles as the only live-database proof
+/// that the pair actually works against the shipped schema. The promote's
+/// `rows_affected` is asserted rather than discarded: a promotion that silently
+/// matched nothing would leave a `failed` row here and quietly turn every
+/// ordering assertion below into a test of the wrong thing.
 async fn insert_run_at(
     pool: &PgPool,
     scenario_id: Uuid,
     started_at: DateTime<Utc>,
 ) -> TestResult<Uuid> {
     let run_id = Uuid::new_v4();
-    insert_scan_run_running(
+    insert_scan_run_stub(
         pool,
-        &ScanRunStart {
+        &ScanRunStub {
             run_id,
             scenario_id,
-            model_id: "qwen-14b".to_string(),
-            resolved_params: json!({ "temperature": 0.0, "timeout_secs": 90, "max_tokens": 512 }),
-            dry_run: true,
-            candidates_total: 10,
+            requested_model_id: Some("qwen-14b".to_string()),
             started_at,
         },
     )
     .await?;
+
+    let promoted = promote_scan_run_running(
+        pool,
+        &ScanRunStart {
+            run_id,
+            model_id: "qwen-14b".to_string(),
+            resolved_params: json!({ "temperature": 0.0, "timeout_secs": 90, "max_tokens": 512 }),
+            candidates_total: 10,
+        },
+    )
+    .await?;
+    assert_eq!(
+        promoted, 1,
+        "the stub row just written must be promotable to running"
+    );
     Ok(run_id)
 }
 

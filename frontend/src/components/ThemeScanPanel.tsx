@@ -281,10 +281,17 @@ const ThemeScanPanel: React.FC<Props> = ({
       setPoll(null);
       setActiveRun({ runId: started.run_id, modelId: selectedModel });
     } catch (e) {
-      // Verbatim backend message (names the endpoint / both models on a 503 gate).
+      // Verbatim backend message (names the endpoint / both models on a 503 gate,
+      // and the missing path when the judging prompt is not deployed).
       setStartError(e instanceof Error ? e.message : "Failed to start the scan.");
+      // A start that got far enough to record a run leaves a FAILED row behind
+      // (the backend writes the stub before it prepares), so re-read the history
+      // to surface it. Without this the row exists but stays invisible until the
+      // next mount — the toast is dismissed, nothing is on screen, and the scan
+      // looks like it never happened. That was the eleven-day symptom.
+      refreshRuns();
     }
-  }, [selectedModel, slug, scenarioId]);
+  }, [selectedModel, slug, scenarioId, refreshRuns]);
 
   // ── Select a history run for display ────────────────────────────────────────
   // Single-select: click a row to VIEW that run (replaces any prior selection);

@@ -35,8 +35,9 @@ use crate::{
     services::theme_scan::ThemeScanError,
     services::theme_scan_run::{
         delete_scenario_scan_run, get_scan_run_status, list_scenario_scan_runs,
-        merge_scenario_scan_run, start_theme_scan,
+        merge_scenario_scan_run,
     },
+    services::theme_scan_start::start_theme_scan,
     state::AppState,
 };
 
@@ -288,7 +289,17 @@ fn map_scan_error(err: ThemeScanError) -> AppError {
         ThemeScanError::VllmUnreachable { .. } | ThemeScanError::VllmModelMismatch { .. } => {
             AppError::ServiceUnavailable { message }
         }
-        // DB, graph, prompt-file, and definition-parse failures are server-side.
+        // A missing judging prompt is the SAME shape as the gate refusals: a
+        // deployment dependency the operator corrects (deploy the file, or fix
+        // THEME_SCAN_PROMPT_FILE), not a bug in the request and not an opaque
+        // server fault. It was previously folded into the 500 below, which threw
+        // away the one thing that makes it fixable — the path. 503 with the full
+        // message, which names the path and the recovery action.
+        ThemeScanError::PromptFileMissing { .. } => {
+            tracing::error!(error = %message, "theme scan: judging prompt unreadable");
+            AppError::ServiceUnavailable { message }
+        }
+        // DB, graph, and definition-parse failures are server-side.
         // Log the full typed error (with its source) and return a generic 500.
         other => {
             tracing::error!(error = %other, "theme scan failed (server-side)");

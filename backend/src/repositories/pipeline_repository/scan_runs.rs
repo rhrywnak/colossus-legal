@@ -1,24 +1,40 @@
-//! Repository for the Theme Scan audit + benchmark tables (`scan_runs`,
-//! `scan_run_verdicts`) in the `colossus_legal_v2` pipeline database.
+//! Repository for the Theme Scan per-run header table (`scan_runs`) in the
+//! `colossus_legal_v2` pipeline database. The per-candidate verdict detail lives
+//! in the sibling [`super::scan_run_verdicts`].
 //!
 //! ## The background-job lifecycle (this module owns the writes)
 //!
 //! A scan is a background `tokio` task, so its `scan_runs` row moves through
 //! states rather than being written once:
 //!
-//! 1. [`insert_scan_run_running`] — the POST inserts the row as `running` with
-//!    the progress DENOMINATOR (`candidates_total`) known up front, then returns.
-//! 2. [`bump_scan_run_progress`] — the task calls this once per judged candidate
+//! 1. [`insert_scan_run_stub`] — the POST writes a MINIMAL row as `failed`
+//!    BEFORE any preparation work, so a scan that dies during preparation still
+//!    leaves a visible row in Run History (see below).
+//! 2. [`promote_scan_run_running`] — once preparation succeeds, the same row is
+//!    promoted to `running` with the resolved model, the params snapshot, and the
+//!    progress DENOMINATOR (`candidates_total`); the POST then returns.
+//! 3. [`bump_scan_run_progress`] — the task calls this once per judged candidate
 //!    (`candidates_judged += 1`, the live outcome bucket `+= 1`, `last_progress_at`).
-//! 3. [`finalize_scan_run_completed`] — on success, the task writes the
+//! 4. [`finalize_scan_run_completed`] — on success, the task writes the
 //!    authoritative final counts/tokens/cost/duration + the `summary_json`.
-//! 4. [`fail_scan_run`] — on any job error, `status = failed` + a reason.
-//! 5. [`sweep_running_scan_runs`] — at backend startup, any lingering `running`
+//! 5. [`fail_scan_run`] — on any job error, `status = failed` + a reason.
+//! 6. [`sweep_running_scan_runs`] — at backend startup, any lingering `running`
 //!    row was orphaned by a restart → `failed` "interrupted by restart".
 //!
-//! [`get_scan_run`] reads one row back for the poll. `scan_run_verdicts` (the
-//! per-candidate detail the agreement query joins on) is still written via
-//! [`insert_scan_run_verdicts`] — `summary_json` is only a render convenience.
+//! ## Why the row is born `failed` (Standing Rule 1)
+//!
+//! The row used to be inserted only AFTER every precondition had passed —
+//! provider resolution, the vLLM gate, the candidate read. A scan that died in
+//! any of those left NO row at all: the panel showed an error toast that the next
+//! navigation erased, and Run History stayed blank, so eleven days of failures
+//! looked exactly like eleven days of nobody scanning. Writing the stub FIRST, and
+//! writing it as `failed` rather than `running`, makes the default outcome of a
+//! half-finished start a visible, durable failure record. Promotion to `running`
+//! is the deliberate act; nothing needs to remember to record a failure, because
+//! the failure is what is already on disk.
+//!
+//! [`get_scan_run`] reads one row back for the poll; `summary_json` is only a
+//! render convenience.
 //!
 //! ## Rust Learning: caller-owns-serialization for the JSONB snapshots
 //!
@@ -45,57 +61,144 @@ const SCAN_STATUS_FAILED: &str = "failed";
 /// The message stamped on a run the startup sweep finds still `running`.
 const INTERRUPTED_BY_RESTART: &str = "interrupted by restart";
 
-// ─── 1. START (the `running` INSERT) ─────────────────────────────────────────
+/// The `model_id` a stub row carries when the caller named no model — the choice
+/// is not made until the resolver runs, and `model_id` is NOT NULL. A named
+/// sentinel rather than an empty string so the history row reads as an unfinished
+/// start instead of a blank cell (the panel falls back to showing the raw id when
+/// it matches no catalog entry).
+const MODEL_ID_UNRESOLVED: &str = "(model not yet resolved)";
 
-/// The fields known when a background scan STARTS.
+/// The `error` a stub row carries from birth. It is overwritten by the real
+/// reason when preparation fails, and cleared by [`promote_scan_run_running`]
+/// when the run launches — so seeing THIS text in Run History means the backend
+/// died somewhere in the start sequence without getting to record why (a process
+/// kill, a panic), which is itself the diagnosis.
+///
+/// The wording deliberately says "starting" rather than naming a step: the text
+/// survives a death at ANY point between the INSERT and the promotion, and a
+/// message that named preparation would be actively wrong for the later ones.
+const STUB_ERROR_UNFINISHED: &str =
+    "the scan never finished starting and recorded no reason — the backend was \
+     interrupted before the run could be launched; check the backend log for \
+     this run_id";
+
+// ─── 1. START (the stub INSERT, then the promote UPDATE) ─────────────────────
+
+/// The fields known BEFORE any preparation work — everything a stub row needs.
 #[derive(Debug, Clone)]
-pub struct ScanRunStart {
+pub struct ScanRunStub {
     pub run_id: Uuid,
     pub scenario_id: Uuid,
-    pub model_id: String,
-    /// `{"temperature": <number|null>, "timeout_secs": <int>, "max_tokens": <int>}`.
-    pub resolved_params: serde_json::Value,
-    /// The progress denominator, known from the candidate-pool read.
-    pub candidates_total: i32,
+    /// The model the caller ASKED for, if any. Not yet resolved (the request may
+    /// name none, and the resolver may constrain the choice), so it is recorded
+    /// only as a hint; [`promote_scan_run_running`] overwrites it with the model
+    /// actually used.
+    pub requested_model_id: Option<String>,
     pub started_at: DateTime<Utc>,
 }
 
-/// Insert the run as `running`. The final tally/token/cost columns start at
-/// 0/NULL and are overwritten by [`finalize_scan_run_completed`]; `candidates_read`
-/// is set to `candidates_total` here (we DID read the whole pool to size it).
-pub async fn insert_scan_run_running(
+/// Insert the minimal `failed` stub row that makes a died-during-startup scan
+/// visible in Run History (see the module doc for why `failed` is the birth
+/// state). Every NOT NULL column gets an honest placeholder: the counts are
+/// genuinely zero (nothing was judged), `duration_ms` is genuinely zero (nothing
+/// ran), and `candidates_total` stays NULL because the pool has not been read yet
+/// — NULL is "not known", distinct from a `0` that would claim an empty pool.
+///
+/// ## Rust Learning: `Option<&str>` from an `Option<String>` field
+///
+/// `requested_model_id.as_deref()` turns `&Option<String>` into `Option<&str>`
+/// without cloning the `String` — `as_deref` maps `Option<T>` through `Deref`, so
+/// `Option<String>` becomes `Option<&str>` borrowed from the original. The
+/// `unwrap_or` then substitutes the sentinel for the `None` case, yielding a
+/// plain `&str` that sqlx binds directly.
+pub async fn insert_scan_run_stub(
     pool: &PgPool,
-    start: &ScanRunStart,
+    stub: &ScanRunStub,
 ) -> Result<(), PipelineRepoError> {
     sqlx::query(
         r#"INSERT INTO scan_runs (
                run_id, scenario_id, model_id, resolved_params, dry_run,
                candidates_read, relevant_count, irrelevant_count, failed_count,
                input_tokens, output_tokens, computed_cost, started_at, duration_ms,
-               status, candidates_total, candidates_judged, last_progress_at
+               status, candidates_total, candidates_judged, last_progress_at, error
            ) VALUES (
-               $1, $2, $3, $4, $5,
-               $6, 0, 0, 0,
-               NULL, NULL, NULL, $7, 0,
-               $8, $6, 0, $7
+               $1, $2, $3, $4, false,
+               0, 0, 0, 0,
+               NULL, NULL, NULL, $5, 0,
+               $6, NULL, 0, $5, $7
            )"#,
     )
-    .bind(start.run_id)
-    .bind(start.scenario_id)
-    .bind(&start.model_id)
-    .bind(&start.resolved_params)
-    // `dry_run` is bound as a literal `false`, not carried on `ScanRunStart`: no
-    // scan is a benchmark any more (scanning never writes, so there is nothing to
-    // suppress), and the caller must not be able to say otherwise. The column is
-    // NOT NULL and still owes every row an honest value, so it keeps getting one
-    // until Chunk B's migration drops it. Nothing reads it.
-    .bind(false)
-    .bind(start.candidates_total)
-    .bind(start.started_at)
-    .bind(SCAN_STATUS_RUNNING)
+    .bind(stub.run_id)
+    .bind(stub.scenario_id)
+    .bind(
+        stub.requested_model_id
+            .as_deref()
+            .unwrap_or(MODEL_ID_UNRESOLVED),
+    )
+    // `resolved_params` is NOT NULL jsonb and nothing is resolved yet. A stage
+    // marker rather than `{}`: an empty object and "we never got there" must be
+    // distinguishable in the audit trail (Standing Rule 1).
+    .bind(serde_json::json!({ "stage": "preparing" }))
+    .bind(stub.started_at)
+    .bind(SCAN_STATUS_FAILED)
+    .bind(STUB_ERROR_UNFINISHED)
     .execute(pool)
     .await?;
     Ok(())
+}
+
+/// The fields settled once a background scan's preparation SUCCEEDS.
+#[derive(Debug, Clone)]
+pub struct ScanRunStart {
+    pub run_id: Uuid,
+    pub model_id: String,
+    /// `{"temperature": <number|null>, "timeout_secs": <int>, "max_tokens": <int>,
+    /// "prompt_file": <string>}`.
+    pub resolved_params: serde_json::Value,
+    /// The progress denominator, known from the candidate-pool read.
+    pub candidates_total: i32,
+}
+
+/// Promote a stub row to `running`: record the model actually resolved, the
+/// params snapshot, and the progress denominator, and CLEAR the stub's error.
+///
+/// Clearing `error` is load-bearing, not cosmetic: the stub was born carrying a
+/// failure reason, so a promotion that left it in place would show a running (and
+/// later completed) run alongside an error message that never happened.
+/// `candidates_read` is set to `candidates_total` here — we DID read the whole
+/// pool to size it. The final tally/token/cost columns stay at their stub values
+/// until [`finalize_scan_run_completed`] overwrites them.
+///
+/// The `WHERE status = $8` clause is a guard, not decoration: it makes promotion
+/// apply only to a row still in the birth state, so a promote that arrives after
+/// something else already failed or finished the run cannot resurrect it. Zero
+/// rows updated is reported to the caller rather than swallowed.
+pub async fn promote_scan_run_running(
+    pool: &PgPool,
+    start: &ScanRunStart,
+) -> Result<u64, PipelineRepoError> {
+    let result = sqlx::query(
+        r#"UPDATE scan_runs SET
+               status = $2,
+               model_id = $3,
+               resolved_params = $4,
+               candidates_read = $5,
+               candidates_total = $6,
+               error = NULL,
+               last_progress_at = $7
+           WHERE run_id = $1 AND status = $8"#,
+    )
+    .bind(start.run_id)
+    .bind(SCAN_STATUS_RUNNING)
+    .bind(&start.model_id)
+    .bind(&start.resolved_params)
+    .bind(start.candidates_total)
+    .bind(start.candidates_total)
+    .bind(Utc::now())
+    .bind(SCAN_STATUS_FAILED)
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected())
 }
 
 // ─── 2. PROGRESS (per-candidate bump) ────────────────────────────────────────
@@ -384,72 +487,18 @@ pub async fn delete_scan_run(
     Ok(result.rows_affected())
 }
 
-// ─── Per-candidate verdict detail (unchanged from Chunk B) ────────────────────
-
-/// One row of `scan_run_verdicts` — a per-candidate verdict.
-///
-/// On a successful judgement `relevant`/`proposed_role`/`confidence`/`reason`
-/// are `Some`; on a per-item failure they are `None` and `error` carries the
-/// reason (Standing Rule 1: failed is distinguishable and says why). `raw_reply`
-/// is the model's raw text, kept for successes and parse-failures alike.
-#[derive(Debug, Clone)]
-pub struct ScanRunVerdictRecord {
-    pub run_id: Uuid,
-    pub graph_node_id: String,
-    pub relevant: Option<bool>,
-    pub proposed_role: Option<String>,
-    /// Postgres `REAL` → `f32` (model emits ~2-decimal confidence).
-    pub confidence: Option<f32>,
-    pub reason: Option<String>,
-    pub raw_reply: Option<String>,
-    /// `None` = judged successfully; `Some` = the per-item failure reason.
-    pub error: Option<String>,
-}
-
-/// Insert every per-candidate verdict for a run in ONE transaction.
-///
-/// ## Rust Learning: `&mut *txn` — reborrowing the transaction for each `execute`
-///
-/// `pool.begin()` yields a `Transaction` that owns a connection. Each
-/// `execute(&mut *txn)` needs a `&mut` borrow of it, but the loop must run many
-/// executes and then `commit()` — so we cannot MOVE the transaction into the
-/// first call. `&mut *txn` dereferences the transaction and re-borrows it
-/// mutably for just that call, releasing the borrow before the next iteration.
-/// One atomic write: either every verdict lands or none does (a partial verdict
-/// set would corrupt the benchmark's per-candidate agreement query).
-pub async fn insert_scan_run_verdicts(
-    pool: &PgPool,
-    verdicts: &[ScanRunVerdictRecord],
-) -> Result<(), PipelineRepoError> {
-    // An empty verdict set is a legitimate no-op (a scan of a subject with no
-    // candidate quotes), distinct from a failure — return Ok without opening a
-    // transaction rather than committing an empty one.
-    if verdicts.is_empty() {
-        return Ok(());
-    }
-    let mut txn = pool.begin().await?;
-    for v in verdicts {
-        sqlx::query(
-            r#"INSERT INTO scan_run_verdicts (
-                   run_id, graph_node_id, relevant, proposed_role,
-                   confidence, reason, raw_reply, error
-               ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#,
-        )
-        .bind(v.run_id)
-        .bind(&v.graph_node_id)
-        .bind(v.relevant)
-        .bind(&v.proposed_role)
-        .bind(v.confidence)
-        .bind(&v.reason)
-        .bind(&v.raw_reply)
-        .bind(&v.error)
-        .execute(&mut *txn)
-        .await?;
-    }
-    txn.commit().await?;
-    Ok(())
-}
+// The per-candidate verdict detail (`scan_run_verdicts`) moved to the sibling
+// `scan_run_verdicts.rs` when this module reached the 300-line limit. It is
+// re-exported from `pipeline_repository`, so callers are unaffected.
 
 #[cfg(test)]
 #[path = "scan_runs_tests.rs"]
 mod tests;
+
+// The stub/promote contract has its own sibling test module — `scan_runs_tests.rs`
+// had reached the size limit, and the birth-and-promotion tests are a distinct
+// subject from the INSERT's column shape. It borrows that module's source-reading
+// helpers rather than copying them (see their `pub(super)` docs).
+#[cfg(test)]
+#[path = "scan_run_start_tests.rs"]
+mod start_tests;

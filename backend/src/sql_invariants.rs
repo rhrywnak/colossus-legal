@@ -157,6 +157,18 @@ fn highest_placeholder(chain: &str) -> Option<usize> {
     highest
 }
 
+/// The one file excluded from the scan: THIS one.
+///
+/// It contains no sqlx call sites — only the literal `"sqlx::query"` the scanner
+/// searches for, and the char literal `'('` on the line below it. The walker does
+/// not model char literals, so that lone paren opens a nesting level that never
+/// closes and the "chain" runs away to the end of the file, sweeping up every
+/// later mention of a placeholder or a bind in prose. A scanner reporting on its
+/// own source is a false positive by construction, and the alternative — writing
+/// the rest of this file so it never spells a placeholder or a bind call — is an
+/// invisible constraint that the next reader would trip over blind.
+const SELF_EXCLUDED_FILE: &str = "sql_invariants.rs";
+
 fn collect_statements() -> Vec<Statement> {
     let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let mut files = Vec::new();
@@ -165,6 +177,9 @@ fn collect_statements() -> Vec<Statement> {
 
     let mut statements = Vec::new();
     for path in files {
+        if path.file_name().and_then(|n| n.to_str()) == Some(SELF_EXCLUDED_FILE) {
+            continue;
+        }
         let text = fs::read_to_string(&path).expect("source file is UTF-8");
         let rel = path
             .strip_prefix(env!("CARGO_MANIFEST_DIR"))
@@ -226,11 +241,27 @@ fn the_scan_finds_a_representative_corpus() {
          — the scanner is probably no longer matching call sites",
         statements.len()
     );
+    // `scan_runs.rs` is the file that regressed on 2026-07-19 (a dropped `.bind()`
+    // on the start INSERT), so its statements specifically must be in the corpus.
+    // The check is on the FILE's contribution rather than on one statement's
+    // width: the start INSERT is now the narrower stub insert, and the wide
+    // statements are the promote and finalize UPDATEs. Anchoring on a placeholder
+    // count the start INSERT no longer carries would leave this assertion passing
+    // for a reason its own comment denies.
+    let scan_runs_widths: Vec<usize> = statements
+        .iter()
+        .filter(|s| s.file.ends_with("scan_runs.rs"))
+        .map(|s| s.highest_placeholder)
+        .collect();
     assert!(
-        statements
-            .iter()
-            .any(|s| s.file.ends_with("scan_runs.rs") && s.highest_placeholder >= 8),
-        "the scan_runs start INSERT (the statement that regressed on \
-         2026-07-19) must be in the scanned corpus"
+        scan_runs_widths.len() >= 4,
+        "the scan_runs lifecycle statements (stub INSERT, promote, finalize, fail, \
+         sweep, reads) must be in the scanned corpus; found {}",
+        scan_runs_widths.len()
+    );
+    assert!(
+        scan_runs_widths.iter().any(|w| *w >= 8),
+        "the widest scan_runs statement should declare at least $8; widths seen: \
+         {scan_runs_widths:?} — the parser is probably truncating"
     );
 }

@@ -1,0 +1,306 @@
+//! Theme Scan START path: the ordered, fail-loud beginning of a scan and the
+//! background job it spawns (prepare → stub → promote → judge → finalize).
+//!
+//! Split from `theme_scan_run.rs` (module-size limit) when the start path grew
+//! the stub-row lifecycle. The split is along a real seam: THIS module owns the
+//! only code that CREATES a run, while `theme_scan_run.rs` owns everything done
+//! to runs that already exist (poll, list, delete, merge).
+//!
+//! ## The order of operations is the feature (Standing Rule 1)
+//!
+//! Every step is placed by what it can prove and what it can leave behind:
+//!
+//! 1. **Read the judging prompt.** The cheapest failure, and one of the two
+//!    causes of the eleven-day silence. No row is written for a scan that could
+//!    never have run, and the caller is told which path is missing.
+//! 2. **Fence the scenario.** Establishes that the scenario exists and belongs to
+//!    this case — required before step 3 both because `scan_runs.scenario_id` is
+//!    a foreign key and because writing a row keyed to another case's scenario
+//!    would be a cross-case write.
+//! 3. **Insert the stub row, born `failed`.** From here on, dying leaves a
+//!    record. Anything that goes wrong later updates the reason; nothing has to
+//!    remember to create the row.
+//! 4. **Prepare** (definition, criterion, candidates, provider, vLLM gate). A
+//!    failure writes its reason onto the stub and returns the HTTP error.
+//! 5. **Promote to `running`** with the resolved model, params snapshot, and
+//!    progress denominator, then spawn the judging task.
+//!
+//! The preconditions all run SYNCHRONOUSLY, so a gate failure is an immediate
+//! typed error the route returns as its HTTP status — never a background failure
+//! the user must poll to discover.
+
+use std::sync::Arc;
+use std::time::Instant;
+
+use chrono::Utc;
+use uuid::Uuid;
+
+use crate::domain::llm_params::ResolvedLlmParams;
+use crate::dto::ThemeScanSummary;
+use crate::repositories::pipeline_repository::{
+    fail_scan_run, finalize_scan_run_completed, insert_scan_run_stub, promote_scan_run_running,
+    ScanRunFinal, ScanRunStart, ScanRunStub, ScenarioRecord,
+};
+use crate::services::theme_scan::{
+    load_scan_prompt, load_scenario_fenced, prepare_scan, PreparedScan, ScanPrompt, ThemeScanError,
+};
+use crate::services::theme_scan_judge::judge_all;
+use crate::services::theme_scan_persist::{count_to_i32, persist_and_summarize, ScanRunMeta};
+use crate::state::AppState;
+
+/// The immediate result of starting a background scan.
+pub struct ScanStarted {
+    pub run_id: Uuid,
+    pub candidates_total: i32,
+}
+
+/// Start a Theme Scan as a BACKGROUND job and return its handle immediately.
+/// See the module doc for why the steps are in this order.
+pub async fn start_theme_scan(
+    state: &AppState,
+    case_slug: &str,
+    scenario_id: Uuid,
+    requested_model_id: Option<String>,
+) -> Result<ScanStarted, ThemeScanError> {
+    // 1 + 2: the two checks that must precede any write.
+    let prompt = load_scan_prompt(state)?;
+    let record = load_scenario_fenced(&state.pipeline_pool, case_slug, scenario_id).await?;
+
+    // 3: from here on, a failure is visible in Run History.
+    let run_id = Uuid::new_v4();
+    insert_scan_run_stub(
+        &state.pipeline_pool,
+        &ScanRunStub {
+            run_id,
+            scenario_id,
+            requested_model_id: requested_model_id.clone(),
+            started_at: Utc::now(),
+        },
+    )
+    .await
+    .map_err(|source| ThemeScanError::ScanRunWriteFailed { run_id, source })?;
+
+    // 4: prepare, recording any failure onto the stub before it propagates.
+    let prepared =
+        prepare_or_record(state, run_id, record, prompt, requested_model_id.as_deref()).await?;
+    let candidates_total = count_to_i32(prepared.candidates.len(), "candidates_total");
+
+    // 5: promote and spawn.
+    promote_run(state, run_id, &prepared, candidates_total).await?;
+    spawn_scan_job(state, prepared, run_id, scenario_id, candidates_total);
+
+    Ok(ScanStarted {
+        run_id,
+        candidates_total,
+    })
+}
+
+/// Run the preparation, writing its failure reason onto the stub row before
+/// returning it.
+///
+/// The stub is already `failed`; this replaces its placeholder reason with the
+/// real one, so Run History shows *why* rather than "we don't know". A failure of
+/// the recording itself is logged and swallowed — deliberately: the caller is
+/// already being handed a typed error that names the true problem, and replacing
+/// it with a bookkeeping error would hide the diagnosis behind the diagnosis.
+async fn prepare_or_record(
+    state: &AppState,
+    run_id: Uuid,
+    record: ScenarioRecord,
+    prompt: ScanPrompt,
+    requested_model_id: Option<&str>,
+) -> Result<PreparedScan, ThemeScanError> {
+    match prepare_scan(state, record, prompt, requested_model_id).await {
+        Ok(prepared) => Ok(prepared),
+        Err(e) => {
+            tracing::error!(%run_id, error = %e, "theme scan: preparation failed; run recorded as failed");
+            if let Err(fe) = fail_scan_run(&state.pipeline_pool, run_id, &e.to_string()).await {
+                tracing::error!(%run_id, error = %fe, original = %e,
+                    "theme scan: could not record the preparation failure on the run row");
+            }
+            Err(e)
+        }
+    }
+}
+
+/// Promote the stub to `running` and log the start.
+///
+/// A promotion that matches ZERO rows is a hard error, not a shrug: the row it
+/// was meant to flip is gone or already terminal, so spawning the judging task
+/// would spend real LLM budget on a run nothing can report on (Standing Rule 1).
+///
+/// ## Why this path does NOT write the reason onto the row
+///
+/// Every other failure in the start sequence records itself via `fail_scan_run`.
+/// This one deliberately does not, because zero rows matched means exactly one of
+/// two things and both forbid the write: the row is GONE (there is nothing to
+/// write to — the update would touch zero rows in turn), or the row is no longer
+/// in its birth state, in which case something else already owns its status and
+/// overwriting it would destroy a truthful record with a guess. The full context
+/// — run id, what failed — rides the returned typed error, which the route logs
+/// before answering 500.
+async fn promote_run(
+    state: &AppState,
+    run_id: Uuid,
+    prepared: &PreparedScan,
+    candidates_total: i32,
+) -> Result<(), ThemeScanError> {
+    let rows = promote_scan_run_running(
+        &state.pipeline_pool,
+        &ScanRunStart {
+            run_id,
+            model_id: prepared.model_id.clone(),
+            resolved_params: params_snapshot(&prepared.params, &prepared.prompt_file),
+            candidates_total,
+        },
+    )
+    .await
+    .map_err(|source| ThemeScanError::ScanRunWriteFailed { run_id, source })?;
+
+    if rows == 0 {
+        return Err(ThemeScanError::ScanRunNotPromotable { run_id });
+    }
+    Ok(())
+}
+
+/// Spawn the judging task.
+///
+/// ## Rust Learning: `tokio::spawn` needs `Send + 'static`
+///
+/// The task outlives this function, so its future must own everything it uses
+/// (`'static`) and be movable across threads (`Send`). `AppState` is `Clone`
+/// (all Arc/pool fields — a clone is refcount bumps) and every field is
+/// Send+Sync+'static; `PreparedScan` is likewise (Arc provider, Arc<str>, a
+/// Copy params, owned Vec/String). So we clone `state` and MOVE both into the
+/// task. The task's own errors are handled inside it (it must never leave the
+/// row stuck `running`) — the `JoinHandle` is dropped deliberately.
+fn spawn_scan_job(
+    state: &AppState,
+    prepared: PreparedScan,
+    run_id: Uuid,
+    scenario_id: Uuid,
+    candidates_total: i32,
+) {
+    tracing::info!(
+        %scenario_id, %run_id, model_id = %prepared.model_id,
+        concurrency = prepared.concurrency, candidates_total,
+        prompt_file = %prepared.prompt_file,
+        "theme scan: started (background)"
+    );
+    let state = state.clone();
+    tokio::spawn(async move { execute_scan_job(state, prepared, run_id, scenario_id).await });
+}
+
+/// The spawned judging task. Any failure marks the run `failed` with a reason —
+/// it NEVER leaves the row stuck `running` (the startup sweep is the last-resort
+/// guard, not the primary one).
+async fn execute_scan_job(
+    state: AppState,
+    prepared: PreparedScan,
+    run_id: Uuid,
+    scenario_id: Uuid,
+) {
+    if let Err(e) = run_scan_job(&state, prepared, run_id, scenario_id).await {
+        tracing::error!(%run_id, %scenario_id, error = %e, "theme scan: background job failed");
+        if let Err(fe) = fail_scan_run(&state.pipeline_pool, run_id, &e).await {
+            tracing::error!(%run_id, error = %fe,
+                "theme scan: could not mark run failed (startup sweep will catch it)");
+        }
+    }
+}
+
+/// The fallible inner body: judge (with live progress) → persist → finalize.
+/// Returns `Err(message)` on a completion-time failure so [`execute_scan_job`]
+/// can mark the run `failed`.
+async fn run_scan_job(
+    state: &AppState,
+    prepared: PreparedScan,
+    run_id: Uuid,
+    scenario_id: Uuid,
+) -> Result<(), String> {
+    let clock = Instant::now();
+    let results = judge_all(
+        Arc::clone(&prepared.provider),
+        Arc::clone(&state.theme_scan_semaphore),
+        prepared.concurrency,
+        Arc::clone(&prepared.scan_prompt),
+        Arc::clone(&prepared.attack_meaning),
+        prepared.params,
+        prepared.candidates,
+        state.pipeline_pool.clone(),
+        run_id,
+    )
+    .await;
+    // millis fit i64 for any real scan; the impossible overflow caps (Standing Rule 1).
+    let duration_ms = i64::try_from(clock.elapsed().as_millis()).unwrap_or(i64::MAX);
+
+    let summary = persist_and_summarize(
+        &state.pipeline_pool,
+        ScanRunMeta {
+            run_id,
+            scenario_id,
+            model_id: prepared.model_id,
+            cost_per_input_token: prepared.cost_per_input_token,
+            cost_per_output_token: prepared.cost_per_output_token,
+            duration_ms,
+        },
+        results,
+    )
+    .await;
+
+    let summary_json = serde_json::to_value(&summary)
+        .map_err(|e| format!("failed to serialize scan summary: {e}"))?;
+    let final_ = build_run_final(&summary, run_id, duration_ms, summary_json);
+    finalize_scan_run_completed(&state.pipeline_pool, &final_)
+        .await
+        .map_err(|e| format!("failed to finalize scan run: {e}"))?;
+
+    tracing::info!(
+        %run_id, %scenario_id, candidates_read = summary.candidates_read,
+        relevant = summary.relevant, irrelevant = summary.irrelevant,
+        failed = summary.failed, duration_ms, "theme scan: complete"
+    );
+    Ok(())
+}
+
+/// Assemble the finalize record from the completed summary (narrowing the usize
+/// counts to the `INTEGER` columns). Split out to keep [`run_scan_job`] under the
+/// function-size limit.
+fn build_run_final(
+    summary: &ThemeScanSummary,
+    run_id: Uuid,
+    duration_ms: i64,
+    summary_json: serde_json::Value,
+) -> ScanRunFinal {
+    ScanRunFinal {
+        run_id,
+        relevant_count: count_to_i32(summary.relevant, "relevant_count"),
+        irrelevant_count: count_to_i32(summary.irrelevant, "irrelevant_count"),
+        failed_count: count_to_i32(summary.failed, "failed_count"),
+        input_tokens: summary.input_tokens,
+        output_tokens: summary.output_tokens,
+        computed_cost: summary.computed_cost,
+        duration_ms,
+        summary_json,
+    }
+}
+
+/// Serialize the resolved params to the `scan_runs.resolved_params` JSONB shape.
+///
+/// `prompt_file` is the resolved judging-prompt filename (from
+/// `THEME_SCAN_PROMPT_FILE`). Recording it here is what makes each run's
+/// provenance answerable from data — "which prompt judged this run" — now that
+/// the filename is deployment config rather than a compiled-in const. The column
+/// is JSONB (caller-owns-serialization), so this addition needs no migration.
+fn params_snapshot(p: &ResolvedLlmParams, prompt_file: &str) -> serde_json::Value {
+    serde_json::json!({
+        "temperature": p.temperature,
+        "timeout_secs": p.timeout_secs,
+        "max_tokens": p.max_tokens,
+        "prompt_file": prompt_file,
+    })
+}
+
+#[cfg(test)]
+#[path = "theme_scan_start_tests.rs"]
+mod tests;

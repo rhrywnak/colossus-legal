@@ -3,29 +3,6 @@
 //! the 300-line limit (house pattern, see registry_tests.rs).
 
 use super::*;
-use sqlx::postgres::PgPoolOptions;
-use std::time::Duration;
-
-/// A pool aimed at a dead port: any real query fails fast, so a test can prove a
-/// code path did NOT touch the database.
-fn dead_pool() -> PgPool {
-    PgPoolOptions::new()
-        .acquire_timeout(Duration::from_millis(500))
-        .connect_lazy("postgres://127.0.0.1:1/nodb")
-        .expect("connect_lazy builds a pool without connecting")
-}
-
-#[tokio::test]
-async fn insert_scan_run_verdicts_empty_is_ok_without_touching_the_pool() {
-    // The empty-slice early return is a legitimate no-op (a subject with no
-    // candidate quotes), distinct from a failure. It must return Ok WITHOUT
-    // opening a transaction — the dead pool would error on any real connect.
-    let result = insert_scan_run_verdicts(&dead_pool(), &[]).await;
-    assert!(
-        result.is_ok(),
-        "empty verdicts must be a no-op Ok, got {result:?}"
-    );
-}
 
 #[test]
 fn bucket_column_maps_each_variant_to_its_count_column() {
@@ -118,13 +95,42 @@ fn delete_scan_run_sql_is_fenced_by_run_and_scenario() {
 // them: a dropped `.bind()` shifted every later value one column left and put a
 // boolean into the `resolved_params` jsonb column, which only Postgres could
 // report and only at runtime.
+//
+// The start INSERT is now the STUB insert — the row is born `failed` and is
+// promoted to `running` by a separate UPDATE (see the module doc). It is still
+// the only `INSERT INTO scan_runs` in the file, so every shape test below reads
+// it unchanged; the promote UPDATE has its own tests further down.
+
+/// The shipped source of `scan_runs.rs`.
+///
+/// `pub(super)` so the sibling `scan_run_start_tests` module can read the same
+/// artifact without a second copy of this helper. Both test modules are children
+/// of `scan_runs`, so `super` visibility is exactly the reach required — no wider.
+pub(super) fn scan_runs_source() -> String {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src/repositories/pipeline_repository/scan_runs.rs");
+    std::fs::read_to_string(path).expect("scan_runs.rs is readable")
+}
+
+/// The body of one `pub async fn`, from its signature to the closing brace at
+/// column 0. Good enough to answer "which constant does THIS function bind",
+/// which is the only question asked of it. `pub(super)` for the same reason as
+/// [`scan_runs_source`].
+pub(super) fn fn_body(name: &str) -> String {
+    let text = scan_runs_source();
+    let needle = format!("pub async fn {name}");
+    let start = text
+        .find(&needle)
+        .unwrap_or_else(|| panic!("`{name}` is present in scan_runs.rs"));
+    let rest = &text[start + needle.len()..];
+    let end = rest.find("\n}").map(|i| i + 2).unwrap_or(rest.len());
+    rest[..end].to_string()
+}
 
 /// The `INSERT INTO scan_runs (...) VALUES (...)` block, read from the shipped
 /// source file.
 fn start_insert_sql() -> String {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("src/repositories/pipeline_repository/scan_runs.rs");
-    let text = std::fs::read_to_string(path).expect("scan_runs.rs is readable");
+    let text = scan_runs_source();
     let start = text
         .find("INSERT INTO scan_runs")
         .expect("the start INSERT is present");
@@ -140,8 +146,10 @@ fn start_insert_sql() -> String {
     text[start..end].to_string()
 }
 
-/// `(columns, values)` from the INSERT, in declaration order.
-fn columns_and_values() -> (Vec<String>, Vec<String>) {
+/// `(columns, values)` from the INSERT, in declaration order. `pub(super)` so the
+/// sibling `scan_run_start_tests` can assert the stub row's birth state against
+/// the same parse.
+pub(super) fn columns_and_values() -> (Vec<String>, Vec<String>) {
     let sql = start_insert_sql();
     let open = sql.find('(').expect("column list opens");
     let close = sql.find(')').expect("column list closes");
@@ -339,9 +347,7 @@ fn start_insert_supplies_dry_run_and_the_parser_found_real_columns() {
 /// but "lower risk" is how the original defect was allowed to exist unexamined.
 #[test]
 fn finalize_update_assigns_summary_json_a_placeholder() {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("src/repositories/pipeline_repository/scan_runs.rs");
-    let text = std::fs::read_to_string(path).expect("scan_runs.rs is readable");
+    let text = scan_runs_source();
     // ANCHOR: `duration_ms =` appears in the finalize UPDATE and nowhere else in
     // this file. Anchoring on the shared "UPDATE scan_runs SET" prefix would be
     // an ordering dependency — `fail_scan_run` and `sweep_running_scan_runs`

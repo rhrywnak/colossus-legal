@@ -218,11 +218,57 @@ fn provider_build_failed_maps_to_400() {
 
 #[test]
 fn server_side_variants_map_to_500() {
-    // A representative server-side variant (prompt file unreadable) must be a
-    // generic 500, not leak its cause to the client.
-    let e = ThemeScanError::PromptFileMissing {
-        path: "/x".to_string(),
-        source: std::io::Error::new(std::io::ErrorKind::NotFound, "nope"),
+    // A representative server-side variant (an unparseable stored definition)
+    // must be a generic 500, not leak its cause to the client.
+    let e = ThemeScanError::DefinitionInvalid {
+        scenario_id: Uuid::nil(),
+        source: serde_json::from_str::<serde_json::Value>("{oops")
+            .expect_err("that is not valid JSON"),
     };
+    assert!(matches!(map_scan_error(e), AppError::Internal { .. }));
+}
+
+/// A missing judging prompt is a 503 that NAMES THE PATH.
+///
+/// It used to fall into the catch-all 500 above, which reduced it to "theme scan
+/// failed" — true, unactionable, and one of the two causes of the eleven-day
+/// silence. It is the same shape as the vLLM gate refusals: a deployment
+/// dependency the operator corrects, so it gets their status and, unlike a 500,
+/// keeps its message. The path assertion is the point of the test — a future edit
+/// that returns a tidy generic message would pass a status-only check.
+#[test]
+fn missing_prompt_file_maps_to_503_naming_the_path() {
+    let e = ThemeScanError::PromptFileMissing {
+        path: "/opt/colossus/templates/theme_scan_prompt_v2.md".to_string(),
+        source: std::io::Error::new(std::io::ErrorKind::NotFound, "no such file"),
+    };
+    match map_scan_error(e) {
+        AppError::ServiceUnavailable { message } => {
+            assert!(
+                message.contains("/opt/colossus/templates/theme_scan_prompt_v2.md"),
+                "the operator cannot fix what the message does not name: {message}"
+            );
+            assert!(
+                message.contains("THEME_SCAN_PROMPT_FILE"),
+                "the message must name the env var that selects the file: {message}"
+            );
+        }
+        other => panic!("expected a 503 naming the path, got {other:?}"),
+    }
+}
+
+/// An un-promotable run is a 500, and is NOT collapsed with the write failure
+/// beside it: the write succeeded and found nothing to promote, which sends the
+/// operator looking somewhere else entirely.
+#[test]
+fn scan_run_not_promotable_maps_to_500_and_says_what_happened() {
+    let e = ThemeScanError::ScanRunNotPromotable {
+        run_id: Uuid::nil(),
+    };
+    let message = e.to_string();
+    assert!(
+        message.contains("could not be promoted"),
+        "the log line must say the promotion is what failed: {message}"
+    );
     assert!(matches!(map_scan_error(e), AppError::Internal { .. }));
 }

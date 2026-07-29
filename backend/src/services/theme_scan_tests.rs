@@ -111,6 +111,22 @@ fn display_prompt_file_missing_names_path_and_source() {
     assert!(s.contains("no such file"), "source not surfaced: {s}");
 }
 
+/// An un-promotable run names the run it could not launch.
+///
+/// The run id is the ONLY handle an operator has here: the row is gone or has
+/// moved on, so there is nothing in Run History to click, and the log line is the
+/// whole trail. A message without the id would leave nothing to search for.
+#[test]
+fn display_scan_run_not_promotable_names_the_run_and_the_outcome() {
+    let run_id = Uuid::from_u128(7);
+    let s = ThemeScanError::ScanRunNotPromotable { run_id }.to_string();
+    assert!(s.contains(&run_id.to_string()), "missing run id: {s}");
+    assert!(
+        s.contains("was not launched"),
+        "must say the scan did NOT run — the operator's first question: {s}"
+    );
+}
+
 // ── Chunk B error variants ────────────────────────────────────────────────
 
 #[test]
