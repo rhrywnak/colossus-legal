@@ -218,14 +218,85 @@ fn provider_build_failed_maps_to_400() {
 
 #[test]
 fn server_side_variants_map_to_500() {
-    // A representative server-side variant (an unparseable stored definition)
-    // must be a generic 500, not leak its cause to the client.
-    let e = ThemeScanError::DefinitionInvalid {
-        scenario_id: Uuid::nil(),
+    // A representative POST-row server-side variant (the candidate graph read
+    // failed) must be a generic 500 that does not leak its cause to the client —
+    // it does not need to, because the run row carries the full reason.
+    use serde::de::Error as _;
+    let e = ThemeScanError::CandidateReadFailed {
+        subject_id: "subj-1".to_string(),
+        source: crate::bias::repository::BiasRepositoryError::Deserialize(neo4rs::DeError::custom(
+            "bad row",
+        )),
+    };
+    match map_scan_error(e) {
+        AppError::Internal { message } => assert!(
+            !message.contains("subj-1") && !message.contains("bad row"),
+            "a post-row 500 must stay generic; the run row is where the detail \
+             belongs: {message}"
+        ),
+        other => panic!("expected a generic 500, got {other:?}"),
+    }
+}
+
+/// The three PRE-ROW server-side failures keep their message.
+///
+/// They are the exception to the generic-500 policy, and the exception exists
+/// because the policy's premise fails for them: there is no run row to open, so a
+/// stripped message leaves the operator with nothing at all. Each assertion names
+/// the identifier and the recovery action the caller must still receive — the same
+/// text the variant's `#[error]` string promises.
+#[test]
+fn pre_row_server_side_failures_keep_their_message() {
+    let scenario_id = Uuid::nil();
+
+    let definition = ThemeScanError::DefinitionInvalid {
+        scenario_id,
         source: serde_json::from_str::<serde_json::Value>("{oops")
             .expect_err("that is not valid JSON"),
     };
-    assert!(matches!(map_scan_error(e), AppError::Internal { .. }));
+    match map_scan_error(definition) {
+        AppError::Internal { message } => {
+            assert!(message.contains(&scenario_id.to_string()), "{message}");
+            assert!(message.contains("re-save"), "no recovery action: {message}");
+        }
+        other => panic!("expected a 500 carrying its message, got {other:?}"),
+    }
+
+    let model = ThemeScanError::ModelLookupFailed {
+        model_id: "qwen-14b".to_string(),
+        source: sqlx::Error::PoolTimedOut,
+    };
+    match map_scan_error(model) {
+        AppError::Internal { message } => {
+            assert!(message.contains("qwen-14b"), "{message}");
+            assert!(
+                message.contains("database is reachable"),
+                "no recovery action: {message}"
+            );
+        }
+        other => panic!("expected a 500 carrying its message, got {other:?}"),
+    }
+
+    // The third variant in the arm. Asserted individually rather than trusted to
+    // the shared arm expression: the arm is one line TODAY, and a future edit that
+    // splits it is exactly when a silently-stripped message would reappear.
+    use serde::de::Error as _;
+    let subject = ThemeScanError::SubjectResolveFailed {
+        scenario_id,
+        source: crate::bias::repository::BiasRepositoryError::Deserialize(neo4rs::DeError::custom(
+            "no route to host",
+        )),
+    };
+    match map_scan_error(subject) {
+        AppError::Internal { message } => {
+            assert!(message.contains(&scenario_id.to_string()), "{message}");
+            assert!(
+                message.contains("graph is reachable"),
+                "no recovery action: {message}"
+            );
+        }
+        other => panic!("expected a 500 carrying its message, got {other:?}"),
+    }
 }
 
 /// A missing judging prompt is a 503 that NAMES THE PATH.

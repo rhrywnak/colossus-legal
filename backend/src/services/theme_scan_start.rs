@@ -14,16 +14,24 @@
 //!    causes of the eleven-day silence. No row is written for a scan that could
 //!    never have run, and the caller is told which path is missing.
 //! 2. **Fence the scenario.** Establishes that the scenario exists and belongs to
-//!    this case — required before step 3 both because `scan_runs.scenario_id` is
+//!    this case — required before step 4 both because `scan_runs.scenario_id` is
 //!    a foreign key and because writing a row keyed to another case's scenario
 //!    would be a cross-case write.
-//! 3. **Insert the stub row, born `failed`.** From here on, dying leaves a
+//! 3. **Validate the request** (criterion, subject, model choice). Failures here
+//!    are the caller's to fix and are answered with a 4xx and NO run row — see
+//!    `validate_scan_request` in [`crate::services::theme_scan_validate`] for the
+//!    ruling behind that (it is `pub(crate)`, hence named and not linked).
+//! 4. **Insert the stub row, born `failed`.** From here on, dying leaves a
 //!    record. Anything that goes wrong later updates the reason; nothing has to
 //!    remember to create the row.
-//! 4. **Prepare** (definition, criterion, candidates, provider, vLLM gate). A
-//!    failure writes its reason onto the stub and returns the HTTP error.
-//! 5. **Promote to `running`** with the resolved model, params snapshot, and
+//! 5. **Prepare** (vLLM gate, candidate read). A failure writes its reason onto
+//!    the stub and returns the HTTP error.
+//! 6. **Promote to `running`** with the resolved model, params snapshot, and
 //!    progress denominator, then spawn the judging task.
+//!
+//! Steps 3 and 5 are two halves of what used to be one `prepare_scan`, and the
+//! seam between them is exactly the seam between "your request was wrong" and
+//! "the system could not deliver". The row is what marks the difference.
 //!
 //! The preconditions all run SYNCHRONOUSLY, so a gate failure is an immediate
 //! typed error the route returns as its HTTP status — never a background failure
@@ -39,13 +47,14 @@ use crate::domain::llm_params::ResolvedLlmParams;
 use crate::dto::ThemeScanSummary;
 use crate::repositories::pipeline_repository::{
     fail_scan_run, finalize_scan_run_completed, insert_scan_run_stub, promote_scan_run_running,
-    ScanRunFinal, ScanRunStart, ScanRunStub, ScenarioRecord,
+    ScanRunFinal, ScanRunStart, ScanRunStub,
 };
 use crate::services::theme_scan::{
-    load_scan_prompt, load_scenario_fenced, prepare_scan, PreparedScan, ScanPrompt, ThemeScanError,
+    load_scenario_fenced, prepare_scan, PreparedScan, ScanPrompt, ThemeScanError, ValidatedScan,
 };
 use crate::services::theme_scan_judge::judge_all;
 use crate::services::theme_scan_persist::{count_to_i32, persist_and_summarize, ScanRunMeta};
+use crate::services::theme_scan_validate::{load_scan_prompt, validate_scan_request};
 use crate::state::AppState;
 
 /// The immediate result of starting a background scan.
@@ -62,11 +71,15 @@ pub async fn start_theme_scan(
     scenario_id: Uuid,
     requested_model_id: Option<String>,
 ) -> Result<ScanStarted, ThemeScanError> {
-    // 1 + 2: the two checks that must precede any write.
+    // 1 + 2 + 3: everything that must be settled before a row exists. A failure
+    // in any of them is answered with an HTTP status and nothing else — the
+    // caller can see and fix all three (a missing prompt file is the operator's
+    // deploy; the rest are the request's own contents).
     let prompt = load_scan_prompt(state)?;
     let record = load_scenario_fenced(&state.pipeline_pool, case_slug, scenario_id).await?;
+    let validated = validate_scan_request(state, record, requested_model_id.as_deref()).await?;
 
-    // 3: from here on, a failure is visible in Run History.
+    // 4: from here on, a failure is visible in Run History.
     let run_id = Uuid::new_v4();
     insert_scan_run_stub(
         &state.pipeline_pool,
@@ -80,12 +93,11 @@ pub async fn start_theme_scan(
     .await
     .map_err(|source| ThemeScanError::ScanRunWriteFailed { run_id, source })?;
 
-    // 4: prepare, recording any failure onto the stub before it propagates.
-    let prepared =
-        prepare_or_record(state, run_id, record, prompt, requested_model_id.as_deref()).await?;
+    // 5: prepare, recording any failure onto the stub before it propagates.
+    let prepared = prepare_or_record(state, run_id, validated, prompt).await?;
     let candidates_total = count_to_i32(prepared.candidates.len(), "candidates_total");
 
-    // 5: promote and spawn.
+    // 6: promote and spawn.
     promote_run(state, run_id, &prepared, candidates_total).await?;
     spawn_scan_job(state, prepared, run_id, scenario_id, candidates_total);
 
@@ -103,14 +115,18 @@ pub async fn start_theme_scan(
 /// the recording itself is logged and swallowed — deliberately: the caller is
 /// already being handed a typed error that names the true problem, and replacing
 /// it with a bookkeeping error would hide the diagnosis behind the diagnosis.
+///
+/// Everything reaching this function has already passed
+/// [`validate_scan_request`], so every failure it can see is one the system owes
+/// a record for — which is why this arm records unconditionally rather than
+/// classifying the error it caught.
 async fn prepare_or_record(
     state: &AppState,
     run_id: Uuid,
-    record: ScenarioRecord,
+    validated: ValidatedScan,
     prompt: ScanPrompt,
-    requested_model_id: Option<&str>,
 ) -> Result<PreparedScan, ThemeScanError> {
-    match prepare_scan(state, record, prompt, requested_model_id).await {
+    match prepare_scan(state, validated, prompt).await {
         Ok(prepared) => Ok(prepared),
         Err(e) => {
             tracing::error!(%run_id, error = %e, "theme scan: preparation failed; run recorded as failed");

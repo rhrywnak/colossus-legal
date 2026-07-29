@@ -242,11 +242,17 @@ pub async fn merge_scenario_scan_run_handler(
 ///
 /// The split is deliberate (Standing Rule 1 — a caller can tell *what* went
 /// wrong): user-fixable preconditions are 4xx with a `details` hint; a missing
-/// API key is a 503 the operator corrects; everything else is a server-side 500
-/// whose full cause chain is logged here (not leaked to the client).
+/// dependency is a 503 the operator corrects; everything else is a server-side
+/// 500 whose cause chain is logged here rather than returned.
+///
+/// That last rule has ONE exception, and it is principled rather than
+/// convenient: a 500 may stay generic only because the run row carries the real
+/// reason for the reader to open. The failures that happen BEFORE a run row
+/// exists have no such second surface, so they keep their message. See the arm
+/// itself for which variants those are and why.
 fn map_scan_error(err: ThemeScanError) -> AppError {
-    // Compute the display message once; the cause chain (`#[source]`) is only
-    // logged, never returned, for the server-side variants below.
+    // Compute the display message once. For most server-side variants it is only
+    // logged; for the pre-row ones it is also what the caller receives.
     let message = err.to_string();
     match err {
         ThemeScanError::ScenarioNotFound { .. } | ThemeScanError::ScanRunNotFound { .. } => {
@@ -299,8 +305,26 @@ fn map_scan_error(err: ThemeScanError) -> AppError {
             tracing::error!(error = %message, "theme scan: judging prompt unreadable");
             AppError::ServiceUnavailable { message }
         }
-        // DB, graph, and definition-parse failures are server-side.
-        // Log the full typed error (with its source) and return a generic 500.
+        // The pre-stub server-side failures: still 500 (nothing about the request
+        // is wrong), but they KEEP their message.
+        //
+        // The generic-500 policy below rests on an assumption these three break.
+        // It is safe to answer "theme scan failed" only because the run row
+        // carries the real reason — the operator opens Run History and reads it.
+        // Since the 400 split these three fail BEFORE the row exists, so a generic
+        // message leaves nothing anywhere: no row to open, and a toast that names
+        // neither the scenario, the model, nor what to do. Their `#[error]` strings
+        // were written to carry a recovery action precisely because this is their
+        // only surface; discarding them here would make that a lie.
+        ThemeScanError::DefinitionInvalid { .. }
+        | ThemeScanError::SubjectResolveFailed { .. }
+        | ThemeScanError::ModelLookupFailed { .. } => {
+            tracing::error!(error = %message, "theme scan: failed before any run was recorded");
+            AppError::Internal { message }
+        }
+        // Everything else server-side: DB and graph failures that happen AFTER the
+        // run row exists. Log the full typed error (with its source) and return a
+        // generic 500 — the row is where the detail lives.
         other => {
             tracing::error!(error = %other, "theme scan failed (server-side)");
             AppError::Internal {

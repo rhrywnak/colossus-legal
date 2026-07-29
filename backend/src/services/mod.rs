@@ -23,4 +23,5 @@ pub mod theme_scan_persist;
 pub mod theme_scan_provider;
 pub mod theme_scan_run;
 pub mod theme_scan_start;
+pub mod theme_scan_validate;
 pub mod vllm_model_gate;

@@ -14,7 +14,22 @@
 //! 4. returns a [`ThemeScanSummary`] with the counts, the written suggestions,
 //!    and a rejected sample for the honesty check.
 //!
-//! This module owns the *orchestration* (load, validate, resolve, drive, log).
+//! This module owns the SHARED VOCABULARY of a scan — the error taxonomy every
+//! phase returns, the structs that cross phase boundaries (`ScanPrompt`,
+//! `ValidatedScan`, `PreparedScan`), the case-fenced scenario loader — plus
+//! `prepare_scan`, the phase that does the work a validated request implies.
+//! (Those are `pub(crate)`, so they are named here rather than linked; a doc
+//! link from this public module page to a private item is a rustdoc warning.)
+//!
+//! The rest of the start path is split by phase, because the phase boundary is
+//! also the boundary of what a failure leaves behind:
+//!
+//! * [`crate::services::theme_scan_validate`] — the checks whose failure is the
+//!   CALLER'S to fix. Answered with a 4xx and no run row.
+//! * `prepare_scan` (here) and [`crate::services::theme_scan_start`] — the vLLM
+//!   gate, the candidate read, the run record, and the judging task. A failure
+//!   from here on is recorded on the run row.
+//!
 //! The per-quote judging and result-persistence helpers live in the sibling
 //! [`crate::services::theme_scan_judge`], and the verdict parser in
 //! [`crate::services::theme_scan_parse`] — kept apart so no single file exceeds
@@ -37,10 +52,8 @@ use uuid::Uuid;
 use crate::bias::dto::BiasInstance;
 use crate::bias::repository::{BiasRepository, BiasRepositoryError};
 use crate::domain::llm_params::{LlmConfigError, ResolvedLlmParams};
-use crate::dto::scenario_crud::ScenarioDefinition;
 use crate::repositories::pipeline_repository::{get_scenario, PipelineRepoError, ScenarioRecord};
-use crate::services::scenario_subject::{resolve_scenario_subject, SubjectResolveError};
-use crate::services::theme_scan_provider::resolve_scan_provider;
+use crate::services::theme_scan_provider::ResolvedScanProvider;
 use crate::services::vllm_model_gate::{assert_vllm_model_loaded, VllmGateError};
 use crate::state::AppState;
 
@@ -100,7 +113,14 @@ pub enum ThemeScanError {
 
     /// The stored `definition` jsonb did not parse as a `ScenarioDefinition`
     /// (e.g. a retired v1 shape). Loud, not defaulted.
-    #[error("scenario {scenario_id} has a definition this build cannot parse: {source}")]
+    ///
+    /// The recovery action rides the message because this now fails BEFORE the
+    /// run row exists (the 400 split), so the toast is the only surface it has.
+    #[error(
+        "scenario {scenario_id} has a definition this build cannot parse: {source} \
+         — re-open the scenario and re-save it to rewrite the definition in the \
+         shape this build reads"
+    )]
     DefinitionInvalid {
         scenario_id: Uuid,
         #[source]
@@ -151,7 +171,16 @@ pub enum ThemeScanError {
     },
 
     /// Resolving the case-default subject failed at the graph layer.
-    #[error("failed to resolve the default subject for scenario {scenario_id}: {source}")]
+    ///
+    /// Distinct from [`Self::SubjectUnresolvable`], which is the scenario naming
+    /// nobody: this is the lookup itself failing. Like [`Self::DefinitionInvalid`]
+    /// it now fails before the run row exists, so the message carries its own
+    /// recovery action rather than relying on Run History to be read later.
+    #[error(
+        "failed to resolve the default subject for scenario {scenario_id}: {source} \
+         — verify the graph is reachable, or that CASE_DEFAULT_SUBJECT_NAME names a \
+         party this case actually has"
+    )]
     SubjectResolveFailed {
         scenario_id: Uuid,
         #[source]
@@ -189,7 +218,13 @@ pub enum ThemeScanError {
     },
 
     /// Looking up the selected model row failed at the database layer.
-    #[error("failed to load model '{model_id}': {source}")]
+    ///
+    /// Toast-only since the 400 split (it fails before the run row exists), so the
+    /// message carries the recovery action itself.
+    #[error(
+        "failed to load model '{model_id}': {source} \
+         — the model registry could not be read; verify the database is reachable"
+    )]
     ModelLookupFailed {
         model_id: String,
         #[source]
@@ -207,7 +242,15 @@ pub enum ThemeScanError {
     /// The model's parameters could not be resolved/constrained (a corrupt row
     /// value, or a task request the model cannot satisfy). Names the model and
     /// carries the resolver's own typed cause.
-    #[error("model '{model_id}' has invalid LLM parameters: {source}")]
+    ///
+    /// Both recovery actions ride the message because the cause decides which one
+    /// applies, and the caller can see the difference in `{source}` but the code
+    /// cannot: a task the model cannot satisfy is fixed by picking another model,
+    /// a corrupt stored value by correcting the row.
+    #[error(
+        "model '{model_id}' has invalid LLM parameters: {source} \
+         — pick another model, or correct that model's row in llm_models"
+    )]
     ParamsInvalid {
         model_id: String,
         #[source]
@@ -348,69 +391,37 @@ pub(crate) struct ScanPrompt {
     pub(crate) text: String,
 }
 
-/// Read the configured judging prompt — the TEMPLATE PRESENCE CHECK that runs
-/// before a scan records anything at all.
+/// Everything a scan needs that is decided from the REQUEST and the scenario row
+/// alone — the answers [`validate_scan_request`] produces.
 ///
-/// The prompt filename is deployment config (env `THEME_SCAN_PROMPT_FILE`,
-/// resolved+defaulted in `config.rs`), not a compiled-in const; `template_path`
-/// resolves it against the registry's env-driven template dir.
-///
-/// ## Why this is the FIRST thing a scan start does
-///
-/// A missing prompt file is the cheapest possible failure — no scenario read, no
-/// provider, no LLM budget, no run row — and for eleven days it was also one of
-/// the two causes of scans that appeared to do nothing. Checking it at the door
-/// means the caller gets a message naming the exact path, and no half-started run
-/// is recorded for a scan that could never have run. The read IS the check: an
-/// exists()-then-read would race, and would still have to handle the read error.
-pub(crate) fn load_scan_prompt(state: &AppState) -> Result<ScanPrompt, ThemeScanError> {
-    let file = state.config.theme_scan_prompt_file.clone();
-    let path = state.registry.template_path(&file);
-    let text = std::fs::read_to_string(&path)
-        .map_err(|source| ThemeScanError::PromptFileMissing { path, source })?;
-    Ok(ScanPrompt { file, text })
+/// `subject_id` is resolved here rather than inside the candidate read because
+/// "this scenario names nobody to scan about" is a question about the request,
+/// while "the graph would not answer" is a question about the system. They belong
+/// on opposite sides of the run record (see [`validate_scan_request`]).
+pub(crate) struct ValidatedScan {
+    pub(crate) attack_meaning: String,
+    pub(crate) subject_id: String,
+    pub(crate) resolved: ResolvedScanProvider,
 }
 
-/// Validate the loaded scenario's preconditions and gather the remaining inputs a
-/// scan needs: the judgment criterion, the candidate quotes, and the provider.
-/// Every failure here is a typed, scan-aborting [`ThemeScanError`].
+/// Do the work that a validated request implies: clear the vLLM hard gate and
+/// read the candidate pool. Every failure here is a typed, scan-aborting
+/// [`ThemeScanError`] — and, unlike [`validate_scan_request`]'s, one that lands
+/// on a run row the caller has already recorded.
 ///
-/// Takes an ALREADY-LOADED (and already case-fenced) `record` and an
-/// already-read `prompt` rather than fetching either itself. Both moved out to
-/// the caller for ordering reasons, not for tidiness: the prompt check must
-/// happen before anything is recorded, and the scenario must be known to exist
-/// before the run stub is inserted (its `scenario_id` is a foreign key). See
-/// `theme_scan_start::start_theme_scan` for the order and why it matters.
+/// Takes the already-read `prompt` rather than reading it: the prompt check must
+/// happen before ANYTHING is recorded (see [`load_scan_prompt`]). See
+/// `theme_scan_start::start_theme_scan` for the full order and why it matters.
 pub(crate) async fn prepare_scan(
     state: &AppState,
-    record: ScenarioRecord,
+    validated: ValidatedScan,
     prompt: ScanPrompt,
-    requested_model_id: Option<&str>,
 ) -> Result<PreparedScan, ThemeScanError> {
-    let scenario_id = record.scenario_id;
-
-    let definition: ScenarioDefinition =
-        serde_json::from_value(record.definition).map_err(|source| {
-            ThemeScanError::DefinitionInvalid {
-                scenario_id,
-                source,
-            }
-        })?;
-
-    // A scan with no judgment criteria is meaningless — reject the precondition.
-    let attack_meaning = definition
-        .attack_meaning
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .ok_or(ThemeScanError::EmptyAttackMeaning { scenario_id })?
-        .to_string();
-
-    let candidates = read_candidates(state, &definition, scenario_id).await?;
-
-    // Per-run provider: resolve the model id → row → params → provider via the
-    // unified seam (Chunk B), replacing the removed boot-time `theme_scan_provider`.
-    let resolved = resolve_scan_provider(state, requested_model_id).await?;
+    let ValidatedScan {
+        attack_meaning,
+        subject_id,
+        resolved,
+    } = validated;
 
     // HARD GATE (vLLM only): before any candidate is dispatched, confirm the
     // endpoint is reachable and serving the SELECTED model. The Anthropic path
@@ -420,6 +431,8 @@ pub(crate) async fn prepare_scan(
             .await
             .map_err(gate_error_into_scan_error)?;
     }
+
+    let candidates = read_candidates(state, &subject_id).await?;
 
     Ok(PreparedScan {
         attack_meaning: Arc::from(attack_meaning),
@@ -455,39 +468,19 @@ fn gate_error_into_scan_error(e: VllmGateError) -> ThemeScanError {
     }
 }
 
-/// Resolve the scan subject and read every candidate quote about it (the ungated
+/// Read every candidate quote about the subject (the ungated
 /// `all_evidence_about_subject` set — the 100%-recall input to the judge).
-///
-/// Subject resolution is delegated to the shared
-/// [`crate::services::scenario_subject::resolve_scenario_subject`] so the scan
-/// and the 1a.2 gather endpoint read the SAME subject pool by construction (see
-/// that module's docs). The shared resolver's own error is mapped back into the
-/// scan's existing [`ThemeScanError`] variants here — the scan's error surface
-/// is unchanged; only where those variants are *constructed* moved.
 async fn read_candidates(
     state: &AppState,
-    definition: &ScenarioDefinition,
-    scenario_id: Uuid,
+    subject_id: &str,
 ) -> Result<Vec<BiasInstance>, ThemeScanError> {
-    let subject_id = resolve_scenario_subject(state, definition)
-        .await
-        .map_err(|e| match e {
-            SubjectResolveError::DefaultLookupFailed { source } => {
-                ThemeScanError::SubjectResolveFailed {
-                    scenario_id,
-                    source,
-                }
-            }
-            SubjectResolveError::Unresolvable => {
-                ThemeScanError::SubjectUnresolvable { scenario_id }
-            }
-        })?;
-    tracing::debug!(%scenario_id, subject_id = %subject_id, "theme scan: subject resolved");
-
     let repo = BiasRepository::new(state.graph.clone());
-    repo.all_evidence_about_subject(&subject_id)
+    repo.all_evidence_about_subject(subject_id)
         .await
-        .map_err(|source| ThemeScanError::CandidateReadFailed { subject_id, source })
+        .map_err(|source| ThemeScanError::CandidateReadFailed {
+            subject_id: subject_id.to_string(),
+            source,
+        })
 }
 
 /// Load one scenario, enforcing the case-isolation fence.

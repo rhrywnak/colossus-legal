@@ -71,18 +71,22 @@ fn call_position(body: &str, needle: &str) -> usize {
         .unwrap_or_else(|| panic!("`{needle}` is no longer called in start_theme_scan"))
 }
 
-/// The template presence check runs BEFORE the run stub is written, and the stub
-/// is written BEFORE any preparation work.
+/// The whole start sequence, pinned in order.
 ///
-/// Two orderings, one test, because they are one contract: everything that can
-/// fail cheaply and leave nothing behind happens first, and from the stub onward
-/// every failure has somewhere to be recorded.
+/// One test, because it is one contract with a single hinge — the stub INSERT.
+/// Everything before it can fail without leaving a trace, and each of those steps
+/// is there for its own reason: the prompt check because a scan that cannot run
+/// must not be recorded as one, the fence because `scan_runs.scenario_id` is a
+/// foreign key, and validation because a request the caller can fix announces
+/// itself in the panel and does not need a row (the 2026-07-28 ruling). From the
+/// stub onward every failure has somewhere to be written.
 #[test]
-fn start_checks_the_prompt_then_stubs_the_run_then_prepares() {
+fn start_validates_before_it_records_and_records_before_it_works() {
     let body = start_fn_body();
 
     let prompt = call_position(&body, "load_scan_prompt(");
     let fence = call_position(&body, "load_scenario_fenced(");
+    let validate = call_position(&body, "validate_scan_request(");
     let stub = call_position(&body, "insert_scan_run_stub(");
     let prepare = call_position(&body, "prepare_or_record(");
     let promote = call_position(&body, "promote_run(");
@@ -99,15 +103,71 @@ fn start_checks_the_prompt_then_stubs_the_run_then_prepares() {
          is a foreign key, and a row keyed to another case's scenario is a cross-case write"
     );
     assert!(
+        validate < stub,
+        "request validation must run BEFORE the stub is written — a missing \
+         attack_meaning or a retired model pick is the caller's to fix, announces \
+         itself in the panel, and must not leave a failed row diluting the history"
+    );
+    assert!(
         stub < prepare,
-        "the stub row must be written BEFORE preparation — otherwise a scan that \
-         dies during preparation leaves no record, which is the defect this order fixes"
+        "the stub row must be written BEFORE the work preparation does — otherwise a \
+         scan that dies in the vLLM gate or the candidate read leaves no record, which \
+         is the defect this order fixes"
     );
     assert!(
         prepare < promote && promote < spawn,
         "preparation must succeed before promotion, and promotion before the judging \
          task is spawned (nothing may spend LLM budget on an unreportable run)"
     );
+}
+
+/// The validating phase and the working phase stay DISJOINT.
+///
+/// The ordering test above proves validation runs first; this proves the right
+/// checks are still IN it. Folding the criterion, subject, or model checks back
+/// into `prepare_scan` — the shape this split undid — would keep every position
+/// assertion true while quietly restoring a failed row for every mis-click.
+///
+/// The two phases are whole modules, so the test is a containment check per file
+/// rather than a slice of one: each check must appear in its own phase and be
+/// absent from the other, which is what makes "disjoint" mean something.
+#[test]
+fn the_caller_fixable_checks_live_in_the_validating_phase() {
+    let read = |name: &str| {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(name);
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{name} is readable: {e}"))
+    };
+    let validating = read("src/services/theme_scan_validate.rs");
+    let working = read("src/services/theme_scan.rs");
+
+    // The caller's to fix: answered with a 4xx and no run row.
+    for check in [
+        "EmptyAttackMeaning",
+        "resolve_subject(",
+        "resolve_scan_provider(",
+    ] {
+        assert!(
+            validating.contains(check),
+            "`{check}` must stay in the validating phase — its failure is the \
+             caller's to fix and must not record a run"
+        );
+    }
+
+    // The mirror image: the phase that runs after the row exists keeps the
+    // failures that DO deserve a record, and the validating phase must not
+    // acquire them (which would move a system failure out of Run History).
+    for work in ["assert_vllm_model_loaded(", "read_candidates("] {
+        assert!(
+            working.contains(work),
+            "`{work}` must stay in the working phase — its failure is the system's, \
+             and the run row is the only place it becomes visible"
+        );
+        assert!(
+            !validating.contains(work),
+            "`{work}` moved into the validating phase, where a failure records \
+             nothing — a system failure would go invisible again"
+        );
+    }
 }
 
 /// Preparation failures are recorded on the run row rather than only returned.

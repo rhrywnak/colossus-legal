@@ -53,6 +53,57 @@ fn display_definition_invalid_surfaces_id() {
     .to_string();
     assert!(s.contains(&id.to_string()));
     assert!(s.contains("cannot parse"), "unexpected message: {s}");
+    assert!(
+        s.contains("re-save"),
+        "must name the recovery action — this fails before a run row exists, so \
+         the message is the only surface it gets: {s}"
+    );
+}
+
+/// The four variants that the 400 split left TOAST-ONLY each carry a recovery
+/// action in the message itself.
+///
+/// They fail before the run stub is written, so there is no Run History row to
+/// open later and no `error` column to read — the sentence the caller sees is the
+/// entire diagnosis. Grouped in one test because it is one property, asserted
+/// per-variant so a failure names which message lost its ending.
+#[test]
+fn the_toast_only_variants_each_name_a_recovery_action() {
+    use serde::de::Error as _;
+    let id = Uuid::nil();
+
+    let subject_resolve = ThemeScanError::SubjectResolveFailed {
+        scenario_id: id,
+        source: BiasRepositoryError::Deserialize(neo4rs::DeError::custom("no route to host")),
+    }
+    .to_string();
+    assert!(
+        subject_resolve.contains("graph is reachable")
+            && subject_resolve.contains("CASE_DEFAULT_SUBJECT_NAME"),
+        "must name both recoveries (graph health, subject config): {subject_resolve}"
+    );
+
+    let model_lookup = ThemeScanError::ModelLookupFailed {
+        model_id: "qwen-14b".to_string(),
+        source: sqlx::Error::PoolTimedOut,
+    }
+    .to_string();
+    assert!(
+        model_lookup.contains("database is reachable"),
+        "a failed registry read must say what to check: {model_lookup}"
+    );
+
+    let params = ThemeScanError::ParamsInvalid {
+        model_id: "qwen-14b".to_string(),
+        source: crate::domain::llm_params::LlmConfigError::ClearNotAllowed {
+            param: "max_tokens",
+        },
+    }
+    .to_string();
+    assert!(
+        params.contains("pick another model") && params.contains("llm_models"),
+        "both causes need their own recovery (bad choice vs corrupt row): {params}"
+    );
 }
 
 #[test]
