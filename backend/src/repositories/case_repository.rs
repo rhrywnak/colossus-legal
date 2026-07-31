@@ -168,7 +168,6 @@ impl CaseRepository {
     }
 
     /// Fetch aggregated statistics across node types (v2 pipeline).
-    /// Evidence nodes don't exist in v2 — evidence_count returns 0.
     ///
     /// ## Rust Learning: Aggregation in Rust vs Cypher
     ///
@@ -198,29 +197,27 @@ impl CaseRepository {
             .iter()
             .filter_map(|h| h.properties.get("amount"))
             .filter_map(|v| v.as_str())
+            // best-effort: `Harm.amount` is stored as a formatted currency STRING
+            // ("$25,000.00"), so the sum has to parse it. A value that will not
+            // parse after stripping `$` and `,` is dropped from the total rather
+            // than failing the whole read — an unparseable amount is a data-entry
+            // shape this endpoint cannot fix, and refusing to serve the case over
+            // one bad Harm would be worse than a short total.
+            //
+            // Honest caveat: unlike the identical parse in
+            // `case_summary_repository`, this gap is NOT visible from the
+            // response — `CaseStats` carries no Harm count to compare the total
+            // against. `GET /api/case-summary` does (`harms_total`), and is the
+            // endpoint to check when a damages figure looks low.
             .filter_map(|s| s.replace(['$', ','], "").parse::<f64>().ok())
             .sum();
 
         // v5.1: the Allegation label replaces v4's ComplaintAllegation.
-        // grounding_status of "exact" or "normalized" means the allegation
-        // is proven; same v4 semantics.
         let allegations = colossus_graph::get_nodes_by_label(&self.graph, "Allegation").await?;
         let allegations_total = allegations.len() as i64;
-        let allegations_proven = allegations
-            .iter()
-            .filter(|a| {
-                a.properties
-                    .get("grounding_status")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s == "exact" || s == "normalized")
-                    .unwrap_or(false)
-            })
-            .count() as i64;
 
         Ok(CaseStats {
             allegations_total,
-            allegations_proven,
-            evidence_count: 0, // Evidence nodes don't exist in v2
             document_count,
             damages_total,
             legal_counts,

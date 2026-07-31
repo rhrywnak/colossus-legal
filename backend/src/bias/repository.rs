@@ -125,18 +125,9 @@ impl BiasRepository {
     async fn fetch_actors_with_tagged_statements(
         &self,
     ) -> Result<Vec<ActorOption>, BiasRepositoryError> {
-        let cypher = "
-            MATCH (e:Evidence)-[:STATED_BY]->(actor)
-            WHERE e.pattern_tags IS NOT NULL AND e.pattern_tags <> ''
-            WITH actor, count(e) AS tagged_count
-            RETURN actor.id AS id,
-                   actor.name AS name,
-                   labels(actor)[0] AS actor_type,
-                   tagged_count
-            ORDER BY tagged_count DESC, actor.name ASC
-        ";
+        let cypher = super::queries::actors_with_tagged_statements();
 
-        let mut result = self.graph.execute(query(cypher)).await?;
+        let mut result = self.graph.execute(query(&cypher)).await?;
         let mut actors: Vec<ActorOption> = Vec::new();
 
         while let Some(row) = result.next().await? {
@@ -176,18 +167,9 @@ impl BiasRepository {
     async fn fetch_subjects_with_tagged_statements(
         &self,
     ) -> Result<Vec<ActorOption>, BiasRepositoryError> {
-        let cypher = "
-            MATCH (e:Evidence)-[:ABOUT]->(subject)
-            WHERE e.pattern_tags IS NOT NULL AND e.pattern_tags <> ''
-            WITH subject, count(DISTINCT e) AS tagged_count
-            RETURN subject.id AS id,
-                   subject.name AS name,
-                   labels(subject)[0] AS actor_type,
-                   tagged_count
-            ORDER BY tagged_count DESC, subject.name ASC
-        ";
+        let cypher = super::queries::subjects_with_tagged_statements();
 
-        let mut result = self.graph.execute(query(cypher)).await?;
+        let mut result = self.graph.execute(query(&cypher)).await?;
         let mut subjects: Vec<ActorOption> = Vec::new();
 
         while let Some(row) = result.next().await? {
@@ -315,46 +297,14 @@ impl BiasRepository {
         &self,
         filters: &BiasQueryFilters,
     ) -> Result<(i64, Vec<BiasInstance>), BiasRepositoryError> {
-        let cypher = "
-            MATCH (e:Evidence)
-            WHERE e.pattern_tags IS NOT NULL AND e.pattern_tags <> ''
-            MATCH (e)-[:STATED_BY]->(actor)
-            WHERE $actor_id IS NULL OR actor.id = $actor_id
-            WITH e, actor
-            WHERE $pattern_tag IS NULL
-               OR ANY(t IN split(e.pattern_tags, ',') WHERE trim(t) = $pattern_tag)
-            WITH e, actor
-            WHERE $subject_id IS NULL
-               OR EXISTS {
-                    MATCH (e)-[:ABOUT]->(s)
-                    WHERE s.id = $subject_id
-               }
-            OPTIONAL MATCH (e)-[:ABOUT]->(subject)
-            OPTIONAL MATCH (e)-[:CONTAINED_IN]->(d:Document)
-            RETURN
-              e.id AS evidence_id,
-              coalesce(e.title, '') AS title,
-              e.verbatim_quote AS verbatim_quote,
-              e.page_number AS page_number,
-              e.pattern_tags AS pattern_tags_raw,
-              actor.id AS actor_id,
-              coalesce(actor.name, '') AS actor_name,
-              labels(actor)[0] AS actor_type,
-              subject.id AS subject_id,
-              subject.name AS subject_name,
-              CASE WHEN subject IS NULL THEN NULL ELSE labels(subject)[0] END AS subject_type,
-              d.id AS document_id,
-              d.title AS document_title,
-              d.document_type AS document_type
-            ORDER BY actor.name, coalesce(d.title, ''), coalesce(e.page_number, 0)
-        ";
+        let cypher = super::queries::filtered_evidence();
 
         // ## Rust Learning: parameter binding with neo4rs
         // `.param(name, value)` binds a value the driver will substitute at
         // execution time. `Option<&str>` becomes a Cypher NULL when the
         // option is None, which is exactly the semantics our WHERE clauses
         // rely on (`$actor_id IS NULL OR ...`).
-        let q = query(cypher)
+        let q = query(&cypher)
             .param("actor_id", filters.actor_id.as_deref())
             .param("pattern_tag", filters.pattern_tag.as_deref())
             .param("subject_id", filters.subject_id.as_deref());
@@ -407,42 +357,26 @@ impl BiasRepository {
         &self,
         ids: &[String],
     ) -> Result<Vec<BiasInstance>, BiasRepositoryError> {
-        // RETURN columns are identical to `execute_filtered_query` so the same
-        // `BiasRow::from_row` decoder and `AggregationState` collapse apply
-        // unchanged. `coalesce(..,'')` mirrors the bias query: a null actor
-        // (no STATED_BY edge) decodes to an empty string, not a decode error.
-        // Relationship-type names come from the `schema::` constants (not bare
-        // string literals) so a rename in `schema.rs` flows to this read query
-        // automatically and the curation reader cannot drift from the rest of
-        // the graph layer (Rule 16 — no magic strings). The Cypher contains no
-        // other `{`/`}`, so a plain `format!` needs no brace-doubling.
-        let cypher = format!(
-            "
-            MATCH (e:Evidence)
-            WHERE e.id IN $ids
-            OPTIONAL MATCH (e)-[:{stated_by}]->(actor)
-            OPTIONAL MATCH (e)-[:{about}]->(subject)
-            OPTIONAL MATCH (e)-[:{contained_in}]->(d:Document)
-            RETURN
-              e.id AS evidence_id,
-              coalesce(e.title, '') AS title,
-              e.verbatim_quote AS verbatim_quote,
-              e.page_number AS page_number,
-              e.pattern_tags AS pattern_tags_raw,
-              coalesce(actor.id, '') AS actor_id,
-              coalesce(actor.name, '') AS actor_name,
-              CASE WHEN actor IS NULL THEN '' ELSE labels(actor)[0] END AS actor_type,
-              subject.id AS subject_id,
-              subject.name AS subject_name,
-              CASE WHEN subject IS NULL THEN NULL ELSE labels(subject)[0] END AS subject_type,
-              d.id AS document_id,
-              d.title AS document_title,
-              d.document_type AS document_type
-        ",
-            stated_by = crate::neo4j::schema::STATED_BY,
-            about = crate::neo4j::schema::ABOUT,
-            contained_in = crate::neo4j::schema::CONTAINED_IN,
-        );
+        // RETURN columns are a SUPERSET of `execute_filtered_query`'s: this query
+        // and `all_evidence_about_subject` also return `e.question` (the discovery
+        // Q&A pairing), which `execute_filtered_query` does not. The SAME
+        // `BiasRow::from_row` decoder still applies to all three unchanged, because
+        // `from_row` reads every optional column with `.ok()` — a column present
+        // here but absent there decodes to `None` on that path, no code change.
+        // `coalesce(..,'')` mirrors the bias query: a null actor (no STATED_BY
+        // edge) decodes to an empty string, not a decode error. Relationship-type
+        // names come from the `schema::` constants (not bare string literals) so a
+        // rename in `schema.rs` flows to this read query automatically and the
+        // curation reader cannot drift from the rest of the graph layer (Rule 16 —
+        // no magic strings). The Cypher contains no other `{`/`}`, so a plain
+        // `format!` needs no brace-doubling.
+        //
+        // Domain note: discovery Evidence stores the interrogatory question it
+        // answers in `e.question`; documentary evidence has none (→ Cypher null →
+        // `None`). Returning it here is the curation hydrate path — the fast-follow
+        // candidate card pairs the answer with its question, exactly as the scan
+        // judge now does.
+        let cypher = super::queries::evidence_by_ids();
 
         let q = query(&cypher).param("ids", ids.to_vec());
 
@@ -517,34 +451,14 @@ impl BiasRepository {
         // The Cypher contains no other `{`/`}` beyond the `EXISTS { ... }` block,
         // whose literal braces must be doubled (`{{` / `}}`) so `format!` treats
         // them as text and only substitutes the named `schema::` placeholders.
-        let cypher = format!(
-            "
-            MATCH (e:Evidence)
-            WHERE EXISTS {{ MATCH (e)-[:{about}]->(s) WHERE s.id = $subject_id }}
-            OPTIONAL MATCH (e)-[:{stated_by}]->(actor)
-            OPTIONAL MATCH (e)-[:{about}]->(subject)
-            OPTIONAL MATCH (e)-[:{contained_in}]->(d:Document)
-            RETURN
-              e.id AS evidence_id,
-              coalesce(e.title, '') AS title,
-              e.verbatim_quote AS verbatim_quote,
-              e.page_number AS page_number,
-              e.pattern_tags AS pattern_tags_raw,
-              coalesce(actor.id, '') AS actor_id,
-              coalesce(actor.name, '') AS actor_name,
-              CASE WHEN actor IS NULL THEN '' ELSE labels(actor)[0] END AS actor_type,
-              subject.id AS subject_id,
-              subject.name AS subject_name,
-              CASE WHEN subject IS NULL THEN NULL ELSE labels(subject)[0] END AS subject_type,
-              d.id AS document_id,
-              d.title AS document_title,
-              d.document_type AS document_type
-            ORDER BY e.id
-        ",
-            about = crate::neo4j::schema::ABOUT,
-            stated_by = crate::neo4j::schema::STATED_BY,
-            contained_in = crate::neo4j::schema::CONTAINED_IN,
-        );
+        //
+        // Domain note: THIS is the discovery Q&A pairing fix. Discovery pass-1
+        // stores the ANSWER in `e.verbatim_quote` and the interrogatory question in
+        // `e.question`; the `e.question AS question` projection below returns it so
+        // the theme-scan judge can read a bare Yes/No answer in light of the
+        // question it responds to. Documentary evidence has no question (Cypher
+        // null → `None`), so its judge message is unchanged.
+        let cypher = super::queries::all_evidence_about_subject();
 
         let q = query(&cypher).param("subject_id", subject_id);
 

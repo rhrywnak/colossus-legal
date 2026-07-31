@@ -8,6 +8,7 @@ use sqlx::PgPool;
 use tokio::sync::Semaphore;
 
 use crate::config::AppConfig;
+use crate::pipeline::extraction_engine::ExtractionEngine;
 use crate::pipeline::registry::PipelineRegistry;
 use crate::repositories::audit_repository::AuditRepository;
 
@@ -87,19 +88,6 @@ pub struct AppState {
     /// move without recompiling the backend.
     pub registry: Arc<PipelineRegistry>,
 
-    /// Dedicated LLM provider for the Theme Scan judge (D2b), built once at
-    /// startup from `THEME_SCAN_MODEL` (or the Chat default) with
-    /// `temperature = Some(0.0)` — DETERMINISTIC, unlike the natural-variation
-    /// `chat_providers`. Determinism is the reproducible-judge property the
-    /// scan requires: it makes the rejected-sample honesty check and
-    /// prompt-tuning meaningful across re-runs.
-    ///
-    /// `None` when `ANTHROPIC_API_KEY` is unset — the Theme Scan route then
-    /// returns 503, mirroring how `rag_pipeline` / `chat_providers` treat a
-    /// missing key (the scan cannot judge without the model, and a silent
-    /// no-op would violate Standing Rule 1).
-    pub theme_scan_provider: Option<Arc<dyn LlmProvider>>,
-
     /// Dedicated concurrency cap for Theme Scan LLM calls, sized from
     /// `config.theme_scan_concurrency` (default 4). A scan drives its per-quote
     /// verdicts with `buffer_unordered`, each acquiring a permit here, so the
@@ -107,6 +95,20 @@ pub struct AppState {
     /// separate from the pipeline's `llm_semaphore` so a scan and document
     /// extraction never starve each other (D2b STEP-1 concurrency decision).
     pub theme_scan_semaphore: Arc<Semaphore>,
+
+    /// The shared Rig extraction engine, used to construct per-run LLM providers
+    /// from an `llm_models` row via `pipeline::providers::provider_for_model`.
+    ///
+    /// ## Rust Learning: sharing ONE engine Arc, not building a second
+    ///
+    /// This is the SAME `Arc<dyn ExtractionEngine>` held by `AppContext`
+    /// (`pipeline::context`) — cloned (a refcount bump), not reconstructed. One
+    /// engine means one underlying HTTP/1.1 reqwest client, refcount-shared
+    /// across the pipeline's per-document providers AND the Theme Scan's per-run
+    /// provider. The Theme Scan (a domain service on `&AppState`) needs it so it
+    /// can call `provider_for_model` — whose anthropic branch wraps this engine —
+    /// instead of building its own boot-time Anthropic provider (Chunk B rewire).
+    pub extraction_engine: Arc<dyn ExtractionEngine>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -10,7 +10,7 @@
 
 /**
  * CSS `grid-template-columns` for the five Proof Matrix columns, in order:
- * Element | Mapped Allegations | Supporting | Opposing | Status.
+ * Element | Mapped Allegations | Supporting | Disputes | Status.
  *
  * `minmax(0, …)` on the flexible columns lets them shrink below their content
  * width instead of overflowing the row; the two fixed columns (the badge and the
@@ -19,11 +19,20 @@
 export const PROOF_MATRIX_GRID_TEMPLATE =
   "minmax(0, 2fr) 130px minmax(0, 1fr) minmax(0, 1fr) 110px";
 
-/** Column header labels, in the same order as {@link PROOF_MATRIX_GRID_TEMPLATE}. */
+/**
+ * Column header labels, in the same order as {@link PROOF_MATRIX_GRID_TEMPLATE}.
+ *
+ * "Disputes" (formerly the never-populated "Opposing") counts the Evidence that
+ * REBUTS an Allegation bearing on the Element. The word is chosen deliberately:
+ * not "Contradicts", which is reserved for the future evidence-vs-evidence
+ * impeachment layer and would make two different relationships read as one; and
+ * not "Opposing", which describes a party's posture rather than what the record
+ * actually disputes.
+ */
 export const PROOF_MATRIX_COLUMN_LABELS = [
   "Element",
   "Mapped Allegations",
   "Supporting",
-  "Opposing",
+  "Disputes",
   "Status",
 ] as const;

@@ -1,86 +1,101 @@
-//! Theme Scan judging + persistence (D2b).
+//! Theme Scan judging — the concurrent per-quote LLM fan-out (D2b, extended in
+//! LLM Config Chunk B).
 //!
-//! The concurrent per-quote judging fan-out and the write-and-summarize pass,
-//! split out of `theme_scan.rs` so neither file exceeds the module-size limit.
-//! `theme_scan.rs` owns orchestration; this module owns the LLM loop and the
-//! `scenario_fact_refs` writes.
+//! Split from `theme_scan.rs` so neither file exceeds the module-size limit.
+//! `theme_scan.rs` owns orchestration; THIS module owns the LLM loop; the sibling
+//! `theme_scan_persist` owns the `scenario_fact_refs` / `scan_runs` writes and the
+//! summary. Chunk B added per-candidate token + raw-reply capture (for the
+//! `scan_run_verdicts` audit rows) and routed the call through the params-aware
+//! seam ([`crate::domain::llm_provider_ext::LlmProviderExt`]).
 //!
 //! ## Per-item failures never abort the batch (Standing Rule 1)
 //!
-//! A malformed reply, an out-of-set role, or a failed write for ONE candidate is
-//! counted in `failed` and logged with its `evidence_id` — it does not `?` out of
-//! the batch. This mirrors the extraction loop's `chunks_failed += 1; continue`:
-//! a 94-quote scan must not be lost to one bad reply.
+//! A malformed reply, an out-of-set role, or a closed semaphore for ONE candidate
+//! is captured in that candidate's [`JudgeOutcome`] (its `verdict` is `Err`) — it
+//! does NOT `?` out of the batch. This mirrors the extraction loop's
+//! `chunks_failed += 1; continue`: a 94-quote scan must not be lost to one bad
+//! reply.
 
 use std::sync::Arc;
 
-use colossus_extract::LlmProvider;
+use colossus_extract::{LlmProvider, LlmResponse, PipelineError};
 use futures::stream::{self, StreamExt};
 use sqlx::PgPool;
 use tokio::sync::Semaphore;
 use uuid::Uuid;
 
 use crate::bias::dto::BiasInstance;
-use crate::domain::fact_status::FactStatus;
-use crate::dto::{ThemeScanRejected, ThemeScanSuggestion, ThemeScanSummary};
-use crate::llm_retry::call_with_rate_limit_retry;
-use crate::repositories::pipeline_repository::{upsert_fact_ref, PipelineRepoError};
-use crate::services::theme_scan::THEME_SCAN_MAX_TOKENS;
+use crate::domain::llm_params::ResolvedLlmParams;
+use crate::llm_retry::call_with_rate_limit_retry_params;
+use crate::repositories::pipeline_repository::{bump_scan_run_progress, ProgressBucket};
 use crate::services::theme_scan_parse::{parse_verdict, Verdict};
 
-// CONST: the honesty-check sample size is a fixed UX constant, not a deployment
-// knob. It bounds how many rejected quotes ride inline in the scan response for a
-// human spot-check; ten is a reviewable handful. Changing it is a product
-// decision (a code change), and making it per-environment would let a deployment
-// silently weaken the honesty check — so it is pinned in code on purpose.
-const THEME_SCAN_REJECTED_SAMPLE_SIZE: usize = 10;
-
-/// Running tallies accumulated while writing verdicts. Bundling them keeps
-/// [`persist_and_summarize`] short and lets [`record_outcome`] mutate one value
-/// instead of five out-parameters.
-#[derive(Default)]
-struct ScanTally {
-    relevant_written: usize,
-    irrelevant: usize,
-    failed: usize,
-    suggestions: Vec<ThemeScanSuggestion>,
-    rejected: Vec<ThemeScanRejected>,
+/// Everything one judged candidate yields: the parsed verdict (or a per-item
+/// failure reason), plus the raw reply and token usage the audit tables record.
+///
+/// `raw_reply` is `Some` whenever the model returned text (a success OR a
+/// parse-failure — both are auditable); it is `None` only when the call itself
+/// failed before returning text. `input_tokens` / `output_tokens` are
+/// `None`-if-absent (never a fabricated 0 — Standing Rule 1).
+pub(crate) struct JudgeOutcome {
+    pub verdict: Result<Verdict, String>,
+    pub raw_reply: Option<String>,
+    pub input_tokens: Option<u32>,
+    pub output_tokens: Option<u32>,
 }
 
-/// Judge every candidate concurrently, bounded by the dedicated semaphore.
+/// Judge every candidate concurrently, bounded by the dedicated semaphore,
+/// reporting LIVE progress to `scan_runs` as each candidate completes.
 ///
-/// Returns one `(candidate, verdict-or-failure)` per input. Ordering is not
-/// preserved (`buffer_unordered`), which is irrelevant — the summary aggregates
-/// and the per-item result carries its own candidate.
+/// Returns one `(candidate, outcome)` per input. Ordering is not preserved
+/// (`buffer_unordered`), which is irrelevant — the persist pass aggregates and
+/// each result carries its own candidate. `params` is [`ResolvedLlmParams`],
+/// which is `Copy`, so each concurrent task gets its own cheap copy (no `Arc`).
+///
+/// `pool` + `run_id` drive the per-candidate [`bump_scan_run_progress`] write
+/// (the `chunks_processed` analog). The progress write is BEST-EFFORT: a failed
+/// bump is logged and the scan continues — losing a progress tick must not lose a
+/// verdict (Standing Rule 1: the failure is observable in the log, and the final
+/// counts are authoritative regardless). The live bucket is the VERDICT-time
+/// classification; a relevant verdict whose `scenario_fact_refs` write later fails
+/// is reclassified to `failed` only at completion (ruling 2 — live is an estimate).
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn judge_all(
     provider: Arc<dyn LlmProvider>,
     semaphore: Arc<Semaphore>,
     concurrency: usize,
     scan_prompt: Arc<str>,
     attack_meaning: Arc<str>,
+    params: ResolvedLlmParams,
     candidates: Vec<BiasInstance>,
-) -> Vec<(BiasInstance, Result<Verdict, String>)> {
+    pool: PgPool,
+    run_id: Uuid,
+) -> Vec<(BiasInstance, JudgeOutcome)> {
     let total = candidates.len();
     stream::iter(candidates.into_iter().enumerate())
         .map(|(idx, candidate)| {
-            // Cheap Arc clones per item — the underlying provider/semaphore/text
-            // are shared, not copied.
+            // Cheap per-item clones — the underlying provider/semaphore/text are
+            // shared, not copied; `params` is `Copy`; `PgPool::clone` is an Arc
+            // bump; `run_id` is `Copy`.
             let provider = Arc::clone(&provider);
             let semaphore = Arc::clone(&semaphore);
             let scan_prompt = Arc::clone(&scan_prompt);
             let attack_meaning = Arc::clone(&attack_meaning);
+            let pool = pool.clone();
             async move {
-                let verdict = judge_one(
+                let outcome = judge_one(
                     provider.as_ref(),
                     &semaphore,
                     &scan_prompt,
                     &attack_meaning,
+                    &params,
                     &candidate,
                     idx,
                     total,
                 )
                 .await;
-                (candidate, verdict)
+                report_progress(&pool, run_id, &outcome).await;
+                (candidate, outcome)
             }
         })
         .buffer_unordered(concurrency)
@@ -88,52 +103,116 @@ pub(crate) async fn judge_all(
         .await
 }
 
-/// Judge one candidate. Every failure mode returns `Err(reason)` — a counted
-/// per-item failure — rather than propagating, so one bad reply cannot abort the
-/// batch.
+/// The live outcome bucket for one judged candidate (verdict-time classification).
+fn outcome_bucket(outcome: &JudgeOutcome) -> ProgressBucket {
+    match &outcome.verdict {
+        Ok(v) if v.relevant => ProgressBucket::Relevant,
+        Ok(_) => ProgressBucket::Irrelevant,
+        Err(_) => ProgressBucket::Failed,
+    }
+}
+
+/// Best-effort per-candidate progress write. A failure is LOGGED (so it is
+/// observable) but never aborts the scan — a dropped progress tick is cosmetic;
+/// the verdict and the final counts are unaffected.
+async fn report_progress(pool: &PgPool, run_id: Uuid, outcome: &JudgeOutcome) {
+    let bucket = outcome_bucket(outcome);
+    if let Err(e) = bump_scan_run_progress(pool, run_id, bucket).await {
+        tracing::warn!(%run_id, error = %e, "theme scan: progress bump failed (continuing)");
+    }
+}
+
+/// Judge one candidate. Every failure mode is captured in the returned
+/// [`JudgeOutcome`] (a `verdict: Err`) rather than propagating, so one bad reply
+/// cannot abort the batch.
+#[allow(clippy::too_many_arguments)]
 async fn judge_one(
     provider: &dyn LlmProvider,
     semaphore: &Semaphore,
     scan_prompt: &str,
     attack_meaning: &str,
+    params: &ResolvedLlmParams,
     candidate: &BiasInstance,
     idx: usize,
     total: usize,
-) -> Result<Verdict, String> {
+) -> JudgeOutcome {
     // Acquire a permit from the dedicated cap for the duration of the call. A
     // closed semaphore (only at shutdown) is a per-item failure, not a panic.
-    let _permit = semaphore
-        .acquire()
-        .await
-        .map_err(|e| format!("theme scan semaphore closed: {e}"))?;
+    let _permit = match semaphore.acquire().await {
+        Ok(permit) => permit,
+        Err(e) => {
+            return JudgeOutcome {
+                verdict: Err(format!("theme scan semaphore closed: {e}")),
+                raw_reply: None,
+                input_tokens: None,
+                output_tokens: None,
+            };
+        }
+    };
 
     let user_msg = build_user_message(attack_meaning, candidate);
-    let response = call_with_rate_limit_retry(
+    // `Some(scan_prompt)` routes through `invoke_with_system_and_params`, so the
+    // judging system prompt (theme_scan_prompt_v2.md) survives (Chunk B
+    // precondition). `params.max_tokens` (the verdict cap) reaches the wire.
+    let result = call_with_rate_limit_retry_params(
         provider,
         Some(scan_prompt),
         &user_msg,
-        THEME_SCAN_MAX_TOKENS,
+        params,
         idx,
         total,
     )
-    .await
-    .map_err(|e| format!("LLM call failed: {e}"))?;
+    .await;
+    outcome_from_result(result)
+}
 
-    // Retain the raw reply in the failure reason so a malformed or surprising
-    // verdict is diagnosable from the logs (persist_and_summarize logs the reason
-    // with evidence_id + scenario_id). This stateless scan has no run table by
-    // design (D2b: no migrations), so the log IS its audit surface for the raw
-    // model output — the parsed verdict alone would hide what the model said.
-    parse_verdict(&response.text).map_err(|reason| {
-        let preview: String = response.text.chars().take(500).collect();
-        format!("{reason} | raw LLM reply: {preview}")
-    })
+/// Turn one LLM call result into a [`JudgeOutcome`]: parse the verdict on
+/// success (retaining the raw reply as the audit surface + prose-JSON-compliance
+/// signal), or record a per-item failure with no raw reply on a call error.
+fn outcome_from_result(result: Result<LlmResponse, PipelineError>) -> JudgeOutcome {
+    match result {
+        Ok(response) => {
+            let verdict = parse_verdict(&response.text).map_err(|reason| {
+                let preview: String = response.text.chars().take(500).collect();
+                format!("{reason} | raw LLM reply: {preview}")
+            });
+            JudgeOutcome {
+                verdict,
+                raw_reply: Some(response.text),
+                input_tokens: response.input_tokens,
+                output_tokens: response.output_tokens,
+            }
+        }
+        Err(e) => JudgeOutcome {
+            verdict: Err(format!("LLM call failed: {e}")),
+            raw_reply: None,
+            input_tokens: None,
+            output_tokens: None,
+        },
+    }
 }
 
 /// Build the per-quote user message: the accusation criterion plus this one
 /// quote's speaker, document, and verbatim text. Case-agnostic — all case data
 /// comes from the scenario/candidate, none is compiled in.
-fn build_user_message(attack_meaning: &str, candidate: &BiasInstance) -> String {
+///
+/// ## Two shapes, one function (discovery Q&A pairing)
+///
+/// Discovery Evidence carries the interrogatory `question` its answer responds
+/// to; documentary evidence does not. When `question` is present and non-empty
+/// we present the candidate as a Q&A pair — `Question asked` + `Answer under
+/// review` — so the judge reads a bare "Yes"/"No" answer in light of the
+/// question that gives it meaning. When it is absent (or empty), we keep the
+/// original single-`Quote:` shape unchanged, so documentary evidence sees the
+/// exact message it always has.
+///
+/// Domain note: the answer text lives in `verbatim_quote` for BOTH shapes (the
+/// discovery pass-1 template writes the sworn answer there); the question is the
+/// only added context. An empty-string question is normalized to `None`-
+/// equivalent here — a question property that exists but holds `""` carries no
+/// interpretive value, so it takes the single-quote path (Standing Rule 1: it
+/// reads identically to a genuinely absent question, which is the honest state).
+pub(crate) fn build_user_message(attack_meaning: &str, candidate: &BiasInstance) -> String {
     let speaker = candidate
         .stated_by
         .as_ref()
@@ -148,141 +227,38 @@ fn build_user_message(attack_meaning: &str, candidate: &BiasInstance) -> String 
         .unwrap_or("unknown");
     let quote = candidate.verbatim_quote.as_deref().unwrap_or("");
 
-    format!(
-        "ACCUSATION (what the scenario alleges):\n{attack_meaning}\n\n\
-         QUOTE UNDER REVIEW:\nSpeaker: {speaker}\nDocument: {document}\nQuote: \"{quote}\"\n"
-    )
-}
+    // `filter(|s| !s.is_empty())` collapses `Some("")` to `None`: an empty
+    // question is treated exactly like a missing one (single-quote path).
+    let question = candidate
+        .question
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
 
-/// Write relevant verdicts, count every outcome, and build the summary.
-///
-/// Writes are per-row and idempotent (`upsert_fact_ref` is `ON CONFLICT`), so a
-/// mid-batch write failure is counted and logged without rolling back the
-/// already-written suggestions — a best-effort scan keeps the good verdicts.
-pub(crate) async fn persist_and_summarize(
-    pool: &PgPool,
-    scenario_id: Uuid,
-    results: Vec<(BiasInstance, Result<Verdict, String>)>,
-) -> ThemeScanSummary {
-    let candidates_read = results.len();
-    let mut tally = ScanTally::default();
-    for (candidate, verdict_res) in results {
-        record_outcome(pool, scenario_id, candidate, verdict_res, &mut tally).await;
+    match question {
+        Some(question) => format!(
+            "ACCUSATION (what the scenario alleges):\n{attack_meaning}\n\n\
+             QUOTE UNDER REVIEW:\nSpeaker: {speaker}\nDocument: {document}\n\
+             Question asked: \"{question}\"\nAnswer under review: \"{quote}\"\n"
+        ),
+        None => format!(
+            "ACCUSATION (what the scenario alleges):\n{attack_meaning}\n\n\
+             QUOTE UNDER REVIEW:\nSpeaker: {speaker}\nDocument: {document}\nQuote: \"{quote}\"\n"
+        ),
     }
-    ThemeScanSummary {
-        candidates_read,
-        relevant_written: tally.relevant_written,
-        irrelevant: tally.irrelevant,
-        failed: tally.failed,
-        suggestions: tally.suggestions,
-        rejected_sample: sample_rejected(tally.rejected, THEME_SCAN_REJECTED_SAMPLE_SIZE),
-    }
-}
-
-/// Classify one judged candidate into the tally: write + record a relevant
-/// verdict, collect an irrelevant one for the sample, or count a failure. Every
-/// failure path logs with `evidence_id` + `scenario_id` (Standing Rule 1).
-async fn record_outcome(
-    pool: &PgPool,
-    scenario_id: Uuid,
-    candidate: BiasInstance,
-    verdict_res: Result<Verdict, String>,
-    tally: &mut ScanTally,
-) {
-    match verdict_res {
-        Ok(v) if v.relevant => match write_relevant(pool, scenario_id, &candidate, &v).await {
-            Ok(()) => {
-                tally.relevant_written += 1;
-                tally.suggestions.push(to_suggestion(candidate, &v));
-            }
-            Err(e) => {
-                tally.failed += 1;
-                tracing::error!(
-                    evidence_id = %candidate.evidence_id,
-                    %scenario_id,
-                    error = %e,
-                    "theme scan: writing a relevant verdict failed"
-                );
-            }
-        },
-        Ok(v) => {
-            tally.irrelevant += 1;
-            tally.rejected.push(ThemeScanRejected {
-                graph_node_id: candidate.evidence_id.clone(),
-                reason: v.reason,
-                confidence: v.confidence,
-                content: candidate,
-            });
-        }
-        Err(reason) => {
-            tally.failed += 1;
-            tracing::error!(
-                evidence_id = %candidate.evidence_id,
-                %scenario_id,
-                reason = %reason,
-                "theme scan: producing a verdict failed"
-            );
-        }
-    }
-}
-
-/// Upsert one relevant verdict as an `undecided` suggestion.
-async fn write_relevant(
-    pool: &PgPool,
-    scenario_id: Uuid,
-    candidate: &BiasInstance,
-    verdict: &Verdict,
-) -> Result<(), PipelineRepoError> {
-    upsert_fact_ref(
-        pool,
-        scenario_id,
-        &candidate.evidence_id,
-        Some(verdict.proposed_role.code()),
-        // A scan suggestion is UNDECIDED: it awaits a human include/drop ruling.
-        FactStatus::Undecided,
-        Some(&verdict.reason),
-        Some(verdict.confidence),
-    )
-    .await
-}
-
-/// Map a written verdict to its wire suggestion (carries the graph card content).
-fn to_suggestion(candidate: BiasInstance, verdict: &Verdict) -> ThemeScanSuggestion {
-    ThemeScanSuggestion {
-        graph_node_id: candidate.evidence_id.clone(),
-        proposed_role: verdict.proposed_role.code().to_string(),
-        reason: verdict.reason.clone(),
-        confidence: verdict.confidence,
-        content: candidate,
-    }
-}
-
-/// Take an evenly-spread sample of at most `max` rejected quotes.
-///
-/// A strided pick (indices `k * n / max`) spreads the sample across the whole
-/// reject set, which is ordered by `evidence_id`; the first-`max` alternative
-/// would bias the honesty check toward one end of the id space. This needs no
-/// RNG dependency — the check wants a representative spread, not cryptographic
-/// randomness.
-fn sample_rejected(rejected: Vec<ThemeScanRejected>, max: usize) -> Vec<ThemeScanRejected> {
-    let n = rejected.len();
-    if n <= max {
-        return rejected;
-    }
-    // `k * n / max` for k in 0..max is strictly increasing and always < n, so
-    // each index is distinct and in-bounds.
-    (0..max).map(|k| rejected[k * n / max].clone()).collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::fact_role::FactRole;
 
     fn instance(id: &str) -> BiasInstance {
         BiasInstance {
             evidence_id: id.to_string(),
             title: String::new(),
             verbatim_quote: None,
+            question: None,
             page_number: None,
             pattern_tags: Vec::new(),
             stated_by: None,
@@ -291,34 +267,39 @@ mod tests {
         }
     }
 
-    fn rejected(id: &str) -> ThemeScanRejected {
-        ThemeScanRejected {
-            graph_node_id: id.to_string(),
+    fn outcome(verdict: Result<Verdict, String>) -> JudgeOutcome {
+        JudgeOutcome {
+            verdict,
+            raw_reply: None,
+            input_tokens: None,
+            output_tokens: None,
+        }
+    }
+
+    fn verdict(relevant: bool) -> Verdict {
+        Verdict {
+            relevant,
+            proposed_role: FactRole::Supports,
             reason: "r".to_string(),
-            confidence: 0.1,
-            content: instance(id),
+            confidence: 0.9,
         }
     }
 
     #[test]
-    fn sample_returns_all_when_under_max() {
-        let set = vec![rejected("a"), rejected("b")];
-        let out = sample_rejected(set, 10);
-        assert_eq!(out.len(), 2);
-        assert_eq!(out[0].graph_node_id, "a");
-        assert_eq!(out[1].graph_node_id, "b");
-    }
-
-    #[test]
-    fn sample_caps_and_spreads_when_over_max() {
-        let set: Vec<_> = (0..100).map(|i| rejected(&format!("e{i:03}"))).collect();
-        let out = sample_rejected(set, 5);
-        assert_eq!(out.len(), 5);
-        // Strided indices 0, 20, 40, 60, 80 — spread across the set, not the
-        // first five.
-        assert_eq!(out[0].graph_node_id, "e000");
-        assert_eq!(out[1].graph_node_id, "e020");
-        assert_eq!(out[4].graph_node_id, "e080");
+    fn outcome_bucket_classifies_the_three_live_buckets() {
+        // The live progress bucket is the VERDICT-time classification (ruling 2).
+        assert_eq!(
+            outcome_bucket(&outcome(Ok(verdict(true)))),
+            ProgressBucket::Relevant
+        );
+        assert_eq!(
+            outcome_bucket(&outcome(Ok(verdict(false)))),
+            ProgressBucket::Irrelevant
+        );
+        assert_eq!(
+            outcome_bucket(&outcome(Err("call failed".to_string()))),
+            ProgressBucket::Failed
+        );
     }
 
     #[test]
@@ -348,5 +329,72 @@ mod tests {
         assert!(msg.contains("Speaker: Marie"));
         assert!(msg.contains("Document: Affidavit"));
         assert!(msg.contains("I never said that"));
+    }
+
+    #[test]
+    fn user_message_pairs_question_and_answer_when_question_present() {
+        // Discovery Q&A pairing: a bare answer is presented WITH its question,
+        // so the judge can interpret "Yes" against what was actually asked.
+        let mut c = instance("ev-3");
+        c.verbatim_quote = Some("Yes".to_string());
+        c.question = Some("Did you receive the funds on June 1?".to_string());
+        let msg = build_user_message("the accusation", &c);
+
+        assert!(
+            msg.contains("Question asked: \"Did you receive the funds on June 1?\""),
+            "question line missing: {msg}"
+        );
+        assert!(
+            msg.contains("Answer under review: \"Yes\""),
+            "answer line missing: {msg}"
+        );
+        // The single-quote label must NOT appear in the Q&A shape.
+        assert!(
+            !msg.contains("Quote: \""),
+            "Q&A shape must not use the single-quote label: {msg}"
+        );
+    }
+
+    #[test]
+    fn user_message_uses_single_quote_shape_when_question_absent() {
+        // Documentary evidence (no question) keeps the ORIGINAL message shape
+        // unchanged — no "Question asked" / "Answer under review" lines.
+        let mut c = instance("ev-4");
+        c.verbatim_quote = Some("The ledger shows a transfer.".to_string());
+        // question stays None (documentary evidence).
+        let msg = build_user_message("the accusation", &c);
+
+        assert!(
+            msg.contains("Quote: \"The ledger shows a transfer.\""),
+            "single-quote shape expected: {msg}"
+        );
+        assert!(
+            !msg.contains("Question asked:"),
+            "no question line when question is None: {msg}"
+        );
+        assert!(
+            !msg.contains("Answer under review:"),
+            "no answer line when question is None: {msg}"
+        );
+    }
+
+    #[test]
+    fn user_message_treats_empty_question_as_absent() {
+        // A `question` property that exists but holds "" (or only whitespace)
+        // carries no interpretive value — it must read identically to a missing
+        // question (the single-quote shape), not emit an empty `Question asked`.
+        let mut c = instance("ev-5");
+        c.verbatim_quote = Some("No".to_string());
+        c.question = Some("   ".to_string());
+        let msg = build_user_message("the accusation", &c);
+
+        assert!(
+            msg.contains("Quote: \"No\""),
+            "empty question must fall back to single-quote shape: {msg}"
+        );
+        assert!(
+            !msg.contains("Question asked:"),
+            "empty question must not produce a question line: {msg}"
+        );
     }
 }

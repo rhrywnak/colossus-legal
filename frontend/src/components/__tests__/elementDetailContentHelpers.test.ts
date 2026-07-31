@@ -24,6 +24,7 @@ const makeAllegation = (
   verbatim_quote: null,
   source_section: "Common",
   supporting_evidence: [],
+  disputing_evidence: [],
   ...overrides,
 });
 

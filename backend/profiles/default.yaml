@@ -10,9 +10,27 @@ schema_file: complaint_v4.yaml
 
 template_file: pass1_complaint_v4.md
 global_rules_file: global_rules_v4.md
-pass2_template_file: pass2_universal_v4.md
 system_prompt_file: legal_extraction_system.md
 
+# NO pass2_template_file, and run_pass2 is OFF — intentionally, not an omission.
+#
+# Pass-2 edge law is TYPE-SPECIFIC across this pipeline: every ratified type
+# carries its own recitation gate, its own speaker/attribution weighting, its
+# own scope of who a statement is attributed to, and its own corroboration
+# rules. An "Other / Unknown" document has no ratified edge law, so there is no
+# correct pass-2 to run on it.
+#
+# The prior value here (pass2_universal_v4.md) named a template that has never
+# existed in git history, so this fallback's pass 2 has never once succeeded —
+# there is no behavior to preserve, only a silent failure to convert into an
+# honest, bounded capability. Completing the chain with the complaint's pass-2
+# would be worse than leaving it off: complaint pass-2 is the case-STRUCTURING
+# pipeline that mints Allegation spine nodes, and an unknown-type fallback must
+# never quietly manufacture spine-grade structure from an arbitrary document.
+#
+# So: default = pass-1 entity extraction only. Real relationship semantics
+# require a real type. Re-enabling pass 2 here is blocked on a ratified
+# universal pass-2 design (tracked).
 extraction_model: claude-sonnet-4-6
 
 chunking_mode: full
@@ -23,6 +41,6 @@ max_tokens: 32000
 temperature: 0.0
 
 auto_approve_grounded: true
-run_pass2: true
+run_pass2: false
 
 is_default: true

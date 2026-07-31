@@ -89,7 +89,6 @@ impl CaseSummaryRepository {
             court,
             case_number,
             allegations_total: stats.allegations_total,
-            allegations_proven: stats.allegations_proven,
             legal_counts: stats.legal_counts,
             legal_count_details,
             damages_total: stats.damages_total,
@@ -100,8 +99,6 @@ impl CaseSummaryRepository {
             characterizations_by_person: decomp.by_person,
             rebuttals_total: decomp.rebuttals_total,
             unique_characterization_labels: decomp.labels,
-            evidence_total: stats.evidence_total,
-            evidence_grounded: stats.evidence_grounded,
             documents_total: stats.documents_total,
             plaintiffs,
             defendants,
@@ -175,31 +172,32 @@ impl CaseSummaryRepository {
             .iter()
             .filter_map(|h| h.properties.get("amount"))
             .filter_map(|v| v.as_str())
+            // best-effort: `Harm.amount` is stored as a formatted currency STRING
+            // ("$25,000.00"), so the sum has to parse it. A value that will not
+            // parse after stripping `$` and `,` is dropped from the total rather
+            // than failing the whole read — an unparseable amount is a data-entry
+            // shape this endpoint cannot fix, and refusing to serve the case
+            // summary over one bad Harm would be worse than a short total. The
+            // gap IS observable: `harms_total` counts every Harm, so a total that
+            // omits one is visible against the count.
             .filter_map(|s| s.replace(['$', ','], "").parse::<f64>().ok())
             .sum();
 
-        // Fetch Allegation nodes and count proven in Rust. v5.1 renamed
-        // the label from ComplaintAllegation to Allegation; the
-        // `grounding_status` property keeps its v4 semantics ("exact" /
-        // "normalized" = proven).
+        // v5.1 renamed the label from ComplaintAllegation to Allegation.
+        //
+        // The `allegations_proven` tally that stood here until 2026-07-27 —
+        // Allegations whose own `grounding_status` was exact/normalized — was
+        // deleted with its twin in `case_repository`: it measured whether an
+        // Allegation's quote was locatable in its own PDF, which is
+        // verifiability, not proof. So were `evidence_total` /
+        // `evidence_grounded`, two hardcoded zeros carrying the false comment
+        // "Evidence nodes don't exist in v2". Corpus Evidence figures come from
+        // the Case Health inventory, which measures them.
         let allegations = colossus_graph::get_nodes_by_label(&self.graph, "Allegation").await?;
         let allegations_total = allegations.len() as i64;
-        let allegations_proven = allegations
-            .iter()
-            .filter(|a| {
-                a.properties
-                    .get("grounding_status")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s == "exact" || s == "normalized")
-                    .unwrap_or(false)
-            })
-            .count() as i64;
 
         Ok(CoreStats {
             allegations_total,
-            allegations_proven,
-            evidence_total: 0,    // Evidence nodes don't exist in v2
-            evidence_grounded: 0, // Evidence nodes don't exist in v2
             documents_total,
             harms_total,
             damages_total,
@@ -323,9 +321,6 @@ impl CaseSummaryRepository {
 #[derive(Default)]
 struct CoreStats {
     allegations_total: i64,
-    allegations_proven: i64,
-    evidence_total: i64,
-    evidence_grounded: i64,
     documents_total: i64,
     harms_total: i64,
     damages_total: f64,

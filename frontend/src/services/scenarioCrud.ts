@@ -17,6 +17,7 @@ import type { ScenarioDefinition, ScenarioStatus } from "../pages/trialPrepData"
 import { API_BASE_URL } from "./api";
 import { authFetch } from "./auth";
 import { DEFAULT_CASE_SLUG } from "./caseHeader";
+import { readErrorMessage } from "./fetchUtils";
 
 /** Scenario posture — matches the backend `direction` CHECK vocabulary. */
 export type ScenarioDirection = "offense" | "defense";
@@ -70,27 +71,6 @@ export interface ScenarioUpdatePayload {
   feeds_count_id?: string;
   anchor_allegation_ids?: string[];
   definition?: ScenarioDefinition;
-}
-
-/**
- * Best-effort: pull the backend's human-readable `message` out of an error body
- * so a validation failure (e.g. "name must not be empty") reaches the user. The
- * create route returns `{ error, message, details }` on `BadRequest`.
- */
-async function readErrorMessage(response: Response): Promise<string> {
-  try {
-    const body: unknown = await response.json();
-    if (
-      body !== null &&
-      typeof body === "object" &&
-      typeof (body as { message?: unknown }).message === "string"
-    ) {
-      return ` — ${(body as { message: string }).message}`;
-    }
-  } catch {
-    // Body absent or not JSON — no extra detail to surface.
-  }
-  return "";
 }
 
 /**

@@ -2,6 +2,7 @@ pub mod allegation;
 pub mod analysis;
 pub mod case_dto;
 pub mod case_header;
+pub mod case_health;
 pub mod case_summary;
 pub mod causes_of_action;
 pub mod claim;
@@ -29,17 +30,12 @@ pub mod trial_prep;
 
 // Re-export DTOs / request types from submodules
 pub use allegation::{AllegationDto, AllegationSummary, AllegationsResponse};
-pub use analysis::{
-    AllegationStrength, AnalysisResponse, ContradictionBrief, ContradictionsSummary,
-    DocumentCoverage, EvidenceCoverage, GapAnalysis,
-};
+pub use analysis::{AllegationStrength, AnalysisResponse, GapAnalysis};
 pub use case_dto::{CaseInfo, CaseResponse, CaseStats, LegalCountSummary, PartiesGroup, PartyDto};
 pub use claim::{ClaimCreateRequest, ClaimDto, ClaimUpdateRequest};
 pub use contradiction::{ContradictionDto, ContradictionEvidence, ContradictionsResponse};
 pub use decision::{DecisionCreateRequest, DecisionUpdateRequest};
-pub use decomposition::{
-    AllegationDetailResponse, AllegationOverview, DecompositionResponse, RebuttalsResponse,
-};
+pub use decomposition::{AllegationDetailResponse, RebuttalsResponse};
 pub use document::{DocumentCreateRequest, DocumentDto, DocumentUpdateRequest};
 pub use evidence::{EvidenceCreateRequest, EvidenceDto, EvidenceResponse, EvidenceUpdateRequest};
 pub use evidence_chain::{
@@ -59,9 +55,16 @@ pub use scenario::{
 pub use scenario_crud::{
     ScenarioCreateRequest, ScenarioDefinition, ScenarioDto, ScenarioUpdateRequest, Wielder,
 };
-pub use scenario_facts::{AddFactRequest, CandidateDto, GatherCandidatesResponse, ScenarioFactDto};
+pub use scenario_facts::{
+    AddFactRequest, CandidateDto, FactAction, FactActionRequest, GatherCandidatesResponse,
+    ScenarioFactDto,
+};
 pub use schema::SchemaResponse;
-pub use theme_scan::{ThemeScanRejected, ThemeScanSuggestion, ThemeScanSummary};
+pub use theme_scan::{
+    ScanRequest, ScanRunHeader, ScanRunListResponse, ScanRunMergeRequest, ScanRunMergeResponse,
+    ScanRunStatusResponse, ScanStartedResponse, ThemeScanRejected, ThemeScanSuggestion,
+    ThemeScanSummary,
+};
 pub use trial_prep::{
     ScenarioStatus, ScenarioSummary, TrialPrepAlert, TrialPrepDashboard, TrialPrepMetrics,
 };

@@ -146,10 +146,12 @@ pub async fn cleanup_neo4j(
         delete_nodes_by_property(graph, document_id, NEO4J_SOURCE_DOCUMENT_PROP).await?;
     let by_source_document_id =
         delete_nodes_by_property(graph, document_id, NEO4J_SOURCE_DOCUMENT_ID_PROP).await?;
-    // Must run *after* the DETACH DELETEs above — the sweep relies on
-    // nodes owned by `document_id` (scalar match) being gone so it only
-    // touches surviving shared nodes. Reordering would require re-adding
-    // an `AND n.source_document <> $doc_id` guard to the Cypher below.
+    // Must run *after* the DETACH DELETEs above. The deletes now remove only
+    // LAST-OWNER nodes (see `build_party_delete_cypher`), so what reaches this
+    // sweep is exactly the shared nodes that survived — and stripping this doc id
+    // from their `source_documents` is precisely the right follow-up. The ordering
+    // is still load-bearing: running the sweep FIRST would empty the array on a
+    // last-owner node and make the delete guard think another owner had vanished.
     let shared_nodes_updated = strip_source_document_from_arrays(graph, document_id).await?;
     Ok(Neo4jCleanupReport {
         nodes_by_source_document: by_source_document,
@@ -194,18 +196,61 @@ async fn strip_source_document_from_arrays(
     Ok(updated)
 }
 
+/// Build the property-scoped delete, guarded so a SHARED node survives.
+///
+/// Extracted as a pure function so a unit test can pin the guard without a live
+/// Neo4j (house pattern — see `POSTGRES_DELETE_ORDER`'s shape test below).
+///
+/// ## Why the guard exists — silent edge destruction
+///
+/// `source_document` (scalar) is set ON CREATE only, so it names whichever
+/// document happened to create the node FIRST. `source_documents` (array) is
+/// appended by every document that references it. A Party node created by doc A
+/// and later referenced by doc B therefore carries `source_document = A` and
+/// `source_documents = [A, B]`.
+///
+/// The unguarded form of this query — `WHERE n.source_document = $doc_id
+/// DETACH DELETE n` — would delete that node while cleaning doc A, and `DETACH`
+/// would take doc B's edges with it. Doc B would be left silently missing a party
+/// and every relationship to it, with nothing logged and nothing failing. During a
+/// per-document reprocess that is exactly the sequence that runs.
+///
+/// ## The rule: the ARRAY is authoritative (ruling 2026-07-20 Q1a)
+///
+/// Delete only when this document is the LAST owner:
+/// * no `source_documents` array (non-Party nodes — Evidence, Allegation, and the
+///   rest are single-document by construction) → delete as before, unchanged;
+/// * array present and this doc is its only remaining entry → delete;
+/// * array present and another document remains → KEEP, and let
+///   `strip_source_document_from_arrays` remove this doc id from it.
+///
+/// The scalar `source_document` is deliberately NOT consulted for the array case
+/// and is NOT repointed. It stays as legacy provenance ("who created this node"),
+/// which is still true and still useful; making the array authoritative is what
+/// stops a stale scalar from either deleting a live node or stranding a dead one.
+fn build_party_delete_cypher(property: &str) -> String {
+    format!(
+        "MATCH (n) WHERE n.{property} = $doc_id \
+           AND (n.source_documents IS NULL \
+                OR size([x IN n.source_documents WHERE x <> $doc_id]) = 0) \
+         DETACH DELETE n RETURN count(n) AS removed"
+    )
+}
+
 /// Execute a single property-scoped DETACH DELETE and return the reported
-/// `count(n)` for logging. The Cypher template lives here because
-/// [`crate::pipeline::constants`] supplies the property names; inlining
-/// into `cleanup_neo4j` would duplicate the error-mapping boilerplate.
+/// `count(n)` for logging.
+///
+/// The statement itself is built by [`build_party_delete_cypher`] so its
+/// shared-node guard can be unit-tested without a live Neo4j; this function owns
+/// the execution and the error mapping. Called once per scalar ownership
+/// property, so the error-mapping boilerplate lives here rather than being
+/// duplicated at each call site in `cleanup_neo4j`.
 async fn delete_nodes_by_property(
     graph: &Graph,
     document_id: &str,
     property: &str,
 ) -> Result<i64, CleanupError> {
-    let cypher = format!(
-        "MATCH (n) WHERE n.{property} = $doc_id DETACH DELETE n RETURN count(n) AS removed"
-    );
+    let cypher = build_party_delete_cypher(property);
     let mut result = graph
         .execute(neo4rs::query(&cypher).param("doc_id", document_id))
         .await
@@ -401,90 +446,5 @@ pub async fn cleanup_all(
 // ─────────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Distinctive payload used to prove that the outer Display of
-    /// [`CleanupError::Neo4j`] does NOT duplicate the inner source text.
-    const UNIQUE_INNER: &str = "UNIQUE_INNER_ERROR_MESSAGE";
-
-    /// Build a [`neo4rs::Error`] whose Display equals [`UNIQUE_INNER`] so
-    /// the "source not in outer" assertion in
-    /// `cleanup_error_neo4j_display_includes_doc_id_not_source` is exact.
-    /// `AuthenticationError(String)` formats with `"{0}"`, giving the raw
-    /// payload string verbatim in the inner Display.
-    fn dummy_neo4j_err() -> neo4rs::Error {
-        neo4rs::Error::AuthenticationError(UNIQUE_INNER.to_string())
-    }
-
-    #[test]
-    fn cleanup_error_neo4j_display_includes_doc_id_not_source() {
-        let err = CleanupError::Neo4j {
-            doc_id: "doc-42".to_string(),
-            source: dummy_neo4j_err(),
-        };
-        let display = format!("{err}");
-
-        // Sanity check: the inner error really does carry UNIQUE_INNER.
-        let inner_display = format!("{}", dummy_neo4j_err());
-        assert_eq!(
-            inner_display, UNIQUE_INNER,
-            "dummy inner Display should equal the sentinel; got {inner_display}"
-        );
-
-        assert!(
-            display.contains("doc-42"),
-            "outer Display must include doc_id, got: {display}"
-        );
-        assert!(
-            !display.contains(UNIQUE_INNER),
-            "outer Display must NOT duplicate inner source text (Kazlauskas 6), got: {display}"
-        );
-    }
-
-    #[test]
-    fn cleanup_error_partial_display_names_subsystems() {
-        let inner = CleanupError::Neo4j {
-            doc_id: "doc-7".to_string(),
-            source: dummy_neo4j_err(),
-        };
-        let err = CleanupError::Partial {
-            doc_id: "doc-7".to_string(),
-            neo4j_error: Some(Box::new(inner)),
-            qdrant_error: None,
-            postgres_error: None,
-            partial_report: CleanupReport::default(),
-        };
-        let display = format!("{err}");
-        assert!(
-            display.contains("doc-7"),
-            "Partial Display must include doc_id, got: {display}"
-        );
-    }
-
-    /// DELETE-FK-FIX guard for the saga path: the relationships clear must
-    /// match BOTH item-endpoint FKs, not just the owning `document_id`. If this
-    /// regresses, a single-document teardown rolls back whenever another
-    /// document's relationship points at this document's items.
-    #[test]
-    fn postgres_delete_order_relationships_covers_both_fk_endpoints() {
-        let (_, sql) = POSTGRES_DELETE_ORDER
-            .iter()
-            .find(|(table, _)| *table == "extraction_relationships")
-            .expect("extraction_relationships step must exist in POSTGRES_DELETE_ORDER");
-        assert!(
-            sql.contains("document_id = $1"),
-            "must still clear rows this document owns"
-        );
-        assert!(
-            sql.contains(
-                "from_item_id IN (SELECT id FROM extraction_items WHERE document_id = $1)"
-            ),
-            "must clear rows pointing FROM this document's items"
-        );
-        assert!(
-            sql.contains("to_item_id IN (SELECT id FROM extraction_items WHERE document_id = $1)"),
-            "must clear rows pointing TO this document's items (the RESTRICT endpoint)"
-        );
-    }
-}
+#[path = "cleanup_tests.rs"]
+mod tests;

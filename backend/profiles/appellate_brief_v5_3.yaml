@@ -1,0 +1,141 @@
+# Processing profile for the evidence-anchoring pipeline — Appellate Brief (v5.3)
+#
+# Version: 5.3   Date: 2026-07-21 (rebuild-plan, appellate_brief onboarding)
+#
+# An appellate brief is a dated, attorney-authored argument filed with the Court
+# of Appeals. Every assertion is an Evidence node attributed to the FILING PARTY
+# (one voice throughout, unlike a transcript). Assertions carry two axes —
+# statement_type and attribution — and pass 2 gates every finding-edge on
+# attribution=recitation, which is what stops the opposing brief's arguments and
+# the lower court's quoted opinion being extracted a second time as this
+# filer's own claims.
+#
+# THREE SUB-GENRES, ONE PROFILE. Verified against three real filings in this
+# corpus:
+#   appellant's brief on appeal  — full apparatus: Jurisdictional Statement,
+#                                  Statement of Questions Involved, Statement of
+#                                  Facts/Procedural History, Argument I-III each
+#                                  split Standard of Review / Analysis, Relief
+#                                  Requested. 28 pp, no appendix.
+#   appellee's response          — the same apparatus with COUNTER- prefixes and
+#                                  a one-line Jurisdictional Statement adopting
+#                                  the appellant's. 24 pp of brief + 47 pp of
+#                                  appendix (19 exhibits).
+#   reply brief                  — short form: Table of Contents, Index of
+#                                  Authorities, Argument I-IV, Relief Requested.
+#                                  No Statement of Facts, no Jurisdictional
+#                                  Statement. 13 pp of brief + 19 pp of exhibits.
+#
+# A BRIEF NEVER CORROBORATES. It is unsworn advocacy; its assertions cite
+# affidavits, transcripts and exhibits, and the proof lives in those instruments
+# when each is processed as its own document. This is the one rule carried
+# forward from the superseded v4 brief template.
+#
+# CHUNKING — full document. Read this before changing it.
+# The motion precedent transfers, and the case here is STRONGER rather than
+# merely inherited. Measured against the three real filings:
+#
+#   The three samples are structurally incompatible with each other. One has no
+#   appendix at all; one puts its boundary at page 25 of 71; one at page 14 of
+#   32. One numbers its front matter in roman numerals and restarts at arabic 1
+#   for the body; another numbers straight through 1-28. Argument headings are
+#   roman-numeralled in all three, but the OCR reading order interleaves the
+#   numeral away from its heading text ("The Bay County Probate Court committed
+#   an error in approving claims made / III. / against the estate by...") so a
+#   heading-boundary pattern cannot key on them reliably.
+#
+#   A section_heading pattern is worse here than in motions: the section names
+#   that matter are Title Case or mixed ("Statement of Questions Involved",
+#   "Counter-Statement of Facts", "A. Standard of Review"), while the uppercase
+#   runs that an [A-Z][A-Z\s]{3,} pattern WOULD match are the caption block, the
+#   TABLE OF AUTHORITIES entries, and the EXHIBIT separator sheets — precisely
+#   the three regions that must NOT become chunk boundaries.
+#
+# So: full document. This is the majority mode in this repo (complaint_v5_1,
+# affidavit, motion_v5_3, default) and not a fallback. It carries three
+# properties this type specifically needs:
+#   1. It sidesteps the structural incompatibility entirely.
+#   2. It has no silent-fallback hazard — that failure belongs to structured
+#      mode's no_boundary_matches path, which cannot arise here.
+#   3. It is the ONLY mode under which the model can see the brief -> appendix
+#      boundary and stop at it. A chunk containing only page 30 of the appellee
+#      response gives the model no way to know it is reading a bound hearing
+#      transcript rather than the brief, and the scope gate in pass 1 would be
+#      unenforceable.
+# Size is comfortable across all three: 10.8k, 12.1k and 20.2k estimated
+# document tokens against the pre-flight's 150k ceiling.
+#
+# ⚠ FULL MODE FAILS QUIETLY IN THREE WAYS. This is why the gate below is
+# mandatory rather than advisory — none of these raises an error, and all three
+# produce a run that looks successful in the logs:
+#
+#   1. The document never extracted. A scanned filing whose OCR step has not run
+#      leaves every page under the pipeline's own 50-non-whitespace-character
+#      floor. The model is handed blank pages and extracts almost nothing; the
+#      pipeline reports success on an empty result.
+#   2. The document is too large for one prompt. Full mode sends everything in a
+#      single request; past the context budget the extraction TRUNCATES or
+#      degrades rather than failing, so the output is partial and nothing says
+#      so. A brief with a large bound appendix can reach this.
+#   3. Pages go missing before the model sees them. Extraction is per-page and a
+#      dropped page is invisible downstream — there is no count anywhere that
+#      would disagree.
+#
+# Before any paid run, the dry-run gate is:
+#   scripts/transcript-chunk-preflight.py --mode full <extracted-text> \
+#       --expect-pages <page count of the source PDF>
+# which checks the per-page text floor, the token estimate against budget, and
+# the page count. Pass --expect-pages: without it, failure 3 above is not
+# checked at all. Required, not a convenience.
+#
+# ⚠ EXHIBIT SEPARATOR PAGES AND THE OCR FLOOR. An appendix of bound exhibits
+# puts one near-empty separator sheet ("EXHIBIT" + a numeral) in front of each
+# instrument. The appellee response in this corpus has 19 of them across 71
+# pages — 26.8%, which tripped the pre-flight's 25% empty-page limit as a FALSE
+# POSITIVE on a perfectly well-extracted document. The gate was extended rather
+# than loosened: separator pages are now recognised and excluded from the ratio,
+# and reported on their own line. If a brief's pre-flight reports a high
+# separator count, that is the appendix being seen correctly — read the
+# "pages under OCR floor" line, which now counts only genuinely unextracted
+# pages.
+
+name: appellate_brief
+display_name: "Appellate Brief (v5.3)"
+document_type: appellate_brief
+description: >
+  Appellate brief filed with the Court of Appeals — a dated, attorney-authored
+  argument in one of three sub-genres: appellant's brief on appeal, reply brief,
+  or appellee's response. Assertions anchor to complaint Allegations as dated
+  rebuttals, answer the opposing brief directly as brief-to-brief rebuttals, and
+  filed characterizations of an opposing party or of the reviewing judge feed the
+  accusation-pattern analysis. Covers the brief proper only; a bound appendix is
+  separate documents.
+
+schema_file: appellate_brief_schema_v5_3.yaml
+
+template_file: appellate_brief_pass1_v5_3.md
+global_rules_file: global_rules_v4.md
+pass2_template_file: appellate_brief_pass2_v5_3.md
+system_prompt_file: legal_extraction_system.md
+
+extraction_model: claude-opus-4-6
+pass2_extraction_model: claude-opus-4-6
+
+# Full-document mode: chunk_size and chunk_overlap are inert and explicitly
+# null, matching motion_v5_3 and complaint_v5_1 rather than carrying misleading
+# values.
+chunking_mode: full
+chunk_size: null
+chunk_overlap: null
+
+max_tokens: 32000
+temperature: 0.0
+
+auto_approve_grounded: true
+run_pass2: true
+
+# NOT the default type — the registry carries exactly one is_default entry and a
+# second would panic validate() at boot.
+is_default: false
+
+pipeline_type: evidence_anchoring

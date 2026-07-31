@@ -22,6 +22,7 @@ use std::sync::Arc;
 
 use colossus_extract::{LlmProvider, VllmProvider};
 
+use crate::domain::llm_params::construction_temperature;
 use crate::pipeline::extraction_engine::ExtractionEngine;
 use crate::pipeline::rig_llm_bridge::RigLlmProviderBridge;
 use crate::repositories::pipeline_repository::LlmModelRecord;
@@ -38,24 +39,18 @@ const VLLM_API_KEY_ENV: &str = "VLLM_API_KEY";
 /// column; this constant only governs the unset-column fallback.
 const FALLBACK_MAX_TOKENS: u32 = 8000;
 
-/// Sampling temperature pinned by the extraction path for deterministic
-/// output.
-///
-/// CONST: pipeline determinism contract — not env-configurable for the
-/// per-document extraction path. The Chat endpoint builds its own
-/// providers with `temperature = None` for natural variation (see
-/// `main.rs::build_chat_providers`); the per-document extraction path
-/// here pins `Some(0.0)` because chunked / structured extraction
-/// requires byte-identical reruns to keep verification stable.
-const EXTRACTION_TEMPERATURE: Option<f64> = Some(0.0);
-
 /// Construct an `LlmProvider` trait object from a registered model row.
 ///
 /// Dispatches on `model.provider`:
 /// - `"anthropic"` → [`RigLlmProviderBridge`] wrapping the supplied
 ///   shared engine. Uses the model id from the DB row, the row's cost
-///   columns, and pins `temperature = Some(0.0)` for deterministic
-///   extraction.
+///   columns, and derives the construction temperature FROM THE ROW via
+///   [`construction_temperature`] — honoring `temperature_mode` (an `omit`
+///   model, e.g. `claude-opus-4-7`, sends NO temperature; a `zero-ok`/unmarked
+///   model gets its `default_temperature`, else the deterministic `Some(0.0)`
+///   extraction has always used). This REPLACES the old hardcoded
+///   `Some(0.0)`, which ignored the column and 400-ed temperature-deprecated
+///   models.
 /// - `"vllm"` → `VllmProvider::new` using `model.api_endpoint` as the
 ///   base URL (required for vLLM) and `VLLM_API_KEY` (optional).
 ///
@@ -74,14 +69,20 @@ pub fn provider_for_model(
             // The bridge does NOT consume max_tokens at construction —
             // each `invoke` call passes its own max_tokens. Cost columns
             // and temperature ARE constructor-time: costs are returned
-            // verbatim via the LlmProvider accessor; temperature pins
-            // extraction determinism (see [`EXTRACTION_TEMPERATURE`]).
+            // verbatim via the LlmProvider accessor; temperature is derived
+            // from the row's `temperature_mode` / `default_temperature` (the
+            // single source of truth in `domain::llm_params`) so a
+            // temperature-deprecated model omits the key instead of 400-ing.
+            // A malformed `temperature_mode` token is a loud, named error here.
+            let temperature = construction_temperature(model).map_err(|e| {
+                format!("model '{}' has an invalid temperature_mode: {e}", model.id)
+            })?;
             let bridge = RigLlmProviderBridge::new(
                 Arc::clone(engine),
                 model.id.clone(),
                 model.cost_per_input_token,
                 model.cost_per_output_token,
-                EXTRACTION_TEMPERATURE,
+                temperature,
             );
             Ok(Box::new(bridge))
         }
@@ -185,6 +186,14 @@ mod tests {
             is_active: true,
             created_at: Utc::now(),
             notes: None,
+            // Chunk A added these read-only fields to LlmModelRecord. This test
+            // helper exercises provider_for_model, which does not read them, so
+            // they are left None/unset here (mechanical struct-literal fix only).
+            default_temperature: None,
+            temperature_mode: None,
+            timeout_secs: None,
+            structured_output_mode: None,
+            max_concurrency: None,
         }
     }
 
@@ -199,6 +208,27 @@ mod tests {
         // (provider_name = "anthropic") fails this test.
         assert_eq!(provider.provider_name(), "rig-anthropic");
         assert_eq!(provider.model_name(), "claude-sonnet-4-6");
+    }
+
+    #[test]
+    fn anthropic_with_malformed_temperature_mode_returns_error() {
+        // A corrupt `temperature_mode` token must propagate as a loud, named error
+        // out of provider_for_model (not a silent Some(0.0) fallback). The
+        // construction_temperature error is wrapped here naming the model.
+        let engine = engine();
+        let mut model = make_model("claude-opus-4-7", "anthropic", None);
+        model.temperature_mode = Some("bad-token".to_string());
+        let result = provider_for_model(&engine, &model);
+        assert!(result.is_err());
+        let msg = result.err().unwrap();
+        assert!(
+            msg.contains("claude-opus-4-7"),
+            "error should name the model: {msg}"
+        );
+        assert!(
+            msg.contains("invalid temperature_mode"),
+            "error should name the cause: {msg}"
+        );
     }
 
     #[test]

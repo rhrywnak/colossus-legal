@@ -26,8 +26,6 @@ const validResponse: TrialPrepDashboard = {
     ready: 1,
     drafted_or_review: 3,
     instances: 16,
-    baseless_repeat_patterns: 1,
-    no_response_yet: 1,
   },
   alerts: [{ message: "an alert" }],
   scenarios: [

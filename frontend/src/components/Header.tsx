@@ -36,6 +36,11 @@ const NAV_ITEMS: NavItem[] = [
       { label: "People", path: "/people" },
     ],
   },
+  // Top-level, not nested under a group: the whole point of Case Health is that
+  // the connection rate is impossible to overlook, and a leaf two clicks deep
+  // inside a dropdown would reintroduce exactly the invisibility it exists to
+  // remove. Case-scoped, so it carries the same `:slug` param as the leaves above.
+  { label: "Case Health", path: `/cases/${DEFAULT_CASE_SLUG}/case-health` },
   { label: "Documents", path: "/documents" },
   { label: "Chat", path: "/ask" },
 ];

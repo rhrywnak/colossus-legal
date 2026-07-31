@@ -255,25 +255,25 @@ const EvidenceExplorerPage: React.FC = () => {
         <h1 style={{ fontSize: "1.75rem", fontWeight: 600, color: COLORS.textPrimary, margin: 0 }}>
           Case Evidence &amp; Analysis
           <InfoPopup>
-            <strong style={{ display: "block", marginBottom: "0.5rem" }}>How evidence strength is calculated</strong>
+            <strong style={{ display: "block", marginBottom: "0.5rem" }}>What the evidence count means</strong>
             <p style={{ margin: "0 0 0.5rem" }}>
-              Strength measures how many independent evidence items support each allegation
-              through the proof chain (MotionClaim &rarr; Evidence). This is a measure of
-              evidentiary coverage, not legal sufficiency.
+              Each allegation shows how many distinct evidence items reach it. It is a
+              count of what is linked, not a judgement about whether the allegation is
+              proven.
             </p>
-            <ul style={{ margin: 0, paddingLeft: "1.25rem" }}>
-              <li>0 items = Gap (25%) &mdash; No evidence linked</li>
-              <li>1 item = Weak (60%) &mdash; Single source</li>
-              <li>2 items = Moderate (80%) &mdash; Multiple sources</li>
-              <li>3+ items = Strong (90%+) &mdash; Well-supported</li>
-            </ul>
-            <p style={{ margin: "0.5rem 0 0", fontSize: "0.8rem", color: "var(--text-muted)" }}>
-              Evidence is counted as distinct items linked via: Evidence &larr; RELIES_ON &larr; MotionClaim &rarr; PROVES &rarr; Allegation
+            <p style={{ margin: "0 0 0.5rem", fontSize: "0.8rem", color: "var(--text-muted)" }}>
+              Items are counted when they reach the allegation via
+              Evidence &larr; RELIES_ON &larr; MotionClaim &rarr; PROVES &rarr; Allegation,
+              or by a direct CORROBORATES edge.
+            </p>
+            <p style={{ margin: 0, fontSize: "0.8rem", color: "var(--text-muted)" }}>
+              For element-level coverage see the Proof Matrix; for how much of the corpus
+              is connected at all, see Case Health.
             </p>
           </InfoPopup>
         </h1>
         <p style={{ fontSize: "0.95rem", color: COLORS.textSecondary, marginTop: "0.25rem", marginBottom: 0 }}>
-          Allegations organized by legal Count with evidence strength analysis
+          Allegations organized by legal Count, each with the evidence linked to it
         </p>
         <div style={{ borderBottom: `1px solid ${COLORS.border}`, margin: "1.5rem 0" }} />
 

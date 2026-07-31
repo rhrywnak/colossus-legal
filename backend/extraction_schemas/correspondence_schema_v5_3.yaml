@@ -1,0 +1,263 @@
+# Extraction schema for correspondence — v5.3 (evidence-anchoring pipeline)
+#
+# Date: 2026-07-22 (rebuild-plan, correspondence onboarding — the LAST of the
+# audit's four missing types, after court_transcript, motion, appellate_brief)
+#
+# Purpose: Extract the dated, authored assertions a letter makes — what is
+# claimed, what is asked, of whom, with what proof cited, and on what date it
+# was sent — and anchor them to the case backbone produced by the complaint
+# case-structuring pipeline. A letter is the only type in the corpus that
+# carries NOTICE: proof that a named recipient KNEW a stated fact as of a stated
+# date. Notice + subsequent inaction is the fiduciary-breach pattern, and this
+# type supplies the notice half from the paper record.
+#
+# WHY THIS TYPE EXISTS (design v1 §1):
+#   1. The NOTICE dimension — no other type has it. author/recipient/sent_date
+#      together prove the recipient was told X on a date, without any new edge
+#      type. Notice is carried entirely by Evidence PROPERTIES.
+#   2. The origination target of the disparagement chain. This is the letter a
+#      fiduciary later characterized on the record as "shrill" and "pathetic";
+#      processing it lets the graph juxtapose the letter's actual content
+#      against those characterizations.
+#   3. Dated cooperation/rebuttal record — a companion letter is the documentary
+#      rebuttal to an "uncooperative" characterization, later quoted on the
+#      record and in a reply brief. Same type, same schema.
+#   4. Unanswered information requests feed the evasion pattern — questions
+#      asked of a fiduciary in writing, dated, with no response in the record.
+#   5. Both directions — a party's letters and an attorney's letters are one
+#      type, distinguished by author_role.
+#
+# THE TWO-AXIS STATEMENT MODEL (inherited from the genus via appellate_brief):
+#   statement_type — WHAT KIND of assertion: factual_assertion / characterization
+#                    / information_request / relief_request
+#   attribution    — WHOSE POSITION it states: own_determination / recitation
+#
+#   THE ENUM IS CORRESPONDENCE-SPECIFIC — a deliberate departure from the filing
+#   genus (design v1 §3, ratified). attorney_argument is wrong vocabulary for the
+#   party-authored letters that dominate this corpus; information_request is a
+#   genuinely new functional slot (the notice/evasion payload) no other type has;
+#   legal_standard is dropped (letters do not recite standards — a rule citation
+#   goes to legal_basis). factual_assertion and relief_request keep their genus
+#   names so the query layer stays uniform where it matters.
+#
+#   ⚠ statement_type is a HETEROGENEOUS free string across document types. Three
+#   vocabularies already coexist: the filing genus (factual_assertion /
+#   attorney_argument / relief_request / legal_standard), the discovery-response
+#   set consumed by proof_review_builder.rs (admission / partial_admission /
+#   evasive / objection / referral / denial — the STMT_* constants in
+#   document_status.rs), and this one. The only value-specific consumer FILTERS
+#   on the discovery literals and ignores everything else, so this enum creates
+#   no query friction. DO NOT reuse any STMT_* discovery literal (admission,
+#   partial_admission, evasive, objection, referral, denial) for a
+#   correspondence value — the four chosen here are clear of them; keep it so.
+#
+#   Pass 1 tags both axes; pass 2 GATES every finding-edge on attribution ==
+#   recitation. For a letter the recitation case is the author's quotes of third
+#   parties ("Higgs replied, 'It's not your money…'"). The author's assertion is
+#   that the statement WAS MADE; the quoted content is not the author's claim and
+#   belongs to whoever said it.
+#
+# A LETTER NEVER CORROBORATES — REGARDLESS OF AUTHOR:
+#   Sworn testimony corroborates; a letter is unsworn whether a party or an
+#   attorney wrote it. Its assertions CITE bank records, affidavits and exhibits;
+#   the proof lives in those instruments when each is processed as its own
+#   document. The author's account of what a bank record proves is a claim about
+#   the record, not evidence of what it shows. This is the load-bearing negative
+#   of the genus, and it does not soften for an attorney's signature.
+#
+# SCOPE — THE LETTER PROPER (SPEC_EXTENSION §8): caption/header through the
+# signature block and any postscript. A letter's cited exhibits are separate
+# instruments (bank records, DVDs, notarized affidavits) onboarded on their own
+# authority; the letter references them by exhibit_refs. The sample carries no
+# bound appendix, but where one exists the appellate_brief separator law applies.
+#
+# NOTE: pipeline_type (evidence_anchoring) is declared in the PROFILE
+# (correspondence_v5_3.yaml), not here. The extraction-schema loader
+# deserializes the canonical key set only; a top-level pipeline_type risks a
+# load failure.
+document_type: correspondence
+version: "5.3"
+description: "Letter or written correspondence filed or exchanged in the case — a dated, authored communication carrying notice, factual claims, information requests, and demands for relief. Each discrete assertion is an Evidence entity attributed to the AUTHOR. Assertions carry two axes: statement_type (factual_assertion / characterization / information_request / relief_request) and attribution (own_determination / recitation). Quoted third-party statements are recitations and are never anchored. The NOTICE dimension — that a named recipient knew a stated fact as of the sent date — is carried by the author/recipient/sent_date properties, not by any new edge type. A letter is unsworn regardless of author and never corroborates. Evidence-anchoring pipeline."
+
+entity_types:
+  - name: Party
+    required: true
+    min_count: 2
+    grounding_mode: name_match
+    category: reference
+    description: "A person or organization named in the letter — the author, the recipient, every party named on the cc line, every third party whose conduct the letter puts at issue, and every witness the letter offers by name to testify to a stated fact."
+    properties:
+      - name: party_name
+        type: string
+        required: true
+        description: "The party's ONE canonical name, used identically in every document"
+      - name: role
+        type: string
+        required: true
+        description: "judge, plaintiff, defendant, appellant, appellee, petitioner, respondent, attorney, witness, personal_representative, fiduciary, conservator, guardian_ad_litem, interested_party, decedent, third_party"
+      - name: party_type
+        type: string
+        required: true
+        description: "person or organization"
+      - name: aliases
+        type: string
+        description: "Other names, titles, and misspellings used for this party in this document, comma-separated. Letters refer to people informally — first name only ('Nadia', 'Camille'), a relationship ('dad' for the decedent), a title ('Mr. Phillips') — and by OCR misspelling ('Nadio' for Nadia). All such forms belong here; the fullest legal form is party_name."
+
+  - name: Evidence
+    required: true
+    min_count: 1
+    grounding_mode: verbatim
+    category: evidence
+    description: "One discrete assertion the letter makes — a factual claim, a characterization, a request for information, or a demand for relief. The verbatim_quote is the exact text as written. Each distinct assertion is a separate Evidence entity: one per numbered request item, one per numbered timeline item, one per inventory item, one per relief item, plus the discrete prose claims and characterizations. Assertions restating a third party's words ARE extracted (tagged attribution=recitation) so they remain inspectable, but pass 2 creates no finding-edge from them."
+    properties:
+      - name: title
+        type: string
+        required: true
+        description: "Short descriptive title summarizing what this assertion claims, asks, or demands — not a section or list-item label."
+      - name: summary
+        type: string
+        required: true
+        description: "One-sentence summary of the assertion, characterization, request, or demand."
+      - name: author
+        type: string
+        required: true
+        description: "Canonical party_name of the person on whose behalf the letter was written — from the signature block, not the letterhead. STATED_BY target. Uniform across every Evidence entity in the document: a letter has one voice. DESCRIPTIVE property consumed by the scenario filtering and query layer; it does NOT alter edge derivation, which is decided by statement_type and attribution alone."
+      - name: author_role
+        type: string
+        required: true
+        description: "The author's capacity: party (a party writing in their own name), attorney (counsel writing on a client's behalf), or third_party (a non-party correspondent). Per-document and uniform across every Evidence entity, like author. Distinguishes a party's own letter from counsel's letter — the same type carries both directions of the correspondence record. DESCRIPTIVE property consumed by the scenario filtering and query layer; it does NOT alter edge derivation, and in particular does NOT change the never-corroborates rule (an attorney letter is unsworn too)."
+      - name: recipient
+        type: string
+        required: true
+        description: "Canonical party_name of the addressee, from the salutation. Together with author and sent_date this IS the notice fact: proof the recipient was told this assertion as of the sent date. Uniform across every Evidence entity. DESCRIPTIVE property consumed by the scenario filtering and query layer; it does NOT alter edge derivation."
+      - name: cc_list
+        type: string
+        description: "Canonical party_names on the cc line, comma-separated ('Catholic Family Services'). Additional parties placed on notice by the same letter. Omit entirely when the letter carries no cc line."
+      - name: sent_date
+        type: string
+        required: true
+        description: "ISO-8601 date the letter was sent, from the header or signature block. Uniform across every Evidence entity — the date the notice took effect. Distinct from event_date, which on a timeline item carries the date of the referenced event instead."
+      - name: delivery_method
+        type: string
+        description: "How the letter was sent, when stated: 'certified mail' plus the tracking number when present ('certified mail 7008 1300 0001 7388 9810'). Proof-of-delivery weight for the notice dimension. Omit entirely when the letter states no delivery method."
+      - name: asserted_against
+        type: string
+        description: "Canonical party_name of the party this particular assertion targets — the person whose conduct a factual claim or characterization concerns. Omit where an assertion targets no one in particular (a bare information request about a document, an inventory line). DESCRIPTIVE property consumed by the scenario filtering and query layer; it does NOT alter edge derivation."
+      - name: statement_type
+        type: string
+        required: true
+        description: "WHAT KIND of assertion — the first axis, CORRESPONDENCE-SPECIFIC enum. factual_assertion (a claim about what happened or what the record shows, typically exhibit-cited), characterization (an evaluative or opinion statement about a party's conduct, character, or motive — 'a case of greed and jealousy'), information_request (a question or demand for information put to the recipient — the notice/evasion payload, one per numbered request item), relief_request (a demand for relief or a claim asserted — the Demand for Relief items, the fee-exemption claim). NOT the filing genus enum: attorney_argument and legal_standard are absent by design."
+      - name: attribution
+        type: string
+        required: true
+        description: "WHOSE POSITION this assertion states — the second axis, the one pass 2 gates on. own_determination (the author asserting, characterizing, asking, or demanding in their own voice) or recitation (the author restating, summarizing, or quoting SOMEONE ELSE'S words — a third party's statement, a quoted letter, a quoted court remark). A recitation reports that a statement was made; it does not adopt the statement. The author's report that 'Higgs replied, \"It's not your money\"' is a recitation of Higgs — the author's own assertion is that the exchange occurred and was witnessed, which is a separate own_determination unit."
+      - name: exhibit_refs
+        type: string
+        description: "Exhibit and record citations attached to this assertion, comma-separated, as written. FIVE forms appear and all belong here: the four appellate_brief forms (footnote-resolved 'Exhibit 1'; inline appendix 'Exh 11 Transcript 3/15/10, p.7'; parenthetical record cite by title+date; bare record cite in running text) PLUS the LETTERED form this type adds — 'Exhibit A', and conjunctive chains 'Exhibits B, & C', 'Exhibits M and N'. ⚠ A LONE DIGIT where a letter is expected in a lettered series is an OCR homoglyph, not a numbered exhibit: 'Exhibit 5' at the tail of an A-S series is 'Exhibit S' (S read as 5). Record the intended letter. Omit entirely when the assertion cites nothing."
+      - name: relief_sought
+        type: string
+        description: "For statement_type=relief_request only: what is demanded, in plain terms ('reimbursement of attorney fees for protecting the estate'; 'exemption from administrative fees'). Omit for every other statement_type."
+      - name: page_number
+        type: integer
+        required: true
+        description: "PDF page number where this assertion appears, read from the '--- Page N ---' marker in the document text — NOT the 'Page N of 5' printed on the page."
+      - name: page_note
+        type: string
+        description: "If the assertion spans multiple pages, note the range, e.g. 'pages 3-4'"
+      - name: kind
+        type: string
+        required: true
+        description: "Always 'documentary' for correspondence (a written communication)."
+      - name: evidence_strength
+        type: string
+        required: true
+        description: "unsworn_statement (a factual_assertion or characterization in the author's own voice — an unsworn written claim, whether party- or attorney-authored, never proof however well cited), relief_demand (a relief_request — a demand, not evidence), information_request (an information_request — a question asserts nothing; this value keeps the notice payload queryable by strength as well as by statement_type), recited_position (ANY statement_type with attribution=recitation — the author restated it rather than asserting it; produces no finding-edge). Do NOT reuse the STMT_* discovery-response strengths."
+      - name: significance
+        type: string
+        required: true
+        description: "Why this assertion matters for trial preparation. For a factual assertion, what it claims and which exhibits or witnesses are said to support it. For a characterization, whose conduct or character is being characterized and in what terms. For an information request, what was asked and why the recipient's knowledge of it as of the sent date matters (the notice payload). For a relief request, what is demanded. For a recitation, whose words are being restated and why they are NOT the author's own assertion."
+      - name: weight
+        type: integer
+        description: "1-10 scale of evidentiary weight. A letter is unsworn advocacy and sits LOW on this scale regardless of how forcefully written or how densely it cites exhibits: exhibit-cited factual assertions 3-5, characterizations 2-4, information requests 1-3, relief requests 1-2, recitations 1-3. A letter's value to the case is its dated, attributable NOTICE content — what the recipient was told and when — not its evidentiary weight. Do not raise the number because an assertion is important or because it cites many exhibits."
+      - name: pattern_tags
+        type: string
+        description: "Comma-separated tags for defense-axis and accusation-pattern analysis, from the CLOSED five-tag subset this type draws from the established ten-tag vocabulary: misrepresentation (an assertion that a party has circulated false stories or misstated the record), concealment (an assertion that information, a document, or an identity was hidden or withheld), disparagement (an evaluative belittling of a party's conduct, character, or motive), admission_against_interest (a noted admission by an opposing party that undercuts its own position), evasion (an assertion that a party refused or failed to answer — including a stated refusal to answer questions, and unanswered written requests). The other five tags (judicial_bias, selective_enforcement, unsupported_finding, procedural_irregularity, disproportionate_penalty) key on court/ruling conduct and are not used by this pre-litigation correspondence type."
+      - name: legal_basis
+        type: string
+        description: "Statute, court rule, or case law cited for this assertion, when the letter cites one. Letters cite law rarely and informally; where a rule or principle is invoked, record it here rather than creating a legal_standard entity (this type has no legal_standard value)."
+      - name: event_date
+        type: string
+        description: "ISO-8601. Defaults to the letter's sent_date, carried on every assertion — the date the notice took effect. Where a timeline item references a different dated event ('March 20, 2009, Camille returned $50,000'), record THAT date instead: it is the date the assertion is about. Record what THIS document states, even where another document states a different date for the same event — the disagreement is case signal and reconciling it here would destroy it. Watch for fused footnote digits and OCR-mangled ordinals when reading dates."
+
+relationship_types:
+  - name: STATED_BY
+    description: "Evidence stated by Party. For correspondence the STATED_BY target is the AUTHOR — identified from the signature block — for every Evidence entity in the document. A letter speaks for its author; where an attorney signs on a client's behalf the author is the client's letter voice, exactly as a court ruling attributes every determination to the issuing court rather than to a clerk. Exactly one STATED_BY per Evidence; the count must equal the count of Evidence entities. NOTE this is the opposite of a transcript, where the speaker changes with every turn — a letter has one voice throughout."
+  - name: ABOUT
+    description: "Evidence is about (concerning) this Party. A single assertion may be ABOUT multiple parties — create one ABOUT relationship for each party it concerns. An information_request is ABOUT the party whose conduct or documents it asks after, AND may be ABOUT the Allegation whose subject it touches — this is how the notice payload reaches the graph: what was asked, of whom, when. ABOUT is topical and structural, never directional: it carries no support, opposition, confirmation, or denial. It is created for recitations too, because a restated statement is still ABOUT its subject."
+  - name: CORROBORATES
+    description: "NEVER EMITTED BY THIS DOCUMENT TYPE. Declared so the type's position is explicit rather than merely absent. A letter is UNSWORN — regardless of whether a party or an attorney wrote it. Its assertions cite bank records, affidavits and exhibits, and the proof lives in those instruments when each is processed as its own document. The author's description of what a bank record proves is a claim about the record, not evidence of what it shows. Admitting it would let a party manufacture corroboration for its own allegations by writing a well-organized letter, after which the corroboration tally would measure how forcefully something was asserted rather than how well it was proven. There is no exception, no statement_type, and no author_role that unlocks it."
+  - name: CONTRADICTS
+    description: "This assertion conflicts with an assertion by the SAME party in a DIFFERENT document (cross-document, same-author impeachment). For a letter this is the paper side of the repetition chain: an author asserting something in this letter that they, or the record, contradicted elsewhere. Both endpoints carry dates, which is what makes the sequence provable. NOTE: cross-document, documented here for LLM guidance and deliberately NOT listed in valid_patterns."
+  - name: REBUTS
+    description: "This assertion directly COUNTERS or DEFEATS a fact asserted elsewhere — as a DATED ASSERTION OF REBUTTAL, not an adjudicated defeat. A letter cannot defeat a claim; it records that the claim was contested, by whom, on what date, and on what exhibits. TWO TARGET CLASSES: (1) complaint Allegations, as for every v5.3 type; and (2) FOREIGN EVIDENCE FROM A FILING OR ANOTHER LETTER — a letter's dated factual assertion frequently rebuts a claim later made in a motion, a brief, or on the record, and a cooperation letter is the documentary rebuttal to an 'uncooperative' characterization. This letter's later life in the transcripts and reply brief is exactly this cross-type edge. A recitation never rebuts. NOTE: cross-document, documented here for LLM guidance and deliberately NOT listed in valid_patterns."
+  - name: CHARACTERIZES
+    description: "Evidence characterizes a Party: an assertion that labels or evaluates a party's conduct, character, competence, or motive in evaluative terms — 'a case of greed and jealousy', 'attempted to defraud', 'relentlessly defamed'. Create one CHARACTERIZES relationship from the Evidence to each Party it characterizes. A letter is where a dated accusation is first put in writing, before any hearing — the origination point of an accusation chain. NOT restricted by the unsworn nature of the document: the edge records that the author characterized this party in these terms on this date, and asserts nothing about whether the characterization is accurate. It IS restricted by attribution: an author quoting a third party's characterization is reporting it, not making it. May also target a cross-document Allegation where the characterization bears on what that Allegation asserts about the party. Deliberately NOT listed in valid_patterns, mirroring the genus."
+
+# Required provenance properties applied to every relationship written to
+# Neo4j (per LEGAL_DATA_MODEL_v5_1.md §5.4). Populated by the ingest stage
+# at write time, not by the LLM extractor.
+relationship_properties:
+  - name: source_document_id
+    type: string
+    required: true
+    description: "ID of the Document whose extraction produced this relationship"
+  - name: extraction_run_id
+    type: string
+    required: true
+    description: "Identifier of the specific pipeline run that created this relationship (format: 'run-{i32}' for pipeline-extracted, 'manual-{user_id}-{ts}' for hand-authored, 'repair-{...}' for repair runs)"
+  - name: created_at
+    type: timestamp
+    required: true
+    description: "When the relationship was first created (Cypher datetime() at write time; preserved on subsequent re-ingests via coalesce)"
+
+# valid_patterns can ONLY reference entity types defined in THIS schema.
+# Cross-document relationships (REBUTS / CONTRADICTS / CHARACTERIZES →
+# Allegation from the complaint, and REBUTS → foreign Evidence from a filing or
+# another letter) are described in relationship_types above for LLM guidance but
+# are NOT listed here — the schema parser rejects references to entity types not
+# defined locally, and an Allegation endpoint here is fatal at schema load, for
+# EVERY extraction using this schema, not merely for the offending edge. The
+# cross-document edges persist via the context-whitelist + prompt-prose +
+# id-resolution mechanism, identical to every other v5.3 type.
+valid_patterns:
+  - from: Evidence
+    relationship: STATED_BY
+    to: Party
+  - from: Evidence
+    relationship: ABOUT
+    to: Party
+
+extraction_rules:
+  - "Extract the LETTER PROPER — header/salutation through the signature block and any postscript. Cited exhibits are separate instruments referenced by exhibit_refs, not extracted here"
+  - "Extract EVERY discrete assertion as a separate Evidence entity — one per numbered request item, one per numbered timeline item, one per inventory line, one per relief item, plus each discrete prose claim and characterization"
+  - "Delimit list items by CONTENT, never by an OCR-preserved numeral: the OCR frequently drops leading list numbers, so a missing number does not mean a missing item, and verbatim_quote carries whatever the OCR shows"
+  - "The verbatim_quote field is the exact written text of the assertion — copy it character for character, including any fused footnote marker; keep the repeating per-page header OUT of it"
+  - "Classify every assertion on BOTH axes: statement_type (factual_assertion / characterization / information_request / relief_request) and attribution (own_determination / recitation)"
+  - "attribution is recitation whenever the author is restating or quoting a third party's words — a quoted remark, a quoted letter, a quoted court statement; the author's surrounding assertion that the exchange occurred is a separate own_determination unit"
+  - "Attribute every assertion to the AUTHOR, from the signature block; carry author, author_role, recipient, cc_list, sent_date and delivery_method uniformly on every Evidence entity"
+  - "Capture the repeating per-page header ONCE as sent_date and delivery_method; it is page furniture on every page thereafter and is never a per-page Evidence entity, never in verbatim_quote"
+  - "Carry sent_date as event_date on every assertion; where a timeline item references a different dated event, record that event's date instead, and record what THIS document says without reconciling it against another document"
+  - "Record all five citation forms in exhibit_refs, including the lettered and conjunctive forms; a lone digit where a letter is expected in a lettered series is an OCR homoglyph (Exhibit S read as Exhibit 5), not a numbered exhibit"
+  - "Extract as Party the author, the recipient, every cc party, every third party whose conduct is at issue, and every witness the letter offers by name to testify"
+  - "Do NOT extract notaries, service affiants, or clerical signatories as Party entities — they are not participants in the case"
+  - "Do NOT reconstruct visibly truncated text; extract a complete adjacent span that carries the claim, or skip the assertion — never infer missing words into verbatim_quote"
+
+completeness_rules:
+  - type: entity_count
+    entity: Party
+    min: 2
+    message: "Expected at least the author and the recipient"
+  - type: entity_count
+    entity: Evidence
+    min: 1
+    message: "A letter with zero extracted assertions suggests extraction failure — check that the letter body was reached and is not being treated as page furniture"

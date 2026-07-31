@@ -57,6 +57,13 @@ export type ElementDetail = {
    */
   supporting_evidence_count: number;
   covered_allegation_count: number;
+  /**
+   * DISTINCT Evidence items REBUTTING any allegation that bears on this Element
+   * — the Disputes column magnitude. Independent of `proof_status`: an Element
+   * can be well corroborated AND heavily disputed, and that Element is the one
+   * worth arguing about, so the two are shown side by side rather than netted.
+   */
+  disputing_evidence_count: number;
   proof_status: ElementProofStatus;
 };
 

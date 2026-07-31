@@ -8,11 +8,17 @@
 // evidence rendering and its styles; ElementDetailContent keeps the fetch, the
 // notes editor, and the Common/Dedicated grouping.
 //
-// Per allegation we render its `supporting_evidence` (the backend's
-// CORROBORATES-derived list): each item's verbatim quote, interrogatory id, and
-// a source locator. An EMPTY array renders an explicit, muted "No supporting
-// evidence" row — the per-allegation gap made visible (Rule 1). This is a render
-// conditional on a backend-provided array, NOT status derivation (Rule 19).
+// Per allegation we render BOTH evidence legs the backend provides: its
+// `supporting_evidence` (CORROBORATES) and its `disputing_evidence` (REBUTS).
+// Each item shows its verbatim quote, interrogatory id, and a source locator.
+//
+// An EMPTY array renders an explicit, muted "No … evidence" row — the
+// per-allegation gap made visible (Rule 1). The two empties say different
+// things, so they are worded separately rather than sharing one message.
+// Disputes carry a distinct accent so a rebuttal can never be mistaken for
+// corroboration at a glance — the one misreading that would actively mislead on
+// a proof surface. All of this is rendering conditional on backend-provided
+// arrays, NOT status derivation (Rule 19).
 //
 // Source-PDF click-through reuses the app's existing document-file pattern
 // (`/api/documents/:id/file#page=N`, as in AnswerDisplay / GraphPage). When an
@@ -23,7 +29,7 @@
 import React from "react";
 import {
   AllegationSummary,
-  SupportingEvidence,
+  AllegationEvidence,
 } from "../services/elementDetailService";
 import { API_BASE_URL } from "../services/api";
 
@@ -39,7 +45,7 @@ export function pdfHref(documentId: string, page: number | null): string {
 }
 
 /** Human locator text: "{title} · p. {n}" (title alone when no page). */
-export function locatorLabel(ev: SupportingEvidence): string {
+export function locatorLabel(ev: AllegationEvidence): string {
   const title = ev.source_document_title ?? "Source document";
   return ev.page_number !== null ? `${title} · p. ${ev.page_number}` : title;
 }
@@ -51,7 +57,7 @@ export function locatorLabel(ev: SupportingEvidence): string {
  * PDF page when the document id is known, or plain text when it is null (the
  * data-gap state — no dead link).
  */
-const EvidenceLocator: React.FC<{ ev: SupportingEvidence }> = ({ ev }) => {
+const EvidenceLocator: React.FC<{ ev: AllegationEvidence }> = ({ ev }) => {
   const label = locatorLabel(ev);
   if (ev.source_document_id) {
     return (
@@ -76,16 +82,27 @@ const EvidenceLocator: React.FC<{ ev: SupportingEvidence }> = ({ ev }) => {
  * An allegation's supporting evidence, or the explicit empty-gap row. An empty
  * array is the visible gap and must be obvious, not blank.
  */
-const SupportingEvidenceList: React.FC<{ evidence: SupportingEvidence[] }> = ({
-  evidence,
-}) => {
+const EvidenceLegList: React.FC<{
+  evidence: AllegationEvidence[];
+  /** Empty-state wording; the two legs mean different things when empty. */
+  emptyLabel: string;
+  /** Left rule color, so disputes read as distinct from corroboration. */
+  accent?: string;
+}> = ({ evidence, emptyLabel, accent }) => {
   if (evidence.length === 0) {
-    return <div style={NO_EVIDENCE_STYLE}>No supporting evidence</div>;
+    return <div style={NO_EVIDENCE_STYLE}>{emptyLabel}</div>;
   }
   return (
     <div style={EVIDENCE_LIST_STYLE}>
       {evidence.map((ev) => (
-        <div key={ev.id} style={EVIDENCE_ITEM_STYLE}>
+        <div
+          key={ev.id}
+          style={
+            accent
+              ? { ...EVIDENCE_ITEM_STYLE, borderLeft: `2px solid ${accent}` }
+              : EVIDENCE_ITEM_STYLE
+          }
+        >
           {ev.verbatim_quote && (
             <div className="proof-text" style={EVIDENCE_QUOTE_STYLE}>
               “{ev.verbatim_quote}”
@@ -116,7 +133,7 @@ export interface AllegationSectionProps {
 /**
  * One labeled group of allegation cards (Common / Count-specific / Other). Moved
  * verbatim from ElementDetailContent and extended with the nested
- * `SupportingEvidenceList` under each card.
+ * `AllegationEvidenceList` under each card.
  */
 const AllegationSection: React.FC<AllegationSectionProps> = ({
   label,
@@ -153,7 +170,15 @@ const AllegationSection: React.FC<AllegationSectionProps> = ({
             {a.verbatim_quote}
           </div>
         )}
-        <SupportingEvidenceList evidence={a.supporting_evidence} />
+        <EvidenceLegList
+          evidence={a.supporting_evidence}
+          emptyLabel="No supporting evidence"
+        />
+        <EvidenceLegList
+          evidence={a.disputing_evidence}
+          emptyLabel="No disputing evidence"
+          accent="var(--state-danger-strong)"
+        />
       </div>
     ))}
   </div>

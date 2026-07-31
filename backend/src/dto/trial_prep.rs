@@ -77,6 +77,21 @@ pub struct TrialPrepAlert {
 }
 
 /// The metrics band — mirrors the inline `metrics` object in `trialPrepData.ts`.
+///
+/// ## Two figures were removed on 2026-07-27
+///
+/// `baseless_repeat_patterns` counted cards whose `baseless_repeat_count` was
+/// `> 0`; that field is hardcoded `None` because pattern analysis is unwired, so
+/// the figure was **structurally 0** — indistinguishable on screen from a real
+/// zero. `no_response_yet` counted cards with `response_count == 0`; that field
+/// is hardcoded `0`, so the figure **always equalled the scenario count**.
+///
+/// The underlying card fields are deliberately untouched:
+/// `ScenarioSummary::baseless_repeat_count` stays `None` (an honest "not yet
+/// analysed", distinct from `Some(0)`) and `response_count` stays `0`. What was
+/// wrong was not the stubs — which say what they are — but deriving band
+/// figures from them and presenting the result as a measurement. Both return
+/// when their sources are real.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TrialPrepMetrics {
@@ -84,9 +99,6 @@ pub struct TrialPrepMetrics {
     pub ready: u32,
     pub drafted_or_review: u32,
     pub instances: u32,
-    /// The Count IV signal — accusations repeated after a proven rebuttal.
-    pub baseless_repeat_patterns: u32,
-    pub no_response_yet: u32,
 }
 
 /// The full dashboard payload — mirrors `TrialPrepDashboard` in
@@ -215,8 +227,6 @@ mod tests {
                 ready: 1,
                 drafted_or_review: 3,
                 instances: 16,
-                baseless_repeat_patterns: 1,
-                no_response_yet: 1,
             },
             alerts: vec![TrialPrepAlert {
                 message: "an alert".to_string(),
@@ -254,8 +264,6 @@ mod tests {
                     "ready": 1,
                     "drafted_or_review": 3,
                     "instances": 16,
-                    "baseless_repeat_patterns": 1,
-                    "no_response_yet": 1
                 },
                 "alerts": [{ "message": "an alert" }],
                 "scenarios": [

@@ -1,0 +1,117 @@
+# Processing profile for the evidence-anchoring pipeline — Correspondence (v5.3)
+#
+# Version: 5.3   Date: 2026-07-22 (rebuild-plan, correspondence onboarding —
+# the LAST of the audit's four missing types)
+#
+# A letter is a dated, authored communication. Every assertion is an Evidence
+# node attributed to the AUTHOR (one voice throughout, unlike a transcript).
+# Assertions carry two axes — statement_type and attribution — and pass 2 gates
+# every finding-edge on attribution=recitation, which is what stops the author's
+# quotes of third parties being extracted a second time as the author's own
+# claims.
+#
+# WHAT THIS TYPE UNIQUELY CARRIES: NOTICE. author + recipient + sent_date
+# together prove a named recipient KNEW a stated fact as of a stated date.
+# Notice + subsequent inaction is the fiduciary-breach pattern; this type
+# supplies the notice half from the paper record. The notice fact is carried by
+# Evidence PROPERTIES, with no new edge type.
+#
+# ENUM DEPARTURE (design v1 §3, ratified): the statement_type enum is
+# correspondence-specific — factual_assertion / characterization /
+# information_request / relief_request — not the filing genus enum. See the
+# schema header for the full rationale and the STMT_* non-reuse caution.
+#
+# A LETTER NEVER CORROBORATES, regardless of whether a party or an attorney
+# wrote it. It is unsworn; its assertions cite bank records, affidavits and
+# exhibits, and the proof lives in those instruments when each is processed as
+# its own document.
+#
+# CHUNKING — full document. Read this before changing it.
+# The genus law (motion / appellate_brief) transfers, and a letter is the SMALL
+# end of full mode: the corpus sample is 5 pages, ~15k non-whitespace characters,
+# ~4.5k estimated document tokens against the pre-flight's 150k ceiling — an
+# order of magnitude of headroom.
+#
+# Full document is the right mode here for the same three reasons it is for the
+# filing genus, plus one specific to letters:
+#   1. There is no reliable internal boundary structure to chunk on. A letter is
+#      continuous prose with numbered lists whose leading numerals the OCR
+#      frequently DROPS — a boundary pattern keyed on list numbers would miss
+#      most items. Full mode lets the model delimit units by content.
+#   2. No silent-fallback hazard: that failure belongs to structured mode's
+#      no_boundary_matches path, which cannot arise here.
+#   3. The repeating per-page header (date + certified-mail tracking) is page
+#      furniture that must be captured ONCE as sent_date/delivery_method and
+#      ignored thereafter. Only a whole-document view lets the model see that the
+#      header repeats and treat it as furniture rather than as five separate
+#      dated events.
+#
+# This is the majority mode in this repo (complaint_v5_1, affidavit, motion_v5_3,
+# appellate_brief, default) and not a fallback.
+#
+# ⚠ FULL MODE FAILS QUIETLY IN THREE WAYS. This is why the gate below is
+# mandatory rather than advisory — none of these raises an error, and all three
+# produce a run that looks successful in the logs:
+#
+#   1. The document never extracted. A scanned letter whose OCR step has not run
+#      leaves every page under the pipeline's own 50-non-whitespace-character
+#      floor. The model is handed blank pages and extracts almost nothing; the
+#      pipeline reports success on an empty result.
+#   2. The document is too large for one prompt. Full mode sends everything in a
+#      single request; past the context budget the extraction TRUNCATES or
+#      degrades rather than failing. A single letter will not reach this, but a
+#      letter filed with a bound exhibit set could.
+#   3. Pages go missing before the model sees them. Extraction is per-page and a
+#      dropped page is invisible downstream — there is no count anywhere that
+#      would disagree.
+#
+# Before any paid run, the dry-run gate is:
+#   scripts/transcript-chunk-preflight.py --mode full <extracted-text> \
+#       --expect-pages <page count of the source PDF>
+# which checks the per-page text floor, the token estimate against budget, and
+# the page count. Pass --expect-pages: without it, failure 3 above is not
+# checked at all. Required, not a convenience. Verified against the 5-page
+# sample: PASS, 0% under the OCR floor, 0 separators, 4.5k tokens — the gate
+# applies as-is, no extension needed for this type.
+
+name: correspondence
+display_name: "Correspondence (v5.3)"
+document_type: correspondence
+description: >
+  Letter or written correspondence exchanged in the case — a dated, party- or
+  attorney-authored communication carrying notice, factual claims, information
+  requests, and demands for relief. author + recipient + sent_date carry the
+  notice fact; factual assertions anchor to complaint Allegations as dated
+  rebuttals; unanswered information requests feed the evasion analysis; and
+  written characterizations of a party are dated origination points of the
+  accusation chain. Covers the letter proper only; cited exhibits are separate
+  documents.
+
+schema_file: correspondence_schema_v5_3.yaml
+
+template_file: correspondence_pass1_v5_3.md
+global_rules_file: global_rules_v4.md
+pass2_template_file: correspondence_pass2_v5_3.md
+system_prompt_file: legal_extraction_system.md
+
+extraction_model: claude-opus-4-6
+pass2_extraction_model: claude-opus-4-6
+
+# Full-document mode: chunk_size and chunk_overlap are inert and explicitly
+# null, matching appellate_brief and motion rather than carrying misleading
+# values.
+chunking_mode: full
+chunk_size: null
+chunk_overlap: null
+
+max_tokens: 32000
+temperature: 0.0
+
+auto_approve_grounded: true
+run_pass2: true
+
+# NOT the default type — the registry carries exactly one is_default entry and a
+# second would panic validate() at boot.
+is_default: false
+
+pipeline_type: evidence_anchoring

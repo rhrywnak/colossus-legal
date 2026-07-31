@@ -19,7 +19,7 @@ import { authFetch } from "./auth";
 /**
  * One piece of Evidence corroborating an Allegation. Backend source:
  * `EvidenceRef` in element_detail_repository.rs (Part 2). Named
- * `SupportingEvidence` here — NOT `EvidenceRef` — to stay distinct from the
+ * `AllegationEvidence` here — NOT `EvidenceRef` — to stay distinct from the
  * differently-shaped matrix-column `EvidenceRef` in `proofMatrix.ts`; two
  * different shapes must not share a name.
  *
@@ -27,7 +27,7 @@ import { authFetch } from "./auth";
  * Document (a data gap the backend warn-logs), the locator renders as text with
  * no PDF link rather than a dead link (Rule 1: distinguishable states).
  */
-export type SupportingEvidence = {
+export type AllegationEvidence = {
   id: string;
   verbatim_quote: string | null;
   /** PDF page number — the click-through locator. */
@@ -47,9 +47,11 @@ export type SupportingEvidence = {
  * `source_section` is one of "Common" | "Dedicated" | "Unknown". The panel
  * uses it to group the list under labeled section dividers.
  *
- * `supporting_evidence` is the Evidence corroborating this Allegation; an
- * **empty array is the visible gap** (an Allegation with no corroboration),
- * rendered explicitly — never omitted (Rule 1).
+ * `supporting_evidence` is the Evidence corroborating this Allegation and
+ * `disputing_evidence` the Evidence rebutting it. For both, an **empty array is
+ * the visible gap**, rendered explicitly and never omitted (Rule 1) — but they
+ * are different gaps: nothing corroborates this Allegation, versus nothing
+ * disputes it.
  */
 export type AllegationSummary = {
   allegation_id: string;
@@ -58,7 +60,13 @@ export type AllegationSummary = {
   title: string | null;
   verbatim_quote: string | null;
   source_section: string;
-  supporting_evidence: SupportingEvidence[];
+  supporting_evidence: AllegationEvidence[];
+  /**
+   * Evidence REBUTTING this Allegation — the items behind the Proof Matrix's
+   * Disputes column. Same shape as `supporting_evidence`; the two are rendered
+   * as a matched pair.
+   */
+  disputing_evidence: AllegationEvidence[];
 };
 
 /**
@@ -136,6 +144,28 @@ export async function fetchElementDetail(
     throw new Error(
       `Element detail response for "${elementId}" is missing the "allegations" array — ` +
         `backend/frontend contract mismatch. If reloading does not help, report this to the site administrator.`,
+    );
+  }
+
+  // Both evidence legs must be arrays on every allegation. The panel reads
+  // `.length` on each to decide between the item list and the empty state, so a
+  // missing key would throw a TypeError mid-render — and this app has NO React
+  // error boundary, so that surfaces as a BLANK PAGE, not an error message.
+  // Failing here instead turns a white screen into a sentence naming the
+  // problem. Checked at the boundary, once, rather than guarded at every
+  // dereference (Standing Rule 1 — a contract mismatch is loud, and it is not
+  // the component's job to tolerate one).
+  const malformed = parsed.allegations.find(
+    (a) =>
+      !Array.isArray(a?.supporting_evidence) ||
+      !Array.isArray(a?.disputing_evidence),
+  );
+  if (malformed) {
+    throw new Error(
+      `Element detail response for "${elementId}" has an allegation ` +
+        `(${malformed.allegation_id ?? "id unknown"}) missing its ` +
+        `"supporting_evidence" or "disputing_evidence" array — backend/frontend ` +
+        `contract mismatch. If reloading does not help, report this to the site administrator.`,
     );
   }
 

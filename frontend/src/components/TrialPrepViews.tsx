@@ -140,15 +140,22 @@ const MetricCard: React.FC<{
   </div>
 );
 
-/** The metrics band. `baseless_repeat_patterns` is emphasized (Count IV signal). */
+/**
+ * The metrics band.
+ *
+ * Two cards were removed on 2026-07-27 — "Baseless-repeat patterns" (the Count IV
+ * signal) and "No response yet". Both were derived from card fields that are
+ * hardcoded stubs, so one was structurally always 0 and the other always equalled
+ * the scenario count: constants rendered as measurements, indistinguishable on
+ * screen from real results. They come back when pattern analysis and responses
+ * have real sources.
+ */
 export const MetricsBand: React.FC<{
   metrics: {
     scenarios: number;
     ready: number;
     drafted_or_review: number;
     instances: number;
-    baseless_repeat_patterns: number;
-    no_response_yet: number;
   };
 }> = ({ metrics }) => (
   <div style={cardRow}>
@@ -156,13 +163,6 @@ export const MetricsBand: React.FC<{
     <MetricCard value={metrics.ready} label="Ready" />
     <MetricCard value={metrics.drafted_or_review} label="Drafted / in review" />
     <MetricCard value={metrics.instances} label="Instances" />
-    <MetricCard
-      value={metrics.baseless_repeat_patterns}
-      label="Baseless-repeat patterns"
-      emphasized
-      hint="Count IV signal"
-    />
-    <MetricCard value={metrics.no_response_yet} label="No response yet" />
   </div>
 );
 

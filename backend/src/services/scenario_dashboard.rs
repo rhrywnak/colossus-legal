@@ -285,9 +285,11 @@ fn fact_to_turn(fact: &AnchoredEvidenceFact) -> ExchangeTurn {
         text: fact.verbatim_quote.clone().unwrap_or_default(),
         relationship_type: Some(fact.polarity.to_lowercase()),
         source_document: fact.document.clone(),
-        // The fact carries `page_number` as a String; the turn's contract wants
-        // `number | null`. Parse it; an un-parseable value (e.g. "iv", "12-13")
-        // degrades to `None` rather than guessing.
+        // best-effort: the fact carries `page_number` as a String; the turn's
+        // contract wants `number | null`. An un-parseable value (e.g. "iv",
+        // "12-13") degrades to `None` rather than guessing a number — `None` is
+        // a first-class state in the contract ("no page locator"), rendered as a
+        // turn with no page link, so nothing is silently lost.
         page_number: fact
             .page_number
             .as_deref()
@@ -354,23 +356,20 @@ fn record_to_card(
 /// Compute the metrics band from the real card list (nothing hardcoded).
 ///
 /// `// Why:` derived from the cards' own fields so the band stays consistent with
-/// the list and stays forward-correct as the now-zero fields gain real sources.
-/// `drafted_or_review` maps to the count of `Draft` cards — the closest real
-/// equivalent now that the old `review` status is gone. `baseless_repeat_patterns`
-/// is the count of cards with a positive baseless-repeat count (0 today, since
-/// that signal is unwired). `no_response_yet` is the count of cards with no
-/// responses (every card today, since responses are unwired).
+/// the list. `drafted_or_review` maps to the count of `Draft` cards — the
+/// closest real equivalent now that the old `review` status is gone.
+///
+/// Every figure here is derived from a field with a real source. The two that
+/// were not — `baseless_repeat_patterns` and `no_response_yet` — were removed on
+/// 2026-07-27; see the note on [`TrialPrepMetrics`]. A band figure computed from
+/// a stub is not forward-correct, it is a constant wearing a measurement's
+/// clothes, and it reads identically to a real result.
 fn compute_metrics(cards: &[ScenarioSummary]) -> TrialPrepMetrics {
     TrialPrepMetrics {
         scenarios: cards.len() as u32,
         ready: count_status(cards, ScenarioStatus::Ready),
         drafted_or_review: count_status(cards, ScenarioStatus::Draft),
         instances: cards.iter().map(|c| c.instance_count).sum(),
-        baseless_repeat_patterns: cards
-            .iter()
-            .filter(|c| c.baseless_repeat_count.is_some_and(|n| n > 0))
-            .count() as u32,
-        no_response_yet: cards.iter().filter(|c| c.response_count == 0).count() as u32,
     }
 }
 
@@ -532,8 +531,6 @@ mod tests {
         assert_eq!(m.ready, 1);
         assert_eq!(m.drafted_or_review, 1); // one Draft
         assert_eq!(m.instances, 6); // 4 + 2 + 0
-        assert_eq!(m.baseless_repeat_patterns, 0); // unwired
-        assert_eq!(m.no_response_yet, 3); // none have responses yet
     }
 
     #[test]
@@ -543,22 +540,46 @@ mod tests {
         assert_eq!(m.ready, 0);
         assert_eq!(m.drafted_or_review, 0);
         assert_eq!(m.instances, 0);
-        assert_eq!(m.baseless_repeat_patterns, 0);
-        assert_eq!(m.no_response_yet, 0);
     }
 
+    /// The band carries ONLY figures with a real source. Pinning the field set
+    /// stops a future edit from quietly re-deriving a metric from one of the
+    /// card stubs (`response_count: 0`, `baseless_repeat_count: None`), which is
+    /// how the two removed figures came to read as measurements.
     #[test]
-    fn compute_metrics_counts_only_positive_baseless_repeat() {
+    fn metrics_band_exposes_no_stub_derived_figure() {
+        let m = compute_metrics(&[card_with(ScenarioStatus::Ready, 1)]);
+        let value = serde_json::to_value(m).expect("metrics serialize");
+        // `serde_json::Value` keys are a BTreeMap, so compare as a sorted set —
+        // the assertion is about WHICH figures the band exposes, not their order.
+        let mut keys: Vec<&str> = value
+            .as_object()
+            .expect("object body")
+            .keys()
+            .map(String::as_str)
+            .collect();
+        keys.sort_unstable();
+        assert_eq!(
+            keys,
+            vec!["drafted_or_review", "instances", "ready", "scenarios"]
+        );
+    }
+
+    /// The card field itself keeps its three states — `Some(n>0)` (a pattern),
+    /// `Some(0)` (analysed, none found) and `None` (not yet analysed). The band
+    /// no longer collapses them into a count, but the distinction on the card is
+    /// the thing pattern analysis will populate, so it is pinned here.
+    #[test]
+    fn card_baseless_repeat_keeps_its_three_states() {
         let mut positive = card_with(ScenarioStatus::Ready, 1);
         positive.baseless_repeat_count = Some(2);
         let mut analysed_none_found = card_with(ScenarioStatus::Draft, 0);
         analysed_none_found.baseless_repeat_count = Some(0);
-        let pending = card_with(ScenarioStatus::Draft, 0); // baseless_repeat_count: None
+        let pending = card_with(ScenarioStatus::Draft, 0);
 
-        let m = compute_metrics(&[positive, analysed_none_found, pending]);
-        // Only `Some(n > 0)` is a pattern: `Some(0)` ("analysed, none found") and
-        // `None` ("pending") must NOT increment the signal.
-        assert_eq!(m.baseless_repeat_patterns, 1);
+        assert_eq!(positive.baseless_repeat_count, Some(2));
+        assert_eq!(analysed_none_found.baseless_repeat_count, Some(0));
+        assert_eq!(pending.baseless_repeat_count, None);
     }
 
     /// A fully-populated anchored fact (every descriptive column present unless

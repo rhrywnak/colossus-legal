@@ -55,10 +55,10 @@ pub struct CountDetail {
 /// Decoded from `controlling_authorities_json` and re-emitted. `court`/`year`
 /// are absent in the stored JSON for statutes; they deserialize to `None` and
 /// are emitted as `null` (present) so the field set is stable for the frontend.
-// serde: deliberately no `deny_unknown_fields` — this decodes loader-produced
-// JSON only, never untrusted external input. Tolerating an unknown key keeps
-// the read endpoint forward-compatible if the canonical Element loader later
-// adds an optional authority field the Home page doesn't consume.
+// serde: allows unknown fields because this decodes loader-produced JSON only,
+// never untrusted external input. Tolerating an unknown key keeps the read
+// endpoint forward-compatible if the canonical Element loader later adds an
+// optional authority field the Home page doesn't consume.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Authority {
     pub citation: String,
@@ -70,7 +70,7 @@ pub struct Authority {
 
 /// A doctrinal pleading requirement (Count IV — abuse of process). Decoded from
 /// `doctrinal_requirements_json`.
-// serde: no `deny_unknown_fields` for the same forward-compat reason as
+// serde: allows unknown fields because of the same forward-compat reason as
 // `Authority` above — loader-produced JSON only, never untrusted input.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DoctrinalRequirement {
@@ -101,6 +101,23 @@ pub struct ElementDetail {
     /// Number of this Element's Allegations that have >=1 incoming
     /// `CORROBORATES` — the coverage **numerator** `C` (`C <= allegation_count`).
     pub covered_allegation_count: i64,
+    /// Number of DISTINCT Evidence items DISPUTING any Allegation that bears on
+    /// this Element — the "Disputes" column magnitude. Walks
+    /// `(Evidence)-[:REBUTS]->(Allegation)-[:BEARS_ON]->(Element)`, the mirror of
+    /// the `supporting_evidence_count` traversal.
+    ///
+    /// Domain note: "Disputes", deliberately not "Contradicts" — CONTRADICTS is
+    /// reserved for the future evidence-vs-evidence impeachment layer, and reusing
+    /// the word here would make two different relationships read as one. Nor
+    /// "Opposing": this counts what the record actually disputes, not a party's
+    /// posture.
+    ///
+    /// This does NOT enter `proof_status`. Support and dispute are independent
+    /// readings of the same Element — a well-corroborated Element can also be
+    /// heavily disputed, and that Element is the one worth arguing about, so the
+    /// two are shown side by side rather than netted into one verdict.
+    pub disputing_evidence_count: i64,
+
     /// Coverage label derived in the builder from `T = allegation_count` and
     /// `C = covered_allegation_count`: one of `"no_allegations"`, `"gap"`,
     /// `"partial"`, `"supported"`.

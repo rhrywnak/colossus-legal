@@ -29,7 +29,7 @@ pub(super) fn evidence_expansion_cypher() -> String {
                e.significance AS esig, e.page_number AS epage,
                speaker.id AS sid, speaker.name AS sname,
                subject.id AS subid, subject.name AS subname,
-               doc.id AS did, doc.title AS dtitle, doc.document_type AS dtype,
+               doc.id AS did, doc.title AS dtitle, doc.doc_type AS dtype,
                allegation.id AS aid, allegation.title AS atitle,
                NULL AS astatus,
                rebuttal.id AS rid, rebuttal.title AS rtitle,

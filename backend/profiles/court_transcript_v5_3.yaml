@@ -1,0 +1,98 @@
+# Processing profile for the evidence-anchoring pipeline — Court Transcript (v5.3)
+#
+# Version: 5.3   Date: 2026-07-21 (rebuild-plan task 1.2a)
+#
+# Hearing transcripts: the line-numbered, speaker-labeled record of a proceeding
+# before a judge. Each speaker turn is an Evidence node attributed to THAT
+# speaker (STATED_BY varies per utterance — unlike court_ruling, where the court
+# is the speaker of every statement).
+#
+# Statements carry two axes: statement_type (who is speaking, by role) and
+# attribution (own_determination vs recitation). Pass 2 gates every finding-edge
+# on attribution=recitation across all four speaker types, and applies the
+# speaker-weight law: attorney argument never corroborates; unsworn party
+# statements never corroborate; sworn witness testimony is RESERVED pending a
+# ratified corroboration bar (ruling 2026-07-21 B3).
+#
+# CHUNKING — read this before changing anything below.
+# Transcripts have no section headings, so NONE of the three shipped strategies
+# fits. Verified empirically against both sample transcripts' text shape:
+#   qa_pair / numbered_paragraph  (^\d+\.\s)  → 0 matches
+#   section_heading                            → matches THE COURT and lay
+#     speakers, but NOT "MR. PHILLIPS" / "MS. HIGGS" (the period breaks its
+#     [A-Z][A-Z\s]{3,} run), so every attorney turn is silently absorbed into
+#     the preceding judge's unit. That is worse than no match: a skewed split
+#     that still looks successful.
+# Hence strategy: custom with an explicit speaker-label boundary_pattern below.
+#
+# ⚠ A boundary_pattern that matches NOTHING does not fail loudly. The splitter
+# returns ONE chunk containing the whole document, stamped fallback=true in
+# metadata that the caller never reads; the log line reports chunk_count=1 and
+# looks like success. A 36-page transcript would then ship as a single prompt.
+# The dry-run gate MUST run scripts/transcript-chunk-preflight.py against the
+# OCR'd text and confirm the unit count lands in the sane band BEFORE any paid
+# run. This is a required step, not a convenience.
+
+name: court_transcript
+display_name: "Court Transcript (v5.3)"
+document_type: court_transcript
+description: >
+  Court transcript — the dated, on-the-record colloquy of a hearing before a
+  judge. Each speaker turn becomes an Evidence entity attributed to its speaker;
+  bench rulings anchor to complaint Allegations on the defense axis, and
+  on-record characterizations and dated rebuttals feed the accusation-pattern
+  analysis.
+
+schema_file: court_transcript_schema_v5_3.yaml
+
+template_file: court_transcript_pass1_v5_3.md
+global_rules_file: global_rules_v4.md
+pass2_template_file: court_transcript_pass2_v5_3.md
+system_prompt_file: legal_extraction_system.md
+
+extraction_model: claude-opus-4-6
+pass2_extraction_model: claude-opus-4-6
+
+chunking_mode: structured
+chunk_size: 8000
+chunk_overlap: 500
+
+max_tokens: 32000
+temperature: 0.0
+
+auto_approve_grounded: true
+run_pass2: true
+
+# NOT the default type. The registry carries exactly one is_default entry
+# (`default`) and a second would panic validate() at boot; this profile-level
+# key is distinct from that one but is kept false to avoid the confusion.
+is_default: false
+
+chunking_config:
+  mode: structured
+  # `custom` returns an empty defaults map from expand_strategy, so every key
+  # below must be supplied explicitly — that is the supported way to author a
+  # boundary the three named strategies do not cover.
+  strategy: custom
+  # One unit = one speaker turn. Reads as: optional leading whitespace, the
+  # optional gutter line-number, then an uppercase speaker label ending in a
+  # colon. Tolerant of the extraction layer dropping leading whitespace (it
+  # does) and of the gutter number surviving as an inline token (it usually
+  # does). Matches "1 THE COURT:", "2 MR. PHILLIPS:", "NADIA AWAD:"; does NOT
+  # match continuation lines, and does not collide with the "--- Page N ---"
+  # marker the prompt assembler injects.
+  boundary_pattern: '^\s*\d*\s*[A-Z][A-Z.\s]*[A-Z.]:'
+  # A unit is one TURN, not one section — turns are far smaller and far more
+  # numerous than a ruling's sections, so the per-chunk count is correspondingly
+  # larger. ~300-400 turns over 36 pages gives roughly 8-10 chunks at 40.
+  units_per_chunk: 40
+  # DEPARTS from court_ruling's unit_overlap: 0, deliberately. An accusation and
+  # its contemporaneous rebuttal are ADJACENT turns, and that adjacency is the
+  # entire evidentiary point of this document type — a chunk boundary falling
+  # between them would sever the exchange the extraction exists to capture.
+  # This follows discovery's qa_pair carry (overlap 1) rather than the ruling's,
+  # because a transcript's units are atomic exchanges, not self-contained
+  # sections of analysis.
+  unit_overlap: 1
+
+pipeline_type: evidence_anchoring

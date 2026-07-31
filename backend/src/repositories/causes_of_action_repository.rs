@@ -52,7 +52,7 @@ pub(crate) struct CountRow {
 }
 
 /// One `Element` row, tagged with its parent `count_number` for joining, plus
-/// the three graph-computed proof metrics for the Proof Matrix.
+/// the graph-computed proof metrics for the Proof Matrix.
 ///
 /// Domain note: the trio `allegation_count` / `supporting_evidence_count` /
 /// `covered_allegation_count` are, respectively, the proof denominator (how
@@ -61,6 +61,13 @@ pub(crate) struct CountRow {
 /// (how many of those Allegations have at least one corroboration). The builder
 /// derives `proof_status` from the denominator + numerator — see
 /// `causes_of_action_builder::derive_proof_status`.
+///
+/// `disputing_evidence_count` is the DISPUTES magnitude and is deliberately NOT
+/// part of that trio: it feeds its own column and does not enter
+/// `derive_proof_status`. Support and dispute are separate readings — an Element
+/// can be well corroborated AND heavily disputed, and collapsing the two into
+/// one verdict would hide exactly the Element worth arguing about. Layered
+/// beside the existing verdict, never altering it.
 #[derive(Debug, Clone)]
 pub(crate) struct ElementRow {
     pub count_number: i64,
@@ -73,6 +80,7 @@ pub(crate) struct ElementRow {
     pub allegation_count: i64,
     pub supporting_evidence_count: i64,
     pub covered_allegation_count: i64,
+    pub disputing_evidence_count: i64,
 }
 
 // Full Cypher as named constants (no magic strings inline). Node labels are
@@ -111,23 +119,38 @@ const COUNTS_QUERY: &str = "MATCH (lc) WHERE labels(lc)[0] = $count_label \
 /// `count(a)` would also return 0 for nulls, but DISTINCT also de-dupes an
 /// Allegation that bears on the same Element more than once).
 ///
-/// ## Why the second OPTIONAL MATCH reuses `a` instead of a fresh branch
+/// ## Why the evidence OPTIONAL MATCHes reuse `a` instead of fresh branches
 ///
 /// The proof chain is `(Evidence)-[:CORROBORATES]->(Allegation)-[:BEARS_ON]->(Element)`.
 /// Hanging `(a)<-[:CORROBORATES]-(ev)` off the *same* `a` already bound by the
-/// allegation OPTIONAL MATCH gives us both extra metrics from one extra hop:
+/// allegation OPTIONAL MATCH gives us both support metrics from one extra hop:
 /// `count(DISTINCT ev)` is the distinct supporting Evidence, and
 /// `count(DISTINCT CASE WHEN ev IS NOT NULL THEN a END)` is the count of
-/// Allegations that have at least one corroboration. The cartesian fan-out of
-/// `(allegation × evidence)` rows is harmless because every metric is a
-/// `count(DISTINCT …)` — duplicates collapse. A separate `(ac)<-[:CORROBORATES]`
-/// branch would compute the identical numbers with one more join, so we don't.
+/// Allegations that have at least one corroboration. The dispute leg
+/// `(a)<-[:REBUTS]-(dv)` hangs off the same `a` for the same reason.
+///
+/// ## The fan-out MULTIPLIES, and why every metric survives it
+///
+/// Two sibling `OPTIONAL MATCH`es on `a` produce one row per
+/// `(allegation × corroborating × disputing)` COMBINATION — not per allegation,
+/// and not the sum of the two legs. An Allegation with 3 corroborations and 2
+/// rebuttals yields 6 rows, and each corroborating Evidence therefore appears on
+/// 2 of them.
+///
+/// This is harmless here for one reason only: **every metric is a
+/// `count(DISTINCT …)`**, so the duplicates collapse. That is load-bearing, not
+/// incidental. Relaxing any of these aggregations to a plain `count(…)` would
+/// silently multiply the figure by the size of the other leg — a wrong number
+/// that still looks plausible, which is the precise failure this file's
+/// surrounding work exists to eliminate. If a future metric here cannot be
+/// expressed as a `count(DISTINCT …)`, it needs its own query, not another leg.
 fn elements_query() -> String {
     format!(
         "MATCH (lc)-[:{has_element}]->(el) \
        WHERE labels(lc)[0] = $count_label AND labels(el)[0] = $element_label \
      OPTIONAL MATCH (a)-[:{bears_on}]->(el) WHERE labels(a)[0] = $allegation_label \
      OPTIONAL MATCH (a)<-[:{corroborates}]-(ev) WHERE labels(ev)[0] = $evidence_label \
+     OPTIONAL MATCH (a)<-[:{rebuts}]-(dv) WHERE labels(dv)[0] = $evidence_label \
      RETURN lc.count_number             AS count_number, \
             el.id                       AS element_id, \
             el.order_in_count           AS order_in_count, \
@@ -137,10 +160,12 @@ fn elements_query() -> String {
             el.theory_variant           AS theory_variant, \
             count(DISTINCT a)           AS allegation_count, \
             count(DISTINCT ev)          AS supporting_evidence_count, \
-            count(DISTINCT CASE WHEN ev IS NOT NULL THEN a END) AS covered_allegation_count",
+            count(DISTINCT CASE WHEN ev IS NOT NULL THEN a END) AS covered_allegation_count, \
+            count(DISTINCT dv)          AS disputing_evidence_count",
         has_element = schema::HAS_ELEMENT,
         bears_on = schema::BEARS_ON,
         corroborates = schema::CORROBORATES,
+        rebuts = schema::REBUTS,
     )
 }
 
@@ -226,7 +251,88 @@ pub(crate) async fn fetch_elements(graph: &Graph) -> Result<Vec<ElementRow>, Cau
             allegation_count: row.get("allegation_count").map_err(decode(OP))?,
             supporting_evidence_count: row.get("supporting_evidence_count").map_err(decode(OP))?,
             covered_allegation_count: row.get("covered_allegation_count").map_err(decode(OP))?,
+            disputing_evidence_count: row.get("disputing_evidence_count").map_err(decode(OP))?,
         });
     }
     Ok(rows)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The Element query builds its relationship names from `neo4j::schema` and
+    /// keeps every alias the decoder reads. A renamed alias would not fail —
+    /// `row.get` would error and the whole read would 500 — but a DROPPED leg
+    /// would silently return zeros, which is why the dispute leg is pinned
+    /// alongside the support one.
+    #[test]
+    fn elements_query_projects_both_evidence_legs_from_schema_constants() {
+        let q = elements_query();
+
+        assert!(q.contains(&format!("-[:{}]->", schema::HAS_ELEMENT)));
+        assert!(q.contains(&format!("(a)-[:{}]->(el)", schema::BEARS_ON)));
+        assert!(q.contains(&format!("<-[:{}]-(ev)", schema::CORROBORATES)));
+        assert!(q.contains(&format!("<-[:{}]-(dv)", schema::REBUTS)));
+
+        for alias in [
+            "AS allegation_count",
+            "AS supporting_evidence_count",
+            "AS covered_allegation_count",
+            "AS disputing_evidence_count",
+        ] {
+            assert!(q.contains(alias), "missing RETURN alias `{alias}`");
+        }
+    }
+
+    /// EVERY aggregate must be `count(DISTINCT …)`. The two evidence legs hang
+    /// off the same `a`, so the rows are a `(allegation × corroborating ×
+    /// disputing)` cartesian product: a plain `count(…)` would be multiplied by
+    /// the size of the other leg and report a number that is wrong but entirely
+    /// plausible. This is the single most important invariant in this query.
+    #[test]
+    fn every_element_aggregate_is_distinct_guarded_against_the_cartesian_fan_out() {
+        let q = elements_query();
+        assert!(q.contains("count(DISTINCT a)           AS allegation_count"));
+        assert!(q.contains("count(DISTINCT ev)          AS supporting_evidence_count"));
+        assert!(q.contains("count(DISTINCT dv)          AS disputing_evidence_count"));
+        assert!(q.contains("count(DISTINCT CASE WHEN ev IS NOT NULL THEN a END)"));
+
+        // No aggregate may appear without DISTINCT.
+        let bare = q.matches("count(").count() - q.matches("count(DISTINCT").count();
+        assert_eq!(bare, 0, "every count() must be DISTINCT-guarded: {q}");
+    }
+
+    /// The dispute leg is OPTIONAL and hangs off the allegation, never off the
+    /// Element directly. A required MATCH would drop every Element that nothing
+    /// disputes — which is most of them — and the column would show data only
+    /// where it was least interesting.
+    #[test]
+    fn dispute_leg_is_optional_and_hangs_off_the_allegation() {
+        let q = elements_query();
+        assert!(q.contains(&format!(
+            "OPTIONAL MATCH (a)<-[:{}]-(dv) WHERE labels(dv)[0] = $evidence_label",
+            schema::REBUTS
+        )));
+        assert!(
+            !q.contains(&format!("(el)<-[:{}]-", schema::REBUTS)),
+            "disputes reach the Element THROUGH an Allegation, never directly"
+        );
+    }
+
+    /// Node labels stay parameter-bound; only relationship types are
+    /// interpolated (Cypher cannot parameterize those).
+    #[test]
+    fn elements_query_parameterizes_every_node_label() {
+        let q = elements_query();
+        for param in [
+            "labels(lc)[0] = $count_label",
+            "labels(el)[0] = $element_label",
+            "labels(a)[0] = $allegation_label",
+            "labels(ev)[0] = $evidence_label",
+            "labels(dv)[0] = $evidence_label",
+        ] {
+            assert!(q.contains(param), "missing label binding `{param}`");
+        }
+    }
 }

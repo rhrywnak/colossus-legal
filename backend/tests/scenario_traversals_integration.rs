@@ -131,7 +131,11 @@ async fn corroborating_returns_the_six_baseline_facts() {
         resp.facts.len()
     );
     for fact in &resp.facts {
-        assert_eq!(fact.polarity, "CORROBORATES", "evidence {}", fact.evidence_id);
+        assert_eq!(
+            fact.polarity, "CORROBORATES",
+            "evidence {}",
+            fact.evidence_id
+        );
         assert_eq!(fact.allegation_id, ALLEGATION_54_ID);
     }
 }

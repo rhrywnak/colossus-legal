@@ -58,6 +58,7 @@ Every operationally distinct state must produce a different observable. Errors p
 - No `if let Ok(_)` or `if let Some(_)` patterns that drop the error case silently.
 - Every `?` propagation must terminate at a handler that logs the error with context (`tracing::error!` with the operation, the inputs, the underlying cause).
 - Frontend: every `fetch` / `authFetch` has explicit `.catch()` and explicit error UI. No swallowed promise rejections.
+  - **Best-effort carve-out (cosmetic browser-storage preferences only):** a `catch` around reading/writing a *cosmetic UI preference* to `localStorage`/`sessionStorage` (e.g. remembering a panel's collapsed state) may degrade to a default WITHOUT a user-facing surface, provided it (a) carries a `// best-effort:` comment explaining why a banner would be disproportionate, and (b) stays observable via `console.warn` (or equivalent). This is the direct parallel to the `.ok()` `// best-effort:` carve-out. It does NOT extend to `fetch`/`authFetch` or ANY data read/write — a failed *data* operation is never best-effort and keeps the full explicit `.catch()` + error-UI requirement above.
 - Configuration: missing required config is a startup error with a message identifying which key is missing. Not a runtime surprise.
 - An empty file, a missing file, an empty JSON object, and a missing JSON object must be **distinguishable** in logs and behavior. Not collapsed.
 - Boundaries between audiences (template authoring comments vs. LLM prompt content) are code-enforced, not convention-enforced.

@@ -21,10 +21,9 @@
 
 import React from "react";
 import { ElementDetail } from "../services/causesOfAction";
-import { EvidenceRef, ElementProofStatus } from "../services/proofMatrix";
+import { ElementProofStatus } from "../services/proofMatrix";
 import { formatElementNumber } from "./CountCard";
 import { PROOF_MATRIX_GRID_TEMPLATE } from "./proofMatrixColumns";
-import EvidenceCell from "./EvidenceCell";
 import StatusPill from "./StatusPill";
 
 export interface ElementRowProps {
@@ -57,8 +56,13 @@ export interface ElementRowProps {
    * per-evidence chips live in the expanded detail, not the column.
    */
   supportingCount?: number;
-  /** Opposing evidence refs; empty today (no CONTRADICTS/REBUTS edges yet). */
-  opposingEvidence?: EvidenceRef[];
+  /**
+   * Disputes column magnitude — the backend's `disputing_evidence_count`
+   * (DISTINCT Evidence rebutting an allegation that bears on this Element). The
+   * column shows this count; the per-evidence items live in the expanded detail,
+   * exactly as Supporting does.
+   */
+  disputingCount?: number;
   /** Backend-derived proof status; rendered as-is, never re-computed (Rule 19). */
   proofStatus?: ElementProofStatus;
   /** Whether this matrix row is expanded (drives the caret + highlight). */
@@ -168,7 +172,7 @@ const MatrixRow: React.FC<ElementRowProps> = (props) => {
         {element.allegation_count}
       </span>
       <SupportingCountCell count={props.supportingCount ?? 0} />
-      <EvidenceCell items={props.opposingEvidence ?? []} />
+      <DisputingCountCell count={props.disputingCount ?? 0} />
       <StatusPill status={props.proofStatus ?? "no_allegations"} />
     </div>
   );
@@ -176,14 +180,33 @@ const MatrixRow: React.FC<ElementRowProps> = (props) => {
 
 /**
  * Supporting column cell: the corroborating-evidence magnitude. Renders the
- * number when > 0, or the muted "—" empty treatment (matching `EvidenceCell`'s
- * empty state) when 0. It only DISPLAYS the backend count — no derivation.
+ * number when > 0, or the muted "—" empty treatment when 0. It only DISPLAYS the
+ * backend count — no derivation.
  */
 const SupportingCountCell: React.FC<{ count: number }> = ({ count }) =>
   count > 0 ? (
     <span style={SUPPORTING_COUNT_STYLE}>{count}</span>
   ) : (
     <span style={SUPPORTING_EMPTY_STYLE} title="No supporting evidence">
+      —
+    </span>
+  );
+
+/**
+ * Disputes column cell: the rebutting-evidence magnitude. Mirrors
+ * {@link SupportingCountCell} — the number when > 0, the muted "—" when 0 — so
+ * the two columns read as a matched pair rather than two different treatments of
+ * the same kind of fact. It only DISPLAYS the backend count; no derivation.
+ *
+ * A zero here is a real reading ("nothing in the record disputes this Element"),
+ * not a pending state — which is precisely what the column showed before, when
+ * it was fed a hardcoded empty array over 41 real REBUTS edges.
+ */
+const DisputingCountCell: React.FC<{ count: number }> = ({ count }) =>
+  count > 0 ? (
+    <span style={SUPPORTING_COUNT_STYLE}>{count}</span>
+  ) : (
+    <span style={SUPPORTING_EMPTY_STYLE} title="No disputing evidence">
       —
     </span>
   );
@@ -239,7 +262,7 @@ const ZERO_BADGE_STYLE: React.CSSProperties = {
 
 // Supporting-count cell: a plain numeric magnitude (text, not an accent pill, so
 // it reads as a count and not as the allegation badge), and the muted "—" empty
-// treatment matching EvidenceCell.
+// treatment shared with the Disputes cell.
 const SUPPORTING_COUNT_STYLE: React.CSSProperties = {
   fontFamily: "var(--font-sans)",
   fontSize: "13px",

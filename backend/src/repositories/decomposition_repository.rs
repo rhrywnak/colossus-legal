@@ -2,22 +2,23 @@
 // backend/src/repositories/decomposition_repository.rs
 // =============================================================================
 //
-// Neo4j queries for GET /decomposition — overview of all 18 allegations.
+// Home of the shared error type used by all three decomposition repositories
+// (this file, allegation_detail_repository, rebuttals_repository).
 //
-// Also houses the shared error type used by all three decomposition
-// repositories (this file, allegation_detail_repository, rebuttals_repository).
+// The overview read that gave this file its name — `GET /decomposition` — was
+// retired in the 2026-07-27 honesty batch. Its summary reported `proven_count`
+// and `all_proven` derived from `status == "PROVEN"`, but the v5.1 migration had
+// dropped the allegation `status` property and the query returned a literal
+// NULL in its place, so the comparison could never be true: both figures were
+// zero/false by construction rather than by data. The page it fed was
+// unreachable from any link or nav item, and nothing else consumed the
+// endpoint, so the read was removed with it rather than left computing a
+// falsehood for no reader.
 //
-// RUST PATTERN: HashMap Accumulator for Row-to-Nested-Struct Mapping
-// ──────────────────────────────────────────────────────────────────
-// Neo4j returns flat rows (one per OPTIONAL MATCH combination). To build
-// nested JSON, we accumulate into a HashMap keyed by a grouping field,
-// then convert to a Vec of DTOs.
+// The type stays here (rather than moving to a new module) because both
+// surviving decomposition repositories import it and a rename would be churn
+// with no reader benefit.
 // =============================================================================
-
-use neo4rs::{query, Graph, Row};
-use std::collections::HashMap;
-
-use crate::dto::decomposition::{AllegationOverview, DecompositionResponse, DecompositionSummary};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared error type — used by all three decomposition repositories.
@@ -51,152 +52,5 @@ impl From<neo4rs::DeError> for DecompositionRepositoryError {
 impl From<colossus_graph::GraphAccessError> for DecompositionRepositoryError {
     fn from(value: colossus_graph::GraphAccessError) -> Self {
         DecompositionRepositoryError::GraphAccess(value)
-    }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Query constants — separates "what to query" from "how to process results"
-// ─────────────────────────────────────────────────────────────────────────────
-
-// v5.1 migration:
-//   - `:ComplaintAllegation` → `:Allegation`.
-//   - Property `a.allegation` (v4 prose) → `a.summary`.
-//   - Property `a.evidence_status` dropped; returned as `NULL`.
-//   - `a.title` kept (v5.1 short-label field).
-const OVERVIEW_CHAR_QUERY: &str = "
-    MATCH (a:Allegation)
-    OPTIONAL MATCH (charE:Evidence)-[c:CHARACTERIZES]->(a)
-    OPTIONAL MATCH (charE)-[:STATED_BY]->(speaker:Person)
-    OPTIONAL MATCH (rebE:Evidence)-[:REBUTS]->(charE)
-    RETURN a.id AS id,
-           a.title AS title,
-           a.summary AS description,
-           NULL AS status,
-           collect(DISTINCT c.characterization) AS characterizations,
-           collect(DISTINCT speaker.name) AS speakers,
-           count(DISTINCT rebE) AS rebuttal_count
-    ORDER BY a.id";
-
-// v5.1: `:ComplaintAllegation` → `:Allegation`. PROVES edge connects
-// directly to Allegation in both versions — no traversal change.
-const OVERVIEW_PROOF_QUERY: &str = "
-    MATCH (a:Allegation)
-    OPTIONAL MATCH (mc:MotionClaim)-[:PROVES]->(a)
-    RETURN a.id AS id,
-           count(DISTINCT mc) AS proof_count
-    ORDER BY a.id";
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Repository
-// ─────────────────────────────────────────────────────────────────────────────
-
-#[derive(Clone)]
-pub struct DecompositionRepository {
-    graph: Graph,
-}
-
-impl DecompositionRepository {
-    pub fn new(graph: Graph) -> Self {
-        Self { graph }
-    }
-
-    /// Fetch the decomposition overview: all allegations with characterizations,
-    /// proof counts, rebuttal counts, and a summary row.
-    pub async fn get_decomposition(
-        &self,
-    ) -> Result<DecompositionResponse, DecompositionRepositoryError> {
-        let mut char_result = self.graph.execute(query(OVERVIEW_CHAR_QUERY)).await?;
-        let proof_counts = self.build_proof_count_map().await?;
-
-        let mut allegations: Vec<AllegationOverview> = Vec::new();
-        let mut total_chars: i64 = 0;
-        let mut total_rebuttals: i64 = 0;
-        let mut proven_count: i64 = 0;
-
-        while let Some(row) = char_result.next().await? {
-            let (overview, chars, rebuttals, is_proven) =
-                Self::map_overview_row(&row, &proof_counts);
-            allegations.push(overview);
-            total_chars += chars;
-            total_rebuttals += rebuttals;
-            if is_proven {
-                proven_count += 1;
-            }
-        }
-
-        let total_allegations = allegations.len() as i64;
-
-        Ok(DecompositionResponse {
-            summary: DecompositionSummary {
-                total_allegations,
-                proven_count,
-                all_proven: proven_count == total_allegations,
-                total_characterizations: total_chars,
-                total_rebuttals,
-            },
-            allegations,
-        })
-    }
-
-    // ── Private: build proof count lookup from second query ───────────────
-
-    async fn build_proof_count_map(
-        &self,
-    ) -> Result<HashMap<String, i64>, DecompositionRepositoryError> {
-        let mut result = self.graph.execute(query(OVERVIEW_PROOF_QUERY)).await?;
-        let mut proof_counts: HashMap<String, i64> = HashMap::new();
-
-        while let Some(row) = result.next().await? {
-            let id: String = row.get("id").unwrap_or_default();
-            let count: i64 = row.get("proof_count").unwrap_or(0);
-            proof_counts.insert(id, count);
-        }
-
-        Ok(proof_counts)
-    }
-
-    // ── Private: map a single row to AllegationOverview ──────────────────
-    //
-    // Returns (overview, char_count, rebuttal_count, is_proven) so the
-    // caller can accumulate summary totals.
-
-    fn map_overview_row(
-        row: &Row,
-        proof_counts: &HashMap<String, i64>,
-    ) -> (AllegationOverview, i64, i64, bool) {
-        let id: String = row.get("id").unwrap_or_default();
-        let status: Option<String> = row.get("status").ok();
-
-        let characterizations: Vec<String> = row
-            .get::<Vec<Option<String>>>("characterizations")
-            .unwrap_or_default()
-            .into_iter()
-            .flatten()
-            .collect();
-
-        let speakers: Vec<String> = row
-            .get::<Vec<Option<String>>>("speakers")
-            .unwrap_or_default()
-            .into_iter()
-            .flatten()
-            .collect();
-
-        let rebuttal_count: i64 = row.get("rebuttal_count").unwrap_or(0);
-        let proof_count = proof_counts.get(&id).copied().unwrap_or(0);
-        let char_count = characterizations.len() as i64;
-        let is_proven = status.as_deref() == Some("PROVEN");
-
-        let overview = AllegationOverview {
-            id,
-            title: row.get("title").unwrap_or_default(),
-            description: row.get("description").ok(),
-            status,
-            characterized_by: speakers.into_iter().next(),
-            characterizations,
-            proof_count,
-            rebuttal_count,
-        };
-
-        (overview, char_count, rebuttal_count, is_proven)
     }
 }

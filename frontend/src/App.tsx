@@ -4,10 +4,9 @@ import Header from "./components/Header";
 import { AuthProvider } from "./context/AuthContext";
 import { CaseProvider } from "./context/CaseContext";
 import AllegationsPage from "./pages/AllegationsPage";
-import AnalysisPage from "./pages/AnalysisPage";
 import ContradictionsPage from "./pages/ContradictionsPage";
-import DecompositionPage from "./pages/DecompositionPage";
 import AllegationDetailPage from "./pages/AllegationDetailPage";
+import CaseHealthPage from "./pages/CaseHealthPage";
 import CountDetailPage from "./pages/CountDetailPage";
 import ProofMatrixPage from "./pages/ProofMatrixPage";
 import ProofReviewPage from "./pages/ProofReviewPage";
@@ -26,6 +25,7 @@ import DocumentWorkspaceTabs from "./pages/DocumentWorkspaceTabs";
 import HarmsPage from "./pages/HarmsPage";
 import Hearings from "./pages/Hearings";
 import Home from "./pages/Home";
+import NotFoundPage from "./pages/NotFoundPage";
 import Admin from "./pages/Admin";
 import People from "./pages/People";
 import PersonDetailPage from "./pages/PersonDetailPage";
@@ -56,7 +56,6 @@ const App: React.FC = () => {
           <main style={{ maxWidth: "1080px", margin: "0 auto", padding: "0 2rem" }}>
             <Routes>
               <Route path="/" element={<Home />} />
-              <Route path="/analysis" element={<AnalysisPage />} />
               <Route path="/allegations" element={<AllegationsPage />} />
               <Route path="/claims" element={<MotionClaimsPage />} />
               <Route path="/documents" element={<DocumentsPage />} />
@@ -67,9 +66,9 @@ const App: React.FC = () => {
               <Route path="/people/:id" element={<PersonDetailPage />} />
               <Route path="/hearings" element={<Hearings />} />
               <Route path="/decisions" element={<Decisions />} />
-              <Route path="/decomposition" element={<DecompositionPage />} />
               <Route path="/allegations/:id/detail" element={<AllegationDetailPage />} />
               <Route path="/cases/:slug/counts/:countId" element={<CountDetailPage />} />
+              <Route path="/cases/:slug/case-health" element={<CaseHealthPage />} />
               <Route path="/cases/:slug/proof-matrix" element={<ProofMatrixPage />} />
               <Route path="/cases/:slug/proof-review" element={<ProofReviewPage />} />
               <Route path="/cases/:slug/trial-prep" element={<TrialPrepDashboardPage />} />
@@ -85,6 +84,14 @@ const App: React.FC = () => {
               <Route path="/admin" element={<Admin />} />
               <Route path="/pipeline" element={<Navigate to="/documents" replace />} />
               <Route path="/pipeline/:id" element={<Navigate to="/documents" replace />} />
+              {/* Catch-all, and it must stay LAST: React Router v6 ranks routes by
+                  specificity rather than declaration order, so `*` cannot shadow a
+                  real route — but keeping it last is what makes that obvious to a
+                  reader adding the next one. Without it an unmatched URL rendered
+                  the Header over an empty <main>, which reads as a page that
+                  failed to load rather than one that does not exist (the
+                  /analysis and /decomposition retirement is what exposed it). */}
+              <Route path="*" element={<NotFoundPage />} />
             </Routes>
           </main>
         </div>

@@ -1,0 +1,222 @@
+# Extraction schema for motions — v5.3 (evidence-anchoring pipeline)
+#
+# Date: 2026-07-21 (rebuild-plan task 1.3)
+#
+# Purpose: Extract the dated, attorney-authored assertions a motion makes —
+# what is claimed, against whom, on what exhibits, and what relief is demanded —
+# and anchor them to the case backbone produced by the complaint
+# case-structuring pipeline.
+#
+# WHY THIS TYPE EXISTS (design v1 §1):
+#   A motion is a dated strike, and the corpus contains motions from BOTH sides:
+#   one attacking the complaint's counts, one attacking the opponent's discovery
+#   conduct. That gives the type both polarities of attack, the densest
+#   exhibit-citation apparatus in the corpus, and dated assertion events the
+#   pattern layer consumes from the paper side (the same material a hearing
+#   transcript supplies from the spoken side).
+#
+# THE TWO-AXIS STATEMENT MODEL (inherited from court_transcript v5.3):
+#   statement_type — WHAT KIND of assertion: factual_assertion /
+#                    attorney_argument / relief_request / legal_standard
+#   attribution    — WHOSE POSITION it states: own_determination / recitation
+#
+#   Pass 1 tags both; pass 2 GATES every finding-edge on attribution ==
+#   recitation. For a motion the recitation case is constant and load-bearing:
+#   motions quote the opponent at length — interrogatory answers, prior briefs,
+#   the complaint itself. A quoted opponent statement belongs to the SOURCE
+#   document's processing, not to this one. The motion contributes only "the
+#   movant cited this on DATE". Without the gate, every discovery answer quoted
+#   in a motion would be extracted twice, once as itself and once as the
+#   movant's own assertion.
+#
+# THE MOTION NEVER CORROBORATES:
+#   A motion is attorney-authored and unsworn. Its assertions CITE exhibits; the
+#   proof lives in the exhibit when that exhibit is processed as its own
+#   document, not in counsel's description of it. Same law as attorney argument
+#   in a transcript, and the load-bearing negative of this type.
+#
+# SCOPE — THE PARENT MOTION ONLY (SPEC_EXTENSION §8; ruling 2026-07-21 B1):
+#   A filed motion commonly has its exhibits bound into the same PDF. In the
+#   corpus sample, 24 of 30 pages are attachments: an appellate opinion, sworn
+#   affidavits, bank statements, another party's filing, and hearing transcript
+#   pages. Those are separate document types with their own schemas, their own
+#   speakers and their own authority. They are NOT the movant's assertions, and
+#   attributing them to the movant would record an appellate court's holding as
+#   something the moving attorney claimed.
+#   This schema therefore covers the parent motion only — caption through
+#   signature/proof of service. Attached instruments are referenced by
+#   exhibit_refs and onboarded separately. The pass-1 template enforces the
+#   boundary; nothing mechanical can.
+#
+# NOT the MotionClaim feature: this type produces Party and Evidence nodes. It
+# does not produce, feed, or populate the Neo4j MotionClaim nodes consumed by
+# the MotionClaims / Evidence Explorer surfaces, which arrive by a different
+# path entirely.
+#
+# NOTE: pipeline_type (evidence_anchoring) is declared in the PROFILE
+# (motion_v5_3.yaml), not here. The extraction-schema loader deserializes the
+# canonical key set only; a top-level pipeline_type risks a load failure.
+document_type: motion
+version: "5.3"
+description: "Motion filed with the court — a dated, attorney-authored request for relief, supported by factual assertions and argument citing exhibits. Each discrete assertion is an Evidence entity attributed to the MOVANT party. Assertions carry two axes: statement_type (what kind of assertion) and attribution (whose position it states). Quoted opponent material is a recitation and is never anchored. Covers the parent motion only; bound exhibits are separate documents. Produces Party and Evidence nodes — unrelated to the MotionClaim feature. Evidence-anchoring pipeline."
+
+entity_types:
+  - name: Party
+    required: true
+    min_count: 2
+    grounding_mode: name_match
+    category: reference
+    description: "A person or organization named in the motion — the moving party, the responding party, every attorney of record from the caption and signature block, and any third party whose conduct the motion puts at issue."
+    properties:
+      - name: party_name
+        type: string
+        required: true
+        description: "The party's ONE canonical name, used identically in every document"
+      - name: role
+        type: string
+        required: true
+        description: "judge, plaintiff, defendant, appellant, appellee, petitioner, respondent, attorney, witness, personal_representative, fiduciary, conservator, guardian_ad_litem, interested_party, decedent, third_party"
+      - name: party_type
+        type: string
+        required: true
+        description: "person or organization"
+      - name: aliases
+        type: string
+        description: "Other names, titles, and misspellings used for this party in this document, comma-separated. Motions refer to parties by procedural position as often as by name ('the Defendant', 'Plaintiff'), so those forms belong here."
+
+  - name: Evidence
+    required: true
+    min_count: 1
+    grounding_mode: verbatim
+    category: evidence
+    description: "One discrete assertion the motion makes — a factual claim, an argumentative characterization, a request for relief, or an applied legal standard. The verbatim_quote is the exact text of the assertion as filed. Each distinct assertion is a separate Evidence entity, analogous to one-Evidence-per-determination in a ruling and one-Evidence-per-turn in a transcript. Assertions restating an opponent's position ARE extracted (tagged attribution=recitation) so they remain inspectable, but pass 2 creates no finding-edge from them."
+    properties:
+      - name: title
+        type: string
+        required: true
+        description: "Short descriptive title summarizing what this assertion claims or demands — not a paragraph or section label."
+      - name: summary
+        type: string
+        required: true
+        description: "One-sentence summary of the assertion, argument, demand, or restated position."
+      - name: movant
+        type: string
+        required: true
+        description: "Canonical party_name of the moving party — the party on whose behalf this motion was filed, taken from the title and signature block rather than from caption position (a motion may be filed by either side, and caption order does not indicate who moved). Uniform across every Evidence entity in the document. DESCRIPTIVE property consumed by the scenario filtering and query layer; it does NOT alter edge derivation, which is decided by statement_type and attribution alone."
+      - name: asserted_against
+        type: string
+        description: "Canonical party_name of the party this particular assertion targets — usually the responding party, but a motion may assert against a third party whose conduct it puts at issue. Omit where an assertion targets no one in particular (a bare legal standard, a procedural recital). DESCRIPTIVE property consumed by the scenario filtering and query layer; it does NOT alter edge derivation."
+      - name: statement_type
+        type: string
+        required: true
+        description: "WHAT KIND of assertion this is — the first of the two axes. factual_assertion (a claim about what happened, typically exhibit-cited), attorney_argument (evaluative or characterizing advocacy prose), relief_request (what the motion demands — the numbered grounds' operative clauses and any WHEREFORE), legal_standard (recitation of a rule or case, extracted ONLY where applied to these facts; never for bare boilerplate)."
+      - name: attribution
+        type: string
+        required: true
+        description: "WHOSE POSITION this assertion states — the second axis, and the one pass 2 gates on. own_determination (the movant asserting, arguing, or demanding in its own voice) or recitation (the movant restating, summarizing, or quoting SOMEONE ELSE'S position — an opponent's interrogatory answer, a passage of the complaint, a prior brief, a court's earlier holding). A recitation reports an assertion; it does not make one. Motions quote opponents constantly, and the quoted material is a separate document with its own processing — so a recitation contributes only the fact that the movant cited it."
+      - name: exhibit_refs
+        type: string
+        description: "Exhibit citations attached to this assertion, comma-separated, as written ('Exhibit 22, Exhibit 19 p.6'). Raw material for the exhibit cross-reference layer. Motions cite exhibits by footnote as well as inline; resolve the footnote to the exhibit it names. Omit entirely when the assertion cites none."
+      - name: relief_sought
+        type: string
+        description: "For statement_type=relief_request only: what is demanded, in plain terms ('summary disposition under MCR 2.116(C)(10); sanctions under MCR 2.114'). Omit for every other statement_type."
+      - name: page_number
+        type: integer
+        required: true
+        description: "PDF page number where this assertion appears, read from the '--- Page N ---' marker in the document text"
+      - name: page_note
+        type: string
+        description: "If the assertion spans multiple pages, note the range, e.g. 'pages 12-13'"
+      - name: kind
+        type: string
+        required: true
+        description: "Always 'documentary' for motions (a filed written instrument)."
+      - name: evidence_strength
+        type: string
+        required: true
+        description: "attorney_assertion (a factual_assertion or attorney_argument in the movant's own voice — advocacy, never proof, however well documented), relief_demand (a relief_request — a demand, not evidence), applied_legal_standard (a legal_standard applied to these facts), recited_position (ANY statement_type with attribution=recitation — the movant restated it rather than asserting it; produces no finding-edge)."
+      - name: significance
+        type: string
+        required: true
+        description: "Why this assertion matters for trial preparation. For a factual assertion, what it claims and which exhibits are said to support it. For an argument, whose conduct or character is being characterized and in what terms. For a relief request, what is demanded against which claims. For a recitation, whose position is being restated and why it is NOT the movant's own assertion."
+      - name: weight
+        type: integer
+        description: "1-10 scale of evidentiary weight. Motions are unsworn advocacy and sit LOW on this scale regardless of how forcefully written: exhibit-cited factual assertions 3-5, bare argument 2-4, relief requests 1-2, recitations 1-3. A motion's value to the case is its dated, attributable content, not its evidentiary weight — do not raise the number because an assertion is important."
+      - name: pattern_tags
+        type: string
+        description: "Comma-separated tags for defense-axis and accusation-pattern analysis: judicial_bias, selective_enforcement, disparagement, unsupported_finding, procedural_irregularity, disproportionate_penalty"
+      - name: legal_basis
+        type: string
+        description: "Statute, court rule, or case law cited for this assertion, e.g. 'MCR 2.116(C)(10)', 'MCR 2.114', 'MCL 700.3805(3)'."
+      - name: event_date
+        type: string
+        description: "ISO-8601. The motion's FILING date, from the signature block or proof of service, carried on every assertion — a motion is a dated strike and that date is what places it in a repetition chain. If the assertion references a different dated event (an exhibit titled by date, 'on November 16, 2009'), record THAT date instead: it is the date the assertion is about."
+
+relationship_types:
+  - name: STATED_BY
+    description: "Evidence stated by Party. For a motion the STATED_BY target is the MOVANT — the party on whose behalf the motion was filed — for every Evidence entity in the document. A filing speaks for its party; signing counsel is extracted as a Party but assertions attribute to the client, exactly as a court ruling attributes every determination to the issuing court rather than to a clerk. Exactly one STATED_BY per Evidence; the count must equal the count of Evidence entities. NOTE this is the opposite of a transcript, where the speaker changes with every turn — a motion has one voice throughout."
+  - name: ABOUT
+    description: "Evidence is about (concerning) this Party. A single assertion may be ABOUT multiple parties — create one ABOUT relationship for each party it concerns. ABOUT is topical and structural, never directional: it carries no support, opposition, confirmation, or denial. It is created for recitations too, because a restated position is still ABOUT its subject."
+  - name: CORROBORATES
+    description: "NEVER EMITTED BY THIS DOCUMENT TYPE. Declared so the type's position is explicit rather than merely absent. A motion is attorney-authored and unsworn: its assertions cite exhibits, and the proof lives in the exhibit when that exhibit is processed as its own document. Counsel's description of what an exhibit shows is advocacy, not evidence of what the exhibit shows. Admitting it would let a party manufacture corroboration for its own allegations by filing a well-drafted brief, after which the corroboration tally would measure how forcefully something was argued rather than how well it was proven. There is no exception and no statement_type that unlocks it."
+  - name: CONTRADICTS
+    description: "This assertion conflicts with an assertion by the SAME party in a DIFFERENT document (cross-document, same-speaker impeachment). For motions this is the paper side of the repetition chain: a party asserting something in this filing that it, or the record, had already contradicted elsewhere. Both endpoints carry dates, which is what makes the sequence provable. NOTE: cross-document, documented here for LLM guidance and deliberately NOT listed in valid_patterns."
+  - name: REBUTS
+    description: "This assertion directly COUNTERS or DEFEATS the fact a complaint Allegation asserts — as a DATED ASSERTION OF REBUTTAL, not as an adjudicated defeat. A motion cannot defeat an allegation; only a court can. What a motion establishes is that the claim was contested, by whom, and on what date, with which exhibits cited in support. That dated contest is the evidentiary payload: a claim asserted once is a claim, while the same claim asserted again after it was answered on the record is a different fact, and only dated endpoints prove the sequence. A recitation never rebuts. NOTE: cross-document, documented here for LLM guidance and deliberately NOT listed in valid_patterns."
+  - name: CHARACTERIZES
+    description: "Evidence characterizes a Party: an assertion that labels or evaluates a party's conduct, character, competence, or motive in evaluative terms — calling claims 'frivolous', conduct 'deliberate', a party 'evasive', 'negligent', or 'intentionally sabotaging'. Create one CHARACTERIZES relationship from the Evidence to each Party it characterizes. This is where a motion earns its place in the pattern layer: an attorney's filed characterization of an opposing party is a dated, attributable instance of the accusation pattern, and motions are where such characterizations are most concentrated. NOT restricted by the unsworn nature of the document — the edge records that the movant characterized this party in these terms on this date, and asserts nothing about whether the characterization is accurate. It IS restricted by attribution: a movant quoting an opponent's characterization is reporting it, not making it. May also target a cross-document Allegation where the characterization bears on what that Allegation asserts about the party. Deliberately NOT listed in valid_patterns, mirroring court_ruling, discovery and court_transcript."
+
+# Required provenance properties applied to every relationship written to
+# Neo4j (per LEGAL_DATA_MODEL_v5_1.md §5.4). Populated by the ingest stage
+# at write time, not by the LLM extractor.
+relationship_properties:
+  - name: source_document_id
+    type: string
+    required: true
+    description: "ID of the Document whose extraction produced this relationship"
+  - name: extraction_run_id
+    type: string
+    required: true
+    description: "Identifier of the specific pipeline run that created this relationship (format: 'run-{i32}' for pipeline-extracted, 'manual-{user_id}-{ts}' for hand-authored, 'repair-{...}' for repair runs)"
+  - name: created_at
+    type: timestamp
+    required: true
+    description: "When the relationship was first created (Cypher datetime() at write time; preserved on subsequent re-ingests via coalesce)"
+
+# valid_patterns can ONLY reference entity types defined in THIS schema.
+# Cross-document relationships (REBUTS / CONTRADICTS / CHARACTERIZES →
+# Allegation from the complaint) are described in relationship_types above for
+# LLM guidance but are NOT listed here — the schema parser rejects references to
+# entity types not defined locally, and an Allegation endpoint here is fatal at
+# schema load, for EVERY extraction using this schema, not merely for the
+# offending edge. The cross-document edges persist via the context-whitelist +
+# prompt-prose + id-resolution mechanism, identical to every other v5.3 type.
+valid_patterns:
+  - from: Evidence
+    relationship: STATED_BY
+    to: Party
+  - from: Evidence
+    relationship: ABOUT
+    to: Party
+
+extraction_rules:
+  - "Extract the PARENT MOTION ONLY — caption through signature block and proof of service. Everything after the first exhibit cover sheet is an attached instrument belonging to another document type and is out of scope"
+  - "Extract EVERY discrete assertion in the parent motion as a separate Evidence entity — each numbered ground, each lettered sub-item, each argument paragraph making a distinct claim"
+  - "The verbatim_quote field is the exact filed text of the assertion — copy it character for character"
+  - "Classify every assertion on BOTH axes: statement_type (what kind of assertion) and attribution (whose position it states)"
+  - "attribution is recitation whenever the movant is restating, summarizing, or quoting someone else's position — an opponent's discovery answer, a passage of the complaint, a prior brief, an earlier court holding"
+  - "Attribute every assertion to the MOVANT, identified from the title and signature block rather than from caption position"
+  - "Carry the filing date as event_date on every assertion, in ISO-8601; where an assertion references a different dated event, record that date instead"
+  - "Resolve footnote markers to the exhibits they name and record them in exhibit_refs; a footnote marker fused to the end of a word or a year is still a footnote marker"
+  - "Extract a bare recitation of a legal standard as legal_basis on the assertion that applies it — do not create a separate Evidence entity for boilerplate rule text that is not applied to these facts"
+  - "Extract ALL parties named in the caption and signature block, including every attorney of record and any third party whose conduct the motion puts at issue"
+
+completeness_rules:
+  - type: entity_count
+    entity: Party
+    min: 2
+    message: "Expected at least the moving party and the responding party"
+  - type: entity_count
+    entity: Evidence
+    min: 1
+    message: "A motion with zero extracted assertions suggests extraction failure — check that the parent motion was reached and is not entirely exhibit material"
