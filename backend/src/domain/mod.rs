@@ -12,9 +12,15 @@
 // are validated against. Keeping them here means the same lookup can be reused by
 // later work (task 1.3's fact-role vocabulary mirrors the pattern `actor_role`
 // establishes) without reaching into the CRUD dto layer.
+//
+// `case_state` is the one resident that is a FAMILY rather than a flat lookup: it
+// is the sole home for case-state computation (the connection-tier partition
+// today, readiness verdicts later), and it carries a visibility law its own
+// `mod.rs` documents. Vocabularies stay flat here; anything that decides how the
+// case STANDS goes inside `case_state`.
 
 pub mod actor_role;
-pub mod connection_tier;
+pub mod case_state;
 pub mod fact_role;
 pub mod fact_status;
 pub mod llm_params;

@@ -60,7 +60,7 @@ pub struct CaseHealthInventoryResponse {
     pub case_slug: String,
 
     /// The version of the probative/topical partition the rates were computed
-    /// under ([`crate::domain::connection_tier::CONNECTION_TIER_LOOKUP_V`]).
+    /// under ([`crate::domain::case_state::partition::CONNECTION_TIER_LOOKUP_V`]).
     ///
     /// Domain note: this is what makes a stored snapshot honest later. Two rates
     /// computed under different partitions are not comparable, and a delta that

@@ -32,7 +32,7 @@ use serde::Serialize;
 use tracing::{error, info, instrument};
 
 use crate::auth::AuthUser;
-use crate::domain::connection_tier::CONNECTION_TIER_LOOKUP_V;
+use crate::domain::case_state::partition::CONNECTION_TIER_LOOKUP_V;
 use crate::dto::case_health::CaseHealthInventoryResponse;
 use crate::repositories::case_health_builder as builder;
 use crate::repositories::case_health_repository as repo;

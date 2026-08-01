@@ -17,7 +17,7 @@
 //! follows. `computed_at` is passed IN rather than read from `Utc::now()` here,
 //! precisely so these tests stay deterministic.
 
-use crate::domain::connection_tier::TOPICAL_EDGE_TYPES;
+use crate::domain::case_state::partition::ConnectionTier;
 use crate::dto::case_health::{
     CorpusConnection, DocumentConnection, EdgeClassCount, EdgeTripleCount, GraphInventory,
     LabelCount,
@@ -65,7 +65,11 @@ pub(crate) fn percent(count: i64, total: i64) -> Option<f64> {
 /// The edge-class column list the payload ships so the frontend holds no
 /// vocabulary of its own. Owned `String`s because the DTO crosses the wire.
 pub(crate) fn edge_class_names() -> Vec<String> {
-    TOPICAL_EDGE_TYPES.iter().map(|r| r.to_string()).collect()
+    ConnectionTier::Topical
+        .edge_types()
+        .iter()
+        .map(|r| r.to_string())
+        .collect()
 }
 
 /// Split label rows into the populated-label list and the unlabeled-node tally.
@@ -113,16 +117,17 @@ fn build_corpus(row: CorpusRow) -> CorpusConnection {
 /// Shape one Document row, zipping its parallel per-class counts back onto the
 /// class names.
 ///
-/// The repository builds one query column per entry of `TOPICAL_EDGE_TYPES`, in
-/// that order, so `row.by_edge_class` is positionally parallel to it. `zip`
-/// stops at the shorter of the two, which means a length mismatch would silently
-/// truncate — so the caller asserts the lengths agree
-/// (`document_class_counts_are_parallel_to_the_tier_constant` in the tests) and
-/// the repository builds both from the same constant, leaving no way for them to
-/// drift at runtime.
+/// The repository builds one query column per entry of
+/// `ConnectionTier::Topical.edge_types()`, in that order, so `row.by_edge_class`
+/// is positionally parallel to it. `zip` stops at the shorter of the two, which
+/// means a length mismatch would silently truncate — so the caller asserts the
+/// lengths agree (`document_class_counts_are_parallel_to_the_tier_constant` in
+/// the tests) and the repository builds both from the same accessor, leaving no
+/// way for them to drift at runtime.
 fn build_document(row: DocumentRow) -> DocumentConnection {
     let inert = row.evidence_total - row.topical_connected;
-    let by_edge_class = TOPICAL_EDGE_TYPES
+    let by_edge_class = ConnectionTier::Topical
+        .edge_types()
         .iter()
         .zip(row.by_edge_class.iter())
         .map(|(rel_type, item_count)| EdgeClassCount {

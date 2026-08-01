@@ -505,6 +505,60 @@ link or nav item).
 
 ---
 
+## 2026-08-01 | SOFTWARE ARCHITECT (Roman Approved) — A0: Case State skeleton
+
+### Decision
+Establish `backend/src/domain/case_state/` as the sole home for case-state
+computation, and move the shipped connection-tier partition into it as
+`partition.rs` before any verdict work begins. The move carries no new
+computation: the file's content is unchanged apart from its header and the
+visibility narrowing below. Alongside it, ratify the **layering law** — verdicts
+consume only the partition's output types; the three tier sets
+(probative, topical-only, topical) lose `pub` and become private to
+`partition.rs`, so no module outside `case_state` can name one. Every caller now
+routes through `ConnectionTier::edge_types()`: `case_health_repository`,
+`case_health_builder`, both their test modules, `dto/case_health` and
+`api/case_health`. A Rule-21 filesystem scan
+(`case_state::visibility_invariants`) fails the build if the visibility widens or
+if a tier-set name appears outside the family. No shim was left at the old path.
+
+### Rationale
+Phases 1–2 are about to build readiness verdicts, hazard/ammunition and
+conservation identities. Landing that beside scenario code means relocating it
+later, and — the real cost — it leaves an interval in which a fourth definition
+of "connected" can grow in whatever module happens to need one. Establishing the
+family first means every later tenant arrives into a structure that already
+answers "where does this go?"
+
+The law's scope is notions of CONNECTEDNESS, not the schema vocabulary. Roughly
+eight repository modules legitimately interpolate `schema::CORROBORATES` and
+friends into Cypher because they are walking the graph; imprisoning the
+`neo4j::schema` constants was never the intent and would forbid ordinary query
+construction. It is the tier SETS that constitute a definition of connected, so
+it is the sets that are private. Visibility is the enforcement — the scan exists
+because adding `pub` is a one-character change that review can miss and the
+compiler would then accept silently.
+
+### Impacts
+- **Data Architect:** None. No schema change, no query change, no migration.
+- **DB Engineer:** None.
+- **Software Architect:** No API contract change and no public surface added —
+  the change is a net narrowing. Every displayed figure is bit-identical: the
+  generated Cypher is asserted string-for-string by the pre-existing
+  `case_health_repository_tests`, which were re-pointed but not re-baselined.
+
+### Action Required
+- [x] Create the `case_state` family and move the partition in unchanged
+- [x] Narrow the tier sets to private; re-point all callers to the accessor
+- [x] Rule-21 scan pinning the visibility law
+- [ ] Roman: G0 merge to main after review
+- [ ] Software Architect: A-remainder owns the probative-triple traversals that
+      still bypass the partition (`scenario_repository::EvidencePolarity`,
+      `causes_of_action`, `element_detail`, `allegation_detail`,
+      `proof_review`), plus `derive_proof_status`, post-B
+
+---
+
 ## Template for Future Entries
 
 ```markdown

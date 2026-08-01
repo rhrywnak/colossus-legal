@@ -44,7 +44,7 @@
 
 use neo4rs::{query, Graph, Row};
 
-use crate::domain::connection_tier::{PROBATIVE_EDGE_TYPES, TOPICAL_EDGE_TYPES};
+use crate::domain::case_state::partition::ConnectionTier;
 use crate::models::document_status::{ENTITY_ALLEGATION, ENTITY_DOCUMENT, ENTITY_EVIDENCE};
 use crate::neo4j::schema;
 
@@ -111,11 +111,10 @@ pub(crate) struct CorpusRow {
 
 /// One Document's Evidence yield and connection breakdown.
 ///
-/// `by_edge_class` is parallel to
-/// [`crate::domain::connection_tier::TOPICAL_EDGE_TYPES`] — same length, same
-/// order — because the query builds one column per entry of that constant. The
-/// builder zips the two, so a class added to the tier definition flows through
-/// to the payload with no change here.
+/// `by_edge_class` is parallel to `ConnectionTier::Topical.edge_types()` — same
+/// length, same order — because the query builds one column per entry of that
+/// tier. The builder zips the two, so a class added to the tier definition flows
+/// through to the payload with no change here.
 #[derive(Debug, Clone)]
 pub(crate) struct DocumentRow {
     pub document_id: String,
@@ -141,12 +140,14 @@ fn class_alias(rel_type: &str) -> String {
 }
 
 /// `size([...])` expressions counting `node_var`'s edges to an Allegation, one
-/// per class in `TOPICAL_EDGE_TYPES`, comma-joined for a `WITH` clause.
+/// per class in `ConnectionTier::Topical.edge_types()`, comma-joined for a
+/// `WITH` clause.
 ///
 /// Each comprehension binds its own inner variable (`x_corroborates`, …) because
 /// two comprehensions in one `WITH` may not reuse a name.
 fn class_count_expressions(node_var: &str) -> String {
-    TOPICAL_EDGE_TYPES
+    ConnectionTier::Topical
+        .edge_types()
         .iter()
         .map(|rel| {
             let alias = class_alias(rel);
@@ -202,12 +203,12 @@ fn corpus_query() -> String {
         contained_in = schema::CONTAINED_IN,
         probative = item_tally(
             None,
-            &tier_sum_expression(PROBATIVE_EDGE_TYPES),
+            &tier_sum_expression(ConnectionTier::Probative.edge_types()),
             "probative_connected"
         ),
         topical = item_tally(
             None,
-            &tier_sum_expression(TOPICAL_EDGE_TYPES),
+            &tier_sum_expression(ConnectionTier::Topical.edge_types()),
             "topical_connected"
         ),
     )
@@ -220,7 +221,8 @@ fn corpus_query() -> String {
 /// a finding — a document that cost money and yielded nothing — and dropping it
 /// would hide exactly what this pane exists to show.
 fn documents_query() -> String {
-    let per_class_tallies = TOPICAL_EDGE_TYPES
+    let per_class_tallies = ConnectionTier::Topical
+        .edge_types()
         .iter()
         .map(|rel| {
             let alias = class_alias(rel);
@@ -228,7 +230,8 @@ fn documents_query() -> String {
         })
         .collect::<Vec<_>>()
         .join(", ");
-    let per_class_returns = TOPICAL_EDGE_TYPES
+    let per_class_returns = ConnectionTier::Topical
+        .edge_types()
         .iter()
         .map(|rel| format!("{}_items", class_alias(rel)))
         .collect::<Vec<_>>()
@@ -246,12 +249,12 @@ fn documents_query() -> String {
         classes = class_count_expressions("e"),
         probative = item_tally(
             Some("e IS NOT NULL"),
-            &tier_sum_expression(PROBATIVE_EDGE_TYPES),
+            &tier_sum_expression(ConnectionTier::Probative.edge_types()),
             "probative_connected"
         ),
         topical = item_tally(
             Some("e IS NOT NULL"),
-            &tier_sum_expression(TOPICAL_EDGE_TYPES),
+            &tier_sum_expression(ConnectionTier::Topical.edge_types()),
             "topical_connected"
         ),
     )
@@ -378,8 +381,9 @@ pub(crate) async fn fetch_document_rows(
         .param("allegation_label", ENTITY_ALLEGATION)
         .param("document_label", ENTITY_DOCUMENT);
     collect_rows(graph, "fetch_document_rows", q, |row| {
-        let mut by_edge_class = Vec::with_capacity(TOPICAL_EDGE_TYPES.len());
-        for rel in TOPICAL_EDGE_TYPES {
+        let topical_classes = ConnectionTier::Topical.edge_types();
+        let mut by_edge_class = Vec::with_capacity(topical_classes.len());
+        for rel in topical_classes {
             by_edge_class.push(row.get(&format!("{}_items", class_alias(rel)))?);
         }
         Ok(DocumentRow {
