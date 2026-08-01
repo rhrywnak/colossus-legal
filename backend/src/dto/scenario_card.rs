@@ -59,6 +59,16 @@ pub struct CardQuote {
 pub struct CardPinpoint {
     pub document_id: String,
     pub document_title: String,
+    /// The full pinpoint line, pre-composed — "CFS responses at 26".
+    ///
+    /// ## Domain note: why the label ships composed, like the stance summary
+    ///
+    /// The client must not join `document_title` and `page` itself. That would be
+    /// the browser making a presentation decision about case vocabulary, which is
+    /// exactly what [`CardStance::summary`] exists to prevent one field over. The
+    /// raw parts stay on the payload for a client that wants to lay them out
+    /// differently; the label is what gets rendered.
+    pub label: String,
     /// `None` when the record carries no page. The card shows the document
     /// without a page rather than inventing one.
     pub page: Option<i64>,

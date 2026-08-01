@@ -101,6 +101,23 @@ pub enum RulingKind {
     /// Task 2.5 then needs no special case — reading the ledger forward
     /// distinguishes "included, still live" from "included, later removed".
     Remove,
+    /// The human took back their last ruling, returning the candidate to
+    /// undecided — the triage queue's single-step undo (task 1.3).
+    ///
+    /// ## Domain note: why this is not `Undrop`
+    ///
+    /// `Undrop` already produces the right STATE for an undo: it returns the row
+    /// to undecided and clears any defer reason. What it cannot do is tell the
+    /// truth. Undoing an INCLUDE writes `ruled_status = 'undrop'` for an item that
+    /// was never dropped, and undoing a DEFER writes it for one that was never
+    /// dropped either — a false word in the forensic record, which is exactly the
+    /// dishonesty the 2026-08-01 ratification closed when it made the ledger's
+    /// vocabulary the truth of the act.
+    ///
+    /// So the state transition is shared and the WORD is not. `Undrop` keeps its
+    /// own meaning (recovery from the set-aside tray, a deliberate act on a
+    /// dropped item); `Reopen` means "take back whatever I just ruled".
+    Reopen,
 }
 
 impl RulingKind {
@@ -115,6 +132,7 @@ impl RulingKind {
         RulingKind::Defer,
         RulingKind::Undrop,
         RulingKind::Remove,
+        RulingKind::Reopen,
     ];
 
     /// The stable wire token, bound into `scenario_ruling_anchors.ruled_status`.
@@ -125,6 +143,7 @@ impl RulingKind {
             RulingKind::Defer => "defer",
             RulingKind::Undrop => "undrop",
             RulingKind::Remove => "remove",
+            RulingKind::Reopen => "reopen",
         }
     }
 
@@ -141,9 +160,11 @@ impl RulingKind {
     /// that ever reaches the table without passing through here.
     pub fn requires_document(self) -> bool {
         match self {
-            RulingKind::Include | RulingKind::Exclude | RulingKind::Defer | RulingKind::Undrop => {
-                true
-            }
+            RulingKind::Include
+            | RulingKind::Exclude
+            | RulingKind::Defer
+            | RulingKind::Undrop
+            | RulingKind::Reopen => true,
             RulingKind::Remove => false,
         }
     }
@@ -186,7 +207,9 @@ impl RulingKind {
     pub fn requires_quote(self) -> bool {
         match self {
             RulingKind::Include | RulingKind::Exclude => true,
-            RulingKind::Defer | RulingKind::Undrop | RulingKind::Remove => false,
+            RulingKind::Defer | RulingKind::Undrop | RulingKind::Remove | RulingKind::Reopen => {
+                false
+            }
         }
     }
 
@@ -313,7 +336,7 @@ mod tests {
 
     #[test]
     fn all_lists_every_ruling_kind_once() {
-        assert_eq!(RulingKind::ALL.len(), 5);
+        assert_eq!(RulingKind::ALL.len(), 6);
         for &kind in RulingKind::ALL {
             assert_eq!(
                 RulingKind::ALL.iter().filter(|k| **k == kind).count(),
@@ -322,6 +345,18 @@ mod tests {
                 kind.code()
             );
         }
+    }
+
+    /// Reopen and undrop reach the same STATE but are different words.
+    ///
+    /// This is the whole reason `Reopen` exists. If a future edit collapsed them,
+    /// the ledger would start recording "undrop" for items that were never
+    /// dropped — a false entry in the record that exists to be trusted.
+    #[test]
+    fn reopen_and_undrop_are_distinct_words() {
+        assert_ne!(RulingKind::Reopen.code(), RulingKind::Undrop.code());
+        assert_eq!(RulingKind::Reopen.code(), "reopen");
+        assert_eq!(RulingKind::Undrop.code(), "undrop");
     }
 
     #[test]
@@ -346,6 +381,9 @@ mod tests {
         // requirement: it is an undo, and an item that cannot be quoted is often
         // precisely the one a human wants to discard.
         assert!(!RulingKind::Remove.requires_quote());
+        // Undo must never be blocked by content: a human who included something
+        // unquotable by mistake has to be able to take it back.
+        assert!(!RulingKind::Reopen.requires_quote());
     }
 
     #[test]
@@ -362,6 +400,9 @@ mod tests {
         // human must always be able to discard a reference to something that has
         // gone — including something that never had a document.
         assert!(!RulingKind::Remove.requires_document());
+        // Reopen takes the same profile as the state it re-enters: a candidate
+        // being returned to undecided is still record evidence.
+        assert!(RulingKind::Reopen.requires_document());
     }
 
     #[test]
@@ -374,6 +415,9 @@ mod tests {
         assert!(!RulingKind::Defer.tolerates_missing_node());
         assert!(!RulingKind::Undrop.tolerates_missing_node());
         assert!(RulingKind::Remove.tolerates_missing_node());
+        // Reopen is NOT tolerant: undoing a ruling on an item the graph has lost
+        // would write an anchor that was never read — the 2026-07-24 failure.
+        assert!(!RulingKind::Reopen.tolerates_missing_node());
     }
 
     #[test]
@@ -383,6 +427,7 @@ mod tests {
         assert!(!RulingKind::Exclude.requires_reason());
         assert!(!RulingKind::Undrop.requires_reason());
         assert!(!RulingKind::Remove.requires_reason());
+        assert!(!RulingKind::Reopen.requires_reason());
     }
 
     #[test]

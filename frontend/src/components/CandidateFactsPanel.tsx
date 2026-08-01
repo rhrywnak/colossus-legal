@@ -42,6 +42,7 @@ import {
   STATUS_FILTERS,
   STATUS_FILTER_LABEL,
   type StatusFilter,
+  type WorkbenchAction,
 } from "./candidateWorkbench";
 
 interface Props {
@@ -133,7 +134,7 @@ const staleCardStyle: React.CSSProperties = {
 
 // One button style per ruling. `include` reads as the affirmative accent; `drop`
 // as the danger exclusion; `undrop` as a neutral recovery.
-const actionBtnStyle: Record<FactAction, React.CSSProperties> = {
+const actionBtnStyle: Record<WorkbenchAction, React.CSSProperties> = {
   include: {
     padding: "0.2rem 0.6rem",
     fontSize: "0.74rem",

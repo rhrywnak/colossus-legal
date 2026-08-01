@@ -29,8 +29,14 @@ import { readErrorMessage } from "./fetchUtils";
 export type FactStatus = "undecided" | "included" | "dropped";
 
 /** A human ruling to apply (backend `FactAction`). Note the vocabularies differ
- *  from `FactStatus`: `undrop` is a verb, not a state — it maps to `undecided`. */
-export type FactAction = "include" | "drop" | "undrop";
+ *  from `FactStatus`: `undrop` is a verb, not a state — it maps to `undecided`.
+ *
+ *  `defer` and `reopen` also land in `undecided`, and the three are NOT
+ *  interchangeable: `undrop` recovers a set-aside item, `defer` parks one with a
+ *  stated reason, `reopen` takes back the last ruling. The backend records each
+ *  as its own word in the ruling ledger, so sending the wrong one writes a false
+ *  entry in the forensic record even though the state would look right. */
+export type FactAction = "include" | "drop" | "undrop" | "defer" | "reopen";
 
 /**
  * One candidate in the workbench pool (backend `CandidateDto`).
@@ -159,13 +165,17 @@ export async function applyFactAction(
   scenarioId: string,
   graphNodeId: string,
   action: FactAction,
+  /** Required for `defer`, refused for every other action (backend law). The
+   *  key is omitted entirely when absent, so a non-defer body is unchanged from
+   *  before this parameter existed. */
+  reason?: string,
 ): Promise<void> {
   const response = await authFetch(
     `${factsUrl(slug, scenarioId)}/${encodeURIComponent(graphNodeId)}/action`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action }),
+      body: JSON.stringify(reason == null ? { action } : { action, reason }),
     },
   );
 

@@ -152,6 +152,8 @@ pub(crate) fn action_to_status(action: FactAction) -> FactStatus {
         // untouched candidate is the `defer_reason` written beside it, and the
         // ledger row recording that a human looked.
         FactAction::Defer => FactStatus::Undecided,
+        // Undo returns the candidate to the neutral state, whatever it was in.
+        FactAction::Reopen => FactStatus::Undecided,
     }
 }
 
@@ -175,6 +177,7 @@ pub(crate) fn action_to_ruling_kind(action: FactAction) -> RulingKind {
         FactAction::Drop => RulingKind::Exclude,
         FactAction::Undrop => RulingKind::Undrop,
         FactAction::Defer => RulingKind::Defer,
+        FactAction::Reopen => RulingKind::Reopen,
     }
 }
 
@@ -331,6 +334,8 @@ mod tests {
         // two records would disagree, and the human would simply lose the card
         // with no error anywhere.
         assert_eq!(action_to_status(FactAction::Defer), FactStatus::Undecided);
+        // Undo returns to the neutral state, like defer and undrop.
+        assert_eq!(action_to_status(FactAction::Reopen), FactStatus::Undecided);
     }
 
     /// The ledger's vocabulary is not the workbench's, and the mapping between
@@ -353,6 +358,15 @@ mod tests {
             RulingKind::Undrop
         );
         assert_eq!(action_to_ruling_kind(FactAction::Defer), RulingKind::Defer);
+        // The pair that must NOT collapse: same state, different words.
+        assert_eq!(
+            action_to_ruling_kind(FactAction::Reopen),
+            RulingKind::Reopen
+        );
+        assert_ne!(
+            action_to_ruling_kind(FactAction::Reopen),
+            action_to_ruling_kind(FactAction::Undrop)
+        );
     }
 
     /// Each refusal reaches the client as its own status code and its own reason

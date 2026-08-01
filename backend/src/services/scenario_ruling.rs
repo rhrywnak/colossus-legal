@@ -4,7 +4,8 @@
 //! ## Why this is a service and not part of the handler
 //!
 //! Two HTTP routes make rulings — `add_scenario_fact` (a bare include) and
-//! `apply_fact_action` (include / drop / defer / undrop) — and any future machine
+//! `apply_fact_action` (include / drop / defer / undrop / reopen) — plus the
+//! removal path, and any future machine
 //! ruling path will make a third. The anchor law says EVERY ruling records an
 //! anchor, so the capture and the write have to live in one place that all of them
 //! go through. A helper inside one handler module would leave the next caller free

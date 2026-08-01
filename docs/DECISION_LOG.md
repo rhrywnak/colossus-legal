@@ -751,6 +751,74 @@ unchanged and still serves the shipped workbench until 1.3 switches it over.
 
 ---
 
+## 2026-08-01 | SOFTWARE ARCHITECT (Roman Approved) — task 1.3: card UI and keyboard triage
+
+### Decision
+Replace the candidate workbench with a keyboard TRIAGE QUEUE rendering the §7
+card contract from the 1.2 payload. `I` include · `E` exclude · `D` defer ·
+`U` undo, auto-advance, single-step undo, an inline defer prompt, a defer queue
+with visible reasons, a running ruled/remaining count, and no page navigation to
+rule. The source PDF sits in a split pane beside the focused card.
+
+One backend change, the only one this task permits: **`FactAction::Reopen` /
+`RulingKind::Reopen`**, the verb that takes back a ruling.
+
+### Rationale
+The pool is 148 candidates per scenario and 399 of 525 Evidence nodes are
+unrulable as they stand, so the surface has to clear items at keyboard speed or
+it will not be used. The proven patterns are Rayyan one-key screening and
+Relativity save-and-advance, rendered in the Casefleet card layout.
+
+Four decisions worth recording:
+
+- **Reopen is a new word, not a reuse of `undrop`.** `undrop` already produces
+  the right STATE for an undo — undecided, defer reason cleared — but it would
+  write "undrop" to the ruling ledger for an item that was never dropped. That is
+  a false entry in the forensic record, which is exactly what the 2026-08-01
+  ratification closed when it made the ledger's vocabulary the truth of the act.
+  Same transition, different word.
+- **The split-pane viewer stays** (deviation from the study's new-tab reading,
+  stated per §2c): verifying a quote against its page is the action a triager
+  repeats constantly, and a shipped `PdfViewer` already does it in place. The
+  pinpoint chip still carries `viewer_href` for a full new-tab read.
+- **The logic is a pure reducer, not a component.** CLAUDE.md rule 30 records
+  that DOM test infrastructure is deliberately absent; rather than reverse a
+  standing convention mid-phase, the keyboard state machine and the §7 card
+  descriptor were extracted as pure functions and tested exhaustively (31 tests).
+  What that cannot cover — that the JSX faithfully walks the descriptor — is what
+  the G1 DEV verify line covers. RTL + jsdom rides task 2.7 if wanted.
+- **The orphan guarantee moved with the surface.** The card endpoint is
+  pool-driven like gather, so a saved fact whose graph node vanished is absent
+  from it. The queue makes the same second `listScenarioFacts` read and renders
+  the orphan strip below. Dropping it would have regressed a ratified policy.
+
+### Impacts
+- **Data Architect:** None.
+- **DB Engineer:** None — no migration. `Reopen` writes through the existing
+  `record_ruling` path, so it is anchored and ledgered by construction.
+- **Software Architect:** `CandidateFactsPanel` (763 lines) is no longer mounted
+  anywhere. It is left in the tree deliberately: removing it plus its shipped
+  helper tests is its own reviewable change, and keeping it through G1 means the
+  old surface is one line away if the queue disappoints on DEV. Flagged for
+  removal after G1.
+
+### API contract changes
+`POST …/facts/:graph_node_id/action` — `action` accepts `reopen`. No response
+shape changed. The frontend `FactAction` union widened to include `defer` and
+`reopen`; the old workbench's button maps were narrowed to a `WorkbenchAction`
+subtype rather than given entries for verbs it never renders.
+
+### Action Required
+- [x] Reopen verb, the triage queue, the defer prompt and queue, the orphan strip
+- [ ] Roman: verify on DEV after the Phase-1 batch deploys at G1 — "rule 10
+      candidates without touching the mouse or leaving the queue"
+- [ ] Software Architect: remove `CandidateFactsPanel` and its now-unused helpers
+      after G1 confirms the queue
+- [ ] Software Architect: task 2.7 may add RTL + jsdom if DOM-level component
+      tests are wanted; 1.3 deliberately did not reverse the no-DOM convention
+
+---
+
 ## Template for Future Entries
 
 ```markdown

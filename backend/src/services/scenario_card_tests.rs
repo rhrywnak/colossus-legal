@@ -122,6 +122,8 @@ fn every_section_seven_element_is_present_on_a_complete_card() {
         card.pinpoint.viewer_href,
         "/documents/doc-7?page=14&tab=document"
     );
+    // The label ships composed so the client joins nothing.
+    assert_eq!(card.pinpoint.label, "CFS interrogatory responses at 14");
 
     // §7.3 speaker + statement kind.
     assert_eq!(card.speaker.name.as_deref(), Some("R. Phillips"));
@@ -507,6 +509,8 @@ fn a_pageless_item_gets_a_viewer_link_without_a_page_anchor() {
     assert_eq!(card.pinpoint.page, None);
     assert_eq!(card.pinpoint.viewer_href, "/documents/doc-7?tab=document");
     assert!(!card.pinpoint.viewer_href.contains("page="));
+    // A page-less item reads as the document alone — never "… at null".
+    assert_eq!(card.pinpoint.label, "CFS interrogatory responses");
 }
 
 // ── Human defer reason (task 1.1) ─────────────────────────────────────────────

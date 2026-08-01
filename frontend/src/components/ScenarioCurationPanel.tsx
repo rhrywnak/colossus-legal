@@ -9,13 +9,24 @@
 // that frames the `CandidateFactsPanel` workbench and preserves the mount
 // contract from `ScenarioDetailPage` (slug, scenarioId, definition).
 //
+// Task 1.3 swaps the workbench for the keyboard TRIAGE QUEUE (`CardQueue`): the
+// same job — rule on every candidate — done at the speed the pool actually needs
+// (399 of 525 candidates are unrulable-as-they-stand, so one-key defer is the
+// common case). The queue renders the §7 card contract from the 1.2 payload.
+//
 // The orphan guarantee (a confirmed fact whose graph node vanished must still
-// surface) moved DOWN into `CandidateFactsPanel` (its `listScenarioFacts` +
-// `findOrphans` path), so it lives beside the gather fetch it reconciles against.
+// surface) moves WITH the surface: `CardQueue` makes the same second
+// `listScenarioFacts` read and renders the strip below the queue.
+//
+// `CandidateFactsPanel` is no longer mounted anywhere. It is left in the tree
+// rather than deleted in this task: removing 763 lines plus its shipped helper
+// tests is its own reviewable change, and keeping it available through G1 means
+// the old surface can be restored in one line if the queue disappoints on DEV.
+// Flagged for removal in the 1.3 report.
 
 import React from "react";
 
-import CandidateFactsPanel from "./CandidateFactsPanel";
+import CardQueue from "./CardQueue";
 import type { ScenarioDefinition } from "../pages/trialPrepData";
 
 interface Props {
@@ -56,17 +67,10 @@ const ScenarioCurationPanel: React.FC<Props> = ({
     <div>
       <div style={sectionLabel}>Scenario facts</div>
       <p style={hintStyle}>
-        Browse every candidate about this scenario&rsquo;s subject and rule on
-        each: <strong>include</strong> a fact, <strong>drop</strong> one, or{" "}
-        <strong>un-drop</strong> it back to the pool. Filter by status to review
-        what you have included so far.
+        Rule on every candidate from the keyboard, without leaving this queue.
+        The source page sits beside each card.
       </p>
-      <CandidateFactsPanel
-        slug={slug}
-        scenarioId={scenarioId}
-        definition={definition}
-        externalRefresh={externalRefresh}
-      />
+      <CardQueue slug={slug} scenarioId={scenarioId} externalRefresh={externalRefresh} />
     </div>
   );
 };

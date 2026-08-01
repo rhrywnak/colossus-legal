@@ -298,6 +298,17 @@ fn quote_context(page_text: Option<&str>, quote: &str) -> (String, String) {
     )
 }
 
+/// The pinpoint line as the card shows it, composed server-side.
+///
+/// A page-less item reads as the document alone rather than "… at null" — the
+/// absence is rendered by omission, never by a placeholder.
+fn pinpoint_label(document_title: &str, page: Option<i64>) -> String {
+    match page {
+        Some(page) => format!("{document_title} at {page}"),
+        None => document_title.to_string(),
+    }
+}
+
 /// The viewer link for a pinpoint, assembled server-side.
 ///
 /// Matches the route the document workspace already serves (`/documents/:id`)
@@ -394,6 +405,14 @@ pub(crate) fn build_card(
             question: instance.question.clone(),
         },
         pinpoint: CardPinpoint {
+            label: pinpoint_label(
+                &instance
+                    .document
+                    .as_ref()
+                    .map(|d| d.title.clone())
+                    .unwrap_or_default(),
+                instance.page_number,
+            ),
             document_title: instance
                 .document
                 .as_ref()

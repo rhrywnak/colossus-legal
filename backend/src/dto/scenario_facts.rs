@@ -215,6 +215,16 @@ pub enum FactAction {
     /// "nobody has opened this". The reason is what carries the difference, which
     /// is why it is required for this action and refused for every other.
     Defer,
+    /// The human took back their last ruling → `Undecided`, and any defer reason
+    /// is cleared.
+    ///
+    /// ## Domain note: why not reuse `undrop`
+    ///
+    /// `undrop` lands in the same state, but the ledger would then record
+    /// "undrop" for an item that was never dropped — a false word in the forensic
+    /// record. The triage queue's single-step undo needs a verb that says what
+    /// actually happened. See [`crate::domain::ruling_anchor::RulingKind::Reopen`].
+    Reopen,
 }
 
 /// Request body for `POST /cases/:slug/scenarios/:scenario_id/facts/:graph_node_id/action`.
@@ -292,11 +302,19 @@ mod tests {
     }
 
     #[test]
+    fn reopen_parses_and_takes_no_reason() {
+        let parsed: FactActionRequest =
+            serde_json::from_value(json!({ "action": "reopen" })).expect("reopen parses");
+        assert!(matches!(parsed.action, FactAction::Reopen));
+        assert_eq!(parsed.reason, None);
+    }
+
+    #[test]
     fn the_other_actions_still_parse_without_a_reason() {
         // The new optional field must not have made `reason` mandatory for the
         // three verbs that shipped before it — that would break every existing
         // client call.
-        for token in ["include", "drop", "undrop"] {
+        for token in ["include", "drop", "undrop", "reopen"] {
             let parsed: Result<FactActionRequest, _> =
                 serde_json::from_value(json!({ "action": token }));
             assert!(parsed.is_ok(), "{token} must still parse with no reason");

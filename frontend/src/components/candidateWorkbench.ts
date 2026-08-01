@@ -96,7 +96,7 @@ export function countByStatus(candidates: CandidateDto[]): {
  * THIS function fails to compile until its case is written. The compiler becomes
  * the checklist; a new state cannot silently fall through with no actions.
  */
-export function actionsForStatus(status: FactStatus): FactAction[] {
+export function actionsForStatus(status: FactStatus): WorkbenchAction[] {
   switch (status) {
     case "undecided":
       return ["include", "drop"];
@@ -111,8 +111,20 @@ export function actionsForStatus(status: FactStatus): FactAction[] {
   }
 }
 
+/**
+ * The subset of `FactAction` this workbench offers as buttons.
+ *
+ * TS-learning: `Extract<FactAction, …>` narrows a union to named members, so this
+ * stays tied to the source union — a rename in `FactAction` breaks here rather
+ * than silently drifting. The workbench genuinely has three verbs; `defer` and
+ * `reopen` belong to the task-1.3 triage queue, which has its own keyboard
+ * surface and no buttons. Declaring them here would mean styling and labelling
+ * controls this panel never renders.
+ */
+export type WorkbenchAction = Extract<FactAction, "include" | "drop" | "undrop">;
+
 /** Display label for each ruling button. */
-export const ACTION_LABEL: Record<FactAction, string> = {
+export const ACTION_LABEL: Record<WorkbenchAction, string> = {
   include: "Include",
   drop: "Drop",
   undrop: "Un-drop",
