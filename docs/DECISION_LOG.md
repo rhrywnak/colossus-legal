@@ -655,6 +655,102 @@ succeeded.
 
 ---
 
+## 2026-08-01 | SOFTWARE ARCHITECT (Roman Approved) — task 1.2: card payload backend
+
+### Decision
+Serve the complete §7 card payload from one new endpoint,
+`GET /api/cases/:slug/scenarios/:id/facts/cards`, with every element assembled
+and translated server-side. The frontend (task 1.3) will render it and compute
+nothing.
+
+Three pieces carry the weight:
+
+**The naming canon in code** (`domain::card_language`). Every user-visible string
+is produced by one module, each mapping tagged with the canon row
+(CASE_STATE_UNIFICATION_REQUIREMENT_v1 §9) it implements: CORROBORATES →
+"supports", REBUTS → "disputes", CHARACTERIZES → "comments on", ABOUT →
+"mentions". "contradicts" is reserved for the future evidence-vs-evidence layer
+and appears in no payload string. A banned-word test sweeps every string the
+module and the assembler can produce.
+
+**The stance carries its object, or there is no stance.** `CardStance` requires
+both verb and object, so a bare "contradicts" is not expressible. The stance is
+built from the Evidence→Allegation EDGE — which carries its object inherently —
+never from a role in isolation. An item with no such edge serves `stance: null`,
+`defer_required: true`, and a plain-language reason naming what would unblock it.
+
+**The band seam** (`domain::confidence_band::band_for_score`). The raw score never
+crosses the wire. Cutoffs are in-code defaults behind one function, marked
+`TODO(1.6)`, so the settings store swaps one seam.
+
+Also in scope: the Q3 honesty correction — `services::scenario_dashboard`
+hardcoded `grounded: true` on every timeline turn. It now reports the node's real
+`grounding_status`.
+
+### Rationale
+The July failure was cards that could not be ruled on: C-222 showed "contradicts ·
+70%" with no object, no context and no citation. §7 makes a card missing any
+element a defect, so the payload is the enforcement point and the §7 contract is
+written as a test (`every_section_seven_element_is_present_on_a_complete_card`) —
+a card missing an element fails the build.
+
+Four decisions worth recording:
+
+- **The edge is the stance, not the scan's proposed role.** A role is a claim
+  about the scenario; an edge is a fact about the graph and comes with its object
+  attached. The proposed role is used only to explain a defer.
+- **Sort stays C-ordinal** (Q1 ruling (b)). §7.8's binding clause — confidence is
+  never the default — is satisfied; confidence is not a sort key at all.
+  Relevance-to-definition ordering is tracker task 3.7.
+- **`bears_on` groups by accusation with an element LIST.** Measured on DEV: ¶12
+  bears on three elements of Count 2. The first implementation deduped by
+  allegation and silently kept one — the quiet loss this task exists to remove.
+  The live query caught it; the unit tests had not.
+- **Confidence bands are high/medium/low, not strong/moderate/weak.** Those three
+  are the retired element-verdict vocabulary (canon §9); reusing them would put
+  one word on two meanings. Band labels also name the SCAN as their subject
+  ("Scan was fairly confident") so no reader mistakes them for a claim about the
+  evidence.
+
+### Impacts
+- **Data Architect:** None. Read-only against Neo4j and Postgres; no schema change,
+  no migration.
+- **DB Engineer:** None.
+- **Software Architect:** One new endpoint; no existing endpoint's shape changed
+  except `AnchoredEvidenceFact`, which gains `grounding_status` so the timeline's
+  `grounded` can stop lying. The card query reads its stance edge classes through
+  A0's `ConnectionTier::Topical.edge_types()` accessor rather than assembling a
+  sixth hand-written edge set.
+
+### API contract changes
+`GET /api/cases/:slug/scenarios/:scenario_id/facts/cards` — new. Returns
+`{ pool: ScenarioCard[], set_aside: ScenarioCard[] }`. The gather endpoint is
+unchanged and still serves the shipped workbench until 1.3 switches it over.
+`AnchoredEvidenceFact` gains an optional `grounding_status`.
+
+### Action Required
+- [x] Card payload endpoint, canon module, band seam, defer detection
+- [x] Q3: `grounded: true` replaced with the node's real state + its test
+- [ ] Roman: verify on DEV after the Phase-1 batch deploys at G1
+- [ ] Software Architect: task 1.3 renders these cards and wires the defer queue
+- [ ] Software Architect: task 1.6 serves BOTH tunables from the settings store,
+      each behind one seam — the confidence-band cutoffs
+      (`domain::confidence_band::band_for_score`) and the quote-in-context window
+      (`services::scenario_card::context_window_chars`). Ruled 2026-08-01: the
+      window is a tunable, not a structural constant — "how much context flanks
+      the quote" is exactly the number Roman may want to turn up without a
+      rebuild, and if the card's layout constrains it, that constraint belongs to
+      the same setting rather than to a second config source. Neither gets an env
+      var in the interim; both are in-code defaults behind their seam. The band
+      cutoffs stand as a known Rule-13 standing exception until 1.6 lands.
+- [ ] Software Architect: task 3.7 owns relevance-to-definition ordering
+- [ ] Software Architect: §7.1 thinness — quote-in-context locates the quote by
+      substring search in the stored page text. A very short quote ("Yes.") could
+      in principle match the wrong occurrence; on the measured DEV row it matched
+      uniquely. Defect-filed against §7.1, not widened here.
+
+---
+
 ## Template for Future Entries
 
 ```markdown

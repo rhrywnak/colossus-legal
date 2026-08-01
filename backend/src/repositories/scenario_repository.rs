@@ -408,6 +408,7 @@ fn anchored_allegation_evidence_cypher(polarity: EvidencePolarity) -> String {
                 a.paragraph_number AS paragraph_number,
                 e.verbatim_quote AS verbatim_quote,
                 e.page_number AS page_number,
+                e.grounding_status AS grounding_status,
                 doc.title AS document,
                 CASE WHEN spk:Person OR spk:Organization
                      THEN spk.name ELSE null END AS stated_by
@@ -493,6 +494,7 @@ fn map_anchored_evidence_fact(row: &Row) -> Result<AnchoredEvidenceFact, Scenari
         page_number: decode_opt_int_as_str(row, "page_number")?,
         document: decode_opt_str(row, "document")?,
         stated_by: decode_opt_str(row, "stated_by")?,
+        grounding_status: decode_opt_str(row, "grounding_status")?,
     })
 }
 

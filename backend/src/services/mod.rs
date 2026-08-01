@@ -13,6 +13,8 @@ pub mod graph_expansion_queries;
 pub mod import_validator;
 pub mod qdrant_service;
 pub mod scan_run_enrich;
+pub mod scenario_card;
+pub mod scenario_card_assembly;
 pub mod scenario_dashboard;
 pub mod scenario_page;
 pub mod scenario_ruling;

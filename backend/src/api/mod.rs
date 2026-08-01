@@ -51,6 +51,7 @@ pub mod proof_matrix;
 pub mod proof_review;
 pub mod qa;
 pub mod queries;
+pub mod scenario_cards;
 pub mod scenario_facts;
 pub mod scenario_facts_mapping;
 pub mod scenario_gather;
@@ -198,6 +199,13 @@ fn scenario_routes() -> Router<AppState> {
         .route(
             "/cases/:slug/scenarios/:scenario_id/facts/gather",
             get(scenario_gather::gather_scenario_candidates),
+        )
+        // The §7 card payload (task 1.2): every element a human needs to rule,
+        // display-ready and in plain trial language, with unrulable items
+        // flagged. Task 1.3 switches the workbench UI onto this.
+        .route(
+            "/cases/:slug/scenarios/:scenario_id/facts/cards",
+            get(scenario_cards::get_scenario_cards),
         )
         // Theme Scan (D2b): LLM-judge every candidate quote about the scenario's
         // subject and persist the relevant verdicts as confirmed=false

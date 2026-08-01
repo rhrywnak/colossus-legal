@@ -274,14 +274,32 @@ fn build_detail(
 /// Domain note: `kind` is the neutral `EVIDENCE_TURN_KIND`; the fact's
 /// REBUTS/CORROBORATES polarity rides in `relationship_type` (lowercased), so the
 /// screen labels the turn "evidence" with a "rebuts"/"corroborates" pill — never
-/// a fabricated accusation/rebuttal narrative. Every graph fact is `grounded`
-/// (it carries a citation); `date` is `null` (the facts have no date here, and
-/// null sorts last); `repeated_after_rebuttal` is `false` (pattern analysis is
-/// not wired).
+/// a fabricated accusation/rebuttal narrative. `date` is `null` (the facts have
+/// no date here, and null sorts last); `repeated_after_rebuttal` is `false`
+/// (pattern analysis is not wired).
+///
+/// ## `grounded` was hardcoded `true` until 2026-08-01 (task 1.2 Q3)
+///
+/// The old comment here asserted that every graph fact is grounded "because it
+/// carries a citation". That was false: the ingest path records
+/// `grounding_status` per node, and `not_found` nodes exist, as do nodes never
+/// checked. A field that always says `true` is not a measurement — it is the same
+/// class of displayed falsehood the 2026-07-27 honesty batch removed elsewhere,
+/// and it would have contradicted the real grounding state task 1.2 now serves on
+/// the candidate card.
+///
+/// The turn's contract is a `bool`, so the three-state truth collapses to two
+/// here: `exact` and `normalized` are grounded, everything else is not. That is
+/// lossy but not dishonest — an unchecked quote genuinely is not grounded yet.
+/// The full state, with its own label, rides the card payload where the
+/// distinction matters (§7.7).
 fn fact_to_turn(fact: &AnchoredEvidenceFact) -> ExchangeTurn {
     ExchangeTurn {
         kind: EVIDENCE_TURN_KIND.to_string(),
-        grounded: true,
+        grounded: matches!(
+            fact.grounding_status.as_deref(),
+            Some("exact") | Some("normalized")
+        ),
         speaker: fact.stated_by.clone(),
         date: None,
         text: fact.verbatim_quote.clone().unwrap_or_default(),
@@ -439,6 +457,10 @@ mod tests {
             page_number: None,
             document: None,
             stated_by: None,
+            // Unchecked: this minimal fixture exercises the polarity mapping, not
+            // grounding, and `None` is the honest value for a node with no
+            // recorded state.
+            grounding_status: None,
         }
     }
 
@@ -602,6 +624,7 @@ mod tests {
             page_number: page.map(|s| s.to_string()),
             document: Some("doc-x".to_string()),
             stated_by: Some("George Phillips".to_string()),
+            grounding_status: Some("exact".to_string()),
         }
     }
 
@@ -610,6 +633,8 @@ mod tests {
         let turn = fact_to_turn(&full_fact(schema::REBUTS, Some("54")));
         // kind is the neutral "evidence"; polarity rides in relationship_type.
         assert_eq!(turn.kind, "evidence");
+        // `exact` on the fixture → genuinely grounded. This assertion used to
+        // pass against a hardcoded `true` and therefore proved nothing.
         assert!(turn.grounded);
         assert_eq!(turn.relationship_type.as_deref(), Some("rebuts"));
         assert_eq!(turn.speaker.as_deref(), Some("George Phillips"));
@@ -619,6 +644,35 @@ mod tests {
         assert_eq!(turn.source_document.as_deref(), Some("doc-x"));
         assert_eq!(turn.date, None);
         assert!(!turn.repeated_after_rebuttal);
+    }
+
+    /// `grounded` reports the node's real state, not a constant.
+    ///
+    /// Until 2026-08-01 this field was hardcoded `true`, so a fact whose quote was
+    /// never found in its source still rendered as grounded. The two assertions
+    /// below are the ones a constant cannot satisfy.
+    #[test]
+    fn grounded_reflects_the_nodes_real_state() {
+        let mut fact = full_fact(schema::REBUTS, Some("54"));
+
+        fact.grounding_status = Some("normalized".to_string());
+        assert!(
+            fact_to_turn(&fact).grounded,
+            "a normalized match IS grounded"
+        );
+
+        fact.grounding_status = Some("not_found".to_string());
+        assert!(
+            !fact_to_turn(&fact).grounded,
+            "a quote never found in its source must not render as grounded"
+        );
+
+        fact.grounding_status = None;
+        assert!(
+            !fact_to_turn(&fact).grounded,
+            "an unchecked quote is not grounded YET; claiming otherwise is the \
+             falsehood this fix removed"
+        );
     }
 
     #[test]

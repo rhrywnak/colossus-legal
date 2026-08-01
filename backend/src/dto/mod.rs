@@ -22,6 +22,7 @@ pub mod proof_matrix;
 pub mod proof_review;
 pub mod query;
 pub mod scenario;
+pub mod scenario_card;
 pub mod scenario_crud;
 pub mod scenario_facts;
 pub mod schema;
