@@ -52,9 +52,13 @@ pub struct RulingAnchorWrite<'a> {
     pub graph_node_id: &'a str,
     /// Which ruling this was.
     pub kind: RulingKind,
-    /// The source document. Mandatory for every ruling: the write path refuses a
-    /// ruling on an item with no document before ever reaching this struct.
-    pub document_id: &'a str,
+    /// The source document, when it could be read.
+    ///
+    /// `Option` only because a REMOVAL may be recorded after the graph node has
+    /// vanished, at which point nothing about the item is readable. Every other
+    /// ruling is refused without a document before it ever reaches this struct
+    /// (`RulingKind::requires_document`), so an `Include` here always carries one.
+    pub document_id: Option<&'a str>,
     /// The page, when the record carries one.
     pub page: Option<i64>,
     /// The verbatim words, when the record carries them. Mandatory for include
@@ -83,10 +87,10 @@ pub struct RulingAnchorWrite<'a> {
 // ruling appends. An `ON CONFLICT … DO UPDATE` here would silently convert the
 // ledger back into the overwriting state table this exists to complement.
 const INSERT_ANCHOR_SQL: &str = r#"INSERT INTO scenario_ruling_anchors
-        (scenario_id, graph_node_id, ruled_status, document_id,
+        (scenario_id, graph_node_id, ruled_status, document_id, document_state,
          page, page_state, quote_verbatim, quote_normalized, quote_state,
          speaker, speaker_state, ruled_at, ruled_by, defer_reason)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
     RETURNING anchor_id"#;
 
 /// Append one ruling to the ledger and return its `anchor_id`.
@@ -112,6 +116,7 @@ pub async fn insert_ruling_anchor(
 ) -> Result<Uuid, PipelineRepoError> {
     // Derived, never accepted: a state that contradicts its value column would be
     // an anchor lying about its own completeness.
+    let document_state = FieldPresence::of(&anchor.document_id);
     let page_state = FieldPresence::of(&anchor.page);
     let quote_state = FieldPresence::of(&anchor.quote_verbatim);
     let speaker_state = FieldPresence::of(&anchor.speaker);
@@ -126,6 +131,7 @@ pub async fn insert_ruling_anchor(
         .bind(anchor.graph_node_id)
         .bind(anchor.kind.code())
         .bind(anchor.document_id)
+        .bind(document_state.code())
         .bind(anchor.page)
         .bind(page_state.code())
         .bind(anchor.quote_verbatim)
@@ -180,6 +186,7 @@ mod tests {
             "graph_node_id",
             "ruled_status",
             "document_id",
+            "document_state",
             "page",
             "page_state",
             "quote_verbatim",
@@ -196,15 +203,34 @@ mod tests {
                 "the ledger insert must write {column}"
             );
         }
-        // Fourteen columns, fourteen placeholders. The highest placeholder is $14
-        // and $15 must not appear.
+        // Fifteen columns, fifteen placeholders. The highest is $15, and $16 must
+        // not appear — a dropped bind would shift every later value one column
+        // left, which is exactly the defect class `sql_invariants` polices.
         assert!(
-            INSERT_ANCHOR_SQL.contains("$14"),
-            "expected 14 placeholders"
+            INSERT_ANCHOR_SQL.contains("$15"),
+            "expected 15 placeholders"
         );
         assert!(
-            !INSERT_ANCHOR_SQL.contains("$15"),
+            !INSERT_ANCHOR_SQL.contains("$16"),
             "more placeholders than columns"
+        );
+    }
+
+    /// The document column is written with its own state, like page and speaker.
+    ///
+    /// `document_id` became nullable so a REMOVAL can be recorded against a node
+    /// the graph has already lost. That makes the paired state column
+    /// load-bearing: it is the difference between "this removal had no readable
+    /// document" and "someone forgot to bind the column". The migration backs it
+    /// with a CHECK tying the two together, because `document_id` is the field
+    /// task 2.5 indexes on — a row claiming `present` over a NULL would be found
+    /// by that index and then match nothing.
+    #[test]
+    fn the_document_column_is_written_with_its_state() {
+        assert!(
+            INSERT_ANCHOR_SQL.contains("document_id, document_state"),
+            "the document and its presence state must be written together: \
+             {INSERT_ANCHOR_SQL}"
         );
     }
 

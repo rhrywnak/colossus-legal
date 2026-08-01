@@ -44,7 +44,7 @@ fn a_complete_instance_yields_a_complete_anchor() {
     let anchor = extract_anchor(&full_instance(), RulingKind::Include)
         .expect("a complete instance must anchor");
 
-    assert_eq!(anchor.document_id, "doc-7");
+    assert_eq!(anchor.document_id.as_deref(), Some("doc-7"));
     assert_eq!(anchor.page, Some(14));
     assert_eq!(anchor.speaker.as_deref(), Some("R. Phillips"));
     // The VERBATIM quote is preserved exactly as the graph held it, whitespace and
@@ -59,19 +59,41 @@ fn a_complete_instance_yields_a_complete_anchor() {
 // ── extract_anchor: the document law ──────────────────────────────────────────
 
 #[test]
-fn an_item_with_no_document_cannot_be_ruled_on_at_all() {
-    // Mandatory for EVERY ruling, including defer: an item with no source document
+fn an_item_with_no_document_cannot_be_ruled_on_except_by_removal() {
+    // Mandatory for every ruling INCLUDING defer: an item with no source document
     // is not record evidence, and no anchor to it could ever be cited or matched.
+    //
+    // The single exception is a removal, which is an UNDO and must never be
+    // blocked — a human discarding a reference to something with no document would
+    // otherwise be stuck with it forever.
+    //
+    // The loop branches on `requires_document()`, which means it verifies that
+    // `extract_anchor` OBEYS that rule — not that the rule itself is right. The
+    // rule's own values are pinned by hand in `only_a_removal_may_lack_a_document`
+    // (domain::ruling_anchor), so the two together are non-vacuous: one asserts what
+    // the law says, this one asserts the write path follows it.
     let mut instance = full_instance();
     instance.document = None;
 
     for kind in RulingKind::ALL {
         let result = extract_anchor(&instance, *kind);
-        assert!(
-            matches!(result, Err(RulingError::NoDocument)),
-            "{} on a document-less item must be refused, got {result:?}",
-            kind.code()
-        );
+        if kind.requires_document() {
+            assert!(
+                matches!(result, Err(RulingError::NoDocument)),
+                "{} on a document-less item must be refused, got {result:?}",
+                kind.code()
+            );
+        } else {
+            let anchor = result.unwrap_or_else(|e| {
+                panic!("{} must survive a missing document, got {e:?}", kind.code())
+            });
+            assert_eq!(
+                anchor.document_id,
+                None,
+                "{} must record the document as absent, not invent one",
+                kind.code()
+            );
+        }
     }
 }
 
@@ -120,7 +142,7 @@ fn defer_is_always_permitted_on_an_unquotable_item() {
     assert_eq!(anchor.quote_verbatim, None);
     // The rest of the anchor is still captured — a defer records everything the
     // record does have, so 2.5 can still find it by document and page.
-    assert_eq!(anchor.document_id, "doc-7");
+    assert_eq!(anchor.document_id.as_deref(), Some("doc-7"));
     assert_eq!(anchor.page, Some(14));
 }
 
@@ -215,8 +237,6 @@ fn the_other_kinds_pass_with_no_reason() {
     }
 }
 
-// ── The refusal messages ──────────────────────────────────────────────────────
-
 #[test]
 fn the_citability_refusal_offers_defer_as_the_way_forward() {
     // A refusal that only says "no" strands the human on a candidate they still
@@ -242,6 +262,85 @@ fn the_node_gone_refusal_tells_the_human_what_to_do() {
     let message = RulingError::NodeGone.to_string();
     assert!(message.contains("reload"), "actionable: {message}");
 }
+
+// ── The removal law ───────────────────────────────────────────────────────────
+
+#[test]
+fn a_removal_is_the_only_ruling_that_tolerates_a_missing_node() {
+    // Every other ruling refuses when the graph no longer holds the item: writing
+    // a ruling whose anchor cannot be read IS the 2026-07-24 failure. A removal is
+    // the exception because it is an undo, and a human must always be able to
+    // discard a reference to something that has gone.
+    for kind in RulingKind::ALL {
+        assert_eq!(
+            kind.tolerates_missing_node(),
+            *kind == RulingKind::Remove,
+            "{} has the wrong missing-node tolerance",
+            kind.code()
+        );
+    }
+}
+
+#[test]
+fn the_vanished_anchor_records_nothing_rather_than_inventing_anything() {
+    // What gets written when a removal is made against a node the graph has lost.
+    // Every field absent is the honest record — and it must be ABSENT, not a
+    // placeholder string, or task 2.5 would try to match on fiction.
+    let anchor = AnchorMaterial::vanished();
+    assert_eq!(anchor.document_id, None);
+    assert_eq!(anchor.page, None);
+    assert_eq!(anchor.quote_verbatim, None);
+    assert_eq!(anchor.speaker, None);
+}
+
+#[test]
+fn a_removal_of_a_still_present_item_captures_the_full_anchor() {
+    // The common case: the item is still in the graph, so the removal records
+    // everything about what was discarded. A removal that recorded an empty anchor
+    // even when the content WAS readable would throw away the very information
+    // that makes the ledger useful.
+    let anchor = extract_anchor(&full_instance(), RulingKind::Remove)
+        .expect("a removal of a live item anchors");
+
+    assert_eq!(anchor.document_id.as_deref(), Some("doc-7"));
+    assert_eq!(anchor.page, Some(14));
+    assert_eq!(anchor.speaker.as_deref(), Some("R. Phillips"));
+    assert_eq!(
+        anchor.quote_verbatim.as_deref(),
+        Some("  I do NOT   recall  ")
+    );
+}
+
+#[test]
+fn a_removal_is_never_refused_for_missing_content() {
+    // The whole point: strip the item of everything and a removal still anchors.
+    // If this ever fails, a human holding a reference to vanished or unquotable
+    // evidence can neither use it nor delete it.
+    let mut instance = full_instance();
+    instance.document = None;
+    instance.verbatim_quote = None;
+    instance.page_number = None;
+    instance.stated_by = None;
+
+    let anchor = extract_anchor(&instance, RulingKind::Remove)
+        .expect("a removal must never be refused for missing content");
+    assert_eq!(anchor.document_id, None);
+    assert_eq!(anchor.quote_verbatim, None);
+}
+
+#[test]
+fn a_removal_carries_no_reason() {
+    // A removal is not a defer, so a reason on it is refused like any other
+    // non-defer verb — the two vocabularies must not cross.
+    assert!(!RulingKind::Remove.requires_reason());
+    assert!(validate_reason(RulingKind::Remove, None).is_ok());
+    assert!(matches!(
+        validate_reason(RulingKind::Remove, Some("because")),
+        Err(RulingError::ReasonMismatch { .. })
+    ));
+}
+
+// ── The refusal messages ──────────────────────────────────────────────────────
 
 #[test]
 fn the_no_document_refusal_names_the_constraint() {

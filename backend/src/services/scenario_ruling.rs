@@ -42,12 +42,12 @@ use crate::domain::ruling_anchor::{normalize_quote, RulingKind};
 use crate::repositories::pipeline_repository::{
     insert_ruling_anchor, PipelineRepoError, RulingAnchorWrite,
 };
-// Imported by its FULL module path, not from the crate-level re-export, because
-// `upsert_fact_ref` is deliberately withheld from that re-export (see the note in
-// `pipeline_repository::mod`). This module is the one legitimate caller: the
-// anchor-less state write is safe here precisely because the anchor write is on
-// the next line, inside the same transaction.
-use crate::repositories::pipeline_repository::scenario_store::upsert_fact_ref;
+// Imported by their FULL module path, not from the crate-level re-export, because
+// both are deliberately withheld from it (see the note in
+// `pipeline_repository::mod`). This module is their one legitimate caller: these
+// anchor-less state writes are safe here precisely because the anchor write sits
+// beside each of them, inside the same transaction.
+use crate::repositories::pipeline_repository::scenario_store::{delete_fact_ref, upsert_fact_ref};
 
 /// Everything a ruling needs beyond its anchor: who ruled, what on, and the
 /// workbench fields that ride along.
@@ -138,10 +138,30 @@ pub enum RulingError {
 /// clone is of a handful of small fields on a low-frequency human action.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct AnchorMaterial {
-    document_id: String,
+    /// `None` only for a removal recorded against a vanished node — see
+    /// [`AnchorMaterial::vanished`].
+    document_id: Option<String>,
     page: Option<i64>,
     quote_verbatim: Option<String>,
     speaker: Option<String>,
+}
+
+impl AnchorMaterial {
+    /// The anchor for a ruling on an item the graph no longer holds.
+    ///
+    /// Every field absent, which is the honest record: nothing about the item was
+    /// readable at ruling time. Only a removal ever reaches this — every other
+    /// ruling refuses a missing node — so a fully-empty anchor in the ledger is
+    /// unambiguous evidence of "the human discarded a reference to something that
+    /// had already gone".
+    fn vanished() -> Self {
+        Self {
+            document_id: None,
+            page: None,
+            quote_verbatim: None,
+            speaker: None,
+        }
+    }
 }
 
 /// Pull the anchor fields out of a graph instance and enforce the refusal law.
@@ -159,11 +179,10 @@ fn extract_anchor(
     instance: &BiasInstance,
     kind: RulingKind,
 ) -> Result<AnchorMaterial, RulingError> {
-    let document_id = instance
-        .document
-        .as_ref()
-        .map(|d| d.id.clone())
-        .ok_or(RulingError::NoDocument)?;
+    let document_id = instance.document.as_ref().map(|d| d.id.clone());
+    if kind.requires_document() && document_id.is_none() {
+        return Err(RulingError::NoDocument);
+    }
 
     // An empty-after-normalization quote is no quote at all.
     let quote_verbatim = instance
@@ -239,13 +258,10 @@ fn validate_reason(kind: RulingKind, defer_reason: Option<&str>) -> Result<(), R
 /// # Errors
 /// Returns [`RulingError`] if the anchor cannot be captured (see the refusal law
 /// in the module doc) or if either write fails.
-pub async fn record_ruling(
-    pool: &PgPool,
+async fn capture_anchor(
     graph: &BiasRepository,
     request: &RulingRequest<'_>,
-    status: FactStatus,
-    ruled_at: DateTime<Utc>,
-) -> Result<Uuid, RulingError> {
+) -> Result<AnchorMaterial, RulingError> {
     validate_reason(request.kind, request.defer_reason)?;
 
     // Read the item as the graph holds it RIGHT NOW — this is the anchor's source
@@ -258,12 +274,61 @@ pub async fn record_ruling(
     // A miss here is the `join_facts` warn-and-continue case, but at RULING time it
     // must refuse rather than warn: writing a ruling whose anchor cannot be read is
     // precisely the 2026-07-24 failure, and returning success would recreate it.
-    let instance = instances
+    //
+    // The single exception is a REMOVAL, which must never be blocked — a vanished
+    // node is often exactly why the human is discarding the reference. It records a
+    // fully-absent anchor instead, which says precisely that.
+    match instances
         .into_iter()
         .find(|i| i.evidence_id == request.graph_node_id)
-        .ok_or(RulingError::NodeGone)?;
+    {
+        Some(instance) => extract_anchor(&instance, request.kind),
+        None if request.kind.tolerates_missing_node() => {
+            tracing::warn!(
+                graph_node_id = %request.graph_node_id,
+                ruling = %request.kind.code(),
+                "the graph no longer holds this item; recording the ruling with an \
+                 empty anchor rather than refusing it"
+            );
+            Ok(AnchorMaterial::vanished())
+        }
+        None => Err(RulingError::NodeGone),
+    }
+}
 
-    let anchor = extract_anchor(&instance, request.kind)?;
+/// Build the ledger row for one captured anchor.
+///
+/// Split out so `record_ruling` and `record_removal` assemble the row identically
+/// — a second hand-built `RulingAnchorWrite` is exactly where the two paths would
+/// drift, and a drift here is a ledger that means different things depending on
+/// which verb produced the row.
+fn anchor_write<'a>(
+    request: &'a RulingRequest<'a>,
+    anchor: &'a AnchorMaterial,
+    ruled_at: DateTime<Utc>,
+) -> RulingAnchorWrite<'a> {
+    RulingAnchorWrite {
+        scenario_id: request.scenario_id,
+        graph_node_id: request.graph_node_id,
+        kind: request.kind,
+        document_id: anchor.document_id.as_deref(),
+        page: anchor.page,
+        quote_verbatim: anchor.quote_verbatim.as_deref(),
+        speaker: anchor.speaker.as_deref(),
+        ruled_at,
+        ruled_by: request.ruled_by,
+        defer_reason: request.defer_reason,
+    }
+}
+
+pub async fn record_ruling(
+    pool: &PgPool,
+    graph: &BiasRepository,
+    request: &RulingRequest<'_>,
+    status: FactStatus,
+    ruled_at: DateTime<Utc>,
+) -> Result<Uuid, RulingError> {
+    let anchor = capture_anchor(graph, request).await?;
 
     let mut tx = pool
         .begin()
@@ -285,29 +350,81 @@ pub async fn record_ruling(
     .await
     .map_err(|source| RulingError::Write { source })?;
 
-    let anchor_id = insert_ruling_anchor(
-        &mut *tx,
-        &RulingAnchorWrite {
-            scenario_id: request.scenario_id,
-            graph_node_id: request.graph_node_id,
-            kind: request.kind,
-            document_id: &anchor.document_id,
-            page: anchor.page,
-            quote_verbatim: anchor.quote_verbatim.as_deref(),
-            speaker: anchor.speaker.as_deref(),
-            ruled_at,
-            ruled_by: request.ruled_by,
-            defer_reason: request.defer_reason,
-        },
-    )
-    .await
-    .map_err(|source| RulingError::Write { source })?;
+    let anchor_id = insert_ruling_anchor(&mut *tx, &anchor_write(request, &anchor, ruled_at))
+        .await
+        .map_err(|source| RulingError::Write { source })?;
 
     tx.commit()
         .await
         .map_err(|e| RulingError::Write { source: e.into() })?;
 
     Ok(anchor_id)
+}
+
+/// Record a REMOVAL: capture its anchor, delete the state row, and append the
+/// ledger row — all in one transaction.
+///
+/// Returns `None` when the reference was not on this scenario (nothing removed,
+/// so nothing to record; the handler turns that into a 404). `Some(anchor_id)`
+/// when a row was genuinely removed and the removal is now in the ledger.
+///
+/// ## Domain note: why the delete runs BEFORE the ledger write
+///
+/// The order matters for the `None` case. Deleting first tells us whether there
+/// was anything to remove; only then is a ledger row justified. The reverse order
+/// would append "the human removed X" and then discover X was never there,
+/// leaving a ledger entry for an event that did not happen — and the ledger's
+/// value rests entirely on every row being a real act.
+///
+/// Both are in one transaction, so the `None` path rolls back cleanly and a crash
+/// between them can never delete a reference without recording why it went.
+///
+/// ## Why the anchor is captured BEFORE the transaction opens
+///
+/// The graph read is network I/O to Neo4j; holding a Postgres transaction open
+/// across it would pin a connection for the round trip for no benefit. Nothing in
+/// the anchor depends on the delete, so it is read first and the transaction stays
+/// as short as the two writes.
+///
+/// # Errors
+/// Returns [`RulingError`] if a write fails. A removal is never refused for
+/// missing content — see [`RulingKind::Remove`].
+pub async fn record_removal(
+    pool: &PgPool,
+    graph: &BiasRepository,
+    request: &RulingRequest<'_>,
+    ruled_at: DateTime<Utc>,
+) -> Result<Option<Uuid>, RulingError> {
+    let anchor = capture_anchor(graph, request).await?;
+
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|e| RulingError::Write { source: e.into() })?;
+
+    let removed = delete_fact_ref(&mut *tx, request.scenario_id, request.graph_node_id)
+        .await
+        .map_err(|source| RulingError::Write { source })?;
+
+    if removed == 0 {
+        // Nothing was on this scenario. Roll back rather than commit an empty
+        // transaction, and tell the caller so it can answer 404 — "removed
+        // nothing" and "removed something" must stay distinguishable.
+        tx.rollback()
+            .await
+            .map_err(|e| RulingError::Write { source: e.into() })?;
+        return Ok(None);
+    }
+
+    let anchor_id = insert_ruling_anchor(&mut *tx, &anchor_write(request, &anchor, ruled_at))
+        .await
+        .map_err(|source| RulingError::Write { source })?;
+
+    tx.commit()
+        .await
+        .map_err(|e| RulingError::Write { source: e.into() })?;
+
+    Ok(Some(anchor_id))
 }
 
 #[cfg(test)]

@@ -90,26 +90,27 @@ pub use scan_runs::*;
 pub use scenario_candidate_ordinals::*;
 pub use scenario_responses::*;
 pub use scenario_ruling_anchors::*;
-// NOT a glob, unlike every sibling above — `upsert_fact_ref` is deliberately
-// withheld from this re-export.
+// NOT a glob, unlike every sibling above — `upsert_fact_ref` and `delete_fact_ref`
+// are deliberately withheld from this re-export.
 //
 // ## Why: the anchor choke point has to be structural, not conventional
 //
-// `upsert_fact_ref` writes a candidate's STATE with no anchor. Every ruling must
-// go through `services::scenario_ruling::record_ruling`, which writes the state
-// row and the anchor ledger row in one transaction. If both were re-exported side
-// by side, a future caller reaching for the obvious-looking `upsert_fact_ref`
-// would recreate the 2026-07-24 loss — a ruling with no record of what was ruled
-// on — with no compile error and no warning. The handler comment naming the 1a.4
-// scan-acceptance seam ("do NOT fold it into this route") is exactly the kind of
-// instruction that gets missed.
+// Both write a candidate's STATE with no anchor: `upsert_fact_ref` sets it,
+// `delete_fact_ref` discards it. Every ruling must go through
+// `services::scenario_ruling` (`record_ruling` / `record_removal`), which pairs
+// the state write with an anchor ledger row in one transaction. If these were
+// re-exported beside those, a future caller reaching for the obvious-looking
+// `upsert_fact_ref` would recreate the 2026-07-24 loss — a ruling with no record
+// of what was ruled on — with no compile error and no warning. The handler comment
+// naming the 1a.4 scan-acceptance seam ("do NOT fold it into this route") is
+// exactly the kind of instruction that gets missed.
 //
 // Withholding it means the wrong path costs a deliberate `scenario_store::`
 // import that a reviewer can see, while the right path stays a plain
 // `record_ruling` call. Everything else the module exports is re-exported as
 // before.
 pub use scenario_store::{
-    delete_fact_ref, delete_scenario, delete_scenarios_for_case, get_scenario, insert_scenario,
+    delete_scenario, delete_scenarios_for_case, get_scenario, insert_scenario,
     list_fact_refs_for_scenario, list_scenarios_for_case, merge_scan_run_into_scenario,
     update_scenario, ScenarioFactRefRecord, ScenarioRecord,
 };

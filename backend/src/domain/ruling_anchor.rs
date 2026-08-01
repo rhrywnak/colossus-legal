@@ -24,7 +24,9 @@
 //
 // This module owns the vocabulary and the normalization rule. It owns no I/O and
 // no policy about WHEN a ruling may be written — that is the write path's job
-// (`api::scenario_facts`), which consults [`RulingKind::requires_quote`].
+// (`services::scenario_ruling`), which consults the per-kind rules below:
+// `requires_document`, `requires_quote`, `requires_reason` and
+// `tolerates_missing_node`. Those four encode the whole refusal law.
 
 use serde::{Deserialize, Serialize};
 
@@ -58,7 +60,7 @@ pub const RULING_ANCHOR_LOOKUP_V: u32 = 1;
 /// ## Rust Learning: `#[serde(rename_all = "snake_case")]` on a closed enum
 ///
 /// Each variant maps to its snake_case token (`include`, `exclude`, `defer`,
-/// `undrop`). The enum is closed — no catch-all — so a token this build does not
+/// `undrop`, `remove`). The enum is closed — no catch-all — so a token this build does not
 /// define fails to deserialize rather than defaulting to something plausible.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -74,13 +76,31 @@ pub enum RulingKind {
     Defer,
     /// The human recovered a previously-excluded candidate back to the pool.
     ///
-    /// Not one of the three rulings §12.1 enumerates. It is recorded anyway
-    /// because the ledger's stated purpose is "every ruling ever made" (v2 §2 C3),
-    /// and leaving it out would let a human move a candidate OUT of excluded with
-    /// no trace — a silent state change in the one table built to prevent them.
-    /// Flagged for ratification; reversing it means deleting this variant and its
-    /// write, with no migration (the column carries no CHECK).
+    /// RATIFIED 2026-08-01: §12.1's list of rulings is NON-EXHAUSTIVE — any verb
+    /// that changes a candidate's ruling state writes a ledger row. Undrop
+    /// qualifies: it moves a candidate OUT of excluded, and leaving it unrecorded
+    /// would let a human reverse an exclusion with no trace, in the one table
+    /// built to prevent silent state changes.
     Undrop,
+    /// The human un-saved the reference entirely — `DELETE …/facts/:id`.
+    ///
+    /// ## Domain note: why a removal is a ruling, and why it can never be refused
+    ///
+    /// Under the same ratification, un-saving an include is a change to a human
+    /// decision and therefore a ruling. It was the last traceless path in the
+    /// system: the state row simply disappeared, leaving the include anchor in the
+    /// ledger with nothing to say it had been withdrawn.
+    ///
+    /// It is also the one ruling that must never be blocked. A removal is an UNDO,
+    /// and refusing it because the underlying evidence has since vanished would
+    /// trap the human with a reference they can neither use nor discard. So
+    /// [`RulingKind::requires_document`] and [`RulingKind::tolerates_missing_node`]
+    /// both make an exception for it: a removal records whatever can still be read
+    /// and marks the rest absent, rather than failing.
+    ///
+    /// Task 2.5 then needs no special case — reading the ledger forward
+    /// distinguishes "included, still live" from "included, later removed".
+    Remove,
 }
 
 impl RulingKind {
@@ -94,6 +114,7 @@ impl RulingKind {
         RulingKind::Exclude,
         RulingKind::Defer,
         RulingKind::Undrop,
+        RulingKind::Remove,
     ];
 
     /// The stable wire token, bound into `scenario_ruling_anchors.ruled_status`.
@@ -103,7 +124,41 @@ impl RulingKind {
             RulingKind::Exclude => "exclude",
             RulingKind::Defer => "defer",
             RulingKind::Undrop => "undrop",
+            RulingKind::Remove => "remove",
         }
+    }
+
+    /// Whether this ruling may only be made on an item with a source document.
+    ///
+    /// Every ruling except a removal: an item with no document is not record
+    /// evidence, and a ruling on it could never be cited or re-anchored. A removal
+    /// is the exception because it is an UNDO — see [`RulingKind::Remove`].
+    ///
+    /// Enforced here AND at the database: a column-level NOT NULL cannot express
+    /// "except for removals", but the table-level CHECK added by migration
+    /// `20260801130419` can, because it sees `ruled_status` beside `document_id`.
+    /// This function refuses first, with a message; the CHECK catches anything
+    /// that ever reaches the table without passing through here.
+    pub fn requires_document(self) -> bool {
+        match self {
+            RulingKind::Include | RulingKind::Exclude | RulingKind::Defer | RulingKind::Undrop => {
+                true
+            }
+            RulingKind::Remove => false,
+        }
+    }
+
+    /// Whether this ruling may still be recorded when the graph no longer holds
+    /// the item at all.
+    ///
+    /// Only a removal. For every other ruling a missing node is a refusal: writing
+    /// a ruling whose anchor cannot be read is exactly the 2026-07-24 failure, and
+    /// returning success would recreate it. For a removal the opposite is true —
+    /// the vanished node is often WHY the human is removing the reference, so
+    /// refusing would strand them. The removal is recorded with every anchor field
+    /// marked absent, which is a complete and honest record of what happened.
+    pub fn tolerates_missing_node(self) -> bool {
+        matches!(self, RulingKind::Remove)
     }
 
     /// Whether this ruling may only be made on a candidate that carries a
@@ -131,7 +186,7 @@ impl RulingKind {
     pub fn requires_quote(self) -> bool {
         match self {
             RulingKind::Include | RulingKind::Exclude => true,
-            RulingKind::Defer | RulingKind::Undrop => false,
+            RulingKind::Defer | RulingKind::Undrop | RulingKind::Remove => false,
         }
     }
 
@@ -258,7 +313,7 @@ mod tests {
 
     #[test]
     fn all_lists_every_ruling_kind_once() {
-        assert_eq!(RulingKind::ALL.len(), 4);
+        assert_eq!(RulingKind::ALL.len(), 5);
         for &kind in RulingKind::ALL {
             assert_eq!(
                 RulingKind::ALL.iter().filter(|k| **k == kind).count(),
@@ -287,6 +342,38 @@ mod tests {
         // cannot be quoted. Requiring a quote here would leave them stuck.
         assert!(!RulingKind::Defer.requires_quote());
         assert!(!RulingKind::Undrop.requires_quote());
+        // A removal is exempt for the same reason it is exempt from the document
+        // requirement: it is an undo, and an item that cannot be quoted is often
+        // precisely the one a human wants to discard.
+        assert!(!RulingKind::Remove.requires_quote());
+    }
+
+    #[test]
+    fn only_a_removal_may_lack_a_document() {
+        // Hardcoded per variant, deliberately NOT driven off `requires_document`
+        // itself: a test that asks the production function what to expect agrees
+        // with it even when it is wrong. These are the expected values written out
+        // by hand, so a flipped arm fails here.
+        assert!(RulingKind::Include.requires_document());
+        assert!(RulingKind::Exclude.requires_document());
+        assert!(RulingKind::Defer.requires_document());
+        assert!(RulingKind::Undrop.requires_document());
+        // The one exception, and the reason it exists: a removal is an undo, and a
+        // human must always be able to discard a reference to something that has
+        // gone — including something that never had a document.
+        assert!(!RulingKind::Remove.requires_document());
+    }
+
+    #[test]
+    fn only_a_removal_tolerates_a_vanished_node() {
+        // Same discipline as above: written out, not derived. Getting this wrong in
+        // the permissive direction would let an include be written with an anchor
+        // that was never read — the 2026-07-24 failure exactly.
+        assert!(!RulingKind::Include.tolerates_missing_node());
+        assert!(!RulingKind::Exclude.tolerates_missing_node());
+        assert!(!RulingKind::Defer.tolerates_missing_node());
+        assert!(!RulingKind::Undrop.tolerates_missing_node());
+        assert!(RulingKind::Remove.tolerates_missing_node());
     }
 
     #[test]
@@ -295,6 +382,7 @@ mod tests {
         assert!(!RulingKind::Include.requires_reason());
         assert!(!RulingKind::Exclude.requires_reason());
         assert!(!RulingKind::Undrop.requires_reason());
+        assert!(!RulingKind::Remove.requires_reason());
     }
 
     #[test]

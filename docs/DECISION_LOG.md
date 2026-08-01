@@ -637,9 +637,19 @@ succeeded.
       surfaces `defer_reason` on the candidate payload
 - [ ] Software Architect: task 2.5 consumes the anchors (the re-anchor pass); the
       re-processing embargo holds until it is DONE
-- [ ] Software Architect: ratify or reverse recording `undrop` in the ledger (see
-      `RulingKind::Undrop` — a deviation from the law's three named rulings,
-      taken so no state change goes unrecorded)
+- [x] Software Architect: `undrop` in the ledger — **RATIFIED 2026-08-01**.
+      §12.1's list of rulings is read as NON-EXHAUSTIVE: any verb that changes a
+      candidate's ruling state writes a ledger row.
+- [x] Software Architect: under that ratification, `DELETE /facts/:id` was the
+      last traceless path and now goes through `record_removal`
+      (`RulingKind::Remove`). A removal is the one ruling never refused for
+      missing content — a vanished node is often WHY the reference is being
+      discarded — so it records an empty anchor rather than failing. This
+      required `scenario_ruling_anchors.document_id` to become nullable with a
+      paired `document_state` (migration `20260801130419`), and `delete_fact_ref`
+      to join `upsert_fact_ref` in being withheld from the repository re-export.
+      Task 2.5 then needs no special case: reading the ledger forward
+      distinguishes "included, still live" from "included, later removed".
 - [ ] Software Architect: scenario ARCHIVE status does not exist (only hard
       delete) — tracked as its own task, not part of 1.1
 

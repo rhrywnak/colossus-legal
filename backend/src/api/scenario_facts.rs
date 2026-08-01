@@ -12,16 +12,21 @@
 //!
 //! ## Every ruling is anchored (§12.1, task 1.1)
 //!
-//! Both write routes go through `services::scenario_ruling::record_ruling`, which
-//! reads the item from the graph, captures its anchor (document, page, verbatim +
-//! normalized quote, speaker), and writes the state row and the ledger row in one
-//! transaction. Neither route writes a fact-ref directly — `upsert_fact_ref` is
-//! withheld from the repository's re-export precisely so that stays true.
+//! All three write routes go through `services::scenario_ruling`, which reads the
+//! item from the graph, captures its anchor (document, page, verbatim + normalized
+//! quote, speaker), and writes the state row and the ledger row in one
+//! transaction. No route writes a fact-ref directly — `upsert_fact_ref` and
+//! `delete_fact_ref` are withheld from the repository's re-export precisely so
+//! that stays true.
+//!
+//! `DELETE` is included: §12.1's list of rulings is non-exhaustive (ratified
+//! 2026-08-01), and un-saving a reference changes a human decision, so it goes
+//! through `record_removal`.
 //!
 //! The visible consequence: a ruling that cannot be anchored is REFUSED (400/409)
-//! where it previously succeeded. `DELETE` is deliberately NOT a ruling — it
-//! un-saves a reference rather than deciding anything about the fact — so it
-//! writes no ledger row.
+//! where it previously succeeded. The one exception is a removal, which is never
+//! refused for missing content — a vanished node is often WHY the reference is
+//! being discarded, so it records an empty anchor rather than failing.
 //!
 //! ## CRITICAL — the pipeline pool
 //!
@@ -57,10 +62,8 @@ use crate::{
     domain::{fact_status::FactStatus, ruling_anchor::RulingKind},
     dto::{AddFactRequest, FactActionRequest, ScenarioFactDto},
     error::AppError,
-    repositories::pipeline_repository::{
-        delete_fact_ref, get_scenario, list_fact_refs_for_scenario,
-    },
-    services::scenario_ruling::{record_ruling, RulingRequest},
+    repositories::pipeline_repository::{get_scenario, list_fact_refs_for_scenario},
+    services::scenario_ruling::{record_removal, record_ruling, RulingRequest},
     state::AppState,
 };
 
@@ -205,6 +208,20 @@ pub async fn add_scenario_fact(
 /// A delete that removes nothing (`rows_affected == 0`) is a 404: the pair was
 /// not on this scenario. A successful removal is a 204. Those stay distinct
 /// observables rather than collapsing into one "OK" (Standing Rule 1).
+///
+/// ## Un-saving is a RULING, so it anchors too (ratified 2026-08-01)
+///
+/// §12.1's list of rulings is non-exhaustive: any verb that changes a candidate's
+/// ruling state writes a ledger row. Discarding an include is such a change, and
+/// until this route went through [`record_removal`] it was the last traceless
+/// path in the system — the state row simply vanished, leaving its include anchor
+/// with nothing to say it had been withdrawn.
+///
+/// Unlike every other ruling, a removal is never refused for missing content. A
+/// vanished graph node is often exactly WHY the human is discarding the
+/// reference; refusing would leave them holding something they can neither use
+/// nor delete. The removal is recorded with an empty anchor instead, which states
+/// precisely that.
 #[tracing::instrument(skip(state, user), fields(slug = %slug, scenario_id = %scenario_id, graph_node_id = %graph_node_id))]
 pub async fn remove_scenario_fact(
     user: AuthUser,
@@ -223,29 +240,42 @@ pub async fn remove_scenario_fact(
     let id = parse_scenario_id(&scenario_id)?;
     ensure_scenario_in_case(&state, id, &slug).await?;
 
-    let removed = delete_fact_ref(&state.pipeline_pool, id, &graph_node_id)
-        .await
-        .map_err(|e| {
-            tracing::error!(error = %e, graph_node_id = %graph_node_id, "failed to remove scenario fact ref");
-            AppError::Internal {
-                message: "failed to remove scenario fact".to_string(),
-            }
-        })?;
+    let anchor_id = record_removal(
+        &state.pipeline_pool,
+        &BiasRepository::new(state.graph.clone()),
+        &RulingRequest {
+            scenario_id: id,
+            graph_node_id: &graph_node_id,
+            kind: RulingKind::Remove,
+            ruled_by: &user.username,
+            // A removal discards the row wholesale, so none of the workbench
+            // fields apply — and a reason belongs only to a defer.
+            role: None,
+            note: None,
+            defer_reason: None,
+        },
+        Utc::now(),
+    )
+    .await
+    .map_err(|e| ruling_error_to_app_error(e, &graph_node_id))?;
 
-    if removed == 0 {
+    // `None` = the pair was not on this scenario, so nothing was removed and
+    // nothing was recorded. Distinct from a real removal (Standing Rule 1).
+    let Some(anchor_id) = anchor_id else {
         tracing::debug!("no fact reference to remove");
         return Err(AppError::NotFound {
             message: "fact reference not found on this scenario".to_string(),
         });
-    }
+    };
 
     // A confirmed removal gets its own line, matching the two ruling handlers'
     // post-write logs. Without it the only trace of a successful delete is the
     // ABSENCE of an error after the request line — and "nothing was logged" is
     // exactly how the 2026-07-24 loss looked from the outside.
     tracing::info!(
+        anchor_id = %anchor_id,
         graph_node_id = %graph_node_id,
-        "removed scenario fact reference"
+        "recorded an anchored removal"
     );
 
     Ok(StatusCode::NO_CONTENT)

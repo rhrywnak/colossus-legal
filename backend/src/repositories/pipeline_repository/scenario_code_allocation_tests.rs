@@ -1,12 +1,13 @@
-//! Allocation tests for the scenario code (`S-n`) — §2a, tracker task 1.1.
+//! Schema guards for tracker task 1.1 — the scenario code (`S-n`, §2a) and the
+//! ruling-anchor ledger's document law (§12.1).
 //!
 //! Two kinds of assertion, neither of which needs a live database:
 //!
 //! * SQL-shape guards on [`super::INSERT_SCENARIO_SQL`], pinning the clauses that
 //!   PRODUCE atomic, never-reused allocation (the house pattern used by
 //!   `scenario_candidate_ordinals` and the merge/reconcile guards);
-//! * disk/code guards reading the migration itself, pinning the constraints the
-//!   allocation relies on (Standing Rule 21).
+//! * disk/code guards reading the migrations themselves, pinning the database
+//!   constraints the code relies on (Standing Rule 21).
 //!
 //! ## Why these matter more than they look
 //!
@@ -16,6 +17,10 @@
 //! surfaces months later as confusion in a room, which is the worst possible place
 //! for it. So the properties that prevent it are asserted at the only point where
 //! they are visible: the text of the statement and the DDL.
+//!
+//! The same reasoning covers the ledger's document law at the foot of this file: a
+//! missing CHECK is invisible until something writes the row it should have
+//! refused.
 
 use std::path::PathBuf;
 
@@ -178,5 +183,39 @@ fn the_sequence_cannot_go_negative() {
     assert!(
         sql.contains("next_ordinal >= 0"),
         "a negative sequence would mean never-reuse had already failed"
+    );
+}
+
+// ── The anchor ledger's document law ──────────────────────────────────────────
+
+/// The migration that made a removal's anchor optional.
+const REMOVALS_MIGRATION: &str = "20260801130419_allow_anchorless_removals.sql";
+
+/// Only a removal may be anchorless — enforced by the database, not just by code.
+///
+/// `RulingKind::requires_document` refuses an anchorless include before it reaches
+/// the table, but that is application-only: a backfill, a future machine ruling
+/// path, or a psql session could otherwise insert one. Dropping the NOT NULL to
+/// let removals through would have quietly weakened the guarantee for the other
+/// four kinds; this CHECK is what keeps it structural at both layers.
+#[test]
+fn only_a_removal_may_be_stored_without_a_document() {
+    let sql = read_migration(REMOVALS_MIGRATION);
+    assert!(
+        sql.contains("CHECK (ruled_status = 'remove' OR document_id IS NOT NULL)"),
+        "the database must still refuse an anchorless include/exclude/defer/undrop"
+    );
+    // …and the value must agree with its state column, because `document_id` is
+    // the field task 2.5 indexes on: a row claiming 'present' over a NULL would be
+    // found by that index and then match nothing.
+    assert!(
+        sql.contains("CHECK ((document_state = 'present') = (document_id IS NOT NULL))"),
+        "document_id and document_state must be constrained to agree"
+    );
+    // The default exists only to backfill any pre-existing row; leaving it in place
+    // would let a future writer omit the column and silently claim 'present'.
+    assert!(
+        sql.contains("ALTER COLUMN document_state DROP DEFAULT"),
+        "the backfill default must be dropped so every write states the value"
     );
 }
