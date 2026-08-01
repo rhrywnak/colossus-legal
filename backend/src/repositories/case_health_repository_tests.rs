@@ -22,11 +22,11 @@ fn class_alias_lowercases_the_relationship_type() {
 #[test]
 fn tier_sum_expression_joins_the_class_aliases() {
     assert_eq!(
-        tier_sum_expression(PROBATIVE_EDGE_TYPES),
+        tier_sum_expression(ConnectionTier::Probative.edge_types()),
         "n_corroborates + n_rebuts + n_characterizes"
     );
     assert_eq!(
-        tier_sum_expression(TOPICAL_EDGE_TYPES),
+        tier_sum_expression(ConnectionTier::Topical.edge_types()),
         "n_corroborates + n_rebuts + n_characterizes + n_about"
     );
 }
@@ -51,7 +51,7 @@ fn item_tally_emits_the_guard_only_when_given() {
 #[test]
 fn class_count_expressions_bind_a_distinct_inner_variable_per_class() {
     let expressions = class_count_expressions("e");
-    for rel in TOPICAL_EDGE_TYPES {
+    for rel in ConnectionTier::Topical.edge_types() {
         assert!(
             expressions.contains(&format!("(e)-[:{rel}]->(x_{rel})")),
             "missing comprehension for {rel}"
@@ -60,7 +60,7 @@ fn class_count_expressions_bind_a_distinct_inner_variable_per_class() {
     }
     assert_eq!(
         expressions.matches("size([").count(),
-        TOPICAL_EDGE_TYPES.len()
+        ConnectionTier::Topical.edge_types().len()
     );
 }
 
@@ -75,15 +75,16 @@ fn corpus_query_excludes_about_from_the_probative_tally() {
     let q = corpus_query();
     assert!(q.contains(&format!(
         "sum(CASE WHEN {} > 0 THEN 1 ELSE 0 END) AS probative_connected",
-        tier_sum_expression(PROBATIVE_EDGE_TYPES)
+        tier_sum_expression(ConnectionTier::Probative.edge_types())
     )));
     assert!(q.contains(&format!(
         "sum(CASE WHEN {} > 0 THEN 1 ELSE 0 END) AS topical_connected",
-        tier_sum_expression(TOPICAL_EDGE_TYPES)
+        tier_sum_expression(ConnectionTier::Topical.edge_types())
     )));
     // …and the probative tally's own expression must not name the ABOUT alias.
     assert!(
-        !tier_sum_expression(PROBATIVE_EDGE_TYPES).contains(&class_alias(schema::ABOUT)),
+        !tier_sum_expression(ConnectionTier::Probative.edge_types())
+            .contains(&class_alias(schema::ABOUT)),
         "ABOUT must not appear in the probative tally"
     );
 }
@@ -154,7 +155,7 @@ fn documents_query_reads_the_properties_the_write_path_actually_sets() {
 #[test]
 fn documents_query_returns_one_column_per_edge_class() {
     let q = documents_query();
-    for rel in TOPICAL_EDGE_TYPES {
+    for rel in ConnectionTier::Topical.edge_types() {
         let alias = format!("{}_items", class_alias(rel));
         assert!(
             q.contains(&format!("AS {alias}")),

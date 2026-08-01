@@ -8,7 +8,8 @@ use super::*;
 use crate::neo4j::schema;
 
 /// A Document row with the four per-class counts supplied positionally, in
-/// `TOPICAL_EDGE_TYPES` order (CORROBORATES, REBUTS, CHARACTERIZES, ABOUT).
+/// `ConnectionTier::Topical.edge_types()` order (CORROBORATES, REBUTS,
+/// CHARACTERIZES, ABOUT).
 fn doc_row(
     id: &str,
     evidence_total: i64,
@@ -99,7 +100,10 @@ fn edge_class_names_mirror_the_tier_constant() {
             schema::ABOUT.to_string(),
         ]
     );
-    assert_eq!(edge_class_names().len(), TOPICAL_EDGE_TYPES.len());
+    assert_eq!(
+        edge_class_names().len(),
+        ConnectionTier::Topical.edge_types().len()
+    );
 }
 
 // ── split_label_rows ──────────────────────────────────────────────────────────
@@ -244,15 +248,16 @@ fn document_class_counts_zip_onto_the_tier_names() {
 }
 
 /// The per-class counts a Document row carries must be positionally parallel to
-/// `TOPICAL_EDGE_TYPES`, because `zip` would otherwise truncate silently. The
-/// repository builds both from that same constant; this pins the contract on the
-/// builder's side so a future hand-built row cannot get away with a short list.
+/// `ConnectionTier::Topical.edge_types()`, because `zip` would otherwise
+/// truncate silently. The repository builds both from that same accessor; this
+/// pins the contract on the builder's side so a future hand-built row cannot get
+/// away with a short list.
 #[test]
 fn document_class_counts_are_parallel_to_the_tier_constant() {
     let row = doc_row("doc-a", 1, 0, 0, [0, 0, 0, 0]);
     assert_eq!(
         row.by_edge_class.len(),
-        TOPICAL_EDGE_TYPES.len(),
+        ConnectionTier::Topical.edge_types().len(),
         "a DocumentRow must carry exactly one count per topical edge class"
     );
 }

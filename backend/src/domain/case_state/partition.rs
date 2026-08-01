@@ -1,6 +1,11 @@
 // =============================================================================
-// backend/src/domain/connection_tier.rs — the connection-tier vocabulary
+// backend/src/domain/case_state/partition.rs — the connection-tier vocabulary
 // =============================================================================
+//
+// L1 of the `case_state` family (see `mod.rs` for the family's layering law).
+// This file partitions the graph's Evidence→Allegation edge classes into tiers
+// and stops; the verdicts that later phases compute on top of it are L2 and live
+// beside this file, never inside it.
 //
 // The Case Health dashboard answers one question at the structural level: how
 // much of the Evidence we extracted is actually WIRED INTO the case, versus
@@ -73,6 +78,12 @@ use crate::neo4j::schema;
 /// and changing it is a code change with a matching version bump. It can never
 /// vary per deployment, so it does not belong in YAML/env — same rationale as
 /// `FACT_ROLE_LOOKUP_V` and `ACTOR_ROLE_LOOKUP_V`.
+///
+/// This one stays `pub` while the tier sets below do not, and the difference is
+/// the whole point of the layering law: a VERSION is a fact about the partition
+/// that outsiders legitimately need (the payload carries it so a reader can tell
+/// which definition produced a rate). A tier SET is the definition itself, and
+/// handing that out is what lets a second definition of "connected" grow.
 pub const CONNECTION_TIER_LOOKUP_V: u32 = 1;
 
 /// The Evidence→Allegation edge classes that bear on whether the allegation is
@@ -86,7 +97,18 @@ pub const CONNECTION_TIER_LOOKUP_V: u32 = 1;
 /// string to forget to update. `&'static` on both the slice and its items means
 /// the whole thing lives in the binary with no allocation and no lifetime to
 /// thread through call sites.
-pub const PROBATIVE_EDGE_TYPES: &[&str] =
+///
+/// ## Rust Learning: a `const` with no `pub` — visibility as enforcement
+///
+/// Omitting `pub` makes this item private to `partition.rs`: `use` from any
+/// other module is a compile ERROR, not a lint. That is deliberate and it is the
+/// layering law's entire mechanism. Callers reach the same slice through
+/// [`ConnectionTier::edge_types`], which means the only way to ask "what counts
+/// as probative?" is to hold a `ConnectionTier` and ask it — you cannot answer
+/// the question by copying a list, because you cannot see the list. Rust makes
+/// "single source of truth" a property the compiler checks rather than a
+/// convention review has to catch.
+const PROBATIVE_EDGE_TYPES: &[&str] =
     &[schema::CORROBORATES, schema::REBUTS, schema::CHARACTERIZES];
 
 /// The edge classes that make an item topically connected but say nothing about
@@ -96,7 +118,20 @@ pub const PROBATIVE_EDGE_TYPES: &[&str] =
 /// another) so the "what does topical add?" question has a single, greppable
 /// answer, and so `topical_is_probative_plus_topical_only` can assert the two
 /// lists compose correctly.
-pub const TOPICAL_ONLY_EDGE_TYPES: &[&str] = &[schema::ABOUT];
+///
+/// ## Why the `allow(dead_code)`
+///
+/// This const is read only by that composition test, so a non-test build sees no
+/// consumer. That was true before A0 as well; it was merely invisible, because
+/// the const was `pub` and a `pub` item is never reported as dead. Narrowing the
+/// visibility surfaced the fact rather than creating it. The right answer is to
+/// keep the declaration and silence the lint HERE, with this note: deleting it
+/// would inline `ABOUT` into the composition test and lose the one place that
+/// names the difference between the tiers, and exporting an accessor to give it
+/// a production caller would widen the public surface to satisfy a lint — the
+/// tail wagging the dog.
+#[allow(dead_code)]
+const TOPICAL_ONLY_EDGE_TYPES: &[&str] = &[schema::ABOUT];
 
 /// Every Evidence→Allegation edge class, probative first, in display order.
 ///
@@ -104,7 +139,7 @@ pub const TOPICAL_ONLY_EDGE_TYPES: &[&str] = &[schema::ABOUT];
 /// and it is the column order of the per-document breakdown table the dashboard
 /// renders. Both read it from here so the table can never drift from the tier
 /// definition.
-pub const TOPICAL_EDGE_TYPES: &[&str] = &[
+const TOPICAL_EDGE_TYPES: &[&str] = &[
     schema::CORROBORATES,
     schema::REBUTS,
     schema::CHARACTERIZES,
@@ -166,6 +201,15 @@ impl ConnectionTier {
     /// This is the single function every query builder and every classifier must
     /// call. Nothing else in the codebase may hard-code "CORROBORATES, REBUTS,
     /// CHARACTERIZES" — that would be the second copy from which drift starts.
+    ///
+    /// ## Rust Learning: a public accessor returning a private const
+    ///
+    /// The returned slice's TYPE (`&'static [&'static str]`) is public, so this
+    /// compiles even though the constants it names are private — privacy governs
+    /// who may write the PATH `PROBATIVE_EDGE_TYPES`, not what may flow out of a
+    /// function. That asymmetry is what makes the pattern work: outsiders get the
+    /// data, but only ever by asking a tier for it, so every read is routed
+    /// through the partition and shows up in a search for `edge_types()`.
     pub fn edge_types(self) -> &'static [&'static str] {
         match self {
             ConnectionTier::Probative => PROBATIVE_EDGE_TYPES,
