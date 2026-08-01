@@ -29,6 +29,8 @@ export type ScenarioDirection = "offense" | "defense";
  */
 export interface ScenarioDto {
   scenario_id: string;
+  /** The scenario's human handle, e.g. "S-3" (§2a). Backend-formatted. */
+  code: string;
   name: string;
   direction: string;
   status: string;

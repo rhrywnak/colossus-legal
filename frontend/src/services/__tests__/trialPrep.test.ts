@@ -31,6 +31,7 @@ const validResponse: TrialPrepDashboard = {
   scenarios: [
     {
       id: "marie-obstructive",
+      code: "S-1",
       attack: "Marie is obstructive and uncooperative",
       status: "draft",
       instance_count: 4,
@@ -103,6 +104,7 @@ describe("getTrialPrepDashboard", () => {
 // validates (`attack` string, `timeline` array) plus one evidence turn.
 const validDetail: ScenarioDetail = {
   id: "00000000-0000-0000-0000-000000000000",
+  code: "S-1",
   attack: "Marie is obstructive and uncooperative",
   status: "draft",
   pattern_summary: null,

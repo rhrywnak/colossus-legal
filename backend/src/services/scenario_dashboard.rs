@@ -29,6 +29,7 @@
 use sqlx::PgPool;
 use uuid::Uuid;
 
+use crate::domain::scenario_code::scenario_code;
 use crate::dto::scenario::{AnchoredAllegationEvidenceResponse, AnchoredEvidenceFact};
 use crate::dto::trial_prep::{
     ExchangeTurn, ScenarioDetail, ScenarioStatus, ScenarioSummary, TrialPrepDashboard,
@@ -250,6 +251,7 @@ fn build_detail(
 ) -> Result<ScenarioDetail, ScenarioDashboardError> {
     Ok(ScenarioDetail {
         id: record.scenario_id.to_string(),
+        code: scenario_code(record.code_ordinal),
         attack: record.name.clone(),
         status: parse_status(&record.status, record.scenario_id)?,
         pattern_summary: None,
@@ -293,6 +295,7 @@ fn fact_to_turn(fact: &AnchoredEvidenceFact) -> ExchangeTurn {
         page_number: fact
             .page_number
             .as_deref()
+            // best-effort: an un-parseable page degrades to `None` (see above).
             .and_then(|p| p.parse::<i64>().ok()),
         paragraph: fact.paragraph_number.clone(),
         repeated_after_rebuttal: false,
@@ -340,6 +343,7 @@ fn record_to_card(
     Ok(ScenarioSummary {
         // The frontend uses the id for the detail-page link.
         id: record.scenario_id.to_string(),
+        code: scenario_code(record.code_ordinal),
         attack: record.name.clone(),
         status: parse_status(&record.status, record.scenario_id)?,
         instance_count,
@@ -404,6 +408,9 @@ mod tests {
             definition: serde_json::json!({ "attack_text": "Marie is obstructive", "schema_v": 1 }),
             created_at: ts,
             updated_at: ts,
+            // Every scenario carries a code after the 2026-08-01 backfill;
+            // a fixture without one would be a state the column forbids.
+            code_ordinal: 1,
         }
     }
 
@@ -411,6 +418,7 @@ mod tests {
     /// honest defaults).
     fn card_with(status: ScenarioStatus, instance_count: u32) -> ScenarioSummary {
         ScenarioSummary {
+            code: "S-1".to_string(),
             id: "card".to_string(),
             attack: "attack".to_string(),
             status,

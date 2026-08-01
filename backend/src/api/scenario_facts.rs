@@ -1,15 +1,27 @@
-//! Scenario fact-curation HTTP routes (task 1.x — Phase A).
+//! Scenario fact-curation HTTP routes.
 //!
-//! Three routes over the existing storage and graph readers — no new tables,
-//! no migration, no LLM, no retrieval. A human picks Evidence (from the Bias
-//! Explorer's pre-tagged candidates) and saves it onto a scenario; these routes
-//! persist, remove, and list those saved references with their live content.
+//! A human picks Evidence (from the Bias Explorer's pre-tagged candidates) and
+//! saves it onto a scenario; these routes persist, remove, and list those saved
+//! references with their live content.
 //!
 //! - `POST   /cases/:slug/scenarios/:scenario_id/facts`            → 201
 //! - `DELETE /cases/:slug/scenarios/:scenario_id/facts/:graph_node_id` → 204
 //! - `GET    /cases/:slug/scenarios/:scenario_id/facts`            → 200 `[…]`
 //! - `POST   /cases/:slug/scenarios/:scenario_id/facts/:graph_node_id/action` → 200
-//!   — the Phase 1a.3 workbench ruling (`include` / `drop` / `undrop`).
+//!   — the workbench ruling (`include` / `drop` / `undrop` / `defer`).
+//!
+//! ## Every ruling is anchored (§12.1, task 1.1)
+//!
+//! Both write routes go through `services::scenario_ruling::record_ruling`, which
+//! reads the item from the graph, captures its anchor (document, page, verbatim +
+//! normalized quote, speaker), and writes the state row and the ledger row in one
+//! transaction. Neither route writes a fact-ref directly — `upsert_fact_ref` is
+//! withheld from the repository's re-export precisely so that stays true.
+//!
+//! The visible consequence: a ruling that cannot be anchored is REFUSED (400/409)
+//! where it previously succeeded. `DELETE` is deliberately NOT a ruling — it
+//! un-saves a reference rather than deciding anything about the fact — so it
+//! writes no ledger row.
 //!
 //! ## CRITICAL — the pipeline pool
 //!
@@ -30,26 +42,25 @@
 //! reference whose node has since disappeared is returned with `content: null`
 //! rather than dropped, so a stale reference stays observable (Standing Rule 1).
 
-use std::collections::HashMap;
-
 use axum::{
     extract::{Path, State},
     http::StatusCode,
     Json,
 };
+use chrono::Utc;
 use serde_json::json;
 use uuid::Uuid;
 
 use crate::{
     auth::{require_edit, AuthUser},
-    bias::{dto::BiasInstance, repository::BiasRepository},
-    domain::fact_status::FactStatus,
-    dto::{AddFactRequest, FactAction, FactActionRequest, ScenarioFactDto},
+    bias::repository::BiasRepository,
+    domain::{fact_status::FactStatus, ruling_anchor::RulingKind},
+    dto::{AddFactRequest, FactActionRequest, ScenarioFactDto},
     error::AppError,
     repositories::pipeline_repository::{
-        delete_fact_ref, get_scenario, list_fact_refs_for_scenario, upsert_fact_ref,
-        ScenarioFactRefRecord,
+        delete_fact_ref, get_scenario, list_fact_refs_for_scenario,
     },
+    services::scenario_ruling::{record_ruling, RulingRequest},
     state::AppState,
 };
 
@@ -117,56 +128,12 @@ pub(crate) async fn ensure_scenario_in_case(
     Ok(())
 }
 
-/// Pair each stored fact reference with its live graph content.
-///
-/// Pure (no I/O) so it is unit-testable without a database or graph. Builds a
-/// `graph_node_id → BiasInstance` index from the content, then walks the
-/// references **in their stored order** (oldest tag first, per
-/// `list_fact_refs_for_scenario`) producing exactly one DTO per reference.
-///
-/// ## Domain note: a reference can outlive its node
-///
-/// A `scenario_fact_refs` row is a pointer into Neo4j; if that Evidence node is
-/// later deleted or re-ingested under a new id, the lookup misses. Phase A must
-/// not let the saved fact silently disappear (Standing Rule 1), so a miss yields
-/// `content: None` *and* a logged warning — the curated count stays honest and
-/// the stale reference is visible to both the operator (logs) and the UI (a
-/// null-content card carrying the `graph_node_id`).
-fn join_facts(
-    refs: Vec<ScenarioFactRefRecord>,
-    content: Vec<BiasInstance>,
-) -> Vec<ScenarioFactDto> {
-    let mut by_id: HashMap<String, BiasInstance> = content
-        .into_iter()
-        .map(|c| (c.evidence_id.clone(), c))
-        .collect();
-
-    refs.into_iter()
-        .map(|r| {
-            // `remove` (not `get`) because each node id appears at most once per
-            // scenario (composite PK), so transferring ownership avoids a clone.
-            let content = by_id.remove(&r.graph_node_id);
-            if content.is_none() {
-                tracing::warn!(
-                    graph_node_id = %r.graph_node_id,
-                    scenario_id = %r.scenario_id,
-                    "saved scenario fact references a graph node with no live content; \
-                     returning it with null content so the stale reference stays visible"
-                );
-            }
-            // `r.status` is intentionally NOT copied into the DTO here: surfacing
-            // the three-state candidate status on the read path is 1a.2/1a.3 work
-            // (gated on the workbench UI that consumes it), not this data-layer
-            // chunk. See the `ScenarioFactDto` doc — the omission is a decision.
-            ScenarioFactDto {
-                graph_node_id: r.graph_node_id,
-                role: r.role_in_this_scenario,
-                note: r.note,
-                content,
-            }
-        })
-        .collect()
-}
+// The pure mapping helpers (`join_facts`, the two verb translations, and the
+// error→HTTP mapping) live in the sibling `scenario_facts_mapping` module — they
+// are pure, and moving them kept this module inside the 300-line limit.
+use super::scenario_facts_mapping::{
+    action_to_ruling_kind, action_to_status, join_facts, ruling_error_to_app_error,
+};
 
 // ── Handlers ──────────────────────────────────────────────────────────────────
 
@@ -175,6 +142,15 @@ fn join_facts(
 /// The reference is stored `status = FactStatus::Included`: a human deliberately
 /// picked it. Re-posting the same `graph_node_id` is an in-place update (the
 /// store upserts on the composite key), so the route is idempotent on the pair.
+///
+/// ## This is an INCLUDE ruling, so it anchors (§12.1)
+///
+/// Saving a fact onto a scenario IS a ruling, not a bookkeeping operation, so it
+/// goes through the same [`record_ruling`] choke point as the workbench's action
+/// route. The consequence is visible: an item with no verbatim quote can no longer
+/// be saved here, and the 400 says why and names defer as the alternative. That is
+/// the citability law applying to every include, not only to the ones made from
+/// the workbench.
 #[tracing::instrument(skip(state, user, payload), fields(slug = %slug, scenario_id = %scenario_id))]
 pub async fn add_scenario_fact(
     user: AuthUser,
@@ -196,26 +172,30 @@ pub async fn add_scenario_fact(
     // status = Included: a human curated it. role / note are accepted but not yet
     // surfaced by any UI (Phase A) — the columns round-trip, ready for a later
     // phase, without forcing the client to send a value.
-    //
-    // confidence = None: this is the HUMAN path. A hand-curated fact has no model
-    // confidence, so NULL is the correct, permanent value here — not a stand-in.
-    // Only the Theme Scan (D2b) writes a Some(_) confidence.
-    upsert_fact_ref(
+    let anchor_id = record_ruling(
         &state.pipeline_pool,
-        id,
-        &payload.graph_node_id,
-        payload.role.as_deref(),
+        &BiasRepository::new(state.graph.clone()),
+        &RulingRequest {
+            scenario_id: id,
+            graph_node_id: &payload.graph_node_id,
+            kind: RulingKind::Include,
+            ruled_by: &user.username,
+            role: payload.role.as_deref(),
+            note: payload.note.as_deref(),
+            // A save is never a defer, so no reason may ride along.
+            defer_reason: None,
+        },
         FactStatus::Included,
-        payload.note.as_deref(),
-        None,
+        Utc::now(),
     )
     .await
-    .map_err(|e| {
-        tracing::error!(error = %e, graph_node_id = %payload.graph_node_id, "failed to add scenario fact ref");
-        AppError::Internal {
-            message: "failed to add scenario fact".to_string(),
-        }
-    })?;
+    .map_err(|e| ruling_error_to_app_error(e, &payload.graph_node_id))?;
+
+    tracing::info!(
+        anchor_id = %anchor_id,
+        graph_node_id = %payload.graph_node_id,
+        "recorded an anchored include"
+    );
 
     Ok(StatusCode::CREATED)
 }
@@ -258,35 +238,17 @@ pub async fn remove_scenario_fact(
             message: "fact reference not found on this scenario".to_string(),
         });
     }
-    Ok(StatusCode::NO_CONTENT)
-}
 
-/// Map a human [`FactAction`] (imperative verb) to the [`FactStatus`] the ref
-/// becomes (state). This is the one translation between the two vocabularies.
-///
-/// ## Rust Learning: an exhaustive `match` is the compiler-checklist
-///
-/// This `match` has NO `_ =>` arm, on purpose. An enum `match` with no catch-all
-/// is compile-checked for exhaustiveness: if a fourth `FactAction` is ever added,
-/// THIS function stops compiling until its arm is written. The compiler becomes
-/// the checklist — you cannot ship a new action that some code path silently
-/// ignores. Adding a `_ =>` arm would throw that guarantee away (it would swallow
-/// the new variant into whatever default it names), so we deliberately omit one.
-/// This is the control-flow twin of the data-level guarantee `FactStatus::ALL`
-/// gives, and of the closed-enum parse boundary on [`FactAction`] itself.
-///
-/// ## Domain note: the non-identity mapping
-///
-/// `Undrop → Undecided` is why `FactAction` and `FactStatus` are separate types:
-/// "un-drop" is a verb with no matching state. Un-drop returns a candidate to the
-/// pool for reconsideration — deliberately `Undecided`, never `Included` (the
-/// human only recovered it, they did not confirm it).
-fn action_to_status(action: FactAction) -> FactStatus {
-    match action {
-        FactAction::Include => FactStatus::Included,
-        FactAction::Drop => FactStatus::Dropped,
-        FactAction::Undrop => FactStatus::Undecided,
-    }
+    // A confirmed removal gets its own line, matching the two ruling handlers'
+    // post-write logs. Without it the only trace of a successful delete is the
+    // ABSENCE of an error after the request line — and "nothing was logged" is
+    // exactly how the 2026-07-24 loss looked from the outside.
+    tracing::info!(
+        graph_node_id = %graph_node_id,
+        "removed scenario fact reference"
+    );
+
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// `POST /cases/:slug/scenarios/:scenario_id/facts/:graph_node_id/action` — a
@@ -294,7 +256,7 @@ fn action_to_status(action: FactAction) -> FactStatus {
 ///
 /// Phase 1a.3: the write side of the candidate workbench. This is the first
 /// producer of `FactStatus::Dropped`. All three actions write through the single
-/// always-overwrite [`upsert_fact_ref`] — there is no second writer and no
+/// always-overwrite `scenario_store::upsert_fact_ref` — there is no second writer and no
 /// status-only path (ratified: a human ruling always overwrites the current
 /// status). Reload stays derive-on-read (`api::scenario_gather`), which this
 /// route does not touch.
@@ -345,30 +307,36 @@ pub async fn apply_fact_action(
     ensure_scenario_in_case(&state, id, &slug).await?;
 
     let status = action_to_status(payload.action);
+    let kind = action_to_ruling_kind(payload.action);
 
-    // role / note / confidence = None on every action — see the doc comment above:
-    // no scan judgment should survive an include/drop/undrop ruling.
-    upsert_fact_ref(
+    // role / note = None on every action — see the doc comment above: no scan
+    // judgment should survive an include/drop/undrop ruling. The defer reason is
+    // the one caller-supplied field, and `record_ruling` refuses it on any verb
+    // but defer (and refuses a defer without one).
+    let anchor_id = record_ruling(
         &state.pipeline_pool,
-        id,
-        &graph_node_id,
-        None,
+        &BiasRepository::new(state.graph.clone()),
+        &RulingRequest {
+            scenario_id: id,
+            graph_node_id: &graph_node_id,
+            kind,
+            ruled_by: &user.username,
+            role: None,
+            note: None,
+            defer_reason: payload.reason.as_deref(),
+        },
         status,
-        None,
-        None,
+        Utc::now(),
     )
     .await
-    .map_err(|e| {
-        tracing::error!(
-            error = %e,
-            graph_node_id = %graph_node_id,
-            action = ?payload.action,
-            "failed to apply fact action"
-        );
-        AppError::Internal {
-            message: "failed to apply fact action".to_string(),
-        }
-    })?;
+    .map_err(|e| ruling_error_to_app_error(e, &graph_node_id))?;
+
+    tracing::info!(
+        anchor_id = %anchor_id,
+        graph_node_id = %graph_node_id,
+        ruling = %kind.code(),
+        "recorded an anchored ruling"
+    );
 
     Ok(StatusCode::OK)
 }
@@ -424,54 +392,15 @@ pub async fn list_scenario_facts(
 
     Ok(Json(join_facts(refs, content)))
 }
-
 // ── Tests ─────────────────────────────────────────────────────────────────────
+//
+// The join and the vocabulary translations moved to `scenario_facts_mapping`
+// along with their tests; what remains here is the path-parsing fence, the only
+// pure helper this module still owns.
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// A minimal `BiasInstance` carrying just an id + quote — enough to assert
-    /// the join pairs the right content with the right reference.
-    fn content(evidence_id: &str, quote: &str) -> BiasInstance {
-        BiasInstance {
-            evidence_id: evidence_id.to_string(),
-            title: String::new(),
-            verbatim_quote: Some(quote.to_string()),
-            question: None,
-            page_number: None,
-            pattern_tags: Vec::new(),
-            stated_by: None,
-            about: Vec::new(),
-            document: None,
-        }
-    }
-
-    /// A `scenario_fact_refs` row for one scenario, with the given node id /
-    /// role / note.
-    fn fact_ref(
-        scenario_id: Uuid,
-        graph_node_id: &str,
-        role: Option<&str>,
-        note: Option<&str>,
-    ) -> ScenarioFactRefRecord {
-        ScenarioFactRefRecord {
-            scenario_id,
-            graph_node_id: graph_node_id.to_string(),
-            role_in_this_scenario: role.map(str::to_string),
-            status: FactStatus::Included.code().to_string(),
-            note: note.map(str::to_string),
-            // These join tests do not exercise confidence (that is gather's read
-            // path, tested there) — a human-curated-style None keeps them pure.
-            confidence: None,
-            // Likewise unexercised here: provenance is read by the run-detail
-            // "applied" path, not by the join. None keeps these fixtures human-authored.
-            source_run_id: None,
-            // A fixed epoch timestamp — the join does not read it, but the
-            // struct requires one. Avoids `Utc::now()` so the test is pure.
-            tagged_at: chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
-        }
-    }
 
     #[test]
     fn parse_scenario_id_rejects_non_uuid() {
@@ -484,103 +413,5 @@ mod tests {
         let id = Uuid::new_v4();
         let parsed = parse_scenario_id(&id.to_string()).expect("a valid uuid string parses");
         assert_eq!(parsed, id);
-    }
-
-    #[test]
-    fn join_facts_with_no_refs_returns_empty() {
-        // The list handler short-circuits on `refs.is_empty()` before calling
-        // this, but the function's own contract — zero refs in, zero DTOs out —
-        // is asserted here directly rather than left implicit.
-        let dtos = join_facts(Vec::new(), Vec::new());
-        assert!(dtos.is_empty());
-    }
-
-    #[test]
-    fn join_facts_ignores_orphan_content_with_no_ref() {
-        // Content the graph returned for a node that is NOT among the refs must
-        // not appear in the output: the refs drive the result, one DTO each.
-        let dtos = join_facts(Vec::new(), vec![content("ev-orphan", "unreferenced")]);
-        assert!(
-            dtos.is_empty(),
-            "content without a matching reference is dropped, not invented into a DTO",
-        );
-    }
-
-    #[test]
-    fn join_pairs_role_and_note_with_the_matching_content() {
-        let sid = Uuid::new_v4();
-        let refs = vec![
-            fact_ref(sid, "ev-1", Some("rebuts"), Some("key denial")),
-            fact_ref(sid, "ev-2", None, None),
-        ];
-        // Content arrives in a DIFFERENT order than the refs (the graph reader
-        // sorts by speaker/doc); the join must key by id, not by position.
-        let content = vec![
-            content("ev-2", "second quote"),
-            content("ev-1", "first quote"),
-        ];
-
-        let dtos = join_facts(refs, content);
-
-        assert_eq!(dtos.len(), 2, "one DTO per reference, in reference order");
-
-        assert_eq!(dtos[0].graph_node_id, "ev-1");
-        assert_eq!(dtos[0].role.as_deref(), Some("rebuts"));
-        assert_eq!(dtos[0].note.as_deref(), Some("key denial"));
-        assert_eq!(
-            dtos[0]
-                .content
-                .as_ref()
-                .and_then(|c| c.verbatim_quote.as_deref()),
-            Some("first quote"),
-            "ev-1's role/note must pair with ev-1's content, not ev-2's",
-        );
-
-        assert_eq!(dtos[1].graph_node_id, "ev-2");
-        assert!(dtos[1].role.is_none());
-        assert_eq!(
-            dtos[1]
-                .content
-                .as_ref()
-                .and_then(|c| c.verbatim_quote.as_deref()),
-            Some("second quote"),
-        );
-    }
-
-    #[test]
-    fn join_keeps_a_stale_reference_with_null_content() {
-        let sid = Uuid::new_v4();
-        // Two saved refs, but the graph only returns content for one — the other
-        // node was deleted. The stale ref must survive with content = None.
-        let refs = vec![
-            fact_ref(sid, "ev-live", None, None),
-            fact_ref(sid, "ev-deleted", Some("context"), None),
-        ];
-        let content = vec![content("ev-live", "still here")];
-
-        let dtos = join_facts(refs, content);
-
-        assert_eq!(dtos.len(), 2, "a missing node must NOT drop the reference");
-        assert!(dtos[0].content.is_some(), "ev-live keeps its content");
-        assert_eq!(dtos[1].graph_node_id, "ev-deleted");
-        assert!(
-            dtos[1].content.is_none(),
-            "the stale ref is surfaced with null content, not silently removed",
-        );
-        assert_eq!(
-            dtos[1].role.as_deref(),
-            Some("context"),
-            "the stored role/note still travel even when content is gone",
-        );
-    }
-
-    #[test]
-    fn action_to_status_maps_each_verb_to_its_state() {
-        // Pin the one non-identity translation the workbench depends on: `undrop`
-        // returns a candidate to the pool as `Undecided`, NOT `Included`. If a
-        // future edit swapped an arm, this fails here rather than mis-ruling a fact.
-        assert_eq!(action_to_status(FactAction::Include), FactStatus::Included);
-        assert_eq!(action_to_status(FactAction::Drop), FactStatus::Dropped);
-        assert_eq!(action_to_status(FactAction::Undrop), FactStatus::Undecided);
     }
 }

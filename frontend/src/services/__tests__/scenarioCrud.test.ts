@@ -22,6 +22,7 @@ const SLUG = "awad_v_catholic_family_service";
 
 const validDto: ScenarioDto = {
   scenario_id: "00000000-0000-0000-0000-000000000000",
+  code: "S-1",
   name: "Marie is obstructive and uncooperative",
   direction: "defense",
   status: "draft",

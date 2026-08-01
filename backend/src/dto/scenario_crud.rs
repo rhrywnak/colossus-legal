@@ -33,6 +33,10 @@ use crate::domain::actor_role::ActorRole;
 pub struct ScenarioDto {
     /// The database-minted `Uuid`, rendered as a string for the wire.
     pub scenario_id: String,
+    /// The scenario's human handle — `"S-3"` (§2a), formatted by the backend so
+    /// no client re-derives the prefix. Stable for the life of the scenario, and
+    /// never reused by another.
+    pub code: String,
     pub name: String,
     pub direction: String,
     pub status: String,

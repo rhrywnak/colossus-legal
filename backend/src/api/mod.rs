@@ -52,6 +52,7 @@ pub mod proof_review;
 pub mod qa;
 pub mod queries;
 pub mod scenario_facts;
+pub mod scenario_facts_mapping;
 pub mod scenario_gather;
 pub mod scenario_theme_scan;
 pub mod scenarios;

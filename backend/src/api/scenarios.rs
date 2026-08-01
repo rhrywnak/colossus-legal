@@ -22,6 +22,7 @@ use uuid::Uuid;
 
 use crate::{
     auth::{require_edit, AuthUser},
+    domain::scenario_code::scenario_code,
     dto::{ScenarioCreateRequest, ScenarioDto, ScenarioUpdateRequest},
     error::AppError,
     repositories::pipeline_repository::{
@@ -88,6 +89,7 @@ fn validate_status(status: &str) -> Result<(), AppError> {
 fn to_dto(record: ScenarioRecord) -> ScenarioDto {
     ScenarioDto {
         scenario_id: record.scenario_id.to_string(),
+        code: scenario_code(record.code_ordinal),
         name: record.name,
         direction: record.direction,
         status: record.status,
@@ -210,7 +212,10 @@ pub async fn create_scenario(
     // The column is NOT NULL — an omitted definition becomes `{}`, never SQL null.
     let definition = payload.definition.unwrap_or_else(|| json!({}));
 
-    let scenario_id = insert_scenario(
+    // Creation ALSO allocates the scenario's `S-n` code, atomically in the same
+    // statement — see `INSERT_SCENARIO_SQL`. Both come back so the response can
+    // name the code without a read-back.
+    let (scenario_id, code_ordinal) = insert_scenario(
         &state.pipeline_pool,
         &name,
         &payload.direction,
@@ -235,6 +240,7 @@ pub async fn create_scenario(
     // values inserted are exactly the values returned, so no read-back is needed.
     let dto = ScenarioDto {
         scenario_id: scenario_id.to_string(),
+        code: scenario_code(code_ordinal),
         name,
         direction: payload.direction,
         status,
@@ -462,6 +468,9 @@ mod tests {
             definition: json!({}),
             created_at: ts,
             updated_at: ts,
+            // Every scenario carries a code after the 2026-08-01 backfill;
+            // a fixture without one would be a state the column forbids.
+            code_ordinal: 1,
         }
     }
 

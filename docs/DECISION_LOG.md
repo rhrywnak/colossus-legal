@@ -559,6 +559,92 @@ compiler would then accept silently.
 
 ---
 
+## 2026-08-01 | SOFTWARE ARCHITECT (Roman Approved) — task 1.1: codes + anchored rulings
+
+### Decision
+Implement the two ratified laws that had no implementation.
+
+**§2a codes.** Every scenario carries `S-n`, allocated at creation and never
+reused. The ordinal is a column on `scenarios`; the high-water mark is a separate
+`case_code_sequences` row. Allocation is a single data-modifying-CTE statement
+inside `insert_scenario`, so creation and allocation are atomic with no explicit
+transaction, and the sequence's row lock serializes concurrent creations.
+Existing scenarios were backfilled in `created_at` order per case and the
+sequence seeded to that maximum, in the same migration. The code renders on the
+dashboard card and the detail header, formatted by the BACKEND (`scenario_code`)
+so no client re-derives the prefix. Candidate `C-n` codes already existed with
+the same discipline and were verified, not rebuilt.
+
+**§12.1 anchors.** Every ruling now records document, page, verbatim + normalized
+quote, and speaker, captured server-side from the graph at ruling time and
+written to an append-only `scenario_ruling_anchors` ledger in the same
+transaction as the state row. `FactAction` gains `defer` (backend only; the UI is
+1.3), which persists `status = undecided` plus a `defer_reason` — the field that
+makes a parked candidate distinguishable from one nobody has opened.
+
+### Rationale
+On 2026-07-24/25 a re-extraction destroyed all 26 rulings including 6 human
+includes. Nothing errored: rulings keyed on `graph_node_id`, that id is a content
+hash, and re-extraction minted new ones. The anchor records what did NOT change
+across the re-extraction — the document, the page, the words, the speaker — so a
+ruling describes the RECORD rather than the graph's current encoding of it.
+
+Three consequences worth recording, because each was a decision:
+
+- **The anchor is read server-side, never accepted from the client.** A
+  client-supplied anchor records what the caller *claimed*; a stale tab gets that
+  wrong and a bad actor can forge it. One round trip on a low-frequency human
+  action buys an unforgeable record and one contract for every future machine
+  path.
+- **An unanchorable ruling is REFUSED, not written partially.** A half-anchor is
+  worse than no ruling because it looks recorded while being unrecoverable. A
+  missing document refuses every ruling; a missing quote refuses include and
+  exclude only (citability law, v2 §9/§17) with a message naming defer as the way
+  forward. Defer is always permitted — it is how a human parks an item they
+  cannot cite.
+- **The ledger has NO foreign key on `scenario_id`**, unlike every sibling table.
+  A cascade would mean deleting a scenario also erases the record of every ruling
+  made inside it — the 2026-07-24 failure wearing a foreign key. Ledger rows may
+  outlive their scenario; that is the point.
+
+Normalization is casefold + whitespace-collapse and nothing else. Curly quotes
+are deliberately NOT folded to straight ones, and a test pins that: widening the
+rule silently changes which historical anchors match, so it is a versioned law
+change, never a quiet edit inside a future matcher.
+
+### Impacts
+- **Data Architect:** None to the graph — the anchor is read-only against Neo4j.
+- **DB Engineer:** Two pipeline migrations. `scenarios.code_ordinal` (NOT NULL
+  after backfill) + `case_code_sequences`; `scenario_ruling_anchors` +
+  `scenario_fact_refs.defer_reason`.
+- **Software Architect:** API contract changes below. `insert_scenario` now
+  returns `(scenario_id, code_ordinal)`; `upsert_fact_ref` takes `defer_reason`.
+  Anchors are WRITTEN only — the matching pass that consumes them is task 2.5.
+
+### API contract changes
+`POST /api/cases/:slug/scenarios` — response gains `code: string`. Scenario cards
+(`ScenarioSummary`) and the detail payload (`ScenarioDetail`) gain `code`.
+`POST …/facts/:graph_node_id/action` — `action` accepts `defer`, and the body
+accepts an optional `reason` (required for defer, refused otherwise). Both ruling
+routes can now return **400** (no document / not citable / reason mismatch) and
+**409** (the graph no longer holds the node) where they previously always
+succeeded.
+
+### Action Required
+- [x] Migrations, allocation, anchor ledger, defer verb, code display
+- [ ] Roman: verify on DEV after the Phase-1 batch deploys at G1
+- [ ] Software Architect: task 1.3 wires the defer key and the queue view, and
+      surfaces `defer_reason` on the candidate payload
+- [ ] Software Architect: task 2.5 consumes the anchors (the re-anchor pass); the
+      re-processing embargo holds until it is DONE
+- [ ] Software Architect: ratify or reverse recording `undrop` in the ledger (see
+      `RulingKind::Undrop` — a deviation from the law's three named rulings,
+      taken so no state change goes unrecorded)
+- [ ] Software Architect: scenario ARCHIVE status does not exist (only hard
+      delete) — tracked as its own task, not part of 1.1
+
+---
+
 ## Template for Future Entries
 
 ```markdown

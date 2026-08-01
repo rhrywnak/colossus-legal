@@ -106,6 +106,17 @@ const titleCancelBtn: React.CSSProperties = {
 };
 // The title in view mode reads as a clickable affordance (hover cursor).
 const titleViewStyle: React.CSSProperties = { margin: 0, cursor: "pointer" };
+// The scenario code beside the header title. Muted and tabular so a column of
+// codes lines up and the code never competes with the name for attention — it is
+// an identifier, not a heading. `default` cursor (not the title's `pointer`)
+// because this element is deliberately not clickable: the code cannot be renamed.
+const scenarioCodeStyle: React.CSSProperties = {
+  fontSize: "1rem",
+  fontWeight: 600,
+  color: "var(--text-muted)",
+  fontVariantNumeric: "tabular-nums",
+  cursor: "default",
+};
 const patternHeadline: React.CSSProperties = {
   marginTop: "0.75rem",
   padding: "0.6rem 0.9rem",
@@ -361,6 +372,11 @@ const ScenarioDetailPage: React.FC = () => {
           // holds the top-level NAME (see the state-machine note above), so clicking
           // it opens the NAME editor — not the accusation/define surface.
           <>
+            {/* The code sits OUTSIDE the clickable title (§2a): the title opens the
+                rename editor, and the code is the one part of the header that can
+                never be renamed. Putting it inside would invite a click that looks
+                like it edits the code and does not. */}
+            <span style={scenarioCodeStyle}>{scenario.code}</span>
             <h1
               className="count-header"
               style={titleViewStyle}

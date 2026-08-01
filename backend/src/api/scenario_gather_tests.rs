@@ -43,6 +43,9 @@ fn fact_ref(
         // NULL, not a placeholder) — matches the `confidence: None` above.
         source_run_id: None,
         tagged_at: chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
+        // Not deferred: the overwhelmingly common case, and the value that
+        // keeps 'parked with a reason' distinct from 'never touched'.
+        defer_reason: None,
     }
 }
 
@@ -63,6 +66,9 @@ fn scored_ref(node: &str, role: &str, confidence: f32) -> ScenarioFactRefRecord 
         // would be an impossible state to fixture.
         source_run_id: Some(Uuid::nil()),
         tagged_at: chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
+        // Not deferred: the overwhelmingly common case, and the value that
+        // keeps 'parked with a reason' distinct from 'never touched'.
+        defer_reason: None,
     }
 }
 

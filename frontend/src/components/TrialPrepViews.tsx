@@ -206,7 +206,16 @@ export const ScenarioCard: React.FC<{
         />
         <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>{status.label}</span>
       </div>
+      {/* The scenario's code prefixes its name everywhere the scenario appears
+          (§2a). Rendered as plain text in the existing title line rather than as
+          a new chip or row: the code is part of how the scenario is NAMED, so it
+          reads as "S-3 · Marie is obstructive", and no layout changes. The string
+          arrives fully formatted from the backend — the browser never builds it. */}
       <div style={{ fontSize: "0.95rem", fontWeight: 600, color: "var(--text-primary)" }}>
+        <span style={{ color: "var(--text-muted)", fontVariantNumeric: "tabular-nums" }}>
+          {scenario.code}
+        </span>
+        {" · "}
         {scenario.attack}
       </div>
       <span

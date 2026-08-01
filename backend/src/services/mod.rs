@@ -15,6 +15,7 @@ pub mod qdrant_service;
 pub mod scan_run_enrich;
 pub mod scenario_dashboard;
 pub mod scenario_page;
+pub mod scenario_ruling;
 pub mod scenario_subject;
 pub mod theme_scan;
 pub mod theme_scan_judge;
