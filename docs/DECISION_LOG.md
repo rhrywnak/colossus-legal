@@ -1309,6 +1309,113 @@ the window, which is what stops a later "simplification" from doing it.
 
 ---
 
+## 2026-08-02 | SOFTWARE ARCHITECT (Roman Approved) — task 1.7B: the scenario page restructure
+
+### Decision
+
+The scenario detail page is rebuilt to `SCENARIO_PAGE_RESTRUCTURE_DESIGN_v1`, so
+every Phase-2 feature lands on a stable baseline instead of being retrofitted
+after ten features are wired in. Five structural changes:
+
+1. **Lean one-line header** (study §1.7) — code · name · direction chip · status
+   chip · edit · rehearsal link. The permanent full-width definition form and the
+   inline title-rename machine are gone.
+2. **One identity modal** (study §1.6) — name, the three texts, allegation
+   CHIPS with an inline picker. Nothing opens a second page.
+3. **Compact scan control** — one line: Run · model select · last-run summary.
+   The radio grid is gone.
+4. **Working view** stays the Facts-table pattern; the augmentation panel keeps
+   its behaviour.
+5. **The split-pane PDF viewer is removed** (defect D2). Pinpoints open the
+   dedicated viewer at the cited page in a new tab.
+
+**`llm_models.billing_class`** (migration `20260802134438`, TEXT NOT NULL,
+`local` | `billed`, backfilled from `provider`) makes "who pays for this model"
+a stored fact. The scan control orders local first, defaults to a local model,
+and labels the rest "(API — billed)" — all composed server-side.
+
+### Rationale
+
+**Why billing needed a column** (Roman's ruling, option C of three). Three
+proxies existed and each was rejected: `provider` and `api_endpoint` describe
+which client speaks to the endpoint, not who pays — a self-hosted
+OpenAI-compatible gateway breaks both; and `cost_per_input_token > 0`, though
+correct on all seven rows today, fails in the expensive direction, because a
+NULL cost means UNKNOWN, never FREE. A model whose costs were never filled in
+would have read as local and told a human a 148-candidate scan was free minutes
+before it billed them. Encoding "anthropic means billed" in Rust would also have
+put a deployment fact in the binary (Rule 13). The default for an unclassified
+row is `billed` — the cautious side.
+
+**Why the modal cannot edit direction.** The design note listed it as editable;
+that was an error and the note is amended (§2.2 direction = display-only). The
+backend refuses direction on the update route — a scenario's offense/defense
+stance is its identity, and flipping it would make it a different scenario. The
+chip states it with the reason on hover; the cure for a wrong direction is
+archive-and-recreate (task 3.6).
+
+**Why C1 moved out of the augmentation panel.** `theme_statement` and
+`motivation` were edited there AND belong to the identity the modal now owns. One
+field, one editor. The §8 invariant is untouched: the modal writes through the
+same PUT.
+
+**Why the split-pane died.** It rendered every page from the cited one to the end
+of the document, stacked (D2) — and a zoomed legal page in half a column is
+unreadable regardless. Popup-only viewing supersedes the 1.3 deviation.
+
+### Impacts
+
+- Data Architect: None.
+- DB Engineer: one migration (53 total), one column, 7 rows reclassified. Dry-run
+  verified in a rolled-back transaction against live DEV: 2 local, 5 billed.
+- Software Architect: `ScenarioDetail` gains `direction` (display only). Three
+  files become dead and are deleted by Roman's `git rm` with this commit:
+  `ScenarioDefinitionForm.tsx`, `CandidateFactsPanel.tsx`, `candidateSeed.ts` (+
+  its test). `candidateWorkbench.ts` and `shared/PdfViewer.tsx` STAY — the first
+  is still imported by the scan panel, the second is the dedicated viewer that
+  pinpoints now route to.
+
+### Action Required
+
+- [ ] Roman: merge `feature/scenario-phase-1b` to main, bump beta.366, build,
+      deploy, and run the amended G1 slice on the new page.
+- [ ] **Filed, not fixed — `viewer_href` can compose a dead link.** `build_card`
+      defaults a missing document id to `""`, producing
+      `/documents/?tab=document`. It cannot fire on today's data (measured
+      2026-08-02: 525 of 525 Evidence nodes carry both a document and a page), so
+      it is latent. The cure when a payload task next opens that file:
+      `Option<String>` on `viewer_href`, and a pinpoint chip that renders as
+      plain text when there is nothing to open.
+- [ ] **Filed — the `--bg-page` → `--bg-tint` rename.** 135 occurrences across 61
+      files, mechanical and safe (a token rename with no dynamic construction),
+      but deliberately NOT ridden on this commit: 61 files of noise would bury a
+      structural review, and several of those files are edited here for real. Its
+      own one-hour cleanup task, immediately after this batch merges. The debt
+      note is in `tokens.css`.
+- [ ] Task 2.4 fills the readiness slot the header leaves empty. Until then the
+      header renders NOTHING there — asserted by a test, because a verdict is a
+      claim about whether a scenario can be taken into a courtroom.
+- [ ] **Filed — the Ask page ignores the catalog's `warnings`.** A model the
+      backend refuses to list (unreadable `billing_class`) is reported on
+      `ChatModelsResponse.warnings` and SHOWN by the scan control, but
+      `services/ask.ts::fetchChatModels` reads only `res.models`, so the chat
+      picker would be one row shorter with nothing on screen saying why. Left as
+      filed rather than fixed: the Ask page is not task 1.7B's surface, and the
+      gap is unreachable on real data (the column is `NOT NULL DEFAULT 'billed'`
+      with a single writer, and a drop is logged server-side by name). Whoever
+      next opens `ask.ts` / `AskPage.tsx` wires the same alert-box pattern the
+      scan control now has.
+- [ ] **Filed — `billing_class` has no write path yet.** `InsertModelInput` and
+      `UpdateModelInput` do not carry it, so a model added through the admin API
+      after this migration is classified `billed` (the cautious default) and can
+      only be reclassified by direct SQL. Deliberate for now — the write surface
+      for the LLM-config columns was already deferred to a later chunk (R4 of the
+      LLM Configuration Method), and this column joins that queue rather than
+      opening it. Nothing is misrepresented in the meantime: an unclassified
+      model reads as billed, never as free.
+
+---
+
 ## Template for Future Entries
 
 ```markdown

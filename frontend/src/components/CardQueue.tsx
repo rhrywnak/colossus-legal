@@ -18,13 +18,23 @@
 // ## Visual language (§2c, binding)
 //
 // Pure white surfaces, hairline borders, regular weight with bold reserved for
-// the pinpoint page, one accent. These components are born compliant; the app's
-// tinted `--bg-page` token is 1.4/1.5 territory and is deliberately not touched
-// here.
+// the pinpoint page, one accent. Born compliant, and as of 1.7A the app shell
+// they sit in is white too.
+//
+// ## No PDF renders here (task 1.7B, defect D2)
+//
+// A split-pane viewer used to sit beside the focused card, on the theory that
+// verifying a quote against its page should not leave the queue. In practice it
+// rendered every page from the cited one to the end of the document, stacked —
+// and a zoomed legal page in half a column is unreadable anyway, which is the
+// ruling that retired it (Roman, 2026-08-02: popup-only document viewing).
+//
+// The pinpoint stays a first-class element: `card.pinpoint.viewer_href` opens the
+// DEDICATED viewer at the cited page in a new tab, which is where a page is
+// actually readable. The queue keeps the whole width for the card.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { API_BASE_URL } from "../services/api";
 import {
   fetchScenarioCards,
   type ScenarioCard,
@@ -32,7 +42,6 @@ import {
 } from "../services/scenarioCards";
 import { applyFactAction } from "../services/scenarioGather";
 import { listScenarioFacts, type ScenarioFactDto } from "../services/scenarioFacts";
-import PdfViewer from "./shared/PdfViewer";
 import {
   cardRows,
   DEFER_QUICK_REASONS,
@@ -49,10 +58,9 @@ import {
 const SURFACE = "var(--bg-surface)"; // #ffffff — pure white, per §2c
 const HAIRLINE = "1px solid var(--border-default)";
 
+// One column since task 1.7B. It was a two-column split with a PDF pane on the
+// right; see the header for why that is gone.
 const shellStyle: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
-  gap: "1rem",
   background: SURFACE,
   padding: "1rem",
 };
@@ -371,22 +379,6 @@ const CardQueue: React.FC<Props> = ({ slug, scenarioId, externalRefresh }) => {
             ) : (
               <div style={cardStyle}>Nothing left in this queue.</div>
             )}
-          </div>
-
-          {/* The split-pane viewer follows the focused card's pinpoint, so
-              verifying a quote against the page never leaves the queue. The
-              pinpoint chip also carries `viewer_href` for a full new-tab read. */}
-          <div style={{ border: HAIRLINE, borderRadius: "8px", minHeight: "60vh" }}>
-            {card ? (
-              <PdfViewer
-                src={`${API_BASE_URL}/api/documents/${encodeURIComponent(
-                  card.pinpoint.document_id,
-                )}/file`}
-                page={card.pinpoint.page ?? 1}
-                highlightText={card.quote.text}
-                highlightPage={card.pinpoint.page}
-              />
-            ) : null}
           </div>
         </div>
       )}

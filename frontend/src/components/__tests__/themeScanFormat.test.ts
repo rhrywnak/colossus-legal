@@ -9,6 +9,7 @@ import {
   formatCost,
   formatElapsed,
   formatRunTimestamp,
+  lastRunSummary,
 } from "../themeScanFormat";
 import type { ThemeScanSummary } from "../../services/themeScan";
 
@@ -103,5 +104,28 @@ describe("computeAgreement", () => {
     const r = computeAgreement(a, b);
     expect(r.relevantPct).toBe(100);
     expect(r.rolePct).toBe(0);
+  });
+});
+
+// ── The scan control's last-run summary (task 1.7B) ─────────────────────────
+
+describe("lastRunSummary", () => {
+  it("reads the newest run — the backend already ordered them", () => {
+    const summary = lastRunSummary([
+      { candidates_total: 148, started_at: "2026-08-02T09:14:00Z" },
+      { candidates_total: 12, started_at: "2026-07-30T09:14:00Z" },
+    ]);
+    expect(summary).toContain("148 candidates");
+  });
+
+  it("says nothing when no scan has run", () => {
+    // "0 candidates" would describe a scan that never happened.
+    expect(lastRunSummary([])).toBeNull();
+  });
+
+  it("says nothing when the newest run has no count yet", () => {
+    expect(
+      lastRunSummary([{ candidates_total: null, started_at: "2026-08-02T09:14:00Z" }]),
+    ).toBeNull();
   });
 });

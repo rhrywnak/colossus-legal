@@ -20,6 +20,7 @@
 // case STANDS goes inside `case_state`.
 
 pub mod actor_role;
+pub mod billing_class;
 pub mod card_language;
 pub mod case_state;
 pub mod confidence_band;

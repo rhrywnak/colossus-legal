@@ -226,6 +226,8 @@ mod tests {
             timeout_secs,
             structured_output_mode: None,
             max_concurrency: None,
+            // Not read by this path; the fixture asserts nothing about it.
+            billing_class: "local".to_string(),
         }
     }
 

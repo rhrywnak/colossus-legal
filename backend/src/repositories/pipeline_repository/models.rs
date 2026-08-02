@@ -129,6 +129,14 @@ pub struct LlmModelRecord {
     /// Model-default max concurrent in-flight requests. Decoded as `i32`
     /// (Postgres `INTEGER`); advisory, wired by a later chunk.
     pub max_concurrency: Option<i32>,
+
+    /// Who pays for a call: `local` (self-hosted) or `billed` (metered API).
+    ///
+    /// `TEXT NOT NULL` in Postgres (migration `20260802134438`), so a plain
+    /// `String` here — the vocabulary is owned by `domain::billing_class`, not
+    /// the DB, and the boundary maps it to the enum so an unknown token is
+    /// refused by name rather than silently mis-labelling a model as free.
+    pub billing_class: String,
 }
 
 /// SELECT column list shared by all `llm_models` queries in this module.
@@ -141,7 +149,8 @@ const SELECT_COLUMNS: &str = "id, display_name, provider, api_endpoint, \
     cost_per_output_token::float8 AS cost_per_output_token, \
     is_active, created_at, notes, \
     default_temperature::float8 AS default_temperature, \
-    temperature_mode, timeout_secs, structured_output_mode, max_concurrency";
+    temperature_mode, timeout_secs, structured_output_mode, max_concurrency, \
+    billing_class";
 
 /// Fetch a single model by ID. Returns `None` if the ID does not exist.
 ///

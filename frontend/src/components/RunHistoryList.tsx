@@ -189,7 +189,7 @@ const S: Record<string, React.CSSProperties> = {
     flexDirection: "column",
     gap: "4px",
     padding: "10px 12px",
-    background: "var(--bg-page)",
+    background: "var(--bg-surface)",
     border: "1px solid var(--border-default)",
     borderRadius: "10px",
     cursor: "pointer",

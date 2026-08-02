@@ -724,6 +724,8 @@ mod tests {
             timeout_secs: None,
             structured_output_mode: structured_output_mode.map(String::from),
             max_concurrency: None,
+            // Not read by this path; the fixture asserts nothing about it.
+            billing_class: "local".to_string(),
         }
     }
 

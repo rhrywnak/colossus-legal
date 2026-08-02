@@ -99,12 +99,20 @@ export type ScanRunStatus = {
   summary?: ThemeScanSummary;
 };
 
-/** One selectable model (backend `ChatModelEntry`). NOTE: the contract does not
- *  expose `provider`, so the panel cannot label Cloud vs Local from this alone. */
+/** One selectable model (backend `ChatModelEntry`). */
 export type ScanModel = {
   model_id: string;
   display_name: string;
   is_default: boolean;
+  /** `local` (self-hosted, no metered cost) or `billed` (third-party API).
+   *  The STATE, carried beside the label so a client branches on the token
+   *  rather than reading meaning out of display prose (task 1.7B). */
+  billing_class: string;
+  /** The name as the picker shows it, with the cost warning already attached:
+   *  "Opus 4.8 (API — billed)". Composed by the backend — which models cost
+   *  money is a deployment fact, and a browser that mapped a provider name to
+   *  English would be guessing on this deployment's behalf. */
+  display_label: string;
 };
 
 /** One row of the scan-run HISTORY list (backend `ScanRunHeader`). Headers only —
@@ -251,16 +259,31 @@ export async function deleteScanRun(
   }
 }
 
+/** The scan catalog: the models on offer, and why any were withheld.
+ *
+ *  `warnings` is empty on a healthy deployment. It is non-empty when the backend
+ *  refused to list a row — today, one whose stored `billing_class` it cannot read
+ *  — and it must be SHOWN: a picker one row shorter than the database looks
+ *  exactly like a complete one, and the person who can repair the row is the one
+ *  reading the screen (task 1.7B). */
+export type ScanCatalog = {
+  models: ScanModel[];
+  warnings: string[];
+};
+
 /** Fetch the SCAN model catalog for the picker (active AND scan_eligible ids).
  *
  *  Uses the dedicated `/api/scan/models` endpoint — NOT `/api/chat/models` — so
  *  the scan picker shows only scan-eligible models (retired-but-extraction-active
  *  Claude rows are filtered out), while the chat dropdown is left untouched. */
-export async function fetchScanModels(): Promise<ScanModel[]> {
+export async function fetchScanModels(): Promise<ScanCatalog> {
   const response = await authFetch(`${API_BASE_URL}/api/scan/models`);
   if (!response.ok) {
     throw new Error(`Failed to load models${await readErrorMessage(response)}`);
   }
-  const body = (await response.json()) as { models?: ScanModel[] };
-  return body.models ?? [];
+  const body = (await response.json()) as {
+    models?: ScanModel[];
+    warnings?: string[];
+  };
+  return { models: body.models ?? [], warnings: body.warnings ?? [] };
 }

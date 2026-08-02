@@ -164,6 +164,16 @@ pub struct ScenarioDetail {
     /// rendered in the detail header beside the name.
     pub code: String,
     pub attack: String,
+    /// `offense` | `defense` — the scenario's posture (task 1.7B).
+    ///
+    /// Carried so the lean header can show its direction chip without a second
+    /// request. DISPLAY ONLY: direction is set once at create and the update
+    /// route refuses it (`ScenarioUpdateRequest` has no such field), because
+    /// flipping a scenario's posture would make it a different scenario. The
+    /// token is passed through verbatim rather than mapped to a label — an
+    /// unrecognised one must reach the screen as itself, not as a default
+    /// posture the page invented.
+    pub direction: String,
     pub status: ScenarioStatus,
     pub pattern_summary: Option<String>,
     pub timeline: Vec<ExchangeTurn>,
@@ -340,6 +350,7 @@ mod tests {
             code: "S-1".to_string(),
             id: "00000000-0000-0000-0000-000000000000".to_string(),
             attack: "Marie is obstructive".to_string(),
+            direction: "defense".to_string(),
             status: ScenarioStatus::Draft,
             pattern_summary: None,
             timeline: vec![ExchangeTurn {
@@ -375,6 +386,8 @@ mod tests {
                 "code": "S-1",
                 "id": "00000000-0000-0000-0000-000000000000",
                 "attack": "Marie is obstructive",
+                // Task 1.7B: the lean header's direction chip reads this.
+                "direction": "defense",
                 "status": "draft",
                 "pattern_summary": null,
                 "timeline": [{
