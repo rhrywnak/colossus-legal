@@ -1124,6 +1124,101 @@ fixture promoted to production, or a "temporary" default. The law is now a test.
 
 ---
 
+## 2026-08-02 | SOFTWARE ARCHITECT (Roman Approved) — hotfix: the beta.364 boot failure, and a new standing review rule
+
+### Decision
+
+**1. `app_settings.min_value` / `max_value` become `DOUBLE PRECISION`.**
+Migration `20260802092813_app_settings_bounds_to_double_precision.sql`, append-only.
+Task 1.6 declared both columns `NUMERIC` while `AppSettingRecord` decodes them as
+`Option<f64>`. v2.0.0-beta.364 applied all 51 migrations, seeded the store, and
+then refused to boot on the first live read:
+
+```
+error occurred while decoding column "min_value": mismatched types; Rust type
+`core::option::Option<f64>` (as SQL type `FLOAT8`) is not compatible with SQL
+type `NUMERIC`
+```
+
+The refusal itself was correct (§16, and §2b leaves nothing to fall back to) and
+is unchanged by this fix. No seed value, read semantic, parameter or refusal rule
+was touched.
+
+**2. NEW STANDING REVIEW RULE — the migration↔struct type table.** Any task that
+adds or alters a migration must include, in its Phase A report, a side-by-side
+table of migration column types vs. the Rust types that decode them, and the
+four-agent gate checks that seam explicitly. Filed from this defect: the seam
+between a green migration and a green struct is where beta.364 died.
+
+### Rationale
+
+`sqlx` implements `Type<Postgres>` for `f64` against `FLOAT8` alone; `NUMERIC`
+decodes only into `Decimal` / `BigDecimal`, and neither `rust_decimal` nor
+`bigdecimal` is in this workspace's dependency tree. A bare `NUMERIC` column here
+therefore has **no decodable Rust type at all** — this was never a
+lossy-coercion warning.
+
+Every other `NUMERIC` column in the pipeline database is read through a
+`::float8` cast in its projection (`llm_models.cost_per_*_token`,
+`default_temperature`, `processing_profiles.temperature`,
+`scan_runs.computed_cost`, `extraction_runs.cost_usd`). That is the right pattern
+*there*: those columns are money or carry a declared 2-decimal contract, so exact
+decimal storage is deliberate. The bounds columns never earned it — 1.6's own
+comment shows the choice under consideration was NUMERIC-vs-TEXT — and both
+become `f64` the moment they leave the row. Moving the schema closes the seam at
+the source; a projection cast would have to be remembered at every future query
+site. Measured before the ALTER: the entire numeric content of the table is
+`{0, 1}` and NULL across all seven rows, so the cast is provably lossless.
+
+**Why no test caught it:** the seed test parses the migration as TEXT (values,
+not types); the SQL-shape tests read the `const` statements with no server; every
+unit test builds `AppSettingRecord` from a fixture. `query_as` (not the
+`query_as!` macro) type-checks at RUNTIME against a live server. 1240 green tests
+were all blind to the one place the two sides meet.
+
+### Impacts
+
+- Data Architect: None — no node, property or relationship changes.
+- DB Engineer: one migration, 52 total. 7-row table rewrite; no data change.
+- Software Architect: two new tests, and the standing review rule above.
+  - `the_migration_declares_only_types_this_build_can_decode` (lib target, CI-runnable,
+    no database) parses the declared SQL types out of the migrations and refuses
+    any column whose type its decoding Rust type cannot read. Verified red against
+    the pre-hotfix schema.
+  - `tests/app_settings_decode_integration.rs` (`#[ignore]`, live) creates a scratch
+    database, applies the store's migrations with the real `Migrator`, and reads
+    through the real `load_settings` path. Run live before commit; passed.
+
+### Action Required
+
+- [ ] Roman: bump 2.0.0-beta.365, build, deploy via Semaphore. Verify: boot log
+      shows `migrations=52`, `configuration store read rows=7 required=7`,
+      preconditions PASS; `/health` 200; the Settings page renders all seven
+      parameters.
+- [ ] Software Architect / DB Engineer: **NEW DEFECT, filed not fixed — the
+      pipeline migration chain cannot be applied from zero.** `sqlx` orders
+      migrations by the filename prefix parsed as `i64`, and 16 of the 52 files
+      carry the old 8-digit `YYYYMMDD` prefix. `20260513` is twenty million;
+      `20260422214842` is twenty trillion — so every 8-digit migration sorts
+      before every 14-digit one regardless of when it was written. On a fresh
+      database `20260513_consolidate_model_columns_and_add_overrides` runs before
+      the April migration that adds the column it edits and fails with
+      `column "pass2_extraction_model" does not exist`. Measured 2026-08-02
+      against a scratch database on the DEV server. DEV and PROD never saw it
+      because they were migrated incrementally, one pending migration at a time.
+      The chain's CONTENT is sound: all 52 files applied in filename order to an
+      empty database succeed and produce the full 29-table schema. Only the order
+      sqlx derives is wrong. **This means no new environment can be built from
+      the repository today**, and a PROD rebuild would fail. The fix is a project,
+      not a line: renaming an applied migration changes its version and checksum,
+      which the running DEV and PROD databases already record. Not touched by this
+      hotfix.
+- [ ] Roman: `scripts/bump-version.sh` updates `Cargo.toml` but not `Cargo.lock`,
+      so the lock has been one version behind since at least beta.363. The
+      corrected lock rides this commit; the script is a separate fix.
+
+---
+
 ## Template for Future Entries
 
 ```markdown

@@ -265,6 +265,19 @@ pub async fn load_settings(pool: &PgPool) -> Result<Settings, SettingsError> {
         .await
         .map_err(|source| SettingsError::Read { source })?;
 
+    // What the store ACTUALLY held, before anything is parsed. The
+    // "configuration store loaded" line below reports `REQUIRED_KEYS.len()`,
+    // which is a compiled-in constant — it says what this build needs, not what
+    // it found, so it can never confirm that the seed ran. This line can: a boot
+    // log showing `rows=0 required=7` names a store that was never seeded, and a
+    // count that drifts above `required` is a parameter seeded ahead of its code
+    // (which is legal, and worth seeing).
+    tracing::info!(
+        rows = rows.len(),
+        required = REQUIRED_KEYS.len(),
+        "configuration store read"
+    );
+
     Ok(build_settings(&by_key(rows))?)
 }
 
