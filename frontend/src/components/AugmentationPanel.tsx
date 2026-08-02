@@ -2,9 +2,17 @@
 // AugmentationPanel — where human content is authored (task 1.4, v2 §8)
 // =============================================================================
 //
-// The three components no system process may touch: C1 identity, C4 human facts,
-// C5 Marie's talking points. One modal, everything on one screen — the Casefleet
-// Edit-Fact pattern (study §1.6), not a wizard and not a second page.
+// Human content is the three components no system process may touch: C1
+// identity, C4 human facts, C5 Marie's talking points. This panel owns the last
+// two.
+//
+// ## C1 identity moved out (task 1.7B)
+//
+// It was edited here AND is what the header's identity modal exists for. One
+// field, one editor — two editors for the same theme statement is how one of
+// them ends up forgotten, and the study's §1.6 pattern is ONE modal with
+// everything on one screen, not two half-modals in two places. The §8 invariant
+// is unaffected: the modal writes through the same PUT this panel used.
 //
 // ## Human content is visibly tagged
 //
@@ -29,7 +37,6 @@ import {
   setTalkingPoints,
   type AugmentationPanelDto,
 } from "../services/scenarioAugmentation";
-import { updateScenario } from "../services/scenarioCrud";
 import WatchListBlock from "./WatchListBlock";
 
 const SURFACE = "var(--bg-surface)";
@@ -81,8 +88,6 @@ const AugmentationPanel: React.FC<Props> = ({ slug, scenarioId, externalRefresh 
   const [factDate, setFactDate] = useState("");
   const [factDateType, setFactDateType] = useState("exact");
   const [points, setPoints] = useState<string[]>([]);
-  const [theme, setTheme] = useState("");
-  const [motivation, setMotivation] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -90,8 +95,6 @@ const AugmentationPanel: React.FC<Props> = ({ slug, scenarioId, externalRefresh 
       const loaded = await fetchAugmentationPanel(slug, scenarioId);
       setPanel(loaded);
       setPoints(loaded.talking_points.map((p) => p.text));
-      setTheme(loaded.identity.theme_statement ?? "");
-      setMotivation(loaded.identity.motivation ?? "");
       setError(null);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to load the panel.");
@@ -142,55 +145,11 @@ const AugmentationPanel: React.FC<Props> = ({ slug, scenarioId, externalRefresh 
         </div>
       )}
 
-      {/* ── C1 identity ────────────────────────────────────────────────── */}
-      <div style={boxStyle}>
-        <div style={labelStyle}>
-          {panel.identity.code} · {panel.identity.direction}
-        </div>
-
-        {/* Their framing sits above ours, unlabelled as editable, so the two are
-            never mistaken for each other. */}
-        {panel.identity.attack_text && (
-          <div style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>
-            They say: {panel.identity.attack_text}
-          </div>
-        )}
-
-        <label style={labelStyle} htmlFor="theme">
-          Our answer, in one sentence
-        </label>
-        <input
-          id="theme"
-          value={theme}
-          onChange={(e) => setTheme(e.target.value)}
-          style={fieldStyle}
-        />
-
-        <label style={labelStyle} htmlFor="motivation">
-          What they want the jury to believe
-        </label>
-        <input
-          id="motivation"
-          value={motivation}
-          onChange={(e) => setMotivation(e.target.value)}
-          style={fieldStyle}
-        />
-
-        <button
-          type="button"
-          onClick={() =>
-            void run(async () => {
-              await updateScenario(slug, scenarioId, {
-                theme_statement: theme,
-                motivation,
-              });
-            })
-          }
-          style={{ alignSelf: "flex-start" }}
-        >
-          Save identity
-        </button>
-      </div>
+      {/* C1 identity is NOT edited here (task 1.7B). It moved to the identity
+          modal on the page header — one field, one editor. Two editors for the
+          same theme statement is how one of them ends up forgotten, and the
+          §1.6 pattern is ONE modal with everything on one screen. This panel
+          keeps what is actually its own: C4 human facts and C5 talking points. */}
 
       {/* ── C4 human facts ─────────────────────────────────────────────── */}
       <div style={boxStyle}>

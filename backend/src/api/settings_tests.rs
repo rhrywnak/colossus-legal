@@ -126,6 +126,25 @@ fn the_input_hint_matches_the_stored_kind() {
     );
 }
 
+/// The hint's example is composed from the ROW, not from the kind (1.7A, D4).
+///
+/// The fixture's default is "3" — a talking-points cap, not the 240-character
+/// context window every `count` hint used to quote.
+#[test]
+fn the_input_hint_shows_the_rows_own_default_as_its_example() {
+    let count = to_dto(&record(ValueKind::Count, None, "Roman"));
+    assert!(
+        count.input_hint.contains("e.g. 3"),
+        "the example must be this row's default: {}",
+        count.input_hint
+    );
+    assert!(
+        !count.input_hint.contains("240"),
+        "a cap of 3 must not suggest 240: {}",
+        count.input_hint
+    );
+}
+
 /// A row whose kind this build cannot read still RENDERS.
 ///
 /// The Settings page is where someone would go to repair such a row. Refusing to

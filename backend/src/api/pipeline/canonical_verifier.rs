@@ -70,69 +70,6 @@ fn strip_leading_page_number(text: &str) -> &str {
     text
 }
 
-/// Strip standalone gutter line-number lines (transcript margin numerals).
-///
-/// ## Domain note: line-numbered hearing transcripts
-/// A court reporter prints a line number (1–25) in the left margin of
-/// every line of a hearing transcript. OCR (Surya) and PDF text
-/// extraction interleave those numerals into the text stream as
-/// standalone lines, e.g.:
-///
-/// ```text
-/// George Phillips on behalf of
-/// 14
-/// Catholic Family Service, the
-/// 15
-/// personal representative.
-/// ```
-///
-/// The verbatim quote the LLM emits carries no such numerals. Once
-/// `normalize_text` collapses whitespace, the stored page reads
-/// `"...behalf of 14 catholic family service..."` while the quote reads
-/// `"...behalf of catholic family service..."`, so the quote is no longer
-/// a contiguous substring and grounding returns `not_found`. A short,
-/// single-line quote never spans a gutter numeral and still matches —
-/// which is exactly the observed "short quotes verify, long quotes fail"
-/// pattern on the first court_transcript run.
-///
-/// This removes any line that, after trimming, is composed ONLY of a 1–2
-/// digit number (the gutter range 1–25). It must run BEFORE whitespace
-/// collapse, because the collapse erases the line structure it keys on.
-///
-/// ## Why scoped to 1–2 digits
-/// Bounding the strip to 1–2 digit lines avoids removing a legitimately
-/// standalone longer number a quote might genuinely span — a year
-/// (`2009`), a dollar figure, a 3-digit page number. It mirrors the
-/// existing `strip_*_page_number` precedent but applies per-line across
-/// the whole page rather than only at a page boundary.
-///
-/// ## Why this is safe for already-verified documents
-/// A document with no standalone 1–2 digit line has no line to remove, so
-/// this returns its text unchanged (see the identity test). Because
-/// `normalize_text` runs it on both sides of every comparison, the change
-/// is a no-op for every non-line-numbered document type.
-fn strip_gutter_line_numbers(text: &str) -> String {
-    text.lines()
-        .filter(|line| {
-            let trimmed = line.trim();
-            // Drop the line only when it is ENTIRELY a 1–2 digit numeral.
-            // ASCII digits are one byte each, so byte length equals digit
-            // count here.
-            //
-            // CONST: the 1–2 digit bound is a fixed legal-formatting
-            // invariant, NOT a configurable threshold — deliberately not a
-            // ProcessingProfile setting. U.S. court reporters number 1–25
-            // lines per page, so a gutter numeral is always 1–2 digits. A
-            // larger bound would strip legitimately standalone years (4
-            // digits), page numbers (3 digits), and dollar figures a quote
-            // may span — the exact false positives this scoping exists to
-            // avoid. It cannot vary by document type or environment.
-            !(matches!(trimmed.len(), 1 | 2) && trimmed.bytes().all(|b| b.is_ascii_digit()))
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
 /// Search for a snippet in the canonical text representation.
 ///
 /// Tries exact match first (case-sensitive substring), then normalized
@@ -238,119 +175,31 @@ pub fn find_in_canonical_text(
     }
 }
 
-/// Normalize text for fuzzy matching.
-///
-/// Mirrors the comprehensive normalization in
-/// `colossus-pdf::page_grounder::normalize_text` so canonical-text matching
-/// and PDF grounding behave identically. Without the character substitutions,
-/// LLM-emitted straight quotes never match stored text containing smart
-/// quotes, and em-dashes / ligatures cause systematic `not_found` results.
-///
-/// Order matters — hyphenated line breaks must be rejoined, and gutter
-/// line-numbers stripped, BEFORE whitespace collapsing: both operate on
-/// line structure that the collapse destroys. The trailing `-\n` would be
-/// flattened to `- ` (leaving the word split), and a standalone `\n14\n`
-/// gutter numeral would be smeared into `" 14 "` mid-sentence (where it
-/// can no longer be told apart from a spoken number) if the collapse ran
-/// first.
-///
-/// Handles:
-/// * invisible characters (soft hyphen U+00AD, zero-width space U+200B, BOM U+FEFF)
-/// * hyphenated line breaks (word-split across lines with a trailing `-`)
-/// * transcript gutter line-numbers (standalone 1–2 digit lines — see
-///   `strip_gutter_line_numbers`)
-/// * paragraph markers (`¶`)
-/// * smart quotes — both single (U+2018/U+2019) and double (U+201C/U+201D)
-/// * em dash (U+2014) and en dash (U+2013) → plain hyphen
-/// * ellipsis (U+2026) → `...`
-/// * ligatures `fi` (U+FB01), `fl` (U+FB02)
-/// * whitespace collapse + lowercase
-///
-/// Note: character-level OCR errors like split words ("M ilton" → two
-/// tokens) will NOT match "Milton" via normalization alone. A future
-/// enhancement could add Levenshtein as a third tier.
-pub fn normalize_text(text: &str) -> String {
-    let mut s = text.to_string();
-
-    // 1. Remove invisible characters (soft hyphen, zero-width space, BOM)
-    s = s.replace(['\u{00AD}', '\u{200B}', '\u{FEFF}'], "");
-
-    // 2. Rejoin hyphenated line breaks BEFORE whitespace collapsing
-    s = rejoin_hyphenated_breaks(&s);
-
-    // 2b. Strip standalone gutter line-numbers (transcript margin numerals)
-    //     BEFORE whitespace collapse — see `strip_gutter_line_numbers`.
-    //     Applied here (inside normalize_text) so BOTH the snippet and the
-    //     stored page pass through it: the operation is symmetric, and a
-    //     document without gutter numerals has no such lines, so its text —
-    //     and therefore its grounding — is byte-for-byte unchanged.
-    s = strip_gutter_line_numbers(&s);
-
-    // 3. Replace paragraph markers
-    s = s.replace('¶', " ");
-
-    // 4. Normalize quote characters
-    s = s.replace(['\u{201C}', '\u{201D}'], "\""); // smart double quotes
-    s = s.replace(['\u{2018}', '\u{2019}'], "'"); // smart single quotes
-
-    // 5. Normalize dashes to plain hyphen
-    s = s.replace(['\u{2014}', '\u{2013}'], "-"); // em dash, en dash
-
-    // 6. Normalize ellipsis and expand ligatures
-    s = s.replace('\u{2026}', "...");
-    s = s.replace('\u{FB01}', "fi");
-    s = s.replace('\u{FB02}', "fl");
-
-    // 7. Collapse whitespace and lowercase
-    s.split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
-        .to_lowercase()
-}
-
-/// Rejoin words split across lines by a hyphen.
-///
-/// Scans for pattern: word char + `-` + `\n` (with optional `\r` and
-/// trailing whitespace) + word char. Removes the hyphen and line break,
-/// joining the word fragments. Copied verbatim from
-/// `colossus-pdf::page_grounder` so canonical-text and PDF grounding
-/// stay byte-identical without introducing a cross-crate dependency.
-///
-/// Uses a simple char-by-char scan — no regex dependency needed.
-fn rejoin_hyphenated_breaks(text: &str) -> String {
-    let chars: Vec<char> = text.chars().collect();
-    let mut result = String::with_capacity(text.len());
-    let mut i = 0;
-
-    while i < chars.len() {
-        if chars[i] == '-' && i > 0 && chars[i - 1].is_alphanumeric() {
-            // Look ahead: skip optional \r, require \n, skip optional whitespace
-            let mut j = i + 1;
-            if j < chars.len() && chars[j] == '\r' {
-                j += 1;
-            }
-            if j < chars.len() && chars[j] == '\n' {
-                j += 1;
-                while j < chars.len() && (chars[j] == ' ' || chars[j] == '\t') {
-                    j += 1;
-                }
-                if j < chars.len() && chars[j].is_alphanumeric() {
-                    // Skip the hyphen and line break — rejoin the word
-                    i = j;
-                    continue;
-                }
-            }
-        }
-        result.push(chars[i]);
-        i += 1;
-    }
-
-    result
-}
+// ── Normalization lives in `domain::quote_match` ─────────────────────────────
+//
+// It moved there in task 1.7A (defect D3) so the card assembler could reuse it
+// WITH an origin map — the same normalization, plus the byte span each
+// normalized character came from, which is what lets a normalized match point
+// back at the original page text.
+//
+// Re-exported rather than duplicated, because two normalizers would be two
+// definitions of "grounded": a quote could match at ingest and not at display,
+// or the reverse, and nothing would say which one was right. There is one
+// implementation; `normalize_text` and `normalize_with_map` are two views of it.
+//
+// The behaviour is unchanged — the tests in this module's `mod tests` are the
+// proof, and they still address `strip_gutter_line_numbers` by name.
+pub use crate::domain::quote_match::normalize_text;
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // The gutter-numeral helper moved to `domain::quote_match` with
+    // `normalize_text` (task 1.7A). These tests stayed: they are the proof that
+    // the move changed no behaviour, so they must keep addressing the SAME
+    // function the grounding path now calls, not a copy of it.
+    use crate::domain::quote_match::strip_gutter_line_numbers;
 
     // ── normalize_text tests ─────────────────────────────────────
 

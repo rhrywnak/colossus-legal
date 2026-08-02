@@ -26,7 +26,12 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import EvidenceCard from "../pages/BiasExplorer/EvidenceCard";
 import PipelineProgressBar from "./pipeline/PipelineProgressBar";
 import RunHistoryList from "./RunHistoryList";
-import { computeAgreement, costLabel, formatElapsed } from "./themeScanFormat";
+import {
+  computeAgreement,
+  costLabel,
+  formatElapsed,
+  lastRunSummary,
+} from "./themeScanFormat";
 import { candidateChip } from "./candidateWorkbench";
 import { gatherCandidates } from "../services/scenarioGather";
 import {
@@ -141,6 +146,10 @@ const ThemeScanPanel: React.FC<Props> = ({
   // A model-catalog load failure gets its OWN observable state, distinct from a
   // genuinely-empty registry (Standing Rule 1 — the two states must look different).
   const [modelError, setModelError] = useState<string | null>(null);
+  // Models the backend could not offer, one sentence each — distinct from a load
+  // failure (`modelError`) and from an empty registry. All three states look
+  // different on screen (Standing Rule 1).
+  const [modelWarnings, setModelWarnings] = useState<string[]>([]);
 
   // ── Run history is the SOURCE OF TRUTH, hydrated from the DB (not session) ──
   // `runs` are the persisted headers (newest first) — they survive navigation and
@@ -197,9 +206,19 @@ const ThemeScanPanel: React.FC<Props> = ({
   // ── Load the model catalog + the pre-scan candidate count on mount ──────────
   useEffect(() => {
     fetchScanModels()
-      .then((ms) => {
-        setModels(ms);
-        setSelectedModel((cur) => cur ?? ms.find((m) => m.is_default)?.model_id ?? ms[0]?.model_id ?? null);
+      .then((catalog) => {
+        setModels(catalog.models);
+        // Rows the backend refused to list, in its own words. Empty on a healthy
+        // deployment; shown when not, because a picker one row short looks
+        // exactly like a complete one (task 1.7B).
+        setModelWarnings(catalog.warnings);
+        setSelectedModel(
+          (cur) =>
+            cur ??
+            catalog.models.find((m) => m.is_default)?.model_id ??
+            catalog.models[0]?.model_id ??
+            null,
+        );
       })
       .catch((e: unknown) => {
         // A load failure is NOT an empty registry — surface it so the operator
@@ -483,7 +502,9 @@ const ThemeScanPanel: React.FC<Props> = ({
             <SetupView
               models={models}
               modelError={modelError}
+              modelWarnings={modelWarnings}
               selectedModel={selectedModel}
+              lastRun={lastRunSummary(runs)}
               onSelect={setSelectedModel}
               onRun={onRun}
             />
@@ -536,39 +557,75 @@ const ThemeScanPanel: React.FC<Props> = ({
 
 // ─── SETUP ────────────────────────────────────────────────────────────────────
 
+/**
+ * The scan control: ONE LINE (task 1.7B) — Run · model · last-run summary.
+ *
+ * ## What died here
+ *
+ * A two-column grid of radio cards and a full-width Run button, which took the
+ * vertical space of a small form to express a choice most people make once. The
+ * design note calls it a control, not a panel, and a control is a line.
+ *
+ * ## The model list is ordered and labelled by the SERVER
+ *
+ * Local models come first and one of them is selected by default, because a scan
+ * is one metered call per candidate — 148 of them on S-1 — and the picker must
+ * not put a billed model under the cursor. That ordering, the "(API — billed)"
+ * label, and which model is default all arrive composed on the payload
+ * (`display_label`, `billing_class`): the browser renders them and decides
+ * nothing, because which models cost money is a deployment fact, not something a
+ * client should infer from a name.
+ */
 const SetupView: React.FC<{
   models: ScanModel[];
   modelError: string | null;
+  modelWarnings: string[];
   selectedModel: string | null;
+  lastRun: string | null;
   onSelect: (id: string) => void;
   onRun: () => void;
-}> = ({ models, modelError, selectedModel, onSelect, onRun }) => (
+}> = ({ models, modelError, modelWarnings, selectedModel, lastRun, onSelect, onRun }) => (
   <div style={S.setup}>
-    <div style={S.sectionLabel}>Model</div>
     {modelError && (
       <div style={S.errorBox} role="alert">
         Could not load models — {modelError}
       </div>
     )}
-    <div style={S.modelGrid}>
-      {models.length === 0 && !modelError && (
-        <div style={S.muted}>No active models available.</div>
+    {modelWarnings.length > 0 && (
+      <div style={S.errorBox} role="alert">
+        {modelWarnings.map((warning) => (
+          <div key={warning}>{warning}</div>
+        ))}
+      </div>
+    )}
+    <div style={S.controlLine}>
+      <button
+        type="button"
+        onClick={onRun}
+        disabled={!selectedModel}
+        style={selectedModel ? S.runButton : { ...S.runButton, ...S.runButtonDisabled }}
+      >
+        Run scan
+      </button>
+
+      {models.length === 0 && !modelError ? (
+        <span style={S.muted}>No scan-eligible models available.</span>
+      ) : (
+        <select
+          aria-label="Scan model"
+          style={S.modelSelect}
+          value={selectedModel ?? ""}
+          onChange={(e) => onSelect(e.target.value)}
+        >
+          {models.map((m) => (
+            <option key={m.model_id} value={m.model_id}>
+              {m.display_label}
+            </option>
+          ))}
+        </select>
       )}
-      {models.map((m) => {
-        const selected = m.model_id === selectedModel;
-        return (
-          <button
-            key={m.model_id}
-            type="button"
-            onClick={() => onSelect(m.model_id)}
-            style={{ ...S.radioCard, ...(selected ? S.radioCardSelected : {}) }}
-          >
-            <span style={{ ...S.radioDot, ...(selected ? S.radioDotSelected : {}) }} />
-            <span style={S.radioName}>{m.display_name}</span>
-            {m.is_default && <span style={S.radioBadge}>default</span>}
-          </button>
-        );
-      })}
+
+      {lastRun && <span style={S.lastRun}>{lastRun}</span>}
     </div>
 
     {/* No benchmark toggle. It used to ask "record verdicts without saving
@@ -576,10 +633,6 @@ const SetupView: React.FC<{
         every scan is what benchmark mode used to mean. Keeping the toggle would
         keep a second write model on screen, which is the incoherence this change
         exists to remove. */}
-
-    <button type="button" onClick={onRun} disabled={!selectedModel} style={S.runButton}>
-      Run Theme Scan
-    </button>
   </div>
 );
 
@@ -957,46 +1010,37 @@ const S: Record<string, React.CSSProperties> = {
     letterSpacing: "0.04em",
     color: "var(--text-muted)",
   },
-  modelGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" },
-  radioCard: {
+  // ── The scan control line (task 1.7B) ──────────────────────────────────────
+  //
+  // The radio grid it replaced is gone: a two-column card grid for a choice most
+  // people make once, in the vertical space of a small form. §2c — hairline
+  // borders, no tint, regular weight.
+  controlLine: {
     display: "flex",
     alignItems: "center",
     gap: "10px",
-    padding: "14px 16px",
-    background: "var(--bg-page)",
-    border: "1px solid var(--border-default)",
-    borderRadius: "10px",
-    cursor: "pointer",
-    textAlign: "left",
-    fontFamily: "var(--font-sans)",
+    flexWrap: "wrap",
   },
-  radioCardSelected: {
-    borderColor: "var(--accent-primary)",
-    boxShadow: "inset 0 0 0 1px var(--accent-primary)",
-  },
-  radioDot: {
-    width: "14px",
-    height: "14px",
-    borderRadius: "50%",
-    border: "2px solid var(--border-default)",
-    flexShrink: 0,
-  },
-  radioDotSelected: {
-    borderColor: "var(--accent-primary)",
-    background:
-      "radial-gradient(circle, var(--accent-primary) 0 40%, transparent 45%)",
-  },
-  radioName: { fontSize: "0.9rem", fontWeight: 500, color: "var(--text-primary)", flex: 1 },
-  radioBadge: {
-    fontSize: "0.68rem",
-    color: "var(--text-muted)",
+  modelSelect: {
+    fontSize: "0.85rem",
+    fontFamily: "inherit",
+    fontWeight: 400,
+    color: "var(--text-primary)",
+    background: "var(--bg-surface)",
     border: "1px solid var(--border-default)",
     borderRadius: "6px",
-    padding: "1px 6px",
+    padding: "5px 8px",
+    maxWidth: "22rem",
   },
+  lastRun: { fontSize: "0.8rem", color: "var(--text-muted)" },
 
   running: { display: "flex", flexDirection: "column", gap: "12px" },
   runningTop: { display: "flex", alignItems: "center", gap: "10px" },
+  // The four remaining `--bg-page` fills are CHIPS, PILLS and BADGES — small
+  // decorative elements, which §2 explicitly leaves as where colour lives
+  // ("all other colour lives in chips and status dots"). The panels and boxes
+  // that used to share the tint are white as of task 1.7B: a surface holding
+  // content sits on white and is carried by its hairline border.
   modelChip: {
     fontSize: "0.8rem",
     fontWeight: 600,
@@ -1036,7 +1080,7 @@ const S: Record<string, React.CSSProperties> = {
   tileRow: { display: "flex", gap: "10px" },
   tile: {
     flex: 1,
-    background: "var(--bg-page)",
+    background: "var(--bg-surface)",
     border: "1px solid var(--border-default)",
     borderRadius: "10px",
     padding: "12px 14px",
@@ -1049,7 +1093,7 @@ const S: Record<string, React.CSSProperties> = {
   errorBox: {
     marginTop: "12px",
     padding: "12px 14px",
-    background: "var(--bg-page)",
+    background: "var(--bg-surface)",
     border: "1px solid var(--state-danger-strong)",
     borderRadius: "8px",
     color: "var(--state-danger-strong)",
@@ -1074,7 +1118,7 @@ const S: Record<string, React.CSSProperties> = {
     // reads as distinct from a failure at a glance (Standing Rule 1).
     marginTop: "12px",
     padding: "12px 14px",
-    background: "var(--bg-page)",
+    background: "var(--bg-surface)",
     border: "1px solid var(--state-success-strong)",
     borderRadius: "8px",
     color: "var(--state-success-strong)",
@@ -1087,7 +1131,7 @@ const S: Record<string, React.CSSProperties> = {
     // conflating it with either would misdirect the human's next action.
     marginTop: "12px",
     padding: "12px 14px",
-    background: "var(--bg-page)",
+    background: "var(--bg-surface)",
     border: "1px solid var(--state-warning-strong)",
     borderRadius: "8px",
     color: "var(--state-warning-strong)",
@@ -1104,7 +1148,7 @@ const S: Record<string, React.CSSProperties> = {
     paddingBottom: "4px",
   },
   hero: {
-    background: "var(--bg-page)",
+    background: "var(--bg-surface)",
     border: "1px solid var(--border-default)",
     borderRadius: "12px",
     padding: "18px 20px",

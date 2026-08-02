@@ -196,7 +196,7 @@ describe("mergeScanRun", () => {
 });
 
 describe("fetchScanModels", () => {
-  it("returns the models array, and [] when the key is absent", async () => {
+  it("returns the catalog, and empty lists when the keys are absent", async () => {
     // @ts-ignore
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
@@ -204,14 +204,31 @@ describe("fetchScanModels", () => {
       json: async () => ({ models: [{ model_id: "m1", display_name: "M1", is_default: true }] }),
     });
     const fetchMock = global.fetch as unknown as ReturnType<typeof vi.fn>;
-    await expect(fetchScanModels()).resolves.toEqual([
-      { model_id: "m1", display_name: "M1", is_default: true },
-    ]);
+    await expect(fetchScanModels()).resolves.toEqual({
+      models: [{ model_id: "m1", display_name: "M1", is_default: true }],
+      warnings: [],
+    });
     expect(fetchMock.mock.calls[0][0]).toContain("/api/scan/models");
 
     // @ts-ignore
     global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({}) });
-    await expect(fetchScanModels()).resolves.toEqual([]);
+    await expect(fetchScanModels()).resolves.toEqual({ models: [], warnings: [] });
+  });
+
+  /** A model the backend refused to list must reach the screen (task 1.7B). */
+  it("carries the backend's warnings through rather than dropping them", async () => {
+    // @ts-ignore
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        models: [],
+        warnings: ["mystery is not listed: 'free-tier' is not a billing class"],
+      }),
+    });
+    const catalog = await fetchScanModels();
+    expect(catalog.warnings).toHaveLength(1);
+    expect(catalog.warnings[0]).toContain("mystery");
   });
 
   it("throws on a non-OK response", async () => {

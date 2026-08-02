@@ -1219,6 +1219,203 @@ were all blind to the one place the two sides meet.
 
 ---
 
+## 2026-08-02 | SOFTWARE ARCHITECT (Roman Approved) — task 1.7A: three G1 defects measured on beta.365
+
+### Decision
+
+**D1 — the app shell stops painting every screen grey (v2 §2c).** New
+`--bg-canvas: #ffffff` token. The shell (`App.tsx`) and the two screens that
+paint their own full-height canvas (`EvidenceExplorerPage`, `GraphPage`) use it.
+
+`--bg-page` (#f4f5f7) is NOT changed to white: it has 126 remaining uses, every
+one an element tint — table stripes, code blocks, nav hover states, badge fills,
+and three sites where it is a hairline BORDER colour. Setting it white would have
+satisfied §2c by making all of those invisible. The token has been doing two jobs
+under one name; it now does one, and the naming debt (`--bg-page` → `--bg-tint`,
+126 sites) is recorded in `tokens.css`. Task 1.7B's Phase A decides whether the
+rename rides the page restructure or earns its own cleanup task.
+
+**D3 — candidate context is recomputed at assembly with an index-mapped
+normalizer.** New pure module `domain/quote_match.rs`: `normalize_with_map`
+(the existing normalization, carrying the byte span each normalized character
+came from) and `locate` (exact tier, then normalized tier, returning a span in
+the ORIGINAL text). `normalize_text` MOVED there from
+`api::pipeline::canonical_verifier`, which re-exports it — one implementation, so
+grounding and display cannot drift into two definitions of "found".
+
+**D4 — a parameter's input hint uses its OWN default as the worked example.**
+`ValueKind::hint(default)` composes it from the row; every whole-number field
+used to advertise "e.g. 240", including `talking_points_cap`, whose default is 3
+and whose minimum is 1 — an example the field itself would have refused.
+
+### Rationale
+
+**D3 is the substantive one.** The card assembler located context with
+`page.find(quote)` — an exact, case-sensitive substring search — while the ingest
+path grounds in TWO tiers: exact, then normalized (smart quotes, dashes,
+ligatures, collapsed whitespace, hyphenated line breaks, transcript gutter
+numerals). Every quote grounded on the second tier failed that search and was
+served with two empty strings, silently.
+
+Measured on DEV before the fix, corpus-wide, joining each item to its own
+grounded page's stored text: `exact` 325 of 325 found; `normalized` **0 of 320
+found — every one of them bare**. §7.1 exists because a ruling made on a fragment
+is a ruling made blind, and 320 cards were being ruled blind.
+
+Grounding does not persist a position — `CanonicalGroundingResult` carries a
+match type and a page number, and the normalized tier asks `contains`, a bool —
+so there was nothing to reuse. Three options were weighed; recomputing at
+assembly was chosen because it needs no migration, no backfill and no
+re-verification, and repairs every card already in the database the moment it
+ships. Measured recovery: at least 269 of the 320 (84%), the residue being
+quotes that span a page boundary.
+
+Slicing the NORMALIZED text was rejected though it needs no map at all:
+normalization lowercases, collapses whitespace and rewrites punctuation, so the
+context under a quote would have rendered as de-punctuated lowercase prose. On a
+surface a lawyer reads to decide what a quote means, that is a different kind of
+lie from an empty box. The test asserts the page's own smart quotes survive into
+the window, which is what stops a later "simplification" from doing it.
+
+### Impacts
+
+- Data Architect: None.
+- DB Engineer: None — no migration, no schema change, read path only.
+- Software Architect: `normalize_text` now lives in `domain::quote_match`;
+  `canonical_verifier` re-exports it and its 46 tests are the equivalence proof
+  that the move changed no behaviour. That file also shrank 569 → 519 lines.
+
+### Action Required
+
+- [ ] **Task 2.5 (re-anchoring, §12.1) inherits `normalize_with_map` as its
+      primitive, and persisting `(offset, len)` at grounding time is its design
+      default.** That was the rejected option here — rejected on vehicle, not on
+      merit: it needs a migration on `extraction_items`, the span carried into the
+      Neo4j node the card is built from, and a re-verify of all 782 grounded items
+      to backfill. It is the better long-term answer, and it cannot be built
+      without exactly the mapping this task added.
+- [ ] Task 2.5 also owns the residue this fix cannot reach: a quote spanning a
+      page boundary grounds on the LEFT page of the pair while the assembler loads
+      that page alone, so the words genuinely are not all there. Those cards stay
+      context-less by design — a window drawn around the nearest similar words
+      would read as evidence. They are now COUNTED (`without_context` on the
+      "served scenario cards" log line) rather than merely absent, because such a
+      card reports itself grounded and looks like every other one.
+- [ ] Task 1.7B Phase A: decide the `--bg-page` → `--bg-tint` rename (126 sites)
+      — rider on the page restructure if mechanical and safe, else its own task.
+- [ ] Roman: DEV verify after the 1.7A+1.7B batch deploys — every screen sits on
+      pure white; C-1 (normalized-grounded) shows surrounding context at the
+      configured width; `talking_points_cap`'s hint reads "e.g. 3".
+
+---
+
+## 2026-08-02 | SOFTWARE ARCHITECT (Roman Approved) — task 1.7B: the scenario page restructure
+
+### Decision
+
+The scenario detail page is rebuilt to `SCENARIO_PAGE_RESTRUCTURE_DESIGN_v1`, so
+every Phase-2 feature lands on a stable baseline instead of being retrofitted
+after ten features are wired in. Five structural changes:
+
+1. **Lean one-line header** (study §1.7) — code · name · direction chip · status
+   chip · edit · rehearsal link. The permanent full-width definition form and the
+   inline title-rename machine are gone.
+2. **One identity modal** (study §1.6) — name, the three texts, allegation
+   CHIPS with an inline picker. Nothing opens a second page.
+3. **Compact scan control** — one line: Run · model select · last-run summary.
+   The radio grid is gone.
+4. **Working view** stays the Facts-table pattern; the augmentation panel keeps
+   its behaviour.
+5. **The split-pane PDF viewer is removed** (defect D2). Pinpoints open the
+   dedicated viewer at the cited page in a new tab.
+
+**`llm_models.billing_class`** (migration `20260802134438`, TEXT NOT NULL,
+`local` | `billed`, backfilled from `provider`) makes "who pays for this model"
+a stored fact. The scan control orders local first, defaults to a local model,
+and labels the rest "(API — billed)" — all composed server-side.
+
+### Rationale
+
+**Why billing needed a column** (Roman's ruling, option C of three). Three
+proxies existed and each was rejected: `provider` and `api_endpoint` describe
+which client speaks to the endpoint, not who pays — a self-hosted
+OpenAI-compatible gateway breaks both; and `cost_per_input_token > 0`, though
+correct on all seven rows today, fails in the expensive direction, because a
+NULL cost means UNKNOWN, never FREE. A model whose costs were never filled in
+would have read as local and told a human a 148-candidate scan was free minutes
+before it billed them. Encoding "anthropic means billed" in Rust would also have
+put a deployment fact in the binary (Rule 13). The default for an unclassified
+row is `billed` — the cautious side.
+
+**Why the modal cannot edit direction.** The design note listed it as editable;
+that was an error and the note is amended (§2.2 direction = display-only). The
+backend refuses direction on the update route — a scenario's offense/defense
+stance is its identity, and flipping it would make it a different scenario. The
+chip states it with the reason on hover; the cure for a wrong direction is
+archive-and-recreate (task 3.6).
+
+**Why C1 moved out of the augmentation panel.** `theme_statement` and
+`motivation` were edited there AND belong to the identity the modal now owns. One
+field, one editor. The §8 invariant is untouched: the modal writes through the
+same PUT.
+
+**Why the split-pane died.** It rendered every page from the cited one to the end
+of the document, stacked (D2) — and a zoomed legal page in half a column is
+unreadable regardless. Popup-only viewing supersedes the 1.3 deviation.
+
+### Impacts
+
+- Data Architect: None.
+- DB Engineer: one migration (53 total), one column, 7 rows reclassified. Dry-run
+  verified in a rolled-back transaction against live DEV: 2 local, 5 billed.
+- Software Architect: `ScenarioDetail` gains `direction` (display only). Three
+  files become dead and are deleted by Roman's `git rm` with this commit:
+  `ScenarioDefinitionForm.tsx`, `CandidateFactsPanel.tsx`, `candidateSeed.ts` (+
+  its test). `candidateWorkbench.ts` and `shared/PdfViewer.tsx` STAY — the first
+  is still imported by the scan panel, the second is the dedicated viewer that
+  pinpoints now route to.
+
+### Action Required
+
+- [ ] Roman: merge `feature/scenario-phase-1b` to main, bump beta.366, build,
+      deploy, and run the amended G1 slice on the new page.
+- [ ] **Filed, not fixed — `viewer_href` can compose a dead link.** `build_card`
+      defaults a missing document id to `""`, producing
+      `/documents/?tab=document`. It cannot fire on today's data (measured
+      2026-08-02: 525 of 525 Evidence nodes carry both a document and a page), so
+      it is latent. The cure when a payload task next opens that file:
+      `Option<String>` on `viewer_href`, and a pinpoint chip that renders as
+      plain text when there is nothing to open.
+- [ ] **Filed — the `--bg-page` → `--bg-tint` rename.** 135 occurrences across 61
+      files, mechanical and safe (a token rename with no dynamic construction),
+      but deliberately NOT ridden on this commit: 61 files of noise would bury a
+      structural review, and several of those files are edited here for real. Its
+      own one-hour cleanup task, immediately after this batch merges. The debt
+      note is in `tokens.css`.
+- [ ] Task 2.4 fills the readiness slot the header leaves empty. Until then the
+      header renders NOTHING there — asserted by a test, because a verdict is a
+      claim about whether a scenario can be taken into a courtroom.
+- [ ] **Filed — the Ask page ignores the catalog's `warnings`.** A model the
+      backend refuses to list (unreadable `billing_class`) is reported on
+      `ChatModelsResponse.warnings` and SHOWN by the scan control, but
+      `services/ask.ts::fetchChatModels` reads only `res.models`, so the chat
+      picker would be one row shorter with nothing on screen saying why. Left as
+      filed rather than fixed: the Ask page is not task 1.7B's surface, and the
+      gap is unreachable on real data (the column is `NOT NULL DEFAULT 'billed'`
+      with a single writer, and a drop is logged server-side by name). Whoever
+      next opens `ask.ts` / `AskPage.tsx` wires the same alert-box pattern the
+      scan control now has.
+- [ ] **Filed — `billing_class` has no write path yet.** `InsertModelInput` and
+      `UpdateModelInput` do not carry it, so a model added through the admin API
+      after this migration is classified `billed` (the cautious default) and can
+      only be reclassified by direct SQL. Deliberate for now — the write surface
+      for the LLM-config columns was already deferred to a later chunk (R4 of the
+      LLM Configuration Method), and this column joins that queue rather than
+      opening it. Nothing is misrepresented in the meantime: an unclassified
+      model reads as billed, never as free.
+
+---
+
 ## Template for Future Entries
 
 ```markdown

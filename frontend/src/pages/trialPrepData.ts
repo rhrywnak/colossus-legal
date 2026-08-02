@@ -144,6 +144,10 @@ export interface ScenarioDetail {
   /** The scenario's human handle, e.g. "S-3" (§2a). See `ScenarioSummary.code`. */
   code: string;
   attack: string;
+  /** `offense` | `defense` — the scenario's posture, for the header chip.
+   *  DISPLAY ONLY: direction is set at create and the update route refuses it,
+   *  because flipping it would make this a different scenario (task 1.7B). */
+  direction: string;
   status: ScenarioStatus;
   /** e.g. "repeated 3× after rebuttal"; null when no pattern. */
   pattern_summary: string | null;

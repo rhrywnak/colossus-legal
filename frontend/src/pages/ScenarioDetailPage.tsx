@@ -1,12 +1,35 @@
 // =============================================================================
 // ScenarioDetailPage.tsx — /cases/:slug/trial-prep/:scenarioId
-// -----------------------------------------------------------------------------
-// Stage 1: full-page view of one scenario's exchange, from the PLACEHOLDER
-// payload. Renders the attack, the chronological exchange timeline (grounded
-// turns with a source-PDF link; anticipated turns visually distinct with NO
-// citation — the hard rule), Marie's rehearsable responses, and the pattern
-// summary. Thin renderer over TrialPrepViews + the tested helpers; display-only
-// (no editing) in Stage 1.
+// =============================================================================
+//
+// The baseline page every Phase-2 feature lands on (task 1.7B). Restructured
+// top-down so each future addition answers "did this hurt usability?" against a
+// stable page, rather than a big-bang redo after ten features are wired in.
+//
+// TOP TO BOTTOM
+//
+//   1. A LEAN one-line header (study §1.7): code · name · direction chip ·
+//      status chip · edit · rehearsal link. An issue's header is lean; all the
+//      richness lives on the facts below it.
+//   2. The scan control — one line, inside the Theme Scan panel.
+//   3. The working view — what has been included, Facts-table style.
+//   4. The ruling queue — §7 keyboard triage, behaviour untouched.
+//
+// WHAT DIED HERE
+//
+//   * The permanent full-width definition form with its scroll-box allegation
+//     picker. Editing an identity is a modal now (`ScenarioIdentityModal`), and
+//     nothing on this page opens a second page.
+//   * The inline title-rename state machine. The name is one field of the
+//     identity, and it is edited where the rest of the identity is — two editors
+//     for one field is how one of them ends up forgotten.
+//   * The "The attack" box. That text is THEIR framing, one of the three
+//     identity texts, and it reads in the modal beside the other two rather than
+//     as a banner that says nothing about what to do next.
+//   * The split-pane PDF viewer (in `CardQueue`, defect D2).
+//
+// Display-only decisions stay server-side: chips, labels and the status
+// vocabulary all arrive composed or come from tested pure helpers.
 // =============================================================================
 
 import React, { useEffect, useState } from "react";
@@ -14,134 +37,97 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 
 import Breadcrumb from "../components/Breadcrumb";
 import ScenarioCurationPanel from "../components/ScenarioCurationPanel";
-import ScenarioDefinitionForm from "../components/ScenarioDefinitionForm";
+import ScenarioIdentityModal from "../components/ScenarioIdentityModal";
 import ThemeScanPanel from "../components/ThemeScanPanel";
 import ScenarioDeleteConfirm from "../components/ScenarioDeleteConfirm";
 import { EmptyState, ResponseCard } from "../components/TrialPrepViews";
+import { headerDescriptor } from "../components/scenarioHeader";
 import { DEFAULT_CASE_SLUG } from "../services/caseHeader";
-import { deleteScenario, updateScenario } from "../services/scenarioCrud";
+import { deleteScenario } from "../services/scenarioCrud";
 import { getScenarioDetailLive } from "../services/trialPrep";
 import type { ScenarioDetail } from "./trialPrepData";
 import ReadyToggle from "../components/ReadyToggle";
-import { statusMeta } from "./trialPrepHelpers";
 
 const containerStyle: React.CSSProperties = {
   paddingTop: "32px",
   paddingBottom: "4rem",
 };
+
 const sectionLabel: React.CSSProperties = {
   fontSize: "0.74rem",
   fontWeight: 600,
   letterSpacing: "0.05em",
   textTransform: "uppercase",
   color: "var(--text-muted)",
-  margin: "1.5rem 0 0.75rem",
+  margin: "1.5rem 0 0.5rem",
 };
-const attackBox: React.CSSProperties = {
-  border: "1px solid var(--border-default)",
-  backgroundColor: "var(--bg-surface)",
-  borderRadius: "8px",
-  padding: "16px 18px",
-  fontSize: "1.05rem",
-  color: "var(--text-primary)",
+
+// ── The lean header line (study §1.7) ───────────────────────────────────────
+//
+// One row, wrapping on a narrow window. Everything in it is either the
+// scenario's identity or a way out of the page; nothing here is a form.
+const headerRow: React.CSSProperties = {
+  display: "flex",
+  alignItems: "baseline",
+  flexWrap: "wrap",
+  gap: "0.6rem",
+  marginBottom: "0.35rem",
+};
+
+const codeStyle: React.CSSProperties = {
+  fontSize: "0.8rem",
+  fontWeight: 600,
+  color: "var(--text-muted)",
+  letterSpacing: "0.04em",
+};
+
+// Regular weight, not bold: §2 reserves bold for true emphasis — a pinpoint
+// page, a section head — and a page title is neither.
+const nameStyle: React.CSSProperties = {
+  margin: 0,
+  fontSize: "1.15rem",
   fontWeight: 500,
-};
-const binderStyle: React.CSSProperties = {
-  border: "1px dashed var(--border-default)",
-  borderRadius: "6px",
-  padding: "0.35rem 0.7rem",
-  fontSize: "0.78rem",
-  color: "var(--text-disabled)",
-  cursor: "not-allowed",
-};
-// Delete affordance sits at the far end of the header row (marginLeft:auto),
-// visually separated from the title so it is not a mis-click target.
-const deleteBtnStyle: React.CSSProperties = {
-  marginLeft: "auto",
-  border: "1px solid var(--state-danger-border)",
-  borderRadius: "6px",
-  padding: "0.35rem 0.8rem",
-  fontSize: "0.8rem",
-  fontWeight: 600,
-  backgroundColor: "var(--state-danger-bg-soft)",
-  color: "var(--state-danger-strong)",
-  cursor: "pointer",
-};
-// Inline title editor (D1.6). The input is sized to read like the title it
-// replaces; Save/Cancel are compact neutral/accent buttons.
-const titleInputStyle: React.CSSProperties = {
-  flex: "1 1 auto",
-  minWidth: 0,
-  fontSize: "1.5rem",
-  fontWeight: 700,
-  padding: "0.2rem 0.5rem",
-  border: "1px solid var(--border-default)",
-  borderRadius: "6px",
-  backgroundColor: "var(--bg-surface)",
   color: "var(--text-primary)",
 };
-const titleSaveBtn: React.CSSProperties = {
-  border: "1px solid var(--accent-primary)",
-  borderRadius: "6px",
-  padding: "0.35rem 0.8rem",
-  fontSize: "0.8rem",
-  fontWeight: 600,
-  backgroundColor: "var(--accent-bg-soft)",
-  color: "var(--accent-primary)",
-  cursor: "pointer",
+
+const chipStyle: React.CSSProperties = {
+  border: "1px solid var(--border-default)",
+  borderRadius: "999px",
+  padding: "0.1rem 0.6rem",
+  fontSize: "0.74rem",
+  whiteSpace: "nowrap",
 };
-const titleSaveBtnDisabled: React.CSSProperties = {
-  ...titleSaveBtn,
-  opacity: 0.5,
-  cursor: "not-allowed",
-};
-const titleCancelBtn: React.CSSProperties = {
+
+const quietButton: React.CSSProperties = {
   border: "1px solid var(--border-default)",
   borderRadius: "6px",
-  padding: "0.35rem 0.8rem",
-  fontSize: "0.8rem",
-  fontWeight: 600,
-  backgroundColor: "var(--bg-surface)",
+  background: "var(--bg-surface)",
   color: "var(--text-secondary)",
+  fontSize: "0.78rem",
+  fontFamily: "inherit",
+  padding: "0.15rem 0.55rem",
   cursor: "pointer",
 };
-// The title in view mode reads as a clickable affordance (hover cursor).
-const titleViewStyle: React.CSSProperties = { margin: 0, cursor: "pointer" };
-// The scenario code beside the header title. Muted and tabular so a column of
-// codes lines up and the code never competes with the name for attention — it is
-// an identifier, not a heading. `default` cursor (not the title's `pointer`)
-// because this element is deliberately not clickable: the code cannot be renamed.
-const scenarioCodeStyle: React.CSSProperties = {
-  fontSize: "1rem",
-  fontWeight: 600,
-  color: "var(--text-muted)",
-  fontVariantNumeric: "tabular-nums",
-  cursor: "default",
-};
+
 const patternHeadline: React.CSSProperties = {
-  marginTop: "0.75rem",
-  padding: "0.6rem 0.9rem",
-  borderLeft: "3px solid var(--state-danger-strong)",
-  backgroundColor: "var(--state-danger-bg-soft)",
-  color: "var(--state-danger-strong)",
-  borderRadius: "6px",
-  fontSize: "0.86rem",
-  fontWeight: 600,
-};
-// Gating styles mirror TrialPrepDashboardPage (tokens only — Rule 2).
-const messageStyle: React.CSSProperties = {
-  padding: "2rem",
-  textAlign: "center",
+  fontSize: "0.82rem",
   color: "var(--text-muted)",
-  fontSize: "14px",
+  marginBottom: "1rem",
 };
+
+const messageStyle: React.CSSProperties = {
+  padding: "2rem 0",
+  color: "var(--text-muted)",
+};
+
 const errorStyle: React.CSSProperties = {
-  margin: "1rem 0",
-  padding: "1rem",
-  backgroundColor: "var(--state-danger-bg-soft)",
+  padding: "0.75rem 1rem",
   border: "1px solid var(--state-danger-border)",
   borderRadius: "6px",
   color: "var(--state-danger-strong)",
+  background: "var(--state-danger-bg-soft)",
+  fontSize: "0.85rem",
+  marginBottom: "1rem",
 };
 
 const ScenarioDetailPage: React.FC = () => {
@@ -159,16 +145,16 @@ const ScenarioDetailPage: React.FC = () => {
   const [scenario, setScenario] = useState<ScenarioDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  // Bumped after the definition form saves, to re-fetch the scenario (the same
-  // idiom ScenarioCurationPanel uses). Keyed into the load effect below so the
-  // page re-loads and the form re-fills from the persisted definition — a
-  // re-fetch, not a hand-merged response, is the source of truth.
+  // Bumped after the identity modal or the ready toggle saves, to re-fetch the
+  // scenario. A re-fetch, not a hand-merged response, is the source of truth:
+  // the backend trims and normalises what it stores, so the page must be told
+  // what was actually persisted rather than assume the draft it sent.
   const [refreshKey, setRefreshKey] = useState(0);
 
   // Bumped when the Theme Scan panel merges picks into this scenario's candidate
   // facts. Kept SEPARATE from `refreshKey` (which re-loads the whole scenario
   // detail): a merge changes only the candidate facts, so re-fetching the
-  // definition, responses, and everything else would be needless work and would
+  // identity, responses and everything else would be needless work and would
   // flash the whole page. One signal, one consumer.
   const [factsRefresh, setFactsRefresh] = useState(0);
 
@@ -179,71 +165,8 @@ const ScenarioDetailPage: React.FC = () => {
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
-  // ── Inline title-rename state machine (D1.6) ───────────────────────────────
-  //
-  // A tiny two-state UI: VIEW (the <h1>, click to edit) ↔ EDIT (an input +
-  // Save/Cancel). `titleDraft` is LOCAL, editable text; it is deliberately kept
-  // separate from the fetched `scenario.attack` so typing never mutates the
-  // displayed source-of-truth until a save actually persists.
-  //
-  // Domain note: the field being edited is the scenario's top-level NAME. On this
-  // payload the name arrives (confusingly) as `scenario.attack` — the backend
-  // `build_detail` maps the `name` column onto the DTO's `attack` field. It is NOT
-  // `attack_text` (the accusation), which lives in `scenario.definition`. So we
-  // SEED the draft from `scenario.attack` but SEND `{ name }`.
-  const [editingTitle, setEditingTitle] = useState(false);
-  const [titleDraft, setTitleDraft] = useState("");
-  const [savingTitle, setSavingTitle] = useState(false);
-  const [titleError, setTitleError] = useState<string | null>(null);
-
-  // Validation parity with the backend `validate_name`: a name must be
-  // non-empty / non-whitespace. Save is disabled otherwise (and while in flight).
-  const canSaveTitle =
-    titleDraft.trim().length > 0 && !savingTitle;
-
-  const beginEditTitle = () => {
-    if (!scenario) return;
-    setTitleDraft(scenario.attack); // seed from the persisted name (see note above)
-    setTitleError(null);
-    setEditingTitle(true);
-  };
-
-  const cancelEditTitle = () => {
-    setEditingTitle(false);
-    setTitleError(null);
-  };
-
-  const handleSaveTitle = () => {
-    if (!scenarioId) return;
-    const trimmed = titleDraft.trim();
-    if (!trimmed) return; // guarded even though Save is disabled when empty
-
-    setSavingTitle(true);
-    setTitleError(null);
-    // Send the TOP-LEVEL name (never attack_text) through the same PUT the define
-    // form uses. On success we do NOT optimistically show `trimmed`: we bump
-    // `refreshKey` and let the re-fetch supply the title. Why: the persisted value
-    // can differ from the draft (the backend trims `name`), so the RELOAD is the
-    // source of truth, not the local input — the same discipline the define form
-    // follows via `onSaved`.
-    updateScenario(slug, scenarioId, { name: trimmed })
-      .then(() => {
-        setEditingTitle(false);
-        setSavingTitle(false);
-        setRefreshKey((k) => k + 1);
-      })
-      .catch((err: unknown) => {
-        // Standing Rule 1: a failed rename stays visible and the editor stays OPEN
-        // with the user's text intact — we never silently revert, and never let
-        // the title show a name that was not actually saved.
-        setTitleError(
-          err instanceof Error
-            ? err.message
-            : "Failed to rename the scenario. Try again.",
-        );
-        setSavingTitle(false);
-      });
-  };
+  // The identity modal — the ONE place a scenario's identity is edited (1.7B).
+  const [editingIdentity, setEditingIdentity] = useState(false);
 
   const handleDelete = () => {
     if (!scenarioId) return;
@@ -326,7 +249,12 @@ const ScenarioDetailPage: React.FC = () => {
     );
   }
 
-  const status = statusMeta(scenario.status);
+  const header = headerDescriptor({
+    code: scenario.code,
+    name: scenario.attack,
+    direction: scenario.direction,
+    status: scenario.status,
+  });
 
   return (
     <div style={containerStyle}>
@@ -334,97 +262,50 @@ const ScenarioDetailPage: React.FC = () => {
         items={[{ label: "Dashboard", to: "/" }, backCrumb, { label: scenario.attack }]}
       />
 
-      <div style={{ display: "flex", alignItems: "center", gap: "1rem", marginBottom: "0.5rem" }}>
-        {editingTitle ? (
-          // EDIT mode: an input over the local draft + Save/Cancel. Enter saves
-          // (when valid), Escape cancels — keyboard parity with the buttons.
-          <>
-            <input
-              autoFocus
-              aria-label="Scenario name"
-              style={titleInputStyle}
-              value={titleDraft}
-              disabled={savingTitle}
-              onChange={(e) => setTitleDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && canSaveTitle) handleSaveTitle();
-                if (e.key === "Escape") cancelEditTitle();
-              }}
-            />
-            <button
-              type="button"
-              style={canSaveTitle ? titleSaveBtn : titleSaveBtnDisabled}
-              onClick={handleSaveTitle}
-              disabled={!canSaveTitle}
-            >
-              {savingTitle ? "Saving…" : "Save"}
-            </button>
-            <button
-              type="button"
-              style={titleCancelBtn}
-              onClick={cancelEditTitle}
-              disabled={savingTitle}
-            >
-              Cancel
-            </button>
-          </>
-        ) : (
-          // VIEW mode: the title reads as a clickable affordance. `scenario.attack`
-          // holds the top-level NAME (see the state-machine note above), so clicking
-          // it opens the NAME editor — not the accusation/define surface.
-          <>
-            {/* The code sits OUTSIDE the clickable title (§2a): the title opens the
-                rename editor, and the code is the one part of the header that can
-                never be renamed. Putting it inside would invite a click that looks
-                like it edits the code and does not. */}
-            <span style={scenarioCodeStyle}>{scenario.code}</span>
-            <h1
-              className="count-header"
-              style={titleViewStyle}
-              title="Click to rename"
-              onClick={beginEditTitle}
-            >
-              {scenario.attack}
-            </h1>
-            {/* Deferred "Binder" affordance — inert/greyed in Stage 1. */}
-            <span style={binderStyle} aria-disabled="true" title="Coming soon">
-              Binder
-            </span>
-            {scenarioId && (
-              <button
-                type="button"
-                style={deleteBtnStyle}
-                onClick={() => {
-                  setDeleteError(null);
-                  setShowDelete(true);
-                }}
-              >
-                Delete scenario
-              </button>
-            )}
-          </>
-        )}
-      </div>
-      {/* A failed rename stays visible here; the editor above stays open with the
-          user's text intact (never a silent revert / false success). */}
-      {editingTitle && titleError && <div style={errorStyle}>{titleError}</div>}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "flex-start",
-          gap: "1rem",
-          fontSize: "0.8rem",
-          color: "var(--text-muted)",
-          marginBottom: "1rem",
-        }}
-      >
-        <span>
-          Status: <span style={{ color: status.color, fontWeight: 600 }}>{status.label}</span>
+      {/* ── The lean header: one line, everything it states is identity ──────
+          The code sits outside the name because it is the one part of this
+          header that can never be renamed. */}
+      <div style={headerRow}>
+        <span style={codeStyle}>{header.code}</span>
+        <h1 className="count-header" style={nameStyle}>
+          {header.name}
+        </h1>
+
+        <span
+          style={{ ...chipStyle, color: header.direction.color }}
+          title={header.direction.title ?? undefined}
+        >
+          {header.direction.label}
         </span>
-        {/* The ready gate (task 1.5, v2 §5). It sits beside the status because it
-            IS the status — but it is the only path that changes it, since a
-            readiness declaration is a human act with a name recorded against it.
-            The generic rename/edit route refuses `status` outright. */}
+        <span style={{ ...chipStyle, color: header.status.color }}>
+          {header.status.label}
+        </span>
+
+        {/* The readiness verdict's slot (§9). `header.readiness` is null until
+            task 2.4 computes one, and nothing renders — not "Unknown", not a
+            grey placeholder. A verdict is a claim about whether this scenario
+            can be taken into a courtroom. */}
+        {header.readiness && (
+          <span style={{ ...chipStyle, color: header.readiness.color }}>
+            {header.readiness.label}
+          </span>
+        )}
+
+        {scenarioId && (
+          <button
+            type="button"
+            style={quietButton}
+            title="Edit this scenario's identity"
+            aria-label="Edit scenario identity"
+            onClick={() => setEditingIdentity(true)}
+          >
+            ✎ Edit
+          </button>
+        )}
+
+        {/* The ready gate (task 1.5, v2 §5): the only path that changes status,
+            because a readiness declaration is a human act with a name recorded
+            against it. The generic update route refuses `status` outright. */}
         {scenarioId && (
           <ReadyToggle
             slug={slug}
@@ -433,30 +314,30 @@ const ScenarioDetailPage: React.FC = () => {
             onChanged={() => setRefreshKey((k) => k + 1)}
           />
         )}
-        <Link to={`/cases/${encodeURIComponent(slug)}/rehearsal`} style={{ marginLeft: "auto" }}>
+
+        {scenarioId && (
+          <button
+            type="button"
+            style={quietButton}
+            onClick={() => {
+              setDeleteError(null);
+              setShowDelete(true);
+            }}
+          >
+            Delete
+          </button>
+        )}
+
+        <Link
+          to={`/cases/${encodeURIComponent(slug)}/rehearsal`}
+          style={{ marginLeft: "auto", fontSize: "0.82rem" }}
+        >
           Rehearsal mode →
         </Link>
       </div>
 
       {scenario.pattern_summary && (
         <div style={patternHeadline}>Pattern: {scenario.pattern_summary}</div>
-      )}
-
-      <div style={sectionLabel}>The attack</div>
-      <div style={attackBox}>{scenario.attack}</div>
-
-      {/* B2a: author this scenario's definition (theme + seeds). Sits between the
-          attack and the curated-facts binder — authoring, then seeding. On save
-          it bumps `refreshKey` so the page re-fetches and the form re-fills from
-          the persisted definition. */}
-      {scenarioId && (
-        <ScenarioDefinitionForm
-          slug={slug}
-          scenarioId={scenarioId}
-          definition={scenario.definition}
-          anchorAllegationIds={scenario.anchor_allegation_ids}
-          onSaved={() => setRefreshKey((k) => k + 1)}
-        />
       )}
 
       {/* Theme Scan driver: run the background LLM judge over every candidate
@@ -480,7 +361,6 @@ const ScenarioDetailPage: React.FC = () => {
         <ScenarioCurationPanel
           slug={slug}
           scenarioId={scenarioId}
-          definition={scenario.definition}
           externalRefresh={factsRefresh}
         />
       )}
@@ -499,6 +379,20 @@ const ScenarioDetailPage: React.FC = () => {
             {scenario.notes}
           </div>
         </>
+      )}
+
+      {/* The identity modal. Mounted only while open so it re-reads on every
+          open — a dialog holding a draft from ten minutes ago would let a human
+          overwrite an edit made since, and this is the coldest path here. */}
+      {editingIdentity && scenarioId && (
+        <ScenarioIdentityModal
+          slug={slug}
+          scenarioId={scenarioId}
+          definition={scenario.definition}
+          anchorAllegationIds={scenario.anchor_allegation_ids}
+          onSaved={() => setRefreshKey((k) => k + 1)}
+          onClose={() => setEditingIdentity(false)}
+        />
       )}
 
       {showDelete && (

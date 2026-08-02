@@ -53,7 +53,10 @@ const App: React.FC = () => {
   return (
     <AuthProvider>
       <CaseProvider>
-        <div style={{ fontFamily: "'Inter', sans-serif", backgroundColor: "var(--bg-page)", minHeight: "100vh" }}>
+        {/* The app shell paints the page canvas for every screen: pure white,
+            v2 §2c. It was --bg-page (a grey tint) until task 1.7A — one line
+            that put every screen in the product on grey. */}
+        <div style={{ fontFamily: "'Inter', sans-serif", backgroundColor: "var(--bg-canvas)", minHeight: "100vh" }}>
           <Header />
           <main style={{ maxWidth: "1080px", margin: "0 auto", padding: "0 2rem" }}>
             <Routes>

@@ -2,27 +2,19 @@
 // ScenarioCurationPanel — host for the scenario candidate workbench (1a.6).
 // =============================================================================
 //
-// Phase 1a.6 merge: the old split — a separate "Curated facts" saved-list on top
-// of a "Find candidate facts" finder — is collapsed into ONE gather-driven
-// workbench. The saved-list is now just the workbench's `included` status
-// filter, so this component no longer fetches or renders it: it is a thin host
-// that frames the `CandidateFactsPanel` workbench and preserves the mount
-// contract from `ScenarioDetailPage` (slug, scenarioId, definition).
-//
-// Task 1.3 swaps the workbench for the keyboard TRIAGE QUEUE (`CardQueue`): the
-// same job — rule on every candidate — done at the speed the pool actually needs
-// (399 of 525 candidates are unrulable-as-they-stand, so one-key defer is the
-// common case). The queue renders the §7 card contract from the 1.2 payload.
+// Task 1.3 made the keyboard TRIAGE QUEUE (`CardQueue`) the surface where a
+// human rules on candidates — the same job the old workbench did, at the speed
+// the pool actually needs (399 of 525 candidates are unrulable as they stand, so
+// one-key defer is the common case). This component is the thin host that frames
+// the working view, the augmentation panel and the queue.
 //
 // The orphan guarantee (a confirmed fact whose graph node vanished must still
-// surface) moves WITH the surface: `CardQueue` makes the same second
+// surface) lives WITH the surface: `CardQueue` makes the same second
 // `listScenarioFacts` read and renders the strip below the queue.
 //
-// `CandidateFactsPanel` is no longer mounted anywhere. It is left in the tree
-// rather than deleted in this task: removing 763 lines plus its shipped helper
-// tests is its own reviewable change, and keeping it available through G1 means
-// the old surface can be restored in one line if the queue disappoints on DEV.
-// Flagged for removal in the 1.3 report.
+// The retired `CandidateFactsPanel` was kept in the tree through G1 as a
+// one-line restore path in case the queue disappointed on DEV. It did not, and
+// task 1.7B deletes it.
 
 import React, { useCallback, useEffect, useState } from "react";
 
@@ -30,18 +22,12 @@ import AugmentationPanel from "./AugmentationPanel";
 import CardQueue from "./CardQueue";
 import WorkingView from "./WorkingView";
 import { fetchScenarioCards, type ScenarioCard } from "../services/scenarioCards";
-import type { ScenarioDefinition } from "../pages/trialPrepData";
 
 interface Props {
   slug: string;
   scenarioId: string;
-  /** @deprecated (1a.6) Vestigial pass-through — the workbench resolves its
-   *  subject server-side, so the definition no longer seeds anything. Kept to
-   *  preserve the `ScenarioDetailPage` mount contract; a follow-up chunk removes
-   *  it along with `candidateSeed`. */
-  definition?: ScenarioDefinition;
-  /** Forwarded to `CandidateFactsPanel` — see its `externalRefresh`. This panel is
-   *  a thin wrapper, so it only relays the signal. */
+  /** Bumped by the page when a scan merge writes candidate facts, so the
+   *  working view and the queue re-read. This panel owns neither — it relays. */
   externalRefresh?: number;
 }
 
@@ -63,7 +49,6 @@ const hintStyle: React.CSSProperties = {
 const ScenarioCurationPanel: React.FC<Props> = ({
   slug,
   scenarioId,
-  definition,
   externalRefresh,
 }) => {
   const [cards, setCards] = useState<ScenarioCard[]>([]);

@@ -106,6 +106,7 @@ const validDetail: ScenarioDetail = {
   id: "00000000-0000-0000-0000-000000000000",
   code: "S-1",
   attack: "Marie is obstructive and uncooperative",
+  direction: "defense",
   status: "draft",
   pattern_summary: null,
   timeline: [

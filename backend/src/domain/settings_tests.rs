@@ -39,8 +39,30 @@ fn every_kind_offers_a_hint_showing_the_shape() {
     // The hint sits beside the edit box. An empty one would leave a human
     // guessing whether "9 of 10" or "0.9" is wanted.
     for &kind in ValueKind::ALL {
-        assert!(!kind.hint().is_empty(), "{} needs a hint", kind.code());
+        assert!(!kind.hint("3").is_empty(), "{} needs a hint", kind.code());
     }
+}
+
+/// The worked example is the parameter's own default (task 1.7A, D4).
+///
+/// Every whole-number field used to advertise "e.g. 240" — under
+/// `talking_points_cap`, whose default is 3 and whose minimum is 1, the hint's
+/// own example would have been refused by the field it sat under.
+#[test]
+fn the_hint_shows_this_parameters_default_not_another_ones() {
+    let cap = ValueKind::Count.hint("3");
+    assert!(cap.contains("e.g. 3"), "{cap}");
+    assert!(
+        !cap.contains("240"),
+        "the cap must not advertise the window's default: {cap}"
+    );
+
+    // And the same kind with a different default shows THAT one.
+    let window = ValueKind::Count.hint("240");
+    assert!(window.contains("e.g. 240"), "{window}");
+
+    assert!(ValueKind::Float.hint("0.80").contains("e.g. 0.80"));
+    assert!(ValueKind::Ratio.hint("9/10").contains("e.g. 9/10"));
 }
 
 // ── Floats ───────────────────────────────────────────────────────────────────

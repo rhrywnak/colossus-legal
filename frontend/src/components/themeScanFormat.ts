@@ -43,6 +43,26 @@ export function formatRunTimestamp(iso: string): string {
 }
 
 /**
+ * The last-run summary the scan control line shows: "148 candidates · Aug 2, 09:14".
+ *
+ * `null` when there is nothing to report — no runs at all, or none that got far
+ * enough to have a count. Rendering "0 candidates" for a scenario that has never
+ * been scanned would say something false about a scan that never happened; the
+ * absence of the phrase is the honest signal, and the history link below is where
+ * a human goes for detail either way.
+ *
+ * Reads the FIRST run because the backend serves them newest-first — the ordering
+ * is server-owned (task D2b) and this must not re-sort and quietly disagree.
+ */
+export function lastRunSummary(
+  runs: { candidates_total: number | null; started_at: string }[],
+): string | null {
+  const latest = runs[0];
+  if (!latest || latest.candidates_total == null) return null;
+  return `${latest.candidates_total} candidates · ${formatRunTimestamp(latest.started_at)}`;
+}
+
+/**
  * NOTE: `formatMergeState` was REMOVED.
  *
  * It rendered "merged 2× · last Jul 18, 14:00" from a run's merge counters. Both

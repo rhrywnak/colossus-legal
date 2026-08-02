@@ -253,6 +253,9 @@ fn build_detail(
         id: record.scenario_id.to_string(),
         code: scenario_code(record.code_ordinal),
         attack: record.name.clone(),
+        // Verbatim: an unrecognised direction is the screen's problem to SHOW,
+        // not this function's to normalise away.
+        direction: record.direction.clone(),
         status: parse_status(&record.status, record.scenario_id)?,
         pattern_summary: None,
         timeline: facts.iter().map(fact_to_turn).collect(),

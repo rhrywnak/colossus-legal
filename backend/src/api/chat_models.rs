@@ -11,6 +11,7 @@ use serde::Serialize;
 
 use crate::api::embed::ErrorResponse;
 use crate::auth::{require_ai, AuthUser};
+use crate::domain::billing_class::BillingClass;
 use crate::repositories::pipeline_repository::models;
 use crate::state::AppState;
 
@@ -21,6 +22,72 @@ pub struct ChatModelEntry {
     pub display_name: String,
     /// True when this row's id equals `AppState::default_chat_model`.
     pub is_default: bool,
+    /// `local` | `billed` — who pays for a call (task 1.7B, migration
+    /// `20260802134438`). Carried as the raw token so a client can branch on the
+    /// STATE rather than parse the label, the same state+label discipline the
+    /// scenario card payload uses throughout.
+    pub billing_class: String,
+    /// The name as the picker should show it, with the billing warning already
+    /// attached — "claude-opus-4-8 (API — billed)".
+    ///
+    /// ## Why the label is composed HERE
+    ///
+    /// The alternative is a browser that maps `billing_class` → English, which
+    /// puts a statement about what this deployment COSTS in the one place that
+    /// cannot be tested without a browser, and duplicates it per client. The
+    /// vocabulary belongs to `domain::billing_class`; this field is what it says.
+    pub display_label: String,
+}
+
+/// Compose one catalog entry, with its billing label attached.
+///
+/// A model whose stored `billing_class` this build cannot read is REFUSED —
+/// serving it unlabelled would be the one failure this whole mechanism exists to
+/// prevent, a metered model presented as though a scan across it were free.
+///
+/// # Errors
+/// Returns the sentence to show the human, naming the model and the token that
+/// could not be read. The caller drops the model, logs it, and carries the
+/// sentence back on `ChatModelsResponse::warnings` — one misclassified row must
+/// not fail the whole catalog, and must not vanish quietly either.
+fn entry_for(model: models::LlmModelRecord, default_model: &str) -> Result<ChatModelEntry, String> {
+    let class = BillingClass::try_from(model.billing_class.as_str()).map_err(|e| {
+        tracing::error!(
+            model = %model.id,
+            stored = %model.billing_class,
+            error = %e,
+            "a model is not offered because its billing class cannot be read"
+        );
+        format!("{} is not listed: {e}", model.id)
+    })?;
+
+    Ok(ChatModelEntry {
+        is_default: model.id == default_model,
+        display_label: match class.suffix() {
+            Some(suffix) => format!("{} {suffix}", model.display_name),
+            None => model.display_name.clone(),
+        },
+        model_id: model.id,
+        display_name: model.display_name,
+        billing_class: class.code().to_string(),
+    })
+}
+
+/// Split a catalog read into the entries that can be offered and the sentences
+/// explaining the rows that cannot.
+fn classify(
+    rows: Vec<models::LlmModelRecord>,
+    default_model: &str,
+) -> (Vec<ChatModelEntry>, Vec<String>) {
+    let mut entries = Vec::with_capacity(rows.len());
+    let mut warnings = Vec::new();
+    for row in rows {
+        match entry_for(row, default_model) {
+            Ok(entry) => entries.push(entry),
+            Err(warning) => warnings.push(warning),
+        }
+    }
+    (entries, warnings)
 }
 
 /// Response body for `GET /api/chat/models`.
@@ -28,6 +95,18 @@ pub struct ChatModelEntry {
 pub struct ChatModelsResponse {
     pub models: Vec<ChatModelEntry>,
     pub default_model: String,
+    /// Rows this build could not offer, one operator-readable sentence each.
+    ///
+    /// ## Why a shorter list is not allowed to be silent
+    ///
+    /// A model whose stored `billing_class` cannot be read is DROPPED from the
+    /// catalog (see `entry_for`) — the alternative, showing it unlabelled, could
+    /// present a metered model as though scanning across it were free. But a
+    /// picker that is simply one row shorter than the database looks exactly like
+    /// a picker that is complete. The only person who can repair the row is the
+    /// one reading this screen, and a server log they are not tailing does not
+    /// reach them. Empty on every healthy deployment.
+    pub warnings: Vec<String>,
 }
 
 type ApiError = (axum::http::StatusCode, Json<ErrorResponse>);
@@ -58,19 +137,18 @@ pub async fn list_chat_models(
             )
         })?;
 
+    // Chat's ordering and default are UNCHANGED by task 1.7B: the billing label
+    // rides along because the two catalogs share one entry type, but local-first
+    // ordering is the SCAN control's rule (a scan is 148 metered calls; one chat
+    // turn is one), and quietly reordering the chat picker would be this task
+    // editing a surface it was not asked about.
     let default_model = state.default_chat_model.clone();
-    let entries = rows
-        .into_iter()
-        .map(|m| ChatModelEntry {
-            is_default: m.id == default_model,
-            model_id: m.id,
-            display_name: m.display_name,
-        })
-        .collect();
+    let (models, warnings) = classify(rows, &default_model);
 
     Ok(Json(ChatModelsResponse {
-        models: entries,
+        models,
         default_model,
+        warnings,
     }))
 }
 
@@ -108,22 +186,72 @@ pub async fn list_scan_models(
             )
         })?;
 
-    let default_model = state
+    let configured_default = state
         .config
         .theme_scan_model
         .clone()
         .unwrap_or_else(|| state.default_chat_model.clone());
-    let entries = rows
-        .into_iter()
-        .map(|m| ChatModelEntry {
-            is_default: m.id == default_model,
-            model_id: m.id,
-            display_name: m.display_name,
-        })
-        .collect();
+
+    let (entries, warnings) = classify(rows, &configured_default);
+    let (models, default_model) = local_first(entries, configured_default);
 
     Ok(Json(ChatModelsResponse {
-        models: entries,
+        models,
         default_model,
+        warnings,
     }))
 }
+
+/// Order the scan catalog local-first and choose the model the page opens on.
+///
+/// Pure, and split out of the handler so both rules are testable without a
+/// database — they are the whole point of task 1.7B's scan control, and a rule
+/// nobody has exercised is a rule nobody can trust.
+///
+/// **Ordering:** local before billed. A scan is one metered call per candidate —
+/// 148 of them on S-1 — so the picker must not put a billed model under the
+/// cursor. Ordered by the stored class, never by name: which models cost money is
+/// a deployment fact, and a name list in code would be wrong the first time a
+/// self-hosted model arrives with an unfamiliar id (Rule 13).
+///
+/// **Default:** the configured default if it is local, else the first local
+/// model, else the configured one unchanged. Free-by-default is the point — a
+/// human who wants to spend money should have to choose to. The last case is the
+/// honest floor: with no local model available there is nothing free to fall back
+/// to, and silently selecting nothing would leave the Run button dead with no
+/// explanation.
+fn local_first(
+    mut entries: Vec<ChatModelEntry>,
+    configured_default: String,
+) -> (Vec<ChatModelEntry>, String) {
+    // `sort_by_key` is STABLE, so within a class the repository's own ordering
+    // (display_name) survives — the result is "local first, then as listed",
+    // not an arbitrary shuffle.
+    entries.sort_by_key(|e| {
+        BillingClass::try_from(e.billing_class.as_str())
+            .map(BillingClass::sort_key)
+            // Unreachable: `entry_for` already dropped anything unparseable.
+            // Sorted last rather than panicking — a picker that refuses to render
+            // is worse than one whose order is imperfect.
+            .unwrap_or(u8::MAX)
+    });
+
+    let is_local = |e: &&ChatModelEntry| e.billing_class == BillingClass::Local.code();
+    let default_model = entries
+        .iter()
+        .find(|e| e.is_default && is_local(e))
+        .or_else(|| entries.iter().find(is_local))
+        .map(|e| e.model_id.clone())
+        .unwrap_or(configured_default);
+
+    // `is_default` must agree with the answer above, or the picker highlights one
+    // row and selects another.
+    for entry in &mut entries {
+        entry.is_default = entry.model_id == default_model;
+    }
+    (entries, default_model)
+}
+
+#[cfg(test)]
+#[path = "chat_models_tests.rs"]
+mod tests;

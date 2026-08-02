@@ -99,7 +99,9 @@ fn to_dto(record: &AppSettingRecord) -> SettingDto {
         // page is where someone would go to FIX such a row, so refusing to show
         // it would hide the one screen that can repair it.
         input_hint: ValueKind::try_from(record.value_kind.as_str())
-            .map(|kind| kind.hint().to_string())
+            // The example comes from THIS row's default, so the hint under a cap
+            // of 3 does not suggest 240 (task 1.7A, D4).
+            .map(|kind| kind.hint(&record.default_value))
             .unwrap_or_else(|_| {
                 format!(
                     "this build does not recognise the stored kind '{}'",
