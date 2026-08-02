@@ -398,7 +398,12 @@ async fn ensure_candidate_ordinals(
 /// shared resolver use the case default. (Contrast the Theme Scan, which errors
 /// on an unparseable definition because it also needs `attack_meaning`.) The
 /// divergence is a deliberate per-caller policy, not resolver behavior.
-async fn resolve_gather_subject(state: &AppState, id: Uuid) -> Result<String, AppError> {
+///
+/// `pub(crate)` so the sibling `api::scenario_cards` handler resolves the pool's
+/// subject through the SAME policy — including the tolerated-fallback behaviour
+/// documented above. Re-deriving it there would let the two endpoints disagree
+/// about which candidates a scenario even has.
+pub(crate) async fn resolve_gather_subject(state: &AppState, id: Uuid) -> Result<String, AppError> {
     // Re-read the row for its definition (the existence/case fence in the caller
     // does not hand it back). A `None` here is a race — the scenario was deleted
     // between the fence check and this read — so it is a 404, not a 500.

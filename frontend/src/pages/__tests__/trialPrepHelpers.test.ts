@@ -40,6 +40,7 @@ const makeSummary = (
   overrides: Partial<ScenarioSummary> = {},
 ): ScenarioSummary => ({
   id: "s1",
+  code: "S-1",
   attack: "An attack",
   status: "draft",
   instance_count: 4,

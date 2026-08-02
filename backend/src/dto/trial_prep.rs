@@ -48,6 +48,10 @@ pub enum ScenarioStatus {
 #[serde(deny_unknown_fields)]
 pub struct ScenarioSummary {
     pub id: String,
+    /// The scenario's human handle — `"S-3"` (§2a), formatted by the backend.
+    /// Rendered beside the attack text on every card so the code a human says out
+    /// loud is visible wherever the scenario is.
+    pub code: String,
     pub attack: String,
     pub status: ScenarioStatus,
     pub instance_count: u32,
@@ -156,6 +160,9 @@ pub struct MarieResponse {
 #[serde(deny_unknown_fields)]
 pub struct ScenarioDetail {
     pub id: String,
+    /// The scenario's human handle — `"S-3"` (§2a), formatted by the backend and
+    /// rendered in the detail header beside the name.
+    pub code: String,
     pub attack: String,
     pub status: ScenarioStatus,
     pub pattern_summary: Option<String>,
@@ -233,6 +240,7 @@ mod tests {
             }],
             scenarios: vec![
                 ScenarioSummary {
+                    code: "S-1".to_string(),
                     id: "marie-obstructive".to_string(),
                     attack: "Marie is obstructive".to_string(),
                     status: ScenarioStatus::NeedsEvidence,
@@ -242,6 +250,7 @@ mod tests {
                     baseless_repeat_count: Some(3),
                 },
                 ScenarioSummary {
+                    code: "S-2".to_string(),
                     id: "selective-sanctions".to_string(),
                     attack: "Selective sanctions".to_string(),
                     status: ScenarioStatus::Draft,
@@ -268,6 +277,7 @@ mod tests {
                 "alerts": [{ "message": "an alert" }],
                 "scenarios": [
                     {
+                        "code": "S-1",
                         "id": "marie-obstructive",
                         "attack": "Marie is obstructive",
                         "status": "needs_evidence",
@@ -277,6 +287,7 @@ mod tests {
                         "baseless_repeat_count": 3
                     },
                     {
+                        "code": "S-2",
                         "id": "selective-sanctions",
                         "attack": "Selective sanctions",
                         "status": "draft",
@@ -298,6 +309,7 @@ mod tests {
     #[test]
     fn pending_baseless_count_is_present_as_null() {
         let card = ScenarioSummary {
+            code: "S-1".to_string(),
             id: "selective-sanctions".to_string(),
             attack: "Selective sanctions".to_string(),
             status: ScenarioStatus::Draft,
@@ -325,6 +337,7 @@ mod tests {
     #[test]
     fn scenario_detail_serializes_to_contract_shape() {
         let detail = ScenarioDetail {
+            code: "S-1".to_string(),
             id: "00000000-0000-0000-0000-000000000000".to_string(),
             attack: "Marie is obstructive".to_string(),
             status: ScenarioStatus::Draft,
@@ -359,6 +372,7 @@ mod tests {
         assert_eq!(
             value,
             json!({
+                "code": "S-1",
                 "id": "00000000-0000-0000-0000-000000000000",
                 "attack": "Marie is obstructive",
                 "status": "draft",

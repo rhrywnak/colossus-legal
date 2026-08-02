@@ -15,6 +15,10 @@ export type ScenarioStatus = "draft" | "needs_evidence" | "ready";
 /** One dashboard scenario card. */
 export interface ScenarioSummary {
   id: string;
+  /** The scenario's human handle, e.g. "S-3" (§2a). Backend-formatted — the
+   *  browser renders the string and never builds it, so the prefix lives in one
+   *  place. Stable for the life of the scenario and never reused. */
+  code: string;
   attack: string;
   status: ScenarioStatus;
   instance_count: number;
@@ -137,6 +141,8 @@ export const CURRENT_SCHEMA_V = 2;
 /** The full scenario exchange shown on the detail page. */
 export interface ScenarioDetail {
   id: string;
+  /** The scenario's human handle, e.g. "S-3" (§2a). See `ScenarioSummary.code`. */
+  code: string;
   attack: string;
   status: ScenarioStatus;
   /** e.g. "repeated 3× after rebuttal"; null when no pattern. */

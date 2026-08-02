@@ -10,7 +10,7 @@
 // =============================================================================
 
 import React, { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 
 import Breadcrumb from "../components/Breadcrumb";
 import ScenarioCurationPanel from "../components/ScenarioCurationPanel";
@@ -22,6 +22,7 @@ import { DEFAULT_CASE_SLUG } from "../services/caseHeader";
 import { deleteScenario, updateScenario } from "../services/scenarioCrud";
 import { getScenarioDetailLive } from "../services/trialPrep";
 import type { ScenarioDetail } from "./trialPrepData";
+import ReadyToggle from "../components/ReadyToggle";
 import { statusMeta } from "./trialPrepHelpers";
 
 const containerStyle: React.CSSProperties = {
@@ -106,6 +107,17 @@ const titleCancelBtn: React.CSSProperties = {
 };
 // The title in view mode reads as a clickable affordance (hover cursor).
 const titleViewStyle: React.CSSProperties = { margin: 0, cursor: "pointer" };
+// The scenario code beside the header title. Muted and tabular so a column of
+// codes lines up and the code never competes with the name for attention — it is
+// an identifier, not a heading. `default` cursor (not the title's `pointer`)
+// because this element is deliberately not clickable: the code cannot be renamed.
+const scenarioCodeStyle: React.CSSProperties = {
+  fontSize: "1rem",
+  fontWeight: 600,
+  color: "var(--text-muted)",
+  fontVariantNumeric: "tabular-nums",
+  cursor: "default",
+};
 const patternHeadline: React.CSSProperties = {
   marginTop: "0.75rem",
   padding: "0.6rem 0.9rem",
@@ -361,6 +373,11 @@ const ScenarioDetailPage: React.FC = () => {
           // holds the top-level NAME (see the state-machine note above), so clicking
           // it opens the NAME editor — not the accusation/define surface.
           <>
+            {/* The code sits OUTSIDE the clickable title (§2a): the title opens the
+                rename editor, and the code is the one part of the header that can
+                never be renamed. Putting it inside would invite a click that looks
+                like it edits the code and does not. */}
+            <span style={scenarioCodeStyle}>{scenario.code}</span>
             <h1
               className="count-header"
               style={titleViewStyle}
@@ -391,8 +408,34 @@ const ScenarioDetailPage: React.FC = () => {
       {/* A failed rename stays visible here; the editor above stays open with the
           user's text intact (never a silent revert / false success). */}
       {editingTitle && titleError && <div style={errorStyle}>{titleError}</div>}
-      <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: "1rem" }}>
-        Status: <span style={{ color: status.color, fontWeight: 600 }}>{status.label}</span>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "flex-start",
+          gap: "1rem",
+          fontSize: "0.8rem",
+          color: "var(--text-muted)",
+          marginBottom: "1rem",
+        }}
+      >
+        <span>
+          Status: <span style={{ color: status.color, fontWeight: 600 }}>{status.label}</span>
+        </span>
+        {/* The ready gate (task 1.5, v2 §5). It sits beside the status because it
+            IS the status — but it is the only path that changes it, since a
+            readiness declaration is a human act with a name recorded against it.
+            The generic rename/edit route refuses `status` outright. */}
+        {scenarioId && (
+          <ReadyToggle
+            slug={slug}
+            scenarioId={scenarioId}
+            ready={scenario.status === "ready"}
+            onChanged={() => setRefreshKey((k) => k + 1)}
+          />
+        )}
+        <Link to={`/cases/${encodeURIComponent(slug)}/rehearsal`} style={{ marginLeft: "auto" }}>
+          Rehearsal mode →
+        </Link>
       </div>
 
       {scenario.pattern_summary && (

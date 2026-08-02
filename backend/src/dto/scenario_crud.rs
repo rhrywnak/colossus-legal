@@ -33,6 +33,14 @@ use crate::domain::actor_role::ActorRole;
 pub struct ScenarioDto {
     /// The database-minted `Uuid`, rendered as a string for the wire.
     pub scenario_id: String,
+    /// C1: our one-line answer to this attack, or `null` if not yet framed.
+    pub theme_statement: Option<String>,
+    /// C1: what the other side wants the jury to believe, or `null`.
+    pub motivation: Option<String>,
+    /// The scenario's human handle — `"S-3"` (§2a), formatted by the backend so
+    /// no client re-derives the prefix. Stable for the life of the scenario, and
+    /// never reused by another.
+    pub code: String,
     pub name: String,
     pub direction: String,
     pub status: String,
@@ -258,8 +266,20 @@ impl ScenarioDefinition {
 pub struct ScenarioUpdateRequest {
     /// Absent → name unchanged.
     pub name: Option<String>,
-    /// Absent → status unchanged. Validated against the CHECK vocabulary in the
-    /// handler when present, same as create.
+    /// Present → **REFUSED with a 400** (task 1.5, ruled 2026-08-01).
+    ///
+    /// Readiness is a recorded human act: declaring a scenario ready is what puts
+    /// it in front of a witness in rehearsal mode, and v2 §5/§6 require an actor
+    /// against the decision. This route records no actor, so it cannot perform
+    /// one — `POST /cases/:slug/scenarios/:id/ready` is the only path, in both
+    /// directions.
+    ///
+    /// ## Why the field is KEPT rather than deleted
+    ///
+    /// The struct is `deny_unknown_fields`, so removing it would turn a `status`
+    /// in the body into a generic parse error naming nothing useful. Keeping it
+    /// lets the handler answer with a message that names the route to use
+    /// instead — a refusal that tells the caller what to do next.
     pub status: Option<String>,
     pub feeds_count_id: Option<String>,
     pub anchor_allegation_ids: Option<Vec<String>>,
@@ -267,6 +287,13 @@ pub struct ScenarioUpdateRequest {
     /// replaced (not deep-merged) with this typed body — see the whole-value
     /// replace note on `update_scenario`.
     pub definition: Option<ScenarioDefinition>,
+    /// C1 (task 1.4): our one-sentence answer to this attack. Absent → unchanged.
+    ///
+    /// Distinct from `definition.attack_text`, which is the attack as the OTHER
+    /// side frames it. Task 1.5's rehearsal mode reads this one.
+    pub theme_statement: Option<String>,
+    /// C1 (task 1.4): what they want the jury to believe. Absent → unchanged.
+    pub motivation: Option<String>,
 }
 
 #[cfg(test)]

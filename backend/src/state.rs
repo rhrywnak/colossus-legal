@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::services::settings_handle::SettingsHandle;
+
 use colossus_extract::{EmbeddingProvider, LlmProvider};
 use neo4rs::Graph;
 use serde::{Deserialize, Serialize};
@@ -48,6 +50,22 @@ pub struct AppState {
 
     /// Audit log repository for recording admin actions.
     pub audit_repo: AuditRepository,
+
+    /// The configuration snapshot — every stored tunable, already parsed
+    /// (task 1.6, v2 §2b).
+    ///
+    /// ## Rust Learning: `Arc<T>` for a value that is REPLACED, not mutated
+    ///
+    /// `AppState` is cloned per request, so a bare `Settings` would be copied
+    /// every time and — worse — a copy taken at clone time could never see a
+    /// later edit. `Arc` makes the clone a pointer bump, and swapping the whole
+    /// `Arc` on write is how "edits take effect on next read" is delivered
+    /// without any per-read database work.
+    ///
+    /// Loaded at boot by `services::settings_store::load_at_boot`, which REFUSES
+    /// to start if any parameter is missing or invalid — there are no
+    /// compiled-in defaults left to fall back to.
+    pub settings: SettingsHandle,
 
     /// Embedding provider — fastembed or vLLM, selected by EMBEDDING_PROVIDER
     /// env var at startup. Used by handlers that need to query embedding
@@ -123,6 +141,11 @@ pub struct AppState {
 /// valid_patterns, etc.). We extract only the metadata the app needs at runtime:
 /// entity type names/descriptions and relationship type names/descriptions.
 /// This keeps our AppState lean and avoids coupling to colossus-extract internals.
+// serde: allows unknown fields because this struct is built PROGRAMMATICALLY in
+// `load_schema_metadata` from an already-parsed `ExtractionSchema` — it is never
+// deserialized from a request body or a file. `deny_unknown_fields` would guard a
+// boundary that does not exist here, and the `Deserialize` derive is present only
+// so the type can round-trip through the schema API response.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SchemaMetadata {
     /// The document type this schema handles (e.g., "general_legal")
@@ -134,6 +157,8 @@ pub struct SchemaMetadata {
 }
 
 /// An entity type defined in the extraction schema.
+// serde: allows unknown fields — see `SchemaMetadata`; this is one of its fields
+// and shares its construction path.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EntityTypeInfo {
     pub name: String,
@@ -141,6 +166,8 @@ pub struct EntityTypeInfo {
 }
 
 /// A relationship type defined in the extraction schema.
+// serde: allows unknown fields — see `SchemaMetadata`; this is one of its fields
+// and shares its construction path.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RelationshipTypeInfo {
     pub name: String,

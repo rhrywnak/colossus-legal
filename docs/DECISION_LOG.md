@@ -559,6 +559,571 @@ compiler would then accept silently.
 
 ---
 
+## 2026-08-01 | SOFTWARE ARCHITECT (Roman Approved) — task 1.1: codes + anchored rulings
+
+### Decision
+Implement the two ratified laws that had no implementation.
+
+**§2a codes.** Every scenario carries `S-n`, allocated at creation and never
+reused. The ordinal is a column on `scenarios`; the high-water mark is a separate
+`case_code_sequences` row. Allocation is a single data-modifying-CTE statement
+inside `insert_scenario`, so creation and allocation are atomic with no explicit
+transaction, and the sequence's row lock serializes concurrent creations.
+Existing scenarios were backfilled in `created_at` order per case and the
+sequence seeded to that maximum, in the same migration. The code renders on the
+dashboard card and the detail header, formatted by the BACKEND (`scenario_code`)
+so no client re-derives the prefix. Candidate `C-n` codes already existed with
+the same discipline and were verified, not rebuilt.
+
+**§12.1 anchors.** Every ruling now records document, page, verbatim + normalized
+quote, and speaker, captured server-side from the graph at ruling time and
+written to an append-only `scenario_ruling_anchors` ledger in the same
+transaction as the state row. `FactAction` gains `defer` (backend only; the UI is
+1.3), which persists `status = undecided` plus a `defer_reason` — the field that
+makes a parked candidate distinguishable from one nobody has opened.
+
+### Rationale
+On 2026-07-24/25 a re-extraction destroyed all 26 rulings including 6 human
+includes. Nothing errored: rulings keyed on `graph_node_id`, that id is a content
+hash, and re-extraction minted new ones. The anchor records what did NOT change
+across the re-extraction — the document, the page, the words, the speaker — so a
+ruling describes the RECORD rather than the graph's current encoding of it.
+
+Three consequences worth recording, because each was a decision:
+
+- **The anchor is read server-side, never accepted from the client.** A
+  client-supplied anchor records what the caller *claimed*; a stale tab gets that
+  wrong and a bad actor can forge it. One round trip on a low-frequency human
+  action buys an unforgeable record and one contract for every future machine
+  path.
+- **An unanchorable ruling is REFUSED, not written partially.** A half-anchor is
+  worse than no ruling because it looks recorded while being unrecoverable. A
+  missing document refuses every ruling; a missing quote refuses include and
+  exclude only (citability law, v2 §9/§17) with a message naming defer as the way
+  forward. Defer is always permitted — it is how a human parks an item they
+  cannot cite.
+- **The ledger has NO foreign key on `scenario_id`**, unlike every sibling table.
+  A cascade would mean deleting a scenario also erases the record of every ruling
+  made inside it — the 2026-07-24 failure wearing a foreign key. Ledger rows may
+  outlive their scenario; that is the point.
+
+Normalization is casefold + whitespace-collapse and nothing else. Curly quotes
+are deliberately NOT folded to straight ones, and a test pins that: widening the
+rule silently changes which historical anchors match, so it is a versioned law
+change, never a quiet edit inside a future matcher.
+
+### Impacts
+- **Data Architect:** None to the graph — the anchor is read-only against Neo4j.
+- **DB Engineer:** Two pipeline migrations. `scenarios.code_ordinal` (NOT NULL
+  after backfill) + `case_code_sequences`; `scenario_ruling_anchors` +
+  `scenario_fact_refs.defer_reason`.
+- **Software Architect:** API contract changes below. `insert_scenario` now
+  returns `(scenario_id, code_ordinal)`; `upsert_fact_ref` takes `defer_reason`.
+  Anchors are WRITTEN only — the matching pass that consumes them is task 2.5.
+
+### API contract changes
+`POST /api/cases/:slug/scenarios` — response gains `code: string`. Scenario cards
+(`ScenarioSummary`) and the detail payload (`ScenarioDetail`) gain `code`.
+`POST …/facts/:graph_node_id/action` — `action` accepts `defer`, and the body
+accepts an optional `reason` (required for defer, refused otherwise). Both ruling
+routes can now return **400** (no document / not citable / reason mismatch) and
+**409** (the graph no longer holds the node) where they previously always
+succeeded.
+
+### Action Required
+- [x] Migrations, allocation, anchor ledger, defer verb, code display
+- [ ] Roman: verify on DEV after the Phase-1 batch deploys at G1
+- [ ] Software Architect: task 1.3 wires the defer key and the queue view, and
+      surfaces `defer_reason` on the candidate payload
+- [ ] Software Architect: task 2.5 consumes the anchors (the re-anchor pass); the
+      re-processing embargo holds until it is DONE
+- [x] Software Architect: `undrop` in the ledger — **RATIFIED 2026-08-01**.
+      §12.1's list of rulings is read as NON-EXHAUSTIVE: any verb that changes a
+      candidate's ruling state writes a ledger row.
+- [x] Software Architect: under that ratification, `DELETE /facts/:id` was the
+      last traceless path and now goes through `record_removal`
+      (`RulingKind::Remove`). A removal is the one ruling never refused for
+      missing content — a vanished node is often WHY the reference is being
+      discarded — so it records an empty anchor rather than failing. This
+      required `scenario_ruling_anchors.document_id` to become nullable with a
+      paired `document_state` (migration `20260801130419`), and `delete_fact_ref`
+      to join `upsert_fact_ref` in being withheld from the repository re-export.
+      Task 2.5 then needs no special case: reading the ledger forward
+      distinguishes "included, still live" from "included, later removed".
+- [ ] Software Architect: scenario ARCHIVE status does not exist (only hard
+      delete) — tracked as its own task, not part of 1.1
+
+---
+
+## 2026-08-01 | SOFTWARE ARCHITECT (Roman Approved) — task 1.2: card payload backend
+
+### Decision
+Serve the complete §7 card payload from one new endpoint,
+`GET /api/cases/:slug/scenarios/:id/facts/cards`, with every element assembled
+and translated server-side. The frontend (task 1.3) will render it and compute
+nothing.
+
+Three pieces carry the weight:
+
+**The naming canon in code** (`domain::card_language`). Every user-visible string
+is produced by one module, each mapping tagged with the canon row
+(CASE_STATE_UNIFICATION_REQUIREMENT_v1 §9) it implements: CORROBORATES →
+"supports", REBUTS → "disputes", CHARACTERIZES → "comments on", ABOUT →
+"mentions". "contradicts" is reserved for the future evidence-vs-evidence layer
+and appears in no payload string. A banned-word test sweeps every string the
+module and the assembler can produce.
+
+**The stance carries its object, or there is no stance.** `CardStance` requires
+both verb and object, so a bare "contradicts" is not expressible. The stance is
+built from the Evidence→Allegation EDGE — which carries its object inherently —
+never from a role in isolation. An item with no such edge serves `stance: null`,
+`defer_required: true`, and a plain-language reason naming what would unblock it.
+
+**The band seam** (`domain::confidence_band::band_for_score`). The raw score never
+crosses the wire. Cutoffs are in-code defaults behind one function, marked
+`TODO(1.6)`, so the settings store swaps one seam.
+
+Also in scope: the Q3 honesty correction — `services::scenario_dashboard`
+hardcoded `grounded: true` on every timeline turn. It now reports the node's real
+`grounding_status`.
+
+### Rationale
+The July failure was cards that could not be ruled on: C-222 showed "contradicts ·
+70%" with no object, no context and no citation. §7 makes a card missing any
+element a defect, so the payload is the enforcement point and the §7 contract is
+written as a test (`every_section_seven_element_is_present_on_a_complete_card`) —
+a card missing an element fails the build.
+
+Four decisions worth recording:
+
+- **The edge is the stance, not the scan's proposed role.** A role is a claim
+  about the scenario; an edge is a fact about the graph and comes with its object
+  attached. The proposed role is used only to explain a defer.
+- **Sort stays C-ordinal** (Q1 ruling (b)). §7.8's binding clause — confidence is
+  never the default — is satisfied; confidence is not a sort key at all.
+  Relevance-to-definition ordering is tracker task 3.7.
+- **`bears_on` groups by accusation with an element LIST.** Measured on DEV: ¶12
+  bears on three elements of Count 2. The first implementation deduped by
+  allegation and silently kept one — the quiet loss this task exists to remove.
+  The live query caught it; the unit tests had not.
+- **Confidence bands are high/medium/low, not strong/moderate/weak.** Those three
+  are the retired element-verdict vocabulary (canon §9); reusing them would put
+  one word on two meanings. Band labels also name the SCAN as their subject
+  ("Scan was fairly confident") so no reader mistakes them for a claim about the
+  evidence.
+
+### Impacts
+- **Data Architect:** None. Read-only against Neo4j and Postgres; no schema change,
+  no migration.
+- **DB Engineer:** None.
+- **Software Architect:** One new endpoint; no existing endpoint's shape changed
+  except `AnchoredEvidenceFact`, which gains `grounding_status` so the timeline's
+  `grounded` can stop lying. The card query reads its stance edge classes through
+  A0's `ConnectionTier::Topical.edge_types()` accessor rather than assembling a
+  sixth hand-written edge set.
+
+### API contract changes
+`GET /api/cases/:slug/scenarios/:scenario_id/facts/cards` — new. Returns
+`{ pool: ScenarioCard[], set_aside: ScenarioCard[] }`. The gather endpoint is
+unchanged and still serves the shipped workbench until 1.3 switches it over.
+`AnchoredEvidenceFact` gains an optional `grounding_status`.
+
+### Action Required
+- [x] Card payload endpoint, canon module, band seam, defer detection
+- [x] Q3: `grounded: true` replaced with the node's real state + its test
+- [ ] Roman: verify on DEV after the Phase-1 batch deploys at G1
+- [ ] Software Architect: task 1.3 renders these cards and wires the defer queue
+- [ ] Software Architect: task 1.6 serves BOTH tunables from the settings store,
+      each behind one seam — the confidence-band cutoffs
+      (`domain::confidence_band::band_for_score`) and the quote-in-context window
+      (`services::scenario_card::context_window_chars`). Ruled 2026-08-01: the
+      window is a tunable, not a structural constant — "how much context flanks
+      the quote" is exactly the number Roman may want to turn up without a
+      rebuild, and if the card's layout constrains it, that constraint belongs to
+      the same setting rather than to a second config source. Neither gets an env
+      var in the interim; both are in-code defaults behind their seam. The band
+      cutoffs stand as a known Rule-13 standing exception until 1.6 lands.
+      **RETIRED 2026-08-01 by task 1.6** — both are now `app_settings` rows;
+      `HIGH_CONFIDENCE_CUTOFF`, `MEDIUM_CONFIDENCE_CUTOFF` and
+      `DEFAULT_CONTEXT_WINDOW_CHARS` are deleted from the source.
+- [ ] Software Architect: task 3.7 owns relevance-to-definition ordering
+- [ ] Software Architect: §7.1 thinness — quote-in-context locates the quote by
+      substring search in the stored page text. A very short quote ("Yes.") could
+      in principle match the wrong occurrence; on the measured DEV row it matched
+      uniquely. Defect-filed against §7.1, not widened here.
+
+---
+
+## 2026-08-01 | SOFTWARE ARCHITECT (Roman Approved) — task 1.3: card UI and keyboard triage
+
+### Decision
+Replace the candidate workbench with a keyboard TRIAGE QUEUE rendering the §7
+card contract from the 1.2 payload. `I` include · `E` exclude · `D` defer ·
+`U` undo, auto-advance, single-step undo, an inline defer prompt, a defer queue
+with visible reasons, a running ruled/remaining count, and no page navigation to
+rule. The source PDF sits in a split pane beside the focused card.
+
+One backend change, the only one this task permits: **`FactAction::Reopen` /
+`RulingKind::Reopen`**, the verb that takes back a ruling.
+
+### Rationale
+The pool is 148 candidates per scenario and 399 of 525 Evidence nodes are
+unrulable as they stand, so the surface has to clear items at keyboard speed or
+it will not be used. The proven patterns are Rayyan one-key screening and
+Relativity save-and-advance, rendered in the Casefleet card layout.
+
+Four decisions worth recording:
+
+- **Reopen is a new word, not a reuse of `undrop`.** `undrop` already produces
+  the right STATE for an undo — undecided, defer reason cleared — but it would
+  write "undrop" to the ruling ledger for an item that was never dropped. That is
+  a false entry in the forensic record, which is exactly what the 2026-08-01
+  ratification closed when it made the ledger's vocabulary the truth of the act.
+  Same transition, different word.
+- **The split-pane viewer stays** (deviation from the study's new-tab reading,
+  stated per §2c): verifying a quote against its page is the action a triager
+  repeats constantly, and a shipped `PdfViewer` already does it in place. The
+  pinpoint chip still carries `viewer_href` for a full new-tab read.
+- **The logic is a pure reducer, not a component.** CLAUDE.md rule 30 records
+  that DOM test infrastructure is deliberately absent; rather than reverse a
+  standing convention mid-phase, the keyboard state machine and the §7 card
+  descriptor were extracted as pure functions and tested exhaustively (31 tests).
+  What that cannot cover — that the JSX faithfully walks the descriptor — is what
+  the G1 DEV verify line covers. RTL + jsdom rides task 2.7 if wanted.
+- **The orphan guarantee moved with the surface.** The card endpoint is
+  pool-driven like gather, so a saved fact whose graph node vanished is absent
+  from it. The queue makes the same second `listScenarioFacts` read and renders
+  the orphan strip below. Dropping it would have regressed a ratified policy.
+
+### Impacts
+- **Data Architect:** None.
+- **DB Engineer:** None — no migration. `Reopen` writes through the existing
+  `record_ruling` path, so it is anchored and ledgered by construction.
+- **Software Architect:** `CandidateFactsPanel` (763 lines) is no longer mounted
+  anywhere. It is left in the tree deliberately: removing it plus its shipped
+  helper tests is its own reviewable change, and keeping it through G1 means the
+  old surface is one line away if the queue disappoints on DEV. Flagged for
+  removal after G1.
+
+### API contract changes
+`POST …/facts/:graph_node_id/action` — `action` accepts `reopen`. No response
+shape changed. The frontend `FactAction` union widened to include `defer` and
+`reopen`; the old workbench's button maps were narrowed to a `WorkbenchAction`
+subtype rather than given entries for verbs it never renders.
+
+### Action Required
+- [x] Reopen verb, the triage queue, the defer prompt and queue, the orphan strip
+- [ ] Roman: verify on DEV after the Phase-1 batch deploys at G1 — "rule 10
+      candidates without touching the mouse or leaving the queue"
+- [ ] Software Architect: remove `CandidateFactsPanel` and its now-unused helpers
+      after G1 confirms the queue
+- [ ] Software Architect: task 2.7 may add RTL + jsdom if DOM-level component
+      tests are wanted; 1.3 deliberately did not reverse the no-DOM convention
+
+---
+
+## 2026-08-01 | SOFTWARE ARCHITECT (Roman Approved) — task 1.4: working view and augmentation
+
+### Decision
+Give the three human-authored components of a scenario (v2 §2) their storage and
+their surface: **C1 identity** (`theme_statement`, `motivation` on `scenarios`),
+**C4 human facts** (a new `scenario_human_facts` table), **C5 talking points**
+(the existing `scenario_responses` trio, wired at last, plus `authored_by`).
+
+The working view renders the INCLUDED evidence as Casefleet Facts-table rows
+above the 1.3 queue; the augmentation panel is where human content is authored,
+one modal, everything on one screen.
+
+### Rationale
+Phase A found the instruction's premise half wrong in a useful way: **C5's
+storage already existed.** The `scenario_responses` / `response_items` /
+`response_item_fact_refs` trio shipped 2026-06-26 with a complete repository and
+**zero callers** — nothing wrote it, nothing read it, no surface showed it. So C5
+needed wiring and one column, not tables. C4 genuinely had nothing.
+
+Five decisions worth recording:
+
+- **Three sentences, not one.** `attack_text` is the attack as the other side
+  frames it; `theme_statement` is our one-line answer; `motivation` is what they
+  want the jury to believe. Task 1.5's rehearsal mode reads the second beside
+  `direction`, so collapsing any two would destroy the distinction it depends on.
+  Both new columns are nullable — a scenario is created before it is framed, and
+  a NOT NULL would put invented prose in the record.
+- **The §8 invariant is structural, and stated POSITIVELY.**
+  `scan_and_merge_paths_write_only_their_own_tables` pins the allowlist of tables
+  the scan/gather/merge paths may write (`scenario_fact_refs`, the `scan_run*`
+  trio, `scenario_candidate_ordinals`). A denial-only test would pass vacuously
+  the day someone renamed a table; an allowlist makes ANY new write in those
+  paths visible. The other half — `augmentation_never_gathers` — matters because
+  gather MEMOIZES candidate ordinals: an edit that triggered it would mint
+  identity as a side effect of typing a sentence.
+- **C5's "per attack" = per scenario** (ratified). One response row whose ordered
+  items are the ≤cap points. `origin` is always `'human'`; the schema's
+  `'suggested'` value stays unwritten rather than migrated away.
+- **A date needs a TYPE.** "Around 4/21/2009" renders differently from
+  "4/21/2009", and flattening them would state more precision than the human
+  claimed. An unreadable stored type falls back to the bare date — understating
+  precision is the safe direction.
+- **The card payload gained `status` beside `status_label`** (a 1.2 addendum,
+  approved). The working view filters on the token; filtering on the display
+  string would be the frontend reading state out of prose, which 1.2 exists to
+  forbid.
+
+### Impacts
+- **Data Architect:** None to the graph.
+- **DB Engineer:** One migration — two columns on `scenarios`, the
+  `scenario_human_facts` table, `authored_by` on the two C5 tables. No ruling or
+  anchor table touched.
+- **Software Architect:** Four new routes. `update_scenario` and the card DTO
+  gained fields. `neo4j/human_facts.rs` is marked DEAD CODE in its header — zero
+  callers, a graph-level writer for a different concept, removal tracked as 3.8.
+
+### API contract changes
+`GET …/scenarios/:id/augmentation` (new) · `POST …/human-facts` ·
+`DELETE …/human-facts/:fact_id` · `PUT …/talking-points`. `PUT /scenarios/:id`
+accepts `theme_statement` and `motivation`; `ScenarioDto` returns them. Card
+payload gains `status`.
+
+### Action Required
+- [x] Schema, repositories, augmentation service, four routes, both surfaces
+- [x] §8 invariants asserted by source scan in both directions
+- [ ] Roman: verify on DEV after the Phase-1 batch deploys at G1
+- [ ] Software Architect: task 1.5 reads `theme_statement` + `direction` +
+      talking points for rehearsal mode — the columns landed here for that
+- [ ] Software Architect: task 1.6 adds `talking_points_cap` to the settings
+      store. **Rule-13 standing exception, signed off 2026-08-01** —
+      `DEFAULT_TALKING_POINTS_CAP = 3` sits in code behind
+      `domain::human_authored::talking_points_cap()` with a `TODO(1.6)`, the
+      shape this task's instruction specified. The exception list is now four
+      entries, all retiring when 1.6 moves them to the settings store:
+      `HIGH_CONFIDENCE_CUTOFF`, `MEDIUM_CONFIDENCE_CUTOFF`,
+      `DEFAULT_CONTEXT_WINDOW_CHARS`, `DEFAULT_TALKING_POINTS_CAP`. Re-flags of
+      any of the four are auto-signed; a NEW constant still stops for sign-off.
+      **RETIRED 2026-08-01 by task 1.6.** All four constants are deleted; the
+      exception list is EMPTY and the auto-sign-off rule expires with it.
+- [ ] Software Architect: task 3.8 removes `neo4j/human_facts.rs`
+
+---
+
+## 2026-08-01 | SOFTWARE ARCHITECT (Roman Approved) — task 1.5: rehearsal mode and the ready gate
+
+### Decision
+
+Built v2 §10 rehearsal mode and the §5/§6 ready gate that guards it.
+
+1. **The ready gate is SCENARIO-level and has exactly one recorded path.**
+   `POST /cases/:slug/scenarios/:id/ready` takes an explicit target (`{ready:
+   bool}`, not a toggle) and writes the status change plus its transition row in
+   ONE transaction. `PUT /cases/:slug/scenarios/:id` now **REFUSES** `status`
+   with a 400 naming the ready route — previously a rename could carry a
+   readiness change with no actor recorded. Refused rather than silently ignored:
+   dropping the field would report success for a change that never happened.
+
+2. **`scenario_status_transitions`** (new table, pipeline DB) records every
+   `drafted ⇄ ready` act: `from_status`, `to_status`, `actor`, `at`. Append-only,
+   no FK on `scenario_id` (the record of a human act must outlive the row), a
+   `from_status <> to_status` CHECK. Deliberately NOT the ruling ledger, which is
+   for evidence rulings and requires an anchor.
+
+3. **`scenario_responses.status` is VESTIGIAL and must never gate rehearsal.**
+   Every 1.4 write path sets it to `'draft'`, so filtering on it would show an
+   empty rehearsal forever with no error. It is also wrong in principle: §6 has
+   one `drafted ⇄ ready` transition and it is scenario-level. Recorded as a
+   doc-comment on the field citing this ruling.
+
+4. **The exclusion law holds by CONSTRUCTION.** `dto::rehearsal` carries only
+   code, theme, attack, points (each with an optional plain exhibit label) and
+   watch-list. There is no field for motivation, confidence, verdicts, status,
+   graph ids, documents or pages. A test serializes a fully-populated payload and
+   asserts eleven banned substrings are absent, so ADDING such a field fails the
+   build rather than reaching a witness.
+
+5. **Watch-list notes are a `kind` discriminator on `scenario_human_facts`**
+   (`fact` | `watch_list`, DEFAULT `'fact'` backfilling existing rows truthfully),
+   not a sibling table. One table means one write path, one scan-allowlist entry,
+   and §8's invariants cover the new kind for free; Phase 2's computed watch-list
+   then merges as a filter rather than a union. The panel receives the two as
+   SEPARATE lists so a client cannot render a watch-list note as a fact.
+
+6. **`draft` and `needs_evidence` both read as v2 "drafted".** The gate tests FOR
+   `ready` rather than against the two drafted values, so a fourth status added
+   later is excluded from rehearsal by default. No CHECK migration.
+
+### Rationale
+
+The gate exists because §5 makes it mandatory and §6 makes both directions human
+acts. A column pair (`ready_by` / `ready_at`) holds only the latest act, so one
+promote → demote → promote cycle erases the demotion — and "who took S-2 out of
+rehearsal?" asked at 11pm the night before trial is the only question this record
+is ever used for.
+
+The exclusion law is enforced by type shape rather than by review because the
+failure mode is a witness reading our strategy off a screen. Shape is checkable;
+discipline is not.
+
+### Impacts
+
+- Data Architect: `scenario_status_transitions` is a new pipeline-DB table.
+  `scenario_human_facts` gains `kind`.
+- DB Engineer: migration `20260801215024_add_ready_transitions_and_watch_list_kind`,
+  applied at backend boot. Forward-only, no down migration.
+- Software Architect: `PUT /scenarios/:id` is a BREAKING contract change — it
+  rejects `status`. No frontend caller sent it; a curl that did now gets a 400
+  naming the replacement route.
+
+### Action Required
+
+- [ ] Software Architect: task 1.6 moves the four recorded standing-exception
+      constants to the settings store. Task 1.5 added no new ones.
+- [ ] Software Architect: task 3.9 builds the talking-point → exhibit pairing
+      authoring UI. The field ships now and renders when present; it is `None`
+      until then, and no label is derived from the record (deriving one would put
+      words in the witness's mouth and drag pinpoint sourcing into a payload §10
+      keeps it out of).
+- [ ] Software Architect: task 3.10 builds the READ surface for
+      `scenario_status_transitions`. The rows are written from today; nothing can
+      display them yet, so "who pulled S-2 and when" currently takes a psql query
+      against `colossus_legal_v2`. `list_status_transitions` is written and
+      tested and awaits a handler. Deferred deliberately (ruled 2026-08-01):
+      where the history belongs — the scenario header, the working view, or a
+      case-level audit page — is a design decision, not a sidebar in a commit
+      that already carries a mode, a gate and a schema change.
+- [ ] Roman: DEV verify — demote S-2 to drafted → it vanishes from the rehearsal
+      list; Marie's login still sees the full working view.
+
+---
+
+## 2026-08-01 | SOFTWARE ARCHITECT (Roman Approved) — task 1.6: settings store, and the end of the exception era
+
+### Decision
+
+Built the configuration store v2 §2b requires, and **deleted every compiled-in
+parameter in the scenario function**.
+
+1. **`app_settings`** (pipeline DB) — key · value · declared kind · default ·
+   bounds · plain-language meaning · `consumed_by` · last-changed. One TEXT value
+   column with a `value_kind` (`float` | `count` | `ratio`) rather than typed
+   columns or JSONB: one edit widget on the page, one parser per kind, readable
+   in psql, bounds enforced numerically. Seeded with all SEVEN parameters at
+   today's values, so the migration changes no behaviour.
+
+2. **`app_setting_changes`** — append-only, key · old · new · actor · at. The
+   fourth append-only table in two days, and for the same reason: "who changed N
+   the night before trial" is the question, and the night before trial is exactly
+   when a value gets changed twice. `updated_by`/`updated_at` stay on the row for
+   the page's "last changed by" line; the ledger is the history.
+
+3. **The snapshot is THREADED, not global.** `Settings` is loaded at boot into
+   `AppState` and handed to the pure functions that need it. A process-global
+   would have let the four seams keep their signatures — and would have put
+   hidden state inside `build_card`, which this codebase documents as "Pure — no
+   I/O" and whose output the §7 completeness test asserts against. Worse: a unit
+   test calling it without booting would find the global empty, leaving a panic
+   or a compiled-in fallback, *the exact defect this task deletes*. Four
+   signatures changed instead.
+
+4. **The freshness law.** A write updates the row, appends the ledger entry,
+   re-reads the whole store, and swaps the snapshot — all before the response is
+   sent. "Edits take effect on next read", literally, with **zero database reads
+   on the card path**. This assumes a single-process backend; if a second process
+   ever serves this API the swap needs a cross-process story. Recorded in the
+   module doc so tomorrow's reader knows it was seen, not missed.
+
+5. **The failure law.** A parameter missing, unreadable, out of bounds, or
+   self-contradictory REFUSES — at boot (process exits, naming the key) and on
+   write (400, naming the parameter and the limit). There is deliberately no
+   fallback: after this task no compiled-in default exists to fall back to, and
+   inventing one at the moment of failure would silently reinstate the defect.
+   The `high > medium` invariant spans two rows, so no column CHECK can express
+   it; it is enforced in the write path AND re-checked at load, because a psql
+   edit bypasses the write path.
+
+6. **`/settings`**, behind the existing `is_admin` gating, listing every
+   parameter with value, default, meaning, bounds and input hint. The three
+   dormant parameters are listed and editable, each labelled *"Read by task 2.4,
+   which is not built yet — changing this has no effect today."* A page that
+   listed inert knobs silently would be lying about its own reach.
+
+### Rationale
+
+Roman's law, born from months of parameter changes requiring rebuilds. The seam
+discipline established in tasks 1.2 and 1.4 is what made this a one-line change
+in each of four files rather than a hunt: every tunable already lived behind
+exactly one function, so repointing it was mechanical.
+
+`reanchor_close_match_tolerance` is seeded at 0.85 as a normalized similarity —
+bounded, direction-obvious, algorithm-agnostic. Its meaning text says PROVISIONAL
+and licenses task 2.5 to re-seed it with a different unit if its matching design
+needs one.
+
+### Impacts
+
+- Data Architect: two new pipeline-DB tables, `app_settings` and
+  `app_setting_changes`.
+- DB Engineer: migration `20260801225147_create_app_settings_store`, applied at
+  boot. Forward-only. **The backend now refuses to start if the seed is absent** —
+  the migration and the binary must deploy together.
+- Software Architect: `build_card`, `assemble`, `check_talking_points`,
+  `set_talking_points`, `rehearsal_payload` and `band_for_score` all take a
+  `&Settings`. No wire contract changed.
+
+### THE EXCEPTION ERA IS CLOSED
+
+`HIGH_CONFIDENCE_CUTOFF`, `MEDIUM_CONFIDENCE_CUTOFF`,
+`DEFAULT_CONTEXT_WINDOW_CHARS` and `DEFAULT_TALKING_POINTS_CAP` are **deleted**.
+The Rule-13 standing-exception list is **empty**, and the auto-sign-off rule for
+re-flags **expires with it** — from here, any config-shaped constant stops for
+sign-off, with no exceptions to cite.
+
+A source scan (`the_four_retired_constants_are_gone_and_stay_gone`) walks every
+`.rs` file and fails the build if any of the four names returns, as a fallback, a
+fixture promoted to production, or a "temporary" default. The law is now a test.
+
+### Action Required
+
+- [ ] Software Architect: tracker 3.11 — the config-law sweep OUTSIDE the
+      scenario surface. The `rules-enforcer` gate on this task returned FAIL on
+      five PRE-EXISTING config-shaped constants; they are deferred here by ruling
+      (2026-08-01), because migrating the RAG pipeline's configuration inside the
+      settings-store commit is the scope-bleed this process exists to prevent.
+      The complete list, so 3.11 inherits a list and not a vibe:
+
+      | Location | Constant / value | Why it is config-shaped |
+      |---|---|---|
+      | `main.rs:24` | `DEFAULT_CHAT_MODEL = "claude-sonnet-4-6"` | a model id — availability and cost tier are deployment decisions |
+      | `main.rs:30` | `CHAT_MAX_TOKENS = 4096` | a per-deployment token budget |
+      | `main.rs:~127` | `Duration::from_secs(90)` (HTTP client timeout) | a tunable timeout |
+      | `main.rs:~128` | `Duration::from_secs(5)` (HTTP connect timeout) | a tunable timeout |
+      | `main.rs:~708` | `DEFAULT_STARTUP_SCHEMA_FILE = "general_legal.yaml"` | a filename selecting an asset |
+      | `config.rs:20` | `rerank_threshold` | an env var with an `unwrap_or(0.3)` — a compiled-in default behind a config read |
+
+      Two comment-only violations from the same gate WERE fixed in task 1.6, being
+      zero-risk: the missing `// best-effort:` marker on `dotenvy::dotenv().ok()`
+      and the missing serde rationale comments on `SchemaMetadata` /
+      `EntityTypeInfo` / `RelationshipTypeInfo`. `deny_unknown_fields` was
+      deliberately NOT added to those three — it is a silent deserialization
+      behaviour change and has no business riding a configuration commit.
+
+      3.11 also owes a ruling on `rag_config`: a seeded table with zero readers in
+      colossus-legal AND colossus-rs is either a future feature or a corpse, and
+      someone should say which.
+- [ ] Software Architect: tracker 2.7 inherits a NAMED flaky test.
+      `pipeline::registry::tests::test_registry_from_env_with_registry_file`
+      failed once during this task's verification and passed on every rerun. The
+      cause is now identified rather than folklore: several tests in
+      `src/pipeline/registry_tests.rs` call `std::env::set_var` /
+      `std::env::remove_var` on the SAME variables — `PROCESSING_PROFILE_DIR` at
+      lines 513, 535 and 557 — and Rust runs tests in parallel threads, so one
+      test clears the variable another is depending on. Process-wide environment
+      is shared state; the fixture needs serialising (a mutex) or the tests need
+      to stop mutating the real environment. This is the intermittent observed
+      but never captured during tasks 1.2–1.5. NOT fixed in 1.6 — it rides 2.7
+      with the fixture repair.
+- [ ] Roman: DEV verify — change a value on the Settings page; the API serves the
+      new value on next read; no rebuild happened.
+
+---
+
 ## Template for Future Entries
 
 ```markdown

@@ -22,6 +22,7 @@ use uuid::Uuid;
 
 use crate::{
     auth::{require_edit, AuthUser},
+    domain::scenario_code::scenario_code,
     dto::{ScenarioCreateRequest, ScenarioDto, ScenarioUpdateRequest},
     error::AppError,
     repositories::pipeline_repository::{
@@ -80,6 +81,35 @@ fn validate_status(status: &str) -> Result<(), AppError> {
     Ok(())
 }
 
+/// The generic update route may not change `status` (task 1.5, ruled 2026-08-01).
+///
+/// ## Why this is a refusal and not a validation
+///
+/// Every sibling here validates a value the route WILL write. This one refuses a
+/// field the route must never write at all: `ready` is what puts a scenario in
+/// front of a witness in rehearsal mode, and v2 §5/§6 make both directions human
+/// acts with an actor recorded. This route records no actor, so allowing it would
+/// let a rename carry a readiness change with nobody's name against the decision.
+///
+/// Refused rather than silently dropped: ignoring the field would answer "200 OK"
+/// for a change that never happened (Standing Rule 1). The message names the
+/// route that does the job, so the caller has somewhere to go.
+///
+/// Extracted as its own function — like `validate_name` and `validate_status` —
+/// so the refusal is unit-testable without a database or a running router.
+fn refuse_status_edit(status: Option<&str>) -> Result<(), AppError> {
+    if status.is_some() {
+        return Err(AppError::BadRequest {
+            message: "status is not editable here — declaring a scenario ready (or \
+                      taking it back out of rehearsal) is a recorded human act. \
+                      Use POST /cases/:slug/scenarios/:id/ready."
+                .to_string(),
+            details: json!({ "field": "status" }),
+        });
+    }
+    Ok(())
+}
+
 /// Map a stored `ScenarioRecord` onto the wire DTO.
 ///
 /// Two adaptations: the `Uuid` is rendered as a string, and
@@ -88,6 +118,9 @@ fn validate_status(status: &str) -> Result<(), AppError> {
 fn to_dto(record: ScenarioRecord) -> ScenarioDto {
     ScenarioDto {
         scenario_id: record.scenario_id.to_string(),
+        theme_statement: record.theme_statement,
+        motivation: record.motivation,
+        code: scenario_code(record.code_ordinal),
         name: record.name,
         direction: record.direction,
         status: record.status,
@@ -210,7 +243,10 @@ pub async fn create_scenario(
     // The column is NOT NULL — an omitted definition becomes `{}`, never SQL null.
     let definition = payload.definition.unwrap_or_else(|| json!({}));
 
-    let scenario_id = insert_scenario(
+    // Creation ALSO allocates the scenario's `S-n` code, atomically in the same
+    // statement — see `INSERT_SCENARIO_SQL`. Both come back so the response can
+    // name the code without a read-back.
+    let (scenario_id, code_ordinal) = insert_scenario(
         &state.pipeline_pool,
         &name,
         &payload.direction,
@@ -235,6 +271,12 @@ pub async fn create_scenario(
     // values inserted are exactly the values returned, so no read-back is needed.
     let dto = ScenarioDto {
         scenario_id: scenario_id.to_string(),
+        // A freshly created scenario is not yet framed: the create form asks for
+        // a name and a direction, and the theme is written later on the working
+        // view. `None` is the honest answer, not an empty string.
+        theme_statement: None,
+        motivation: None,
+        code: scenario_code(code_ordinal),
         name,
         direction: payload.direction,
         status,
@@ -342,9 +384,17 @@ pub async fn update_scenario(
     if let Some(ref name) = payload.name {
         validate_name(name)?;
     }
-    if let Some(ref status) = payload.status {
-        validate_status(status)?;
-    }
+    // `status` is REFUSED here rather than validated (task 1.5, ruled
+    // 2026-08-01). `ready` is the gate that puts a scenario in front of a witness
+    // in rehearsal mode, and v2 §5/§6 make both directions HUMAN ACTS with a
+    // recorded actor. This route records no actor, so allowing it here would let
+    // a rename carry a readiness change as a side effect, with nobody's name
+    // against the decision.
+    //
+    // Refused, not silently ignored: dropping the field would tell the caller
+    // "200 OK" for a change that never happened — a silent failure. The message
+    // names the route that does the job.
+    refuse_status_edit(payload.status.as_deref())?;
 
     // Typed definition → opaque jsonb for the store (symmetric with create). A
     // MALFORMED definition body was already rejected as a 400 by the JSON
@@ -372,10 +422,13 @@ pub async fn update_scenario(
         id,
         &slug,
         name.as_deref(),
-        payload.status.as_deref(),
+        // Always `None` — see the refusal above; readiness travels its own route.
+        None,
         payload.feeds_count_id.as_deref(),
         payload.anchor_allegation_ids.as_deref(),
         definition.as_ref(),
+        payload.theme_statement.as_deref(),
+        payload.motivation.as_deref(),
     )
     .await
     .map_err(|e| map_update_error(e, &slug))?;
@@ -462,6 +515,13 @@ mod tests {
             definition: json!({}),
             created_at: ts,
             updated_at: ts,
+            // Every scenario carries a code after the 2026-08-01 backfill;
+            // a fixture without one would be a state the column forbids.
+            code_ordinal: 1,
+            // Unframed: a scenario is created before anyone writes its theme, and
+            // `None` is the honest value rather than invented prose.
+            theme_statement: None,
+            motivation: None,
         }
     }
 
@@ -515,6 +575,45 @@ mod tests {
             }
             other => panic!("expected BadRequest naming status, got {other:?}"),
         }
+    }
+
+    // ── The ready gate's other half (task 1.5) ───────────────────────────────
+
+    #[test]
+    fn an_update_carrying_a_status_is_refused_and_told_where_to_go() {
+        // BEHAVIOURAL, not structural: the source scan in `rehearsal_tests` proves
+        // the check is present, but it would still pass if the `return Err` were
+        // softened to a `tracing::warn!`. This pins what the caller actually gets.
+        let Err(AppError::BadRequest { message, details }) = refuse_status_edit(Some("ready"))
+        else {
+            panic!("a status on the generic update must be refused");
+        };
+        assert_eq!(details, json!({ "field": "status" }));
+        // The refusal has to be actionable — a caller who wanted to promote a
+        // scenario still needs to know how.
+        assert!(message.contains("POST"), "{message}");
+        assert!(message.contains("/ready"), "{message}");
+        assert!(message.contains("recorded human act"), "{message}");
+    }
+
+    #[test]
+    fn every_status_value_is_refused_including_the_drafted_ones() {
+        // Not just `ready`. A demotion through this route would be equally
+        // unattributed, and the withdraw direction is the one someone actually
+        // asks about later.
+        for status in ["draft", "needs_evidence", "ready", "archived"] {
+            assert!(
+                refuse_status_edit(Some(status)).is_err(),
+                "'{status}' must not be settable through the generic update"
+            );
+        }
+    }
+
+    #[test]
+    fn an_update_without_a_status_passes_through_untouched() {
+        // The common case: a rename, or a theme edit. Refusing those would break
+        // every existing caller.
+        assert!(refuse_status_edit(None).is_ok());
     }
 
     #[test]

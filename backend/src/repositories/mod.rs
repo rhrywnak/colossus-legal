@@ -40,6 +40,7 @@ pub mod proof_review_repository;
 pub mod qa_repository;
 pub mod query_repository;
 pub mod rebuttals_repository;
+pub mod scenario_card_repository;
 pub mod scenario_decode;
 pub mod scenario_repository;
 pub mod schema_repository;

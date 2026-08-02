@@ -195,6 +195,20 @@ pub struct AnchoredEvidenceFact {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stated_by: Option<String>,
+
+    /// Whether the quote was located in its source document, as the ingest path
+    /// recorded it (`exact` / `normalized` / `not_found`), or `None` when the node
+    /// carries no such property.
+    ///
+    /// ## Why this exists (2026-08-01, task 1.2 Q3)
+    ///
+    /// The dashboard's timeline turn used to hardcode `grounded: true` for every
+    /// graph fact, with a comment asserting every fact carries a citation. That was
+    /// false — `not_found` and unchecked nodes both exist — and it was exactly the
+    /// class of displayed falsehood the honesty batch removed elsewhere. Carrying
+    /// the real state lets the turn say something true.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub grounding_status: Option<String>,
 }
 
 /// Response for `ScenarioRepository::anchored_allegation_evidence`.

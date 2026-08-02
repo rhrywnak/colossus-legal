@@ -9,13 +9,27 @@
 // that frames the `CandidateFactsPanel` workbench and preserves the mount
 // contract from `ScenarioDetailPage` (slug, scenarioId, definition).
 //
+// Task 1.3 swaps the workbench for the keyboard TRIAGE QUEUE (`CardQueue`): the
+// same job — rule on every candidate — done at the speed the pool actually needs
+// (399 of 525 candidates are unrulable-as-they-stand, so one-key defer is the
+// common case). The queue renders the §7 card contract from the 1.2 payload.
+//
 // The orphan guarantee (a confirmed fact whose graph node vanished must still
-// surface) moved DOWN into `CandidateFactsPanel` (its `listScenarioFacts` +
-// `findOrphans` path), so it lives beside the gather fetch it reconciles against.
+// surface) moves WITH the surface: `CardQueue` makes the same second
+// `listScenarioFacts` read and renders the strip below the queue.
+//
+// `CandidateFactsPanel` is no longer mounted anywhere. It is left in the tree
+// rather than deleted in this task: removing 763 lines plus its shipped helper
+// tests is its own reviewable change, and keeping it available through G1 means
+// the old surface can be restored in one line if the queue disappoints on DEV.
+// Flagged for removal in the 1.3 report.
 
-import React from "react";
+import React, { useCallback, useEffect, useState } from "react";
 
-import CandidateFactsPanel from "./CandidateFactsPanel";
+import AugmentationPanel from "./AugmentationPanel";
+import CardQueue from "./CardQueue";
+import WorkingView from "./WorkingView";
+import { fetchScenarioCards, type ScenarioCard } from "../services/scenarioCards";
 import type { ScenarioDefinition } from "../pages/trialPrepData";
 
 interface Props {
@@ -52,21 +66,60 @@ const ScenarioCurationPanel: React.FC<Props> = ({
   definition,
   externalRefresh,
 }) => {
+  const [cards, setCards] = useState<ScenarioCard[]>([]);
+  const [showAugmentation, setShowAugmentation] = useState(false);
+  const [cardsError, setCardsError] = useState<string | null>(null);
+
+  // The working view reads the same card payload the queue does. Loaded here
+  // rather than in `WorkingView` so the two surfaces cannot disagree about what
+  // is included — one read, one answer.
+  const loadCards = useCallback(async () => {
+    try {
+      const loaded = await fetchScenarioCards(slug, scenarioId);
+      setCards([...loaded.pool, ...loaded.set_aside]);
+      setCardsError(null);
+    } catch (e: unknown) {
+      setCardsError(
+        e instanceof Error ? e.message : "Failed to load this scenario's facts.",
+      );
+    }
+  }, [slug, scenarioId]);
+
+  useEffect(() => {
+    void loadCards();
+  }, [loadCards, externalRefresh]);
+
   return (
     <div>
       <div style={sectionLabel}>Scenario facts</div>
+      {cardsError && (
+        <div role="alert" style={{ color: "var(--state-danger-strong)", fontSize: "0.85rem" }}>
+          {cardsError}
+        </div>
+      )}
       <p style={hintStyle}>
-        Browse every candidate about this scenario&rsquo;s subject and rule on
-        each: <strong>include</strong> a fact, <strong>drop</strong> one, or{" "}
-        <strong>un-drop</strong> it back to the pool. Filter by status to review
-        what you have included so far.
+        What you have included, then the queue of what is left to rule on. The
+        source page sits beside each card.
       </p>
-      <CandidateFactsPanel
-        slug={slug}
-        scenarioId={scenarioId}
-        definition={definition}
-        externalRefresh={externalRefresh}
-      />
+
+      {/* The working view sits ABOVE the queue: it is the record of what the
+          curation produced, and the queue below is the position still being
+          worked. Task 1.4. */}
+      <WorkingView cards={cards} onAdd={() => setShowAugmentation(true)} />
+
+      {showAugmentation && (
+        <div style={{ marginTop: "1rem" }}>
+          <AugmentationPanel
+            slug={slug}
+            scenarioId={scenarioId}
+            externalRefresh={externalRefresh}
+          />
+        </div>
+      )}
+
+      <div style={{ marginTop: "1.5rem" }}>
+        <CardQueue slug={slug} scenarioId={scenarioId} externalRefresh={externalRefresh} />
+      </div>
     </div>
   );
 };

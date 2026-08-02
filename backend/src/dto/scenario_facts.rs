@@ -204,6 +204,27 @@ pub enum FactAction {
     /// The human recovers it from the dropped tray → `Undecided` (back to the
     /// pool for reconsideration — deliberately NOT `Included`).
     Undrop,
+    /// The human looked at it and parked it with a stated reason → `Undecided`,
+    /// plus a `defer_reason` on the row and a ledger entry recording the act.
+    ///
+    /// ## Domain note: why defer needs a verb of its own
+    ///
+    /// Deferring lands in the same STATE as never having looked (`Undecided`), so
+    /// without a distinct verb the two are indistinguishable on read — and the
+    /// workbench queue cannot tell "parked because the page is missing" from
+    /// "nobody has opened this". The reason is what carries the difference, which
+    /// is why it is required for this action and refused for every other.
+    Defer,
+    /// The human took back their last ruling → `Undecided`, and any defer reason
+    /// is cleared.
+    ///
+    /// ## Domain note: why not reuse `undrop`
+    ///
+    /// `undrop` lands in the same state, but the ledger would then record
+    /// "undrop" for an item that was never dropped — a false word in the forensic
+    /// record. The triage queue's single-step undo needs a verb that says what
+    /// actually happened. See [`crate::domain::ruling_anchor::RulingKind::Reopen`].
+    Reopen,
 }
 
 /// Request body for `POST /cases/:slug/scenarios/:scenario_id/facts/:graph_node_id/action`.
@@ -217,6 +238,24 @@ pub enum FactAction {
 pub struct FactActionRequest {
     /// The ruling to apply. An unknown token fails to parse (see [`FactAction`]).
     pub action: FactAction,
+
+    /// Why the candidate is being deferred. REQUIRED when `action` is `defer`,
+    /// and refused for every other action.
+    ///
+    /// ## Rust Learning: `#[serde(default)]` on an `Option` field
+    ///
+    /// Without `default`, `deny_unknown_fields` still parses a body that OMITS
+    /// this key — but only because `Option` already implies "may be missing" to
+    /// serde. The attribute is written explicitly anyway so the intent survives a
+    /// future change of type: if `reason` ever became a `String`, the missing-key
+    /// behaviour would change silently without it.
+    ///
+    /// The requirement is NOT expressed in the type (a `Defer`-only field cannot
+    /// be, while `action` and `reason` are siblings rather than a tagged union),
+    /// so it is enforced at the service's `validate_reason` and backstopped by a
+    /// database CHECK. Both refuse loudly; neither defaults.
+    #[serde(default)]
+    pub reason: Option<String>,
 }
 
 #[cfg(test)]
@@ -236,6 +275,50 @@ mod tests {
         let undrop: FactActionRequest =
             serde_json::from_value(json!({ "action": "undrop" })).expect("undrop parses");
         assert!(matches!(undrop.action, FactAction::Undrop));
+    }
+
+    #[test]
+    fn defer_parses_with_its_reason() {
+        let deferred: FactActionRequest = serde_json::from_value(
+            json!({ "action": "defer", "reason": "page missing from scan" }),
+        )
+        .expect("defer parses");
+        assert!(matches!(deferred.action, FactAction::Defer));
+        assert_eq!(deferred.reason.as_deref(), Some("page missing from scan"));
+    }
+
+    #[test]
+    fn an_omitted_reason_parses_as_none_rather_than_failing_here() {
+        // The parse layer does NOT enforce "defer requires a reason" — it cannot,
+        // because `action` and `reason` are sibling fields rather than a tagged
+        // union. So a reasonless defer must PARSE and then be refused by
+        // `validate_reason`, which can name the problem precisely. Pinned so a
+        // future `#[serde(deny_missing)]`-style change does not silently move the
+        // error to a layer whose message is worse.
+        let deferred: FactActionRequest =
+            serde_json::from_value(json!({ "action": "defer" })).expect("parses without a reason");
+        assert!(matches!(deferred.action, FactAction::Defer));
+        assert_eq!(deferred.reason, None);
+    }
+
+    #[test]
+    fn reopen_parses_and_takes_no_reason() {
+        let parsed: FactActionRequest =
+            serde_json::from_value(json!({ "action": "reopen" })).expect("reopen parses");
+        assert!(matches!(parsed.action, FactAction::Reopen));
+        assert_eq!(parsed.reason, None);
+    }
+
+    #[test]
+    fn the_other_actions_still_parse_without_a_reason() {
+        // The new optional field must not have made `reason` mandatory for the
+        // three verbs that shipped before it — that would break every existing
+        // client call.
+        for token in ["include", "drop", "undrop", "reopen"] {
+            let parsed: Result<FactActionRequest, _> =
+                serde_json::from_value(json!({ "action": token }));
+            assert!(parsed.is_ok(), "{token} must still parse with no reason");
+        }
     }
 
     #[test]

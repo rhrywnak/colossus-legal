@@ -121,6 +121,38 @@ describe("applyFactAction", () => {
     ).rejects.toThrow(new RegExp(`undrop fact "${NODE}" .* \\(HTTP 404`));
   });
 
+  it("carries a defer reason in the body when one is given", async () => {
+    // The 1.3 addition and the whole point of the optional parameter: a defer
+    // without its reason is refused by the backend, so the key must reach it.
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    // @ts-ignore
+    global.fetch = fetchMock;
+
+    await expect(
+      applyFactAction(SLUG, SCENARIO, NODE, "defer", "waiting on a clean copy"),
+    ).resolves.toBeUndefined();
+
+    const [, options] = fetchMock.mock.calls[0];
+    expect(JSON.parse(options.body)).toEqual({
+      action: "defer",
+      reason: "waiting on a clean copy",
+    });
+  });
+
+  it("omits the reason key entirely when none is given", async () => {
+    // The backend REFUSES a reason on any verb but defer, so an always-present
+    // `reason: null` would turn every include into a 400.
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    // @ts-ignore
+    global.fetch = fetchMock;
+
+    await applyFactAction(SLUG, SCENARIO, NODE, "reopen");
+
+    const [, options] = fetchMock.mock.calls[0];
+    expect(JSON.parse(options.body)).toEqual({ action: "reopen" });
+    expect(Object.keys(JSON.parse(options.body))).not.toContain("reason");
+  });
+
   it("surfaces the backend message on a 4xx", async () => {
     // @ts-ignore
     global.fetch = vi.fn().mockResolvedValue({

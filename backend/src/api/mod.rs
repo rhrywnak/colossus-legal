@@ -51,12 +51,17 @@ pub mod proof_matrix;
 pub mod proof_review;
 pub mod qa;
 pub mod queries;
+pub mod rehearsal;
+pub mod scenario_augmentation;
+pub mod scenario_cards;
 pub mod scenario_facts;
+pub mod scenario_facts_mapping;
 pub mod scenario_gather;
 pub mod scenario_theme_scan;
 pub mod scenarios;
 pub mod schema;
 pub mod search;
+pub mod settings;
 pub mod trial_prep;
 
 /// API router — all routes are relative (no `/api/` prefix).
@@ -80,8 +85,11 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .merge(session_routes())
         .merge(case_routes())
-        .merge(case_health_routes())
+        .merge(case_health::routes())
         .merge(scenario_routes())
+        .merge(scenario_augmentation::routes())
+        .merge(rehearsal::routes())
+        .merge(settings::routes())
         .merge(claim_routes())
         .merge(document_routes())
         .merge(entity_routes())
@@ -138,22 +146,6 @@ fn case_routes() -> Router<AppState> {
         )
 }
 
-/// Case Health routes (the `/cases/:slug/case-health/...` cluster) — the
-/// read-only structural-health dashboard.
-///
-/// Split into its own group rather than added to [`case_routes`] for the same
-/// reason [`scenario_routes`] was: the surface grows pane by pane (inventory is
-/// Pane 1 of four), and a route group that will keep growing should not be
-/// pushing an unrelated function toward the size limit. Merged independently in
-/// [`router`]; the paths are distinct from every other group's, so merge order
-/// does not matter.
-fn case_health_routes() -> Router<AppState> {
-    Router::new().route(
-        "/cases/:slug/case-health/inventory",
-        get(case_health::get_case_health_inventory),
-    )
-}
-
 /// Scenario authoring + curation routes (the `/cases/:slug/scenarios/...`
 /// cluster). Split out of `case_routes` as its own group so each route-group
 /// function stays under the function-size limit and the scenario surface reads
@@ -197,6 +189,13 @@ fn scenario_routes() -> Router<AppState> {
         .route(
             "/cases/:slug/scenarios/:scenario_id/facts/gather",
             get(scenario_gather::gather_scenario_candidates),
+        )
+        // The §7 card payload (task 1.2): every element a human needs to rule,
+        // display-ready and in plain trial language, with unrulable items
+        // flagged. Task 1.3 switches the workbench UI onto this.
+        .route(
+            "/cases/:slug/scenarios/:scenario_id/facts/cards",
+            get(scenario_cards::get_scenario_cards),
         )
         // Theme Scan (D2b): LLM-judge every candidate quote about the scenario's
         // subject and persist the relevant verdicts as confirmed=false
