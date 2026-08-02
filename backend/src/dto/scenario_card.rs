@@ -27,6 +27,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::domain::confidence_band::ConfidenceBand;
+use crate::domain::fact_status::FactStatus;
 
 /// The quote with enough surrounding text to be read in context (§7.1).
 ///
@@ -184,6 +185,16 @@ pub struct ScenarioCard {
     pub bears_on: Vec<CardBearsOn>,
     pub grounding: Option<CardGrounding>,
     pub confidence: CardConfidence,
+    /// The candidate's workbench state as a token the client can branch on.
+    ///
+    /// ## Domain note: why BOTH a state and a label (added in task 1.4)
+    ///
+    /// The same state+label idiom as `CardGrounding` and `CardConfidence`. The
+    /// working view filters to the included items, and filtering on
+    /// `status_label` would mean inferring state from prose — it would break
+    /// silently the day the wording changes, and it is the frontend reading
+    /// meaning out of a display string, which this payload exists to forbid.
+    pub status: FactStatus,
     /// The candidate's workbench state, in plain language.
     pub status_label: String,
     /// True when this item cannot be ruled on as it stands.

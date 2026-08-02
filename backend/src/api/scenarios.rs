@@ -89,6 +89,8 @@ fn validate_status(status: &str) -> Result<(), AppError> {
 fn to_dto(record: ScenarioRecord) -> ScenarioDto {
     ScenarioDto {
         scenario_id: record.scenario_id.to_string(),
+        theme_statement: record.theme_statement,
+        motivation: record.motivation,
         code: scenario_code(record.code_ordinal),
         name: record.name,
         direction: record.direction,
@@ -240,6 +242,11 @@ pub async fn create_scenario(
     // values inserted are exactly the values returned, so no read-back is needed.
     let dto = ScenarioDto {
         scenario_id: scenario_id.to_string(),
+        // A freshly created scenario is not yet framed: the create form asks for
+        // a name and a direction, and the theme is written later on the working
+        // view. `None` is the honest answer, not an empty string.
+        theme_statement: None,
+        motivation: None,
         code: scenario_code(code_ordinal),
         name,
         direction: payload.direction,
@@ -382,6 +389,8 @@ pub async fn update_scenario(
         payload.feeds_count_id.as_deref(),
         payload.anchor_allegation_ids.as_deref(),
         definition.as_ref(),
+        payload.theme_statement.as_deref(),
+        payload.motivation.as_deref(),
     )
     .await
     .map_err(|e| map_update_error(e, &slug))?;
@@ -471,6 +480,10 @@ mod tests {
             // Every scenario carries a code after the 2026-08-01 backfill;
             // a fixture without one would be a state the column forbids.
             code_ordinal: 1,
+            // Unframed: a scenario is created before anyone writes its theme, and
+            // `None` is the honest value rather than invented prose.
+            theme_statement: None,
+            motivation: None,
         }
     }
 

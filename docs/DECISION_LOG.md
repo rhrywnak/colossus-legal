@@ -819,6 +819,87 @@ subtype rather than given entries for verbs it never renders.
 
 ---
 
+## 2026-08-01 | SOFTWARE ARCHITECT (Roman Approved) — task 1.4: working view and augmentation
+
+### Decision
+Give the three human-authored components of a scenario (v2 §2) their storage and
+their surface: **C1 identity** (`theme_statement`, `motivation` on `scenarios`),
+**C4 human facts** (a new `scenario_human_facts` table), **C5 talking points**
+(the existing `scenario_responses` trio, wired at last, plus `authored_by`).
+
+The working view renders the INCLUDED evidence as Casefleet Facts-table rows
+above the 1.3 queue; the augmentation panel is where human content is authored,
+one modal, everything on one screen.
+
+### Rationale
+Phase A found the instruction's premise half wrong in a useful way: **C5's
+storage already existed.** The `scenario_responses` / `response_items` /
+`response_item_fact_refs` trio shipped 2026-06-26 with a complete repository and
+**zero callers** — nothing wrote it, nothing read it, no surface showed it. So C5
+needed wiring and one column, not tables. C4 genuinely had nothing.
+
+Five decisions worth recording:
+
+- **Three sentences, not one.** `attack_text` is the attack as the other side
+  frames it; `theme_statement` is our one-line answer; `motivation` is what they
+  want the jury to believe. Task 1.5's rehearsal mode reads the second beside
+  `direction`, so collapsing any two would destroy the distinction it depends on.
+  Both new columns are nullable — a scenario is created before it is framed, and
+  a NOT NULL would put invented prose in the record.
+- **The §8 invariant is structural, and stated POSITIVELY.**
+  `scan_and_merge_paths_write_only_their_own_tables` pins the allowlist of tables
+  the scan/gather/merge paths may write (`scenario_fact_refs`, the `scan_run*`
+  trio, `scenario_candidate_ordinals`). A denial-only test would pass vacuously
+  the day someone renamed a table; an allowlist makes ANY new write in those
+  paths visible. The other half — `augmentation_never_gathers` — matters because
+  gather MEMOIZES candidate ordinals: an edit that triggered it would mint
+  identity as a side effect of typing a sentence.
+- **C5's "per attack" = per scenario** (ratified). One response row whose ordered
+  items are the ≤cap points. `origin` is always `'human'`; the schema's
+  `'suggested'` value stays unwritten rather than migrated away.
+- **A date needs a TYPE.** "Around 4/21/2009" renders differently from
+  "4/21/2009", and flattening them would state more precision than the human
+  claimed. An unreadable stored type falls back to the bare date — understating
+  precision is the safe direction.
+- **The card payload gained `status` beside `status_label`** (a 1.2 addendum,
+  approved). The working view filters on the token; filtering on the display
+  string would be the frontend reading state out of prose, which 1.2 exists to
+  forbid.
+
+### Impacts
+- **Data Architect:** None to the graph.
+- **DB Engineer:** One migration — two columns on `scenarios`, the
+  `scenario_human_facts` table, `authored_by` on the two C5 tables. No ruling or
+  anchor table touched.
+- **Software Architect:** Four new routes. `update_scenario` and the card DTO
+  gained fields. `neo4j/human_facts.rs` is marked DEAD CODE in its header — zero
+  callers, a graph-level writer for a different concept, removal tracked as 3.8.
+
+### API contract changes
+`GET …/scenarios/:id/augmentation` (new) · `POST …/human-facts` ·
+`DELETE …/human-facts/:fact_id` · `PUT …/talking-points`. `PUT /scenarios/:id`
+accepts `theme_statement` and `motivation`; `ScenarioDto` returns them. Card
+payload gains `status`.
+
+### Action Required
+- [x] Schema, repositories, augmentation service, four routes, both surfaces
+- [x] §8 invariants asserted by source scan in both directions
+- [ ] Roman: verify on DEV after the Phase-1 batch deploys at G1
+- [ ] Software Architect: task 1.5 reads `theme_statement` + `direction` +
+      talking points for rehearsal mode — the columns landed here for that
+- [ ] Software Architect: task 1.6 adds `talking_points_cap` to the settings
+      store. **Rule-13 standing exception, signed off 2026-08-01** —
+      `DEFAULT_TALKING_POINTS_CAP = 3` sits in code behind
+      `domain::human_authored::talking_points_cap()` with a `TODO(1.6)`, the
+      shape this task's instruction specified. The exception list is now four
+      entries, all retiring when 1.6 moves them to the settings store:
+      `HIGH_CONFIDENCE_CUTOFF`, `MEDIUM_CONFIDENCE_CUTOFF`,
+      `DEFAULT_CONTEXT_WINDOW_CHARS`, `DEFAULT_TALKING_POINTS_CAP`. Re-flags of
+      any of the four are auto-signed; a NEW constant still stops for sign-off.
+- [ ] Software Architect: task 3.8 removes `neo4j/human_facts.rs`
+
+---
+
 ## Template for Future Entries
 
 ```markdown

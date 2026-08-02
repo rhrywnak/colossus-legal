@@ -33,6 +33,10 @@ use crate::domain::actor_role::ActorRole;
 pub struct ScenarioDto {
     /// The database-minted `Uuid`, rendered as a string for the wire.
     pub scenario_id: String,
+    /// C1: our one-line answer to this attack, or `null` if not yet framed.
+    pub theme_statement: Option<String>,
+    /// C1: what the other side wants the jury to believe, or `null`.
+    pub motivation: Option<String>,
     /// The scenario's human handle — `"S-3"` (§2a), formatted by the backend so
     /// no client re-derives the prefix. Stable for the life of the scenario, and
     /// never reused by another.
@@ -271,6 +275,13 @@ pub struct ScenarioUpdateRequest {
     /// replaced (not deep-merged) with this typed body — see the whole-value
     /// replace note on `update_scenario`.
     pub definition: Option<ScenarioDefinition>,
+    /// C1 (task 1.4): our one-sentence answer to this attack. Absent → unchanged.
+    ///
+    /// Distinct from `definition.attack_text`, which is the attack as the OTHER
+    /// side frames it. Task 1.5's rehearsal mode reads this one.
+    pub theme_statement: Option<String>,
+    /// C1 (task 1.4): what they want the jury to believe. Absent → unchanged.
+    pub motivation: Option<String>,
 }
 
 #[cfg(test)]

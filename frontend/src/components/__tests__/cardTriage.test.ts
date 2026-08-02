@@ -56,6 +56,7 @@ function fullCard(overrides: Partial<ScenarioCard> = {}): ScenarioCard {
     ],
     grounding: { state: "exact", label: "Grounded — found on the page" },
     confidence: { band: "medium", label: "Scan was fairly confident" },
+    status: "undecided",
     status_label: "Not yet decided",
     defer_required: false,
     defer_required_reason: null,

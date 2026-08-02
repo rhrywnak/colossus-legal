@@ -449,6 +449,7 @@ pub(crate) fn build_card(
             band,
             label: band.label().to_string(),
         },
+        status,
         status_label: status_label(status).to_string(),
         defer_required: defer_required_reason.is_some(),
         defer_required_reason,

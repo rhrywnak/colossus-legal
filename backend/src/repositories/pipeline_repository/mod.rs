@@ -67,6 +67,7 @@ pub mod scan_run_merges;
 pub mod scan_run_verdicts;
 pub mod scan_runs;
 pub mod scenario_candidate_ordinals;
+pub mod scenario_human_facts;
 pub mod scenario_responses;
 pub mod scenario_ruling_anchors;
 pub mod scenario_store;
@@ -88,6 +89,7 @@ pub use scan_run_merges::*;
 pub use scan_run_verdicts::*;
 pub use scan_runs::*;
 pub use scenario_candidate_ordinals::*;
+pub use scenario_human_facts::*;
 pub use scenario_responses::*;
 pub use scenario_ruling_anchors::*;
 // NOT a glob, unlike every sibling above — `upsert_fact_ref` and `delete_fact_ref`

@@ -29,6 +29,10 @@ export type ScenarioDirection = "offense" | "defense";
  */
 export interface ScenarioDto {
   scenario_id: string;
+  /** C1: our one-line answer, or null if not yet framed (task 1.4). */
+  theme_statement: string | null;
+  /** C1: what the other side wants the jury to believe, or null. */
+  motivation: string | null;
   /** The scenario's human handle, e.g. "S-3" (§2a). Backend-formatted. */
   code: string;
   name: string;
@@ -68,6 +72,11 @@ export interface ScenarioCreatePayload {
  * authoring form builds a real definition, and the backend re-validates it.
  */
 export interface ScenarioUpdatePayload {
+  /** C1 (task 1.4): our one-sentence answer to this attack. Omit → unchanged.
+   *  Distinct from `definition.attack_text`, which is THEIR framing. */
+  theme_statement?: string;
+  /** C1 (task 1.4): what they want the jury to believe. Omit → unchanged. */
+  motivation?: string;
   name?: string;
   status?: ScenarioStatus;
   feeds_count_id?: string;

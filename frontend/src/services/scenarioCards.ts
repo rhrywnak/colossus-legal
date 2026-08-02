@@ -28,6 +28,9 @@ import { readErrorMessage } from "./fetchUtils";
 
 // ─── DTO mirrors ────────────────────────────────────────────────────────────
 
+/** A candidate's workbench state for one scenario (backend `FactStatus`). */
+export type FactStatus = "undecided" | "included" | "dropped";
+
 /** How confident the scan reported itself to be (backend `ConfidenceBand`). */
 export type ConfidenceBand = "high" | "medium" | "low" | "unscored";
 
@@ -106,6 +109,11 @@ export type ScenarioCard = {
   bears_on: CardBearsOn[];
   grounding: CardGrounding | null;
   confidence: CardConfidence;
+  /** The workbench state as a token to branch on — `undecided` | `included` |
+   *  `dropped`. Paired with `status_label` the same way `CardGrounding` pairs
+   *  `state` with `label`: filtering on the LABEL would mean reading state out
+   *  of prose, which breaks the day the wording changes. */
+  status: FactStatus;
   status_label: string;
   /** True when this card cannot be ruled on as it stands. */
   defer_required: boolean;

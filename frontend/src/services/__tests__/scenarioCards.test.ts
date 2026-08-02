@@ -38,6 +38,7 @@ function card(): ScenarioCardsResponse["pool"][number] {
     bears_on: [],
     grounding: { state: "exact", label: "Grounded — found on the page" },
     confidence: { band: "unscored", label: "Not scored by a scan" },
+    status: "undecided",
     status_label: "Not yet decided",
     defer_required: true,
     defer_required_reason: "This item is not linked to any accusation…",

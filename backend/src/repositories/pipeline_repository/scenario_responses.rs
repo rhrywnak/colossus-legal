@@ -1,4 +1,16 @@
-//! Scenario responses store (task 1.6).
+//! Scenario responses store — C5, Marie's talking points (v2 §2).
+//!
+//! ## Who reads this, and the ratified v1 shape (task 1.4)
+//!
+//! ONE `scenario_responses` row per scenario, whose ordered `response_items` ARE
+//! the talking points, capped by `domain::human_authored::talking_points_cap`.
+//! `origin` is always `'human'` from every 1.4 write path; the `'suggested'`
+//! CHECK value stays in the schema unwritten, because C5 is human-authored and
+//! untouchable by any system process (v2 §8).
+//!
+//! Task 1.5's rehearsal mode is the read consumer — it reads these beside the
+//! scenario's `theme_statement` and `direction`. That is why they are wired now
+//! rather than left dormant as they were from 2026-06-26 until task 1.4.
 //!
 //! Owns CRUD for the three FK-chained tables created by migration
 //! `20260626135022_create_scenario_responses_tables.sql` (in `colossus_legal_v2`,
@@ -51,6 +63,9 @@ pub struct ScenarioResponseRecord {
     pub text: String,
     pub status: String,
     pub origin: String,
+    /// Who authored it (task 1.4). `None` only for rows predating that task —
+    /// there are none, since nothing wrote this table before it was wired.
+    pub authored_by: Option<String>,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
@@ -63,6 +78,9 @@ pub struct ResponseItemRecord {
     pub response_id: uuid::Uuid,
     pub item_index: i32,
     pub text: String,
+    /// Who authored this talking point (task 1.4). See
+    /// [`ScenarioResponseRecord::authored_by`].
+    pub authored_by: Option<String>,
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
@@ -83,10 +101,10 @@ pub struct ResponseItemFactRefRecord {
 // Changing it requires a migration plus a matching `ScenarioResponseRecord`
 // field update (Standing Rule 2 does not apply).
 const SCENARIO_RESPONSE_COLUMNS: &str =
-    "id, scenario_id, label, text, status, origin, created_at, updated_at";
+    "id, scenario_id, label, text, status, origin, authored_by, created_at, updated_at";
 
 // CONST: column projection locked to the `response_items` schema (see above).
-const RESPONSE_ITEM_COLUMNS: &str = "id, response_id, item_index, text, created_at";
+const RESPONSE_ITEM_COLUMNS: &str = "id, response_id, item_index, text, authored_by, created_at";
 
 // CONST: column projection locked to the `response_item_fact_refs` schema (see above).
 const RESPONSE_ITEM_FACT_REF_COLUMNS: &str = "response_item_id, graph_node_id, note, tagged_at";
@@ -103,6 +121,7 @@ const RESPONSE_ITEM_FACT_REF_COLUMNS: &str = "response_item_id, graph_node_id, n
 /// Returns [`PipelineRepoError`] if the insert fails — including a foreign-key
 /// violation if `scenario_id` names no scenario, or a CHECK violation on
 /// `status` / `origin`.
+#[allow(clippy::too_many_arguments)]
 pub async fn insert_scenario_response(
     executor: impl sqlx::PgExecutor<'_>,
     scenario_id: uuid::Uuid,
@@ -110,10 +129,14 @@ pub async fn insert_scenario_response(
     text: &str,
     status: &str,
     origin: &str,
+    // Who wrote it (task 1.4). Human content is displayed with its author, and
+    // the author is the only provenance this content has — it carries no citation
+    // by design (v2 §8).
+    authored_by: Option<&str>,
 ) -> Result<uuid::Uuid, PipelineRepoError> {
     let id = sqlx::query_scalar::<_, uuid::Uuid>(
-        r#"INSERT INTO scenario_responses (scenario_id, label, text, status, origin)
-           VALUES ($1, $2, $3, $4, $5)
+        r#"INSERT INTO scenario_responses (scenario_id, label, text, status, origin, authored_by)
+           VALUES ($1, $2, $3, $4, $5, $6)
            RETURNING id"#,
     )
     .bind(scenario_id)
@@ -121,9 +144,30 @@ pub async fn insert_scenario_response(
     .bind(text)
     .bind(status)
     .bind(origin)
+    .bind(authored_by)
     .fetch_one(executor)
     .await?;
     Ok(id)
+}
+
+/// Delete every response for one scenario (its items cascade).
+///
+/// The whole reset behind `set_talking_points`: C5 is a list curated as a whole,
+/// so replacing it is delete-then-insert. Takes an executor so the service can
+/// run it inside the same transaction as the re-insert — a partial replacement
+/// would leave the human holding some old points and some new ones.
+///
+/// # Errors
+/// Returns [`PipelineRepoError`] if the delete fails.
+pub async fn delete_responses_for_scenario(
+    executor: impl sqlx::PgExecutor<'_>,
+    scenario_id: uuid::Uuid,
+) -> Result<u64, PipelineRepoError> {
+    let result = sqlx::query("DELETE FROM scenario_responses WHERE scenario_id = $1")
+        .bind(scenario_id)
+        .execute(executor)
+        .await?;
+    Ok(result.rows_affected())
 }
 
 /// List a scenario's responses, oldest first.
@@ -157,15 +201,17 @@ pub async fn insert_response_item(
     response_id: uuid::Uuid,
     item_index: i32,
     text: &str,
+    authored_by: Option<&str>,
 ) -> Result<uuid::Uuid, PipelineRepoError> {
     let id = sqlx::query_scalar::<_, uuid::Uuid>(
-        r#"INSERT INTO response_items (response_id, item_index, text)
-           VALUES ($1, $2, $3)
+        r#"INSERT INTO response_items (response_id, item_index, text, authored_by)
+           VALUES ($1, $2, $3, $4)
            RETURNING id"#,
     )
     .bind(response_id)
     .bind(item_index)
     .bind(text)
+    .bind(authored_by)
     .fetch_one(executor)
     .await?;
     Ok(id)

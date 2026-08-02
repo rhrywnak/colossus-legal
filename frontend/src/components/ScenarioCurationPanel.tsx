@@ -24,9 +24,12 @@
 // the old surface can be restored in one line if the queue disappoints on DEV.
 // Flagged for removal in the 1.3 report.
 
-import React from "react";
+import React, { useCallback, useEffect, useState } from "react";
 
+import AugmentationPanel from "./AugmentationPanel";
 import CardQueue from "./CardQueue";
+import WorkingView from "./WorkingView";
+import { fetchScenarioCards, type ScenarioCard } from "../services/scenarioCards";
 import type { ScenarioDefinition } from "../pages/trialPrepData";
 
 interface Props {
@@ -63,14 +66,60 @@ const ScenarioCurationPanel: React.FC<Props> = ({
   definition,
   externalRefresh,
 }) => {
+  const [cards, setCards] = useState<ScenarioCard[]>([]);
+  const [showAugmentation, setShowAugmentation] = useState(false);
+  const [cardsError, setCardsError] = useState<string | null>(null);
+
+  // The working view reads the same card payload the queue does. Loaded here
+  // rather than in `WorkingView` so the two surfaces cannot disagree about what
+  // is included — one read, one answer.
+  const loadCards = useCallback(async () => {
+    try {
+      const loaded = await fetchScenarioCards(slug, scenarioId);
+      setCards([...loaded.pool, ...loaded.set_aside]);
+      setCardsError(null);
+    } catch (e: unknown) {
+      setCardsError(
+        e instanceof Error ? e.message : "Failed to load this scenario's facts.",
+      );
+    }
+  }, [slug, scenarioId]);
+
+  useEffect(() => {
+    void loadCards();
+  }, [loadCards, externalRefresh]);
+
   return (
     <div>
       <div style={sectionLabel}>Scenario facts</div>
+      {cardsError && (
+        <div role="alert" style={{ color: "var(--state-danger-strong)", fontSize: "0.85rem" }}>
+          {cardsError}
+        </div>
+      )}
       <p style={hintStyle}>
-        Rule on every candidate from the keyboard, without leaving this queue.
-        The source page sits beside each card.
+        What you have included, then the queue of what is left to rule on. The
+        source page sits beside each card.
       </p>
-      <CardQueue slug={slug} scenarioId={scenarioId} externalRefresh={externalRefresh} />
+
+      {/* The working view sits ABOVE the queue: it is the record of what the
+          curation produced, and the queue below is the position still being
+          worked. Task 1.4. */}
+      <WorkingView cards={cards} onAdd={() => setShowAugmentation(true)} />
+
+      {showAugmentation && (
+        <div style={{ marginTop: "1rem" }}>
+          <AugmentationPanel
+            slug={slug}
+            scenarioId={scenarioId}
+            externalRefresh={externalRefresh}
+          />
+        </div>
+      )}
+
+      <div style={{ marginTop: "1.5rem" }}>
+        <CardQueue slug={slug} scenarioId={scenarioId} externalRefresh={externalRefresh} />
+      </div>
     </div>
   );
 };

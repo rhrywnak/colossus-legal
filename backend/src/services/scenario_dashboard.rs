@@ -429,6 +429,10 @@ mod tests {
             // Every scenario carries a code after the 2026-08-01 backfill;
             // a fixture without one would be a state the column forbids.
             code_ordinal: 1,
+            // Unframed: a scenario is created before anyone writes its theme, and
+            // `None` is the honest value rather than invented prose.
+            theme_statement: None,
+            motivation: None,
         }
     }
 

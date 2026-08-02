@@ -74,6 +74,14 @@ pub struct ScenarioRecord {
     /// Assigned at creation from `case_code_sequences`, never changed, never
     /// reused — see [`insert_scenario`].
     pub code_ordinal: i32,
+    /// C1: our one-sentence answer to this attack — the tagline (v2 §2).
+    ///
+    /// `None` until a human frames the scenario. NOT the attack itself: that is
+    /// `definition->>attack_text`, which is the OTHER side's framing. Task 1.5's
+    /// rehearsal mode reads this beside `direction`, so the two must not merge.
+    pub theme_statement: Option<String>,
+    /// C1: what the other side wants the jury to believe by making this attack.
+    pub motivation: Option<String>,
 }
 
 /// Shared SELECT projection for every `ScenarioRecord` read, so the `FromRow`
@@ -85,7 +93,7 @@ pub struct ScenarioRecord {
 // field update, so it cannot live in YAML/env (Standing Rule 2 does not apply).
 const SCENARIO_COLUMNS: &str = "scenario_id, name, direction, status, case_slug, \
      feeds_count_id, anchor_allegation_ids, definition, created_at, updated_at, \
-     code_ordinal";
+     code_ordinal, theme_statement, motivation";
 
 // ── CRUD ─────────────────────────────────────────────────────────
 
@@ -330,10 +338,11 @@ pub async fn delete_scenario(
 /// - [`PipelineRepoError`] (via the `From<sqlx::Error>` conversion) on any other
 ///   DB failure — including a CHECK violation if a bad `status` slips past the
 ///   handler's validation.
-// Eight parameters (executor + scenario_id + the `case_slug` fence + five mutable
-// fields) trips `clippy::too_many_arguments`, exactly as `insert_scenario` does.
-// Each is a distinct required value; a params struct buys nothing and would
-// diverge from the sibling writer, so we carry the same allow for the same reason.
+// Ten parameters (executor + scenario_id + the `case_slug` fence + seven mutable
+// fields, two of them added by task 1.4) trips `clippy::too_many_arguments`,
+// exactly as `insert_scenario` does. Each is a distinct optional column value; a
+// params struct buys nothing and would diverge from the sibling writer, so we
+// carry the same allow for the same reason.
 #[allow(clippy::too_many_arguments)]
 pub async fn update_scenario(
     executor: impl sqlx::PgExecutor<'_>,
@@ -344,6 +353,10 @@ pub async fn update_scenario(
     feeds_count_id: Option<&str>,
     anchor_allegation_ids: Option<&[String]>,
     definition: Option<&serde_json::Value>,
+    // C1 (task 1.4). Absent leaves the column alone, like every field above —
+    // so a rename does not blank the theme a human wrote last week.
+    theme_statement: Option<&str>,
+    motivation: Option<&str>,
 ) -> Result<ScenarioRecord, PipelineRepoError> {
     // RETURNING reuses the shared projection so the read-back can never drift
     // from `get_scenario`'s column set. `updated_at` is already in
@@ -355,6 +368,8 @@ pub async fn update_scenario(
              feeds_count_id        = COALESCE($4, feeds_count_id), \
              anchor_allegation_ids = COALESCE($5, anchor_allegation_ids), \
              definition            = COALESCE($6, definition), \
+             theme_statement       = COALESCE($8, theme_statement), \
+             motivation            = COALESCE($9, motivation), \
              updated_at            = now() \
          WHERE scenario_id = $1 AND case_slug = $7 \
          RETURNING {SCENARIO_COLUMNS}"
@@ -370,6 +385,8 @@ pub async fn update_scenario(
         .bind(anchor_allegation_ids)
         .bind(definition)
         .bind(case_slug)
+        .bind(theme_statement)
+        .bind(motivation)
         .fetch_optional(executor)
         .await?;
 
@@ -739,6 +756,8 @@ mod tests {
                 Some("count-1"),
                 Some(&["allegation-1".to_string()][..]),
                 Some(&serde_json::json!({ "attack_text": "x", "schema_v": 1 })),
+                Some("They cannot show what they never disclosed"),
+                Some("They want the jury to think Marie is the difficult one"),
             )
             .await;
     }

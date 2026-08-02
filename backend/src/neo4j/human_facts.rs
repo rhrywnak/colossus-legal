@@ -1,3 +1,6 @@
+//! DEAD CODE — zero callers; NOT the v2 C4 human-facts store (that is Postgres
+//! `scenario_human_facts`); removal tracked as task 3.8.
+//!
 //! Human-authored case-fact writer for Neo4j.
 //!
 //! This module is the **parallel, purpose-built** write path for facts a human
