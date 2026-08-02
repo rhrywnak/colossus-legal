@@ -34,7 +34,7 @@ use uuid::Uuid;
 
 use crate::{
     auth::{require_edit, AuthUser},
-    domain::human_authored::{authored_tag, talking_points_cap, DateType},
+    domain::human_authored::{authored_tag, talking_points_cap, DateType, HumanFactKind},
     domain::scenario_code::scenario_code,
     dto::scenario_augmentation::{
         AddHumanFactRequest, AugmentationPanelDto, HumanFactDto, ScenarioIdentityDto,
@@ -115,7 +115,7 @@ fn augmentation_error_to_app_error(error: AugmentationError) -> AppError {
 /// qualifier ("Around …") is a claim about precision, and the tag is this
 /// content's only provenance. Both are case vocabulary, and the language law puts
 /// every such string on this side of the wire.
-fn to_fact_dto(record: ScenarioHumanFactRecord) -> HumanFactDto {
+fn to_fact_dto(record: &ScenarioHumanFactRecord) -> HumanFactDto {
     let date_label = record.occurred_on.map(|date| {
         let rendered = date.to_string();
         match record.date_type.as_deref().map(DateType::try_from) {
@@ -129,9 +129,9 @@ fn to_fact_dto(record: ScenarioHumanFactRecord) -> HumanFactDto {
 
     HumanFactDto {
         id: record.id.to_string(),
-        text: record.text,
+        text: record.text.clone(),
         date_label,
-        person_refs: record.person_refs.unwrap_or_default(),
+        person_refs: record.person_refs.clone().unwrap_or_default(),
         // Always false before task B0: these are names a human typed, not
         // resolved entities, and the panel says so.
         person_refs_are_linked: false,
@@ -199,7 +199,16 @@ pub async fn get_augmentation_panel(
 
     Ok(Json(AugmentationPanelDto {
         identity: to_identity_dto(&record),
-        human_facts: facts.into_iter().map(to_fact_dto).collect(),
+        human_facts: facts
+            .iter()
+            .filter(|f| f.kind == HumanFactKind::Fact.code())
+            .map(to_fact_dto)
+            .collect(),
+        watch_list: facts
+            .iter()
+            .filter(|f| f.kind == HumanFactKind::WatchList.code())
+            .map(to_fact_dto)
+            .collect(),
         talking_points: points
             .into_iter()
             .map(|item| TalkingPointDto {
@@ -238,11 +247,25 @@ pub async fn add_scenario_human_fact(
             None => None,
         };
 
+    // Parse the kind at the boundary too, for the same reason as the date: an
+    // unreadable token becomes a named 400 here rather than a row this build
+    // cannot classify later.
+    let kind = match payload.kind.as_deref() {
+        Some(raw) => HumanFactKind::try_from(raw).map_err(|_| AppError::BadRequest {
+            message: format!(
+                "'{raw}' is not a note kind this build understands (fact, watch_list)"
+            ),
+            details: json!({ "field": "kind" }),
+        })?,
+        None => HumanFactKind::Fact,
+    };
+
     let fact_id = add_human_fact(
         &state.pipeline_pool,
         &NewHumanFact {
             scenario_id: id,
             text: &payload.text,
+            kind,
             occurred_on,
             date_type: payload.date_type.as_deref(),
             person_refs: &payload.person_refs,
@@ -256,7 +279,8 @@ pub async fn add_scenario_human_fact(
         %fact_id,
         scenario_id = %id,
         author = %user.username,
-        "added a human fact"
+        kind = kind.code(),
+        "added a human note"
     );
 
     Ok(StatusCode::CREATED)

@@ -26,10 +26,28 @@
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+use axum::routing::get;
 use axum::Json;
+use axum::Router;
 use chrono::Utc;
 use serde::Serialize;
 use tracing::{error, info, instrument};
+
+/// This module's routes — the `/cases/:slug/case-health/...` cluster.
+///
+/// Declared here rather than in `api::mod`'s central table, matching
+/// `scenario_augmentation::routes`: that table had reached the module-size limit,
+/// and a route reads better beside the handler it names. The surface also grows
+/// pane by pane (inventory is Pane 1 of four), so it belongs where the panes are.
+///
+/// Merged independently in [`crate::api::router`]; the paths are distinct from
+/// every other group's, so merge order does not matter.
+pub fn routes() -> Router<crate::state::AppState> {
+    Router::new().route(
+        "/cases/:slug/case-health/inventory",
+        get(get_case_health_inventory),
+    )
+}
 
 use crate::auth::AuthUser;
 use crate::domain::case_state::partition::CONNECTION_TIER_LOOKUP_V;

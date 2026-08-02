@@ -266,8 +266,20 @@ impl ScenarioDefinition {
 pub struct ScenarioUpdateRequest {
     /// Absent → name unchanged.
     pub name: Option<String>,
-    /// Absent → status unchanged. Validated against the CHECK vocabulary in the
-    /// handler when present, same as create.
+    /// Present → **REFUSED with a 400** (task 1.5, ruled 2026-08-01).
+    ///
+    /// Readiness is a recorded human act: declaring a scenario ready is what puts
+    /// it in front of a witness in rehearsal mode, and v2 §5/§6 require an actor
+    /// against the decision. This route records no actor, so it cannot perform
+    /// one — `POST /cases/:slug/scenarios/:id/ready` is the only path, in both
+    /// directions.
+    ///
+    /// ## Why the field is KEPT rather than deleted
+    ///
+    /// The struct is `deny_unknown_fields`, so removing it would turn a `status`
+    /// in the body into a generic parse error naming nothing useful. Keeping it
+    /// lets the handler answer with a message that names the route to use
+    /// instead — a refusal that tells the caller what to do next.
     pub status: Option<String>,
     pub feeds_count_id: Option<String>,
     pub anchor_allegation_ids: Option<Vec<String>>,

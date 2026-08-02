@@ -70,6 +70,7 @@ pub mod scenario_candidate_ordinals;
 pub mod scenario_human_facts;
 pub mod scenario_responses;
 pub mod scenario_ruling_anchors;
+pub mod scenario_status_transitions;
 pub mod scenario_store;
 pub mod steps;
 pub mod users;
@@ -92,6 +93,7 @@ pub use scenario_candidate_ordinals::*;
 pub use scenario_human_facts::*;
 pub use scenario_responses::*;
 pub use scenario_ruling_anchors::*;
+pub use scenario_status_transitions::*;
 // NOT a glob, unlike every sibling above — `upsert_fact_ref` and `delete_fact_ref`
 // are deliberately withheld from this re-export.
 //

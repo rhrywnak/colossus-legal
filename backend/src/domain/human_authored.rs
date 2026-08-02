@@ -132,6 +132,80 @@ impl TryFrom<&str> for DateType {
     }
 }
 
+/// Which KIND of human-authored note this is.
+///
+/// ## Domain note: one table, two kinds
+///
+/// A human fact and a watch-list note are structurally the same thing — text, an
+/// author, no citation — and v2 §8 protects both identically. They share a table
+/// and a write path so the invariants are enforced once rather than twice; task
+/// 1.4's gate review found an asymmetry of exactly that sort (C5 lacked a guard
+/// C4 had), and duplicating guards is how that happens.
+///
+/// What differs is only where they appear: a fact is knowledge the case relies
+/// on; a watch-list note is what the other side will wave around (§10's fourth
+/// rehearsal block).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HumanFactKind {
+    /// Knowledge in no document — the C4 default.
+    Fact,
+    /// A hazard the other side will raise — §10's watch-list.
+    WatchList,
+}
+
+impl HumanFactKind {
+    /// The full vocabulary — the "extensible list in code."
+    pub const ALL: &'static [HumanFactKind] = &[HumanFactKind::Fact, HumanFactKind::WatchList];
+
+    /// The stable wire token, bound into `scenario_human_facts.kind`.
+    pub fn code(self) -> &'static str {
+        match self {
+            HumanFactKind::Fact => "fact",
+            HumanFactKind::WatchList => "watch_list",
+        }
+    }
+}
+
+/// The error produced when a stored kind token is not one this build knows.
+#[derive(Debug, thiserror::Error)]
+#[error("unknown human-fact kind '{token}' — not one of fact/watch_list")]
+pub struct HumanFactKindParseError {
+    pub token: String,
+}
+
+impl TryFrom<&str> for HumanFactKind {
+    type Error = HumanFactKindParseError;
+
+    fn try_from(token: &str) -> Result<Self, Self::Error> {
+        match token {
+            "fact" => Ok(HumanFactKind::Fact),
+            "watch_list" => Ok(HumanFactKind::WatchList),
+            other => Err(HumanFactKindParseError {
+                token: other.to_string(),
+            }),
+        }
+    }
+}
+
+/// The standing card shown on every rehearsal screen (v2 §10).
+///
+/// ## Why this is served by the backend and is not configuration
+///
+/// It is witness-prep DOCTRINE, not a preference — ABA Formal Opinion 508's
+/// substance in four sentences, and the reason rehearsal mode is theme-level
+/// rather than a script. A deployment cannot sensibly want different advice, and
+/// a browser that held its own copy could drift from the one the exports use.
+///
+/// Served as data rather than compiled into the page for the same reason every
+/// other user-visible string is: one source, one wording.
+pub const STANDING_CARD: &[&str] = &[
+    "Tell the truth.",
+    "Answer only what's asked.",
+    "\"I don't recall\" is fine if it's true.",
+    "Don't guess.",
+];
+
 /// The visible tag that marks content as human-authored (§8).
 ///
 /// ## Domain note: why the tag names the person
@@ -235,5 +309,68 @@ mod tests {
         // asserted so a silent change to the default is visible in a diff.
         assert_eq!(talking_points_cap(), 3);
         assert!(talking_points_cap() > 0, "a cap of zero would forbid C5");
+    }
+
+    // ── HumanFactKind (task 1.5) ─────────────────────────────────────────────
+    //
+    // The same four tests `DateType` carries, for the same reason: this token IS
+    // the filter that decides what reaches a witness. `WatchList.code()` is
+    // compared against the stored column in `scenario_readiness`, so a drift
+    // between the enum and the string would empty rehearsal's fourth block with
+    // no error at all.
+
+    #[test]
+    fn human_fact_kind_tokens_match_serde() {
+        for &kind in HumanFactKind::ALL {
+            assert_eq!(
+                serde_json::json!(kind),
+                serde_json::json!(kind.code()),
+                "{} drifted from its serde token",
+                kind.code()
+            );
+        }
+    }
+
+    #[test]
+    fn an_unknown_kind_is_a_loud_error_not_a_default() {
+        // Defaulting to `Fact` would file a watch-list note as a human fact —
+        // the wrong kind of statement, shown in the wrong place, silently.
+        assert!(HumanFactKind::try_from("hazard").is_err());
+    }
+
+    #[test]
+    fn the_kind_parse_error_names_the_offending_token_and_the_vocabulary() {
+        let Err(error) = HumanFactKind::try_from("hazard") else {
+            panic!("an unknown kind must be refused");
+        };
+        let message = error.to_string();
+        assert!(message.contains("hazard"), "the bad token: {message}");
+        for known in HumanFactKind::ALL {
+            assert!(
+                message.contains(known.code()),
+                "{} must be offered: {message}",
+                known.code()
+            );
+        }
+    }
+
+    #[test]
+    fn every_known_kind_round_trips() {
+        for &kind in HumanFactKind::ALL {
+            assert_eq!(
+                HumanFactKind::try_from(kind.code()).expect("its own token parses"),
+                kind
+            );
+        }
+    }
+
+    #[test]
+    fn the_kind_vocabulary_is_the_one_the_column_stores() {
+        // The migration's DEFAULT is `'fact'`, and the watch-list filter compares
+        // against `'watch_list'`. Pinning the literals here means a rename of an
+        // enum VARIANT cannot quietly change what is already in the database.
+        assert_eq!(HumanFactKind::Fact.code(), "fact");
+        assert_eq!(HumanFactKind::WatchList.code(), "watch_list");
+        assert_eq!(HumanFactKind::ALL.len(), 2);
     }
 }

@@ -24,6 +24,7 @@ fn fact_record(
         date_type: date_type.map(str::to_string),
         person_refs: Some(vec!["Phillips".to_string()]),
         authored_by: "Roman".to_string(),
+        kind: "fact".to_string(),
         created_at: created,
         // An edited fact has a later updated stamp; a fresh one has them equal.
         updated_at: if edited {
@@ -67,7 +68,7 @@ fn scenario_record() -> ScenarioRecord {
 fn a_human_fact_carries_its_authored_tag() {
     // The tag IS this content's provenance — it has no citation by design, so
     // the author is what stands behind it (§8).
-    let dto = to_fact_dto(fact_record(None, None, false));
+    let dto = to_fact_dto(&fact_record(None, None, false));
     assert_eq!(dto.authored_tag, "Added by Roman");
 }
 
@@ -75,20 +76,20 @@ fn a_human_fact_carries_its_authored_tag() {
 fn an_approximate_date_reads_as_approximate() {
     // The qualifier survives to the screen. A bare date would state precision the
     // human never claimed.
-    let dto = to_fact_dto(fact_record(Some(a_date()), Some("around"), false));
+    let dto = to_fact_dto(&fact_record(Some(a_date()), Some("around"), false));
     assert_eq!(dto.date_label.as_deref(), Some("Around 2009-04-21"));
 }
 
 #[test]
 fn an_exact_date_reads_bare() {
-    let dto = to_fact_dto(fact_record(Some(a_date()), Some("exact"), false));
+    let dto = to_fact_dto(&fact_record(Some(a_date()), Some("exact"), false));
     assert_eq!(dto.date_label.as_deref(), Some("2009-04-21"));
 }
 
 #[test]
 fn a_dateless_fact_has_no_date_label() {
     // The common case — most human facts are undated, and that is not a gap.
-    let dto = to_fact_dto(fact_record(None, None, false));
+    let dto = to_fact_dto(&fact_record(None, None, false));
     assert_eq!(dto.date_label, None);
 }
 
@@ -96,7 +97,7 @@ fn a_dateless_fact_has_no_date_label() {
 fn an_unreadable_date_type_falls_back_to_the_bare_date() {
     // Understating precision is the safe direction: a qualifier this build cannot
     // read must not be guessed at.
-    let dto = to_fact_dto(fact_record(Some(a_date()), Some("someday"), false));
+    let dto = to_fact_dto(&fact_record(Some(a_date()), Some("someday"), false));
     assert_eq!(dto.date_label.as_deref(), Some("2009-04-21"));
 }
 
@@ -104,15 +105,15 @@ fn an_unreadable_date_type_falls_back_to_the_bare_date() {
 fn person_refs_are_never_reported_as_linked_before_b0() {
     // They are names a human typed. Reporting them as resolved entities would
     // claim the system knows WHICH Phillips was meant. It does not.
-    let dto = to_fact_dto(fact_record(None, None, false));
+    let dto = to_fact_dto(&fact_record(None, None, false));
     assert_eq!(dto.person_refs, vec!["Phillips".to_string()]);
     assert!(!dto.person_refs_are_linked);
 }
 
 #[test]
 fn an_untouched_fact_is_not_reported_as_edited() {
-    assert!(!to_fact_dto(fact_record(None, None, false)).edited);
-    assert!(to_fact_dto(fact_record(None, None, true)).edited);
+    assert!(!to_fact_dto(&fact_record(None, None, false)).edited);
+    assert!(to_fact_dto(&fact_record(None, None, true)).edited);
 }
 
 #[test]

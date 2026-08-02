@@ -23,12 +23,38 @@ use super::*;
 
 // ─── The insert's shape ──────────────────────────────────────────────────────
 
+/// The VALUES list, as a vector of placeholder tokens.
+///
+/// ## Why parse rather than match the literal
+///
+/// The first version of these tests asserted `contains("VALUES ($1, …, $7, $7)")`
+/// and asserted `!contains("$8")`. Both broke the moment task 1.5 added the
+/// `kind` column and shifted every number — and they broke by reporting the
+/// stamp invariant as violated when it was perfectly intact. A test that fails
+/// for the wrong reason teaches the reader to distrust it. Reading the tokens out
+/// and comparing the LAST TWO pins the actual property (whatever their numbers
+/// are, they are the same one) and survives the next column.
+fn values_placeholders() -> Vec<String> {
+    let start = INSERT_HUMAN_FACT_SQL
+        .find("VALUES (")
+        .expect("the insert has a VALUES list");
+    let rest = &INSERT_HUMAN_FACT_SQL[start + "VALUES (".len()..];
+    let end = rest.find(')').expect("the VALUES list is closed");
+    rest[..end]
+        .split(',')
+        .map(|t| t.trim().to_string())
+        .collect()
+}
+
 /// A fresh fact has equal created/updated stamps, so "edited" is readable
 /// without a separate flag.
 #[test]
 fn a_new_fact_has_equal_created_and_updated_stamps() {
-    assert!(
-        INSERT_HUMAN_FACT_SQL.contains("VALUES ($1, $2, $3, $4, $5, $6, $7, $7)"),
+    let placeholders = values_placeholders();
+    let last = placeholders.last().expect("at least one placeholder");
+    let second_last = &placeholders[placeholders.len() - 2];
+    assert_eq!(
+        last, second_last,
         "created_at and updated_at must bind the SAME parameter on insert, so an \
          untouched fact is distinguishable from an edited one: {INSERT_HUMAN_FACT_SQL}"
     );
@@ -44,6 +70,10 @@ fn the_insert_writes_every_column_a_human_fact_needs() {
         "date_type",
         "person_refs",
         "authored_by",
+        // Task 1.5. Without it every note would insert as the DEFAULT 'fact',
+        // and a watch-list note would silently file itself as a human fact —
+        // the wrong kind of statement, shown in the wrong place.
+        "kind",
         "created_at",
         "updated_at",
     ] {
@@ -52,11 +82,26 @@ fn the_insert_writes_every_column_a_human_fact_needs() {
             "the human-fact insert must write {column}"
         );
     }
-    // Seven bound parameters (created_at and updated_at share $7).
-    assert!(INSERT_HUMAN_FACT_SQL.contains("$7"));
-    assert!(
-        !INSERT_HUMAN_FACT_SQL.contains("$8"),
-        "more placeholders than the write supplies"
+
+    // One placeholder per column, with the two stamps sharing the last one.
+    let columns = INSERT_HUMAN_FACT_SQL
+        .split_once('(')
+        .and_then(|(_, rest)| rest.split_once(')'))
+        .map(|(cols, _)| cols.split(',').count())
+        .expect("the insert names its columns");
+    let placeholders = values_placeholders();
+    assert_eq!(
+        placeholders.len(),
+        columns,
+        "every column needs a value: {INSERT_HUMAN_FACT_SQL}"
+    );
+    // Distinct numbers = columns - 1, because the stamps share one.
+    let distinct: std::collections::BTreeSet<&String> = placeholders.iter().collect();
+    assert_eq!(
+        distinct.len(),
+        columns - 1,
+        "exactly one placeholder is reused (the two stamps); the rest are \
+         distinct: {INSERT_HUMAN_FACT_SQL}"
     );
 }
 
@@ -66,10 +111,14 @@ fn a_delete_is_scoped_to_its_scenario() {
     // Without the scenario fence, guessing a UUID would delete another
     // scenario's authored content — and a human fact has no citation to
     // reconstruct it from.
-    let sql = "DELETE FROM scenario_human_facts WHERE id = $1 AND scenario_id = $2";
+    //
+    // Asserted against the PRODUCTION statement. This test used to declare its
+    // own copy of the SQL as a local and assert on that, which proved only that
+    // the test file contained the string it had just written — the delete could
+    // have lost its fence entirely and this would still have passed.
     assert!(
-        sql.contains("scenario_id = $2"),
-        "the scenario is the fence"
+        DELETE_HUMAN_FACT_SQL.contains("scenario_id = $2"),
+        "the scenario is the fence: {DELETE_HUMAN_FACT_SQL}"
     );
 }
 
@@ -108,11 +157,18 @@ const SCAN_PATH_FILES: &[&str] = &[
     "src/repositories/pipeline_repository/scenario_candidate_ordinals.rs",
 ];
 
-/// The human-authored tables no scan path may ever write (v2 §8).
+/// The tables recording HUMAN acts, which no scan path may ever write (v2 §8).
+///
+/// The first three hold human-authored CONTENT. `scenario_status_transitions`
+/// (task 1.5) holds something adjacent and equally off-limits: the record of who
+/// declared a scenario ready. A scan able to append there could manufacture an
+/// attribution, and a scan able to write it at all could put a scenario in front
+/// of a witness with no human having said so.
 const HUMAN_AUTHORED_TABLES: &[&str] = &[
     "scenario_human_facts",
     "scenario_responses",
     "response_items",
+    "scenario_status_transitions",
 ];
 
 fn read_source(relative: &str) -> Option<String> {
@@ -307,50 +363,70 @@ fn the_talking_point_writers_have_one_caller_family() {
 
 #[test]
 fn the_human_fact_writer_has_one_caller_family() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    let mut callers: Vec<String> = Vec::new();
-
-    fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
-        let Ok(entries) = fs::read_dir(dir) else {
-            return;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                walk(&path, out);
-            } else if path.extension().and_then(|e| e.to_str()) == Some("rs") {
-                out.push(path);
-            }
-        }
-    }
-
-    let mut files = Vec::new();
-    walk(&root, &mut files);
-    files.sort();
-
-    for path in files {
-        let rel = path
-            .strip_prefix(env!("CARGO_MANIFEST_DIR"))
-            .unwrap_or(&path)
-            .to_string_lossy()
-            .replace('\\', "/");
-        // The definition and its own tests are not callers.
-        if rel.contains("scenario_human_facts") {
-            continue;
-        }
-        let Ok(source) = fs::read_to_string(&path) else {
-            continue;
-        };
-        if source.contains("insert_human_fact(") {
-            callers.push(rel);
-        }
-    }
-
-    for caller in &callers {
+    // Uses the shared `callers_of` walk. This test carried its OWN copy of the
+    // directory walk until task 1.5 — two implementations of one rule, and the
+    // copy did not skip `_tests.rs`, so it was one test file away from failing
+    // for a reason that was not a violation.
+    for caller in callers_of(&["insert_human_fact("], "scenario_human_facts") {
         assert!(
             caller.contains("augmentation"),
             "only the augmentation service may write human facts; {caller} calls \
              insert_human_fact"
+        );
+    }
+}
+
+/// The READY GATE has one caller family too (task 1.5).
+///
+/// Both halves of the act are guarded: appending a transition, and changing the
+/// status it describes. A module that could do either on its own could produce a
+/// scenario that is ready with nobody's name against it, or a record of a
+/// promotion that never happened. §5/§6 make readiness a human act; this is where
+/// "only one path performs it" stops being a convention.
+#[test]
+fn the_readiness_writers_have_one_caller_family() {
+    for caller in callers_of(
+        &["insert_status_transition(", "update_scenario_status("],
+        "scenario_status_transitions",
+    ) {
+        assert!(
+            caller.contains("readiness"),
+            "only the readiness service may change a scenario's readiness; \
+             {caller} calls a ready-gate writer (v2 §5/§6)"
+        );
+    }
+}
+
+/// Anti-vacuity for the caller-family guards.
+///
+/// Every one of them passes trivially if `callers_of` finds nothing — a renamed
+/// function, a moved module, or a bug in the walk would silence all three at
+/// once and they would keep reporting green. Asserting that the expected caller
+/// IS found makes the walk prove itself.
+#[test]
+fn the_caller_family_scan_actually_finds_the_callers() {
+    for (needles, skip, expected) in [
+        (
+            vec!["insert_human_fact("],
+            "scenario_human_facts",
+            "augmentation",
+        ),
+        (
+            vec!["insert_scenario_response("],
+            "scenario_responses",
+            "augmentation",
+        ),
+        (
+            vec!["insert_status_transition("],
+            "scenario_status_transitions",
+            "readiness",
+        ),
+    ] {
+        let callers = callers_of(&needles, skip);
+        assert!(
+            callers.iter().any(|c| c.contains(expected)),
+            "the scan for {needles:?} found no caller containing '{expected}' \
+             (found {callers:?}) — the walk is checking nothing"
         );
     }
 }

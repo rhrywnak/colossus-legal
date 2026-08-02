@@ -29,7 +29,7 @@ use chrono::{NaiveDate, Utc};
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::domain::human_authored::{talking_points_cap, DateType};
+use crate::domain::human_authored::{talking_points_cap, DateType, HumanFactKind};
 use crate::repositories::pipeline_repository::{
     delete_human_fact, delete_responses_for_scenario, insert_human_fact, insert_response_item,
     insert_scenario_response, list_human_facts_for_scenario, list_items_for_response,
@@ -83,6 +83,9 @@ pub enum AugmentationError {
 pub struct NewHumanFact<'a> {
     pub scenario_id: Uuid,
     pub text: &'a str,
+    /// `fact` or `watch_list` (task 1.5). Both travel this one write path so the
+    /// §8 invariants are enforced once — see `HumanFactKind`.
+    pub kind: HumanFactKind,
     pub occurred_on: Option<NaiveDate>,
     pub date_type: Option<&'a str>,
     pub person_refs: &'a [String],
@@ -141,6 +144,7 @@ pub async fn add_human_fact(
             date_type: fact.date_type,
             person_refs: fact.person_refs,
             authored_by: fact.authored_by,
+            kind: fact.kind.code(),
             written_at: now,
         },
     )

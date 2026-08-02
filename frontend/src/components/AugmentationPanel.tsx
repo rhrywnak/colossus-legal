@@ -30,6 +30,7 @@ import {
   type AugmentationPanelDto,
 } from "../services/scenarioAugmentation";
 import { updateScenario } from "../services/scenarioCrud";
+import WatchListBlock from "./WatchListBlock";
 
 const SURFACE = "var(--bg-surface)";
 const HAIRLINE = "1px solid var(--border-default)";
@@ -278,6 +279,19 @@ const AugmentationPanel: React.FC<Props> = ({ slug, scenarioId, externalRefresh 
           </button>
         </div>
       </div>
+
+      {/* ── C6 watch-list ──────────────────────────────────────────────── */}
+      <WatchListBlock
+        slug={slug}
+        scenarioId={scenarioId}
+        notes={panel.watch_list}
+        run={(work) => void run(work)}
+        boxStyle={boxStyle}
+        labelStyle={labelStyle}
+        fieldStyle={fieldStyle}
+        tagStyle={tagStyle}
+        hairline={HAIRLINE}
+      />
 
       {/* ── C5 talking points ──────────────────────────────────────────── */}
       <div style={boxStyle}>

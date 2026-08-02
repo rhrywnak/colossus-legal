@@ -18,6 +18,7 @@ fn fact<'a>(
     NewHumanFact {
         scenario_id: Uuid::nil(),
         text,
+        kind: HumanFactKind::Fact,
         occurred_on: date,
         date_type,
         person_refs: &[],

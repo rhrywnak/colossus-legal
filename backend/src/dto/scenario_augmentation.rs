@@ -81,6 +81,15 @@ pub struct ScenarioIdentityDto {
 pub struct AugmentationPanelDto {
     pub identity: ScenarioIdentityDto,
     pub human_facts: Vec<HumanFactDto>,
+    /// C6 — the human-flagged watch-list notes (task 1.5).
+    ///
+    /// A SEPARATE list rather than a `kind` field on `HumanFactDto` the client
+    /// filters on: the two render in different places (facts in the working
+    /// view, watch-list in rehearsal's fourth block), and a client that forgot
+    /// the filter would show watch-list notes as facts — the wrong kind of
+    /// statement in the wrong place, which is the confusion §8's tagging exists
+    /// to prevent. Splitting them server-side makes that miss impossible.
+    pub watch_list: Vec<HumanFactDto>,
     pub talking_points: Vec<TalkingPointDto>,
     /// How many talking points this scenario may carry, from the 1.6 seam.
     ///
@@ -94,6 +103,14 @@ pub struct AugmentationPanelDto {
 #[serde(deny_unknown_fields)]
 pub struct AddHumanFactRequest {
     pub text: String,
+    /// `fact` (default) | `watch_list`.
+    ///
+    /// Defaulted rather than required so the 1.4 clients that predate the
+    /// watch-list keep working and keep meaning what they meant — every write
+    /// before task 1.5 was a fact, which is exactly what the column's backfill
+    /// says about the rows already stored.
+    #[serde(default)]
+    pub kind: Option<String>,
     /// ISO date (`YYYY-MM-DD`), optional.
     #[serde(default)]
     pub occurred_on: Option<String>,

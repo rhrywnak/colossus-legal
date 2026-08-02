@@ -51,6 +51,7 @@ pub mod proof_matrix;
 pub mod proof_review;
 pub mod qa;
 pub mod queries;
+pub mod rehearsal;
 pub mod scenario_augmentation;
 pub mod scenario_cards;
 pub mod scenario_facts;
@@ -83,9 +84,10 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .merge(session_routes())
         .merge(case_routes())
-        .merge(case_health_routes())
+        .merge(case_health::routes())
         .merge(scenario_routes())
         .merge(scenario_augmentation::routes())
+        .merge(rehearsal::routes())
         .merge(claim_routes())
         .merge(document_routes())
         .merge(entity_routes())
@@ -140,22 +142,6 @@ fn case_routes() -> Router<AppState> {
             "/cases/:slug/trial-prep/scenarios/:scenario_id",
             get(trial_prep::get_trial_prep_scenario_detail),
         )
-}
-
-/// Case Health routes (the `/cases/:slug/case-health/...` cluster) — the
-/// read-only structural-health dashboard.
-///
-/// Split into its own group rather than added to [`case_routes`] for the same
-/// reason [`scenario_routes`] was: the surface grows pane by pane (inventory is
-/// Pane 1 of four), and a route group that will keep growing should not be
-/// pushing an unrelated function toward the size limit. Merged independently in
-/// [`router`]; the paths are distinct from every other group's, so merge order
-/// does not matter.
-fn case_health_routes() -> Router<AppState> {
-    Router::new().route(
-        "/cases/:slug/case-health/inventory",
-        get(case_health::get_case_health_inventory),
-    )
 }
 
 /// Scenario authoring + curation routes (the `/cases/:slug/scenarios/...`

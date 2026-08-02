@@ -900,6 +900,94 @@ payload gains `status`.
 
 ---
 
+## 2026-08-01 | SOFTWARE ARCHITECT (Roman Approved) — task 1.5: rehearsal mode and the ready gate
+
+### Decision
+
+Built v2 §10 rehearsal mode and the §5/§6 ready gate that guards it.
+
+1. **The ready gate is SCENARIO-level and has exactly one recorded path.**
+   `POST /cases/:slug/scenarios/:id/ready` takes an explicit target (`{ready:
+   bool}`, not a toggle) and writes the status change plus its transition row in
+   ONE transaction. `PUT /cases/:slug/scenarios/:id` now **REFUSES** `status`
+   with a 400 naming the ready route — previously a rename could carry a
+   readiness change with no actor recorded. Refused rather than silently ignored:
+   dropping the field would report success for a change that never happened.
+
+2. **`scenario_status_transitions`** (new table, pipeline DB) records every
+   `drafted ⇄ ready` act: `from_status`, `to_status`, `actor`, `at`. Append-only,
+   no FK on `scenario_id` (the record of a human act must outlive the row), a
+   `from_status <> to_status` CHECK. Deliberately NOT the ruling ledger, which is
+   for evidence rulings and requires an anchor.
+
+3. **`scenario_responses.status` is VESTIGIAL and must never gate rehearsal.**
+   Every 1.4 write path sets it to `'draft'`, so filtering on it would show an
+   empty rehearsal forever with no error. It is also wrong in principle: §6 has
+   one `drafted ⇄ ready` transition and it is scenario-level. Recorded as a
+   doc-comment on the field citing this ruling.
+
+4. **The exclusion law holds by CONSTRUCTION.** `dto::rehearsal` carries only
+   code, theme, attack, points (each with an optional plain exhibit label) and
+   watch-list. There is no field for motivation, confidence, verdicts, status,
+   graph ids, documents or pages. A test serializes a fully-populated payload and
+   asserts eleven banned substrings are absent, so ADDING such a field fails the
+   build rather than reaching a witness.
+
+5. **Watch-list notes are a `kind` discriminator on `scenario_human_facts`**
+   (`fact` | `watch_list`, DEFAULT `'fact'` backfilling existing rows truthfully),
+   not a sibling table. One table means one write path, one scan-allowlist entry,
+   and §8's invariants cover the new kind for free; Phase 2's computed watch-list
+   then merges as a filter rather than a union. The panel receives the two as
+   SEPARATE lists so a client cannot render a watch-list note as a fact.
+
+6. **`draft` and `needs_evidence` both read as v2 "drafted".** The gate tests FOR
+   `ready` rather than against the two drafted values, so a fourth status added
+   later is excluded from rehearsal by default. No CHECK migration.
+
+### Rationale
+
+The gate exists because §5 makes it mandatory and §6 makes both directions human
+acts. A column pair (`ready_by` / `ready_at`) holds only the latest act, so one
+promote → demote → promote cycle erases the demotion — and "who took S-2 out of
+rehearsal?" asked at 11pm the night before trial is the only question this record
+is ever used for.
+
+The exclusion law is enforced by type shape rather than by review because the
+failure mode is a witness reading our strategy off a screen. Shape is checkable;
+discipline is not.
+
+### Impacts
+
+- Data Architect: `scenario_status_transitions` is a new pipeline-DB table.
+  `scenario_human_facts` gains `kind`.
+- DB Engineer: migration `20260801215024_add_ready_transitions_and_watch_list_kind`,
+  applied at backend boot. Forward-only, no down migration.
+- Software Architect: `PUT /scenarios/:id` is a BREAKING contract change — it
+  rejects `status`. No frontend caller sent it; a curl that did now gets a 400
+  naming the replacement route.
+
+### Action Required
+
+- [ ] Software Architect: task 1.6 moves the four recorded standing-exception
+      constants to the settings store. Task 1.5 added no new ones.
+- [ ] Software Architect: task 3.9 builds the talking-point → exhibit pairing
+      authoring UI. The field ships now and renders when present; it is `None`
+      until then, and no label is derived from the record (deriving one would put
+      words in the witness's mouth and drag pinpoint sourcing into a payload §10
+      keeps it out of).
+- [ ] Software Architect: task 3.10 builds the READ surface for
+      `scenario_status_transitions`. The rows are written from today; nothing can
+      display them yet, so "who pulled S-2 and when" currently takes a psql query
+      against `colossus_legal_v2`. `list_status_transitions` is written and
+      tested and awaits a handler. Deferred deliberately (ruled 2026-08-01):
+      where the history belongs — the scenario header, the working view, or a
+      case-level audit page — is a design decision, not a sidebar in a commit
+      that already carries a mode, a gate and a schema change.
+- [ ] Roman: DEV verify — demote S-2 to drafted → it vanishes from the rehearsal
+      list; Marie's login still sees the full working view.
+
+---
+
 ## Template for Future Entries
 
 ```markdown

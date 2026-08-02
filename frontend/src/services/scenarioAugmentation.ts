@@ -61,6 +61,14 @@ export type ScenarioIdentityDto = {
 export type AugmentationPanelDto = {
   identity: ScenarioIdentityDto;
   human_facts: HumanFactDto[];
+  /**
+   * C6 — the human-flagged watch-list notes (task 1.5).
+   *
+   * Split from `human_facts` by the BACKEND, not filtered here: the two render
+   * in different places, and a client that forgot the filter would show a
+   * watch-list note as a fact.
+   */
+  watch_list: HumanFactDto[];
   talking_points: TalkingPointDto[];
   /** Served, not hardcoded — it is a tunable that task 1.6 will move. */
   talking_points_cap: number;
@@ -96,11 +104,13 @@ export async function fetchAugmentationPanel(
   if (
     parsed.identity == null ||
     !Array.isArray(parsed.human_facts) ||
+    !Array.isArray(parsed.watch_list) ||
     !Array.isArray(parsed.talking_points)
   ) {
     throw new Error(
       `Augmentation response for scenario "${scenarioId}" is missing ` +
-        `identity/human_facts/talking_points — backend/frontend contract ` +
+        `identity/human_facts/watch_list/talking_points — backend/frontend ` +
+        `contract ` +
         `mismatch. If this persists, report it to the site administrator.`,
     );
   }
@@ -110,6 +120,13 @@ export async function fetchAugmentationPanel(
 /** What the add-fact form sends. */
 export type NewHumanFact = {
   text: string;
+  /**
+   * `fact` (the default) | `watch_list`.
+   *
+   * Omitted means a fact, matching the backend default and what every write
+   * before task 1.5 meant.
+   */
+  kind?: string;
   /** ISO `YYYY-MM-DD`, or omitted. */
   occurred_on?: string;
   /** `exact` | `around` | `range` | `ordered`; only meaningful with a date. */

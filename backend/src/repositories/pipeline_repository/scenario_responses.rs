@@ -61,6 +61,25 @@ pub struct ScenarioResponseRecord {
     pub scenario_id: uuid::Uuid,
     pub label: Option<String>,
     pub text: String,
+    /// `draft` | `ready`. **VESTIGIAL — do not gate anything on it.**
+    ///
+    /// ## Domain note: why this column must never gate rehearsal (RULED 2026-08-01)
+    ///
+    /// It looks like a per-point editorial gate, and it is not one. Two reasons,
+    /// and the second is the one that matters:
+    ///
+    /// 1. Every write path sets it to `'draft'` and nothing ever promotes it, so
+    ///    a rehearsal filtered on `status = 'ready'` would show an EMPTY page,
+    ///    forever, with no error — exactly the silent-empty failure this codebase
+    ///    keeps removing.
+    /// 2. It is wrong in principle. v2 §6's state machine has ONE
+    ///    `drafted ⇄ ready` transition and it is SCENARIO-level; §10 scopes
+    ///    rehearsal to "ready scenarios", not ready points. The scenario's
+    ///    readiness is the only gate, and it has one recorded path
+    ///    (`services::scenario_readiness`).
+    ///
+    /// If a per-point gate is ever genuinely wanted, it arrives as its own
+    /// ratified change — not by adding a condition to a query.
     pub status: String,
     pub origin: String,
     /// Who authored it (task 1.4). `None` only for rows predating that task —

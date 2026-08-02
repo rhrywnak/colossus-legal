@@ -18,6 +18,7 @@ pub mod scenario_card;
 pub mod scenario_card_assembly;
 pub mod scenario_dashboard;
 pub mod scenario_page;
+pub mod scenario_readiness;
 pub mod scenario_ruling;
 pub mod scenario_subject;
 pub mod theme_scan;

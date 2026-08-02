@@ -10,6 +10,7 @@ import CaseHealthPage from "./pages/CaseHealthPage";
 import CountDetailPage from "./pages/CountDetailPage";
 import ProofMatrixPage from "./pages/ProofMatrixPage";
 import ProofReviewPage from "./pages/ProofReviewPage";
+import RehearsalPage from "./pages/RehearsalPage";
 import TrialPrepDashboardPage from "./pages/TrialPrepDashboardPage";
 import ScenarioDetailPage from "./pages/ScenarioDetailPage";
 import BiasExplorer from "./pages/BiasExplorer";
@@ -71,6 +72,7 @@ const App: React.FC = () => {
               <Route path="/cases/:slug/case-health" element={<CaseHealthPage />} />
               <Route path="/cases/:slug/proof-matrix" element={<ProofMatrixPage />} />
               <Route path="/cases/:slug/proof-review" element={<ProofReviewPage />} />
+              <Route path="/cases/:slug/rehearsal" element={<RehearsalPage />} />
               <Route path="/cases/:slug/trial-prep" element={<TrialPrepDashboardPage />} />
               <Route path="/cases/:slug/trial-prep/:scenarioId" element={<ScenarioDetailPage />} />
               <Route path="/contradictions" element={<ContradictionsPage />} />

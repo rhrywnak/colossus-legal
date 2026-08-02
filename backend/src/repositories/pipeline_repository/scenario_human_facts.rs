@@ -45,6 +45,9 @@ pub struct ScenarioHumanFactRecord {
     /// Plain names, not entity ids — canonical identity is task B0.
     pub person_refs: Option<Vec<String>>,
     pub authored_by: String,
+    /// `fact` | `watch_list` (task 1.5). Kept as its raw token for the same
+    /// reason as `date_type`: the enum is a parse type used at the call site.
+    pub kind: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -54,7 +57,7 @@ pub struct ScenarioHumanFactRecord {
 // CONST: column projection locked to the `scenario_human_facts` schema — a
 // structural schema-coupling invariant, not a deployment value.
 const HUMAN_FACT_COLUMNS: &str = "id, scenario_id, text, occurred_on, date_type, \
-     person_refs, authored_by, created_at, updated_at";
+     person_refs, authored_by, kind, created_at, updated_at";
 
 /// Everything needed to write one human fact.
 ///
@@ -71,6 +74,9 @@ pub struct HumanFactWrite<'a> {
     pub date_type: Option<&'a str>,
     pub person_refs: &'a [String],
     pub authored_by: &'a str,
+    /// `fact` or `watch_list` — both human-authored, both equally protected by
+    /// the §8 invariants, which is why they share this write path.
+    pub kind: &'a str,
     /// Passed in rather than read from the clock here, so the row's timestamp
     /// matches the log line and tests stay deterministic.
     pub written_at: DateTime<Utc>,
@@ -80,8 +86,8 @@ pub struct HumanFactWrite<'a> {
 // live database (house pattern).
 const INSERT_HUMAN_FACT_SQL: &str = r#"INSERT INTO scenario_human_facts
         (scenario_id, text, occurred_on, date_type, person_refs,
-         authored_by, created_at, updated_at)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
+         authored_by, kind, created_at, updated_at)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
     RETURNING id"#;
 
 /// Write one human fact and return its id.
@@ -105,6 +111,7 @@ pub async fn insert_human_fact(
         .bind(fact.date_type)
         .bind(fact.person_refs)
         .bind(fact.authored_by)
+        .bind(fact.kind)
         .bind(fact.written_at)
         .fetch_one(executor)
         .await?;

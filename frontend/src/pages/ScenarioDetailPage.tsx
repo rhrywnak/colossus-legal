@@ -10,7 +10,7 @@
 // =============================================================================
 
 import React, { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 
 import Breadcrumb from "../components/Breadcrumb";
 import ScenarioCurationPanel from "../components/ScenarioCurationPanel";
@@ -22,6 +22,7 @@ import { DEFAULT_CASE_SLUG } from "../services/caseHeader";
 import { deleteScenario, updateScenario } from "../services/scenarioCrud";
 import { getScenarioDetailLive } from "../services/trialPrep";
 import type { ScenarioDetail } from "./trialPrepData";
+import ReadyToggle from "../components/ReadyToggle";
 import { statusMeta } from "./trialPrepHelpers";
 
 const containerStyle: React.CSSProperties = {
@@ -407,8 +408,34 @@ const ScenarioDetailPage: React.FC = () => {
       {/* A failed rename stays visible here; the editor above stays open with the
           user's text intact (never a silent revert / false success). */}
       {editingTitle && titleError && <div style={errorStyle}>{titleError}</div>}
-      <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: "1rem" }}>
-        Status: <span style={{ color: status.color, fontWeight: 600 }}>{status.label}</span>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "flex-start",
+          gap: "1rem",
+          fontSize: "0.8rem",
+          color: "var(--text-muted)",
+          marginBottom: "1rem",
+        }}
+      >
+        <span>
+          Status: <span style={{ color: status.color, fontWeight: 600 }}>{status.label}</span>
+        </span>
+        {/* The ready gate (task 1.5, v2 §5). It sits beside the status because it
+            IS the status — but it is the only path that changes it, since a
+            readiness declaration is a human act with a name recorded against it.
+            The generic rename/edit route refuses `status` outright. */}
+        {scenarioId && (
+          <ReadyToggle
+            slug={slug}
+            scenarioId={scenarioId}
+            ready={scenario.status === "ready"}
+            onChanged={() => setRefreshKey((k) => k + 1)}
+          />
+        )}
+        <Link to={`/cases/${encodeURIComponent(slug)}/rehearsal`} style={{ marginLeft: "auto" }}>
+          Rehearsal mode →
+        </Link>
       </div>
 
       {scenario.pattern_summary && (
