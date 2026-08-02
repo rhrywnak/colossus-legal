@@ -20,26 +20,16 @@
 
 use serde::{Deserialize, Serialize};
 
-// CONST: the default cap on talking points per scenario. §2b makes this a
-// tunable, and `talking_points_cap()` below is its single seam — the same shape
-// as `domain::confidence_band::band_for_score` and
-// `services::scenario_card::context_window_chars`.
+// The talking-points cap is a STORED parameter (task 1.6, v2 §2b).
 //
-// TODO(1.6): serve from the settings store. When 1.6 lands, `talking_points_cap`
-// reads it from there and this const is deleted. It is on 1.6's seed list.
+// It was an in-code default here behind a `talking_points_cap()` seam, marked
+// `TODO(1.6)`. It now lives in `app_settings` and reaches its two enforcement
+// points as `Settings::talking_points_cap` — read from the snapshot the handler
+// took, never compiled in.
 //
-// The value is v2's "~3": Marie holds three points in her head under pressure,
-// not seven. It exists to keep the list sayable, not to be precise.
-const DEFAULT_TALKING_POINTS_CAP: usize = 3;
-
-/// THE SEAM. How many talking points one scenario may carry.
-///
-/// Enforced server-side (task 1.4 end state item 3): a cap the browser applies
-/// is a suggestion, and the fourth point would be written by any client that did
-/// not implement it.
-pub fn talking_points_cap() -> usize {
-    DEFAULT_TALKING_POINTS_CAP
-}
+// The seeded value is v2's "~3": Marie holds three points in her head under
+// pressure, not seven. It exists to keep the list sayable, not to be precise —
+// and now Roman can change it without a rebuild, which was always the point.
 
 /// How precisely a human fact's date is known.
 ///
@@ -301,14 +291,6 @@ mod tests {
         // here, since there is no citation.
         assert_eq!(authored_tag("Roman"), "Added by Roman");
         assert!(authored_tag("Marie").contains("Marie"));
-    }
-
-    #[test]
-    fn the_cap_is_reachable_through_its_seam() {
-        // Task 1.6 changes the seam's body; nothing else moves. The value is
-        // asserted so a silent change to the default is visible in a diff.
-        assert_eq!(talking_points_cap(), 3);
-        assert!(talking_points_cap() > 0, "a cap of zero would forbid C5");
     }
 
     // ── HumanFactKind (task 1.5) ─────────────────────────────────────────────

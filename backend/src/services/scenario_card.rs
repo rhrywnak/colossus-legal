@@ -29,13 +29,14 @@ use crate::domain::card_language::{
 };
 use crate::domain::confidence_band::{band_for_score, ConfidenceBand};
 use crate::domain::fact_status::FactStatus;
+use crate::domain::settings::Settings;
 use crate::dto::scenario_card::{
     CardBearsOn, CardConfidence, CardGrounding, CardPinpoint, CardQuote, CardSpeaker, CardStance,
     ScenarioCard,
 };
 use crate::repositories::scenario_card_repository::CardExtrasRow;
 
-// The default width of the quote-in-context window, in characters.
+// The quote-in-context window is a STORED parameter (task 1.6, v2 §2b).
 //
 // RULED 2026-08-01: this is a TUNABLE, not a structural constant. "How much
 // context flanks the quote" is exactly the kind of number that may want turning up
@@ -44,28 +45,9 @@ use crate::repositories::scenario_card_repository::CardExtrasRow;
 // constrain the width, that constraint belongs to the SAME setting — one number,
 // one store, both consumers reading it — not to a second config source.
 //
-// It therefore gets the identical treatment to the band cutoffs: an in-code
-// default behind ONE seam, so task 1.6 changes the source in a single place. NOT
-// an env var — that would be the second config source this ruling exists to
-// prevent.
-//
-// TODO(1.6): serve from the settings store. `context_window_chars()` below is the
-// seam; 1.6 changes its body and deletes this const. It is on 1.6's seed parameter
-// list alongside the confidence-band cutoffs.
-const DEFAULT_CONTEXT_WINDOW_CHARS: usize = 240;
-
-/// THE SEAM for the context window. The only reader of the default above.
-///
-/// ## Why a function for a value that is currently constant
-///
-/// Identical reasoning to `domain::confidence_band::band_for_score`: a tunable
-/// behind one function is a tunable with a known home, so task 1.6 swaps the
-/// source here and every card in the product follows. Inlining the const at its
-/// two use sites would make 1.6 a hunt through the assembler — which is precisely
-/// what the Configuration law is protecting against.
-fn context_window_chars() -> usize {
-    DEFAULT_CONTEXT_WINDOW_CHARS
-}
+// Until 1.6 it was an in-code default behind a `context_window_chars()` seam,
+// marked `TODO(1.6)`. The seam is now the `&Settings` this module's builders take;
+// the const and the seam function are gone.
 
 /// Everything about one candidate that is not in the graph pool.
 ///
@@ -265,7 +247,7 @@ fn build_bears_on(links: &[ExtrasLink]) -> Vec<CardBearsOn> {
 /// the window by counting characters and mapping back to byte offsets is safe for
 /// any text — which matters here, because OCR'd legal PDFs are full of curly
 /// quotes, dashes and accented names.
-fn quote_context(page_text: Option<&str>, quote: &str) -> (String, String) {
+fn quote_context(page_text: Option<&str>, quote: &str, window: usize) -> (String, String) {
     let Some(page) = page_text else {
         return (String::new(), String::new());
     };
@@ -277,9 +259,8 @@ fn quote_context(page_text: Option<&str>, quote: &str) -> (String, String) {
     let after_all = &page[byte_at + quote.len()..];
 
     // Take the LAST `window` characters before, and the FIRST that many after —
-    // the text nearest the quote is the text that explains it. Read through the
-    // seam once, so both edges use the same value even if 1.6 makes it dynamic.
-    let window = context_window_chars();
+    // the text nearest the quote is the text that explains it. One value for both
+    // edges, so a change to the setting keeps the context symmetric.
     let before_start = before_all
         .char_indices()
         .rev()
@@ -366,22 +347,29 @@ fn defer_reason_for(
 ///
 /// This function IS the §7 contract: every element is assembled here, and the
 /// completeness test asserts against its output.
+///
+/// `settings` carries the two tunables the card reads — the band cutoffs and the
+/// context window (v2 §2b). It is an ARGUMENT rather than a global precisely so
+/// this function stays what its first line claims: pure, and testable with a
+/// struct literal rather than a booted process.
 pub(crate) fn build_card(
     instance: &BiasInstance,
     extras: Option<&CollapsedExtras>,
     ref_state: &CardRefState,
     ordinal: Option<i32>,
     page_text: Option<&str>,
+    settings: &Settings,
 ) -> ScenarioCard {
     let quote_text = instance.verbatim_quote.clone().unwrap_or_default();
-    let (context_before, context_after) = quote_context(page_text, &quote_text);
+    let (context_before, context_after) =
+        quote_context(page_text, &quote_text, settings.quote_context_window_chars);
 
     let links: &[ExtrasLink] = extras.map(|e| e.links.as_slice()).unwrap_or(&[]);
     let stance = build_stance(links);
 
     let bears_on = build_bears_on(links);
 
-    let band = band_for_score(ref_state.confidence);
+    let band = band_for_score(ref_state.confidence, settings);
     let status = ref_state.status.unwrap_or(FactStatus::Undecided);
     let defer_required_reason = defer_reason_for(
         &quote_text,

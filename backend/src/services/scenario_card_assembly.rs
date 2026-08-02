@@ -22,18 +22,24 @@ use crate::domain::fact_status::FactStatus;
 use crate::dto::scenario_card::{ScenarioCard, ScenarioCardsResponse};
 
 use super::scenario_card::{build_card, CardRefState, CollapsedExtras};
+use crate::domain::settings::Settings;
 
 /// Build every card and partition into the working pool and the set-aside list.
 ///
 /// Pure — which is why it lives here beside `build_card` rather than in the
 /// handler module: it carries domain knowledge (the set-aside partition, the
 /// C-code ordering) and no HTTP semantics at all.
+///
+/// `settings` is threaded straight through to `build_card`. The handler reads the
+/// snapshot from `AppState` once per request, so every card in one payload is
+/// banded by the same cutoffs even if a human edits them mid-request (v2 §2b).
 pub(crate) fn assemble(
     pool: Vec<BiasInstance>,
     extras: &HashMap<String, CollapsedExtras>,
     ref_states: &HashMap<String, CardRefState>,
     ordinals: &HashMap<String, i32>,
     page_text: &HashMap<String, String>,
+    settings: &Settings,
 ) -> ScenarioCardsResponse {
     let default_state = CardRefState::default();
     let mut working: Vec<ScenarioCard> = Vec::new();
@@ -57,6 +63,7 @@ pub(crate) fn assemble(
             ref_state,
             ordinals.get(&instance.evidence_id).copied(),
             page.map(|s| s.as_str()),
+            settings,
         );
 
         // Set-aside items are kept in their own list so the client partitions

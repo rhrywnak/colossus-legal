@@ -37,6 +37,7 @@ use colossus_legal_backend::{
     pipeline::context::{AppContext, AppContextDeps},
     pipeline::registry::PipelineRegistry,
     prompt_loader, restate_endpoint,
+    services::settings_store,
     state::{AppState, EntityTypeInfo, RelationshipTypeInfo, SchemaMetadata},
 };
 
@@ -102,6 +103,10 @@ async fn main() {
         .init();
 
     // Load .env (NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD, BACKEND_PORT, etc.)
+    // best-effort: no `.env` file is the NORMAL case in a container, where every
+    // variable comes from the environment directly. A missing file is not an
+    // error, and any variable it would have supplied is separately required by
+    // `AppConfig::from_env`, which names whatever is actually absent.
     dotenvy::dotenv().ok();
 
     // Shared setup: config, Neo4j, HTTP client
@@ -173,6 +178,15 @@ async fn run_serve(config: AppConfig, graph: neo4rs::Graph, http_client: reqwest
         }
         Err(e) => tracing::error!(error = %e, "startup: sweep of orphaned scan runs failed"),
     }
+
+    // --- Load the configuration store (task 1.6, v2 §2b) ---
+    //
+    // BOOT PRECONDITION. Every tunable the scenario function reads — band cutoffs,
+    // the quote-context window, the talking-points cap — lives in `app_settings`
+    // and is loaded here, once, into a snapshot handed to every request through
+    // `AppState`. A missing, unreadable or out-of-bounds parameter ENDS the
+    // process: there is deliberately no compiled-in default to fall back to.
+    let settings = settings_store::load_at_boot_or_exit(&pipeline_pool).await;
 
     // --- Load the pipeline configuration registry ---
     //
@@ -322,6 +336,7 @@ async fn run_serve(config: AppConfig, graph: neo4rs::Graph, http_client: reqwest
 
     // Shared application state (global AppState)
     let state = AppState {
+        settings,
         graph,
         config,
         rag_pipeline,

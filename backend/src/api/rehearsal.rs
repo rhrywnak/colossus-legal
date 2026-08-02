@@ -161,7 +161,10 @@ pub async fn get_rehearsal(
     State(state): State<AppState>,
     Path(slug): Path<String>,
 ) -> Result<Json<RehearsalPayload>, AppError> {
-    let payload = rehearsal_payload(&state.pipeline_pool, &slug)
+    // One snapshot for the whole payload — the cap that trims each scenario's
+    // points comes from the store (v2 §2b).
+    let settings = state.settings.current();
+    let payload = rehearsal_payload(&state.pipeline_pool, &slug, &settings)
         .await
         .map_err(readiness_error_to_app_error)?;
 

@@ -11,6 +11,7 @@ import CountDetailPage from "./pages/CountDetailPage";
 import ProofMatrixPage from "./pages/ProofMatrixPage";
 import ProofReviewPage from "./pages/ProofReviewPage";
 import RehearsalPage from "./pages/RehearsalPage";
+import SettingsPage from "./pages/SettingsPage";
 import TrialPrepDashboardPage from "./pages/TrialPrepDashboardPage";
 import ScenarioDetailPage from "./pages/ScenarioDetailPage";
 import BiasExplorer from "./pages/BiasExplorer";
@@ -84,6 +85,7 @@ const App: React.FC = () => {
               <Route path="/ask" element={<AskPage />} />
               <Route path="/timeline" element={<TimelinePage />} />
               <Route path="/admin" element={<Admin />} />
+              <Route path="/settings" element={<SettingsPage />} />
               <Route path="/pipeline" element={<Navigate to="/documents" replace />} />
               <Route path="/pipeline/:id" element={<Navigate to="/documents" replace />} />
               {/* Catch-all, and it must stay LAST: React Router v6 ranks routes by

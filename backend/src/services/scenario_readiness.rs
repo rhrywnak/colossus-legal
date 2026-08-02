@@ -19,8 +19,9 @@ use chrono::Utc;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::domain::human_authored::{talking_points_cap, HumanFactKind, STANDING_CARD};
+use crate::domain::human_authored::{HumanFactKind, STANDING_CARD};
 use crate::domain::scenario_code::scenario_code;
+use crate::domain::settings::Settings;
 use crate::dto::rehearsal::{RehearsalPayload, RehearsalPoint, RehearsalScenario};
 use crate::repositories::pipeline_repository::{
     insert_status_transition, list_human_facts_for_scenario, list_items_for_response,
@@ -193,6 +194,7 @@ pub async fn set_readiness(
 async fn talking_points_of(
     pool: &PgPool,
     scenario_id: Uuid,
+    settings: &Settings,
 ) -> Result<Vec<RehearsalPoint>, ReadinessError> {
     let responses = list_responses_for_scenario(pool, scenario_id)
         .await
@@ -211,7 +213,7 @@ async fn talking_points_of(
         // The cap is a display law as well as a write law: a list that grew past
         // it (through a direct write, or a lowered cap) must still rehearse as
         // the few points a witness can hold.
-        .take(talking_points_cap())
+        .take(settings.talking_points_cap)
         .map(|item| RehearsalPoint {
             text: item.text,
             // Pairing has no authoring surface yet (tracker 3.9), so this is
@@ -227,6 +229,7 @@ async fn talking_points_of(
 async fn rehearsal_scenario(
     pool: &PgPool,
     record: &ScenarioRecord,
+    settings: &Settings,
 ) -> Result<RehearsalScenario, ReadinessError> {
     let notes = list_human_facts_for_scenario(pool, record.scenario_id)
         .await
@@ -244,7 +247,7 @@ async fn rehearsal_scenario(
             .get("attack_text")
             .and_then(|v| v.as_str())
             .map(str::to_string),
-        points: talking_points_of(pool, record.scenario_id).await?,
+        points: talking_points_of(pool, record.scenario_id, settings).await?,
         watch_list: notes
             .into_iter()
             .filter(|n| n.kind == HumanFactKind::WatchList.code())
@@ -263,6 +266,7 @@ async fn rehearsal_scenario(
 pub async fn rehearsal_payload(
     pool: &PgPool,
     case_slug: &str,
+    settings: &Settings,
 ) -> Result<RehearsalPayload, ReadinessError> {
     let records = list_scenarios_for_case(pool, case_slug)
         .await
@@ -270,7 +274,7 @@ pub async fn rehearsal_payload(
 
     let mut scenarios = Vec::new();
     for record in records.iter().filter(|r| is_ready(r)) {
-        scenarios.push(rehearsal_scenario(pool, record).await?);
+        scenarios.push(rehearsal_scenario(pool, record, settings).await?);
     }
 
     Ok(RehearsalPayload {

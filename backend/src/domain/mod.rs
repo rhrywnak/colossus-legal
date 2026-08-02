@@ -30,3 +30,4 @@ pub mod llm_params;
 pub mod llm_provider_ext;
 pub mod ruling_anchor;
 pub mod scenario_code;
+pub mod settings;

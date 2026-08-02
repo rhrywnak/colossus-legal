@@ -1,0 +1,339 @@
+// =============================================================================
+// backend/src/domain/settings.rs — parsing and bounds for stored parameters
+// =============================================================================
+//
+// Task 1.6, v2 §2b — the configuration law. Every tunable is stored as TEXT with
+// a declared KIND, and this module is the only place that turns those two into a
+// number. Pure: no database, no state, every branch unit-testable.
+//
+// ## Why the parsing is fallible everywhere, with no defaults
+//
+// Before this task, a bad value could fall back to a compiled-in constant. After
+// it there are no compiled-in constants — that is the whole point of §2b — so a
+// value this module cannot read has no safe interpretation. Every function here
+// returns a `Result` naming the key, the value, and what was wrong with it, and
+// the callers turn that into either a boot refusal or a 400.
+//
+// ## Rust Learning: parse, don't validate
+//
+// The pattern throughout: a `&str` goes in and a TYPE comes out — `f32`, `usize`,
+// `Ratio`. Once you hold a `Ratio` you know its denominator is non-zero, because
+// the only way to build one checked that. Contrast with "validate": a function
+// that returns `bool` leaves you holding the same unchecked string afterwards,
+// and nothing stops the next caller forgetting to ask.
+
+use std::fmt;
+
+/// The parsed parameters, as every consumer sees them.
+///
+/// ## Rust Learning: `Copy` on a small config struct
+///
+/// Every field is a plain number, so the whole struct is a handful of bytes and
+/// copying it is cheaper than following a pointer. Deriving `Copy` means callers
+/// pass it by value without ceremony and can never hold a stale reference to a
+/// snapshot that has since been swapped — they hold their own copy for the life
+/// of the request, which is exactly the consistency a card payload wants.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Settings {
+    /// Confidence at or above this reads as the High band (§7).
+    pub confidence_band_high: f32,
+    /// Confidence at or above this — but below high — reads as Medium (§7).
+    pub confidence_band_medium: f32,
+    /// Characters of page text shown each side of a quote on a card (§7.1).
+    pub quote_context_window_chars: usize,
+    /// The most talking points one scenario may carry (§10).
+    pub talking_points_cap: usize,
+    /// Included citable items needed before ARMED (§9). No consumer until 2.4.
+    pub readiness_item_threshold_n: usize,
+    /// The share of candidates that must be rulable from the card alone (§7).
+    /// No consumer until 2.4.
+    pub card_test_ratio: Ratio,
+    /// How close a re-found quote must be to count as the same quote (§12.1).
+    /// Provisional; no consumer until 2.5.
+    pub reanchor_close_match_tolerance: f32,
+}
+
+/// A snapshot for TESTS ONLY.
+///
+/// ## Why this is `#[cfg(test)]` and not a `Default` impl
+///
+/// A `Default for Settings` would be a compiled-in set of parameters — the exact
+/// defect v2 §2b bans — and worse, it would be reachable from production code by
+/// accident (`..Default::default()`, `unwrap_or_default()`). Gating it on
+/// `cfg(test)` means it cannot exist in a release binary at all: production has
+/// one way to obtain a `Settings`, and that is to read the store.
+///
+/// The values match the migration's seed so a test reads the way the product
+/// behaves. `settings_store_tests` separately asserts the seed still produces
+/// exactly these numbers, so the two cannot drift apart silently.
+#[cfg(test)]
+impl Settings {
+    pub fn for_test() -> Self {
+        Settings {
+            confidence_band_high: 0.80,
+            confidence_band_medium: 0.50,
+            quote_context_window_chars: 240,
+            talking_points_cap: 3,
+            readiness_item_threshold_n: 5,
+            card_test_ratio: Ratio {
+                numerator: 9,
+                denominator: 10,
+            },
+            reanchor_close_match_tolerance: 0.85,
+        }
+    }
+}
+
+/// How a stored value should be read.
+///
+/// Extensible by design: adding a kind is a code change plus a seed row, never a
+/// schema migration. That is why the column is free TEXT rather than a CHECK —
+/// see the migration header.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ValueKind {
+    /// A real number, e.g. a band cutoff or a similarity tolerance.
+    Float,
+    /// A non-negative whole number, e.g. a cap or a character window.
+    Count,
+    /// `n/m` — a share written the way a human says it ("9 of 10").
+    Ratio,
+}
+
+impl ValueKind {
+    /// The full vocabulary, so a refusal can list what IS accepted.
+    pub const ALL: &'static [ValueKind] = &[ValueKind::Float, ValueKind::Count, ValueKind::Ratio];
+
+    /// The stable token stored in `app_settings.value_kind`.
+    pub fn code(self) -> &'static str {
+        match self {
+            ValueKind::Float => "float",
+            ValueKind::Count => "count",
+            ValueKind::Ratio => "ratio",
+        }
+    }
+
+    /// What a human should type, shown beside the edit box.
+    ///
+    /// Composed here rather than in the browser: it is a statement about how this
+    /// build parses the field, and the browser does not know that.
+    pub fn hint(self) -> &'static str {
+        match self {
+            ValueKind::Float => "a number, e.g. 0.80",
+            ValueKind::Count => "a whole number, e.g. 240",
+            ValueKind::Ratio => "n/m, e.g. 9/10",
+        }
+    }
+}
+
+impl TryFrom<&str> for ValueKind {
+    type Error = SettingError;
+
+    fn try_from(token: &str) -> Result<Self, Self::Error> {
+        match token {
+            "float" => Ok(ValueKind::Float),
+            "count" => Ok(ValueKind::Count),
+            "ratio" => Ok(ValueKind::Ratio),
+            other => Err(SettingError::UnknownKind {
+                kind: other.to_string(),
+            }),
+        }
+    }
+}
+
+/// A share, as `n` of `m`.
+///
+/// ## Domain note: why a ratio and not a decimal
+///
+/// The card test is "rulable from the card alone for at least 9 of 10
+/// candidates" (§7). Storing that as `0.9` would lose the denominator, and the
+/// denominator is part of what the rule MEANS — 9 of 10 and 90 of 100 are
+/// different claims about how much evidence the test needs before it says
+/// anything. A human also reads and edits it the way they say it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Ratio {
+    pub numerator: u32,
+    /// Guaranteed non-zero: the only constructor rejects zero.
+    pub denominator: u32,
+}
+
+impl fmt::Display for Ratio {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}/{}", self.numerator, self.denominator)
+    }
+}
+
+impl Ratio {
+    /// The ratio as a fraction, for comparing against a measured share.
+    ///
+    /// ## Rust Learning: why this cannot divide by zero
+    ///
+    /// `denominator` is private to construct — `parse_ratio` is the only way to
+    /// build a `Ratio`, and it refuses zero. The invariant is held by the TYPE,
+    /// so this function needs no guard and no `Result`. That is the payoff of
+    /// parse-don't-validate: the check happens once, at the boundary, instead of
+    /// at every use.
+    pub fn as_fraction(self) -> f64 {
+        f64::from(self.numerator) / f64::from(self.denominator)
+    }
+}
+
+/// Why a stored or submitted parameter could not be used.
+///
+/// Every message is written for the HUMAN editing the Settings page — they are
+/// the only one who can fix any of these — and names the key, so the same text
+/// is equally useful in a boot-refusal log line.
+#[derive(Debug, thiserror::Error, PartialEq)]
+pub enum SettingError {
+    #[error("'{kind}' is not a value kind this build understands (float, count, ratio)")]
+    UnknownKind { kind: String },
+
+    #[error("{key} needs {expected}, but the value is '{value}'")]
+    Unreadable {
+        key: String,
+        value: String,
+        expected: &'static str,
+    },
+
+    #[error("{key} must be at least {min}, but the value is {value}")]
+    BelowMinimum {
+        key: String,
+        value: String,
+        min: f64,
+    },
+
+    #[error("{key} must be at most {max}, but the value is {value}")]
+    AboveMaximum {
+        key: String,
+        value: String,
+        max: f64,
+    },
+
+    #[error("a ratio needs a denominator above zero — '{value}' would divide by nothing")]
+    ZeroDenominator { value: String },
+
+    #[error(
+        "the high confidence cutoff ({high}) must be above the medium cutoff \
+         ({medium}) — otherwise no score could ever land in the medium band"
+    )]
+    BandsCrossed { high: f32, medium: f32 },
+
+    #[error(
+        "no parameter named '{key}' is stored. Every parameter this build reads \
+         must exist in app_settings — there are no compiled-in defaults to fall \
+         back to (v2 §2b)"
+    )]
+    Missing { key: String },
+}
+
+/// Bounds as declared on the row. `None` on a side means unbounded there.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Bounds {
+    pub min: Option<f64>,
+    pub max: Option<f64>,
+}
+
+impl Bounds {
+    /// Check one number against the declared bounds.
+    ///
+    /// Bounds are INCLUSIVE. A cutoff of exactly 1.0 is a legitimate "nothing is
+    /// ever High"; a window of exactly 0 is a legitimate "show no context". Both
+    /// are strange settings and neither is an error — refusing them would be this
+    /// module deciding policy, which is the human's job.
+    ///
+    /// # Errors
+    /// Returns [`SettingError`] naming the key and the bound it crossed.
+    pub fn check(self, key: &str, value: f64) -> Result<(), SettingError> {
+        if let Some(min) = self.min {
+            if value < min {
+                return Err(SettingError::BelowMinimum {
+                    key: key.to_string(),
+                    value: value.to_string(),
+                    min,
+                });
+            }
+        }
+        if let Some(max) = self.max {
+            if value > max {
+                return Err(SettingError::AboveMaximum {
+                    key: key.to_string(),
+                    value: value.to_string(),
+                    max,
+                });
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Read a `float` parameter and check its bounds.
+///
+/// # Errors
+/// Returns [`SettingError`] if the text is not a number or falls outside bounds.
+pub fn parse_float(key: &str, value: &str, bounds: Bounds) -> Result<f32, SettingError> {
+    let parsed: f32 = value.trim().parse().map_err(|_| SettingError::Unreadable {
+        key: key.to_string(),
+        value: value.to_string(),
+        expected: "a number",
+    })?;
+
+    // NaN passes no comparison, so it would slip through both bound checks and
+    // then poison every band decision downstream (see `band_for_score`'s note on
+    // f32 ordering). Refused explicitly rather than left to the bounds.
+    if parsed.is_nan() {
+        return Err(SettingError::Unreadable {
+            key: key.to_string(),
+            value: value.to_string(),
+            expected: "a number",
+        });
+    }
+
+    bounds.check(key, f64::from(parsed))?;
+    Ok(parsed)
+}
+
+/// Read a `count` parameter and check its bounds.
+///
+/// # Errors
+/// Returns [`SettingError`] if the text is not a whole number or is out of bounds.
+pub fn parse_count(key: &str, value: &str, bounds: Bounds) -> Result<usize, SettingError> {
+    let parsed: usize = value.trim().parse().map_err(|_| SettingError::Unreadable {
+        key: key.to_string(),
+        value: value.to_string(),
+        expected: "a whole number (0 or more)",
+    })?;
+
+    // `usize` cannot be negative, so a "-1" fails the parse above with the
+    // message naming what was expected rather than an integer-overflow surprise.
+    bounds.check(key, parsed as f64)?;
+    Ok(parsed)
+}
+
+/// Read a `ratio` parameter written `n/m`.
+///
+/// # Errors
+/// Returns [`SettingError`] if the text is not `n/m`, or the denominator is zero.
+pub fn parse_ratio(key: &str, value: &str) -> Result<Ratio, SettingError> {
+    let unreadable = || SettingError::Unreadable {
+        key: key.to_string(),
+        value: value.to_string(),
+        expected: "a ratio written n/m, such as 9/10",
+    };
+
+    let (left, right) = value.trim().split_once('/').ok_or_else(unreadable)?;
+    let numerator: u32 = left.trim().parse().map_err(|_| unreadable())?;
+    let denominator: u32 = right.trim().parse().map_err(|_| unreadable())?;
+
+    if denominator == 0 {
+        return Err(SettingError::ZeroDenominator {
+            value: value.to_string(),
+        });
+    }
+    Ok(Ratio {
+        numerator,
+        denominator,
+    })
+}
+
+#[cfg(test)]
+#[path = "settings_tests.rs"]
+mod tests;

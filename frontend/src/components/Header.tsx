@@ -48,6 +48,9 @@ const NAV_ITEMS: NavItem[] = [
 // Admin-only items — shown when user.permissions.is_admin
 const ADMIN_ITEMS = [
   { label: "Admin", path: "/admin" },
+  // The configuration surface required by v2 §2b. Admin-gated by the same flag
+  // as the rest of this list; the backend enforces it on both routes regardless.
+  { label: "Settings", path: "/settings" },
 ];
 
 // ─── Styles ──────────────────────────────────────────────────────────────────

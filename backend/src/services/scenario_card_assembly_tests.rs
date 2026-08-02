@@ -5,6 +5,12 @@
 //! tested in `scenario_card_tests`.
 
 use super::*;
+
+/// The seeded snapshot, threaded through to `build_card` exactly as the handler
+/// threads it — so these tests exercise the real parameter path.
+fn settings() -> Settings {
+    Settings::for_test()
+}
 use crate::bias::dto::{ActorOption, DocumentRef};
 
 /// A candidate with everything the record can carry, on a given page.
@@ -84,6 +90,7 @@ fn set_aside_items_are_partitioned_into_their_own_list() {
         ]),
         &ordinals(&[("ev-1", 1), ("ev-2", 2), ("ev-3", 3)]),
         &HashMap::new(),
+        &settings(),
     );
 
     assert_eq!(response.pool.len(), 2, "included + undecided are the pool");
@@ -101,6 +108,7 @@ fn a_candidate_with_no_ref_row_is_undecided_and_in_the_pool() {
         &HashMap::new(),
         &HashMap::new(),
         &HashMap::new(),
+        &settings(),
     );
     assert_eq!(response.pool.len(), 1);
     assert_eq!(response.pool[0].status_label, "Not yet decided");
@@ -116,6 +124,7 @@ fn cards_sort_by_ordinal_numerically_not_lexicographically() {
         &HashMap::new(),
         &ordinals(&[("ev-a", 10), ("ev-b", 9)]),
         &HashMap::new(),
+        &settings(),
     );
     assert_eq!(response.pool[0].code.as_deref(), Some("C-9"));
     assert_eq!(response.pool[1].code.as_deref(), Some("C-10"));
@@ -135,6 +144,7 @@ fn un_numbered_candidates_sort_last_and_deterministically() {
         &HashMap::new(),
         &ordinals(&[("ev-1", 1)]),
         &HashMap::new(),
+        &settings(),
     );
     assert_eq!(response.pool[0].code.as_deref(), Some("C-1"));
     assert_eq!(response.pool[1].graph_node_id, "ev-a");
@@ -161,6 +171,7 @@ fn page_text_is_joined_by_document_and_page() {
         &HashMap::new(),
         &HashMap::new(),
         &page_text,
+        &settings(),
     );
     assert!(response.pool[0].quote.context_before.contains("PAGE TWO"));
     assert!(!response.pool[0].quote.context_before.contains("PAGE ONE"));
@@ -176,6 +187,7 @@ fn a_candidate_with_no_stored_page_text_still_serves_a_card() {
         &HashMap::new(),
         &HashMap::new(),
         &HashMap::new(),
+        &settings(),
     );
     let card = &response.pool[0];
     assert!(card.quote.context_before.is_empty());

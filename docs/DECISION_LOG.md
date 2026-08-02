@@ -743,6 +743,9 @@ unchanged and still serves the shipped workbench until 1.3 switches it over.
       the same setting rather than to a second config source. Neither gets an env
       var in the interim; both are in-code defaults behind their seam. The band
       cutoffs stand as a known Rule-13 standing exception until 1.6 lands.
+      **RETIRED 2026-08-01 by task 1.6** — both are now `app_settings` rows;
+      `HIGH_CONFIDENCE_CUTOFF`, `MEDIUM_CONFIDENCE_CUTOFF` and
+      `DEFAULT_CONTEXT_WINDOW_CHARS` are deleted from the source.
 - [ ] Software Architect: task 3.7 owns relevance-to-definition ordering
 - [ ] Software Architect: §7.1 thinness — quote-in-context locates the quote by
       substring search in the stored page text. A very short quote ("Yes.") could
@@ -896,6 +899,8 @@ payload gains `status`.
       `HIGH_CONFIDENCE_CUTOFF`, `MEDIUM_CONFIDENCE_CUTOFF`,
       `DEFAULT_CONTEXT_WINDOW_CHARS`, `DEFAULT_TALKING_POINTS_CAP`. Re-flags of
       any of the four are auto-signed; a NEW constant still stops for sign-off.
+      **RETIRED 2026-08-01 by task 1.6.** All four constants are deleted; the
+      exception list is EMPTY and the auto-sign-off rule expires with it.
 - [ ] Software Architect: task 3.8 removes `neo4j/human_facts.rs`
 
 ---
@@ -985,6 +990,137 @@ discipline is not.
       that already carries a mode, a gate and a schema change.
 - [ ] Roman: DEV verify — demote S-2 to drafted → it vanishes from the rehearsal
       list; Marie's login still sees the full working view.
+
+---
+
+## 2026-08-01 | SOFTWARE ARCHITECT (Roman Approved) — task 1.6: settings store, and the end of the exception era
+
+### Decision
+
+Built the configuration store v2 §2b requires, and **deleted every compiled-in
+parameter in the scenario function**.
+
+1. **`app_settings`** (pipeline DB) — key · value · declared kind · default ·
+   bounds · plain-language meaning · `consumed_by` · last-changed. One TEXT value
+   column with a `value_kind` (`float` | `count` | `ratio`) rather than typed
+   columns or JSONB: one edit widget on the page, one parser per kind, readable
+   in psql, bounds enforced numerically. Seeded with all SEVEN parameters at
+   today's values, so the migration changes no behaviour.
+
+2. **`app_setting_changes`** — append-only, key · old · new · actor · at. The
+   fourth append-only table in two days, and for the same reason: "who changed N
+   the night before trial" is the question, and the night before trial is exactly
+   when a value gets changed twice. `updated_by`/`updated_at` stay on the row for
+   the page's "last changed by" line; the ledger is the history.
+
+3. **The snapshot is THREADED, not global.** `Settings` is loaded at boot into
+   `AppState` and handed to the pure functions that need it. A process-global
+   would have let the four seams keep their signatures — and would have put
+   hidden state inside `build_card`, which this codebase documents as "Pure — no
+   I/O" and whose output the §7 completeness test asserts against. Worse: a unit
+   test calling it without booting would find the global empty, leaving a panic
+   or a compiled-in fallback, *the exact defect this task deletes*. Four
+   signatures changed instead.
+
+4. **The freshness law.** A write updates the row, appends the ledger entry,
+   re-reads the whole store, and swaps the snapshot — all before the response is
+   sent. "Edits take effect on next read", literally, with **zero database reads
+   on the card path**. This assumes a single-process backend; if a second process
+   ever serves this API the swap needs a cross-process story. Recorded in the
+   module doc so tomorrow's reader knows it was seen, not missed.
+
+5. **The failure law.** A parameter missing, unreadable, out of bounds, or
+   self-contradictory REFUSES — at boot (process exits, naming the key) and on
+   write (400, naming the parameter and the limit). There is deliberately no
+   fallback: after this task no compiled-in default exists to fall back to, and
+   inventing one at the moment of failure would silently reinstate the defect.
+   The `high > medium` invariant spans two rows, so no column CHECK can express
+   it; it is enforced in the write path AND re-checked at load, because a psql
+   edit bypasses the write path.
+
+6. **`/settings`**, behind the existing `is_admin` gating, listing every
+   parameter with value, default, meaning, bounds and input hint. The three
+   dormant parameters are listed and editable, each labelled *"Read by task 2.4,
+   which is not built yet — changing this has no effect today."* A page that
+   listed inert knobs silently would be lying about its own reach.
+
+### Rationale
+
+Roman's law, born from months of parameter changes requiring rebuilds. The seam
+discipline established in tasks 1.2 and 1.4 is what made this a one-line change
+in each of four files rather than a hunt: every tunable already lived behind
+exactly one function, so repointing it was mechanical.
+
+`reanchor_close_match_tolerance` is seeded at 0.85 as a normalized similarity —
+bounded, direction-obvious, algorithm-agnostic. Its meaning text says PROVISIONAL
+and licenses task 2.5 to re-seed it with a different unit if its matching design
+needs one.
+
+### Impacts
+
+- Data Architect: two new pipeline-DB tables, `app_settings` and
+  `app_setting_changes`.
+- DB Engineer: migration `20260801225147_create_app_settings_store`, applied at
+  boot. Forward-only. **The backend now refuses to start if the seed is absent** —
+  the migration and the binary must deploy together.
+- Software Architect: `build_card`, `assemble`, `check_talking_points`,
+  `set_talking_points`, `rehearsal_payload` and `band_for_score` all take a
+  `&Settings`. No wire contract changed.
+
+### THE EXCEPTION ERA IS CLOSED
+
+`HIGH_CONFIDENCE_CUTOFF`, `MEDIUM_CONFIDENCE_CUTOFF`,
+`DEFAULT_CONTEXT_WINDOW_CHARS` and `DEFAULT_TALKING_POINTS_CAP` are **deleted**.
+The Rule-13 standing-exception list is **empty**, and the auto-sign-off rule for
+re-flags **expires with it** — from here, any config-shaped constant stops for
+sign-off, with no exceptions to cite.
+
+A source scan (`the_four_retired_constants_are_gone_and_stay_gone`) walks every
+`.rs` file and fails the build if any of the four names returns, as a fallback, a
+fixture promoted to production, or a "temporary" default. The law is now a test.
+
+### Action Required
+
+- [ ] Software Architect: tracker 3.11 — the config-law sweep OUTSIDE the
+      scenario surface. The `rules-enforcer` gate on this task returned FAIL on
+      five PRE-EXISTING config-shaped constants; they are deferred here by ruling
+      (2026-08-01), because migrating the RAG pipeline's configuration inside the
+      settings-store commit is the scope-bleed this process exists to prevent.
+      The complete list, so 3.11 inherits a list and not a vibe:
+
+      | Location | Constant / value | Why it is config-shaped |
+      |---|---|---|
+      | `main.rs:24` | `DEFAULT_CHAT_MODEL = "claude-sonnet-4-6"` | a model id — availability and cost tier are deployment decisions |
+      | `main.rs:30` | `CHAT_MAX_TOKENS = 4096` | a per-deployment token budget |
+      | `main.rs:~127` | `Duration::from_secs(90)` (HTTP client timeout) | a tunable timeout |
+      | `main.rs:~128` | `Duration::from_secs(5)` (HTTP connect timeout) | a tunable timeout |
+      | `main.rs:~708` | `DEFAULT_STARTUP_SCHEMA_FILE = "general_legal.yaml"` | a filename selecting an asset |
+      | `config.rs:20` | `rerank_threshold` | an env var with an `unwrap_or(0.3)` — a compiled-in default behind a config read |
+
+      Two comment-only violations from the same gate WERE fixed in task 1.6, being
+      zero-risk: the missing `// best-effort:` marker on `dotenvy::dotenv().ok()`
+      and the missing serde rationale comments on `SchemaMetadata` /
+      `EntityTypeInfo` / `RelationshipTypeInfo`. `deny_unknown_fields` was
+      deliberately NOT added to those three — it is a silent deserialization
+      behaviour change and has no business riding a configuration commit.
+
+      3.11 also owes a ruling on `rag_config`: a seeded table with zero readers in
+      colossus-legal AND colossus-rs is either a future feature or a corpse, and
+      someone should say which.
+- [ ] Software Architect: tracker 2.7 inherits a NAMED flaky test.
+      `pipeline::registry::tests::test_registry_from_env_with_registry_file`
+      failed once during this task's verification and passed on every rerun. The
+      cause is now identified rather than folklore: several tests in
+      `src/pipeline/registry_tests.rs` call `std::env::set_var` /
+      `std::env::remove_var` on the SAME variables — `PROCESSING_PROFILE_DIR` at
+      lines 513, 535 and 557 — and Rust runs tests in parallel threads, so one
+      test clears the variable another is depending on. Process-wide environment
+      is shared state; the fixture needs serialising (a mutex) or the tests need
+      to stop mutating the real environment. This is the intermittent observed
+      but never captured during tasks 1.2–1.5. NOT fixed in 1.6 — it rides 2.7
+      with the fixture repair.
+- [ ] Roman: DEV verify — change a value on the Settings page; the API serves the
+      new value on next read; no rebuild happened.
 
 ---
 

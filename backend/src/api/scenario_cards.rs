@@ -127,7 +127,10 @@ pub async fn get_scenario_cards(
 
     let page_text = load_page_text(&state, &pool).await;
 
-    let response = assemble(pool, &extras, &ref_states, &ordinals, &page_text);
+    // One snapshot for the whole payload: read once here so every card is banded
+    // by the same cutoffs, and so the pure assembler stays pure (v2 §2b).
+    let settings = state.settings.current();
+    let response = assemble(pool, &extras, &ref_states, &ordinals, &page_text, &settings);
 
     tracing::info!(
         pool = response.pool.len(),

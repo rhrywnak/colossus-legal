@@ -21,6 +21,8 @@ pub mod scenario_page;
 pub mod scenario_readiness;
 pub mod scenario_ruling;
 pub mod scenario_subject;
+pub mod settings_handle;
+pub mod settings_store;
 pub mod theme_scan;
 pub mod theme_scan_judge;
 pub mod theme_scan_parse;

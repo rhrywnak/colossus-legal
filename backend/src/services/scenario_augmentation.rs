@@ -21,15 +21,16 @@
 //! ## Why the cap is enforced here rather than in the browser
 //!
 //! A cap the client applies is a suggestion: the fourth talking point is written
-//! by any client that did not implement it, including a curl. The seam
-//! (`domain::human_authored::talking_points_cap`) is read on this side, and the
-//! refusal names the limit so the human knows what happened.
+//! by any client that did not implement it, including a curl. The cap arrives in
+//! the `Settings` snapshot the handler took (task 1.6, v2 §2b) and is checked on
+//! this side; the refusal names the limit so the human knows what happened.
 
 use chrono::{NaiveDate, Utc};
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::domain::human_authored::{talking_points_cap, DateType, HumanFactKind};
+use crate::domain::human_authored::{DateType, HumanFactKind};
+use crate::domain::settings::Settings;
 use crate::repositories::pipeline_repository::{
     delete_human_fact, delete_responses_for_scenario, insert_human_fact, insert_response_item,
     insert_scenario_response, list_human_facts_for_scenario, list_items_for_response,
@@ -189,14 +190,17 @@ pub async fn remove_human_fact(
 ///
 /// A trailing empty field in the editor is not a talking point. Counting it would
 /// refuse a legitimate third point because the human left a blank fourth box open.
-pub fn check_talking_points(points: &[String]) -> Result<Vec<String>, AugmentationError> {
+pub fn check_talking_points(
+    points: &[String],
+    settings: &Settings,
+) -> Result<Vec<String>, AugmentationError> {
     let kept: Vec<String> = points
         .iter()
         .map(|p| p.trim().to_string())
         .filter(|p| !p.is_empty())
         .collect();
 
-    let cap = talking_points_cap();
+    let cap = settings.talking_points_cap;
     if kept.len() > cap {
         return Err(AugmentationError::TooManyTalkingPoints {
             attempted: kept.len(),
@@ -226,8 +230,9 @@ pub async fn set_talking_points(
     scenario_id: Uuid,
     points: &[String],
     authored_by: &str,
+    settings: &Settings,
 ) -> Result<Vec<String>, AugmentationError> {
-    let kept = check_talking_points(points)?;
+    let kept = check_talking_points(points, settings)?;
 
     let mut tx = pool
         .begin()

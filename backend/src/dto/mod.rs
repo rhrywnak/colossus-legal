@@ -28,6 +28,7 @@ pub mod scenario_card;
 pub mod scenario_crud;
 pub mod scenario_facts;
 pub mod schema;
+pub mod settings;
 pub mod theme_scan;
 pub mod trial_prep;
 

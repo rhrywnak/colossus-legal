@@ -34,7 +34,7 @@ use uuid::Uuid;
 
 use crate::{
     auth::{require_edit, AuthUser},
-    domain::human_authored::{authored_tag, talking_points_cap, DateType, HumanFactKind},
+    domain::human_authored::{authored_tag, DateType, HumanFactKind},
     domain::scenario_code::scenario_code,
     dto::scenario_augmentation::{
         AddHumanFactRequest, AugmentationPanelDto, HumanFactDto, ScenarioIdentityDto,
@@ -217,7 +217,10 @@ pub async fn get_augmentation_panel(
                 authored_tag: item.authored_by.as_deref().map(authored_tag),
             })
             .collect(),
-        talking_points_cap: talking_points_cap(),
+        // From the store, not the browser and not a constant: it is a tunable,
+        // and a client that baked in "3" would show the wrong limit the moment
+        // Roman changes it on the Settings page (v2 §2b).
+        talking_points_cap: state.settings.current().talking_points_cap,
     }))
 }
 
@@ -333,9 +336,16 @@ pub async fn put_talking_points(
     let id = parse_scenario_id(&scenario_id)?;
     ensure_scenario_in_case(&state, id, &slug).await?;
 
-    let kept = set_talking_points(&state.pipeline_pool, id, &payload.points, &user.username)
-        .await
-        .map_err(augmentation_error_to_app_error)?;
+    let settings = state.settings.current();
+    let kept = set_talking_points(
+        &state.pipeline_pool,
+        id,
+        &payload.points,
+        &user.username,
+        &settings,
+    )
+    .await
+    .map_err(augmentation_error_to_app_error)?;
 
     tracing::info!(
         scenario_id = %id,

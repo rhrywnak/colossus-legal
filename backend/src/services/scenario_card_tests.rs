@@ -9,6 +9,13 @@
 //! database or graph is needed to prove the contract holds.
 
 use super::*;
+
+/// The seeded snapshot — band cutoffs 0.80/0.50, context window 240. The
+/// assertions below are written against those, the same values the migration
+/// stores and the product ships with.
+fn settings() -> Settings {
+    Settings::for_test()
+}
 use crate::bias::dto::{ActorOption, DocumentRef};
 use crate::repositories::scenario_card_repository::CardExtrasRow;
 
@@ -103,6 +110,7 @@ fn every_section_seven_element_is_present_on_a_complete_card() {
         &scored_ref(),
         Some(14),
         Some(page),
+        &settings(),
     );
 
     // §7.1 quote IN CONTEXT — the quote, and text either side of it.
@@ -179,6 +187,7 @@ fn an_item_with_no_accusation_link_serves_a_defer_flag_not_a_bare_stance() {
         &scored_ref(),
         Some(222),
         None,
+        &settings(),
     );
 
     assert!(
@@ -224,6 +233,7 @@ fn an_unscored_unlinked_item_gets_the_simpler_reason() {
         &CardRefState::default(),
         Some(9),
         None,
+        &settings(),
     );
 
     let reason = card.defer_required_reason.expect("still unrulable");
@@ -239,7 +249,14 @@ fn an_item_with_no_quote_is_unrulable_for_the_citability_reason() {
     instance.verbatim_quote = None;
     let extras = extras_for(vec![linked_row(crate::neo4j::schema::REBUTS)]);
 
-    let card = build_card(&instance, Some(&extras), &scored_ref(), Some(3), None);
+    let card = build_card(
+        &instance,
+        Some(&extras),
+        &scored_ref(),
+        Some(3),
+        None,
+        &settings(),
+    );
     assert!(card.defer_required);
     let reason = card.defer_required_reason.expect("unrulable");
     assert!(reason.contains("no verbatim quote"), "{reason}");
@@ -249,7 +266,14 @@ fn an_item_with_no_quote_is_unrulable_for_the_citability_reason() {
 /// An item the graph knows nothing extra about is still a card.
 #[test]
 fn a_candidate_with_no_extras_still_builds_and_flags_itself() {
-    let card = build_card(&full_instance(), None, &CardRefState::default(), None, None);
+    let card = build_card(
+        &full_instance(),
+        None,
+        &CardRefState::default(),
+        None,
+        None,
+        &settings(),
+    );
 
     assert!(card.stance.is_none());
     assert!(card.bears_on.is_empty());
@@ -295,6 +319,7 @@ fn no_banned_word_appears_in_any_card_string() {
             &scored_ref(),
             Some(14),
             Some("context before the quote. I do not recall that meeting. and after."),
+            &settings(),
         );
 
         let mut strings = vec![
@@ -344,7 +369,14 @@ fn each_edge_class_renders_its_canon_verb() {
         (schema::ABOUT, "mentions"),
     ] {
         let extras = extras_for(vec![linked_row(edge)]);
-        let card = build_card(&full_instance(), Some(&extras), &scored_ref(), None, None);
+        let card = build_card(
+            &full_instance(),
+            Some(&extras),
+            &scored_ref(),
+            None,
+            None,
+            &settings(),
+        );
         let stance = card.stance.expect("a mapped edge yields a stance");
         assert_eq!(stance.verb, expected, "edge {edge}");
     }
@@ -373,7 +405,14 @@ fn one_accusation_with_several_elements_lists_them_all_under_one_entry() {
     );
 
     // …and the card shows the accusation once, carrying both.
-    let card = build_card(&full_instance(), Some(&extras), &scored_ref(), None, None);
+    let card = build_card(
+        &full_instance(),
+        Some(&extras),
+        &scored_ref(),
+        None,
+        None,
+        &settings(),
+    );
     assert_eq!(card.bears_on.len(), 1, "the accusation appears once");
     assert_eq!(
         card.bears_on[0].elements,
@@ -392,7 +431,14 @@ fn an_accusation_wired_to_no_element_carries_an_empty_list() {
     row.count_name = None;
     let extras = extras_for(vec![row]);
 
-    let card = build_card(&full_instance(), Some(&extras), &scored_ref(), None, None);
+    let card = build_card(
+        &full_instance(),
+        Some(&extras),
+        &scored_ref(),
+        None,
+        None,
+        &settings(),
+    );
     assert_eq!(card.bears_on.len(), 1);
     assert!(card.bears_on[0].elements.is_empty());
     assert_eq!(card.bears_on[0].count, None);
@@ -406,7 +452,14 @@ fn two_distinct_allegations_are_both_carried() {
     other.allegation_paragraph = Some("55".to_string());
     let extras = extras_for(vec![linked_row(crate::neo4j::schema::REBUTS), other]);
 
-    let card = build_card(&full_instance(), Some(&extras), &scored_ref(), None, None);
+    let card = build_card(
+        &full_instance(),
+        Some(&extras),
+        &scored_ref(),
+        None,
+        None,
+        &settings(),
+    );
     assert_eq!(card.bears_on.len(), 2, "both accusations must be shown");
 }
 
@@ -421,6 +474,7 @@ fn context_is_taken_from_around_the_quote() {
         &CardRefState::default(),
         None,
         Some(page),
+        &settings(),
     );
     assert!(card.quote.context_before.contains("BEFORE TEXT"));
     assert!(card.quote.context_after.contains("AFTER TEXT"));
@@ -437,6 +491,7 @@ fn a_quote_absent_from_its_page_yields_empty_context_not_a_guess() {
         &CardRefState::default(),
         None,
         Some("a page whose text does not contain the quote"),
+        &settings(),
     );
     assert!(card.quote.context_before.is_empty());
     assert!(card.quote.context_after.is_empty());
@@ -449,7 +504,7 @@ fn a_quote_absent_from_its_page_yields_empty_context_not_a_guess() {
 /// edges reading one call is what stops 1.6 from producing a lopsided window.
 #[test]
 fn both_context_edges_use_the_same_window_value() {
-    let window = context_window_chars();
+    let window = settings().quote_context_window_chars;
     let filler = "x".repeat(window * 2);
     let page = format!("{filler}I do not recall that meeting.{filler}");
     let card = build_card(
@@ -458,6 +513,7 @@ fn both_context_edges_use_the_same_window_value() {
         &CardRefState::default(),
         None,
         Some(&page),
+        &settings(),
     );
     assert_eq!(card.quote.context_before.chars().count(), window);
     assert_eq!(card.quote.context_after.chars().count(), window);
@@ -470,7 +526,7 @@ fn context_windowing_never_splits_a_multibyte_character() {
     // Drive the fixture off the seam so a 1.6 change to the window does not turn
     // this into a false failure — the property under test is the character
     // boundary, not the width.
-    let window = context_window_chars();
+    let window = settings().quote_context_window_chars;
     let filler = "é".repeat(window * 2);
     let page = format!("{filler}I do not recall that meeting.{filler}");
     let card = build_card(
@@ -479,6 +535,7 @@ fn context_windowing_never_splits_a_multibyte_character() {
         &CardRefState::default(),
         None,
         Some(&page),
+        &settings(),
     );
     assert_eq!(card.quote.context_before.chars().count(), window);
     assert_eq!(card.quote.context_after.chars().count(), window);
@@ -493,6 +550,7 @@ fn a_page_shorter_than_the_window_returns_what_there_is() {
         &CardRefState::default(),
         None,
         Some(page),
+        &settings(),
     );
     assert_eq!(card.quote.context_before, "Short. ");
     assert_eq!(card.quote.context_after, " End.");
@@ -504,7 +562,14 @@ fn a_page_shorter_than_the_window_returns_what_there_is() {
 fn a_pageless_item_gets_a_viewer_link_without_a_page_anchor() {
     let mut instance = full_instance();
     instance.page_number = None;
-    let card = build_card(&instance, None, &CardRefState::default(), None, None);
+    let card = build_card(
+        &instance,
+        None,
+        &CardRefState::default(),
+        None,
+        None,
+        &settings(),
+    );
 
     assert_eq!(card.pinpoint.page, None);
     assert_eq!(card.pinpoint.viewer_href, "/documents/doc-7?tab=document");
@@ -527,7 +592,14 @@ fn a_humans_defer_reason_rides_the_card_separately_from_the_system_flag() {
         confidence: Some(0.9),
         defer_reason: Some("waiting on the unredacted page".to_string()),
     };
-    let card = build_card(&full_instance(), Some(&extras), &ref_state, None, None);
+    let card = build_card(
+        &full_instance(),
+        Some(&extras),
+        &ref_state,
+        None,
+        None,
+        &settings(),
+    );
 
     assert_eq!(
         card.defer_reason.as_deref(),
@@ -549,7 +621,7 @@ fn status_labels_are_plain_language_for_every_state() {
             status: Some(status),
             ..CardRefState::default()
         };
-        let card = build_card(&full_instance(), None, &ref_state, None, None);
+        let card = build_card(&full_instance(), None, &ref_state, None, None, &settings());
         assert_eq!(card.status_label, expected);
     }
 }

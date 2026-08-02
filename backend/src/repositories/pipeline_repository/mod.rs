@@ -42,6 +42,7 @@
 //! - `models.rs`, `report_queries.rs`, `review.rs`, `steps.rs`,
 //!   `users.rs` — other table-scoped repository modules.
 
+pub mod app_settings;
 pub mod authored_entities;
 pub mod config;
 pub mod config_overrides;
@@ -75,6 +76,7 @@ pub mod scenario_store;
 pub mod steps;
 pub mod users;
 
+pub use app_settings::*;
 pub use authored_entities::*;
 pub use config::*;
 pub use config_overrides::*;
