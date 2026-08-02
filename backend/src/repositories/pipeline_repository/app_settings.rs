@@ -30,7 +30,15 @@ pub struct AppSettingRecord {
     pub value: String,
     pub value_kind: String,
     pub default_value: String,
-    /// Bounds are `NUMERIC` in Postgres and arrive as `f64`. NULL = unbounded.
+    /// Bounds are `DOUBLE PRECISION` in Postgres and arrive as `f64`. NULL =
+    /// unbounded.
+    ///
+    /// They were `NUMERIC` until migration `20260802092813`, and that cost a
+    /// deploy: sqlx decodes `NUMERIC` only into `Decimal` / `BigDecimal`, and
+    /// this workspace carries neither, so v2.0.0-beta.364 seeded the store and
+    /// then refused to boot on the first read. If a bound ever needs to become
+    /// `NUMERIC` again, the projection must cast it (`min_value::float8`) the
+    /// way `llm_models` casts its cost columns.
     pub min_value: Option<f64>,
     pub max_value: Option<f64>,
     pub meaning: String,

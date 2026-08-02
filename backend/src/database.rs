@@ -71,7 +71,14 @@ pub async fn init_pools(config: &AppConfig) -> DatabasePools {
         .await
         .expect("Failed to run pipeline migrations");
 
-    tracing::info!("PostgreSQL (pipeline / colossus_legal_v2) connected and migrations complete");
+    // The count is the migrator's own view of the directory, so a boot log can be
+    // read against `ls pipeline_migrations | wc -l` without a database query. It
+    // is how many migrations this BINARY carries — not how many were applied on
+    // this boot, which is nearly always zero and tells an operator nothing.
+    tracing::info!(
+        migrations = pipeline_migrator.iter().count(),
+        "PostgreSQL (pipeline / colossus_legal_v2) connected and migrations complete"
+    );
 
     DatabasePools {
         main_pool,
