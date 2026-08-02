@@ -1219,6 +1219,96 @@ were all blind to the one place the two sides meet.
 
 ---
 
+## 2026-08-02 | SOFTWARE ARCHITECT (Roman Approved) — task 1.7A: three G1 defects measured on beta.365
+
+### Decision
+
+**D1 — the app shell stops painting every screen grey (v2 §2c).** New
+`--bg-canvas: #ffffff` token. The shell (`App.tsx`) and the two screens that
+paint their own full-height canvas (`EvidenceExplorerPage`, `GraphPage`) use it.
+
+`--bg-page` (#f4f5f7) is NOT changed to white: it has 126 remaining uses, every
+one an element tint — table stripes, code blocks, nav hover states, badge fills,
+and three sites where it is a hairline BORDER colour. Setting it white would have
+satisfied §2c by making all of those invisible. The token has been doing two jobs
+under one name; it now does one, and the naming debt (`--bg-page` → `--bg-tint`,
+126 sites) is recorded in `tokens.css`. Task 1.7B's Phase A decides whether the
+rename rides the page restructure or earns its own cleanup task.
+
+**D3 — candidate context is recomputed at assembly with an index-mapped
+normalizer.** New pure module `domain/quote_match.rs`: `normalize_with_map`
+(the existing normalization, carrying the byte span each normalized character
+came from) and `locate` (exact tier, then normalized tier, returning a span in
+the ORIGINAL text). `normalize_text` MOVED there from
+`api::pipeline::canonical_verifier`, which re-exports it — one implementation, so
+grounding and display cannot drift into two definitions of "found".
+
+**D4 — a parameter's input hint uses its OWN default as the worked example.**
+`ValueKind::hint(default)` composes it from the row; every whole-number field
+used to advertise "e.g. 240", including `talking_points_cap`, whose default is 3
+and whose minimum is 1 — an example the field itself would have refused.
+
+### Rationale
+
+**D3 is the substantive one.** The card assembler located context with
+`page.find(quote)` — an exact, case-sensitive substring search — while the ingest
+path grounds in TWO tiers: exact, then normalized (smart quotes, dashes,
+ligatures, collapsed whitespace, hyphenated line breaks, transcript gutter
+numerals). Every quote grounded on the second tier failed that search and was
+served with two empty strings, silently.
+
+Measured on DEV before the fix, corpus-wide, joining each item to its own
+grounded page's stored text: `exact` 325 of 325 found; `normalized` **0 of 320
+found — every one of them bare**. §7.1 exists because a ruling made on a fragment
+is a ruling made blind, and 320 cards were being ruled blind.
+
+Grounding does not persist a position — `CanonicalGroundingResult` carries a
+match type and a page number, and the normalized tier asks `contains`, a bool —
+so there was nothing to reuse. Three options were weighed; recomputing at
+assembly was chosen because it needs no migration, no backfill and no
+re-verification, and repairs every card already in the database the moment it
+ships. Measured recovery: at least 269 of the 320 (84%), the residue being
+quotes that span a page boundary.
+
+Slicing the NORMALIZED text was rejected though it needs no map at all:
+normalization lowercases, collapses whitespace and rewrites punctuation, so the
+context under a quote would have rendered as de-punctuated lowercase prose. On a
+surface a lawyer reads to decide what a quote means, that is a different kind of
+lie from an empty box. The test asserts the page's own smart quotes survive into
+the window, which is what stops a later "simplification" from doing it.
+
+### Impacts
+
+- Data Architect: None.
+- DB Engineer: None — no migration, no schema change, read path only.
+- Software Architect: `normalize_text` now lives in `domain::quote_match`;
+  `canonical_verifier` re-exports it and its 46 tests are the equivalence proof
+  that the move changed no behaviour. That file also shrank 569 → 519 lines.
+
+### Action Required
+
+- [ ] **Task 2.5 (re-anchoring, §12.1) inherits `normalize_with_map` as its
+      primitive, and persisting `(offset, len)` at grounding time is its design
+      default.** That was the rejected option here — rejected on vehicle, not on
+      merit: it needs a migration on `extraction_items`, the span carried into the
+      Neo4j node the card is built from, and a re-verify of all 782 grounded items
+      to backfill. It is the better long-term answer, and it cannot be built
+      without exactly the mapping this task added.
+- [ ] Task 2.5 also owns the residue this fix cannot reach: a quote spanning a
+      page boundary grounds on the LEFT page of the pair while the assembler loads
+      that page alone, so the words genuinely are not all there. Those cards stay
+      context-less by design — a window drawn around the nearest similar words
+      would read as evidence. They are now COUNTED (`without_context` on the
+      "served scenario cards" log line) rather than merely absent, because such a
+      card reports itself grounded and looks like every other one.
+- [ ] Task 1.7B Phase A: decide the `--bg-page` → `--bg-tint` rename (126 sites)
+      — rider on the page restructure if mechanical and safe, else its own task.
+- [ ] Roman: DEV verify after the 1.7A+1.7B batch deploys — every screen sits on
+      pure white; C-1 (normalized-grounded) shows surrounding context at the
+      configured width; `talking_points_cap`'s hint reads "e.g. 3".
+
+---
+
 ## Template for Future Entries
 
 ```markdown

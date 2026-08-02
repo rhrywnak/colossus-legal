@@ -136,10 +136,45 @@ pub async fn get_scenario_cards(
         pool = response.pool.len(),
         set_aside = response.set_aside.len(),
         defer_required = response.pool.iter().filter(|c| c.defer_required).count(),
+        without_context = cards_without_context(&response),
         "served scenario cards"
     );
 
     Ok(Json(response))
+}
+
+/// How many served cards carry a quote but no surrounding context (§7.1).
+///
+/// ## Why this is counted rather than logged per card
+///
+/// After task 1.7A a context-less card is RARE — the assembler now finds a quote
+/// whose wording only matches after normalization, which was 320 of 320 such
+/// items before. What remains is the residue: a quote that spans a page boundary
+/// (grounding records the LEFT page of the pair, and only that page's text is
+/// loaded), an OCR transposition, or a document with no stored text at all.
+///
+/// Those cards look fully grounded — `grounding_status` reads `exact` or
+/// `normalized` — while showing nothing around the quote, so without this number
+/// an operator asking "why is this grounded card bare?" has nothing to consult.
+/// One count per request rather than one line per card: a 150-card payload would
+/// otherwise emit 150 lines to say something about a handful of them, and the
+/// number is what tells you whether this is a stray or a systemic regression.
+///
+/// Pure, and outside `build_card` on purpose: the assembler is documented pure
+/// and its output is what the §7 completeness test asserts against, so the
+/// counting happens HERE, over the finished payload, rather than as a side effect
+/// inside it.
+fn cards_without_context(response: &ScenarioCardsResponse) -> usize {
+    response
+        .pool
+        .iter()
+        .chain(response.set_aside.iter())
+        .filter(|card| {
+            !card.quote.text.trim().is_empty()
+                && card.quote.context_before.is_empty()
+                && card.quote.context_after.is_empty()
+        })
+        .count()
 }
 
 /// Decode each fact-ref row into the card's view of it.
@@ -192,9 +227,21 @@ fn build_ref_states(
 ///
 /// The absence stays observable in BOTH shapes: a `warn` names the document
 /// whether the read failed or simply returned no pages, and the card's empty
-/// context is visible on screen. (A quote the page text does not contain is the
-/// third shape, and it has its own signal — `grounding_status: not_found` on the
-/// same card.)
+/// context is visible on screen.
+///
+/// ## The third shape, corrected in task 1.7A
+///
+/// A quote the loaded page text does not contain used to be described here as
+/// carrying "its own signal — `grounding_status: not_found`". That was only ever
+/// true of one case. A quote that spans a page BOUNDARY grounds perfectly well —
+/// the verifier matches across an adjacent page pair and records the LEFT page —
+/// but this function loads that one page, so the words are not all there and the
+/// card renders bare while reporting itself grounded. Nothing on the card says
+/// which of the two happened.
+///
+/// That shape is now counted rather than inferred: `cards_without_context`
+/// reports it on the "served scenario cards" line, so a rise in bare cards is
+/// visible without anyone having to notice it on screen first.
 async fn load_page_text(state: &AppState, pool: &[BiasInstance]) -> HashMap<String, String> {
     // One read per distinct document, not per candidate: a deposition contributes
     // dozens of candidates from the same file.

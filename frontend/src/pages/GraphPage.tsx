@@ -12,6 +12,9 @@ import { getColor, getDisplayName } from "../hooks/useSchema";
 
 // Professional color palette (matching Explorer page)
 const COLORS = {
+  // The full-screen canvas (§2c: pure white). Distinct from bgPage, which is a
+  // tint this page also uses for a chip and an SVG node fill.
+  bgCanvas: "var(--bg-canvas)",
   bgPage: "var(--bg-page)",
   bgCard: "var(--bg-surface)",
   border: "var(--border-default)",
@@ -599,7 +602,7 @@ const GraphPage: React.FC = () => {
           padding: "3rem",
           textAlign: "center",
           color: COLORS.textSecondary,
-          backgroundColor: COLORS.bgPage,
+          backgroundColor: COLORS.bgCanvas,
           minHeight: "100vh",
         }}
       >
@@ -611,7 +614,7 @@ const GraphPage: React.FC = () => {
   return (
     <div
       style={{
-        backgroundColor: COLORS.bgPage,
+        backgroundColor: COLORS.bgCanvas,
         minHeight: "100vh",
         padding: "2rem",
       }}

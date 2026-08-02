@@ -4,6 +4,9 @@ import { MotionClaimWithEvidence, EvidenceWithDocument } from "../services/evide
 
 // Professional color palette (shared with EvidenceExplorerPage)
 export const COLORS = {
+  // The full-screen canvas (§2c: pure white). Distinct from bgPage, which is a
+  // tint used for chips and dividers — see tokens.css.
+  bgCanvas: "var(--bg-canvas)",
   bgPage: "var(--bg-page)",
   bgCard: "var(--bg-surface)",
   border: "var(--border-default)",

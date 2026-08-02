@@ -237,11 +237,11 @@ const EvidenceExplorerPage: React.FC = () => {
   };
 
   if (loading) {
-    return <div style={{ padding: "3rem", textAlign: "center", color: COLORS.textSecondary, backgroundColor: COLORS.bgPage, minHeight: "100vh" }}>Loading allegations...</div>;
+    return <div style={{ padding: "3rem", textAlign: "center", color: COLORS.textSecondary, backgroundColor: COLORS.bgCanvas, minHeight: "100vh" }}>Loading allegations...</div>;
   }
   if (error) {
     return (
-      <div style={{ padding: "2rem", backgroundColor: COLORS.bgPage, minHeight: "100vh" }}>
+      <div style={{ padding: "2rem", backgroundColor: COLORS.bgCanvas, minHeight: "100vh" }}>
         <div style={{ padding: "1rem 1.25rem", backgroundColor: COLORS.badgeUnprovenBg, border: `1px solid ${COLORS.border}`, borderRadius: "8px", color: COLORS.badgeUnprovenText, maxWidth: "1200px", margin: "0 auto" }}>
           {error}
         </div>
@@ -250,7 +250,7 @@ const EvidenceExplorerPage: React.FC = () => {
   }
 
   return (
-    <div style={{ backgroundColor: COLORS.bgPage, minHeight: "100vh", padding: "2rem" }}>
+    <div style={{ backgroundColor: COLORS.bgCanvas, minHeight: "100vh", padding: "2rem" }}>
       <div style={{ maxWidth: "1200px", margin: "0 auto" }}>
         <h1 style={{ fontSize: "1.75rem", fontWeight: 600, color: COLORS.textPrimary, margin: 0 }}>
           Case Evidence &amp; Analysis

@@ -116,11 +116,20 @@ impl ValueKind {
     ///
     /// Composed here rather than in the browser: it is a statement about how this
     /// build parses the field, and the browser does not know that.
-    pub fn hint(self) -> &'static str {
+    ///
+    /// ## Why the example is the parameter's OWN default (task 1.7A, D4)
+    ///
+    /// The example used to be a fixed literal per kind, so every whole-number
+    /// field advertised "e.g. 240" — including `talking_points_cap`, which
+    /// defaults to 3 and has a minimum of 1. A worked example that would be
+    /// refused by the very field it sits under teaches the wrong number and
+    /// undermines the hint's only job. The row's own default is the one example
+    /// guaranteed to be both well-formed and in bounds.
+    pub fn hint(self, default: &str) -> String {
         match self {
-            ValueKind::Float => "a number, e.g. 0.80",
-            ValueKind::Count => "a whole number, e.g. 240",
-            ValueKind::Ratio => "n/m, e.g. 9/10",
+            ValueKind::Float => format!("a number, e.g. {default}"),
+            ValueKind::Count => format!("a whole number, e.g. {default}"),
+            ValueKind::Ratio => format!("n/m, e.g. {default}"),
         }
     }
 }

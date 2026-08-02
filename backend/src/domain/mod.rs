@@ -28,6 +28,7 @@ pub mod fact_status;
 pub mod human_authored;
 pub mod llm_params;
 pub mod llm_provider_ext;
+pub mod quote_match;
 pub mod ruling_anchor;
 pub mod scenario_code;
 pub mod settings;

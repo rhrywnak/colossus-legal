@@ -33,9 +33,29 @@
    * Primary palette (light theme) — §9 "Primary palette"
    * ------------------------------------------------------------------------- */
 
-  /* --bg-page: the page canvas behind all cards. A hair cooler/darker than the
-     old #FAFAFA so white surfaces read as deliberately elevated. Used on the
-     Home page outer background. */
+  /* --bg-canvas: THE PAGE CANVAS. v2 §2c, binding: "pure white page
+     backgrounds — no tinted surfaces; cards carried by hairline borders."
+
+     Task 1.7A, defect D1: the app shell painted every screen with --bg-page
+     (#f4f5f7) and had done since before the visual language was ratified, so
+     Trial Prep, the scenario page and Settings all sat on grey while each
+     Phase-1 UI task's definition of done claimed the §2c check. The components
+     were compliant; the shell they sat in was not.
+
+     Anything that fills a whole screen uses THIS token. Only the app shell and
+     the two screens that paint their own full-height canvas do that. */
+  --bg-canvas: #ffffff;
+
+  /* --bg-page: a pale tint for chrome — table zebra stripes, code blocks, nav
+     hover states, badge fills, and (in three places) a hairline border colour.
+
+     NAMING DEBT, recorded 2026-08-02 (task 1.7A): this token stopped being the
+     "page" the day --bg-canvas took that job. It has 126 remaining uses, none of
+     them a page canvas, and the honest name is --bg-tint. Renaming it is a
+     mechanical 126-site change and is NOT this defect batch's — task 1.7B
+     decides whether it rides the page restructure or earns its own cleanup task.
+     Do NOT set this to white to satisfy §2c: every one of those 126 uses is a
+     deliberate tint, and three are borders that would vanish. */
   --bg-page: #f4f5f7;
 
   /* --bg-surface: card and table backgrounds that sit on top of --bg-page.

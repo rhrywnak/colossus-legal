@@ -29,6 +29,7 @@ use crate::domain::card_language::{
 };
 use crate::domain::confidence_band::{band_for_score, ConfidenceBand};
 use crate::domain::fact_status::FactStatus;
+use crate::domain::quote_match::locate;
 use crate::domain::settings::Settings;
 use crate::dto::scenario_card::{
     CardBearsOn, CardConfidence, CardGrounding, CardPinpoint, CardQuote, CardSpeaker, CardStance,
@@ -240,6 +241,22 @@ fn build_bears_on(links: &[ExtrasLink]) -> Vec<CardBearsOn> {
 /// cannot be located is also exactly what `grounding_status` reports separately,
 /// so the card does not have to guess why.
 ///
+/// ## Why the search is `quote_match::locate` and not `str::find` (task 1.7A, D3)
+///
+/// It WAS `page.find(quote)` — an exact, case-sensitive substring search. But the
+/// ingest path grounds a quote in two tiers: exact, then normalized (smart
+/// quotes, dashes, ligatures, collapsed whitespace, hyphenated line breaks,
+/// transcript gutter numerals). Every quote that grounded on the second tier
+/// failed this search and was served with two empty strings — measured on DEV,
+/// 320 of 320 such items. The card whose wording differs from the page is
+/// precisely the one a human most needs to see in context.
+///
+/// `locate` runs the SAME two tiers as grounding and returns the span in the
+/// PAGE's own bytes, so the window below is sliced from the original text —
+/// smart quotes, spacing and capitalization intact. Slicing the normalized copy
+/// instead would be cheaper and would put lowercase, de-punctuated prose beside a
+/// verbatim quote on a surface that is read to decide what the quote means.
+///
 /// ## Rust Learning: slicing a `&str` on a CHARACTER boundary
 ///
 /// Rust strings are UTF-8, and slicing at a byte index that falls inside a
@@ -251,12 +268,16 @@ fn quote_context(page_text: Option<&str>, quote: &str, window: usize) -> (String
     let Some(page) = page_text else {
         return (String::new(), String::new());
     };
-    let Some(byte_at) = page.find(quote) else {
+    // `None` means the quote is genuinely not on this page — the cross-page case
+    // (grounding records the left page of the pair; this loads that page alone)
+    // and the OCR-transposition case. Both stay context-less by design: a window
+    // drawn around the nearest similar words would read as evidence.
+    let Some(span) = locate(page, quote) else {
         return (String::new(), String::new());
     };
 
-    let before_all = &page[..byte_at];
-    let after_all = &page[byte_at + quote.len()..];
+    let before_all = &page[..span.start];
+    let after_all = &page[span.end..];
 
     // Take the LAST `window` characters before, and the FIRST that many after —
     // the text nearest the quote is the text that explains it. One value for both

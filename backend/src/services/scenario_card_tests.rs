@@ -541,6 +541,137 @@ fn context_windowing_never_splits_a_multibyte_character() {
     assert_eq!(card.quote.context_after.chars().count(), window);
 }
 
+/// THE 1.7A DEFECT (D3). A quote whose wording only matches after normalization
+/// still gets its context — and the context is the PAGE's own characters.
+///
+/// ## What was wrong
+///
+/// The assembler located context with an exact, case-sensitive `find`. The
+/// ingest path grounds in two tiers — exact, then normalized — so every quote
+/// that grounded `normalized` failed that `find` and was served with two empty
+/// strings. Measured on DEV: 320 of 320 normalized-grounded items with stored
+/// page text, i.e. every one of them. The card that most needs its surroundings
+/// is precisely the one whose wording does not match the page character for
+/// character.
+///
+/// ## Why the assertion on the page's own characters matters
+///
+/// The cheap fix slices the NORMALIZED text — which is lowercased,
+/// whitespace-collapsed and re-punctuated. That would put de-punctuated
+/// lowercase prose beside a verbatim quote on the surface a lawyer reads to
+/// decide what the quote means. This assertion is what stops a later
+/// "simplification" from doing it.
+#[test]
+fn a_normalized_quote_still_gets_context_in_the_pages_own_characters() {
+    // The page carries smart quotes and a hyphenated line break; the stored
+    // quote carries straight punctuation and no break. This is the real shape of
+    // a `normalized` grounding, not a contrived one.
+    let mut instance = full_instance();
+    instance.verbatim_quote = Some("I do not recall that meeting.".to_string());
+    let page = "BEFORE TEXT. \u{201C}I do not re-\ncall that meeting.\u{201D} AFTER TEXT.";
+
+    let card = build_card(
+        &instance,
+        None,
+        &CardRefState::default(),
+        None,
+        Some(page),
+        &settings(),
+    );
+
+    assert!(
+        !card.quote.context_before.is_empty() && !card.quote.context_after.is_empty(),
+        "a normalized-grounded quote must still be shown in context (§7.1): \
+         before={:?} after={:?}",
+        card.quote.context_before,
+        card.quote.context_after
+    );
+    assert!(
+        card.quote.context_before.contains("BEFORE TEXT"),
+        "{:?}",
+        card.quote.context_before
+    );
+    assert!(
+        card.quote.context_after.contains("AFTER TEXT"),
+        "{:?}",
+        card.quote.context_after
+    );
+    // The page's own smart quotes survive: the context is sliced from the
+    // ORIGINAL text, never from the normalized copy.
+    assert!(
+        card.quote.context_before.contains('\u{201C}'),
+        "context must be the page's own characters, not normalized prose: {:?}",
+        card.quote.context_before
+    );
+    assert!(
+        card.quote.context_after.contains('\u{201D}'),
+        "context must be the page's own characters, not normalized prose: {:?}",
+        card.quote.context_after
+    );
+}
+
+/// The configured width applies to a normalized match exactly as to an exact one.
+#[test]
+fn a_normalized_match_honours_the_configured_window() {
+    let window = settings().quote_context_window_chars;
+    let filler = "x".repeat(window * 2);
+    // Smart quotes inside the quoted span, so only the normalized tier can find it.
+    let page = format!("{filler}\u{201C}I do not recall that meeting.\u{201D}{filler}");
+
+    let mut instance = full_instance();
+    instance.verbatim_quote = Some("\"I do not recall that meeting.\"".to_string());
+
+    let card = build_card(
+        &instance,
+        None,
+        &CardRefState::default(),
+        None,
+        Some(&page),
+        &settings(),
+    );
+
+    assert_eq!(card.quote.context_before.chars().count(), window);
+    assert_eq!(card.quote.context_after.chars().count(), window);
+}
+
+/// THE HONEST LIMIT, kept explicit so the D3 fix cannot be widened into a guess.
+///
+/// Two classes of card still show no context, and both are correct:
+///
+/// * the quote spans a page boundary — grounding records the LEFT page of the
+///   pair, and the assembler loads that page alone, so the words genuinely are
+///   not all here (task 2.5's territory);
+/// * the page text was never stored — already logged by name at read time.
+///
+/// Neither may be papered over with a window drawn around the nearest similar
+/// words. Beside a verbatim quote, that would read as evidence.
+#[test]
+fn a_quote_that_is_not_on_this_page_still_yields_no_context() {
+    let mut instance = full_instance();
+    instance.verbatim_quote = Some("the cheque was cashed on the Tuesday".to_string());
+
+    let card = build_card(
+        &instance,
+        None,
+        &CardRefState::default(),
+        None,
+        // Deliberately similar prose: a fuzzy "best effort" would match here.
+        Some("BEFORE. The cheque and the Tuesday meeting were discussed. AFTER."),
+        &settings(),
+    );
+
+    assert!(
+        card.quote.context_before.is_empty(),
+        "{:?}",
+        card.quote.context_before
+    );
+    assert!(
+        card.quote.context_after.is_empty(),
+        "{:?}",
+        card.quote.context_after
+    );
+}
+
 #[test]
 fn a_page_shorter_than_the_window_returns_what_there_is() {
     let page = "Short. I do not recall that meeting. End.";
