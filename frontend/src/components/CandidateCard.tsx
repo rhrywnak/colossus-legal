@@ -29,57 +29,96 @@
 import React, { useMemo, useState } from "react";
 
 import { cardRows, type CardRow } from "./cardTriage";
+import { CardHead, codeBadgeStyle, type RulingKey } from "./RulingButtons";
 import { openViewerWindow } from "./viewerWindow";
 import type { ScenarioCard } from "../services/scenarioCards";
 
-const SURFACE = "var(--bg-surface)"; // #ffffff — pure white, per §2c
-const HAIRLINE = "1px solid var(--border-default)";
+const SURFACE = "var(--bg-surface)"; // --card #ffffff
 
+/**
+ * The card. Mockup `.card`: white, radius 12, `--shadow-raised`, padding
+ * 18px 24px 20px. NO BORDER — v3 removed every card border (see the
+ * `--bg-canvas` comment in tokens.css for why the canvas moved with them).
+ */
 export const cardStyle: React.CSSProperties = {
   background: SURFACE,
-  border: HAIRLINE,
-  borderRadius: "8px",
-  padding: "1rem 1.15rem",
+  borderRadius: "var(--radius-card)",
+  padding: "18px 24px 20px",
   display: "flex",
   flexDirection: "column",
   gap: "0.6rem",
-  fontWeight: 400, // §2c: regular weight; bold is reserved
+  fontWeight: 400,
+  // The unfocused card still lifts off the page, just less. A flat card on a
+  // tinted canvas reads as a hole rather than a surface.
+  boxShadow: "var(--shadow-card)",
 };
 
+/**
+ * The FOCUSED card — the one the keyboard is aimed at.
+ *
+ * v3 marks focus with ELEVATION (`--shadow-raised`) rather than 1.7C's accent
+ * border. That is not only a style change: the card is the thing a human is about
+ * to rule on, and lifting it above its siblings says "this one" in a way a
+ * coloured outline competes with the ruling buttons to say.
+ */
 const focusedCardStyle: React.CSSProperties = {
   ...cardStyle,
-  borderColor: "var(--accent-primary)",
+  boxShadow: "var(--shadow-raised)",
 };
 
+
+/** Mockup `.pin` / neutral chips inside the card body. */
 export const chipStyle: React.CSSProperties = {
-  border: HAIRLINE,
-  borderRadius: "999px",
-  padding: "0.1rem 0.55rem",
-  fontSize: "0.75rem",
-  color: "var(--text-muted)",
+  borderRadius: "6px",
+  padding: "3px 10px",
+  fontSize: "12px",
+  fontWeight: 500,
+  color: "var(--text-secondary)",
   whiteSpace: "nowrap",
 };
 
-const quoteStyle: React.CSSProperties = {
-  fontSize: "1rem",
-  lineHeight: 1.7, // §2c: generous line height
-  color: "var(--text-primary)",
+/**
+ * The quote-in-context panel. Mockup `.ctx`: its OWN soft surface (#fafbfc,
+ * radius 10, padding 14px 18px) inset within the white card.
+ *
+ * 1.7C rendered the context as bare text. Giving it a panel does a job: it makes
+ * visually obvious where the SOURCE PAGE's words start and stop, so the reader can
+ * tell the document's voice from the card's own labels above and below it.
+ */
+const contextPanelStyle: React.CSSProperties = {
+  background: "var(--v3-context-panel)",
+  borderRadius: "10px",
+  padding: "14px 18px",
+  color: "var(--text-secondary)",
+  lineHeight: 1.7,
+  fontSize: "13.5px",
 };
 
 const contextStyle: React.CSSProperties = {
-  color: "var(--text-muted)",
-  fontSize: "0.85rem",
+  color: "var(--text-secondary)",
+  fontSize: "13.5px",
   lineHeight: 1.7,
 };
 
+/** Mockup `.edge`: the honest page-edge marker — italic, muted, 12.5px. */
+const edgeStyle: React.CSSProperties = {
+  color: "var(--text-muted)",
+  fontStyle: "italic",
+  fontSize: "12.5px",
+};
+
+/** Mockup `.ctx mark`: #ffec9e, radius 3, padding 1px 3px, weight 500. */
 const markStyle: React.CSSProperties = {
   background: "var(--highlight-quote-soft)",
   color: "var(--text-primary)",
-  padding: "0.05rem 0.1rem",
-  borderRadius: "2px",
-  fontSize: "1rem",
-  lineHeight: 1.7,
+  padding: "1px 3px",
+  borderRadius: "3px",
+  fontWeight: 500,
 };
+
+
+
+
 
 // ─── Row rendering ──────────────────────────────────────────────────────────
 
@@ -138,18 +177,20 @@ const Row: React.FC<{ row: CardRow }> = ({ row }) => {
   }
 
   return (
-    <div style={{ display: "flex", gap: "0.4rem", alignItems: "baseline", flexWrap: "wrap" }}>
-      <span
-        style={
-          row.element === "quote"
-            ? quoteStyle
-            : { fontSize: "0.85rem", color: "var(--text-primary)" }
-        }
-      >
-        {row.value}
-      </span>
+    <div style={{ display: "flex", gap: "0.4rem", alignItems: "center", flexWrap: "wrap" }}>
+      {/* The `quote` element no longer reaches this branch: the anchor is rendered
+          inside the context panel above, marked. Everything else here — speaker,
+          statement kind, stance, bears-on, grounding — is a 13px card line. */}
+      <span style={{ fontSize: "13px", color: "var(--text-secondary)" }}>{row.value}</span>
       {row.chips?.map((chip) => (
-        <span key={chip} style={chipStyle}>
+        <span
+          key={chip}
+          style={{
+            ...chipStyle,
+            background: "var(--v3-chip-alleg-bg)",
+            color: "var(--v3-chip-alleg-text)",
+          }}
+        >
           {chip}
         </span>
       ))}
@@ -157,8 +198,18 @@ const Row: React.FC<{ row: CardRow }> = ({ row }) => {
   );
 };
 
-/** One candidate card in the Casey layout. */
-export const CandidateCard: React.FC<{ card: ScenarioCard; focused: boolean }> = ({ card, focused }) => {
+/**
+ * One candidate card, v3 layout.
+ *
+ * `onRule` is optional so a card can render read-only — the DEFERRED TRAY shows
+ * parked cards for reference, and putting live ruling buttons on a card that is not
+ * the focused one would let a human rule something the keyboard is not aimed at.
+ */
+export const CandidateCard: React.FC<{
+  card: ScenarioCard;
+  focused: boolean;
+  onRule?: (key: RulingKey) => void;
+}> = ({ card, focused, onRule }) => {
   const rows = useMemo(() => cardRows(card), [card]);
   const code = rows.find((r) => r.element === "code");
   const status = rows.find((r) => r.element === "status");
@@ -166,10 +217,21 @@ export const CandidateCard: React.FC<{ card: ScenarioCard; focused: boolean }> =
 
   return (
     <div style={focused ? focusedCardStyle : cardStyle}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-        <span style={{ ...chipStyle, color: "var(--text-primary)" }}>{code?.value ?? "—"}</span>
-        <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>{status?.value}</span>
-      </div>
+      {onRule ? (
+        <CardHead code={code?.value ?? "—"} state={status?.value} onRule={onRule} />
+      ) : (
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: "14px",
+          }}
+        >
+          <span style={codeBadgeStyle}>{code?.value ?? "—"}</span>
+          <span style={{ fontSize: "12.5px", color: "var(--text-muted)" }}>{status?.value}</span>
+        </div>
+      )}
 
       {/* §7.1 — the question that makes a bare answer interpretable, then the
           quote in its surrounding text.
@@ -183,21 +245,24 @@ export const CandidateCard: React.FC<{ card: ScenarioCard; focused: boolean }> =
 
           The `<mark>` is the anchor: verbatim, highlighted, never groomed (§12). */}
       {card.quote.question && <div style={contextStyle}>{card.quote.question}</div>}
-      <div>
+
+      {/* The context panel (mockup `.ctx`) — the source page's own words on their
+          own surface, with the anchor marked inside them. */}
+      <div style={contextPanelStyle}>
         {card.quote.context_before_notice && (
-          <div style={{ ...contextStyle, fontStyle: "italic" }}>
-            {card.quote.context_before_notice}
-          </div>
+          <>
+            <span style={edgeStyle}>{card.quote.context_before_notice}</span>
+            <br />
+          </>
         )}
-        {card.quote.context_before && (
-          <span style={contextStyle}>{card.quote.context_before} </span>
-        )}
+        {card.quote.context_before && <span>{card.quote.context_before} </span>}
         <mark style={markStyle}>{card.quote.text}</mark>
-        {card.quote.context_after && <span style={contextStyle}> {card.quote.context_after}</span>}
+        {card.quote.context_after && <span> {card.quote.context_after}</span>}
         {card.quote.context_after_notice && (
-          <div style={{ ...contextStyle, fontStyle: "italic" }}>
-            {card.quote.context_after_notice}
-          </div>
+          <>
+            <br />
+            <span style={edgeStyle}>{card.quote.context_after_notice}</span>
+          </>
         )}
       </div>
 

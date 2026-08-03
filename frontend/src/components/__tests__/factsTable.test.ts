@@ -7,7 +7,7 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { filterRows, includedRows, type WorkingRow } from "../factsTable";
+import { filterRows, humanFactRows, includedRows, type WorkingRow } from "../factsTable";
 import type { ScenarioCard } from "../../services/scenarioCards";
 
 function card(overrides: Partial<ScenarioCard> = {}): ScenarioCard {
@@ -94,6 +94,7 @@ describe("filterRows", () => {
       pinpointLabel: "CFS responses at 26",
       pinpointHref: "#",
       statusLabel: "In the scenario",
+      isHuman: false,
     },
     {
       code: "C-2",
@@ -103,6 +104,7 @@ describe("filterRows", () => {
       pinpointLabel: "Phillips deposition at 88",
       pinpointHref: "#",
       statusLabel: "In the scenario",
+      isHuman: false,
     },
   ];
 
@@ -134,5 +136,95 @@ describe("filterRows", () => {
     // Searching a hidden field would give a hit whose reason is invisible, which
     // reads as a broken filter.
     expect(filterRows(rows, "ev-1")).toEqual([]);
+  });
+});
+
+// ── Task 1.7D item 6 / ruling R6: the coloured left-edge cue's data ──────────
+
+describe("the isHuman flag that drives the row stripe", () => {
+  it("marks every evidence row as NOT human-authored", () => {
+    // A card exists because the graph produced it — it is evidence a human ruled
+    // in, never something they wrote.
+    const rows = includedRows([card({ status: "included" })]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].isHuman).toBe(false);
+  });
+
+  it("marks a human fact as human-authored", () => {
+    const rows = humanFactRows([
+      { id: "hf-1", text: "Marie's certified letter", authored_tag: "Added by Roman", date_label: null },
+    ]);
+    expect(rows[0].isHuman).toBe(true);
+  });
+
+  it("does NOT infer provenance from a missing pinpoint", () => {
+    // The correlation holds today (§8 gives human facts no citation) but the
+    // correlation is not the fact. An evidence row that legitimately lacks a page
+    // must still read as evidence, or the stripe would call it Marie's.
+    const rows = includedRows([
+      card({
+        status: "included",
+        pinpoint: {
+          document_id: "doc-7",
+          document_title: "CFS responses",
+          label: "CFS responses",
+          page: null,
+          viewer_href: "/documents/doc-7?tab=document",
+        },
+      }),
+    ]);
+    expect(rows[0].pinpointLabel).toBe("CFS responses");
+    expect(rows[0].isHuman).toBe(false);
+  });
+});
+
+describe("humanFactRows", () => {
+  it("carries the composed provenance as the row's authority", () => {
+    // "Added by Roman" arrives composed from the backend — the browser does not
+    // write provenance. It stands where an evidence row's ruling state stands,
+    // because it is what this row's authority IS.
+    const rows = humanFactRows([
+      { id: "hf-1", text: "A fact no document says", authored_tag: "Added by Roman", date_label: "Around Mar 2010" },
+    ]);
+    expect(rows[0].statusLabel).toBe("Added by Roman · Around Mar 2010");
+  });
+
+  it("omits the date clause when the fact is undated", () => {
+    const rows = humanFactRows([
+      { id: "hf-1", text: "A fact", authored_tag: "Added by Roman", date_label: null },
+    ]);
+    expect(rows[0].statusLabel).toBe("Added by Roman");
+  });
+
+  it("carries NO pinpoint, because a human fact has none by design (§8)", () => {
+    const rows = humanFactRows([
+      { id: "hf-1", text: "A fact", authored_tag: "Added by Roman", date_label: null },
+    ]);
+    expect(rows[0].pinpointHref).toBe("");
+    expect(rows[0].pinpointLabel).toBe("");
+  });
+
+  it("namespaces the row key so a human fact cannot collide with a graph node", () => {
+    // Both kinds share one list now, and React keys off `graphNodeId`. An
+    // unprefixed uuid could in principle collide with a Family-A id; the prefix
+    // makes that impossible rather than unlikely.
+    const rows = humanFactRows([
+      { id: "hf-1", text: "A fact", authored_tag: "t", date_label: null },
+    ]);
+    expect(rows[0].graphNodeId).toBe("human:hf-1");
+  });
+
+  it("is searchable alongside evidence rows", () => {
+    // One table, one filter. A human fact the search could not reach would be a
+    // fact that disappears the moment someone types.
+    const rows = [
+      ...includedRows([card({ status: "included" })]),
+      ...humanFactRows([
+        { id: "hf-1", text: "certified letter of March 2010", authored_tag: "Added by Roman", date_label: null },
+      ]),
+    ];
+    const hits = filterRows(rows, "certified");
+    expect(hits).toHaveLength(1);
+    expect(hits[0].isHuman).toBe(true);
   });
 });

@@ -33,18 +33,36 @@
    * Primary palette (light theme) — §9 "Primary palette"
    * ------------------------------------------------------------------------- */
 
-  /* --bg-canvas: THE PAGE CANVAS. v2 §2c, binding: "pure white page
-     backgrounds — no tinted surfaces; cards carried by hairline borders."
+  /* --bg-canvas: THE PAGE CANVAS.
+     ---------------------------------------------------------------------------
+     READ THE WHOLE RULING CHAIN BEFORE CHANGING THIS VALUE. It has been white
+     and it has been tinted, and both were correct at the time. Setting it back
+     to #ffffff today would be a defect, not a fix.
 
-     Task 1.7A, defect D1: the app shell painted every screen with --bg-page
-     (#f4f5f7) and had done since before the visual language was ratified, so
-     Trial Prep, the scenario page and Settings all sat on grey while each
-     Phase-1 UI task's definition of done claimed the §2c check. The components
-     were compliant; the shell they sat in was not.
+     1. ORIGINALLY: the app shell painted every screen with --bg-page (#f4f5f7),
+        from before any visual language was ratified.
+     2. Task 1.7A, defect D1 set it to #ffffff. v2 §2c was then binding — "pure
+        white page backgrounds, no tinted surfaces; cards carried by HAIRLINE
+        BORDERS" — and the shell was contradicting it on every screen while each
+        UI task's definition of done claimed the §2c check had passed.
+     3. Task 1.7D sets it to #f4f5f7 (Roman's 2026-08-03 visual-language ruling,
+        a RECORDED §2c deviation, spec SCENARIO_PAGE_MOCKUP_v3_2026-08-03.html,
+        authorization ruling R2).
+
+     The reversal is not a relapse, because the thing that made white correct is
+     gone: cards no longer carry hairline borders. They are borderless white
+     surfaces on LAYERED SOFT SHADOWS (--shadow-card / --shadow-raised), and a
+     shadow needs something to fall on. On a white canvas a borderless white card
+     is invisible. The tint IS the card boundary now.
+
+     So: white canvas + hairline borders was one coherent system, tinted canvas +
+     borderless shadowed cards is another, and the two halves are not
+     interchangeable. If you are reaching for #ffffff here, check whether the
+     cards still have shadows — if they do, you are about to erase them.
 
      Anything that fills a whole screen uses THIS token. Only the app shell and
      the two screens that paint their own full-height canvas do that. */
-  --bg-canvas: #ffffff;
+  --bg-canvas: #f4f5f7;
 
   /* --bg-page: a pale tint for chrome — table zebra stripes, code blocks, nav
      hover states, badge fills, and (in three places) a hairline border colour.
@@ -320,4 +338,132 @@
   font-size: 13px;
   font-weight: 400;
   color: var(--text-secondary);
+}
+
+/* =============================================================================
+ * THE v3 SURFACE LAYER — task 1.7D
+ * -----------------------------------------------------------------------------
+ * Spec: SCENARIO_PAGE_MOCKUP_v3_2026-08-03.html, SIGNED by Roman 2026-08-03.
+ * Every value below is TRANSCRIBED from that file's `:root` block, not
+ * interpreted. Where the mockup and SCENARIO_PAGE_DESIGN_v2 disagree on anything
+ * visual, the mockup wins — a recorded §2c deviation from the Casefleet hairline
+ * style.
+ *
+ * WHY THIS IS SCOPED AND NOT IN `:root` (authorization ruling R1, option A)
+ * -----------------------------------------------------------------------------
+ * The mockup's token NAMES look global (`--text`, `--accent`, `--divider`) but
+ * the app tokens carrying those same roles are consumed product-wide. Measured
+ * in Phase A, before touching anything:
+ *
+ *     --border-default   93 files        --accent-primary   71 files
+ *     --text-muted      104 files        --text-primary     67 files
+ *     --text-secondary   84 files        --state-danger-bg-soft  47 files
+ *
+ * Transcribing these into `:root` would have restyled roughly fifty screens —
+ * Proof Matrix, Case Health, Documents, Bias Explorer, Admin, Settings — none of
+ * which this task governs and none of which has been reviewed against a mockup.
+ * `--divider` is the sharpest case: #d0d5dd → #eef0f3 is a dramatic lightening of
+ * the hairline that is the ONLY visual separation on several of those screens.
+ *
+ * So the palette lands on the surfaces the mockup actually governs. App-wide
+ * adoption is task 3.14, screen by screen, reviewed. Task 3.4 (Trial Prep) builds
+ * on this palette directly. The interim mixed state — v3 surfaces beside
+ * legacy-styled screens, all on the tinted canvas — is accepted and recorded.
+ *
+ * HOW IT WORKS
+ * -----------------------------------------------------------------------------
+ * `[data-surface="v3"]` REDEFINES the existing semantic tokens for its subtree.
+ * Custom properties inherit, so a component inside it that already says
+ * `var(--text-primary)` gets #1a202c while the same component elsewhere gets
+ * #101828. That is the cascade doing the scoping, which is why this task changes
+ * almost no colour literals in component code — the tokens move, the components
+ * do not. Tokens with no existing equivalent are added as new names.
+ *
+ * Rule 13: these are DESIGN TOKENS, not tunables. Colours and radii do not vary
+ * by environment, case, or deployment, and there are deliberately no Settings
+ * rows for CSS (standing directive, 1.7D).
+ * ========================================================================== */
+
+[data-surface="v3"] {
+  /* ── Redefined semantic tokens (v3 values, mockup `:root`) ──────────────── */
+
+  /* --card #ffffff. Unchanged in value; stated so the mapping is complete. */
+  --bg-surface: #ffffff;
+
+  /* --divider: faint INTERNAL dividers only. There are no card borders in v3;
+     if you find a `border:` on a card in this subtree it is a bug. */
+  --border-default: #eef0f3;
+
+  /* --text / --text-2 / --text-3 */
+  --text-primary: #1a202c;
+  --text-secondary: #5a6472;
+  --text-muted: #8a93a2;
+
+  /* --accent / --accent-soft */
+  --accent-primary: #2f5fde;
+  --accent-bg-soft: #eef2fd;
+
+  /* --green / --green-soft (--state-success-strong already carries #16a34a
+     globally, so only the soft fill moves) */
+  --state-success-strong: #16a34a;
+  --state-success-bg-soft: #e8f6ec;
+
+  /* --red / --red-soft (--state-danger-strong already carries #dc2626) */
+  --state-danger-strong: #dc2626;
+  --state-danger-bg-soft: #fdecec;
+
+  /* --amber / --amber-soft (--state-warning-strong already carries #d97706).
+     NOTE the soft fill differs from the #fffdf7 that task 1.7C introduced for
+     the orphan strip: v3 uses a warmer #fdf3e3 for amber controls, and the
+     orphan strip gets its own #fbf7ea below. Two different jobs, two values. */
+  --state-warning-strong: #d97706;
+  --state-warning-bg-soft: #fdf3e3;
+
+  /* mark. v3 uses a stronger yellow than 1.7C's #fff3c4. */
+  --highlight-quote-soft: #ffec9e;
+
+  /* ── New v3-only tokens ────────────────────────────────────────────────── */
+
+  /* The "on-soft" text colours. Every colored control in v3 pairs a soft fill
+     with a dark same-hue text, which is what keeps contrast legible where a
+     saturated fill would not. */
+  --v3-green-text: #166534;
+  --v3-red-text: #991b1b;
+  --v3-amber-text: #92400e;
+
+  /* --chip-alleg / --chip-alleg-t: the allegation chip reuses the green pair. */
+  --v3-chip-alleg-bg: #e8f6ec;
+  --v3-chip-alleg-text: #166534;
+
+  /* The neutral chrome fill: select boxes, kbd keys, the C-code badge, the
+     chevron button, the segmented control's track, the progress trough. */
+  --v3-chrome: #eef0f3;
+  --v3-chrome-strong: #e9ebef;
+
+  /* The quote-context panel — the soft inset the quote sits on (§2.3 item 5). */
+  --v3-context-panel: #fafbfc;
+
+  /* The orphan strip's parchment. Distinct from --state-warning-bg-soft: this is
+     a standing, non-urgent record the eye must be able to skip past. */
+  --v3-orphan-bg: #fbf7ea;
+
+  /**
+   * Foreground for text sitting ON a saturated fill — the filled ruling buttons,
+   * the active status segment, the talking-point number pill.
+   *
+   * A token rather than `#fff` at four call sites: the fills beneath it are all
+   * tokens (--state-success-strong, --state-danger-strong, --accent-primary), and a
+   * hardcoded foreground is the one half of a contrast pair that would not follow
+   * if a fill ever changed. Rule 2.
+   */
+  --v3-on-fill: #ffffff;
+
+  /* Two shadow stacks. The layering is what carries a borderless card — a single
+     tight shadow reads as a border, two reads as elevation. */
+  --shadow-card: 0 1px 2px rgba(16, 24, 40, 0.05), 0 4px 14px rgba(16, 24, 40, 0.07);
+  --shadow-raised: 0 2px 4px rgba(16, 24, 40, 0.06), 0 10px 24px rgba(16, 24, 40, 0.1);
+
+  /* --radius. 12px on cards; the mockup uses 10px for the inset context panel
+     and 8–9px for controls, which are set at their call sites. */
+  --radius-card: 12px;
 }

@@ -21,6 +21,7 @@
 import React, { useState } from "react";
 
 import { addHumanFact, deleteHumanFact, type HumanFactDto } from "../services/scenarioAugmentation";
+import { addButtonStyle } from "./scenarioSectionStyles";
 
 interface Props {
   slug: string;
@@ -47,12 +48,14 @@ const WatchListBlock: React.FC<Props> = ({
   hairline,
 }) => {
   const [text, setText] = useState("");
+  // The mockup shows notes plus a "+ Add watch-list note" BUTTON — not an open
+  // textarea. An always-expanded form made the section look like a data-entry
+  // screen rather than a list of things to expect at trial, and it pushed the notes
+  // themselves above the fold's edge.
+  const [adding, setAdding] = useState(false);
 
   return (
     <div style={boxStyle}>
-      <div style={labelStyle}>
-        Watch for — what the other side will wave around
-      </div>
 
       {notes.map((note) => (
         <div key={note.id} style={{ borderBottom: hairline, paddingBottom: "0.5rem" }}>
@@ -77,31 +80,61 @@ const WatchListBlock: React.FC<Props> = ({
         </div>
       ))}
 
-      <label style={labelStyle} htmlFor="watch-text">
-        Flag something to watch for
-      </label>
-      <textarea
-        id="watch-text"
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        rows={2}
-        style={fieldStyle}
-      />
-      <button
-        type="button"
-        style={{ alignSelf: "flex-start" }}
-        onClick={() =>
-          run(async () => {
-            // No date fields: a watch-list note is a thing to expect, not a
-            // dated event. Offering a date qualifier here would invite a
-            // precision claim about something that has not happened yet.
-            await addHumanFact(slug, scenarioId, { text, kind: "watch_list" });
-            setText("");
-          })
-        }
-      >
-        Add
-      </button>
+      {adding ? (
+        <>
+          <label style={labelStyle} htmlFor="watch-text">
+            Flag something to watch for
+          </label>
+          <textarea
+            id="watch-text"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            rows={2}
+            style={fieldStyle}
+          />
+          <div style={{ display: "flex", gap: "0.5rem" }}>
+            <button
+              type="button"
+              style={addButtonStyle}
+              disabled={!text.trim()}
+              onClick={() =>
+                run(async () => {
+                  // No date fields: a watch-list note is a thing to EXPECT, not a
+                  // dated event. Offering a date qualifier here would invite a
+                  // precision claim about something that has not happened yet.
+                  await addHumanFact(slug, scenarioId, { text, kind: "watch_list" });
+                  setText("");
+                  setAdding(false);
+                })
+              }
+            >
+              Add note
+            </button>
+            <button
+              type="button"
+              style={{
+                ...addButtonStyle,
+                color: "var(--text-secondary)",
+                boxShadow: "none",
+              }}
+              onClick={() => {
+                setAdding(false);
+                setText("");
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </>
+      ) : (
+        <button
+          type="button"
+          style={{ ...addButtonStyle, alignSelf: "flex-start" }}
+          onClick={() => setAdding(true)}
+        >
+          + Add watch-list note
+        </button>
+      )}
     </div>
   );
 };

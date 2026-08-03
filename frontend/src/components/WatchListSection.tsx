@@ -24,7 +24,7 @@ import React, { useState } from "react";
 
 import WatchListBlock from "./WatchListBlock";
 import {
-  HAIRLINE,
+  DIVIDER,
   sectionHeaderStyle,
   sectionMetaStyle,
   sectionPanelStyle,
@@ -38,7 +38,7 @@ const blockBoxStyle: React.CSSProperties = {
   display: "flex",
   flexDirection: "column",
   gap: "0.6rem",
-  padding: "1rem 1.25rem",
+  padding: "18px 24px",
   fontWeight: 400,
 };
 
@@ -48,7 +48,7 @@ const blockLabelStyle: React.CSSProperties = {
 };
 
 const blockFieldStyle: React.CSSProperties = {
-  border: HAIRLINE,
+  border: DIVIDER,
   borderRadius: "6px",
   padding: "0.4rem 0.6rem",
   fontWeight: 400,
@@ -92,7 +92,7 @@ const WatchListSection: React.FC<Props> = ({ slug, scenarioId, notes, onChanged 
       <div style={sectionHeaderStyle}>
         <h2 style={sectionTitleStyle}>Watch-list</h2>
         <span style={sectionMetaStyle}>
-          what the other side will wave around — no surprises at trial
+what the other side will wave around
         </span>
       </div>
 
@@ -119,7 +119,7 @@ const WatchListSection: React.FC<Props> = ({ slug, scenarioId, notes, onChanged 
           labelStyle={blockLabelStyle}
           fieldStyle={blockFieldStyle}
           tagStyle={blockTagStyle}
-          hairline={HAIRLINE}
+          hairline={DIVIDER}
         />
 
         {/* COMPUTED hazards (task 2.3) merge into this list. Placement reserved,

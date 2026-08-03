@@ -306,7 +306,16 @@ const CardQueue: React.FC<Props> = ({
           <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
             {card ? (
               <>
-                <CandidateCard card={card} focused />
+                <CandidateCard
+                  card={card}
+                  focused
+                  // Item 2: a click dispatches the SAME reducer event a keypress
+                  // does, so every downstream behaviour is inherited rather than
+                  // reimplemented. `typing: false` because a click is never "the
+                  // human is in a text field" — the typing guard exists to stop a
+                  // defer reason being typed into rulings, and a click is not typing.
+                  onRule={(key) => dispatch({ type: "key", key, typing: false })}
+                />
                 {state.mode.kind === "deferring" && (
                   <DeferPrompt
                     inputRef={deferInputRef}

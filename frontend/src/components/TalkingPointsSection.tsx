@@ -28,7 +28,7 @@ import React, { useState } from "react";
 import {
   absentStyle,
   addButtonStyle,
-  HAIRLINE,
+  DIVIDER,
   sectionHeaderStyle,
   sectionMetaStyle,
   sectionPaddedPanelStyle,
@@ -89,7 +89,7 @@ const TalkingPointsSection: React.FC<Props> = ({
       <div style={sectionHeaderStyle}>
         <h2 style={sectionTitleStyle}>Marie&rsquo;s talking points</h2>
         <span style={sectionMetaStyle}>
-          {filled} of up to {cap} · cap from Settings · her own words, per §10
+her own words · up to {cap}
         </span>
       </div>
 
@@ -121,10 +121,26 @@ const TalkingPointsSection: React.FC<Props> = ({
                 gap: "0.7rem",
                 alignItems: "baseline",
                 padding: "0.55rem 0",
-                borderBottom: index === values.length - 1 ? "none" : HAIRLINE,
+                borderBottom: index === values.length - 1 ? "none" : DIVIDER,
               }}
             >
-              <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--text-muted)" }}>
+              {/* Mockup `.tp-n`: a filled accent PILL, not a grey numeral — the
+                  points are the answer Marie gives, and v3 gives them the accent. */}
+              <span
+                style={{
+                  fontSize: "12px",
+                  fontWeight: 700,
+                  color: "var(--v3-on-fill)",
+                  background: "var(--accent-primary)",
+                  borderRadius: "999px",
+                  width: "20px",
+                  height: "20px",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                }}
+              >
                 {index + 1}
               </span>
               <div style={{ flex: 1 }}>
@@ -138,7 +154,7 @@ const TalkingPointsSection: React.FC<Props> = ({
                     }}
                     aria-label={`Talking point ${index + 1}`}
                     style={{
-                      border: HAIRLINE,
+                      border: DIVIDER,
                       borderRadius: "6px",
                       padding: "0.35rem 0.55rem",
                       width: "100%",
@@ -203,8 +219,7 @@ const TalkingPointsSection: React.FC<Props> = ({
             </button>
           )}
           <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
-            Authored by curators, shaped by Chuck when he engages — the system never
-            rewrites these.
+Authored by you and Marie — the system never rewrites these.
           </span>
         </div>
       </div>

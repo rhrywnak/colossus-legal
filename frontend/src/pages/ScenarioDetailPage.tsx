@@ -65,7 +65,30 @@ import { deleteScenario } from "../services/scenarioCrud";
 import { getScenarioDetailLive } from "../services/trialPrep";
 import type { ScenarioDetail } from "./trialPrepData";
 
-const containerStyle: React.CSSProperties = { paddingTop: "32px", paddingBottom: "4rem" };
+/**
+ * The page container, and the v3 SURFACE SCOPE.
+ *
+ * `data-surface="v3"` is what makes the mockup's palette apply here and nowhere
+ * unreviewed (ruling R1). Every token the v3 `:root` redefines is re-declared under
+ * that selector in tokens.css, and custom properties inherit — so the components
+ * below keep saying `var(--text-primary)` and get the mockup's #1a202c, while the
+ * same components on other screens get the app's #101828. The cascade does the
+ * scoping; app-wide adoption is task 3.14.
+ *
+ * Padding transcribed from the mockup's `body`: 28px top, 40px sides, 80px bottom.
+ * Scoped rather than applied to the app shell (ruling R5) — the shell's 32px inset
+ * governs every other screen and moving it globally was not this task's to do.
+ */
+const containerStyle: React.CSSProperties = {
+  padding: "28px 40px 80px",
+  // The negative side margin ESCAPES the app shell's own 2rem inset before applying
+  // the mockup's 40px. Without it the two insets add up: the shell's 1080px box less
+  // 64px less 80px left 936px of content where the mockup has exactly 1000px, and
+  // the 64px shortfall wrapped the status control onto its own line — which the
+  // screenshot comparison caught and a checklist would not have.
+  marginLeft: "-2rem",
+  marginRight: "-2rem",
+};
 const messageStyle: React.CSSProperties = { padding: "2rem 0", color: "var(--text-muted)" };
 const errorStyle: React.CSSProperties = {
   padding: "0.75rem 1rem",
@@ -166,7 +189,7 @@ const ScenarioDetailPage: React.FC = () => {
 
   if (loading) {
     return (
-      <div style={containerStyle}>
+      <div style={containerStyle} data-surface="v3">
         {gatingCrumb}
         <div style={messageStyle}>Loading scenario…</div>
       </div>
@@ -174,7 +197,7 @@ const ScenarioDetailPage: React.FC = () => {
   }
   if (error) {
     return (
-      <div style={containerStyle}>
+      <div style={containerStyle} data-surface="v3">
         {gatingCrumb}
         <div style={errorStyle}>{error}</div>
       </div>
@@ -182,7 +205,7 @@ const ScenarioDetailPage: React.FC = () => {
   }
   if (!scenario || !scenarioId) {
     return (
-      <div style={containerStyle}>
+      <div style={containerStyle} data-surface="v3">
         {gatingCrumb}
         <EmptyState message="Scenario not found." />
       </div>
@@ -190,7 +213,7 @@ const ScenarioDetailPage: React.FC = () => {
   }
 
   return (
-    <div style={containerStyle}>
+    <div style={containerStyle} data-surface="v3">
       <Breadcrumb
         items={[{ label: "Dashboard", to: "/" }, backCrumb, { label: scenario.attack }]}
       />

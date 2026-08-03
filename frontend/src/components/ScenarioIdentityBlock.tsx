@@ -33,33 +33,38 @@
 import React from "react";
 
 import { labelForAllegationId } from "./allegationLabel";
+import { allegationChipStyle, sectionPanelStyle } from "./scenarioSectionStyles";
 import type { AllegationDto } from "../services/allegations";
 
-const HAIRLINE = "1px solid var(--border-default)";
-
+// Mockup `.panel .identity`: margin-top 20px, padding 20px 24px 16px, borderless
+// white on --shadow-card. There is NO border — v3 removed every card border, and a
+// hairline here would read as a double edge against the shadow.
 const cardStyle: React.CSSProperties = {
+  ...sectionPanelStyle,
   position: "relative",
-  marginTop: "1.1rem",
-  background: "var(--bg-surface)",
-  border: HAIRLINE,
-  borderRadius: "10px",
-  boxShadow: "0 1px 2px rgba(16,24,40,.05)",
-  padding: "1.15rem 1.35rem 1rem",
+  marginTop: "20px",
+  padding: "20px 24px 16px",
+  // The identity block's own content sets the radius clip; `overflow: hidden` from
+  // the shared panel would clip the absolutely-positioned pencil.
+  overflow: "visible",
 };
 
+// Mockup `.id-grid`: two equal columns, 16px/32px gaps. `auto-fit` keeps it from
+// squeezing two columns into a narrow window.
 const gridStyle: React.CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(auto-fit, minmax(18rem, 1fr))",
-  gap: "0.9rem 2rem",
+  gap: "16px 32px",
 };
 
+// Mockup `.lbl`: 11px/600, .08em, uppercase, --text-3, 3px bottom.
 const labelStyle: React.CSSProperties = {
-  fontSize: "0.68rem",
+  fontSize: "11px",
   fontWeight: 600,
   letterSpacing: "0.08em",
   textTransform: "uppercase",
   color: "var(--text-muted)",
-  marginBottom: "0.15rem",
+  marginBottom: "3px",
 };
 
 const textStyle: React.CSSProperties = {
@@ -75,14 +80,7 @@ const absentStyle: React.CSSProperties = {
   fontStyle: "italic",
 };
 
-const chipStyle: React.CSSProperties = {
-  border: HAIRLINE,
-  borderRadius: "999px",
-  padding: "0.12rem 0.6rem",
-  fontSize: "0.75rem",
-  color: "var(--text-secondary)",
-  whiteSpace: "nowrap",
-};
+
 
 interface Props {
   /** THEIR framing — `definition.attack_text` / the augmentation identity. */
@@ -163,7 +161,7 @@ const ScenarioIdentityBlock: React.FC<Props> = ({
         absent="No theme written yet."
       />
       <Field
-        label="Their motivation — what they want the jury to believe"
+        label="Their motivation"
         value={motivation}
         absent="No motivation written yet."
       />
@@ -176,7 +174,7 @@ const ScenarioIdentityBlock: React.FC<Props> = ({
       ) : (
         <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
           {anchorAllegationIds.map((id) => (
-            <span key={id} style={chipStyle}>
+            <span key={id} style={allegationChipStyle}>
               {/* One composer, shared with the modal's picker (ruling R11). An id
                   the catalogue does not know renders AS the id rather than being
                   dropped — a silently shorter chip row would disagree with the

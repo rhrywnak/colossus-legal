@@ -29,13 +29,27 @@ describe("the summary line", () => {
     expect(queueRegion(3, 148).summary).toBe("Candidates awaiting ruling — 145");
   });
 
-  it("states the labelling law, so a rerun is not expected to reset the pile", () => {
+  it("says the pile spans EVERY scan, not just the last one", () => {
     // §2.3's labelling law: scans only ADD, rulings only DRAIN, rerunning never
     // removes. A human who believes the queue is "the last scan's results" will
     // rerun a scan expecting a reset, and will be wrong.
-    const scope = queueRegion(3, 148).scope;
-    expect(scope).toContain("all scans");
-    expect(scope).toContain("drain");
+    //
+    // Task 1.7D shortened this clause to the mockup's "from all scans" and moved
+    // the add/drain sentence up to the section subtitle, where it has room to be a
+    // sentence. The head line keeps the load-bearing half — that the count spans
+    // every scan — and the structural test below pins the other half's new home so
+    // the law cannot go missing between the two.
+    expect(queueRegion(3, 148).scope).toContain("all scans");
+  });
+
+  it("hands the chevron a label naming what collapsing costs", () => {
+    // Item 4: collapse is chevron-only now, and collapsing PAUSES the keys. A
+    // human who does not know that reads a dead keyboard as a broken one.
+    const label = queueRegion(3, 148).chevronLabel;
+    expect(label).toContain("only this arrow");
+    expect(label).toContain("keys pause");
+    // At zero there is nothing to warn about — the queue is a receipt.
+    expect(queueRegion(10, 10).chevronLabel).toBe("Expand the queue");
   });
 
   it("becomes a receipt at zero rather than an empty container", () => {

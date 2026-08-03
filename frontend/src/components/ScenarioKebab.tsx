@@ -25,8 +25,6 @@
 
 import React, { useEffect, useRef, useState } from "react";
 
-const HAIRLINE = "1px solid var(--border-default)";
-
 const triggerStyle: React.CSSProperties = {
   border: "none",
   background: "none",
@@ -38,15 +36,15 @@ const triggerStyle: React.CSSProperties = {
   fontFamily: "inherit",
 };
 
+// v3: borderless, carried by the raised shadow like every other floating surface.
 const menuStyle: React.CSSProperties = {
   position: "absolute",
   right: 0,
   top: "calc(100% + 4px)",
   minWidth: "11rem",
   background: "var(--bg-surface)",
-  border: HAIRLINE,
-  borderRadius: "8px",
-  boxShadow: "0 4px 12px rgba(16,24,40,.10)",
+  borderRadius: "10px",
+  boxShadow: "var(--shadow-raised)",
   padding: "0.25rem",
   zIndex: 20,
 };
@@ -99,8 +97,8 @@ const ScenarioKebab: React.FC<Props> = ({ onDelete }) => {
         style={triggerStyle}
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label="More actions"
-        title="More actions"
+        aria-label="Delete scenario"
+        title="Delete"
         onClick={() => setOpen((v) => !v)}
       >
         ⋯

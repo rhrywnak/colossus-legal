@@ -36,6 +36,21 @@ export type WorkingRow = {
   pinpointHref: string;
   /** The ruling state, in plain language. */
   statusLabel: string;
+  /**
+   * Whether a HUMAN wrote this fact, rather than it being evidence they ruled in.
+   *
+   * Drives the row's coloured left-edge stripe (task 1.7D, item 6): green for
+   * included evidence, blue for a human-added fact. Approved as an additive
+   * descriptor field by ruling R6.
+   *
+   * ## Why the flag and not "does it have a pinpoint"
+   *
+   * A human fact has no citation BY DESIGN (§8), so "no pinpoint" correlates with
+   * it today — but correlation is not the fact. Inferring provenance from a missing
+   * field would break the day an evidence row legitimately lacks a page, and it
+   * would be the browser deducing authorship rather than being told it.
+   */
+  isHuman: boolean;
 };
 
 /**
@@ -62,7 +77,43 @@ export function includedRows(cards: ScenarioCard[]): WorkingRow[] {
       pinpointLabel: card.pinpoint.label,
       pinpointHref: card.pinpoint.viewer_href,
       statusLabel: card.status_label,
+      // Every row from the CARD payload is evidence a human ruled in — a card
+      // exists because the graph produced it. Human facts enter through
+      // `humanFactRows` below.
+      isHuman: false,
     }));
+}
+
+/**
+ * Human facts, as rows of the same table.
+ *
+ * ## Why they share the table rather than sitting under it
+ *
+ * 1.7C rendered them as a separate list beneath the evidence, because a fact with
+ * no citation and a fact with a pinpoint are different kinds of thing and §8
+ * requires the distinction be visible. That reasoning still holds — what changed is
+ * HOW it is made visible. The v3 mockup puts both in one table and carries the
+ * distinction in a coloured left-edge stripe (green evidence, blue human), which
+ * says it at a glance without splitting the reader's attention across two lists
+ * they have to mentally join.
+ *
+ * The row keeps no pinpoint, because there is none to keep.
+ */
+export function humanFactRows(
+  facts: { id: string; text: string; authored_tag: string; date_label: string | null }[],
+): WorkingRow[] {
+  return facts.map((fact) => ({
+    code: null,
+    graphNodeId: `human:${fact.id}`,
+    text: fact.text,
+    bearsOn: [],
+    pinpointLabel: "",
+    pinpointHref: "",
+    // The composed provenance line ("Added by Roman") stands where the ruling state
+    // stands on an evidence row: it is what this row's authority IS.
+    statusLabel: fact.date_label ? `${fact.authored_tag} · ${fact.date_label}` : fact.authored_tag,
+    isHuman: true,
+  }));
 }
 
 /**

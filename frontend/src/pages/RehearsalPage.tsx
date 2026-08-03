@@ -27,18 +27,42 @@
 // pretends they exist.
 
 import React, { useCallback, useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 
-import { fetchRehearsal, type RehearsalPayload } from "../services/rehearsal";
+import Breadcrumb from "../components/Breadcrumb";
+import RehearsalScenarioBlocks from "../components/RehearsalScenarioBlocks";
+import {
+  fetchRehearsal,
+  type RehearsalPayload,
+  type RehearsalScenario,
+} from "../services/rehearsal";
+import { getTrialPrepDashboard } from "../services/trialPrep";
 import { positionLabel, stepForKey, stepTo } from "./rehearsalNav";
 
 const pageStyle: React.CSSProperties = {
-  padding: "2rem",
+  padding: "28px 40px 80px",
   maxWidth: "56rem",
   margin: "0 auto",
   // The generous line height is part of the point: this text is read aloud.
   lineHeight: 1.7,
 };
+
+/**
+ * The purpose line (task 1.7D, item 9b).
+ *
+ * Roman's 2026-08-03 session: he opened this view and could not tell what it was
+ * FOR. A rehearsal surface with no self-description reads as a stripped-down
+ * scenario page — the exclusions (§10) look like missing data rather than a
+ * deliberate slim.
+ *
+ * One sentence, naming what is here AND the rule that decides what appears. The
+ * second half matters as much as the first: an empty view is otherwise
+ * indistinguishable from a broken one.
+ */
+// CONST: user-facing copy, ordered verbatim in the instruction.
+const PURPOSE =
+  "Marie's testimony-prep view — the theme, the attack, her talking points, and " +
+  "what the other side will wave around. Only scenarios marked Ready appear here.";
 
 const blockLabelStyle: React.CSSProperties = {
   fontSize: "0.8rem",
@@ -64,12 +88,65 @@ const RehearsalPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [index, setIndex] = useState(0);
 
+  /**
+   * `code` → `scenarioId`, so each screen can link back to the scenario it shows
+   * (item 9a).
+   *
+   * ## Why a second read and not a payload field
+   *
+   * The rehearsal DTO carries `code` ("S-2") but no id, and the back link needs
+   * `/cases/:slug/trial-prep/:scenarioId`. Adding the id to the DTO would have been
+   * one line — and a backend diff, which this task's authorization put at ZERO. The
+   * Trial Prep dashboard already serves `id` and `code` together, so the map is
+   * resolvable entirely on this side for the cost of one cached-ish GET.
+   *
+   * It degrades to nothing rather than to something wrong: if this read fails the
+   * per-screen deep link is OMITTED and the Trial Prep crumb (also required by 9a)
+   * still gets Marie out. A link labelled "Back to S-2" that did not go to S-2
+   * would be worse than no link.
+   */
+  const [idByCode, setIdByCode] = useState<Record<string, string>>({});
+  /**
+   * Set when the code→id read failed, so the missing back links are SAID.
+   *
+   * Standing Rule 1 has no best-effort carve-out for a network read — the
+   * localStorage exemption covers cosmetic browser-storage preferences and
+   * explicitly not `fetch`/`authFetch`. A `console.warn` alone left the links
+   * quietly absent, which is indistinguishable from "this build has no back
+   * links". The notice is muted and non-blocking because the failure costs a
+   * convenience, not the view: the breadcrumb below is unconditional.
+   */
+  const [backLinksUnavailable, setBackLinksUnavailable] = useState(false);
+
   const load = useCallback(async () => {
     if (!slug) return;
     setLoading(true);
     try {
       const loaded = await fetchRehearsal(slug);
       setPayload(loaded);
+
+      // Best-effort, and deliberately NOT awaited into the gating path: the
+      // rehearsal view must open even if the dashboard read fails, because its job
+      // is to be read aloud and a missing back link does not stop that.
+      getTrialPrepDashboard(slug)
+        .then((dashboard) => {
+          setIdByCode(
+            Object.fromEntries(dashboard.scenarios.map((row) => [row.code, row.id])),
+          );
+          setBackLinksUnavailable(false);
+        })
+        .catch((e: unknown) => {
+          // The deep links are omitted rather than rendered wrong — but the absence
+          // is SAID, not swallowed (Standing Rule 1). Muted and inline rather than a
+          // banner: the view still works and the breadcrumb still gets Marie out, so
+          // an alarm would overstate a lost convenience.
+          setBackLinksUnavailable(true);
+          console.warn(
+            "could not resolve scenario ids for the rehearsal back links; the " +
+              "breadcrumb remains the way back",
+            e,
+          );
+        });
       // Clamp rather than reset: a reload after one scenario was demoted should
       // keep Marie roughly where she was, not send her back to the start.
       setIndex((current) => stepTo(current, loaded.scenarios.length, null));
@@ -100,11 +177,11 @@ const RehearsalPage: React.FC = () => {
     return () => window.removeEventListener("keydown", onKey);
   }, [total]);
 
-  if (loading) return <div style={pageStyle}>Loading rehearsal mode…</div>;
+  if (loading) return <div style={pageStyle} data-surface="v3">Loading rehearsal mode…</div>;
 
   if (error) {
     return (
-      <div style={pageStyle}>
+      <div style={pageStyle} data-surface="v3">
         <div role="alert" style={{ color: "var(--state-danger-strong)" }}>
           {error}
         </div>
@@ -115,12 +192,21 @@ const RehearsalPage: React.FC = () => {
     );
   }
 
-  if (!payload) return <div style={pageStyle}>Rehearsal mode is unavailable.</div>;
+  if (!payload) return <div style={pageStyle} data-surface="v3">Rehearsal mode is unavailable.</div>;
 
   const scenario = payload.scenarios[index];
 
   return (
-    <div style={pageStyle}>
+    <div style={pageStyle} data-surface="v3">
+      {/* Item 9a: the browser back button must never be the only way out. */}
+      <Breadcrumb
+        items={[
+          { label: "Dashboard", to: "/" },
+          { label: "Trial Prep", to: `/cases/${slug}/trial-prep` },
+          { label: "Rehearsal" },
+        ]}
+      />
+
       <div style={{ display: "flex", alignItems: "baseline", gap: "1rem" }}>
         <h1 style={{ fontSize: "1.1rem", color: "var(--text-muted)", fontWeight: 500 }}>
           Rehearsal
@@ -128,71 +214,51 @@ const RehearsalPage: React.FC = () => {
         <span style={{ color: "var(--text-muted)" }}>{positionLabel(index, total)}</span>
       </div>
 
+      {backLinksUnavailable && (
+        <p
+          role="status"
+          style={{
+            fontSize: "0.8rem",
+            color: "var(--text-muted)",
+            margin: "0.35rem 0 0",
+          }}
+        >
+          Links back to individual scenarios are unavailable right now — use Trial
+          Prep above.
+        </p>
+      )}
+
+      {/* Item 9b: one line saying what this view is and what decides its contents. */}
+      <p
+        style={{
+          fontSize: "0.95rem",
+          lineHeight: 1.6,
+          color: "var(--text-secondary)",
+          margin: "0.5rem 0 0",
+          maxWidth: "44rem",
+        }}
+      >
+        {PURPOSE}
+      </p>
+
       {/* An empty rehearsal is a REAL state, not a failure: nobody has declared a
           scenario ready yet. It says so, and says what to do about it. */}
       {!scenario ? (
         <p style={{ ...bodyStyle, marginTop: "2rem" }}>
           Nothing is ready to rehearse yet. A scenario appears here once someone
-          marks it ready on its page.
+          switches it to Ready on its page —{" "}
+          <Link to={`/cases/${slug}/trial-prep`} style={{ color: "var(--accent-primary)" }}>
+            open Trial Prep
+          </Link>{" "}
+          to pick one.
         </p>
       ) : (
         <>
-          <div style={{ ...blockStyle, borderTop: "none", marginTop: "1rem" }}>
-            <div style={blockLabelStyle}>{scenario.code} · What they say</div>
-            <div style={bodyStyle}>
-              {scenario.attack ?? "Their claim has not been written down yet."}
-            </div>
-          </div>
-
-          <div style={blockStyle}>
-            <div style={blockLabelStyle}>Our answer</div>
-            <div style={{ ...bodyStyle, fontWeight: 600 }}>
-              {scenario.theme ?? "Our answer has not been framed yet."}
-            </div>
-          </div>
-
-          <div style={blockStyle}>
-            <div style={blockLabelStyle}>Your points</div>
-            {scenario.points.length === 0 ? (
-              <div style={{ ...bodyStyle, color: "var(--text-muted)" }}>
-                No points written yet.
-              </div>
-            ) : (
-              <ol style={{ ...bodyStyle, paddingLeft: "1.4rem" }}>
-                {scenario.points.map((point, i) => (
-                  <li key={i} style={{ marginBottom: "0.6rem" }}>
-                    {point.text}
-                    {/* The paired exhibit, when one is authored. A plain label —
-                        never a page or a line number: §10 excludes pinpoint
-                        impeachment sourcing from this surface. */}
-                    {point.exhibit && (
-                      <span style={{ color: "var(--text-muted)", fontSize: "1rem" }}>
-                        {" "}
-                        ({point.exhibit})
-                      </span>
-                    )}
-                  </li>
-                ))}
-              </ol>
-            )}
-          </div>
-
-          <div style={blockStyle}>
-            <div style={blockLabelStyle}>Watch for</div>
-            {scenario.watch_list.length === 0 ? (
-              <div style={{ ...bodyStyle, color: "var(--text-muted)" }}>
-                Nothing flagged.
-              </div>
-            ) : (
-              <ul style={{ ...bodyStyle, paddingLeft: "1.4rem" }}>
-                {scenario.watch_list.map((note, i) => (
-                  <li key={i} style={{ marginBottom: "0.6rem" }}>
-                    {note}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+          <RehearsalScenarioBlocks
+            scenario={scenario}
+            slug={slug}
+            scenarioId={idByCode[scenario.code]}
+          />
 
           <div style={{ display: "flex", gap: "0.75rem", marginTop: "2rem" }}>
             <button
@@ -221,8 +287,16 @@ const RehearsalPage: React.FC = () => {
           ...blockStyle,
           marginTop: "2.5rem",
           background: "var(--bg-surface)",
-          border: "1px solid var(--border-default)",
-          borderRadius: "8px",
+          // v3: a card is carried by its shadow, never a border. This one only
+          // became a v3 surface when task 1.7D scoped ALL of this page's render
+          // paths — before that it sat outside the palette and its hairline was
+          // correct. Inside the scope the border resolves to #eef0f3 and would read
+          // as a faint double edge against the shadow, which is precisely what the
+          // ruling removed. `borderTop` from `blockStyle` is cleared for the same
+          // reason: a card is not a section divider.
+          borderTop: "none",
+          borderRadius: "var(--radius-card)",
+          boxShadow: "var(--shadow-card)",
           padding: "1rem 1.25rem",
         }}
       >

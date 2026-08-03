@@ -39,9 +39,12 @@ const SCENARIO_TREE = [
   "components/ScenarioIdentityBlock.tsx",
   "components/ScanSection.tsx",
   "components/ThemeScanPanel.tsx",
+  "components/ScanControlLine.tsx",
   "components/ScanHistoryTable.tsx",
   "components/CardQueue.tsx",
   "components/CandidateCard.tsx",
+  "components/RulingButtons.tsx",
+  "components/ScenarioStatusControl.tsx",
   "components/ScenarioFactsSection.tsx",
   "components/WorkingView.tsx",
   "components/AddHumanFactForm.tsx",
@@ -203,6 +206,89 @@ describe("the 1.7B panels are gone, not just unmounted (task 1.7C)", () => {
       );
     });
     expect(offenders).toEqual([]);
+  });
+});
+
+describe("the v3 visual language (task 1.7D)", () => {
+  it("the queue title row is NOT a toggle — only the chevron collapses", () => {
+    // Item 4, from Roman's first real session: 1.7C used `<details>/<summary>`,
+    // which makes the WHOLE head row a toggle, so clicking the count or the empty
+    // space beside it folded the queue away mid-triage. A `<details>` cannot be
+    // made partly clickable, so the region became a head row plus a conditional
+    // body — and this fence stops someone reinstating the shorter version.
+    const section = read("components", "ScanSection.tsx");
+    expect(section).not.toContain("<details");
+    expect(section).not.toContain("<summary");
+    expect(section, "the chevron is the only collapse control").toContain("chevronStyle");
+  });
+
+  it("the labelling law survives the copy split", () => {
+    // `queueRegion` shortened its head-line clause to "from all scans"; the
+    // add/drain sentence moved to the section subtitle. Both halves must exist
+    // SOMEWHERE, or a human will rerun a scan expecting the pile to reset.
+    const section = read("components", "ScanSection.tsx");
+    expect(section).toContain("rulings drain them");
+    expect(section).toContain("rerunning never removes");
+  });
+
+  it("no card in the scenario tree carries a border (v3 is borderless)", () => {
+    // The v3 ruling: cards are white surfaces on layered shadows. A hairline
+    // border on top of that shadow reads as a double edge, which is the thing the
+    // ruling removed. Checks the CARD shells, not inputs or internal dividers.
+    const offenders: string[] = [];
+    for (const file of ["components/CandidateCard.tsx", "components/ScenarioIdentityBlock.tsx"]) {
+      const source = read(file);
+      // A card shell declares a radius and a shadow; it must not also declare a
+      // border on the same object.
+      if (/border:\s*HAIRLINE/.test(source) || /border:\s*DIVIDER/.test(source)) {
+        offenders.push(file);
+      }
+    }
+    expect(offenders, `these card shells still carry a border:\n${offenders.join("\n")}`).toEqual(
+      [],
+    );
+  });
+
+  it("the ruling buttons dispatch the reducer's OWN key event", () => {
+    // Item 2's whole point: one state machine, two input devices. A parallel click
+    // path would be a second machine to keep in step, and buttons that disagree
+    // with the keys are worse than no buttons.
+    const queue = read("components", "CardQueue.tsx");
+    expect(queue).toContain('dispatch({ type: "key", key, typing: false })');
+  });
+
+  it("cardTriage.ts is untouched by the button work", () => {
+    // The 31 §7 tests test the reducer. If the reducer grew a click event, they
+    // would still pass while the contract they protect had quietly widened.
+    const reducer = read("components", "cardTriage.ts");
+    expect(reducer).not.toContain("onRule");
+    expect(reducer).not.toContain('type: "click"');
+  });
+
+  it("the status toggle button is gone, replaced by the segmented control", () => {
+    // Item 3 / ruling R4. A button states the ACTION available, not the state you
+    // are in, and the reader had to invert it to learn the status.
+    const header = read("components", "ScenarioHeaderTiers.tsx");
+    expect(header).not.toContain("Mark ready to rehearse");
+    expect(header).not.toContain("Remove from rehearsal");
+    expect(header).toContain("ScenarioStatusControl");
+  });
+
+  it("colour never stands alone on the ruling buttons or the status control", () => {
+    // The mockup's stated accessibility rule: every coloured control carries an
+    // icon and (where it decides something) a word, so the meaning survives
+    // colourblindness and a greyscale print.
+    // The buttons moved to their own module when CandidateCard was split for
+    // Rule 17; the fence follows them.
+    const buttons = read("components", "RulingButtons.tsx");
+    for (const glyph of ["✓", "✕", "⏸", "↩"]) {
+      expect(buttons, `the ruling buttons must carry the ${glyph} glyph`).toContain(glyph);
+    }
+    expect(buttons).toContain('label: "Include"');
+    expect(buttons).toContain('label: "Exclude"');
+
+    const control = read("components", "ScenarioStatusControl.tsx");
+    expect(control, "the active segment carries a ● glyph, not just a fill").toContain("●");
   });
 });
 

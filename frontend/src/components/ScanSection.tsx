@@ -32,52 +32,62 @@ import CardQueue from "./CardQueue";
 import ThemeScanPanel from "./ThemeScanPanel";
 import { queueRegion } from "./queueRegion";
 
-const HAIRLINE = "1px solid var(--border-default)";
+import {
+  kbdStyle,
+  sectionHeaderStyle,
+  sectionMetaStyle,
+  sectionPanelStyle,
+  sectionTitleStyle,
+} from "./scenarioSectionStyles";
 
-const sectionHeaderStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "baseline",
-  flexWrap: "wrap",
-  gap: "0.7rem",
-  marginTop: "2rem",
-  marginBottom: "0.6rem",
-};
-
-const titleStyle: React.CSSProperties = {
-  margin: 0,
-  fontSize: "0.98rem",
-  fontWeight: 600,
-  color: "var(--text-primary)",
-};
-
-const boxStyle: React.CSSProperties = {
-  background: "var(--bg-surface)",
-  border: HAIRLINE,
-  borderRadius: "10px",
-  boxShadow: "0 1px 2px rgba(16,24,40,.05)",
-};
-
-const queueSummaryStyle: React.CSSProperties = {
-  cursor: "pointer",
-  listStyle: "none",
+/** Mockup `.q-head`: the queue's head row, divided from the scan row above it. */
+const queueHeadStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
-  flexWrap: "wrap",
-  gap: "0.8rem",
-  padding: "0.75rem 1rem",
-  fontSize: "0.85rem",
-  color: "var(--text-primary)",
+  gap: "12px",
+  padding: "14px 24px",
+  borderTop: "1px solid var(--border-default)",
 };
 
-const kbdStyle: React.CSSProperties = {
-  border: HAIRLINE,
-  borderBottomWidth: "2px",
-  borderRadius: "4px",
-  padding: "0 0.28rem",
-  background: "var(--bg-canvas)",
+/**
+ * Mockup `.chev`: a 30x30 chrome square, radius 8, NO border.
+ *
+ * `margin-left: auto` puts it hard right, away from the text — which is the point
+ * of item 4. The only way to collapse the queue is to aim at this button.
+ */
+const chevronStyle: React.CSSProperties = {
+  marginLeft: "auto",
+  width: "30px",
+  height: "30px",
+  borderRadius: "8px",
+  background: "var(--v3-chrome)",
+  border: "none",
+  cursor: "pointer",
   color: "var(--text-secondary)",
+  fontSize: "13px",
   fontFamily: "inherit",
-  fontSize: "0.7rem",
+  flexShrink: 0,
+};
+
+/** Mockup `.q-meta`: 16px gaps, 13px, --text-2. */
+const queueMetaStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "16px",
+  margin: "4px 0 14px",
+  fontSize: "13px",
+  color: "var(--text-secondary)",
+  flexWrap: "wrap",
+};
+
+/** Mockup `.q-progress`: 6px tall, chrome trough, fully rounded. */
+const progressTroughStyle: React.CSSProperties = {
+  flex: 1,
+  minWidth: "180px",
+  height: "6px",
+  background: "var(--v3-chrome-strong)",
+  borderRadius: "99px",
+  overflow: "hidden",
 };
 
 interface Props {
@@ -129,20 +139,21 @@ const ScanSection: React.FC<Props> = ({
   return (
     <section>
       <div style={sectionHeaderStyle}>
-        <h2 style={titleStyle}>Scan &amp; candidates</h2>
+        <h2 style={sectionTitleStyle}>Scan &amp; candidates</h2>
         {/* §2.3's labelling law, said out loud: a human who thinks the queue is
             "the last scan's results" will rerun a scan expecting the pile to
             reset, and it will not. */}
-        <span style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
+        <span style={sectionMetaStyle}>
           scans add candidates; your rulings drain them — rerunning never removes
           anything
         </span>
       </div>
 
-      <div style={boxStyle}>
+      <div style={sectionPanelStyle}>
         {/* 1 + 2: the scan control line, the last-run meta, and the history
             disclosure. Behaviour unchanged from 1.7B. */}
-        <div style={{ padding: "0.25rem 0.5rem" }}>
+        {/* No wrapper padding: the scan row carries the mockup's own 14px/24px. */}
+        <div>
           <ThemeScanPanel
             slug={slug}
             scenarioId={scenarioId}
@@ -151,65 +162,71 @@ const ScanSection: React.FC<Props> = ({
           />
         </div>
 
-        {/* 3: the ruling queue. */}
-        <details
-          open={open}
-          onToggle={(event) => setOpenOverride(event.currentTarget.open)}
-          style={{ borderTop: HAIRLINE }}
-        >
-          <summary style={queueSummaryStyle}>
-            <strong style={{ fontWeight: 600 }}>{region.summary}</strong>
-            {region.scope && (
-              <span style={{ color: "var(--text-muted)" }}>{region.scope}</span>
-            )}
-            <span style={{ marginLeft: "auto", color: "var(--text-muted)" }}>
-              <kbd style={kbdStyle}>I</kbd> include · <kbd style={kbdStyle}>E</kbd> exclude ·{" "}
-              <kbd style={kbdStyle}>D</kbd> defer · <kbd style={kbdStyle}>U</kbd> undo
-            </span>
-          </summary>
+        {/* 3: the ruling queue.
 
-          <div style={{ padding: "0 1rem 0.5rem" }}>
-            {/* Progress: the label, the bar, and what is left. */}
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "1rem",
-                flexWrap: "wrap",
-                fontSize: "0.8rem",
-                color: "var(--text-secondary)",
-                margin: "0.4rem 0 0.2rem",
-              }}
-            >
-              <strong style={{ fontWeight: 600 }}>
+            Item 4 (Roman's 2026-08-03 session): collapse happens via the EXPLICIT
+            CHEVRON and nothing else. 1.7C used a native disclosure element, whose
+            summary makes the WHOLE head row a toggle — so clicking the count, the
+            scope text, or the empty space between them folded the queue away
+            mid-triage. That is the defect, and a native disclosure cannot be made
+            partly clickable, so the region is now a plain head row plus a
+            conditional body.
+
+            The keyboard legend moved OUT of the head and INTO the meta row inside
+            the body, with the mockup's "— or use the buttons" — where it sits beside
+            the buttons it is describing, and where it disappears with the body it
+            applies to rather than advertising keys that are paused. */}
+        <div style={queueHeadStyle}>
+          <b style={{ fontSize: "14px" }}>{region.summary}</b>
+          {region.scope && (
+            <span style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
+              {region.scope}
+            </span>
+          )}
+          <button
+            type="button"
+            style={chevronStyle}
+            onClick={() => setOpenOverride(!open)}
+            aria-expanded={open}
+            aria-label={region.chevronLabel}
+            title={region.chevronLabel}
+          >
+            {open ? "▾" : "▸"}
+          </button>
+        </div>
+
+        {open && (
+          <div style={{ padding: "4px 24px 22px" }}>
+            {/* Progress: the label, the bar, what is left, the deferred tray, and
+                the keys. Mockup `.q-meta`. */}
+            <div style={queueMetaStyle}>
+              <b style={{ color: "var(--state-success-strong)" }}>
                 {/* "0 of 0 ruled" before the fetch lands is a claim about the pool
                     that nothing has measured yet (Standing Rule 1). */}
                 {progress === null ? "Counting candidates…" : region.progressLabel}
-              </strong>
+              </b>
               <div
                 role="progressbar"
                 aria-valuenow={region.progressPercent}
                 aria-valuemin={0}
                 aria-valuemax={100}
                 aria-label="Candidates ruled"
-                style={{
-                  flex: 1,
-                  minWidth: "10rem",
-                  height: "5px",
-                  background: "var(--border-default)",
-                  borderRadius: "99px",
-                  overflow: "hidden",
-                }}
+                style={progressTroughStyle}
               >
                 <div
                   style={{
                     width: `${region.progressPercent}%`,
                     height: "100%",
-                    background: "var(--accent-primary)",
+                    background: "var(--state-success-strong)",
                   }}
                 />
               </div>
               {region.remainingLabel && <span>{region.remainingLabel}</span>}
+              <span style={{ color: "var(--text-muted)" }}>
+                Keys: <kbd style={kbdStyle}>I</kbd> <kbd style={kbdStyle}>E</kbd>{" "}
+                <kbd style={kbdStyle}>D</kbd> <kbd style={kbdStyle}>U</kbd> — or use the
+                buttons
+              </span>
             </div>
 
             <CardQueue
@@ -220,7 +237,7 @@ const ScanSection: React.FC<Props> = ({
               onProgress={setProgress}
             />
           </div>
-        </details>
+        )}
       </div>
     </section>
   );

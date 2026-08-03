@@ -26,6 +26,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import EvidenceCard from "../pages/BiasExplorer/EvidenceCard";
 import PipelineProgressBar from "./pipeline/PipelineProgressBar";
 import ScanHistoryTable from "./ScanHistoryTable";
+import ScanControlLine from "./ScanControlLine";
 import {
   computeAgreement,
   costLabel,
@@ -131,10 +132,14 @@ const ThemeScanPanel: React.FC<Props> = ({
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
   const [candidateCount, setCandidateCount] = useState<number | null>(null);
   // Whether the pre-scan candidate-count fetch FAILED (distinct from "loaded, count
-  // is 0" and from "still loading"). Drives a muted inline "(candidate count
-  // unavailable)" beside the subtitle so a failed `authFetch` is user-observable,
-  // not silent — the pre-scan count is a data read, so Rule 9's cosmetic best-effort
-  // carve-out does NOT apply to it (it is limited to browser-storage prefs).
+  // is 0" and from "still loading"). A failed `authFetch` is a data read, so Rule 1's
+  // cosmetic best-effort carve-out does NOT apply — it must stay user-observable.
+  //
+  // Task 1.7D moved where it is observed. Both this and `candidateCount` used to
+  // render in the panel's own subtitle; suppressing that header for mockup parity
+  // deleted their only render site and left them set-but-never-read, with this
+  // comment still claiming they were visible. They now render on the SCAN ROW,
+  // beside the last-run meta, which is where the mockup puts scan facts anyway.
   const [countError, setCountError] = useState(false);
 
   const [activeRun, setActiveRun] = useState<{ runId: string; modelId: string } | null>(null);
@@ -182,13 +187,12 @@ const ThemeScanPanel: React.FC<Props> = ({
   useEffect(() => {
     setCollapsed(readCollapsed(scenarioId));
   }, [scenarioId]);
-  const toggleCollapsed = useCallback(() => {
-    setCollapsed((c) => {
-      const next = !c;
-      writeCollapsed(scenarioId, next);
-      return next;
-    });
-  }, [scenarioId]);
+  // `toggleCollapsed` was REMOVED in task 1.7D. Its only caller was the collapse
+  // button in the panel's own header, which mockup parity suppressed — leaving a
+  // callback nothing could invoke. The `collapsed` state and its localStorage
+  // helpers are deliberately kept: they still record a preference this panel will
+  // honour again when task 3.14 gives it a collapse affordance of its own. A dead
+  // FUNCTION is debt; a dormant PREFERENCE is a decision already made.
 
   // Re-read the persisted history (after a scan finishes, or on mount).
   const refreshRuns = useCallback(() => {
@@ -468,43 +472,47 @@ const ThemeScanPanel: React.FC<Props> = ({
       {/* Keyframes for the "Scanning" pulse dot — inlined like ProcessingPanel's
           colossus-spin, so the animation ships with the component. */}
       <style>{`@keyframes colossus-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }`}</style>
-      <header style={S.header}>
-        {/* Collapse toggle — the whole header is the click target so folding the
-            long scan card away is easy while working in Candidate Facts. State is
-            remembered per-scenario (localStorage). */}
-        <button
-          type="button"
-          style={S.collapseToggle}
-          onClick={toggleCollapsed}
-          aria-expanded={!collapsed}
-        >
-          <span style={S.collapseChevron}>{collapsed ? "▸" : "▾"}</span>
-          <span>
-            <span style={S.title}>Theme Scan</span>
-            <span style={S.subtitle}>
-              {scenarioTitle}
-              {candidateCount != null && ` · ${candidateCount} candidates gathered`}
-              {/* Failed count fetch — surfaced inline (not silent), muted since it
-                  is non-blocking (the scan still runs). */}
-              {countError && (
-                <span style={S.countUnavailable}> · candidate count unavailable</span>
-              )}
-            </span>
-          </span>
-        </button>
-      </header>
+      {/* The panel's own title header is SUPPRESSED on the v3 scenario page.
+          The mockup's scan area is one row — Run scan · model · last-run meta ·
+          Scan history — and the section's own "Scan & candidates" h2 above it
+          already does the titling. A second "Theme Scan" heading inside the same
+          card was duplicate chrome, and it carried its own collapse chevron beside
+          the queue's, which invited a human to fold the wrong thing.
 
-      {!collapsed && (
+          The panel-collapse STATE is still honoured (`collapsed` below), so a
+          previously-collapsed panel stays collapsed; only the control moved out.
+          Flagged in the Phase B report as the one place parity required removing an
+          affordance rather than restyling one. */}
+      {/* ALWAYS expanded on the v3 surface. The collapse control lived in the
+          suppressed header, and a body still gated on the remembered `collapsed`
+          flag would strand anyone who collapsed this panel in beta.367 — an empty
+          scan section with no control to bring it back. The flag and its
+          localStorage helpers are left in place for task 3.14, which decides
+          whether the panel gets a collapse affordance of its own; nothing reads it
+          to decide visibility now. */}
+      {true && (
         <>
           {running ? (
             <RunningView poll={poll} modelName={modelName(activeRun.modelId)} elapsedMs={elapsedMs} />
           ) : (
-            <SetupView
+            <ScanControlLine
               models={models}
               modelError={modelError}
               modelWarnings={modelWarnings}
               selectedModel={selectedModel}
               lastRun={lastRunSummary(runs, modelName)}
+              candidateCount={candidateCount}
+              countError={countError}
+              historySlot={
+                /* Run history from the DB, inline on the control line (v3). */
+                <ScanHistoryTable
+                  runs={runs}
+                  selectedRunIds={selectedRunIds}
+                  onToggle={onSelectRun}
+                  onDelete={onDeleteRun}
+                  modelName={modelName}
+                />
+              }
               onSelect={setSelectedModel}
               onRun={onRun}
             />
@@ -515,16 +523,6 @@ const ThemeScanPanel: React.FC<Props> = ({
               {startError}
             </div>
           )}
-
-          {/* Run history from the DB. §2.3 item 2 made it a collapsed table; see
-              ScanHistoryTable for why the card list it replaces had to go. */}
-          <ScanHistoryTable
-            runs={runs}
-            selectedRunIds={selectedRunIds}
-            onToggle={onSelectRun}
-            onDelete={onDeleteRun}
-            modelName={modelName}
-          />
           {historyError && (
             <div style={S.errorBox} role="alert">
               {historyError}
@@ -555,87 +553,6 @@ const ThemeScanPanel: React.FC<Props> = ({
     </section>
   );
 };
-
-// ─── SETUP ────────────────────────────────────────────────────────────────────
-
-/**
- * The scan control: ONE LINE (task 1.7B) — Run · model · last-run summary.
- *
- * ## What died here
- *
- * A two-column grid of radio cards and a full-width Run button, which took the
- * vertical space of a small form to express a choice most people make once. The
- * design note calls it a control, not a panel, and a control is a line.
- *
- * ## The model list is ordered and labelled by the SERVER
- *
- * Local models come first and one of them is selected by default, because a scan
- * is one metered call per candidate — 148 of them on S-1 — and the picker must
- * not put a billed model under the cursor. That ordering, the "(API — billed)"
- * label, and which model is default all arrive composed on the payload
- * (`display_label`, `billing_class`): the browser renders them and decides
- * nothing, because which models cost money is a deployment fact, not something a
- * client should infer from a name.
- */
-const SetupView: React.FC<{
-  models: ScanModel[];
-  modelError: string | null;
-  modelWarnings: string[];
-  selectedModel: string | null;
-  lastRun: string | null;
-  onSelect: (id: string) => void;
-  onRun: () => void;
-}> = ({ models, modelError, modelWarnings, selectedModel, lastRun, onSelect, onRun }) => (
-  <div style={S.setup}>
-    {modelError && (
-      <div style={S.errorBox} role="alert">
-        Could not load models — {modelError}
-      </div>
-    )}
-    {modelWarnings.length > 0 && (
-      <div style={S.errorBox} role="alert">
-        {modelWarnings.map((warning) => (
-          <div key={warning}>{warning}</div>
-        ))}
-      </div>
-    )}
-    <div style={S.controlLine}>
-      <button
-        type="button"
-        onClick={onRun}
-        disabled={!selectedModel}
-        style={selectedModel ? S.runButton : { ...S.runButton, ...S.runButtonDisabled }}
-      >
-        Run scan
-      </button>
-
-      {models.length === 0 && !modelError ? (
-        <span style={S.muted}>No scan-eligible models available.</span>
-      ) : (
-        <select
-          aria-label="Scan model"
-          style={S.modelSelect}
-          value={selectedModel ?? ""}
-          onChange={(e) => onSelect(e.target.value)}
-        >
-          {models.map((m) => (
-            <option key={m.model_id} value={m.model_id}>
-              {m.display_label}
-            </option>
-          ))}
-        </select>
-      )}
-
-      {lastRun && <span style={S.lastRun}>{lastRun}</span>}
-    </div>
-
-    {/* No benchmark toggle. It used to ask "record verdicts without saving
-        suggestions to the scenario?" — but a scan never saves suggestions now, so
-        every scan is what benchmark mode used to mean. Keeping the toggle would
-        keep a second write model on screen, which is the incoherence this change
-        exists to remove. */}
-  </div>
-);
 
 // ─── RUNNING ──────────────────────────────────────────────────────────────────
 
@@ -960,10 +877,46 @@ function toneColor(tone: "success" | "muted" | "danger"): string {
 }
 
 const S: Record<string, React.CSSProperties> = {
+  /**
+   * The Run-scan button. Mockup `.btn.ghost`: white, NO border, its own
+   * `--shadow-card`, radius 9, 13.5px/500.
+   *
+   * ## This style was MISSING until task 1.7D
+   *
+   * `SetupView` has referenced `S.runButton` and `S.runButtonDisabled` since 1.7B,
+   * and neither key existed in this object — so the lookup returned `undefined` and
+   * the primary control of the whole scan flow rendered as an unstyled browser
+   * button. TypeScript could not catch it: `Record<string, React.CSSProperties>`
+   * types every key as present, and `style={undefined}` is legal JSX.
+   *
+   * It is part of why beta.367 shipped below the signed mockup, and it is the kind
+   * of gap a word-checklist review cannot see — which is the gap this task's
+   * screenshot comparison exists to close.
+   */
+  runButton: {
+    fontFamily: "inherit",
+    fontSize: "13.5px",
+    fontWeight: 500,
+    padding: "8px 15px",
+    borderRadius: "9px",
+    border: "none",
+    cursor: "pointer",
+    background: "var(--bg-surface)",
+    color: "var(--text-primary)",
+    boxShadow: "var(--shadow-card)",
+  },
+  runButtonDisabled: {
+    // No model selected yet. Dimmed and not-allowed rather than hidden: the control
+    // is the point of the section, and hiding it would leave the row looking broken.
+    opacity: 0.55,
+    cursor: "not-allowed",
+    boxShadow: "none",
+  },
   card: {
     fontFamily: "var(--font-sans)",
     background: "var(--bg-surface)",
-    border: "1px solid var(--border-default)",
+    // v3: no card borders — the shadow is the edge (tokens.css).
+    boxShadow: "var(--shadow-card)",
     borderRadius: "12px",
     padding: "20px",
     marginBottom: "1.5rem",
@@ -1016,21 +969,24 @@ const S: Record<string, React.CSSProperties> = {
   // The radio grid it replaced is gone: a two-column card grid for a choice most
   // people make once, in the vertical space of a small form. §2c — hairline
   // borders, no tint, regular weight.
+  // Mockup `.scan`: padding 14px 24px, 14px gaps, centred, wrapping.
   controlLine: {
     display: "flex",
     alignItems: "center",
-    gap: "10px",
+    gap: "14px",
     flexWrap: "wrap",
+    padding: "14px 24px",
   },
+  // Mockup `select`: BORDERLESS on the chrome fill, radius 8, 13.5px (task 1.7D).
   modelSelect: {
-    fontSize: "0.85rem",
+    fontSize: "13.5px",
     fontFamily: "inherit",
     fontWeight: 400,
     color: "var(--text-primary)",
-    background: "var(--bg-surface)",
-    border: "1px solid var(--border-default)",
-    borderRadius: "6px",
-    padding: "5px 8px",
+    background: "var(--v3-chrome)",
+    border: "none",
+    borderRadius: "8px",
+    padding: "7px 10px",
     maxWidth: "22rem",
   },
   lastRun: { fontSize: "0.8rem", color: "var(--text-muted)" },
@@ -1150,7 +1106,8 @@ const S: Record<string, React.CSSProperties> = {
   },
   hero: {
     background: "var(--bg-surface)",
-    border: "1px solid var(--border-default)",
+    // v3: no card borders — the shadow is the edge (tokens.css).
+    boxShadow: "var(--shadow-card)",
     borderRadius: "12px",
     padding: "18px 20px",
     textAlign: "center",
@@ -1178,7 +1135,8 @@ const S: Record<string, React.CSSProperties> = {
   heroVs: { fontSize: "0.8rem", color: "var(--text-muted)" },
 
   runResult: {
-    border: "1px solid var(--border-default)",
+    // v3: no card borders — the shadow is the edge (tokens.css).
+    boxShadow: "var(--shadow-card)",
     borderRadius: "12px",
     padding: "16px",
     background: "var(--bg-surface)",

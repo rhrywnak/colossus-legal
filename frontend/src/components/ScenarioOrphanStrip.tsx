@@ -30,16 +30,19 @@
 import React, { useCallback, useEffect, useState } from "react";
 
 import { fetchScenarioOrphans, type ScenarioOrphansDto } from "../services/scenarioOrphans";
-import { HAIRLINE } from "./scenarioSectionStyles";
+import { DIVIDER } from "./scenarioSectionStyles";
 
+// Mockup `.orphans`: margin-top 24px, padding 14px 20px, 13.5px, --text-2, on its
+// own parchment (#fbf7ea) with radius 12 and --shadow-card. Borderless like every
+// other v3 surface — the shadow is the edge.
 const wrapStyle: React.CSSProperties = {
-  marginTop: "2rem",
-  border: HAIRLINE,
-  borderRadius: "10px",
-  padding: "0.8rem 1.15rem",
-  fontSize: "0.85rem",
+  marginTop: "24px",
+  borderRadius: "var(--radius-card)",
+  boxShadow: "var(--shadow-card)",
+  padding: "14px 20px",
+  fontSize: "13.5px",
   color: "var(--text-secondary)",
-  background: "var(--state-warning-bg-soft)",
+  background: "var(--v3-orphan-bg)",
 };
 
 interface Props {
@@ -85,7 +88,7 @@ const ScenarioOrphanStrip: React.FC<Props> = ({ slug, scenarioId, externalRefres
           onClick={load}
           style={{
             marginLeft: "0.6rem",
-            border: HAIRLINE,
+            border: DIVIDER,
             borderRadius: "6px",
             background: "var(--bg-surface)",
             cursor: "pointer",
@@ -107,7 +110,16 @@ const ScenarioOrphanStrip: React.FC<Props> = ({ slug, scenarioId, externalRefres
 
   return (
     <details style={wrapStyle}>
-      <summary style={{ cursor: "pointer", color: "var(--text-primary)" }}>
+      {/* `listStyle: none` + the webkit reset removes the native disclosure
+          triangle; the mockup's strip opens from its own "show" link. */}
+      <summary
+        style={{
+          cursor: "pointer",
+          color: "var(--text-primary)",
+          listStyle: "none",
+        }}
+        className="no-marker"
+      >
         ⚠ {data.total} saved reference{data.total === 1 ? "" : "s"} with content
         unavailable · <span style={{ color: "var(--accent-primary)" }}>show</span>
       </summary>

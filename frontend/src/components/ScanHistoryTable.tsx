@@ -25,6 +25,7 @@ import React from "react";
 import { scanHistoryRows, scanHistorySummary } from "./scanHistoryRows";
 import type { ScanRunHeader } from "../services/themeScan";
 
+// v3: the divider token, resolved inside the scoped layer to #eef0f3.
 const HAIRLINE = "1px solid var(--border-default)";
 
 const headStyle: React.CSSProperties = {
@@ -82,7 +83,7 @@ const ScanHistoryTable: React.FC<Props> = ({
 
   return (
     <details style={{ fontSize: "0.82rem" }}>
-      <summary style={summaryStyle}>{summary} ▾</summary>
+      <summary style={summaryStyle} className="no-marker">{summary} ▾</summary>
       <table style={{ width: "100%", borderCollapse: "collapse", marginTop: "0.5rem" }}>
         <thead>
           <tr>

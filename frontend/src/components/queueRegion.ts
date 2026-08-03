@@ -26,10 +26,12 @@
 export type QueueRegionDescriptor = {
   /** Whether the region starts open. Computed, never restored from storage. */
   open: boolean;
-  /** The summary line's headline, e.g. `"Candidates awaiting ruling — 145"`. */
+  /** The head line's headline, e.g. `"Candidates awaiting ruling — 145"`. */
   summary: string;
   /** The labelling-law clause that sits beside it, or `null` at zero. */
   scope: string | null;
+  /** The chevron's accessible label + tooltip, naming what collapsing costs. */
+  chevronLabel: string;
   /** `"3 of 148 ruled"`. */
   progressLabel: string;
   /** The progress bar's fill, 0–100, already clamped. */
@@ -63,7 +65,15 @@ export function queueRegion(ruled: number, total: number): QueueRegionDescriptor
           // technically says the same thing and reads like an empty container;
           // this says the work is done.
           "All candidates ruled",
-    scope: unruled > 0 ? "from all scans — scans add, your rulings drain" : null,
+    // v3 shortens this to the mockup's "from all scans". The labelling law it
+    // carries is unchanged — the queue is EVERY unruled candidate across every
+    // scan — and the section subtitle above still spells out that scans only add
+    // and rulings only drain.
+    scope: unruled > 0 ? "from all scans" : null,
+    chevronLabel:
+      unruled > 0
+        ? "Collapse the queue — only this arrow collapses it; keys pause while collapsed"
+        : "Expand the queue",
     progressLabel: `${safeRuled} of ${safeTotal} ruled`,
     // A pool of zero is 0%, not NaN — dividing by `safeTotal` unguarded is how a
     // brand-new scenario gets a blank bar and a console error.
