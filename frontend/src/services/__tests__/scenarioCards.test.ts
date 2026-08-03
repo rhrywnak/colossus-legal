@@ -24,7 +24,18 @@ function card(): ScenarioCardsResponse["pool"][number] {
   return {
     code: "C-1",
     graph_node_id: "ev-1",
-    quote: { text: "Yes.", context_before: "", context_after: "", question: null },
+    quote: {
+      text: "Yes.",
+      context_before: "",
+      context_after: "",
+      // Task 1.7C (D6): empty flanks are "complete" with no notice — see
+      // `ContextFlank::absent` on the backend.
+      context_before_complete: true,
+      context_after_complete: true,
+      context_before_notice: null,
+      context_after_notice: null,
+      question: null,
+    },
     pinpoint: {
       document_id: "doc-7",
       document_title: "CFS responses",

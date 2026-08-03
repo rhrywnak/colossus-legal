@@ -157,6 +157,39 @@ pub struct ScanRunHeader {
     pub computed_cost: Option<f64>,
     pub duration_ms: i64,
     pub started_at: DateTime<Utc>,
+    /// The candidate pool this run read — the history table's "Candidates" column
+    /// and the basis of the "+Δ since the previous scan" delta (task 1.7C, R2).
+    ///
+    /// `0` means the run never reached the pool read; the client renders that as an
+    /// em dash, never as the number zero (Standing Rule 1: "read nothing" and
+    /// "read a pool of zero" are different states).
+    pub candidates_read: i32,
+    /// Why a failed run failed, verbatim, so the history can say
+    /// "Failed — vLLM offline" rather than just "Failed".
+    ///
+    /// Present-as-null (not skipped): the absence of a reason on a `completed` run
+    /// is meaningful, and a client must be able to tell it from a build that does
+    /// not serve the field.
+    pub error: Option<String>,
+    /// Whether this was a dry run (judged, nothing merged), so the row can be
+    /// labelled. Measured on DEV: 3 of 4 stored runs are dry runs.
+    pub dry_run: bool,
+    /// How much bigger the pool this run read was than the previous measurable
+    /// run's — the history's **New** column and the meta line's "+Δ since the
+    /// previous scan" (task 1.7C, ruling R2).
+    ///
+    /// SIGNED, because after task 2.5's re-anchoring the pool can legitimately
+    /// shrink and a `-12` that says so beats a `0` that hides it.
+    ///
+    /// `None` means there is no earlier run that recorded a pool read — the first
+    /// measurable scan. Rendered as an em dash in the table and omitted from the
+    /// meta line, never as `0`: "the pool did not change" and "there is nothing to
+    /// compare against" are different facts.
+    ///
+    /// Computed at list assembly by `services::scan_run_delta::with_pool_deltas`,
+    /// because it is a property of this run's POSITION in the history rather than
+    /// of the run itself. A `ScanRunHeader` built outside that path carries `None`.
+    pub pool_delta: Option<i32>,
     // No merge_count / last_merged_at: a per-RUN merge counter is an artifact of
     // the retired run-level merge model. Merge is now pick-keyed, so "this run was
     // merged 2×" answers a question nobody asks — the provenance signal the human

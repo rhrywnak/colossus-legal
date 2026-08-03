@@ -128,4 +128,75 @@ describe("lastRunSummary", () => {
       lastRunSummary([{ candidates_total: null, started_at: "2026-08-02T09:14:00Z" }]),
     ).toBeNull();
   });
+
+  // ── Task 1.7C, §2.3 / ruling R2: the meta line gained two clauses ──────────
+
+  it("adds the pool delta, signed, when there is a baseline to compare against", () => {
+    // Ruling R2's wording, ratified: "+54 since the previous scan". The delta is
+    // computed BACKEND-side (Standing Rule 12); this only words it.
+    const summary = lastRunSummary([
+      { candidates_total: 148, started_at: "2026-08-02T09:14:00Z", pool_delta: 54 },
+    ]);
+    expect(summary).toContain("+54 since the previous scan");
+  });
+
+  it("keeps a negative delta rather than hiding a shrinking pool", () => {
+    // After task 2.5's re-anchoring the pool can legitimately shrink, and a -12
+    // that says so is worth more than a 0 that hides it.
+    const summary = lastRunSummary([
+      { candidates_total: 136, started_at: "2026-08-02T09:14:00Z", pool_delta: -12 },
+    ]);
+    expect(summary).toContain("-12 since the previous scan");
+  });
+
+  it("OMITS the delta clause entirely on the first measurable run", () => {
+    // The honesty rule R2 turns on, and the frontend half of the five backend
+    // tests in `scan_run_delta_tests.rs`: `pool_delta: null` means "there is
+    // nothing to compare against", which is NOT "the pool did not change". Never
+    // "+0", and no orphaned " · " left behind by the missing clause either.
+    const summary = lastRunSummary([
+      { candidates_total: 148, started_at: "2026-08-02T09:14:00Z", pool_delta: null },
+    ]);
+    expect(summary).toContain("148 candidates");
+    expect(summary).not.toContain("since the previous scan");
+    expect(summary).not.toContain("+0");
+    expect(summary).not.toContain(" ·  · ");
+  });
+
+  it("shows a real zero delta — an unchanged pool IS a measurement", () => {
+    const summary = lastRunSummary([
+      { candidates_total: 148, started_at: "2026-08-02T09:14:00Z", pool_delta: 0 },
+    ]);
+    expect(summary).toContain("0 since the previous scan");
+  });
+
+  it("adds the model name through the caller's catalogue", () => {
+    // §2.3's example meta line carries the model. Resolved by the panel's own
+    // catalogue rather than a lookup here, so this module holds no vocabulary.
+    const summary = lastRunSummary(
+      [
+        {
+          candidates_total: 148,
+          started_at: "2026-08-02T09:14:00Z",
+          pool_delta: 54,
+          model_id: "claude-opus-4-8",
+        },
+      ],
+      (id) => (id === "claude-opus-4-8" ? "Claude Opus 4.8" : id),
+    );
+    expect(summary).toContain("Claude Opus 4.8");
+  });
+
+  it("omits the model clause when no catalogue was supplied", () => {
+    // The parameter is optional so the pre-1.7C callers and their tests keep
+    // working; without it the clause is simply absent, not a raw model id.
+    const summary = lastRunSummary([
+      {
+        candidates_total: 148,
+        started_at: "2026-08-02T09:14:00Z",
+        model_id: "claude-opus-4-8",
+      },
+    ]);
+    expect(summary).not.toContain("claude-opus-4-8");
+  });
 });

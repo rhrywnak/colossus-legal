@@ -32,4 +32,5 @@ pub mod llm_provider_ext;
 pub mod quote_match;
 pub mod ruling_anchor;
 pub mod scenario_code;
+pub mod sentence_bounds;
 pub mod settings;

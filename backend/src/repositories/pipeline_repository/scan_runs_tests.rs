@@ -59,11 +59,34 @@ fn list_scan_runs_sql_scopes_by_scenario_and_orders_newest_first() {
         !sql.contains("merge_count") && !sql.contains("last_merged_at"),
         "no per-run merge counter may ride the header, got: {sql}"
     );
-    // Likewise `dry_run`: nothing may branch on it after the benchmark model was
-    // retired, and the surest way to keep that true is to stop reading it.
+    // `dry_run` — this assertion was INVERTED by task 1.7C (ruling R2,
+    // 2026-08-03), and the reason is worth keeping rather than quietly deleting.
+    //
+    // It previously asserted the column was NOT read: after the benchmark model
+    // was retired nothing branched on it, and the surest way to keep that true was
+    // to stop reading it. Design v2 §2.3 then gave the scenario page a scan-history
+    // TABLE, and the measurement changed the picture — 3 of the 4 runs stored on
+    // DEV are dry runs, so a table that renders them identically to real ones tells
+    // the reader something false about what has been done to the pool.
+    //
+    // Nothing BRANCHES on it still; it is displayed, labelled "(Dry run)". The
+    // fence now guards the new requirement instead of the old one, so a future edit
+    // that drops the column fails here and is told why.
     assert!(
-        !sql.contains("dry_run"),
-        "the history list must not read the deprecated dry_run column, got: {sql}"
+        sql.contains("dry_run"),
+        "the history list must read dry_run so a dry run can be labelled (R2), got: {sql}"
+    );
+    // The two columns the history table's Status and Candidates cells need. Pinned
+    // for the same reason as `computed_cost`: a dropped column silently blanks a
+    // cell, and a blank "Status" on a failed run is the silent failure Rule 1 bans.
+    assert!(
+        sql.contains("error"),
+        "the history list must read the failure reason (R2), got: {sql}"
+    );
+    assert!(
+        sql.contains("candidates_read"),
+        "the history list must read candidates_read — the Candidates column and the \
+         pool delta both key off it (R2), got: {sql}"
     );
 }
 

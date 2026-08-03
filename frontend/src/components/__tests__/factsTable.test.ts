@@ -18,6 +18,13 @@ function card(overrides: Partial<ScenarioCard> = {}): ScenarioCard {
       text: "I do not recall that meeting.",
       context_before: "",
       context_after: "",
+      // Task 1.7C (D6). An empty flank did not stop mid-sentence, so it counts as
+      // complete and carries no page-edge notice — the backend's own rule for the
+      // no-context case (`ContextFlank::absent`).
+      context_before_complete: true,
+      context_after_complete: true,
+      context_before_notice: null,
+      context_after_notice: null,
       question: null,
     },
     pinpoint: {

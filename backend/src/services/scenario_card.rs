@@ -29,13 +29,13 @@ use crate::domain::card_language::{
 };
 use crate::domain::confidence_band::{band_for_score, ConfidenceBand};
 use crate::domain::fact_status::FactStatus;
-use crate::domain::quote_match::locate;
 use crate::domain::settings::Settings;
 use crate::dto::scenario_card::{
     CardBearsOn, CardConfidence, CardGrounding, CardPinpoint, CardQuote, CardSpeaker, CardStance,
     ScenarioCard,
 };
 use crate::repositories::scenario_card_repository::CardExtrasRow;
+use crate::services::scenario_card_context::{assemble as assemble_context, QuoteContext};
 
 // The quote-in-context window is a STORED parameter (task 1.6, v2 §2b).
 //
@@ -234,72 +234,6 @@ fn build_bears_on(links: &[ExtrasLink]) -> Vec<CardBearsOn> {
     out
 }
 
-/// Locate the quote in its page text and return the surrounding window.
-///
-/// Returns empty strings when the page text is unavailable or the quote cannot be
-/// found in it — an honest "no context" rather than a fabricated one. A quote that
-/// cannot be located is also exactly what `grounding_status` reports separately,
-/// so the card does not have to guess why.
-///
-/// ## Why the search is `quote_match::locate` and not `str::find` (task 1.7A, D3)
-///
-/// It WAS `page.find(quote)` — an exact, case-sensitive substring search. But the
-/// ingest path grounds a quote in two tiers: exact, then normalized (smart
-/// quotes, dashes, ligatures, collapsed whitespace, hyphenated line breaks,
-/// transcript gutter numerals). Every quote that grounded on the second tier
-/// failed this search and was served with two empty strings — measured on DEV,
-/// 320 of 320 such items. The card whose wording differs from the page is
-/// precisely the one a human most needs to see in context.
-///
-/// `locate` runs the SAME two tiers as grounding and returns the span in the
-/// PAGE's own bytes, so the window below is sliced from the original text —
-/// smart quotes, spacing and capitalization intact. Slicing the normalized copy
-/// instead would be cheaper and would put lowercase, de-punctuated prose beside a
-/// verbatim quote on a surface that is read to decide what the quote means.
-///
-/// ## Rust Learning: slicing a `&str` on a CHARACTER boundary
-///
-/// Rust strings are UTF-8, and slicing at a byte index that falls inside a
-/// multi-byte character panics. `char_indices` walks real boundaries, so taking
-/// the window by counting characters and mapping back to byte offsets is safe for
-/// any text — which matters here, because OCR'd legal PDFs are full of curly
-/// quotes, dashes and accented names.
-fn quote_context(page_text: Option<&str>, quote: &str, window: usize) -> (String, String) {
-    let Some(page) = page_text else {
-        return (String::new(), String::new());
-    };
-    // `None` means the quote is genuinely not on this page — the cross-page case
-    // (grounding records the left page of the pair; this loads that page alone)
-    // and the OCR-transposition case. Both stay context-less by design: a window
-    // drawn around the nearest similar words would read as evidence.
-    let Some(span) = locate(page, quote) else {
-        return (String::new(), String::new());
-    };
-
-    let before_all = &page[..span.start];
-    let after_all = &page[span.end..];
-
-    // Take the LAST `window` characters before, and the FIRST that many after —
-    // the text nearest the quote is the text that explains it. One value for both
-    // edges, so a change to the setting keeps the context symmetric.
-    let before_start = before_all
-        .char_indices()
-        .rev()
-        .nth(window.saturating_sub(1))
-        .map(|(i, _)| i)
-        .unwrap_or(0);
-    let after_end = after_all
-        .char_indices()
-        .nth(window)
-        .map(|(i, _)| i)
-        .unwrap_or(after_all.len());
-
-    (
-        before_all[before_start..].to_string(),
-        after_all[..after_end].to_string(),
-    )
-}
-
 /// The pinpoint line as the card shows it, composed server-side.
 ///
 /// A page-less item reads as the document alone rather than "… at null" — the
@@ -364,6 +298,106 @@ fn defer_reason_for(
     None
 }
 
+/// The §7.4 grounding row: whether the quote was found in its own page, in the
+/// record's own words.
+///
+/// Split out of [`build_card`] for the function-size limit (Rule 18).
+///
+/// `None` when the extras row carries no grounding state, and ALSO when it carries a
+/// state this build has no label for. The second case is deliberate: a card that
+/// showed a raw pipeline token where a sentence belongs would be leaking internals
+/// onto a surface a lawyer reads, and `grounding_label` returning `None` is how the
+/// vocabulary says "I do not know how to say this one out loud".
+///
+/// The pair travels together — the machine `state` beside the composed `label` — so
+/// a client branches on the token and never parses the prose.
+fn build_grounding(extras: Option<&CollapsedExtras>) -> Option<CardGrounding> {
+    extras
+        .and_then(|e| e.grounding_status.as_deref())
+        .and_then(|state| {
+            grounding_label(state).map(|label| CardGrounding {
+                state: state.to_string(),
+                label: label.to_string(),
+            })
+        })
+}
+
+/// The §7.2 pinpoint: where the quote is, and how to get there.
+///
+/// Split out of [`build_card`] for the function-size limit (Rule 18). The document
+/// title is read twice — once composed into `label`, once on its own — because the
+/// card renders the composed line but a client filtering or grouping by document
+/// needs the bare title, and re-deriving it by parsing `label` would be the browser
+/// taking a display string apart to recover data.
+///
+/// A document-less instance yields empty strings rather than `None`: these fields
+/// are always present on the wire so the card's layout is stable, and an absent
+/// title renders as omission (see [`pinpoint_label`]).
+fn build_pinpoint(instance: &BiasInstance) -> CardPinpoint {
+    let document_title = instance
+        .document
+        .as_ref()
+        .map(|d| d.title.clone())
+        .unwrap_or_default();
+    let document_id = instance
+        .document
+        .as_ref()
+        .map(|d| d.id.clone())
+        .unwrap_or_default();
+
+    CardPinpoint {
+        label: pinpoint_label(&document_title, instance.page_number),
+        document_title,
+        page: instance.page_number,
+        viewer_href: viewer_href(&document_id, instance.page_number),
+        document_id,
+    }
+}
+
+/// The §7.3 speaker: who said it, and on what authority we say so.
+///
+/// Split out of [`build_card`] for the function-size limit (Rule 18).
+fn build_speaker(instance: &BiasInstance) -> CardSpeaker {
+    CardSpeaker {
+        // An empty speaker name IS absent — `evidence_by_ids` decodes a missing
+        // STATED_BY edge to `coalesce(…, '')`. Filtering the blank keeps "nobody is
+        // recorded as saying this" distinct from "somebody said it and their name is
+        // the empty string", which is the distinction a documentary exhibit needs.
+        name: instance
+            .stated_by
+            .as_ref()
+            .map(|a| a.name.clone())
+            .filter(|n| !n.trim().is_empty()),
+        attribution: "extracted".to_string(),
+    }
+}
+
+/// The §7.1 quote block: the anchor, its two flanks, and how each flank ended.
+///
+/// Split out of [`build_card`] for the function-size limit (Rule 18) — task 1.7C
+/// added four fields to this struct literal and `build_card` was already over.
+///
+/// It earns the split beyond arithmetic: this is the one place the CONTEXT LAW's
+/// output is shaped for the wire, and the pairing it establishes is not obvious.
+/// Each flank contributes THREE things — the text, a boolean saying whether that
+/// text ended at a real sentence boundary, and (only when it did not) a
+/// server-composed notice naming the page edge. The boolean is the state a client
+/// branches on; the notice is the words, because the language law puts every display
+/// decision on this side of the wire. Keeping them adjacent here makes a future
+/// change that sets one and forgets the other visible.
+fn build_quote(text: String, context: QuoteContext, question: Option<String>) -> CardQuote {
+    CardQuote {
+        text,
+        context_before: context.before.text,
+        context_after: context.after.text,
+        context_before_complete: context.before.complete,
+        context_after_complete: context.after.complete,
+        context_before_notice: context.before.notice,
+        context_after_notice: context.after.notice,
+        question,
+    }
+}
+
 /// Build one complete card. Pure — no I/O.
 ///
 /// This function IS the §7 contract: every element is assembled here, and the
@@ -382,8 +416,11 @@ pub(crate) fn build_card(
     settings: &Settings,
 ) -> ScenarioCard {
     let quote_text = instance.verbatim_quote.clone().unwrap_or_default();
-    let (context_before, context_after) =
-        quote_context(page_text, &quote_text, settings.quote_context_window_chars);
+    // Task 1.7C (D6): the window is the SEED, sentence boundaries are the law, and
+    // gutter numerals do not reach the display. Lives in its own module because
+    // the rules are substantial enough to test on their own, and because this file
+    // is close to the 300-line limit (Rule 17).
+    let context = assemble_context(page_text, &quote_text, settings.quote_context_window_chars);
 
     let links: &[ExtrasLink] = extras.map(|e| e.links.as_slice()).unwrap_or(&[]);
     let stance = build_stance(links);
@@ -398,62 +435,18 @@ pub(crate) fn build_card(
         band != ConfidenceBand::Unscored,
     );
 
-    let document_id = instance
-        .document
-        .as_ref()
-        .map(|d| d.id.clone())
-        .unwrap_or_default();
-
     ScenarioCard {
         code: ordinal.map(|n| format!("C-{n}")),
         graph_node_id: instance.evidence_id.clone(),
-        quote: CardQuote {
-            text: quote_text,
-            context_before,
-            context_after,
-            question: instance.question.clone(),
-        },
-        pinpoint: CardPinpoint {
-            label: pinpoint_label(
-                &instance
-                    .document
-                    .as_ref()
-                    .map(|d| d.title.clone())
-                    .unwrap_or_default(),
-                instance.page_number,
-            ),
-            document_title: instance
-                .document
-                .as_ref()
-                .map(|d| d.title.clone())
-                .unwrap_or_default(),
-            page: instance.page_number,
-            viewer_href: viewer_href(&document_id, instance.page_number),
-            document_id,
-        },
-        speaker: CardSpeaker {
-            // An empty speaker name IS absent — `evidence_by_ids` decodes a
-            // missing STATED_BY edge to `coalesce(…, '')`.
-            name: instance
-                .stated_by
-                .as_ref()
-                .map(|a| a.name.clone())
-                .filter(|n| !n.trim().is_empty()),
-            attribution: "extracted".to_string(),
-        },
+        quote: build_quote(quote_text, context, instance.question.clone()),
+        pinpoint: build_pinpoint(instance),
+        speaker: build_speaker(instance),
         statement_kind: extras
             .and_then(|e| e.statement_type.as_deref())
             .map(statement_kind_label),
         stance,
         bears_on,
-        grounding: extras
-            .and_then(|e| e.grounding_status.as_deref())
-            .and_then(|state| {
-                grounding_label(state).map(|label| CardGrounding {
-                    state: state.to_string(),
-                    label: label.to_string(),
-                })
-            }),
+        grounding: build_grounding(extras),
         confidence: CardConfidence {
             band,
             label: band.label().to_string(),

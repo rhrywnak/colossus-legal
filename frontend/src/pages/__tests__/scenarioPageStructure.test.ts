@@ -1,36 +1,54 @@
 // =============================================================================
-// scenarioPageStructure.test.ts — what the scenario page is NOT (task 1.7B)
+// scenarioPageStructure.test.ts — what the scenario page is NOT
 // =============================================================================
 //
-// Defect D2: a split-pane PDF viewer sat beside the ruling queue and rendered
-// every page from the cited one to the end of the document, stacked. Roman's
-// ruling retired it — document viewing is popup-only: a pinpoint opens the
-// DEDICATED viewer at the cited page, in a new tab, where a legal page is
-// actually readable.
+// Rules that decay the moment someone adds "just a small preview" or "just a
+// second Delete for convenience". These tests are the fence.
 //
-// A rule like that decays the moment someone adds "just a small preview". This
-// test is the fence. It reads the source and asserts what the files DECLARE —
-// it does not render anything, so it cannot prove no PDF appears on screen; it
-// proves no component on this page's tree imports one, which is the mistake that
-// would actually be made.
+// They read the SOURCE and assert what the files DECLARE — they render nothing, so
+// they cannot prove no PDF appears on screen; they prove no component on this
+// page's tree imports one, which is the mistake that would actually be made.
+// Component testing (RTL/jsdom) is not set up in this repo (CLAUDE.md Rule 30), so
+// this is the available fence and it has already caught two regressions.
 
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import {
+  VIEWER_WINDOW_FEATURES_FOR_TEST,
+  VIEWER_WINDOW_NAME_FOR_TEST,
+} from "../../components/viewerWindow";
+
 const SRC = join(__dirname, "..", "..");
 const read = (...parts: string[]) => readFileSync(join(SRC, ...parts), "utf8");
 
-/** Every file the scenario page pulls in, directly or one level down. */
+/**
+ * Every file the scenario page pulls in, directly or one level down.
+ *
+ * Rewritten for the seven §2 sections (task 1.7C). The 1.7B tree is gone with the
+ * components that formed it: `ScenarioCurationPanel` and `AugmentationPanel` were
+ * split into the four §2 sections below, and `RunHistoryList` became
+ * `ScanHistoryTable`. All three files are deleted, not merely unmounted.
+ */
 const SCENARIO_TREE = [
   "pages/ScenarioDetailPage.tsx",
-  "components/ScenarioCurationPanel.tsx",
-  "components/CardQueue.tsx",
-  "components/WorkingView.tsx",
-  "components/AugmentationPanel.tsx",
+  "components/ScenarioHeaderTiers.tsx",
+  "components/ScenarioKebab.tsx",
+  "components/ScenarioIdentityBlock.tsx",
+  "components/ScanSection.tsx",
   "components/ThemeScanPanel.tsx",
-  "components/RunHistoryList.tsx",
+  "components/ScanHistoryTable.tsx",
+  "components/CardQueue.tsx",
+  "components/CandidateCard.tsx",
+  "components/ScenarioFactsSection.tsx",
+  "components/WorkingView.tsx",
+  "components/AddHumanFactForm.tsx",
+  "components/TalkingPointsSection.tsx",
+  "components/WatchListSection.tsx",
+  "components/WatchListBlock.tsx",
+  "components/ScenarioOrphanStrip.tsx",
   "components/ScenarioIdentityModal.tsx",
   "components/Modal.tsx",
 ];
@@ -41,7 +59,7 @@ describe("no PDF renders on the scenario page (D2)", () => {
     expect(
       offenders,
       `these files import a PDF viewer; the scenario page is popup-only — a ` +
-        `pinpoint opens the dedicated viewer in a new tab:\n${offenders.join("\n")}`,
+        `pinpoint opens the dedicated viewer in its own window:\n${offenders.join("\n")}`,
     ).toEqual([]);
   });
 
@@ -55,24 +73,59 @@ describe("no PDF renders on the scenario page (D2)", () => {
       .filter((name) => name.endsWith(".tsx"))
       .filter((name) => read("pages", name).includes("PdfViewer"));
 
-    expect(importers.sort()).toEqual([
-      "DocumentWorkspace.tsx",
-      "DocumentWorkspaceTabs.tsx",
-    ]);
-  });
-
-  it("every pinpoint opens the viewer in a NEW TAB, not in place", () => {
-    // In-place navigation would lose the queue's position and the human's place
-    // in a 148-card pass — the reason the pane existed in the first place.
-    for (const file of ["components/CardQueue.tsx", "components/WorkingView.tsx"]) {
-      expect(read(file), `${file} must open its pinpoint in a new tab`).toContain(
-        'target="_blank"',
-      );
-    }
+    expect(importers.sort()).toEqual(["DocumentWorkspace.tsx", "DocumentWorkspaceTabs.tsx"]);
   });
 });
 
-describe("the page has one editor for identity (1.7B)", () => {
+describe("pinpoints open a real WINDOW, not a tab (task 1.7C, defect D5)", () => {
+  /**
+   * ## This assertion is the INVERSE of the one it replaces
+   *
+   * Until 1.7C this file asserted `target="_blank"` was present in both surfaces —
+   * the 1.7B ruling was "popup-only, in a new tab". Roman's D5 ruling supersedes
+   * it: side-by-side reading against the page is the whole point of the surface,
+   * and a tab hides the page.
+   *
+   * The fence still has to fail a bare `window.open(href)`, which opens a TAB in
+   * every engine. So it asserts the features string is passed, not merely that
+   * `window.open` appears somewhere.
+   */
+  it("both pinpoint surfaces route through the viewer-window helper", () => {
+    // The queue's card and the facts table are the two places a pinpoint appears
+    // (§2.7 names both). The card's rendering moved to `CandidateCard` when
+    // `CardQueue` was split for Rule 17, so that is where its pinpoint now lives.
+    for (const file of ["components/CandidateCard.tsx", "components/WorkingView.tsx"]) {
+      expect(read(file), `${file} must open its pinpoint via openViewerWindow`).toContain(
+        "openViewerWindow",
+      );
+    }
+  });
+
+  it("the helper passes window FEATURES — a bare window.open would be a tab", () => {
+    const helper = read("components", "viewerWindow.ts");
+    expect(helper).toContain("width=1100");
+    expect(helper).toContain("height=1000");
+    // Reuse: one named window, re-navigated and re-raised, rather than 148 windows
+    // over a 148-card pass.
+    expect(helper).toContain("colossus-viewer");
+    expect(helper).toContain(".focus()");
+  });
+
+  it("noopener is NOT in the features string, because it would break the reuse", () => {
+    // Ruling R8: per the WHATWG spec `noopener` puts the new context in a separate
+    // browsing-context group, so the named target cannot be found and every click
+    // opens a fresh window. Reuse wins; the viewer is our own same-origin route, so
+    // the reverse-tabnabbing threat noopener guards against does not apply.
+    //
+    // Asserted on the FEATURES VALUE, not on the file's text: the module documents
+    // at length why noopener is absent, and a source-text check would fail on the
+    // explanation. The value is what the browser sees.
+    expect(VIEWER_WINDOW_FEATURES_FOR_TEST).not.toContain("noopener");
+    expect(VIEWER_WINDOW_NAME_FOR_TEST).toBe("colossus-viewer");
+  });
+});
+
+describe("the page has one editor for identity (1.7B, carried)", () => {
   it("the retired definition form is mounted nowhere", () => {
     const mounts: string[] = [];
     for (const dir of ["pages", "components"]) {
@@ -89,13 +142,106 @@ describe("the page has one editor for identity (1.7B)", () => {
   });
 
   it("the identity modal is the only writer of the C1 texts", () => {
-    // The augmentation panel edited `theme_statement` / `motivation` until 1.7B.
-    // Two editors for one field is how one of them ends up forgotten.
-    const panel = read("components", "AugmentationPanel.tsx");
-    expect(panel).not.toContain("theme_statement:");
-    expect(panel).not.toContain("motivation,");
-
+    // Two editors for one theme statement is how one of them ends up forgotten.
     const modal = read("components", "ScenarioIdentityModal.tsx");
     expect(modal).toContain("patchFrom");
+
+    // The identity BLOCK (D8) reads those texts and must never write them — it has
+    // a pencil that opens the modal, and no form of its own.
+    const block = read("components", "ScenarioIdentityBlock.tsx");
+    expect(block).not.toContain("theme_statement:");
+    expect(block).not.toContain("updateScenario");
+  });
+});
+
+describe("destructive actions live only in the kebab (task 1.7C, defect D7)", () => {
+  it("the header tiers carry no Delete of their own", () => {
+    // D7: `Delete` sat as a bare button in the middle of the 1.7B header row, one
+    // mis-click from "Mark ready to rehearse".
+    const header = read("components", "ScenarioHeaderTiers.tsx");
+    expect(header).not.toContain("Delete</button>");
+    expect(header, "the header must delegate to the kebab").toContain("ScenarioKebab");
+  });
+
+  it("no Archive action is rendered, because none exists (ruling R1)", () => {
+    // Measured in Phase A: no archive endpoint, and `scenarios_status_check` allows
+    // only draft | needs_evidence | ready, so there is no state to archive INTO.
+    // A control that cannot act is a promise the page cannot keep — and a DISABLED
+    // one would say the feature is here and broken rather than unbuilt.
+    const kebab = read("components", "ScenarioKebab.tsx");
+    expect(kebab).not.toContain("Archive scenario");
+    expect(kebab).not.toContain('role="menuitem"\n            disabled');
+  });
+});
+
+describe("the 1.7B panels are gone, not just unmounted (task 1.7C)", () => {
+  /**
+   * `ScenarioCurationPanel`, `AugmentationPanel` and `RunHistoryList` were split
+   * into the §2 sections and deleted. Asserting their ABSENCE FROM DISK — rather
+   * than merely that nothing imports them — is what stops the split being undone by
+   * someone restoring "the panel that had everything in it".
+   */
+  it("the three retired panels are deleted from the tree", () => {
+    const present = readdirSync(join(SRC, "components")).filter((name) =>
+      ["ScenarioCurationPanel.tsx", "AugmentationPanel.tsx", "RunHistoryList.tsx"].includes(
+        name,
+      ),
+    );
+    expect(
+      present,
+      `these files were split into the §2 sections and must stay deleted:\n${present.join("\n")}`,
+    ).toEqual([]);
+  });
+
+  it("nothing in the tree still imports them", () => {
+    const offenders = SCENARIO_TREE.filter((file) => {
+      const source = read(file);
+      return (
+        source.includes('from "./ScenarioCurationPanel"') ||
+        source.includes('from "./AugmentationPanel"') ||
+        source.includes('from "./RunHistoryList"')
+      );
+    });
+    expect(offenders).toEqual([]);
+  });
+});
+
+describe("nothing fake is rendered (the Phase-1 law, §1 and §6)", () => {
+  /**
+   * The design reserves placement for eight future components and requires each to
+   * render NOTHING until its task lands. The temptation is a greyed placeholder or
+   * a "coming in Phase 2" hint, and both are worse than an absence: they tell a
+   * human the feature is here and broken.
+   *
+   * This checks the phrases a placeholder would carry. It cannot prove the absence
+   * of every conceivable stub, but it catches the one that would actually be
+   * written — the mockup's own `phase-tag` chips, copied across from the picture
+   * into the page.
+   */
+  it("no phase-tag placeholder copy reached the page", () => {
+    const forbidden = ["Phase 2", "Phase 3", "phase-tag", "coming soon", "Coming soon"];
+    const offenders: string[] = [];
+    for (const file of SCENARIO_TREE) {
+      const source = read(file);
+      for (const phrase of forbidden) {
+        // A COMMENT may legitimately say "task 2.3" or "Phase 2"; a rendered string
+        // may not. Only flag the phrase inside JSX text or a quoted string.
+        if (source.includes(`>${phrase}`) || source.includes(`"${phrase}`)) {
+          offenders.push(`${file}: ${phrase}`);
+        }
+      }
+    }
+    expect(
+      offenders,
+      `future-phase components render NOTHING (absent, not fake):\n${offenders.join("\n")}`,
+    ).toEqual([]);
+  });
+
+  it("the readiness verdict slot renders nothing until 2.4 computes one", () => {
+    // `headerDescriptor` returns `readiness: null` and the header guards on it. A
+    // verdict is a claim about whether this scenario can be taken into a courtroom;
+    // a grey "Unknown" chip would be the page making that claim with no basis.
+    expect(read("components", "scenarioHeader.ts")).toContain("readiness: null");
+    expect(read("components", "ScenarioHeaderTiers.tsx")).toContain("header.readiness &&");
   });
 });

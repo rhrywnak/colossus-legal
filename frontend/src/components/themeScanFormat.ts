@@ -43,23 +43,55 @@ export function formatRunTimestamp(iso: string): string {
 }
 
 /**
- * The last-run summary the scan control line shows: "148 candidates · Aug 2, 09:14".
+ * The last-run summary the scan control line shows.
+ *
+ * `"148 candidates · +54 since the previous scan · Aug 2, 09:14 · Claude Opus 4.8"`
  *
  * `null` when there is nothing to report — no runs at all, or none that got far
  * enough to have a count. Rendering "0 candidates" for a scenario that has never
  * been scanned would say something false about a scan that never happened; the
- * absence of the phrase is the honest signal, and the history link below is where
- * a human goes for detail either way.
+ * absence of the phrase is the honest signal, and the history disclosure below is
+ * where a human goes for detail either way.
  *
  * Reads the FIRST run because the backend serves them newest-first — the ordering
  * is server-owned (task D2b) and this must not re-sort and quietly disagree.
+ *
+ * ## Task 1.7C (§2.3, ruling R2) added two clauses
+ *
+ * * **The delta**, when there is one. `pool_delta` is `null` on the first
+ *   measurable run, and the clause is then OMITTED rather than rendered as "+0" —
+ *   "there is nothing to compare against" is not "the pool did not change". The
+ *   delta itself is computed by the backend (Rule 12); this only words it.
+ * * **The model**, which §2.3's example meta line carries and which the panel
+ *   already knows. Resolved through the caller's catalogue rather than a lookup
+ *   here, so this module still holds no vocabulary of its own.
+ *
+ * `modelName` is optional so the existing callers and their tests keep working
+ * unchanged; without it the clause is simply absent.
  */
 export function lastRunSummary(
-  runs: { candidates_total: number | null; started_at: string }[],
+  runs: {
+    candidates_total: number | null;
+    started_at: string;
+    pool_delta?: number | null;
+    model_id?: string;
+  }[],
+  modelName?: (modelId: string) => string,
 ): string | null {
   const latest = runs[0];
   if (!latest || latest.candidates_total == null) return null;
-  return `${latest.candidates_total} candidates · ${formatRunTimestamp(latest.started_at)}`;
+
+  // Built as parts and joined, so an absent clause leaves no orphaned " · ".
+  const parts: string[] = [`${latest.candidates_total} candidates`];
+  if (latest.pool_delta != null) {
+    const signed = latest.pool_delta > 0 ? `+${latest.pool_delta}` : String(latest.pool_delta);
+    parts.push(`${signed} since the previous scan`);
+  }
+  parts.push(formatRunTimestamp(latest.started_at));
+  if (modelName && latest.model_id) {
+    parts.push(modelName(latest.model_id));
+  }
+  return parts.join(" · ");
 }
 
 /**

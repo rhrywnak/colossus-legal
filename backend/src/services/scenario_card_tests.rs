@@ -499,33 +499,83 @@ fn a_quote_absent_from_its_page_yields_empty_context_not_a_guess() {
 
 /// The window is read through its seam, and both edges use the same value.
 ///
-/// Task 1.6 will serve this from the settings store; the test that survives that
+/// Task 1.6 served this from the settings store; the test that survives that
 /// change is one asserting the SEAM is used, not one asserting the number. Both
-/// edges reading one call is what stops 1.6 from producing a lopsided window.
+/// edges reading one call is what stops a lopsided window.
+///
+/// ## Rewritten by task 1.7C (defect D6)
+///
+/// It used to assert `chars().count() == window` on both sides. That assertion
+/// encoded the very defect D6 removes: a HARD cut at exactly `window`
+/// characters, landing mid-word and mid-sentence. Under the new law the window is
+/// a SEED and sentence boundaries decide, so an equality on the width is no longer
+/// the property — the property is that one value still drives both edges, which a
+/// widening comparison states directly and a fixed number cannot.
 #[test]
 fn both_context_edges_use_the_same_window_value() {
-    let window = settings().quote_context_window_chars;
-    let filler = "x".repeat(window * 2);
-    let page = format!("{filler}I do not recall that meeting.{filler}");
-    let card = build_card(
-        &full_instance(),
-        None,
-        &CardRefState::default(),
-        None,
-        Some(&page),
-        &settings(),
+    // Sentences in the filler, so expansion has boundaries to stop at rather than
+    // running to the page edges (which would make the seed unobservable).
+    let filler = "Filler sentence for the window. ".repeat(40);
+    let page = format!("{filler}I do not recall that meeting. {filler}");
+
+    let narrow = Settings {
+        quote_context_window_chars: 60,
+        ..settings()
+    };
+    let wide = Settings {
+        quote_context_window_chars: 480,
+        ..settings()
+    };
+    let build = |s: &Settings| {
+        build_card(
+            &full_instance(),
+            None,
+            &CardRefState::default(),
+            None,
+            Some(&page),
+            s,
+        )
+    };
+    let small = build(&narrow);
+    let large = build(&wide);
+
+    // A bigger seed reaches further on BOTH sides — that is the seam being read
+    // and applied symmetrically. If either edge ignored the setting, one of these
+    // two would not move.
+    assert!(
+        large.quote.context_before.chars().count() > small.quote.context_before.chars().count(),
+        "the before-edge must widen with the seed: {} vs {}",
+        small.quote.context_before.chars().count(),
+        large.quote.context_before.chars().count()
     );
-    assert_eq!(card.quote.context_before.chars().count(), window);
-    assert_eq!(card.quote.context_after.chars().count(), window);
+    assert!(
+        large.quote.context_after.chars().count() > small.quote.context_after.chars().count(),
+        "the after-edge must widen with the seed: {} vs {}",
+        small.quote.context_after.chars().count(),
+        large.quote.context_after.chars().count()
+    );
+    // And the seed is a FLOOR on the SLICE, not a ceiling — expansion goes
+    // outward (§3.1). The comparison allows two characters of slack because the
+    // display transform trims the flank's edges, and a slice that begins just
+    // after a "… . " sentence break carries exactly that much trimmable
+    // whitespace. Slack for the trim, not for the expansion.
+    assert!(large.quote.context_before.chars().count() >= 480 - 2);
+    assert!(large.quote.context_after.chars().count() >= 480 - 2);
+    // Both ends landed on real sentence boundaries, so neither is a page edge.
+    assert!(large.quote.context_before_complete);
+    assert!(large.quote.context_after_complete);
 }
 
 #[test]
 fn context_windowing_never_splits_a_multibyte_character() {
     // Legal PDFs are full of curly quotes and accented names. Slicing a &str at a
-    // byte offset inside one of those panics, so the window must count characters.
-    // Drive the fixture off the seam so a 1.6 change to the window does not turn
-    // this into a false failure — the property under test is the character
-    // boundary, not the width.
+    // byte offset inside one of those PANICS, so every offset the assembly
+    // computes must be a character boundary. That panic is what this test exists
+    // to catch, and it catches it by running at all.
+    //
+    // 1.7C note: the old width equality is gone (see the test above), but the
+    // fixture is unchanged — an all-`é` page is still the sharpest probe, because
+    // every single offset in it is a potential mid-character slice.
     let window = settings().quote_context_window_chars;
     let filler = "é".repeat(window * 2);
     let page = format!("{filler}I do not recall that meeting.{filler}");
@@ -537,8 +587,17 @@ fn context_windowing_never_splits_a_multibyte_character() {
         Some(&page),
         &settings(),
     );
-    assert_eq!(card.quote.context_before.chars().count(), window);
-    assert_eq!(card.quote.context_after.chars().count(), window);
+
+    // No terminator anywhere in the filler, so both flanks run to the page edges —
+    // which is the whole filler, every character intact.
+    assert!(card.quote.context_before.chars().all(|c| c == 'é'));
+    assert!(card.quote.context_after.chars().all(|c| c == 'é'));
+    assert_eq!(card.quote.context_before.chars().count(), window * 2);
+    assert_eq!(card.quote.context_after.chars().count(), window * 2);
+    // Both edges are page edges, and the card says so rather than implying the
+    // multibyte filler was a sentence (Standing Rule 1).
+    assert!(!card.quote.context_before_complete);
+    assert!(!card.quote.context_after_complete);
 }
 
 /// THE 1.7A DEFECT (D3). A quote whose wording only matches after normalization
@@ -610,13 +669,21 @@ fn a_normalized_quote_still_gets_context_in_the_pages_own_characters() {
     );
 }
 
-/// The configured width applies to a normalized match exactly as to an exact one.
+/// The configured seed applies to a normalized match exactly as to an exact one.
+///
+/// ## Rewritten by task 1.7C (defect D6)
+///
+/// Same reason as `both_context_edges_use_the_same_window_value`: the old
+/// `== window` equality asserted the hard cut D6 replaced. The property that
+/// matters is that the SECOND locate tier is not a lesser citizen — a
+/// normalized-grounded card gets the same seed, the same outward expansion, and
+/// the same sentence-complete ends as an exactly-grounded one.
 #[test]
 fn a_normalized_match_honours_the_configured_window() {
     let window = settings().quote_context_window_chars;
-    let filler = "x".repeat(window * 2);
+    let filler = "Filler sentence for the window. ".repeat(40);
     // Smart quotes inside the quoted span, so only the normalized tier can find it.
-    let page = format!("{filler}\u{201C}I do not recall that meeting.\u{201D}{filler}");
+    let page = format!("{filler}\u{201C}I do not recall that meeting.\u{201D} {filler}");
 
     let mut instance = full_instance();
     instance.verbatim_quote = Some("\"I do not recall that meeting.\"".to_string());
@@ -630,8 +697,14 @@ fn a_normalized_match_honours_the_configured_window() {
         &settings(),
     );
 
-    assert_eq!(card.quote.context_before.chars().count(), window);
-    assert_eq!(card.quote.context_after.chars().count(), window);
+    // The seed is honoured as a floor on both sides…
+    assert!(card.quote.context_before.chars().count() >= window);
+    assert!(card.quote.context_after.chars().count() >= window);
+    // …and both ends are genuinely sentence-complete, not page edges.
+    assert!(card.quote.context_before_complete);
+    assert!(card.quote.context_after_complete);
+    assert_eq!(card.quote.context_before_notice, None);
+    assert_eq!(card.quote.context_after_notice, None);
 }
 
 /// THE HONEST LIMIT, kept explicit so the D3 fix cannot be widened into a guess.
@@ -674,6 +747,16 @@ fn a_quote_that_is_not_on_this_page_still_yields_no_context() {
 
 #[test]
 fn a_page_shorter_than_the_window_returns_what_there_is() {
+    // 1.7C (D6) changes the expected strings in two ways, both deliberate:
+    //
+    // 1. They are TRIMMED. The old assertion expected `"Short. "` and `" End."`
+    //    with the seam whitespace attached, which the display transform now
+    //    removes — a context opening with a stray space reads as a rendering fault.
+    // 2. They carry completeness. The before-flank ran to the top of the page, so
+    //    whether that sentence started here or on the previous page is unknowable
+    //    and the card says so. The after-flank ran to the bottom but ALREADY ends
+    //    on a full stop, so it is complete and carries no notice — the asymmetry
+    //    documented on `sentence_bounds::ends_with_sentence_end`.
     let page = "Short. I do not recall that meeting. End.";
     let card = build_card(
         &full_instance(),
@@ -683,8 +766,20 @@ fn a_page_shorter_than_the_window_returns_what_there_is() {
         Some(page),
         &settings(),
     );
-    assert_eq!(card.quote.context_before, "Short. ");
-    assert_eq!(card.quote.context_after, " End.");
+
+    assert_eq!(card.quote.context_before, "Short.");
+    assert!(!card.quote.context_before_complete);
+    assert_eq!(
+        card.quote.context_before_notice.as_deref(),
+        Some("— page begins here")
+    );
+
+    assert_eq!(card.quote.context_after, "End.");
+    assert!(
+        card.quote.context_after_complete,
+        "'End.' is a finished sentence, so it must NOT be labelled a page edge"
+    );
+    assert_eq!(card.quote.context_after_notice, None);
 }
 
 // ── Pinpoint ──────────────────────────────────────────────────────────────────

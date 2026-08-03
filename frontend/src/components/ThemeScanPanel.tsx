@@ -25,7 +25,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 
 import EvidenceCard from "../pages/BiasExplorer/EvidenceCard";
 import PipelineProgressBar from "./pipeline/PipelineProgressBar";
-import RunHistoryList from "./RunHistoryList";
+import ScanHistoryTable from "./ScanHistoryTable";
 import {
   computeAgreement,
   costLabel,
@@ -504,7 +504,7 @@ const ThemeScanPanel: React.FC<Props> = ({
               modelError={modelError}
               modelWarnings={modelWarnings}
               selectedModel={selectedModel}
-              lastRun={lastRunSummary(runs)}
+              lastRun={lastRunSummary(runs, modelName)}
               onSelect={setSelectedModel}
               onRun={onRun}
             />
@@ -516,8 +516,9 @@ const ThemeScanPanel: React.FC<Props> = ({
             </div>
           )}
 
-          {/* Run history hydrated from the DB — survives navigation and reloads. */}
-          <RunHistoryList
+          {/* Run history from the DB. §2.3 item 2 made it a collapsed table; see
+              ScanHistoryTable for why the card list it replaces had to go. */}
+          <ScanHistoryTable
             runs={runs}
             selectedRunIds={selectedRunIds}
             onToggle={onSelectRun}

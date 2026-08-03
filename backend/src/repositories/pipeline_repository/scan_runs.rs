@@ -406,6 +406,34 @@ pub struct ScanRunHeaderRow {
     pub computed_cost: Option<f64>,
     pub duration_ms: i64,
     pub started_at: DateTime<Utc>,
+    /// The size of the candidate pool this run actually read.
+    ///
+    /// ## Why this is separate from `candidates_total` (task 1.7C)
+    ///
+    /// `candidates_total` is the PROGRESS DENOMINATOR, bound at promote time so a
+    /// running scan can render "43 of 148". `candidates_read` is what the run
+    /// reported having read when it finished. They agree on every completed run,
+    /// and they diverge exactly where it matters: a run that failed before reading
+    /// the pool has a denominator and a zero read.
+    ///
+    /// The history table's "Candidates" column and the "+Δ since the previous
+    /// scan" delta both key off THIS column, because both are claims about the
+    /// pool, not about progress. `0` means "never got to read the pool" and is
+    /// rendered as an em dash rather than as the number zero — see
+    /// `services::scan_run_delta`.
+    pub candidates_read: i32,
+    /// Why a `failed` run failed, verbatim. `None` on a run that did not fail.
+    ///
+    /// Stored since migration 20260715121130 and simply never served. The history
+    /// table needs it: "Failed" with no reason sends the reader to the logs, which
+    /// is the silent-failure shape Standing Rule 1 exists to prevent.
+    pub error: Option<String>,
+    /// Whether this run was a dry run (judged, nothing merged).
+    ///
+    /// Served so the history can label it. Measured on DEV 2026-08-03: 3 of the 4
+    /// stored runs are dry runs, and a table that renders them identically to real
+    /// ones tells the reader something false about what has been done to the pool.
+    pub dry_run: bool,
 }
 
 /// List every run of one scenario, newest first, as lightweight headers.
@@ -446,7 +474,8 @@ pub async fn list_scan_runs(
 const LIST_SCAN_RUNS_SQL: &str = "SELECT run_id, model_id, status, \
      candidates_total, candidates_judged, \
      relevant_count, irrelevant_count, failed_count, \
-     computed_cost::float8 AS computed_cost, duration_ms, started_at \
+     computed_cost::float8 AS computed_cost, duration_ms, started_at, \
+     candidates_read, error, dry_run \
      FROM scan_runs WHERE scenario_id = $1 ORDER BY started_at DESC";
 
 // ─── 8. DELETE (remove one run) ──────────────────────────────────────────────

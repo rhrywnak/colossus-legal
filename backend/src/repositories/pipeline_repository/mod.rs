@@ -47,6 +47,7 @@ pub mod authored_entities;
 pub mod config;
 pub mod config_overrides;
 pub mod document_records;
+pub mod document_titles;
 pub mod documents;
 pub mod documents_delete;
 pub mod documents_progress;
@@ -81,6 +82,7 @@ pub use authored_entities::*;
 pub use config::*;
 pub use config_overrides::*;
 pub use document_records::*;
+pub use document_titles::*;
 pub use extraction::*;
 pub use models::LlmModelRecord;
 pub use report_queries::{

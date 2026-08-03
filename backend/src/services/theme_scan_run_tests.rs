@@ -29,6 +29,11 @@ fn scan_run_header_maps_every_row_field() {
         computed_cost: Some(0.0125),
         duration_ms: 45_000,
         started_at,
+        // Added by task 1.7C (ruling R2) so the history table can render the
+        // Candidates and New columns and an honest failure reason.
+        candidates_read: 94,
+        error: None,
+        dry_run: true,
     };
 
     let dto = scan_run_header_from_row(row);
@@ -44,6 +49,13 @@ fn scan_run_header_maps_every_row_field() {
     assert_eq!(dto.computed_cost, Some(0.0125));
     assert_eq!(dto.duration_ms, 45_000);
     assert_eq!(dto.started_at, started_at);
+    assert_eq!(dto.candidates_read, 94);
+    assert_eq!(dto.error, None);
+    assert!(dto.dry_run);
+    // The delta is position-derived, so a single-row map cannot know it. It is
+    // filled by `scan_run_delta::with_pool_deltas` once the whole history is in
+    // hand — pinned here so nobody "helpfully" computes it in this function.
+    assert_eq!(dto.pool_delta, None);
 }
 
 /// A null cost (local vLLM model / no token usage) and an absent progress
@@ -63,10 +75,19 @@ fn scan_run_header_preserves_null_cost_and_total() {
         computed_cost: None,
         duration_ms: 10,
         started_at: chrono::DateTime::<Utc>::from_timestamp(0, 0).expect("epoch is in range"),
+        candidates_read: 0,
+        error: Some("vLLM offline".to_string()),
+        dry_run: false,
     };
 
     let dto = scan_run_header_from_row(row);
 
     assert_eq!(dto.computed_cost, None);
     assert_eq!(dto.candidates_total, None);
+    // The failure reason survives the map: "Failed" with no reason sends the reader
+    // to the logs, which is the silent-failure shape Rule 1 exists to prevent.
+    assert_eq!(dto.error.as_deref(), Some("vLLM offline"));
+    // `candidates_read: 0` means "never got to read the pool" and must NOT be
+    // rewritten into a number the history table would display as a real count.
+    assert_eq!(dto.candidates_read, 0);
 }

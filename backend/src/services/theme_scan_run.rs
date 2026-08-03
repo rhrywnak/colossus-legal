@@ -21,6 +21,7 @@ use crate::repositories::pipeline_repository::{
     count_run_provenance, delete_scan_run, get_scan_run, list_applied_node_ids_for_run,
     list_candidate_ordinals, list_scan_runs, merge_run_into_scenario_recording, ScanRunHeaderRow,
 };
+use crate::services::scan_run_delta::with_pool_deltas;
 use crate::services::scan_run_enrich::annotate_summary_logged;
 use crate::services::theme_scan::{load_scenario_fenced, ThemeScanError};
 use crate::state::AppState;
@@ -133,7 +134,10 @@ pub async fn list_scenario_scan_runs(
             source,
         })?;
 
-    let runs = rows.into_iter().map(scan_run_header_from_row).collect();
+    // Map each row, then fill in the position-derived pool deltas over the whole
+    // history at once (task 1.7C, R2) — a single row cannot know how much bigger
+    // its pool read was than the one before it.
+    let runs = with_pool_deltas(rows.into_iter().map(scan_run_header_from_row).collect());
     Ok(ScanRunListResponse { runs })
 }
 
@@ -292,6 +296,12 @@ fn scan_run_header_from_row(row: ScanRunHeaderRow) -> ScanRunHeader {
         computed_cost: row.computed_cost,
         duration_ms: row.duration_ms,
         started_at: row.started_at,
+        candidates_read: row.candidates_read,
+        error: row.error,
+        dry_run: row.dry_run,
+        // Position-derived, so it is filled by `with_pool_deltas` once the whole
+        // history is in hand — a single row cannot know it (task 1.7C, R2).
+        pool_delta: None,
     }
 }
 

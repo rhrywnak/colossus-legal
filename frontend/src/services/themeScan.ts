@@ -132,6 +132,29 @@ export type ScanRunHeader = {
   computed_cost: number | null;
   duration_ms: number;
   started_at: string;
+  /** The candidate pool this run READ — the history table's Candidates column and
+   *  the basis of the pool delta (task 1.7C, ruling R2).
+   *
+   *  `0` means the run never reached the pool read. Rendered as an em dash, NEVER
+   *  as the number zero: "read nothing" and "read a pool of zero" are different
+   *  states (see `scanHistoryRows`). */
+  candidates_read: number;
+  /** Why a failed run failed, verbatim, so the history can say
+   *  "Failed — vLLM offline" instead of just "Failed". `null` unless failed. */
+  error: string | null;
+  /** Whether this run was a dry run (judged, nothing merged), so the row can be
+   *  labelled. Measured on DEV: 3 of the 4 stored runs are dry runs. */
+  dry_run: boolean;
+  /** How much bigger this run's pool was than the previous MEASURABLE run's —
+   *  the history's New column and the meta line's "+Δ since the previous scan".
+   *
+   *  SIGNED (a shrinking pool is real after task 2.5's re-anchoring), and `null`
+   *  on the first measurable run — rendered as an em dash, never `0`. Computed
+   *  BACKEND-side (`services::scan_run_delta`, Standing Rule 12): it is a
+   *  derivation over the whole history with two non-obvious rules in it, and a
+   *  browser reimplementing them would eventually disagree with the server about
+   *  what the pool did. */
+  pool_delta: number | null;
   // No merge_count / last_merged_at: merge is pick-keyed, so a per-RUN merge
   // counter answers a question the workbench no longer asks. Whether a given pick
   // was applied is carried per-suggestion (`ThemeScanSuggestion.applied`).

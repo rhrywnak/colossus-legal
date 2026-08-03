@@ -50,13 +50,15 @@
 use axum::{
     extract::{Path, State},
     http::StatusCode,
-    Json,
+    routing::{delete, get, post},
+    Json, Router,
 };
 use chrono::Utc;
 use serde_json::json;
 use uuid::Uuid;
 
 use crate::{
+    api::{scenario_cards, scenario_gather, scenario_orphans},
     auth::{require_edit, AuthUser},
     bias::repository::BiasRepository,
     domain::{fact_status::FactStatus, ruling_anchor::RulingKind},
@@ -66,6 +68,73 @@ use crate::{
     services::scenario_ruling::{record_removal, record_ruling, RulingRequest},
     state::AppState,
 };
+
+// ── Routes ────────────────────────────────────────────────────────────────────
+
+/// The scenario fact-curation route group (`/cases/:slug/scenarios/:id/facts…`).
+///
+/// Moved here from `api::mod`'s `scenario_routes` by task 1.7C, following the
+/// per-module `routes()` pattern the router already uses (`case_health::routes`,
+/// `scenario_augmentation::routes`, `rehearsal::routes`, `settings::routes`). Two
+/// reasons, both mechanical rather than aesthetic:
+///
+/// * `api/mod.rs` sat at 299 non-comment lines. Adding the orphan-strip route
+///   pushed it over the 300-line module limit, and growing a module past the limit
+///   is not something a task gets to do (Rule 17) — so the group that grew is the
+///   group that moves out.
+/// * These six routes serve ONE surface — a scenario's curated fact set — and
+///   their one real ordering constraint is now visible in a single screen:
+///   `gather`, `cards` and `orphans` are STATIC children sitting beside the
+///   `:graph_node_id` param, a coexistence matchit 0.7.3 accepts and which is easy
+///   to break by accident when the routes are scattered down a 90-line function.
+///
+/// The group spans four handler modules, so it lives with the one that owns most
+/// of it and names the surface. No handler, path, or method changed in the move.
+pub fn routes() -> Router<AppState> {
+    Router::new()
+        // Scenario fact curation (Phase A): save / list / remove the graph facts
+        // a human curates onto a scenario. Reads are open (Option<AuthUser>);
+        // the write routes enforce `require_edit` inside their handlers.
+        .route(
+            "/cases/:slug/scenarios/:scenario_id/facts",
+            get(list_scenario_facts).post(add_scenario_fact),
+        )
+        .route(
+            "/cases/:slug/scenarios/:scenario_id/facts/:graph_node_id",
+            delete(remove_scenario_fact),
+        )
+        // Candidate-workbench ruling (Phase 1a.3): include / drop / un-drop one
+        // candidate via a typed action enum. Edit-gated inside the handler. A
+        // static `action` child under the `:graph_node_id` param — beside the
+        // `/facts/gather` static sibling that matchit 0.7.3 already accepts.
+        .route(
+            "/cases/:slug/scenarios/:scenario_id/facts/:graph_node_id/action",
+            post(apply_fact_action),
+        )
+        // Candidate-workbench gather (Phase 1a.2): read-only pool of every
+        // Evidence node ABOUT the scenario's subject, each tagged with its
+        // derived workbench status. Open read (Option<AuthUser>), like the
+        // sibling facts list.
+        .route(
+            "/cases/:slug/scenarios/:scenario_id/facts/gather",
+            get(scenario_gather::gather_scenario_candidates),
+        )
+        // The §7 card payload (task 1.2): every element a human needs to rule,
+        // display-ready and in plain trial language, with unrulable items
+        // flagged. Task 1.3 switches the workbench UI onto this.
+        .route(
+            "/cases/:slug/scenarios/:scenario_id/facts/cards",
+            get(scenario_cards::get_scenario_cards),
+        )
+        // The humane orphan strip (task 1.7C, defect D9): saved references whose
+        // graph node no longer resolves, grouped by the document they came from.
+        // Another static child under the `:graph_node_id` param, beside
+        // `/facts/gather` and `/facts/cards`. Open read, like both of them.
+        .route(
+            "/cases/:slug/scenarios/:scenario_id/facts/orphans",
+            get(scenario_orphans::list_scenario_orphans),
+        )
+}
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
 

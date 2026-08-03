@@ -36,11 +36,38 @@ export type ConfidenceBand = "high" | "medium" | "low" | "unscored";
 
 /** The quote with enough surrounding text to be read in context (§7.1). */
 export type CardQuote = {
+  /** The verbatim words. NEVER groomed — the context around it is expanded to
+   *  sentence boundaries and has its gutter numerals stripped (task 1.7C, defect
+   *  D6), but this is the anchor and §12 makes anchors sacred. */
   text: string;
-  /** Source text immediately before the quote. Empty when unavailable. */
+  /** Source text immediately before the quote. Empty when unavailable.
+   *
+   *  Sentence-complete at its left edge unless `context_before_complete` is false.
+   *  Transcript gutter numerals are stripped for display; the stored page is
+   *  untouched. */
   context_before: string;
   /** Source text immediately after the quote. Empty when unavailable. */
   context_after: string;
+  /** Whether `context_before` starts at a real sentence start (task 1.7C, D6).
+   *
+   *  `false` means the PAGE begins mid-sentence — measured on DEV, 154 of the 499
+   *  locatable cards (30.9%). The card must not imply a completeness the data does
+   *  not have (Standing Rule 1), which is what the paired notice is for. */
+  context_before_complete: boolean;
+  /** Whether `context_after` ends at a real sentence end. `false` in 65 of 499
+   *  cards, measured — the page ends mid-sentence. */
+  context_after_complete: boolean;
+  /** The page-edge notice for `context_before` ("— page begins here"), composed
+   *  SERVER-side, present exactly when that flank is incomplete and has text to
+   *  explain. `null` otherwise.
+   *
+   *  The state flag and the composed sentence travel together for the same reason
+   *  `CardGrounding` carries both `state` and `label`: the boolean is what a client
+   *  branches on, the string is the words, and the browser does not get to decide
+   *  how a page edge reads. */
+  context_before_notice: string | null;
+  /** The page-edge notice for `context_after` ("— page ends here"). */
+  context_after_notice: string | null;
   /** The interrogatory this answers, when the item is a discovery answer. */
   question: string | null;
 };

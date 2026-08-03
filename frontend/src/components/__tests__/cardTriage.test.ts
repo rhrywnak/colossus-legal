@@ -35,6 +35,13 @@ function fullCard(overrides: Partial<ScenarioCard> = {}): ScenarioCard {
       text: "I do not recall that meeting.",
       context_before: "Q. Did you attend on March 3? A. ",
       context_after: " Q. Who else was present?",
+      // Task 1.7C (D6) added these four to the payload. FIXTURE ONLY — not one
+      // assertion in this file changed: all 31 §7 reducer tests are byte-identical
+      // and still green. Both flanks sentence-complete, so neither notice is set.
+      context_before_complete: true,
+      context_after_complete: true,
+      context_before_notice: null,
+      context_after_notice: null,
       question: "Did you attend the meeting on March 3, 2019?",
     },
     pinpoint: {

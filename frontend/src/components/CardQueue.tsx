@@ -30,8 +30,26 @@
 // ruling that retired it (Roman, 2026-08-02: popup-only document viewing).
 //
 // The pinpoint stays a first-class element: `card.pinpoint.viewer_href` opens the
-// DEDICATED viewer at the cited page in a new tab, which is where a page is
-// actually readable. The queue keeps the whole width for the card.
+// DEDICATED viewer at the cited page, which is where a page is actually readable.
+// The queue keeps the whole width for the card.
+//
+// ## The viewer is a WINDOW, not a tab (task 1.7C, defect D5)
+//
+// It was `<a target="_blank">` in 1.7B. Roman's ruling: a pinpoint opens a real
+// separate, sized window, because reading a quote against its page means having
+// both visible at once and a tab hides the page. See `viewerWindow.ts` for the
+// geometry, the named-window reuse, and why `noopener` is deliberately absent.
+//
+// ## The orphan strip LEFT this component (task 1.7C, defect D9)
+//
+// It used to hang off the bottom of the queue, derived in the browser by
+// set-differencing the saved facts against the card pool. Design §2.8 moves it to
+// the bottom of the PAGE as a humane, grouped disclosure fed by its own endpoint
+// (`/facts/orphans`), which can resolve document titles the browser cannot see.
+//
+// The orphan guarantee is unchanged — a confirmed fact must never silently
+// disappear — it is simply upheld somewhere better. The second `listScenarioFacts`
+// read that existed only to support the strip is gone with it.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -40,18 +58,10 @@ import {
   type ScenarioCard,
   type ScenarioCardsResponse,
 } from "../services/scenarioCards";
-import { applyFactAction } from "../services/scenarioGather";
-import { listScenarioFacts, type ScenarioFactDto } from "../services/scenarioFacts";
-import {
-  cardRows,
-  DEFER_QUICK_REASONS,
-  initialQueueState,
-  progress,
-  queueReducer,
-  type CardRow,
-  type QueueEvent,
-  type QueueState,
-} from "./cardTriage";
+import { CandidateCard, cardStyle, chipStyle } from "./CandidateCard";
+import { useReducerWithEffects } from "./useQueueReducer";
+import { DEFER_QUICK_REASONS, progress, type QueueState } from "./cardTriage";
+import { keyboardShouldRule, nextUpHint } from "./queueRegion";
 
 // ─── §2c visual language ────────────────────────────────────────────────────
 
@@ -65,42 +75,15 @@ const shellStyle: React.CSSProperties = {
   padding: "1rem",
 };
 
-const cardStyle: React.CSSProperties = {
-  background: SURFACE,
-  border: HAIRLINE,
-  borderRadius: "8px",
-  padding: "1rem 1.15rem",
-  display: "flex",
-  flexDirection: "column",
-  gap: "0.6rem",
-  fontWeight: 400, // §2c: regular weight; bold is reserved
-};
 
-const focusedCardStyle: React.CSSProperties = {
-  ...cardStyle,
-  borderColor: "var(--accent-primary)",
-};
 
-const chipStyle: React.CSSProperties = {
-  border: HAIRLINE,
-  borderRadius: "999px",
-  padding: "0.1rem 0.55rem",
-  fontSize: "0.75rem",
-  color: "var(--text-muted)",
-  whiteSpace: "nowrap",
-};
 
-const quoteStyle: React.CSSProperties = {
-  fontSize: "1rem",
-  lineHeight: 1.7, // §2c: generous line height
-  color: "var(--text-primary)",
-};
 
-const contextStyle: React.CSSProperties = {
-  color: "var(--text-muted)",
-  fontSize: "0.85rem",
-  lineHeight: 1.7,
-};
+
+// The anchor quote, highlighted inside its context (§2c's mockup, task 1.7C).
+// `mark` rather than a bold span: the quote is the thing being ruled on, and a
+// highlight is what a reader's eye finds without the weight bold would add — §2c
+// reserves bold for true emphasis and this is a different job.
 
 const hintBarStyle: React.CSSProperties = {
   display: "flex",
@@ -110,90 +93,6 @@ const hintBarStyle: React.CSSProperties = {
   padding: "0.5rem 0",
   fontSize: "0.8rem",
   color: "var(--text-muted)",
-};
-
-// ─── Row rendering ──────────────────────────────────────────────────────────
-
-/**
- * Render one descriptor row.
- *
- * The `element` decides the presentation; the `value` is displayed verbatim.
- * This function chooses no words — a `switch` that composed prose here would be
- * the frontend inventing vocabulary, which the language law forbids.
- */
-const Row: React.FC<{ row: CardRow }> = ({ row }) => {
-  if (row.element === "pinpoint") {
-    return (
-      <div>
-        <a
-          href={row.href}
-          target="_blank"
-          rel="noreferrer"
-          style={{ ...chipStyle, color: "var(--accent-primary)", textDecoration: "none" }}
-        >
-          {row.value} ↗
-        </a>
-      </div>
-    );
-  }
-
-  return (
-    <div style={{ display: "flex", gap: "0.4rem", alignItems: "baseline", flexWrap: "wrap" }}>
-      <span
-        style={
-          row.element === "quote"
-            ? quoteStyle
-            : { fontSize: "0.85rem", color: "var(--text-primary)" }
-        }
-      >
-        {row.value}
-      </span>
-      {row.chips?.map((chip) => (
-        <span key={chip} style={chipStyle}>
-          {chip}
-        </span>
-      ))}
-    </div>
-  );
-};
-
-/** One candidate card in the Casey layout. */
-const Card: React.FC<{ card: ScenarioCard; focused: boolean }> = ({ card, focused }) => {
-  const rows = useMemo(() => cardRows(card), [card]);
-  const code = rows.find((r) => r.element === "code");
-  const status = rows.find((r) => r.element === "status");
-  const body = rows.filter((r) => r.element !== "code" && r.element !== "status");
-
-  return (
-    <div style={focused ? focusedCardStyle : cardStyle}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-        <span style={{ ...chipStyle, color: "var(--text-primary)" }}>{code?.value ?? "—"}</span>
-        <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>{status?.value}</span>
-      </div>
-
-      {/* §7.1 — the question that makes a bare answer interpretable, then the
-          quote in its surrounding text. */}
-      {card.quote.question && <div style={contextStyle}>{card.quote.question}</div>}
-      <div>
-        {card.quote.context_before && (
-          <span style={contextStyle}>{card.quote.context_before}</span>
-        )}
-        <span style={quoteStyle}>{card.quote.text}</span>
-        {card.quote.context_after && <span style={contextStyle}>{card.quote.context_after}</span>}
-      </div>
-
-      {body
-        .filter((r) => r.element !== "quote")
-        .map((row, i) => (
-          <Row key={`${row.element}-${i}`} row={row} />
-        ))}
-
-      {/* A reason a HUMAN gave, distinct from the system's defer notice above. */}
-      {card.defer_reason && (
-        <div style={{ ...contextStyle, fontStyle: "italic" }}>Parked: {card.defer_reason}</div>
-      )}
-    </div>
-  );
 };
 
 // ─── The queue ──────────────────────────────────────────────────────────────
@@ -206,6 +105,27 @@ interface Props {
    *  so merged suggestions appear without a manual reload. Carried forward from
    *  the workbench this queue replaces. */
   externalRefresh?: number;
+  /**
+   * Whether the keyboard may rule (task 1.7C, ruling R7).
+   *
+   * The queue now lives inside a collapsible region (§2.3), and a `<details>` body
+   * stays in the DOM when closed — so without this the one-key rulings would keep
+   * firing on a card nobody can see. Defaults to `true` so a queue mounted outside
+   * a region behaves exactly as it did before.
+   *
+   * The guard is HERE and not in `queueReducer`: the reducer is a pure state
+   * machine that knows nothing about chrome, and its 31 tests stay byte-identical.
+   */
+  keyboardActive?: boolean;
+  /**
+   * Reports `{ruled, total}` upward so the section above can draw the progress bar
+   * and word its summary line.
+   *
+   * The queue owns the fetch, so it owns the counts; the alternative was a second
+   * read of the same pool in the parent, which is how two surfaces end up
+   * disagreeing about how much work is left.
+   */
+  onProgress?: (progress: { ruled: number; total: number }) => void;
 }
 
 /**
@@ -222,9 +142,14 @@ function isTyping(target: EventTarget | null): boolean {
   return tag === "input" || tag === "textarea" || el.isContentEditable === true;
 }
 
-const CardQueue: React.FC<Props> = ({ slug, scenarioId, externalRefresh }) => {
+const CardQueue: React.FC<Props> = ({
+  slug,
+  scenarioId,
+  externalRefresh,
+  keyboardActive = true,
+  onProgress,
+}) => {
   const [setAside, setSetAside] = useState<ScenarioCard[]>([]);
-  const [orphans, setOrphans] = useState<ScenarioFactDto[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [rulingError, setRulingError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -251,16 +176,11 @@ const CardQueue: React.FC<Props> = ({ slug, scenarioId, externalRefresh }) => {
       dispatch({ type: "cards_loaded", cards: cards.pool });
       setSetAside(cards.set_aside);
 
-      // The ORPHAN GUARANTEE, carried forward from the workbench: the card
-      // endpoint is pool-driven, so a saved ref whose graph node has vanished is
-      // simply absent from it. Left unhandled a confirmed fact would silently
-      // disappear — the ratified policy this second read exists to uphold.
-      const saved = await listScenarioFacts(slug, scenarioId);
-      const known = new Set([
-        ...cards.pool.map((c) => c.graph_node_id),
-        ...cards.set_aside.map((c) => c.graph_node_id),
-      ]);
-      setOrphans(saved.filter((f) => !known.has(f.graph_node_id)));
+      // The ORPHAN GUARANTEE moved to the page-bottom strip in task 1.7C (§2.8):
+      // it is served by `/facts/orphans`, which groups the losses by document and
+      // can resolve titles this component could not see. The second
+      // `listScenarioFacts` read that lived here only to support the old strip is
+      // gone with it — the guarantee is upheld, in a better place.
       setError(null);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to load the candidate queue.");
@@ -283,6 +203,13 @@ const CardQueue: React.FC<Props> = ({ slug, scenarioId, externalRefresh }) => {
   // the house pattern (see `AuthorityPopover`).
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
+      // The collapsed-region guard (ruling R7). A `<details>` body stays in the
+      // DOM when closed, so without this the one-key rulings would keep firing on
+      // a card nobody can see — and the human would have no way to tell that from
+      // a stray keypress. Checked BEFORE `preventDefault` so a collapsed queue does
+      // not even swallow the key.
+      if (!keyboardShouldRule(keyboardActive)) return;
+
       const typing = isTyping(e.target);
       // Only swallow the browser's default for keys we actually act on, and
       // never while typing — Escape and Enter belong to the field then.
@@ -293,7 +220,7 @@ const CardQueue: React.FC<Props> = ({ slug, scenarioId, externalRefresh }) => {
     }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [dispatch]);
+  }, [dispatch, keyboardActive]);
 
   // Focus the defer field the moment the prompt opens, so the human never
   // reaches for the mouse mid-triage.
@@ -303,6 +230,14 @@ const CardQueue: React.FC<Props> = ({ slug, scenarioId, externalRefresh }) => {
 
   const card = state.cards[state.index];
   const { ruled, total } = progress(state);
+  const nextCard = state.cards[state.index + 1];
+
+  // Report the counts to the section above, which draws the progress bar and words
+  // the region's summary. In an effect rather than inline: calling a parent's
+  // setState during render is the React warning that turns into an infinite loop.
+  useEffect(() => {
+    onProgress?.({ ruled, total });
+  }, [onProgress, ruled, total]);
 
   if (loading) return <div style={{ padding: "1rem" }}>Loading the candidate queue…</div>;
 
@@ -343,14 +278,11 @@ const CardQueue: React.FC<Props> = ({ slug, scenarioId, externalRefresh }) => {
           </button>
         </div>
       )}
+      {/* The running count and the I/E/D/U legend moved UP into the region's
+          summary line (§2.3) so they are readable while the queue is collapsed.
+          What belongs beside the card is the deferred tray and what is coming
+          next. */}
       <div style={hintBarStyle}>
-        <strong style={{ fontWeight: 600 }}>
-          {ruled} of {total} ruled
-        </strong>
-        <span>I include</span>
-        <span>E exclude</span>
-        <span>D defer</span>
-        <span>U undo</span>
         <button
           type="button"
           onClick={() => setShowDeferred((v) => !v)}
@@ -358,6 +290,13 @@ const CardQueue: React.FC<Props> = ({ slug, scenarioId, externalRefresh }) => {
         >
           {showDeferred ? "Back to queue" : `Deferred (${deferredOf(state).length})`}
         </button>
+        {/* D10's next-up hint. Absent rather than "Next up: —" when the following
+            card has no ordinal yet: a hint that names nothing is worse than none. */}
+        {!showDeferred && nextUpHint(nextCard?.code) && (
+          <span style={{ marginLeft: "auto", color: "var(--text-muted)" }}>
+            {nextUpHint(nextCard?.code)}
+          </span>
+        )}
       </div>
 
       {showDeferred ? (
@@ -367,7 +306,7 @@ const CardQueue: React.FC<Props> = ({ slug, scenarioId, externalRefresh }) => {
           <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
             {card ? (
               <>
-                <Card card={card} focused />
+                <CandidateCard card={card} focused />
                 {state.mode.kind === "deferring" && (
                   <DeferPrompt
                     inputRef={deferInputRef}
@@ -389,7 +328,6 @@ const CardQueue: React.FC<Props> = ({ slug, scenarioId, externalRefresh }) => {
         </div>
       )}
 
-      {orphans.length > 0 && <OrphanStrip orphans={orphans} />}
     </div>
   );
 };
@@ -402,7 +340,7 @@ const DeferQueue: React.FC<{ cards: ScenarioCard[] }> = ({ cards }) => {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem", padding: "1rem" }}>
       {cards.map((card) => (
-        <Card key={card.graph_node_id} card={card} focused={false} />
+        <CandidateCard key={card.graph_node_id} card={card} focused={false} />
       ))}
     </div>
   );
@@ -440,90 +378,9 @@ const DeferPrompt: React.FC<{
   </div>
 );
 
-/**
- * Saved facts the pool no longer knows about — the orphan guarantee.
- *
- * They cannot be ruled on (the graph node is gone), so they sit outside the
- * triage flow rather than in it. Showing them is the point: a confirmed fact
- * must never silently disappear.
- */
-const OrphanStrip: React.FC<{ orphans: ScenarioFactDto[] }> = ({ orphans }) => (
-  <div style={{ padding: "1rem", borderTop: HAIRLINE }}>
-    <div style={{ fontSize: "0.8rem", color: "var(--state-warning-strong)" }}>
-      {orphans.length} saved fact{orphans.length === 1 ? "" : "s"} no longer in the graph — the
-      content is unavailable, but the reference is kept so nothing is lost silently.
-    </div>
-    <ul style={{ margin: "0.4rem 0 0", paddingLeft: "1.1rem", fontSize: "0.8rem" }}>
-      {orphans.map((o) => (
-        <li key={o.graph_node_id} style={{ color: "var(--text-muted)" }}>
-          {o.graph_node_id}
-        </li>
-      ))}
-    </ul>
-  </div>
-);
-
 /** The cards a human has parked, read off the payload. */
 function deferredOf(state: QueueState): ScenarioCard[] {
   return state.cards.filter((c) => c.defer_reason != null);
-}
-
-/**
- * The reducer, wired so its effects reach the backend.
- *
- * ## Why the effect is performed OUTSIDE the state updater
- *
- * `queueReducer` is pure and returns a description of the call to make. Firing
- * that call from inside a `setState` updater would be a side effect in a function
- * React may invoke more than once (it does, in StrictMode) — the same ruling would
- * post twice. So the reducer is run against a ref, the state is set, and the
- * effect is performed after, exactly once.
- *
- * ## Why a failed ruling must do TWO things
- *
- * The UI advances optimistically, which is what makes triage fast. That is only
- * honest if a refusal is caught: the human has already moved on, so a failure has
- * to (1) SAY so, naming the card, and (2) RECONCILE by re-reading the pool, so
- * what is on screen is what the database holds. Logging to the console satisfies
- * neither — the audience that must act is the person ruling, not a developer with
- * devtools open (Standing Rule 1).
- */
-function useReducerWithEffects(
-  slug: string,
-  scenarioId: string,
-  onRulingFailed: (message: string) => void,
-): [QueueState, (event: QueueEvent) => void] {
-  const [state, setState] = useState<QueueState>(() => initialQueueState([]));
-
-  // The reducer needs the CURRENT state, and `setState` is async — a ref keeps
-  // the two in step without making `dispatch` depend on `state` (which would
-  // rebuild the keydown listener on every keystroke).
-  const stateRef = useRef(state);
-  stateRef.current = state;
-
-  const dispatch = useCallback(
-    (event: QueueEvent) => {
-      const { state: next, effect } = queueReducer(stateRef.current, event);
-      stateRef.current = next;
-      setState(next);
-
-      if (effect.kind !== "rule") return;
-
-      applyFactAction(slug, scenarioId, effect.graphNodeId, effect.action, effect.reason).catch(
-        (e: unknown) => {
-          const detail = e instanceof Error ? e.message : String(e);
-          onRulingFailed(
-            `That ruling did not save (${effect.action} on ${effect.graphNodeId}): ` +
-              `${detail} The queue has been reloaded from the server, so what you ` +
-              `see now is what is stored.`,
-          );
-        },
-      );
-    },
-    [slug, scenarioId, onRulingFailed],
-  );
-
-  return [state, dispatch];
 }
 
 export default CardQueue;

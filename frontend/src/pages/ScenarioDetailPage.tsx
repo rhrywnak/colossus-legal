@@ -2,124 +2,71 @@
 // ScenarioDetailPage.tsx — /cases/:slug/trial-prep/:scenarioId
 // =============================================================================
 //
-// The baseline page every Phase-2 feature lands on (task 1.7B). Restructured
-// top-down so each future addition answers "did this hurt usability?" against a
-// stable page, rather than a big-bang redo after ten features are wired in.
+// The FINAL page structure (task 1.7C, SCENARIO_PAGE_DESIGN_v2 §2). Every §2
+// component now has exactly one home here, and the future-phase ones have their
+// placement reserved and render NOTHING until their task lands — absent, not fake.
 //
-// TOP TO BOTTOM
+// SEVEN SECTIONS, TOP TO BOTTOM
 //
-//   1. A LEAN one-line header (study §1.7): code · name · direction chip ·
-//      status chip · edit · rehearsal link. An issue's header is lean; all the
-//      richness lives on the facts below it.
-//   2. The scan control — one line, inside the Theme Scan panel.
-//   3. The working view — what has been included, Facts-table style.
-//   4. The ruling queue — §7 keyboard triage, behaviour untouched.
+//   1. Two-tier header + eyebrow      §2.1 (D7) — `ScenarioHeaderTiers`
+//   2. Identity block, read-only      §2.2 (D8) — `ScenarioIdentityBlock`
+//   3. Scan & candidates              §2.3 (D10) — `ScanSection`
+//   4. Scenario facts                 §2.4 — `ScenarioFactsSection`
+//   5. Marie's talking points         §2.5 (C5) — `TalkingPointsSection`
+//   6. Watch-list                     §2.6 (C6) — `WatchListSection`
+//   7. Orphan strip, collapsed        §2.8 (D9) — `ScenarioOrphanStrip`
 //
-// WHAT DIED HERE
+// ## This file is composition and fetching, nothing else
 //
-//   * The permanent full-width definition form with its scroll-box allegation
-//     picker. Editing an identity is a modal now (`ScenarioIdentityModal`), and
-//     nothing on this page opens a second page.
-//   * The inline title-rename state machine. The name is one field of the
-//     identity, and it is edited where the rest of the identity is — two editors
-//     for one field is how one of them ends up forgotten.
-//   * The "The attack" box. That text is THEIR framing, one of the three
-//     identity texts, and it reads in the modal beside the other two rather than
-//     as a banner that says nothing about what to do next.
-//   * The split-pane PDF viewer (in `CardQueue`, defect D2).
+// Each section owns its own rendering and its own writes; this page owns the three
+// reads they share and the two modals. That is what keeps it inside the 300-line
+// limit with seven sections on it — the 1.7B version put the header's markup, its
+// styles, and the delete flow inline, and there was no room left.
 //
-// Display-only decisions stay server-side: chips, labels and the status
-// vocabulary all arrive composed or come from tested pure helpers.
-// =============================================================================
+// ## WHAT DIED HERE IN 1.7C
+//
+//   * `pattern_summary` and `notes`. Both were hardcoded `None` in
+//     `scenario_dashboard::build_detail` and neither has a column or a jsonb key —
+//     measured on DEV, so they could never render. §2's seven sections are the
+//     complete page and neither has a home in it (ruling R5).
+//   * The bare `Delete` button in the header row. Destructive actions live in the
+//     kebab and nowhere else (D7).
+//   * "Marie's responses" / `ResponseCard`. §2.5's talking-points section is what
+//     that data is for, and it now has a real one.
+//
+// ## The augmentation read became unconditional
+//
+// It used to fire only after a human clicked "Add", because the panel it fed was
+// hidden until then. Three sections need it now — the identity block reads the C1
+// texts from it, and §2.5/§2.6 are always present — so it loads with the page.
 
-import React, { useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import React, { useCallback, useEffect, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 
 import Breadcrumb from "../components/Breadcrumb";
-import ScenarioCurationPanel from "../components/ScenarioCurationPanel";
-import ScenarioIdentityModal from "../components/ScenarioIdentityModal";
-import ThemeScanPanel from "../components/ThemeScanPanel";
+import ScanSection from "../components/ScanSection";
 import ScenarioDeleteConfirm from "../components/ScenarioDeleteConfirm";
-import { EmptyState, ResponseCard } from "../components/TrialPrepViews";
-import { headerDescriptor } from "../components/scenarioHeader";
+import ScenarioFactsSection from "../components/ScenarioFactsSection";
+import ScenarioHeaderTiers from "../components/ScenarioHeaderTiers";
+import ScenarioIdentityBlock from "../components/ScenarioIdentityBlock";
+import ScenarioIdentityModal from "../components/ScenarioIdentityModal";
+import ScenarioOrphanStrip from "../components/ScenarioOrphanStrip";
+import TalkingPointsSection from "../components/TalkingPointsSection";
+import WatchListSection from "../components/WatchListSection";
+import { EmptyState } from "../components/TrialPrepViews";
+import { getAllegations, type AllegationDto } from "../services/allegations";
 import { DEFAULT_CASE_SLUG } from "../services/caseHeader";
+import { fetchScenarioCards, type ScenarioCard } from "../services/scenarioCards";
+import {
+  fetchAugmentationPanel,
+  type AugmentationPanelDto,
+} from "../services/scenarioAugmentation";
 import { deleteScenario } from "../services/scenarioCrud";
 import { getScenarioDetailLive } from "../services/trialPrep";
 import type { ScenarioDetail } from "./trialPrepData";
-import ReadyToggle from "../components/ReadyToggle";
 
-const containerStyle: React.CSSProperties = {
-  paddingTop: "32px",
-  paddingBottom: "4rem",
-};
-
-const sectionLabel: React.CSSProperties = {
-  fontSize: "0.74rem",
-  fontWeight: 600,
-  letterSpacing: "0.05em",
-  textTransform: "uppercase",
-  color: "var(--text-muted)",
-  margin: "1.5rem 0 0.5rem",
-};
-
-// ── The lean header line (study §1.7) ───────────────────────────────────────
-//
-// One row, wrapping on a narrow window. Everything in it is either the
-// scenario's identity or a way out of the page; nothing here is a form.
-const headerRow: React.CSSProperties = {
-  display: "flex",
-  alignItems: "baseline",
-  flexWrap: "wrap",
-  gap: "0.6rem",
-  marginBottom: "0.35rem",
-};
-
-const codeStyle: React.CSSProperties = {
-  fontSize: "0.8rem",
-  fontWeight: 600,
-  color: "var(--text-muted)",
-  letterSpacing: "0.04em",
-};
-
-// Regular weight, not bold: §2 reserves bold for true emphasis — a pinpoint
-// page, a section head — and a page title is neither.
-const nameStyle: React.CSSProperties = {
-  margin: 0,
-  fontSize: "1.15rem",
-  fontWeight: 500,
-  color: "var(--text-primary)",
-};
-
-const chipStyle: React.CSSProperties = {
-  border: "1px solid var(--border-default)",
-  borderRadius: "999px",
-  padding: "0.1rem 0.6rem",
-  fontSize: "0.74rem",
-  whiteSpace: "nowrap",
-};
-
-const quietButton: React.CSSProperties = {
-  border: "1px solid var(--border-default)",
-  borderRadius: "6px",
-  background: "var(--bg-surface)",
-  color: "var(--text-secondary)",
-  fontSize: "0.78rem",
-  fontFamily: "inherit",
-  padding: "0.15rem 0.55rem",
-  cursor: "pointer",
-};
-
-const patternHeadline: React.CSSProperties = {
-  fontSize: "0.82rem",
-  color: "var(--text-muted)",
-  marginBottom: "1rem",
-};
-
-const messageStyle: React.CSSProperties = {
-  padding: "2rem 0",
-  color: "var(--text-muted)",
-};
-
+const containerStyle: React.CSSProperties = { paddingTop: "32px", paddingBottom: "4rem" };
+const messageStyle: React.CSSProperties = { padding: "2rem 0", color: "var(--text-muted)" };
 const errorStyle: React.CSSProperties = {
   padding: "0.75rem 1rem",
   border: "1px solid var(--state-danger-border)",
@@ -131,41 +78,28 @@ const errorStyle: React.CSSProperties = {
 };
 
 const ScenarioDetailPage: React.FC = () => {
-  const { slug: slugParam, scenarioId } = useParams<{
-    slug: string;
-    scenarioId: string;
-  }>();
+  const { slug: slugParam, scenarioId } = useParams<{ slug: string; scenarioId: string }>();
   const slug = slugParam ?? DEFAULT_CASE_SLUG;
   const navigate = useNavigate();
   const backCrumb = { label: "Trial Prep", to: `/cases/${slug}/trial-prep` };
 
-  // Gating fetch (mirrors TrialPrepDashboardPage). `null` after load = a real
-  // 404, which renders the "Scenario not found" empty state — distinct from a
-  // fetch error (banner) and from still-loading.
+  // Gating fetch. `null` after load = a real 404, which renders the "not found"
+  // empty state — distinct from a fetch error (banner) and from still-loading.
   const [scenario, setScenario] = useState<ScenarioDetail | null>(null);
+  const [augmentation, setAugmentation] = useState<AugmentationPanelDto | null>(null);
+  const [allegations, setAllegations] = useState<AllegationDto[]>([]);
+  const [cards, setCards] = useState<ScenarioCard[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  // Bumped after the identity modal or the ready toggle saves, to re-fetch the
-  // scenario. A re-fetch, not a hand-merged response, is the source of truth:
-  // the backend trims and normalises what it stores, so the page must be told
-  // what was actually persisted rather than assume the draft it sent.
+
+  // Bumped after any write; a re-fetch (never a hand-merged response) is the source
+  // of truth, because the backend trims and normalises what it stores.
   const [refreshKey, setRefreshKey] = useState(0);
+  const refresh = useCallback(() => setRefreshKey((k) => k + 1), []);
 
-  // Bumped when the Theme Scan panel merges picks into this scenario's candidate
-  // facts. Kept SEPARATE from `refreshKey` (which re-loads the whole scenario
-  // detail): a merge changes only the candidate facts, so re-fetching the
-  // identity, responses and everything else would be needless work and would
-  // flash the whole page. One signal, one consumer.
-  const [factsRefresh, setFactsRefresh] = useState(0);
-
-  // Delete flow: `showDelete` gates the confirm modal; `deleting` disables it
-  // while the DELETE is in flight; `deleteError` keeps the modal open and shows
-  // the failure (the modal closing is never treated as proof the delete worked).
   const [showDelete, setShowDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-
-  // The identity modal — the ONE place a scenario's identity is edited (1.7B).
   const [editingIdentity, setEditingIdentity] = useState(false);
 
   const handleDelete = () => {
@@ -173,17 +107,12 @@ const ScenarioDetailPage: React.FC = () => {
     setDeleting(true);
     setDeleteError(null);
     deleteScenario(slug, scenarioId)
-      .then(() => {
-        // The row is gone — leave the (now-dead) detail page for the dashboard.
-        navigate(`/cases/${slug}/trial-prep`);
-      })
+      .then(() => navigate(`/cases/${slug}/trial-prep`))
       .catch((err: unknown) => {
-        // Standing Rule 1: a failed DELETE stays visible IN the modal; we do NOT
+        // Standing Rule 1: a failed DELETE stays visible IN the modal. We do NOT
         // navigate away or close, which would imply a success that did not happen.
         setDeleteError(
-          err instanceof Error
-            ? err.message
-            : "Failed to delete the scenario. Try again.",
+          err instanceof Error ? err.message : "Failed to delete the scenario. Try again.",
         );
         setDeleting(false);
       });
@@ -197,10 +126,22 @@ const ScenarioDetailPage: React.FC = () => {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    getScenarioDetailLive(slug, scenarioId)
-      .then((data) => {
+
+    // Four reads, one gate. `Promise.all` rather than a waterfall: they are
+    // independent, and a page that paints its header a beat before its identity
+    // block reads as a page that is still broken.
+    Promise.all([
+      getScenarioDetailLive(slug, scenarioId),
+      fetchAugmentationPanel(slug, scenarioId),
+      getAllegations(),
+      fetchScenarioCards(slug, scenarioId),
+    ])
+      .then(([detail, panel, allegationList, cardPayload]) => {
         if (cancelled) return;
-        setScenario(data);
+        setScenario(detail);
+        setAugmentation(panel);
+        setAllegations(allegationList.allegations);
+        setCards([...cardPayload.pool, ...cardPayload.set_aside]);
         setLoading(false);
       })
       .catch((err: unknown) => {
@@ -217,7 +158,6 @@ const ScenarioDetailPage: React.FC = () => {
     };
   }, [slug, scenarioId, refreshKey]);
 
-  // Breadcrumb shown on every gating state (loading / error / not-found).
   const gatingCrumb = (
     <Breadcrumb
       items={[{ label: "Dashboard", to: "/" }, backCrumb, { label: "Scenario" }]}
@@ -240,7 +180,7 @@ const ScenarioDetailPage: React.FC = () => {
       </div>
     );
   }
-  if (!scenario) {
+  if (!scenario || !scenarioId) {
     return (
       <div style={containerStyle}>
         {gatingCrumb}
@@ -249,148 +189,94 @@ const ScenarioDetailPage: React.FC = () => {
     );
   }
 
-  const header = headerDescriptor({
-    code: scenario.code,
-    name: scenario.attack,
-    direction: scenario.direction,
-    status: scenario.status,
-  });
-
   return (
     <div style={containerStyle}>
       <Breadcrumb
         items={[{ label: "Dashboard", to: "/" }, backCrumb, { label: scenario.attack }]}
       />
 
-      {/* ── The lean header: one line, everything it states is identity ──────
-          The code sits outside the name because it is the one part of this
-          header that can never be renamed. */}
-      <div style={headerRow}>
-        <span style={codeStyle}>{header.code}</span>
-        <h1 className="count-header" style={nameStyle}>
-          {header.name}
-        </h1>
+      {/* 1 — §2.1 */}
+      <ScenarioHeaderTiers
+        slug={slug}
+        scenarioId={scenarioId}
+        code={scenario.code}
+        name={scenario.attack}
+        direction={scenario.direction}
+        status={scenario.status}
+        onEdit={() => setEditingIdentity(true)}
+        onDelete={() => {
+          setDeleteError(null);
+          setShowDelete(true);
+        }}
+        onReadyChanged={refresh}
+      />
 
-        <span
-          style={{ ...chipStyle, color: header.direction.color }}
-          title={header.direction.title ?? undefined}
-        >
-          {header.direction.label}
-        </span>
-        <span style={{ ...chipStyle, color: header.status.color }}>
-          {header.status.label}
-        </span>
+      {/* 2 — §2.2. The three texts come from the augmentation identity, which is
+          where the backend already serves them composed; `attack_text` also lives
+          inside the definition jsonb and the two agree. */}
+      <ScenarioIdentityBlock
+        attackText={augmentation?.identity.attack_text ?? null}
+        themeStatement={augmentation?.identity.theme_statement ?? null}
+        motivation={augmentation?.identity.motivation ?? null}
+        anchorAllegationIds={scenario.anchor_allegation_ids}
+        allegations={allegations}
+        onEdit={() => setEditingIdentity(true)}
+      />
 
-        {/* The readiness verdict's slot (§9). `header.readiness` is null until
-            task 2.4 computes one, and nothing renders — not "Unknown", not a
-            grey placeholder. A verdict is a claim about whether this scenario
-            can be taken into a courtroom. */}
-        {header.readiness && (
-          <span style={{ ...chipStyle, color: header.readiness.color }}>
-            {header.readiness.label}
-          </span>
-        )}
+      {/* 3 — §2.3. A merge inside the scan writes the candidate facts every other
+          section below reads, so a merge refreshes the page's whole payload. */}
+      <ScanSection
+        slug={slug}
+        scenarioId={scenarioId}
+        scenarioTitle={scenario.attack}
+        externalRefresh={refreshKey}
+        onFactsChanged={refresh}
+      />
 
-        {scenarioId && (
-          <button
-            type="button"
-            style={quietButton}
-            title="Edit this scenario's identity"
-            aria-label="Edit scenario identity"
-            onClick={() => setEditingIdentity(true)}
-          >
-            ✎ Edit
-          </button>
-        )}
+      {/* 4 — §2.4 */}
+      <ScenarioFactsSection
+        slug={slug}
+        scenarioId={scenarioId}
+        cards={cards}
+        humanFacts={augmentation?.human_facts ?? []}
+        onChanged={refresh}
+      />
 
-        {/* The ready gate (task 1.5, v2 §5): the only path that changes status,
-            because a readiness declaration is a human act with a name recorded
-            against it. The generic update route refuses `status` outright. */}
-        {scenarioId && (
-          <ReadyToggle
-            slug={slug}
-            scenarioId={scenarioId}
-            ready={scenario.status === "ready"}
-            onChanged={() => setRefreshKey((k) => k + 1)}
-          />
-        )}
+      {/* 5 — §2.5 */}
+      <TalkingPointsSection
+        slug={slug}
+        scenarioId={scenarioId}
+        points={augmentation?.talking_points ?? []}
+        cap={augmentation?.talking_points_cap ?? 0}
+        onChanged={refresh}
+      />
 
-        {scenarioId && (
-          <button
-            type="button"
-            style={quietButton}
-            onClick={() => {
-              setDeleteError(null);
-              setShowDelete(true);
-            }}
-          >
-            Delete
-          </button>
-        )}
+      {/* 6 — §2.6. The backend splits watch-list notes from human facts; a client
+          that re-filtered them would eventually show a note as a fact. */}
+      <WatchListSection
+        slug={slug}
+        scenarioId={scenarioId}
+        notes={augmentation?.watch_list ?? []}
+        onChanged={refresh}
+      />
 
-        <Link
-          to={`/cases/${encodeURIComponent(slug)}/rehearsal`}
-          style={{ marginLeft: "auto", fontSize: "0.82rem" }}
-        >
-          Rehearsal mode →
-        </Link>
-      </div>
+      {/* 7 — §2.8 */}
+      <ScenarioOrphanStrip
+        slug={slug}
+        scenarioId={scenarioId}
+        externalRefresh={refreshKey}
+      />
 
-      {scenario.pattern_summary && (
-        <div style={patternHeadline}>Pattern: {scenario.pattern_summary}</div>
-      )}
-
-      {/* Theme Scan driver: run the background LLM judge over every candidate
-          quote, with live progress + results. A merge here writes candidate facts
-          the curation panel below is displaying, so the two are coupled through
-          `factsRefresh`: this page owns the signal because the panels are siblings
-          with no shared store. */}
-      {scenarioId && (
-        <ThemeScanPanel
-          slug={slug}
-          scenarioId={scenarioId}
-          scenarioTitle={scenario.attack}
-          onFactsChanged={() => setFactsRefresh((k) => k + 1)}
-        />
-      )}
-
-      {/* Phase A: the curated-facts binder replaces the old (broken)
-          allegation-anchored timeline. `scenarioId` is defined here (the
-          detail loaded via it), but the guard keeps the type honest. */}
-      {scenarioId && (
-        <ScenarioCurationPanel
-          slug={slug}
-          scenarioId={scenarioId}
-          externalRefresh={factsRefresh}
-        />
-      )}
-
-      <div style={sectionLabel}>Marie's responses</div>
-      {scenario.responses.length === 0 ? (
-        <EmptyState message="No response drafted yet." />
-      ) : (
-        scenario.responses.map((r) => <ResponseCard key={r.id} response={r} />)
-      )}
-
-      {scenario.notes && (
-        <>
-          <div style={sectionLabel}>Notes</div>
-          <div style={{ fontSize: "0.86rem", color: "var(--text-secondary)", lineHeight: 1.5 }}>
-            {scenario.notes}
-          </div>
-        </>
-      )}
-
-      {/* The identity modal. Mounted only while open so it re-reads on every
-          open — a dialog holding a draft from ten minutes ago would let a human
-          overwrite an edit made since, and this is the coldest path here. */}
-      {editingIdentity && scenarioId && (
+      {/* Mounted only while open so it re-reads on every open — a dialog holding a
+          draft from ten minutes ago would let a human overwrite an edit made since,
+          and this is the coldest path here. */}
+      {editingIdentity && (
         <ScenarioIdentityModal
           slug={slug}
           scenarioId={scenarioId}
           definition={scenario.definition}
           anchorAllegationIds={scenario.anchor_allegation_ids}
-          onSaved={() => setRefreshKey((k) => k + 1)}
+          onSaved={refresh}
           onClose={() => setEditingIdentity(false)}
         />
       )}

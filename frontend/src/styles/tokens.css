@@ -166,6 +166,26 @@
      backgrounds + text). */
   --state-warning-strong: #d97706;
 
+  /* Warning "soft" background — the pale parchment behind a standing,
+     non-urgent caution the human is expected to live with rather than clear
+     today. Added for the scenario page's orphan strip (task 1.7C, defect
+     D9): 26 saved rulings whose content a July re-processing destroyed. It
+     is deliberately far paler than --state-danger-bg-soft, because the
+     strip is a permanent honest record, not an alarm — and something the
+     eye must be able to skip past on every visit without being pulled to
+     it. Completes the warning family, which had a "strong" and no "soft".
+     Value from SCENARIO_PAGE_MOCKUP_v2 (signed 2026-08-03). */
+  --state-warning-bg-soft: #fffdf7;
+
+  /* Quote highlight — the wash behind an anchor quote shown inside its
+     surrounding page text (§7.1, task 1.7C defect D6). NOT a state colour:
+     it marks "these are the exact words under discussion", which is a
+     semantic role no state token carries. Warm yellow rather than an accent
+     tint so it cannot be mistaken for a selection or a link, and pale
+     enough that a full sentence sitting on it stays comfortable to read.
+     Value from SCENARIO_PAGE_MOCKUP_v2 (signed 2026-08-03). */
+  --highlight-quote-soft: #fff3c4;
+
   /* Success pill family. The "soft" background is the pale green for
      success banners; --state-success-strong is the solid fill for progress
      bars and "PASS" indicators. The text-on-light variant uses the

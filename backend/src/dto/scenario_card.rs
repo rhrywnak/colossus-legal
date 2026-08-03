@@ -41,11 +41,45 @@ use crate::domain::fact_status::FactStatus;
 #[serde(deny_unknown_fields)]
 pub struct CardQuote {
     /// The verbatim words, exactly as the record holds them.
+    ///
+    /// Never groomed. The context around it is expanded to sentence boundaries and
+    /// has its gutter numerals stripped (task 1.7C, defect D6); this field is the
+    /// anchor, and §12 makes anchors sacred.
     pub text: String,
     /// Source text immediately before the quote. Empty when unavailable.
+    ///
+    /// Sentence-complete at its left edge unless `context_before_complete` is
+    /// false. Gutter numerals stripped for display; the stored page is untouched.
     pub context_before: String,
     /// Source text immediately after the quote. Empty when unavailable.
     pub context_after: String,
+    /// Whether `context_before` starts at a real sentence start (task 1.7C, D6).
+    ///
+    /// `false` means the page itself begins mid-sentence — measured on DEV, 154 of
+    /// 499 locatable cards (30.9%). The client must not imply a completeness the
+    /// data does not have (Standing Rule 1), which is what the paired notice below
+    /// is for.
+    pub context_before_complete: bool,
+    /// Whether `context_after` ends at a real sentence end. `false` in 65 of 499
+    /// cards, measured — the page ends mid-sentence.
+    pub context_after_complete: bool,
+    /// The page-edge notice for `context_before`, composed server-side, present
+    /// exactly when that flank is incomplete AND has text to explain.
+    ///
+    /// ## Why a state flag AND a composed sentence
+    ///
+    /// The same pairing as [`CardGrounding`] two structs down, for the same
+    /// reason: the boolean is the STATE (the client branches on it and a test
+    /// asserts it without parsing prose), the string is the WORDS (v2 §7 item 2
+    /// puts every display decision on this side of the wire — the browser does not
+    /// get to choose how a page edge reads).
+    ///
+    /// Present-as-null rather than skipped, matching `question` below: "complete,
+    /// so no notice" and "field absent from this build" are different, and a
+    /// client that cannot tell them apart will eventually render the wrong one.
+    pub context_before_notice: Option<String>,
+    /// The page-edge notice for `context_after`. See `context_before_notice`.
+    pub context_after_notice: Option<String>,
     /// The interrogatory this answers, when the item is a discovery answer.
     ///
     /// Present-as-null rather than skipped: "this is an answer with no recorded

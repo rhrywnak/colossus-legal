@@ -23,6 +23,7 @@
 import React, { useMemo, useState } from "react";
 
 import { filterRows, includedRows, type WorkingRow } from "./factsTable";
+import { openViewerWindow } from "./viewerWindow";
 import type { ScenarioCard } from "../services/scenarioCards";
 
 const SURFACE = "var(--bg-surface)";
@@ -124,31 +125,49 @@ const WorkingView: React.FC<Props> = ({ cards, onAdd }) => {
 };
 
 /** One Facts-table row. */
-const Row: React.FC<{ row: WorkingRow }> = ({ row }) => (
-  <div style={rowStyle}>
-    <div style={{ display: "flex", gap: "0.5rem", alignItems: "baseline" }}>
-      <span style={{ ...chipStyle, color: "var(--text-primary)" }}>{row.code ?? "—"}</span>
-      <span style={{ fontSize: "0.95rem", lineHeight: 1.6, color: "var(--text-primary)" }}>
-        {row.text}
-      </span>
-    </div>
-    <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap", alignItems: "center" }}>
-      {row.bearsOn.map((accusation) => (
-        <span key={accusation} style={chipStyle}>
-          {accusation}
+const Row: React.FC<{ row: WorkingRow }> = ({ row }) => {
+  // A refused popup has to be SAID, not swallowed (Standing Rule 1). Local to the
+  // row so the message appears where the human just clicked.
+  const [blocked, setBlocked] = useState<string | null>(null);
+
+  return (
+    <div style={rowStyle}>
+      <div style={{ display: "flex", gap: "0.5rem", alignItems: "baseline" }}>
+        <span style={{ ...chipStyle, color: "var(--text-primary)" }}>{row.code ?? "—"}</span>
+        <span style={{ fontSize: "0.95rem", lineHeight: 1.6, color: "var(--text-primary)" }}>
+          {row.text}
         </span>
-      ))}
-      <a
-        href={row.pinpointHref}
-        target="_blank"
-        rel="noreferrer"
-        style={{ ...chipStyle, color: "var(--accent-primary)", textDecoration: "none" }}
-      >
-        {row.pinpointLabel} ↗
-      </a>
-      <span style={{ ...chipStyle, marginLeft: "auto" }}>{row.statusLabel}</span>
+      </div>
+      <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap", alignItems: "center" }}>
+        {row.bearsOn.map((accusation) => (
+          <span key={accusation} style={chipStyle}>
+            {accusation}
+          </span>
+        ))}
+        {/* §2.7 / defect D5: a pinpoint opens the dedicated viewer in a real sized
+            WINDOW, from the facts rows exactly as from the queue card — reading a
+            fact against its own page is the same job on both surfaces. Kept as an
+            anchor with an href so it still middle-clicks like a link. */}
+        <a
+          href={row.pinpointHref}
+          onClick={(event) => {
+            event.preventDefault();
+            const result = openViewerWindow(row.pinpointHref);
+            setBlocked(result.opened ? null : result.message);
+          }}
+          style={{ ...chipStyle, color: "var(--accent-primary)", textDecoration: "none" }}
+        >
+          {row.pinpointLabel} ↗
+        </a>
+        <span style={{ ...chipStyle, marginLeft: "auto" }}>{row.statusLabel}</span>
+      </div>
+      {blocked && (
+        <div role="alert" style={{ fontSize: "0.78rem", color: "var(--state-danger-strong)" }}>
+          {blocked}
+        </div>
+      )}
     </div>
-  </div>
-);
+  );
+};
 
 export default WorkingView;

@@ -1,8 +1,12 @@
 use axum::{
     extract::{DefaultBodyLimit, State},
     http::StatusCode,
-    routing::{delete, get, patch, post, put},
-    Json, Router,
+    // `delete` moved out with the fact-curation group (task 1.7C): the removal
+    // route was this file's only DELETE, and it now lives in
+    // `scenario_facts::routes()`.
+    routing::{get, patch, post, put},
+    Json,
+    Router,
 };
 
 use crate::auth::{me_handler, AuthUser, MeResponse};
@@ -57,6 +61,7 @@ pub mod scenario_cards;
 pub mod scenario_facts;
 pub mod scenario_facts_mapping;
 pub mod scenario_gather;
+pub mod scenario_orphans;
 pub mod scenario_theme_scan;
 pub mod scenarios;
 pub mod schema;
@@ -87,6 +92,7 @@ pub fn router() -> Router<AppState> {
         .merge(case_routes())
         .merge(case_health::routes())
         .merge(scenario_routes())
+        .merge(scenario_facts::routes())
         .merge(scenario_augmentation::routes())
         .merge(rehearsal::routes())
         .merge(settings::routes())
@@ -162,40 +168,6 @@ fn scenario_routes() -> Router<AppState> {
             get(scenarios::get_scenario_by_id)
                 .put(scenarios::update_scenario)
                 .delete(scenarios::delete_scenario),
-        )
-        // Scenario fact curation (Phase A): save / list / remove the graph facts
-        // a human curates onto a scenario. Reads are open (Option<AuthUser>);
-        // the write routes enforce `require_edit` inside their handlers.
-        .route(
-            "/cases/:slug/scenarios/:scenario_id/facts",
-            get(scenario_facts::list_scenario_facts).post(scenario_facts::add_scenario_fact),
-        )
-        .route(
-            "/cases/:slug/scenarios/:scenario_id/facts/:graph_node_id",
-            delete(scenario_facts::remove_scenario_fact),
-        )
-        // Candidate-workbench ruling (Phase 1a.3): include / drop / un-drop one
-        // candidate via a typed action enum. Edit-gated inside the handler. A
-        // static `action` child under the `:graph_node_id` param — beside the
-        // `/facts/gather` static sibling that matchit 0.7.3 already accepts.
-        .route(
-            "/cases/:slug/scenarios/:scenario_id/facts/:graph_node_id/action",
-            post(scenario_facts::apply_fact_action),
-        )
-        // Candidate-workbench gather (Phase 1a.2): read-only pool of every
-        // Evidence node ABOUT the scenario's subject, each tagged with its
-        // derived workbench status. Open read (Option<AuthUser>), like the
-        // sibling facts list.
-        .route(
-            "/cases/:slug/scenarios/:scenario_id/facts/gather",
-            get(scenario_gather::gather_scenario_candidates),
-        )
-        // The §7 card payload (task 1.2): every element a human needs to rule,
-        // display-ready and in plain trial language, with unrulable items
-        // flagged. Task 1.3 switches the workbench UI onto this.
-        .route(
-            "/cases/:slug/scenarios/:scenario_id/facts/cards",
-            get(scenario_cards::get_scenario_cards),
         )
         // Theme Scan (D2b): LLM-judge every candidate quote about the scenario's
         // subject and persist the relevant verdicts as confirmed=false

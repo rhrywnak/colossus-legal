@@ -442,19 +442,30 @@ fn lowercase(chars: Vec<Ch>) -> Vec<Ch> {
     result
 }
 
-/// [`strip_gutter_lines`] as the string-in, string-out shape the gutter tests in
-/// `api::pipeline::canonical_verifier` address by name — including the
-/// disk-scanning identity test over the real fixture pages.
+/// [`strip_gutter_lines`] as a string-in, string-out transform.
 ///
-/// ## Rust Learning: `#[cfg(test)]` on a helper used by ANOTHER module's tests
+/// ## Two callers, two very different purposes
 ///
-/// Test-only, so it must not exist in a release binary — but `#[cfg(test)]` is
-/// evaluated per CRATE compilation, not per module. When cargo builds the lib
-/// test target the flag is on everywhere, so `canonical_verifier`'s tests see
-/// this function; in a normal build neither it nor its callers are compiled at
-/// all. That is why this needs no `#[allow(dead_code)]`.
-#[cfg(test)]
-pub(crate) fn strip_gutter_line_numbers(text: &str) -> String {
+/// 1. **Matching** (since 1.7A): the normalization pipeline runs this on BOTH
+///    sides of every comparison, so a quote carrying no gutter numerals still
+///    grounds against a page riddled with them.
+/// 2. **Display** (task 1.7C, defect D6): the card's quote-in-context must not
+///    render the court reporter's margin numerals. Measured on DEV, 87 of the 499
+///    locatable cards showed at least one — on the hearing transcript it was
+///    every card, because that document carries 26 gutter lines on all 37 pages.
+///
+/// ## Why this is safe to use for display, stated plainly
+///
+/// It is a DISPLAY-TIME transform over a string the caller already sliced. It
+/// does not touch stored text, it does not run before [`locate`] (which consumes
+/// the raw page), and it is never applied to the anchor quote — design v2 §3.4/§3.5
+/// and §12: anchors are sacred, only the surrounding context is groomed. The
+/// caller ([`crate::services::scenario_card_context`]) enforces that by
+/// construction: it strips only the two slices that lie OUTSIDE the located span.
+///
+/// The gutter tests in `api::pipeline::canonical_verifier` address this function
+/// by name, including the disk-scanning identity test over the real fixture pages.
+pub fn strip_gutter_line_numbers(text: &str) -> String {
     render(strip_gutter_lines(to_chars(text)))
 }
 
