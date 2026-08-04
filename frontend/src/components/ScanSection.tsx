@@ -97,6 +97,8 @@ interface Props {
   /** Bumped when a scan merge writes candidate facts; relayed to both children. */
   externalRefresh: number;
   onFactsChanged: () => void;
+  /** Relayed to the queue: a ruling the server confirmed (task 1.7F Part A). */
+  onRulingSaved: () => void;
 }
 
 const ScanSection: React.FC<Props> = ({
@@ -105,6 +107,7 @@ const ScanSection: React.FC<Props> = ({
   scenarioTitle,
   externalRefresh,
   onFactsChanged,
+  onRulingSaved,
 }) => {
   // Queue progress is owned by `CardQueue` (it does the fetching), and this
   // section needs it for the summary line and the progress bar. So the queue
@@ -235,6 +238,7 @@ const ScanSection: React.FC<Props> = ({
               externalRefresh={externalRefresh}
               keyboardActive={open}
               onProgress={setProgress}
+              onRulingSaved={onRulingSaved}
             />
           </div>
         )}

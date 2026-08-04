@@ -23,6 +23,8 @@
 
 use std::collections::HashMap;
 
+use chrono::{DateTime, Utc};
+
 use crate::bias::dto::BiasInstance;
 use crate::domain::card_language::{
     grounding_label, stance_verb_for_edge, statement_kind_label, status_label,
@@ -31,9 +33,10 @@ use crate::domain::confidence_band::{band_for_score, ConfidenceBand};
 use crate::domain::fact_status::FactStatus;
 use crate::domain::settings::Settings;
 use crate::dto::scenario_card::{
-    CardBearsOn, CardConfidence, CardGrounding, CardPinpoint, CardQuote, CardSpeaker, CardStance,
-    ScenarioCard,
+    CardBearsOn, CardConfidence, CardGrounding, CardPinpoint, CardQuestionAuthorship, CardQuote,
+    CardSpeaker, CardStance, QuestionSource, ScenarioCard,
 };
+use crate::repositories::pipeline_repository::EvidenceSummaryOverrideRecord;
 use crate::repositories::scenario_card_repository::CardExtrasRow;
 use crate::services::scenario_card_context::{assemble as assemble_context, QuoteContext};
 
@@ -400,7 +403,13 @@ fn build_speaker(instance: &BiasInstance) -> CardSpeaker {
 /// branches on; the notice is the words, because the language law puts every display
 /// decision on this side of the wire. Keeping them adjacent here makes a future
 /// change that sets one and forgets the other visible.
-fn build_quote(text: String, context: QuoteContext, question: Option<String>) -> CardQuote {
+fn build_quote(
+    text: String,
+    context: QuoteContext,
+    question: Option<String>,
+    override_row: Option<&EvidenceSummaryOverrideRecord>,
+) -> CardQuote {
+    let (question, question_authorship) = resolve_question(question, override_row);
     CardQuote {
         text,
         context_before: context.before.text,
@@ -410,7 +419,70 @@ fn build_quote(text: String, context: QuoteContext, question: Option<String>) ->
         context_before_notice: context.before.notice,
         context_after_notice: context.after.notice,
         question,
+        question_authorship,
     }
+}
+
+/// Which question the card shows, and who wrote it (task 1.7F Part B).
+///
+/// ## Domain note: the human's words win on screen, never in the graph
+///
+/// An override REPLACES the machine's question for display and does nothing else.
+/// `Evidence.question` is in Neo4j and this function only reads its value as an
+/// argument — there is no path from here to a graph write, which is what makes
+/// ruling R2 ("the machine original is untouchable") structural rather than a
+/// promise. Reverting is the caller deleting the override row; this function then
+/// composes the machine's words again, unchanged, because they were never edited.
+///
+/// ## Why an override with no machine question is still shown
+///
+/// A human can correct a question the extraction never produced — that is a
+/// legitimate correction of an omission, not an inconsistency. So the presence of
+/// the human's text, not the machine's, decides whether the card has a question
+/// line at all.
+fn resolve_question(
+    machine: Option<String>,
+    override_row: Option<&EvidenceSummaryOverrideRecord>,
+) -> (Option<String>, Option<CardQuestionAuthorship>) {
+    match override_row {
+        Some(row) => (
+            Some(row.summary_text.clone()),
+            Some(CardQuestionAuthorship {
+                source: QuestionSource::Human,
+                label: human_authorship_label(&row.authored_by, row.updated_at),
+            }),
+        ),
+        None => {
+            let authorship = machine.as_ref().map(|_| CardQuestionAuthorship {
+                source: QuestionSource::System,
+                // The machine has no name and no date worth showing: the
+                // extraction's own timestamp would date the RUN, not the sentence,
+                // and a card claiming "written 16 July" about a question nobody
+                // wrote would be a fact the payload cannot support.
+                label: SYSTEM_AUTHORSHIP_LABEL.to_string(),
+            });
+            (machine, authorship)
+        }
+    }
+}
+
+// CONST: the badge's word for a question nobody has corrected. A control word in
+// the same class as the state chip's "Not ruled" — it names the SYSTEM, not
+// anything about this case, so another Colossus case renders it unchanged
+// (Standing Rule 2's reusability checkpoint).
+const SYSTEM_AUTHORSHIP_LABEL: &str = "System";
+
+/// The badge for a human-corrected question: who, and when.
+///
+/// Composed here rather than in the browser because the language law puts every
+/// display decision on this side of the wire (v2 §7 item 2) — and because a date
+/// formatted client-side would read differently depending on the reader's locale,
+/// which is not a property a legal record should have.
+///
+/// `4 Aug 2026` rather than an ISO stamp: the badge sits inline beside a sentence
+/// a human is reading, not in a log.
+pub(crate) fn human_authorship_label(authored_by: &str, updated_at: DateTime<Utc>) -> String {
+    format!("{authored_by} · {}", updated_at.format("%-d %b %Y"))
 }
 
 /// Build one complete card. Pure — no I/O.
@@ -429,6 +501,7 @@ pub(crate) fn build_card(
     ordinal: Option<i32>,
     page_text: Option<&str>,
     settings: &Settings,
+    question_override: Option<&EvidenceSummaryOverrideRecord>,
 ) -> ScenarioCard {
     let quote_text = instance.verbatim_quote.clone().unwrap_or_default();
     // Task 1.7C (D6): the window is the SEED, sentence boundaries are the law, and
@@ -453,7 +526,12 @@ pub(crate) fn build_card(
     ScenarioCard {
         code: ordinal.map(|n| format!("C-{n}")),
         graph_node_id: instance.evidence_id.clone(),
-        quote: build_quote(quote_text, context, instance.question.clone()),
+        quote: build_quote(
+            quote_text,
+            context,
+            instance.question.clone(),
+            question_override,
+        ),
         pinpoint: build_pinpoint(instance),
         speaker: build_speaker(instance),
         statement_kind: extras

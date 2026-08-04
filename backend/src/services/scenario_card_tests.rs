@@ -111,6 +111,7 @@ fn every_section_seven_element_is_present_on_a_complete_card() {
         Some(14),
         Some(page),
         &settings(),
+        None,
     );
 
     // §7.1 quote IN CONTEXT — the quote, and text either side of it.
@@ -188,6 +189,7 @@ fn an_item_with_no_accusation_link_serves_a_defer_flag_not_a_bare_stance() {
         Some(222),
         None,
         &settings(),
+        None,
     );
 
     assert!(
@@ -242,6 +244,7 @@ fn an_unscored_unlinked_item_gets_the_simpler_reason() {
         Some(9),
         None,
         &settings(),
+        None,
     );
 
     let reason = card.defer_required_reason.expect("still unrulable");
@@ -277,6 +280,7 @@ fn an_item_with_no_quote_is_unrulable_for_the_citability_reason() {
         Some(3),
         None,
         &settings(),
+        None,
     );
     assert!(card.defer_required);
     let reason = card.defer_required_reason.expect("unrulable");
@@ -294,6 +298,7 @@ fn a_candidate_with_no_extras_still_builds_and_flags_itself() {
         None,
         None,
         &settings(),
+        None,
     );
 
     assert!(card.stance.is_none());
@@ -341,6 +346,7 @@ fn no_banned_word_appears_in_any_card_string() {
             Some(14),
             Some("context before the quote. I do not recall that meeting. and after."),
             &settings(),
+            None,
         );
 
         let mut strings = vec![
@@ -397,6 +403,7 @@ fn each_edge_class_renders_its_canon_verb() {
             None,
             None,
             &settings(),
+            None,
         );
         let stance = card.stance.expect("a mapped edge yields a stance");
         assert_eq!(stance.verb, expected, "edge {edge}");
@@ -433,6 +440,7 @@ fn one_accusation_with_several_elements_lists_them_all_under_one_entry() {
         None,
         None,
         &settings(),
+        None,
     );
     assert_eq!(card.bears_on.len(), 1, "the accusation appears once");
     assert_eq!(
@@ -459,6 +467,7 @@ fn an_accusation_wired_to_no_element_carries_an_empty_list() {
         None,
         None,
         &settings(),
+        None,
     );
     assert_eq!(card.bears_on.len(), 1);
     assert!(card.bears_on[0].elements.is_empty());
@@ -480,6 +489,7 @@ fn two_distinct_allegations_are_both_carried() {
         None,
         None,
         &settings(),
+        None,
     );
     assert_eq!(card.bears_on.len(), 2, "both accusations must be shown");
 }
@@ -496,6 +506,7 @@ fn context_is_taken_from_around_the_quote() {
         None,
         Some(page),
         &settings(),
+        None,
     );
     assert!(card.quote.context_before.contains("BEFORE TEXT"));
     assert!(card.quote.context_after.contains("AFTER TEXT"));
@@ -513,6 +524,7 @@ fn a_quote_absent_from_its_page_yields_empty_context_not_a_guess() {
         None,
         Some("a page whose text does not contain the quote"),
         &settings(),
+        None,
     );
     assert!(card.quote.context_before.is_empty());
     assert!(card.quote.context_after.is_empty());
@@ -555,6 +567,7 @@ fn both_context_edges_use_the_same_window_value() {
             None,
             Some(&page),
             s,
+            None,
         )
     };
     let small = build(&narrow);
@@ -607,6 +620,7 @@ fn context_windowing_never_splits_a_multibyte_character() {
         None,
         Some(&page),
         &settings(),
+        None,
     );
 
     // No terminator anywhere in the filler, so both flanks run to the page edges —
@@ -657,6 +671,7 @@ fn a_normalized_quote_still_gets_context_in_the_pages_own_characters() {
         None,
         Some(page),
         &settings(),
+        None,
     );
 
     assert!(
@@ -716,6 +731,7 @@ fn a_normalized_match_honours_the_configured_window() {
         None,
         Some(&page),
         &settings(),
+        None,
     );
 
     // The seed is honoured as a floor on both sides…
@@ -752,6 +768,7 @@ fn a_quote_that_is_not_on_this_page_still_yields_no_context() {
         // Deliberately similar prose: a fuzzy "best effort" would match here.
         Some("BEFORE. The cheque and the Tuesday meeting were discussed. AFTER."),
         &settings(),
+        None,
     );
 
     assert!(
@@ -786,6 +803,7 @@ fn a_page_shorter_than_the_window_returns_what_there_is() {
         None,
         Some(page),
         &settings(),
+        None,
     );
 
     assert_eq!(card.quote.context_before, "Short.");
@@ -816,6 +834,7 @@ fn a_pageless_item_gets_a_viewer_link_without_a_page_anchor() {
         None,
         None,
         &settings(),
+        None,
     );
 
     assert_eq!(card.pinpoint.page, None);
@@ -846,6 +865,7 @@ fn a_humans_defer_reason_rides_the_card_separately_from_the_system_flag() {
         None,
         None,
         &settings(),
+        None,
     );
 
     assert_eq!(
@@ -868,7 +888,217 @@ fn status_labels_are_plain_language_for_every_state() {
             status: Some(status),
             ..CardRefState::default()
         };
-        let card = build_card(&full_instance(), None, &ref_state, None, None, &settings());
+        let card = build_card(
+            &full_instance(),
+            None,
+            &ref_state,
+            None,
+            None,
+            &settings(),
+            None,
+        );
         assert_eq!(card.status_label, expected);
     }
+}
+
+// ─── The human's correction of a machine question (task 1.7F Part B) ─────────
+
+/// An override row, as the repository would hand one over.
+fn override_row(text: &str, author: &str) -> EvidenceSummaryOverrideRecord {
+    let written = DateTime::parse_from_rfc3339("2026-08-04T11:28:25Z")
+        .expect("a literal timestamp parses")
+        .with_timezone(&Utc);
+    EvidenceSummaryOverrideRecord {
+        graph_node_id: "ev-1".to_string(),
+        summary_text: text.to_string(),
+        authored_by: author.to_string(),
+        created_at: written,
+        updated_at: written,
+    }
+}
+
+/// With nobody having corrected it, the card shows the machine's question and
+/// says so.
+#[test]
+fn an_uncorrected_question_is_labelled_system() {
+    let card = build_card(
+        &full_instance(),
+        None,
+        &CardRefState::default(),
+        None,
+        None,
+        &settings(),
+        None,
+    );
+
+    assert_eq!(
+        card.quote.question.as_deref(),
+        Some("Did you attend the meeting on March 3, 2019?"),
+        "with no override the machine's own question is what shows"
+    );
+    let authorship = card
+        .quote
+        .question_authorship
+        .expect("a card with a question always reports who wrote it");
+    assert_eq!(authorship.source, QuestionSource::System);
+    assert_eq!(authorship.label, "System");
+}
+
+/// A correction replaces the text on screen and names its author and date.
+#[test]
+fn a_corrected_question_shows_the_humans_words_and_credits_them() {
+    let row = override_row("Did you receive Marie Awad's certified letter?", "roman");
+    let card = build_card(
+        &full_instance(),
+        None,
+        &CardRefState::default(),
+        None,
+        None,
+        &settings(),
+        Some(&row),
+    );
+
+    assert_eq!(
+        card.quote.question.as_deref(),
+        Some("Did you receive Marie Awad's certified letter?")
+    );
+    let authorship = card
+        .quote
+        .question_authorship
+        .expect("a corrected question reports its author");
+    assert_eq!(authorship.source, QuestionSource::Human);
+    assert!(
+        authorship.label.contains("roman"),
+        "the badge names who wrote the text now on screen: {}",
+        authorship.label
+    );
+    assert!(
+        authorship.label.contains("4 Aug 2026"),
+        "the badge dates the correction so a reader can see how old it is: {}",
+        authorship.label
+    );
+}
+
+/// THE ORIGINAL-UNTOUCHABLE TEST, at the composition layer (ruling R2).
+///
+/// The machine's words are an input to this function and stay one. Composing a
+/// card with an override must not alter the instance it was built from, and
+/// building the SAME instance again with no override — which is exactly what
+/// happens after a revert deletes the row — must return the machine's sentence
+/// byte-identically. If either half fails, "revert restores the system text"
+/// stops being true and there is no second copy to restore from.
+#[test]
+fn an_override_never_rewrites_the_machines_words() {
+    let instance = full_instance();
+    let machine_question = instance
+        .question
+        .clone()
+        .expect("the fixture carries a machine question");
+
+    let row = override_row("A human's replacement question.", "roman");
+    let overridden = build_card(
+        &instance,
+        None,
+        &CardRefState::default(),
+        None,
+        None,
+        &settings(),
+        Some(&row),
+    );
+    assert_eq!(
+        overridden.quote.question.as_deref(),
+        Some("A human's replacement question.")
+    );
+
+    // The source data is untouched: the override was applied to the OUTPUT.
+    assert_eq!(
+        instance.question.as_deref(),
+        Some(machine_question.as_str()),
+        "composing an overridden card must not mutate the instance it read from"
+    );
+
+    // …and the revert path — the same build with the row gone — restores the
+    // machine's sentence exactly, because it was never edited.
+    let reverted = build_card(
+        &instance,
+        None,
+        &CardRefState::default(),
+        None,
+        None,
+        &settings(),
+        None,
+    );
+    assert_eq!(
+        reverted.quote.question.as_deref(),
+        Some(machine_question.as_str()),
+        "revert must restore the machine's words byte for byte"
+    );
+    assert_eq!(
+        reverted
+            .quote
+            .question_authorship
+            .expect("still reports authorship")
+            .source,
+        QuestionSource::System,
+        "a reverted card is a system card again"
+    );
+}
+
+/// A human may supply a question the extraction never produced.
+///
+/// Correcting an omission is a correction. The presence of the HUMAN's text
+/// decides whether the line renders, not the machine's silence.
+#[test]
+fn a_correction_can_add_a_question_the_machine_never_had() {
+    let instance = BiasInstance {
+        question: None,
+        ..full_instance()
+    };
+    let row = override_row("The question the extraction missed.", "roman");
+    let card = build_card(
+        &instance,
+        None,
+        &CardRefState::default(),
+        None,
+        None,
+        &settings(),
+        Some(&row),
+    );
+
+    assert_eq!(
+        card.quote.question.as_deref(),
+        Some("The question the extraction missed.")
+    );
+    assert_eq!(
+        card.quote
+            .question_authorship
+            .expect("reports authorship")
+            .source,
+        QuestionSource::Human
+    );
+}
+
+/// A card with no question at all reports no authorship.
+///
+/// An authorship badge hanging off a card with nothing to attribute is a field
+/// the client would have to interpret, and documentary evidence genuinely has no
+/// interrogatory behind it.
+#[test]
+fn a_card_with_no_question_has_no_authorship_badge() {
+    let instance = BiasInstance {
+        question: None,
+        ..full_instance()
+    };
+    let card = build_card(
+        &instance,
+        None,
+        &CardRefState::default(),
+        None,
+        None,
+        &settings(),
+        None,
+    );
+
+    assert!(card.quote.question.is_none());
+    assert!(card.quote.question_authorship.is_none());
 }

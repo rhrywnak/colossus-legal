@@ -68,8 +68,28 @@ export type CardQuote = {
   context_before_notice: string | null;
   /** The page-edge notice for `context_after` ("— page ends here"). */
   context_after_notice: string | null;
-  /** The interrogatory this answers, when the item is a discovery answer. */
+  /** The interrogatory this answers, when the item is a discovery answer.
+   *
+   *  Task 1.7F: this is the DISPLAY text. When a human has corrected the
+   *  machine's question it carries THEIR words, and `question_authorship` says
+   *  so — the client renders one sentence rather than choosing between two. */
   question: string | null;
+  /** Who wrote the question above, and when — present exactly when `question`
+   *  is (task 1.7F Part B). Absent on a card with no question at all. */
+  question_authorship?: CardQuestionAuthorship;
+};
+
+/** Who wrote a card's question (task 1.7F Part B). */
+export type CardQuestionAuthorship = {
+  /** `system` — straight from the graph; `human` — someone corrected it. The
+   *  token the client branches on: the pencil's Revert control appears only for
+   *  `human`. */
+  source: "system" | "human";
+  /** The composed badge — "System", or "roman · 4 Aug 2026". Rendered verbatim:
+   *  the backend owns how authorship reads, the same way it owns every other
+   *  sentence on the card. The ICON is the list's own control vocabulary, like
+   *  the state chip's, and lives in the component. */
+  label: string;
 };
 
 /** Where the quote is, and how to get there (§7.2). */

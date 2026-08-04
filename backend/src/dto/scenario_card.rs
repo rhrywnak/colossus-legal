@@ -85,7 +85,57 @@ pub struct CardQuote {
     /// Present-as-null rather than skipped: "this is an answer with no recorded
     /// question" and "this is not an answer at all" are different, and the client
     /// renders the question line only when it is non-null.
+    ///
+    /// ## Task 1.7F: this is the DISPLAY text, which may be a human's
+    ///
+    /// When a human has corrected the machine's question, this field carries
+    /// THEIR words and `question_authorship` says so. The client renders one
+    /// sentence and does not choose between two, which is the same discipline as
+    /// every other string on this card. The machine's original is untouched in the
+    /// graph; see [`CardQuestionAuthorship`].
     pub question: Option<String>,
+    /// Who wrote the question above, and when — present exactly when `question`
+    /// is (task 1.7F Part B).
+    ///
+    /// Skipped when absent rather than sent as null: a card with no question has
+    /// no authorship to report, and an authorship object hanging off a card with
+    /// nothing to attribute would be a field the client has to interpret.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub question_authorship: Option<CardQuestionAuthorship>,
+}
+
+/// Who wrote a card's question (task 1.7F Part B, ruling R1/R2).
+///
+/// ## Why the state and the words travel together
+///
+/// The same pairing as [`CardGrounding`] and the status/status_label pair: the
+/// token is the STATE (the client branches on it — a pencil and a Revert control
+/// appear only for `human`) and the string is the WORDS (the backend composes how
+/// authorship reads, per the language law). A client that had to build "corrected
+/// by Roman on 4 August 2026" from parts would be composing case-facing prose in
+/// the browser, which v2 §7 item 2 puts on this side of the wire.
+///
+/// The ICON is deliberately not here. `⚙` and `👤` are the list's own control
+/// vocabulary, the same class of thing as the state chip's `✓` and `✕`, and the
+/// frontend has always owned those.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct CardQuestionAuthorship {
+    /// `system` | `human`. The machine token the client branches on.
+    pub source: QuestionSource,
+    /// The composed badge, rendered verbatim — "System" or "Roman · 4 Aug 2026".
+    pub label: String,
+}
+
+/// Whether a card's question is the machine's or a human's correction of it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QuestionSource {
+    /// Straight from `Evidence.question` in the graph — nobody has corrected it.
+    System,
+    /// A human replaced it. The machine's words are still in the graph, untouched
+    /// (ruling R2), and Revert restores them by deleting the override row.
+    Human,
 }
 
 /// Where the quote is, and how to get there (§7.2).

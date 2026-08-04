@@ -23,6 +23,7 @@ use crate::dto::scenario_card::{ScenarioCard, ScenarioCardsResponse};
 
 use super::scenario_card::{build_card, CardRefState, CollapsedExtras};
 use crate::domain::settings::Settings;
+use crate::repositories::pipeline_repository::EvidenceSummaryOverrideRecord;
 
 /// Build every card and partition into the working pool and the set-aside list.
 ///
@@ -40,6 +41,10 @@ pub(crate) fn assemble(
     ordinals: &HashMap<String, i32>,
     page_text: &HashMap<String, String>,
     settings: &Settings,
+    // Human corrections of the machine's questions, by node (task 1.7F Part B).
+    // Read once for the whole pool, so composing 148 cards costs one query rather
+    // than 148 — and so this function stays pure.
+    question_overrides: &HashMap<String, EvidenceSummaryOverrideRecord>,
 ) -> ScenarioCardsResponse {
     let default_state = CardRefState::default();
     let mut working: Vec<ScenarioCard> = Vec::new();
@@ -64,6 +69,7 @@ pub(crate) fn assemble(
             ordinals.get(&instance.evidence_id).copied(),
             page.map(|s| s.as_str()),
             settings,
+            question_overrides.get(&instance.evidence_id),
         );
 
         // Set-aside items are kept in their own list so the client partitions

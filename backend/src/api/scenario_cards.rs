@@ -39,6 +39,7 @@ use crate::{
     repositories::{
         pipeline_repository::{
             get_document_text, list_candidate_ordinals, list_fact_refs_for_scenario,
+            list_summary_overrides,
         },
         scenario_card_repository::fetch_card_extras,
     },
@@ -125,12 +126,36 @@ pub async fn get_scenario_cards(
             }
         })?;
 
+    // Task 1.7F Part B: the humans' corrections for this pool, in ONE query.
+    // Read here beside the other joins rather than inside the assembler, which is
+    // documented pure and must stay that way.
+    let overrides = list_summary_overrides(&state.pipeline_pool, &node_ids)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, scenario_id = %id, "failed to read evidence summary overrides for cards");
+            AppError::Internal {
+                message: "failed to read the corrected questions".to_string(),
+            }
+        })?;
+    let overrides: HashMap<String, _> = overrides
+        .into_iter()
+        .map(|row| (row.graph_node_id.clone(), row))
+        .collect();
+
     let page_text = load_page_text(&state, &pool).await;
 
     // One snapshot for the whole payload: read once here so every card is banded
     // by the same cutoffs, and so the pure assembler stays pure (v2 §2b).
     let settings = state.settings.current();
-    let response = assemble(pool, &extras, &ref_states, &ordinals, &page_text, &settings);
+    let response = assemble(
+        pool,
+        &extras,
+        &ref_states,
+        &ordinals,
+        &page_text,
+        &settings,
+        &overrides,
+    );
 
     tracing::info!(
         pool = response.pool.len(),

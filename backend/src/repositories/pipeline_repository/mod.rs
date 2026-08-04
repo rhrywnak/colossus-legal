@@ -52,6 +52,7 @@ pub mod documents;
 pub mod documents_delete;
 pub mod documents_progress;
 pub mod documents_state;
+pub mod evidence_summary_overrides;
 pub mod extraction;
 pub mod extraction_context;
 pub mod extraction_items;
@@ -83,6 +84,7 @@ pub use config::*;
 pub use config_overrides::*;
 pub use document_records::*;
 pub use document_titles::*;
+pub use evidence_summary_overrides::*;
 pub use extraction::*;
 pub use models::LlmModelRecord;
 pub use report_queries::{

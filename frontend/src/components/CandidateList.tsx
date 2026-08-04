@@ -82,7 +82,22 @@ const CandidateList: React.FC<{
    * the target travels with the button, so no shared position can decide it.
    */
   onRule: (key: RulingKey, graphNodeId: string) => void;
-}> = ({ cards, selectedId, notice, filtered, onSelect, onRule }) => {
+  /** Save a correction of one NAMED card's question (task 1.7F Part B). Bound
+   *  per card below, on the same principle as `onRule`: the target travels with
+   *  the control, never through a shared position. */
+  onCorrectQuestion: (graphNodeId: string, text: string) => Promise<void>;
+  /** Restore the machine's question on one named card. */
+  onRevertQuestion: (graphNodeId: string) => Promise<void>;
+}> = ({
+  cards,
+  selectedId,
+  notice,
+  filtered,
+  onSelect,
+  onRule,
+  onCorrectQuestion,
+  onRevertQuestion,
+}) => {
   // One ref for the selected row, re-pointed on every render. A map of refs would
   // let the effect scroll a card that is no longer selected.
   const selectedRef = useRef<HTMLDivElement | null>(null);
@@ -136,6 +151,8 @@ const CandidateList: React.FC<{
               // this iteration's scope. Every card in the list gets live controls
               // and each one can only ever rule itself.
               onRule={(key) => onRule(key, card.graph_node_id)}
+              onCorrectQuestion={(text) => onCorrectQuestion(card.graph_node_id, text)}
+              onRevertQuestion={() => onRevertQuestion(card.graph_node_id)}
               keyboardRefused={selected && notice !== null}
             />
           </div>

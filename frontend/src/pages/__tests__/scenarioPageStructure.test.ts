@@ -359,3 +359,70 @@ describe("nothing fake is rendered (the Phase-1 law, §1 and §6)", () => {
     expect(read("components", "ScenarioHeaderTiers.tsx")).toContain("header.readiness &&");
   });
 });
+
+describe("the live facts update and the summary override (task 1.7F)", () => {
+  it("the two refresh keys stay TWO, and the ruling bumps the narrow one", () => {
+    // RULING R6. One page-wide key re-reads all four endpoints AND feeds
+    // `externalRefresh` into the card queue, which reloads its pool and
+    // dispatches `cards_loaded` — mid-triage, on every include. That would
+    // disturb the selection task 1.7G spent two builds fixing. So a ruling bumps
+    // the CARDS-ONLY key, and the obvious "simplification" of merging them back
+    // into one fails here.
+    const page = read("pages", "ScenarioDetailPage.tsx");
+    expect(page).toContain("pageRefreshKey");
+    expect(page).toContain("cardsRefreshKey");
+    expect(page, "a confirmed ruling re-reads the cards alone").toContain(
+      "onRulingSaved={refreshCards}",
+    );
+    expect(
+      page,
+      "the queue's externalRefresh must stay on the PAGE key — pointing it at the " +
+        "cards key would reload the queue on every ruling, which is what the split avoids",
+    ).toContain("externalRefresh={pageRefreshKey}");
+  });
+
+  it("the cards-only re-read goes through a key-bumped effect", () => {
+    // So the cancelled-flag protection against out-of-order responses is
+    // inherited rather than reimplemented: two rulings in quick succession start
+    // two reads, and the slower one must not paint the older pool last.
+    const page = read("pages", "ScenarioDetailPage.tsx");
+    expect(page).toContain("}, [slug, scenarioId, cardsRefreshKey]);");
+    expect(page, "the re-read effect guards against a stale response").toContain(
+      "if (cancelled) return;",
+    );
+  });
+
+  it("NO OPTIMISTIC ROWS: the fact appears only after the server confirms", () => {
+    // RULING R3, and the 1.3 law behind it — optimistic rows over a swallowed
+    // save failure could have shown fifty rulings that were never recorded. The
+    // callback fires from the resolve handler of the write, never beside it.
+    const hook = read("components", "useQueueReducer.tsx");
+    expect(hook).toContain("() => onRulingSaved(),");
+    // Two-argument `then`, so an exception inside the success callback is not
+    // reported to the human as a failed ruling.
+    expect(hook).not.toContain(".catch(\n");
+  });
+
+  it("the override never composes case vocabulary in the browser", () => {
+    // The badge's words arrive composed ("System", "roman · 4 Aug 2026"). The
+    // ICONS are the list's own control vocabulary, exactly like the state chip's.
+    // A date formatted here would read differently per locale, which is not a
+    // property a legal record may have.
+    const line = read("components", "QuestionLine.tsx");
+    expect(line).toContain("authorship.label");
+    for (const forbidden of ["toLocaleDateString", "toLocaleString", "Intl.DateTimeFormat"]) {
+      expect(line, `${forbidden} would compose the badge's date in the browser`).not.toContain(
+        forbidden,
+      );
+    }
+  });
+
+  it("a correction re-reads rather than patching the card in place", () => {
+    // The question shown is composed server-side from the graph's sentence and
+    // the override table. Rebuilding that composition in the browser would be the
+    // client deciding how authorship reads.
+    const queue = read("components", "CardQueue.tsx");
+    expect(queue).toContain("await saveQuestionOverride(slug, graphNodeId, text);");
+    expect(queue).toContain("await load();");
+  });
+});

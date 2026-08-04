@@ -48,6 +48,7 @@ import ScanSection from "../components/ScanSection";
 import ScenarioDeleteConfirm from "../components/ScenarioDeleteConfirm";
 import ScenarioFactsSection from "../components/ScenarioFactsSection";
 import ScenarioHeaderTiers from "../components/ScenarioHeaderTiers";
+import { ghostButtonStyle } from "../components/scenarioSectionStyles";
 import ScenarioIdentityBlock from "../components/ScenarioIdentityBlock";
 import ScenarioIdentityModal from "../components/ScenarioIdentityModal";
 import ScenarioOrphanStrip from "../components/ScenarioOrphanStrip";
@@ -115,10 +116,37 @@ const ScenarioDetailPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Bumped after any write; a re-fetch (never a hand-merged response) is the source
-  // of truth, because the backend trims and normalises what it stores.
-  const [refreshKey, setRefreshKey] = useState(0);
-  const refresh = useCallback(() => setRefreshKey((k) => k + 1), []);
+  // ─── TWO refresh keys, and they must stay two (task 1.7F, ruling R6) ───────
+  //
+  // Bumped after any write; a re-fetch (never a hand-merged response) is the
+  // source of truth, because the backend trims and normalises what it stores.
+  //
+  // `pageRefreshKey` re-reads the WHOLE payload — all four endpoints — and also
+  // feeds `externalRefresh` into ScanSection, which makes the card queue reload
+  // its pool and dispatch `cards_loaded`. That is correct after an edit to the
+  // scenario's own content, and wrong after a ruling: it would disturb the
+  // queue's selection mid-triage, which is precisely the class of defect task
+  // 1.7G spent two builds fixing.
+  //
+  // `cardsRefreshKey` re-reads ONLY the cards, which is what the facts section
+  // below is derived from. A ruling bumps this one, so the new fact appears
+  // without touching the queue the human is working in.
+  //
+  // Collapsing them back into one key would be a one-line "simplification" that
+  // reintroduces the disturbance. They are named apart so that edit is a visible
+  // one.
+  const [pageRefreshKey, setPageRefreshKey] = useState(0);
+  const refresh = useCallback(() => setPageRefreshKey((k) => k + 1), []);
+  const [cardsRefreshKey, setCardsRefreshKey] = useState(0);
+  const refreshCards = useCallback(() => setCardsRefreshKey((k) => k + 1), []);
+
+  // A failed cards RE-READ is not a failed page load, and must not be rendered as
+  // one. `error` above replaces the entire page with a banner — right when the
+  // scenario could not be loaded at all, and badly wrong here: the ruling SAVED,
+  // and taking the queue, the identity block and the scan section off the screen
+  // would cost the human their whole working context over one stale list. So the
+  // re-read gets its own non-fatal notice, shown beside the facts it is about.
+  const [factsNotice, setFactsNotice] = useState<string | null>(null);
 
   const [showDelete, setShowDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -179,7 +207,45 @@ const ScenarioDetailPage: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [slug, scenarioId, refreshKey]);
+  }, [slug, scenarioId, pageRefreshKey]);
+
+  // The cards-only re-read (task 1.7F Part A).
+  //
+  // A key-bumped effect rather than a bare fetch at the call site, so the
+  // cancelled-flag protection above is INHERITED rather than reimplemented: two
+  // rulings in quick succession start two reads, and without it the slower
+  // response could land last and paint the older pool over the newer one.
+  //
+  // `cardsRefreshKey === 0` is the initial mount, where the four-read effect
+  // above has already loaded the cards. Skipping it there is what stops the page
+  // reading the same endpoint twice on arrival.
+  useEffect(() => {
+    if (!scenarioId || cardsRefreshKey === 0) return;
+    let cancelled = false;
+    fetchScenarioCards(slug, scenarioId)
+      .then((payload) => {
+        if (cancelled) return;
+        setCards([...payload.pool, ...payload.set_aside]);
+        // A read that worked clears the last one's complaint; leaving it up would
+        // put a stale warning over a list that is now current.
+        setFactsNotice(null);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        // A failed RE-READ is not a failed save, and saying so would send a human
+        // hunting for a ruling that is safely stored (the 1.4 read/write error
+        // split). The notice names which half failed, and Try again re-reads
+        // rather than making them reload the page and lose their place.
+        setFactsNotice(
+          err instanceof Error
+            ? `Your ruling was saved. The facts list below could not be re-read, so it may be out of date: ${err.message}`
+            : "Your ruling was saved. The facts list below could not be re-read, so it may be out of date.",
+        );
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [slug, scenarioId, cardsRefreshKey]);
 
   const gatingCrumb = (
     <Breadcrumb
@@ -252,9 +318,40 @@ const ScenarioDetailPage: React.FC = () => {
         slug={slug}
         scenarioId={scenarioId}
         scenarioTitle={scenario.attack}
-        externalRefresh={refreshKey}
+        externalRefresh={pageRefreshKey}
         onFactsChanged={refresh}
+        // A ruling the SERVER confirmed. Re-reads the cards alone, so the fact
+        // appears below without the queue above being reloaded under the human.
+        onRulingSaved={refreshCards}
       />
+
+      {/* The re-read notice (task 1.7F Part A). Sits with the list it describes,
+          and leaves every other section on screen and working. */}
+      {factsNotice && (
+        <div
+          role="alert"
+          style={{
+            display: "flex",
+            gap: "0.75rem",
+            alignItems: "baseline",
+            flexWrap: "wrap",
+            border: "1px solid var(--state-warning-strong, var(--border-default))",
+            borderRadius: "8px",
+            padding: "0.6rem 0.8rem",
+            margin: "0.5rem 0",
+            fontSize: "0.85rem",
+            color: "var(--text-secondary)",
+          }}
+        >
+          <span>{factsNotice}</span>
+          <button type="button" onClick={refreshCards} style={ghostButtonStyle}>
+            Try again
+          </button>
+          <button type="button" onClick={() => setFactsNotice(null)} style={ghostButtonStyle}>
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* 4 — §2.4 */}
       <ScenarioFactsSection
@@ -287,7 +384,7 @@ const ScenarioDetailPage: React.FC = () => {
       <ScenarioOrphanStrip
         slug={slug}
         scenarioId={scenarioId}
-        externalRefresh={refreshKey}
+        externalRefresh={pageRefreshKey}
       />
 
       {/* Mounted only while open so it re-reads on every open — a dialog holding a

@@ -7,7 +7,9 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { filterRows, humanFactRows, includedRows, type WorkingRow } from "../factsTable";
+import { filterRows, humanFactRows, includedRows, type WorkingRow,
+  arrivedIds,
+} from "../factsTable";
 import type { ScenarioCard } from "../../services/scenarioCards";
 
 function card(overrides: Partial<ScenarioCard> = {}): ScenarioCard {
@@ -226,5 +228,37 @@ describe("humanFactRows", () => {
     const hits = filterRows(rows, "certified");
     expect(hits).toHaveLength(1);
     expect(hits[0].isHuman).toBe(true);
+  });
+});
+
+// ─── Which rows just arrived (task 1.7F Part A) ──────────────────────────────
+
+describe("arrivedIds", () => {
+  it("reports nothing on the first payload", () => {
+    // Every row is new on a page that just loaded. Tinting the whole table would
+    // say nothing, and would say it loudly.
+    expect(arrivedIds(null, ["ev-1", "ev-2"])).toEqual([]);
+  });
+
+  it("reports the row a ruling just added", () => {
+    // The include case: one id is present now and was not before.
+    expect(arrivedIds(new Set(["ev-1"]), ["ev-1", "ev-2"])).toEqual(["ev-2"]);
+  });
+
+  it("reports nothing when the payload is unchanged", () => {
+    // A re-read that changed nothing must not flash the list.
+    expect(arrivedIds(new Set(["ev-1", "ev-2"]), ["ev-1", "ev-2"])).toEqual([]);
+  });
+
+  it("reports nothing when a row DISAPPEARS", () => {
+    // Undo removes a row. There is nothing to highlight — the thing that changed
+    // is no longer on screen — and highlighting a survivor would point at the
+    // wrong row.
+    expect(arrivedIds(new Set(["ev-1", "ev-2"]), ["ev-1"])).toEqual([]);
+  });
+
+  it("reports every arrival when several land at once", () => {
+    // A merge can add more than one. All of them are what changed.
+    expect(arrivedIds(new Set(["ev-1"]), ["ev-1", "ev-2", "ev-3"])).toEqual(["ev-2", "ev-3"]);
   });
 });

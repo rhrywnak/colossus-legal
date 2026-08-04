@@ -138,3 +138,25 @@ export function filterRows(rows: WorkingRow[], term: string): WorkingRow[] {
     return haystack.includes(needle);
   });
 }
+
+/**
+ * Which rows are NEW since the last payload (task 1.7F Part A).
+ *
+ * ## Why "new" is defined against the PREVIOUS PAYLOAD and not against a ruling
+ *
+ * The facts list is drawn only from what the server returned (ruling R3 — no
+ * optimistic rows), so the honest definition of "just arrived" is "present now,
+ * absent last time". Defining it as "the card I just ruled" would tint a row on
+ * the strength of a click rather than a stored fact, and would miss a row that
+ * appeared because a merge or another person's ruling added it — which is
+ * precisely when a reader most needs to see what changed under them.
+ *
+ * @param previous the ids from the last payload, or `null` on the first one.
+ *        `null` yields NO arrivals: every row is new on a page that just loaded,
+ *        and tinting the whole table says nothing.
+ * @param current  the ids in the payload now on screen.
+ */
+export function arrivedIds(previous: Set<string> | null, current: string[]): string[] {
+  if (previous === null) return [];
+  return current.filter((id) => !previous.has(id));
+}

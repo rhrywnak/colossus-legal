@@ -51,6 +51,16 @@ export function useReducerWithEffects(
   slug: string,
   scenarioId: string,
   onRulingFailed: (message: string) => void,
+  /**
+   * Called once the SERVER has confirmed a ruling (task 1.7F Part A).
+   *
+   * The facts section below the queue re-reads itself from this, so an included
+   * card appears there without a page reload — and only after the write is
+   * durable. No optimistic row (ruling R3): the queue may advance on a promise,
+   * because a refusal reconciles it, but a row in the facts list is a claim that
+   * something IS stored, and the 1.3 gate found what that costs when it is not.
+   */
+  onRulingSaved: () => void,
 ): [QueueState, (event: QueueEvent) => void] {
   const [state, setState] = useState<QueueState>(() => initialQueueState([]));
 
@@ -68,7 +78,13 @@ export function useReducerWithEffects(
 
       if (effect.kind !== "rule") return;
 
-      applyFactAction(slug, scenarioId, effect.graphNodeId, effect.action, effect.reason).catch(
+      // Two-argument `then` rather than `.then().catch()`, deliberately: with a
+      // trailing `.catch` an exception thrown INSIDE the success callback would
+      // be reported to the human as "that ruling did not save", about a ruling
+      // that saved perfectly. The rejection handler here sees only the request's
+      // own failure.
+      applyFactAction(slug, scenarioId, effect.graphNodeId, effect.action, effect.reason).then(
+        () => onRulingSaved(),
         (e: unknown) => {
           const detail = e instanceof Error ? e.message : String(e);
           onRulingFailed(
@@ -79,7 +95,7 @@ export function useReducerWithEffects(
         },
       );
     },
-    [slug, scenarioId, onRulingFailed],
+    [slug, scenarioId, onRulingFailed, onRulingSaved],
   );
 
   return [state, dispatch];

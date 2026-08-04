@@ -20,9 +20,15 @@
 // Which rows exist and which are visible is `factsTable.ts`, pure and tested.
 // Every string shown is a payload string.
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 
-import { filterRows, humanFactRows, includedRows, type WorkingRow } from "./factsTable";
+import {
+  arrivedIds,
+  filterRows,
+  humanFactRows,
+  includedRows,
+  type WorkingRow,
+} from "./factsTable";
 import { ghostButtonStyle } from "./scenarioSectionStyles";
 import { openViewerWindow } from "./viewerWindow";
 import type { ScenarioCard } from "../services/scenarioCards";
@@ -47,6 +53,27 @@ const rowStyle: React.CSSProperties = {
   fontWeight: 400,
   alignItems: "stretch",
 };
+
+/**
+ * The row that just landed (task 1.7F Part A).
+ *
+ * A ruling made in the queue above adds a row to a list that can be long, and a
+ * human who cannot see WHICH row appeared has to go looking for their own work.
+ * The tint fades out on its own; nothing about the row's meaning depends on it.
+ */
+const arrivedRowStyle: React.CSSProperties = {
+  ...rowStyle,
+  background: "var(--state-warning-bg-soft)",
+  transition: "background 600ms ease-out",
+};
+
+// CONST: how long a newly-added row stays tinted, in milliseconds.
+//
+// Presentational, and therefore NOT a stored setting (ruling R5 draws exactly
+// this line): it changes how long a colour fades, never what the list contains,
+// which rows exist, or what any of them mean. A tunable is something that changes
+// BEHAVIOUR; this changes an animation.
+const ARRIVAL_HIGHLIGHT_MS = 2400;
 
 /**
  * The coloured left-edge cue. Mockup `.acc i`: 4px wide, radius 2, full height.
@@ -111,6 +138,30 @@ const WorkingView: React.FC<Props> = ({ cards, humanFacts, onAdd, onRemoveHumanF
   );
   const visible = useMemo(() => filterRows(rows, term), [rows, term]);
 
+  // Which rows are NEW since the last render of this list (task 1.7F Part A).
+  //
+  // Derived by comparing ids against the previous set rather than being told by
+  // the ruling path: the facts list is drawn from what the SERVER returned
+  // (ruling R3 — no optimistic rows), so the honest definition of "just arrived"
+  // is "present now, absent from the last payload". A row that arrives because
+  // somebody else ruled it, or because a merge added it, highlights too — which
+  // is correct, since the point is to show what changed under the reader.
+  const seenIds = useRef<Set<string> | null>(null);
+  const [arrived, setArrived] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    const ids = rows.map((r) => r.graphNodeId);
+    const fresh = arrivedIds(seenIds.current, ids);
+    seenIds.current = new Set(ids);
+    if (fresh.length === 0) return;
+
+    setArrived(new Set(fresh));
+    const timer = setTimeout(() => setArrived(new Set()), ARRIVAL_HIGHLIGHT_MS);
+    // Cleared on unmount and before the next arrival, so a fast second ruling
+    // cannot leave a stale timer to blank the newer highlight early.
+    return () => clearTimeout(timer);
+  }, [rows]);
+
   return (
     <div style={{ background: SURFACE, borderRadius: "var(--radius-card)", boxShadow: "var(--shadow-card)", overflow: "hidden" }}>
       {/* Search top-left, one create button top-right — the study's list-screen
@@ -152,6 +203,7 @@ Nothing here yet. ✓ Include a candidate above, or add a fact of your own.
           <Row
             key={row.graphNodeId}
             row={row}
+            justArrived={arrived.has(row.graphNodeId)}
             onRemove={
               row.isHuman
                 ? () => onRemoveHumanFact(row.graphNodeId.replace(/^human:/, ""))
@@ -238,13 +290,18 @@ const RowMeta: React.FC<{
 );
 
 /** One Facts-table row. */
-const Row: React.FC<{ row: WorkingRow; onRemove?: () => void }> = ({ row, onRemove }) => {
+const Row: React.FC<{
+  row: WorkingRow;
+  /** Tinted briefly because this row was not in the previous payload. */
+  justArrived?: boolean;
+  onRemove?: () => void;
+}> = ({ row, justArrived = false, onRemove }) => {
   // A refused popup has to be SAID, not swallowed (Standing Rule 1). Local to the
   // row so the message appears where the human just clicked.
   const [blocked, setBlocked] = useState<string | null>(null);
 
   return (
-    <div style={rowStyle}>
+    <div style={justArrived ? arrivedRowStyle : rowStyle}>
       {/* Item 6: the coloured left-edge cue. */}
       <span style={stripeStyle(row.isHuman)} aria-hidden="true" />
       <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem", flex: 1 }}>

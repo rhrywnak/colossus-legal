@@ -169,6 +169,11 @@ const HUMAN_AUTHORED_TABLES: &[&str] = &[
     "scenario_responses",
     "response_items",
     "scenario_status_transitions",
+    // Task 1.7F: a human's correction of a machine-written interrogatory
+    // question. It belongs here for the sharpest possible reason — the row exists
+    // BECAUSE the machine got it wrong, so a scan that rewrote it would restore
+    // the very text a human had already rejected, and would do it silently.
+    "evidence_summary_overrides",
 ];
 
 fn read_source(relative: &str) -> Option<String> {

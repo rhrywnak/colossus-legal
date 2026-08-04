@@ -84,6 +84,7 @@ import {
   type CandidateFilters,
 } from "./candidateFilters";
 import { keyboardShouldRule, nextUpHint } from "./queueRegion";
+import { revertQuestionOverride, saveQuestionOverride } from "../services/evidenceSummary";
 
 // ─── §2c visual language ────────────────────────────────────────────────────
 
@@ -146,6 +147,15 @@ interface Props {
    * disagreeing about how much work is left.
    */
   onProgress?: (progress: { ruled: number; total: number }) => void;
+  /**
+   * Called when the SERVER confirms a ruling (task 1.7F Part A).
+   *
+   * The page re-reads its cards from this, so a newly included candidate shows up
+   * in the facts section without a reload. Deliberately NOT called on the
+   * optimistic advance: a fact row is a claim that something is stored, and the
+   * row is drawn only once the server says it exists (ruling R3).
+   */
+  onRulingSaved?: () => void;
 }
 
 /**
@@ -168,6 +178,7 @@ const CardQueue: React.FC<Props> = ({
   externalRefresh,
   keyboardActive = true,
   onProgress,
+  onRulingSaved,
 }) => {
   const [error, setError] = useState<string | null>(null);
   const [rulingError, setRulingError] = useState<string | null>(null);
@@ -189,7 +200,12 @@ const CardQueue: React.FC<Props> = ({
     void loadRef.current();
   }, []);
 
-  const [state, dispatch] = useReducerWithEffects(slug, scenarioId, onRulingFailed);
+  // Wrapped rather than passed straight through: the prop is optional (a queue
+  // mounted outside the scenario page has nothing to tell), and the hook's
+  // dependency list wants a stable identity either way.
+  const onSaved = useCallback(() => onRulingSaved?.(), [onRulingSaved]);
+
+  const [state, dispatch] = useReducerWithEffects(slug, scenarioId, onRulingFailed, onSaved);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -280,6 +296,33 @@ const CardQueue: React.FC<Props> = ({
     dispatch({ type: "visible", ids: visibleIds });
   }, [dispatch, visibleIds]);
 
+  // ─── Correcting a machine-written question (task 1.7F Part B) ─────────────
+  //
+  // Both writes RE-READ the pool on success rather than patching the card in
+  // place. The card's question is composed server-side from two sources (the
+  // graph's sentence and the override table), and rebuilding that composition in
+  // the browser would be the client deciding how authorship reads — which is the
+  // language law's line. One read is also what proves the write landed.
+  //
+  // A failure is re-thrown so the editor can keep the human's text on screen
+  // beside the message; swallowing it here would close the editor over a
+  // correction that was never stored.
+  const correctQuestion = useCallback(
+    async (graphNodeId: string, text: string) => {
+      await saveQuestionOverride(slug, graphNodeId, text);
+      await load();
+    },
+    [slug, load],
+  );
+
+  const revertQuestion = useCallback(
+    async (graphNodeId: string) => {
+      await revertQuestionOverride(slug, graphNodeId);
+      await load();
+    },
+    [slug, load],
+  );
+
   const selected = state.cards[state.index];
   const selectedId = selected?.graph_node_id ?? null;
   const { ruled, total } = progress(state);
@@ -364,6 +407,8 @@ const CardQueue: React.FC<Props> = ({
         // with. The keyboard's own path, above, is the one that reads the
         // selection, because the selection is what a keyboard is aimed at.
         onRule={(key, graphNodeId) => dispatch({ type: "rule", key, graphNodeId })}
+        onCorrectQuestion={correctQuestion}
+        onRevertQuestion={revertQuestion}
       />
 
       {state.mode.kind === "deferring" && (

@@ -48,6 +48,7 @@ import React, { useMemo, useState } from "react";
 import { cardRows, type CardRow } from "./cardRows";
 import { candidateState, stateChip } from "./candidateFilters";
 import type { RulingKey } from "./cardTriage";
+import QuestionLine from "./QuestionLine";
 import { CardHead, StateChipView, codeBadgeStyle } from "./RulingButtons";
 import { openViewerWindow } from "./viewerWindow";
 import type { ScenarioCard } from "../services/scenarioCards";
@@ -302,7 +303,21 @@ export const CandidateCard: React.FC<{
   onRule: (key: RulingKey) => void;
   /** True when I or E was just refused on THIS card (the reducer's `notice`). */
   keyboardRefused?: boolean;
-}> = ({ card, selected, compact, onSelect, onRule, keyboardRefused = false }) => {
+  /** Save a human's correction of THIS card's question (task 1.7F Part B).
+   *  Already bound to this card's id by the list, exactly as `onRule` is. */
+  onCorrectQuestion: (text: string) => Promise<void>;
+  /** Restore the machine's own question by deleting the correction. */
+  onRevertQuestion: () => Promise<void>;
+}> = ({
+  card,
+  selected,
+  compact,
+  onSelect,
+  onRule,
+  keyboardRefused = false,
+  onCorrectQuestion,
+  onRevertQuestion,
+}) => {
   const rows = useMemo(() => cardRows(card), [card]);
   const code = rows.find((r) => r.element === "code");
   const pinpoint = rows.find((r) => r.element === "pinpoint");
@@ -364,7 +379,14 @@ export const CandidateCard: React.FC<{
           that is 154 of 499 cards on the left and 65 on the right.
 
           The `<mark>` is the anchor: verbatim, highlighted, never groomed (§12). */}
-      {card.quote.question && <div style={contextStyle}>{card.quote.question}</div>}
+      {card.quote.question && (
+        <QuestionLine
+          question={card.quote.question}
+          authorship={card.quote.question_authorship}
+          onSave={(text) => onCorrectQuestion(text)}
+          onRevert={onRevertQuestion}
+        />
+      )}
 
       {/* The context panel (mockup `.ctx`) — the source page's own words on their
           own surface, with the anchor marked inside them. */}
