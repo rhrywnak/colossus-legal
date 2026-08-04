@@ -27,6 +27,9 @@
 
 import React from "react";
 
+import type { StateChip } from "./candidateFilters";
+import { chipStyle, stateChipTone } from "./scenarioSectionStyles";
+
 /** Mockup `.rbtn kbd` on a filled button: a translucent white chip. */
 const kbdOnFillStyle: React.CSSProperties = {
   fontFamily: "inherit",
@@ -135,7 +138,29 @@ const RULING_BUTTONS: {
 ];
 
 /**
- * The card head: the C-code, the four ruling buttons, then the state.
+ * The DISABLED look for Include and Exclude on a defer-only card (1.7E, item 5).
+ *
+ * Greyed and un-clickable, but still legibly the same control — a button that
+ * vanished when unavailable would leave the human wondering whether this card is
+ * a different kind of card. It is the same card; two of its four doors are shut,
+ * and the sentence beside them says why.
+ */
+const disabledRulingStyle: React.CSSProperties = {
+  ...rulingButtonBase,
+  background: "var(--v3-chrome)",
+  color: "var(--text-muted)",
+  cursor: "not-allowed",
+};
+
+/** The state chip: icon + word + tone. Colour is never the only signal. */
+export const StateChipView: React.FC<{ chip: StateChip; title?: string }> = ({ chip, title }) => (
+  <span style={{ ...chipStyle, ...stateChipTone(chip.tone) }} title={title}>
+    <span aria-hidden="true">{chip.icon}</span> {chip.label}
+  </span>
+);
+
+/**
+ * The card head: the C-code, the four ruling buttons, then the state chip.
  *
  * ## Why the buttons are HERE and not at the bottom
  *
@@ -147,48 +172,86 @@ const RULING_BUTTONS: {
  *
  * Colour never stands alone: every button carries an icon, and the three that
  * decide something carry a word too.
+ *
+ * ## The refusal is ON the button row (task 1.7E, items 5 and 8)
+ *
+ * A defer-only card renders Include and Exclude visibly disabled with the
+ * backend's own reason beside them, and that is the ONLY place that sentence
+ * appears — 1.7D printed it as a paragraph in the card body, where it competed
+ * with the quote for the reader's attention and still left the buttons looking
+ * live. Pressing I or E surfaces the SAME sentence with an alert role (the
+ * `keyboardRefused` flag), so the key explains itself instead of doing nothing.
  */
 export const CardHead: React.FC<{
   code: string;
-  state: string | undefined;
+  chip: StateChip;
+  /** The human's own parking reason, shown as the chip's tooltip when present. */
+  chipTitle?: string;
+  /** True when this card cannot be included or excluded as it stands. */
+  deferOnly: boolean;
+  /** The backend's sentence explaining why. Rendered verbatim; never composed. */
+  deferOnlyReason: string | null;
+  /** True when the human just pressed I or E and was refused. */
+  keyboardRefused: boolean;
   onRule: (key: RulingKey) => void;
-}> = ({ code, state, onRule }) => (
-  <div
-    style={{
-      display: "flex",
-      alignItems: "center",
-      gap: "10px",
-      marginBottom: "14px",
-      flexWrap: "wrap",
-    }}
-  >
-    <span style={codeBadgeStyle}>{code}</span>
+}> = ({ code, chip, chipTitle, deferOnly, deferOnlyReason, keyboardRefused, onRule }) => (
+  <div style={{ marginBottom: "14px" }}>
+    <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+      <span style={codeBadgeStyle}>{code}</span>
 
-    {RULING_BUTTONS.map((button) => (
-      <button
-        key={button.key}
-        type="button"
-        style={{ ...rulingButtonBase, ...button.fill }}
-        // The accessible name has to carry what the glyph means — "↩" alone tells a
-        // screen reader nothing, and neither does a bare "✓".
-        aria-label={
-          button.label
-            ? `${button.label} (keyboard ${button.key.toUpperCase()})`
-            : `Undo the last ruling (keyboard U)`
-        }
-        onClick={() => onRule(button.key)}
+      {RULING_BUTTONS.map((button) => {
+        const shut = deferOnly && (button.key === "i" || button.key === "e");
+        return (
+          <button
+            key={button.key}
+            type="button"
+            disabled={shut}
+            style={shut ? disabledRulingStyle : { ...rulingButtonBase, ...button.fill }}
+            // The accessible name has to carry what the glyph means — "↩" alone tells a
+            // screen reader nothing, and neither does a bare "✓".
+            aria-label={
+              button.label
+                ? `${button.label} (keyboard ${button.key.toUpperCase()})`
+                : `Undo the last ruling (keyboard U)`
+            }
+            // The reason travels with the control it disables, so a hover explains
+            // it without the reader hunting for the sentence below.
+            title={shut ? (deferOnlyReason ?? undefined) : undefined}
+            onClick={() => onRule(button.key)}
+          >
+            <span aria-hidden="true">{button.icon}</span>
+            {button.label && <span>{button.label}</span>}
+            <kbd style={shut ? kbdOnSoftStyle : button.kbd} aria-hidden="true">
+              {button.key.toUpperCase()}
+            </kbd>
+          </button>
+        );
+      })}
+
+      {/* Mockup `.card-top .state`, now a chip: pushed hard right. */}
+      <span style={{ marginLeft: "auto" }}>
+        <StateChipView chip={chip} title={chipTitle} />
+      </span>
+    </div>
+
+    {deferOnly && deferOnlyReason && (
+      // `role="alert"` only on the keypress, deliberately: the sentence is
+      // standing information on this card and a live region that announced itself
+      // on every selection would talk over the human browsing the list.
+      <div
+        role={keyboardRefused ? "alert" : undefined}
+        style={{
+          marginTop: "8px",
+          fontSize: "12.5px",
+          lineHeight: 1.5,
+          padding: "6px 10px",
+          borderRadius: "8px",
+          background: keyboardRefused ? "var(--state-warning-bg-soft)" : "transparent",
+          color: keyboardRefused ? "var(--v3-amber-text)" : "var(--text-muted)",
+        }}
       >
-        <span aria-hidden="true">{button.icon}</span>
-        {button.label && <span>{button.label}</span>}
-        <kbd style={button.kbd} aria-hidden="true">
-          {button.key.toUpperCase()}
-        </kbd>
-      </button>
-    ))}
-
-    {/* Mockup `.card-top .state`: pushed right, 12.5px, --text-3. */}
-    <span style={{ marginLeft: "auto", fontSize: "12.5px", color: "var(--text-muted)" }}>
-      {state}
-    </span>
+        {deferOnlyReason}
+      </div>
+    )}
   </div>
 );

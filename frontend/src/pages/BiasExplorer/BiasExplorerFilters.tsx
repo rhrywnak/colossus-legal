@@ -16,6 +16,7 @@
 
 import React from "react";
 
+import { filteredCounterLine } from "../../components/shared/filteredCounter";
 import type { AvailableFilters, BiasQueryFilters } from "./types";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -37,18 +38,23 @@ function formatTagLabel(raw: string): string {
  * "Showing all" while a filter is actively applied — surprising to the
  * user.
  *
- * Singular/plural is honored on the trailing noun.
+ * ## The rule moved OUT of this file (task 1.7E, ruling R1)
+ *
+ * The candidate list needs the same honesty rule with its own noun, so the rule
+ * now lives in `components/shared/filteredCounter` and this function is the Bias
+ * Explorer's noun applied to it. Kept as a named function because it is this
+ * page's vocabulary — "instances" is a Bias Explorer word, and the shared helper
+ * deliberately does not know it.
  */
 function formatFilteredCounter(
     filtered: number,
     total: number,
     hasAnyFilter: boolean,
 ): string {
-    const noun = (n: number) => (n === 1 ? "instance" : "instances");
-    if (hasAnyFilter) {
-        return `Filtered: ${filtered} of ${total} ${noun(total)}`;
-    }
-    return `Showing all ${total} ${noun(total)}`;
+    return filteredCounterLine(filtered, total, hasAnyFilter, {
+        singular: "instance",
+        plural: "instances",
+    });
 }
 
 // ─── Styles ─────────────────────────────────────────────────────────────────

@@ -214,10 +214,18 @@ fn an_item_with_no_accusation_link_serves_a_defer_flag_not_a_bare_stance() {
         reason.contains("A scan scored this item"),
         "the reason must explain why it looked rulable: {reason}"
     );
-    // …and says what would unblock it.
+    // …and says what can actually be done about it TODAY (task 1.7E, item 6).
     assert!(
-        reason.contains("Link it to an accusation") && reason.contains("defer it"),
-        "the reason must offer a way forward: {reason}"
+        reason.contains("It can only be deferred for now")
+            && reason.contains("returns when linking arrives"),
+        "the reason must offer the way forward that exists: {reason}"
+    );
+    // The regression guard for the promise that was withdrawn. Nothing links an
+    // item to an accusation until task 2.10, so a card that tells a human to do it
+    // sends them hunting for a control that is not there.
+    assert!(
+        !reason.contains("Link it to an accusation"),
+        "the card must not promise linking before 2.10 ships it: {reason}"
     );
 }
 
@@ -239,6 +247,19 @@ fn an_unscored_unlinked_item_gets_the_simpler_reason() {
     let reason = card.defer_required_reason.expect("still unrulable");
     assert!(reason.starts_with("This item is not linked to any accusation"));
     assert!(!reason.contains("A scan scored"));
+    // The SAME honest ending as the scored branch (task 1.7E, item 6). Asserted
+    // here too because the prefix check above still passes over a reverted ending
+    // — the two branches share one tail, so they need the same guard or one of
+    // them can quietly go back to promising a control that does not exist.
+    assert!(
+        reason.contains("It can only be deferred for now")
+            && reason.contains("returns when linking arrives"),
+        "the unscored reason must offer the way forward that exists: {reason}"
+    );
+    assert!(
+        !reason.contains("Link it to an accusation"),
+        "the card must not promise linking before 2.10 ships it: {reason}"
+    );
 }
 
 #[test]

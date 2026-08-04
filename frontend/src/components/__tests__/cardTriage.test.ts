@@ -13,15 +13,15 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  cardRows,
   DEFER_QUICK_REASONS,
   initialQueueState,
-  missingElements,
   progress,
   queueReducer,
-  REQUIRED_CARD_ELEMENTS,
   type QueueState,
 } from "../cardTriage";
+// The §7 descriptor moved to its own module in 1.7E (Rule 17 — see that file's
+// header). Same functions, same assertions; only the import line moved.
+import { cardRows, missingElements, REQUIRED_CARD_ELEMENTS } from "../cardRows";
 import type { ScenarioCard } from "../../services/scenarioCards";
 
 // ─── Fixtures ───────────────────────────────────────────────────────────────
@@ -80,10 +80,13 @@ function unrulableCard(id = "ev-222"): ScenarioCard {
     stance: null,
     bears_on: [],
     defer_required: true,
+    // Task 1.7E item 6 rewrote this sentence server-side: it no longer tells the
+    // human to link the item, because nothing links an item until task 2.10. The
+    // fixture follows the payload — no assertion in this file changed for it.
     defer_required_reason:
-      "A scan scored this item, but it is not linked to any accusation, so there " +
-      "is nothing for it to support or dispute. Link it to an accusation, or " +
-      "defer it; it stays in the queue.",
+      "A scan scored this item, but it is not linked to any accusation yet, so " +
+      "there is nothing for it to support or dispute. It can only be deferred for " +
+      "now — it stays in the queue and returns when linking arrives.",
   });
 }
 
@@ -329,11 +332,254 @@ describe("the defer_required short-circuit", () => {
   it("I and E do nothing on an unrulable card — no 400 round trip", () => {
     // The reason is already on the card; the human reads it instead of waiting
     // for the backend to refuse.
+    //
+    // RE-ANCHORED in 1.7E: the no-write half is untouched, and the refusal now
+    // has to SAY so as well (see the notice test below). Nothing was removed.
     for (const key of ["i", "e"]) {
-      const { state, effect } = press(stateOf([unrulableCard()]), key);
+      const card = unrulableCard();
+      const { state, effect } = press(stateOf([card]), key);
       expect(effect, `${key} must not rule an unrulable card`).toEqual({ kind: "none" });
       expect(state.index).toBe(0);
+      expect(state.notice, `${key} must explain the refusal`).toBe(card.defer_required_reason);
     }
+  });
+
+  it("carries the BACKEND's sentence rather than one composed here", () => {
+    // The second unrulable class — an item with no verbatim quote — has a
+    // completely different reason. A message hardcoded in the frontend would be
+    // wrong for it, and wrong in a way nobody would notice for months.
+    const noQuote = unrulableCard("ev-noquote");
+    noQuote.defer_required_reason =
+      "This item has no verbatim quote, so it cannot be cited or matched back to " +
+      "the record after re-processing. Defer it; it stays in the queue.";
+    expect(press(stateOf([noQuote]), "i").state.notice).toBe(noQuote.defer_required_reason);
+  });
+
+  it("clears the notice as soon as the human does something else", () => {
+    // A message about the LAST card, still on screen beside a different one, is a
+    // lie the reader has no way to date. Every event that moves the human on, or
+    // changes what is under them, has to clear it — so each is asserted, not just
+    // the one that happens to be implemented first.
+    function refused(): QueueState {
+      const s = press(stateOf([unrulableCard(), fullCard({ graph_node_id: "ev-2" })]), "i").state;
+      expect(s.notice, "the fixture must actually produce a notice").not.toBeNull();
+      return s;
+    }
+
+    // Navigating away from the card the message is about.
+    expect(press(refused(), "j").state.notice).toBeNull();
+
+    // Clicking a different card.
+    expect(
+      queueReducer(refused(), { type: "select", graphNodeId: "ev-2" }).state.notice,
+    ).toBeNull();
+
+    // Focusing another card by position.
+    expect(queueReducer(refused(), { type: "focus", index: 1 }).state.notice).toBeNull();
+
+    // Changing the filter under it — the message may now sit beside a card the
+    // human can no longer see.
+    expect(
+      queueReducer(refused(), { type: "visible", ids: ["ev-2"] }).state.notice,
+    ).toBeNull();
+
+    // A RELOAD. This is the one that matters most: a refused ruling re-reads the
+    // pool, and the stale refusal must not outlive the screen it described.
+    expect(
+      queueReducer(refused(), { type: "cards_loaded", cards: [fullCard()] }).state.notice,
+    ).toBeNull();
+  });
+});
+
+// ─── The list: selection, navigation, and the filtered order (task 1.7E-a) ──
+
+describe("navigation", () => {
+  const three = () => [
+    fullCard({ graph_node_id: "ev-1" }),
+    fullCard({ graph_node_id: "ev-2" }),
+    fullCard({ graph_node_id: "ev-3" }),
+  ];
+
+  it("moves the selection and WRITES NOTHING", () => {
+    // THE TEST THIS FEATURE STANDS ON. Browsing a 148-card list is free; a ruling
+    // happens only when I, E or D is pressed. An effect here would mean arrowing
+    // through the pool silently ruled it.
+    for (const key of ["ArrowDown", "j", "ArrowUp", "k"]) {
+      const { effect } = press(stateOf(three()), key);
+      expect(effect, `${key} must not rule anything`).toEqual({ kind: "none" });
+    }
+  });
+
+  it("↓ and j move forward, ↑ and k move back", () => {
+    let s = press(stateOf(three()), "ArrowDown").state;
+    expect(s.index).toBe(1);
+    s = press(s, "j").state;
+    expect(s.index).toBe(2);
+    s = press(s, "ArrowUp").state;
+    expect(s.index).toBe(1);
+    s = press(s, "k").state;
+    expect(s.index).toBe(0);
+  });
+
+  it("stops at both ends rather than wrapping", () => {
+    // Same reason auto-advance does not wrap: the ends of the list are how a human
+    // knows where they are in it.
+    expect(press(stateOf(three()), "ArrowUp").state.index).toBe(0);
+    let s = stateOf(three());
+    for (let i = 0; i < 5; i += 1) s = press(s, "j").state;
+    expect(s.index).toBe(2);
+  });
+
+  it("moves the selection to already-RULED cards too", () => {
+    // Auto-advance skips what is decided; deliberate navigation does not — that is
+    // how a human reaches a card they want to take back with U.
+    const cards = [fullCard({ graph_node_id: "ev-1" }), fullCard({ graph_node_id: "ev-2", status: "included" })];
+    expect(press(stateOf(cards), "j").state.index).toBe(1);
+  });
+
+  it("does nothing on an empty list", () => {
+    expect(press(stateOf([]), "j")).toEqual({ state: stateOf([]), effect: { kind: "none" } });
+  });
+
+  it("does not move while the human is typing", () => {
+    // The typing guard covers navigation as well: the arrow keys belong to the
+    // text cursor while a defer reason is being written.
+    expect(press(stateOf(three()), "ArrowDown", true).state.index).toBe(0);
+  });
+});
+
+describe("selection", () => {
+  it("a click selects by identity and rules nothing", () => {
+    const cards = [fullCard({ graph_node_id: "ev-1" }), fullCard({ graph_node_id: "ev-2" })];
+    const { state, effect } = queueReducer(stateOf(cards), {
+      type: "select",
+      graphNodeId: "ev-2",
+    });
+    expect(state.index).toBe(1);
+    expect(effect).toEqual({ kind: "none" });
+  });
+
+  it("ignores a click on a card the pool no longer holds", () => {
+    // Moving the selection somewhere the human did not point is worse than
+    // ignoring one click that landed as a reload arrived.
+    const s = stateOf([fullCard({ graph_node_id: "ev-1" })]);
+    expect(queueReducer(s, { type: "select", graphNodeId: "gone" }).state.index).toBe(0);
+  });
+});
+
+describe("the filtered order", () => {
+  const pool = () => [
+    fullCard({ graph_node_id: "ev-1" }),
+    fullCard({ graph_node_id: "ev-2" }),
+    fullCard({ graph_node_id: "ev-3" }),
+  ];
+
+  function visible(state: QueueState, ids: string[]): QueueState {
+    return queueReducer(state, { type: "visible", ids }).state;
+  }
+
+  it("navigation walks the VISIBLE cards, skipping what the filter hides", () => {
+    // Without this the keyboard would select a card the filter is hiding — the
+    // same class of defect as ruling a card inside a collapsed region (R7).
+    let s = visible(stateOf(pool()), ["ev-1", "ev-3"]);
+    s = press(s, "j").state;
+    expect(s.cards[s.index].graph_node_id).toBe("ev-3");
+  });
+
+  it("a filter that hides the selected card selects the first visible one", () => {
+    let s = queueReducer(stateOf(pool()), { type: "select", graphNodeId: "ev-2" }).state;
+    s = visible(s, ["ev-3"]);
+    expect(s.cards[s.index].graph_node_id).toBe("ev-3");
+  });
+
+  it("leaves the selection alone when it survives the filter", () => {
+    let s = queueReducer(stateOf(pool()), { type: "select", graphNodeId: "ev-2" }).state;
+    s = visible(s, ["ev-1", "ev-2"]);
+    expect(s.cards[s.index].graph_node_id).toBe("ev-2");
+  });
+
+  it("a ruling advances within the filtered set, not the whole pool", () => {
+    let s = visible(stateOf(pool()), ["ev-1", "ev-3"]);
+    s = press(s, "i").state;
+    expect(s.cards[s.index].graph_node_id).toBe("ev-3");
+  });
+
+  it("changing the filter writes nothing", () => {
+    expect(queueReducer(stateOf(pool()), { type: "visible", ids: ["ev-2"] }).effect).toEqual({
+      kind: "none",
+    });
+  });
+});
+
+describe("auto-advance", () => {
+  it("skips cards that were already ruled before this session", () => {
+    // RE-ANCHORED in 1.7E. Until the list existed, every card in the queue was
+    // unruled, so "the next card" and "the next card needing a decision" were the
+    // same thing. They are not any more, and landing the human on a decided card
+    // after every ruling is the difference between minutes and an afternoon.
+    const cards = [
+      fullCard({ graph_node_id: "ev-1" }),
+      fullCard({ graph_node_id: "ev-2", status: "included", status_label: "Included" }),
+      fullCard({ graph_node_id: "ev-3" }),
+    ];
+    const s = press(stateOf(cards), "i").state;
+    expect(s.cards[s.index].graph_node_id).toBe("ev-3");
+  });
+
+  it("skips a card a human parked", () => {
+    const cards = [
+      fullCard({ graph_node_id: "ev-1" }),
+      fullCard({ graph_node_id: "ev-2", defer_reason: "waiting on a clean copy" }),
+      fullCard({ graph_node_id: "ev-3" }),
+    ];
+    const s = press(stateOf(cards), "i").state;
+    expect(s.cards[s.index].graph_node_id).toBe("ev-3");
+  });
+
+  it("stays put when nothing after the selection needs a decision", () => {
+    const cards = [
+      fullCard({ graph_node_id: "ev-1" }),
+      fullCard({ graph_node_id: "ev-2", status: "dropped", status_label: "Set aside" }),
+    ];
+    const s = press(stateOf(cards), "i").state;
+    expect(s.cards[s.index].graph_node_id).toBe("ev-1");
+  });
+});
+
+describe("the card's own state, on screen, at once", () => {
+  it("an include marks the card included without waiting for a reload", () => {
+    // Every card wears a state chip now. Without the optimistic patch the human
+    // presses I and watches the card go on saying "Not ruled" — the screen telling
+    // them their ruling did not happen.
+    const s = press(stateOf([fullCard({ graph_node_id: "ev-1" })]), "i").state;
+    expect(s.cards[0].status).toBe("included");
+  });
+
+  it("an exclude marks it dropped, and a defer records the reason", () => {
+    expect(press(stateOf([fullCard()]), "e").state.cards[0].status).toBe("dropped");
+
+    let s = press(stateOf([fullCard()]), "d").state;
+    s = queueReducer(s, { type: "defer_draft", draft: "waiting on a clean copy" }).state;
+    s = press(s, "Enter").state;
+    expect(s.cards[0].defer_reason).toBe("waiting on a clean copy");
+    // A defer lands in `undecided` WITH a reason — that pair is what distinguishes
+    // "parked" from "never looked at".
+    expect(s.cards[0].status).toBe("undecided");
+  });
+
+  it("U puts the card's state back, not just the selection", () => {
+    let s = press(stateOf([fullCard({ graph_node_id: "ev-1" })]), "i").state;
+    s = press(s, "u").state;
+    expect(s.cards[0].status).toBe("undecided");
+    expect(s.cards[0].defer_reason).toBeNull();
+  });
+
+  it("a reload overwrites the optimistic state with the server's", () => {
+    // The optimism is only honest because the server's answer wins: a refused
+    // ruling re-reads the pool (`useQueueReducer`) and this is where that lands.
+    let s = press(stateOf([fullCard({ graph_node_id: "ev-1" })]), "i").state;
+    s = queueReducer(s, { type: "cards_loaded", cards: [fullCard({ graph_node_id: "ev-1" })] }).state;
+    expect(s.cards[0].status).toBe("undecided");
   });
 });
 
@@ -379,6 +625,32 @@ describe("the running count", () => {
     s = queueReducer(s, { type: "focus", index: 0 }).state;
     s = press(s, "e").state;
     expect(progress(s)).toEqual({ ruled: 1, total: 1 });
+  });
+
+  it("counts what the POOL says is ruled, not only this session's keystrokes", () => {
+    // 1.7E: the list shows every card with its state chip, so a progress bar
+    // reading "0 of 3 ruled" beside two coloured chips is one screen disagreeing
+    // with itself (§9). A card counts once however it came to be ruled.
+    const s = stateOf([
+      fullCard({ graph_node_id: "ev-1", status: "included", status_label: "Included" }),
+      fullCard({ graph_node_id: "ev-2", defer_reason: "waiting on a clean copy" }),
+      fullCard({ graph_node_id: "ev-3" }),
+    ]);
+    expect(progress(s)).toEqual({ ruled: 2, total: 3 });
+    // …and ruling the one that is left does not double-count the other two.
+    const onLast = queueReducer(s, { type: "select", graphNodeId: "ev-3" }).state;
+    expect(progress(press(onLast, "i").state)).toEqual({ ruled: 3, total: 3 });
+  });
+
+  it("keeps `total` at the WHOLE pool while a filter narrows the view", () => {
+    // The section summary is a statement about the work, not about what is on
+    // screen: a bar that shrank to the filter would tell Roman he was nearly done
+    // every time he narrowed it.
+    const s = queueReducer(stateOf([fullCard(), fullCard({ graph_node_id: "ev-2" })]), {
+      type: "visible",
+      ids: ["ev-2"],
+    }).state;
+    expect(progress(s).total).toBe(2);
   });
 
   it("survives a reload without throwing the human back to the top", () => {

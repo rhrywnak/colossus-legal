@@ -151,6 +151,33 @@ export const absentStyle: React.CSSProperties = {
   fontStyle: "italic",
 };
 
+/**
+ * The state chip's fill and text colour for one tone (task 1.7E, item 2).
+ *
+ * The v3 rule for every coloured control: a SOFT fill with a dark same-hue text,
+ * which is what keeps contrast legible where a saturated fill would not (see the
+ * "on-soft" note in tokens.css). The neutral tone uses the chrome fill — a card
+ * nobody has ruled on is not a state worth colouring.
+ *
+ * The chip's icon and word come from `candidateFilters.stateChip`; this function
+ * supplies only the hue, which is why the tone vocabulary is testable without the
+ * palette and the palette lives nowhere near the tests.
+ */
+export function stateChipTone(
+  tone: "neutral" | "success" | "danger" | "warning",
+): React.CSSProperties {
+  switch (tone) {
+    case "success":
+      return { background: "var(--state-success-bg-soft)", color: "var(--v3-green-text)" };
+    case "danger":
+      return { background: "var(--state-danger-bg-soft)", color: "var(--v3-red-text)" };
+    case "warning":
+      return { background: "var(--state-warning-bg-soft)", color: "var(--v3-amber-text)" };
+    case "neutral":
+      return { background: "var(--v3-chrome)", color: "var(--text-secondary)" };
+  }
+}
+
 /** A `kbd` key hint. Mockup `kbd`: 11.5px, chrome fill, radius 5, NO border. */
 export const kbdStyle: React.CSSProperties = {
   fontFamily: "inherit",

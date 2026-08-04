@@ -272,6 +272,20 @@ fn viewer_href(document_id: &str, page: Option<i64>) -> String {
 /// The reasons are deliberately causal sentences rather than codes: the person
 /// reading them is deciding what to do next, and "no allegation link" would tell
 /// them nothing about how to fix it.
+///
+/// ## The linking promise was withdrawn (task 1.7E, item 6)
+///
+/// Until 1.7E the unlinked reason said "Link it to an accusation, or defer it".
+/// Nothing in the product links an item to an accusation — that arrives with task
+/// 2.10 — so the sentence offered a way forward that does not exist, and a human
+/// reading it could only conclude the control was hiding somewhere they had not
+/// looked. Roman's ruling: the copy says what is true today, which is that Defer
+/// is the only door, and says the item will come back when linking lands.
+///
+/// The two openers survive the rewrite because the distinction they carry is
+/// real: "a scan looked at this and scored it" is why C-222 LOOKED rulable, and
+/// collapsing it into the unscored wording would erase the reason the card is
+/// confusing in the first place.
 fn defer_reason_for(
     quote: &str,
     stance: Option<&CardStance>,
@@ -286,13 +300,14 @@ fn defer_reason_for(
     }
     if stance.is_none() {
         let opener = if has_scan_score {
-            "A scan scored this item, but it is not linked to any accusation"
+            "A scan scored this item, but it is not linked to any accusation yet"
         } else {
-            "This item is not linked to any accusation"
+            "This item is not linked to any accusation yet"
         };
         return Some(format!(
-            "{opener}, so there is nothing for it to support or dispute. Link it to \
-             an accusation, or defer it; it stays in the queue."
+            "{opener}, so there is nothing for it to support or dispute. It can only \
+             be deferred for now — it stays in the queue and returns when linking \
+             arrives."
         ));
     }
     None

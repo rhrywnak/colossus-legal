@@ -1,55 +1,51 @@
 // =============================================================================
-// CardQueue — keyboard triage over the §7 candidate cards (task 1.3)
+// CardQueue — the candidate list and its keyboard (tasks 1.3, 1.7E-a)
 // =============================================================================
 //
-// The surface where a human clears a 148-candidate pool in one sitting. The
-// proven pattern (Rayyan one-key screening, Relativity save-and-advance) in the
-// Casey card layout: I include · E exclude · D defer · U undo, auto-advance,
-// single-step undo, a defer queue with visible reasons, a running count, and no
-// page navigation to rule.
+// The surface where a human clears a 148-candidate pool in one sitting. The proven
+// pattern (Rayyan one-key screening, Relativity save-and-advance) in the Casey card
+// layout: I include · E exclude · D defer · U undo, auto-advance, single-step undo,
+// a running count, and no page navigation to rule.
 //
-// ## This component renders and does nothing else
+// ## From a queue to a LIST (task 1.7E-a)
 //
-// Every string on screen comes from the 1.2 payload. All the logic — which rows
-// a card shows, what a key does, when the defer prompt opens — lives in the pure
-// `cardTriage` module and is tested there. This file is the JSX that walks the
-// descriptor and the wiring that performs the reducer's effects.
+// It showed one card at a time until 1.7E. Roman's finding, twice stated: that is
+// unusable for working a pool of 148 — no skip forward, no skip back, and no way to
+// see where the ~24 rulable candidates sit. So the queue is now a scrollable,
+// filterable list:
 //
-// ## Visual language (§2c, binding)
+//   * `CandidateFilterBar` — v3 pills with visible counts (ruling R1)
+//   * `CandidateList`      — every card in the filter, one of them selected
+//   * `cardTriage`         — which card is selected, and what a key does
+//   * `candidateFilters`   — which cards a filter leaves, and how many of each
 //
-// Pure white surfaces, hairline borders, regular weight with bold reserved for
-// the pinpoint page, one accent. Born compliant, and as of 1.7A the app shell
-// they sit in is white too.
+// ## The deferred TRAY is gone, and it was not dropped
+//
+// A "Deferred (n)" button used to swap the whole queue for a read-only tray of
+// parked cards. That is now a filter pill beside the other five, which is strictly
+// more: the same cards, in the same list, still selectable and still rulable — a
+// parked card can be picked up again without leaving the view it is listed in.
+// Keeping both would have meant two surfaces answering "what is deferred?", and
+// they would eventually disagree.
+//
+// ## This component fetches, wires, and renders
+//
+// Every string on screen comes from the 1.2 payload. Which cards a filter leaves
+// and which state each is in are pure functions in `candidateFilters`; what a key
+// does is a pure reducer in `cardTriage`. This file is the fetch, the keyboard
+// boundary, and the JSX that puts the three together.
 //
 // ## No PDF renders here (task 1.7B, defect D2)
 //
 // A split-pane viewer used to sit beside the focused card, on the theory that
 // verifying a quote against its page should not leave the queue. In practice it
-// rendered every page from the cited one to the end of the document, stacked —
-// and a zoomed legal page in half a column is unreadable anyway, which is the
-// ruling that retired it (Roman, 2026-08-02: popup-only document viewing).
+// rendered every page from the cited one to the end of the document, stacked — and
+// a zoomed legal page in half a column is unreadable anyway, which is the ruling
+// that retired it (Roman, 2026-08-02: popup-only document viewing).
 //
 // The pinpoint stays a first-class element: `card.pinpoint.viewer_href` opens the
-// DEDICATED viewer at the cited page, which is where a page is actually readable.
-// The queue keeps the whole width for the card.
-//
-// ## The viewer is a WINDOW, not a tab (task 1.7C, defect D5)
-//
-// It was `<a target="_blank">` in 1.7B. Roman's ruling: a pinpoint opens a real
-// separate, sized window, because reading a quote against its page means having
-// both visible at once and a tab hides the page. See `viewerWindow.ts` for the
-// geometry, the named-window reuse, and why `noopener` is deliberately absent.
-//
-// ## The orphan strip LEFT this component (task 1.7C, defect D9)
-//
-// It used to hang off the bottom of the queue, derived in the browser by
-// set-differencing the saved facts against the card pool. Design §2.8 moves it to
-// the bottom of the PAGE as a humane, grouped disclosure fed by its own endpoint
-// (`/facts/orphans`), which can resolve document titles the browser cannot see.
-//
-// The orphan guarantee is unchanged — a confirmed fact must never silently
-// disappear — it is simply upheld somewhere better. The second `listScenarioFacts`
-// read that existed only to support the strip is gone with it.
+// DEDICATED viewer at the cited page, in a real sized WINDOW rather than a tab
+// (task 1.7C, defect D5 — see `viewerWindow.ts`).
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -58,9 +54,19 @@ import {
   type ScenarioCard,
   type ScenarioCardsResponse,
 } from "../services/scenarioCards";
-import { CandidateCard, cardStyle, chipStyle } from "./CandidateCard";
+import { chipStyle } from "./CandidateCard";
+import CandidateFilterBar from "./CandidateFilterBar";
+import CandidateList from "./CandidateList";
 import { useReducerWithEffects } from "./useQueueReducer";
-import { DEFER_QUICK_REASONS, progress, type QueueState } from "./cardTriage";
+import { DEFER_QUICK_REASONS, progress } from "./cardTriage";
+import {
+  candidateCounts,
+  defaultFilters,
+  filterCandidates,
+  hasAnyFilter,
+  UNFILTERED,
+  type CandidateFilters,
+} from "./candidateFilters";
 import { keyboardShouldRule, nextUpHint } from "./queueRegion";
 
 // ─── §2c visual language ────────────────────────────────────────────────────
@@ -68,32 +74,19 @@ import { keyboardShouldRule, nextUpHint } from "./queueRegion";
 const SURFACE = "var(--bg-surface)"; // #ffffff — pure white, per §2c
 const HAIRLINE = "1px solid var(--border-default)";
 
-// One column since task 1.7B. It was a two-column split with a PDF pane on the
-// right; see the header for why that is gone.
-const shellStyle: React.CSSProperties = {
-  background: SURFACE,
-  padding: "1rem",
-};
-
-
-
-
-
-
-// The anchor quote, highlighted inside its context (§2c's mockup, task 1.7C).
-// `mark` rather than a bold span: the quote is the thing being ruled on, and a
-// highlight is what a reader's eye finds without the weight bold would add — §2c
-// reserves bold for true emphasis and this is a different job.
-
 const hintBarStyle: React.CSSProperties = {
   display: "flex",
   gap: "1rem",
   alignItems: "center",
   flexWrap: "wrap",
-  padding: "0.5rem 0",
+  padding: "0.25rem 0",
   fontSize: "0.8rem",
   color: "var(--text-muted)",
 };
+
+/** The keys the list acts on. Listed once, so the guard and the reducer agree. */
+const RULING_KEYS = ["i", "e", "d", "u"];
+const NAVIGATION_KEYS = ["arrowup", "arrowdown", "j", "k"];
 
 // ─── The queue ──────────────────────────────────────────────────────────────
 
@@ -108,13 +101,13 @@ interface Props {
   /**
    * Whether the keyboard may rule (task 1.7C, ruling R7).
    *
-   * The queue now lives inside a collapsible region (§2.3), and a `<details>` body
+   * The queue lives inside a collapsible region (§2.3), and a `<details>` body
    * stays in the DOM when closed — so without this the one-key rulings would keep
    * firing on a card nobody can see. Defaults to `true` so a queue mounted outside
    * a region behaves exactly as it did before.
    *
    * The guard is HERE and not in `queueReducer`: the reducer is a pure state
-   * machine that knows nothing about chrome, and its 31 tests stay byte-identical.
+   * machine that knows nothing about chrome.
    */
   keyboardActive?: boolean;
   /**
@@ -149,11 +142,13 @@ const CardQueue: React.FC<Props> = ({
   keyboardActive = true,
   onProgress,
 }) => {
-  const [setAside, setSetAside] = useState<ScenarioCard[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [rulingError, setRulingError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [showDeferred, setShowDeferred] = useState(false);
+  // `null` until the first pool arrives: the default view is computed from the
+  // counts (rulable if any exist), and choosing it before the counts exist would
+  // pick "Not ruled" every time and then not correct itself.
+  const [filters, setFilters] = useState<CandidateFilters | null>(null);
   const deferInputRef = useRef<HTMLInputElement | null>(null);
 
   // `load` is defined below and the failure handler needs it, so the handler
@@ -163,7 +158,7 @@ const CardQueue: React.FC<Props> = ({
   const onRulingFailed = useCallback((message: string) => {
     setRulingError(message);
     // RECONCILE: re-read the pool so the screen shows what the database holds,
-    // not what the optimistic advance assumed.
+    // not what the optimistic ruling assumed.
     void loadRef.current();
   }, []);
 
@@ -173,14 +168,16 @@ const CardQueue: React.FC<Props> = ({
     setLoading(true);
     try {
       const cards: ScenarioCardsResponse = await fetchScenarioCards(slug, scenarioId);
-      dispatch({ type: "cards_loaded", cards: cards.pool });
-      setSetAside(cards.set_aside);
-
-      // The ORPHAN GUARANTEE moved to the page-bottom strip in task 1.7C (§2.8):
-      // it is served by `/facts/orphans`, which groups the losses by document and
-      // can resolve titles this component could not see. The second
-      // `listScenarioFacts` read that lived here only to support the old strip is
-      // gone with it — the guarantee is upheld, in a better place.
+      // Both lists, in one pool. The backend partitions the DROPPED candidates
+      // into `set_aside` (they are out of the working queue), but the list has an
+      // "Excluded (n)" pill and it has to count something real — and "All" must
+      // not shrink every time Roman excludes a card, or the denominator would move
+      // under the counts (§9).
+      //
+      // Concatenated rather than merged: each list arrives sorted by C-ordinal,
+      // and re-sorting the union here would be the browser re-deriving an order
+      // the backend owns and warns about (`sort_by_code`).
+      dispatch({ type: "cards_loaded", cards: [...cards.pool, ...cards.set_aside] });
       setError(null);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to load the candidate queue.");
@@ -203,17 +200,18 @@ const CardQueue: React.FC<Props> = ({
   // the house pattern (see `AuthorityPopover`).
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      // The collapsed-region guard (ruling R7). A `<details>` body stays in the
-      // DOM when closed, so without this the one-key rulings would keep firing on
-      // a card nobody can see — and the human would have no way to tell that from
-      // a stray keypress. Checked BEFORE `preventDefault` so a collapsed queue does
+      // The collapsed-region guard (ruling R7). A collapsed region's body stays in
+      // the DOM, so without this the one-key rulings would keep firing on a card
+      // nobody can see. Checked BEFORE `preventDefault` so a collapsed queue does
       // not even swallow the key.
       if (!keyboardShouldRule(keyboardActive)) return;
 
       const typing = isTyping(e.target);
-      // Only swallow the browser's default for keys we actually act on, and
-      // never while typing — Escape and Enter belong to the field then.
-      if (!typing && ["i", "e", "d", "u"].includes(e.key.toLowerCase())) {
+      const key = e.key.toLowerCase();
+      // Only swallow the browser's default for keys we act on, and never while
+      // typing — Escape and Enter belong to the field then, and the arrow keys
+      // belong to the text cursor.
+      if (!typing && (RULING_KEYS.includes(key) || NAVIGATION_KEYS.includes(key))) {
         e.preventDefault();
       }
       dispatch({ type: "key", key: e.key, typing });
@@ -228,9 +226,32 @@ const CardQueue: React.FC<Props> = ({
     if (state.mode.kind === "deferring") deferInputRef.current?.focus();
   }, [state.mode.kind]);
 
-  const card = state.cards[state.index];
+  // ONE derivation of the counts and ONE of the visible list (ruling R1): a second
+  // pass anywhere here is a number that can disagree with the pills.
+  const counts = useMemo(() => candidateCounts(state.cards), [state.cards]);
+  const active = filters ?? UNFILTERED;
+  const visible = useMemo(() => filterCandidates(state.cards, active), [state.cards, active]);
+
+  // The default view is computed once, from the first pool that arrives: "Rulable
+  // now" while any exist, else "Not ruled". Recomputing it on every load would
+  // yank the human's chosen filter away whenever a ruling triggered a reload.
+  const chosen = filters !== null;
+  useEffect(() => {
+    if (!chosen && !loading && state.cards.length > 0) setFilters(defaultFilters(counts));
+  }, [chosen, loading, state.cards.length, counts]);
+
+  // Tell the reducer what is on screen, so navigation and auto-advance walk the
+  // filtered order rather than the whole pool.
+  const visibleIds = useMemo(() => visible.map((c) => c.graph_node_id), [visible]);
+  useEffect(() => {
+    dispatch({ type: "visible", ids: visibleIds });
+  }, [dispatch, visibleIds]);
+
+  const selected = state.cards[state.index];
+  const selectedId = selected?.graph_node_id ?? null;
   const { ruled, total } = progress(state);
-  const nextCard = state.cards[state.index + 1];
+  // The next card in the VISIBLE order, which is what the human will land on.
+  const nextCard = visible[visible.findIndex((c) => c.graph_node_id === selectedId) + 1];
 
   // Report the counts to the section above, which draws the progress bar and words
   // the region's summary. In an effect rather than inline: calling a parent's
@@ -278,79 +299,45 @@ const CardQueue: React.FC<Props> = ({
           </button>
         </div>
       )}
-      {/* The running count and the I/E/D/U legend moved UP into the region's
-          summary line (§2.3) so they are readable while the queue is collapsed.
-          What belongs beside the card is the deferred tray and what is coming
-          next. */}
+
+      <CandidateFilterBar
+        counts={counts}
+        filters={active}
+        shown={visible.length}
+        onChange={setFilters}
+      />
+
       <div style={hintBarStyle}>
-        <button
-          type="button"
-          onClick={() => setShowDeferred((v) => !v)}
-          style={{ ...chipStyle, cursor: "pointer", background: SURFACE }}
-        >
-          {showDeferred ? "Back to queue" : `Deferred (${deferredOf(state).length})`}
-        </button>
+        <span>Move: ↑ ↓ or J K — moving never rules</span>
         {/* D10's next-up hint. Absent rather than "Next up: —" when the following
             card has no ordinal yet: a hint that names nothing is worse than none. */}
-        {!showDeferred && nextUpHint(nextCard?.code) && (
-          <span style={{ marginLeft: "auto", color: "var(--text-muted)" }}>
-            {nextUpHint(nextCard?.code)}
-          </span>
+        {nextUpHint(nextCard?.code) && (
+          <span style={{ marginLeft: "auto" }}>{nextUpHint(nextCard?.code)}</span>
         )}
       </div>
 
-      {showDeferred ? (
-        <DeferQueue cards={deferredOf(state)} />
-      ) : (
-        <div style={shellStyle}>
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-            {card ? (
-              <>
-                <CandidateCard
-                  card={card}
-                  focused
-                  // Item 2: a click dispatches the SAME reducer event a keypress
-                  // does, so every downstream behaviour is inherited rather than
-                  // reimplemented. `typing: false` because a click is never "the
-                  // human is in a text field" — the typing guard exists to stop a
-                  // defer reason being typed into rulings, and a click is not typing.
-                  onRule={(key) => dispatch({ type: "key", key, typing: false })}
-                />
-                {state.mode.kind === "deferring" && (
-                  <DeferPrompt
-                    inputRef={deferInputRef}
-                    draft={state.mode.draft}
-                    onDraft={(draft) => dispatch({ type: "defer_draft", draft })}
-                  />
-                )}
-              </>
-            ) : (
-              <div style={cardStyle}>Nothing left in this queue.</div>
-            )}
-          </div>
-        </div>
+      <CandidateList
+        cards={visible}
+        selectedId={selectedId}
+        notice={state.notice}
+        // An empty list means two different things, and they need two different
+        // sentences: a filter with nothing behind it, or a scenario nobody has
+        // scanned yet.
+        filtered={hasAnyFilter(active)}
+        onSelect={(graphNodeId) => dispatch({ type: "select", graphNodeId })}
+        // A click dispatches the SAME reducer event a keypress does, so every
+        // downstream behaviour is inherited rather than reimplemented.
+        // `typing: false` because a click is never "the human is in a text field".
+        onRule={(key) => dispatch({ type: "key", key, typing: false })}
+      />
+
+      {state.mode.kind === "deferring" && (
+        <DeferPrompt
+          inputRef={deferInputRef}
+          draft={state.mode.draft}
+          onDraft={(draft) => dispatch({ type: "defer_draft", draft })}
+        />
       )}
-
-      {setAside.length > 0 && !showDeferred && (
-        <div style={{ padding: "0.75rem 1rem", fontSize: "0.8rem", color: "var(--text-muted)" }}>
-          {setAside.length} set aside.
-        </div>
-      )}
-
-    </div>
-  );
-};
-
-/** Cards a human has parked, with the reason they gave. */
-const DeferQueue: React.FC<{ cards: ScenarioCard[] }> = ({ cards }) => {
-  if (cards.length === 0) {
-    return <div style={{ padding: "1rem", color: "var(--text-muted)" }}>Nothing deferred.</div>;
-  }
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem", padding: "1rem" }}>
-      {cards.map((card) => (
-        <CandidateCard key={card.graph_node_id} card={card} focused={false} />
-      ))}
     </div>
   );
 };
@@ -361,7 +348,18 @@ const DeferPrompt: React.FC<{
   onDraft: (draft: string) => void;
   inputRef: React.RefObject<HTMLInputElement>;
 }> = ({ draft, onDraft, inputRef }) => (
-  <div style={{ ...cardStyle, gap: "0.5rem" }}>
+  <div
+    style={{
+      background: SURFACE,
+      borderRadius: "var(--radius-card)",
+      boxShadow: "var(--shadow-raised)",
+      padding: "14px 18px",
+      marginTop: "0.75rem",
+      display: "flex",
+      flexDirection: "column",
+      gap: "0.5rem",
+    }}
+  >
     <div style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
       Why defer this? Enter commits · Esc cancels
     </div>
@@ -371,7 +369,7 @@ const DeferPrompt: React.FC<{
           key={reason}
           type="button"
           onClick={() => onDraft(reason)}
-          style={{ ...chipStyle, cursor: "pointer", background: SURFACE }}
+          style={{ ...chipStyle, cursor: "pointer", background: "var(--v3-chrome)" }}
         >
           {i + 1}. {reason}
         </button>
@@ -386,10 +384,5 @@ const DeferPrompt: React.FC<{
     />
   </div>
 );
-
-/** The cards a human has parked, read off the payload. */
-function deferredOf(state: QueueState): ScenarioCard[] {
-  return state.cards.filter((c) => c.defer_reason != null);
-}
 
 export default CardQueue;

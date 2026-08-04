@@ -2,8 +2,8 @@
 // CandidateCard — one §7 candidate, rendered (extracted from CardQueue, 1.7C)
 // =============================================================================
 //
-// The Casey card layout over the §7 payload: C-code · state · question · the quote
-// in its context · speaker · pinpoint · stance · bears-on · the defer notice.
+// The Casey card layout over the §7 payload: C-code · rulings · state chip · the
+// quote in its context · pinpoint · stance · bears-on · one row of metadata chips.
 //
 // ## Why this is its own file
 //
@@ -11,25 +11,43 @@
 // made it longer, so the file that already broke the 300-line limit was about to
 // break it harder. The seam is real rather than convenient: this file is THE CARD
 // (what one candidate looks like) and `CardQueue` is THE QUEUE (which card is
-// focused, what a key does, what a ruling posts). Rule 17 forced the split; the
+// selected, what a key does, what a ruling posts). Rule 17 forced the split; the
 // split is the one a reader would have drawn anyway.
+//
+// ## Two shapes, one card (task 1.7E, item 2)
+//
+// A card the human has already dealt with renders COMPACT — a summary row of
+// C-code, the quote, and its state chip — because 148 full cards in a scroll
+// region is a wall to scroll past to reach the twenty that need a decision.
+// Selecting a compact card expands it: the way back from a ruling is U, and U
+// needs the card it applies to on screen with its buttons.
+//
+// ## The card body no longer carries the not-linked paragraph (item 8)
+//
+// It lives on the button row, beside the two controls it disables (see
+// `RulingButtons.CardHead`). Five stacked metadata lines became one chip row in
+// the same ruling, and the quote in context took the space back — §7.1 says the
+// quote is the card's first element, and now the layout says so too.
 //
 // ## This component renders and does nothing else
 //
 // Every string on screen comes from the 1.2 payload, and which rows a card shows
-// is decided by the pure `cardTriage.cardRows`. This file is the JSX that walks
-// the descriptor. It chooses no words — a `switch` composing prose here would be
-// the frontend inventing vocabulary, which the language law forbids.
+// is decided by the pure `cardRows`. This file is the JSX that walks the
+// descriptor. It chooses no words — a `switch` composing prose here would be the
+// frontend inventing vocabulary, which the language law forbids. The one class of
+// word it owns is the name of its own controls (Include, Defer, "Not ruled"),
+// which is the same class the ruling buttons have always owned.
 //
 // ## Visual language (§2c, binding)
 //
-// Pure white surfaces, hairline borders, regular weight with bold reserved for the
+// Pure white surfaces, no card borders, regular weight with bold reserved for the
 // pinpoint page, one accent, generous line height.
 
 import React, { useMemo, useState } from "react";
 
-import { cardRows, type CardRow } from "./cardTriage";
-import { CardHead, codeBadgeStyle, type RulingKey } from "./RulingButtons";
+import { cardRows, type CardRow } from "./cardRows";
+import { candidateState, stateChip } from "./candidateFilters";
+import { CardHead, StateChipView, codeBadgeStyle, type RulingKey } from "./RulingButtons";
 import { openViewerWindow } from "./viewerWindow";
 import type { ScenarioCard } from "../services/scenarioCards";
 
@@ -48,24 +66,33 @@ export const cardStyle: React.CSSProperties = {
   flexDirection: "column",
   gap: "0.6rem",
   fontWeight: 400,
-  // The unfocused card still lifts off the page, just less. A flat card on a
+  // The unselected card still lifts off the page, just less. A flat card on a
   // tinted canvas reads as a hole rather than a surface.
   boxShadow: "var(--shadow-card)",
 };
 
 /**
- * The FOCUSED card — the one the keyboard is aimed at.
+ * The SELECTED card — the one the keyboard is aimed at.
  *
- * v3 marks focus with ELEVATION (`--shadow-raised`) rather than 1.7C's accent
+ * v3 marks selection with ELEVATION (`--shadow-raised`) rather than 1.7C's accent
  * border. That is not only a style change: the card is the thing a human is about
  * to rule on, and lifting it above its siblings says "this one" in a way a
  * coloured outline competes with the ruling buttons to say.
  */
-const focusedCardStyle: React.CSSProperties = {
+const selectedCardStyle: React.CSSProperties = {
   ...cardStyle,
   boxShadow: "var(--shadow-raised)",
 };
 
+/** The compact row a ruled card collapses to. Same surface, one line of it. */
+const compactCardStyle: React.CSSProperties = {
+  ...cardStyle,
+  flexDirection: "row",
+  alignItems: "center",
+  gap: "12px",
+  padding: "10px 16px",
+  cursor: "pointer",
+};
 
 /** Mockup `.pin` / neutral chips inside the card body. */
 export const chipStyle: React.CSSProperties = {
@@ -75,6 +102,27 @@ export const chipStyle: React.CSSProperties = {
   fontWeight: 500,
   color: "var(--text-secondary)",
   whiteSpace: "nowrap",
+};
+
+/**
+ * A metadata chip in the one-row metadata strip (task 1.7E, item 8).
+ *
+ * ## Why it truncates instead of being shortened
+ *
+ * The payload's words are the payload's words: "Grounded — found on the page" is
+ * the sentence the backend composed, and rewriting it to "✓ grounded" in the
+ * browser would be this file inventing vocabulary. So the chip renders the
+ * sentence verbatim and lets CSS clip what does not fit, with the full text on the
+ * element's `title` — truncation is presentation, paraphrase would be authorship.
+ */
+const metaChipStyle: React.CSSProperties = {
+  ...chipStyle,
+  background: "var(--v3-chrome)",
+  maxWidth: "24ch",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  display: "inline-block",
+  verticalAlign: "middle",
 };
 
 /**
@@ -116,81 +164,111 @@ const markStyle: React.CSSProperties = {
   fontWeight: 500,
 };
 
-
-
-
+/** The one-line quote in a compact row: whatever fits, then an ellipsis. */
+const compactQuoteStyle: React.CSSProperties = {
+  flex: 1,
+  minWidth: 0,
+  fontSize: "13px",
+  color: "var(--text-secondary)",
+  whiteSpace: "nowrap",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+};
 
 // ─── Row rendering ──────────────────────────────────────────────────────────
 
 /**
- * Render one descriptor row.
+ * The pinpoint row — the only interactive row, and so the only one with state.
  *
- * The `element` decides the presentation; the `value` is displayed verbatim.
- * This function chooses no words — a `switch` that composed prose here would be
- * the frontend inventing vocabulary, which the language law forbids.
+ * `href` is optional on the descriptor. It is always present in practice (the
+ * backend composes `viewer_href` for every card, page or no page), but a chip with
+ * nothing to open must not pretend to be a link — it renders as the plain pinpoint
+ * text instead of a dead anchor.
  */
-const Row: React.FC<{ row: CardRow }> = ({ row }) => {
+const PinpointRow: React.FC<{ row: CardRow }> = ({ row }) => {
   // A refused popup has to be SAID, not swallowed (Standing Rule 1). Local to the
   // chip so the message appears where the human just clicked.
   const [blocked, setBlocked] = useState<string | null>(null);
 
-  if (row.element === "pinpoint") {
-    // `href` is optional on the descriptor. It is always present in practice (the
-    // backend composes `viewer_href` for every card, page or no page), but a chip
-    // with nothing to open must not pretend to be a link — it renders as the plain
-    // pinpoint text instead of a dead anchor.
-    if (!row.href) {
-      return (
-        <div>
-          <span style={{ ...chipStyle, color: "var(--text-primary)" }}>{row.value}</span>
-        </div>
-      );
-    }
-    const href = row.href;
+  if (!row.href) {
     return (
       <div>
-        {/* An anchor with an href, driven by onClick — so it still looks and
-            middle-clicks like a link, and a human who wants a tab can have one,
-            while a plain click gets the sized viewer WINDOW (D5).
-            `preventDefault` stops the browser also navigating this page away. */}
-        <a
-          href={href}
-          onClick={(event) => {
-            event.preventDefault();
-            const result = openViewerWindow(href);
-            setBlocked(result.opened ? null : result.message);
-          }}
-          style={{ ...chipStyle, color: "var(--accent-primary)", textDecoration: "none" }}
-        >
-          {row.value} ↗
-        </a>
-        {blocked && (
-          <div
-            role="alert"
-            style={{ marginTop: "0.3rem", fontSize: "0.78rem", color: "var(--state-danger-strong)" }}
-          >
-            {blocked}
-          </div>
-        )}
+        <span style={{ ...chipStyle, color: "var(--text-primary)" }}>{row.value}</span>
       </div>
     );
   }
-
+  const href = row.href;
   return (
-    <div style={{ display: "flex", gap: "0.4rem", alignItems: "center", flexWrap: "wrap" }}>
-      {/* The `quote` element no longer reaches this branch: the anchor is rendered
-          inside the context panel above, marked. Everything else here — speaker,
-          statement kind, stance, bears-on, grounding — is a 13px card line. */}
-      <span style={{ fontSize: "13px", color: "var(--text-secondary)" }}>{row.value}</span>
-      {row.chips?.map((chip) => (
-        <span
-          key={chip}
-          style={{
-            ...chipStyle,
-            background: "var(--v3-chip-alleg-bg)",
-            color: "var(--v3-chip-alleg-text)",
-          }}
+    <div>
+      {/* An anchor with an href, driven by onClick — so it still looks and
+          middle-clicks like a link, and a human who wants a tab can have one,
+          while a plain click gets the sized viewer WINDOW (D5).
+          `preventDefault` stops the browser also navigating this page away. */}
+      <a
+        href={href}
+        onClick={(event) => {
+          event.preventDefault();
+          // …and `stopPropagation` stops the click ALSO selecting the card behind
+          // it: reading a page and aiming the keyboard are two different intents.
+          event.stopPropagation();
+          const result = openViewerWindow(href);
+          setBlocked(result.opened ? null : result.message);
+        }}
+        style={{ ...chipStyle, color: "var(--accent-primary)", textDecoration: "none" }}
+      >
+        {row.value} ↗
+      </a>
+      {blocked && (
+        <div
+          role="alert"
+          style={{ marginTop: "0.3rem", fontSize: "0.78rem", color: "var(--state-danger-strong)" }}
         >
+          {blocked}
+        </div>
+      )}
+    </div>
+  );
+};
+
+/** A prose row with its chips — the stance line and each bears-on line. */
+const TextRow: React.FC<{ row: CardRow }> = ({ row }) => (
+  <div style={{ display: "flex", gap: "0.4rem", alignItems: "center", flexWrap: "wrap" }}>
+    <span style={{ fontSize: "13px", color: "var(--text-secondary)" }}>{row.value}</span>
+    {row.chips?.map((chip) => (
+      <span
+        key={chip}
+        style={{
+          ...chipStyle,
+          background: "var(--v3-chip-alleg-bg)",
+          color: "var(--v3-chip-alleg-text)",
+        }}
+      >
+        {chip}
+      </span>
+    ))}
+  </div>
+);
+
+/**
+ * The §7.3 / §7.7 / §7.8 metadata as ONE row of chips (item 8).
+ *
+ * Roman's ruling, 2026-08-03: the five stacked lines are dead. They cost the card
+ * five vertical inches to say four short things, and the quote — the thing being
+ * ruled on — was pushed down the card by its own metadata.
+ */
+const MetaRow: React.FC<{ card: ScenarioCard }> = ({ card }) => {
+  // Every entry is a payload string, rendered verbatim and carrying itself as its
+  // own tooltip so nothing is lost to the truncation.
+  const chips: string[] = [
+    ...(card.speaker.name ? [card.speaker.name, card.speaker.attribution] : []),
+    ...(card.statement_kind ? [card.statement_kind] : []),
+    ...(card.grounding ? [card.grounding.label] : []),
+    card.confidence.label,
+  ];
+  return (
+    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
+      {chips.map((chip, i) => (
+        <span key={`${chip}-${i}`} style={metaChipStyle} title={chip}>
           {chip}
         </span>
       ))}
@@ -199,26 +277,70 @@ const Row: React.FC<{ row: CardRow }> = ({ row }) => {
 };
 
 /**
- * One candidate card, v3 layout.
+ * One candidate card.
  *
- * `onRule` is optional so a card can render read-only — the DEFERRED TRAY shows
- * parked cards for reference, and putting live ruling buttons on a card that is not
- * the focused one would let a human rule something the keyboard is not aimed at.
+ * `onRule` is optional so a card can render read-only: the ruling buttons belong
+ * to the SELECTED card only. Live buttons on every row of a 148-card list would
+ * let a human rule one card while the keyboard is aimed at another, and the two
+ * input paths would then disagree about which card "I" means.
  */
 export const CandidateCard: React.FC<{
   card: ScenarioCard;
-  focused: boolean;
+  /** The card the keyboard is aimed at. Raised, expanded, and rulable. */
+  selected: boolean;
+  /** Collapse to the summary row. The list passes `ruled && !selected`. */
+  compact: boolean;
+  onSelect: () => void;
   onRule?: (key: RulingKey) => void;
-}> = ({ card, focused, onRule }) => {
+  /** True when I or E was just refused on THIS card (the reducer's `notice`). */
+  keyboardRefused?: boolean;
+}> = ({ card, selected, compact, onSelect, onRule, keyboardRefused = false }) => {
   const rows = useMemo(() => cardRows(card), [card]);
   const code = rows.find((r) => r.element === "code");
-  const status = rows.find((r) => r.element === "status");
-  const body = rows.filter((r) => r.element !== "code" && r.element !== "status");
+  const pinpoint = rows.find((r) => r.element === "pinpoint");
+  const bearsOn = rows.filter((r) => r.element === "bears_on");
+  // The stance row renders ONLY when the card has a real stance. When it has none,
+  // `cardRows` fills the §7.5 slot with the defer reason (the contract test asserts
+  // exactly one of the two is present) — and that sentence now belongs to the
+  // button row rather than the card body (item 8).
+  const stance = card.stance ? rows.find((r) => r.element === "stance") : undefined;
+  const chip = stateChip(candidateState(card));
+
+  if (compact) {
+    return (
+      <div style={compactCardStyle} onClick={onSelect}>
+        <span style={codeBadgeStyle}>{code?.value ?? "—"}</span>
+        <span style={compactQuoteStyle} title={card.quote.text}>
+          {card.quote.text}
+        </span>
+        <StateChipView chip={chip} title={card.defer_reason ?? undefined} />
+      </div>
+    );
+  }
 
   return (
-    <div style={focused ? focusedCardStyle : cardStyle}>
+    <div
+      style={selected ? selectedCardStyle : cardStyle}
+      // A click anywhere on a card aims the keyboard at it.
+      //
+      // Deliberately NOT `role="button"` and not focusable: the card already
+      // contains a link and four buttons, and interactive roles do not nest —
+      // and a focusable card would put a UA focus ring (the OS accent colour,
+      // orange on this machine) around a surface whose whole visual language says
+      // selection is ELEVATION. The accessible path is not tabbing through 148
+      // cards; it is ↑/↓/j/k, which the list handles and the hint bar announces.
+      onClick={onSelect}
+    >
       {onRule ? (
-        <CardHead code={code?.value ?? "—"} state={status?.value} onRule={onRule} />
+        <CardHead
+          code={code?.value ?? "—"}
+          chip={chip}
+          chipTitle={card.defer_reason ?? undefined}
+          deferOnly={card.defer_required}
+          deferOnlyReason={card.defer_required_reason}
+          keyboardRefused={keyboardRefused}
+          onRule={onRule}
+        />
       ) : (
         <div
           style={{
@@ -229,7 +351,7 @@ export const CandidateCard: React.FC<{
           }}
         >
           <span style={codeBadgeStyle}>{code?.value ?? "—"}</span>
-          <span style={{ fontSize: "12.5px", color: "var(--text-muted)" }}>{status?.value}</span>
+          <StateChipView chip={chip} title={card.defer_reason ?? undefined} />
         </div>
       )}
 
@@ -266,11 +388,13 @@ export const CandidateCard: React.FC<{
         )}
       </div>
 
-      {body
-        .filter((r) => r.element !== "quote")
-        .map((row, i) => (
-          <Row key={`${row.element}-${i}`} row={row} />
-        ))}
+      {pinpoint && <PinpointRow row={pinpoint} />}
+      {stance && <TextRow row={stance} />}
+      {bearsOn.map((row, i) => (
+        <TextRow key={`bears_on-${i}`} row={row} />
+      ))}
+
+      <MetaRow card={card} />
 
       {/* A reason a HUMAN gave, distinct from the system's defer notice above. */}
       {card.defer_reason && (
