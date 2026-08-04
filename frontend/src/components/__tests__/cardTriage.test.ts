@@ -730,6 +730,34 @@ describe("a card's own ruling buttons", () => {
     expect(state.ruled).toEqual([]);
   });
 
+  it("RULING R2: ruling the LAST card moves the highlight off where it was", () => {
+    // THE DEFECT THE DEV CLICK-THROUGH CAUGHT, and the reason it got past the
+    // suite: every earlier R2 test either ruled a card with something after it
+    // (so `advance` had somewhere to go) or exercised the filter rescue in
+    // ISOLATION with the selection already sitting on the ruled card. Neither
+    // covers the real sequence — selection on card 1, click Include on card 42.
+    // `advance` returned its input untouched, so the selection stayed on card 1;
+    // the rescue then saw a selection that was still visible and left it there.
+    // Ruling the bottom of the list parked the highlight at the top.
+    const s = stateOf(pool()); // selection is on ev-1, the first card
+    expect(s.index).toBe(0);
+    const after = click(s, "i", "ev-10").state;
+    expect(after.cards[after.index].graph_node_id).toBe("ev-10");
+  });
+
+  it("…and the filter then lands it on the nearest survivor, not the top", () => {
+    // The other half of the same sequence, end to end: the ruled card leaves the
+    // "Rulable now" view, the queue reports the new visible set, and the highlight
+    // has to come to rest beside the work — ev-9 — rather than back at ev-1.
+    const ids = pool().map((c) => c.graph_node_id);
+    let s = queueReducer(stateOf(pool()), { type: "visible", ids }).state;
+    s = click(s, "i", "ev-10").state;
+    s = queueReducer(s, { type: "visible", ids: ids.filter((id) => id !== "ev-10") }).state;
+
+    expect(s.cards[s.index].graph_node_id).toBe("ev-9");
+    expect(s.cards[s.index].graph_node_id).not.toBe("ev-1");
+  });
+
   it("advances from the top of the view when the ruled card is not in it", () => {
     // The recovery path in `advance`: a filter changed under the ruling, so the
     // anchor is nowhere in the visible order. Scanning forward from the start is

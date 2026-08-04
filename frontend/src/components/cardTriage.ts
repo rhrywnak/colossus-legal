@@ -629,6 +629,16 @@ function rule(
     {
       ...state,
       cards,
+      // The selection MOVES TO THE RULED CARD before advancing, and that is
+      // load-bearing rather than tidy. `advance` returns its input untouched when
+      // there is nothing left to advance to — so without this line, ruling the
+      // LAST card in the view left the highlight wherever the human happened to
+      // have it, the filter rescue then found that selection still visible and
+      // left it alone, and the highlight sat at the top of a list whose bottom
+      // card had just been ruled. Caught on DEV by the acceptance click-through,
+      // not by the unit tests, which had only ever exercised the rescue with the
+      // selection already on the ruled card.
+      index: anchor,
       lastRuling: { graphNodeId, action, index: anchor },
       // A card ruled twice counts once — the running count is "how many of the
       // pool have been dealt with", not "how many keys were pressed".
