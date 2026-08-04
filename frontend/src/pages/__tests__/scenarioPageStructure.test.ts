@@ -249,20 +249,48 @@ describe("the v3 visual language (task 1.7D)", () => {
     );
   });
 
-  it("the ruling buttons dispatch the reducer's OWN key event", () => {
-    // Item 2's whole point: one state machine, two input devices. A parallel click
-    // path would be a second machine to keep in step, and buttons that disagree
-    // with the keys are worse than no buttons.
+  it("a ruling button NAMES its card — no shared index in the click path", () => {
+    // THE 1.7G FENCE (ruling R1). This assertion used to require the opposite:
+    // `dispatch({ type: "key", key, typing: false })`, a click event with no target
+    // that the reducer resolved through `state.cards[state.index]`. That shared
+    // index was the beta.369 defect — every button in a 148-card list aimed at
+    // whatever happened to be selected. If someone restores the untargeted
+    // dispatch, this fails.
     const queue = read("components", "CardQueue.tsx");
-    expect(queue).toContain('dispatch({ type: "key", key, typing: false })');
+    expect(queue).toContain('dispatch({ type: "rule", key, graphNodeId })');
+    expect(queue).not.toContain('dispatch({ type: "key", key, typing: false })');
+
+    // …and the id comes from the card's own render scope, not from the queue.
+    const list = read("components", "CandidateList.tsx");
+    expect(list).toContain("onRule(key, card.graph_node_id)");
   });
 
-  it("cardTriage.ts is untouched by the button work", () => {
-    // The 31 §7 tests test the reducer. If the reducer grew a click event, they
-    // would still pass while the contract they protect had quietly widened.
+  it("a ruling button does not also select its card", () => {
+    // The second half of the same defect: the button sits inside a card whose
+    // onClick selects it, so one physical click produced two dispatches and the
+    // second destroyed the auto-advance. Removing this `stopPropagation` puts the
+    // human back at the top of the list after every mouse ruling.
+    const buttons = read("components", "RulingButtons.tsx");
+    expect(buttons).toContain("event.stopPropagation()");
+  });
+
+  it("every card in the list carries its own controls", () => {
+    // Ruling R1: the acceptance test clicks the LAST card's Include without
+    // selecting it first, which is only possible if that card HAS an Include.
+    // `onRule={selected ? onRule : undefined}` is what made 147 of 148 rows inert.
+    const list = read("components", "CandidateList.tsx");
+    expect(list).not.toContain("selected ? onRule : undefined");
+  });
+
+  it("cardTriage.ts knows what a ruling targets, but nothing about the DOM", () => {
+    // The reducer had to learn that a ruling names its card (1.7G) — that is state
+    // machine business, and its tests cover it. What it must still not learn is
+    // chrome: no component callbacks, no click plumbing, no element concepts, or
+    // the §7 contract stops being testable without a browser.
     const reducer = read("components", "cardTriage.ts");
     expect(reducer).not.toContain("onRule");
     expect(reducer).not.toContain('type: "click"');
+    expect(reducer).not.toContain("document.");
   });
 
   it("the status toggle button is gone, replaced by the segmented control", () => {

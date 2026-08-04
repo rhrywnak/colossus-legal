@@ -14,15 +14,31 @@
 // see where the ~24 rulable candidates sit. So the queue is now a scrollable,
 // filterable list:
 //
-//   * `CandidateFilterBar` — v3 pills with visible counts (ruling R1)
+//   * `CandidateFilterBar` — the Status and Scan selects, and the counter line
 //   * `CandidateList`      — every card in the filter, one of them selected
-//   * `cardTriage`         — which card is selected, and what a key does
+//   * `cardTriage`         — what a key does, and what a card's own buttons do
 //   * `candidateFilters`   — which cards a filter leaves, and how many of each
+//
+// ## Task 1.7G — every card rules itself, and the filters are dropdowns
+//
+// Roman worked a real 148-candidate pool on beta.369 and found the list unusable
+// in two ways this task fixes:
+//
+//   * Only the first card could be acted on. Two mechanisms together: buttons
+//     rendered on the SELECTED card alone, and every ruling resolved its target
+//     through one shared index — so a mouse ruling also fired the card's select
+//     handler, destroyed the auto-advance, and left the human at the top of the
+//     list. Both are gone: a ruling now names its card (`{type: "rule"}`), the
+//     buttons stop their own clicks from selecting, and the highlight lands
+//     relative to the card that was RULED (ruling R2).
+//   * The filter was two anonymous rows of count-pills. They are replaced by the
+//     Bias Analysis page's pattern — two labelled selects and a Clear filters
+//     link — which is what Roman asked for twice before 1.7E built pills.
 //
 // ## The deferred TRAY is gone, and it was not dropped
 //
 // A "Deferred (n)" button used to swap the whole queue for a read-only tray of
-// parked cards. That is now a filter pill beside the other five, which is strictly
+// parked cards. That is now a Status facet beside the other five, which is strictly
 // more: the same cards, in the same list, still selectable and still rulable — a
 // parked card can be picked up again without leaving the view it is listed in.
 // Keeping both would have meant two surfaces answering "what is deferred?", and
@@ -84,7 +100,18 @@ const hintBarStyle: React.CSSProperties = {
   color: "var(--text-muted)",
 };
 
-/** The keys the list acts on. Listed once, so the guard and the reducer agree. */
+// CONST: the keys the list acts on. Listed once so the preventDefault guard and
+// the reducer cannot disagree about which keystrokes the queue owns.
+//
+// These are UI affordances rather than configuration, on the same reasoning as
+// `DEFER_QUICK_REASONS`: I/E/D/U is the one-key screening convention the study's
+// tools ship (Rayyan, Relativity), and the letters are baked into the button
+// labels, their `aria-label`s and the `<kbd>` chips beside them. A remapping
+// setting would have to rewrite all of those to stay honest, so its only real
+// effect would be to let a human make the screen lie about its own controls.
+//
+// They are also case-agnostic: nothing here names a party, a document or a
+// claim, so another Colossus case runs them unchanged (Standing Rule 2).
 const RULING_KEYS = ["i", "e", "d", "u"];
 const NAVIGATION_KEYS = ["arrowup", "arrowdown", "j", "k"];
 
@@ -170,7 +197,7 @@ const CardQueue: React.FC<Props> = ({
       const cards: ScenarioCardsResponse = await fetchScenarioCards(slug, scenarioId);
       // Both lists, in one pool. The backend partitions the DROPPED candidates
       // into `set_aside` (they are out of the working queue), but the list has an
-      // "Excluded (n)" pill and it has to count something real — and "All" must
+      // "Excluded (n)" option and it has to count something real — and "All" must
       // not shrink every time Roman excludes a card, or the denominator would move
       // under the counts (§9).
       //
@@ -180,7 +207,13 @@ const CardQueue: React.FC<Props> = ({
       dispatch({ type: "cards_loaded", cards: [...cards.pool, ...cards.set_aside] });
       setError(null);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to load the candidate queue.");
+      // Name WHAT failed, WHERE, and WHY. The scenario is in scope here and the
+      // human may have several open, so a bare "failed to load" leaves them
+      // guessing which one broke — and a non-`Error` throw used to lose the cause
+      // entirely (Standing Rule 1: a failure a reader cannot diagnose is
+      // incomplete error handling).
+      const cause = e instanceof Error ? e.message : String(e);
+      setError(`Could not load the candidates for scenario ${scenarioId} (${slug}): ${cause}`);
     } finally {
       setLoading(false);
     }
@@ -227,7 +260,7 @@ const CardQueue: React.FC<Props> = ({
   }, [state.mode.kind]);
 
   // ONE derivation of the counts and ONE of the visible list (ruling R1): a second
-  // pass anywhere here is a number that can disagree with the pills.
+  // pass anywhere here is a number that can disagree with the filter row.
   const counts = useMemo(() => candidateCounts(state.cards), [state.cards]);
   const active = filters ?? UNFILTERED;
   const visible = useMemo(() => filterCandidates(state.cards, active), [state.cards, active]);
@@ -325,10 +358,12 @@ const CardQueue: React.FC<Props> = ({
         // scanned yet.
         filtered={hasAnyFilter(active)}
         onSelect={(graphNodeId) => dispatch({ type: "select", graphNodeId })}
-        // A click dispatches the SAME reducer event a keypress does, so every
-        // downstream behaviour is inherited rather than reimplemented.
-        // `typing: false` because a click is never "the human is in a text field".
-        onRule={(key) => dispatch({ type: "key", key, typing: false })}
+        // A ruling names its card (1.7G, ruling R1). The id comes up from the
+        // card's own render scope, so this queue never has to guess which card a
+        // button meant — and there is no "current index" here for it to guess
+        // with. The keyboard's own path, above, is the one that reads the
+        // selection, because the selection is what a keyboard is aimed at.
+        onRule={(key, graphNodeId) => dispatch({ type: "rule", key, graphNodeId })}
       />
 
       {state.mode.kind === "deferring" && (

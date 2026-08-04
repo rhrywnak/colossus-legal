@@ -76,7 +76,7 @@ export function candidateState(card: ScenarioCard): CandidateState {
  *
  * A defer-only card is genuinely not ruled — it is in the pool, awaiting a
  * decision that cannot be made until linking arrives (task 2.10). Counting it as
- * its own state would make "Not ruled" understate the work left. So the pills
+ * its own state would make "Not ruled" understate the work left. So the options
  * show a partition (all four states sum to All) plus this one deliberate subset,
  * which the bar labels as such so no reader adds it into the total.
  */
@@ -219,19 +219,28 @@ export function defaultFilters(counts: CandidateCounts): CandidateFilters {
   return { state: counts.rulable > 0 ? "rulable" : "not_ruled", scanned: "any" };
 }
 
-// ─── The pills ──────────────────────────────────────────────────────────────
+// ─── The dropdown options ───────────────────────────────────────────────────
 
 /**
- * One filter pill, as data.
+ * One option in a filter dropdown, as data.
  *
- * `hint` is the pill's tooltip: what the facet MEANS, said in a sentence, because
- * a two-word pill with a number on it invites a reader to guess (is "Rulable now"
- * part of "Not ruled", or beside it?) and §9 does not permit guessing.
+ * ## From pills to selects (task 1.7G, Roman's ruling)
+ *
+ * 1.7E's ruling R1 declined `<select>` dropdowns on the grounds that a count
+ * inside a closed dropdown is a count nobody can see. Roman overruled it: he had
+ * named the Bias Analysis page's filter controls as the pattern twice, and the
+ * pill rows were a pattern he never approved. His ruling R3 answers R1's objection
+ * on its own terms — the options CARRY their counts, exactly as the Bias Analysis
+ * page's do ("Rulable now (42)"), so nothing is lost but the two rows of chips.
+ *
+ * `hint` is what the facet MEANS, said in a sentence, because a two-word label
+ * with a number on it invites a reader to guess (is "Rulable now" part of "Not
+ * ruled", or beside it?) and §9 does not permit guessing.
  */
-export type FilterPill<F> = { facet: F; label: string; count: number; hint: string };
+export type FilterOption<F> = { facet: F; label: string; count: number; hint: string };
 
-/** The state pills, in display order. Counts come from the one derivation. */
-export function statePills(counts: CandidateCounts): FilterPill<StateFacet>[] {
+/** The Status options, in display order. Counts come from the one derivation. */
+export function stateOptions(counts: CandidateCounts): FilterOption<StateFacet>[] {
   return [
     {
       facet: "all",
@@ -275,8 +284,8 @@ export function statePills(counts: CandidateCounts): FilterPill<StateFacet>[] {
   ];
 }
 
-/** The scanned-facet pills. Roman's skepticism filter, said out loud. */
-export function scannedPills(counts: CandidateCounts): FilterPill<ScannedFacet>[] {
+/** The Scan options. Roman's skepticism filter, said out loud. */
+export function scannedOptions(counts: CandidateCounts): FilterOption<ScannedFacet>[] {
   return [
     {
       facet: "any",
@@ -302,7 +311,7 @@ export function scannedPills(counts: CandidateCounts): FilterPill<ScannedFacet>[
 }
 
 /**
- * The counter line under the pills, in the list's own noun.
+ * The counter line under the filter row, in the list's own noun.
  *
  * The §9 honesty rule itself lives in the shared helper (ruling R1) and is shared
  * with the Bias Explorer's bar; what this function contributes is the word

@@ -26,7 +26,7 @@ import React, { useEffect, useRef } from "react";
 
 import { CandidateCard } from "./CandidateCard";
 import { candidateState } from "./candidateFilters";
-import type { RulingKey } from "./RulingButtons";
+import type { RulingKey } from "./cardTriage";
 import type { ScenarioCard } from "../services/scenarioCards";
 
 /**
@@ -74,7 +74,14 @@ const CandidateList: React.FC<{
    */
   filtered: boolean;
   onSelect: (graphNodeId: string) => void;
-  onRule: (key: RulingKey) => void;
+  /**
+   * Rule one NAMED card (1.7G, ruling R1).
+   *
+   * The id is the second argument rather than something the queue infers, and
+   * every card below binds it from its own render scope. That is the whole fix:
+   * the target travels with the button, so no shared position can decide it.
+   */
+  onRule: (key: RulingKey, graphNodeId: string) => void;
 }> = ({ cards, selectedId, notice, filtered, onSelect, onRule }) => {
   // One ref for the selected row, re-pointed on every render. A map of refs would
   // let the effect scroll a card that is no longer selected.
@@ -121,11 +128,14 @@ const CandidateList: React.FC<{
               selected={selected}
               // A ruled card collapses UNLESS it is selected: selecting it is how a
               // human reaches U to take the ruling back, and U needs the buttons.
+              // Unruled cards never collapse, so under "Rulable now" — the default
+              // view — every card on screen shows its own four controls.
               compact={candidateState(card) !== "not_ruled" && !selected}
               onSelect={() => onSelect(card.graph_node_id)}
-              // Ruling controls belong to the selected card alone — see the
-              // `onRule` note on `CandidateCard`.
-              onRule={selected ? onRule : undefined}
+              // THE FIX, in one line: the handler closes over THIS card's id, in
+              // this iteration's scope. Every card in the list gets live controls
+              // and each one can only ever rule itself.
+              onRule={(key) => onRule(key, card.graph_node_id)}
               keyboardRefused={selected && notice !== null}
             />
           </div>

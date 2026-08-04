@@ -47,7 +47,8 @@ import React, { useMemo, useState } from "react";
 
 import { cardRows, type CardRow } from "./cardRows";
 import { candidateState, stateChip } from "./candidateFilters";
-import { CardHead, StateChipView, codeBadgeStyle, type RulingKey } from "./RulingButtons";
+import type { RulingKey } from "./cardTriage";
+import { CardHead, StateChipView, codeBadgeStyle } from "./RulingButtons";
 import { openViewerWindow } from "./viewerWindow";
 import type { ScenarioCard } from "../services/scenarioCards";
 
@@ -279,19 +280,26 @@ const MetaRow: React.FC<{ card: ScenarioCard }> = ({ card }) => {
 /**
  * One candidate card.
  *
- * `onRule` is optional so a card can render read-only: the ruling buttons belong
- * to the SELECTED card only. Live buttons on every row of a 148-card list would
- * let a human rule one card while the keyboard is aimed at another, and the two
- * input paths would then disagree about which card "I" means.
+ * ## `onRule` is required, and it is THIS card's (1.7G, ruling R1)
+ *
+ * It used to be optional, because the ruling buttons belonged to the selected card
+ * alone — the argument being that live buttons everywhere would let a human rule
+ * one card while the keyboard was aimed at another. That argument was answered the
+ * wrong way round: the two input paths do not disagree about which card "I" means,
+ * because they no longer share a target. The keyboard rules the card it is aimed
+ * at (the selected one) and a button rules the card it is printed on, and the
+ * caller binds this callback to that card's id. So every card carries its own
+ * controls and none of them can reach another card.
  */
 export const CandidateCard: React.FC<{
   card: ScenarioCard;
-  /** The card the keyboard is aimed at. Raised, expanded, and rulable. */
+  /** The card the keyboard is aimed at. Raised and expanded. */
   selected: boolean;
   /** Collapse to the summary row. The list passes `ruled && !selected`. */
   compact: boolean;
   onSelect: () => void;
-  onRule?: (key: RulingKey) => void;
+  /** Already bound to THIS card by the list — see the note above. */
+  onRule: (key: RulingKey) => void;
   /** True when I or E was just refused on THIS card (the reducer's `notice`). */
   keyboardRefused?: boolean;
 }> = ({ card, selected, compact, onSelect, onRule, keyboardRefused = false }) => {
@@ -323,6 +331,10 @@ export const CandidateCard: React.FC<{
       style={selected ? selectedCardStyle : cardStyle}
       // A click anywhere on a card aims the keyboard at it.
       //
+      // It does NOT rule anything: the ruling buttons stop their own clicks from
+      // reaching here (see `RulingButtons`), so pressing Include is not also a
+      // request to aim the keyboard at that card.
+      //
       // Deliberately NOT `role="button"` and not focusable: the card already
       // contains a link and four buttons, and interactive roles do not nest —
       // and a focusable card would put a UA focus ring (the OS accent colour,
@@ -331,29 +343,15 @@ export const CandidateCard: React.FC<{
       // cards; it is ↑/↓/j/k, which the list handles and the hint bar announces.
       onClick={onSelect}
     >
-      {onRule ? (
-        <CardHead
-          code={code?.value ?? "—"}
-          chip={chip}
-          chipTitle={card.defer_reason ?? undefined}
-          deferOnly={card.defer_required}
-          deferOnlyReason={card.defer_required_reason}
-          keyboardRefused={keyboardRefused}
-          onRule={onRule}
-        />
-      ) : (
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            marginBottom: "14px",
-          }}
-        >
-          <span style={codeBadgeStyle}>{code?.value ?? "—"}</span>
-          <StateChipView chip={chip} title={card.defer_reason ?? undefined} />
-        </div>
-      )}
+      <CardHead
+        code={code?.value ?? "—"}
+        chip={chip}
+        chipTitle={card.defer_reason ?? undefined}
+        deferOnly={card.defer_required}
+        deferOnlyReason={card.defer_required_reason}
+        keyboardRefused={keyboardRefused}
+        onRule={onRule}
+      />
 
       {/* §7.1 — the question that makes a bare answer interpretable, then the
           quote in its surrounding text.

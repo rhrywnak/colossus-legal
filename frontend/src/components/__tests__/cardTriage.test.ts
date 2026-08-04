@@ -261,14 +261,19 @@ describe("the typing guard", () => {
 describe("defer", () => {
   it("D opens the prompt on an ordinary card", () => {
     const { state, effect } = press(stateOf([fullCard()]), "d");
-    expect(state.mode).toEqual({ kind: "deferring", draft: "" });
+    // The prompt remembers the CARD it was opened on (1.7G) as well as the draft.
+    expect(state.mode).toEqual({ kind: "deferring", draft: "", graphNodeId: "ev-1" });
     expect(effect).toEqual({ kind: "none" });
   });
 
   it("a digit picks a quick reason without leaving the keyboard", () => {
     let s = press(stateOf([fullCard()]), "d").state;
     s = press(s, "2").state;
-    expect(s.mode).toEqual({ kind: "deferring", draft: DEFER_QUICK_REASONS[1] });
+    expect(s.mode).toEqual({
+      kind: "deferring",
+      draft: DEFER_QUICK_REASONS[1],
+      graphNodeId: "ev-1",
+    });
   });
 
   it("Enter commits the drafted reason and closes the prompt", () => {
@@ -486,10 +491,42 @@ describe("the filtered order", () => {
     expect(s.cards[s.index].graph_node_id).toBe("ev-3");
   });
 
-  it("a filter that hides the selected card selects the first visible one", () => {
+  it("a filter that hides the selected card lands on the nearest one after it", () => {
     let s = queueReducer(stateOf(pool()), { type: "select", graphNodeId: "ev-2" }).state;
     s = visible(s, ["ev-3"]);
     expect(s.cards[s.index].graph_node_id).toBe("ev-3");
+  });
+
+  it("RULING R2: it does NOT jump to the top of the list", () => {
+    // THE beta.369 DEFECT, as a test. Selection on ev-3, filter leaves ev-1 and
+    // ev-3's neighbour ev-4 — the old rescue sent the selection to order[0] (ev-1,
+    // the top), which is what threw Roman back to card 1 after every mouse ruling.
+    const cards = [
+      fullCard({ graph_node_id: "ev-1" }),
+      fullCard({ graph_node_id: "ev-2" }),
+      fullCard({ graph_node_id: "ev-3" }),
+      fullCard({ graph_node_id: "ev-4" }),
+    ];
+    let s = queueReducer(stateOf(cards), { type: "select", graphNodeId: "ev-3" }).state;
+    s = visible(s, ["ev-1", "ev-4"]);
+    expect(s.cards[s.index].graph_node_id).toBe("ev-4");
+    expect(s.cards[s.index].graph_node_id).not.toBe("ev-1");
+  });
+
+  it("falls back to the nearest card BEFORE it when nothing survives after", () => {
+    // Ruling the last card in the view: being left at the bottom, where the work
+    // was, beats being thrown to the top of a list already dealt with.
+    let s = queueReducer(stateOf(pool()), { type: "select", graphNodeId: "ev-3" }).state;
+    s = visible(s, ["ev-1", "ev-2"]);
+    expect(s.cards[s.index].graph_node_id).toBe("ev-2");
+  });
+
+  it("leaves the selection where it is when the view is empty", () => {
+    // The only case with nowhere to go. Moving to a card nobody can see would be
+    // worse than standing still.
+    let s = queueReducer(stateOf(pool()), { type: "select", graphNodeId: "ev-2" }).state;
+    s = visible(s, []);
+    expect(s.cards[s.index].graph_node_id).toBe("ev-2");
   });
 
   it("leaves the selection alone when it survives the filter", () => {
@@ -508,6 +545,199 @@ describe("the filtered order", () => {
     expect(queueReducer(stateOf(pool()), { type: "visible", ids: ["ev-2"] }).effect).toEqual({
       kind: "none",
     });
+  });
+});
+
+// ─── Every card rules itself (task 1.7G, ruling R1) ─────────────────────────
+
+describe("a card's own ruling buttons", () => {
+  /** Ten cards, so "the last one" is nowhere near "the selected one". */
+  const pool = () =>
+    Array.from({ length: 10 }, (_, i) => fullCard({ graph_node_id: `ev-${i + 1}`, code: `C-${i}` }));
+
+  /** Click a ruling button ON a named card — the `{type: "rule"}` path. */
+  function click(state: QueueState, key: "i" | "e" | "d" | "u", graphNodeId: string) {
+    return queueReducer(state, { type: "rule", key, graphNodeId });
+  }
+
+  it("THE ACCEPTANCE TEST: Include on the LAST card, with the FIRST selected", () => {
+    // Roman's complaint, verbatim, as a test: "open Rulable now, scroll to the LAST
+    // card in the list, click its Include button first. That card — and no other —
+    // is included." Nothing is selected but card 1; the ruling must not care.
+    const s = stateOf(pool());
+    expect(s.index).toBe(0);
+
+    const { state, effect } = click(s, "i", "ev-10");
+
+    expect(effect).toEqual({
+      kind: "rule",
+      graphNodeId: "ev-10",
+      action: "include",
+      reason: undefined,
+    });
+    expect(state.cards.find((c) => c.graph_node_id === "ev-10")?.status).toBe("included");
+  });
+
+  it("and NO OTHER card is touched", () => {
+    // The other half of the sentence, and the half a passing effect assertion can
+    // still hide: cards 1–9 must be exactly as they were.
+    const before = stateOf(pool());
+    const after = click(before, "i", "ev-10").state;
+
+    for (const card of after.cards) {
+      if (card.graph_node_id === "ev-10") continue;
+      expect(card.status, `${card.graph_node_id} was changed`).toBe("undecided");
+      expect(card.defer_reason).toBeNull();
+    }
+    expect(after.ruled).toEqual(["ev-10"]);
+  });
+
+  it("rules the card the button is on, not the one the keyboard is aimed at", () => {
+    // The defect in one assertion. Select ev-2, then click ev-7's Exclude: the
+    // shared-index reducer would have dropped ev-2.
+    const selected = queueReducer(stateOf(pool()), {
+      type: "select",
+      graphNodeId: "ev-2",
+    }).state;
+    const { effect } = click(selected, "e", "ev-7");
+    expect(effect).toMatchObject({ graphNodeId: "ev-7", action: "drop" });
+  });
+
+  it("RULING R2: the highlight lands after the card that was RULED", () => {
+    // Not after the previous selection. Selection sits on ev-2; ruling ev-7 leaves
+    // the human at ev-8, which is where their hand is — not at ev-3.
+    const selected = queueReducer(stateOf(pool()), {
+      type: "select",
+      graphNodeId: "ev-2",
+    }).state;
+    const after = click(selected, "i", "ev-7").state;
+    expect(after.cards[after.index].graph_node_id).toBe("ev-8");
+  });
+
+  it("the keyboard still rules the SELECTED card", () => {
+    // The other input device is untouched by R1: I aims where the keyboard is
+    // aimed, which is the selection.
+    const selected = queueReducer(stateOf(pool()), {
+      type: "select",
+      graphNodeId: "ev-4",
+    }).state;
+    expect(press(selected, "i").effect).toMatchObject({ graphNodeId: "ev-4" });
+  });
+
+  it("undo takes back the most recent ruling whichever card's U is pressed", () => {
+    // Single-step undo is not card-scoped, and must not become so: every card's U
+    // is the same one step back. Rule ev-9, then press ev-1's U.
+    const ruled = click(stateOf(pool()), "i", "ev-9").state;
+    const { state, effect } = click(ruled, "u", "ev-1");
+
+    expect(effect).toEqual({ kind: "rule", graphNodeId: "ev-9", action: "reopen" });
+    expect(state.cards.find((c) => c.graph_node_id === "ev-9")?.status).toBe("undecided");
+    expect(state.lastRuling).toBeNull();
+  });
+
+  it("a defer button opens the prompt ON ITS OWN card", () => {
+    const { state } = click(stateOf(pool()), "d", "ev-6");
+    expect(state.mode).toEqual({ kind: "deferring", draft: "", graphNodeId: "ev-6" });
+  });
+
+  it("and the reason commits to that card even if the selection moved meanwhile", () => {
+    // The prompt is open on ev-6 while the human clicks another card to read it.
+    // Enter must still defer ev-6 — the card they opened the prompt for.
+    let s = click(stateOf(pool()), "d", "ev-6").state;
+    s = queueReducer(s, { type: "select", graphNodeId: "ev-1" }).state;
+    s = queueReducer(s, { type: "defer_draft", draft: "need the full page" }).state;
+    const { effect } = press(s, "Enter");
+
+    expect(effect).toEqual({
+      kind: "rule",
+      graphNodeId: "ev-6",
+      action: "defer",
+      reason: "need the full page",
+    });
+  });
+
+  it("a click on another card's button abandons an open prompt rather than eating it", () => {
+    // The prompt owns the KEYBOARD, not the mouse. Swallowing a click on a named
+    // card's own button would be the dead-keyboard defect in mouse form.
+    const open = click(stateOf(pool()), "d", "ev-6").state;
+    const { state, effect } = click(open, "i", "ev-3");
+
+    expect(effect).toMatchObject({ graphNodeId: "ev-3", action: "include" });
+    expect(state.mode).toEqual({ kind: "triage" });
+  });
+
+  it("but Defer again on the SAME card keeps the half-typed reason", () => {
+    let s = click(stateOf(pool()), "d", "ev-6").state;
+    s = queueReducer(s, { type: "defer_draft", draft: "half a thou" }).state;
+    const { state, effect } = click(s, "d", "ev-6");
+
+    expect(effect).toEqual({ kind: "none" });
+    expect(state.mode).toEqual({ kind: "deferring", draft: "half a thou", graphNodeId: "ev-6" });
+  });
+
+  it("refuses I on a defer-only card and shows the reason ON that card", () => {
+    // The refusal selects the card it is about, so the sentence appears where the
+    // human just acted rather than beside whatever was selected.
+    const cards = [fullCard({ graph_node_id: "ev-1" }), unrulableCard("ev-222")];
+    const { state, effect } = click(stateOf(cards), "i", "ev-222");
+
+    expect(effect).toEqual({ kind: "none" });
+    expect(state.notice).toBe(cards[1].defer_required_reason);
+    expect(state.cards[state.index].graph_node_id).toBe("ev-222");
+  });
+
+  it("ignores a click on a card the pool no longer holds", () => {
+    // A reload landing mid-click. Ruling something the human cannot see is worse
+    // than dropping one click.
+    const { state, effect } = click(stateOf(pool()), "i", "ev-gone");
+    expect(effect).toEqual({ kind: "none" });
+    expect(state.ruled).toEqual([]);
+  });
+
+  it("the Defer BUTTON takes the server's reason in one press, like the key does", () => {
+    // The two callers of `rulingOn` are only equivalent if both reach the same
+    // branches. The keyboard's short-circuit on a defer-only card has been tested
+    // since 1.7C; this is the same branch reached through the button, and without
+    // it a click could open an empty prompt where the key writes the ruling.
+    const cards = [fullCard({ graph_node_id: "ev-1" }), unrulableCard("ev-222")];
+    const { state, effect } = click(stateOf(cards), "d", "ev-222");
+
+    expect(effect).toEqual({
+      kind: "rule",
+      graphNodeId: "ev-222",
+      action: "defer",
+      reason: cards[1].defer_required_reason,
+    });
+    expect(state.mode).toEqual({ kind: "triage" });
+  });
+
+  it("closes the prompt without ruling when its card leaves the pool mid-typing", () => {
+    // Reachable, not theoretical: `cards_loaded` does not close an open prompt, so
+    // a reload that drops the card while the human is typing their reason leaves
+    // the prompt pointing at a card that is gone. Enter must then write NOTHING —
+    // the alternative is a defer against whatever else is in scope, which is the
+    // class of bug the target-carrying prompt exists to prevent.
+    let s = click(stateOf(pool()), "d", "ev-6").state;
+    s = queueReducer(s, { type: "defer_draft", draft: "waiting on a clean copy" }).state;
+    s = queueReducer(s, {
+      type: "cards_loaded",
+      cards: pool().filter((c) => c.graph_node_id !== "ev-6"),
+    }).state;
+    const { state, effect } = press(s, "Enter");
+
+    expect(effect).toEqual({ kind: "none" });
+    expect(state.mode).toEqual({ kind: "triage" });
+    expect(state.ruled).toEqual([]);
+  });
+
+  it("advances from the top of the view when the ruled card is not in it", () => {
+    // The recovery path in `advance`: a filter changed under the ruling, so the
+    // anchor is nowhere in the visible order. Scanning forward from the start is
+    // the honest landing — it puts the human on the first thing still to do
+    // rather than leaving the selection on a card the filter is hiding.
+    let s = queueReducer(stateOf(pool()), { type: "visible", ids: ["ev-3", "ev-4"] }).state;
+    s = click(s, "i", "ev-1").state;
+    expect(s.cards[s.index].graph_node_id).toBe("ev-3");
   });
 });
 

@@ -20,8 +20,8 @@ import {
   isRulableNow,
   isScanScored,
   stateChip,
-  statePills,
-  scannedPills,
+  stateOptions,
+  scannedOptions,
   UNFILTERED,
   type CandidateFilters,
 } from "../candidateFilters";
@@ -195,21 +195,46 @@ describe("candidateCounts", () => {
     expect(candidateCounts([])).toMatchObject({ all: 0, not_ruled: 0, rulable: 0 });
   });
 
-  it("agrees with the pills it feeds", () => {
-    // The pills read the same derivation — this asserts nobody has slipped a second
-    // count in between (ruling R1).
-    const pills = statePills(counts);
-    expect(pills.find((p) => p.facet === "all")?.count).toBe(counts.all);
-    expect(pills.find((p) => p.facet === "rulable")?.count).toBe(counts.rulable);
-    expect(scannedPills(counts).find((p) => p.facet === "never")?.count).toBe(
+  it("agrees with the dropdown options it feeds", () => {
+    // The options read the same derivation — this asserts nobody has slipped a
+    // second count in between (ruling R1, the half that survives 1.7G).
+    const options = stateOptions(counts);
+    expect(options.find((o) => o.facet === "all")?.count).toBe(counts.all);
+    expect(options.find((o) => o.facet === "rulable")?.count).toBe(counts.rulable);
+    expect(scannedOptions(counts).find((o) => o.facet === "never")?.count).toBe(
       counts.never_scanned,
     );
   });
 
-  it("says on the Rulable pill that it is part of Not ruled", () => {
-    // The one overlapping pill has to declare itself, or a reader adds it in.
-    const rulable = statePills(counts).find((p) => p.facet === "rulable");
+  it("every option carries its count into the dropdown (ruling R3)", () => {
+    // 1.7E's R1 declined selects because "a count inside a closed dropdown is a
+    // count nobody can see". R3 overrules it on the condition that the counts come
+    // WITH the options, Bias-Analysis style — so an option with no count is the
+    // regression that ruling was worried about.
+    for (const option of [...stateOptions(counts), ...scannedOptions(counts)]) {
+      expect(option.count, `${option.label} has no count`).toBeTypeOf("number");
+    }
+  });
+
+  it("says on the Rulable option that it is part of Not ruled", () => {
+    // The one overlapping facet has to declare itself, or a reader adds it in.
+    const rulable = stateOptions(counts).find((o) => o.facet === "rulable");
     expect(rulable?.hint).toContain("Part of Not ruled");
+  });
+
+  it("offers exactly the six Status facets and three Scan facets the design names", () => {
+    // The signed design lists them: All · Not ruled · Rulable now · Deferred ·
+    // Included · Excluded, and Any · Scored by a scan · Never scanned. A facet
+    // added or dropped here changes what a human can ask for.
+    expect(stateOptions(counts).map((o) => o.facet)).toEqual([
+      "all",
+      "not_ruled",
+      "rulable",
+      "deferred",
+      "included",
+      "excluded",
+    ]);
+    expect(scannedOptions(counts).map((o) => o.facet)).toEqual(["any", "scored", "never"]);
   });
 });
 
@@ -226,7 +251,7 @@ describe("filterCandidates", () => {
     expect(shown(UNFILTERED)).toBe(pool.length);
   });
 
-  it("each state facet shows exactly what its pill counted", () => {
+  it("each state facet shows exactly what its option counted", () => {
     const counts = candidateCounts(pool);
     expect(shown({ state: "not_ruled", scanned: "any" })).toBe(counts.not_ruled);
     expect(shown({ state: "rulable", scanned: "any" })).toBe(counts.rulable);

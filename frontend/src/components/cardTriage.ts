@@ -22,6 +22,27 @@
 //   * the optimistic card patch — every card now wears its state as a chip, so a
 //     ruling has to be visible on the card the instant it is made.
 //
+// ## What 1.7G changed, and why it had to be here (Roman's ruling R1)
+//
+// Until 1.7G a ruling had exactly one possible target: `state.cards[state.index]`.
+// That single "current position" was the defect — every ruling button in a
+// 148-card list aimed at whatever the selection happened to be, so which card a
+// button ruled depended on click order rather than on the card it was printed on.
+// The signed design says it plainly: "There is no hidden 'current position'
+// deciding the target."
+//
+// So a ruling now names its card. Two events reach the same semantics:
+//
+//   * `{ type: "key" }`   — the KEYBOARD, which acts on the selected card because
+//                           the selection is what a keyboard is aimed at.
+//   * `{ type: "rule" }`  — a BUTTON, which carries the id of the card it is
+//                           printed on, resolved in that card's own render scope.
+//
+// Both funnel into `rulingOn`, so there is still one set of §7 semantics and one
+// place they can change — the thing 1.7D's "one state machine, two input devices"
+// was protecting. What was wrong was not the shared machine; it was the shared
+// INDEX standing in for a target the caller already knew.
+//
 // The §7 ruling semantics are unchanged and extended, never weakened: one-key
 // I/E/D on the selected card, U single-step undo, auto-advance after a ruling,
 // the typing guard, the defer quick-pick, the defer-required refusal (now
@@ -54,11 +75,34 @@ export const DEFER_QUICK_REASONS = [
   "Not sure this belongs in this scenario",
 ];
 
+/**
+ * Which ruling a key or a button performs.
+ *
+ * ## Why the reducer owns this type (moved here in 1.7G)
+ *
+ * It lived in `RulingButtons.tsx` while the buttons were the only thing that named
+ * a ruling. Now the reducer's own event carries one, and a state machine that
+ * imports its vocabulary from a component is a state machine that cannot be tested
+ * without one. The component imports it from here instead.
+ */
+export type RulingKey = "i" | "e" | "d" | "u";
+
 /** What the queue is doing right now. */
 export type QueueMode =
   | { kind: "triage" }
-  /** The defer prompt is open on the focused card; keys type instead of ruling. */
-  | { kind: "deferring"; draft: string };
+  /**
+   * The defer prompt is open; keys type instead of ruling.
+   *
+   * ## Why the prompt carries its TARGET (1.7G)
+   *
+   * It used to commit to `state.cards[state.index]` when Enter was pressed — the
+   * same shared-index defect one step later in time. The gap is real: D on the
+   * 40th card's button opens the prompt, and anything that moves the selection
+   * while the human is typing their reason would silently defer a different card.
+   * The prompt now remembers the card it was opened on, so Enter can only ever
+   * commit to that one.
+   */
+  | { kind: "deferring"; draft: string; graphNodeId: string };
 
 /** The last ruling, kept for single-step undo. */
 export type LastRuling = {
@@ -114,6 +158,14 @@ export type QueueEffect =
 
 export type QueueEvent =
   | { type: "key"; key: string; typing: boolean }
+  /**
+   * A ruling BUTTON on one card (1.7G, ruling R1).
+   *
+   * The id comes from the card's own render scope, so the target is decided by
+   * which card the button is printed on and by nothing else. This is the event
+   * that retires the shared current index from the button path.
+   */
+  | { type: "rule"; key: RulingKey; graphNodeId: string }
   | { type: "focus"; index: number }
   /** A click on a card in the list — selection by identity, never by position. */
   | { type: "select"; graphNodeId: string }
@@ -171,7 +223,17 @@ function isDealtWith(state: QueueState, card: ScenarioCard): boolean {
 }
 
 /**
- * Advance to the next UNRULED visible card, stopping rather than wrapping.
+ * Advance to the next UNRULED visible card after `anchor`, stopping rather than
+ * wrapping.
+ *
+ * ## Why the anchor is a PARAMETER (1.7G, ruling R2)
+ *
+ * It used to advance from `state.index` — the selection. That was only ever
+ * correct because the selection was also the only thing that could be ruled. Now
+ * that a button rules its own card, the two come apart: rule the 40th card while
+ * the 3rd is selected and advancing from the selection would land on the 4th,
+ * which is nowhere near the work the human is doing. Roman's ruling R2: the
+ * highlight lands relative to the card that was RULED.
  *
  * ## Why it skips what is already ruled (task 1.7E re-anchor)
  *
@@ -186,10 +248,10 @@ function isDealtWith(state: QueueState, card: ScenarioCard): boolean {
  * they had finished, and the running count is what tells them they are done.
  * Stopping at the last card makes "the queue is exhausted" a visible state.
  */
-function advance(state: QueueState): QueueState {
+function advance(state: QueueState, anchor: number): QueueState {
   const order = visibleOrder(state);
-  const here = order.indexOf(state.index);
-  // A selection outside the visible set can only mean a filter changed under the
+  const here = order.indexOf(anchor);
+  // An anchor outside the visible set can only mean a filter changed under the
   // ruling; scanning the whole visible order forward from the start is the honest
   // recovery, and it lands on the first thing left to do.
   const from = here === -1 ? -1 : here;
@@ -198,6 +260,30 @@ function advance(state: QueueState): QueueState {
     if (card && !isDealtWith(state, card)) return { ...state, index: order[at] };
   }
   return state;
+}
+
+/**
+ * Where the highlight goes when the card it was on is no longer visible.
+ *
+ * ## Ruling R2: never the top of the list
+ *
+ * The old rescue sent the selection to `order[0]`. That is what threw Roman back
+ * to card 1 after every mouse ruling: rule a card, the card leaves the "Rulable
+ * now" filter, the filter reports a new visible set, and the rescue "helpfully"
+ * re-aimed at the top of the list — 40 cards from where he was working.
+ *
+ * So it lands on the nearest surviving card AT OR AFTER the position it lost,
+ * which is the next piece of work in reading order. When nothing survives after
+ * it (the human just ruled the last card), it falls back to the nearest survivor
+ * BEFORE it — the new end of the list — because being left at the bottom, where
+ * the work was, beats being thrown to the top. An empty view is the only case with
+ * nowhere to go, and there the selection simply stays put.
+ */
+function nearestVisible(order: number[], index: number): number | undefined {
+  for (const at of order) {
+    if (at >= index) return at;
+  }
+  return order.length > 0 ? order[order.length - 1] : undefined;
 }
 
 /**
@@ -295,22 +381,31 @@ export function queueReducer(state: QueueState, event: QueueEvent): QueueResult 
     case "visible": {
       const next = { ...state, visibleIds: event.ids, notice: null };
       const selected = state.cards[state.index];
-      // A filter that hides the selected card moves the selection to the top of
-      // what IS visible. Leaving it where it was would aim the keyboard at a card
-      // nobody can see — the exact defect ruling R7 guards against elsewhere.
+      // A filter that hides the selected card has to move the selection: leaving
+      // it where it was would aim the keyboard at a card nobody can see — the
+      // exact defect ruling R7 guards against elsewhere.
       if (selected && event.ids.includes(selected.graph_node_id)) {
         return { state: next, effect: NONE };
       }
       const order = visibleOrder(next);
+      const landing = nearestVisible(order, state.index);
       return {
-        state: { ...next, index: order.length > 0 ? order[0] : next.index },
+        state: { ...next, index: landing ?? next.index },
         effect: NONE,
       };
     }
 
+    case "rule":
+      return handleCardRuling(state, event.key, event.graphNodeId);
+
     case "defer_draft":
+      // Typing in the prompt changes the draft and NOTHING else — the target it
+      // was opened on is carried through untouched.
       return state.mode.kind === "deferring"
-        ? { state: { ...state, mode: { kind: "deferring", draft: event.draft } }, effect: NONE }
+        ? {
+            state: { ...state, mode: { ...state.mode, draft: event.draft } },
+            effect: NONE,
+          }
         : { state, effect: NONE };
 
     case "key":
@@ -318,12 +413,43 @@ export function queueReducer(state: QueueState, event: QueueEvent): QueueResult 
   }
 }
 
+/**
+ * A ruling BUTTON on one named card (task 1.7G, ruling R1).
+ *
+ * The target is resolved from the EVENT, never from the selection — that is the
+ * whole fix. A click on a card the pool no longer holds is ignored for the same
+ * reason `select` ignores one: the click came from a rendered row, so it can only
+ * be a reload landing mid-click, and ruling a card the human can no longer see is
+ * worse than dropping one click.
+ */
+function handleCardRuling(state: QueueState, key: RulingKey, graphNodeId: string): QueueResult {
+  const card = state.cards.find((c) => c.graph_node_id === graphNodeId);
+  if (!card) return { state, effect: NONE };
+
+  // An open defer prompt owns the KEYBOARD, but not the mouse: a click on a named
+  // card's own button is an unambiguous statement about that card, and swallowing
+  // it would be the dead-keyboard defect in mouse form. So the prompt is abandoned
+  // and the new ruling applies — except when the click is D on the very card the
+  // prompt is already open for, which would throw away a half-typed reason only to
+  // reopen the same prompt.
+  if (state.mode.kind === "deferring") {
+    if (key === "d" && state.mode.graphNodeId === card.graph_node_id) {
+      return { state, effect: NONE };
+    }
+    return rulingOn({ ...state, mode: { kind: "triage" }, notice: null }, card, key);
+  }
+
+  // A ruling is also the end of any refusal message left on screen.
+  const cleared = state.notice === null ? state : { ...state, notice: null };
+  return rulingOn(cleared, card, key);
+}
+
 function handleKey(state: QueueState, key: string, typing: boolean): QueueResult {
   const card = state.cards[state.index];
 
   // The defer prompt owns the keyboard while it is open.
   if (state.mode.kind === "deferring") {
-    return handleDeferKey(state, key, state.mode.draft);
+    return handleDeferKey(state, key, state.mode.draft, state.mode.graphNodeId);
   }
 
   // The typing guard: while focus is in a field, letters type, they do not rule.
@@ -348,16 +474,51 @@ function handleKey(state: QueueState, key: string, typing: boolean): QueueResult
       return moveSelection(cleared, -1);
 
     case "i":
+    case "e":
+    case "d":
+    case "u":
+      // The keyboard's target is the SELECTED card, because the selection is what
+      // a keyboard is aimed at. It hands that card to the same semantics a button
+      // uses, so the two input devices cannot drift apart.
+      return rulingOn(cleared, card, key.toLowerCase() as RulingKey);
+
+    default:
+      return { state: cleared, effect: NONE };
+  }
+}
+
+/**
+ * The §7 ruling semantics, for ONE named card.
+ *
+ * ## Rust/TS learning: one function, two callers, no shared mutable "current"
+ *
+ * The keyboard resolves its card from the selection and a button resolves its card
+ * from its own render scope, but from here down they are identical — so I/E/D/U
+ * mean exactly one thing, whichever device produced them. That is 1.7D's "one
+ * state machine, two input devices" kept intact while the shared INDEX that used
+ * to stand in for the target is gone (1.7G, ruling R1).
+ */
+function rulingOn(state: QueueState, card: ScenarioCard, key: RulingKey): QueueResult {
+  switch (key) {
+    case "i":
     case "e": {
       // An unrulable card refuses in the UI rather than making a round trip that
       // returns 400 — and SAYS why, in the backend's own words. Refusing silently
       // was 1.7C's behaviour and Roman's defect: the key did nothing and the
       // screen did not react, which is indistinguishable from a dead keyboard.
+      //
+      // The refusal also SELECTS the card it is about, so the sentence appears on
+      // the card the human just acted on. Via the keyboard that card is already
+      // selected and nothing moves; the buttons for this class are rendered
+      // disabled, so this is the belt to that braces.
       if (card.defer_required) {
-        return { state: { ...cleared, notice: card.defer_required_reason }, effect: NONE };
+        return {
+          state: { ...state, index: indexOf(state, card), notice: card.defer_required_reason },
+          effect: NONE,
+        };
       }
-      const action: FactAction = key.toLowerCase() === "i" ? "include" : "drop";
-      return rule(cleared, card.graph_node_id, action);
+      const action: FactAction = key === "i" ? "include" : "drop";
+      return rule(state, card.graph_node_id, action);
     }
 
     case "d": {
@@ -365,20 +526,53 @@ function handleKey(state: QueueState, key: string, typing: boolean): QueueResult
       // reason, so one press accepts it. Prompting would ask the human to
       // re-type a sentence the system already wrote.
       if (card.defer_required && card.defer_required_reason) {
-        return rule(cleared, card.graph_node_id, "defer", card.defer_required_reason);
+        return rule(state, card.graph_node_id, "defer", card.defer_required_reason);
       }
-      return { state: { ...cleared, mode: { kind: "deferring", draft: "" } }, effect: NONE };
+      return {
+        state: {
+          ...state,
+          mode: { kind: "deferring", draft: "", graphNodeId: card.graph_node_id },
+        },
+        effect: NONE,
+      };
     }
 
     case "u":
-      return undo(cleared);
-
-    default:
-      return { state: cleared, effect: NONE };
+      // Undo is deliberately NOT card-scoped: it takes back the most recent
+      // ruling, whichever card that was. Every card's U button is the same one
+      // step back, which is what "single-step undo" has always meant here — a
+      // per-card undo stack would let a human unwind a session by leaning on one
+      // key, and would also mean two cards' U buttons doing different things.
+      return undo(state);
   }
 }
 
-function handleDeferKey(state: QueueState, key: string, draft: string): QueueResult {
+/**
+ * Where a card sits in the pool.
+ *
+ * Returns the current index unchanged for a card the pool no longer holds, which
+ * cannot happen on the paths that call it (both resolve the card FROM the pool
+ * first) but keeps this total rather than returning a `-1` that would silently
+ * become a selection of nothing.
+ */
+function indexOf(state: QueueState, card: ScenarioCard): number {
+  const at = state.cards.findIndex((c) => c.graph_node_id === card.graph_node_id);
+  return at === -1 ? state.index : at;
+}
+
+/**
+ * The keyboard while the defer prompt is open.
+ *
+ * `graphNodeId` is the card the prompt was opened on — carried through from the
+ * mode rather than re-read from the selection, so a reason typed about one card
+ * can never be committed against another (see `QueueMode`).
+ */
+function handleDeferKey(
+  state: QueueState,
+  key: string,
+  draft: string,
+  graphNodeId: string,
+): QueueResult {
   if (key === "Escape") {
     return { state: { ...state, mode: { kind: "triage" } }, effect: NONE };
   }
@@ -388,7 +582,8 @@ function handleDeferKey(state: QueueState, key: string, draft: string): QueueRes
     // keeps the prompt open with the human's cursor in it rather than bouncing
     // an error back at them.
     if (!reason) return { state, effect: NONE };
-    const card = state.cards[state.index];
+    // The card the prompt was OPENED on, never whatever is selected now (1.7G).
+    const card = state.cards.find((c) => c.graph_node_id === graphNodeId);
     if (!card) return { state: { ...state, mode: { kind: "triage" } }, effect: NONE };
     const ruled = rule(state, card.graph_node_id, "defer", reason);
     return { state: { ...ruled.state, mode: { kind: "triage" } }, effect: ruled.effect };
@@ -397,14 +592,26 @@ function handleDeferKey(state: QueueState, key: string, draft: string): QueueRes
   const pick = Number.parseInt(key, 10);
   if (!Number.isNaN(pick) && pick >= 1 && pick <= DEFER_QUICK_REASONS.length) {
     return {
-      state: { ...state, mode: { kind: "deferring", draft: DEFER_QUICK_REASONS[pick - 1] } },
+      state: {
+        ...state,
+        mode: { kind: "deferring", draft: DEFER_QUICK_REASONS[pick - 1], graphNodeId },
+      },
       effect: NONE,
     };
   }
   return { state, effect: NONE };
 }
 
-/** Record a ruling, patch the card, advance, and ask the caller to send it. */
+/**
+ * Record a ruling, patch the card, advance, and ask the caller to send it.
+ *
+ * ## Ruling R2: everything here is anchored on the card that was RULED
+ *
+ * Both the advance and the undo return-address used to be `state.index` — the
+ * selection. With per-card buttons the ruled card and the selection are no longer
+ * the same thing, and the selection is the wrong one of the two: it is where the
+ * human's attention WAS, while the ruled card is where their hand just went.
+ */
 function rule(
   state: QueueState,
   graphNodeId: string,
@@ -415,15 +622,20 @@ function rule(
   const cards = target
     ? withCard(state, graphNodeId, applyRulingToCard(target, action, reason))
     : state.cards;
+  const at = state.cards.findIndex((c) => c.graph_node_id === graphNodeId);
+  const anchor = at === -1 ? state.index : at;
 
-  const next = advance({
-    ...state,
-    cards,
-    lastRuling: { graphNodeId, action, index: state.index },
-    // A card ruled twice counts once — the running count is "how many of the
-    // pool have been dealt with", not "how many keys were pressed".
-    ruled: state.ruled.includes(graphNodeId) ? state.ruled : [...state.ruled, graphNodeId],
-  });
+  const next = advance(
+    {
+      ...state,
+      cards,
+      lastRuling: { graphNodeId, action, index: anchor },
+      // A card ruled twice counts once — the running count is "how many of the
+      // pool have been dealt with", not "how many keys were pressed".
+      ruled: state.ruled.includes(graphNodeId) ? state.ruled : [...state.ruled, graphNodeId],
+    },
+    anchor,
+  );
   return { state: next, effect: { kind: "rule", graphNodeId, action, reason } };
 }
 

@@ -15,18 +15,23 @@
 // the CONTROLS (what a human can do), and what remains in `CandidateCard` is the
 // EVIDENCE (what they are looking at while they decide).
 //
-// ## One state machine, two input devices
+// ## One state machine, two input devices — and, since 1.7G, two TARGETS
 //
-// A click dispatches the SAME `{type: "key"}` event the keyboard produces, so
-// auto-advance, the defer prompt, the `defer_required` short-circuit that refuses
-// I/E on an unrulable card, and single-step undo are all inherited rather than
-// reimplemented. `cardTriage.ts` is untouched by this task and its 31 §7 tests are
-// byte-identical. A parallel click path would have been a second machine to keep
-// in step, and the one thing worse than no buttons is buttons that disagree with
-// the keys.
+// A click still reaches the same §7 semantics the keyboard does, so auto-advance,
+// the defer prompt, the `defer_required` short-circuit and single-step undo are
+// inherited rather than reimplemented. What changed in 1.7G is what a click aims
+// at: it dispatches `{type: "rule"}` carrying the id of the card the button is
+// printed on, instead of `{type: "key"}` aimed at whatever was selected.
+//
+// That distinction was the whole beta.369 defect. Until 1.7G every button in a
+// 148-card list resolved its target through one shared index, so which card got
+// included depended on click order — and only the selected card had buttons at
+// all. Roman's ruling R1: "Every card's Include / Exclude / Defer buttons act on
+// the card they are printed on. Period."
 
 import React from "react";
 
+import type { RulingKey } from "./cardTriage";
 import type { StateChip } from "./candidateFilters";
 import { chipStyle, stateChipTone } from "./scenarioSectionStyles";
 
@@ -75,21 +80,15 @@ export const codeBadgeStyle: React.CSSProperties = {
 /**
  * Which ruling a button performs, as the KEY the reducer already understands.
  *
- * ## Why a key and not a new event type
+ * ## Why the type moved to `cardTriage` in 1.7G
  *
- * `cardTriage.queueReducer` accepts `{ type: "key"; key; typing }` and nothing
- * else for a ruling. So a click dispatches the SAME event the keyboard produces,
- * through the same reducer, and every downstream behaviour — auto-advance, the
- * defer prompt, the `defer_required` short-circuit that refuses I/E on an
- * unrulable card, single-step undo — is inherited rather than reimplemented.
- *
- * That is the point of item 2's "buttons dispatch the SAME reducer actions as the
- * keys": `cardTriage.ts` is untouched by this task and its 31 §7 tests stay
- * byte-identical. A parallel click path would have been a second state machine to
- * keep in step, and the one thing worse than no buttons is buttons that disagree
- * with the keys.
+ * The reducer's own `{type: "rule"}` event now carries one of these, and a pure
+ * state machine that imports its vocabulary from a React component is one that
+ * cannot be tested without a DOM. So the reducer owns the type and this file
+ * re-exports it — every existing import site keeps working, and there is still
+ * exactly one definition of what a ruling is.
  */
-export type RulingKey = "i" | "e" | "d" | "u";
+export type { RulingKey };
 
 /** One ruling button: icon, label, key hint. Mockup `.card-top` order. */
 const RULING_BUTTONS: {
@@ -173,6 +172,15 @@ export const StateChipView: React.FC<{ chip: StateChip; title?: string }> = ({ c
  * Colour never stands alone: every button carries an icon, and the three that
  * decide something carry a word too.
  *
+ * ## Every card in the list has one of these (1.7G, ruling R1)
+ *
+ * Until 1.7G the head rendered its buttons only on the SELECTED card, so 147 of
+ * 148 rows were inert and a human had to click a card before they could rule it.
+ * `onRule` is now supplied by every card's own render scope, already bound to that
+ * card's id — so the button cannot aim anywhere else, and the acceptance test
+ * (click the LAST card's Include first, with nothing selected) works by
+ * construction rather than by the selection happening to be in the right place.
+ *
  * ## The refusal is ON the button row (task 1.7E, items 5 and 8)
  *
  * A defer-only card renders Include and Exclude visibly disabled with the
@@ -217,7 +225,17 @@ export const CardHead: React.FC<{
             // The reason travels with the control it disables, so a hover explains
             // it without the reader hunting for the sentence below.
             title={shut ? (deferOnlyReason ?? undefined) : undefined}
-            onClick={() => onRule(button.key)}
+            // `stopPropagation` is load-bearing, not hygiene. The button sits
+            // inside a card whose own `onClick` selects that card, so without it
+            // ONE physical click produced TWO dispatches: the ruling, and then a
+            // select on the card just ruled — which overwrote the auto-advance and
+            // left the human wherever the filter rescue happened to put them (the
+            // top of the list). Ruling on a card is not also a request to aim the
+            // keyboard at it; the ruling itself decides where the highlight goes.
+            onClick={(event) => {
+              event.stopPropagation();
+              onRule(button.key);
+            }}
           >
             <span aria-hidden="true">{button.icon}</span>
             {button.label && <span>{button.label}</span>}
