@@ -19,6 +19,8 @@ pub mod scenario_card;
 pub mod scenario_card_assembly;
 pub mod scenario_card_context;
 pub mod scenario_dashboard;
+pub mod scenario_human_links;
+pub mod scenario_link_options;
 pub mod scenario_orphans;
 pub mod scenario_page;
 pub mod scenario_readiness;

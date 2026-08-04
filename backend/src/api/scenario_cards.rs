@@ -37,14 +37,17 @@ use crate::{
     dto::scenario_card::ScenarioCardsResponse,
     error::AppError,
     repositories::{
+        allegation_options_repository::fetch_allegation_options,
         pipeline_repository::{
             get_document_text, list_candidate_ordinals, list_fact_refs_for_scenario,
-            list_summary_overrides,
+            list_links_for_nodes, list_summary_overrides,
         },
         scenario_card_repository::fetch_card_extras,
     },
     services::scenario_card::{collapse_extras, CardRefState},
-    services::scenario_card_assembly::{assemble, page_key},
+    services::scenario_card_assembly::{assemble, page_key, HumanTouchIndex},
+    services::scenario_human_links::resolve_links,
+    services::scenario_link_options::label_index,
     state::AppState,
 };
 
@@ -147,6 +150,9 @@ pub async fn get_scenario_cards(
     // One snapshot for the whole payload: read once here so every card is banded
     // by the same cutoffs, and so the pure assembler stays pure (v2 §2b).
     let settings = state.settings.current();
+
+    let human_links = load_human_links(&state, &node_ids, &subject_id, &settings).await?;
+
     let response = assemble(
         pool,
         &extras,
@@ -154,18 +160,87 @@ pub async fn get_scenario_cards(
         &ordinals,
         &page_text,
         &settings,
-        &overrides,
+        HumanTouchIndex {
+            question_overrides: &overrides,
+            links: &human_links,
+        },
     );
 
     tracing::info!(
         pool = response.pool.len(),
         set_aside = response.set_aside.len(),
         defer_required = response.pool.iter().filter(|c| c.defer_required).count(),
+        // How much of the stuck pile humans have cleared, on the same line as the
+        // refusal count it is the cure for (task 2.10).
+        human_linked = response
+            .pool
+            .iter()
+            .filter(|c| !c.human_links.is_empty())
+            .count(),
         without_context = cards_without_context(&response),
         "served scenario cards"
     );
 
     Ok(Json(response))
+}
+
+/// The accusations humans have linked, display-ready, by node (task 2.10).
+///
+/// ## Why the graph read is conditional and the Postgres read is not
+///
+/// The link rows are one indexed `= ANY($1)` and answer the question "is anything
+/// linked?", so they are always read. LABELLING those links needs the accusation
+/// catalogue — 120 rows on DEV — and a pool where nobody has linked anything has
+/// nothing to label, which is every pool on the day this ships. So the catalogue
+/// is fetched only when there is at least one link to spell out. That keeps the
+/// card path exactly as expensive as it was until the feature is used.
+///
+/// ## Why a failure here is fatal to the request, unlike page text
+///
+/// Quote-in-context degrades: a card without it still carries everything needed to
+/// rule. A card silently missing its human links does not degrade — it reports
+/// itself DEFER-ONLY, which is a false statement about what the human may do, and
+/// it would be indistinguishable from a card nobody has linked. So this
+/// propagates (Standing Rule 1: an operationally distinct state gets a distinct
+/// observable, and "the link read failed" must never look like "there are no
+/// links").
+async fn load_human_links(
+    state: &AppState,
+    node_ids: &[String],
+    subject_id: &str,
+    settings: &crate::domain::settings::Settings,
+) -> Result<HashMap<String, Vec<crate::dto::scenario_card::CardHumanLink>>, AppError> {
+    let rows = list_links_for_nodes(&state.pipeline_pool, node_ids)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "failed to read the human accusation links for cards");
+            AppError::Internal {
+                message: "failed to read the accusation links".to_string(),
+            }
+        })?;
+
+    if rows.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let options = fetch_allegation_options(&state.graph, subject_id)
+        .await
+        .map_err(|e| {
+            tracing::error!(
+                error = %e,
+                %subject_id,
+                "failed to read the accusation catalogue needed to label human links"
+            );
+            AppError::Internal {
+                message: "failed to read the accusations".to_string(),
+            }
+        })?;
+
+    Ok(resolve_links(
+        rows,
+        &label_index(&options),
+        &settings.wording,
+    ))
 }
 
 /// How many served cards carry a quote but no surrounding context (§7.1).

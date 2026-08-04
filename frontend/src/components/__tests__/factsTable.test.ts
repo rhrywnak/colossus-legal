@@ -47,6 +47,9 @@ function card(overrides: Partial<ScenarioCard> = {}): ScenarioCard {
     defer_required: false,
     defer_required_reason: null,
     defer_reason: null,
+    // Task 2.10: no human has linked this one — the ordinary state.
+    human_links: [],
+    human_link_summary: null,
     ...overrides,
   };
 }
@@ -260,5 +263,49 @@ describe("arrivedIds", () => {
   it("reports every arrival when several land at once", () => {
     // A merge can add more than one. All of them are what changed.
     expect(arrivedIds(new Set(["ev-1"]), ["ev-1", "ev-2", "ev-3"])).toEqual(["ev-2", "ev-3"]);
+  });
+
+  it("a human's accusation links become chips too (task 2.10)", () => {
+    // A human's link is what put some of these rows in the table at all — the
+    // card could not be included until somebody linked it — so a facts table
+    // showing only the extraction's accusations would leave exactly those rows
+    // looking attached to nothing.
+    const [row] = includedRows([
+      card({
+        status: "included",
+        bears_on: [{ accusation: "\u00b655 — regularly misrepresented", elements: [], count: null }],
+        human_links: [
+          {
+            allegation_id: "a-41",
+            label: "\u00b641 — refused to divide the property",
+            cut: "against",
+            cut_label: "They'll use it against us",
+          },
+        ],
+      }),
+    ]);
+
+    expect(row.bearsOn).toEqual([
+      "\u00b655 — regularly misrepresented",
+      "\u00b641 — refused to divide the property",
+    ]);
+  });
+
+  it("a card with only human links still shows them", () => {
+    const [row] = includedRows([
+      card({
+        status: "included",
+        bears_on: [],
+        human_links: [
+          {
+            allegation_id: "a-41",
+            label: "\u00b641 — refused to divide the property",
+            cut: "supports",
+            cut_label: "It supports us",
+          },
+        ],
+      }),
+    ]);
+    expect(row.bearsOn).toEqual(["\u00b641 — refused to divide the property"]);
   });
 });

@@ -54,12 +54,15 @@ function card(): ScenarioCardsResponse["pool"][number] {
     defer_required: true,
     defer_required_reason: "This item is not linked to any accusation…",
     defer_reason: null,
+    // Task 2.10: no human has linked this one — the ordinary state.
+    human_links: [],
+    human_link_summary: null,
   };
 }
 
 describe("fetchScenarioCards", () => {
   it("GETs the scenario-scoped cards URL and returns both lists", async () => {
-    const response: ScenarioCardsResponse = { pool: [card()], set_aside: [] };
+    const response: ScenarioCardsResponse = { pool: [card()], set_aside: [], link_progress: null };
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,

@@ -45,137 +45,32 @@
 
 import React, { useMemo, useState } from "react";
 
+import {
+  cardStyle,
+  chipStyle,
+  compactCardStyle,
+  compactQuoteStyle,
+  contextPanelStyle,
+  contextStyle,
+  edgeStyle,
+  markStyle,
+  metaChipStyle,
+  selectedCardStyle,
+} from "./candidateCardStyles";
+// Re-exported because `CardQueue` and the facts section import them from here —
+// the move is a file split, not an API change.
+export { cardStyle, chipStyle };
+
 import { cardRows, type CardRow } from "./cardRows";
+import { needsLinking } from "./cardLinking";
+import LinkToAccusationPanel, { HumanLinkSection } from "./LinkToAccusationPanel";
 import { candidateState, stateChip } from "./candidateFilters";
 import type { RulingKey } from "./cardTriage";
 import QuestionLine from "./QuestionLine";
 import { CardHead, StateChipView, codeBadgeStyle } from "./RulingButtons";
 import { openViewerWindow } from "./viewerWindow";
 import type { ScenarioCard } from "../services/scenarioCards";
-
-const SURFACE = "var(--bg-surface)"; // --card #ffffff
-
-/**
- * The card. Mockup `.card`: white, radius 12, `--shadow-raised`, padding
- * 18px 24px 20px. NO BORDER — v3 removed every card border (see the
- * `--bg-canvas` comment in tokens.css for why the canvas moved with them).
- */
-export const cardStyle: React.CSSProperties = {
-  background: SURFACE,
-  borderRadius: "var(--radius-card)",
-  padding: "18px 24px 20px",
-  display: "flex",
-  flexDirection: "column",
-  gap: "0.6rem",
-  fontWeight: 400,
-  // The unselected card still lifts off the page, just less. A flat card on a
-  // tinted canvas reads as a hole rather than a surface.
-  boxShadow: "var(--shadow-card)",
-};
-
-/**
- * The SELECTED card — the one the keyboard is aimed at.
- *
- * v3 marks selection with ELEVATION (`--shadow-raised`) rather than 1.7C's accent
- * border. That is not only a style change: the card is the thing a human is about
- * to rule on, and lifting it above its siblings says "this one" in a way a
- * coloured outline competes with the ruling buttons to say.
- */
-const selectedCardStyle: React.CSSProperties = {
-  ...cardStyle,
-  boxShadow: "var(--shadow-raised)",
-};
-
-/** The compact row a ruled card collapses to. Same surface, one line of it. */
-const compactCardStyle: React.CSSProperties = {
-  ...cardStyle,
-  flexDirection: "row",
-  alignItems: "center",
-  gap: "12px",
-  padding: "10px 16px",
-  cursor: "pointer",
-};
-
-/** Mockup `.pin` / neutral chips inside the card body. */
-export const chipStyle: React.CSSProperties = {
-  borderRadius: "6px",
-  padding: "3px 10px",
-  fontSize: "12px",
-  fontWeight: 500,
-  color: "var(--text-secondary)",
-  whiteSpace: "nowrap",
-};
-
-/**
- * A metadata chip in the one-row metadata strip (task 1.7E, item 8).
- *
- * ## Why it truncates instead of being shortened
- *
- * The payload's words are the payload's words: "Grounded — found on the page" is
- * the sentence the backend composed, and rewriting it to "✓ grounded" in the
- * browser would be this file inventing vocabulary. So the chip renders the
- * sentence verbatim and lets CSS clip what does not fit, with the full text on the
- * element's `title` — truncation is presentation, paraphrase would be authorship.
- */
-const metaChipStyle: React.CSSProperties = {
-  ...chipStyle,
-  background: "var(--v3-chrome)",
-  maxWidth: "24ch",
-  overflow: "hidden",
-  textOverflow: "ellipsis",
-  display: "inline-block",
-  verticalAlign: "middle",
-};
-
-/**
- * The quote-in-context panel. Mockup `.ctx`: its OWN soft surface (#fafbfc,
- * radius 10, padding 14px 18px) inset within the white card.
- *
- * 1.7C rendered the context as bare text. Giving it a panel does a job: it makes
- * visually obvious where the SOURCE PAGE's words start and stop, so the reader can
- * tell the document's voice from the card's own labels above and below it.
- */
-const contextPanelStyle: React.CSSProperties = {
-  background: "var(--v3-context-panel)",
-  borderRadius: "10px",
-  padding: "14px 18px",
-  color: "var(--text-secondary)",
-  lineHeight: 1.7,
-  fontSize: "13.5px",
-};
-
-const contextStyle: React.CSSProperties = {
-  color: "var(--text-secondary)",
-  fontSize: "13.5px",
-  lineHeight: 1.7,
-};
-
-/** Mockup `.edge`: the honest page-edge marker — italic, muted, 12.5px. */
-const edgeStyle: React.CSSProperties = {
-  color: "var(--text-muted)",
-  fontStyle: "italic",
-  fontSize: "12.5px",
-};
-
-/** Mockup `.ctx mark`: #ffec9e, radius 3, padding 1px 3px, weight 500. */
-const markStyle: React.CSSProperties = {
-  background: "var(--highlight-quote-soft)",
-  color: "var(--text-primary)",
-  padding: "1px 3px",
-  borderRadius: "3px",
-  fontWeight: 500,
-};
-
-/** The one-line quote in a compact row: whatever fits, then an ellipsis. */
-const compactQuoteStyle: React.CSSProperties = {
-  flex: 1,
-  minWidth: 0,
-  fontSize: "13px",
-  color: "var(--text-secondary)",
-  whiteSpace: "nowrap",
-  overflow: "hidden",
-  textOverflow: "ellipsis",
-};
+import type { AllegationOptions, LinkCut } from "../services/evidenceLinks";
 
 // ─── Row rendering ──────────────────────────────────────────────────────────
 
@@ -308,6 +203,19 @@ export const CandidateCard: React.FC<{
   onCorrectQuestion: (text: string) => Promise<void>;
   /** Restore the machine's own question by deleting the correction. */
   onRevertQuestion: () => Promise<void>;
+  /**
+   * The accusations THIS card's link panel offers, and its words (task 2.10).
+   *
+   * `null` while the scenario's options are loading, or if that read failed. The
+   * panel is then not rendered at all — there is deliberately no fallback set of
+   * words to render it with (R4), and a control with no labels would be worse
+   * than the dead end it replaces.
+   */
+  linkOptions: AllegationOptions | null;
+  /** Save this card's links. Bound by the list, exactly as `onRule` is. */
+  onSaveLinks: (allegationIds: string[], cut: LinkCut, advance: boolean) => Promise<void>;
+  /** Take one of this card's links back. */
+  onUnlink: (allegationId: string) => void;
 }> = ({
   card,
   selected,
@@ -317,6 +225,9 @@ export const CandidateCard: React.FC<{
   keyboardRefused = false,
   onCorrectQuestion,
   onRevertQuestion,
+  linkOptions,
+  onSaveLinks,
+  onUnlink,
 }) => {
   const rows = useMemo(() => cardRows(card), [card]);
   const code = rows.find((r) => r.element === "code");
@@ -328,6 +239,12 @@ export const CandidateCard: React.FC<{
   // button row rather than the card body (item 8).
   const stance = card.stance ? rows.find((r) => r.element === "stance") : undefined;
   const chip = stateChip(candidateState(card));
+
+  // Task 2.10: the panel appears on a card the extraction never linked and nobody
+  // has linked since — and only when its words have loaded. A card that HAS been
+  // linked shows its chips instead: the work is done, and re-offering the control
+  // beneath the answer would read as though it had not been.
+  const linkPanel = linkOptions !== null && needsLinking(card) && card.human_links.length === 0;
 
   if (compact) {
     return (
@@ -365,6 +282,10 @@ export const CandidateCard: React.FC<{
         deferOnly={card.defer_required}
         deferOnlyReason={card.defer_required_reason}
         keyboardRefused={keyboardRefused}
+        // Q4: the panel below carries the explanation, so the button row does not
+        // print it a second time three inches away. A card with no panel — one
+        // with no quote — keeps its sentence exactly where 1.7E-a put it.
+        reasonShownElsewhere={linkPanel}
         onRule={onRule}
       />
 
@@ -385,6 +306,7 @@ export const CandidateCard: React.FC<{
           authorship={card.quote.question_authorship}
           onSave={(text) => onCorrectQuestion(text)}
           onRevert={onRevertQuestion}
+          revertLabel={linkOptions?.wording.question_revert_label}
         />
       )}
 
@@ -410,6 +332,21 @@ export const CandidateCard: React.FC<{
 
       {pinpoint && <PinpointRow row={pinpoint} />}
       {stance && <TextRow row={stance} />}
+
+      {/* §7.5, the human's half: what a person said this bears on, and one click
+          to take each back. Rendered where the machine's stance would be, because
+          it answers the same question — differently sourced, and the 👤 glyph
+          beside every chip says so. */}
+      <HumanLinkSection
+        summary={card.human_link_summary}
+        links={card.human_links}
+        options={linkOptions}
+        onUnlink={onUnlink}
+      />
+
+      {linkPanel && linkOptions && (
+        <LinkToAccusationPanel options={linkOptions} onSave={onSaveLinks} />
+      )}
       {bearsOn.map((row, i) => (
         <TextRow key={`bears_on-${i}`} row={row} />
       ))}

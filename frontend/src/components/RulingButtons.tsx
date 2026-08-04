@@ -199,10 +199,37 @@ export const CardHead: React.FC<{
   deferOnly: boolean;
   /** The backend's sentence explaining why. Rendered verbatim; never composed. */
   deferOnlyReason: string | null;
+  /**
+   * Suppress the sentence BELOW the buttons, without disarming them.
+   *
+   * ## Roman's ruling, 2026-08-04 (task 2.10, Q4): one sentence on screen
+   *
+   * A stuck card now carries the link panel three inches lower, and that panel
+   * opens with its own explanation of the same problem. Printing both would say
+   * the same thing twice on one card — the clutter ruling, again.
+   *
+   * This is a deliberate change to 1.7E-a's behaviour, which made the button-row
+   * sentence "the ONLY place that sentence appears". It still is, for every card
+   * with no panel: a card with no verbatim QUOTE is defer-only and linking cannot
+   * help it, so nothing is offered there and the sentence stays.
+   *
+   * The reason itself is NOT dropped — it remains the disabled buttons' `title`
+   * and the keyboard refusal's spoken text, so I and E still explain themselves.
+   */
+  reasonShownElsewhere?: boolean;
   /** True when the human just pressed I or E and was refused. */
   keyboardRefused: boolean;
   onRule: (key: RulingKey) => void;
-}> = ({ code, chip, chipTitle, deferOnly, deferOnlyReason, keyboardRefused, onRule }) => (
+}> = ({
+  code,
+  chip,
+  chipTitle,
+  deferOnly,
+  deferOnlyReason,
+  keyboardRefused,
+  reasonShownElsewhere = false,
+  onRule,
+}) => (
   <div style={{ marginBottom: "14px" }}>
     <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
       <span style={codeBadgeStyle}>{code}</span>
@@ -252,7 +279,7 @@ export const CardHead: React.FC<{
       </span>
     </div>
 
-    {deferOnly && deferOnlyReason && (
+    {deferOnly && deferOnlyReason && (!reasonShownElsewhere || keyboardRefused) && (
       // `role="alert"` only on the keypress, deliberately: the sentence is
       // standing information on this card and a live region that announced itself
       // on every selection would talk over the human browsing the list.

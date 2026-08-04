@@ -19,11 +19,30 @@ use std::collections::HashMap;
 
 use crate::bias::dto::BiasInstance;
 use crate::domain::fact_status::FactStatus;
-use crate::dto::scenario_card::{ScenarioCard, ScenarioCardsResponse};
+use crate::dto::scenario_card::{CardHumanLink, ScenarioCard, ScenarioCardsResponse};
 
 use super::scenario_card::{build_card, CardRefState, CollapsedExtras};
+use super::scenario_human_links::{link_progress, HumanTouches};
 use crate::domain::settings::Settings;
 use crate::repositories::pipeline_repository::EvidenceSummaryOverrideRecord;
+
+/// Everything humans have done to a POOL, indexed by node.
+///
+/// ## Why the two maps travel as one argument
+///
+/// `assemble` was at seven arguments before task 2.10 and an eighth trips
+/// `clippy::too_many_arguments`. The lint is right here rather than merely noisy:
+/// these two are the same KIND of thing — per-node records of human acts, each
+/// read once for the whole pool — and grouping them is what lets `build_card`
+/// take one [`HumanTouches`] instead of two more `Option`s. A third human act
+/// lands in both structs and changes neither signature.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct HumanTouchIndex<'a> {
+    /// Corrections of the machine's questions, by node (task 1.7F Part B).
+    pub question_overrides: &'a HashMap<String, EvidenceSummaryOverrideRecord>,
+    /// Accusations humans have linked, by node (task 2.10).
+    pub links: &'a HashMap<String, Vec<CardHumanLink>>,
+}
 
 /// Build every card and partition into the working pool and the set-aside list.
 ///
@@ -41,12 +60,15 @@ pub(crate) fn assemble(
     ordinals: &HashMap<String, i32>,
     page_text: &HashMap<String, String>,
     settings: &Settings,
-    // Human corrections of the machine's questions, by node (task 1.7F Part B).
-    // Read once for the whole pool, so composing 148 cards costs one query rather
-    // than 148 — and so this function stays pure.
-    question_overrides: &HashMap<String, EvidenceSummaryOverrideRecord>,
+    // Everything humans have done to this pool, indexed by node. See
+    // [`HumanTouchIndex`] for why the two maps travel together.
+    human: HumanTouchIndex<'_>,
 ) -> ScenarioCardsResponse {
     let default_state = CardRefState::default();
+    // One empty slice, borrowed by every card that has no human links — which is
+    // most of them. A `Vec::new()` per card would allocate 148 times to say
+    // "nothing here".
+    const NO_LINKS: &[CardHumanLink] = &[];
     let mut working: Vec<ScenarioCard> = Vec::new();
     let mut set_aside: Vec<ScenarioCard> = Vec::new();
 
@@ -69,7 +91,14 @@ pub(crate) fn assemble(
             ordinals.get(&instance.evidence_id).copied(),
             page.map(|s| s.as_str()),
             settings,
-            question_overrides.get(&instance.evidence_id),
+            HumanTouches {
+                question_override: human.question_overrides.get(&instance.evidence_id),
+                links: human
+                    .links
+                    .get(&instance.evidence_id)
+                    .map(Vec::as_slice)
+                    .unwrap_or(NO_LINKS),
+            },
         );
 
         // Set-aside items are kept in their own list so the client partitions
@@ -87,9 +116,15 @@ pub(crate) fn assemble(
     sort_by_code(&mut working);
     sort_by_code(&mut set_aside);
 
+    // The stuck pile's progress line, counted over the FINISHED cards — both
+    // lists, because a set-aside card the machine never linked was still stuck
+    // and still counts toward the work (task 2.10, the 1.7E-a pool-truth ruling).
+    let link_progress = link_progress(working.iter().chain(set_aside.iter()), &settings.wording);
+
     ScenarioCardsResponse {
         pool: working,
         set_aside,
+        link_progress,
     }
 }
 

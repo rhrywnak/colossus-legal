@@ -98,9 +98,24 @@ export function cardRows(card: ScenarioCard): CardRow[] {
     rows.push({ element: "statement_kind", value: card.statement_kind });
   }
 
-  // §7.5 — the stance WITH its object, or the reason there is none.
+  // §7.5 — the stance WITH its object; or what a HUMAN said it bears on; or the
+  // reason there is neither.
+  //
+  // ## Why the middle branch exists (task 2.10, ruling R2)
+  //
+  // A card the extraction never linked, that a human HAS linked, has no stance
+  // (correctly — the machine found none, and inventing one is what R2 forbids)
+  // and no defer reason (correctly — the link cleared it). Without this branch it
+  // would have all three absent, and the §7 completeness contract below would go
+  // red on a card that is working exactly as designed.
+  //
+  // The order is not arbitrary: the machine's finding outranks the human's note
+  // about a card where both somehow exist, because a stance carries a verb the
+  // record supports and this sentence deliberately does not.
   if (card.stance) {
     rows.push({ element: "stance", value: card.stance.summary });
+  } else if (card.human_link_summary) {
+    rows.push({ element: "stance", value: card.human_link_summary });
   } else if (card.defer_required_reason) {
     rows.push({ element: "stance", value: card.defer_required_reason });
   }

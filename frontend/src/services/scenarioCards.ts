@@ -25,6 +25,7 @@
 import { API_BASE_URL } from "./api";
 import { authFetch } from "./auth";
 import { readErrorMessage } from "./fetchUtils";
+import type { LinkCut } from "./evidenceLinks";
 
 // ─── DTO mirrors ────────────────────────────────────────────────────────────
 
@@ -128,6 +129,23 @@ export type CardBearsOn = {
   count: string | null;
 };
 
+/**
+ * One accusation a HUMAN linked this statement to (task 2.10).
+ *
+ * Separate from `bears_on`, which is the MACHINE's list. They render alike — both
+ * are chips — but they are different claims about the world, and a client that
+ * merged them could not answer "what did the extraction actually find?".
+ */
+export type CardHumanLink = {
+  allegation_id: string;
+  /** "¶41 — refused to divide the property amicably", pre-composed. */
+  label: string;
+  /** The token to branch on. */
+  cut: LinkCut;
+  /** The same choice in words — "They'll use it against us". Rendered verbatim. */
+  cut_label: string;
+};
+
 /** Whether the quote was located in its source (§7.7). */
 export type CardGrounding = { state: string; label: string };
 
@@ -168,11 +186,26 @@ export type ScenarioCard = {
   defer_required_reason: string | null;
   /** Why a HUMAN parked it. Distinct from the field above — different authors. */
   defer_reason: string | null;
+  /** The accusations a HUMAN linked this statement to (task 2.10). Empty is the
+   *  ordinary state; a non-empty list is what clears `defer_required` on a card
+   *  the extraction never linked. */
+  human_links: CardHumanLink[];
+  /** What the human did, in their own terms — "You linked this to ¶41 · they'll
+   *  use it against us." Present exactly when `human_links` is non-empty.
+   *
+   *  NOT a stance, and it must never become one: the extraction said nothing
+   *  about this statement, so `stance` stays null and this fills the §7.5 slot
+   *  instead (ruling R2). */
+  human_link_summary: string | null;
 };
 
 export type ScenarioCardsResponse = {
   pool: ScenarioCard[];
   set_aside: ScenarioCard[];
+  /** "38 of 94 linked." — how much of the stuck pile a human has worked through,
+   *  composed server-side and counted from the POOL, never from this session's
+   *  clicks (the 1.7E-a ruling). `null` when nothing in this pool is stuck. */
+  link_progress: string | null;
 };
 
 // ─── Client ─────────────────────────────────────────────────────────────────

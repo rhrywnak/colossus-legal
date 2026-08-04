@@ -17,7 +17,9 @@ fn settings() -> Settings {
     Settings::for_test()
 }
 use crate::bias::dto::{ActorOption, DocumentRef};
+use crate::dto::scenario_card::{CardHumanLink, QuestionSource};
 use crate::repositories::scenario_card_repository::CardExtrasRow;
+use chrono::{DateTime, Utc};
 
 /// A candidate with everything the record can carry.
 fn full_instance() -> BiasInstance {
@@ -111,7 +113,7 @@ fn every_section_seven_element_is_present_on_a_complete_card() {
         Some(14),
         Some(page),
         &settings(),
-        None,
+        HumanTouches::none(),
     );
 
     // §7.1 quote IN CONTEXT — the quote, and text either side of it.
@@ -189,7 +191,7 @@ fn an_item_with_no_accusation_link_serves_a_defer_flag_not_a_bare_stance() {
         Some(222),
         None,
         &settings(),
-        None,
+        HumanTouches::none(),
     );
 
     assert!(
@@ -244,7 +246,7 @@ fn an_unscored_unlinked_item_gets_the_simpler_reason() {
         Some(9),
         None,
         &settings(),
-        None,
+        HumanTouches::none(),
     );
 
     let reason = card.defer_required_reason.expect("still unrulable");
@@ -280,7 +282,7 @@ fn an_item_with_no_quote_is_unrulable_for_the_citability_reason() {
         Some(3),
         None,
         &settings(),
-        None,
+        HumanTouches::none(),
     );
     assert!(card.defer_required);
     let reason = card.defer_required_reason.expect("unrulable");
@@ -298,7 +300,7 @@ fn a_candidate_with_no_extras_still_builds_and_flags_itself() {
         None,
         None,
         &settings(),
-        None,
+        HumanTouches::none(),
     );
 
     assert!(card.stance.is_none());
@@ -346,7 +348,7 @@ fn no_banned_word_appears_in_any_card_string() {
             Some(14),
             Some("context before the quote. I do not recall that meeting. and after."),
             &settings(),
-            None,
+            HumanTouches::none(),
         );
 
         let mut strings = vec![
@@ -403,7 +405,7 @@ fn each_edge_class_renders_its_canon_verb() {
             None,
             None,
             &settings(),
-            None,
+            HumanTouches::none(),
         );
         let stance = card.stance.expect("a mapped edge yields a stance");
         assert_eq!(stance.verb, expected, "edge {edge}");
@@ -440,7 +442,7 @@ fn one_accusation_with_several_elements_lists_them_all_under_one_entry() {
         None,
         None,
         &settings(),
-        None,
+        HumanTouches::none(),
     );
     assert_eq!(card.bears_on.len(), 1, "the accusation appears once");
     assert_eq!(
@@ -467,7 +469,7 @@ fn an_accusation_wired_to_no_element_carries_an_empty_list() {
         None,
         None,
         &settings(),
-        None,
+        HumanTouches::none(),
     );
     assert_eq!(card.bears_on.len(), 1);
     assert!(card.bears_on[0].elements.is_empty());
@@ -489,7 +491,7 @@ fn two_distinct_allegations_are_both_carried() {
         None,
         None,
         &settings(),
-        None,
+        HumanTouches::none(),
     );
     assert_eq!(card.bears_on.len(), 2, "both accusations must be shown");
 }
@@ -506,7 +508,7 @@ fn context_is_taken_from_around_the_quote() {
         None,
         Some(page),
         &settings(),
-        None,
+        HumanTouches::none(),
     );
     assert!(card.quote.context_before.contains("BEFORE TEXT"));
     assert!(card.quote.context_after.contains("AFTER TEXT"));
@@ -524,7 +526,7 @@ fn a_quote_absent_from_its_page_yields_empty_context_not_a_guess() {
         None,
         Some("a page whose text does not contain the quote"),
         &settings(),
-        None,
+        HumanTouches::none(),
     );
     assert!(card.quote.context_before.is_empty());
     assert!(card.quote.context_after.is_empty());
@@ -567,7 +569,7 @@ fn both_context_edges_use_the_same_window_value() {
             None,
             Some(&page),
             s,
-            None,
+            HumanTouches::none(),
         )
     };
     let small = build(&narrow);
@@ -620,7 +622,7 @@ fn context_windowing_never_splits_a_multibyte_character() {
         None,
         Some(&page),
         &settings(),
-        None,
+        HumanTouches::none(),
     );
 
     // No terminator anywhere in the filler, so both flanks run to the page edges —
@@ -671,7 +673,7 @@ fn a_normalized_quote_still_gets_context_in_the_pages_own_characters() {
         None,
         Some(page),
         &settings(),
-        None,
+        HumanTouches::none(),
     );
 
     assert!(
@@ -731,7 +733,7 @@ fn a_normalized_match_honours_the_configured_window() {
         None,
         Some(&page),
         &settings(),
-        None,
+        HumanTouches::none(),
     );
 
     // The seed is honoured as a floor on both sides…
@@ -768,7 +770,7 @@ fn a_quote_that_is_not_on_this_page_still_yields_no_context() {
         // Deliberately similar prose: a fuzzy "best effort" would match here.
         Some("BEFORE. The cheque and the Tuesday meeting were discussed. AFTER."),
         &settings(),
-        None,
+        HumanTouches::none(),
     );
 
     assert!(
@@ -803,7 +805,7 @@ fn a_page_shorter_than_the_window_returns_what_there_is() {
         None,
         Some(page),
         &settings(),
-        None,
+        HumanTouches::none(),
     );
 
     assert_eq!(card.quote.context_before, "Short.");
@@ -834,7 +836,7 @@ fn a_pageless_item_gets_a_viewer_link_without_a_page_anchor() {
         None,
         None,
         &settings(),
-        None,
+        HumanTouches::none(),
     );
 
     assert_eq!(card.pinpoint.page, None);
@@ -865,7 +867,7 @@ fn a_humans_defer_reason_rides_the_card_separately_from_the_system_flag() {
         None,
         None,
         &settings(),
-        None,
+        HumanTouches::none(),
     );
 
     assert_eq!(
@@ -895,7 +897,7 @@ fn status_labels_are_plain_language_for_every_state() {
             None,
             None,
             &settings(),
-            None,
+            HumanTouches::none(),
         );
         assert_eq!(card.status_label, expected);
     }
@@ -928,7 +930,7 @@ fn an_uncorrected_question_is_labelled_system() {
         None,
         None,
         &settings(),
-        None,
+        HumanTouches::none(),
     );
 
     assert_eq!(
@@ -955,7 +957,10 @@ fn a_corrected_question_shows_the_humans_words_and_credits_them() {
         None,
         None,
         &settings(),
-        Some(&row),
+        HumanTouches {
+            question_override: Some(&row),
+            links: &[],
+        },
     );
 
     assert_eq!(
@@ -1003,7 +1008,10 @@ fn an_override_never_rewrites_the_machines_words() {
         None,
         None,
         &settings(),
-        Some(&row),
+        HumanTouches {
+            question_override: Some(&row),
+            links: &[],
+        },
     );
     assert_eq!(
         overridden.quote.question.as_deref(),
@@ -1026,7 +1034,7 @@ fn an_override_never_rewrites_the_machines_words() {
         None,
         None,
         &settings(),
-        None,
+        HumanTouches::none(),
     );
     assert_eq!(
         reverted.quote.question.as_deref(),
@@ -1062,7 +1070,10 @@ fn a_correction_can_add_a_question_the_machine_never_had() {
         None,
         None,
         &settings(),
-        Some(&row),
+        HumanTouches {
+            question_override: Some(&row),
+            links: &[],
+        },
     );
 
     assert_eq!(
@@ -1096,9 +1107,209 @@ fn a_card_with_no_question_has_no_authorship_badge() {
         None,
         None,
         &settings(),
-        None,
+        HumanTouches::none(),
     );
 
     assert!(card.quote.question.is_none());
     assert!(card.quote.question_authorship.is_none());
+}
+
+// ─── Task 2.10: a human supplies the link the extraction never made ──────────
+//
+// The card's side of the feature. `scenario_human_links_tests` proves the
+// sentence in isolation; these prove what a WHOLE card becomes, which is what
+// §7.5 and ruling R2 are actually about.
+
+/// One human link, as the card path receives it.
+fn human_link(paragraph: &str, cut: crate::domain::link_cut::LinkCut) -> CardHumanLink {
+    CardHumanLink {
+        allegation_id: format!("alleg-{paragraph}"),
+        label: format!("¶{paragraph} — refused to divide the property amicably"),
+        cut,
+        cut_label: "They'll use it against us".to_string(),
+    }
+}
+
+/// An unlinked card, with human links attached.
+fn linked_by_hand(links: &[CardHumanLink]) -> ScenarioCard {
+    let extras = extras_for(vec![unlinked_row()]);
+    build_card(
+        &full_instance(),
+        Some(&extras),
+        &scored_ref(),
+        Some(222),
+        None,
+        &settings(),
+        HumanTouches {
+            question_override: None,
+            links,
+        },
+    )
+}
+
+/// THE UNLOCK. A human link clears the defer flag the extraction's silence set.
+///
+/// This is the whole task in one assertion: 94 of S-2's 148 cards are defer-only
+/// for exactly the reason this removes (measured on DEV, 2026-08-04).
+#[test]
+fn a_human_link_makes_an_unlinked_card_rulable() {
+    let links = vec![human_link("41", crate::domain::link_cut::LinkCut::Against)];
+    let card = linked_by_hand(&links);
+
+    assert!(
+        !card.defer_required,
+        "the reason §7.5 refused Include and Exclude is gone"
+    );
+    assert_eq!(card.defer_required_reason, None);
+}
+
+/// RULING R2, ON A WHOLE CARD: no stance verb is emitted.
+///
+/// The machine said nothing about this statement. `stance` stays `null`, and
+/// nothing anywhere on the card speaks in the machine's voice — asserted against
+/// every canon verb, over every string the card carries, so a future change that
+/// routed human links into `build_stance` fails here rather than shipping a
+/// finding nobody made.
+#[test]
+fn no_stance_verb_is_emitted_for_a_human_linked_machine_unlinked_card() {
+    let links = vec![human_link("41", crate::domain::link_cut::LinkCut::Against)];
+    let card = linked_by_hand(&links);
+
+    assert!(
+        card.stance.is_none(),
+        "the extraction found no stance, so the card must not carry one"
+    );
+    assert!(
+        card.bears_on.is_empty(),
+        "bears_on is the MACHINE's list; a human link does not join it"
+    );
+
+    let summary = card
+        .human_link_summary
+        .as_ref()
+        .expect("a linked card says what the human did");
+
+    for edge in crate::domain::case_state::partition::ConnectionTier::Topical.edge_types() {
+        let Some(verb) = crate::domain::card_language::stance_verb_for_edge(edge) else {
+            continue;
+        };
+        assert!(
+            !summary.contains(&format!("This {verb}")),
+            "the card must not compose a machine stance sentence (found \
+             '{verb}'): {summary}"
+        );
+    }
+    assert!(summary.starts_with("You linked"), "{summary}");
+}
+
+/// The §7.5 slot holds exactly ONE of three things, and never none.
+///
+/// `cardRows` fills that slot with the stance, else the human sentence, else the
+/// defer reason. Without the middle branch a correctly-behaving human-linked card
+/// would have all three absent — and the §7 completeness contract would go red on
+/// a card that is working perfectly.
+#[test]
+fn exactly_one_of_stance_human_summary_and_defer_reason_is_present() {
+    let against = crate::domain::link_cut::LinkCut::Against;
+
+    let machine = build_card(
+        &full_instance(),
+        Some(&extras_for(vec![linked_row("REBUTS")])),
+        &scored_ref(),
+        Some(1),
+        None,
+        &settings(),
+        HumanTouches::none(),
+    );
+    let human = linked_by_hand(&[human_link("41", against)]);
+    let neither = build_card(
+        &full_instance(),
+        Some(&extras_for(vec![unlinked_row()])),
+        &scored_ref(),
+        Some(2),
+        None,
+        &settings(),
+        HumanTouches::none(),
+    );
+
+    for (name, card) in [("machine", machine), ("human", human), ("neither", neither)] {
+        let filled = [
+            card.stance.is_some(),
+            card.human_link_summary.is_some(),
+            card.defer_required_reason.is_some(),
+        ]
+        .iter()
+        .filter(|present| **present)
+        .count();
+        assert_eq!(
+            filled, 1,
+            "the {name} card must fill the §7.5 slot exactly once"
+        );
+    }
+}
+
+/// The links reach the card as chips, in the order the human added them.
+#[test]
+fn every_human_link_reaches_the_card_with_its_own_cut() {
+    let links = vec![
+        human_link("41", crate::domain::link_cut::LinkCut::Against),
+        human_link("92", crate::domain::link_cut::LinkCut::Supports),
+    ];
+    let card = linked_by_hand(&links);
+
+    assert_eq!(card.human_links.len(), 2);
+    assert_eq!(card.human_links[0].allegation_id, "alleg-41");
+    assert_eq!(
+        card.human_links[1].cut,
+        crate::domain::link_cut::LinkCut::Supports
+    );
+}
+
+/// A quoteless card stays unrulable however many accusations a human links it to.
+///
+/// The two refusal classes were always independent and must stay so: a statement
+/// with no verbatim words cannot be cited, and linking it to ¶41 does not give it
+/// words. Collapsing the two would let a human include an item that can never be
+/// quoted in court.
+#[test]
+fn linking_does_not_unlock_a_card_that_has_no_quote() {
+    let quoteless = BiasInstance {
+        verbatim_quote: None,
+        ..full_instance()
+    };
+    let card = build_card(
+        &quoteless,
+        Some(&extras_for(vec![unlinked_row()])),
+        &scored_ref(),
+        Some(3),
+        None,
+        &settings(),
+        HumanTouches {
+            question_override: None,
+            links: &[human_link("41", crate::domain::link_cut::LinkCut::Against)],
+        },
+    );
+
+    assert!(card.defer_required, "no quote is still no quote");
+    let reason = card.defer_required_reason.expect("a reason");
+    assert!(
+        reason.contains("no verbatim quote"),
+        "the surviving refusal must be the citability one: {reason}"
+    );
+}
+
+/// A card nobody linked carries no summary and no links.
+#[test]
+fn an_untouched_card_carries_no_human_link_fields() {
+    let card = build_card(
+        &full_instance(),
+        Some(&extras_for(vec![linked_row("REBUTS")])),
+        &scored_ref(),
+        Some(4),
+        None,
+        &settings(),
+        HumanTouches::none(),
+    );
+    assert!(card.human_links.is_empty());
+    assert!(card.human_link_summary.is_none());
 }

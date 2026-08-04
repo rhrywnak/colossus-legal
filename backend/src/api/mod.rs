@@ -45,6 +45,7 @@ pub mod element_detail;
 pub mod embed;
 pub mod evidence;
 pub mod evidence_chain;
+pub mod evidence_links;
 pub mod evidence_summary;
 pub mod graph;
 pub mod harms;
@@ -95,6 +96,7 @@ pub fn router() -> Router<AppState> {
         .merge(scenario_routes())
         .merge(scenario_facts::routes())
         .merge(evidence_summary::routes())
+        .merge(evidence_links::routes())
         .merge(scenario_augmentation::routes())
         .merge(rehearsal::routes())
         .merge(settings::routes())

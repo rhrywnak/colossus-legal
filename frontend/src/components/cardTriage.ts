@@ -54,8 +54,10 @@
 // `defer_required_reason` passed through untouched.
 
 import type { ScenarioCard } from "../services/scenarioCards";
+import type { LinkCut } from "../services/evidenceLinks";
 import type { FactAction } from "../services/scenarioGather";
 import { candidateState } from "./candidateFilters";
+import { linkOnCard, unlinkOnCard } from "./cardLinking";
 
 // ─── The keyboard state machine ─────────────────────────────────────────────
 
@@ -154,6 +156,17 @@ export type QueueState = {
 /** A ruling the reducer wants the caller to send to the backend. */
 export type QueueEffect =
   | { kind: "rule"; graphNodeId: string; action: FactAction; reason?: string }
+  /**
+   * A human's link from one statement to one or more accusations (task 2.10).
+   *
+   * A sibling of `rule`, not a variant of it: a link is not a ruling — it changes
+   * what MAY be ruled. It travels through the same reducer for one reason, and it
+   * is the reason that matters: the id comes from the card's own render scope, so
+   * the acceptance test (link the LAST stuck card with a different one selected)
+   * is a reducer test of exactly the shape 1.7G's is.
+   */
+  | { kind: "link"; graphNodeId: string; allegationIds: string[]; cut: LinkCut }
+  | { kind: "unlink"; graphNodeId: string; allegationId: string }
   | { kind: "none" };
 
 export type QueueEvent =
@@ -172,6 +185,17 @@ export type QueueEvent =
   /** The filter bar reporting which cards it leaves visible, in display order. */
   | { type: "visible"; ids: string[] }
   | { type: "defer_draft"; draft: string }
+  /**
+   * The link control on ONE card, saved (task 2.10, ruling R1).
+   *
+   * Same law as `rule`: the id comes up from the card's own render scope, so no
+   * shared position can decide the target. `advance` says whether this was "Save
+   * and next" — the convenience — or a plain save, which leaves the highlight
+   * exactly where the human put it.
+   */
+  | { type: "link"; graphNodeId: string; allegationIds: string[]; cut: LinkCut; advance: boolean }
+  /** One link taken back, on the card it is printed on. */
+  | { type: "unlink"; graphNodeId: string; allegationId: string }
   | { type: "cards_loaded"; cards: ScenarioCard[] };
 
 export type QueueResult = { state: QueueState; effect: QueueEffect };
@@ -398,6 +422,12 @@ export function queueReducer(state: QueueState, event: QueueEvent): QueueResult 
     case "rule":
       return handleCardRuling(state, event.key, event.graphNodeId);
 
+    case "link":
+      return linkOnCard(state, event, visibleCards(state));
+
+    case "unlink":
+      return unlinkOnCard(state, event.graphNodeId, event.allegationId);
+
     case "defer_draft":
       // Typing in the prompt changes the draft and NOTHING else — the target it
       // was opened on is carried through untouched.
@@ -442,6 +472,13 @@ function handleCardRuling(state: QueueState, key: RulingKey, graphNodeId: string
   // A ruling is also the end of any refusal message left on screen.
   const cleared = state.notice === null ? state : { ...state, notice: null };
   return rulingOn(cleared, card, key);
+}
+
+/** The cards the active filter leaves, in display order. */
+function visibleCards(state: QueueState): ScenarioCard[] {
+  return visibleOrder(state)
+    .map((at) => state.cards[at])
+    .filter((card): card is ScenarioCard => card !== undefined);
 }
 
 function handleKey(state: QueueState, key: string, typing: boolean): QueueResult {

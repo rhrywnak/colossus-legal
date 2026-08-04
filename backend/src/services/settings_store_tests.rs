@@ -35,8 +35,30 @@ fn row(
     }
 }
 
-/// The seven rows as the migration seeds them.
+/// The whole store as the two migrations seed it: eight numbers and twenty words.
+///
+/// ## Why the wording rows come from `Wording::for_test_values` (task 2.10)
+///
+/// A second hand-typed copy of twenty sentences here would be a fixture nothing
+/// pins to the product. `wording_tests` pins `Wording::for_test` to the migration
+/// that seeds it, so borrowing the values keeps ONE chain: migration → wording
+/// fixture → this store fixture → `Settings::for_test`. Every link in it is
+/// asserted.
 fn seeded() -> HashMap<String, AppSettingRecord> {
+    let mut rows = numeric_rows();
+    for (key, value) in crate::domain::wording::Wording::for_test_values() {
+        // Text rows carry no bounds: `min_value` / `max_value` are numeric
+        // comparisons, and the migration leaves them NULL.
+        rows.insert(
+            key.to_string(),
+            row(key, &value, ValueKind::Text, None, None),
+        );
+    }
+    rows
+}
+
+/// The eight numeric rows as the migrations seed them.
+fn numeric_rows() -> HashMap<String, AppSettingRecord> {
     by_key(vec![
         row(
             KEY_BAND_HIGH,
@@ -68,6 +90,14 @@ fn seeded() -> HashMap<String, AppSettingRecord> {
             ValueKind::Float,
             Some(0.0),
             Some(1.0),
+        ),
+        // Task 2.10: how many accusations the link panel's short list offers.
+        row(
+            KEY_LINK_SHORT_LIST_MAX,
+            "8",
+            ValueKind::Count,
+            Some(1.0),
+            None,
         ),
     ])
 }
@@ -123,12 +153,114 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     // Anti-drift: a parameter added to `Settings` but forgotten in REQUIRED_KEYS
     // would not be checked at boot, and would fail later as a missing-key error
     // at whatever moment it happened to be read.
-    assert_eq!(REQUIRED_KEYS.len(), 7);
+    assert_eq!(
+        REQUIRED_KEYS.len(),
+        8,
+        "seven numbers, plus 2.10's short-list cap"
+    );
+    assert_eq!(WORDING_KEYS.len(), 22, "the strings task 2.10 stores");
     assert_eq!(
         seeded().len(),
-        REQUIRED_KEYS.len(),
-        "the seed and the required list must describe the same store"
+        REQUIRED_KEYS.len() + WORDING_KEYS.len(),
+        "the seed and the two required lists must describe the same store"
     );
+}
+
+/// A missing WORDING row refuses the snapshot exactly as a missing number does.
+///
+/// The point of Roman's ruling is that a string is a stored parameter with the
+/// same standing as a threshold. If a missing label degraded to an empty button
+/// instead of refusing to boot, it would be a compiled-in default by omission.
+#[test]
+fn a_missing_wording_row_refuses_the_snapshot_too() {
+    for key in WORDING_KEYS {
+        let mut rows = seeded();
+        rows.remove(*key);
+
+        let Err(error) = build_settings(&rows) else {
+            panic!("a store missing {key} must not produce a snapshot");
+        };
+        assert!(
+            error.to_string().contains(key),
+            "the refusal must name the missing string: {error}"
+        );
+    }
+}
+
+/// A BLANK stored string refuses too — it would render as an invisible control.
+#[test]
+fn a_blank_label_is_refused_rather_than_shown_as_nothing() {
+    let mut rows = seeded();
+    let key = WORDING_KEYS[0];
+    rows.insert(
+        key.to_string(),
+        row(key, "   ", ValueKind::Text, None, None),
+    );
+
+    let Err(error) = build_settings(&rows) else {
+        panic!("a blank label must not reach a screen");
+    };
+    let message = error.to_string();
+    assert!(message.contains(key), "{message}");
+    assert!(message.contains("blank"), "{message}");
+}
+
+/// A wording row declaring the wrong kind is a drifted store, and says so.
+#[test]
+fn a_wording_row_declaring_a_number_is_refused_as_a_drifted_store() {
+    let mut rows = seeded();
+    let key = WORDING_KEYS[0];
+    rows.insert(
+        key.to_string(),
+        row(key, "Some words", ValueKind::Count, None, None),
+    );
+
+    let Err(error) = build_settings(&rows) else {
+        panic!("a kind mismatch must refuse");
+    };
+    assert!(
+        error.to_string().contains("different kind"),
+        "the refusal must say the STORE disagrees with the code: {error}"
+    );
+}
+
+/// A template edited into one that lost its facts is refused, by name.
+#[test]
+fn a_template_that_lost_a_placeholder_is_refused_on_write() {
+    let record = row(
+        "link_summary_template",
+        "You linked this to {allegations} · {cut}.",
+        ValueKind::Text,
+        None,
+        None,
+    );
+
+    // Keeping both placeholders is fine, in any wording.
+    assert!(validate_candidate(&record, "Bears on {allegations} — {cut}").is_ok());
+
+    // Dropping one is not, and the refusal names it — otherwise the human is told
+    // "invalid" about a sentence that reads perfectly well.
+    let Err(error) = validate_candidate(&record, "You linked this to it · {cut}.") else {
+        panic!("a template with the fact removed must be refused");
+    };
+    let message = error.to_string();
+    assert!(message.contains("{allegations}"), "{message}");
+    assert!(message.contains("link_summary_template"), "{message}");
+}
+
+/// A plain label has no placeholder rules to trip over.
+#[test]
+fn an_ordinary_label_can_be_reworded_freely() {
+    let record = row(
+        "link_save_label",
+        "Save and next",
+        ValueKind::Text,
+        None,
+        None,
+    );
+    assert!(validate_candidate(&record, "Save it and move on").is_ok());
+    // But it still cannot be blanked.
+    assert!(validate_candidate(&record, "   ").is_err());
 }
 
 #[test]
@@ -385,11 +517,22 @@ fn validation_is_the_same_rule_the_snapshot_applies() {
 /// `the_listing_puts_live_parameters_before_dormant_ones` makes for the ORDER BY.
 #[test]
 fn the_fixtures_carry_the_values_the_migration_actually_seeds() {
-    let sql = std::fs::read_to_string(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("pipeline_migrations/20260801225147_create_app_settings_store.sql"),
-    )
-    .expect("the seed migration is on disk");
+    // TWO migrations now seed numeric parameters: 1.6's original seven and 2.10's
+    // short-list cap. Concatenated rather than searched one at a time so a key
+    // moving between files is not a failure — where a parameter is seeded is a
+    // fact about migration history, and only its VALUE is what this pins.
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let sql: String = [
+        "pipeline_migrations/20260801225147_create_app_settings_store.sql",
+        "pipeline_migrations/20260804132730_create_evidence_allegation_links.sql",
+    ]
+    .iter()
+    .map(|relative| {
+        std::fs::read_to_string(root.join(relative))
+            .unwrap_or_else(|_| panic!("{relative} is on disk"))
+    })
+    .collect::<Vec<_>>()
+    .join("\n");
 
     let fixture = seeded();
     let mut checked = 0usize;
@@ -414,7 +557,7 @@ fn the_fixtures_carry_the_values_the_migration_actually_seeds() {
 
     // Anti-vacuity: a parsing change that stopped finding rows would otherwise
     // make this test pass while comparing nothing.
-    assert_eq!(checked, 7, "all seven parameters must be compared");
+    assert_eq!(checked, 8, "all eight numeric parameters must be compared");
 }
 
 /// The snapshot built from the fixture matches the one `Settings::for_test`

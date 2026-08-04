@@ -69,6 +69,9 @@ function card(overrides: Partial<ScenarioCard> = {}): ScenarioCard {
     defer_required: false,
     defer_required_reason: null,
     defer_reason: null,
+    // Task 2.10: no human has linked this one — the ordinary state.
+    human_links: [],
+    human_link_summary: null,
     ...overrides,
   };
 }

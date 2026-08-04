@@ -47,8 +47,10 @@ use chrono::Utc;
 use sqlx::PgPool;
 
 use crate::domain::settings::{
-    parse_count, parse_float, parse_ratio, Bounds, Ratio, SettingError, Settings, ValueKind,
+    parse_count, parse_float, parse_ratio, parse_text, Bounds, Ratio, SettingError, Settings,
+    ValueKind,
 };
+use crate::domain::wording::{build_wording, validate_wording_candidate, WORDING_KEYS};
 use crate::repositories::pipeline_repository::{
     get_setting, insert_setting_change, list_settings, update_setting_value, AppSettingRecord,
     PipelineRepoError,
@@ -67,12 +69,18 @@ const KEY_TALKING_POINTS_CAP: &str = "talking_points_cap";
 const KEY_READINESS_N: &str = "readiness_item_threshold_n";
 const KEY_CARD_TEST_RATIO: &str = "card_test_ratio";
 const KEY_REANCHOR_TOLERANCE: &str = "reanchor_close_match_tolerance";
+const KEY_LINK_SHORT_LIST_MAX: &str = "link_short_list_max";
 
-/// Every key this build reads, so a missing one is caught at boot by name.
+/// Every NUMERIC key this build reads, so a missing one is caught at boot by name.
 ///
 /// The anti-drift half of the configuration law: the store may hold parameters
 /// this build does not know about (a future task's, seeded early), but this build
 /// must never START without every parameter it does know about.
+///
+/// The twenty stored STRINGS live in `wording::WORDING_KEYS` rather than here.
+/// Two lists rather than one flat twenty-eight because they answer different
+/// questions — these decide how the system judges, those are the words it speaks
+/// — and because a boot log reporting both counts says more than one number does.
 pub const REQUIRED_KEYS: &[&str] = &[
     KEY_BAND_HIGH,
     KEY_BAND_MEDIUM,
@@ -81,6 +89,7 @@ pub const REQUIRED_KEYS: &[&str] = &[
     KEY_READINESS_N,
     KEY_CARD_TEST_RATIO,
     KEY_REANCHOR_TOLERANCE,
+    KEY_LINK_SHORT_LIST_MAX,
 ];
 
 /// Why the store could not be read or written.
@@ -194,6 +203,12 @@ fn ratio_of(record: &AppSettingRecord) -> Result<Ratio, SettingError> {
     parse_ratio(&record.key, &record.value)
 }
 
+/// Read one row as stored text, checking its declared kind (task 2.10).
+fn text_of(record: &AppSettingRecord) -> Result<String, SettingError> {
+    expect_kind(record, ValueKind::Text)?;
+    parse_text(&record.key, &record.value)
+}
+
 /// Confirm a row's stored kind is the one this build expects to read.
 fn expect_kind(record: &AppSettingRecord, expected: ValueKind) -> Result<(), SettingError> {
     let stored = ValueKind::try_from(record.value_kind.as_str())?;
@@ -205,6 +220,7 @@ fn expect_kind(record: &AppSettingRecord, expected: ValueKind) -> Result<(), Set
                 ValueKind::Float => "a number (the store declares a different kind)",
                 ValueKind::Count => "a whole number (the store declares a different kind)",
                 ValueKind::Ratio => "a ratio (the store declares a different kind)",
+                ValueKind::Text => "words (the store declares a different kind)",
             },
         });
     }
@@ -236,6 +252,12 @@ pub fn build_settings(rows: &HashMap<String, AppSettingRecord>) -> Result<Settin
         });
     }
 
+    // The twenty stored strings, read by the same rules as the numbers: the row
+    // must exist, declare `text`, and carry something non-blank. `build_wording`
+    // knows the KEYS and the shape; this closure is the only thing that knows
+    // where a value comes from and what a refusal looks like (task 2.10).
+    let wording = build_wording(|key| text_of(require(rows, key)?))?;
+
     Ok(Settings {
         confidence_band_high,
         confidence_band_medium,
@@ -244,6 +266,8 @@ pub fn build_settings(rows: &HashMap<String, AppSettingRecord>) -> Result<Settin
         readiness_item_threshold_n: count_of(require(rows, KEY_READINESS_N)?)?,
         card_test_ratio: ratio_of(require(rows, KEY_CARD_TEST_RATIO)?)?,
         reanchor_close_match_tolerance: float_of(require(rows, KEY_REANCHOR_TOLERANCE)?)?,
+        link_short_list_max: count_of(require(rows, KEY_LINK_SHORT_LIST_MAX)?)?,
+        wording,
     })
 }
 
@@ -275,6 +299,7 @@ pub async fn load_settings(pool: &PgPool) -> Result<Settings, SettingsError> {
     tracing::info!(
         rows = rows.len(),
         required = REQUIRED_KEYS.len(),
+        wording = WORDING_KEYS.len(),
         "configuration store read"
     );
 
@@ -298,8 +323,10 @@ pub async fn load_at_boot(pool: &PgPool) -> Result<Settings, SettingsError> {
         Ok(settings) => {
             tracing::info!(
                 parameters = REQUIRED_KEYS.len(),
+                wording_strings = WORDING_KEYS.len(),
                 talking_points_cap = settings.talking_points_cap,
                 confidence_band_high = settings.confidence_band_high,
+                link_short_list_max = settings.link_short_list_max,
                 "startup: configuration store loaded"
             );
             Ok(settings)
@@ -543,6 +570,9 @@ pub fn validate_candidate(record: &AppSettingRecord, candidate: &str) -> Result<
         ValueKind::Ratio => {
             parse_ratio(&record.key, candidate)?;
         }
+        // Two rules, both in `domain::wording`: non-blank, and (for a template)
+        // still carrying the placeholders that put the facts in the sentence.
+        ValueKind::Text => validate_wording_candidate(&record.key, candidate)?,
     }
     Ok(())
 }

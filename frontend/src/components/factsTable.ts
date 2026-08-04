@@ -73,7 +73,18 @@ export function includedRows(cards: ScenarioCard[]): WorkingRow[] {
       code: card.code,
       graphNodeId: card.graph_node_id,
       text: card.quote.text,
-      bearsOn: card.bears_on.map((b) => b.accusation),
+      // Both kinds of accusation chip, machine first (task 2.10). A human's link
+      // is what put some of these rows in the table at all — the card could not
+      // be included until somebody linked it — so a facts table that showed only
+      // the extraction's accusations would leave those rows looking unattached to
+      // anything, which is the state the human just fixed.
+      //
+      // Order, not merge: the payload keeps the two lists apart (they are
+      // different claims), and this joins them for display only.
+      bearsOn: [
+        ...card.bears_on.map((b) => b.accusation),
+        ...card.human_links.map((l) => l.label),
+      ],
       pinpointLabel: card.pinpoint.label,
       pinpointHref: card.pinpoint.viewer_href,
       statusLabel: card.status_label,

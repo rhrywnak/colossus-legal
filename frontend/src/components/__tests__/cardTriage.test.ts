@@ -68,6 +68,9 @@ function fullCard(overrides: Partial<ScenarioCard> = {}): ScenarioCard {
     defer_required: false,
     defer_required_reason: null,
     defer_reason: null,
+    // Task 2.10: no human has linked this one — the ordinary state.
+    human_links: [],
+    human_link_summary: null,
     ...overrides,
   };
 }
@@ -203,6 +206,46 @@ describe("the §7 card contract", () => {
     const rows = cardRows(fullCard()).filter((r) => r.element !== "confidence");
     const present = new Set(rows.map((r) => r.element));
     expect(REQUIRED_CARD_ELEMENTS.filter((e) => !present.has(e))).toEqual(["confidence"]);
+  });
+
+  it("RULING R2: a human-linked card fills the §7.5 slot without a stance verb", () => {
+    // The contract's third branch (task 2.10). A card the extraction never linked,
+    // that a human HAS linked, has no stance and no defer reason — and without this
+    // branch it would have no §7.5 row at all, failing the completeness test above
+    // on a card that is behaving exactly as designed.
+    const card = fullCard({
+      stance: null,
+      defer_required: false,
+      defer_required_reason: null,
+      human_links: [
+        {
+          allegation_id: "a-41",
+          label: "¶41 — refused to divide the property",
+          cut: "against",
+          cut_label: "They'll use it against us",
+        },
+      ],
+      human_link_summary: "You linked this to ¶41 — refused to divide the property · they'll use it against us.",
+    });
+
+    expect(missingElements(card)).toEqual([]);
+
+    const slot = cardRows(card).filter((r) => r.element === "stance");
+    expect(slot).toHaveLength(1);
+    expect(slot[0].value).toBe(card.human_link_summary);
+    // And it does not speak in the machine's voice.
+    for (const verb of ["supports", "disputes", "comments on", "mentions"]) {
+      expect(slot[0].value).not.toContain(`This ${verb}`);
+    }
+  });
+
+  it("the machine's stance still wins the §7.5 slot when both exist", () => {
+    const card = fullCard({
+      human_link_summary: "You linked this to ¶92 · it supports us.",
+    });
+    const slot = cardRows(card).filter((r) => r.element === "stance");
+    expect(slot).toHaveLength(1);
+    expect(slot[0].value).toBe(card.stance?.summary);
   });
 });
 
@@ -767,6 +810,187 @@ describe("a card's own ruling buttons", () => {
     s = click(s, "i", "ev-1").state;
     expect(s.cards[s.index].graph_node_id).toBe("ev-3");
   });
+});
+
+// ─── Task 2.10: a card's own LINK control ───────────────────────────────────
+//
+// The same law as the ruling buttons above, and the same acceptance test, because
+// the same defect would be the same disaster: a link decides whether a card can be
+// ruled at all, so a link that lands on the wrong card silently unlocks the wrong
+// evidence.
+
+describe("a card's own link control", () => {
+  /** Ten stuck cards, so "the last one" is nowhere near "the selected one". */
+  const stuck = () =>
+    Array.from({ length: 10 }, (_, i) =>
+      fullCard({
+        graph_node_id: `ev-${i + 1}`,
+        code: `C-${i}`,
+        // The stuck class: the extraction linked this to nothing.
+        stance: null,
+        defer_required: true,
+        defer_required_reason: "This item is not linked to any accusation yet.",
+      }),
+    );
+
+  /** Save the link control ON a named card — the `{type: "link"}` path. */
+  function link(state: QueueState, graphNodeId: string, advance = false) {
+    return queueReducer(state, {
+      type: "link",
+      graphNodeId,
+      allegationIds: ["a-41"],
+      cut: "against",
+      advance,
+    });
+  }
+
+  it("THE ACCEPTANCE TEST: link the LAST card, with the FIRST selected", () => {
+    // Roman's DEV verify line, verbatim, as a test: "Filter S-2 to the stuck
+    // cards. Link the LAST one in the view first, without selecting it — it links,
+    // and no other card changes."
+    const s = stateOf(stuck());
+    expect(s.index).toBe(0);
+
+    const { effect } = link(s, "ev-10");
+
+    expect(effect).toEqual({
+      kind: "link",
+      graphNodeId: "ev-10",
+      allegationIds: ["a-41"],
+      cut: "against",
+    });
+  });
+
+  it("and NO OTHER card is touched", () => {
+    // The half a passing effect assertion can still hide.
+    const before = stateOf(stuck());
+    const after = link(before, "ev-10").state;
+
+    expect(after.cards).toEqual(before.cards);
+    expect(after.ruled).toEqual([]);
+  });
+
+  it("links the card the control is on, not the one the keyboard is aimed at", () => {
+    const selected = queueReducer(stateOf(stuck()), {
+      type: "select",
+      graphNodeId: "ev-2",
+    }).state;
+    expect(selected.cards[selected.index].graph_node_id).toBe("ev-2");
+
+    const { effect } = link(selected, "ev-7");
+    expect(effect).toMatchObject({ kind: "link", graphNodeId: "ev-7" });
+  });
+
+  it("any card, any order — three links, three distinct targets", () => {
+    // "Save and next is a convenience, never the only path" (ruling R1), as a
+    // test: nothing here selects anything, and the order is deliberately random.
+    let s = stateOf(stuck());
+    const targets: string[] = [];
+    for (const id of ["ev-9", "ev-3", "ev-6"]) {
+      const result = link(s, id);
+      s = result.state;
+      if (result.effect.kind === "link") targets.push(result.effect.graphNodeId);
+    }
+    expect(targets).toEqual(["ev-9", "ev-3", "ev-6"]);
+  });
+
+  it("leaves the highlight alone on a plain save", () => {
+    // Only "Save and next" moves it. A human working a card out of order must not
+    // be thrown somewhere else for having saved.
+    const s = queueReducer(stateOf(stuck()), { type: "select", graphNodeId: "ev-4" }).state;
+    const after = link(s, "ev-8").state;
+    expect(after.cards[after.index].graph_node_id).toBe("ev-4");
+  });
+
+  it("SAVE AND NEXT lands after the card that was LINKED, not after the selection", () => {
+    // Ruling R2, on the second control. The selection is on ev-2; linking ev-7
+    // must land on ev-8, not ev-3.
+    const s = queueReducer(stateOf(stuck()), { type: "select", graphNodeId: "ev-2" }).state;
+    const after = link(s, "ev-7", true).state;
+    expect(after.cards[after.index].graph_node_id).toBe("ev-8");
+  });
+
+  it("Save and next walks the FILTERED order", () => {
+    const ids = ["ev-2", "ev-5", "ev-9"];
+    const s = queueReducer(stateOf(stuck()), { type: "visible", ids }).state;
+    const after = link(s, "ev-5", true).state;
+    expect(after.cards[after.index].graph_node_id).toBe("ev-9");
+  });
+
+  it("Save and next on the last stuck card leaves the highlight where it is", () => {
+    // Stopping rather than wrapping: the queue being exhausted is a visible state.
+    const s = queueReducer(stateOf(stuck()), { type: "select", graphNodeId: "ev-10" }).state;
+    const after = link(s, "ev-10", true).state;
+    expect(after.cards[after.index].graph_node_id).toBe("ev-10");
+  });
+
+  it("does NOT patch the card optimistically", () => {
+    // Ruling R2 forbids the browser composing what a linked card says — the
+    // sentence, the chips and the unlocked buttons are all server-composed, so the
+    // card must stay exactly as it was until the pool is re-read.
+    const before = stateOf(stuck());
+    const after = link(before, "ev-3").state;
+    const card = after.cards.find((c) => c.graph_node_id === "ev-3");
+
+    expect(card?.human_links).toEqual([]);
+    expect(card?.human_link_summary).toBeNull();
+    expect(card?.defer_required).toBe(true);
+  });
+
+  it("ignores a link on a card the pool no longer holds", () => {
+    const { state, effect } = link(stateOf(stuck()), "ev-gone");
+    expect(effect).toEqual({ kind: "none" });
+    expect(state.cards).toHaveLength(10);
+  });
+
+  it("unlink names its own card and its own accusation", () => {
+    const { effect } = queueReducer(stateOf(stuck()), {
+      type: "unlink",
+      graphNodeId: "ev-6",
+      allegationId: "a-92",
+    });
+    expect(effect).toEqual({ kind: "unlink", graphNodeId: "ev-6", allegationId: "a-92" });
+  });
+
+  it("ignores an unlink on a card the pool no longer holds", () => {
+    const { effect } = queueReducer(stateOf(stuck()), {
+      type: "unlink",
+      graphNodeId: "ev-gone",
+      allegationId: "a-92",
+    });
+    expect(effect).toEqual({ kind: "none" });
+  });
+
+  it("a link abandons an open defer prompt rather than committing it", () => {
+    // Same reasoning as a ruling on a named card: a click on this card's own Save
+    // is an unambiguous statement about this card, and the half-typed reason for a
+    // DIFFERENT card must not ride along with it.
+    // A defer-only card short-circuits D (it already has a server-composed
+    // reason), so the prompt is opened on a rulable card.
+    const s = queueReducer(stateOf(fullCards()), {
+      type: "rule",
+      key: "d",
+      graphNodeId: "ev-2",
+    }).state;
+    expect(s.mode.kind).toBe("deferring");
+
+    const after = queueReducer(s, {
+      type: "link",
+      graphNodeId: "ev-5",
+      allegationIds: ["a-41"],
+      cut: "against",
+      advance: false,
+    });
+    expect(after.state.mode.kind).toBe("triage");
+    expect(after.effect).toMatchObject({ kind: "link", graphNodeId: "ev-5" });
+  });
+
+  /** Ten RULABLE cards, for the defer-prompt case above. */
+  function fullCards() {
+    return Array.from({ length: 10 }, (_, i) =>
+      fullCard({ graph_node_id: `ev-${i + 1}`, code: `C-${i}` }),
+    );
+  }
 });
 
 describe("auto-advance", () => {

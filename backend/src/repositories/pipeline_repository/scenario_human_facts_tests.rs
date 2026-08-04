@@ -174,6 +174,14 @@ const HUMAN_AUTHORED_TABLES: &[&str] = &[
     // BECAUSE the machine got it wrong, so a scan that rewrote it would restore
     // the very text a human had already rejected, and would do it silently.
     "evidence_summary_overrides",
+    // Task 2.10: a human's link from a statement to the accusation it bears on,
+    // and the ledger of every such act. Sharper still than the row above: this one
+    // exists because the extraction linked NOTHING, and it is what decides whether
+    // a card can be ruled at all. A scan that overwrote it would re-lock 94 cards
+    // a human had unlocked, with no error anywhere — and a scan that could append
+    // to the ledger could manufacture an attribution for a decision nobody made.
+    "evidence_allegation_links",
+    "evidence_allegation_link_events",
 ];
 
 fn read_source(relative: &str) -> Option<String> {

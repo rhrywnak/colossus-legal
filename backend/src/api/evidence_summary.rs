@@ -131,10 +131,12 @@ pub async fn save_summary_override(
     Ok(Json(SummaryOverrideResponse {
         graph_node_id,
         summary_text: Some(text.to_string()),
-        authorship_label: Some(crate::services::scenario_card::human_authorship_label(
-            &user.username,
-            written_at,
-        )),
+        authorship_label: Some(
+            crate::services::scenario_human_links::human_authorship_label(
+                &user.username,
+                written_at,
+            ),
+        ),
         overridden: true,
     }))
 }

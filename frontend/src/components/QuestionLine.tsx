@@ -87,7 +87,17 @@ export const QuestionLine: React.FC<{
   authorship?: CardQuestionAuthorship;
   onSave: (text: string) => Promise<void>;
   onRevert: () => Promise<void>;
-}> = ({ question, authorship, onSave, onRevert }) => {
+  /**
+   * The stored label for the Revert control (task 2.10, the 1.7F fold-in).
+   *
+   * `undefined` while the panel wording has not loaded — and then the control is
+   * NOT rendered rather than falling back to a literal written here. A hardcoded
+   * label would be the compiled-in string R4 deletes, and it would be the one on
+   * screen on the day the settings store failed to load, which is the day you most
+   * want to know.
+   */
+  revertLabel?: string;
+}> = ({ question, authorship, onSave, onRevert, revertLabel }) => {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(question);
   const [busy, setBusy] = useState(false);
@@ -160,14 +170,14 @@ export const QuestionLine: React.FC<{
           >
             Cancel
           </button>
-          {human && (
+          {human && revertLabel && (
             <button
               type="button"
               style={{ ...actionStyle, color: "var(--text-secondary)", marginLeft: "auto" }}
               disabled={busy}
               onClick={() => run(onRevert)}
             >
-              ↩ Restore the system's wording
+              <span aria-hidden="true">↩</span> {revertLabel}
             </button>
           )}
         </div>
@@ -184,6 +194,27 @@ export const QuestionLine: React.FC<{
         <span style={labelStyle} title={human ? "A human corrected this question" : undefined}>
           <span aria-hidden="true">{human ? "👤" : "⚙"}</span> {authorship.label}
         </span>
+      )}
+      {/* Revert BESIDE THE BADGE (Roman's ruling, 2026-08-04, folded into 2.10).
+          The in-editor control stays where it was; this one means undoing a
+          correction no longer requires opening an editor to reach the button that
+          throws that editor's contents away. Only for a human-authored question,
+          because there is nothing to revert to otherwise. */}
+      {human && revertLabel && (
+        <button
+          type="button"
+          style={{ ...actionStyle, color: "var(--text-secondary)" }}
+          aria-label={revertLabel}
+          title={revertLabel}
+          disabled={busy}
+          onClick={(event) => {
+            // Not also a selection: reverting is not aiming the keyboard.
+            event.stopPropagation();
+            run(onRevert);
+          }}
+        >
+          <span aria-hidden="true">↩</span>
+        </button>
       )}
       <button
         type="button"

@@ -70,7 +70,10 @@ fn the_bare_card_count_sees_context_less_cards_and_ignores_the_rest() {
         &ordinals(&[("ev-1", 1), ("ev-2", 2)]),
         &page_text,
         &settings,
-        &HashMap::new(),
+        HumanTouchIndex {
+            question_overrides: &HashMap::new(),
+            links: &HashMap::new(),
+        },
     );
 
     assert_eq!(response.pool.len(), 2, "both candidates are served");
@@ -99,7 +102,10 @@ fn the_bare_card_count_ignores_an_item_with_no_quote_at_all() {
         &ordinals(&[("ev-3", 3)]),
         &HashMap::new(),
         &settings,
-        &HashMap::new(),
+        HumanTouchIndex {
+            question_overrides: &HashMap::new(),
+            links: &HashMap::new(),
+        },
     );
 
     assert_eq!(response.pool.len(), 1);

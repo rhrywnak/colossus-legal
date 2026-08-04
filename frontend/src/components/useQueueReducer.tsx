@@ -20,6 +20,8 @@
 import { useCallback, useRef, useState } from "react";
 
 import { applyFactAction } from "../services/scenarioGather";
+import { fillDetail, saveLinks, unlink } from "../services/evidenceLinks";
+import type { LinkPanelWording } from "../services/evidenceLinks";
 import {
   initialQueueState,
   queueReducer,
@@ -61,6 +63,21 @@ export function useReducerWithEffects(
    * something IS stored, and the 1.3 gate found what that costs when it is not.
    */
   onRulingSaved: () => void,
+  /**
+   * Called after a link or unlink has been attempted (task 2.10).
+   *
+   * Re-reads the pool, on success AND on failure. On success because everything a
+   * linked card shows is composed server-side; on failure because the panel has
+   * already cleared itself and the screen must go back to matching the database.
+   */
+  onLinksChanged: () => void,
+  /**
+   * The stored words this hook needs to report a link write (task 2.10, R4).
+   *
+   * `null` until the scenario's panel wording has loaded — and no link effect can
+   * fire before then, because the control that produces one is not rendered.
+   */
+  linkWording: LinkPanelWording | null,
 ): [QueueState, (event: QueueEvent) => void] {
   const [state, setState] = useState<QueueState>(() => initialQueueState([]));
 
@@ -75,6 +92,48 @@ export function useReducerWithEffects(
       const { state: next, effect } = queueReducer(stateRef.current, event);
       stateRef.current = next;
       setState(next);
+
+      // Task 2.10: a link is not a ruling — it changes what MAY be ruled — so it
+      // has its own performer and its own sentence when it fails. It also does
+      // NOT report through `onRulingSaved`: that callback tells the facts section
+      // a ruling landed, and a link has not put anything in the facts list. What a
+      // link needs is a full re-read of the pool, because the card's sentence, its
+      // chips, its unlocked buttons and the progress line are all composed
+      // server-side from the new state (ruling R2 forbids composing them here).
+      if (effect.kind === "link" || effect.kind === "unlink") {
+        // Every sentence below comes from the settings store (R4). `linkWording`
+        // is non-null by construction whenever a link effect can fire: the panel
+        // that produces one is not rendered until the wording has loaded. The
+        // guard is a type narrowing, not a fallback — there is no literal here to
+        // fall back TO.
+        const said = linkWording;
+        const failed = (e: unknown) => {
+          const detail = e instanceof Error ? e.message : String(e);
+          if (said) onRulingFailed(fillDetail(said.save_failed_template, detail));
+          // Reconcile as well as say so. Without this the panel would clear on a
+          // save that never happened, and the card would look linked until
+          // something else reloaded it.
+          onLinksChanged();
+        };
+
+        if (effect.kind === "unlink") {
+          unlink(slug, effect.graphNodeId, effect.allegationId).then((result) => {
+            // `removed: false` means the pair was NOT linked — the view was stale.
+            // Silently reloading would make "I removed your link" and "there was
+            // nothing there" the same observable, which is the distinction the
+            // backend goes to the trouble of reporting (Standing Rule 1).
+            if (!result.removed && said) onRulingFailed(said.unlink_found_nothing);
+            onLinksChanged();
+          }, failed);
+          return;
+        }
+
+        saveLinks(slug, effect.graphNodeId, effect.allegationIds, effect.cut).then(
+          () => onLinksChanged(),
+          failed,
+        );
+        return;
+      }
 
       if (effect.kind !== "rule") return;
 
@@ -95,7 +154,7 @@ export function useReducerWithEffects(
         },
       );
     },
-    [slug, scenarioId, onRulingFailed, onRulingSaved],
+    [slug, scenarioId, onRulingFailed, onRulingSaved, onLinksChanged, linkWording],
   );
 
   return [state, dispatch];

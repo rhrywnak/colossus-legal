@@ -28,6 +28,7 @@ import { CandidateCard } from "./CandidateCard";
 import { candidateState } from "./candidateFilters";
 import type { RulingKey } from "./cardTriage";
 import type { ScenarioCard } from "../services/scenarioCards";
+import type { AllegationOptions, LinkCut } from "../services/evidenceLinks";
 
 /**
  * The scroll region.
@@ -88,6 +89,20 @@ const CandidateList: React.FC<{
   onCorrectQuestion: (graphNodeId: string, text: string) => Promise<void>;
   /** Restore the machine's question on one named card. */
   onRevertQuestion: (graphNodeId: string) => Promise<void>;
+  /** The accusations the link panels offer, and their words (task 2.10). `null`
+   *  while loading or after a failed read — no panel is rendered then. */
+  linkOptions: AllegationOptions | null;
+  /** Save one NAMED card's links (task 2.10, ruling R1). Bound per card below,
+   *  on the same principle as `onRule`: the target travels with the control, and
+   *  no shared position can decide it. */
+  onSaveLinks: (
+    graphNodeId: string,
+    allegationIds: string[],
+    cut: LinkCut,
+    advance: boolean,
+  ) => Promise<void>;
+  /** Take one link back, on one named card. */
+  onUnlink: (graphNodeId: string, allegationId: string) => void;
 }> = ({
   cards,
   selectedId,
@@ -97,6 +112,9 @@ const CandidateList: React.FC<{
   onRule,
   onCorrectQuestion,
   onRevertQuestion,
+  linkOptions,
+  onSaveLinks,
+  onUnlink,
 }) => {
   // One ref for the selected row, re-pointed on every render. A map of refs would
   // let the effect scroll a card that is no longer selected.
@@ -153,6 +171,14 @@ const CandidateList: React.FC<{
               onRule={(key) => onRule(key, card.graph_node_id)}
               onCorrectQuestion={(text) => onCorrectQuestion(card.graph_node_id, text)}
               onRevertQuestion={() => onRevertQuestion(card.graph_node_id)}
+              linkOptions={linkOptions}
+              // THE SAME FIX AS `onRule`, one line lower: the handler closes over
+              // THIS card's id, in this iteration's scope. Every stuck card in the
+              // list carries a live panel and none of them can link another card.
+              onSaveLinks={(allegationIds, cut, advance) =>
+                onSaveLinks(card.graph_node_id, allegationIds, cut, advance)
+              }
+              onUnlink={(allegationId) => onUnlink(card.graph_node_id, allegationId)}
               keyboardRefused={selected && notice !== null}
             />
           </div>

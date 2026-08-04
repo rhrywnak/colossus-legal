@@ -1,4 +1,5 @@
 pub mod allegation_detail_repository;
+pub mod allegation_options_repository;
 pub mod allegation_repository;
 pub mod analysis_repository;
 pub mod audit_repository;

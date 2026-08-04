@@ -220,6 +220,36 @@ pub struct CardBearsOn {
     pub count: Option<String>,
 }
 
+/// One accusation a HUMAN linked this statement to (task 2.10).
+///
+/// ## Domain note: why this is not folded into `bears_on`
+///
+/// A machine link and a human link are different claims about the world. The
+/// first says the extraction found a relationship in the record; the second says
+/// a person read the statement and decided it bears on this accusation. They
+/// render alike — both are chips — but a payload that collapsed them would make
+/// "what did the machine find?" unanswerable, and task 2.5's re-anchoring needs
+/// that answer.
+///
+/// It is also what keeps ruling R2 structural: `build_stance` takes machine links
+/// and only machine links, so a human-linked card cannot grow a stance sentence
+/// the extraction never supported, no matter what else changes.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CardHumanLink {
+    /// The accusation's graph id — what an unlink addresses.
+    pub allegation_id: String,
+    /// The accusation in complaint language, paragraph-numbered when known.
+    /// Composed by the same rule `bears_on` uses, so the two read alike.
+    pub label: String,
+    /// Which way it cuts, as a token to branch on.
+    pub cut: crate::domain::link_cut::LinkCut,
+    /// The same choice in words — "They'll use it against us". Paired with the
+    /// token exactly as `CardGrounding` pairs `state` with `label`: the client
+    /// branches on the token and never parses the prose.
+    pub cut_label: String,
+}
+
 /// Whether the quote was located in its source (§7.7).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -297,6 +327,20 @@ pub struct ScenarioCard {
     /// Distinct from `defer_required_reason`: that one is the SYSTEM saying the
     /// card is unrulable; this one is a HUMAN saying they chose to park it.
     pub defer_reason: Option<String>,
+    /// The accusations a HUMAN linked this statement to (task 2.10). Empty is the
+    /// ordinary state; a non-empty list is what clears `defer_required` on a card
+    /// the extraction never linked.
+    pub human_links: Vec<CardHumanLink>,
+    /// What the human did, in their own terms — "You linked this to ¶41 · they'll
+    /// use it against us." Present exactly when `human_links` is non-empty.
+    ///
+    /// ## Domain note: this is NOT a stance, and must never become one
+    ///
+    /// The extraction said nothing about this statement, so the card does not
+    /// pretend otherwise: no canon verb, no "This supports…", no sentence in the
+    /// machine's voice. It reports an act a person took (ruling R2). `stance`
+    /// stays `null` on such a card, and the §7.5 slot is filled by this instead.
+    pub human_link_summary: Option<String>,
 }
 
 /// Response body for the card endpoint.
@@ -308,4 +352,16 @@ pub struct ScenarioCard {
 pub struct ScenarioCardsResponse {
     pub pool: Vec<ScenarioCard>,
     pub set_aside: Vec<ScenarioCard>,
+    /// How much of the stuck pile a human has worked through — "38 of 94 linked."
+    ///
+    /// `None` when nothing in this pool is stuck, because a progress line about an
+    /// empty problem is noise on the one screen that should be quiet.
+    ///
+    /// ## Domain note: counted from the POOL, never from keystrokes (1.7E-a)
+    ///
+    /// Both numbers are derived from the payload being served, so the sentence and
+    /// the cards beside it cannot disagree — the defect that put "0 of 148 ruled"
+    /// next to twelve green chips. Composed here rather than in the browser for
+    /// the same reason every other sentence is (the language law).
+    pub link_progress: Option<String>,
 }

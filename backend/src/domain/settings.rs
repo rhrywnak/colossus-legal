@@ -24,16 +24,26 @@
 
 use std::fmt;
 
+use crate::domain::wording::Wording;
+
 /// The parsed parameters, as every consumer sees them.
 ///
-/// ## Rust Learning: `Copy` on a small config struct
+/// ## Rust Learning: this struct WAS `Copy`, and task 2.10 took the derive off
 ///
-/// Every field is a plain number, so the whole struct is a handful of bytes and
-/// copying it is cheaper than following a pointer. Deriving `Copy` means callers
-/// pass it by value without ceremony and can never hold a stale reference to a
-/// snapshot that has since been swapped — they hold their own copy for the life
-/// of the request, which is exactly the consistency a card payload wants.
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// Until 2026-08-04 every field was a plain number, so the whole struct was a
+/// handful of bytes and `Copy` let callers pass it by value without ceremony.
+/// Roman's ruling extending the configuration law from numbers to TEXT ended
+/// that: `wording` holds `String`s, a `String` owns heap memory, and a type
+/// containing one cannot be `Copy` — the compiler will not allow a bitwise
+/// duplicate of an owning pointer.
+///
+/// The blast radius was one line, because the snapshot was already threaded by
+/// reference everywhere: every consumer takes `&Settings`, and `SettingsHandle`
+/// hands out an `Arc`. Nothing was passing it by value except the handle's own
+/// constructor. The consistency property `Copy` was there to protect — one
+/// request, one snapshot, no stale reference to a swapped-out set of values — is
+/// provided by that `Arc`, not by the derive.
+#[derive(Debug, Clone, PartialEq)]
 pub struct Settings {
     /// Confidence at or above this reads as the High band (§7).
     pub confidence_band_high: f32,
@@ -51,6 +61,16 @@ pub struct Settings {
     /// How close a re-found quote must be to count as the same quote (§12.1).
     /// Provisional; no consumer until 2.5.
     pub reanchor_close_match_tolerance: f32,
+    /// How many accusations the link panel's short list offers before "Show all"
+    /// (task 2.10). The full complaint is always one click behind it.
+    pub link_short_list_max: usize,
+    /// Every user-facing string task 2.10 introduces, read from the same store.
+    ///
+    /// Nested rather than flattened into twenty more fields here for one reason:
+    /// this struct is the parameters that decide how the system JUDGES, and those
+    /// are the words it SPEAKS. A reader looking for a cutoff should not have to
+    /// scroll past twenty sentences to find it.
+    pub wording: Wording,
 }
 
 /// A snapshot for TESTS ONLY.
@@ -80,6 +100,8 @@ impl Settings {
                 denominator: 10,
             },
             reanchor_close_match_tolerance: 0.85,
+            link_short_list_max: 8,
+            wording: Wording::for_test(),
         }
     }
 }
@@ -97,11 +119,28 @@ pub enum ValueKind {
     Count,
     /// `n/m` — a share written the way a human says it ("9 of 10").
     Ratio,
+    /// Words a human reads on screen — a heading, a button, a refusal, a
+    /// sentence template (task 2.10, the configuration law extended to text).
+    ///
+    /// ## Why text needed a KIND at all, rather than "anything not a number"
+    ///
+    /// Two reasons, both about being loud. A row whose declared kind says `text`
+    /// while this build reads it as a float is a store that has drifted from the
+    /// code, and `expect_kind` reports it as exactly that instead of as a parse
+    /// failure that sends a human hunting through the value. And the Settings
+    /// page's input hint is composed from the kind, so a text row that had no
+    /// kind would advertise a number.
+    Text,
 }
 
 impl ValueKind {
     /// The full vocabulary, so a refusal can list what IS accepted.
-    pub const ALL: &'static [ValueKind] = &[ValueKind::Float, ValueKind::Count, ValueKind::Ratio];
+    pub const ALL: &'static [ValueKind] = &[
+        ValueKind::Float,
+        ValueKind::Count,
+        ValueKind::Ratio,
+        ValueKind::Text,
+    ];
 
     /// The stable token stored in `app_settings.value_kind`.
     pub fn code(self) -> &'static str {
@@ -109,6 +148,7 @@ impl ValueKind {
             ValueKind::Float => "float",
             ValueKind::Count => "count",
             ValueKind::Ratio => "ratio",
+            ValueKind::Text => "text",
         }
     }
 
@@ -130,6 +170,11 @@ impl ValueKind {
             ValueKind::Float => format!("a number, e.g. {default}"),
             ValueKind::Count => format!("a whole number, e.g. {default}"),
             ValueKind::Ratio => format!("n/m, e.g. {default}"),
+            // The default is not offered as an example here: it IS the sentence
+            // in the box beside the hint, so "e.g. Save and next" under a field
+            // already reading "Save and next" is noise. What a human needs to
+            // know about a text field is the one rule it has.
+            ValueKind::Text => "words, as they should read on screen".to_string(),
         }
     }
 }
@@ -142,6 +187,7 @@ impl TryFrom<&str> for ValueKind {
             "float" => Ok(ValueKind::Float),
             "count" => Ok(ValueKind::Count),
             "ratio" => Ok(ValueKind::Ratio),
+            "text" => Ok(ValueKind::Text),
             other => Err(SettingError::UnknownKind {
                 kind: other.to_string(),
             }),
@@ -193,8 +239,31 @@ impl Ratio {
 /// is equally useful in a boot-refusal log line.
 #[derive(Debug, thiserror::Error, PartialEq)]
 pub enum SettingError {
-    #[error("'{kind}' is not a value kind this build understands (float, count, ratio)")]
+    #[error("'{kind}' is not a value kind this build understands (float, count, ratio, text)")]
     UnknownKind { kind: String },
+
+    /// A stored or submitted string that is empty, or only whitespace.
+    ///
+    /// Its own variant rather than an `Unreadable`: "this is not a number" and
+    /// "you left this blank" are different mistakes with different remedies, and a
+    /// blank LABEL is the specific failure worth naming — it does not produce an
+    /// error anywhere downstream, it produces an invisible button.
+    #[error(
+        "{key} cannot be blank — it is words a human reads on screen, and an \
+         empty one leaves a control with no label at all"
+    )]
+    Blank { key: String },
+
+    /// A template edited into one that no longer carries its own facts.
+    ///
+    /// The refusal NAMES the missing placeholders, because the alternative — a
+    /// sentence like "You linked this to  · they'll use it against us." — is
+    /// grammatical, renders perfectly, and is missing the fact it exists to state.
+    #[error(
+        "{key} must still contain {missing} — without it the sentence renders \
+         with the fact removed, and nothing downstream can tell"
+    )]
+    MissingPlaceholders { key: String, missing: String },
 
     #[error("{key} needs {expected}, but the value is '{value}'")]
     Unreadable {
@@ -341,6 +410,34 @@ pub fn parse_ratio(key: &str, value: &str) -> Result<Ratio, SettingError> {
         numerator,
         denominator,
     })
+}
+
+/// Read a `text` parameter: the words themselves, trimmed, never blank.
+///
+/// ## Why this is fallible when "it's just a string" looks like it cannot fail
+///
+/// It can fail in the one way that matters. A blank value parses fine as text and
+/// then renders as a button with no words on it — a control the human cannot see,
+/// produced with nothing in the log to say why. That is precisely the class of
+/// silent failure Standing Rule 1 exists for, so the empty case is a REFUSAL at
+/// the boundary rather than a surprise on screen.
+///
+/// Trimmed for the same reason the summary-override write path trims: leading
+/// whitespace in a stored label is invisible in psql and visible on screen.
+/// Bounds do not apply — `min_value` / `max_value` are numeric comparisons and a
+/// text row leaves them NULL.
+///
+/// # Errors
+/// Returns [`SettingError::Blank`] naming the key when the value has no
+/// non-whitespace characters.
+pub fn parse_text(key: &str, value: &str) -> Result<String, SettingError> {
+    let text = value.trim();
+    if text.is_empty() {
+        return Err(SettingError::Blank {
+            key: key.to_string(),
+        });
+    }
+    Ok(text.to_string())
 }
 
 #[cfg(test)]

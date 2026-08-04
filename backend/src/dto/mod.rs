@@ -12,6 +12,7 @@ pub mod decomposition;
 pub mod document;
 pub mod evidence;
 pub mod evidence_chain;
+pub mod evidence_links;
 pub mod graph;
 pub mod harm;
 pub mod hearing;

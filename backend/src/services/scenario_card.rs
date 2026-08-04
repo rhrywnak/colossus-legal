@@ -23,8 +23,6 @@
 
 use std::collections::HashMap;
 
-use chrono::{DateTime, Utc};
-
 use crate::bias::dto::BiasInstance;
 use crate::domain::card_language::{
     grounding_label, stance_verb_for_edge, statement_kind_label, status_label,
@@ -33,12 +31,13 @@ use crate::domain::confidence_band::{band_for_score, ConfidenceBand};
 use crate::domain::fact_status::FactStatus;
 use crate::domain::settings::Settings;
 use crate::dto::scenario_card::{
-    CardBearsOn, CardConfidence, CardGrounding, CardPinpoint, CardQuestionAuthorship, CardQuote,
-    CardSpeaker, CardStance, QuestionSource, ScenarioCard,
+    CardBearsOn, CardConfidence, CardGrounding, CardPinpoint, CardQuote, CardSpeaker, CardStance,
+    ScenarioCard,
 };
 use crate::repositories::pipeline_repository::EvidenceSummaryOverrideRecord;
 use crate::repositories::scenario_card_repository::CardExtrasRow;
 use crate::services::scenario_card_context::{assemble as assemble_context, QuoteContext};
+use crate::services::scenario_human_links::{link_summary, resolve_question, HumanTouches};
 
 // The quote-in-context window is a STORED parameter (task 1.6, v2 §2b).
 //
@@ -289,9 +288,27 @@ fn viewer_href(document_id: &str, page: Option<i64>) -> String {
 /// real: "a scan looked at this and scored it" is why C-222 LOOKED rulable, and
 /// collapsing it into the unscored wording would erase the reason the card is
 /// confusing in the first place.
+///
+/// ## Linking has now landed (task 2.10), and `has_human_link` is how it lands here
+///
+/// A human supplying the link the extraction never made removes class 1 entirely:
+/// there IS something for the item to bear on, because a person said so. So the
+/// unlinked branch asks about BOTH kinds of link, and this one function is the
+/// whole of "linking provably clears the defer flag" — nothing else in the payload
+/// decides it.
+///
+/// Class 2 is untouched, deliberately: a human can link a quoteless item all day
+/// and it still cannot be cited, so the no-quote refusal survives a link. The two
+/// classes were always independent and this keeps them so.
+///
+/// The unlinked SENTENCE is left exactly as 1.7E wrote it, including "returns when
+/// linking arrives" — it is only ever shown on a card with no human link, where it
+/// remains true. Rewriting the copy of a still-correct message is task 3.16's
+/// sweep, not this one's.
 fn defer_reason_for(
     quote: &str,
     stance: Option<&CardStance>,
+    has_human_link: bool,
     has_scan_score: bool,
 ) -> Option<String> {
     if quote.trim().is_empty() {
@@ -301,7 +318,7 @@ fn defer_reason_for(
                 .to_string(),
         );
     }
-    if stance.is_none() {
+    if stance.is_none() && !has_human_link {
         let opener = if has_scan_score {
             "A scan scored this item, but it is not linked to any accusation yet"
         } else {
@@ -423,68 +440,6 @@ fn build_quote(
     }
 }
 
-/// Which question the card shows, and who wrote it (task 1.7F Part B).
-///
-/// ## Domain note: the human's words win on screen, never in the graph
-///
-/// An override REPLACES the machine's question for display and does nothing else.
-/// `Evidence.question` is in Neo4j and this function only reads its value as an
-/// argument — there is no path from here to a graph write, which is what makes
-/// ruling R2 ("the machine original is untouchable") structural rather than a
-/// promise. Reverting is the caller deleting the override row; this function then
-/// composes the machine's words again, unchanged, because they were never edited.
-///
-/// ## Why an override with no machine question is still shown
-///
-/// A human can correct a question the extraction never produced — that is a
-/// legitimate correction of an omission, not an inconsistency. So the presence of
-/// the human's text, not the machine's, decides whether the card has a question
-/// line at all.
-fn resolve_question(
-    machine: Option<String>,
-    override_row: Option<&EvidenceSummaryOverrideRecord>,
-) -> (Option<String>, Option<CardQuestionAuthorship>) {
-    match override_row {
-        Some(row) => (
-            Some(row.summary_text.clone()),
-            Some(CardQuestionAuthorship {
-                source: QuestionSource::Human,
-                label: human_authorship_label(&row.authored_by, row.updated_at),
-            }),
-        ),
-        None => {
-            let authorship = machine.as_ref().map(|_| CardQuestionAuthorship {
-                source: QuestionSource::System,
-                // The machine has no name and no date worth showing: the
-                // extraction's own timestamp would date the RUN, not the sentence,
-                // and a card claiming "written 16 July" about a question nobody
-                // wrote would be a fact the payload cannot support.
-                label: SYSTEM_AUTHORSHIP_LABEL.to_string(),
-            });
-            (machine, authorship)
-        }
-    }
-}
-
-// CONST: the badge's word for a question nobody has corrected. A control word in
-// the same class as the state chip's "Not ruled" — it names the SYSTEM, not
-// anything about this case, so another Colossus case renders it unchanged
-// (Standing Rule 2's reusability checkpoint).
-const SYSTEM_AUTHORSHIP_LABEL: &str = "System";
-
-/// The badge for a human-corrected question: who, and when.
-///
-/// Composed here rather than in the browser because the language law puts every
-/// display decision on this side of the wire (v2 §7 item 2) — and because a date
-/// formatted client-side would read differently depending on the reader's locale,
-/// which is not a property a legal record should have.
-///
-/// `4 Aug 2026` rather than an ISO stamp: the badge sits inline beside a sentence
-/// a human is reading, not in a log.
-pub(crate) fn human_authorship_label(authored_by: &str, updated_at: DateTime<Utc>) -> String {
-    format!("{authored_by} · {}", updated_at.format("%-d %b %Y"))
-}
-
 /// Build one complete card. Pure — no I/O.
 ///
 /// This function IS the §7 contract: every element is assembled here, and the
@@ -501,8 +456,12 @@ pub(crate) fn build_card(
     ordinal: Option<i32>,
     page_text: Option<&str>,
     settings: &Settings,
-    question_override: Option<&EvidenceSummaryOverrideRecord>,
+    human: HumanTouches<'_>,
 ) -> ScenarioCard {
+    let HumanTouches {
+        question_override,
+        links: human_links,
+    } = human;
     let quote_text = instance.verbatim_quote.clone().unwrap_or_default();
     // Task 1.7C (D6): the window is the SEED, sentence boundaries are the law, and
     // gutter numerals do not reach the display. Lives in its own module because
@@ -520,8 +479,14 @@ pub(crate) fn build_card(
     let defer_required_reason = defer_reason_for(
         &quote_text,
         stance.as_ref(),
+        !human_links.is_empty(),
         band != ConfidenceBand::Unscored,
     );
+
+    // Task 2.10, ruling R2: the sentence a human-linked card shows instead of a
+    // stance. Composed from the STORED template and the accusation labels — see
+    // `scenario_human_links::link_summary` for why no canon verb can reach it.
+    let human_link_summary = link_summary(human_links, &settings.wording);
 
     ScenarioCard {
         code: ordinal.map(|n| format!("C-{n}")),
@@ -549,6 +514,8 @@ pub(crate) fn build_card(
         defer_required: defer_required_reason.is_some(),
         defer_required_reason,
         defer_reason: ref_state.defer_reason.clone(),
+        human_links: human_links.to_vec(),
+        human_link_summary,
     }
 }
 

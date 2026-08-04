@@ -84,6 +84,7 @@ import {
   type CandidateFilters,
 } from "./candidateFilters";
 import { keyboardShouldRule, nextUpHint } from "./queueRegion";
+import { fetchAllegationOptions, type AllegationOptions } from "../services/evidenceLinks";
 import { revertQuestionOverride, saveQuestionOverride } from "../services/evidenceSummary";
 
 // ─── §2c visual language ────────────────────────────────────────────────────
@@ -182,6 +183,11 @@ const CardQueue: React.FC<Props> = ({
 }) => {
   const [error, setError] = useState<string | null>(null);
   const [rulingError, setRulingError] = useState<string | null>(null);
+  /** The accusations every stuck card's panel offers, and its words (task 2.10).
+   *  `null` until the one per-scenario read lands, or if it failed. */
+  const [linkOptions, setLinkOptions] = useState<AllegationOptions | null>(null);
+  /** The stuck pile's progress sentence, or `null` when nothing is stuck. */
+  const [linkProgress, setLinkProgress] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   // `null` until the first pool arrives: the default view is computed from the
   // counts (rulable if any exist), and choosing it before the counts exist would
@@ -205,7 +211,22 @@ const CardQueue: React.FC<Props> = ({
   // dependency list wants a stable identity either way.
   const onSaved = useCallback(() => onRulingSaved?.(), [onRulingSaved]);
 
-  const [state, dispatch] = useReducerWithEffects(slug, scenarioId, onRulingFailed, onSaved);
+  // A link or unlink re-reads the pool: everything a linked card shows — the
+  // sentence, the chips, the unlocked buttons, the progress line — is composed
+  // server-side, and rebuilding any of it here would be the browser inventing
+  // vocabulary (ruling R2, and the language law).
+  const onLinksChanged = useCallback(() => {
+    void loadRef.current();
+  }, []);
+
+  const [state, dispatch] = useReducerWithEffects(
+    slug,
+    scenarioId,
+    onRulingFailed,
+    onSaved,
+    onLinksChanged,
+    linkOptions?.wording ?? null,
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -221,6 +242,11 @@ const CardQueue: React.FC<Props> = ({
       // and re-sorting the union here would be the browser re-deriving an order
       // the backend owns and warns about (`sort_by_code`).
       dispatch({ type: "cards_loaded", cards: [...cards.pool, ...cards.set_aside] });
+      // "38 of 94 linked." — composed server-side and counted from the POOL, not
+      // from this session's clicks (the 1.7E-a ruling). Held beside the cards it
+      // describes and replaced on every read, so it can never be stale relative to
+      // the chips beneath it.
+      setLinkProgress(cards.link_progress);
       setError(null);
     } catch (e: unknown) {
       // Name WHAT failed, WHERE, and WHY. The scenario is in scope here and the
@@ -323,6 +349,35 @@ const CardQueue: React.FC<Props> = ({
     [slug, load],
   );
 
+  // ─── The accusations the link panels offer (task 2.10) ────────────────────
+  //
+  // Read ONCE per scenario, not per card and not per ruling: the catalogue is 120
+  // rows on DEV and changes only when a document is processed, while this pool is
+  // re-read after every keystroke of a triage session.
+  //
+  // A failure leaves `linkOptions` null and the panels unrendered — there is no
+  // fallback set of words to render them with (R4). It is reported rather than
+  // swallowed: without the message a human would find the control simply absent
+  // on 94 cards, with nothing to say why (Standing Rule 1).
+  useEffect(() => {
+    let live = true;
+    fetchAllegationOptions(slug, scenarioId)
+      .then((options) => {
+        if (live) setLinkOptions(options);
+      })
+      .catch((e: unknown) => {
+        if (!live) return;
+        const cause = e instanceof Error ? e.message : String(e);
+        setRulingError(
+          `The accusation list could not be loaded, so linking is unavailable on ` +
+            `this queue: ${cause}`,
+        );
+      });
+    return () => {
+      live = false;
+    };
+  }, [slug, scenarioId]);
+
   const selected = state.cards[state.index];
   const selectedId = selected?.graph_node_id ?? null;
   const { ruled, total } = progress(state);
@@ -385,6 +440,9 @@ const CardQueue: React.FC<Props> = ({
 
       <div style={hintBarStyle}>
         <span>Move: ↑ ↓ or J K — moving never rules</span>
+        {/* Rendered verbatim. The browser counts nothing here — both numbers were
+            counted from the served pool (task 2.10). */}
+        {linkProgress && <span>{linkProgress}</span>}
         {/* D10's next-up hint. Absent rather than "Next up: —" when the following
             card has no ordinal yet: a hint that names nothing is worse than none. */}
         {nextUpHint(nextCard?.code) && (
@@ -409,6 +467,15 @@ const CardQueue: React.FC<Props> = ({
         onRule={(key, graphNodeId) => dispatch({ type: "rule", key, graphNodeId })}
         onCorrectQuestion={correctQuestion}
         onRevertQuestion={revertQuestion}
+        linkOptions={linkOptions}
+        // A link names its card, exactly as a ruling does (ruling R1). The id
+        // comes up from the card's own render scope; this queue never guesses.
+        onSaveLinks={async (graphNodeId, allegationIds, cut, advance) =>
+          dispatch({ type: "link", graphNodeId, allegationIds, cut, advance })
+        }
+        onUnlink={(graphNodeId, allegationId) =>
+          dispatch({ type: "unlink", graphNodeId, allegationId })
+        }
       />
 
       {state.mode.kind === "deferring" && (
