@@ -34,6 +34,8 @@ import { includedRows } from "./factsTable";
 import type { ScenarioCard } from "../services/scenarioCards";
 import type { HumanFactDto } from "../services/scenarioAugmentation";
 import { deleteHumanFact } from "../services/scenarioAugmentation";
+import { removeScenarioFact } from "../services/scenarioFacts";
+import { fillDetail, type LinkPanelWording } from "../services/evidenceLinks";
 
 interface Props {
   slug: string;
@@ -44,6 +46,14 @@ interface Props {
   humanFacts: HumanFactDto[];
   /** Re-read after a human fact is added or removed. */
   onChanged: () => void;
+  /**
+   * The stored words this section needs (task 2.12, item G).
+   *
+   * `null` until the scenario's panel wording has loaded. The Remove control is
+   * then not rendered — there is no literal to fall back to (R4), and a control
+   * that cannot state what it is about must not be offered at all.
+   */
+  wording: LinkPanelWording | null;
 }
 
 const ScenarioFactsSection: React.FC<Props> = ({
@@ -52,6 +62,7 @@ const ScenarioFactsSection: React.FC<Props> = ({
   cards,
   humanFacts,
   onChanged,
+  wording,
 }) => {
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -65,6 +76,44 @@ const ScenarioFactsSection: React.FC<Props> = ({
       })
       .catch((e: unknown) => {
         setError(e instanceof Error ? e.message : "That fact could not be removed.");
+      });
+  };
+
+  /**
+   * Take one EVIDENCE fact back out of the scenario (item G).
+   *
+   * ## Why this is the removal path and not an exclude
+   *
+   * `removeScenarioFact` deletes the scenario's reference to the candidate. With
+   * no reference the card is served with no ruling at all, so it re-enters the
+   * queue as NOT RULED — which is what the human means by "not this scenario".
+   * An exclude would mean "this is bad evidence", a different and much stronger
+   * claim, and it would leave the card in the set-aside list rather than back in
+   * the queue where it can be reconsidered.
+   *
+   * It is ledgered: the route goes through `record_removal`, which writes an
+   * anchor row alongside the delete in one transaction, so the act survives the
+   * row it removed.
+   */
+  const removeFact = (graphNodeId: string) => {
+    removeScenarioFact(slug, scenarioId, graphNodeId)
+      .then(() => {
+        setError(null);
+        // The 1.7F seam: one re-read refreshes the facts list AND the queue's
+        // counts, so the card is visibly back in the queue without a reload.
+        onChanged();
+      })
+      .catch((e: unknown) => {
+        // The words are the store's (R4); only the failure's own text is dropped
+        // into the slot the sentence leaves for it — the same shape the link
+        // writes use. `wording` is non-null here by construction: the control
+        // that reaches this code is not rendered until it has loaded.
+        const detail = e instanceof Error ? e.message : String(e);
+        setError(
+          wording
+            ? fillDetail(wording.fact_remove_failed_template, detail)
+            : detail,
+        );
       });
   };
 
@@ -120,6 +169,8 @@ const ScenarioFactsSection: React.FC<Props> = ({
         humanFacts={humanFacts}
         onAdd={() => setAdding(true)}
         onRemoveHumanFact={removeHumanFact}
+        onRemoveFact={removeFact}
+        wording={wording}
       />
 
       {adding && (

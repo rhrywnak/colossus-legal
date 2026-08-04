@@ -83,6 +83,20 @@ pub struct LinkPanelWording {
     /// the browser fills with the failure's own text — the one value that exists
     /// only on that side of the wire.
     pub save_failed_template: String,
+    /// Why Include and Exclude are greyed while the panel holds unsaved choices
+    /// (task 2.12, item B). A correct refusal with no explanation reads as a
+    /// broken button — which is exactly how it was reported.
+    pub save_blocks_ruling: String,
+    /// The control that takes a fact back out of a scenario (item G).
+    pub fact_remove_label: String,
+    /// The question asked before a removal. Carries `{code}`.
+    pub fact_remove_confirm_template: String,
+    /// The button that confirms a removal.
+    pub fact_remove_confirm_yes: String,
+    /// The button that abandons it.
+    pub fact_remove_confirm_cancel: String,
+    /// Said when a removal could not be written. Carries `{detail}`.
+    pub fact_remove_failed_template: String,
 }
 
 /// The whole panel in one read.

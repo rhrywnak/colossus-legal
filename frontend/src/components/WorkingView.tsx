@@ -33,6 +33,8 @@ import { ghostButtonStyle } from "./scenarioSectionStyles";
 import { openViewerWindow } from "./viewerWindow";
 import type { ScenarioCard } from "../services/scenarioCards";
 import type { HumanFactDto } from "../services/scenarioAugmentation";
+import type { LinkPanelWording } from "../services/evidenceLinks";
+import RemoveControl from "./FactRemoveControl";
 
 const SURFACE = "var(--bg-surface)";
 const HAIRLINE = "1px solid var(--border-default)";
@@ -100,6 +102,37 @@ const chipStyle: React.CSSProperties = {
   whiteSpace: "nowrap",
 };
 
+/**
+ * An accusation chip, which unlike the others is a SENTENCE (item F).
+ *
+ * ¶41's label runs to about two hundred characters. `nowrap` on a chip that long
+ * pushes it past the container's right edge, where `overflow: hidden` cuts it —
+ * so the end of the accusation, which is the part that distinguishes it from its
+ * neighbours, was the part you could not read.
+ *
+ * The short chips (pinpoint, status) keep `nowrap`: they are labels, they fit,
+ * and letting "CFS responses at 26" break across two lines would look broken.
+ */
+const accusationChipStyle: React.CSSProperties = {
+  ...chipStyle,
+  whiteSpace: "normal",
+  overflowWrap: "anywhere",
+  textAlign: "left",
+};
+
+/**
+ * The rows' scroll region (item E).
+ *
+ * `60vh` rather than the queue's `70vh`: this section sits BELOW the candidate
+ * queue on the same page, and two 70vh regions stacked would mean neither is
+ * fully visible at once on a laptop. The scrollbar is deliberately not hidden —
+ * it is the only thing that says there are more facts below the fold.
+ */
+const factsScrollRegionStyle: React.CSSProperties = {
+  maxHeight: "60vh",
+  overflowY: "auto",
+};
+
 // Mockup `input[type=search]`: borderless on the chrome fill, radius 8.
 const searchStyle: React.CSSProperties = {
   border: "none",
@@ -123,11 +156,22 @@ interface Props {
   humanFacts: HumanFactDto[];
   /** Opens the add-fact form — the one create action on this surface. */
   onAdd: () => void;
-  /** Remove one human fact. Evidence rows are un-ruled in the queue, not here. */
+  /** Remove one human fact — deleted outright; it exists nowhere else. */
   onRemoveHumanFact: (factId: string) => void;
+  /** Take one EVIDENCE fact back out of the scenario (task 2.12, item G). */
+  onRemoveFact: (graphNodeId: string) => void;
+  /** The stored words. `null` until they load — no Remove control until then. */
+  wording: LinkPanelWording | null;
 }
 
-const WorkingView: React.FC<Props> = ({ cards, humanFacts, onAdd, onRemoveHumanFact }) => {
+const WorkingView: React.FC<Props> = ({
+  cards,
+  humanFacts,
+  onAdd,
+  onRemoveHumanFact,
+  onRemoveFact,
+  wording,
+}) => {
   const [term, setTerm] = useState("");
 
   // Evidence first, then the human facts — the order the mockup shows, and the
@@ -188,6 +232,16 @@ const WorkingView: React.FC<Props> = ({ cards, humanFacts, onAdd, onRemoveHumanF
         </button>
       </div>
 
+      {/* Item E: forty-six facts made the page enormous. The rows scroll in their
+          own box; the search field, the create button and the "N of M shown"
+          count stay OUTSIDE it, so nothing that acts on the list can be pushed
+          away by the list — the same treatment, and the same reasoning, as the
+          candidate queue's scroll region.
+
+          Presentational geometry, not a Rule-13 tunable: this serves every row
+          and only chooses how much glass they are seen through (the standing
+          ruling from `CandidateList.scrollRegionStyle`). */}
+      <div style={factsScrollRegionStyle}>
       {rows.length === 0 ? (
         <div style={{ padding: "1rem", color: "var(--text-muted)", fontSize: "0.85rem" }}>
 Nothing here yet. ✓ Include a candidate above, or add a fact of your own.
@@ -204,14 +258,28 @@ Nothing here yet. ✓ Include a candidate above, or add a fact of your own.
             key={row.graphNodeId}
             row={row}
             justArrived={arrived.has(row.graphNodeId)}
+            // Item G: EVERY row can be taken out from where it is now. A human
+            // fact is deleted outright (it exists nowhere else); an evidence
+            // fact returns to the queue as not ruled. Two different acts, which
+            // is why the confirmation names what will happen.
+            //
+            // The evidence control is WITHHELD until the wording has loaded —
+            // `undefined`, not a control with an invented label. R4 leaves no
+            // literal to fall back to, and an unlabelled control that removes a
+            // ruling is worse than no control for the seconds it takes to load.
             onRemove={
               row.isHuman
                 ? () => onRemoveHumanFact(row.graphNodeId.replace(/^human:/, ""))
-                : undefined
+                : wording
+                  ? () => onRemoveFact(row.graphNodeId)
+                  : undefined
             }
+            confirm={row.isHuman ? null : wording}
           />
         ))
       )}
+
+      </div>
 
       <div style={{ padding: "0.6rem 1rem", fontSize: "0.78rem", color: "var(--text-muted)" }}>
         {visible.length} of {rows.length} shown
@@ -256,10 +324,11 @@ const RowMeta: React.FC<{
   row: WorkingRow;
   onBlocked: (m: string | null) => void;
   onRemove?: () => void;
-}> = ({ row, onBlocked, onRemove }) => (
+  confirm?: LinkPanelWording | null;
+}> = ({ row, onBlocked, onRemove, confirm = null }) => (
   <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap", alignItems: "center" }}>
     {row.bearsOn.map((accusation) => (
-      <span key={accusation} style={chipStyle}>
+      <span key={accusation} style={accusationChipStyle}>
         {accusation}
       </span>
     ))}
@@ -270,22 +339,7 @@ const RowMeta: React.FC<{
     <span style={{ ...chipStyle, marginLeft: "auto" }}>{row.statusLabel}</span>
     {/* Only a human fact can be removed from here — evidence is un-ruled in the
         queue, which is where its ruling was made. */}
-    {onRemove && (
-      <button
-        type="button"
-        onClick={onRemove}
-        style={{
-          border: "none",
-          background: "none",
-          color: "var(--text-muted)",
-          cursor: "pointer",
-          fontFamily: "inherit",
-          fontSize: "12px",
-        }}
-      >
-        Remove
-      </button>
-    )}
+    {onRemove && <RemoveControl row={row} onRemove={onRemove} confirm={confirm} />}
   </div>
 );
 
@@ -295,7 +349,16 @@ const Row: React.FC<{
   /** Tinted briefly because this row was not in the previous payload. */
   justArrived?: boolean;
   onRemove?: () => void;
-}> = ({ row, justArrived = false, onRemove }) => {
+  /**
+   * The stored wording for the removal confirmation, or `null` to skip it.
+   *
+   * `null` for a human fact — it is the author's own text and deleting it needs
+   * no explanation of where it goes, because it goes nowhere. Non-null for an
+   * evidence fact, which returns to the queue and where the human must be told
+   * that before they commit (item G).
+   */
+  confirm?: LinkPanelWording | null;
+}> = ({ row, justArrived = false, onRemove, confirm = null }) => {
   // A refused popup has to be SAID, not swallowed (Standing Rule 1). Local to the
   // row so the message appears where the human just clicked.
   const [blocked, setBlocked] = useState<string | null>(null);
@@ -305,19 +368,36 @@ const Row: React.FC<{
       {/* Item 6: the coloured left-edge cue. */}
       <span style={stripeStyle(row.isHuman)} aria-hidden="true" />
       <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem", flex: 1 }}>
-        <div style={{ display: "flex", gap: "0.5rem", alignItems: "baseline" }}>
+        {/* Item F: `minWidth: 0` on the text below is what makes it WRAP.
+            A flex item defaults to `min-width: auto`, so it refuses to shrink
+            below its content; the card container sets `overflow: hidden`, so the
+            overflow was clipped and the end of every long quote was unreadable.
+            The flex row itself wraps too, so a very long code + quote pair moves
+            to two lines rather than squeezing the code. */}
+        <div style={{ display: "flex", gap: "0.5rem", alignItems: "baseline", flexWrap: "wrap" }}>
           {/* A human fact has no candidate number, and the mockup's human row has no
               code cell. An em-dash placeholder implied a missing value where there
               is no value to miss. */}
           {row.code && (
             <span style={{ ...chipStyle, color: "var(--text-primary)" }}>{row.code}</span>
           )}
-          <span style={{ fontSize: "0.95rem", lineHeight: 1.6, color: "var(--text-primary)" }}>
+          <span
+            style={{
+              fontSize: "0.95rem",
+              lineHeight: 1.6,
+              color: "var(--text-primary)",
+              minWidth: 0,
+              flex: 1,
+              // Belt to that braces: a single unbroken token (a URL in a quote)
+              // has no space to wrap at, and would clip exactly as before.
+              overflowWrap: "anywhere",
+            }}
+          >
             {row.text}
           </span>
         </div>
 
-        <RowMeta row={row} onBlocked={setBlocked} onRemove={onRemove} />
+        <RowMeta row={row} onBlocked={setBlocked} onRemove={onRemove} confirm={confirm} />
 
         {blocked && (
           <div role="alert" style={{ fontSize: "0.78rem", color: "var(--state-danger-strong)" }}>

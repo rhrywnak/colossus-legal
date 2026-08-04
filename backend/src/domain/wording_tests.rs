@@ -148,9 +148,17 @@ fn the_sentence_form_is_a_stored_row_and_not_a_lowercased_label() {
 
 // ── The fixture is checked against the MIGRATION, not against itself ─────────
 
-/// The migration this task adds, read as ground truth.
+/// The migrations that between them decide what the store holds.
+///
+/// TWO of them now, and the order matters: 2.10 seeds the rows and 2.12
+/// CORRECTS one. `link_save_label` was seeded 'Save and next' and is updated to
+/// 'Save', so the effective value is the INSERT as amended — a reader that
+/// stopped at the INSERT would assert this fixture into disagreeing with the
+/// product, which is the exact failure task 2.12 item A calls "a lying button".
 const SEED_MIGRATION: &str =
     "pipeline_migrations/20260804132730_create_evidence_allegation_links.sql";
+const CORRECTION_MIGRATION: &str =
+    "pipeline_migrations/20260804162538_card_and_facts_usability_wording.sql";
 
 /// Pull one key's seeded value out of the migration's INSERT.
 ///
@@ -183,19 +191,43 @@ fn seeded_value_in(sql: &str, key: &str) -> Option<String> {
     None
 }
 
+/// The value a key ends up with: seeded by one migration, possibly corrected by
+/// a later one.
+///
+/// Deliberately crude, like its INSERT sibling: it looks for
+/// `SET value = '…'` inside a statement whose WHERE names this key. A migration
+/// that corrected a row some other way would not be found — and the count
+/// assertion below is what would catch that, by leaving the fixture disagreeing.
+fn corrected_value_in(sql: &str, key: &str) -> Option<String> {
+    let at = sql.find(&format!("key           = '{key}'"))?;
+    // The SET clause precedes the WHERE in an UPDATE, so scan backwards.
+    let before = &sql[..at];
+    let set = before.rfind("SET value         = '")?;
+    let rest = &before[set + "SET value         = '".len()..];
+    let end = rest.find('\'')?;
+    Some(rest[..end].to_string())
+}
+
+/// The value the store actually ends up holding for one key.
+fn effective_value(seed_sql: &str, correction_sql: &str, key: &str) -> Option<String> {
+    corrected_value_in(correction_sql, key).or_else(|| seeded_value_in(seed_sql, key))
+}
+
 #[test]
 fn the_wording_fixture_carries_the_values_the_migration_actually_seeds() {
-    let sql = std::fs::read_to_string(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(SEED_MIGRATION),
-    )
-    .expect("the wording migration is on disk");
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let sql = std::fs::read_to_string(root.join(SEED_MIGRATION))
+        .expect("the wording migration is on disk");
+    let correction = std::fs::read_to_string(root.join(CORRECTION_MIGRATION))
+        .expect("the correction migration is on disk");
 
     let fixture = Wording::for_test_values();
     let mut checked = 0usize;
 
     for key in WORDING_KEYS {
-        let seeded = seeded_value_in(&sql, key)
-            .unwrap_or_else(|| panic!("{key} is not seeded by the migration"));
+        let seeded = effective_value(&sql, &correction, key)
+            .or_else(|| seeded_value_in(&correction, key))
+            .unwrap_or_else(|| panic!("{key} is not seeded by either migration"));
         let in_fixture = fixture
             .get(*key)
             .unwrap_or_else(|| panic!("{key} is missing from the test fixture"));
@@ -212,10 +244,89 @@ fn the_wording_fixture_carries_the_values_the_migration_actually_seeds() {
     // Anti-vacuity: a parsing change that stopped finding rows would otherwise
     // make this test pass while comparing nothing.
     assert_eq!(
-        checked, 22,
-        "all twenty-two stored strings must be compared"
+        checked, 28,
+        "all twenty-eight stored strings must be compared"
     );
-    assert_eq!(WORDING_KEYS.len(), 22);
+    assert_eq!(WORDING_KEYS.len(), 28);
+}
+
+// ── Item A's correction: the one that can ship a lying button ────────────────
+
+/// The save label no longer promises to move the human anywhere.
+///
+/// THE POINT OF ITEM A, as an assertion on the stored text rather than on the
+/// code: saving a link now leaves the selection where it is, so a label reading
+/// "and next" would be the button describing behaviour it no longer has. This
+/// checks the EFFECTIVE value — the seed as amended by the correction — so it
+/// fails if the UPDATE is dropped, mis-keyed, or silently matched nothing.
+#[test]
+fn the_stored_save_label_does_not_promise_navigation() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let seed = std::fs::read_to_string(root.join(SEED_MIGRATION)).expect("seed on disk");
+    let correction =
+        std::fs::read_to_string(root.join(CORRECTION_MIGRATION)).expect("correction on disk");
+
+    let effective = effective_value(&seed, &correction, KEY_SAVE_LABEL).expect("a value");
+    assert_eq!(effective, "Save");
+    assert!(
+        !effective.to_lowercase().contains("next"),
+        "the button no longer moves anyone: {effective}"
+    );
+    // And the seed really did hold the old text — otherwise this test would pass
+    // by accident on a migration that never needed correcting.
+    assert_eq!(
+        seeded_value_in(&seed, KEY_SAVE_LABEL).as_deref(),
+        Some("Save and next"),
+        "the 2.10 seed is what makes the UPDATE necessary"
+    );
+}
+
+/// The correction fires ONLY on a row still holding the old default.
+///
+/// A human may have edited this label since 2.10 shipped, and their words are
+/// not ours to overwrite. The guard is the VALUE itself rather than
+/// `updated_by`: somebody who edited the label and set it back would be wrongly
+/// protected by an attribution check, and somebody who changed another column
+/// would be wrongly overwritten by one.
+#[test]
+fn the_save_label_correction_only_fires_on_the_untouched_default() {
+    let sql = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(CORRECTION_MIGRATION),
+    )
+    .expect("correction on disk");
+
+    let stmt = sql
+        .split_once("UPDATE app_settings")
+        .map(|(_, rest)| rest.split_once(';').map(|(s, _)| s).unwrap_or(rest))
+        .expect("the correction is an UPDATE");
+
+    assert!(
+        stmt.contains("value         = 'Save and next'"),
+        "the WHERE must name the old value: {stmt}"
+    );
+    assert!(
+        stmt.contains("default_value = 'Save and next'"),
+        "and the old default, so a half-edited row is left alone: {stmt}"
+    );
+    assert!(
+        !stmt.contains("updated_by"),
+        "a migration is not a person; the attribution column stays as it was: {stmt}"
+    );
+}
+
+/// The correction moves the DEFAULT as well as the value.
+///
+/// Otherwise the Settings page advertises "Default Save and next" for a default
+/// that no longer exists, and the stored row falls out of step with
+/// `Wording::for_test`.
+#[test]
+fn the_correction_moves_the_default_as_well_as_the_value() {
+    let sql = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(CORRECTION_MIGRATION),
+    )
+    .expect("correction on disk");
+    assert!(sql.contains("SET value         = 'Save'"));
+    assert!(sql.contains("default_value = 'Save',"));
 }
 
 #[test]

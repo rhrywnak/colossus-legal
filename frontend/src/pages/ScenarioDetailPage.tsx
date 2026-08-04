@@ -57,6 +57,8 @@ import WatchListSection from "../components/WatchListSection";
 import { EmptyState } from "../components/TrialPrepViews";
 import { getAllegations, type AllegationDto } from "../services/allegations";
 import { DEFAULT_CASE_SLUG } from "../services/caseHeader";
+import { useAllegationOptions } from "../components/useAllegationOptions";
+import ScenarioNotice from "../components/ScenarioNotice";
 import { fetchScenarioCards, type ScenarioCard } from "../services/scenarioCards";
 import {
   fetchAugmentationPanel,
@@ -113,6 +115,20 @@ const ScenarioDetailPage: React.FC = () => {
   const [augmentation, setAugmentation] = useState<AugmentationPanelDto | null>(null);
   const [allegations, setAllegations] = useState<AllegationDto[]>([]);
   const [cards, setCards] = useState<ScenarioCard[]>([]);
+  /**
+   * The accusations the link panels offer, and the wording two sections share
+   * (tasks 2.10 and 2.12).
+   *
+   * Read HERE because two sections need it — the queue's link panels and the
+   * facts list's Remove control — and this page is where the reads they share
+   * live. Fetching it in both would put two copies of one catalogue on one
+   * screen, free to disagree after a Settings edit.
+   *
+   * Once per scenario, not per ruling: the catalogue is 120 rows on DEV and only
+   * changes when a document is processed.
+   */
+  const { linkOptions, linkOptionsError } = useAllegationOptions(slug, scenarioId);
+  const linkWording = linkOptions?.wording ?? null;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -317,6 +333,7 @@ const ScenarioDetailPage: React.FC = () => {
       <ScanSection
         slug={slug}
         scenarioId={scenarioId}
+        linkOptions={linkOptions}
         scenarioTitle={scenario.attack}
         externalRefresh={pageRefreshKey}
         onFactsChanged={refresh}
@@ -325,32 +342,24 @@ const ScenarioDetailPage: React.FC = () => {
         onRulingSaved={refreshCards}
       />
 
+      {/* A catalogue that would not load withdraws the link panels and the Remove
+          control, so it has to SAY so — otherwise both are simply missing, on
+          ninety-four cards, with nothing to diagnose (task 2.12). No Dismiss: it
+          is the reason two controls are absent, and hiding it would leave the
+          absence unexplained. */}
+      {linkOptionsError && <ScenarioNotice message={linkOptionsError} />}
+
       {/* The re-read notice (task 1.7F Part A). Sits with the list it describes,
           and leaves every other section on screen and working. */}
       {factsNotice && (
-        <div
-          role="alert"
-          style={{
-            display: "flex",
-            gap: "0.75rem",
-            alignItems: "baseline",
-            flexWrap: "wrap",
-            border: "1px solid var(--state-warning-strong, var(--border-default))",
-            borderRadius: "8px",
-            padding: "0.6rem 0.8rem",
-            margin: "0.5rem 0",
-            fontSize: "0.85rem",
-            color: "var(--text-secondary)",
-          }}
-        >
-          <span>{factsNotice}</span>
+        <ScenarioNotice message={factsNotice}>
           <button type="button" onClick={refreshCards} style={ghostButtonStyle}>
             Try again
           </button>
           <button type="button" onClick={() => setFactsNotice(null)} style={ghostButtonStyle}>
             Dismiss
           </button>
-        </div>
+        </ScenarioNotice>
       )}
 
       {/* 4 — §2.4 */}
@@ -359,6 +368,7 @@ const ScenarioDetailPage: React.FC = () => {
         scenarioId={scenarioId}
         cards={cards}
         humanFacts={augmentation?.human_facts ?? []}
+        wording={linkWording}
         onChanged={refresh}
       />
 

@@ -84,7 +84,7 @@ import {
   type CandidateFilters,
 } from "./candidateFilters";
 import { keyboardShouldRule, nextUpHint } from "./queueRegion";
-import { fetchAllegationOptions, type AllegationOptions } from "../services/evidenceLinks";
+import type { AllegationOptions } from "../services/evidenceLinks";
 import { revertQuestionOverride, saveQuestionOverride } from "../services/evidenceSummary";
 
 // ─── §2c visual language ────────────────────────────────────────────────────
@@ -157,6 +157,21 @@ interface Props {
    * row is drawn only once the server says it exists (ruling R3).
    */
   onRulingSaved?: () => void;
+  /**
+   * The accusations every stuck card's panel offers, and its words (task 2.10).
+   *
+   * ## Why the PAGE fetches this and not the queue (task 2.12)
+   *
+   * The facts section needs the same wording for its Remove control, and two
+   * fetches of one catalogue on one screen is two copies that can disagree
+   * mid-session — the exact class of defect `onProgress`'s doc warns about one
+   * field up. `ScenarioDetailPage` already owns the reads its sections share, so
+   * it owns this one too and hands it down.
+   *
+   * `null` until it lands, or if it failed: no panel is rendered then, because
+   * there is no fallback wording to render one with (R4).
+   */
+  linkOptions: AllegationOptions | null;
 }
 
 /**
@@ -177,15 +192,13 @@ const CardQueue: React.FC<Props> = ({
   slug,
   scenarioId,
   externalRefresh,
+  linkOptions,
   keyboardActive = true,
   onProgress,
   onRulingSaved,
 }) => {
   const [error, setError] = useState<string | null>(null);
   const [rulingError, setRulingError] = useState<string | null>(null);
-  /** The accusations every stuck card's panel offers, and its words (task 2.10).
-   *  `null` until the one per-scenario read lands, or if it failed. */
-  const [linkOptions, setLinkOptions] = useState<AllegationOptions | null>(null);
   /** The stuck pile's progress sentence, or `null` when nothing is stuck. */
   const [linkProgress, setLinkProgress] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -349,35 +362,6 @@ const CardQueue: React.FC<Props> = ({
     [slug, load],
   );
 
-  // ─── The accusations the link panels offer (task 2.10) ────────────────────
-  //
-  // Read ONCE per scenario, not per card and not per ruling: the catalogue is 120
-  // rows on DEV and changes only when a document is processed, while this pool is
-  // re-read after every keystroke of a triage session.
-  //
-  // A failure leaves `linkOptions` null and the panels unrendered — there is no
-  // fallback set of words to render them with (R4). It is reported rather than
-  // swallowed: without the message a human would find the control simply absent
-  // on 94 cards, with nothing to say why (Standing Rule 1).
-  useEffect(() => {
-    let live = true;
-    fetchAllegationOptions(slug, scenarioId)
-      .then((options) => {
-        if (live) setLinkOptions(options);
-      })
-      .catch((e: unknown) => {
-        if (!live) return;
-        const cause = e instanceof Error ? e.message : String(e);
-        setRulingError(
-          `The accusation list could not be loaded, so linking is unavailable on ` +
-            `this queue: ${cause}`,
-        );
-      });
-    return () => {
-      live = false;
-    };
-  }, [slug, scenarioId]);
-
   const selected = state.cards[state.index];
   const selectedId = selected?.graph_node_id ?? null;
   const { ruled, total } = progress(state);
@@ -470,8 +454,8 @@ const CardQueue: React.FC<Props> = ({
         linkOptions={linkOptions}
         // A link names its card, exactly as a ruling does (ruling R1). The id
         // comes up from the card's own render scope; this queue never guesses.
-        onSaveLinks={async (graphNodeId, allegationIds, cut, advance) =>
-          dispatch({ type: "link", graphNodeId, allegationIds, cut, advance })
+        onSaveLinks={async (graphNodeId, allegationIds, cut) =>
+          dispatch({ type: "link", graphNodeId, allegationIds, cut })
         }
         onUnlink={(graphNodeId, allegationId) =>
           dispatch({ type: "unlink", graphNodeId, allegationId })

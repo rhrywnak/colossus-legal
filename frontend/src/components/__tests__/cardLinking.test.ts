@@ -2,9 +2,13 @@
 // cardLinking.test.ts — the link panel's rules (task 2.10)
 // =============================================================================
 //
-// The draft, the refusals, the filter, and where "Save and next" lands. The
-// per-card fence lives in `cardTriage.test.ts` beside 1.7G's, because that is
-// where the reducer is.
+// The draft, the refusals, and the filter. The per-card fence lives in
+// `cardTriage.test.ts` beside 1.7G's, because that is where the reducer is.
+//
+// `nextStuckAfter` and `stillStuck` and their tests went with task 2.12 item A:
+// saving no longer advances, so the helpers that chose where to advance TO have
+// no caller. Cut rather than kept switched off — an unused export lies to the
+// next reader about what this module does.
 
 import { describe, expect, it } from "vitest";
 
@@ -12,9 +16,7 @@ import {
   canSave,
   EMPTY_DRAFT,
   needsLinking,
-  nextStuckAfter,
   refusalFor,
-  stillStuck,
   toggleAllegation,
   visibleOptions,
 } from "../cardLinking";
@@ -33,7 +35,7 @@ const wording: LinkPanelWording = {
   cut_heading: "How it cuts",
   cut_supports_label: "It supports us",
   cut_against_label: "They'll use it against us",
-  save_label: "Save and next",
+  save_label: "Save",
   cancel_label: "Cancel",
   unlink_label: "Unlink",
   missing_cut_refusal: "Say which way this cuts before saving.",
@@ -41,6 +43,12 @@ const wording: LinkPanelWording = {
   question_revert_label: "Restore the system's wording",
   unlink_found_nothing: "That link was already gone — your view was out of date.",
   save_failed_template: "That link did not save: {detail}",
+  save_blocks_ruling: "Save the link first.",
+  fact_remove_label: "Remove",
+  fact_remove_confirm_template: "Remove {code} from this scenario? It goes back to the queue as not ruled.",
+  fact_remove_confirm_yes: "Remove it",
+  fact_remove_confirm_cancel: "Keep it",
+  fact_remove_failed_template: "That fact could not be removed: {detail}",
 };
 
 function option(id: string, label: string, count: string | null = null): AllegationOption {
@@ -213,52 +221,9 @@ describe("which cards need the control", () => {
       defer_required: false,
       defer_required_reason: null,
     });
+    // Still a card the extraction never linked — but no longer waiting for a
+    // human, which is what stops the panel being re-offered under the answer.
     expect(needsLinking(done)).toBe(true);
-    expect(stillStuck(done)).toBe(false);
-  });
-});
-
-describe("where Save and next lands", () => {
-  const pool = () => Array.from({ length: 6 }, (_, i) => stuckCard(`ev-${i + 1}`));
-
-  it("lands on the next stuck card AFTER the one just linked", () => {
-    // Ruling R2, on a second control: the anchor is the card that was LINKED, so
-    // linking the fourth card lands on the fifth wherever the selection was.
-    expect(nextStuckAfter(pool(), "ev-4")).toBe("ev-5");
-  });
-
-  it("skips cards nobody needs to link", () => {
-    const cards = pool();
-    cards[2] = stuckCard("ev-3", {
-      stance: { verb: "supports", object: "¶41", summary: "This supports ¶41" },
-    });
-    cards[3] = stuckCard("ev-4", {
-      human_links: [
-        { allegation_id: "a-41", label: "¶41 — …", cut: "against", cut_label: "Against" },
-      ],
-    });
-    expect(nextStuckAfter(cards, "ev-2")).toBe("ev-5");
-  });
-
-  it("never lands back on the card just linked", () => {
-    // The pool in hand still says that card is stuck — it has not been re-read
-    // yet — so the skip is by ID, not by state.
-    const single = [stuckCard("ev-1")];
-    expect(nextStuckAfter(single, "ev-1")).toBeNull();
-  });
-
-  it("stops rather than wrapping when nothing after it is stuck", () => {
-    // Stopping is how "you have cleared the rest of this list" becomes visible.
-    // Wrapping would silently put the human back at the top of a list they
-    // thought they had finished — the same argument `advance` makes.
-    expect(nextStuckAfter(pool(), "ev-6")).toBeNull();
-  });
-
-  it("falls back to the first stuck card when the anchor left the view", () => {
-    expect(nextStuckAfter(pool(), "ev-gone")).toBe("ev-1");
-  });
-
-  it("returns nothing for an empty view", () => {
-    expect(nextStuckAfter([], "ev-1")).toBeNull();
+    expect(done.human_links.length).toBe(1);
   });
 });

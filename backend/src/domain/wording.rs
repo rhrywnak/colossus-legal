@@ -93,6 +93,19 @@ pub struct Wording {
     pub link_unlink_found_nothing: String,
     /// Said when a link or unlink could not be written. Carries `{detail}`.
     pub link_save_failed_template: String,
+    /// Why Include and Exclude are greyed while a link panel holds unsaved
+    /// choices (task 2.12, item B).
+    pub link_save_blocks_ruling: String,
+    /// The control that takes a fact back out of a scenario (item G).
+    pub fact_remove_label: String,
+    /// The question asked before a fact is taken out. Carries `{code}`.
+    pub fact_remove_confirm_template: String,
+    /// The button that confirms a removal.
+    pub fact_remove_confirm_yes: String,
+    /// The button that abandons it.
+    pub fact_remove_confirm_cancel: String,
+    /// Said when a removal could not be written. Carries `{detail}`.
+    pub fact_remove_failed_template: String,
 }
 
 // KEYS: the stable identifiers of the twenty stored strings. Not tunables — the
@@ -121,6 +134,12 @@ pub(crate) const KEY_PROGRESS_TEMPLATE: &str = "link_progress_template";
 pub(crate) const KEY_QUESTION_REVERT_LABEL: &str = "question_revert_label";
 pub(crate) const KEY_UNLINK_FOUND_NOTHING: &str = "link_unlink_found_nothing";
 pub(crate) const KEY_SAVE_FAILED_TEMPLATE: &str = "link_save_failed_template";
+pub(crate) const KEY_SAVE_BLOCKS_RULING: &str = "link_save_blocks_ruling";
+pub(crate) const KEY_FACT_REMOVE_LABEL: &str = "fact_remove_label";
+pub(crate) const KEY_FACT_REMOVE_CONFIRM: &str = "fact_remove_confirm_template";
+pub(crate) const KEY_FACT_REMOVE_YES: &str = "fact_remove_confirm_yes";
+pub(crate) const KEY_FACT_REMOVE_CANCEL: &str = "fact_remove_confirm_cancel";
+pub(crate) const KEY_FACT_REMOVE_FAILED: &str = "fact_remove_failed_template";
 
 /// Every wording key this build reads, so a missing one is caught at boot by name.
 ///
@@ -151,6 +170,12 @@ pub const WORDING_KEYS: &[&str] = &[
     KEY_QUESTION_REVERT_LABEL,
     KEY_UNLINK_FOUND_NOTHING,
     KEY_SAVE_FAILED_TEMPLATE,
+    KEY_SAVE_BLOCKS_RULING,
+    KEY_FACT_REMOVE_LABEL,
+    KEY_FACT_REMOVE_CONFIRM,
+    KEY_FACT_REMOVE_YES,
+    KEY_FACT_REMOVE_CANCEL,
+    KEY_FACT_REMOVE_FAILED,
 ];
 
 /// The placeholders a stored string MUST still contain after a human edits it.
@@ -171,6 +196,9 @@ pub const REQUIRED_PLACEHOLDERS: &[(&str, &[&str])] = &[
     (KEY_SUMMARY_TEMPLATE, &["{allegations}", "{cut}"]),
     (KEY_PROGRESS_TEMPLATE, &["{linked}", "{total}"]),
     (KEY_SAVE_FAILED_TEMPLATE, &["{detail}"]),
+    // A confirmation that does not name what it is about is not a confirmation.
+    (KEY_FACT_REMOVE_CONFIRM, &["{code}"]),
+    (KEY_FACT_REMOVE_FAILED, &["{detail}"]),
 ];
 
 /// Which required placeholders a candidate value is missing, for one key.
@@ -323,6 +351,12 @@ pub fn build_wording<E>(read: impl Fn(&str) -> Result<String, E>) -> Result<Word
         question_revert_label: read(KEY_QUESTION_REVERT_LABEL)?,
         link_unlink_found_nothing: read(KEY_UNLINK_FOUND_NOTHING)?,
         link_save_failed_template: read(KEY_SAVE_FAILED_TEMPLATE)?,
+        link_save_blocks_ruling: read(KEY_SAVE_BLOCKS_RULING)?,
+        fact_remove_label: read(KEY_FACT_REMOVE_LABEL)?,
+        fact_remove_confirm_template: read(KEY_FACT_REMOVE_CONFIRM)?,
+        fact_remove_confirm_yes: read(KEY_FACT_REMOVE_YES)?,
+        fact_remove_confirm_cancel: read(KEY_FACT_REMOVE_CANCEL)?,
+        fact_remove_failed_template: read(KEY_FACT_REMOVE_FAILED)?,
     })
 }
 
@@ -373,7 +407,9 @@ impl Wording {
             link_cut_against_label: "They'll use it against us".to_string(),
             link_cut_supports_phrase: "it supports us".to_string(),
             link_cut_against_phrase: "they'll use it against us".to_string(),
-            link_save_label: "Save and next".to_string(),
+            // Task 2.12 item A: the button no longer moves anyone, so it no
+            // longer says it does. The migration UPDATEs the already-seeded row.
+            link_save_label: "Save".to_string(),
             link_cancel_label: "Cancel".to_string(),
             link_unlink_label: "Unlink".to_string(),
             link_missing_cut_refusal: "Say which way this cuts before saving — a link with no \
@@ -390,6 +426,16 @@ impl Wording {
             link_save_failed_template: "That link did not save: {detail} The queue has been \
                                         reloaded from the server, so what you see now is \
                                         what is stored."
+                .to_string(),
+            link_save_blocks_ruling: "Save the link first.".to_string(),
+            fact_remove_label: "Remove".to_string(),
+            fact_remove_confirm_template: "Remove {code} from this scenario? It goes back \
+                                           to the queue as not ruled."
+                .to_string(),
+            fact_remove_confirm_yes: "Remove it".to_string(),
+            fact_remove_confirm_cancel: "Keep it".to_string(),
+            fact_remove_failed_template: "That fact could not be removed: {detail} Reload \
+                                          the page to see what is actually stored."
                 .to_string(),
         }
     }
@@ -427,6 +473,12 @@ impl Wording {
                     KEY_QUESTION_REVERT_LABEL => w.question_revert_label.clone(),
                     KEY_UNLINK_FOUND_NOTHING => w.link_unlink_found_nothing.clone(),
                     KEY_SAVE_FAILED_TEMPLATE => w.link_save_failed_template.clone(),
+                    KEY_SAVE_BLOCKS_RULING => w.link_save_blocks_ruling.clone(),
+                    KEY_FACT_REMOVE_LABEL => w.fact_remove_label.clone(),
+                    KEY_FACT_REMOVE_CONFIRM => w.fact_remove_confirm_template.clone(),
+                    KEY_FACT_REMOVE_YES => w.fact_remove_confirm_yes.clone(),
+                    KEY_FACT_REMOVE_CANCEL => w.fact_remove_confirm_cancel.clone(),
+                    KEY_FACT_REMOVE_FAILED => w.fact_remove_failed_template.clone(),
                     // Unreachable by construction: the match above covers every
                     // entry of WORDING_KEYS, and the test below proves it. A panic
                     // here would only fire in a test binary, on a key someone added

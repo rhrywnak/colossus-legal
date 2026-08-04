@@ -29,6 +29,7 @@
 import React, { useState } from "react";
 
 import CardQueue from "./CardQueue";
+import type { AllegationOptions } from "../services/evidenceLinks";
 import ThemeScanPanel from "./ThemeScanPanel";
 import { queueRegion } from "./queueRegion";
 
@@ -99,6 +100,8 @@ interface Props {
   onFactsChanged: () => void;
   /** Relayed to the queue: a ruling the server confirmed (task 1.7F Part A). */
   onRulingSaved: () => void;
+  /** Passed straight through to the queue — the page owns this read (2.12). */
+  linkOptions: AllegationOptions | null;
 }
 
 const ScanSection: React.FC<Props> = ({
@@ -108,6 +111,7 @@ const ScanSection: React.FC<Props> = ({
   externalRefresh,
   onFactsChanged,
   onRulingSaved,
+  linkOptions,
 }) => {
   // Queue progress is owned by `CardQueue` (it does the fetching), and this
   // section needs it for the summary line and the progress bar. So the queue
@@ -233,6 +237,7 @@ const ScanSection: React.FC<Props> = ({
             </div>
 
             <CardQueue
+              linkOptions={linkOptions}
               slug={slug}
               scenarioId={scenarioId}
               externalRefresh={externalRefresh}

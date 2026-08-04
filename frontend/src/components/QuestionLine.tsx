@@ -187,7 +187,13 @@ export const QuestionLine: React.FC<{
 
   return (
     <div style={{ display: "flex", gap: "8px", alignItems: "baseline", flexWrap: "wrap" }}>
-      <span style={{ fontSize: "13.5px", lineHeight: 1.7, color: "var(--text-secondary)" }}>
+      {/* Task 2.12 item D: the generated question is the line a human scans while
+          hunting for a candidate, and at --text-secondary (6.00:1 on this card)
+          it was legible but not scannable. --text-primary measures 16.32:1 here
+          — the v3 surface redefines these tokens, so that is #1a202c, not the
+          app-wide #101828. A readability change, not an AA fix: the old value
+          already passed. */}
+      <span style={{ fontSize: "13.5px", lineHeight: 1.7, color: "var(--text-primary)" }}>
         {question}
       </span>
       {authorship && (

@@ -158,7 +158,11 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
         8,
         "seven numbers, plus 2.10's short-list cap"
     );
-    assert_eq!(WORDING_KEYS.len(), 22, "the strings task 2.10 stores");
+    assert_eq!(
+        WORDING_KEYS.len(),
+        28,
+        "22 from task 2.10 plus the five task 2.12 adds"
+    );
     assert_eq!(
         seeded().len(),
         REQUIRED_KEYS.len() + WORDING_KEYS.len(),

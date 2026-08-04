@@ -55,15 +55,17 @@ import {
   edgeStyle,
   markStyle,
   metaChipStyle,
+  warningChipStyle,
   selectedCardStyle,
 } from "./candidateCardStyles";
 // Re-exported because `CardQueue` and the facts section import them from here —
 // the move is a file split, not an API change.
 export { cardStyle, chipStyle };
 
-import { cardRows, type CardRow } from "./cardRows";
+import { cardRows, metaChips, type CardRow } from "./cardRows";
 import { needsLinking } from "./cardLinking";
-import LinkToAccusationPanel, { HumanLinkSection } from "./LinkToAccusationPanel";
+import LinkToAccusationPanel from "./LinkToAccusationPanel";
+import { HumanLinkSection } from "./HumanLinkSection";
 import { candidateState, stateChip } from "./candidateFilters";
 import type { RulingKey } from "./cardTriage";
 import QuestionLine from "./QuestionLine";
@@ -154,19 +156,25 @@ const TextRow: React.FC<{ row: CardRow }> = ({ row }) => (
  * ruled on — was pushed down the card by its own metadata.
  */
 const MetaRow: React.FC<{ card: ScenarioCard }> = ({ card }) => {
-  // Every entry is a payload string, rendered verbatim and carrying itself as its
-  // own tooltip so nothing is lost to the truncation.
-  const chips: string[] = [
-    ...(card.speaker.name ? [card.speaker.name, card.speaker.attribution] : []),
-    ...(card.statement_kind ? [card.statement_kind] : []),
-    ...(card.grounding ? [card.grounding.label] : []),
-    card.confidence.label,
-  ];
+  // Which chips exist is decided by the pure `metaChips` (task 2.12, item C) —
+  // this walks the list, exactly as the card walks `cardRows`. Every entry is a
+  // payload string, rendered verbatim and carrying itself as its own tooltip so
+  // nothing is lost to the truncation.
+  const chips = metaChips(card);
+
+  // Every chip can be absent at once (an unscored, grounded, speakerless
+  // documentary item), and an empty flex row would still take its parent's gap.
+  if (chips.length === 0) return null;
+
   return (
     <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
       {chips.map((chip, i) => (
-        <span key={`${chip}-${i}`} style={metaChipStyle} title={chip}>
-          {chip}
+        <span
+          key={`${chip.text}-${i}`}
+          style={chip.warning ? { ...metaChipStyle, ...warningChipStyle } : metaChipStyle}
+          title={chip.text}
+        >
+          {chip.text}
         </span>
       ))}
     </div>
@@ -213,7 +221,7 @@ export const CandidateCard: React.FC<{
    */
   linkOptions: AllegationOptions | null;
   /** Save this card's links. Bound by the list, exactly as `onRule` is. */
-  onSaveLinks: (allegationIds: string[], cut: LinkCut, advance: boolean) => Promise<void>;
+  onSaveLinks: (allegationIds: string[], cut: LinkCut) => Promise<void>;
   /** Take one of this card's links back. */
   onUnlink: (allegationId: string) => void;
 }> = ({
@@ -245,6 +253,12 @@ export const CandidateCard: React.FC<{
   // linked shows its chips instead: the work is done, and re-offering the control
   // beneath the answer would read as though it had not been.
   const linkPanel = linkOptions !== null && needsLinking(card) && card.human_links.length === 0;
+
+  // Item B: while the panel holds ticks or a cut that have not been saved, the
+  // greyed Include and Exclude say why. Roman filled a panel in, saw Include
+  // still greyed, and reported it as broken — it was correct behaviour with no
+  // observable, which is the same defect class as 1.7C's silent keypress.
+  const [linkDraftDirty, setLinkDraftDirty] = useState(false);
 
   if (compact) {
     return (
@@ -286,6 +300,9 @@ export const CandidateCard: React.FC<{
         // print it a second time three inches away. A card with no panel — one
         // with no quote — keeps its sentence exactly where 1.7E-a put it.
         reasonShownElsewhere={linkPanel}
+        unsavedLinkReason={
+          linkDraftDirty && linkOptions ? linkOptions.wording.save_blocks_ruling : null
+        }
         onRule={onRule}
       />
 
@@ -345,7 +362,11 @@ export const CandidateCard: React.FC<{
       />
 
       {linkPanel && linkOptions && (
-        <LinkToAccusationPanel options={linkOptions} onSave={onSaveLinks} />
+        <LinkToAccusationPanel
+          options={linkOptions}
+          onSave={onSaveLinks}
+          onDraftDirty={setLinkDraftDirty}
+        />
       )}
       {bearsOn.map((row, i) => (
         <TextRow key={`bears_on-${i}`} row={row} />

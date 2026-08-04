@@ -141,50 +141,6 @@ export function needsLinking(card: ScenarioCard): boolean {
   return card.stance === null && card.quote.text.trim().length > 0;
 }
 
-/**
- * Whether a card is still waiting for a human to link it.
- *
- * The stuck pile, minus what has been cleared. Drives which card "Save and next"
- * lands on.
- */
-export function stillStuck(card: ScenarioCard): boolean {
-  return needsLinking(card) && card.human_links.length === 0;
-}
-
-/**
- * The next card needing a link AFTER the one just saved, in the visible order.
- *
- * ## Ruling R1 and R2 together, in one function
- *
- * The anchor is the card that was LINKED — never the selection. Link the fortieth
- * card while the third is selected and the highlight lands on the forty-first
- * stuck card, which is where the work is. That is 1.7G's ruling R2 applied to a
- * second control, and it is why this takes an id rather than an index.
- *
- * Returns `null` when nothing after it is stuck, which leaves the selection where
- * it was: stopping is how "you have cleared the rest of this list" becomes a
- * visible state, exactly as the ruling queue's `advance` stops rather than
- * wrapping.
- *
- * A card the list no longer holds yields the first stuck card in view — the same
- * honest recovery `advance` makes when a filter moved under a ruling.
- */
-export function nextStuckAfter(cards: ScenarioCard[], linkedId: string): string | null {
-  const at = cards.findIndex((card) => card.graph_node_id === linkedId);
-  const from = at === -1 ? -1 : at;
-
-  for (let i = from + 1; i < cards.length; i += 1) {
-    const card = cards[i];
-    // The card just linked is not stuck any more, but the payload in hand still
-    // says it is — the pool has not been re-read yet. Skipping by ID rather than
-    // by state is what stops "Save and next" landing back on the card just saved.
-    if (card.graph_node_id !== linkedId && stillStuck(card)) {
-      return card.graph_node_id;
-    }
-  }
-  return null;
-}
-
 // ─── The reducer's link branches ────────────────────────────────────────────
 
 /**
@@ -200,20 +156,26 @@ export function nextStuckAfter(cards: ScenarioCard[], linkedId: string): string 
  * pool, and the summary, the chips, the unlocked Include button and the progress
  * line all arrive together from one authoritative read.
  *
- * ## Where the highlight goes
+ * ## The selection does NOT move (task 2.12, item A)
  *
- * Only when the human asked for it. "Save and next" is a convenience, never the
- * only path (ruling R1), so a plain save leaves the selection exactly where they
- * put it — and the advance, when they do ask, is measured from the card that was
- * LINKED, never from the selection (ruling R2).
+ * Saving used to advance to the next stuck card. Roman's words: "I need to
+ * scroll up to the card I was working and then press Include." The human did
+ * the thinking on a card, was moved away, and had to scroll BACKWARDS to act on
+ * it — two passes over the same hundred cards.
+ *
+ * So a save now leaves the selection exactly where it is. Include and Exclude
+ * unlock in place on the card already under the human's eye, and the ORDINARY
+ * post-ruling advance carries them onward once they rule. One pass.
+ *
+ * The `advance` parameter and the `nextStuckAfter` helper that served it are
+ * gone rather than kept switched off: an unused parameter lies to the next
+ * reader about what this function can do (the 1.7C R9 precedent — cut the dead
+ * branch rather than keep it against a future that has not arrived). Re-adding
+ * it is small if a "next" affordance is ever wanted.
  */
 export function linkOnCard(
   state: QueueState,
-  event: { graphNodeId: string; allegationIds: string[]; cut: LinkCut; advance: boolean },
-  /** The cards the active filter leaves, in display order — where "next" is
-   *  measured. Passed in rather than derived here: which cards are VISIBLE is the
-   *  queue's business, and this module knows only which of them are stuck. */
-  visible: ScenarioCard[],
+  event: { graphNodeId: string; allegationIds: string[]; cut: LinkCut },
 ): QueueResult {
   const card = state.cards.find((c) => c.graph_node_id === event.graphNodeId);
   if (!card) return { state, effect: { kind: "none" } };
@@ -227,15 +189,7 @@ export function linkOnCard(
 
   // An open defer prompt is abandoned, as it is for a ruling on a named card: a
   // click on this card's own Save is an unambiguous statement about this card.
-  const cleared: QueueState = { ...state, mode: { kind: "triage" }, notice: null };
-
-  if (!event.advance) return { state: cleared, effect };
-
-  const nextId = nextStuckAfter(visible, event.graphNodeId);
-  if (nextId === null) return { state: cleared, effect };
-
-  const index = cleared.cards.findIndex((c) => c.graph_node_id === nextId);
-  return { state: index === -1 ? cleared : { ...cleared, index }, effect };
+  return { state: { ...state, mode: { kind: "triage" }, notice: null }, effect };
 }
 
 /**

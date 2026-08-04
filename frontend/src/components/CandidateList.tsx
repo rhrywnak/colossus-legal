@@ -95,12 +95,7 @@ const CandidateList: React.FC<{
   /** Save one NAMED card's links (task 2.10, ruling R1). Bound per card below,
    *  on the same principle as `onRule`: the target travels with the control, and
    *  no shared position can decide it. */
-  onSaveLinks: (
-    graphNodeId: string,
-    allegationIds: string[],
-    cut: LinkCut,
-    advance: boolean,
-  ) => Promise<void>;
+  onSaveLinks: (graphNodeId: string, allegationIds: string[], cut: LinkCut) => Promise<void>;
   /** Take one link back, on one named card. */
   onUnlink: (graphNodeId: string, allegationId: string) => void;
 }> = ({
@@ -175,8 +170,8 @@ const CandidateList: React.FC<{
               // THE SAME FIX AS `onRule`, one line lower: the handler closes over
               // THIS card's id, in this iteration's scope. Every stuck card in the
               // list carries a live panel and none of them can link another card.
-              onSaveLinks={(allegationIds, cut, advance) =>
-                onSaveLinks(card.graph_node_id, allegationIds, cut, advance)
+              onSaveLinks={(allegationIds, cut) =>
+                onSaveLinks(card.graph_node_id, allegationIds, cut)
               }
               onUnlink={(allegationId) => onUnlink(card.graph_node_id, allegationId)}
               keyboardRefused={selected && notice !== null}

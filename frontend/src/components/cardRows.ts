@@ -160,3 +160,64 @@ export function missingElements(card: ScenarioCard): CardElement[] {
   const present = new Set(cardRows(card).map((r) => r.element));
   return REQUIRED_CARD_ELEMENTS.filter((e) => !present.has(e));
 }
+
+// ─── The metadata chip row (task 2.12, item C) ──────────────────────────────
+
+/** One metadata chip: its words, and whether it is carrying bad news. */
+export type MetaChip = { text: string; warning: boolean };
+
+/**
+ * Grounding states that are NOT good news, and so earn a chip.
+ *
+ * §7.7 makes grounding a WARNING — it appears when the quote could not be
+ * located. A chip announcing that the quote WAS found is that contract read
+ * backwards: it spends a line of the card saying nothing happened. So `exact`
+ * and `normalized` are silent and these two speak.
+ *
+ * `pending` sits with `not_found` because "Not yet checked" is not good news
+ * either — it is the absence of verification, which is precisely what a human
+ * about to rule needs told.
+ *
+ * Measured on S-2 (2026-08-04): 83 `exact`, 65 `normalized`, ZERO `not_found`
+ * or `pending`. The chip therefore never appears on that scenario. That is
+ * warning-only working, not a chip that broke.
+ */
+export const GROUNDING_WARNING_STATES = ["not_found", "pending"];
+
+/**
+ * The card's metadata chips, in display order.
+ *
+ * ## What this row is for
+ *
+ * C-116 carried five chips, three of which said nothing was wrong. The row now
+ * carries the two facts a human needs while deciding — who said it and what kind
+ * of statement it is — plus anything that is actually a problem.
+ *
+ * ## Why "extracted" stays, however repetitive it looks
+ *
+ * The §3 sequencing ruling requires Phase-1 surfaces to display raw speaker
+ * strings VISIBLY LABELLED as extracted until canonical identity lands in B0
+ * (2.1 / 2.2). It is provenance, not clutter, and it retires when that arrives
+ * and not before. Deleting it as noise would be removing the one thing that says
+ * this name has not been reconciled with anything.
+ */
+export function metaChips(card: ScenarioCard): MetaChip[] {
+  const chips: MetaChip[] = [];
+
+  if (card.speaker.name) {
+    chips.push({ text: card.speaker.name, warning: false });
+    chips.push({ text: card.speaker.attribution, warning: false });
+  }
+  if (card.statement_kind) {
+    chips.push({ text: card.statement_kind, warning: false });
+  }
+  if (card.grounding && GROUNDING_WARNING_STATES.includes(card.grounding.state)) {
+    chips.push({ text: card.grounding.label, warning: true });
+  }
+  // A band is information; "unscored" is the ABSENCE of information taking up
+  // space, and whether a scan has run is already a filter facet.
+  if (card.confidence.band !== "unscored") {
+    chips.push({ text: card.confidence.label, warning: false });
+  }
+  return chips;
+}

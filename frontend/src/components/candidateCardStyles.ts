@@ -99,6 +99,22 @@ export const metaChipStyle: React.CSSProperties = {
  * visually obvious where the SOURCE PAGE's words start and stop, so the reader can
  * tell the document's voice from the card's own labels above and below it.
  */
+/**
+ * A metadata chip that is carrying BAD NEWS (task 2.12, item C).
+ *
+ * The grounding chip only appears when the quote could not be located (§7.7), so
+ * on the rare occasion it is there it must not look like the neutral chips
+ * beside it. Amber rather than red: the quote not being found is a reason to
+ * look before ruling, not a failure — and red is reserved on this surface for
+ * Exclude and for refusals.
+ *
+ * Colour never stands alone here either: the chip's own words say what is wrong.
+ */
+export const warningChipStyle: React.CSSProperties = {
+  background: "var(--state-warning-bg-soft)",
+  color: "var(--v3-amber-text)",
+};
+
 export const contextPanelStyle: React.CSSProperties = {
   background: "var(--v3-context-panel)",
   borderRadius: "10px",

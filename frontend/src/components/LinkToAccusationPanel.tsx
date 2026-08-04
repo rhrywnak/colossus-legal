@@ -45,7 +45,6 @@ import {
 } from "./cardLinking";
 import { fillDetail } from "../services/evidenceLinks";
 import type { AllegationOptions, LinkCut } from "../services/evidenceLinks";
-import type { CardHumanLink } from "../services/scenarioCards";
 
 const panelStyle: React.CSSProperties = {
   background: "var(--v3-context-panel)",
@@ -141,88 +140,6 @@ const cutButtonStyle = (chosen: boolean, danger: boolean): React.CSSProperties =
 });
 
 /**
- * What a linked card shows in place of the stance it does not have.
- *
- * The server-composed sentence, then one chip per accusation with its cut and a
- * one-click Unlink. Renders nothing at all for a card nobody has linked, which is
- * why the card can call it unconditionally — the alternative was a second
- * `card.human_links.length > 0` test in `CandidateCard`, whose job is to walk the
- * §7 descriptor rather than to decide what a link looks like.
- *
- * `options` is `null` while the panel wording is loading; the chips still render
- * (they carry their own composed labels) but the Unlink control does not, because
- * its word is a stored one and there is no literal to fall back to (R4).
- */
-export const HumanLinkSection: React.FC<{
-  summary: string | null;
-  links: CardHumanLink[];
-  options: AllegationOptions | null;
-  onUnlink: (allegationId: string) => void;
-}> = ({ summary, links, options, onUnlink }) => {
-  if (links.length === 0) return null;
-  return (
-    <>
-      {summary && (
-        <div style={{ fontSize: "13px", color: "var(--text-secondary)" }}>{summary}</div>
-      )}
-      <HumanLinkChips
-        links={links}
-        unlinkLabel={options?.wording.unlink_label ?? null}
-        onUnlink={onUnlink}
-      />
-    </>
-  );
-};
-
-/** The chips a linked card wears, each with its own one-click Unlink. */
-const HumanLinkChips: React.FC<{
-  links: CardHumanLink[];
-  /** `null` while the stored word has not loaded — no control is rendered then. */
-  unlinkLabel: string | null;
-  onUnlink: (allegationId: string) => void;
-}> = ({ links, unlinkLabel, onUnlink }) => (
-  <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-    {links.map((link) => (
-      <div
-        key={link.allegation_id}
-        style={{ display: "flex", gap: "8px", alignItems: "baseline", flexWrap: "wrap" }}
-      >
-        <span
-          style={{
-            fontSize: "12px",
-            fontWeight: 500,
-            borderRadius: "6px",
-            padding: "3px 10px",
-            background: "var(--v3-chip-alleg-bg)",
-            color: "var(--v3-chip-alleg-text)",
-          }}
-        >
-          <span aria-hidden="true">👤</span> {link.label}
-        </span>
-        <span style={countChipStyle}>{link.cut_label}</span>
-        {unlinkLabel && (
-          <button
-            type="button"
-            style={{ ...quietActionStyle, padding: "2px 6px" }}
-            // The accessible name has to say WHICH link this takes back: four
-            // buttons all reading "Unlink" tell a screen reader nothing.
-            aria-label={`${unlinkLabel} — ${link.label}`}
-            onClick={(event) => {
-              // Not also a selection: taking a link back is not aiming the
-              // keyboard.
-              event.stopPropagation();
-              onUnlink(link.allegation_id);
-            }}
-          >
-            {unlinkLabel}
-          </button>
-        )}
-      </div>
-    ))}
-  </div>
-);
-
-/**
  * The link control for ONE card.
  *
  * `onSave` and `onUnlink` are already bound to this card by the list — see the
@@ -232,9 +149,21 @@ const HumanLinkChips: React.FC<{
  */
 export const LinkToAccusationPanel: React.FC<{
   options: AllegationOptions;
-  /** Already bound to THIS card by the list. `advance` is "Save and next". */
-  onSave: (allegationIds: string[], cut: LinkCut, advance: boolean) => Promise<void>;
-}> = ({ options, onSave }) => {
+  /** Already bound to THIS card by the list. */
+  onSave: (allegationIds: string[], cut: LinkCut) => Promise<void>;
+  /**
+   * Told when the draft starts or stops holding unsaved choices (item B).
+   *
+   * ## Why the card is told rather than asked
+   *
+   * The reason Include is greyed has to appear on the BUTTON ROW, three inches
+   * above this panel, and the draft lives here. Lifting the whole draft up to
+   * `CandidateCard` would put the panel's internals in a component whose job is
+   * to walk the §7 descriptor; reporting one boolean up keeps the draft where it
+   * is used and tells the card exactly what it needs to know.
+   */
+  onDraftDirty: (dirty: boolean) => void;
+}> = ({ options, onSave, onDraftDirty }) => {
   const [draft, setDraft] = useState<LinkDraft>(EMPTY_DRAFT);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -242,8 +171,21 @@ export const LinkToAccusationPanel: React.FC<{
   const { wording } = options;
   const shown = visibleOptions(draft, options.serving, options.others);
 
+  /**
+   * Change the draft and tell the card whether anything is now unsaved.
+   *
+   * "Unsaved choices" is a tick OR a cut — either alone is enough to make a
+   * human expect Include to work, which is exactly the moment they need telling
+   * why it does not. Opening "Show all" or typing in the filter is not a choice
+   * and does not count.
+   */
+  const change = (next: LinkDraft) => {
+    setDraft(next);
+    onDraftDirty(next.allegationIds.length > 0 || next.cut !== null);
+  };
+
   /** Save, keeping the draft and the panel open until the SERVER has answered. */
-  const save = (advance: boolean) => {
+  const save = () => {
     const refusal = refusalFor(draft, wording);
     if (refusal !== null) {
       // Refused here rather than by a round trip that returns 400 — and in the
@@ -255,10 +197,12 @@ export const LinkToAccusationPanel: React.FC<{
 
     setBusy(true);
     setError(null);
-    onSave(draft.allegationIds, draft.cut, advance)
+    onSave(draft.allegationIds, draft.cut)
       .then(() => {
         setBusy(false);
-        setDraft(EMPTY_DRAFT);
+        // The choices are saved, so they are no longer unsaved — and Include is
+        // about to unlock for real, on the card the human is still looking at.
+        change(EMPTY_DRAFT);
       })
       .catch((e: unknown) => {
         setBusy(false);
@@ -318,7 +262,7 @@ export const LinkToAccusationPanel: React.FC<{
               <input
                 type="checkbox"
                 checked={draft.allegationIds.includes(option.allegation_id)}
-                onChange={() => setDraft(toggleAllegation(draft, option.allegation_id))}
+                onChange={() => change(toggleAllegation(draft, option.allegation_id))}
                 disabled={busy}
               />
               <span style={{ flex: 1 }}>{option.label}</span>
@@ -335,7 +279,7 @@ export const LinkToAccusationPanel: React.FC<{
           style={cutButtonStyle(draft.cut === "supports", false)}
           aria-pressed={draft.cut === "supports"}
           disabled={busy}
-          onClick={() => setDraft({ ...draft, cut: "supports" })}
+          onClick={() => change({ ...draft, cut: "supports" })}
         >
           {wording.cut_supports_label}
         </button>
@@ -344,7 +288,7 @@ export const LinkToAccusationPanel: React.FC<{
           style={cutButtonStyle(draft.cut === "against", true)}
           aria-pressed={draft.cut === "against"}
           disabled={busy}
-          onClick={() => setDraft({ ...draft, cut: "against" })}
+          onClick={() => change({ ...draft, cut: "against" })}
         >
           {wording.cut_against_label}
         </button>
@@ -374,7 +318,7 @@ export const LinkToAccusationPanel: React.FC<{
             cursor: canSave(draft) && !busy ? "pointer" : "not-allowed",
           }}
           disabled={!canSave(draft) || busy}
-          onClick={() => save(true)}
+          onClick={() => save()}
         >
           {busy ? "…" : wording.save_label}
         </button>
@@ -383,7 +327,7 @@ export const LinkToAccusationPanel: React.FC<{
           style={quietActionStyle}
           disabled={busy}
           onClick={() => {
-            setDraft(EMPTY_DRAFT);
+            change(EMPTY_DRAFT);
             setError(null);
           }}
         >

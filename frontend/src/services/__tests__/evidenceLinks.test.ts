@@ -10,7 +10,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { fillDetail } from "../evidenceLinks";
+import { fillCode, fillDetail } from "../evidenceLinks";
 
 describe("fillDetail", () => {
   it("drops the failure's own text into the slot the sentence leaves", () => {
@@ -48,5 +48,31 @@ describe("fillDetail", () => {
     // A thrown value that stringifies to nothing still leaves a readable sentence
     // rather than a `{detail}` token on screen.
     expect(fillDetail("did not save: {detail}", "")).toBe("did not save: ");
+  });
+});
+
+describe("fillCode", () => {
+  const template = "Remove {code} from this scenario? It goes back to the queue as not ruled.";
+
+  it("names the card the confirmation is about", () => {
+    // A confirmation that does not name what it is about is not a confirmation —
+    // which is why {code} is a REQUIRED placeholder on that stored key.
+    expect(fillCode(template, "C-111")).toBe(
+      "Remove C-111 from this scenario? It goes back to the queue as not ruled.",
+    );
+  });
+
+  it("keeps the second sentence, which is the one that matters", () => {
+    // Removing is not excluding. The human has to be told the item comes back
+    // rather than being judged bad evidence, and that is in the stored words.
+    expect(fillCode(template, "C-111")).toContain("goes back to the queue as not ruled");
+  });
+
+  it("returns a template with no slot unchanged", () => {
+    expect(fillCode("Remove this fact?", "C-111")).toBe("Remove this fact?");
+  });
+
+  it("does not re-scan the code it just substituted", () => {
+    expect(fillCode("{code} — {code}", "C-{code}")).toBe("C-{code} — {code}");
   });
 });

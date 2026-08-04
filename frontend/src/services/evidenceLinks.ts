@@ -75,6 +75,19 @@ export type LinkPanelWording = {
   unlink_found_nothing: string;
   /** Said when a link or unlink could not be written. Carries `{detail}`. */
   save_failed_template: string;
+  /** Why Include and Exclude are greyed while the panel holds unsaved choices
+   *  (task 2.12, item B). */
+  save_blocks_ruling: string;
+  /** The control that takes a fact back out of a scenario (item G). */
+  fact_remove_label: string;
+  /** The question asked before a removal. Carries `{code}`. */
+  fact_remove_confirm_template: string;
+  /** The button that confirms a removal. */
+  fact_remove_confirm_yes: string;
+  /** The button that abandons it. */
+  fact_remove_confirm_cancel: string;
+  /** Said when a removal could not be written. Carries `{detail}`. */
+  fact_remove_failed_template: string;
 };
 
 /**
@@ -93,6 +106,18 @@ export type LinkPanelWording = {
  */
 export function fillDetail(template: string, detail: string): string {
   return template.replace("{detail}", detail);
+}
+
+/**
+ * Drop a candidate's code into the removal confirmation (task 2.12, item G).
+ *
+ * The same substitution `fillDetail` performs, for the same reason and with the
+ * same limits: the sentence is the store's, only the code is this browser's. A
+ * confirmation that does not name what it is about is not a confirmation, which
+ * is why `{code}` is a REQUIRED placeholder on that key.
+ */
+export function fillCode(template: string, code: string): string {
+  return template.replace("{code}", code);
 }
 
 export type AllegationOptions = {

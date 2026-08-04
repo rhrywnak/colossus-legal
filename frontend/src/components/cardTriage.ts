@@ -189,11 +189,11 @@ export type QueueEvent =
    * The link control on ONE card, saved (task 2.10, ruling R1).
    *
    * Same law as `rule`: the id comes up from the card's own render scope, so no
-   * shared position can decide the target. `advance` says whether this was "Save
-   * and next" — the convenience — or a plain save, which leaves the highlight
-   * exactly where the human put it.
+   * shared position can decide the target. It never moves the selection — task
+   * 2.12 item A retired the advance, so the human stays on the card they were
+   * working and rules it in place.
    */
-  | { type: "link"; graphNodeId: string; allegationIds: string[]; cut: LinkCut; advance: boolean }
+  | { type: "link"; graphNodeId: string; allegationIds: string[]; cut: LinkCut }
   /** One link taken back, on the card it is printed on. */
   | { type: "unlink"; graphNodeId: string; allegationId: string }
   | { type: "cards_loaded"; cards: ScenarioCard[] };
@@ -423,7 +423,7 @@ export function queueReducer(state: QueueState, event: QueueEvent): QueueResult 
       return handleCardRuling(state, event.key, event.graphNodeId);
 
     case "link":
-      return linkOnCard(state, event, visibleCards(state));
+      return linkOnCard(state, event);
 
     case "unlink":
       return unlinkOnCard(state, event.graphNodeId, event.allegationId);
@@ -472,13 +472,6 @@ function handleCardRuling(state: QueueState, key: RulingKey, graphNodeId: string
   // A ruling is also the end of any refusal message left on screen.
   const cleared = state.notice === null ? state : { ...state, notice: null };
   return rulingOn(cleared, card, key);
-}
-
-/** The cards the active filter leaves, in display order. */
-function visibleCards(state: QueueState): ScenarioCard[] {
-  return visibleOrder(state)
-    .map((at) => state.cards[at])
-    .filter((card): card is ScenarioCard => card !== undefined);
 }
 
 function handleKey(state: QueueState, key: string, typing: boolean): QueueResult {

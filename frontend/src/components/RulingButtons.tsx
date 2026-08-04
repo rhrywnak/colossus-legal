@@ -217,6 +217,22 @@ export const CardHead: React.FC<{
    * and the keyboard refusal's spoken text, so I and E still explain themselves.
    */
   reasonShownElsewhere?: boolean;
+  /**
+   * The stored sentence for "you have unsaved link choices" (task 2.12, item B).
+   *
+   * ## Why this OVERRIDES the backend's defer reason rather than joining it
+   *
+   * Both explain the same greyed buttons, and printing two sentences about one
+   * refusal is the clutter Roman has ruled against repeatedly. This one is also
+   * the more useful of the two at that moment: the human has already read the
+   * panel's explanation and acted on it, so what they need now is "you are one
+   * click short", not "this card is not linked" — which they can see is no
+   * longer the whole truth.
+   *
+   * `null` whenever the panel holds nothing unsaved, which puts the ordinary
+   * Q4 behaviour back.
+   */
+  unsavedLinkReason?: string | null;
   /** True when the human just pressed I or E and was refused. */
   keyboardRefused: boolean;
   onRule: (key: RulingKey) => void;
@@ -228,6 +244,7 @@ export const CardHead: React.FC<{
   deferOnlyReason,
   keyboardRefused,
   reasonShownElsewhere = false,
+  unsavedLinkReason = null,
   onRule,
 }) => (
   <div style={{ marginBottom: "14px" }}>
@@ -251,7 +268,9 @@ export const CardHead: React.FC<{
             }
             // The reason travels with the control it disables, so a hover explains
             // it without the reader hunting for the sentence below.
-            title={shut ? (deferOnlyReason ?? undefined) : undefined}
+            // The reason travels with the control it disables. While a draft is
+            // unsaved that reason is the draft's, not the payload's.
+            title={shut ? (unsavedLinkReason ?? deferOnlyReason ?? undefined) : undefined}
             // `stopPropagation` is load-bearing, not hygiene. The button sits
             // inside a card whose own `onClick` selects that card, so without it
             // ONE physical click produced TWO dispatches: the ruling, and then a
@@ -279,7 +298,12 @@ export const CardHead: React.FC<{
       </span>
     </div>
 
-    {deferOnly && deferOnlyReason && (!reasonShownElsewhere || keyboardRefused) && (
+    {/* One sentence, never two (Q4). While the panel holds unsaved choices that
+        sentence is item B's; otherwise it is the payload's, and it is suppressed
+        entirely when the panel below is already explaining the same thing. */}
+    {deferOnly &&
+      (unsavedLinkReason ??
+        (!reasonShownElsewhere || keyboardRefused ? deferOnlyReason : null)) && (
       // `role="alert"` only on the keypress, deliberately: the sentence is
       // standing information on this card and a live region that announced itself
       // on every selection would talk over the human browsing the list.
@@ -291,11 +315,20 @@ export const CardHead: React.FC<{
           lineHeight: 1.5,
           padding: "6px 10px",
           borderRadius: "8px",
-          background: keyboardRefused ? "var(--state-warning-bg-soft)" : "transparent",
-          color: keyboardRefused ? "var(--v3-amber-text)" : "var(--text-muted)",
+          // Tinted for the two cases a human needs to NOTICE: a key they just
+          // pressed being refused, and choices they have made but not saved.
+          // The standing defer sentence stays quiet.
+          background:
+            keyboardRefused || unsavedLinkReason
+              ? "var(--state-warning-bg-soft)"
+              : "transparent",
+          color:
+            keyboardRefused || unsavedLinkReason
+              ? "var(--v3-amber-text)"
+              : "var(--text-muted)",
         }}
       >
-        {deferOnlyReason}
+        {unsavedLinkReason ?? deferOnlyReason}
       </div>
     )}
   </div>

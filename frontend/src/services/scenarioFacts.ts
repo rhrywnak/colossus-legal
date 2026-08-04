@@ -85,10 +85,18 @@ export async function addScenarioFact(
  * it is surfaced as an error so the caller can refresh and reconcile, never
  * swallowed.
  *
- * @deprecated (1a.6) The workbench excludes a fact with the reversible
- * `applyFactAction(…, "drop")` (a scenario-scoped status flip), not this hard
- * row delete. Whether a true hard-delete affordance is ever needed is a PRODUCT
- * question — left in place rather than silently foreclosed by the cutover.
+ * ## Un-deprecated by task 2.12 (item G)
+ *
+ * The 1a.6 note said the workbench excludes with `applyFactAction(…, "drop")`
+ * rather than this delete, and left the product question open. Item G answers
+ * it: the facts list needs "take this back out", which is NOT an exclude —
+ * excluding says the evidence is bad and parks it in the set-aside list, while
+ * removing says "not this scenario" and returns the candidate to the queue as
+ * NOT RULED. That is exactly what deleting the reference does, because a
+ * candidate with no reference is served with no ruling.
+ *
+ * It is ledgered: the route goes through `record_removal`, which writes the
+ * anchor row alongside the delete in one transaction.
  */
 export async function removeScenarioFact(
   slug: string,

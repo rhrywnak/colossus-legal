@@ -166,6 +166,12 @@ fn panel_wording(settings: &Settings, total: usize) -> LinkPanelWording {
         question_revert_label: w.question_revert_label.clone(),
         unlink_found_nothing: w.link_unlink_found_nothing.clone(),
         save_failed_template: w.link_save_failed_template.clone(),
+        save_blocks_ruling: w.link_save_blocks_ruling.clone(),
+        fact_remove_label: w.fact_remove_label.clone(),
+        fact_remove_confirm_template: w.fact_remove_confirm_template.clone(),
+        fact_remove_confirm_yes: w.fact_remove_confirm_yes.clone(),
+        fact_remove_confirm_cancel: w.fact_remove_confirm_cancel.clone(),
+        fact_remove_failed_template: w.fact_remove_failed_template.clone(),
     }
 }
 

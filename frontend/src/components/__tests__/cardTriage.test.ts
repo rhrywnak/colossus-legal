@@ -21,7 +21,7 @@ import {
 } from "../cardTriage";
 // The §7 descriptor moved to its own module in 1.7E (Rule 17 — see that file's
 // header). Same functions, same assertions; only the import line moved.
-import { cardRows, missingElements, REQUIRED_CARD_ELEMENTS } from "../cardRows";
+import { cardRows, metaChips, missingElements, REQUIRED_CARD_ELEMENTS } from "../cardRows";
 import type { ScenarioCard } from "../../services/scenarioCards";
 
 // ─── Fixtures ───────────────────────────────────────────────────────────────
@@ -250,6 +250,89 @@ describe("the §7 card contract", () => {
 });
 
 // ─── The keyboard state machine ─────────────────────────────────────────────
+
+// ─── The metadata chip row (task 2.12, item C) ──────────────────────────────
+
+describe("the metadata chips", () => {
+  it("keeps the source and the kind of statement", () => {
+    const chips = metaChips(fullCard()).map((c) => c.text);
+    expect(chips).toContain("R. Phillips");
+    expect(chips).toContain("extracted");
+    expect(chips).toContain("partial admission");
+  });
+
+  it("KEEPS 'extracted' — it is provenance, not clutter", () => {
+    // The §3 sequencing ruling: Phase-1 surfaces show raw speaker strings VISIBLY
+    // LABELLED as extracted until canonical identity lands in B0 (2.1/2.2). This
+    // test exists so nobody deletes it as repetitive before then.
+    expect(metaChips(fullCard()).map((c) => c.text)).toContain("extracted");
+  });
+
+  it("says nothing when the quote WAS found", () => {
+    // §7.7 makes grounding a warning. A chip announcing that nothing is wrong is
+    // that contract read backwards.
+    for (const state of ["exact", "normalized"]) {
+      const card = fullCard({ grounding: { state, label: "Grounded — found on the page" } });
+      expect(metaChips(card).some((c) => c.text.includes("Grounded"))).toBe(false);
+    }
+  });
+
+  it("speaks, in warning styling, when the quote was NOT found", () => {
+    const card = fullCard({
+      grounding: { state: "not_found", label: "Not found on the page" },
+    });
+    const chip = metaChips(card).find((c) => c.text === "Not found on the page");
+    expect(chip).toBeDefined();
+    expect(chip?.warning).toBe(true);
+  });
+
+  it("treats 'not yet checked' as bad news too", () => {
+    // The absence of verification is what a human about to rule needs told.
+    const card = fullCard({ grounding: { state: "pending", label: "Not yet checked" } });
+    expect(metaChips(card).find((c) => c.text === "Not yet checked")?.warning).toBe(true);
+  });
+
+  it("hides the confidence chip when no scan scored the card", () => {
+    // Measured on S-2: all 148 read "Not scored by a scan". The absence of
+    // information does not earn a line, and scan scoring is already a filter facet.
+    const card = fullCard({ confidence: { band: "unscored", label: "Not scored by a scan" } });
+    expect(metaChips(card).some((c) => c.text.includes("Not scored"))).toBe(false);
+  });
+
+  it("shows the band when a scan actually scored it", () => {
+    const card = fullCard({ confidence: { band: "high", label: "High confidence" } });
+    expect(metaChips(card).map((c) => c.text)).toContain("High confidence");
+  });
+
+  it("C-116, measured: five chips become two", () => {
+    // Roman counted six on DEV; the fourth was one chip clipped at 24ch. The row
+    // keeps the source and the statement kind and drops the three that said
+    // nothing was wrong.
+    const c116 = fullCard({
+      speaker: { name: "Catholic Family Services", attribution: "extracted" },
+      statement_kind: "evasive",
+      grounding: { state: "normalized", label: "Grounded — found, wording normalized" },
+      confidence: { band: "unscored", label: "Not scored by a scan" },
+    });
+    expect(metaChips(c116).map((c) => c.text)).toEqual([
+      "Catholic Family Services",
+      "extracted",
+      "evasive",
+    ]);
+  });
+
+  it("a documentary, unscored, grounded item yields no chips at all", () => {
+    // Which is why the component returns null rather than an empty flex row that
+    // would still take its parent's gap.
+    const bare = fullCard({
+      speaker: { name: null, attribution: "extracted" },
+      statement_kind: null,
+      grounding: { state: "exact", label: "Grounded — found on the page" },
+      confidence: { band: "unscored", label: "Not scored by a scan" },
+    });
+    expect(metaChips(bare)).toEqual([]);
+  });
+});
 
 describe("triage keys", () => {
   it("I includes the focused card and advances", () => {
@@ -834,13 +917,12 @@ describe("a card's own link control", () => {
     );
 
   /** Save the link control ON a named card — the `{type: "link"}` path. */
-  function link(state: QueueState, graphNodeId: string, advance = false) {
+  function link(state: QueueState, graphNodeId: string) {
     return queueReducer(state, {
       type: "link",
       graphNodeId,
       allegationIds: ["a-41"],
       cut: "against",
-      advance,
     });
   }
 
@@ -894,34 +976,22 @@ describe("a card's own link control", () => {
     expect(targets).toEqual(["ev-9", "ev-3", "ev-6"]);
   });
 
-  it("leaves the highlight alone on a plain save", () => {
-    // Only "Save and next" moves it. A human working a card out of order must not
-    // be thrown somewhere else for having saved.
+  it("ITEM A: saving NEVER moves the selection", () => {
+    // Roman's words: "I need to scroll up to the card I was working and then
+    // press Include." Saving used to advance, so the human did the thinking on a
+    // card, was moved away, and had to scroll backwards to rule it. The selection
+    // now stays put and the ordinary post-ruling advance does the moving.
     const s = queueReducer(stateOf(stuck()), { type: "select", graphNodeId: "ev-4" }).state;
     const after = link(s, "ev-8").state;
     expect(after.cards[after.index].graph_node_id).toBe("ev-4");
   });
 
-  it("SAVE AND NEXT lands after the card that was LINKED, not after the selection", () => {
-    // Ruling R2, on the second control. The selection is on ev-2; linking ev-7
-    // must land on ev-8, not ev-3.
-    const s = queueReducer(stateOf(stuck()), { type: "select", graphNodeId: "ev-2" }).state;
-    const after = link(s, "ev-7", true).state;
-    expect(after.cards[after.index].graph_node_id).toBe("ev-8");
-  });
-
-  it("Save and next walks the FILTERED order", () => {
-    const ids = ["ev-2", "ev-5", "ev-9"];
-    const s = queueReducer(stateOf(stuck()), { type: "visible", ids }).state;
-    const after = link(s, "ev-5", true).state;
-    expect(after.cards[after.index].graph_node_id).toBe("ev-9");
-  });
-
-  it("Save and next on the last stuck card leaves the highlight where it is", () => {
-    // Stopping rather than wrapping: the queue being exhausted is a visible state.
-    const s = queueReducer(stateOf(stuck()), { type: "select", graphNodeId: "ev-10" }).state;
-    const after = link(s, "ev-10", true).state;
-    expect(after.cards[after.index].graph_node_id).toBe("ev-10");
+  it("…including when the human links the card they are sitting on", () => {
+    // The ordinary case after item A: link the selected card, then press I on it
+    // without moving. If the save advanced, I would land on the wrong card.
+    const s = queueReducer(stateOf(stuck()), { type: "select", graphNodeId: "ev-4" }).state;
+    const after = link(s, "ev-4").state;
+    expect(after.cards[after.index].graph_node_id).toBe("ev-4");
   });
 
   it("does NOT patch the card optimistically", () => {
@@ -979,7 +1049,6 @@ describe("a card's own link control", () => {
       graphNodeId: "ev-5",
       allegationIds: ["a-41"],
       cut: "against",
-      advance: false,
     });
     expect(after.state.mode.kind).toBe("triage");
     expect(after.effect).toMatchObject({ kind: "link", graphNodeId: "ev-5" });
