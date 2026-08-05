@@ -166,6 +166,9 @@ const CORRECTION_MIGRATION: &str =
 /// list changes nothing on any environment that has already run it (2.12's
 /// lesson), so new rows can only arrive in a new migration.
 const SLICE1_MIGRATION: &str = "pipeline_migrations/20260805092240_facts_prep_slice1_wording.sql";
+/// The queue's counting-state row — the third state 2.13 was missing.
+const COUNTING_MIGRATION: &str =
+    "pipeline_migrations/20260805120900_queue_counting_state_wording.sql";
 
 /// Pull one key's seeded value out of the migration's INSERT.
 ///
@@ -229,6 +232,8 @@ fn the_wording_fixture_carries_the_values_the_migration_actually_seeds() {
         .expect("the correction migration is on disk");
     let slice1 = std::fs::read_to_string(root.join(SLICE1_MIGRATION))
         .expect("the 2.13 slice-1 wording migration is on disk");
+    let counting = std::fs::read_to_string(root.join(COUNTING_MIGRATION))
+        .expect("the queue counting-state wording migration is on disk");
 
     let fixture = Wording::for_test_values();
     let mut checked = 0usize;
@@ -237,6 +242,7 @@ fn the_wording_fixture_carries_the_values_the_migration_actually_seeds() {
         let seeded = effective_value(&sql, &correction, key)
             .or_else(|| seeded_value_in(&correction, key))
             .or_else(|| seeded_value_in(&slice1, key))
+            .or_else(|| seeded_value_in(&counting, key))
             .unwrap_or_else(|| panic!("{key} is not seeded by any migration"));
         let in_fixture = fixture
             .get(*key)
@@ -253,8 +259,11 @@ fn the_wording_fixture_carries_the_values_the_migration_actually_seeds() {
 
     // Anti-vacuity: a parsing change that stopped finding rows would otherwise
     // make this test pass while comparing nothing.
-    assert_eq!(checked, 42, "all forty-two stored strings must be compared");
-    assert_eq!(WORDING_KEYS.len(), 42);
+    assert_eq!(
+        checked, 43,
+        "all forty-three stored strings must be compared"
+    );
+    assert_eq!(WORDING_KEYS.len(), 43);
 }
 
 // ── Item A's correction: the one that can ship a lying button ────────────────

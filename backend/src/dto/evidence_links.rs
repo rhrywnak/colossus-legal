@@ -140,6 +140,8 @@ pub struct LinkPanelWording {
     pub queue_empty_pool_summary: String,
     /// The queue's summary when a real pool exists and none of it is outstanding.
     pub queue_all_ruled_summary: String,
+    /// The queue's summary while the counts are not known yet.
+    pub queue_counting_summary: String,
 }
 
 /// The whole panel in one read.
