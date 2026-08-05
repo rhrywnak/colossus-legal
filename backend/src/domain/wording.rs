@@ -140,6 +140,10 @@ pub struct Wording {
     pub queue_empty_pool_summary: String,
     /// The queue's summary when a real pool exists and none of it is outstanding.
     pub queue_all_ruled_summary: String,
+    /// The queue's summary while the counts are NOT KNOWN — before anything has
+    /// measured the pool. A third state, distinct from both "no candidates" and
+    /// "all ruled": a queue that has not looked must not report either result.
+    pub queue_counting_summary: String,
 }
 
 /// Whether the background pile starts folded away.
@@ -222,6 +226,7 @@ pub(crate) const KEY_FACT_TIER_SAVE_FAILED: &str = "fact_tier_save_failed_templa
 pub(crate) const KEY_FACT_ORDER_SAVE_FAILED: &str = "fact_order_save_failed_template";
 pub(crate) const KEY_QUEUE_EMPTY_POOL: &str = "queue_empty_pool_summary";
 pub(crate) const KEY_QUEUE_ALL_RULED: &str = "queue_all_ruled_summary";
+pub(crate) const KEY_QUEUE_COUNTING: &str = "queue_counting_summary";
 
 /// Every wording key this build reads, so a missing one is caught at boot by name.
 ///
@@ -272,6 +277,7 @@ pub const WORDING_KEYS: &[&str] = &[
     KEY_FACT_ORDER_SAVE_FAILED,
     KEY_QUEUE_EMPTY_POOL,
     KEY_QUEUE_ALL_RULED,
+    KEY_QUEUE_COUNTING,
 ];
 
 /// The placeholders a stored string MUST still contain after a human edits it.
@@ -473,6 +479,7 @@ pub fn build_wording<E>(read: impl Fn(&str) -> Result<String, E>) -> Result<Word
         fact_order_save_failed_template: read(KEY_FACT_ORDER_SAVE_FAILED)?,
         queue_empty_pool_summary: read(KEY_QUEUE_EMPTY_POOL)?,
         queue_all_ruled_summary: read(KEY_QUEUE_ALL_RULED)?,
+        queue_counting_summary: read(KEY_QUEUE_COUNTING)?,
     })
 }
 
@@ -569,6 +576,7 @@ impl Wording {
                 .to_string(),
             queue_empty_pool_summary: "No candidates gathered yet".to_string(),
             queue_all_ruled_summary: "All candidates ruled".to_string(),
+            queue_counting_summary: "Counting candidates…".to_string(),
         }
     }
 
@@ -627,6 +635,7 @@ impl Wording {
                     KEY_FACT_ORDER_SAVE_FAILED => w.fact_order_save_failed_template.clone(),
                     KEY_QUEUE_EMPTY_POOL => w.queue_empty_pool_summary.clone(),
                     KEY_QUEUE_ALL_RULED => w.queue_all_ruled_summary.clone(),
+                    KEY_QUEUE_COUNTING => w.queue_counting_summary.clone(),
                     // Unreachable by construction: the match above covers every
                     // entry of WORDING_KEYS, and the test below proves it. A panic
                     // here would only fire in a test binary, on a key someone added

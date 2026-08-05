@@ -122,6 +122,9 @@ export type LinkPanelWording = {
   queue_empty_pool_summary: string;
   /** The queue's summary when a real pool exists and none of it is outstanding. */
   queue_all_ruled_summary: string;
+  /** The queue's summary while the counts are not known yet — the third state,
+   *  distinct from both "no candidates" and "all ruled". */
+  queue_counting_summary: string;
 };
 
 /**

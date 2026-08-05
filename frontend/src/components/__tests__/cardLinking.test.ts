@@ -65,6 +65,7 @@ const wording: LinkPanelWording = {
   fact_order_save_failed_template: "Could not save the new order for {code}. {reason}",
   queue_empty_pool_summary: "No candidates gathered yet",
   queue_all_ruled_summary: "All candidates ruled",
+  queue_counting_summary: "Counting candidates…",
 };
 
 function option(id: string, label: string, count: string | null = null): AllegationOption {

@@ -129,13 +129,16 @@ const ScanSection: React.FC<Props> = ({
   // renders as an empty summary rather than a compiled-in fallback — R4's rule:
   // there is no literal to fall back to, and a line that invents its own words is
   // exactly what this task removed.
+  // `progress` is passed WHOLE, nullability and all. Collapsing it to
+  // `?? 0` here is what made "not counted yet" indistinguishable from "empty"
+  // and put two false sentences on DEV in successive builds.
   const region = queueRegion(
-    progress?.ruled ?? 0,
-    progress?.total ?? 0,
+    progress,
     linkOptions
       ? {
           emptyPool: linkOptions.wording.queue_empty_pool_summary,
           allRuled: linkOptions.wording.queue_all_ruled_summary,
+          counting: linkOptions.wording.queue_counting_summary,
         }
       : null,
   );
@@ -154,8 +157,9 @@ const ScanSection: React.FC<Props> = ({
     setLastDefault(region.open);
     setOpenOverride(null);
   }
-  // Open until the counts are known — see the `null` note above.
-  const open = progress === null ? true : (openOverride ?? region.open);
+  // The descriptor already returns `open: true` while the counts are unknown, so
+  // this no longer special-cases `null` — one place decides, not two.
+  const open = openOverride ?? region.open;
 
   return (
     <section>
@@ -223,8 +227,10 @@ const ScanSection: React.FC<Props> = ({
             <div style={queueMetaStyle}>
               <b style={{ color: "var(--state-success-strong)" }}>
                 {/* "0 of 0 ruled" before the fetch lands is a claim about the pool
-                    that nothing has measured yet (Standing Rule 1). */}
-                {progress === null ? "Counting candidates…" : region.progressLabel}
+                    that nothing has measured yet (Standing Rule 1). The descriptor
+                    now carries the counting text itself, from the stored row —
+                    which also retires the literal this line used to hold. */}
+                {region.progressLabel}
               </b>
               <div
                 role="progressbar"

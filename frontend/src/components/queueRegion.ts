@@ -56,22 +56,60 @@ export type QueueRegionDescriptor = {
  * until the wording loads — see the fallback in `queueRegion`.
  */
 export type QueueSummaryWording = {
-  /** Shown when there is no pool at all, including before one has loaded. */
+  /** Shown when there is no pool at all — measured, and empty. */
   emptyPool: string;
   /** Shown when a real pool exists and none of it is outstanding. */
   allRuled: string;
+  /** Shown while the counts are NOT KNOWN — nothing has measured the pool yet. */
+  counting: string;
 };
 
+/** What the queue has measured, or `null` when it has not measured anything. */
+export type QueueProgress = { ruled: number; total: number };
+
+/**
+ * ## Why this takes `QueueProgress | null` and not two numbers
+ *
+ * It used to take `(ruled, total)`, and every caller passed
+ * `progress?.ruled ?? 0`. That made "nobody has counted yet" and "the pool is
+ * empty" the SAME argument — `(0, 0)` — so no condition inside could tell them
+ * apart, and the summary confidently described a number nothing had read.
+ *
+ * On DEV that shipped twice: "All candidates ruled" over 92 unruled candidates
+ * (beta.376), then "No candidates gathered yet" over 148 gathered ones
+ * (beta.377) after task 2.13 split the wrong seam. The bug was never in the
+ * branch — it was in a signature that could not represent the third state.
+ *
+ * `null` now means unknown, and it is unrepresentable as a count. The clamp
+ * below still guards the measured case.
+ */
 export function queueRegion(
-  ruled: number,
-  total: number,
+  progress: QueueProgress | null,
   wording: QueueSummaryWording | null = null,
 ): QueueRegionDescriptor {
+  // Counts unknown: say so and nothing else. No progress figure, no remaining
+  // count, no scope clause — every one of those would be a claim about a pool
+  // nothing has looked at (Standing Rule 1). Mirrors the progress label's own
+  // long-standing "Counting candidates…" treatment eleven lines up in
+  // `ScanSection`, which this now serves from the store as well.
+  if (progress === null) {
+    return {
+      open: true,
+      summary: wording?.counting ?? "",
+      scope: null,
+      chevronLabel: "Expand the queue",
+      progressLabel: wording?.counting ?? "",
+      progressPercent: 0,
+      remainingLabel: null,
+      keyboardActive: false,
+    };
+  }
+
   // Clamp rather than trust: a reload that returns a shorter pool can briefly put
   // `ruled` above `total`, and a 140%-full progress bar is a rendering fault the
   // human would read as a data fault.
-  const safeTotal = Math.max(0, total);
-  const safeRuled = Math.min(Math.max(0, ruled), safeTotal);
+  const safeTotal = Math.max(0, progress.total);
+  const safeRuled = Math.min(Math.max(0, progress.ruled), safeTotal);
   const unruled = safeTotal - safeRuled;
 
   return {
