@@ -85,6 +85,17 @@
      Carries the elevation that we deliberately do NOT express with shadows. */
   --border-default: #d0d5dd;
 
+  /* --border-card: the hairline that CARRIES a card, distinct from the divider
+     that separates rows inside one (task 2.13b).
+
+     Defined here as well as in the v3 scope so the token is never undefined:
+     a component that reaches for it outside a v3 subtree gets the root divider
+     value (#d0d5dd, 1.47:1) rather than an empty string and no border at all.
+     The two scopes differ on purpose — v3's divider is much lighter than root's,
+     so v3 needs a card hairline that is genuinely darker than its own divider,
+     while at root the divider value already reads as a card edge. */
+  --border-card: #d0d5dd;
+
   /* --text-primary: headings and primary body text. Near-black with a slight
      blue cast so it pairs with the blue accent without going pure #000. Used
      for the H1 case title, Count headers, element names, element numbers. */
@@ -390,14 +401,51 @@
   /* --card #ffffff. Unchanged in value; stated so the mapping is complete. */
   --bg-surface: #ffffff;
 
-  /* --divider: faint INTERNAL dividers only. There are no card borders in v3;
-     if you find a `border:` on a card in this subtree it is a bug. */
+  /* --divider: faint INTERNAL dividers only. Unchanged at #eef0f3 (1.14:1 vs
+     white) because that IS its job — separating rows inside one surface, where
+     the surface itself already does the separating.
+
+     The 2.13b ruling did NOT change this token. The v3 note that used to sit
+     here — "There are no card borders in v3; if you find a `border:` on a card
+     in this subtree it is a bug" — is superseded for the scenario facts surface
+     by Roman's ruling of 2026-08-05 (SCENARIO_FACTS_USABILITY_2_13B_v1, §1). A
+     fact card now carries a hairline, and it uses --border-card below rather
+     than this token, so dividers everywhere else are untouched. */
   --border-default: #eef0f3;
+
+  /* --border-card: the hairline that CARRIES a card, as opposed to dividing
+     rows inside one.
+
+     #c7cdd6 — 1.60:1 against white, against #eef0f3's 1.14:1. Roman rejected
+     both the borderless v3 default ("difficult to see where one card ends and
+     the next starts") and heavy borders ("crap from the 80's"), so this is a
+     hairline chosen to be unambiguously visible at 1px and no more. Recorded
+     §2c deviation: the Casefleet study specifies light-gray hairlines; ours go
+     darker, for the stated reason.
+
+     WCAG 1.4.11 asks 3:1 for the boundary of a control whose shape carries
+     meaning. A card's edge is not that — it is decoration assisting proximity,
+     and the ruling is explicit that PROXIMITY does the separating and the
+     border assists. Pushing a 1px rule to 3:1 (roughly #767f8b) is the heavy
+     border that was rejected by name. The contrast that had to move is the
+     TEXT below, and it did. */
+  --border-card: #c7cdd6;
 
   /* --text / --text-2 / --text-3 */
   --text-primary: #1a202c;
   --text-secondary: #5a6472;
-  --text-muted: #8a93a2;
+
+  /* --text-muted: was #8a93a2 — 3.10:1 against white, a WCAG AA failure at body
+     sizes and exactly Roman's "the text is light grey and very difficult to
+     read" (filed 2026-08-04 against the chips and the footer; closed here).
+
+     #667085 is 4.97:1, and it is not a new colour: it is the value the ROOT
+     scope already carries for this same token, so the two scopes now agree
+     rather than the v3 surface being the lighter of the two (Rule 2 — tokens,
+     no bespoke values). The hierarchy still reads, and by SIZE as the study's
+     §2 requires rather than by fading: primary 16.32:1 > secondary 6.00:1 >
+     muted 4.97:1, with metadata a size step down from the body. */
+  --text-muted: #667085;
 
   /* --accent / --accent-soft */
   --accent-primary: #2f5fde;

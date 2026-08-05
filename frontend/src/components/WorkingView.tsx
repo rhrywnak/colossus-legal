@@ -36,91 +36,18 @@ import { ghostButtonStyle } from "./scenarioSectionStyles";
 import type { FactTier, ScenarioCard } from "../services/scenarioCards";
 import type { HumanFactDto } from "../services/scenarioAugmentation";
 import { fillCount, type LinkPanelWording } from "../services/evidenceLinks";
-import FactRow from "./FactRow";
+import FactRow, { CARD_GAP_PX } from "./FactRow";
 
 const SURFACE = "var(--bg-surface)";
 const HAIRLINE = "1px solid var(--border-default)";
 
-/**
- * One fact row. Mockup `.facts td`: 12px 16px 12px 12px, divided below.
- *
- * `display: flex` with the stripe as the first child — the stripe must be a
- * SIBLING of the content, not a border on the row, because it has to stretch to the
- * row's full height and stay rounded at both ends. R6 kept the flex rows rather than
- * converting to a table for CSS convenience.
- */
-const rowStyle: React.CSSProperties = {
-  display: "flex",
-  gap: "12px",
-  padding: "12px 16px 12px 12px",
-  borderBottom: HAIRLINE,
-  fontWeight: 400,
-  alignItems: "stretch",
-};
-
-/**
- * The row that just landed (task 1.7F Part A).
- *
- * A ruling made in the queue above adds a row to a list that can be long, and a
- * human who cannot see WHICH row appeared has to go looking for their own work.
- * The tint fades out on its own; nothing about the row's meaning depends on it.
- */
-const arrivedRowStyle: React.CSSProperties = {
-  ...rowStyle,
-  background: "var(--state-warning-bg-soft)",
-  transition: "background 600ms ease-out",
-};
-
-// CONST: how long a newly-added row stays tinted, in milliseconds.
+// CONST: how long a newly-added card stays tinted, in milliseconds.
 //
 // Presentational, and therefore NOT a stored setting (ruling R5 draws exactly
 // this line): it changes how long a colour fades, never what the list contains,
-// which rows exist, or what any of them mean. A tunable is something that changes
-// BEHAVIOUR; this changes an animation.
+// which cards exist, or what any of them mean. A tunable changes BEHAVIOUR; this
+// changes an animation.
 const ARRIVAL_HIGHLIGHT_MS = 2400;
-
-/**
- * The coloured left-edge cue. Mockup `.acc i`: 4px wide, radius 2, full height.
- *
- * Green = evidence a human ruled in. Blue = a fact a human wrote. It is a cue, not
- * the only signal — the row's own provenance line still says which it is in words,
- * because a colour alone fails a colourblind reader and a greyscale print.
- */
-const stripeStyle = (isHuman: boolean): React.CSSProperties => ({
-  width: "4px",
-  borderRadius: "2px",
-  flexShrink: 0,
-  alignSelf: "stretch",
-  minHeight: "44px",
-  background: isHuman ? "var(--accent-primary)" : "var(--state-success-strong)",
-});
-
-const chipStyle: React.CSSProperties = {
-  border: HAIRLINE,
-  borderRadius: "999px",
-  padding: "0.1rem 0.55rem",
-  fontSize: "0.75rem",
-  color: "var(--text-muted)",
-  whiteSpace: "nowrap",
-};
-
-/**
- * An accusation chip, which unlike the others is a SENTENCE (item F).
- *
- * ¶41's label runs to about two hundred characters. `nowrap` on a chip that long
- * pushes it past the container's right edge, where `overflow: hidden` cuts it —
- * so the end of the accusation, which is the part that distinguishes it from its
- * neighbours, was the part you could not read.
- *
- * The short chips (pinpoint, status) keep `nowrap`: they are labels, they fit,
- * and letting "CFS responses at 26" break across two lines would look broken.
- */
-const accusationChipStyle: React.CSSProperties = {
-  ...chipStyle,
-  whiteSpace: "normal",
-  overflowWrap: "anywhere",
-  textAlign: "left",
-};
 
 /**
  * The rows' scroll region (item E).
@@ -133,6 +60,19 @@ const accusationChipStyle: React.CSSProperties = {
 const factsScrollRegionStyle: React.CSSProperties = {
   maxHeight: "60vh",
   overflowY: "auto",
+  // Ruling 2, the spacing rhythm: each fact is its own card and the gap BETWEEN
+  // cards is decisively larger than any gap inside one — `CARD_GAP_PX` (20) against
+  // `MAX_INTRA_GAP_PX` (6), a ratio of 3.33. Proximity is what separates the cards;
+  // the hairline assists. `scenarioPageStructure.test.ts` asserts the ratio so the
+  // two numbers cannot drift back together.
+  display: "flex",
+  flexDirection: "column",
+  gap: `${CARD_GAP_PX}px`,
+  // The stack sits ON the tinted page rather than inside a white slab: a white
+  // card on a white surface has nothing to be seen against, which is half of
+  // "difficult to see where one card ends and the next starts".
+  padding: `${CARD_GAP_PX}px 16px`,
+  background: "var(--bg-page)",
 };
 
 // Mockup `input[type=search]`: borderless on the chrome fill, radius 8.
@@ -233,7 +173,14 @@ const WorkingView: React.FC<Props> = ({
   }, [rows]);
 
   return (
-    <div style={{ background: SURFACE, borderRadius: "var(--radius-card)", boxShadow: "var(--shadow-card)", overflow: "hidden" }}>
+    <div
+      style={{
+        background: SURFACE,
+        borderRadius: "var(--radius-card)",
+        border: "1px solid var(--border-card)",
+        overflow: "hidden",
+      }}
+    >
       {/* Search top-left, one create button top-right — the study's list-screen
           header, unchanged. */}
       <div
@@ -279,87 +226,21 @@ Nothing here yet. ✓ Include a candidate above, or add a fact of your own.
           No fact here matches “{term}”.
         </div>
       ) : (
-        <>
-          {shown.map((row) => (
-            <FactRow
-              key={row.graphNodeId}
-              row={row}
-              wording={wording}
-              justArrived={arrived.has(row.graphNodeId)}
-              // Item G: EVERY row can be taken out from where it is now. A human
-              // fact is deleted outright (it exists nowhere else); an evidence
-              // fact returns to the queue as not ruled. Two different acts, which
-              // is why the confirmation names what will happen.
-              //
-              // The evidence control is WITHHELD until the wording has loaded —
-              // `undefined`, not a control with an invented label (R4).
-              onRemove={
-                row.isHuman
-                  ? () => onRemoveHumanFact(row.graphNodeId.replace(/^human:/, ""))
-                  : wording
-                    ? () => onRemoveFact(row.graphNodeId)
-                    : undefined
-              }
-              // A human fact carries no weight tier (§8 — it is not evidence),
-              // so it gets no weight control rather than a disabled one.
-              onSetTier={
-                row.isHuman ? undefined : (tier) => onSetTier(row.graphNodeId, tier)
-              }
-              onDragStart={row.isHuman ? undefined : () => setDragging(row.graphNodeId)}
-              onDropOn={
-                row.isHuman
-                  ? undefined
-                  : () => {
-                      if (!dragging) return;
-                      const pair = neighboursForDrop(rows, dragging, row.graphNodeId);
-                      setDragging(null);
-                      // A drop that cannot name a position (onto itself, or onto a
-                      // row that has gone) is not sent: the server would only have
-                      // to refuse it, and the human meant nothing by it.
-                      if (pair) onMoveFact(dragging, pair.after, pair.before);
-                    }
-              }
-              confirm={row.isHuman ? null : wording}
-            />
-          ))}
-
-          {/* The background pile: folded, never hidden. The count is always on
-              screen, so a curated fact can never silently vanish — which is the
-              whole reason this tier is a fold and not a filter. */}
-          {background.length > 0 && wording && (
-            <div style={{ padding: "0.6rem 1rem", borderBottom: HAIRLINE }}>
-              <button
-                type="button"
-                onClick={() => setBackgroundOpen(!showBackground)}
-                style={{ ...ghostButtonStyle, fontSize: "0.78rem" }}
-              >
-                {showBackground
-                  ? wording.fact_background_hide_label
-                  : fillCount(wording.fact_background_count_template, background.length)}
-              </button>
-            </div>
-          )}
-
-          {showBackground &&
-            background.map((row) => (
-              <FactRow
-                key={row.graphNodeId}
-                row={row}
-                wording={wording}
-                justArrived={arrived.has(row.graphNodeId)}
-                onRemove={wording ? () => onRemoveFact(row.graphNodeId) : undefined}
-                onSetTier={(tier) => onSetTier(row.graphNodeId, tier)}
-                onDragStart={() => setDragging(row.graphNodeId)}
-                onDropOn={() => {
-                  if (!dragging) return;
-                  const pair = neighboursForDrop(rows, dragging, row.graphNodeId);
-                  setDragging(null);
-                  if (pair) onMoveFact(dragging, pair.after, pair.before);
-                }}
-                confirm={wording}
-              />
-            ))}
-        </>
+        <FactStack
+          shown={shown}
+          background={background}
+          showBackground={showBackground}
+          onToggleBackground={() => setBackgroundOpen(!showBackground)}
+          rows={rows}
+          arrived={arrived}
+          wording={wording}
+          dragging={dragging}
+          setDragging={setDragging}
+          onRemoveFact={onRemoveFact}
+          onRemoveHumanFact={onRemoveHumanFact}
+          onSetTier={onSetTier}
+          onMoveFact={onMoveFact}
+        />
       )}
 
       </div>
@@ -368,6 +249,110 @@ Nothing here yet. ✓ Include a candidate above, or add a fact of your own.
         {visible.length} of {rows.length} shown
       </div>
     </div>
+  );
+};
+
+/**
+ * The cards themselves: the shown stack, then the folded background pile.
+ *
+ * Extracted from `WorkingView` in task 2.13b. That component was carrying the
+ * search header, the arrival bookkeeping, the empty states AND every card's drag
+ * wiring in one body; the card stack is the part with its own rules and it reads
+ * better alone. Pure presentation — every decision it makes was made upstream.
+ */
+const FactStack: React.FC<{
+  shown: WorkingRow[];
+  background: WorkingRow[];
+  showBackground: boolean;
+  onToggleBackground: () => void;
+  /** The FULL ordered list, which a drop needs to name its neighbours from. */
+  rows: WorkingRow[];
+  arrived: Set<string>;
+  wording: LinkPanelWording | null;
+  dragging: string | null;
+  setDragging: (id: string | null) => void;
+  onRemoveFact: (graphNodeId: string) => void;
+  onRemoveHumanFact: (factId: string) => void;
+  onSetTier: (graphNodeId: string, tier: FactTier) => void;
+  onMoveFact: (graphNodeId: string, after: string | null, before: string | null) => void;
+}> = ({
+  shown,
+  background,
+  showBackground,
+  onToggleBackground,
+  rows,
+  arrived,
+  wording,
+  dragging,
+  setDragging,
+  onRemoveFact,
+  onRemoveHumanFact,
+  onSetTier,
+  onMoveFact,
+}) => {
+  /** One card's props — identical for the shown stack and the background pile. */
+  const cardFor = (row: WorkingRow) => ({
+    key: row.graphNodeId,
+    row,
+    wording,
+    justArrived: arrived.has(row.graphNodeId),
+    // Item G: EVERY card can be taken out from where it is now. A human fact is
+    // deleted outright (it exists nowhere else); an evidence fact returns to the
+    // queue as not ruled. Two different acts, which is why the confirmation
+    // names what will happen. The evidence control is WITHHELD until the wording
+    // loads — `undefined`, not a control with an invented label (R4).
+    onRemove: row.isHuman
+      ? () => onRemoveHumanFact(row.graphNodeId.replace(/^human:/, ""))
+      : wording
+        ? () => onRemoveFact(row.graphNodeId)
+        : undefined,
+    // A human fact carries no weight tier (§8 — it is not evidence), so it gets
+    // no weight control rather than a disabled one.
+    onSetTier: row.isHuman
+      ? undefined
+      : (tier: FactTier) => onSetTier(row.graphNodeId, tier),
+    onDragStart: row.isHuman ? undefined : () => setDragging(row.graphNodeId),
+    onDropOn: row.isHuman
+      ? undefined
+      : () => {
+          if (!dragging) return;
+          const pair = neighboursForDrop(rows, dragging, row.graphNodeId);
+          setDragging(null);
+          // A drop that cannot name a position (onto itself, or onto a card that
+          // has gone) is not sent: the server would only have to refuse it, and
+          // the human meant nothing by it.
+          if (pair) onMoveFact(dragging, pair.after, pair.before);
+        },
+    confirm: row.isHuman ? null : wording,
+  });
+
+  return (
+    <>
+      {shown.map((row) => (
+        <FactRow {...cardFor(row)} />
+      ))}
+
+      {/* The background pile: folded, never hidden. The count is always on
+          screen, so a curated fact can never silently vanish — which is the
+          whole reason this tier is a fold and not a filter. */}
+      {background.length > 0 && wording && (
+        <div style={{ padding: "0.2rem 0" }}>
+          <button
+            type="button"
+            onClick={onToggleBackground}
+            style={{ ...ghostButtonStyle, fontSize: "0.8rem" }}
+          >
+            {showBackground
+              ? wording.fact_background_hide_label
+              : fillCount(wording.fact_background_count_template, background.length)}
+          </button>
+        </div>
+      )}
+
+      {/* Same anatomy inside the pile (ruling 3) — these are the same cards, not
+          a reduced rendering of them. */}
+      {showBackground && background.map((row) => <FactRow {...cardFor(row)} />)}
+    </>
   );
 };
 

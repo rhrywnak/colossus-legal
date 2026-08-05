@@ -65,7 +65,67 @@ export type WorkingRow = {
   tier: FactTier | null;
   /** The stored position, or `null` when the human has never placed this fact. */
   sortOrdinal: number | null;
+  /** Who said it, or `null` for documentary evidence, which genuinely has no
+   *  speaker. Part of the header row's fixed anatomy (task 2.13b §3). */
+  speaker: string | null;
 };
+
+/**
+ * The card's rows, in their FIXED order, with the absent ones dropped.
+ *
+ * ## Why this is a function and not just JSX
+ *
+ * Roman's 2026-08-05 note: "the Candidate numbers appear in different places
+ * cards." They did. The C-code, the kind and the quote all shared one
+ * `flex-wrap` row, so the code's position moved with the length of whatever sat
+ * beside it, and a card with a question line pushed it somewhere else again.
+ *
+ * The ruling is that every card has the SAME anatomy and an absent element's row
+ * collapses without anything reflowing into its place. That is an invariant, and
+ * an invariant that lives only in JSX is one nobody can test. So the order is
+ * declared here, once, as data — and `factsTable.test.ts` asserts that the
+ * sequence is identical across cards of wildly different shapes.
+ *
+ * The renderer walks THIS array. It cannot emit a row this function did not
+ * list, and it cannot emit them in another order.
+ */
+export type CardSection = "header" | "question" | "quote" | "allegations" | "source";
+
+/** Every section a fact card can show, in the one order it may show them. */
+export const CARD_ANATOMY: readonly CardSection[] = [
+  "header",
+  "question",
+  "quote",
+  "allegations",
+  "source",
+] as const;
+
+/**
+ * Which sections THIS row renders, in canonical order.
+ *
+ * `header` and `quote` are always present: every fact has a landmark line and
+ * something to say. The other three are conditional, and each simply drops out —
+ * the surviving sections never change their relative order, which is the whole
+ * point.
+ */
+export function sectionsFor(row: WorkingRow): CardSection[] {
+  return CARD_ANATOMY.filter((section) => {
+    switch (section) {
+      case "header":
+      case "quote":
+        return true;
+      case "question":
+        return row.question !== null;
+      case "allegations":
+        return row.bearsOn.length > 0;
+      case "source":
+        // A human fact has no citation by design (§8), so it has no source row —
+        // but it still has scenario controls, which live in that row. The row
+        // exists whenever there is either a pinpoint or a control to put in it.
+        return true;
+    }
+  });
+}
 
 /** The weight order the list groups by — heaviest first. Mirrors `FactTier::rank`. */
 const TIER_RANK: Record<FactTier, number> = {
@@ -138,6 +198,9 @@ export function includedRows(cards: ScenarioCard[]): WorkingRow[] {
       statementKind: card.statement_kind,
       tier: card.tier ?? null,
       sortOrdinal: card.sort_ordinal ?? null,
+      // Documentary evidence genuinely has no speaker; `null` says so rather
+      // than the header inventing "Unknown".
+      speaker: card.speaker.name,
     }));
 }
 
@@ -177,6 +240,10 @@ export function humanFactRows(
     statementKind: null,
     tier: null,
     sortOrdinal: null,
+    // The provenance line already says who wrote it ("Added by Roman"), and it
+    // is not a SPEAKER — nobody said this under oath. `null` keeps the header's
+    // speaker slot empty rather than restating authorship as testimony.
+    speaker: null,
   }));
 }
 

@@ -613,3 +613,65 @@ describe("weight and order live on the server, not in the page (task 2.13)", () 
     }
   });
 });
+
+// ── Task 2.13b: the visual rules that decay silently ────────────────────────
+
+describe("the facts cards keep their visual rhythm (task 2.13b)", () => {
+  /**
+   * Roman's 2026-08-05 note, the part a test can hold: "it is difficult to see
+   * where one card ends and the next starts." The ruling is that PROXIMITY does
+   * the separating — the inter-card gap decisively larger than any gap inside a
+   * card — and the hairline assists. Two numbers three files apart drift back
+   * together the first time somebody tidies a layout, so the RATIO is the fence.
+   */
+  it("separates cards by more than three times the largest gap inside one", () => {
+    const source = read("components/FactRow.tsx");
+    const gap = Number(/CARD_GAP_PX = (\d+)/.exec(source)?.[1]);
+    const intra = Number(/MAX_INTRA_GAP_PX = (\d+)/.exec(source)?.[1]);
+
+    expect(gap, "CARD_GAP_PX must be declared in FactRow").toBeGreaterThan(0);
+    expect(intra, "MAX_INTRA_GAP_PX must be declared in FactRow").toBeGreaterThan(0);
+    expect(gap / intra).toBeGreaterThanOrEqual(3);
+  });
+
+  it("draws the card hairline from the card token, not the divider token", () => {
+    // `--border-default` on this surface is #eef0f3 (1.14:1) — a divider between
+    // rows inside one surface, which is what the cards used to be. A card's edge
+    // is a different job and now has its own token at 1.60:1. Reverting to the
+    // divider is the exact regression Roman reported.
+    const source = read("components/FactRow.tsx");
+    expect(source).toContain("var(--border-card)");
+    expect(
+      source,
+      "a fact card must not draw its own edge with the row-divider token",
+    ).not.toContain("var(--border-default)");
+  });
+
+  it("keeps one body size and one bold on the card", () => {
+    // Study §2, binding: one Inter-class stack at regular weight, ONE body size
+    // for quotes, metadata a size step DOWN rather than faded, and bold reserved
+    // for the C-code. Ad-hoc per-element font styling is what this replaces, so
+    // the sizes must come from the two named constants and nowhere else.
+    const source = read("components/FactRow.tsx");
+    const literalSizes = source.match(/fontSize: "(?!var)[^"]+"/g) ?? [];
+    expect(
+      literalSizes,
+      `fact-card font sizes must use BODY_SIZE/META_SIZE, found ${literalSizes.join(", ")}`,
+    ).toEqual([]);
+
+    // Exactly one bold declaration beyond the two semibold labels (the C-code and
+    // the "Q:" marker) would mean a third thing competing to be the landmark.
+    const bolds = source.match(/fontWeight: [6-9]00/g) ?? [];
+    expect(bolds.length, "only the C-code and the Q: label may be bold").toBeLessThanOrEqual(2);
+  });
+
+  it("runs the cut-spine the full height of the card", () => {
+    // It used to stop at a `minHeight`, leaving a stub beside taller cards that
+    // read as an alignment bug rather than a cue.
+    const source = read("components/FactRow.tsx");
+    expect(source).toContain("alignSelf: \"stretch\"");
+    expect(source, "a fixed minHeight would cut the spine short").not.toMatch(
+      /spineStyle[\s\S]{0,400}minHeight/,
+    );
+  });
+});

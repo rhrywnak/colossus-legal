@@ -9,8 +9,10 @@ import { describe, expect, it } from "vitest";
 
 import { filterRows, humanFactRows, includedRows, type WorkingRow,
   arrivedIds,
+  CARD_ANATOMY,
   neighboursForDrop,
   orderedRows,
+  sectionsFor,
   splitBackground,
 } from "../factsTable";
 import type { ScenarioCard } from "../../services/scenarioCards";
@@ -107,6 +109,7 @@ describe("filterRows", () => {
       statementKind: null,
       tier: "backup",
       sortOrdinal: null,
+      speaker: null,
     },
     {
       code: "C-2",
@@ -121,6 +124,7 @@ describe("filterRows", () => {
       statementKind: null,
       tier: "backup",
       sortOrdinal: null,
+      speaker: null,
     },
   ];
 
@@ -361,6 +365,7 @@ describe("orderedRows", () => {
     statementKind: null,
     tier,
     sortOrdinal,
+    speaker: null,
   });
 
   it("leaves an untouched list in exactly the order it arrived", () => {
@@ -440,6 +445,7 @@ describe("splitBackground", () => {
     statementKind: null,
     tier,
     sortOrdinal: null,
+    speaker: null,
   });
 
   it("folds the background tier out without losing any of it", () => {
@@ -476,6 +482,7 @@ describe("neighboursForDrop", () => {
     statementKind: null,
     tier: "backup",
     sortOrdinal: null,
+    speaker: null,
   });
   const rows = [row("a"), row("b"), row("c")];
 
@@ -499,5 +506,94 @@ describe("neighboursForDrop", () => {
     // human meant nothing by it and the server would only have to refuse it.
     expect(neighboursForDrop(rows, "a", "a")).toBeNull();
     expect(neighboursForDrop(rows, "a", "ghost")).toBeNull();
+  });
+});
+
+// ── Task 2.13b: the card anatomy is fixed, and testable ─────────────────────
+
+describe("sectionsFor — the fixed card anatomy", () => {
+  const base = (over: Partial<WorkingRow> = {}): WorkingRow => ({
+    code: "C-1",
+    graphNodeId: "ev-1",
+    text: "Yes.",
+    bearsOn: [],
+    pinpointLabel: "",
+    pinpointHref: "",
+    statusLabel: "In the scenario",
+    isHuman: false,
+    question: null,
+    statementKind: null,
+    tier: "backup",
+    sortOrdinal: null,
+    speaker: null,
+    ...over,
+  });
+
+  it("returns the sections in the canonical order, always", () => {
+    // Roman, 2026-08-05: "the Candidate numbers appear in different places
+    // cards." They did, because the code shared a wrapping row with whatever
+    // else fitted. The order is now data, and this is the assertion that it
+    // cannot vary.
+    const full = base({
+      question: "State the basis for your contention.",
+      bearsOn: ["¶41 — …"],
+      statementKind: "admission",
+      speaker: "R. Phillips",
+    });
+    expect(sectionsFor(full)).toEqual([
+      "header",
+      "question",
+      "quote",
+      "allegations",
+      "source",
+    ]);
+  });
+
+  it("collapses an absent section without reordering the rest", () => {
+    // The ruling: "An absent element's row collapses; nothing reflows into its
+    // position." So a card with no question must produce the SAME sequence minus
+    // that one entry — never a different arrangement of what is left.
+    const noQuestion = sectionsFor(base({ bearsOn: ["¶41 — …"] }));
+    expect(noQuestion).toEqual(["header", "quote", "allegations", "source"]);
+
+    const bare = sectionsFor(base());
+    expect(bare).toEqual(["header", "quote", "source"]);
+
+    // The fourth corner of the 2x2. `question` and `allegations` are the only
+    // conditional sections, so there are exactly four input combinations and
+    // three of them were covered — question-without-allegations was not, and it
+    // is the one where a naive implementation would be most tempted to slide the
+    // question down into the gap the allegations left.
+    const questionOnly = sectionsFor(base({ question: "State the basis." }));
+    expect(questionOnly).toEqual(["header", "question", "quote", "source"]);
+
+    // Every card's sections are a SUBSEQUENCE of the canonical order — the
+    // property that makes "nothing reflows" true for any combination, and now
+    // asserted over the COMPLETE combination space rather than a sample.
+    for (const row of [noQuestion, bare, questionOnly]) {
+      const positions = row.map((s) => CARD_ANATOMY.indexOf(s));
+      expect(positions).toEqual([...positions].sort((a, b) => a - b));
+    }
+  });
+
+  it("gives every card a header and a quote", () => {
+    // The landmark line and the words are the two things a fact always has. If
+    // either could be absent, the card would have no fixed anchor at all.
+    const shapes = [
+      base(),
+      base({ isHuman: true, code: null, tier: null }),
+      base({ question: "Q?", bearsOn: ["¶1"], speaker: "X" }),
+    ];
+    for (const shape of shapes) {
+      expect(sectionsFor(shape)).toContain("header");
+      expect(sectionsFor(shape)).toContain("quote");
+    }
+  });
+
+  it("keeps a human fact on the same anatomy as evidence", () => {
+    // "Same anatomy inside the background pile" and for human facts: the card
+    // must not become a different KIND of object because a person wrote it.
+    const human = base({ isHuman: true, code: null, tier: null, bearsOn: [] });
+    expect(sectionsFor(human)).toEqual(["header", "quote", "source"]);
   });
 });
