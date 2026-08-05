@@ -160,8 +160,8 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     );
     assert_eq!(
         WORDING_KEYS.len(),
-        28,
-        "22 from task 2.10 plus the five task 2.12 adds"
+        42,
+        "22 from task 2.10, five from 2.12, fourteen from 2.13 slice 1"
     );
     assert_eq!(
         seeded().len(),

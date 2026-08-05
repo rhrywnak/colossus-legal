@@ -9,6 +9,9 @@ import { describe, expect, it } from "vitest";
 
 import { filterRows, humanFactRows, includedRows, type WorkingRow,
   arrivedIds,
+  neighboursForDrop,
+  orderedRows,
+  splitBackground,
 } from "../factsTable";
 import type { ScenarioCard } from "../../services/scenarioCards";
 
@@ -100,6 +103,10 @@ describe("filterRows", () => {
       pinpointHref: "#",
       statusLabel: "In the scenario",
       isHuman: false,
+      question: null,
+      statementKind: null,
+      tier: "backup",
+      sortOrdinal: null,
     },
     {
       code: "C-2",
@@ -110,6 +117,10 @@ describe("filterRows", () => {
       pinpointHref: "#",
       statusLabel: "In the scenario",
       isHuman: false,
+      question: null,
+      statementKind: null,
+      tier: "backup",
+      sortOrdinal: null,
     },
   ];
 
@@ -307,5 +318,186 @@ describe("arrivedIds", () => {
       }),
     ]);
     expect(row.bearsOn).toEqual(["\u00b641 — refused to divide the property"]);
+  });
+});
+
+// ── Task 2.13: weight, order, and the question ──────────────────────────────
+
+describe("the question on a fact row", () => {
+  it("carries a question through, and folds an empty one into absent", () => {
+    // present → present; absent → absent; EMPTY STRING → absent. The third is the
+    // one worth pinning: an empty question would render a "Q:" label introducing
+    // nothing, which asserts that a question exists and was lost.
+    // `question` lives on the quote, so it is overridden there — the same shape
+    // the payload actually has.
+    const withQuestion = (question: string | null) =>
+      includedRows([
+        card({ status: "included", quote: { ...card().quote, question } }),
+      ])[0].question;
+
+    expect(withQuestion("State the basis for your contention.")).toBe(
+      "State the basis for your contention.",
+    );
+    expect(withQuestion(null)).toBeNull();
+    expect(withQuestion("")).toBeNull();
+  });
+});
+
+describe("orderedRows", () => {
+  const row = (
+    id: string,
+    tier: WorkingRow["tier"],
+    sortOrdinal: number | null,
+  ): WorkingRow => ({
+    code: id,
+    graphNodeId: id,
+    text: id,
+    bearsOn: [],
+    pinpointLabel: "",
+    pinpointHref: "",
+    statusLabel: "In the scenario",
+    isHuman: false,
+    question: null,
+    statementKind: null,
+    tier,
+    sortOrdinal,
+  });
+
+  it("leaves an untouched list in exactly the order it arrived", () => {
+    // THE regression guard: a scenario nobody has dragged in must render
+    // identically to how it did before this task shipped. The server's C-ordinal
+    // sort is the incoming order, and a stable sort must not disturb it.
+    const rows = [
+      row("c1", "backup", null),
+      row("c2", "backup", null),
+      row("c3", "backup", null),
+    ];
+    expect(orderedRows(rows).map((r) => r.graphNodeId)).toEqual(["c1", "c2", "c3"]);
+  });
+
+  it("puts placed facts ahead of unplaced ones, in their stored order", () => {
+    const rows = [
+      row("unplaced-a", "backup", null),
+      row("placed-late", "backup", 2048),
+      row("unplaced-b", "backup", null),
+      row("placed-early", "backup", 1024),
+    ];
+    expect(orderedRows(rows).map((r) => r.graphNodeId)).toEqual([
+      "placed-early",
+      "placed-late",
+      "unplaced-a",
+      "unplaced-b",
+    ]);
+  });
+
+  it("groups by weight ahead of position", () => {
+    // Weight decides the block, position decides the seat. A background fact with
+    // a tiny ordinal must not outrank a carrying fact with a large one — otherwise
+    // starring something would silently reorder the list.
+    const rows = [
+      row("light", "background", 1),
+      row("heavy", "carries", 9000),
+      row("middle", "backup", 5),
+    ];
+    expect(orderedRows(rows).map((r) => r.graphNodeId)).toEqual(["heavy", "middle", "light"]);
+  });
+
+  it("sorts a human fact with the middle tier, never above starred evidence", () => {
+    // A human fact has NO tier — §8 keeps it uncited, and nobody weighs it. It
+    // must not therefore float to the top ahead of evidence somebody deliberately
+    // starred, nor sink into the background pile they folded away. `rankOf`
+    // places it with `backup`, and this pins that: a future change promoting
+    // null-tier rows to rank 0 would reorder Roman's list silently.
+    const human = { ...row("human:1", null, null), isHuman: true };
+    const rows = [row("light", "background", null), human, row("heavy", "carries", null)];
+    expect(orderedRows(rows).map((r) => r.graphNodeId)).toEqual([
+      "heavy",
+      "human:1",
+      "light",
+    ]);
+  });
+
+  it("does not mutate the array it was given", () => {
+    // The rows come from a `useMemo` over props; sorting in place would reorder
+    // React's own data and make renders depend on how many times this ran.
+    const rows = [row("b", "backup", 2), row("a", "backup", 1)];
+    orderedRows(rows);
+    expect(rows.map((r) => r.graphNodeId)).toEqual(["b", "a"]);
+  });
+});
+
+describe("splitBackground", () => {
+  const row = (id: string, tier: WorkingRow["tier"]): WorkingRow => ({
+    code: id,
+    graphNodeId: id,
+    text: id,
+    bearsOn: [],
+    pinpointLabel: "",
+    pinpointHref: "",
+    statusLabel: "In the scenario",
+    isHuman: false,
+    question: null,
+    statementKind: null,
+    tier,
+    sortOrdinal: null,
+  });
+
+  it("folds the background tier out without losing any of it", () => {
+    // A split, never a filter: every row must still be reachable, because a
+    // curated fact that silently disappears is the failure this tier exists to
+    // avoid.
+    const rows = [row("a", "carries"), row("b", "background"), row("c", "backup")];
+    const { shown, background } = splitBackground(rows);
+    expect(shown.map((r) => r.graphNodeId)).toEqual(["a", "c"]);
+    expect(background.map((r) => r.graphNodeId)).toEqual(["b"]);
+    expect(shown.length + background.length).toBe(rows.length);
+  });
+
+  it("keeps a human fact out of the background pile", () => {
+    // A human fact has no tier at all, and must never be folded away by a weight
+    // judgment that was never made about it.
+    const human = { ...row("h", null), isHuman: true };
+    expect(splitBackground([human]).background).toEqual([]);
+    expect(splitBackground([human]).shown).toEqual([human]);
+  });
+});
+
+describe("neighboursForDrop", () => {
+  const row = (id: string): WorkingRow => ({
+    code: id,
+    graphNodeId: id,
+    text: id,
+    bearsOn: [],
+    pinpointLabel: "",
+    pinpointHref: "",
+    statusLabel: "In the scenario",
+    isHuman: false,
+    question: null,
+    statementKind: null,
+    tier: "backup",
+    sortOrdinal: null,
+  });
+  const rows = [row("a"), row("b"), row("c")];
+
+  it("names the pair a row lands between when dropped onto a target", () => {
+    // Dropping "c" onto "b" means "put c where b is" — above b, below a.
+    expect(neighboursForDrop(rows, "c", "b")).toEqual({ after: "a", before: "b" });
+  });
+
+  it("reports no lower neighbour at the top of the list", () => {
+    expect(neighboursForDrop(rows, "c", "a")).toEqual({ after: null, before: "a" });
+  });
+
+  it("lifts the dragged row out before reading its neighbours", () => {
+    // Dropping "a" onto "b" must see "b" as the FIRST remaining row, not the
+    // second — otherwise a drop one place down is computed as a no-op.
+    expect(neighboursForDrop(rows, "a", "b")).toEqual({ after: null, before: "b" });
+  });
+
+  it("refuses a drop that names no position", () => {
+    // Onto itself, or onto a row that has gone: nothing is sent, because the
+    // human meant nothing by it and the server would only have to refuse it.
+    expect(neighboursForDrop(rows, "a", "a")).toBeNull();
+    expect(neighboursForDrop(rows, "a", "ghost")).toBeNull();
   });
 });

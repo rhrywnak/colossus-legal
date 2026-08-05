@@ -37,6 +37,11 @@ fn fact_ref(node: &str, status: &str) -> ScenarioFactRefRecord {
         source_run_id: None,
         tagged_at: chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
         defer_reason: None,
+        // Task 2.13 defaults: a reference nobody has weighed or placed.
+        tier: crate::domain::fact_tier::FactTier::DEFAULT
+            .code()
+            .to_string(),
+        sort_ordinal: None,
     }
 }
 
@@ -121,4 +126,44 @@ fn an_unknown_status_token_is_a_loud_failure_not_a_default() {
         matches!(result, Err(AppError::Internal { .. })),
         "an undefined status token must fail loudly"
     );
+}
+
+#[test]
+fn an_unknown_tier_token_is_a_loud_failure_not_a_default() {
+    // The sibling of the status test above, for the column task 2.13 added.
+    //
+    // Standing Rule 1, and the reason the decode is not `unwrap_or(Backup)`:
+    // collapsing an unreadable tier onto the default would print "Backup" on a
+    // card somebody had deliberately marked as carrying the scenario. The screen
+    // would be confidently wrong, the human would have no way to tell, and
+    // nothing would be in the log — the precise failure this project's first
+    // standing rule exists to prevent.
+    let mut row = fact_ref("ev-1", "included");
+    row.tier = "critical".to_string();
+
+    let result = build_ref_states(vec![row]);
+
+    assert!(
+        matches!(result, Err(AppError::Internal { .. })),
+        "an undefined tier token must fail loudly, never default to backup"
+    );
+}
+
+#[test]
+fn every_defined_tier_token_decodes_on_the_card_path() {
+    // The other half of the boundary: the three real tokens must all survive the
+    // decode. A test that only proved the failure could pass against a decode
+    // that rejected everything.
+    for tier in crate::domain::fact_tier::FactTier::ALL {
+        let mut row = fact_ref("ev-1", "included");
+        row.tier = tier.code().to_string();
+
+        let states = build_ref_states(vec![row]).expect("a defined tier decodes");
+
+        assert_eq!(
+            states.get("ev-1").and_then(|s| s.tier),
+            Some(*tier),
+            "{tier:?} must reach the card as itself",
+        );
+    }
 }

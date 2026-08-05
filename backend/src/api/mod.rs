@@ -60,6 +60,7 @@ pub mod queries;
 pub mod rehearsal;
 pub mod scenario_augmentation;
 pub mod scenario_cards;
+pub mod scenario_fact_curation;
 pub mod scenario_facts;
 pub mod scenario_facts_mapping;
 pub mod scenario_gather;
@@ -97,6 +98,9 @@ pub fn router() -> Router<AppState> {
         .merge(scenario_facts::routes())
         .merge(evidence_summary::routes())
         .merge(evidence_links::routes())
+        // Task 2.13: weighing and placing a fact already ruled in. Its own group
+        // beside the ruling routes — augmentation, never a ruling (§8).
+        .merge(scenario_fact_curation::routes())
         .merge(scenario_augmentation::routes())
         .merge(rehearsal::routes())
         .merge(settings::routes())

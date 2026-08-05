@@ -4,6 +4,12 @@
 
 import { describe, expect, it } from "vitest";
 
+/** The two stored zero-state lines, as the backend serves them. */
+const WORDS = {
+  emptyPool: "No candidates gathered yet",
+  allRuled: "All candidates ruled",
+};
+
 import { keyboardShouldRule, nextUpHint, queueRegion } from "../queueRegion";
 
 describe("the default open state", () => {
@@ -42,6 +48,30 @@ describe("the summary line", () => {
     expect(queueRegion(3, 148).scope).toContain("all scans");
   });
 
+  it("tells an empty pool apart from a finished one (task 2.13)", () => {
+    // THE beta.376 defect, as a test. Before the queue reports its counts both
+    // are zero, and the summary read "All candidates ruled" — on a scenario with
+    // 92 candidates still unruled. Arithmetically true, substantively false: the
+    // header announced the work was done before it had looked.
+    expect(queueRegion(0, 0, WORDS).summary).toBe("No candidates gathered yet");
+    // A REAL pool with nothing outstanding still says the work is done.
+    expect(queueRegion(10, 10, WORDS).summary).toBe("All candidates ruled");
+    // And the two are never the same string, which is the whole point.
+    expect(queueRegion(0, 0, WORDS).summary).not.toBe(
+      queueRegion(10, 10, WORDS).summary,
+    );
+  });
+
+  it("says nothing rather than inventing words before the wording loads", () => {
+    // R4: there is no literal to fall back to. An empty summary is visibly
+    // incomplete for the instant it lasts; a compiled-in default would be a
+    // string the Settings page cannot edit and nobody knows is there.
+    expect(queueRegion(0, 0).summary).toBe("");
+    expect(queueRegion(10, 10).summary).toBe("");
+    // The line that does NOT depend on stored wording is unaffected.
+    expect(queueRegion(3, 148).summary).toBe("Candidates awaiting ruling — 145");
+  });
+
   it("hands the chevron a label naming what collapsing costs", () => {
     // Item 4: collapse is chevron-only now, and collapsing PAUSES the keys. A
     // human who does not know that reads a dead keyboard as a broken one.
@@ -53,7 +83,7 @@ describe("the summary line", () => {
   });
 
   it("becomes a receipt at zero rather than an empty container", () => {
-    const region = queueRegion(10, 10);
+    const region = queueRegion(10, 10, WORDS);
     expect(region.summary).toBe("All candidates ruled");
     // No scope clause and no remaining count: there is nothing left to qualify.
     expect(region.scope).toBeNull();

@@ -97,6 +97,49 @@ pub struct LinkPanelWording {
     pub fact_remove_confirm_cancel: String,
     /// Said when a removal could not be written. Carries `{detail}`.
     pub fact_remove_failed_template: String,
+
+    // ── Task 2.13 slice 1 ────────────────────────────────────────────────────
+    /// Marks the interrogatory question above a discovery answer.
+    pub fact_question_label: String,
+    /// Introduces the kind of statement a fact is.
+    pub fact_statement_kind_label: String,
+    /// The heaviest weight's name.
+    pub fact_tier_carries_label: String,
+    /// The middle weight's name — where a newly included fact lands.
+    pub fact_tier_backup_label: String,
+    /// The lightest weight's name.
+    pub fact_tier_background_label: String,
+    /// The prompt on a row's weight control.
+    pub fact_tier_prompt: String,
+    /// Whether the background pile starts folded.
+    ///
+    /// ## Why this crosses the wire as a BOOLEAN and not as the stored token
+    ///
+    /// The store holds `collapsed` / `expanded` because `ValueKind` has no
+    /// boolean. Parsing that token is a decision with a wrong answer available —
+    /// `value == "collapsed"` silently treats every typo as `expanded` — so it
+    /// happens ONCE, on the server, where a bad token is a named refusal. The
+    /// browser receives the decided answer and has nothing left to get wrong.
+    /// Same reason `status` travels beside `status_label`: the client is told the
+    /// state, never asked to infer it from prose.
+    pub fact_background_starts_collapsed: bool,
+    /// The folded pile's line. `{count}` is left IN the template — only the
+    /// client knows how many facts are in the tier after filtering, so it is the
+    /// one placeholder the server cannot fill.
+    pub fact_background_count_template: String,
+    /// The control that folds the pile away again.
+    pub fact_background_hide_label: String,
+    /// The drag handle's accessible label.
+    pub fact_order_drag_hint: String,
+    /// Said when a weight could not be stored. Carries `{code}` and `{reason}`.
+    pub fact_tier_save_failed_template: String,
+    /// Said when a drag could not be stored. Carries `{code}` and `{reason}`.
+    pub fact_order_save_failed_template: String,
+    /// The queue's summary when there is no pool at all — including before it has
+    /// loaded, which is the state that used to claim the work was finished.
+    pub queue_empty_pool_summary: String,
+    /// The queue's summary when a real pool exists and none of it is outstanding.
+    pub queue_all_ruled_summary: String,
 }
 
 /// The whole panel in one read.

@@ -95,9 +95,12 @@ describe("pinpoints open a real WINDOW, not a tab (task 1.7C, defect D5)", () =>
    */
   it("both pinpoint surfaces route through the viewer-window helper", () => {
     // The queue's card and the facts table are the two places a pinpoint appears
-    // (§2.7 names both). The card's rendering moved to `CandidateCard` when
-    // `CardQueue` was split for Rule 17, so that is where its pinpoint now lives.
-    for (const file of ["components/CandidateCard.tsx", "components/WorkingView.tsx"]) {
+    // (§2.7 names both). Both have since moved for Rule 17: the card's rendering
+    // to `CandidateCard` when `CardQueue` was split, and the facts ROW to
+    // `FactRow` when task 2.13 extracted it out of an over-long `WorkingView`.
+    // The fence follows the code — what it guards is that a pinpoint never opens
+    // with a bare `window.open`, not which file happens to hold the row today.
+    for (const file of ["components/CandidateCard.tsx", "components/FactRow.tsx"]) {
       expect(read(file), `${file} must open its pinpoint via openViewerWindow`).toContain(
         "openViewerWindow",
       );
@@ -539,5 +542,74 @@ describe("the live facts update and the summary override (task 1.7F)", () => {
     expect(page).toContain("const refresh = useCallback(() => setPageRefreshKey");
     expect(page).toContain("const refreshCards = useCallback(() => setCardsRefreshKey");
     expect(page).toMatch(/wrong after a ruling/);
+  });
+});
+
+// ── Task 2.13: the server is the one source of truth for weight and order ────
+
+describe("weight and order live on the server, not in the page (task 2.13)", () => {
+  /**
+   * ## Why this fence exists
+   *
+   * The tempting shortcut is to paint the star immediately and write in the
+   * background — it feels faster. It also puts a SECOND copy of the weight in
+   * this component, and the two disagree the moment a write fails: a star lit for
+   * a judgment that was never stored, with nothing on screen saying so. The same
+   * argument applies to order, where the wrong copy is even harder to notice
+   * because a list simply looks like a list.
+   *
+   * So both writes go: call the route, then re-read the cards. These assertions
+   * are the fence that keeps it that way, in the two files that could break it.
+   */
+  it("neither the section nor the view holds its own tier or order state", () => {
+    for (const file of ["components/ScenarioFactsSection.tsx", "components/WorkingView.tsx"]) {
+      const source = read(file);
+      // A `useState` seeded from a row's tier or ordinal is the shape of the
+      // defect: a local copy of something the payload already carries.
+      expect(source, `${file} must not keep a local copy of a fact's tier`).not.toMatch(
+        /useState[^\n]*\b(tier|Tier)\b/,
+      );
+      expect(source, `${file} must not keep a local copy of a fact's order`).not.toMatch(
+        /useState[^\n]*\b(sortOrdinal|sort_ordinal)\b/,
+      );
+    }
+  });
+
+  it("both curation writes are followed by a cards re-read", () => {
+    const source = read("components/ScenarioFactsSection.tsx");
+    // `onFactRemoved` is the LIGHT refresh (cards only) — the one that updates
+    // this list and the queue's counts together without disturbing the queue's
+    // selection mid-triage. A write that did not re-read would leave the human
+    // looking at the state from before their own edit.
+    for (const [write, label] of [
+      ["setFactTier(slug", "the weight write"],
+      ["setFactOrder(slug", "the order write"],
+    ]) {
+      // Anchored on the CALL, not the import — the import is the first match and
+      // proves nothing about what follows the request.
+      const at = source.indexOf(write);
+      expect(at, `${label} must be called from the facts section`).toBeGreaterThan(-1);
+      // The re-read has to appear inside the promise chain that follows the call,
+      // not merely somewhere in the file.
+      const chain = source.slice(at, at + 600);
+      expect(chain, `${label} must re-read the cards after it lands`).toContain(
+        "onFactRemoved()",
+      );
+    }
+  });
+
+  it("the browser never computes a stored ordinal", () => {
+    // Rule 12, at its sharpest here: the ORDINAL is the server's, derived from
+    // what is stored. The browser names the two neighbours a row was dropped
+    // between and nothing else — a page that did the arithmetic would write a
+    // position derived from a list that may have changed underneath it.
+    for (const file of [
+      "components/factsTable.ts",
+      "components/WorkingView.tsx",
+      "components/ScenarioFactsSection.tsx",
+      "services/scenarioFactCuration.ts",
+    ]) {
+      expect(read(file), `${file} must not carry the ordinal step`).not.toContain("1024");
+    }
   });
 });

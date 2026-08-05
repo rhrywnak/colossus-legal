@@ -472,6 +472,37 @@ pub struct ScenarioFactRefRecord {
     /// `scenario_ruling_anchors`; this column is only the CURRENT state, so the
     /// queue view need not walk the ledger per card.
     pub defer_reason: Option<String>,
+    /// How much this fact carries THIS scenario, as its raw wire token
+    /// (`carries` / `backup` / `background` — task 2.13).
+    ///
+    /// Kept a raw `String` rather than a decoded
+    /// [`crate::domain::fact_tier::FactTier`], exactly like `status` and
+    /// `role_in_this_scenario` above and for the same stated reason: the enum is a
+    /// write-and-parse type used at the call site, not a sqlx decode type. The
+    /// decode happens where something BRANCHES on the value — the card assembler,
+    /// which must refuse to render a tier this build cannot name rather than
+    /// quietly showing "Backup" for it.
+    ///
+    /// NOT NULL in the database (`DEFAULT 'backup'`), so this is a plain `String`
+    /// and not an `Option`: every reference row has a definite tier, because a
+    /// fact nobody has weighed genuinely IS backup.
+    pub tier: String,
+    /// The human's explicit position for this fact in this scenario, or `None`
+    /// when they have never placed it.
+    ///
+    /// ## Domain note: `None` is a state, not a missing value
+    ///
+    /// A placed fact and an unplaced one are different things, and the list shows
+    /// them differently: placed facts come first in ordinal order, unplaced ones
+    /// follow in their existing C-ordinal order. Collapsing `None` to `0` would
+    /// put every never-touched fact at the top, ahead of the ones a human
+    /// deliberately positioned — the exact inversion of the judgment the drag
+    /// exists to record (Standing Rule 1).
+    ///
+    /// `i32` because the column is `INTEGER`. Deliberately not `NUMERIC`: sqlx
+    /// cannot decode NUMERIC in this tree (no `rust_decimal`/`bigdecimal`), which
+    /// is what killed beta.364.
+    pub sort_ordinal: Option<i32>,
 }
 
 // CONST: column projection locked to the `scenario_fact_refs` schema — a
@@ -487,8 +518,14 @@ pub struct ScenarioFactRefRecord {
 // WHICH scan run's judgment a row carries (NULL = human-authored), which a present
 // `confidence` alone could not answer. It drives the per-run "applied" state and
 // the delete-restriction pre-check.
+// `tier` and `sort_ordinal` joined the projection in task 2.13. THIS CONST IS THE
+// SINGLE DRIFT POINT for the two new columns: every reader of the table goes
+// through it, so a column added to the migration and to `ScenarioFactRefRecord`
+// but forgotten HERE is a runtime decode failure on every read path at once —
+// which is why `columns_cover_every_record_field` pins the two lists against each
+// other rather than leaving the coupling to review.
 const SCENARIO_FACT_REF_COLUMNS: &str = "scenario_id, graph_node_id, role_in_this_scenario, \
-     status, note, confidence, source_run_id, tagged_at, defer_reason";
+     status, note, confidence, source_run_id, tagged_at, defer_reason, tier, sort_ordinal";
 
 /// Tag a graph fact into a scenario, or re-tag it in place (composite-key
 /// upsert on `(scenario_id, graph_node_id)`).

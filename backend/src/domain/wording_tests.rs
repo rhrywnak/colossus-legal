@@ -159,6 +159,13 @@ const SEED_MIGRATION: &str =
     "pipeline_migrations/20260804132730_create_evidence_allegation_links.sql";
 const CORRECTION_MIGRATION: &str =
     "pipeline_migrations/20260804162538_card_and_facts_usability_wording.sql";
+/// Task 2.13 slice 1's fourteen rows — the facts list as a prep surface, plus the
+/// queue summary split that stops a header claiming the work is done before it
+/// has counted. A THIRD file rather than an edit to either of the two above:
+/// `ON CONFLICT (key) DO NOTHING` means editing an applied migration's VALUES
+/// list changes nothing on any environment that has already run it (2.12's
+/// lesson), so new rows can only arrive in a new migration.
+const SLICE1_MIGRATION: &str = "pipeline_migrations/20260805092240_facts_prep_slice1_wording.sql";
 
 /// Pull one key's seeded value out of the migration's INSERT.
 ///
@@ -220,6 +227,8 @@ fn the_wording_fixture_carries_the_values_the_migration_actually_seeds() {
         .expect("the wording migration is on disk");
     let correction = std::fs::read_to_string(root.join(CORRECTION_MIGRATION))
         .expect("the correction migration is on disk");
+    let slice1 = std::fs::read_to_string(root.join(SLICE1_MIGRATION))
+        .expect("the 2.13 slice-1 wording migration is on disk");
 
     let fixture = Wording::for_test_values();
     let mut checked = 0usize;
@@ -227,7 +236,8 @@ fn the_wording_fixture_carries_the_values_the_migration_actually_seeds() {
     for key in WORDING_KEYS {
         let seeded = effective_value(&sql, &correction, key)
             .or_else(|| seeded_value_in(&correction, key))
-            .unwrap_or_else(|| panic!("{key} is not seeded by either migration"));
+            .or_else(|| seeded_value_in(&slice1, key))
+            .unwrap_or_else(|| panic!("{key} is not seeded by any migration"));
         let in_fixture = fixture
             .get(*key)
             .unwrap_or_else(|| panic!("{key} is missing from the test fixture"));
@@ -243,11 +253,8 @@ fn the_wording_fixture_carries_the_values_the_migration_actually_seeds() {
 
     // Anti-vacuity: a parsing change that stopped finding rows would otherwise
     // make this test pass while comparing nothing.
-    assert_eq!(
-        checked, 28,
-        "all twenty-eight stored strings must be compared"
-    );
-    assert_eq!(WORDING_KEYS.len(), 28);
+    assert_eq!(checked, 42, "all forty-two stored strings must be compared");
+    assert_eq!(WORDING_KEYS.len(), 42);
 }
 
 // ── Item A's correction: the one that can ship a lying button ────────────────

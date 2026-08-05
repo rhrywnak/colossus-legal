@@ -26,6 +26,7 @@ pub mod case_state;
 pub mod confidence_band;
 pub mod fact_role;
 pub mod fact_status;
+pub mod fact_tier;
 pub mod human_authored;
 pub mod link_cut;
 pub mod llm_params;

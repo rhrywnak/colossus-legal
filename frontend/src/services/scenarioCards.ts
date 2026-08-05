@@ -197,7 +197,21 @@ export type ScenarioCard = {
    *  about this statement, so `stance` stays null and this fills the §7.5 slot
    *  instead (ruling R2). */
   human_link_summary: string | null;
+  /** How much this fact carries THIS scenario — `carries` | `backup` |
+   *  `background` (task 2.13). The stored TOKEN, never the display name: the
+   *  three names live in the settings store, and the row pairs this token with
+   *  the wording it was served. Absent for a candidate with no reference row —
+   *  it is not in the scenario, so it has no weight here, which is a different
+   *  thing from being in it and unweighed (`backup`). */
+  tier?: FactTier;
+  /** The human's stored position, absent when they have never placed this fact.
+   *  Carried so a drag can name its neighbours — never so the browser can
+   *  re-derive the order the server already computed. */
+  sort_ordinal?: number;
 };
+
+/** The three weights a fact can carry (task 2.13). Mirrors the backend enum. */
+export type FactTier = "carries" | "backup" | "background";
 
 export type ScenarioCardsResponse = {
   pool: ScenarioCard[];

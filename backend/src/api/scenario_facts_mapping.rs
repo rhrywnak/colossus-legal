@@ -229,6 +229,13 @@ mod tests {
             // Not deferred: the join does not read this either, and None is the
             // honest value for a fixture representing a plain include.
             defer_reason: None,
+            // Task 2.13's two columns. The join does not read either — it pairs
+            // refs with graph content — so the defaults a freshly-included fact
+            // carries are the honest fixture: weighed by nobody, placed by nobody.
+            tier: crate::domain::fact_tier::FactTier::DEFAULT
+                .code()
+                .to_string(),
+            sort_ordinal: None,
         }
     }
 

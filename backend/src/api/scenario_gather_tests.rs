@@ -46,6 +46,12 @@ fn fact_ref(
         // Not deferred: the overwhelmingly common case, and the value that
         // keeps 'parked with a reason' distinct from 'never touched'.
         defer_reason: None,
+        // Task 2.13: gather does not read weight or place, so these carry the
+        // defaults a reference has before any human has weighed or dragged it.
+        tier: crate::domain::fact_tier::FactTier::DEFAULT
+            .code()
+            .to_string(),
+        sort_ordinal: None,
     }
 }
 
@@ -69,6 +75,12 @@ fn scored_ref(node: &str, role: &str, confidence: f32) -> ScenarioFactRefRecord 
         // Not deferred: the overwhelmingly common case, and the value that
         // keeps 'parked with a reason' distinct from 'never touched'.
         defer_reason: None,
+        // Task 2.13: gather does not read weight or place, so these carry the
+        // defaults a reference has before any human has weighed or dragged it.
+        tier: crate::domain::fact_tier::FactTier::DEFAULT
+            .code()
+            .to_string(),
+        sort_ordinal: None,
     }
 }
 

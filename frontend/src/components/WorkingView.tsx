@@ -27,14 +27,16 @@ import {
   filterRows,
   humanFactRows,
   includedRows,
+  neighboursForDrop,
+  orderedRows,
+  splitBackground,
   type WorkingRow,
 } from "./factsTable";
 import { ghostButtonStyle } from "./scenarioSectionStyles";
-import { openViewerWindow } from "./viewerWindow";
-import type { ScenarioCard } from "../services/scenarioCards";
+import type { FactTier, ScenarioCard } from "../services/scenarioCards";
 import type { HumanFactDto } from "../services/scenarioAugmentation";
-import type { LinkPanelWording } from "../services/evidenceLinks";
-import RemoveControl from "./FactRemoveControl";
+import { fillCount, type LinkPanelWording } from "../services/evidenceLinks";
+import FactRow from "./FactRow";
 
 const SURFACE = "var(--bg-surface)";
 const HAIRLINE = "1px solid var(--border-default)";
@@ -162,6 +164,14 @@ interface Props {
   onRemoveFact: (graphNodeId: string) => void;
   /** The stored words. `null` until they load — no Remove control until then. */
   wording: LinkPanelWording | null;
+  /** Record a fact's weight (task 2.13). */
+  onSetTier: (graphNodeId: string, tier: FactTier) => void;
+  /** Record where a dragged fact landed, named by its two new neighbours. */
+  onMoveFact: (
+    graphNodeId: string,
+    after: string | null,
+    before: string | null,
+  ) => void;
 }
 
 const WorkingView: React.FC<Props> = ({
@@ -171,16 +181,32 @@ const WorkingView: React.FC<Props> = ({
   onRemoveHumanFact,
   onRemoveFact,
   wording,
+  onSetTier,
+  onMoveFact,
 }) => {
   const [term, setTerm] = useState("");
+  // Which row is being dragged, for the duration of the drag only. Not state the
+  // server knows or needs to: the drop is what gets written.
+  const [dragging, setDragging] = useState<string | null>(null);
+  // Whether the background pile is open. Seeded from the SERVER's decision (it
+  // parsed the stored two-token setting), then follows the human's clicks for
+  // this visit. `null` means "not told yet" — see the fallback below.
+  const [backgroundOpen, setBackgroundOpen] = useState<boolean | null>(null);
 
   // Evidence first, then the human facts — the order the mockup shows, and the
   // order that reads as "what the record says, then what we know".
+  // Ordered ONCE, here: weight first, then the human's own placement. An
+  // untouched scenario comes out exactly as the server sent it (see
+  // `orderedRows`), so this is a no-op until somebody drags something.
   const rows = useMemo(
-    () => [...includedRows(cards), ...humanFactRows(humanFacts)],
+    () => orderedRows([...includedRows(cards), ...humanFactRows(humanFacts)]),
     [cards, humanFacts],
   );
   const visible = useMemo(() => filterRows(rows, term), [rows, term]);
+  // The background tier is FOLDED, never filtered away: the count travels with
+  // the pile so the list can always say how much is down there.
+  const { shown, background } = useMemo(() => splitBackground(visible), [visible]);
+  const showBackground = backgroundOpen ?? !(wording?.fact_background_starts_collapsed ?? true);
 
   // Which rows are NEW since the last render of this list (task 1.7F Part A).
   //
@@ -253,157 +279,93 @@ Nothing here yet. ✓ Include a candidate above, or add a fact of your own.
           No fact here matches “{term}”.
         </div>
       ) : (
-        visible.map((row) => (
-          <Row
-            key={row.graphNodeId}
-            row={row}
-            justArrived={arrived.has(row.graphNodeId)}
-            // Item G: EVERY row can be taken out from where it is now. A human
-            // fact is deleted outright (it exists nowhere else); an evidence
-            // fact returns to the queue as not ruled. Two different acts, which
-            // is why the confirmation names what will happen.
-            //
-            // The evidence control is WITHHELD until the wording has loaded —
-            // `undefined`, not a control with an invented label. R4 leaves no
-            // literal to fall back to, and an unlabelled control that removes a
-            // ruling is worse than no control for the seconds it takes to load.
-            onRemove={
-              row.isHuman
-                ? () => onRemoveHumanFact(row.graphNodeId.replace(/^human:/, ""))
-                : wording
-                  ? () => onRemoveFact(row.graphNodeId)
-                  : undefined
-            }
-            confirm={row.isHuman ? null : wording}
-          />
-        ))
+        <>
+          {shown.map((row) => (
+            <FactRow
+              key={row.graphNodeId}
+              row={row}
+              wording={wording}
+              justArrived={arrived.has(row.graphNodeId)}
+              // Item G: EVERY row can be taken out from where it is now. A human
+              // fact is deleted outright (it exists nowhere else); an evidence
+              // fact returns to the queue as not ruled. Two different acts, which
+              // is why the confirmation names what will happen.
+              //
+              // The evidence control is WITHHELD until the wording has loaded —
+              // `undefined`, not a control with an invented label (R4).
+              onRemove={
+                row.isHuman
+                  ? () => onRemoveHumanFact(row.graphNodeId.replace(/^human:/, ""))
+                  : wording
+                    ? () => onRemoveFact(row.graphNodeId)
+                    : undefined
+              }
+              // A human fact carries no weight tier (§8 — it is not evidence),
+              // so it gets no weight control rather than a disabled one.
+              onSetTier={
+                row.isHuman ? undefined : (tier) => onSetTier(row.graphNodeId, tier)
+              }
+              onDragStart={row.isHuman ? undefined : () => setDragging(row.graphNodeId)}
+              onDropOn={
+                row.isHuman
+                  ? undefined
+                  : () => {
+                      if (!dragging) return;
+                      const pair = neighboursForDrop(rows, dragging, row.graphNodeId);
+                      setDragging(null);
+                      // A drop that cannot name a position (onto itself, or onto a
+                      // row that has gone) is not sent: the server would only have
+                      // to refuse it, and the human meant nothing by it.
+                      if (pair) onMoveFact(dragging, pair.after, pair.before);
+                    }
+              }
+              confirm={row.isHuman ? null : wording}
+            />
+          ))}
+
+          {/* The background pile: folded, never hidden. The count is always on
+              screen, so a curated fact can never silently vanish — which is the
+              whole reason this tier is a fold and not a filter. */}
+          {background.length > 0 && wording && (
+            <div style={{ padding: "0.6rem 1rem", borderBottom: HAIRLINE }}>
+              <button
+                type="button"
+                onClick={() => setBackgroundOpen(!showBackground)}
+                style={{ ...ghostButtonStyle, fontSize: "0.78rem" }}
+              >
+                {showBackground
+                  ? wording.fact_background_hide_label
+                  : fillCount(wording.fact_background_count_template, background.length)}
+              </button>
+            </div>
+          )}
+
+          {showBackground &&
+            background.map((row) => (
+              <FactRow
+                key={row.graphNodeId}
+                row={row}
+                wording={wording}
+                justArrived={arrived.has(row.graphNodeId)}
+                onRemove={wording ? () => onRemoveFact(row.graphNodeId) : undefined}
+                onSetTier={(tier) => onSetTier(row.graphNodeId, tier)}
+                onDragStart={() => setDragging(row.graphNodeId)}
+                onDropOn={() => {
+                  if (!dragging) return;
+                  const pair = neighboursForDrop(rows, dragging, row.graphNodeId);
+                  setDragging(null);
+                  if (pair) onMoveFact(dragging, pair.after, pair.before);
+                }}
+                confirm={wording}
+              />
+            ))}
+        </>
       )}
 
       </div>
 
       <div style={{ padding: "0.6rem 1rem", fontSize: "0.78rem", color: "var(--text-muted)" }}>
         {visible.length} of {rows.length} shown
-      </div>
-    </div>
-  );
-};
-
-/**
- * The pinpoint chip, or nothing.
- *
- * Extracted from `Row` for the function-size limit (Rule 18). A HUMAN fact has no
- * pinpoint by design (§8), so the chip is absent rather than rendered empty or as a
- * dead link — which is also why this returns `null` rather than a placeholder.
- */
-const PinpointChip: React.FC<{ row: WorkingRow; onBlocked: (m: string | null) => void }> = ({
-  row,
-  onBlocked,
-}) => {
-  if (!row.pinpointHref) return null;
-  return (
-    // §2.7 / defect D5: a pinpoint opens the dedicated viewer in a real sized
-    // WINDOW, from the facts rows exactly as from the queue card — reading a fact
-    // against its own page is the same job on both surfaces. Kept as an anchor with
-    // an href so it still middle-clicks like a link.
-    <a
-      href={row.pinpointHref}
-      onClick={(event) => {
-        event.preventDefault();
-        const result = openViewerWindow(row.pinpointHref);
-        onBlocked(result.opened ? null : result.message);
-      }}
-      style={{ ...chipStyle, color: "var(--accent-primary)", textDecoration: "none" }}
-    >
-      {row.pinpointLabel} ↗
-    </a>
-  );
-};
-
-/** The row's second line: what it bears on, where it is, and its provenance. */
-const RowMeta: React.FC<{
-  row: WorkingRow;
-  onBlocked: (m: string | null) => void;
-  onRemove?: () => void;
-  confirm?: LinkPanelWording | null;
-}> = ({ row, onBlocked, onRemove, confirm = null }) => (
-  <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap", alignItems: "center" }}>
-    {row.bearsOn.map((accusation) => (
-      <span key={accusation} style={accusationChipStyle}>
-        {accusation}
-      </span>
-    ))}
-    <PinpointChip row={row} onBlocked={onBlocked} />
-    {/* For evidence this is the ruling state; for a human fact it is the composed
-        "Added by Roman · Around Mar 2010". Either way it is the row's AUTHORITY,
-        and it is the words that back up the coloured stripe on the left. */}
-    <span style={{ ...chipStyle, marginLeft: "auto" }}>{row.statusLabel}</span>
-    {/* Only a human fact can be removed from here — evidence is un-ruled in the
-        queue, which is where its ruling was made. */}
-    {onRemove && <RemoveControl row={row} onRemove={onRemove} confirm={confirm} />}
-  </div>
-);
-
-/** One Facts-table row. */
-const Row: React.FC<{
-  row: WorkingRow;
-  /** Tinted briefly because this row was not in the previous payload. */
-  justArrived?: boolean;
-  onRemove?: () => void;
-  /**
-   * The stored wording for the removal confirmation, or `null` to skip it.
-   *
-   * `null` for a human fact — it is the author's own text and deleting it needs
-   * no explanation of where it goes, because it goes nowhere. Non-null for an
-   * evidence fact, which returns to the queue and where the human must be told
-   * that before they commit (item G).
-   */
-  confirm?: LinkPanelWording | null;
-}> = ({ row, justArrived = false, onRemove, confirm = null }) => {
-  // A refused popup has to be SAID, not swallowed (Standing Rule 1). Local to the
-  // row so the message appears where the human just clicked.
-  const [blocked, setBlocked] = useState<string | null>(null);
-
-  return (
-    <div style={justArrived ? arrivedRowStyle : rowStyle}>
-      {/* Item 6: the coloured left-edge cue. */}
-      <span style={stripeStyle(row.isHuman)} aria-hidden="true" />
-      <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem", flex: 1 }}>
-        {/* Item F: `minWidth: 0` on the text below is what makes it WRAP.
-            A flex item defaults to `min-width: auto`, so it refuses to shrink
-            below its content; the card container sets `overflow: hidden`, so the
-            overflow was clipped and the end of every long quote was unreadable.
-            The flex row itself wraps too, so a very long code + quote pair moves
-            to two lines rather than squeezing the code. */}
-        <div style={{ display: "flex", gap: "0.5rem", alignItems: "baseline", flexWrap: "wrap" }}>
-          {/* A human fact has no candidate number, and the mockup's human row has no
-              code cell. An em-dash placeholder implied a missing value where there
-              is no value to miss. */}
-          {row.code && (
-            <span style={{ ...chipStyle, color: "var(--text-primary)" }}>{row.code}</span>
-          )}
-          <span
-            style={{
-              fontSize: "0.95rem",
-              lineHeight: 1.6,
-              color: "var(--text-primary)",
-              minWidth: 0,
-              flex: 1,
-              // Belt to that braces: a single unbroken token (a URL in a quote)
-              // has no space to wrap at, and would clip exactly as before.
-              overflowWrap: "anywhere",
-            }}
-          >
-            {row.text}
-          </span>
-        </div>
-
-        <RowMeta row={row} onBlocked={setBlocked} onRemove={onRemove} confirm={confirm} />
-
-        {blocked && (
-          <div role="alert" style={{ fontSize: "0.78rem", color: "var(--state-danger-strong)" }}>
-            {blocked}
-          </div>
-        )}
       </div>
     </div>
   );

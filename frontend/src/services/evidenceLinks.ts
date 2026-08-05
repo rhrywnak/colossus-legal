@@ -88,6 +88,40 @@ export type LinkPanelWording = {
   fact_remove_confirm_cancel: string;
   /** Said when a removal could not be written. Carries `{detail}`. */
   fact_remove_failed_template: string;
+
+  // ── Task 2.13 slice 1 ──────────────────────────────────────────────────────
+  /** Marks the interrogatory question above a discovery answer. */
+  fact_question_label: string;
+  /** Introduces the kind of statement a fact is. */
+  fact_statement_kind_label: string;
+  /** The heaviest weight's name. */
+  fact_tier_carries_label: string;
+  /** The middle weight's name — where a newly included fact lands. */
+  fact_tier_backup_label: string;
+  /** The lightest weight's name. */
+  fact_tier_background_label: string;
+  /** The prompt on a row's weight control. */
+  fact_tier_prompt: string;
+  /** Whether the background pile starts folded. Decided by the SERVER from the
+   *  stored two-token setting, so this browser never parses it — a `collapsed` /
+   *  `expanded` comparison here would treat every typo as `expanded` in silence. */
+  fact_background_starts_collapsed: boolean;
+  /** The folded pile's line. Carries `{count}`, the one placeholder only this
+   *  side can fill: the server does not know how many rows survive the filter. */
+  fact_background_count_template: string;
+  /** The control that folds the pile away again. */
+  fact_background_hide_label: string;
+  /** The drag handle's accessible label. */
+  fact_order_drag_hint: string;
+  /** Said when a weight could not be stored. Carries `{code}` and `{reason}`. */
+  fact_tier_save_failed_template: string;
+  /** Said when a drag could not be stored. Carries `{code}` and `{reason}`. */
+  fact_order_save_failed_template: string;
+  /** The queue's summary when there is no pool at all — including before it has
+   *  loaded, which is the state that used to claim the work was finished. */
+  queue_empty_pool_summary: string;
+  /** The queue's summary when a real pool exists and none of it is outstanding. */
+  queue_all_ruled_summary: string;
 };
 
 /**
@@ -118,6 +152,33 @@ export function fillDetail(template: string, detail: string): string {
  */
 export function fillCode(template: string, code: string): string {
   return template.replace("{code}", code);
+}
+
+/**
+ * Fill a template's `{code}` and `{reason}` in ONE pass (task 2.13).
+ *
+ * ## Why not two chained `.replace()` calls
+ *
+ * A value substituted by the first call is re-scanned by the second. A failure
+ * message whose `{reason}` text happened to contain `{code}` — server prose is
+ * not ours to constrain — would have that chewed out of it. Walking the template
+ * once means a substituted value is never looked at again, which is the same
+ * argument the backend's `render` makes for the same reason.
+ */
+export function fillCodeAndReason(
+  template: string,
+  code: string,
+  reason: string,
+): string {
+  const values: Record<string, string> = { code, reason };
+  return template.replace(/\{(code|reason)\}/g, (token, name: string) =>
+    name in values ? values[name] : token,
+  );
+}
+
+/** Drop a count into the background pile's line. `{count}` is required on that key. */
+export function fillCount(template: string, count: number): string {
+  return template.replace("{count}", String(count));
 }
 
 export type AllegationOptions = {

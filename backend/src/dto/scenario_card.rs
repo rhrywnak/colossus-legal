@@ -28,6 +28,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::domain::confidence_band::ConfidenceBand;
 use crate::domain::fact_status::FactStatus;
+use crate::domain::fact_tier::FactTier;
 
 /// The quote with enough surrounding text to be read in context (§7.1).
 ///
@@ -291,6 +292,28 @@ pub struct ScenarioCard {
     /// The kind of statement, humanized (e.g. "partial admission"). `None` when
     /// the extraction recorded none.
     pub statement_kind: Option<String>,
+    /// How much this fact carries THIS scenario (task 2.13).
+    ///
+    /// The stored token, not a display name: the three names a human reads live
+    /// in the settings store so Roman can rename them without a rebuild, and the
+    /// client pairs this token with the wording it was served. Sending the LABEL
+    /// here would make the payload the second place a tier is named, and the two
+    /// would drift the first time one was edited.
+    ///
+    /// `None` for a candidate with no reference row — nobody has ruled it in, so
+    /// it has no weight in this scenario yet. That is distinct from `backup`,
+    /// which is a fact that IS in the scenario and has simply never been weighed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tier: Option<FactTier>,
+    /// The human's stored position for this fact in this scenario, or `None` when
+    /// they have never placed it (task 2.13).
+    ///
+    /// Carried so the client can name a drop's neighbours and render the order the
+    /// server computed — never so the browser can re-derive the ordering itself.
+    /// `None` and `0` are different states and are never collapsed: an unplaced
+    /// fact sorts after every placed one, a fact placed at 0 sorts first.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sort_ordinal: Option<i32>,
     /// The stance WITH its object, or `None` — never a bare verb. See
     /// [`CardStance`].
     pub stance: Option<CardStance>,

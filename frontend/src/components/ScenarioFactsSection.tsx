@@ -35,7 +35,13 @@ import type { ScenarioCard } from "../services/scenarioCards";
 import type { HumanFactDto } from "../services/scenarioAugmentation";
 import { deleteHumanFact } from "../services/scenarioAugmentation";
 import { removeScenarioFact } from "../services/scenarioFacts";
-import { fillDetail, type LinkPanelWording } from "../services/evidenceLinks";
+import {
+  fillCodeAndReason,
+  fillDetail,
+  type LinkPanelWording,
+} from "../services/evidenceLinks";
+import { setFactOrder, setFactTier } from "../services/scenarioFactCuration";
+import type { FactTier } from "../services/scenarioCards";
 
 interface Props {
   slug: string;
@@ -141,6 +147,80 @@ const ScenarioFactsSection: React.FC<Props> = ({
       });
   };
 
+  /**
+   * The code a message should name a fact by.
+   *
+   * `C-14` when it has one, the node id when it does not. A failure that cannot
+   * name which row it is about is nearly useless on a list of forty-six that
+   * look alike, and an un-numbered candidate still has to be nameable.
+   */
+  const codeFor = (graphNodeId: string): string =>
+    cards.find((card) => card.graph_node_id === graphNodeId)?.code ?? graphNodeId;
+
+  /**
+   * Record a fact's weight, then re-read the cards.
+   *
+   * ## Why there is no optimistic update
+   *
+   * Server state is the ONE source of truth for tier and order (the structure
+   * this task is tested for). Painting the star before the write lands would put
+   * a second copy of the weight in this component, and the two disagree the
+   * moment a write fails — leaving a star lit for a judgment that was never
+   * stored. The re-read is the same light `onFactRemoved` uses, so the queue's
+   * selection is not disturbed.
+   */
+  const changeTier = (graphNodeId: string, tier: FactTier) => {
+    setFactTier(slug, scenarioId, graphNodeId, tier)
+      .then(() => {
+        setError(null);
+        onFactRemoved();
+      })
+      .catch((e: unknown) => {
+        const reason = e instanceof Error ? e.message : String(e);
+        setError(
+          wording
+            ? fillCodeAndReason(
+                wording.fact_tier_save_failed_template,
+                codeFor(graphNodeId),
+                reason,
+              )
+            : reason,
+        );
+      });
+  };
+
+  /**
+   * Record where a dragged fact landed, then re-read the cards.
+   *
+   * The neighbours were computed from the rows on screen; the ORDINAL is the
+   * server's, derived from what is stored. A refusal — a neighbour that has gone,
+   * or no room left between two facts — arrives as the backend's own words and is
+   * shown verbatim, because the human is the only one who can act on either.
+   */
+  const moveFact = (
+    graphNodeId: string,
+    after: string | null,
+    before: string | null,
+  ) => {
+    setFactOrder(slug, scenarioId, graphNodeId, after, before)
+      .then(() => {
+        setError(null);
+        onFactRemoved();
+      })
+      .catch((e: unknown) => {
+        const reason = e instanceof Error ? e.message : String(e);
+        setError(
+          wording
+            ? fillCodeAndReason(
+                wording.fact_order_save_failed_template,
+                codeFor(graphNodeId),
+                reason,
+              )
+            : reason,
+        );
+      });
+  };
+
   const included = includedRows(cards).length;
   const total = included + humanFacts.length;
 
@@ -195,6 +275,8 @@ const ScenarioFactsSection: React.FC<Props> = ({
         onRemoveHumanFact={removeHumanFact}
         onRemoveFact={removeFact}
         wording={wording}
+        onSetTier={changeTier}
+        onMoveFact={moveFact}
       />
 
       {adding && (

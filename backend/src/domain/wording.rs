@@ -106,6 +106,74 @@ pub struct Wording {
     pub fact_remove_confirm_cancel: String,
     /// Said when a removal could not be written. Carries `{detail}`.
     pub fact_remove_failed_template: String,
+
+    // ── Task 2.13 slice 1: the facts list as a prep surface ──────────────────
+    /// Marks the interrogatory question printed above a discovery answer.
+    pub fact_question_label: String,
+    /// Introduces the kind of statement a fact is ("admission", "evasive", …).
+    pub fact_statement_kind_label: String,
+    /// The name of the heaviest weight tier.
+    pub fact_tier_carries_label: String,
+    /// The name of the middle tier — where a newly included fact lands.
+    pub fact_tier_backup_label: String,
+    /// The name of the lightest tier, folded beneath the list.
+    pub fact_tier_background_label: String,
+    /// The prompt on a row's weight control.
+    pub fact_tier_prompt: String,
+    /// Whether the background pile starts folded. Two tokens, parsed by
+    /// [`BackgroundDefaultState`] — never rendered to a human.
+    pub fact_tier_background_default_state: String,
+    /// The folded pile's line. Carries `{count}`.
+    pub fact_background_count_template: String,
+    /// The control that folds the background pile away again.
+    pub fact_background_hide_label: String,
+    /// The drag handle's accessible label.
+    pub fact_order_drag_hint: String,
+    /// Said when a weight could not be stored. Carries `{code}` and `{reason}`.
+    pub fact_tier_save_failed_template: String,
+    /// Said when a drag could not be stored — including gap exhaustion. Carries
+    /// `{code}` and `{reason}`.
+    pub fact_order_save_failed_template: String,
+    /// The queue's summary when there is no pool at all, including before it has
+    /// loaded. Distinct from "all ruled" on purpose (task 2.13, from the beta.376
+    /// click-through): a queue that has not counted must not report the work done.
+    pub queue_empty_pool_summary: String,
+    /// The queue's summary when a real pool exists and none of it is outstanding.
+    pub queue_all_ruled_summary: String,
+}
+
+/// Whether the background pile starts folded away.
+///
+/// ## Rust Learning: a two-variant enum instead of a `bool` from a string
+///
+/// The stored value is text (`ValueKind` has no boolean — ruled 2026-08-05), and
+/// the tempting decode is `value == "collapsed"`. That silently treats every
+/// typo — "Collapsed", "colapsed", "true" — as `expanded`, so a setting Roman
+/// edited would appear to do nothing with no error anywhere. Parsing into a
+/// closed enum makes an unrecognised token a loud, named failure instead
+/// (Standing Rule 1), the same discipline `FactTier` and `FactStatus` use.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BackgroundDefaultState {
+    /// The pile starts folded, showing only its count.
+    Collapsed,
+    /// The pile starts open.
+    Expanded,
+}
+
+impl TryFrom<&str> for BackgroundDefaultState {
+    type Error = SettingError;
+
+    fn try_from(token: &str) -> Result<Self, Self::Error> {
+        match token {
+            "collapsed" => Ok(BackgroundDefaultState::Collapsed),
+            "expanded" => Ok(BackgroundDefaultState::Expanded),
+            other => Err(SettingError::Unreadable {
+                key: KEY_FACT_BACKGROUND_DEFAULT_STATE.to_string(),
+                value: other.to_string(),
+                expected: "either 'collapsed' or 'expanded'",
+            }),
+        }
+    }
 }
 
 // KEYS: the stable identifiers of the twenty stored strings. Not tunables — the
@@ -140,6 +208,20 @@ pub(crate) const KEY_FACT_REMOVE_CONFIRM: &str = "fact_remove_confirm_template";
 pub(crate) const KEY_FACT_REMOVE_YES: &str = "fact_remove_confirm_yes";
 pub(crate) const KEY_FACT_REMOVE_CANCEL: &str = "fact_remove_confirm_cancel";
 pub(crate) const KEY_FACT_REMOVE_FAILED: &str = "fact_remove_failed_template";
+pub(crate) const KEY_FACT_QUESTION_LABEL: &str = "fact_question_label";
+pub(crate) const KEY_FACT_STATEMENT_KIND_LABEL: &str = "fact_statement_kind_label";
+pub(crate) const KEY_FACT_TIER_CARRIES: &str = "fact_tier_carries_label";
+pub(crate) const KEY_FACT_TIER_BACKUP: &str = "fact_tier_backup_label";
+pub(crate) const KEY_FACT_TIER_BACKGROUND: &str = "fact_tier_background_label";
+pub(crate) const KEY_FACT_TIER_PROMPT: &str = "fact_tier_prompt";
+pub(crate) const KEY_FACT_BACKGROUND_DEFAULT_STATE: &str = "fact_tier_background_default_state";
+pub(crate) const KEY_FACT_BACKGROUND_COUNT: &str = "fact_background_count_template";
+pub(crate) const KEY_FACT_BACKGROUND_HIDE: &str = "fact_background_hide_label";
+pub(crate) const KEY_FACT_ORDER_DRAG_HINT: &str = "fact_order_drag_hint";
+pub(crate) const KEY_FACT_TIER_SAVE_FAILED: &str = "fact_tier_save_failed_template";
+pub(crate) const KEY_FACT_ORDER_SAVE_FAILED: &str = "fact_order_save_failed_template";
+pub(crate) const KEY_QUEUE_EMPTY_POOL: &str = "queue_empty_pool_summary";
+pub(crate) const KEY_QUEUE_ALL_RULED: &str = "queue_all_ruled_summary";
 
 /// Every wording key this build reads, so a missing one is caught at boot by name.
 ///
@@ -176,6 +258,20 @@ pub const WORDING_KEYS: &[&str] = &[
     KEY_FACT_REMOVE_YES,
     KEY_FACT_REMOVE_CANCEL,
     KEY_FACT_REMOVE_FAILED,
+    KEY_FACT_QUESTION_LABEL,
+    KEY_FACT_STATEMENT_KIND_LABEL,
+    KEY_FACT_TIER_CARRIES,
+    KEY_FACT_TIER_BACKUP,
+    KEY_FACT_TIER_BACKGROUND,
+    KEY_FACT_TIER_PROMPT,
+    KEY_FACT_BACKGROUND_DEFAULT_STATE,
+    KEY_FACT_BACKGROUND_COUNT,
+    KEY_FACT_BACKGROUND_HIDE,
+    KEY_FACT_ORDER_DRAG_HINT,
+    KEY_FACT_TIER_SAVE_FAILED,
+    KEY_FACT_ORDER_SAVE_FAILED,
+    KEY_QUEUE_EMPTY_POOL,
+    KEY_QUEUE_ALL_RULED,
 ];
 
 /// The placeholders a stored string MUST still contain after a human edits it.
@@ -199,6 +295,12 @@ pub const REQUIRED_PLACEHOLDERS: &[(&str, &[&str])] = &[
     // A confirmation that does not name what it is about is not a confirmation.
     (KEY_FACT_REMOVE_CONFIRM, &["{code}"]),
     (KEY_FACT_REMOVE_FAILED, &["{detail}"]),
+    // A pile that cannot say how big it is reads as an empty one.
+    (KEY_FACT_BACKGROUND_COUNT, &["{count}"]),
+    // A failure that names neither the fact nor the cause strands the human on a
+    // surface where several rows look alike.
+    (KEY_FACT_TIER_SAVE_FAILED, &["{code}", "{reason}"]),
+    (KEY_FACT_ORDER_SAVE_FAILED, &["{code}", "{reason}"]),
 ];
 
 /// Which required placeholders a candidate value is missing, for one key.
@@ -357,6 +459,20 @@ pub fn build_wording<E>(read: impl Fn(&str) -> Result<String, E>) -> Result<Word
         fact_remove_confirm_yes: read(KEY_FACT_REMOVE_YES)?,
         fact_remove_confirm_cancel: read(KEY_FACT_REMOVE_CANCEL)?,
         fact_remove_failed_template: read(KEY_FACT_REMOVE_FAILED)?,
+        fact_question_label: read(KEY_FACT_QUESTION_LABEL)?,
+        fact_statement_kind_label: read(KEY_FACT_STATEMENT_KIND_LABEL)?,
+        fact_tier_carries_label: read(KEY_FACT_TIER_CARRIES)?,
+        fact_tier_backup_label: read(KEY_FACT_TIER_BACKUP)?,
+        fact_tier_background_label: read(KEY_FACT_TIER_BACKGROUND)?,
+        fact_tier_prompt: read(KEY_FACT_TIER_PROMPT)?,
+        fact_tier_background_default_state: read(KEY_FACT_BACKGROUND_DEFAULT_STATE)?,
+        fact_background_count_template: read(KEY_FACT_BACKGROUND_COUNT)?,
+        fact_background_hide_label: read(KEY_FACT_BACKGROUND_HIDE)?,
+        fact_order_drag_hint: read(KEY_FACT_ORDER_DRAG_HINT)?,
+        fact_tier_save_failed_template: read(KEY_FACT_TIER_SAVE_FAILED)?,
+        fact_order_save_failed_template: read(KEY_FACT_ORDER_SAVE_FAILED)?,
+        queue_empty_pool_summary: read(KEY_QUEUE_EMPTY_POOL)?,
+        queue_all_ruled_summary: read(KEY_QUEUE_ALL_RULED)?,
     })
 }
 
@@ -437,6 +553,22 @@ impl Wording {
             fact_remove_failed_template: "That fact could not be removed: {detail} Reload \
                                           the page to see what is actually stored."
                 .to_string(),
+            fact_question_label: "Q:".to_string(),
+            fact_statement_kind_label: "Kind:".to_string(),
+            fact_tier_carries_label: "Carries the scenario".to_string(),
+            fact_tier_backup_label: "Backup".to_string(),
+            fact_tier_background_label: "Background".to_string(),
+            fact_tier_prompt: "How much does this fact carry?".to_string(),
+            fact_tier_background_default_state: "collapsed".to_string(),
+            fact_background_count_template: "{count} in the background · show".to_string(),
+            fact_background_hide_label: "Hide background".to_string(),
+            fact_order_drag_hint: "Drag to reorder".to_string(),
+            fact_tier_save_failed_template: "Could not save the weight for {code}. {reason}"
+                .to_string(),
+            fact_order_save_failed_template: "Could not save the new order for {code}. {reason}"
+                .to_string(),
+            queue_empty_pool_summary: "No candidates gathered yet".to_string(),
+            queue_all_ruled_summary: "All candidates ruled".to_string(),
         }
     }
 
@@ -479,6 +611,22 @@ impl Wording {
                     KEY_FACT_REMOVE_YES => w.fact_remove_confirm_yes.clone(),
                     KEY_FACT_REMOVE_CANCEL => w.fact_remove_confirm_cancel.clone(),
                     KEY_FACT_REMOVE_FAILED => w.fact_remove_failed_template.clone(),
+                    KEY_FACT_QUESTION_LABEL => w.fact_question_label.clone(),
+                    KEY_FACT_STATEMENT_KIND_LABEL => w.fact_statement_kind_label.clone(),
+                    KEY_FACT_TIER_CARRIES => w.fact_tier_carries_label.clone(),
+                    KEY_FACT_TIER_BACKUP => w.fact_tier_backup_label.clone(),
+                    KEY_FACT_TIER_BACKGROUND => w.fact_tier_background_label.clone(),
+                    KEY_FACT_TIER_PROMPT => w.fact_tier_prompt.clone(),
+                    KEY_FACT_BACKGROUND_DEFAULT_STATE => {
+                        w.fact_tier_background_default_state.clone()
+                    }
+                    KEY_FACT_BACKGROUND_COUNT => w.fact_background_count_template.clone(),
+                    KEY_FACT_BACKGROUND_HIDE => w.fact_background_hide_label.clone(),
+                    KEY_FACT_ORDER_DRAG_HINT => w.fact_order_drag_hint.clone(),
+                    KEY_FACT_TIER_SAVE_FAILED => w.fact_tier_save_failed_template.clone(),
+                    KEY_FACT_ORDER_SAVE_FAILED => w.fact_order_save_failed_template.clone(),
+                    KEY_QUEUE_EMPTY_POOL => w.queue_empty_pool_summary.clone(),
+                    KEY_QUEUE_ALL_RULED => w.queue_all_ruled_summary.clone(),
                     // Unreachable by construction: the match above covers every
                     // entry of WORDING_KEYS, and the test below proves it. A panic
                     // here would only fire in a test binary, on a key someone added

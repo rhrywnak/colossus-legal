@@ -29,6 +29,7 @@ use crate::domain::card_language::{
 };
 use crate::domain::confidence_band::{band_for_score, ConfidenceBand};
 use crate::domain::fact_status::FactStatus;
+use crate::domain::fact_tier::FactTier;
 use crate::domain::settings::Settings;
 use crate::dto::scenario_card::{
     CardBearsOn, CardConfidence, CardGrounding, CardPinpoint, CardQuote, CardSpeaker, CardStance,
@@ -61,6 +62,17 @@ pub(crate) struct CardRefState {
     pub status: Option<FactStatus>,
     pub confidence: Option<f32>,
     pub defer_reason: Option<String>,
+    /// The decoded weight tier, or `None` when there is no reference row at all
+    /// (an unruled candidate has no weight in this scenario).
+    ///
+    /// Decoded — a `FactTier`, not the raw token — because this is where the
+    /// value is BRANCHED on: the card must never show a human a tier this build
+    /// cannot name. The decode happens in `build_ref_states`, which refuses the
+    /// whole request on an unknown token rather than defaulting it (Standing
+    /// Rule 1). That is the same loud boundary the sibling `status` decode uses.
+    pub tier: Option<FactTier>,
+    /// The human's stored position, or `None` when they have never placed it.
+    pub sort_ordinal: Option<i32>,
 }
 
 /// Collapse the fanned-out extras rows into one entry per evidence id.
@@ -502,6 +514,11 @@ pub(crate) fn build_card(
         statement_kind: extras
             .and_then(|e| e.statement_type.as_deref())
             .map(statement_kind_label),
+        // Task 2.13: both come straight off the reference row. The card does not
+        // invent a tier for a candidate with no row — "not in the scenario" and
+        // "in it, unweighed" are different states and stay so on the wire.
+        tier: ref_state.tier,
+        sort_ordinal: ref_state.sort_ordinal,
         stance,
         bears_on,
         grounding: build_grounding(extras),

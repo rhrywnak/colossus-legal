@@ -49,6 +49,22 @@ const wording: LinkPanelWording = {
   fact_remove_confirm_yes: "Remove it",
   fact_remove_confirm_cancel: "Keep it",
   fact_remove_failed_template: "That fact could not be removed: {detail}",
+  // Task 2.13's rows. Values match the migration's seed, as every fixture here
+  // does: a fixture that invents wording tests something the product never says.
+  fact_question_label: "Q:",
+  fact_statement_kind_label: "Kind:",
+  fact_tier_carries_label: "Carries the scenario",
+  fact_tier_backup_label: "Backup",
+  fact_tier_background_label: "Background",
+  fact_tier_prompt: "How much does this fact carry?",
+  fact_background_starts_collapsed: true,
+  fact_background_count_template: "{count} in the background · show",
+  fact_background_hide_label: "Hide background",
+  fact_order_drag_hint: "Drag to reorder",
+  fact_tier_save_failed_template: "Could not save the weight for {code}. {reason}",
+  fact_order_save_failed_template: "Could not save the new order for {code}. {reason}",
+  queue_empty_pool_summary: "No candidates gathered yet",
+  queue_all_ruled_summary: "All candidates ruled",
 };
 
 function option(id: string, label: string, count: string | null = null): AllegationOption {

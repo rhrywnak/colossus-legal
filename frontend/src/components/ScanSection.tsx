@@ -124,7 +124,21 @@ const ScanSection: React.FC<Props> = ({
   // A queue that hides itself on arrival is the opposite of what §2.3 wants, and a
   // human who looks away for that second sees a page with no work on it.
   const [progress, setProgress] = useState<{ ruled: number; total: number } | null>(null);
-  const region = queueRegion(progress?.ruled ?? 0, progress?.total ?? 0);
+  // The two zero-state summaries come from the store (the configuration law's
+  // text half). `null` until the panel wording loads, which the descriptor
+  // renders as an empty summary rather than a compiled-in fallback — R4's rule:
+  // there is no literal to fall back to, and a line that invents its own words is
+  // exactly what this task removed.
+  const region = queueRegion(
+    progress?.ruled ?? 0,
+    progress?.total ?? 0,
+    linkOptions
+      ? {
+          emptyPool: linkOptions.wording.queue_empty_pool_summary,
+          allRuled: linkOptions.wording.queue_all_ruled_summary,
+        }
+      : null,
+  );
 
   // Mirrors the descriptor's computed default, then follows the human's clicks.
   // Keyed on the default so a queue that drains to zero collapses on its own —

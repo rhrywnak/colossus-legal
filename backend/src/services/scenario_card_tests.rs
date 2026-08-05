@@ -90,6 +90,11 @@ fn scored_ref() -> CardRefState {
         status: Some(FactStatus::Undecided),
         confidence: Some(0.70),
         defer_reason: None,
+        // Task 2.13: an undecided candidate has no weight and no place in this
+        // scenario yet — it is not IN the scenario. `None` for both, which is what
+        // distinguishes it from an included fact nobody has weighed (`backup`).
+        tier: None,
+        sort_ordinal: None,
     }
 }
 
@@ -859,6 +864,8 @@ fn a_humans_defer_reason_rides_the_card_separately_from_the_system_flag() {
         status: Some(FactStatus::Undecided),
         confidence: Some(0.9),
         defer_reason: Some("waiting on the unredacted page".to_string()),
+        tier: None,
+        sort_ordinal: None,
     };
     let card = build_card(
         &full_instance(),

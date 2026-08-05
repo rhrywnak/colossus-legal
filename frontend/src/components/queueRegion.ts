@@ -48,7 +48,25 @@ export type QueueRegionDescriptor = {
  * @param ruled Cards this human has ruled on (`progress(state).ruled`).
  * @param total Cards in the pool (`progress(state).total`).
  */
-export function queueRegion(ruled: number, total: number): QueueRegionDescriptor {
+/**
+ * The two summary lines this region can show at zero outstanding.
+ *
+ * Stored strings, passed in rather than imported: this module is pure and the
+ * words are the settings store's (the configuration law's text half). `null`
+ * until the wording loads — see the fallback in `queueRegion`.
+ */
+export type QueueSummaryWording = {
+  /** Shown when there is no pool at all, including before one has loaded. */
+  emptyPool: string;
+  /** Shown when a real pool exists and none of it is outstanding. */
+  allRuled: string;
+};
+
+export function queueRegion(
+  ruled: number,
+  total: number,
+  wording: QueueSummaryWording | null = null,
+): QueueRegionDescriptor {
   // Clamp rather than trust: a reload that returns a shorter pool can briefly put
   // `ruled` above `total`, and a 140%-full progress bar is a rendering fault the
   // human would read as a data fault.
@@ -61,10 +79,22 @@ export function queueRegion(ruled: number, total: number): QueueRegionDescriptor
     summary:
       unruled > 0
         ? `Candidates awaiting ruling — ${unruled}`
-        : // At zero the region is a receipt, not a queue. "0 awaiting ruling"
-          // technically says the same thing and reads like an empty container;
-          // this says the work is done.
-          "All candidates ruled",
+        : // At zero the region is a receipt, not a queue — but WHICH receipt
+          // depends on whether there is a pool at all.
+          //
+          // From the beta.376 click-through (2026-08-05): this line read "All
+          // candidates ruled" on a scenario with 92 candidates still unruled. It
+          // was never a counting bug. The counts are reported upward by the queue
+          // once it has fetched, and until then BOTH are zero — so "nothing is
+          // outstanding" was arithmetically true and substantively false. The
+          // header announced the work was finished before it had looked.
+          //
+          // One condition separates the two states: a pool of zero is "there is
+          // nothing here (or nothing yet)", a pool with everything ruled is "the
+          // work is done". They are different facts and now say different things.
+          safeTotal === 0
+          ? (wording?.emptyPool ?? "")
+          : (wording?.allRuled ?? ""),
     // v3 shortens this to the mockup's "from all scans". The labelling law it
     // carries is unchanged — the queue is EVERY unruled candidate across every
     // scan — and the section subtitle above still spells out that scans only add

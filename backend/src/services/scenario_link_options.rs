@@ -19,6 +19,7 @@
 //! without a rebuild (v2 §2b).
 
 use crate::domain::settings::Settings;
+use crate::domain::wording::BackgroundDefaultState;
 use crate::dto::evidence_links::{
     AllegationOptionDto, AllegationOptionsResponse, LinkPanelWording,
 };
@@ -172,6 +173,35 @@ fn panel_wording(settings: &Settings, total: usize) -> LinkPanelWording {
         fact_remove_confirm_yes: w.fact_remove_confirm_yes.clone(),
         fact_remove_confirm_cancel: w.fact_remove_confirm_cancel.clone(),
         fact_remove_failed_template: w.fact_remove_failed_template.clone(),
+        fact_question_label: w.fact_question_label.clone(),
+        fact_statement_kind_label: w.fact_statement_kind_label.clone(),
+        fact_tier_carries_label: w.fact_tier_carries_label.clone(),
+        fact_tier_backup_label: w.fact_tier_backup_label.clone(),
+        fact_tier_background_label: w.fact_tier_background_label.clone(),
+        fact_tier_prompt: w.fact_tier_prompt.clone(),
+        // Parsed HERE, once. `try_from` refuses an unrecognised token, and the
+        // fallback is the seeded default rather than a guess — a store edited to
+        // nonsense must not silently flip the pile open, and the refusal is
+        // already named at boot by `build_wording`'s validation.
+        fact_background_starts_collapsed: BackgroundDefaultState::try_from(
+            w.fact_tier_background_default_state.as_str(),
+        )
+        .map(|state| state == BackgroundDefaultState::Collapsed)
+        .unwrap_or_else(|e| {
+            tracing::error!(
+                error = %e,
+                "the background-pile default state is not a token this build \
+                 understands; falling back to collapsed, which is the seeded default"
+            );
+            true
+        }),
+        fact_background_count_template: w.fact_background_count_template.clone(),
+        fact_background_hide_label: w.fact_background_hide_label.clone(),
+        fact_order_drag_hint: w.fact_order_drag_hint.clone(),
+        fact_tier_save_failed_template: w.fact_tier_save_failed_template.clone(),
+        fact_order_save_failed_template: w.fact_order_save_failed_template.clone(),
+        queue_empty_pool_summary: w.queue_empty_pool_summary.clone(),
+        queue_all_ruled_summary: w.queue_all_ruled_summary.clone(),
     }
 }
 

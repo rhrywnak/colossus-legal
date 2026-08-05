@@ -10,7 +10,12 @@
 
 import { describe, expect, it } from "vitest";
 
-import { fillCode, fillDetail } from "../evidenceLinks";
+import {
+  fillCode,
+  fillCodeAndReason,
+  fillCount,
+  fillDetail,
+} from "../evidenceLinks";
 
 describe("fillDetail", () => {
   it("drops the failure's own text into the slot the sentence leaves", () => {
@@ -74,5 +79,49 @@ describe("fillCode", () => {
 
   it("does not re-scan the code it just substituted", () => {
     expect(fillCode("{code} — {code}", "C-{code}")).toBe("C-{code} — {code}");
+  });
+});
+
+// ── Task 2.13: the two-slot templates ───────────────────────────────────────
+
+describe("fillCodeAndReason", () => {
+  it("fills both slots of a failure message", () => {
+    expect(
+      fillCodeAndReason("Could not save the weight for {code}. {reason}", "C-108", "HTTP 409"),
+    ).toBe("Could not save the weight for C-108. HTTP 409");
+  });
+
+  it("does not re-scan a value it has already substituted", () => {
+    // THE bug two chained `.replace()` calls would have. The backend's refusal
+    // text is prose we do not control; if a reason happened to contain "{code}",
+    // a second pass would chew it out and the message would lie about which fact
+    // failed. One walk over the template means a substituted value is never
+    // looked at again — the same argument `domain::wording::render` makes.
+    expect(
+      fillCodeAndReason("for {code}: {reason}", "C-1", "the server said {code} is gone"),
+    ).toBe("for C-1: the server said {code} is gone");
+  });
+
+  it("leaves a template that lost a slot unchanged rather than guessing", () => {
+    // The backend refuses an edit that drops either placeholder, so reaching here
+    // means the store was edited around the API. Showing the sentence as stored
+    // is how a reader finds out; inventing the missing half would not be.
+    expect(fillCodeAndReason("no slots here", "C-1", "HTTP 500")).toBe("no slots here");
+  });
+});
+
+describe("fillCount", () => {
+  it("drops the pile's size into its stored line", () => {
+    expect(fillCount("{count} in the background · show", 7)).toBe(
+      "7 in the background · show",
+    );
+  });
+
+  it("renders a zero honestly rather than as an empty slot", () => {
+    // A pile of zero should not render at all — but if it ever does, it must say
+    // zero rather than leave a hole where the number goes.
+    expect(fillCount("{count} in the background · show", 0)).toBe(
+      "0 in the background · show",
+    );
   });
 });

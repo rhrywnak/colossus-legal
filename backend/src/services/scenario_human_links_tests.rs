@@ -250,6 +250,10 @@ fn stuck_card(node: &str, links: Vec<CardHumanLink>) -> ScenarioCard {
     ScenarioCard {
         code: None,
         graph_node_id: node.to_string(),
+        // Task 2.13: link_progress reads neither, so the honest fixture is an
+        // unruled candidate — no weight, no place.
+        tier: None,
+        sort_ordinal: None,
         quote: CardQuote {
             text: "I do not recall.".to_string(),
             context_before: String::new(),

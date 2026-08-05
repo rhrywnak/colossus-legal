@@ -33,7 +33,7 @@ use axum::{
 use crate::{
     auth::AuthUser,
     bias::{dto::BiasInstance, repository::BiasRepository},
-    domain::fact_status::FactStatus,
+    domain::{fact_status::FactStatus, fact_tier::FactTier},
     dto::scenario_card::ScenarioCardsResponse,
     error::AppError,
     repositories::{
@@ -302,12 +302,30 @@ fn build_ref_states(
                 message: "failed to read candidate state".to_string(),
             }
         })?;
+        // Task 2.13: the tier decode is the SAME loud boundary as the status
+        // decode above, for the same reason. A token this build does not define
+        // must not collapse to `backup` — that would show the human "Backup" for a
+        // fact they had deliberately marked as carrying the scenario, and the
+        // screen would be confidently wrong with nothing in the log.
+        let tier = FactTier::try_from(r.tier.as_str()).map_err(|e| {
+            tracing::error!(
+                error = %e,
+                graph_node_id = %r.graph_node_id,
+                scenario_id = %r.scenario_id,
+                "scenario_fact_refs carries a tier token this build does not define"
+            );
+            AppError::Internal {
+                message: "failed to read candidate state".to_string(),
+            }
+        })?;
         states.insert(
             r.graph_node_id,
             CardRefState {
                 status: Some(status),
                 confidence: r.confidence,
                 defer_reason: r.defer_reason,
+                tier: Some(tier),
+                sort_ordinal: r.sort_ordinal,
             },
         );
     }
