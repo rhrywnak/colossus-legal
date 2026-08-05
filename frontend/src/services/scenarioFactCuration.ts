@@ -26,10 +26,26 @@ import { authFetch } from "./auth";
 import { readErrorMessage } from "./fetchUtils";
 import type { FactTier } from "./scenarioCards";
 
-/** `…/cases/:slug/scenarios/:scenarioId/facts/:graphNodeId` — the shared stem. */
+/**
+ * `…/api/cases/:slug/scenarios/:scenarioId/facts/:graphNodeId` — the shared stem.
+ *
+ * ## The `/api` prefix is NOT optional, and its absence is invisible in unit tests
+ *
+ * `API_BASE_URL` is the origin only; every service in this directory appends
+ * `/api` itself. Shipping this without it produced a `405 Method Not Allowed` on
+ * DEV — the un-prefixed path fell through to the SPA's own routes, which answer
+ * GET and not POST, so the failure arrived as a method error rather than a 404
+ * and pointed away from the real cause.
+ *
+ * Nothing in the type system or the backend can catch that: the URL is a string
+ * built here. What catches it is the pair of tests in
+ * `__tests__/scenarioFactCuration.test.ts` asserting the exact path both writes
+ * request — the same guard `scenarioCards.test.ts` already had, and the one this
+ * module shipped without.
+ */
 function factUrl(slug: string, scenarioId: string, graphNodeId: string): string {
   return (
-    `${API_BASE_URL}/cases/${encodeURIComponent(slug)}` +
+    `${API_BASE_URL}/api/cases/${encodeURIComponent(slug)}` +
     `/scenarios/${encodeURIComponent(scenarioId)}` +
     `/facts/${encodeURIComponent(graphNodeId)}`
   );
