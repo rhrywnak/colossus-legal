@@ -385,7 +385,51 @@ export function queueReducer(state: QueueState, event: QueueEvent): QueueResult 
       // A reload keeps the human where they were, clamped to the new length —
       // re-fetching after a ruling must not throw them back to the top.
       const index = Math.min(state.index, Math.max(event.cards.length - 1, 0));
-      return { state: { ...state, cards: event.cards, index, notice: null }, effect: NONE };
+
+      // …and it RECONCILES the session's ruled list against the payload.
+      //
+      // ## Why this is not redundant with the card states (task 2.12)
+      //
+      // `progress` unions this list with the payload's own states, so a card can
+      // be counted as dealt-with by EITHER. That was safe while the queue was the
+      // only thing that could un-rule a card: `undo` removes the id itself. Task
+      // 2.12 added a second path — Remove on a fact row — which un-rules a card
+      // from OUTSIDE the queue and cannot reach this list.
+      //
+      // Measured on DEV (beta.375): after removing one included card the filters
+      // correctly read "Included (46)" and "Not ruled (92)", while the progress
+      // line still read "57 of 148 ruled" against an authoritative 56. Two
+      // surfaces of one screen disagreeing about the same fact — the defect §9
+      // and the 1.7E-a pool-truth ruling exist to prevent.
+      //
+      // A reload is the moment the server's word arrives, so session memory it
+      // contradicts is simply stale. An entry for a card the payload no longer
+      // holds is KEPT: that is a pool that shrank, not a ruling that was undone,
+      // and dropping it would silently lower the count.
+      const ruled = state.ruled.filter((id) => {
+        const card = event.cards.find((c) => c.graph_node_id === id);
+        return !card || candidateState(card) !== "not_ruled";
+      });
+
+      // `lastRuling` travels WITH that list, because `rule` sets the two together
+      // and they have never been able to disagree until now. Dropping an id
+      // without clearing the undo target would leave U pointing at a ruling the
+      // server has already released: pressing it would emit a `reopen` for a card
+      // that is not ruled — a write that creates a fact-ref row and a ledger entry
+      // for an act that undoes nothing, and snaps the human's focus to wherever
+      // that card used to be.
+      //
+      // An entry KEPT for a card the pool no longer holds keeps its undo target
+      // too, for the same reason it keeps its count: the ruling still happened.
+      const lastRuling =
+        state.lastRuling && !ruled.includes(state.lastRuling.graphNodeId)
+          ? null
+          : state.lastRuling;
+
+      return {
+        state: { ...state, cards: event.cards, index, ruled, lastRuling, notice: null },
+        effect: NONE,
+      };
     }
 
     case "focus":

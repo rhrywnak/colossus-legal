@@ -1220,4 +1220,90 @@ describe("the running count", () => {
     const reloaded = queueReducer(s, { type: "cards_loaded", cards: [fullCard()] }).state;
     expect(reloaded.index).toBe(0);
   });
+  it("a reload DROPS a card the server says is no longer ruled (task 2.12)", () => {
+    // Measured on DEV (beta.375): after removing an included card from its fact
+    // row, the filters read "Included (46)" and "Not ruled (92)" while the
+    // progress line still read "57 of 148 ruled" against an authoritative 56.
+    //
+    // `progress` unions the session's ruled list with the payload's own states,
+    // which was safe while `undo` was the only way to un-rule a card — it removes
+    // the id itself. Removing from a fact row un-rules a card from OUTSIDE the
+    // queue and cannot reach that list, so the count kept the card forever.
+    const cards = () => [fullCard({ graph_node_id: "ev-3", code: "C-3" })];
+    let s = stateOf(cards());
+    s = queueReducer(s, { type: "rule", key: "i", graphNodeId: "ev-3" }).state;
+    expect(progress(s).ruled).toBe(1);
+    expect(s.ruled).toContain("ev-3");
+
+    // The server's word: ev-3 is not ruled any more (it was removed elsewhere).
+    const reloaded = queueReducer(s, { type: "cards_loaded", cards: cards() }).state;
+    expect(reloaded.ruled).not.toContain("ev-3");
+    expect(progress(reloaded).ruled).toBe(0);
+  });
+
+  it("…but a reload KEEPS one the server still says is ruled", () => {
+    // The other half: reconciliation must not throw away a live entry just
+    // because a reload happened.
+    let s = stateOf([fullCard({ graph_node_id: "ev-3", code: "C-3" })]);
+    s = queueReducer(s, { type: "rule", key: "i", graphNodeId: "ev-3" }).state;
+
+    const server = [fullCard({ graph_node_id: "ev-3", code: "C-3" })].map((c) =>
+      c.graph_node_id === "ev-3" ? { ...c, status: "included" as const } : c,
+    );
+    const reloaded = queueReducer(s, { type: "cards_loaded", cards: server }).state;
+    expect(reloaded.ruled).toContain("ev-3");
+    expect(progress(reloaded).ruled).toBe(1);
+  });
+
+  it("…and KEEPS one for a card the reloaded pool no longer holds", () => {
+    // A pool that SHRANK is not a ruling that was undone. Dropping the entry
+    // would silently lower the count for work the human really did.
+    let s = stateOf([
+      fullCard({ graph_node_id: "ev-3", code: "C-3" }),
+      fullCard({ graph_node_id: "ev-4", code: "C-4" }),
+    ]);
+    s = queueReducer(s, { type: "rule", key: "i", graphNodeId: "ev-3" }).state;
+
+    const shorter = [fullCard({ graph_node_id: "ev-4", code: "C-4" })];
+    const reloaded = queueReducer(s, { type: "cards_loaded", cards: shorter }).state;
+    expect(reloaded.ruled).toContain("ev-3");
+  });
+
+  it("…and U after that reload undoes NOTHING, because there is nothing to undo", () => {
+    // The gap the reconciliation opened. `rule` sets `lastRuling` and appends to
+    // `ruled` together, so the two had never been able to disagree — until a
+    // reload started dropping ids from one of them.
+    //
+    // Left alone, U would emit a `reopen` for a card the server has already
+    // un-ruled: a write that creates a fact-ref row and a ledger entry for an act
+    // that undoes nothing, and snaps the human's focus to where that card was.
+    let s = stateOf([fullCard({ graph_node_id: "ev-3", code: "C-3" })]);
+    s = queueReducer(s, { type: "rule", key: "i", graphNodeId: "ev-3" }).state;
+    expect(s.lastRuling?.graphNodeId).toBe("ev-3");
+
+    // The server's word: ev-3 is not ruled (it was removed from its fact row).
+    s = queueReducer(s, {
+      type: "cards_loaded",
+      cards: [fullCard({ graph_node_id: "ev-3", code: "C-3" })],
+    }).state;
+    expect(s.lastRuling).toBeNull();
+
+    const pressed = queueReducer(s, { type: "key", key: "u", typing: false });
+    expect(pressed.effect).toEqual({ kind: "none" });
+  });
+
+  it("…but a reload KEEPS the undo target when the ruling still stands", () => {
+    // The other half: an ordinary reload must not cost the human their single
+    // step back.
+    let s = stateOf([fullCard({ graph_node_id: "ev-3", code: "C-3" })]);
+    s = queueReducer(s, { type: "rule", key: "i", graphNodeId: "ev-3" }).state;
+
+    const server = [fullCard({ graph_node_id: "ev-3", code: "C-3", status: "included" })];
+    s = queueReducer(s, { type: "cards_loaded", cards: server }).state;
+
+    expect(s.lastRuling?.graphNodeId).toBe("ev-3");
+    const pressed = queueReducer(s, { type: "key", key: "u", typing: false });
+    expect(pressed.effect).toMatchObject({ kind: "rule", action: "reopen", graphNodeId: "ev-3" });
+  });
+
 });
