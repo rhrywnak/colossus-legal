@@ -125,6 +125,18 @@ export type LinkPanelWording = {
   /** The queue's summary while the counts are not known yet — the third state,
    *  distinct from both "no candidates" and "all ruled". */
   queue_counting_summary: string;
+
+  // ── Task 2.13c ──────────────────────────────────────────────────────────────
+  /** Marks the answer beneath its question — the question label's partner. */
+  fact_answer_label: string;
+  /** Said when a fact is weighed into the background pile. Carries `{code}`. */
+  fact_background_move_notice: string;
+  /** The line under the section heading naming the weights and the drag. */
+  fact_weights_hint: string;
+  /** The count beneath the list. Carries `{shown}` and `{background}`. */
+  fact_footer_template: string;
+  /** The control that forgets where a human dragged one fact. */
+  fact_unplace_label: string;
 };
 
 /**
@@ -175,6 +187,33 @@ export function fillCodeAndReason(
 ): string {
   const values: Record<string, string> = { code, reason };
   return template.replace(/\{(code|reason)\}/g, (token, name: string) =>
+    name in values ? values[name] : token,
+  );
+}
+
+/**
+ * Fill the footer's two counts in ONE pass (task 2.13c).
+ *
+ * Same single-walk shape as `fillCodeAndReason`, but for a WEAKER reason, and the
+ * difference is worth stating so nobody relies on the wrong guarantee. There the
+ * risk is real: `reason` is server prose that may itself contain `{code}`, and a
+ * second pass would chew it out. Here both arguments are `number`, so a
+ * substituted value can never contain either token and the re-scan is
+ * unreachable — the type eliminates it, not the implementation.
+ *
+ * The single walk is kept anyway: it matches its sibling, so neither has to be
+ * read differently, and it stays correct if these ever take strings.
+ */
+export function fillCounts(
+  template: string,
+  shown: number,
+  background: number,
+): string {
+  const values: Record<string, string> = {
+    shown: String(shown),
+    background: String(background),
+  };
+  return template.replace(/\{(shown|background)\}/g, (token, name: string) =>
     name in values ? values[name] : token,
   );
 }

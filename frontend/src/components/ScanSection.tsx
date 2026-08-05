@@ -31,7 +31,8 @@ import React, { useState } from "react";
 import CardQueue from "./CardQueue";
 import type { AllegationOptions } from "../services/evidenceLinks";
 import ThemeScanPanel from "./ThemeScanPanel";
-import { queueRegion } from "./queueRegion";
+import type { ScenarioCard } from "../services/scenarioCards";
+import { progressFromCards, queueRegion } from "./queueRegion";
 
 import {
   kbdStyle,
@@ -102,6 +103,17 @@ interface Props {
   onRulingSaved: () => void;
   /** Passed straight through to the queue — the page owns this read (2.12). */
   linkOptions: AllegationOptions | null;
+  /**
+   * The page's card pool, which the queue's summary counts are derived from
+   * (task 2.13c).
+   *
+   * `null` until the page's own read lands — and that nullability is the whole
+   * point: it is the ONE state that must stay distinguishable from a pool that
+   * is genuinely empty. The queue used to report `{0, 0}` before its fetch
+   * resolved, which collapsed the two and produced a header claiming no
+   * candidates over a pool of 148.
+   */
+  cards: ScenarioCard[] | null;
 }
 
 const ScanSection: React.FC<Props> = ({
@@ -112,6 +124,7 @@ const ScanSection: React.FC<Props> = ({
   onFactsChanged,
   onRulingSaved,
   linkOptions,
+  cards,
 }) => {
   // Queue progress is owned by `CardQueue` (it does the fetching), and this
   // section needs it for the summary line and the progress bar. So the queue
@@ -123,7 +136,10 @@ const ScanSection: React.FC<Props> = ({
   // before the fetch lands, so the region would render COLLAPSED and then snap open.
   // A queue that hides itself on arrival is the opposite of what §2.3 wants, and a
   // human who looks away for that second sees a page with no work on it.
-  const [progress, setProgress] = useState<{ ruled: number; total: number } | null>(null);
+  // Task 2.13c: the counts come from the PAGE's pool, not from the queue. See
+  // `progressFromCards` for the latch this breaks. `CardQueue` no longer reports
+  // anything upward, so a collapsed region is as well-informed as an open one.
+  const progress = progressFromCards(cards);
   // The two zero-state summaries come from the store (the configuration law's
   // text half). `null` until the panel wording loads, which the descriptor
   // renders as an empty summary rather than a compiled-in fallback — R4's rule:
@@ -262,7 +278,6 @@ const ScanSection: React.FC<Props> = ({
               scenarioId={scenarioId}
               externalRefresh={externalRefresh}
               keyboardActive={open}
-              onProgress={setProgress}
               onRulingSaved={onRulingSaved}
             />
           </div>

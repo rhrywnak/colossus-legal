@@ -40,7 +40,11 @@ import {
   fillDetail,
   type LinkPanelWording,
 } from "../services/evidenceLinks";
-import { setFactOrder, setFactTier } from "../services/scenarioFactCuration";
+import {
+  clearFactOrder,
+  setFactOrder,
+  setFactTier,
+} from "../services/scenarioFactCuration";
 import type { FactTier } from "../services/scenarioCards";
 
 interface Props {
@@ -169,7 +173,7 @@ const ScenarioFactsSection: React.FC<Props> = ({
    * stored. The re-read is the same light `onFactRemoved` uses, so the queue's
    * selection is not disturbed.
    */
-  const changeTier = (graphNodeId: string, tier: FactTier) => {
+  const changeTier = (graphNodeId: string, tier: FactTier): Promise<void> =>
     setFactTier(slug, scenarioId, graphNodeId, tier)
       .then(() => {
         setError(null);
@@ -186,8 +190,11 @@ const ScenarioFactsSection: React.FC<Props> = ({
               )
             : reason,
         );
+        // Re-thrown so the caller can retract anything it showed optimistically —
+        // the background-move notice is raised on the click and must not outlive
+        // a write that was refused.
+        throw e;
       });
-  };
 
   /**
    * Record where a dragged fact landed, then re-read the cards.
@@ -203,6 +210,33 @@ const ScenarioFactsSection: React.FC<Props> = ({
     before: string | null,
   ) => {
     setFactOrder(slug, scenarioId, graphNodeId, after, before)
+      .then(() => {
+        setError(null);
+        onFactRemoved();
+      })
+      .catch((e: unknown) => {
+        const reason = e instanceof Error ? e.message : String(e);
+        setError(
+          wording
+            ? fillCodeAndReason(
+                wording.fact_order_save_failed_template,
+                codeFor(graphNodeId),
+                reason,
+              )
+            : reason,
+        );
+      });
+  };
+
+  /**
+   * Forget where one fact was placed (task 2.13c item 11).
+   *
+   * Same shape as the other two writes — call, then re-read the cards — because
+   * the order on screen must come from what is stored, never from a local guess
+   * about what the write did.
+   */
+  const unplaceFact = (graphNodeId: string) => {
+    clearFactOrder(slug, scenarioId, graphNodeId)
       .then(() => {
         setError(null);
         onFactRemoved();
@@ -244,6 +278,23 @@ const ScenarioFactsSection: React.FC<Props> = ({
         </span>
       </div>
 
+      {/* Task 2.13c item 7: the surface discloses itself. The weights and the drag
+          were discoverable only by hovering an icon, which meant a human who did
+          not already know they existed never found them — Roman's ruling that a
+          feature must announce itself on screen. Served from the store, so
+          renaming a tier renames it here too. */}
+      {wording && (
+        <p
+          style={{
+            margin: "0 0 0.6rem",
+            fontSize: "0.8rem",
+            color: "var(--text-secondary)",
+          }}
+        >
+          {wording.fact_weights_hint}
+        </p>
+      )}
+
       {error && (
         <div
           role="alert"
@@ -277,6 +328,7 @@ const ScenarioFactsSection: React.FC<Props> = ({
         wording={wording}
         onSetTier={changeTier}
         onMoveFact={moveFact}
+        onUnplaceFact={unplaceFact}
       />
 
       {adding && (

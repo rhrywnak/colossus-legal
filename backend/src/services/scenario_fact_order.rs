@@ -113,31 +113,46 @@ pub enum MoveRefusal {
 /// Grouping is by tier first ([`FactTier::rank`]), because the list renders
 /// `carries` above `backup` above `background`: a fact's weight decides which
 /// block it is in, and its ordinal decides where it sits inside that block.
-fn effective_order(facts: &[OrderableFact]) -> Vec<(String, i32)> {
-    let placed = sorted_placed(facts);
-    let unplaced = sorted_unplaced(facts);
+pub fn effective_order(facts: &[OrderableFact]) -> Vec<(String, i32)> {
+    // The unplaced tail is numbered from a FIXED base, and the two groups are then
+    // sorted as ONE numeric line.
+    //
+    // ## Why not "every placed fact, then every unplaced one"
+    //
+    // That is what this did until task 2.13c, and it made "a newly included fact
+    // lands at the end" unimplementable. Numbering the tail from `max(placed)`
+    // meant the tail always sat above everything placed, so giving a new fact a
+    // large ordinal put it FIRST, not last — and any base derived from the placed
+    // set moves the moment something is placed. A fixed base breaks the circle:
+    // the i-th unplaced fact is at `(i + 1) * STEP` whatever anyone has dragged,
+    // so a number past the tail's top is genuinely past the end and stays there.
+    //
+    // An untouched scenario is unaffected: with nothing placed, the tail is
+    // 1024, 2048, 3072 … in C-ordinal order, which is exactly the order the
+    // server already sent.
+    let mut ranked: Vec<(u8, i32, String)> = Vec::with_capacity(facts.len());
 
-    // The provisional numbers start above every stored one so the tail always
-    // sorts after the placed block, whatever ordinals the human has written.
-    let ceiling = placed
-        .iter()
-        .filter_map(|f| f.sort_ordinal)
-        .max()
-        .unwrap_or(0);
-
-    let mut out: Vec<(String, i32)> = placed
-        .iter()
-        .filter_map(|f| f.sort_ordinal.map(|o| (f.graph_node_id.clone(), o)))
-        .collect();
-
-    out.extend(unplaced.iter().enumerate().map(|(index, fact)| {
-        (
+    for fact in sorted_placed(facts) {
+        if let Some(ordinal) = fact.sort_ordinal {
+            ranked.push((fact.tier.rank(), ordinal, fact.graph_node_id.clone()));
+        }
+    }
+    for (index, fact) in sorted_unplaced(facts).iter().enumerate() {
+        ranked.push((
+            fact.tier.rank(),
+            provisional_ordinal(index),
             fact.graph_node_id.clone(),
-            provisional_ordinal(ceiling, index),
-        )
-    }));
+        ));
+    }
 
-    out
+    // Tier decides the block, the number decides the seat inside it, and the node
+    // id breaks ties — unique per scenario, so the order is TOTAL and two renders
+    // of the same data can never disagree.
+    ranked.sort_by(|a, b| (a.0, a.1, &a.2).cmp(&(b.0, b.1, &b.2)));
+    ranked
+        .into_iter()
+        .map(|(_, ordinal, node)| (node, ordinal))
+        .collect()
 }
 
 /// The facts the human HAS placed, in the order they will render.
@@ -186,19 +201,24 @@ fn sorted_unplaced(facts: &[OrderableFact]) -> Vec<&OrderableFact> {
 
 /// The number an unplaced fact is TREATED as having, given its place in the tail.
 ///
-/// Never stored — it exists only so a drop beside an unplaced fact has two real
-/// numbers to take a midpoint of. That is what keeps a drag to one written row.
+/// Never stored — it exists so a drop beside an unplaced fact has two real
+/// numbers to take a midpoint of, which is what keeps a drag to one written row.
 ///
-/// ## Rust Learning: `saturating_*` instead of `+` and `*`
+/// The base is FIXED (`(index + 1) * STEP`) rather than derived from whatever is
+/// currently placed. See `effective_order` for why: a base that moves with the
+/// placed set makes "at the end" a position nothing can be given.
 ///
-/// A stored ordinal near `i32::MAX` would make this overflow: a panic in a debug
-/// build, a silent wrap to a NEGATIVE ordinal in a release one — which would
-/// reorder the human's list through arithmetic nobody asked for. Saturating
-/// arithmetic clamps at the bound instead, and a saturated tail still sorts after
-/// the placed block, which is the only property this number has to keep.
-fn provisional_ordinal(ceiling: i32, index_in_tail: usize) -> i32 {
-    ceiling.saturating_add(
-        ORDINAL_STEP.saturating_mul(i32::try_from(index_in_tail + 1).unwrap_or(i32::MAX)),
+/// ## Rust Learning: `saturating_*` instead of `*` and `+`
+///
+/// A very long list would overflow `i32` here: a panic in a debug build, a silent
+/// wrap to a NEGATIVE ordinal in a release one — which would reorder the human's
+/// list through arithmetic nobody asked for. Saturating arithmetic clamps at the
+/// bound instead, and a saturated tail still sorts after everything below it.
+fn provisional_ordinal(index_in_tail: usize) -> i32 {
+    ORDINAL_STEP.saturating_mul(
+        i32::try_from(index_in_tail)
+            .unwrap_or(i32::MAX)
+            .saturating_add(1),
     )
 }
 

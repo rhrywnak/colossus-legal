@@ -41,324 +41,62 @@ import { sectionsFor, type CardSection, type WorkingRow } from "./factsTable";
 import type { LinkPanelWording } from "../services/evidenceLinks";
 import type { FactTier } from "../services/scenarioCards";
 
-// ── The type scale, declared once ───────────────────────────────────────────
-//
-// All seven values below are PRESENTATIONAL, and therefore not Rule-2 tunables —
-// the standing line R5 draws: they choose how the same content is SEEN, never
-// what it is, which cards exist, or what any of them mean. Named rather than
-// inlined so the study's "one body size, metadata one step down" rule is
-// checkable by reading a few lines instead of auditing thirty spans.
+import {
+  CARD_GAP_PX,
+  CARD_PADDING,
+  INTRA_GAP,
+  META_SIZE,
+  metaStyle,
+} from "./factRowStyles";
+import {
+  AllegationRow,
+  ExchangeLine,
+  HeaderRow,
+  nextTier,
+  QuoteRow,
+  SourceRow,
+} from "./FactRowParts";
 
-// CONST: the ONE body size on a fact card — the quote, and nothing else.
-// Study §2 binding: one size for quotes with generous line-height. A second
-// body size anywhere on this card is the "no consistency within a card" defect.
-const BODY_SIZE = "0.95rem";
+export { nextTier } from "./FactRowParts";
 
-// CONST: every piece of metadata, one step down from the body.
-// The study requires metadata be distinguished by SIZE, not by fading to grey —
-// which is what --text-muted at 3.10:1 was doing before task 2.13b.
-const META_SIZE = "0.8rem";
-
-// CONST: line-height for the quote. ≈1.6 is the "generous" the ruling names;
-// a legal quote runs long and tight leading is what makes a card a wall.
-const BODY_LINE_HEIGHT = 1.6;
-
-// ── Spacing rhythm (ruling 2) ───────────────────────────────────────────────
-
-// CONST: the gap between rows INSIDE one card. Must stay the largest such gap —
-// `MAX_INTRA_GAP_PX` below is its numeric twin and the fence compares them.
-const INTRA_GAP = "6px";
-
-// CONST: the card's own padding. Not part of the rhythm comparison: it is the
-// distance from the border to the content, not between two pieces of content.
-const CARD_PADDING = "14px 16px";
-
-// CONST: the gap BETWEEN cards. Ruling 2 — proximity does the separating and the
-// border assists, so this must be decisively larger than any intra-card gap.
-// Exported because `WorkingView` lays out the stack and
-// `scenarioPageStructure.test.ts` asserts the ratio against the value below.
-export const CARD_GAP_PX = 20;
-
-// CONST: the largest intra-card gap, as a number, for that same fence.
-// Kept beside `INTRA_GAP` so the two cannot drift: if a row gap grows past this,
-// the ratio test fails rather than the rhythm quietly flattening.
-export const MAX_INTRA_GAP_PX = 6;
+export { CARD_GAP_PX, MAX_INTRA_GAP_PX } from "./factRowStyles";
 
 const cardStyle = (justArrived: boolean, isDropTarget: boolean): React.CSSProperties => ({
   display: "flex",
   gap: "12px",
   alignItems: "stretch",
   padding: CARD_PADDING,
-  // Ruling 1: the hairline stays and is now visible. `--border-card`, not
-  // `--border-default` — the divider token keeps its own job elsewhere.
+  // The separating space is the CARD's, not the container's — a flex gap on the
+  // scroll region has no drop handler, which turned every seam into dead space
+  // and is half of why Roman's drag did nothing (task 2.13c).
+  marginBottom: `${CARD_GAP_PX}px`,
   border: "1px solid var(--border-card)",
   borderRadius: "var(--radius-card)",
   // The drop indicator REPLACES the top border rather than adding to it, so a
-  // card never changes height while being dragged over — a 1px reflow that
-  // ripples down a list of forty-six is how a drop target ends up somewhere
-  // other than where the human aimed.
+  // card never changes height while being dragged over.
   borderTop: isDropTarget ? "2px solid var(--accent-primary)" : "1px solid var(--border-card)",
   background: justArrived ? "var(--state-warning-bg-soft)" : "var(--bg-surface)",
   transition: "background 600ms ease-out",
 });
 
 /**
- * The coloured left spine, running the FULL height of the card (ruling 1).
+ * The coloured left spine, running the FULL height of the card.
  *
- * Green = evidence a human ruled in, blue = a fact a human wrote. `alignSelf:
- * stretch` inside a `stretch` flex row is what makes it run edge to edge; it
- * used to stop at a `minHeight`, which left a stub beside taller cards and read
- * as an alignment bug.
+ * Green = evidence a human ruled in, blue = a fact a human wrote. Dimmed in
+ * 2.13c: it is decoration until task 2.3 gives it cut meaning, and at full
+ * strength it was the loudest thing on a card whose content is the exchange.
  *
- * A cue, never the only signal — the source row still says which in words, for
- * a colourblind reader and for greyscale print.
+ * A cue, never the only signal — a human fact's provenance line still says which
+ * it is in words, for a colourblind reader and for greyscale print.
  */
 const spineStyle = (isHuman: boolean): React.CSSProperties => ({
   width: "4px",
   borderRadius: "2px",
   flexShrink: 0,
   alignSelf: "stretch",
+  opacity: 0.4,
   background: isHuman ? "var(--accent-primary)" : "var(--state-success-strong)",
 });
-
-/** Metadata: one size step down, regular weight, and now AA-legible. */
-const metaStyle: React.CSSProperties = {
-  fontSize: META_SIZE,
-  fontWeight: 400,
-  color: "var(--text-muted)",
-};
-
-const chipStyle: React.CSSProperties = {
-  ...metaStyle,
-  border: "1px solid var(--border-card)",
-  borderRadius: "999px",
-  padding: "0.1rem 0.55rem",
-  whiteSpace: "nowrap",
-};
-
-/**
- * An accusation chip, which unlike the others is a SENTENCE.
- *
- * ¶41's label runs to about two hundred characters, so this one wraps where the
- * short chips do not: `nowrap` on a chip that long pushes it past the container's
- * right edge, where the end — the part that distinguishes it from its neighbours
- * — is exactly what gets clipped.
- */
-const accusationChipStyle: React.CSSProperties = {
-  ...chipStyle,
-  whiteSpace: "normal",
-  overflowWrap: "anywhere",
-  textAlign: "left",
-};
-
-/** The three weights, in the order they read as a scale. */
-const TIERS: FactTier[] = ["carries", "backup", "background"];
-const TIER_GLYPH: Record<FactTier, string> = {
-  carries: "★",
-  backup: "☆",
-  background: "·",
-};
-
-/**
- * The weight control: three states, on the card it is printed on.
- *
- * Three labelled buttons rather than one cycling button — a control that cycles
- * hides its own vocabulary, needs two clicks to reveal the third state, and
- * cannot go back without going forward. Every label is a stored setting, so
- * renaming "Carries the scenario" is a Settings edit and no rebuild.
- */
-const TierControl: React.FC<{
-  row: WorkingRow;
-  wording: LinkPanelWording;
-  onSetTier: (tier: FactTier) => void;
-}> = ({ row, wording, onSetTier }) => {
-  const label: Record<FactTier, string> = {
-    carries: wording.fact_tier_carries_label,
-    backup: wording.fact_tier_backup_label,
-    background: wording.fact_tier_background_label,
-  };
-
-  return (
-    <div
-      role="radiogroup"
-      aria-label={wording.fact_tier_prompt}
-      style={{ display: "flex", gap: "0.15rem" }}
-    >
-      {TIERS.map((tier) => {
-        const active = row.tier === tier;
-        return (
-          <button
-            key={tier}
-            type="button"
-            role="radio"
-            aria-checked={active}
-            title={`${wording.fact_tier_prompt} — ${label[tier]}`}
-            aria-label={label[tier]}
-            onClick={() => onSetTier(tier)}
-            style={{
-              border: "none",
-              background: "none",
-              cursor: "pointer",
-              padding: "0 0.15rem",
-              fontSize: BODY_SIZE,
-              lineHeight: 1,
-              // Roman: "the tags and buttons are also difficult to see." An
-              // inactive weight is now --text-secondary (6.00:1) rather than
-              // muted-at-55%-opacity, which was illegible twice over.
-              color: active ? "var(--accent-primary)" : "var(--text-secondary)",
-            }}
-          >
-            {TIER_GLYPH[tier]}
-          </button>
-        );
-      })}
-    </div>
-  );
-};
-
-/** The pinpoint chip, or nothing. A human fact has no pinpoint by design (§8). */
-const PinpointChip: React.FC<{ row: WorkingRow; onBlocked: (m: string | null) => void }> = ({
-  row,
-  onBlocked,
-}) => {
-  if (!row.pinpointHref) return null;
-  return (
-    <a
-      href={row.pinpointHref}
-      onClick={(event) => {
-        event.preventDefault();
-        const result = openViewerWindow(row.pinpointHref);
-        onBlocked(result.opened ? null : result.message);
-      }}
-      style={{ ...chipStyle, color: "var(--accent-primary)", textDecoration: "none" }}
-    >
-      {row.pinpointLabel} ↗
-    </a>
-  );
-};
-
-/**
- * The header row — the card's landmark line.
- *
- * C-code first, ALWAYS, then kind, then speaker; weight control and drag handle
- * to the right. The code is the one bold thing on the card and the one thing at
- * a fixed position: `flexShrink: 0` and its own element, so nothing beside it can
- * push it anywhere. This is the direct answer to "the Candidate numbers appear in
- * different places cards".
- */
-const HeaderRow: React.FC<{
-  row: WorkingRow;
-  wording: LinkPanelWording | null;
-  onSetTier?: (tier: FactTier) => void;
-  draggable: boolean;
-}> = ({ row, wording, onSetTier, draggable }) => (
-  <div
-    style={{
-      display: "flex",
-      alignItems: "center",
-      gap: "0.5rem",
-      minHeight: "22px",
-    }}
-  >
-    {/* The landmark. A human fact has no candidate number and shows none — an
-        em-dash placeholder would imply a missing value where there is none. */}
-    {row.code && (
-      <span
-        data-fact-code
-        style={{
-          fontSize: META_SIZE,
-          fontWeight: 600,
-          color: "var(--text-primary)",
-          flexShrink: 0,
-        }}
-      >
-        {row.code}
-      </span>
-    )}
-    {row.statementKind && wording && (
-      <span style={metaStyle}>
-        {wording.fact_statement_kind_label} {row.statementKind}
-      </span>
-    )}
-    {row.speaker && <span style={metaStyle}>{row.speaker}</span>}
-
-    <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "0.4rem" }}>
-      {wording && onSetTier && (
-        <TierControl row={row} wording={wording} onSetTier={onSetTier} />
-      )}
-      {draggable && wording && (
-        <span
-          aria-label={wording.fact_order_drag_hint}
-          title={wording.fact_order_drag_hint}
-          style={{ cursor: "grab", color: "var(--text-secondary)", fontSize: META_SIZE }}
-        >
-          ⠿
-        </span>
-      )}
-    </span>
-  </div>
-);
-
-/**
- * The §7.1 question, indented, above the answer it makes interpretable.
- *
- * A discovery answer reading "Yes" is noise alone; under the interrogatory it
- * responds to, the same word is a sworn admission. Rendered only when the
- * extraction captured one — documentary evidence has none, and an empty `Q:`
- * would assert that a question exists and was lost.
- */
-const QuestionRow: React.FC<{ question: string; label: string }> = ({ question, label }) => (
-  <div style={{ display: "flex", gap: "0.4rem", paddingLeft: "0.75rem" }}>
-    <span style={{ ...metaStyle, fontWeight: 600, flexShrink: 0 }}>{label}</span>
-    <span style={{ ...metaStyle, lineHeight: BODY_LINE_HEIGHT, minWidth: 0 }}>{question}</span>
-  </div>
-);
-
-/** The quote — the one body size on the card. */
-const QuoteRow: React.FC<{ text: string }> = ({ text }) => (
-  <div
-    style={{
-      fontSize: BODY_SIZE,
-      fontWeight: 400,
-      lineHeight: BODY_LINE_HEIGHT,
-      color: "var(--text-primary)",
-      minWidth: 0,
-      // A single unbroken token (a URL inside a quote) has nowhere to wrap and
-      // would clip against the card's edge.
-      overflowWrap: "anywhere",
-    }}
-  >
-    {text}
-  </div>
-);
-
-/** What this fact bears on. */
-const AllegationRow: React.FC<{ bearsOn: string[] }> = ({ bearsOn }) => (
-  <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
-    {bearsOn.map((accusation) => (
-      <span key={accusation} style={accusationChipStyle}>
-        {accusation}
-      </span>
-    ))}
-  </div>
-);
-
-/** Where it lives, and what may be done with it here. */
-const SourceRow: React.FC<{
-  row: WorkingRow;
-  onBlocked: (m: string | null) => void;
-  onRemove?: () => void;
-  confirm?: LinkPanelWording | null;
-}> = ({ row, onBlocked, onRemove, confirm = null }) => (
-  <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap", alignItems: "center" }}>
-    <PinpointChip row={row} onBlocked={onBlocked} />
-    {/* For evidence this is the ruling state; for a human fact the composed
-        "Added by Roman · Around Mar 2010". Either way it is the row's AUTHORITY,
-        and it is the words backing the coloured spine on the left. */}
-    <span style={{ ...metaStyle, marginLeft: "auto" }}>{row.statusLabel}</span>
-    {onRemove && <RemoveControl row={row} onRemove={onRemove} confirm={confirm} />}
-  </div>
-);
 
 /** One fact card. */
 const FactRow: React.FC<{
@@ -366,6 +104,7 @@ const FactRow: React.FC<{
   justArrived?: boolean;
   wording: LinkPanelWording | null;
   onRemove?: () => void;
+  onUnplace?: () => void;
   onSetTier?: (tier: FactTier) => void;
   onDragStart?: () => void;
   onDropOn?: () => void;
@@ -375,6 +114,7 @@ const FactRow: React.FC<{
   justArrived = false,
   wording,
   onRemove,
+  onUnplace,
   onSetTier,
   onDragStart,
   onDropOn,
@@ -406,10 +146,18 @@ const FactRow: React.FC<{
         );
       case "question":
         return row.question && wording ? (
-          <QuestionRow key={section} question={row.question} label={wording.fact_question_label} />
+          <ExchangeLine key={section} prefix={wording.fact_question_label} text={row.question} />
         ) : null;
       case "quote":
-        return <QuoteRow key={section} text={row.text} />;
+        // With a question above it the quote IS the answer and takes the `A:`
+        // prefix, so the pair reads as an exchange. Without one there is no
+        // exchange to mark, and a lone prefix would assert a question that was
+        // lost.
+        return row.question && wording ? (
+          <ExchangeLine key={section} prefix={wording.fact_answer_label} text={row.text} />
+        ) : (
+          <QuoteRow key={section} text={row.text} />
+        );
       case "allegations":
         return <AllegationRow key={section} bearsOn={row.bearsOn} />;
       case "source":
@@ -417,8 +165,10 @@ const FactRow: React.FC<{
           <SourceRow
             key={section}
             row={row}
+            wording={wording}
             onBlocked={setBlocked}
             onRemove={onRemove}
+            onUnplace={onUnplace}
             confirm={confirm}
           />
         );
@@ -429,7 +179,17 @@ const FactRow: React.FC<{
     <div
       style={cardStyle(justArrived, dragOver)}
       draggable={draggable}
-      onDragStart={onDragStart}
+      onDragStart={(event) => {
+        // Firefox CANCELS a drag whose `dragstart` sets no data — the drag simply
+        // never begins, with no event, no error and nothing on screen. That is
+        // half of Roman's repro: real mouse, real gesture, nothing happened.
+        // Chrome does not require it, which is why it worked under test and not
+        // for him. The payload is unused (the dragged id lives in React state);
+        // what matters is that data exists at all.
+        event.dataTransfer?.setData("text/plain", "fact");
+        if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+        onDragStart?.();
+      }}
       onDragOver={(event) => {
         if (!draggable) return;
         // Without `preventDefault` the browser refuses the drop outright — this

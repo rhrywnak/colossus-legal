@@ -66,6 +66,12 @@ const wording: LinkPanelWording = {
   queue_empty_pool_summary: "No candidates gathered yet",
   queue_all_ruled_summary: "All candidates ruled",
   queue_counting_summary: "Counting candidates…",
+  fact_answer_label: "A:",
+  fact_background_move_notice: "{code} moved to the background pile — show",
+  fact_weights_hint:
+    "Star each fact by how much it carries — carries, backup, background — and drag to set the order.",
+  fact_footer_template: "{shown} shown · {background} in background",
+  fact_unplace_label: "Clear my order",
 };
 
 function option(id: string, label: string, count: string | null = null): AllegationOption {

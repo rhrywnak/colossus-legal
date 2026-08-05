@@ -56,13 +56,23 @@ const RemoveControl: React.FC<{
 }> = ({ row, onRemove, confirm }) => {
   const [asking, setAsking] = useState(false);
 
+  // Task 2.13c item 6: Remove reads as a CONTROL, and a destructive one.
+  //
+  // It was 12px muted grey with no border — Roman's report was that it did not
+  // look like a button at all, and at 3.10:1 (before 2.13b) it was barely
+  // legible either. Danger tokens say what it does; the transparent border
+  // reserves the space so the hover outline cannot shift the row's layout, which
+  // is what a border appearing from nothing would do on a list of forty-six.
+  const [hovered, setHovered] = useState(false);
   const buttonStyle: React.CSSProperties = {
-    border: "none",
+    border: `1px solid ${hovered ? "var(--state-danger-strong)" : "transparent"}`,
+    borderRadius: "6px",
     background: "none",
-    color: "var(--text-muted)",
+    color: "var(--state-danger-strong)",
     cursor: "pointer",
     fontFamily: "inherit",
-    fontSize: "12px",
+    fontSize: "0.8rem",
+    padding: "0.1rem 0.45rem",
   };
 
   // A HUMAN fact keeps the control it has always had, unchanged: one button, no
@@ -71,7 +81,13 @@ const RemoveControl: React.FC<{
   // own note needs no explanation of where it goes, because it goes nowhere.
   if (!confirm) {
     return (
-      <button type="button" onClick={onRemove} style={buttonStyle}>
+      <button
+        type="button"
+        onClick={onRemove}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        style={buttonStyle}
+      >
         Remove
       </button>
     );
@@ -88,6 +104,8 @@ const RemoveControl: React.FC<{
       <button
         type="button"
         onClick={() => setAsking(true)}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
         style={buttonStyle}
         // The accessible name names the row: a table of forty-six buttons all
         // reading "Remove" tells a screen reader nothing about which is which.

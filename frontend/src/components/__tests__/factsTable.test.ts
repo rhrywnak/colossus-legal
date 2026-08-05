@@ -110,6 +110,7 @@ describe("filterRows", () => {
       tier: "backup",
       sortOrdinal: null,
       speaker: null,
+      displayOrdinal: null,
     },
     {
       code: "C-2",
@@ -125,6 +126,7 @@ describe("filterRows", () => {
       tier: "backup",
       sortOrdinal: null,
       speaker: null,
+      displayOrdinal: null,
     },
   ];
 
@@ -366,6 +368,7 @@ describe("orderedRows", () => {
     tier,
     sortOrdinal,
     speaker: null,
+    displayOrdinal: null,
   });
 
   it("leaves an untouched list in exactly the order it arrived", () => {
@@ -380,18 +383,37 @@ describe("orderedRows", () => {
     expect(orderedRows(rows).map((r) => r.graphNodeId)).toEqual(["c1", "c2", "c3"]);
   });
 
-  it("puts placed facts ahead of unplaced ones, in their stored order", () => {
+  it("sorts on the SERVER's position, not the stored one", () => {
+    // Task 2.13c. This used to assert "placed facts first, then unplaced" —
+    // the browser's own two-region model, which is exactly what made a newly
+    // included fact land fourth instead of last. The server now computes ONE
+    // number per card and this sorts on that.
+    //
+    // The rows below make the distinction impossible to fudge: `sortOrdinal`
+    // deliberately disagrees with `displayOrdinal`, and the displayed order must
+    // follow the latter.
     const rows = [
-      row("unplaced-a", "backup", null),
-      row("placed-late", "backup", 2048),
-      row("unplaced-b", "backup", null),
-      row("placed-early", "backup", 1024),
+      { ...row("third", "backup", 10), displayOrdinal: 3072 },
+      { ...row("first", "backup", 9999), displayOrdinal: 1024 },
+      { ...row("second", "backup", null), displayOrdinal: 2048 },
     ];
     expect(orderedRows(rows).map((r) => r.graphNodeId)).toEqual([
-      "placed-early",
-      "placed-late",
-      "unplaced-a",
-      "unplaced-b",
+      "first",
+      "second",
+      "third",
+    ]);
+  });
+
+  it("keeps a card with no served position behind the ones that have one", () => {
+    // A human fact has no display position. It must not jump the queue, and it
+    // must not disappear — it follows, in the order the payload sent.
+    const rows = [
+      { ...row("no-position", "backup", null), displayOrdinal: null },
+      { ...row("placed", "backup", null), displayOrdinal: 1024 },
+    ];
+    expect(orderedRows(rows).map((r) => r.graphNodeId)).toEqual([
+      "placed",
+      "no-position",
     ]);
   });
 
@@ -446,6 +468,7 @@ describe("splitBackground", () => {
     tier,
     sortOrdinal: null,
     speaker: null,
+    displayOrdinal: null,
   });
 
   it("folds the background tier out without losing any of it", () => {
@@ -483,6 +506,7 @@ describe("neighboursForDrop", () => {
     tier: "backup",
     sortOrdinal: null,
     speaker: null,
+    displayOrdinal: null,
   });
   const rows = [row("a"), row("b"), row("c")];
 
@@ -526,6 +550,7 @@ describe("sectionsFor — the fixed card anatomy", () => {
     tier: "backup",
     sortOrdinal: null,
     speaker: null,
+    displayOrdinal: null,
     ...over,
   });
 

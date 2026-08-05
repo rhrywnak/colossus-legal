@@ -64,7 +64,9 @@ use crate::{
     domain::{fact_status::FactStatus, ruling_anchor::RulingKind},
     dto::{AddFactRequest, FactActionRequest, ScenarioFactDto},
     error::AppError,
-    repositories::pipeline_repository::{get_scenario, list_fact_refs_for_scenario},
+    repositories::pipeline_repository::{
+        assign_end_ordinal, get_scenario, list_fact_refs_for_scenario,
+    },
     services::scenario_ruling::{record_removal, record_ruling, RulingRequest},
     state::AppState,
 };
@@ -436,6 +438,39 @@ pub async fn apply_fact_action(
         ruling = %kind.code(),
         "recorded an anchored ruling"
     );
+
+    // Task 2.13c item 10: a fact the human just ruled IN belongs at the END of
+    // the facts list, where they will see it. Leaving its ordinal NULL put it
+    // wherever its C-number fell — on S-2 a re-included C-129 came back in fourth
+    // place, which is the .378 acceptance FAIL.
+    //
+    // Only on INCLUDE, and only for a row with no ordinal yet: re-ruling a fact
+    // somebody has already dragged must not rip it out of the place they put it
+    // (§8 — a ruling never edits human augmentation).
+    //
+    // A failure here is logged and NOT propagated: the ruling itself is recorded
+    // and ledgered, and refusing the whole request for a presentation detail
+    // would tell the human their ruling failed when it did not. The honest
+    // outcome is a stored ruling whose card sits in the old position, and a log
+    // line naming it.
+    if status == FactStatus::Included {
+        if let Err(e) = assign_end_ordinal(
+            &state.pipeline_pool,
+            id,
+            &graph_node_id,
+            crate::services::scenario_fact_order::ORDINAL_STEP,
+        )
+        .await
+        {
+            tracing::error!(
+                error = %e,
+                %graph_node_id,
+                scenario_id = %id,
+                "ruled a fact in but could not place it at the end of the list; \
+                 the ruling stands and the card keeps its C-ordinal position"
+            );
+        }
+    }
 
     Ok(StatusCode::OK)
 }

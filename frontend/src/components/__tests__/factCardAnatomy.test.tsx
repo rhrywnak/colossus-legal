@@ -17,7 +17,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import FactRow from "../FactRow";
+import FactRow, { nextTier } from "../FactRow";
 import type { WorkingRow } from "../factsTable";
 import type { LinkPanelWording } from "../../services/evidenceLinks";
 
@@ -42,8 +42,8 @@ function row(over: Partial<WorkingRow> = {}): WorkingRow {
     graphNodeId: "ev-1",
     text: "Yes.",
     bearsOn: [],
-    pinpointLabel: "",
-    pinpointHref: "",
+    pinpointLabel: "CFS responses at 26",
+    pinpointHref: "/documents/doc-7?page=26",
     statusLabel: "In the scenario",
     isHuman: false,
     question: null,
@@ -51,6 +51,7 @@ function row(over: Partial<WorkingRow> = {}): WorkingRow {
     tier: "backup",
     sortOrdinal: null,
     speaker: null,
+    displayOrdinal: null,
     ...over,
   };
 }
@@ -86,7 +87,10 @@ describe("the rendered card puts its landmark in the same place, always", () => 
       }),
     ],
     ["documentary, no speaker", row({ statementKind: "correspondence", speaker: null })],
-    ["human fact", row({ isHuman: true, code: null, tier: null })],
+    [
+      "human fact",
+      row({ isHuman: true, code: null, tier: null, pinpointLabel: "", pinpointHref: "" }),
+    ],
   ];
 
   it("renders the C-code as the first element of the header on every card", () => {
@@ -151,8 +155,14 @@ describe("the rendered card puts its landmark in the same place, always", () => 
       // renderer entirely would have left this green. The two unconditional
       // sections are checked by name, not by surviving a filter.
       expect(html.indexOf(r.text), `${name}: the quote must render`).toBeGreaterThan(-1);
+      // The source row's landmark differs by provenance, and task 2.13c is why:
+      // an evidence card is identified by its PINPOINT, while a human fact keeps
+      // its provenance line. The "In the scenario" tag that used to sit on every
+      // evidence row was deleted — every fact on this list is in the scenario, so
+      // it carried no information.
+      const sourceMark = r.isHuman ? r.statusLabel : r.pinpointLabel;
       expect(
-        html.indexOf(r.statusLabel),
+        html.indexOf(sourceMark),
         `${name}: the source row must render`,
       ).toBeGreaterThan(-1);
       if (r.statementKind) {
@@ -169,7 +179,7 @@ describe("the rendered card puts its landmark in the same place, always", () => 
         r.statementKind ? html.indexOf("Kind:") : null,
         r.question ? html.indexOf("Q:") : null,
         html.indexOf(r.text),
-        html.indexOf(r.statusLabel),
+        html.indexOf(r.isHuman ? r.statusLabel : r.pinpointLabel),
       ].filter((i): i is number => i !== null);
 
       expect(
@@ -183,5 +193,47 @@ describe("the rendered card puts its landmark in the same place, always", () => 
     const html = markup(row());
     expect(html).toContain("align-self:stretch");
     expect(html).toContain("var(--border-card)");
+  });
+});
+
+// ── Task 2.13c: the weight control, and the drag that did not take ──────────
+
+describe("the weight control cycles through all three states", () => {
+  it("goes carries → backup → background → carries", () => {
+    // One control now, not three radios. The cycle must be complete and it must
+    // come back round: a control you can leave a card stuck in is worse than the
+    // icon pile it replaced.
+    expect(nextTier("carries")).toBe("backup");
+    expect(nextTier("backup")).toBe("background");
+    expect(nextTier("background")).toBe("carries");
+  });
+
+  it("treats an unweighed fact as backup, so one click means something", () => {
+    // A fact with no tier is `backup` by the migration's default; the control
+    // must agree, or the first click on a fresh card would appear to do nothing.
+    expect(nextTier(null)).toBe(nextTier("backup"));
+  });
+
+  it("visits every tier within three clicks from anywhere", () => {
+    // The property that makes cycling acceptable: no state is unreachable.
+    for (const start of ["carries", "backup", "background"] as const) {
+      const seen = new Set<string>([start]);
+      let at: ReturnType<typeof nextTier> = start;
+      for (let i = 0; i < 3; i += 1) {
+        at = nextTier(at);
+        seen.add(at);
+      }
+      expect(seen.size).toBe(3);
+    }
+  });
+
+  it("renders the current weight as visible text, not only a tooltip", () => {
+    // Roman's ruling that a feature discloses itself on screen. The label must be
+    // in the markup as text — a `title` or `aria-label` alone leaves a sighted
+    // mouse user hovering three glyphs to learn what they mean.
+    const html = markup(row({ tier: "carries" }));
+    expect(html).toContain("Carries the scenario");
+    const background = markup(row({ tier: "background" }));
+    expect(background).toContain("Background");
   });
 });

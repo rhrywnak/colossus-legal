@@ -233,3 +233,93 @@ fn extreme_ordinals_saturate_rather_than_overflowing() {
     assert_eq!(ordinal, i32::MAX, "saturated, not wrapped");
     assert!(ordinal > 0);
 }
+
+// ── Task 2.13c: a newly included fact lands at the END ──────────────────────
+
+#[test]
+fn an_ordinal_past_every_provisional_sorts_last() {
+    // THE contract `assign_end_ordinal` implements in SQL, pinned as arithmetic.
+    // The .378 acceptance FAILed because a re-included fact came back FOURTH: its
+    // ordinal was NULL, so it sorted into the tail by C-number rather than at the
+    // end where the human had just put it.
+    //
+    // ## Why the node id is "aaa-new"
+    //
+    // `effective_order` breaks ordinal TIES by node id. An id that sorts late
+    // alphabetically would come last even when its ordinal merely TIED with the
+    // final unplaced fact — so the test would pass against the off-by-one this
+    // exists to catch. "aaa-new" sorts before every "c…" id, so only a genuinely
+    // larger ordinal can put it last.
+    let facts = vec![
+        unplaced("c1", 10),
+        unplaced("c2", 20),
+        unplaced("c3", 30),
+        placed("aaa-new", end_ordinal_for(0, 3)),
+    ];
+
+    let order = effective_order(&facts);
+    let ids: Vec<&str> = order.iter().map(|(id, _)| id.as_str()).collect();
+    assert_eq!(
+        ids.last(),
+        Some(&"aaa-new"),
+        "a fact ruled in a second ago must be at the END, not wherever its \
+         C-number falls: {ids:?}",
+    );
+}
+
+/// The number `assign_end_ordinal`'s SQL computes, as Rust.
+///
+/// Kept beside the tests that depend on it so the formula under test is written
+/// once. `max(stored) + (unplaced_count + 1) * STEP` — see the repository fn.
+fn end_ordinal_for(max_stored: i32, unplaced_count: i32) -> i32 {
+    max_stored + (unplaced_count + 1) * ORDINAL_STEP
+}
+
+#[test]
+fn the_off_by_one_in_the_end_ordinal_would_be_caught() {
+    // The previous version of this test compared two locally-computed numbers and
+    // called no production code at all — it reduced to `ORDINAL_STEP > 0` and
+    // would have stayed green against any implementation. This one asks
+    // `effective_order` where the tail actually ends, and then proves that the
+    // one-step-smaller ordinal does NOT clear it.
+    let tail = vec![unplaced("c1", 10), unplaced("c2", 20), unplaced("c3", 30)];
+    let largest_provisional = effective_order(&tail)
+        .iter()
+        .map(|(_, ordinal)| *ordinal)
+        .max()
+        .expect("the tail has entries");
+
+    let correct = end_ordinal_for(0, 3);
+    assert!(
+        correct > largest_provisional,
+        "the end ordinal ({correct}) must clear the tail's top ({largest_provisional})",
+    );
+
+    // The off-by-one: one step short is a TIE with the last unplaced fact, which
+    // hands the decision to the node-id tie-break — i.e. to chance.
+    let off_by_one = correct - ORDINAL_STEP;
+    assert_eq!(
+        off_by_one, largest_provisional,
+        "one step short must collide with the tail's last fact, which is exactly \
+         why the formula carries the + 1",
+    );
+
+    // And prove it BEHAVES that way, not just that the numbers match: with the
+    // short ordinal the new fact no longer lands last.
+    let with_bug = vec![
+        unplaced("c1", 10),
+        unplaced("c2", 20),
+        unplaced("c3", 30),
+        placed("aaa-new", off_by_one),
+    ];
+    let ids: Vec<String> = effective_order(&with_bug)
+        .into_iter()
+        .map(|(id, _)| id)
+        .collect();
+    assert_ne!(
+        ids.last().map(String::as_str),
+        Some("aaa-new"),
+        "the off-by-one must NOT land the fact last — if it does, this test is \
+         not guarding the regression it claims to",
+    );
+}

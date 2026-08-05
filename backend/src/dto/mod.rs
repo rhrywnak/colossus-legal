@@ -27,6 +27,7 @@ pub mod scenario;
 pub mod scenario_augmentation;
 pub mod scenario_card;
 pub mod scenario_crud;
+pub mod scenario_curation;
 pub mod scenario_facts;
 pub mod scenario_orphans;
 pub mod schema;

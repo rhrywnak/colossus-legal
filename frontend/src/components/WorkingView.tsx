@@ -35,8 +35,14 @@ import {
 import { ghostButtonStyle } from "./scenarioSectionStyles";
 import type { FactTier, ScenarioCard } from "../services/scenarioCards";
 import type { HumanFactDto } from "../services/scenarioAugmentation";
-import { fillCount, type LinkPanelWording } from "../services/evidenceLinks";
+import {
+  fillCode,
+  fillCount,
+  fillCounts,
+  type LinkPanelWording,
+} from "../services/evidenceLinks";
 import FactRow, { CARD_GAP_PX } from "./FactRow";
+import { useDragAutoScroll } from "./dragAutoScroll";
 
 const SURFACE = "var(--bg-surface)";
 const HAIRLINE = "1px solid var(--border-default)";
@@ -65,9 +71,16 @@ const factsScrollRegionStyle: React.CSSProperties = {
   // `MAX_INTRA_GAP_PX` (6), a ratio of 3.33. Proximity is what separates the cards;
   // the hairline assists. `scenarioPageStructure.test.ts` asserts the ratio so the
   // two numbers cannot drift back together.
+  //
+  // Task 2.13c: that space is NOT a flex `gap` any more. A flex gap belongs to the
+  // container, which has no drop handler, so 2.13b turned every seam between two
+  // cards into 20px of dead zone — and the seam is exactly where you aim when you
+  // want a card to go BETWEEN two others. Roman's drag landed there and nothing
+  // happened, with no event to report. The space is now each card's own bottom
+  // margin, so it is part of that card's drop target and every pixel of the list
+  // belongs to something.
   display: "flex",
   flexDirection: "column",
-  gap: `${CARD_GAP_PX}px`,
   // The stack sits ON the tinted page rather than inside a white slab: a white
   // card on a white surface has nothing to be seen against, which is half of
   // "difficult to see where one card ends and the next starts".
@@ -105,13 +118,17 @@ interface Props {
   /** The stored words. `null` until they load — no Remove control until then. */
   wording: LinkPanelWording | null;
   /** Record a fact's weight (task 2.13). */
-  onSetTier: (graphNodeId: string, tier: FactTier) => void;
+  /** Record a fact's weight. RESOLVES when stored and REJECTS when refused —
+   *  the rejection is what retracts an optimistic move notice. */
+  onSetTier: (graphNodeId: string, tier: FactTier) => Promise<void>;
   /** Record where a dragged fact landed, named by its two new neighbours. */
   onMoveFact: (
     graphNodeId: string,
     after: string | null,
     before: string | null,
   ) => void;
+  /** Forget where a fact was placed, returning it to the natural order. */
+  onUnplaceFact: (graphNodeId: string) => void;
 }
 
 const WorkingView: React.FC<Props> = ({
@@ -123,6 +140,7 @@ const WorkingView: React.FC<Props> = ({
   wording,
   onSetTier,
   onMoveFact,
+  onUnplaceFact,
 }) => {
   const [term, setTerm] = useState("");
   // Which row is being dragged, for the duration of the drag only. Not state the
@@ -132,6 +150,15 @@ const WorkingView: React.FC<Props> = ({
   // parsed the stored two-token setting), then follows the human's clicks for
   // this visit. `null` means "not told yet" — see the fallback below.
   const [backgroundOpen, setBackgroundOpen] = useState<boolean | null>(null);
+  // The card that most recently moved into the background pile, so the list can
+  // SAY so. Task 2.13c item 5 — Roman's report was that clicking the dot made a
+  // card "silently vanish"; a fact that leaves the list must announce where it
+  // went. Cleared when the pile is opened, because then it is no longer hidden.
+  const [movedToBackground, setMovedToBackground] = useState<string | null>(null);
+  // The facts list scrolls inside its own region, and nothing moved that region
+  // during a drag — so a card could not be taken past the visible window and the
+  // scrollbar was unreachable with a card in hand. See `dragAutoScroll`.
+  const autoScroll = useDragAutoScroll();
 
   // Evidence first, then the human facts — the order the mockup shows, and the
   // order that reads as "what the record says, then what we know".
@@ -146,6 +173,27 @@ const WorkingView: React.FC<Props> = ({
   // The background tier is FOLDED, never filtered away: the count travels with
   // the pile so the list can always say how much is down there.
   const { shown, background } = useMemo(() => splitBackground(visible), [visible]);
+
+  /**
+   * Set a weight, and if that weight FOLDS the card away, say so.
+   *
+   * The notice is raised optimistically, because it describes what the human just
+   * asked for and the card leaves the list the moment the re-read lands.
+   *
+   * ## Why the failure path is wired and not assumed
+   *
+   * An earlier version raised the notice and left it there, on the assumption
+   * that a failed write would somehow drop it. Nothing did. A refused tier write
+   * would have rendered the error banner AND "{code} moved to the background
+   * pile" at once, with the card still sitting in the list — two contradictory
+   * messages, one of them a lie about where a fact went. So the write's rejection
+   * retracts the notice explicitly, and the error banner is left to speak alone.
+   */
+  const setTierAnnouncing = (graphNodeId: string, tier: FactTier) => {
+    const code = rows.find((r) => r.graphNodeId === graphNodeId)?.code ?? null;
+    setMovedToBackground(tier === "background" ? code : null);
+    onSetTier(graphNodeId, tier).catch(() => setMovedToBackground(null));
+  };
   const showBackground = backgroundOpen ?? !(wording?.fact_background_starts_collapsed ?? true);
 
   // Which rows are NEW since the last render of this list (task 1.7F Part A).
@@ -214,7 +262,17 @@ const WorkingView: React.FC<Props> = ({
           Presentational geometry, not a Rule-13 tunable: this serves every row
           and only chooses how much glass they are seen through (the standing
           ruling from `CandidateList.scrollRegionStyle`). */}
-      <div style={factsScrollRegionStyle}>
+      <div
+        ref={autoScroll.regionRef}
+        style={factsScrollRegionStyle}
+        // These fire by BUBBLING from the cards, which already call
+        // `preventDefault` on dragover to make themselves legal drop targets.
+        // The region only needs the cursor position and the moments a drag ends.
+        onDragOver={autoScroll.onDragOver}
+        onDrop={autoScroll.stop}
+        onDragEnd={autoScroll.stop}
+        onDragLeave={autoScroll.onDragLeave}
+      >
       {rows.length === 0 ? (
         <div style={{ padding: "1rem", color: "var(--text-muted)", fontSize: "0.85rem" }}>
 Nothing here yet. ✓ Include a candidate above, or add a fact of your own.
@@ -227,6 +285,9 @@ Nothing here yet. ✓ Include a candidate above, or add a fact of your own.
         </div>
       ) : (
         <FactStack
+          movedToBackground={movedToBackground}
+          onNoticeCleared={() => setMovedToBackground(null)}
+          onUnplaceFact={onUnplaceFact}
           shown={shown}
           background={background}
           showBackground={showBackground}
@@ -238,15 +299,21 @@ Nothing here yet. ✓ Include a candidate above, or add a fact of your own.
           setDragging={setDragging}
           onRemoveFact={onRemoveFact}
           onRemoveHumanFact={onRemoveHumanFact}
-          onSetTier={onSetTier}
+          onSetTier={setTierAnnouncing}
           onMoveFact={onMoveFact}
         />
       )}
 
       </div>
 
+      {/* Task 2.13c item 9: the old line read "48 of 48 shown" while ten of those
+          facts were folded away in the background pile. Both numbers are now
+          named separately, from a stored template, because there is no honest
+          single number for two different things. */}
       <div style={{ padding: "0.6rem 1rem", fontSize: "0.78rem", color: "var(--text-muted)" }}>
-        {visible.length} of {rows.length} shown
+        {wording
+          ? fillCounts(wording.fact_footer_template, shown.length, background.length)
+          : null}
       </div>
     </div>
   );
@@ -275,6 +342,10 @@ const FactStack: React.FC<{
   onRemoveHumanFact: (factId: string) => void;
   onSetTier: (graphNodeId: string, tier: FactTier) => void;
   onMoveFact: (graphNodeId: string, after: string | null, before: string | null) => void;
+  onUnplaceFact: (graphNodeId: string) => void;
+  /** The code of the card most recently folded into the pile, or `null`. */
+  movedToBackground: string | null;
+  onNoticeCleared: () => void;
 }> = ({
   shown,
   background,
@@ -289,6 +360,9 @@ const FactStack: React.FC<{
   onRemoveHumanFact,
   onSetTier,
   onMoveFact,
+  onUnplaceFact,
+  movedToBackground,
+  onNoticeCleared,
 }) => {
   /** One card's props — identical for the shown stack and the background pile. */
   const cardFor = (row: WorkingRow) => ({
@@ -324,6 +398,7 @@ const FactStack: React.FC<{
           if (pair) onMoveFact(dragging, pair.after, pair.before);
         },
     confirm: row.isHuman ? null : wording,
+    onUnplace: row.isHuman ? undefined : () => onUnplaceFact(row.graphNodeId),
   });
 
   return (
@@ -332,6 +407,24 @@ const FactStack: React.FC<{
         <FactRow {...cardFor(row)} />
       ))}
 
+      {/* Task 2.13c item 5: a card that just left the list SAYS where it went.
+          The pile's own count already made the facts findable; this makes the
+          MOVE observable, which is what Roman meant by "silent vanish". */}
+      {movedToBackground && wording && (
+        <div
+          role="status"
+          style={{
+            padding: "0.4rem 0.6rem",
+            fontSize: "0.8rem",
+            color: "var(--text-primary)",
+            background: "var(--state-warning-bg-soft)",
+            borderRadius: "6px",
+          }}
+        >
+          {fillCode(wording.fact_background_move_notice, movedToBackground)}
+        </div>
+      )}
+
       {/* The background pile: folded, never hidden. The count is always on
           screen, so a curated fact can never silently vanish — which is the
           whole reason this tier is a fold and not a filter. */}
@@ -339,7 +432,10 @@ const FactStack: React.FC<{
         <div style={{ padding: "0.2rem 0" }}>
           <button
             type="button"
-            onClick={onToggleBackground}
+            onClick={() => {
+              onNoticeCleared();
+              onToggleBackground();
+            }}
             style={{ ...ghostButtonStyle, fontSize: "0.8rem" }}
           >
             {showBackground

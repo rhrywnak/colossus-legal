@@ -142,6 +142,16 @@ pub struct LinkPanelWording {
     pub queue_all_ruled_summary: String,
     /// The queue's summary while the counts are not known yet.
     pub queue_counting_summary: String,
+    /// Marks the answer beneath its question, the question label's partner.
+    pub fact_answer_label: String,
+    /// Said when a fact moves into the background pile. Carries `{code}`.
+    pub fact_background_move_notice: String,
+    /// The line under the section heading naming the weights and the drag.
+    pub fact_weights_hint: String,
+    /// The count beneath the list. Carries `{shown}` and `{background}`.
+    pub fact_footer_template: String,
+    /// The control that forgets where a human dragged one fact.
+    pub fact_unplace_label: String,
 }
 
 /// The whole panel in one read.

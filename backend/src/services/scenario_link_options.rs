@@ -203,6 +203,11 @@ fn panel_wording(settings: &Settings, total: usize) -> LinkPanelWording {
         queue_empty_pool_summary: w.queue_empty_pool_summary.clone(),
         queue_all_ruled_summary: w.queue_all_ruled_summary.clone(),
         queue_counting_summary: w.queue_counting_summary.clone(),
+        fact_answer_label: w.fact_answer_label.clone(),
+        fact_background_move_notice: w.fact_background_move_notice.clone(),
+        fact_weights_hint: w.fact_weights_hint.clone(),
+        fact_footer_template: w.fact_footer_template.clone(),
+        fact_unplace_label: w.fact_unplace_label.clone(),
     }
 }
 

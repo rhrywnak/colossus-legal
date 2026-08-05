@@ -63,8 +63,12 @@ export type WorkingRow = {
   /** How much this fact carries the scenario. `null` for a human-authored fact,
    *  which is not evidence and carries no weight tier. */
   tier: FactTier | null;
-  /** The stored position, or `null` when the human has never placed this fact. */
+  /** The stored position, or `null` when the human has never placed this fact.
+   *  Drives the un-place control: a fact with no stored position has nothing to
+   *  clear. NOT the sort key — see `displayOrdinal`. */
   sortOrdinal: number | null;
+  /** The server's computed position, and the ONLY thing this list sorts on. */
+  displayOrdinal: number | null;
   /** Who said it, or `null` for documentary evidence, which genuinely has no
    *  speaker. Part of the header row's fixed anatomy (task 2.13b §3). */
   speaker: string | null;
@@ -198,6 +202,7 @@ export function includedRows(cards: ScenarioCard[]): WorkingRow[] {
       statementKind: card.statement_kind,
       tier: card.tier ?? null,
       sortOrdinal: card.sort_ordinal ?? null,
+      displayOrdinal: card.display_ordinal ?? null,
       // Documentary evidence genuinely has no speaker; `null` says so rather
       // than the header inventing "Unknown".
       speaker: card.speaker.name,
@@ -240,6 +245,7 @@ export function humanFactRows(
     statementKind: null,
     tier: null,
     sortOrdinal: null,
+    displayOrdinal: null,
     // The provenance line already says who wrote it ("Added by Roman"), and it
     // is not a SPEAKER — nobody said this under oath. `null` keeps the header's
     // speaker slot empty rather than restating authorship as testimony.
@@ -311,25 +317,29 @@ export function arrivedIds(previous: Set<string> | null, current: string[]): str
  * know anything about C-numbers — the server already decided that, and
  * re-deriving it here would be a second opinion that can disagree.
  *
- * Not a re-implementation of the backend's `plan_move`: that computes the NUMBER
- * to store for one dragged row, this renders the numbers already stored. The
- * browser never invents a position.
+ * ## Task 2.13c: the browser no longer computes a position at all
+ *
+ * This used to derive where an unplaced fact went relative to a placed one, which
+ * meant the same arithmetic lived here AND in `services::scenario_fact_order`.
+ * The two disagreed about what "end of list" meant and a re-included fact came
+ * back fourth. The server now sends `display_ordinal` — one number per card,
+ * computed once — and this sorts on it and nothing else.
  */
 export function orderedRows(rows: WorkingRow[]): WorkingRow[] {
   return [...rows].sort((a, b) => {
     const byTier = rankOf(a) - rankOf(b);
     if (byTier !== 0) return byTier;
 
-    // A placed row always precedes an unplaced one within the same tier.
-    const aPlaced = a.sortOrdinal !== null;
-    const bPlaced = b.sortOrdinal !== null;
-    if (aPlaced !== bPlaced) return aPlaced ? -1 : 1;
-
-    // Both placed: the human's own numbers decide.
-    if (aPlaced && bPlaced) return (a.sortOrdinal as number) - (b.sortOrdinal as number);
-
-    // Neither placed: equal, so the stable sort keeps the incoming order.
-    return 0;
+    // Both positions come from the server. A row without one (a human fact, or a
+    // card the server did not place) keeps its incoming order behind the rest:
+    // `Array.prototype.sort` is stable in every engine we target, so equal keys
+    // preserve the payload's own sequence.
+    const aPos = a.displayOrdinal;
+    const bPos = b.displayOrdinal;
+    if (aPos === null && bPos === null) return 0;
+    if (aPos === null) return 1;
+    if (bPos === null) return -1;
+    return aPos - bPos;
   });
 }
 

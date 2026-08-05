@@ -73,6 +73,11 @@ pub(crate) struct CardRefState {
     pub tier: Option<FactTier>,
     /// The human's stored position, or `None` when they have never placed it.
     pub sort_ordinal: Option<i32>,
+    /// Where this fact renders in the list — the ONE number the client sorts on.
+    /// Computed by `services::scenario_fact_order::effective_order` over the whole
+    /// included set, so it accounts for the unplaced tail as well as the stored
+    /// positions. `None` for anything that is not an included fact.
+    pub display_ordinal: Option<i32>,
 }
 
 /// Collapse the fanned-out extras rows into one entry per evidence id.
@@ -519,6 +524,7 @@ pub(crate) fn build_card(
         // "in it, unweighed" are different states and stay so on the wire.
         tier: ref_state.tier,
         sort_ordinal: ref_state.sort_ordinal,
+        display_ordinal: ref_state.display_ordinal,
         stance,
         bears_on,
         grounding: build_grounding(extras),

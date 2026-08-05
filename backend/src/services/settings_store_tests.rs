@@ -160,8 +160,8 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     );
     assert_eq!(
         WORDING_KEYS.len(),
-        43,
-        "22 from 2.10, five from 2.12, fourteen from 2.13, one counting-state fix"
+        48,
+        "22 from 2.10, five from 2.12, fourteen from 2.13, one latch fix, five from 2.13c"
     );
     assert_eq!(
         seeded().len(),

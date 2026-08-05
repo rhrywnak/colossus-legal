@@ -52,6 +52,12 @@ fn fact_ref(
             .code()
             .to_string(),
         sort_ordinal: None,
+        // Task 2.13c: nobody has weighed or placed these fixtures, which is
+        // the honest state for a reference nothing has curated.
+        tier_updated_by: None,
+        tier_updated_at: None,
+        order_updated_by: None,
+        order_updated_at: None,
     }
 }
 
@@ -81,6 +87,12 @@ fn scored_ref(node: &str, role: &str, confidence: f32) -> ScenarioFactRefRecord 
             .code()
             .to_string(),
         sort_ordinal: None,
+        // Task 2.13c: nobody has weighed or placed these fixtures, which is
+        // the honest state for a reference nothing has curated.
+        tier_updated_by: None,
+        tier_updated_at: None,
+        order_updated_by: None,
+        order_updated_at: None,
     }
 }
 

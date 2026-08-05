@@ -360,6 +360,11 @@ const ScenarioDetailPage: React.FC = () => {
         slug={slug}
         scenarioId={scenarioId}
         linkOptions={linkOptions}
+        // `null` while the page is still loading, NOT the empty array it is
+        // initialised to. The queue's summary is derived from this, and an empty
+        // pool and an unread one must never look the same — collapsing them is
+        // what put "No candidates gathered yet" over 148 candidates (task 2.13c).
+        cards={loading ? null : cards}
         scenarioTitle={scenario.attack}
         // Either signal reloads the queue's pool: a merge (page-level) or a
         // removal (queue-level). Summed rather than passed as two props because

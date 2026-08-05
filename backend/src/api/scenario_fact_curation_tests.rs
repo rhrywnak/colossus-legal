@@ -5,6 +5,8 @@
 //! split `scenario_cards` and `scenario_gather` already use.
 
 use super::*;
+use crate::domain::fact_tier::FactTier;
+use crate::dto::scenario_curation::{MoveFactRequest, SetTierRequest};
 #[test]
 fn each_refusal_maps_to_its_own_status() {
     // The three refusals are three different things a human must be told

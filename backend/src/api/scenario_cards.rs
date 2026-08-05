@@ -46,6 +46,7 @@ use crate::{
     },
     services::scenario_card::{collapse_extras, CardRefState},
     services::scenario_card_assembly::{assemble, page_key, HumanTouchIndex},
+    services::scenario_fact_order::{effective_order, OrderableFact},
     services::scenario_human_links::resolve_links,
     services::scenario_link_options::label_index,
     state::AppState,
@@ -118,8 +119,6 @@ pub async fn get_scenario_cards(
                 message: "failed to list scenario fact refs".to_string(),
             }
         })?;
-    let ref_states = build_ref_states(refs)?;
-
     let ordinals = list_candidate_ordinals(&state.pipeline_pool, id)
         .await
         .map_err(|e| {
@@ -128,6 +127,13 @@ pub async fn get_scenario_cards(
                 message: "failed to read candidate identifiers".to_string(),
             }
         })?;
+
+    let mut ref_states = build_ref_states(refs)?;
+    // Task 2.13c: the list's ORDER is decided here, once, and travels as a single
+    // number per card. Doing it server-side is what stopped the browser and the
+    // backend disagreeing about where a newly included fact belongs — they did,
+    // and a re-included card came back fourth instead of last.
+    apply_display_order(&mut ref_states, &ordinals);
 
     // Task 1.7F Part B: the humans' corrections for this pool, in ONE query.
     // Read here beside the other joins rather than inside the assembler, which is
@@ -277,6 +283,43 @@ fn cards_without_context(response: &ScenarioCardsResponse) -> usize {
         .count()
 }
 
+/// Compute each INCLUDED fact's place in the list, and record it on its state.
+///
+/// ## Why this runs over the whole set rather than per card
+///
+/// Where a fact sits depends on every other fact: an unplaced one takes its
+/// position from the tail it shares with the others, and the tail's numbering
+/// starts above the largest stored ordinal. A per-card function could not see
+/// that. `effective_order` already computes exactly this ordering for the drag
+/// route, so the list the human READS and the arithmetic a drop is computed
+/// against are the same function — which is the property that broke when the
+/// browser had its own copy of the rule.
+///
+/// Only `Included` refs take part: an undecided or dropped candidate has no
+/// position in a list it does not appear in, and its `display_ordinal` stays
+/// `None`.
+fn apply_display_order(
+    states: &mut std::collections::HashMap<String, CardRefState>,
+    ordinals: &std::collections::HashMap<String, i32>,
+) {
+    let facts: Vec<OrderableFact> = states
+        .iter()
+        .filter(|(_, st)| st.status == Some(FactStatus::Included))
+        .map(|(node, st)| OrderableFact {
+            graph_node_id: node.clone(),
+            sort_ordinal: st.sort_ordinal,
+            code_ordinal: ordinals.get(node).copied(),
+            tier: st.tier.unwrap_or(FactTier::DEFAULT),
+        })
+        .collect();
+
+    for (node, position) in effective_order(&facts) {
+        if let Some(state) = states.get_mut(&node) {
+            state.display_ordinal = Some(position);
+        }
+    }
+}
+
 /// Decode each fact-ref row into the card's view of it.
 ///
 /// ## The status decode is a loud boundary (Standing Rule 1)
@@ -326,6 +369,10 @@ fn build_ref_states(
                 defer_reason: r.defer_reason,
                 tier: Some(tier),
                 sort_ordinal: r.sort_ordinal,
+                // Filled in by `apply_display_order` once every ref is decoded —
+                // a card's position depends on the whole set, so it cannot be
+                // known while the set is still being built.
+                display_ordinal: None,
             },
         );
     }

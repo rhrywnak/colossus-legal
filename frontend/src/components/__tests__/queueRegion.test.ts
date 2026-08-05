@@ -11,7 +11,7 @@ const WORDS = {
   counting: "Counting candidates…",
 };
 
-import { keyboardShouldRule, nextUpHint, queueRegion } from "../queueRegion";
+import { keyboardShouldRule, nextUpHint, queueRegion, progressFromCards } from "../queueRegion";
 
 describe("the default open state", () => {
   it("is EXPANDED while anything is unruled", () => {
@@ -212,5 +212,46 @@ describe("counts that have not been measured", () => {
     // R4 again: no literal to fall back to, on the new state as on the others.
     expect(queueRegion(null).summary).toBe("");
     expect(queueRegion(null).progressLabel).toBe("");
+  });
+});
+
+// ── Task 2.13c: counts derived from the page's own pool ─────────────────────
+
+describe("progressFromCards", () => {
+  const card = (status: string) => ({ status });
+
+  it("keeps an unread pool distinguishable from an empty one", () => {
+    // THE latch, at its root. `null` means the page has not read yet; `[]` means
+    // it read and there is nothing there. Collapsing them is what produced
+    // "No candidates gathered yet" over 148 gathered candidates, twice.
+    expect(progressFromCards(null)).toBeNull();
+    expect(progressFromCards([])).toEqual({ ruled: 0, total: 0 });
+  });
+
+  it("counts every card that is no longer undecided as ruled", () => {
+    const cards = [
+      card("included"),
+      card("dropped"),
+      card("undecided"),
+      card("undecided"),
+    ];
+    expect(progressFromCards(cards)).toEqual({ ruled: 2, total: 4 });
+  });
+
+  it("feeds a summary that is right whether the region is open or closed", () => {
+    // The property the whole restructure exists for: these counts do not depend
+    // on any component being mounted, so the collapsed header is as well-informed
+    // as the expanded one. A pool of 148 with 56 ruled says so either way.
+    const cards = [
+      ...Array.from({ length: 56 }, () => card("included")),
+      ...Array.from({ length: 92 }, () => card("undecided")),
+    ];
+    const progress = progressFromCards(cards);
+    expect(progress).toEqual({ ruled: 56, total: 148 });
+
+    const region = queueRegion(progress, WORDS);
+    expect(region.summary).toBe("Candidates awaiting ruling — 92");
+    expect(region.summary).not.toBe(WORDS.emptyPool);
+    expect(region.progressLabel).toBe("56 of 148 ruled");
   });
 });

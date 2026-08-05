@@ -183,3 +183,35 @@ export function nextUpHint(nextCode: string | null | undefined): string | null {
 export function keyboardShouldRule(regionOpen: boolean): boolean {
   return regionOpen;
 }
+
+/**
+ * The queue's counts, derived from the page's OWN pool (task 2.13c).
+ *
+ * ## Why this replaces `CardQueue` reporting them upward
+ *
+ * The summary was wrong on every fresh load — "No candidates gathered yet" three
+ * lines under "148 candidates gathered" — and it took three attempts to fix
+ * because the fault was structural, not a branch. `CardQueue` reported the counts
+ * from an effect on its FIRST render, before its own fetch resolved, so the
+ * section received `{0, 0}`; that computed a collapsed region, which unmounted
+ * `CardQueue`, which meant the real counts never arrived. A latch.
+ *
+ * The page already holds the pool — `ScenarioDetailPage` fetches `/facts/cards`
+ * and `CardQueue` fetched it a second time, a duplication the queue's own source
+ * comments already flagged. So the counts now come from the payload the page
+ * ALREADY has, and are correct whether the region is open or closed because
+ * nothing about them depends on a component being mounted.
+ *
+ * `null` in, `null` out: before the page's own fetch lands there is genuinely
+ * nothing measured, and that is the one state that must stay distinguishable
+ * from an empty pool.
+ */
+export function progressFromCards(
+  cards: { status: string }[] | null,
+): QueueProgress | null {
+  if (cards === null) return null;
+  return {
+    ruled: cards.filter((card) => card.status !== "undecided").length,
+    total: cards.length,
+  };
+}

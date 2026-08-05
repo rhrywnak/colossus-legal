@@ -31,20 +31,20 @@ use axum::{
     routing::post,
     Json, Router,
 };
-use serde::Deserialize;
 use serde_json::json;
 
 use crate::{
     auth::{require_edit, AuthUser},
-    domain::{fact_status::FactStatus, fact_tier::FactTier},
+    dto::scenario_curation::{MoveFactRequest, SetTierRequest},
     error::AppError,
     repositories::pipeline_repository::{
-        list_candidate_ordinals, list_fact_refs_for_scenario, set_fact_sort_ordinal, set_fact_tier,
+        clear_fact_sort_ordinal, set_fact_sort_ordinal, set_fact_tier,
     },
-    services::scenario_fact_order::{plan_move, MoveRefusal, OrderableFact},
+    services::scenario_fact_order::{plan_move, MoveRefusal},
     state::AppState,
 };
 
+use super::scenario_fact_curation_reads::read_orderable_facts;
 use super::scenario_facts::{ensure_scenario_in_case, parse_scenario_id};
 
 /// The route group for the two curation writes.
@@ -58,41 +58,13 @@ pub fn routes() -> Router<AppState> {
             "/cases/:slug/scenarios/:scenario_id/facts/:graph_node_id/order",
             post(move_fact),
         )
-}
-
-/// Body of the tier write.
-///
-/// `deny_unknown_fields` so a typo'd key is a 400 at the parse boundary rather
-/// than a silently ignored field, matching `FactActionRequest`'s stance. The
-/// `tier` field is the [`FactTier`] enum itself, so an undefined token fails to
-/// deserialize before the handler runs.
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct SetTierRequest {
-    pub tier: FactTier,
-}
-
-/// Body of the order write: the fact's two new neighbours.
-///
-/// ## Domain note: neighbours, not an index
-///
-/// An index describes a position in the list the BROWSER last drew. If anything
-/// has changed since — somebody else ruled, a merge landed — index 4 is a
-/// different row and the drop lands silently in the wrong place. Naming the two
-/// facts it was dropped between lets the server refuse by name when one of them
-/// is gone, which is the honest answer to a stale page.
-///
-/// Both `None` means the list has exactly one fact in that block. `after: None`
-/// is a drop at the very top; `before: None` at the very bottom.
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct MoveFactRequest {
-    /// The fact it now sits BELOW, or `None` when dropped at the top.
-    #[serde(default)]
-    pub after: Option<String>,
-    /// The fact it now sits ABOVE, or `None` when dropped at the bottom.
-    #[serde(default)]
-    pub before: Option<String>,
+        // Un-place: forget where a human dragged one fact. A DELETE on the same
+        // path the POST writes, because that is exactly what it does — it removes
+        // the placement, it does not create a different one.
+        .route(
+            "/cases/:slug/scenarios/:scenario_id/facts/:graph_node_id/order",
+            axum::routing::delete(unplace_fact),
+        )
 }
 
 /// `POST …/facts/:graph_node_id/tier` — record how much a fact carries.
@@ -107,20 +79,26 @@ pub async fn set_tier(
     let id = parse_scenario_id(&scenario_id)?;
     ensure_scenario_in_case(&state, id, &slug).await?;
 
-    let rows = set_fact_tier(&state.pipeline_pool, id, &graph_node_id, payload.tier)
-        .await
-        .map_err(|e| {
-            tracing::error!(
-                error = %e,
-                %graph_node_id,
-                scenario_id = %id,
-                author = %user.username,
-                "failed to store a fact's tier"
-            );
-            AppError::Internal {
-                message: "failed to save the weight".to_string(),
-            }
-        })?;
+    let rows = set_fact_tier(
+        &state.pipeline_pool,
+        id,
+        &graph_node_id,
+        payload.tier,
+        &user.username,
+    )
+    .await
+    .map_err(|e| {
+        tracing::error!(
+            error = %e,
+            %graph_node_id,
+            scenario_id = %id,
+            author = %user.username,
+            "failed to store a fact's tier"
+        );
+        AppError::Internal {
+            message: "failed to save the weight".to_string(),
+        }
+    })?;
 
     require_row_touched(
         rows,
@@ -187,20 +165,26 @@ async fn store_ordinal(
     ordinal: i32,
     author: &str,
 ) -> Result<(), AppError> {
-    let rows = set_fact_sort_ordinal(&state.pipeline_pool, scenario_id, graph_node_id, ordinal)
-        .await
-        .map_err(|e| {
-            tracing::error!(
-                error = %e,
-                %graph_node_id,
-                %scenario_id,
-                %author,
-                "failed to store a fact's position"
-            );
-            AppError::Internal {
-                message: "failed to save the new order".to_string(),
-            }
-        })?;
+    let rows = set_fact_sort_ordinal(
+        &state.pipeline_pool,
+        scenario_id,
+        graph_node_id,
+        ordinal,
+        author,
+    )
+    .await
+    .map_err(|e| {
+        tracing::error!(
+            error = %e,
+            %graph_node_id,
+            %scenario_id,
+            %author,
+            "failed to store a fact's position"
+        );
+        AppError::Internal {
+            message: "failed to save the new order".to_string(),
+        }
+    })?;
 
     // Unlike the tier path, a zero here names a genuine RACE: `plan_move` already
     // refused a fact that is not here, so the read SAW the row and the write did
@@ -286,97 +270,52 @@ fn log_move_refusal(
     );
 }
 
-/// The scenario's INCLUDED facts, in the shape the ordering service needs.
+/// `DELETE …/facts/:graph_node_id/order` — forget where a fact was placed.
 ///
-/// Only included ones: the facts list is what a human has put IN the scenario,
-/// and an undecided or dropped candidate has no place in an order it does not
-/// appear in. Filtering here rather than in the service keeps the service's input
-/// honest — it orders what it is given, and is never handed rows that should not
-/// be orderable.
-async fn read_orderable_facts(
-    state: &AppState,
-    scenario_id: uuid::Uuid,
-) -> Result<Vec<OrderableFact>, AppError> {
-    let refs = list_fact_refs_for_scenario(&state.pipeline_pool, scenario_id)
+/// Returns the fact to the list's natural (C-ordinal) order. Edit-gated and
+/// case-fenced like its siblings; a fact that is not in this scenario is a 404,
+/// never a silent success.
+#[tracing::instrument(skip(state, user), fields(slug = %slug, scenario_id = %scenario_id, graph_node_id = %graph_node_id))]
+pub async fn unplace_fact(
+    user: AuthUser,
+    State(state): State<AppState>,
+    Path((slug, scenario_id, graph_node_id)): Path<(String, String, String)>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    require_edit(&user)?;
+    let id = parse_scenario_id(&scenario_id)?;
+    ensure_scenario_in_case(&state, id, &slug).await?;
+
+    let rows = clear_fact_sort_ordinal(&state.pipeline_pool, id, &graph_node_id)
         .await
         .map_err(|e| {
-            tracing::error!(error = %e, %scenario_id, "failed to read fact refs for a move");
+            tracing::error!(
+                error = %e,
+                %graph_node_id,
+                scenario_id = %id,
+                author = %user.username,
+                "failed to clear a fact's position"
+            );
             AppError::Internal {
-                message: "failed to read this scenario's facts".to_string(),
+                message: "failed to clear the order".to_string(),
             }
         })?;
-    let ordinals = list_candidate_ordinals(&state.pipeline_pool, scenario_id)
-        .await
-        .map_err(|e| {
-            tracing::error!(error = %e, %scenario_id, "failed to read candidate ordinals for a move");
-            AppError::Internal {
-                message: "failed to read this scenario's facts".to_string(),
-            }
-        })?;
 
-    let mut out = Vec::new();
-    for r in refs {
-        // `flatten` in effect: a ref that is not included yields `None` and is
-        // skipped, while an UNREADABLE one propagates. The two are different
-        // answers and the `?` keeps them so.
-        if let Some(fact) = decode_orderable(r, &ordinals, scenario_id)? {
-            out.push(fact);
-        }
-    }
-    Ok(out)
-}
+    require_row_touched(
+        rows,
+        &user.username,
+        &graph_node_id,
+        id,
+        "no fact ref matched when clearing a position; the fact left the scenario \
+         between the page load and this write",
+    )?;
 
-/// One reference row as an orderable fact, or `None` when it is not included.
-///
-/// ## Why both decodes are loud, and the skip is not
-///
-/// "This fact is not included" is a normal answer — the queue is full of
-/// candidates nobody has ruled in, and they have no place in an order they do not
-/// appear in. That is a `None`.
-///
-/// A status or tier token this build cannot READ is not an answer at all, it is a
-/// data-integrity fault. Treating an unreadable status as "not included" would
-/// silently drop a fact out of the list the human is rearranging; treating an
-/// unreadable tier as `backup` would move it into the wrong block. Both refuse,
-/// and both name the row and the scenario in the log (Standing Rule 1).
-fn decode_orderable(
-    r: crate::repositories::pipeline_repository::ScenarioFactRefRecord,
-    ordinals: &std::collections::HashMap<String, i32>,
-    scenario_id: uuid::Uuid,
-) -> Result<Option<OrderableFact>, AppError> {
-    let status = FactStatus::try_from(r.status.as_str()).map_err(|e| {
-        tracing::error!(
-            error = %e,
-            graph_node_id = %r.graph_node_id,
-            %scenario_id,
-            "scenario_fact_refs carries a status token this build does not define"
-        );
-        AppError::Internal {
-            message: "failed to read this scenario's facts".to_string(),
-        }
-    })?;
-    if status != FactStatus::Included {
-        return Ok(None);
-    }
-
-    let tier = FactTier::try_from(r.tier.as_str()).map_err(|e| {
-        tracing::error!(
-            error = %e,
-            graph_node_id = %r.graph_node_id,
-            %scenario_id,
-            "scenario_fact_refs carries a tier token this build does not define"
-        );
-        AppError::Internal {
-            message: "failed to read this scenario's facts".to_string(),
-        }
-    })?;
-
-    Ok(Some(OrderableFact {
-        code_ordinal: ordinals.get(&r.graph_node_id).copied(),
-        graph_node_id: r.graph_node_id,
-        sort_ordinal: r.sort_ordinal,
-        tier,
-    }))
+    tracing::info!(
+        author = %user.username,
+        %graph_node_id,
+        scenario_id = %id,
+        "cleared a fact's position"
+    );
+    Ok(Json(json!({ "sort_ordinal": serde_json::Value::Null })))
 }
 
 /// Map a [`MoveRefusal`] onto its HTTP status, keeping the service HTTP-free.

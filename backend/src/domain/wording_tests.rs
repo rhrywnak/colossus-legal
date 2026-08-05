@@ -169,6 +169,9 @@ const SLICE1_MIGRATION: &str = "pipeline_migrations/20260805092240_facts_prep_sl
 /// The queue's counting-state row — the third state 2.13 was missing.
 const COUNTING_MIGRATION: &str =
     "pipeline_migrations/20260805120900_queue_counting_state_wording.sql";
+/// Task 2.13c's five rows — the answer label, the background-move notice, the
+/// weights hint, the honest footer, and the un-place control.
+const POLISH_MIGRATION: &str = "pipeline_migrations/20260805145731_facts_polish_2_13c_wording.sql";
 
 /// Pull one key's seeded value out of the migration's INSERT.
 ///
@@ -234,6 +237,8 @@ fn the_wording_fixture_carries_the_values_the_migration_actually_seeds() {
         .expect("the 2.13 slice-1 wording migration is on disk");
     let counting = std::fs::read_to_string(root.join(COUNTING_MIGRATION))
         .expect("the queue counting-state wording migration is on disk");
+    let polish = std::fs::read_to_string(root.join(POLISH_MIGRATION))
+        .expect("the 2.13c polish wording migration is on disk");
 
     let fixture = Wording::for_test_values();
     let mut checked = 0usize;
@@ -243,6 +248,7 @@ fn the_wording_fixture_carries_the_values_the_migration_actually_seeds() {
             .or_else(|| seeded_value_in(&correction, key))
             .or_else(|| seeded_value_in(&slice1, key))
             .or_else(|| seeded_value_in(&counting, key))
+            .or_else(|| seeded_value_in(&polish, key))
             .unwrap_or_else(|| panic!("{key} is not seeded by any migration"));
         let in_fixture = fixture
             .get(*key)
@@ -260,10 +266,10 @@ fn the_wording_fixture_carries_the_values_the_migration_actually_seeds() {
     // Anti-vacuity: a parsing change that stopped finding rows would otherwise
     // make this test pass while comparing nothing.
     assert_eq!(
-        checked, 43,
-        "all forty-three stored strings must be compared"
+        checked, 48,
+        "all forty-eight stored strings must be compared"
     );
-    assert_eq!(WORDING_KEYS.len(), 43);
+    assert_eq!(WORDING_KEYS.len(), 48);
 }
 
 // ── Item A's correction: the one that can ship a lying button ────────────────

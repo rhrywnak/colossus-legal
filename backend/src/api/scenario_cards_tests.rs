@@ -42,6 +42,12 @@ fn fact_ref(node: &str, status: &str) -> ScenarioFactRefRecord {
             .code()
             .to_string(),
         sort_ordinal: None,
+        // Task 2.13c: nobody has weighed or placed these fixtures, which is
+        // the honest state for a reference nothing has curated.
+        tier_updated_by: None,
+        tier_updated_at: None,
+        order_updated_by: None,
+        order_updated_at: None,
     }
 }
 
@@ -166,4 +172,60 @@ fn every_defined_tier_token_decodes_on_the_card_path() {
             "{tier:?} must reach the card as itself",
         );
     }
+}
+
+// ── Task 2.13c: only INCLUDED facts get a place in the list ─────────────────
+
+#[test]
+fn only_included_facts_receive_a_display_position() {
+    // `apply_display_order`'s filter is the ONLY thing stopping a dropped or
+    // undecided candidate from being handed a position in the facts list. Invert
+    // or delete that predicate and set-aside cards would sort into a list they do
+    // not belong to — with nothing else in the codebase to notice.
+    let mut states = build_ref_states(vec![
+        fact_ref("ev-in-1", "included"),
+        fact_ref("ev-in-2", "included"),
+        fact_ref("ev-dropped", "dropped"),
+        fact_ref("ev-undecided", "undecided"),
+    ])
+    .expect("every token here is one this build defines");
+
+    apply_display_order(&mut states, &ordinals(&[("ev-in-1", 1), ("ev-in-2", 2)]));
+
+    assert!(
+        states["ev-in-1"].display_ordinal.is_some(),
+        "an included fact is in the list and must have a place in it",
+    );
+    assert!(states["ev-in-2"].display_ordinal.is_some());
+    assert_eq!(
+        states["ev-dropped"].display_ordinal, None,
+        "a set-aside candidate has no position in a list it does not appear in",
+    );
+    assert_eq!(
+        states["ev-undecided"].display_ordinal, None,
+        "an unruled candidate is not in the facts list at all",
+    );
+}
+
+#[test]
+fn the_positions_it_assigns_are_distinct_and_ordered_by_candidate_number() {
+    // Two facts sharing a position would make the list's order depend on hash
+    // iteration — different on different runs, which reads as the list shuffling
+    // itself. `apply_display_order` walks a HashMap, so this is a real hazard and
+    // not a theoretical one.
+    let mut states = build_ref_states(vec![
+        fact_ref("ev-second", "included"),
+        fact_ref("ev-first", "included"),
+    ])
+    .expect("valid tokens");
+
+    apply_display_order(&mut states, &ordinals(&[("ev-first", 1), ("ev-second", 2)]));
+
+    let first = states["ev-first"].display_ordinal.expect("placed");
+    let second = states["ev-second"].display_ordinal.expect("placed");
+    assert_ne!(first, second, "two facts must not share one position");
+    assert!(
+        first < second,
+        "an untouched list follows the candidate numbers: C-1 before C-2",
+    );
 }

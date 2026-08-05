@@ -503,6 +503,24 @@ pub struct ScenarioFactRefRecord {
     /// cannot decode NUMERIC in this tree (no `rust_decimal`/`bigdecimal`), which
     /// is what killed beta.364.
     pub sort_ordinal: Option<i32>,
+    /// Who last set this fact's weight, and when — or `None` when nobody has
+    /// (task 2.13c).
+    ///
+    /// ## Domain note: why the absence is never filled in
+    ///
+    /// `None` means no human has performed this act on this row. Every row that
+    /// predates the columns reads that way, and so does a fact nobody has
+    /// weighed. Backfilling an author would put a name against a decision that
+    /// person did not make — on a record that may be read in a legal context,
+    /// that is worse than no name at all (Standing Rule 1: the unknown state
+    /// stays distinguishable rather than guessed).
+    pub tier_updated_by: Option<String>,
+    pub tier_updated_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// Who last placed this fact in the scenario's order, and when. Separate
+    /// from the tier pair because weighing and placing are independent acts and
+    /// either human may be the more recent.
+    pub order_updated_by: Option<String>,
+    pub order_updated_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 // CONST: column projection locked to the `scenario_fact_refs` schema — a
@@ -525,7 +543,8 @@ pub struct ScenarioFactRefRecord {
 // which is why `columns_cover_every_record_field` pins the two lists against each
 // other rather than leaving the coupling to review.
 const SCENARIO_FACT_REF_COLUMNS: &str = "scenario_id, graph_node_id, role_in_this_scenario, \
-     status, note, confidence, source_run_id, tagged_at, defer_reason, tier, sort_ordinal";
+     status, note, confidence, source_run_id, tagged_at, defer_reason, tier, sort_ordinal, \
+     tier_updated_by, tier_updated_at, order_updated_by, order_updated_at";
 
 /// Tag a graph fact into a scenario, or re-tag it in place (composite-key
 /// upsert on `(scenario_id, graph_node_id)`).

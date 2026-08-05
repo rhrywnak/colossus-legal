@@ -314,6 +314,24 @@ pub struct ScenarioCard {
     /// fact sorts after every placed one, a fact placed at 0 sorts first.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sort_ordinal: Option<i32>,
+    /// Where this fact sits in the scenario's list, as ONE number the client
+    /// sorts on (task 2.13c).
+    ///
+    /// ## Why the server sends the position rather than the client deriving it
+    ///
+    /// `sort_ordinal` alone is not enough to order the list: most facts have
+    /// none, and the rule for where an unplaced fact goes relative to a placed
+    /// one is arithmetic (`services::scenario_fact_order`) that the browser would
+    /// have to reimplement — the same constant and the same tie-breaks, in a
+    /// second place, drifting from the first. It already went wrong once: a
+    /// re-included fact landed fourth because the two sides disagreed about what
+    /// "end of list" meant.
+    ///
+    /// So the ordering is computed once, here, and the client sorts ascending on
+    /// this number and nothing else. `None` for a card that is not an included
+    /// fact — an unruled candidate has no position in a list it is not in.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_ordinal: Option<i32>,
     /// The stance WITH its object, or `None` — never a bare verb. See
     /// [`CardStance`].
     pub stance: Option<CardStance>,

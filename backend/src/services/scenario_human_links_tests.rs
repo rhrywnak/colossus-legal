@@ -254,6 +254,7 @@ fn stuck_card(node: &str, links: Vec<CardHumanLink>) -> ScenarioCard {
         // unruled candidate — no weight, no place.
         tier: None,
         sort_ordinal: None,
+        display_ordinal: None,
         quote: CardQuote {
             text: "I do not recall.".to_string(),
             context_before: String::new(),

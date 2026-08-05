@@ -625,12 +625,15 @@ describe("the facts cards keep their visual rhythm (task 2.13b)", () => {
    * together the first time somebody tidies a layout, so the RATIO is the fence.
    */
   it("separates cards by more than three times the largest gap inside one", () => {
-    const source = read("components/FactRow.tsx");
+    // The scale moved to `factRowStyles` in 2.13c, when FactRow was split for
+    // the 300-line limit. Keeping the whole scale in one module is also what
+    // makes "two text sizes, total" checkable by reading a file.
+    const source = read("components/factRowStyles.ts");
     const gap = Number(/CARD_GAP_PX = (\d+)/.exec(source)?.[1]);
     const intra = Number(/MAX_INTRA_GAP_PX = (\d+)/.exec(source)?.[1]);
 
-    expect(gap, "CARD_GAP_PX must be declared in FactRow").toBeGreaterThan(0);
-    expect(intra, "MAX_INTRA_GAP_PX must be declared in FactRow").toBeGreaterThan(0);
+    expect(gap, "CARD_GAP_PX must be declared in factRowStyles").toBeGreaterThan(0);
+    expect(intra, "MAX_INTRA_GAP_PX must be declared in factRowStyles").toBeGreaterThan(0);
     expect(gap / intra).toBeGreaterThanOrEqual(3);
   });
 
@@ -639,7 +642,7 @@ describe("the facts cards keep their visual rhythm (task 2.13b)", () => {
     // rows inside one surface, which is what the cards used to be. A card's edge
     // is a different job and now has its own token at 1.60:1. Reverting to the
     // divider is the exact regression Roman reported.
-    const source = read("components/FactRow.tsx");
+    const source = read("components/FactRow.tsx") + read("components/factRowStyles.ts");
     expect(source).toContain("var(--border-card)");
     expect(
       source,
@@ -652,7 +655,12 @@ describe("the facts cards keep their visual rhythm (task 2.13b)", () => {
     // for quotes, metadata a size step DOWN rather than faded, and bold reserved
     // for the C-code. Ad-hoc per-element font styling is what this replaces, so
     // the sizes must come from the two named constants and nowhere else.
-    const source = read("components/FactRow.tsx");
+    // All three files the card is now built from — the scale, the parts and the
+    // shell — so splitting a component cannot smuggle a third size back in.
+    const source =
+      read("components/FactRow.tsx") +
+      read("components/FactRowParts.tsx") +
+      read("components/factRowStyles.ts");
     const literalSizes = source.match(/fontSize: "(?!var)[^"]+"/g) ?? [];
     expect(
       literalSizes,
@@ -673,5 +681,86 @@ describe("the facts cards keep their visual rhythm (task 2.13b)", () => {
     expect(source, "a fixed minHeight would cut the spine short").not.toMatch(
       /spineStyle[\s\S]{0,400}minHeight/,
     );
+  });
+});
+
+// ── Task 2.13c: the two drag fixes, both of which fail silently ─────────────
+
+describe("a drag can actually start and can actually land (task 2.13c)", () => {
+  /**
+   * Roman dragged a card with a real mouse and nothing happened — no error, no
+   * request. Two independent causes, and BOTH fail in total silence, which is
+   * why each gets a fence rather than a comment.
+   */
+  it("sets drag data, without which Firefox cancels the drag outright", () => {
+    // Chrome starts a drag on a `draggable` element whether or not `dragstart`
+    // sets data; Firefox does not — it cancels, with no event and nothing on
+    // screen. That is why this worked under test and not for him.
+    const source = read("components/FactRow.tsx");
+    expect(
+      source,
+      "dragstart must set data or Firefox silently refuses the drag",
+    ).toContain("dataTransfer");
+    expect(source).toMatch(/setData\(/);
+  });
+
+  it("gives the space between cards to a card, not to the container", () => {
+    // 2.13b separated the cards with a flex `gap` on the scroll region. A flex
+    // gap belongs to the CONTAINER, which has no drop handler — so every seam
+    // became 20px of dead zone, and the seam is exactly where you aim to put a
+    // card BETWEEN two others. The space is now each card's bottom margin, so it
+    // is part of that card's drop target.
+    const row = read("components/FactRow.tsx");
+    expect(row, "the card must own its separating space").toContain("marginBottom");
+
+    const view = read("components/WorkingView.tsx");
+    const region = /factsScrollRegionStyle[\s\S]{0,900}?\};/.exec(view)?.[0] ?? "";
+    expect(region, "the scroll region must not re-introduce a flex gap").not.toMatch(
+      /\n\s*gap:/,
+    );
+  });
+
+  it("keeps the queue's counts off the queue component", () => {
+    // The latch: `CardQueue` reported counts from an effect on first render,
+    // before its own fetch resolved, and the resulting collapse unmounted it so
+    // the real counts never arrived. The section now derives them from the page's
+    // pool, so a re-introduced `onProgress` would restore the bug.
+    const scan = read("components/ScanSection.tsx");
+    expect(scan).toContain("progressFromCards");
+    expect(
+      scan,
+      "the queue must not report its own counts upward again",
+    ).not.toContain("onProgress");
+  });
+});
+
+// ── 2.13c amendment: a card must be draggable past the visible window ───────
+
+describe("the facts region scrolls itself during a drag", () => {
+  it("drives the auto-scroll from the scroll region, not from a card", () => {
+    // Roman, real mouse on .378: seam-drops landed correctly, but the list
+    // scrolls in its own region and nothing moved that region mid-drag — so a
+    // card could only go as far as the visible window, and the scrollbar is
+    // unreachable while holding one. The handlers must sit on the REGION: a card
+    // cannot scroll a container it does not own, and the cursor leaves the cards
+    // entirely when it enters the edge band.
+    const view = read("components/WorkingView.tsx");
+    expect(view).toContain("useDragAutoScroll");
+    expect(view, "the region must receive the ref that gets scrolled").toContain(
+      "ref={autoScroll.regionRef}",
+    );
+  });
+
+  it("stops the frame loop on every way a drag can end", () => {
+    // A loop left running scrolls a region nobody is dragging over — and after an
+    // unmount, a detached node forever. Drop, dragend and leaving the region are
+    // three genuinely different endings and all three must stop it.
+    const view = read("components/WorkingView.tsx");
+    for (const ending of ["onDrop=", "onDragEnd=", "onDragLeave="]) {
+      expect(view, `${ending} must end the auto-scroll`).toContain(ending);
+    }
+    // The hook itself must clean up on unmount, which no component-level handler
+    // can do for it.
+    expect(read("components/dragAutoScroll.ts")).toContain("useEffect(() => stop");
   });
 });

@@ -10,7 +10,7 @@ use axum::{extract::State, Json};
 use serde::Serialize;
 
 use crate::api::embed::ErrorResponse;
-use crate::auth::{require_ai, AuthUser};
+use crate::auth::{require_ai, require_edit, AuthUser};
 use crate::domain::billing_class::BillingClass;
 use crate::repositories::pipeline_repository::models;
 use crate::state::AppState;
@@ -158,7 +158,26 @@ pub async fn list_chat_models(
 /// retired-but-extraction-active models stay out of the scan picker without being
 /// deactivated (ruling A). Chat's `/api/chat/models` is deliberately untouched.
 ///
-/// Requires AI-role auth, matching `/api/chat/models` — a model-catalog read.
+/// ## Why this is EDIT-gated while `/api/chat/models` stays AI-gated (task 2.13c)
+///
+/// It used to require the AI role, by analogy with the chat catalogue. That put
+/// the gate in the wrong place: **the expensive action was the more permissive
+/// one.** Running a theme scan spends real LLM calls and is `require_edit`
+/// (`api::scenario_theme_scan`), so a legal editor could START a billed scan but
+/// could not LIST the models to choose which one to spend money on — the picker
+/// read "Could not load models" for exactly the people entitled to use it.
+///
+/// So this read now matches the write it serves. It widens nobody's spending
+/// power, because that was already `require_edit`.
+///
+/// The payload carries `model_id`, `display_name`, `is_default`, `billing_class`,
+/// the composed label and operator warnings — no credentials, no keys, nothing
+/// admin-only. `billing_class` and its "(API — billed)" label make cost MORE
+/// visible to the person about to incur it, which is the opposite of a leak.
+///
+/// `/api/chat/models` and `/api/ask` deliberately stay on `require_ai`: those are
+/// AI CONSUMPTION surfaces, and the AI role is exactly the right fence for them.
+///
 /// `default_model` / `is_default` mark the scan default: `THEME_SCAN_MODEL` when
 /// configured, else the chat default (which, being scan-ineligible, simply yields
 /// `is_default = false` for every listed model — the frontend then selects the
@@ -167,7 +186,7 @@ pub async fn list_scan_models(
     user: AuthUser,
     State(state): State<AppState>,
 ) -> Result<Json<ChatModelsResponse>, ApiError> {
-    require_ai(&user).map_err(|e| {
+    require_edit(&user).map_err(|e| {
         (
             axum::http::StatusCode::FORBIDDEN,
             Json(ErrorResponse { error: e.message }),

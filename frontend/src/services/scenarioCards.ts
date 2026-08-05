@@ -208,6 +208,12 @@ export type ScenarioCard = {
    *  Carried so a drag can name its neighbours — never so the browser can
    *  re-derive the order the server already computed. */
   sort_ordinal?: number;
+  /** Where this fact sits in the list — the ONE number to sort on (task 2.13c).
+   *  Computed server-side over the whole included set, because the rule for
+   *  placing an unplaced fact relative to a placed one is arithmetic the browser
+   *  must not own a second copy of. Absent for anything that is not an included
+   *  fact. */
+  display_ordinal?: number;
 };
 
 /** The three weights a fact can carry (task 2.13). Mirrors the backend enum. */

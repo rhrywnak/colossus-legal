@@ -125,3 +125,36 @@ export async function setFactOrder(
     throw new Error(`HTTP ${response.status}${detail}`);
   }
 }
+
+/**
+ * Forget where one fact was placed, returning it to the list's natural order.
+ *
+ * ## Why un-placing needed a call of its own
+ *
+ * Until task 2.13c a drag was permanent: the ordinal could be overwritten but
+ * never cleared, so the only way to undo a placement was to remove the fact from
+ * the scenario — a ruling, ledgered, with side effects — to undo a presentation
+ * judgment. A feature you cannot back out of is one people stop touching.
+ *
+ * `DELETE` on the same path the position is written to, because that is exactly
+ * what this does: it removes the placement rather than storing a different one.
+ *
+ * @throws Error on any non-2xx, carrying the status. A 404 means the fact is not
+ *   in this scenario — a stale page — and the caller surfaces it rather than
+ *   leaving a control that appears to have worked.
+ */
+export async function clearFactOrder(
+  slug: string,
+  scenarioId: string,
+  graphNodeId: string,
+): Promise<void> {
+  const response = await authFetch(
+    `${factUrl(slug, scenarioId, graphNodeId)}/order`,
+    { method: "DELETE" },
+  );
+
+  if (!response.ok) {
+    const detail = await readErrorMessage(response);
+    throw new Error(`HTTP ${response.status}${detail}`);
+  }
+}

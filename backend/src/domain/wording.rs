@@ -144,6 +144,18 @@ pub struct Wording {
     /// measured the pool. A third state, distinct from both "no candidates" and
     /// "all ruled": a queue that has not looked must not report either result.
     pub queue_counting_summary: String,
+
+    // ── Task 2.13c ───────────────────────────────────────────────────────────
+    /// Marks the answer beneath its question, as the question label's partner.
+    pub fact_answer_label: String,
+    /// Said when a fact is weighed down into the background pile. Carries `{code}`.
+    pub fact_background_move_notice: String,
+    /// The line under the section heading naming the weights and the drag.
+    pub fact_weights_hint: String,
+    /// The count beneath the list. Carries `{shown}` and `{background}`.
+    pub fact_footer_template: String,
+    /// The control that forgets where a human dragged one fact.
+    pub fact_unplace_label: String,
 }
 
 /// Whether the background pile starts folded away.
@@ -227,6 +239,11 @@ pub(crate) const KEY_FACT_ORDER_SAVE_FAILED: &str = "fact_order_save_failed_temp
 pub(crate) const KEY_QUEUE_EMPTY_POOL: &str = "queue_empty_pool_summary";
 pub(crate) const KEY_QUEUE_ALL_RULED: &str = "queue_all_ruled_summary";
 pub(crate) const KEY_QUEUE_COUNTING: &str = "queue_counting_summary";
+pub(crate) const KEY_FACT_ANSWER_LABEL: &str = "fact_answer_label";
+pub(crate) const KEY_FACT_BG_MOVE_NOTICE: &str = "fact_background_move_notice";
+pub(crate) const KEY_FACT_WEIGHTS_HINT: &str = "fact_weights_hint";
+pub(crate) const KEY_FACT_FOOTER: &str = "fact_footer_template";
+pub(crate) const KEY_FACT_UNPLACE_LABEL: &str = "fact_unplace_label";
 
 /// Every wording key this build reads, so a missing one is caught at boot by name.
 ///
@@ -278,6 +295,11 @@ pub const WORDING_KEYS: &[&str] = &[
     KEY_QUEUE_EMPTY_POOL,
     KEY_QUEUE_ALL_RULED,
     KEY_QUEUE_COUNTING,
+    KEY_FACT_ANSWER_LABEL,
+    KEY_FACT_BG_MOVE_NOTICE,
+    KEY_FACT_WEIGHTS_HINT,
+    KEY_FACT_FOOTER,
+    KEY_FACT_UNPLACE_LABEL,
 ];
 
 /// The placeholders a stored string MUST still contain after a human edits it.
@@ -307,6 +329,10 @@ pub const REQUIRED_PLACEHOLDERS: &[(&str, &[&str])] = &[
     // surface where several rows look alike.
     (KEY_FACT_TIER_SAVE_FAILED, &["{code}", "{reason}"]),
     (KEY_FACT_ORDER_SAVE_FAILED, &["{code}", "{reason}"]),
+    // A card that vanishes without naming itself is the defect this prevents.
+    (KEY_FACT_BG_MOVE_NOTICE, &["{code}"]),
+    // The old footer called folded facts "shown"; only two numbers are honest.
+    (KEY_FACT_FOOTER, &["{shown}", "{background}"]),
 ];
 
 /// Which required placeholders a candidate value is missing, for one key.
@@ -480,6 +506,11 @@ pub fn build_wording<E>(read: impl Fn(&str) -> Result<String, E>) -> Result<Word
         queue_empty_pool_summary: read(KEY_QUEUE_EMPTY_POOL)?,
         queue_all_ruled_summary: read(KEY_QUEUE_ALL_RULED)?,
         queue_counting_summary: read(KEY_QUEUE_COUNTING)?,
+        fact_answer_label: read(KEY_FACT_ANSWER_LABEL)?,
+        fact_background_move_notice: read(KEY_FACT_BG_MOVE_NOTICE)?,
+        fact_weights_hint: read(KEY_FACT_WEIGHTS_HINT)?,
+        fact_footer_template: read(KEY_FACT_FOOTER)?,
+        fact_unplace_label: read(KEY_FACT_UNPLACE_LABEL)?,
     })
 }
 
@@ -577,6 +608,13 @@ impl Wording {
             queue_empty_pool_summary: "No candidates gathered yet".to_string(),
             queue_all_ruled_summary: "All candidates ruled".to_string(),
             queue_counting_summary: "Counting candidates…".to_string(),
+            fact_answer_label: "A:".to_string(),
+            fact_background_move_notice: "{code} moved to the background pile — show".to_string(),
+            fact_weights_hint: "Star each fact by how much it carries — carries, backup, \
+                                background — and drag to set the order."
+                .to_string(),
+            fact_footer_template: "{shown} shown · {background} in background".to_string(),
+            fact_unplace_label: "Clear my order".to_string(),
         }
     }
 
@@ -636,6 +674,11 @@ impl Wording {
                     KEY_QUEUE_EMPTY_POOL => w.queue_empty_pool_summary.clone(),
                     KEY_QUEUE_ALL_RULED => w.queue_all_ruled_summary.clone(),
                     KEY_QUEUE_COUNTING => w.queue_counting_summary.clone(),
+                    KEY_FACT_ANSWER_LABEL => w.fact_answer_label.clone(),
+                    KEY_FACT_BG_MOVE_NOTICE => w.fact_background_move_notice.clone(),
+                    KEY_FACT_WEIGHTS_HINT => w.fact_weights_hint.clone(),
+                    KEY_FACT_FOOTER => w.fact_footer_template.clone(),
+                    KEY_FACT_UNPLACE_LABEL => w.fact_unplace_label.clone(),
                     // Unreachable by construction: the match above covers every
                     // entry of WORDING_KEYS, and the test below proves it. A panic
                     // here would only fire in a test binary, on a key someone added

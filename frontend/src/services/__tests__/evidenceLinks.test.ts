@@ -14,6 +14,7 @@ import {
   fillCode,
   fillCodeAndReason,
   fillCount,
+  fillCounts,
   fillDetail,
 } from "../evidenceLinks";
 
@@ -123,5 +124,51 @@ describe("fillCount", () => {
     expect(fillCount("{count} in the background · show", 0)).toBe(
       "0 in the background · show",
     );
+  });
+});
+
+describe("fillCounts", () => {
+  it("fills both counts, each into its own slot", () => {
+    expect(fillCounts("{shown} shown · {background} in background", 36, 10)).toBe(
+      "36 shown · 10 in background",
+    );
+  });
+
+  it("does not swap the two numbers", () => {
+    // Two integers in one template is exactly the shape where an argument-order
+    // slip is invisible on review and wrong on screen. The asymmetric values are
+    // the point: 36/10 reads differently from 10/36.
+    const filled = fillCounts("{shown}|{background}", 36, 10);
+    expect(filled).toBe("36|10");
+    expect(filled).not.toBe("10|36");
+  });
+
+  it("fills slots in either order in the template", () => {
+    // A human may reword this row to lead with the folded count. The template
+    // decides the sentence; the function must not assume a fixed order.
+    expect(fillCounts("{background} hidden, {shown} visible", 36, 10)).toBe(
+      "10 hidden, 36 visible",
+    );
+  });
+
+  it("leaves a token it does not own alone", () => {
+    // NOT the re-scan bug — with `number` arguments a substituted value cannot
+    // contain a token, so that scenario is unreachable here; `fillCodeAndReason`
+    // above is where it is real and where it is tested. What this pins is
+    // narrower and still worth pinning: the regex replaces only the two names it
+    // owns and leaves every other brace token in the stored text untouched.
+    expect(fillCounts("{shown} and {background}", 1, 2)).toBe("1 and 2");
+    // A template whose literal text happens to contain a brace token is left
+    // exactly as written once its own slots are filled.
+    expect(fillCounts("{shown} of {background} — see {other}", 3, 4)).toBe(
+      "3 of 4 — see {other}",
+    );
+  });
+
+  it("returns a template with no slots unchanged", () => {
+    // The write path refuses an edit that drops either placeholder, so reaching
+    // here means the store was edited around the API. Showing the sentence as
+    // stored is how a reader finds out.
+    expect(fillCounts("no counts here", 36, 10)).toBe("no counts here");
   });
 });
