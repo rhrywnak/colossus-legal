@@ -425,4 +425,119 @@ describe("the live facts update and the summary override (task 1.7F)", () => {
     expect(queue).toContain("await saveQuestionOverride(slug, graphNodeId, text);");
     expect(queue).toContain("await load();");
   });
+
+  /**
+   * The source between two markers, or a loud failure.
+   *
+   * `String.indexOf` returns -1 for a marker that is not there, and
+   * `slice(-1, n)` then yields a one-character string — on which every
+   * `not.toContain` assertion passes trivially. That is a guard that silently
+   * stops guarding the day somebody renames a function, which is the one failure
+   * mode a structure test must not have.
+   */
+  function between(source: string, start: string, end: string): string {
+    const from = source.indexOf(start);
+    const to = source.indexOf(end, from + start.length);
+    if (from === -1) throw new Error(`marker not found: ${start}`);
+    if (to === -1) throw new Error(`marker not found after ${start}: ${end}`);
+    return source.slice(from, to);
+  }
+
+  /**
+   * One self-closing JSX element with its props, brace-aware.
+   *
+   * A naive scan to the first `/>` breaks on an inline JSX prop value — 
+   * `icon={<X />}` would end the element early, and the assertions below would
+   * then pass while inspecting half the props. Tracking `{}` depth means a `/>`
+   * inside an expression value is skipped, so this ends at the element's own
+   * self-close or throws.
+   */
+  function jsxElement(source: string, name: string): string {
+    const from = source.indexOf(`<${name}`);
+    if (from === -1) throw new Error(`element not mounted: <${name}`);
+    let depth = 0;
+    for (let i = from; i < source.length - 1; i += 1) {
+      const c = source[i];
+      if (c === "{") depth += 1;
+      else if (c === "}") depth -= 1;
+      else if (depth === 0 && c === "/" && source[i + 1] === ">") {
+        return source.slice(from, i + 2);
+      }
+    }
+    throw new Error(`<${name}> is not self-closing, or never closes`);
+  }
+
+  it("removing an EVIDENCE fact uses the cards-only refresh, not the page one", () => {
+    // Measured on DEV (beta.374): wiring this to the page-level refresh collapsed
+    // the candidate queue region on every removal, throwing the human out of the
+    // list they were working. `ScenarioDetailPage` already states the rule — the
+    // page refresh is "wrong after a ruling: it would disturb the queue's
+    // selection mid-triage" — and a removal IS a ruling, ledgered through
+    // `record_removal`.
+    const page = read("pages", "ScenarioDetailPage.tsx");
+    const section = jsxElement(page, "ScenarioFactsSection");
+
+    expect(section).toContain("onFactRemoved={refreshAfterRemoval}");
+    expect(section).toContain("onChanged={refresh}");
+    // The defect itself, named: the heavy refresh must never be the one a
+    // removal fires.
+    expect(section).not.toContain("onFactRemoved={refresh}");
+
+    const facts = read("components", "ScenarioFactsSection.tsx");
+    const removeFact = between(facts, "const removeFact", "const included");
+    expect(removeFact).toContain("onFactRemoved()");
+    expect(removeFact).not.toContain("onChanged()");
+  });
+
+  it("…and a HUMAN fact still uses the page-level one, which is the other half", () => {
+    // The symmetric guard. Human facts live in the augmentation payload, which
+    // ONLY the page-level read fetches — so "simplifying" both callbacks onto the
+    // light one would leave additions and deletions apparently accepted and
+    // invisible, with nothing failing. Without this assertion the fence the
+    // commit describes is only half built.
+    const facts = read("components", "ScenarioFactsSection.tsx");
+
+    const removeHumanFact = between(facts, "const removeHumanFact", "const removeFact");
+    expect(removeHumanFact).toContain("onChanged()");
+    expect(removeHumanFact).not.toContain("onFactRemoved()");
+
+    // The add path is the same contract, reached through the form's onSaved.
+    const addForm = jsxElement(facts, "AddHumanFactForm");
+    expect(addForm).toContain("onChanged()");
+    expect(addForm).not.toContain("onFactRemoved()");
+  });
+
+  it("a removal reloads the QUEUE's pool too, or the two surfaces disagree", () => {
+    // The second half of the same defect, and the one that is invisible: the
+    // facts list is fed by the page's `cards` state, while the queue's counts
+    // are fed by `CardQueue`'s OWN fetch, keyed on `externalRefresh`. Bumping
+    // only the page's key left the card gone from the facts list and still
+    // "included" in the queue, with nothing on screen saying which was right.
+    //
+    // Reloading the pool is safe: `cards_loaded` preserves the human's place,
+    // and a removal changes a card's status without changing pool membership.
+    const page = read("pages", "ScenarioDetailPage.tsx");
+
+    const scan = jsxElement(page, "ScanSection");
+    expect(scan).toContain("externalRefresh={pageRefreshKey + queueRefreshKey}");
+
+    const removal = between(page, "const refreshAfterRemoval", "}, []);");
+    expect(removal).toContain("setCardsRefreshKey");
+    expect(removal).toContain("setQueueRefreshKey");
+
+    // And it is still NOT the page-level read, which is what collapsed the
+    // queue's region on beta.374.
+    expect(removal).not.toContain("setPageRefreshKey");
+  });
+
+  it("the two refresh keys are still two, and still say why", () => {
+    // The seam that has now produced two defects in two builds. The keys are
+    // named apart deliberately; collapsing them is the one-line "simplification"
+    // that reintroduces the disturbance, and the comment saying so is what a
+    // future reader has to meet before doing it.
+    const page = read("pages", "ScenarioDetailPage.tsx");
+    expect(page).toContain("const refresh = useCallback(() => setPageRefreshKey");
+    expect(page).toContain("const refreshCards = useCallback(() => setCardsRefreshKey");
+    expect(page).toMatch(/wrong after a ruling/);
+  });
 });

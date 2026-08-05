@@ -44,8 +44,29 @@ interface Props {
   cards: ScenarioCard[];
   /** C4: facts a human wrote, with no citation by design. */
   humanFacts: HumanFactDto[];
-  /** Re-read after a human fact is added or removed. */
+  /** Re-read the WHOLE page after a human fact is added or removed.
+   *
+   *  Human facts live in the augmentation payload, which only the page-level read
+   *  covers — so this one has to be the heavy refresh. */
   onChanged: () => void;
+  /**
+   * Re-read only the CARDS, after an evidence fact is removed (task 2.12, G).
+   *
+   * ## Why this is not `onChanged`
+   *
+   * Removing an evidence fact IS a ruling — it goes through `record_removal` and
+   * is ledgered as one. `ScenarioDetailPage` states the rule directly: the
+   * page-level refresh "is correct after an edit to the scenario's own content,
+   * and wrong after a ruling: it would disturb the queue's selection mid-triage,
+   * which is precisely the class of defect task 1.7G spent two builds fixing."
+   *
+   * Measured on DEV (beta.374): wiring this to the page refresh collapsed the
+   * candidate queue region on every removal, throwing the human out of the list
+   * they were working — the two-pass problem this task exists to remove, in a new
+   * costume. The cards-only read updates BOTH surfaces, because the facts list is
+   * derived from the same cards the queue counts are.
+   */
+  onFactRemoved: () => void;
   /**
    * The stored words this section needs (task 2.12, item G).
    *
@@ -62,6 +83,7 @@ const ScenarioFactsSection: React.FC<Props> = ({
   cards,
   humanFacts,
   onChanged,
+  onFactRemoved,
   wording,
 }) => {
   const [adding, setAdding] = useState(false);
@@ -99,9 +121,11 @@ const ScenarioFactsSection: React.FC<Props> = ({
     removeScenarioFact(slug, scenarioId, graphNodeId)
       .then(() => {
         setError(null);
-        // The 1.7F seam: one re-read refreshes the facts list AND the queue's
-        // counts, so the card is visibly back in the queue without a reload.
-        onChanged();
+        // The 1.7F seam, and the LIGHT half of it: one cards read refreshes this
+        // list and the queue's counts together, because both are derived from the
+        // same payload — without disturbing the queue's selection, which a
+        // page-level refresh would (see `onFactRemoved`).
+        onFactRemoved();
       })
       .catch((e: unknown) => {
         // The words are the store's (R4); only the failure's own text is dropped

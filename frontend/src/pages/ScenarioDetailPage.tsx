@@ -156,6 +156,32 @@ const ScenarioDetailPage: React.FC = () => {
   const [cardsRefreshKey, setCardsRefreshKey] = useState(0);
   const refreshCards = useCallback(() => setCardsRefreshKey((k) => k + 1), []);
 
+  // `queueRefreshKey` is the THIRD signal, and it exists because the two above
+  // do not cover one case: something outside the queue changed a candidate's
+  // RULING (task 2.12 item G — removing a fact from its row).
+  //
+  // The facts list is fed by the page's `cards` state, which `cardsRefreshKey`
+  // re-reads. The queue's counts are fed by `CardQueue`'s OWN pool, which it
+  // fetches itself and reloads only when `externalRefresh` changes — a
+  // deliberate 1.7F design, so a ruling does not reload the list the human is
+  // working in. Those are two independently-keyed fetches of the same endpoint,
+  // NOT one payload, and a removal that bumped only the first left the facts
+  // list correct while the queue still showed the card included. Two surfaces
+  // disagreeing about one card, with nothing on screen saying so.
+  //
+  // Reloading the queue's pool is safe here and does not cost the human their
+  // place: `cards_loaded` "keeps the human where they were, clamped to the new
+  // length", and a removal changes a card's STATUS without changing the pool's
+  // membership or order — so the preserved index still points at the same card.
+  //
+  // What must NOT happen is the page-level refresh, which re-runs all four reads
+  // and collapses the queue's own region. That was the beta.374 defect.
+  const [queueRefreshKey, setQueueRefreshKey] = useState(0);
+  const refreshAfterRemoval = useCallback(() => {
+    setCardsRefreshKey((k) => k + 1);
+    setQueueRefreshKey((k) => k + 1);
+  }, []);
+
   // A failed cards RE-READ is not a failed page load, and must not be rendered as
   // one. `error` above replaces the entire page with a banner — right when the
   // scenario could not be loaded at all, and badly wrong here: the ruling SAVED,
@@ -335,7 +361,11 @@ const ScenarioDetailPage: React.FC = () => {
         scenarioId={scenarioId}
         linkOptions={linkOptions}
         scenarioTitle={scenario.attack}
-        externalRefresh={pageRefreshKey}
+        // Either signal reloads the queue's pool: a merge (page-level) or a
+        // removal (queue-level). Summed rather than passed as two props because
+        // the VALUE is never read — only its change — and both only ever
+        // increment, so a bump to either is always a change to the sum.
+        externalRefresh={pageRefreshKey + queueRefreshKey}
         onFactsChanged={refresh}
         // A ruling the SERVER confirmed. Re-reads the cards alone, so the fact
         // appears below without the queue above being reloaded under the human.
@@ -370,6 +400,7 @@ const ScenarioDetailPage: React.FC = () => {
         humanFacts={augmentation?.human_facts ?? []}
         wording={linkWording}
         onChanged={refresh}
+        onFactRemoved={refreshAfterRemoval}
       />
 
       {/* 5 — §2.5 */}
