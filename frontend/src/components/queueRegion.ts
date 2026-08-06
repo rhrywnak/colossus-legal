@@ -22,6 +22,9 @@
 // the right reason — a queue that remembers "collapsed" over 145 unruled
 // candidates is a silent failure wearing a preference's clothes.
 
+import { candidateState } from "./candidateFilters";
+import type { ScenarioCard } from "../services/scenarioCards";
+
 /** What the collapsible region shows, as data. */
 export type QueueRegionDescriptor = {
   /** Whether the region starts open. Computed, never restored from storage. */
@@ -187,31 +190,39 @@ export function keyboardShouldRule(regionOpen: boolean): boolean {
 /**
  * The queue's counts, derived from the page's OWN pool (task 2.13c).
  *
- * ## Why this replaces `CardQueue` reporting them upward
+ * ## Why `CardQueue` no longer reports them
  *
  * The summary was wrong on every fresh load — "No candidates gathered yet" three
  * lines under "148 candidates gathered" — and it took three attempts to fix
- * because the fault was structural, not a branch. `CardQueue` reported the counts
- * from an effect on its FIRST render, before its own fetch resolved, so the
- * section received `{0, 0}`; that computed a collapsed region, which unmounted
- * `CardQueue`, which meant the real counts never arrived. A latch.
+ * because the fault was structural. `CardQueue` reported the counts from an
+ * effect on its FIRST render, before its own fetch resolved, so the section
+ * received `{0, 0}`; that computed a collapsed region, which unmounted
+ * `CardQueue`, so the real counts never arrived. A latch. The page already holds
+ * the pool, so the counts come from there and are correct whether the region is
+ * open or closed.
  *
- * The page already holds the pool — `ScenarioDetailPage` fetches `/facts/cards`
- * and `CardQueue` fetched it a second time, a duplication the queue's own source
- * comments already flagged. So the counts now come from the payload the page
- * ALREADY has, and are correct whether the region is open or closed because
- * nothing about them depends on a component being mounted.
+ * ## Why "ruled" is `candidateState`, and not a predicate of its own
+ *
+ * The first version of this asked `status !== "undecided"`, which looks right and
+ * is not. A DEFERRED card is `undecided` carrying a defer reason — a human looked
+ * at it and parked it with a stated reason, which is the entire distinction defer
+ * exists to preserve. Counting it as outstanding put "102 remaining" in the
+ * header while the filter groups immediately below it read "Not ruled (92)" and
+ * "Deferred (10)": one screen, one pool, two answers.
+ *
+ * The repair is not a better predicate here — it is having no predicate here at
+ * all. `candidateState` is what the filter groups already count by, so deriving
+ * from it makes the two numbers the same number by construction rather than by
+ * agreement, and a future fifth state cannot make them disagree again.
  *
  * `null` in, `null` out: before the page's own fetch lands there is genuinely
  * nothing measured, and that is the one state that must stay distinguishable
  * from an empty pool.
  */
-export function progressFromCards(
-  cards: { status: string }[] | null,
-): QueueProgress | null {
+export function progressFromCards(cards: ScenarioCard[] | null): QueueProgress | null {
   if (cards === null) return null;
   return {
-    ruled: cards.filter((card) => card.status !== "undecided").length,
+    ruled: cards.filter((card) => candidateState(card) !== "not_ruled").length,
     total: cards.length,
   };
 }
