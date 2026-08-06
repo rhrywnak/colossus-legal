@@ -12,6 +12,8 @@ const WORDS = {
 };
 
 import { keyboardShouldRule, nextUpHint, queueRegion, progressFromCards } from "../queueRegion";
+import { candidateCounts } from "../candidateFilters";
+import type { ScenarioCard } from "../../services/scenarioCards";
 
 describe("the default open state", () => {
   it("is EXPANDED while anything is unruled", () => {
@@ -218,7 +220,26 @@ describe("counts that have not been measured", () => {
 // ── Task 2.13c: counts derived from the page's own pool ─────────────────────
 
 describe("progressFromCards", () => {
-  const card = (status: string) => ({ status });
+  /**
+   * Only the two fields `candidateState` reads. Cast rather than built in full:
+   * a complete `ScenarioCard` is twenty fields of quote, pinpoint and speaker,
+   * none of which this counting touches, and spelling them out would bury the
+   * one thing each case is about.
+   */
+  const card = (status: string, deferReason: string | null = null) =>
+    ({
+      status,
+      defer_reason: deferReason,
+      // `candidateCounts` also tallies facets this counting does not use:
+      // `isScanScored` reads `confidence.band` and `isRulableNow` reads
+      // `defer_required`. Both are supplied so the comparison runs against the
+      // REAL counting function with every field it touches — omitting
+      // `defer_required` left `counts.rulable` quietly wrong (`!undefined` is
+      // true), which nothing asserted on today but the next test to reuse this
+      // fixture would have inherited.
+      defer_required: false,
+      confidence: { band: "unscored", label: "unscored" },
+    }) as unknown as ScenarioCard;
 
   it("keeps an unread pool distinguishable from an empty one", () => {
     // THE latch, at its root. `null` means the page has not read yet; `[]` means
@@ -228,7 +249,7 @@ describe("progressFromCards", () => {
     expect(progressFromCards([])).toEqual({ ruled: 0, total: 0 });
   });
 
-  it("counts every card that is no longer undecided as ruled", () => {
+  it("counts an included or excluded card as ruled", () => {
     const cards = [
       card("included"),
       card("dropped"),
@@ -238,10 +259,57 @@ describe("progressFromCards", () => {
     expect(progressFromCards(cards)).toEqual({ ruled: 2, total: 4 });
   });
 
+  it("counts a DEFERRED card as ruled, not as outstanding", () => {
+    // The .379 acceptance FAIL. A deferred card is `undecided` carrying a defer
+    // reason: a human looked at it and parked it with a stated reason, which is
+    // the whole distinction defer exists to preserve. Counting it as remaining
+    // told Roman he had ten more candidates to work than he actually did.
+    const cards = [card("undecided"), card("undecided", "page missing from scan")];
+    expect(progressFromCards(cards)).toEqual({ ruled: 1, total: 2 });
+  });
+
+  it("never disagrees with the filter groups drawn from the same pool", () => {
+    // THE contradiction, as a test. On DEV the header read "Candidates awaiting
+    // ruling — 102" while the status filter immediately below it read "Not ruled
+    // (92)" and "Deferred (10)". One screen, one pool, two answers.
+    //
+    // Both numbers now come from `candidateState`, so this asserts they agree by
+    // construction — and it is written against `candidateCounts`, the function
+    // the groups actually use, so a change to either side breaks it.
+    const pool = [
+      ...Array.from({ length: 46 }, () => card("included")),
+      ...Array.from({ length: 10 }, () => card("undecided", "waiting on the page")),
+      ...Array.from({ length: 92 }, () => card("undecided")),
+    ];
+
+    const progress = progressFromCards(pool)!;
+    const counts = candidateCounts(pool);
+
+    // THE GUARD. These two are what fail if the predicate drifts: against the old
+    // `status !== "undecided"` they read {ruled: 46} and 92, which is the exact
+    // "expected 102 to be 92" seen on DEV.
+    expect(progress).toEqual({ ruled: 56, total: 148 });
+    expect(counts.not_ruled).toBe(92);
+
+    // Meaningful: the four states must still PARTITION the pool. A fifth state
+    // left unhandled by `candidateCounts`'s switch is caught here.
+    expect(
+      counts.not_ruled + counts.deferred + counts.included + counts.excluded,
+    ).toBe(counts.all);
+
+    // DOCUMENTATION, not a guard — and labelled so nobody cites it as one. Both
+    // sides walk the same array with the same function, so `total - ruled` is
+    // the complement of `not_ruled` whatever `candidateState` returns: this
+    // assertion is tautological and cannot fail. It is kept because it states
+    // the invariant the fix exists to create, in the form a reader will look
+    // for. The concrete numbers above are what actually catch a regression.
+    expect(progress.total - progress.ruled).toBe(counts.not_ruled);
+  });
+
   it("feeds a summary that is right whether the region is open or closed", () => {
     // The property the whole restructure exists for: these counts do not depend
     // on any component being mounted, so the collapsed header is as well-informed
-    // as the expanded one. A pool of 148 with 56 ruled says so either way.
+    // as the expanded one.
     const cards = [
       ...Array.from({ length: 56 }, () => card("included")),
       ...Array.from({ length: 92 }, () => card("undecided")),
