@@ -429,6 +429,10 @@ pub async fn update_scenario(
         definition.as_ref(),
         payload.theme_statement.as_deref(),
         payload.motivation.as_deref(),
+        // Recorded against `theme_statement` ONLY, and only when it is actually
+        // being written — the rehearsal page attributes that sentence to a human
+        // by name, and a rename must not re-date it (task 2.11 C, ruling C2).
+        &user.username,
     )
     .await
     .map_err(|e| map_update_error(e, &slug))?;
@@ -525,6 +529,10 @@ mod tests {
             // Task 2.11: nobody has written the plain-words accusation for this
             // fixture, which is the honest default — the page renders its gap.
             accusation_text: None,
+            accusation_text_authored_by: None,
+            accusation_text_authored_at: None,
+            theme_authored_by: None,
+            theme_authored_at: None,
         }
     }
 

@@ -350,6 +350,53 @@ pub async fn delete_human_fact(
     Ok(result.rows_affected())
 }
 
+// CONST: the per-row text update (task 2.11 C, ruling C4b). Scoped by
+// `scenario_id` as well as `id`, for the reason `DELETE_HUMAN_FACT_SQL` gives:
+// the id alone would let a caller edit another scenario's note by guessing a
+// UUID. Query text, not deployment config.
+//
+// `kind` is in the WHERE too. A watch item and a human fact live in one table
+// distinguished by that column, and the two are edited from different surfaces
+// with different rules — an update that ignored it would let the watch-list route
+// rewrite a human FACT, which carries a citation this route knows nothing about.
+const UPDATE_HUMAN_FACT_TEXT_SQL: &str = "UPDATE scenario_human_facts \
+     SET text = $3, updated_at = NOW() \
+     WHERE id = $1 AND scenario_id = $2 AND kind = $4";
+
+/// Rewrite one human-authored note's text, in place.
+///
+/// ## Why this is an UPDATE and not a delete-then-insert
+///
+/// Ruled 2026-08-06 (C4b). The row carries `authored_by` and `created_at` — who
+/// first wrote this, and when — and re-inserting would stamp the EDITOR as the
+/// author and today as the day it was written. `updated_at` advancing is what
+/// tells the two apart, and it is what the panel's "edited since written" tag
+/// reads. Provenance survives an edit or it was never provenance.
+///
+/// Returns how many rows changed: 0 means no note with that id, in that
+/// scenario, of that kind — the caller turns that into a named 404 rather than a
+/// silent success.
+///
+/// # Errors
+/// Returns [`PipelineRepoError`] if the update fails, including the non-blank
+/// CHECK on `text`.
+pub async fn update_human_fact_text(
+    executor: impl sqlx::PgExecutor<'_>,
+    scenario_id: Uuid,
+    fact_id: Uuid,
+    text: &str,
+    kind: &str,
+) -> Result<u64, PipelineRepoError> {
+    let result = sqlx::query(UPDATE_HUMAN_FACT_TEXT_SQL)
+        .bind(fact_id)
+        .bind(scenario_id)
+        .bind(text)
+        .bind(kind)
+        .execute(executor)
+        .await?;
+    Ok(result.rows_affected())
+}
+
 #[cfg(test)]
 #[path = "scenario_human_facts_tests.rs"]
 mod tests;

@@ -439,6 +439,10 @@ mod tests {
             // Task 2.11: nobody has written the plain-words accusation for this
             // fixture, which is the honest default — the page renders its gap.
             accusation_text: None,
+            accusation_text_authored_by: None,
+            accusation_text_authored_at: None,
+            theme_authored_by: None,
+            theme_authored_at: None,
         }
     }
 

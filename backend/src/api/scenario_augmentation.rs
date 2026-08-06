@@ -1,9 +1,14 @@
 //! HTTP routes for the augmentation panel (task 1.4, v2 §8).
 //!
-//! - `GET    /cases/:slug/scenarios/:id/augmentation`            → the panel
-//! - `POST   /cases/:slug/scenarios/:id/human-facts`             → add a C4 fact
-//! - `DELETE /cases/:slug/scenarios/:id/human-facts/:fact_id`    → remove one
-//! - `PUT    /cases/:slug/scenarios/:id/talking-points`          → replace C5
+//! - `POST   /cases/:slug/scenarios/:id/human-facts`               → add a C4 fact
+//! - `DELETE /cases/:slug/scenarios/:id/human-facts/:fact_id`      → remove one
+//! - `PUT    /cases/:slug/scenarios/:id/human-facts/:fact_id`      → rewrite one
+//! - `PUT    /cases/:slug/scenarios/:id/talking-points`            → replace C5
+//! - `PUT    /cases/:slug/scenarios/:id/talking-points/:position`  → rewrite one
+//!
+//! The panel's READ lives next door in `scenario_augmentation_read` — Rule 17,
+//! and the seam that was always there. The route table below still declares it,
+//! because a reader looking for what this family serves should find one list.
 //!
 //! C1 identity is edited through the existing `PUT /scenarios/:id`, which task
 //! 1.4 extended with `theme_statement` and `motivation` — a second route for two
@@ -34,21 +39,19 @@ use uuid::Uuid;
 
 use crate::{
     auth::{require_edit, AuthUser},
-    domain::human_authored::{authored_tag, DateType, HumanFactKind},
-    domain::scenario_code::scenario_code,
+    domain::human_authored::HumanFactKind,
     dto::scenario_augmentation::{
-        AddHumanFactRequest, AugmentationPanelDto, HumanFactDto, ScenarioIdentityDto,
-        SetTalkingPointsRequest, TalkingPointDto,
+        AddHumanFactRequest, EditAuthoredLineRequest, SetTalkingPointsRequest,
     },
     error::AppError,
-    repositories::pipeline_repository::{get_scenario, ScenarioHumanFactRecord, ScenarioRecord},
     services::scenario_augmentation::{
-        add_human_fact, human_facts, remove_human_fact, set_talking_points, talking_points,
+        add_human_fact, edit_talking_point, edit_watch_item, remove_human_fact, set_talking_points,
         AugmentationError, NewHumanFact,
     },
     state::AppState,
 };
 
+use super::scenario_augmentation_read::get_augmentation_panel;
 use super::scenario_facts::{ensure_scenario_in_case, parse_scenario_id};
 
 /// This module's routes.
@@ -69,11 +72,19 @@ pub fn routes() -> Router<AppState> {
         )
         .route(
             "/cases/:slug/scenarios/:scenario_id/human-facts/:fact_id",
-            delete(delete_scenario_human_fact),
+            delete(delete_scenario_human_fact).put(put_watch_item),
         )
         .route(
             "/cases/:slug/scenarios/:scenario_id/talking-points",
             put(put_talking_points),
+        )
+        // Task 2.11 C. Both join THIS module's fence rather than starting a new
+        // one: "one guarded write path" means one fence per concern, not zero new
+        // handlers — the same reading task 2.11 B1 applied when it put three
+        // accusation routes behind one `fence()`.
+        .route(
+            "/cases/:slug/scenarios/:scenario_id/talking-points/:position",
+            put(put_one_talking_point),
         )
 }
 
@@ -85,7 +96,7 @@ pub fn routes() -> Router<AppState> {
 /// fourth talking point, a date qualifier with no date. They are the only one who
 /// can act on any of it, so a generic "failed to save" would leave them guessing.
 /// The two write-failure cases stay opaque, because those are about the server.
-fn augmentation_error_to_app_error(error: AugmentationError) -> AppError {
+pub(super) fn augmentation_error_to_app_error(error: AugmentationError) -> AppError {
     match error {
         AugmentationError::EmptyText
         | AugmentationError::DateTypeWithoutDate { .. }
@@ -93,6 +104,13 @@ fn augmentation_error_to_app_error(error: AugmentationError) -> AppError {
         | AugmentationError::TooManyTalkingPoints { .. } => AppError::BadRequest {
             message: error.to_string(),
             details: json!({ "reason": "invalid_human_content" }),
+        },
+        // A 404, not a 500 and not a 400: the address was well-formed and the row
+        // is simply not there any more — the normal outcome of two people having
+        // the page open when one removes a point. The message says exactly that
+        // and says what to do about it.
+        AugmentationError::NoSuchRow { .. } => AppError::NotFound {
+            message: error.to_string(),
         },
         AugmentationError::Write { .. } => {
             tracing::error!(error = %error, "failed to store human-authored content");
@@ -107,121 +125,6 @@ fn augmentation_error_to_app_error(error: AugmentationError) -> AppError {
             }
         }
     }
-}
-
-/// Compose one human fact for display.
-///
-/// The date label and the authored tag are built HERE, not in the browser: the
-/// qualifier ("Around …") is a claim about precision, and the tag is this
-/// content's only provenance. Both are case vocabulary, and the language law puts
-/// every such string on this side of the wire.
-fn to_fact_dto(record: &ScenarioHumanFactRecord) -> HumanFactDto {
-    let date_label = record.occurred_on.map(|date| {
-        let rendered = date.to_string();
-        match record.date_type.as_deref().map(DateType::try_from) {
-            // A stored type this build cannot read renders as the bare date
-            // rather than guessing a qualifier — understating precision is the
-            // safe direction.
-            Some(Ok(kind)) => kind.describe(&rendered),
-            _ => rendered,
-        }
-    });
-
-    HumanFactDto {
-        id: record.id.to_string(),
-        text: record.text.clone(),
-        date_label,
-        person_refs: record.person_refs.clone().unwrap_or_default(),
-        // Always false before task B0: these are names a human typed, not
-        // resolved entities, and the panel says so.
-        person_refs_are_linked: false,
-        authored_tag: authored_tag(&record.authored_by),
-        // Equal stamps mean untouched since it was written (see the insert).
-        edited: record.updated_at != record.created_at,
-    }
-}
-
-/// Compose the C1 identity block.
-fn to_identity_dto(record: &ScenarioRecord) -> ScenarioIdentityDto {
-    ScenarioIdentityDto {
-        code: scenario_code(record.code_ordinal),
-        name: record.name.clone(),
-        direction: record.direction.clone(),
-        theme_statement: record.theme_statement.clone(),
-        motivation: record.motivation.clone(),
-        // Read out of the opaque definition body. A definition that is `{}` or a
-        // retired shape simply yields `None` — the panel shows no attack line
-        // rather than failing, because C1 editing must work on a half-authored
-        // scenario.
-        attack_text: record
-            .definition
-            .get("attack_text")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
-    }
-}
-
-/// `GET …/augmentation` — the whole panel in one read.
-///
-/// Open read (`Option<AuthUser>`), matching the sibling scenario reads.
-#[tracing::instrument(skip(state, user), fields(slug = %slug, scenario_id = %scenario_id))]
-pub async fn get_augmentation_panel(
-    user: Option<AuthUser>,
-    State(state): State<AppState>,
-    Path((slug, scenario_id)): Path<(String, String)>,
-) -> Result<Json<AugmentationPanelDto>, AppError> {
-    if let Some(ref u) = user {
-        tracing::info!("{} GET augmentation panel for {}", u.username, scenario_id);
-    }
-
-    let id = parse_scenario_id(&scenario_id)?;
-    ensure_scenario_in_case(&state, id, &slug).await?;
-
-    let record = get_scenario(&state.pipeline_pool, id)
-        .await
-        .map_err(|e| {
-            tracing::error!(error = %e, scenario_id = %id, "failed to read scenario for panel");
-            AppError::Internal {
-                message: "failed to load the scenario".to_string(),
-            }
-        })?
-        .ok_or_else(|| AppError::NotFound {
-            message: "scenario not found".to_string(),
-        })?;
-
-    let facts = human_facts(&state.pipeline_pool, id)
-        .await
-        .map_err(augmentation_error_to_app_error)?;
-
-    let points = talking_points(&state.pipeline_pool, id)
-        .await
-        .map_err(augmentation_error_to_app_error)?;
-
-    Ok(Json(AugmentationPanelDto {
-        identity: to_identity_dto(&record),
-        human_facts: facts
-            .iter()
-            .filter(|f| f.kind == HumanFactKind::Fact.code())
-            .map(to_fact_dto)
-            .collect(),
-        watch_list: facts
-            .iter()
-            .filter(|f| f.kind == HumanFactKind::WatchList.code())
-            .map(to_fact_dto)
-            .collect(),
-        talking_points: points
-            .into_iter()
-            .map(|item| TalkingPointDto {
-                text: item.text,
-                position: item.item_index,
-                authored_tag: item.authored_by.as_deref().map(authored_tag),
-            })
-            .collect(),
-        // From the store, not the browser and not a constant: it is a tunable,
-        // and a client that baked in "3" would show the wrong limit the moment
-        // Roman changes it on the Settings page (v2 §2b).
-        talking_points_cap: state.settings.current().talking_points_cap,
-    }))
 }
 
 /// `POST …/human-facts` — add one C4 fact.
@@ -352,6 +255,83 @@ pub async fn put_talking_points(
         points = kept.len(),
         author = %user.username,
         "replaced the talking points"
+    );
+
+    Ok(StatusCode::OK)
+}
+
+/// `PUT …/talking-points/:position` — rewrite ONE point, in place.
+///
+/// ## Why this exists beside the whole-list write
+///
+/// The list write deletes the response row and re-inserts every item, which
+/// re-stamps each row's author and its written-on date with the editor and today.
+/// That is right for a reorder and wrong for a typo fix — and the rehearsal page
+/// now offers a typo fix per row. Ruling C4b, 2026-08-06.
+///
+/// The cap is deliberately NOT re-checked: this route changes no row COUNT, and
+/// a list already over a lowered cap would otherwise become uneditable, which
+/// would strand a human on exactly the words they need to fix.
+#[tracing::instrument(skip(state, user, payload), fields(slug = %slug, scenario_id = %scenario_id))]
+pub async fn put_one_talking_point(
+    user: AuthUser,
+    State(state): State<AppState>,
+    Path((slug, scenario_id, position)): Path<(String, String, usize)>,
+    Json(payload): Json<EditAuthoredLineRequest>,
+) -> Result<StatusCode, AppError> {
+    require_edit(&user)?;
+
+    let id = parse_scenario_id(&scenario_id)?;
+    ensure_scenario_in_case(&state, id, &slug).await?;
+
+    edit_talking_point(&state.pipeline_pool, id, position, &payload.text)
+        .await
+        .map_err(augmentation_error_to_app_error)?;
+
+    tracing::info!(
+        scenario_id = %id,
+        position,
+        author = %user.username,
+        // The words themselves are NOT logged: they are a human's authored prose
+        // and the log is not the place for case content.
+        "rewrote one talking point"
+    );
+
+    Ok(StatusCode::OK)
+}
+
+/// `PUT …/human-facts/:fact_id` — rewrite ONE watch item, in place.
+///
+/// Scoped to `watch_list` rows by the store's `WHERE kind = …`: a human FACT
+/// carries a date and person references this route knows nothing about, and
+/// rewriting one through here would drop nothing but would still be an edit made
+/// by a surface that cannot show what it is editing.
+#[tracing::instrument(skip(state, user, payload), fields(slug = %slug, scenario_id = %scenario_id))]
+pub async fn put_watch_item(
+    user: AuthUser,
+    State(state): State<AppState>,
+    Path((slug, scenario_id, fact_id)): Path<(String, String, String)>,
+    Json(payload): Json<EditAuthoredLineRequest>,
+) -> Result<StatusCode, AppError> {
+    require_edit(&user)?;
+
+    let id = parse_scenario_id(&scenario_id)?;
+    ensure_scenario_in_case(&state, id, &slug).await?;
+
+    let fact_uuid = Uuid::parse_str(&fact_id).map_err(|_| AppError::BadRequest {
+        message: "fact id must be a valid UUID".to_string(),
+        details: json!({ "field": "fact_id" }),
+    })?;
+
+    edit_watch_item(&state.pipeline_pool, id, fact_uuid, &payload.text)
+        .await
+        .map_err(augmentation_error_to_app_error)?;
+
+    tracing::info!(
+        %fact_id,
+        scenario_id = %id,
+        author = %user.username,
+        "rewrote one watch item"
     );
 
     Ok(StatusCode::OK)

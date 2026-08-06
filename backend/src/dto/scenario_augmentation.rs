@@ -50,8 +50,14 @@ pub struct HumanFactDto {
 #[serde(deny_unknown_fields)]
 pub struct TalkingPointDto {
     pub text: String,
-    /// Its place in the ordered list, server-owned.
-    pub position: i32,
+    /// Its place in the ordered list, server-owned — and its ADDRESS.
+    ///
+    /// 1-based since task 2.11 C: it is the number printed in the pill beside
+    /// the point AND the segment `PUT …/talking-points/:position` matches, and
+    /// those must be one number. It was the raw 0-based `item_index` until then,
+    /// which nothing rendered — the client counted the array instead, so two
+    /// numbers described one row and only one of them was on the wire.
+    pub position: usize,
     /// "Added by Marie" — present when the row records an author.
     pub authored_tag: Option<String>,
 }
@@ -96,6 +102,14 @@ pub struct AugmentationPanelDto {
     /// Served rather than hardcoded in the browser: it is a tunable, and a client
     /// that baked in "3" would show the wrong limit the day 1.6 changes it.
     pub talking_points_cap: usize,
+    /// Every word the two authoring sections speak (task 2.11 C, ruling C4b).
+    ///
+    /// They moved out of the components when those components became SHARED with
+    /// the rehearsal page, whose standing law is that every visible word is a
+    /// stored row. A component holding a literal cannot be reused on a surface
+    /// that forbids one — so the components now take their words as a prop, and
+    /// each surface serves its own.
+    pub wording: AuthoringWordingDto,
 }
 
 /// Request body for adding a human fact.
@@ -133,4 +147,61 @@ pub struct AddHumanFactRequest {
 #[serde(deny_unknown_fields)]
 pub struct SetTalkingPointsRequest {
     pub points: Vec<String>,
+}
+
+/// The words the talking-points and watch-list sections speak on THIS page.
+///
+/// Mirrors `domain::wording_authoring::AuthoringWording` field for field. The
+/// rehearsal page serves a different set for the same components — see that
+/// module's header for why one row cannot serve both voices.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AuthoringWordingDto {
+    pub points_section_heading: String,
+    /// Carries `{cap}` — filled by the client, the one value only it is composing
+    /// a sentence around. (The cap itself is served beside it.)
+    pub points_section_meta_template: String,
+    pub points_empty_notice: String,
+    pub points_no_exhibit_notice: String,
+    pub points_add_label: String,
+    pub points_edit_label: String,
+    pub points_save_label: String,
+    pub points_saving_label: String,
+    pub points_cancel_label: String,
+    /// Carries `{cap}`.
+    pub points_cap_reached_notice: String,
+    /// Carries `{n}`.
+    pub points_field_label_template: String,
+    pub points_authoring_note: String,
+    pub points_save_failed_notice: String,
+    pub watch_section_heading: String,
+    pub watch_section_meta: String,
+    pub watch_field_label: String,
+    pub watch_add_label: String,
+    pub watch_save_label: String,
+    pub watch_edit_label: String,
+    pub watch_cancel_label: String,
+    pub watch_remove_label: String,
+    pub watch_edited_suffix: String,
+    pub watch_save_failed_notice: String,
+}
+
+/// Rewrite ONE authored line — a talking point or a watch item (task 2.11 C).
+///
+/// ## Why one request type serves both
+///
+/// The body is the same single field, the rule is the same (non-blank, stored
+/// verbatim), and the two routes differ only in what the URL addresses. A second
+/// identical struct would be a second place for the rule to drift.
+///
+/// ## Why the whole-list write above still exists
+///
+/// The two answer different intentions. This one is "fix a typo in point 2" and
+/// must leave the row's author and its written-on date alone; the list write is
+/// "rearrange or drop one", which is a change to the list itself. Ruling C4b:
+/// update = update, never remove-and-re-add.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EditAuthoredLineRequest {
+    pub text: String,
 }

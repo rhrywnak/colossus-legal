@@ -9,11 +9,32 @@
 //! ## The exclusion law is still enforced by CONSTRUCTION
 //!
 //! These types have no field for a verdict, a confidence, a tier, a sort ordinal,
-//! a status, a motivation, a strategy note, a §2d annotation, or a database id.
-//! A future edit that wanted to leak one would have to ADD a field — a visible
-//! change to this file rather than a line slipped into a mapper — and
+//! a status, a motivation, a strategy note, or a §2d annotation. A future edit
+//! that wanted to leak one would have to ADD a field — a visible change to this
+//! file rather than a line slipped into a mapper — and
 //! `the_payload_carries_nothing_it_is_excluded_from` then scans the serialized
 //! bytes, so a leak smuggled inside a string is caught too.
+//!
+//! ## What CHANGED again, and the ruling behind it (task 2.11 C, ruling C1)
+//!
+//! The banned list used to include "a database id", and this payload carried
+//! none. Roman's editing ruling of 2026-08-06 turned this surface into a CALLER
+//! of the guarded write routes — the accusation sentence, "What this is", the
+//! talking points and the watch items are all edited here now — and a route needs
+//! an address. `/cases/:slug/scenarios/:scenario_id/…` is the address, so
+//! [`RehearsalScenario`] carries `scenario_id` and [`RehearsalWatchItem`] carries
+//! its row's `id`.
+//!
+//! The distinction that keeps this coherent is the same one §10 has always drawn:
+//! it exists to keep CONTENT off a witness surface — verdicts, confidences,
+//! tiers, strategy, candidate handles. A UUID renders nothing, says nothing about
+//! the evidence, and cannot be read aloud. `graph_node_id` and the `C-n` handles
+//! stay banned, and the test still asserts it: marking and pairing remain working-
+//! view work, so this page never needs to address a statement.
+//!
+//! A talking point is addressed by its PRINTED POSITION rather than by an id,
+//! for the reason [`RehearsalInstance::position`] gives — `item_index` is
+//! server-owned and stable, so the row number on screen is a real address.
 //!
 //! ## What CHANGED in that law, and the ruling behind it
 //!
@@ -48,6 +69,13 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RehearsalPoint {
+    /// The row number a human reads — 1, 2, 3 — AND this point's address.
+    ///
+    /// It is `response_items.item_index + 1`: server-owned, stable across edits,
+    /// and the same number printed in the pill beside the text. Editing point 2
+    /// therefore addresses point 2, with no internal id on the wire. See the
+    /// module header's note on ruling C1.
+    pub position: usize,
     /// Her words, verbatim as authored.
     pub text: String,
     /// The one exhibit that backs this point, in HER phrasing — "My certified
@@ -55,6 +83,25 @@ pub struct RehearsalPoint {
     /// assembled from the record: deriving it would put words in the witness's
     /// mouth. `None` until the pairing editor exists (tracker task 3.9).
     pub exhibit: Option<String>,
+    /// The stored sentence shown when `exhibit` is `None`.
+    ///
+    /// Sent rather than left to the client because this page holds no literals —
+    /// and it is a NAMED absence, not a blank, which is the honest-gap law
+    /// applied to a block whose pairing editor does not exist yet.
+    pub exhibit_notice: String,
+}
+
+/// One thing to watch for, and its address.
+///
+/// A bare `String` until task 2.11 C. It gained an id when the page gained the
+/// ability to edit one: `PUT …/human-facts/:fact_id` needs to know WHICH note,
+/// and a list position would shift under a concurrent add. See the module
+/// header's note on ruling C1 for why an address is not excluded content.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RehearsalWatchItem {
+    pub id: String,
+    pub text: String,
 }
 
 /// Where a statement was made, and how to open it.
@@ -118,8 +165,24 @@ pub struct RehearsalInstance {
     pub quote_first_line: String,
     /// What we said back, when a human has paired something.
     pub answer: Option<RehearsalAnswer>,
-    /// The loud line when nobody has. The prep list, per row.
-    pub answer_gap: Option<String>,
+    /// The small tag on the row — the stored ANSWERED or NO ANSWER word.
+    ///
+    /// Always present, and composed here rather than chosen in the browser: a
+    /// client picking between two labels is a client that can pick wrong, and
+    /// the wrong pick puts a green ANSWERED on a row nobody has answered.
+    pub answer_tag: String,
+    /// The red banner inside an OPENED row with no answer. `None` when there is
+    /// one.
+    ///
+    /// ## Why this is a short banner and not the gap sentence (ruling C5)
+    ///
+    /// Until beta.381 this field carried the full "NO ANSWER PREPARED — who,
+    /// when, where" sentence, which the prep list ALSO carried — the same
+    /// sentence twice on one screen, filed as a defect. The sentence now lives
+    /// once, in the prep list, where a human works through it. This is the same
+    /// fact at a different zoom: three words, no who, no when, no where, so it
+    /// can never grow back into the duplicate.
+    pub answer_banner: Option<String>,
 }
 
 /// One named absence.
@@ -131,6 +194,16 @@ pub struct RehearsalGap {
     pub kind: String,
     /// The stored sentence, already naming who/when/where.
     pub message: String,
+    /// The instance row this gap is about, by its printed position.
+    ///
+    /// `Some` for the two gaps that ARE about a rendered row, so the prep-list
+    /// entry can carry a link that opens it — the design's point being that the
+    /// prep list is the one thing a human can act on today, and making them hunt
+    /// for the row wastes the act. `None` for `accusation_removed` (about a
+    /// statement no longer in the list) and `instance_unavailable` (about one the
+    /// record store cannot produce): neither has a row to jump to, and inventing
+    /// one would scroll a reader to somebody else's statement.
+    pub position: Option<usize>,
 }
 
 /// The accusation and every time they made it — the page's central block.
@@ -142,6 +215,19 @@ pub struct RehearsalAccusation {
     /// The stored gap sentence when nobody has written one. Never a quote from
     /// the record standing in for it — that was the defect this task ends.
     pub text_gap: Option<String>,
+    /// Who wrote the sentence above, and when — as a FINISHED line.
+    ///
+    /// ## Why the line is composed here and not the template sent
+    ///
+    /// A client holding "Written in plain words by {who} · {when}" would be
+    /// composing prose out of two values, and the sentence would live half in the
+    /// store and half in a component. Roman edits the store.
+    ///
+    /// `None` when there is no sentence to attribute. When there IS one but
+    /// nobody recorded who wrote it — every sentence written before task 2.11 C —
+    /// this carries the stored `rehearsal_attribution_unknown_notice` rather than
+    /// a blank or an invented name (ruling C2).
+    pub attribution: Option<String>,
     /// "Said 5 times, in 5 documents." — `None` when nothing is marked.
     pub count_line: Option<String>,
     /// The nothing-marked notice. Exactly one of these two is ever present.
@@ -172,7 +258,24 @@ pub struct RehearsalTimelineEntry {
     /// `their_words` or `our_answer` — a token, so the client can style the two
     /// sides without reading prose.
     pub side: String,
+    /// The stored word for that token — "THEY SAY" or "OUR ANSWER".
+    ///
+    /// Sent beside the token rather than instead of it: the token decides the
+    /// COLOUR and the label is what a human reads, and a client matching on the
+    /// prose would stop telling the sides apart the day Roman reworded one.
+    pub side_label: String,
     pub quote: String,
+    /// Where it was said, and how to open it (task 2.11 C, ruling C7).
+    ///
+    /// ## Domain note: why the pinpoint ruling reaches this row
+    ///
+    /// The 2026-08-06 ruling permitted a citation on "instance and answer rows
+    /// only". A timeline row IS an instance or an answer, chronologically
+    /// arranged — the same statement, one zoom level out — and the research the
+    /// ruling rests on is about a witness producing the source on the spot, which
+    /// does not care which block she was reading when asked. Confirmed by the
+    /// architect as ruling C7.
+    pub source: RehearsalSource,
 }
 
 /// The timeline, which renders only when the placed items can draw one.
@@ -217,6 +320,9 @@ pub struct RehearsalHeaders {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RehearsalCollapse {
+    /// Task 2.11 C: "What this is" folds like the others as of the signed
+    /// mockup. B2 had it fixed open.
+    pub what_open: bool,
     pub accusation_open: bool,
     pub timeline_open: bool,
     pub points_open: bool,
@@ -227,13 +333,24 @@ pub struct RehearsalCollapse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RehearsalScenario {
-    /// The human handle — "S-2". Speakable, and the only identifier here.
+    /// The human handle — "S-2". Speakable, and the one identifier a reader sees.
     pub code: String,
+    /// The scenario's address on the guarded write routes (ruling C1).
+    ///
+    /// Renders nowhere. It exists so the page's editors can call
+    /// `/cases/:slug/scenarios/:scenario_id/…` — the SAME routes the working view
+    /// calls, which is what "reuse, never fork" required once this surface became
+    /// editable. See the module header.
+    pub scenario_id: String,
     /// The scenario's plain name.
     pub title: String,
     /// Block 1 — one sentence on what this fight is about.
     pub what_this_is: Option<String>,
     pub what_this_is_gap: Option<String>,
+    /// Who wrote that sentence, and when — a finished line, or the stored
+    /// unknown notice. `None` when there is no sentence. Same construction and
+    /// same reasoning as [`RehearsalAccusation::attribution`].
+    pub what_this_is_attribution: Option<String>,
     /// Blocks 2 and 3.
     pub accusation: RehearsalAccusation,
     /// Block 4.
@@ -242,9 +359,23 @@ pub struct RehearsalScenario {
     pub points: Vec<RehearsalPoint>,
     pub points_gap: Option<String>,
     /// Block 6.
-    pub watch_for: Vec<String>,
+    pub watch_for: Vec<RehearsalWatchItem>,
     pub watch_for_gap: Option<String>,
     pub headers: RehearsalHeaders,
+    /// Whether this scenario's instance rows arrive OPEN or one line tall.
+    ///
+    /// ## Why the server decides rather than sending the cap
+    ///
+    /// The same reason [`RehearsalCollapse`] is booleans rather than tokens: the
+    /// rule is "at or under `rehearsal_instance_rows_expand_max`, expanded", it is
+    /// evaluated against a count only the server has already computed, and a
+    /// client re-deriving it is a second implementation of one rule that can
+    /// disagree with the first. The browser receives the decided answer.
+    ///
+    /// Note what this is NOT: a limit on what is shown. Every instance is
+    /// rendered and every one is reachable; the list is not paginated at any
+    /// size.
+    pub instances_start_expanded: bool,
 }
 
 /// Every word the page renders that is not already a composed sentence.
@@ -279,6 +410,59 @@ pub struct RehearsalWordingDto {
     pub block_timeline_heading: String,
     pub block_points_heading: String,
     pub block_watch_heading: String,
+
+    // ── Task 2.11 C: the rebuilt page's controls and markers ────────────────
+    /// The breadcrumb link back to Trial Prep. Was a literal until 2.11 C.
+    pub crumb_trial_prep_label: String,
+    /// The header control that leaves rehearsal for the scenario's working page.
+    pub scenario_page_label: String,
+    /// The link on a prep-list entry that opens the row it names.
+    pub go_to_row_label: String,
+    /// Heads the prep list under the instances.
+    pub prep_list_heading: String,
+    /// Follows the count line: rows open on click, and a feature nobody can see
+    /// is a feature nobody finds.
+    pub row_open_hint: String,
+    pub add_point_label: String,
+    pub add_watch_label: String,
+    /// Sits beside the add control on the points block.
+    pub points_authoring_note: String,
+    /// The words the two sentence editors and the two list editors share.
+    pub editor: RehearsalEditorWordingDto,
+}
+
+/// The words the page's editors speak.
+///
+/// ## Why these are BORROWED from the working view's rows (ruling C3)
+///
+/// Every one of them is already stored for the accusation section — "Edit",
+/// "Save", "Withdraw it", "Cancel" — and they are already rehearsal-voiced.
+/// Seeding a second set would be four more sentences Roman has to keep in step by
+/// hand, which is the reason `answer_label` and the count template were borrowed
+/// in task 2.11 B2. Words are not excluded content; the DTO widens and no row
+/// duplicates.
+///
+/// Two of the section's seven keys are deliberately NOT here. `text_label` has no
+/// renderer — the mockup shows no field label over the box — and
+/// `text_missing_notice` would be a second sentence for the absence this page
+/// already names with `accusation.text_gap`. A field nothing renders is a field
+/// that rots.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RehearsalEditorWordingDto {
+    /// Opens a sentence, a talking point or a watch item for editing.
+    pub edit_label: String,
+    pub save_label: String,
+    pub cancel_label: String,
+    /// Clears the accusation sentence — offered only where there is one.
+    pub withdraw_label: String,
+    /// The empty-box hint for the accusation sentence.
+    pub accusation_placeholder: String,
+    /// The empty-box hint for "What this is".
+    pub what_placeholder: String,
+    /// Carries `{detail}` — the failure's own words, the one value that exists
+    /// only on the browser's side. Filled by the client, never composed by it.
+    pub save_failed_template: String,
 }
 
 /// The rehearsal list: every ready scenario, plus what the page speaks with.

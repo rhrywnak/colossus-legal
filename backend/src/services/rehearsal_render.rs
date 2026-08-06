@@ -29,13 +29,16 @@ use std::collections::{HashMap, HashSet};
 
 use crate::domain::settings::Settings;
 use crate::domain::wording_rehearsal::RehearsalWording;
+use crate::domain::wording_rehearsal_chrome::RehearsalChromeWording;
 use crate::domain::wording_templates::render;
 use crate::dto::rehearsal::{
     RehearsalAccusation, RehearsalGap, RehearsalHeaders, RehearsalInstance, RehearsalPoint,
-    RehearsalScenario,
+    RehearsalScenario, RehearsalWatchItem,
 };
 use crate::repositories::scenario_accusation_repository::RehearsalFactRow;
-use crate::services::rehearsal_rows::{answer_of, first_line, kind_of, source_of, when_of, who_of};
+use crate::services::rehearsal_rows::{
+    answer_of, attribution_line, first_line, kind_of, source_of, when_of, who_of,
+};
 use crate::services::rehearsal_timeline::build_timeline;
 use crate::services::scenario_accusation::{AccusationGap, AccusationState};
 
@@ -55,29 +58,96 @@ pub const GAP_INSTANCE_UNAVAILABLE: &str = "instance_unavailable";
 /// Everything one scenario's render needs, gathered by the assembly.
 #[derive(Debug)]
 pub(crate) struct ScenarioInput<'a> {
-    /// "S-2" — the only identifier this surface carries.
+    /// "S-2" — the identifier a reader sees.
     pub code: String,
+    /// The address the page's editors write to (ruling C1). Renders nowhere.
+    pub scenario_id: String,
     pub title: &'a str,
     /// C1's one plain sentence, block 1.
     pub what_this_is: Option<&'a str>,
+    /// Who wrote it and when, as stored. `(None, None)` for every sentence
+    /// written before task 2.11 C — never backfilled, never guessed.
+    pub what_authored: Authored<'a>,
     /// The authored plain-words accusation. Never `attack_text`.
     pub accusation_text: Option<&'a str>,
+    pub accusation_authored: Authored<'a>,
     /// What a human marked and paired, and every gap between them.
     pub state: &'a AccusationState,
     /// The placed statements the record could produce, by graph node id.
     pub facts: &'a HashMap<String, RehearsalFactRow>,
     pub points: Vec<RehearsalPoint>,
-    pub watch_for: Vec<String>,
+    pub watch_for: Vec<RehearsalWatchItem>,
     pub settings: &'a Settings,
+}
+
+/// Who wrote a sentence, and when — exactly as the store holds it.
+///
+/// ## Rust Learning: a two-field struct instead of `(Option<&str>, Option<...>)`
+///
+/// Both fields are optional and both are "about the author", so a tuple would be
+/// two `Option`s at a call site with nothing but position to tell them apart —
+/// and swapping them would still compile if the types ever converged. Naming them
+/// costs four lines and makes `ScenarioInput`'s two attribution fields readable
+/// at a glance.
+#[derive(Debug, Default, Clone, Copy)]
+pub(crate) struct Authored<'a> {
+    pub by: Option<&'a str>,
+    pub at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 /// Compose one ready scenario.
 pub(crate) fn render_scenario(input: ScenarioInput<'_>) -> RehearsalScenario {
     let w = &input.settings.rehearsal_wording;
+    let chrome = &input.settings.rehearsal_chrome_wording;
     let accusation = build_accusation(&input, w);
     let timeline = build_timeline(input.state, input.facts, input.settings);
+    let headers = section_headers(&accusation, &timeline, &input);
 
-    let headers = RehearsalHeaders {
+    RehearsalScenario {
+        code: input.code,
+        scenario_id: input.scenario_id,
+        title: input.title.to_string(),
+        // The line is composed only when there IS a sentence to attribute. An
+        // authorship line over a named gap would attribute an absence.
+        what_this_is_attribution: input.what_this_is.map(|_| {
+            attribution_line(
+                &chrome.what_attribution_template,
+                &chrome.attribution_unknown_notice,
+                input.what_authored.by,
+                input.what_authored.at,
+            )
+        }),
+        what_this_is: input.what_this_is.map(str::to_string),
+        what_this_is_gap: gap_when_absent(input.what_this_is, &w.what_gap),
+        // Decided here, once, over the count the page will actually render — see
+        // `RehearsalScenario::instances_start_expanded` for why the browser gets
+        // the answer rather than the rule.
+        instances_start_expanded: accusation.instances.len()
+            <= input.settings.rehearsal_instance_rows_expand_max,
+        accusation,
+        timeline,
+        points_gap: gap_when_empty(input.points.is_empty(), &w.points_gap),
+        points: input.points,
+        watch_for_gap: gap_when_empty(input.watch_for.is_empty(), &w.watch_gap),
+        watch_for: input.watch_for,
+        headers,
+    }
+}
+
+/// The four count lines that stay visible when a section is folded.
+///
+/// Split from [`render_scenario`] for the function-size limit, and the seam is a
+/// real one: this is the honest-gap law's answer to the collapsible-section
+/// hazard, in one place. Every number here is counted from what the page will
+/// ACTUALLY render — never from the pool, never from a list a client might
+/// filter.
+fn section_headers(
+    accusation: &RehearsalAccusation,
+    timeline: &crate::dto::rehearsal::RehearsalTimeline,
+    input: &ScenarioInput<'_>,
+) -> RehearsalHeaders {
+    let w = &input.settings.rehearsal_wording;
+    RehearsalHeaders {
         accusation: render(
             &w.accusation_header_template,
             &[
@@ -103,20 +173,6 @@ pub(crate) fn render_scenario(input: ScenarioInput<'_>) -> RehearsalScenario {
             &w.watch_header_template,
             &[("count", input.watch_for.len().to_string().as_str())],
         ),
-    };
-
-    RehearsalScenario {
-        code: input.code,
-        title: input.title.to_string(),
-        what_this_is: input.what_this_is.map(str::to_string),
-        what_this_is_gap: gap_when_absent(input.what_this_is, &w.what_gap),
-        accusation,
-        timeline,
-        points_gap: gap_when_empty(input.points.is_empty(), &w.points_gap),
-        points: input.points,
-        watch_for_gap: gap_when_empty(input.watch_for.is_empty(), &w.watch_gap),
-        watch_for: input.watch_for,
-        headers,
     }
 }
 
@@ -142,6 +198,9 @@ fn build_accusation(input: &ScenarioInput<'_>, w: &RehearsalWording) -> Rehearsa
         AccusationGap::AccusationRemoved { .. } => Some(RehearsalGap {
             kind: GAP_ACCUSATION_REMOVED.to_string(),
             message: w.gap_accusation_removed.clone(),
+            // No row to jump to: this gap is about a statement that is not in the
+            // list at all.
+            position: None,
         }),
         _ => None,
     }));
@@ -149,9 +208,19 @@ fn build_accusation(input: &ScenarioInput<'_>, w: &RehearsalWording) -> Rehearsa
     let (count_line, no_instances_notice) =
         summary(walked.instances.len(), walked.documents, input.settings);
 
+    let chrome = &input.settings.rehearsal_chrome_wording;
+
     RehearsalAccusation {
         text: input.accusation_text.map(str::to_string),
         text_gap: gap_when_absent(input.accusation_text, &w.accusation_text_gap),
+        attribution: input.accusation_text.map(|_| {
+            attribution_line(
+                &chrome.accusation_attribution_template,
+                &chrome.attribution_unknown_notice,
+                input.accusation_authored.by,
+                input.accusation_authored.at,
+            )
+        }),
         count_line,
         no_instances_notice,
         gap_count: gaps.len(),
@@ -195,11 +264,21 @@ fn walk_instances(input: &ScenarioInput<'_>, w: &RehearsalWording) -> WalkedInst
             gaps.push(RehearsalGap {
                 kind: GAP_INSTANCE_UNAVAILABLE.to_string(),
                 message: w.gap_instance_unavailable.clone(),
+                // Not rendered, so there is nothing to jump to. A position here
+                // would scroll a reader to somebody else's statement.
+                position: None,
             });
             continue;
         };
 
-        let (row, gap) = answered_row(instances.len() + 1, marked, fact, input.facts, w);
+        let (row, gap) = answered_row(
+            instances.len() + 1,
+            marked,
+            fact,
+            input.facts,
+            w,
+            &input.settings.rehearsal_chrome_wording,
+        );
         if let Some(gap) = gap {
             gaps.push(gap);
         }
@@ -218,35 +297,34 @@ fn walk_instances(input: &ScenarioInput<'_>, w: &RehearsalWording) -> WalkedInst
 
 /// One instance row, and the gap it leaves if nobody has answered it.
 ///
-/// ## Why the sentence is composed once and lands in two places
+/// ## Why the SENTENCE lands in one place and a SHORT form in the other
 ///
-/// On the ROW, because the design is explicit that an unanswered accusation says
-/// so loudly where it is read. And in the block's GAP LIST, which is what the
-/// header counts and what stays visible when the section is folded. One
-/// composition, so the two can never disagree about what is missing.
+/// Until beta.381 the composed gap sentence went onto the row AND into the gap
+/// list — the same "NO ANSWER PREPARED — who, when, where" twice on one screen,
+/// filed as a defect and killed by ruling C5. The sentence now lands only in the
+/// list, which is what the header counts and what stays visible when the section
+/// is folded. The row carries three words that cannot grow back into it.
 fn answered_row(
     position: usize,
     marked: &crate::services::scenario_accusation::MarkedInstance,
     fact: &RehearsalFactRow,
     facts: &HashMap<String, RehearsalFactRow>,
     w: &RehearsalWording,
+    chrome: &RehearsalChromeWording,
 ) -> (RehearsalInstance, Option<RehearsalGap>) {
     let answer = marked
         .answers_graph_node_id
         .as_deref()
         .and_then(|id| answer_of(id, facts, w));
 
-    let gap = answer
-        .is_none()
-        .then(|| unanswered_gap(fact, marked.answers_graph_node_id.is_some(), w));
+    let gap = answer.is_none().then(|| {
+        let mut gap = unanswered_gap(fact, marked.answers_graph_node_id.is_some(), w);
+        // The row this entry is about, so the prep list can carry a link to it.
+        gap.position = Some(position);
+        gap
+    });
 
-    let row = instance_row(
-        position,
-        fact,
-        answer,
-        gap.as_ref().map(|g| g.message.clone()),
-        w,
-    );
+    let row = instance_row(position, fact, answer, w, chrome);
     (row, gap)
 }
 
@@ -281,6 +359,9 @@ fn unanswered_gap(fact: &RehearsalFactRow, was_paired: bool, w: &RehearsalWordin
                 &w.gap_answer_removed,
                 &[("who", who.as_str()), ("when", when.as_str())],
             ),
+            // Filled by the caller, which is the only place that knows the row
+            // number. Never left as `None` for these two kinds — see the caller.
+            position: None,
         };
     }
 
@@ -294,6 +375,7 @@ fn unanswered_gap(fact: &RehearsalFactRow, was_paired: bool, w: &RehearsalWordin
                 ("where", source_of(fact, w).label.as_str()),
             ],
         ),
+        position: None,
     }
 }
 
@@ -302,13 +384,14 @@ fn instance_row(
     position: usize,
     fact: &RehearsalFactRow,
     answer: Option<crate::dto::rehearsal::RehearsalAnswer>,
-    answer_gap: Option<String>,
     w: &RehearsalWording,
+    chrome: &RehearsalChromeWording,
 ) -> RehearsalInstance {
     // Safe by construction: `usable_fact` refused a quote that is absent or blank,
     // and this is only reached through it.
     let quote = fact.quote.as_deref().unwrap_or_default().trim().to_string();
     let (when, when_gap) = when_of(fact, w);
+    let answered = answer.is_some();
 
     RehearsalInstance {
         position,
@@ -319,7 +402,15 @@ fn instance_row(
         kind_label: kind_of(fact),
         quote_first_line: first_line(&quote),
         quote,
-        answer_gap,
+        // Chosen HERE rather than in the browser: two labels and a boolean is a
+        // choice a client can get backwards, and backwards means a green
+        // ANSWERED over a row nobody has answered.
+        answer_tag: if answered {
+            chrome.answered_tag.clone()
+        } else {
+            chrome.no_answer_tag.clone()
+        },
+        answer_banner: (!answered).then(|| chrome.no_answer_banner.clone()),
         answer,
     }
 }

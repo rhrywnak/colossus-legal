@@ -468,23 +468,36 @@ const ScenarioDetailPage: React.FC = () => {
         onChanged={refresh}
       />
 
-      {/* 5 — §2.5 */}
-      <TalkingPointsSection
-        slug={slug}
-        scenarioId={scenarioId}
-        points={augmentation?.talking_points ?? []}
-        cap={augmentation?.talking_points_cap ?? 0}
-        onChanged={refresh}
-      />
+      {/* 5 and 6 — §2.5 and §2.6.
+          Both withdraw entirely while the panel is unloaded, rather than
+          rendering with empty lists as they did before task 2.11 C. Their words
+          are stored rows now (ruling C4b), so an unloaded payload leaves no
+          headings, no button labels and no empty-state sentence — and a section
+          of unlabelled controls is worse than an absent one. Same rule, and same
+          reason, as `AccusationSection`'s `if (!panel) return null`. The page's
+          own failure notice is what says why. */}
+      {augmentation && (
+        <>
+          <TalkingPointsSection
+            slug={slug}
+            scenarioId={scenarioId}
+            points={augmentation.talking_points}
+            cap={augmentation.talking_points_cap}
+            wording={augmentation.wording}
+            onChanged={refresh}
+          />
 
-      {/* 6 — §2.6. The backend splits watch-list notes from human facts; a client
-          that re-filtered them would eventually show a note as a fact. */}
-      <WatchListSection
-        slug={slug}
-        scenarioId={scenarioId}
-        notes={augmentation?.watch_list ?? []}
-        onChanged={refresh}
-      />
+          {/* The backend splits watch-list notes from human facts; a client that
+              re-filtered them would eventually show a note as a fact. */}
+          <WatchListSection
+            slug={slug}
+            scenarioId={scenarioId}
+            notes={augmentation.watch_list}
+            wording={augmentation.wording}
+            onChanged={refresh}
+          />
+        </>
+      )}
 
       {/* 7 — §2.8 */}
       <ScenarioOrphanStrip

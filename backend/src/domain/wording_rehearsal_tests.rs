@@ -15,8 +15,16 @@ use crate::domain::wording::tests::seeded_value_in;
 use crate::domain::wording_templates::{missing_placeholders, REQUIRED_PLACEHOLDERS};
 use std::collections::HashMap;
 
-/// The migration that seeds all forty rows (thirty-nine strings + one number).
-const SEED_MIGRATION: &str = "pipeline_migrations/20260806100704_rehearsal_render_wording.sql";
+/// The migrations that seed these rows, in the order they run.
+///
+/// Two files since task 2.11 C: B2 seeded forty and C added the fifth section
+/// state. A single-file constant would have made the new row look unseeded, and
+/// the honest fix is to read both rather than to relax the assertion — the whole
+/// value of this test is that it reads the SQL a deployment actually applies.
+const SEED_MIGRATIONS: &[&str] = &[
+    "pipeline_migrations/20260806100704_rehearsal_render_wording.sql",
+    "pipeline_migrations/20260806135509_rehearsal_visual_2_11c.sql",
+];
 
 /// The seeded values, for TESTS ONLY — one table, feeding both fixtures.
 ///
@@ -110,6 +118,7 @@ const TEST_SEED: &[(&str, &str)] = &[
     (KEY_TIMELINE_FILTER_ALL, "Everyone"),
     (KEY_SOURCE_LABEL, "{document}, p. {page}"),
     (KEY_SOURCE_OPEN, "Open"),
+    (KEY_WHAT_STATE, "open"),
     (KEY_ACCUSATION_STATE, "open"),
     (KEY_TIMELINE_STATE, "collapsed"),
     (KEY_POINTS_STATE, "open"),
@@ -148,8 +157,18 @@ impl RehearsalWording {
 #[test]
 fn the_fixture_carries_the_values_the_migration_actually_seeds() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let sql = std::fs::read_to_string(root.join(SEED_MIGRATION))
-        .expect("the rehearsal wording migration is on disk");
+    // Concatenated rather than searched one at a time: every key is seeded
+    // exactly once across the two files (`no_key_appears_twice…` proves the list
+    // has no duplicate, and ON CONFLICT DO NOTHING means a second INSERT of one
+    // would be inert anyway), so the first match found is the seeded value.
+    let sql: String = SEED_MIGRATIONS
+        .iter()
+        .map(|file| {
+            std::fs::read_to_string(root.join(file))
+                .unwrap_or_else(|e| panic!("{file} is on disk: {e}"))
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
 
     let fixture = RehearsalWording::for_test_values();
     let mut checked = 0usize;
@@ -172,8 +191,8 @@ fn the_fixture_carries_the_values_the_migration_actually_seeds() {
 
     // Anti-vacuity: a parsing change that stopped finding rows would otherwise
     // make this test pass while comparing nothing.
-    assert_eq!(checked, 40, "all forty stored strings must be compared");
-    assert_eq!(REHEARSAL_WORDING_KEYS.len(), 40);
+    assert_eq!(checked, 41, "all forty-one stored strings must be compared");
+    assert_eq!(REHEARSAL_WORDING_KEYS.len(), 41);
 }
 
 #[test]
@@ -243,6 +262,7 @@ fn every_field_is_read_from_its_own_key() {
     assert_eq!(w.timeline_filter_all_label, KEY_TIMELINE_FILTER_ALL);
     assert_eq!(w.source_label_template, KEY_SOURCE_LABEL);
     assert_eq!(w.source_open_label, KEY_SOURCE_OPEN);
+    assert_eq!(w.what_default_state, KEY_WHAT_STATE);
     assert_eq!(w.accusation_default_state, KEY_ACCUSATION_STATE);
     assert_eq!(w.timeline_default_state, KEY_TIMELINE_STATE);
     assert_eq!(w.points_default_state, KEY_POINTS_STATE);
@@ -338,6 +358,7 @@ fn the_seeded_states_are_the_ones_the_addendum_specifies() {
         .expect("valid");
     let by_key: HashMap<&str, SectionState> = states.into_iter().collect();
 
+    assert!(by_key[KEY_WHAT_STATE].is_open());
     assert!(by_key[KEY_ACCUSATION_STATE].is_open());
     assert!(!by_key[KEY_TIMELINE_STATE].is_open());
     assert!(by_key[KEY_POINTS_STATE].is_open());
@@ -440,4 +461,28 @@ fn this_surface_never_names_a_fact_by_its_working_view_handle() {
              and it means the SCENARIO handle S-2, not a candidate's C-14"
         );
     }
+}
+
+#[test]
+fn the_five_states_arrive_in_the_order_the_page_renders_them() {
+    // The caller reads this array POSITIONALLY into `RehearsalCollapse`. Task
+    // 2.11 C put "What this is" at the front, which shifted every other index by
+    // one — and an index read out of step opens the wrong section for a witness,
+    // silently, with the page looking perfectly fine.
+    let states = RehearsalWording::for_test()
+        .section_states()
+        .expect("valid");
+    let keys: Vec<&str> = states.iter().map(|(key, _)| *key).collect();
+
+    assert_eq!(
+        keys,
+        vec![
+            KEY_WHAT_STATE,
+            KEY_ACCUSATION_STATE,
+            KEY_TIMELINE_STATE,
+            KEY_POINTS_STATE,
+            KEY_WATCH_STATE,
+        ],
+        "page order: what → accusation → timeline → points → watch"
+    );
 }

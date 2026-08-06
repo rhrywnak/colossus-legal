@@ -42,7 +42,7 @@ use crate::domain::settings::Settings;
 use crate::domain::wording_templates::render;
 use crate::dto::rehearsal::{RehearsalTimeline, RehearsalTimelineEntry};
 use crate::repositories::scenario_accusation_repository::RehearsalFactRow;
-use crate::services::rehearsal_rows::{display_date, who_of};
+use crate::services::rehearsal_rows::{display_date, source_of, who_of};
 use crate::services::scenario_accusation::AccusationState;
 
 /// Which side of the story an entry belongs to.
@@ -67,7 +67,8 @@ pub(crate) fn build_timeline(
     let w = &settings.rehearsal_wording;
     let placed = placed_rows(state, facts);
 
-    let dated_entries = drawable_entries(&placed, w);
+    let chrome = &settings.rehearsal_chrome_wording;
+    let dated_entries = drawable_entries(&placed, w, chrome);
 
     // Counted on the STORED value, not the rendered one. Two spellings of one
     // date would count as two distinct dates and could push a one-date scenario
@@ -121,6 +122,7 @@ pub(crate) fn build_timeline(
 fn drawable_entries(
     placed: &[(&'static str, &RehearsalFactRow)],
     w: &crate::domain::wording_rehearsal::RehearsalWording,
+    chrome: &crate::domain::wording_rehearsal_chrome::RehearsalChromeWording,
 ) -> Vec<(String, RehearsalTimelineEntry)> {
     let mut entries: Vec<(String, RehearsalTimelineEntry)> = placed
         .iter()
@@ -137,7 +139,15 @@ fn drawable_entries(
                         when: display_date(when),
                         who: who_of(fact, w),
                         side: (*side).to_string(),
+                        // The token decides the colour, this is what a human
+                        // reads. Both travel, so a client never has to match on
+                        // prose to tell the sides apart.
+                        side_label: side_label(side, chrome).to_string(),
                         quote: quote.to_string(),
+                        // Ruling C7: a timeline row IS an instance or an answer,
+                        // so the pinpoint a witness needs to produce the document
+                        // travels with it here too.
+                        source: source_of(fact, w),
                     },
                 )
             })
@@ -172,6 +182,28 @@ fn placed_rows<'a>(
         }
     }
     out
+}
+
+/// The stored word for one side token.
+///
+/// ## Rust Learning: matching on a `&'static str` rather than an enum
+///
+/// The two side tokens are `const`s in this module, not an enum — they cross the
+/// wire as strings and the DTO holds them as `String`. A `match` with a catch-all
+/// would silently label an unknown token; there is no unknown token here (both
+/// come from `placed_rows`, three lines away), so the fallback is the THEIRS
+/// label and the branch is exhaustive in practice. Written as an `if` for exactly
+/// that reason: a `match` with an unreachable arm invites a reader to wonder what
+/// the third case is.
+fn side_label<'a>(
+    side: &str,
+    chrome: &'a crate::domain::wording_rehearsal_chrome::RehearsalChromeWording,
+) -> &'a str {
+    if side == SIDE_OUR_ANSWER {
+        &chrome.timeline_side_ours_label
+    } else {
+        &chrome.timeline_side_theirs_label
+    }
 }
 
 /// A statement's own date, when it has one.

@@ -52,7 +52,11 @@ use crate::domain::settings::{
 };
 use crate::domain::wording::{build_wording, Wording};
 use crate::domain::wording_accusation::{build_accusation_wording, AccusationWording};
+use crate::domain::wording_authoring::{build_authoring_wording, AuthoringWording};
 use crate::domain::wording_rehearsal::{build_rehearsal_wording, RehearsalWording};
+use crate::domain::wording_rehearsal_chrome::{
+    build_rehearsal_chrome_wording, RehearsalChromeWording,
+};
 use crate::domain::wording_templates::validate_wording_candidate;
 use crate::repositories::pipeline_repository::{
     get_setting, insert_setting_change, list_settings, update_setting_value, AppSettingRecord,
@@ -74,6 +78,7 @@ const KEY_CARD_TEST_RATIO: &str = "card_test_ratio";
 const KEY_REANCHOR_TOLERANCE: &str = "reanchor_close_match_tolerance";
 const KEY_LINK_SHORT_LIST_MAX: &str = "link_short_list_max";
 const KEY_TIMELINE_MIN_DATES: &str = "rehearsal_timeline_min_distinct_dates";
+const KEY_ROWS_EXPAND_MAX: &str = "rehearsal_instance_rows_expand_max";
 
 /// Every NUMERIC key this build reads, so a missing one is caught at boot by name.
 ///
@@ -95,6 +100,7 @@ pub const REQUIRED_KEYS: &[&str] = &[
     KEY_REANCHOR_TOLERANCE,
     KEY_LINK_SHORT_LIST_MAX,
     KEY_TIMELINE_MIN_DATES,
+    KEY_ROWS_EXPAND_MAX,
 ];
 
 /// Why the store could not be read or written.
@@ -257,7 +263,7 @@ pub fn build_settings(rows: &HashMap<String, AppSettingRecord>) -> Result<Settin
         });
     }
 
-    let (wording, accusation_wording, rehearsal_wording) = build_all_wording(rows)?;
+    let words = build_all_wording(rows)?;
 
     Ok(Settings {
         confidence_band_high,
@@ -268,25 +274,46 @@ pub fn build_settings(rows: &HashMap<String, AppSettingRecord>) -> Result<Settin
         card_test_ratio: ratio_of(require(rows, KEY_CARD_TEST_RATIO)?)?,
         reanchor_close_match_tolerance: float_of(require(rows, KEY_REANCHOR_TOLERANCE)?)?,
         link_short_list_max: count_of(require(rows, KEY_LINK_SHORT_LIST_MAX)?)?,
-        wording,
-        accusation_wording,
-        rehearsal_wording,
+        wording: words.curation,
+        accusation_wording: words.accusation,
+        rehearsal_wording: words.rehearsal,
         rehearsal_timeline_min_distinct_dates: count_of(require(rows, KEY_TIMELINE_MIN_DATES)?)?,
+        rehearsal_chrome_wording: words.chrome,
+        authoring_wording: words.authoring,
+        rehearsal_instance_rows_expand_max: count_of(require(rows, KEY_ROWS_EXPAND_MAX)?)?,
     })
 }
 
-/// The three stored-string blocks, read by one rule.
+/// Every stored-string block, read by one rule.
+///
+/// ## Rust Learning: a named struct instead of a five-tuple
+///
+/// This started as `(Wording, AccusationWording, RehearsalWording)` and task
+/// 2.11 C would have made it five long. A tuple that wide is five positions
+/// nobody can read at the call site, and — worse — two of the five would be
+/// `RehearsalWording` and `RehearsalChromeWording`, whose order the compiler
+/// WOULD catch but whose neighbours' would not. Named fields cost four lines and
+/// remove the whole class of mistake.
+struct AllWording {
+    curation: Wording,
+    accusation: AccusationWording,
+    rehearsal: RehearsalWording,
+    chrome: RehearsalChromeWording,
+    authoring: AuthoringWording,
+}
+
+/// The five stored-string blocks, read by one rule.
 ///
 /// Split from [`build_settings`] because the seam is real and not just a line
 /// count: that function decides the NUMBERS this system judges by, and this one
 /// reads the WORDS it speaks. Each block lives in its own `domain` module (Rule
-/// 17 — none of them fits in one), and all three are read by the same closure, so
+/// 17 — none of them fits in one), and all five are read by the same closure, so
 /// a row must exist, declare `text`, and carry something non-blank whichever
 /// surface it belongs to.
 ///
 /// ## Why the rehearsal block's derived shapes are parsed HERE
 ///
-/// `always_lines` and `section_states` turn stored text into a list and four
+/// `always_lines` and `section_states` turn stored text into a list and five
 /// enums. Doing it at boot means a blank standing card or an unreadable state
 /// token stops the service with a named refusal; doing it at render would
 /// surprise a witness mid-rehearsal, on the one block §10 says is never scrolled
@@ -295,18 +322,23 @@ pub fn build_settings(rows: &HashMap<String, AppSettingRecord>) -> Result<Settin
 /// # Errors
 /// Returns [`SettingError`] naming the first key that is missing, of the wrong
 /// declared kind, blank, or — for the two derived shapes — unreadable.
-#[allow(clippy::type_complexity)]
-fn build_all_wording(
-    rows: &HashMap<String, AppSettingRecord>,
-) -> Result<(Wording, AccusationWording, RehearsalWording), SettingError> {
-    let wording = build_wording(|key| text_of(require(rows, key)?))?;
-    let accusation_wording = build_accusation_wording(|key| text_of(require(rows, key)?))?;
-    let rehearsal_wording = build_rehearsal_wording(|key| text_of(require(rows, key)?))?;
+fn build_all_wording(rows: &HashMap<String, AppSettingRecord>) -> Result<AllWording, SettingError> {
+    let curation = build_wording(|key| text_of(require(rows, key)?))?;
+    let accusation = build_accusation_wording(|key| text_of(require(rows, key)?))?;
+    let rehearsal = build_rehearsal_wording(|key| text_of(require(rows, key)?))?;
+    let chrome = build_rehearsal_chrome_wording(|key| text_of(require(rows, key)?))?;
+    let authoring = build_authoring_wording(|key| text_of(require(rows, key)?))?;
 
-    rehearsal_wording.always_lines()?;
-    rehearsal_wording.section_states()?;
+    rehearsal.always_lines()?;
+    rehearsal.section_states()?;
 
-    Ok((wording, accusation_wording, rehearsal_wording))
+    Ok(AllWording {
+        curation,
+        accusation,
+        rehearsal,
+        chrome,
+        authoring,
+    })
 }
 
 /// Index rows by key.

@@ -1,80 +1,97 @@
 // =============================================================================
-// RehearsalInstanceRow — one instance, and our answer under it (task 2.11 B2)
+// RehearsalInstanceRow — one instance, and our answer under it
 // =============================================================================
 //
 // Roman's model, one row of it: *"He mentioned it 5 times in 5 different
-// documents. Marie rebutted 5 times."* This is one of those times — who said it,
-// when, where, in what kind of statement, in their own words — with what we said
-// back directly beneath it, and a loud line when there is nothing beneath it yet.
+// documents. Marie rebutted 5 times."* This is one of those times — # · who ·
+// when · where · Open ↗ · kind · tag — with what we said back directly beneath
+// it when the row is open.
 //
-// ## Progressive disclosure at the row level (addendum §2)
+// Rebuilt in task 2.11 C to reproduce `.instance` / `.inst-meta` / `.quote` /
+// `.answer` / `.nogap` from REHEARSAL_PAGE_MOCKUP_v2_2026-08-06.html.
 //
-// Collapsed the row is one line: who · when · where · the quote's opening.
-// Expanded it is the full quote, the source control, and our answer. Same
-// doctrine as the sections — one thing at a time — applied where a witness
-// actually works, which is one instance at a time.
+// ## Progressive disclosure at the row level
+//
+// Compact, the row is its meta line plus the quote's opening in italic.
+// Expanded, it is the full quote and our answer. Same doctrine as the sections —
+// one thing at a time — applied where a witness actually works, which is one
+// instance at a time.
+//
+// Which state a row ARRIVES in is the server's call (`instances_start_expanded`,
+// from the stored `rehearsal_instance_rows_expand_max`): at or under the cap
+// every row is open, above it every row is one line. The list is never
+// paginated, at any size.
 //
 // The opening is `quote_first_line`, composed by the backend. This component does
 // not slice prose: a cut computed here would differ from a cut computed anywhere
 // else the moment two components disagreed about the length.
 //
+// ## The gap, at two zoom levels and never three (ruling C5)
+//
+// The meta line carries the small red tag. An OPENED row carries the short
+// banner. The sentence naming who/when/where lives once, in the prep list —
+// rendering it here as well was the beta.381 duplicate-gap defect, and both
+// strings arrive composed so this component could not rebuild it if it tried.
+//
 // ## Why the source is here at all
 //
 // §10 keeps impeachment machinery off this page, and this is the one exception,
 // ruled 2026-08-06: an examiner or witness who cannot produce the source on the
-// spot loses credibility. The label and the link are the whole of it — no
-// confidence, no grading, no verdict, none of which the payload even carries.
+// spot loses credibility. The label and the link are the whole of it.
 
-import React, { useState } from "react";
+import React from "react";
 
-import { DIVIDER } from "./scenarioSectionStyles";
+import {
+  linkStyle,
+} from "./rehearsalStyles";
+import {
+  answerLabelStyle,
+  answerMetaStyle,
+  answerQuoteStyle,
+  answerStyle,
+  chipStyle,
+  instanceFirstLineStyle,
+  instanceMetaStyle,
+  instanceNumberStyle,
+  instanceStyle,
+  miniTagOkStyle,
+  miniTagStyle,
+  noAnswerBannerStyle,
+  quoteStyle,
+} from "./rehearsalRowStyles";
 import type { RehearsalAnswer, RehearsalInstance } from "../services/rehearsal";
 
 interface Props {
   instance: RehearsalInstance;
-  /** The stored label for the paired-answer line. */
+  /** The stored label for the paired-answer block. */
   answerLabel: string;
+  open: boolean;
+  onToggle: () => void;
+  /** Set on the row the prep list's jump link scrolls to. */
+  anchorId: string;
 }
 
-const rowStyle: React.CSSProperties = {
-  borderTop: DIVIDER,
-  padding: "0.9rem 0",
-};
-
-const metaStyle: React.CSSProperties = {
-  fontSize: "0.9rem",
-  color: "var(--text-secondary)",
-  display: "flex",
-  gap: "0.6rem",
-  flexWrap: "wrap",
-  alignItems: "baseline",
-};
-
-// The scale is the one place this surface departs from the rest of the app, and
-// it does so deliberately: this text is read aloud, from a distance, under
-// stress, by someone who is not looking for a row.
-const quoteStyle: React.CSSProperties = { fontSize: "1.25rem", lineHeight: 1.6 };
-
-const positionStyle: React.CSSProperties = {
-  fontWeight: 600,
-  color: "var(--text-muted)",
-};
-
-/** The link that opens the document at the statement's page. */
-const SourceLink: React.FC<{ href: string; label: string; open: string }> = ({
-  href,
-  label,
-  open,
-}) => (
-  <span style={{ fontSize: "0.9rem", color: "var(--text-secondary)" }}>
+/** Where a statement was made, and the control that opens it at that page. */
+const Source: React.FC<{
+  label: string;
+  href: string;
+  openLabel: string;
+  /** Stops a click on the link from also folding the row it sits in. */
+  stopPropagation?: boolean;
+}> = ({ label, href, openLabel, stopPropagation }) => (
+  <span style={{ color: "var(--text-secondary)" }}>
     {label}
     {/* No link when the record cannot say WHICH document. A link to nowhere is
         worse than no link — a reader clicks it in front of opposing counsel. */}
     {href && (
       <>
         {" · "}
-        <a href={href} style={{ color: "var(--accent-primary)" }}>
-          {open}
+        <a
+          href={href}
+          style={linkStyle}
+          onClick={stopPropagation ? (e) => e.stopPropagation() : undefined}
+        >
+          {openLabel} ↗
         </a>
       </>
     )}
@@ -86,83 +103,71 @@ const AnswerBlock: React.FC<{ answer: RehearsalAnswer; label: string }> = ({
   answer,
   label,
 }) => (
-  <div style={{ marginTop: "0.75rem", paddingLeft: "1rem" }}>
-    <div style={metaStyle}>
-      <strong style={{ color: "var(--text-primary)" }}>{label}</strong>
-      <span>{answer.who}</span>
+  <div style={answerStyle}>
+    <div style={answerLabelStyle}>{label}</div>
+    <div style={answerMetaStyle}>
+      {answer.who}
+      {" · "}
       {/* Exactly one of these is ever present — the backend decides, so this
           cannot render both or neither. */}
-      <span>{answer.when ?? answer.when_gap}</span>
+      {answer.when ?? answer.when_gap}
+      {" · "}
+      <Source
+        label={answer.source.label}
+        href={answer.source.href}
+        openLabel={answer.source.open_label}
+      />
     </div>
-    <p style={quoteStyle}>{answer.quote}</p>
-    <SourceLink
-      href={answer.source.href}
-      label={answer.source.label}
-      open={answer.source.open_label}
-    />
+    <div style={answerQuoteStyle}>{answer.quote}</div>
   </div>
 );
 
-const RehearsalInstanceRow: React.FC<Props> = ({ instance, answerLabel }) => {
-  const [open, setOpen] = useState(false);
-
-  return (
-    <div style={rowStyle}>
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        aria-expanded={open}
-        style={{
-          display: "block",
-          width: "100%",
-          textAlign: "left",
-          border: "none",
-          background: "transparent",
-          padding: 0,
-          cursor: "pointer",
-          fontFamily: "inherit",
-        }}
-      >
-        <div style={metaStyle}>
-          <span style={positionStyle}>{instance.position}</span>
-          <span>{instance.who}</span>
-          <span>{instance.when ?? instance.when_gap}</span>
-          <span>{instance.source.label}</span>
-          {instance.kind_label && <span>{instance.kind_label}</span>}
-        </div>
-        {/* The opening when folded, the whole statement when open. Both come
-            from the payload; neither is cut here. */}
-        <p style={quoteStyle}>{open ? instance.quote : instance.quote_first_line}</p>
-      </button>
-
-      {open && (
-        <SourceLink
-          href={instance.source.href}
+const RehearsalInstanceRow: React.FC<Props> = ({
+  instance,
+  answerLabel,
+  open,
+  onToggle,
+  anchorId,
+}) => (
+  <div style={instanceStyle} id={anchorId}>
+    <button type="button" onClick={onToggle} aria-expanded={open} style={instanceMetaStyle}>
+      <span style={instanceNumberStyle}>{instance.position}</span>
+      <span style={{ fontWeight: 600 }}>{instance.who}</span>
+      <span style={{ color: "var(--text-secondary)" }}>
+        {instance.when ?? instance.when_gap}
+      </span>
+      <span style={{ color: "var(--text-secondary)" }}>
+        <Source
           label={instance.source.label}
-          open={instance.source.open_label}
+          href={instance.source.href}
+          openLabel={instance.source.open_label}
+          stopPropagation
         />
-      )}
+      </span>
+      {instance.kind_label && <span style={chipStyle}>{instance.kind_label}</span>}
+      {/* The tag the server chose. Green means answered; red means not. Both
+          words are stored rows, and the choice was made where the answer
+          actually is — a client picking between two labels can pick wrong. */}
+      <span style={instance.answer ? miniTagOkStyle : miniTagStyle}>
+        {instance.answer_tag}
+      </span>
+    </button>
 
-      {/* The answer, or the loud line saying there is not one. Rendered whether
-          the row is open or shut: the gap is the single most useful thing on this
-          page, and hiding it behind a fold is exactly what must not happen. */}
-      {instance.answer ? (
-        open && <AnswerBlock answer={instance.answer} label={answerLabel} />
-      ) : (
-        instance.answer_gap && (
-          <p
-            style={{
-              margin: "0.5rem 0 0",
-              fontWeight: 600,
-              color: "var(--state-danger-strong)",
-            }}
-          >
-            {instance.answer_gap}
-          </p>
-        )
-      )}
-    </div>
-  );
-};
+    {open ? (
+      <>
+        <div style={quoteStyle}>{instance.quote}</div>
+        {instance.answer ? (
+          <AnswerBlock answer={instance.answer} label={answerLabel} />
+        ) : (
+          instance.answer_banner && (
+            <div style={noAnswerBannerStyle}>{instance.answer_banner}</div>
+          )
+        )}
+      </>
+    ) : (
+      <div style={instanceFirstLineStyle}>{instance.quote_first_line}</div>
+    )}
+  </div>
+);
 
 export default RehearsalInstanceRow;

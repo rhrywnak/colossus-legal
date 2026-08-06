@@ -27,7 +27,7 @@
 
 use std::collections::HashMap;
 
-use chrono::NaiveDate;
+use chrono::{DateTime, NaiveDate, Utc};
 
 use crate::domain::card_language::statement_kind_label;
 use crate::domain::wording_rehearsal::RehearsalWording;
@@ -167,6 +167,45 @@ pub(crate) fn display_date(stored: &str) -> String {
     match NaiveDate::parse_from_str(stored, "%Y-%m-%d") {
         Ok(date) => date.format(DATE_FORMAT).to_string(),
         Err(_) => stored.to_string(),
+    }
+}
+
+/// The authorship line under an authored sentence, or the stored unknown notice.
+///
+/// ## Domain note: why a HALF-recorded authorship is treated as none
+///
+/// The two columns are written together by the one guarded route, so an author
+/// without a date (or the reverse) means something wrote around that route. The
+/// honest answer is then the same as for a sentence written before the columns
+/// existed: say the authorship is not recorded. Composing "Written by Roman · "
+/// would render an attribution with the day silently missing, which claims more
+/// than the record holds.
+///
+/// ## Rust Learning: `Option::zip`
+///
+/// `a.zip(b)` is `Some((x, y))` only when BOTH are `Some` — the exact shape of
+/// the rule above, expressed once instead of as a nested match. It is the same
+/// combinator family as `and_then`, specialised to "I need two things".
+pub(crate) fn attribution_line(
+    template: &str,
+    unknown_notice: &str,
+    author: Option<&str>,
+    at: Option<DateTime<Utc>>,
+) -> String {
+    let named = author.map(str::trim).filter(|name| !name.is_empty());
+
+    match named.zip(at) {
+        Some((who, when)) => render(
+            template,
+            &[
+                ("who", who),
+                (
+                    "when",
+                    when.date_naive().format(DATE_FORMAT).to_string().as_str(),
+                ),
+            ],
+        ),
+        None => unknown_notice.to_string(),
     }
 }
 

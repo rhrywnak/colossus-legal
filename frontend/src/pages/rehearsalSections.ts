@@ -15,6 +15,8 @@ import type { RehearsalCollapse } from "../services/rehearsal";
 
 /** Which sections are open right now. Per-visit state, never stored. */
 export type OpenSections = {
+  /** Task 2.11 C: "What this is" folds like the others per the signed mockup. */
+  what: boolean;
   accusation: boolean;
   timeline: boolean;
   points: boolean;
@@ -37,6 +39,7 @@ export type OpenSections = {
  */
 export function openSectionsFrom(collapse: RehearsalCollapse): OpenSections {
   return {
+    what: collapse.what_open,
     accusation: collapse.accusation_open,
     timeline: collapse.timeline_open,
     points: collapse.points_open,

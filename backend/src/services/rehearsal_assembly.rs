@@ -23,7 +23,7 @@ use sqlx::PgPool;
 use crate::domain::human_authored::HumanFactKind;
 use crate::domain::scenario_code::scenario_code;
 use crate::domain::settings::Settings;
-use crate::dto::rehearsal::{RehearsalPoint, RehearsalScenario};
+use crate::dto::rehearsal::{RehearsalPoint, RehearsalScenario, RehearsalWatchItem};
 use crate::repositories::pipeline_repository::{
     list_fact_refs_for_scenario, list_human_facts_for_scenario, list_items_for_response,
     list_responses_for_scenario, PipelineRepoError, ScenarioRecord,
@@ -31,7 +31,7 @@ use crate::repositories::pipeline_repository::{
 use crate::repositories::scenario_accusation_repository::{
     fetch_rehearsal_facts, RehearsalFactRow,
 };
-use crate::services::rehearsal_render::{render_scenario, ScenarioInput};
+use crate::services::rehearsal_render::{render_scenario, Authored, ScenarioInput};
 use crate::services::scenario_accusation::{derive, StoredJudgment};
 
 /// Why a rehearsal scenario could not be assembled.
@@ -81,27 +81,55 @@ pub async fn assemble_scenario(
     let included = included_ids(pool, scenario_id).await?;
     let state = derive(&judgments, &included);
     let facts = placed_facts(graph, &state).await?;
+    let points = talking_points_of(pool, scenario_id, settings).await?;
 
     Ok(render_scenario(ScenarioInput {
         code: scenario_code(record.code_ordinal),
+        // The address the page's editors write to (ruling C1). It renders
+        // nowhere; `code` is the only identifier a reader ever sees.
+        scenario_id: scenario_id.to_string(),
         title: &record.name,
         what_this_is: record.theme_statement.as_deref(),
+        what_authored: Authored {
+            by: record.theme_authored_by.as_deref(),
+            at: record.theme_authored_at,
+        },
         // The AUTHORED accusation, never `definition->>'attack_text'` — that
         // column holds a verbatim first-person quote from the record, and
         // rendering it here promoted one piece of evidence into the summary of
         // all of it. That was the defect this whole task exists to end, and this
         // line is where it stays ended.
         accusation_text: record.accusation_text.as_deref(),
+        accusation_authored: Authored {
+            by: record.accusation_text_authored_by.as_deref(),
+            at: record.accusation_text_authored_at,
+        },
         state: &state,
         facts: &facts,
-        points: talking_points_of(pool, scenario_id, settings).await?,
-        watch_for: notes
-            .iter()
-            .filter(|n| n.kind == HumanFactKind::WatchList.code())
-            .map(|n| n.text.clone())
-            .collect(),
+        points,
+        watch_for: watch_items(&notes),
         settings,
     }))
+}
+
+/// The watch-list notes, each with the address the edit route needs.
+///
+/// Filtered on `kind` rather than on anything about the text: a watch item and a
+/// human fact live in one table, and this block shows only the first. Each row
+/// carries its own id because this page can now EDIT one (ruling C4b), and
+/// `PUT …/human-facts/:fact_id` has to know which — see the DTO's module header
+/// for why an address is not §10-excluded content.
+fn watch_items(
+    notes: &[crate::repositories::pipeline_repository::ScenarioHumanFactRecord],
+) -> Vec<RehearsalWatchItem> {
+    notes
+        .iter()
+        .filter(|n| n.kind == HumanFactKind::WatchList.code())
+        .map(|n| RehearsalWatchItem {
+            id: n.id.to_string(),
+            text: n.text.clone(),
+        })
+        .collect()
 }
 
 // CONST: mirrors the `scenario_fact_refs.status` vocabulary — a schema-coupling
@@ -240,11 +268,29 @@ async fn talking_points_of(
         // the few points a witness can hold.
         .take(settings.talking_points_cap)
         .map(|item| RehearsalPoint {
+            // The STORED index, not the position in this iteration: the two agree
+            // today, and would stop agreeing the moment the cap trimmed from the
+            // front or a row went missing. Editing point 3 must address the row
+            // the store calls 3, or the edit lands on the wrong sentence.
+            //
+            // ## Rust Learning: `usize::try_from` on an `i32`
+            //
+            // `item_index` is `i32` because Postgres `int` is signed. A negative
+            // value cannot exist (the writer only ever inserts from `enumerate`),
+            // but the compiler does not know that, so the conversion is fallible.
+            // Falling back to 0 rather than panicking keeps a corrupted row from
+            // taking down the page — and 0 is a position no route matches, so the
+            // edit is refused rather than mis-applied.
+            position: usize::try_from(item.item_index).unwrap_or(0) + 1,
             text: item.text,
             // The pairing editor is tracker task 3.9 and does not exist; measured
             // on DEV, `response_item_fact_refs` holds zero rows. Deriving a label
             // from the record instead would put words in the witness's mouth.
             exhibit: None,
+            exhibit_notice: settings
+                .rehearsal_chrome_wording
+                .point_no_exhibit_notice
+                .clone(),
         })
         .collect())
 }

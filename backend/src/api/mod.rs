@@ -61,6 +61,7 @@ pub mod rehearsal;
 pub mod scenario_accusation;
 pub mod scenario_accusation_read;
 pub mod scenario_augmentation;
+pub mod scenario_augmentation_read;
 pub mod scenario_cards;
 pub mod scenario_fact_curation;
 pub mod scenario_fact_curation_reads;

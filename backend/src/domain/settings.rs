@@ -26,7 +26,9 @@ use std::fmt;
 
 use crate::domain::wording::Wording;
 use crate::domain::wording_accusation::AccusationWording;
+use crate::domain::wording_authoring::AuthoringWording;
 use crate::domain::wording_rehearsal::RehearsalWording;
+use crate::domain::wording_rehearsal_chrome::RehearsalChromeWording;
 
 /// The parsed parameters, as every consumer sees them.
 ///
@@ -98,6 +100,23 @@ pub struct Settings {
     /// four distinct dates in the pool and zero placed items. The honest-gap law
     /// is what decides this, not a display preference.
     pub rehearsal_timeline_min_distinct_dates: usize,
+    /// The eighteen strings on the rehearsal page's CONTROLS and markers (task
+    /// 2.11 C). Its prose lives in [`Self::rehearsal_wording`]; see
+    /// `domain::wording_rehearsal_chrome` for the seam.
+    pub rehearsal_chrome_wording: RehearsalChromeWording,
+    /// The twenty-three strings the two shared authoring sections speak on the
+    /// scenario working page (task 2.11 C, ruling C4b).
+    pub authoring_wording: AuthoringWording,
+    /// How many instances a scenario may carry before the rehearsal page's rows
+    /// arrive COMPACT rather than expanded (task 2.11 C).
+    ///
+    /// ## Domain note: a display default, never a limit on what is shown
+    ///
+    /// Every instance is always rendered and always reachable — the list is not
+    /// paginated at any size, because a page boundary in the middle of "he said
+    /// it five times" breaks the one thing the block exists to show. This number
+    /// decides only whether a row ARRIVES open or one line tall.
+    pub rehearsal_instance_rows_expand_max: usize,
 }
 
 /// A snapshot for TESTS ONLY.
@@ -132,6 +151,9 @@ impl Settings {
             accusation_wording: AccusationWording::for_test(),
             rehearsal_wording: RehearsalWording::for_test(),
             rehearsal_timeline_min_distinct_dates: 2,
+            rehearsal_chrome_wording: RehearsalChromeWording::for_test(),
+            authoring_wording: AuthoringWording::for_test(),
+            rehearsal_instance_rows_expand_max: 3,
         }
     }
 }

@@ -4,9 +4,11 @@
 //
 // Split out of `domain::wording` in task 2.11 B2, and the seam is one that was
 // always there: these are the rules for EVERY stored string, and there are now
-// three modules' worth — `wording` (48 keys, the curation surfaces),
+// five modules' worth — `wording` (48 keys, the curation surfaces),
 // `wording_accusation` (27, the working view's accusation section),
-// `wording_rehearsal` (40, the rehearsal page).
+// `wording_rehearsal` (41, the rehearsal page's prose and gaps),
+// `wording_rehearsal_chrome` (18, that page's controls and markers, task 2.11 C),
+// `wording_authoring` (23, the two shared authoring sections, task 2.11 C).
 //
 // Two rules live here.
 //
@@ -30,7 +32,9 @@
 use crate::domain::settings::{parse_text, SettingError};
 use crate::domain::wording as curation;
 use crate::domain::wording_accusation as accusation;
+use crate::domain::wording_authoring as authoring;
 use crate::domain::wording_rehearsal as rehearsal;
+use crate::domain::wording_rehearsal_chrome as chrome;
 
 /// The placeholders a stored string MUST still contain after a human edits it.
 ///
@@ -107,6 +111,21 @@ pub const REQUIRED_PLACEHOLDERS: &[(&str, &[&str])] = &[
     (rehearsal::KEY_GAP_ANSWER_REMOVED, &["{who}", "{when}"]),
     (rehearsal::KEY_TIMELINE_GAP, &["{undated}", "{total}"]),
     (rehearsal::KEY_SOURCE_LABEL, &["{document}", "{page}"]),
+    // ── Task 2.11 C: authorship, and the two authoring sections ──────────────
+    //
+    // "Written in plain words by  · " attributes nothing while looking like an
+    // attribution — the worst of both, on the one line whose entire job is to say
+    // a human wrote this sentence rather than a machine deriving it.
+    (chrome::KEY_WHAT_ATTRIBUTION, &["{who}", "{when}"]),
+    (chrome::KEY_ACCUSATION_ATTRIBUTION, &["{who}", "{when}"]),
+    // The cap is a stored number. "her own words · up to " states a limit and
+    // then withholds it, and "That is already  points" refuses without saying
+    // what the ceiling is — a control that refuses opaquely reads as broken.
+    (authoring::KEY_POINTS_SECTION_META, &["{cap}"]),
+    (authoring::KEY_POINTS_CAP_REACHED, &["{cap}"]),
+    // Without {n} every editing box in the list announces itself identically to a
+    // screen reader, which is the same as none of them being labelled.
+    (authoring::KEY_POINTS_FIELD_LABEL, &["{n}"]),
 ];
 
 /// Which required placeholders a candidate value is missing, for one key.

@@ -19,7 +19,9 @@ use sqlx::PgPool;
 use crate::domain::settings::Settings;
 use crate::domain::wording::WORDING_KEYS;
 use crate::domain::wording_accusation::ACCUSATION_WORDING_KEYS;
+use crate::domain::wording_authoring::AUTHORING_WORDING_KEYS;
 use crate::domain::wording_rehearsal::REHEARSAL_WORDING_KEYS;
+use crate::domain::wording_rehearsal_chrome::REHEARSAL_CHROME_KEYS;
 use crate::repositories::pipeline_repository::list_settings;
 use crate::services::settings_handle::SettingsHandle;
 use crate::services::settings_store::{build_settings, by_key, SettingsError, REQUIRED_KEYS};
@@ -53,6 +55,8 @@ pub async fn load_settings(pool: &PgPool) -> Result<Settings, SettingsError> {
         // migration has not been applied, which one summed number could not.
         accusation_wording = ACCUSATION_WORDING_KEYS.len(),
         rehearsal_wording = REHEARSAL_WORDING_KEYS.len(),
+        rehearsal_chrome = REHEARSAL_CHROME_KEYS.len(),
+        authoring_wording = AUTHORING_WORDING_KEYS.len(),
         "configuration store read"
     );
 
@@ -79,7 +83,10 @@ pub async fn load_at_boot(pool: &PgPool) -> Result<Settings, SettingsError> {
                 wording_strings = WORDING_KEYS.len(),
                 accusation_strings = ACCUSATION_WORDING_KEYS.len(),
                 rehearsal_strings = REHEARSAL_WORDING_KEYS.len(),
+                rehearsal_chrome_strings = REHEARSAL_CHROME_KEYS.len(),
+                authoring_strings = AUTHORING_WORDING_KEYS.len(),
                 talking_points_cap = settings.talking_points_cap,
+                rehearsal_instance_rows_expand_max = settings.rehearsal_instance_rows_expand_max,
                 confidence_band_high = settings.confidence_band_high,
                 link_short_list_max = settings.link_short_list_max,
                 "startup: configuration store loaded"

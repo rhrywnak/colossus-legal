@@ -15,7 +15,9 @@ use std::collections::HashMap;
 // The template rules moved to their own module in task 2.11 B2 — they are the
 // rules for ALL stored text, not this surface's.
 use crate::domain::wording_accusation as accusation;
+use crate::domain::wording_authoring as authoring;
 use crate::domain::wording_rehearsal as rehearsal;
+use crate::domain::wording_rehearsal_chrome as chrome;
 use crate::domain::wording_templates::{missing_placeholders, render, REQUIRED_PLACEHOLDERS};
 
 // ── The placeholder rules ────────────────────────────────────────────────────
@@ -55,14 +57,16 @@ fn every_key_with_required_placeholders_is_a_real_key() {
     // guarding anything, because `missing_placeholders` returns empty for a key
     // it does not find.
     //
-    // Both stored-string lists count (task 2.11): this table is the one place the
-    // write path looks, so it carries the accusation section's templates as well
-    // as this module's own.
+    // All FIVE stored-string lists count (2.10, 2.11 B1/B2, 2.11 C): this table
+    // is the one place the write path looks, so it carries every surface's
+    // templates as well as this module's own.
     for (key, required) in REQUIRED_PLACEHOLDERS {
         assert!(
             WORDING_KEYS.contains(key)
                 || accusation::ACCUSATION_WORDING_KEYS.contains(key)
-                || rehearsal::REHEARSAL_WORDING_KEYS.contains(key),
+                || rehearsal::REHEARSAL_WORDING_KEYS.contains(key)
+                || chrome::REHEARSAL_CHROME_KEYS.contains(key)
+                || authoring::AUTHORING_WORDING_KEYS.contains(key),
             "{key} has placeholder requirements but is not a stored wording key"
         );
         assert!(!required.is_empty(), "{key} declares an empty requirement");
@@ -80,6 +84,8 @@ fn the_seeded_defaults_satisfy_their_own_placeholder_rules() {
     // on the rule it exists to check.
     values.extend(accusation::AccusationWording::for_test_values());
     values.extend(rehearsal::RehearsalWording::for_test_values());
+    values.extend(chrome::RehearsalChromeWording::for_test_values());
+    values.extend(authoring::AuthoringWording::for_test_values());
     for (key, _) in REQUIRED_PLACEHOLDERS {
         let seeded = values.get(key).expect("a seeded value for every key");
         assert!(

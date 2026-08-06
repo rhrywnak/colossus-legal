@@ -34,7 +34,7 @@
 import React, { useState } from "react";
 
 import AccusationFactPicker, { type PickableFact } from "./AccusationFactPicker";
-import AccusationTextBlock from "./AccusationTextBlock";
+import SentenceEditor from "./SentenceEditor";
 import {
   absentStyle,
   DIVIDER,
@@ -103,6 +103,29 @@ const gapStyle: React.CSSProperties = {
   margin: 0,
   fontSize: "13px",
   lineHeight: 1.5,
+};
+
+/** How this surface renders the stored accusation sentence. */
+const sentenceStyle: React.CSSProperties = {
+  margin: 0,
+  fontSize: "15px",
+  lineHeight: 1.55,
+  fontWeight: 500,
+  color: "var(--text-primary)",
+};
+
+/** The box this surface types into. */
+const textareaStyle: React.CSSProperties = {
+  width: "100%",
+  minHeight: "4.5rem",
+  fontFamily: "inherit",
+  fontSize: "14px",
+  lineHeight: 1.55,
+  padding: "10px 12px",
+  border: DIVIDER,
+  borderRadius: "8px",
+  color: "var(--text-primary)",
+  background: "var(--bg-surface)",
 };
 
 const AccusationSection: React.FC<Props> = ({
@@ -174,11 +197,25 @@ const AccusationSection: React.FC<Props> = ({
       )}
 
       <div style={sectionPaddedPanelStyle}>
-        <AccusationTextBlock
+        {/* The shared leaf, in this surface's visual language. Task 2.11 C
+            generalised it so the rehearsal page's two sentence editors are the
+            SAME component rather than a second copy of the same behaviour. */}
+        <SentenceEditor
           text={panel.accusation_text}
-          wording={w}
+          missingNotice={w.text_missing_notice}
+          label={w.text_label}
+          wording={{
+            editLabel: w.text_edit_label,
+            saveLabel: w.text_save_label,
+            cancelLabel: w.text_cancel_label,
+            withdrawLabel: w.text_clear_label,
+            placeholder: w.text_placeholder,
+          }}
           busy={busy}
           onSave={(text) => run(() => setAccusationText(slug, scenarioId, text))}
+          sentenceStyle={sentenceStyle}
+          buttonStyle={ghostButtonStyle}
+          fieldStyle={textareaStyle}
         />
 
         <div style={{ marginTop: "1rem" }}>

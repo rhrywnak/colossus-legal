@@ -34,8 +34,8 @@ use crate::domain::settings::Settings;
 use crate::repositories::pipeline_repository::{
     delete_human_fact, delete_responses_for_scenario, insert_human_fact, insert_response_item,
     insert_scenario_response, list_human_facts_for_scenario, list_items_for_response,
-    list_responses_for_scenario, HumanFactWrite, PipelineRepoError, ResponseItemRecord,
-    ScenarioHumanFactRecord,
+    list_responses_for_scenario, update_human_fact_text, update_response_item_text, HumanFactWrite,
+    PipelineRepoError, ResponseItemRecord, ScenarioHumanFactRecord,
 };
 
 /// Why an augmentation write was refused.
@@ -58,6 +58,18 @@ pub enum AugmentationError {
          few points under pressure, not a list — shorten or replace one instead."
     )]
     TooManyTalkingPoints { attempted: usize, cap: usize },
+
+    /// The edit named a row that is not there.
+    ///
+    /// Its own variant rather than a `bool` returned to the handler: "the write
+    /// failed" and "you edited something that no longer exists" send a human to
+    /// opposite remedies, and the second is the normal outcome of two people
+    /// having the page open when one of them removes a point.
+    #[error(
+        "there is no {what} {which} on this scenario any more — somebody may have \
+         removed it since this page loaded. Reload to see what is there now."
+    )]
+    NoSuchRow { what: String, which: String },
 
     #[error("failed to store the human content: {source}")]
     Write {
@@ -279,6 +291,143 @@ pub async fn set_talking_points(
         .map_err(|e| AugmentationError::Write { source: e.into() })?;
 
     Ok(kept)
+}
+
+/// Rewrite ONE talking point, addressed by its printed position.
+///
+/// ## Why a blank is REFUSED rather than treated as a deletion
+///
+/// Emptying the box and saving is indistinguishable from a slip of the keyboard,
+/// and the two intentions have opposite consequences for a list a witness
+/// rehearses from. Removing a point is the whole-list write's job, where the
+/// human can see what the list becomes. Same discipline as the accusation
+/// sentence's Withdraw control.
+///
+/// ## Rust Learning: `i32::try_from` at the boundary between a count and a column
+///
+/// `position` is a `usize` because it counts; `item_index` is `i32` because
+/// Postgres `int` is signed. The conversion is fallible in principle (a `usize`
+/// can exceed `i32::MAX`), and rather than clamp — which would silently edit the
+/// wrong row — an out-of-range position is refused as "no such row", which is
+/// exactly what it is.
+///
+/// # Errors
+/// Returns [`AugmentationError`] if the text is blank, the position names no
+/// point, or a read/write fails.
+pub async fn edit_talking_point(
+    pool: &PgPool,
+    scenario_id: Uuid,
+    position: usize,
+    text: &str,
+) -> Result<(), AugmentationError> {
+    let trimmed = checked_line(text)?;
+    let index = talking_point_index(position)?;
+
+    let responses = list_responses_for_scenario(pool, scenario_id)
+        .await
+        .map_err(|source| AugmentationError::Read { source })?;
+
+    let Some(response) = responses.first() else {
+        return Err(no_such_point(position));
+    };
+
+    let changed = update_response_item_text(pool, response.id, index, trimmed)
+        .await
+        .map_err(|source| AugmentationError::Write { source })?;
+
+    if changed == 0 {
+        return Err(no_such_point(position));
+    }
+    Ok(())
+}
+
+/// The refusal for a position that names no point, composed in one place.
+fn no_such_point(position: usize) -> AugmentationError {
+    AugmentationError::NoSuchRow {
+        what: "talking point".to_string(),
+        which: position.to_string(),
+    }
+}
+
+/// One authored line, trimmed — or the refusal for an empty one.
+///
+/// Pure and separate from the writes so the rule is testable without a database,
+/// exactly as [`check_talking_points`] is. Both edit routes share it, because
+/// "an empty note records nothing" is one rule and not two.
+///
+/// # Errors
+/// Returns [`AugmentationError::EmptyText`] when the text is blank or whitespace.
+pub fn checked_line(text: &str) -> Result<&str, AugmentationError> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return Err(AugmentationError::EmptyText);
+    }
+    Ok(trimmed)
+}
+
+/// The stored `item_index` a printed position addresses.
+///
+/// ## Rust Learning: `checked_sub` on a `usize`
+///
+/// `position - 1` on a `usize` of 0 does not go negative — it WRAPS to
+/// `usize::MAX`, silently, in release builds. `checked_sub` returns `None`
+/// instead, which is the difference between "position 0 is not a row" and an
+/// update aimed at index 9,223,372,036,854,775,807.
+///
+/// # Errors
+/// Returns [`AugmentationError::NoSuchRow`] for position 0 or a position past
+/// what an `i32` column can hold.
+pub fn talking_point_index(position: usize) -> Result<i32, AugmentationError> {
+    // Position 0 is not a row. Written as a `let ... else` rather than folded
+    // into the chain below so the two failures stay visibly separate: one is a
+    // position nobody could have meant, the other is a position past what the
+    // column can hold, and both end at the same refusal for the same reason.
+    let Some(zero_based) = position.checked_sub(1) else {
+        return Err(no_such_point(position));
+    };
+
+    // `map_err` rather than `.ok()`: the discarded `TryFromIntError` says only
+    // "out of range", which the refusal replacing it already says WITH the
+    // position the caller actually sent. Nothing observable is lost, and the
+    // conversion is never clamped — clamping would edit the LAST point instead
+    // of refusing, which is a silent write to the wrong row.
+    i32::try_from(zero_based).map_err(|_| no_such_point(position))
+}
+
+/// Rewrite ONE watch-list note, in place.
+///
+/// The row keeps its `authored_by` and `created_at`; only `updated_at` moves, so
+/// the panel's "edited since written" tag stays true. See
+/// `update_human_fact_text` for why this is not a delete-then-insert.
+///
+/// # Errors
+/// Returns [`AugmentationError`] if the text is blank, no such note exists on
+/// this scenario, or the write fails.
+pub async fn edit_watch_item(
+    pool: &PgPool,
+    scenario_id: Uuid,
+    fact_id: Uuid,
+    text: &str,
+) -> Result<(), AugmentationError> {
+    let trimmed = checked_line(text)?;
+
+    let changed = update_human_fact_text(
+        pool,
+        scenario_id,
+        fact_id,
+        trimmed,
+        HumanFactKind::WatchList.code(),
+    )
+    .await
+    .map_err(|source| AugmentationError::Write { source })?;
+
+    if changed == 0 {
+        return Err(AugmentationError::NoSuchRow {
+            what: "watch item".to_string(),
+            which: fact_id.to_string(),
+        });
+    }
+    Ok(())
 }
 
 /// Read a scenario's talking points in order.

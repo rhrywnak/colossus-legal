@@ -16,7 +16,9 @@ use super::*;
 // code describe the same store.
 use crate::domain::wording::WORDING_KEYS;
 use crate::domain::wording_accusation::ACCUSATION_WORDING_KEYS;
+use crate::domain::wording_authoring::AUTHORING_WORDING_KEYS;
 use crate::domain::wording_rehearsal::REHEARSAL_WORDING_KEYS;
+use crate::domain::wording_rehearsal_chrome::REHEARSAL_CHROME_KEYS;
 
 use chrono::Utc;
 
@@ -42,7 +44,7 @@ fn row(
     }
 }
 
-/// The whole store as the migrations seed it: nine numbers and 114 stored strings.
+/// The whole store as the migrations seed it: ten numbers and 157 stored strings.
 ///
 /// ## Why the wording rows come from `Wording::for_test_values` (task 2.10)
 ///
@@ -53,13 +55,15 @@ fn row(
 /// asserted.
 fn seeded() -> HashMap<String, AppSettingRecord> {
     let mut rows = numeric_rows();
-    // Both stored-string blocks, chained (task 2.11): the two lists key one table,
-    // and a fixture holding only one of them would let a snapshot build that the
-    // real store could not.
+    // All five stored-string blocks, chained (2.10, 2.11 B1/B2, 2.11 C): the
+    // lists key ONE table, and a fixture holding only some of them would let a
+    // snapshot build that the real store could not.
     let text_rows = crate::domain::wording::Wording::for_test_values()
         .into_iter()
         .chain(crate::domain::wording_accusation::AccusationWording::for_test_values())
-        .chain(crate::domain::wording_rehearsal::RehearsalWording::for_test_values());
+        .chain(crate::domain::wording_rehearsal::RehearsalWording::for_test_values())
+        .chain(crate::domain::wording_rehearsal_chrome::RehearsalChromeWording::for_test_values())
+        .chain(crate::domain::wording_authoring::AuthoringWording::for_test_values());
     for (key, value) in text_rows {
         // Text rows carry no bounds: `min_value` / `max_value` are numeric
         // comparisons, and the migration leaves them NULL.
@@ -71,7 +75,7 @@ fn seeded() -> HashMap<String, AppSettingRecord> {
     rows
 }
 
-/// The nine numeric rows as the migrations seed them.
+/// The ten numeric rows as the migrations seed them.
 fn numeric_rows() -> HashMap<String, AppSettingRecord> {
     by_key(vec![
         row(
@@ -122,6 +126,10 @@ fn numeric_rows() -> HashMap<String, AppSettingRecord> {
             Some(2.0),
             None,
         ),
+        // Task 2.11 C: how many instances a scenario may have before the
+        // rehearsal page's rows arrive compact. Minimum 1 — zero would fold the
+        // only row on a single-instance scenario.
+        row(KEY_ROWS_EXPAND_MAX, "3", ValueKind::Count, Some(1.0), None),
     ])
 }
 
@@ -178,8 +186,9 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     // at whatever moment it happened to be read.
     assert_eq!(
         REQUIRED_KEYS.len(),
-        9,
-        "seven numbers, 2.10's short-list cap, and 2.11 B2's timeline threshold"
+        10,
+        "seven numbers, 2.10's short-list cap, 2.11 B2's timeline threshold, and \
+         2.11 C's row-expand cap"
     );
     assert_eq!(
         WORDING_KEYS.len(),
@@ -193,16 +202,28 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     );
     assert_eq!(
         REHEARSAL_WORDING_KEYS.len(),
-        40,
-        "task 2.11 B2's rehearsal page, every word of it a row"
+        41,
+        "task 2.11 B2's rehearsal page plus 2.11 C's fifth section state"
+    );
+    assert_eq!(
+        REHEARSAL_CHROME_KEYS.len(),
+        18,
+        "task 2.11 C: the rebuilt page's controls, tags and attribution lines"
+    );
+    assert_eq!(
+        AUTHORING_WORDING_KEYS.len(),
+        23,
+        "task 2.11 C, ruling C4b: the literals that left two React components"
     );
     assert_eq!(
         seeded().len(),
         REQUIRED_KEYS.len()
             + WORDING_KEYS.len()
             + ACCUSATION_WORDING_KEYS.len()
-            + REHEARSAL_WORDING_KEYS.len(),
-        "the seed and the four required lists must describe the same store"
+            + REHEARSAL_WORDING_KEYS.len()
+            + REHEARSAL_CHROME_KEYS.len()
+            + AUTHORING_WORDING_KEYS.len(),
+        "the seed and the six required lists must describe the same store"
     );
 }
 
@@ -578,10 +599,11 @@ fn validation_is_the_same_rule_the_snapshot_applies() {
 /// `the_listing_puts_live_parameters_before_dormant_ones` makes for the ORDER BY.
 #[test]
 fn the_fixtures_carry_the_values_the_migration_actually_seeds() {
-    // TWO migrations now seed numeric parameters: 1.6's original seven and 2.10's
-    // short-list cap. Concatenated rather than searched one at a time so a key
-    // moving between files is not a failure — where a parameter is seeded is a
-    // fact about migration history, and only its VALUE is what this pins.
+    // FOUR migrations now seed numeric parameters: 1.6's original seven, 2.10's
+    // short-list cap, 2.11 B2's timeline threshold and 2.11 C's row-expand cap.
+    // Concatenated rather than searched one at a time so a key moving between
+    // files is not a failure — where a parameter is seeded is a fact about
+    // migration history, and only its VALUE is what this pins.
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let sql: String = [
         "pipeline_migrations/20260801225147_create_app_settings_store.sql",
@@ -589,6 +611,9 @@ fn the_fixtures_carry_the_values_the_migration_actually_seeds() {
         // Task 2.11 B2's timeline threshold — the ninth number, seeded with the
         // rehearsal page's wording because it is that page's tunable.
         "pipeline_migrations/20260806100704_rehearsal_render_wording.sql",
+        // Task 2.11 C's row-expand cap — the tenth number, seeded with the
+        // rebuilt page's wording for the same reason.
+        "pipeline_migrations/20260806135509_rehearsal_visual_2_11c.sql",
     ]
     .iter()
     .map(|relative| {
@@ -621,7 +646,7 @@ fn the_fixtures_carry_the_values_the_migration_actually_seeds() {
 
     // Anti-vacuity: a parsing change that stopped finding rows would otherwise
     // make this test pass while comparing nothing.
-    assert_eq!(checked, 9, "all nine numeric parameters must be compared");
+    assert_eq!(checked, 10, "all ten numeric parameters must be compared");
 }
 
 /// The snapshot built from the fixture matches the one `Settings::for_test`

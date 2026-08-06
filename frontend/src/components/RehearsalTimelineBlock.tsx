@@ -1,49 +1,101 @@
 // =============================================================================
-// RehearsalTimelineBlock — both sides in date order (task 2.11 B2, block 4)
+// RehearsalTimelineBlock — the timeline, drawn
 // =============================================================================
 //
-// The 50,000-foot view of the accusation repeating and our answers to it. The
-// design's ruling stands: strictly chronological, because the force of this block
-// is the repetition OVER TIME and grouping by speaker buries it — with a person
-// filter so all of one person's entries are one click away.
+// A vertical spine, oldest first, one dated row per placed item, with THEY SAY /
+// OUR ANSWER marked on the side and a person filter above. Rebuilt in task 2.11
+// C to reproduce `.tl` / `.tl-row` / `.tl-dot` / `.tl-side` from
+// REHEARSAL_PAGE_MOCKUP_v2_2026-08-06.html; B2 rendered a two-column list.
 //
-// ## The filter is the one computation this file does
+// ## What is decided elsewhere, and stays decided elsewhere
 //
-// A substring-free equality test over a list the payload already carries. That is
-// presentation, not logic: the server decided which entries exist, in what order,
-// and who appears in the control. This narrows a list; it never composes a
-// sentence, never counts anything a header reports, and never decides whether the
-// block draws at all.
+// WHETHER the block draws at all is the backend's call, from the stored
+// `rehearsal_timeline_min_distinct_dates` threshold measured over what a human
+// actually PLACED. When it cannot draw, `notice` carries the honest-gap line
+// naming how many placed items have no date, and that sentence is the whole
+// content of the block. This component never re-evaluates the threshold and
+// never draws a partial spine.
 //
-// ## When it draws nothing, it says why
+// The ORDER is the backend's too, and it is the design's point: strictly
+// chronological, because the force of the block is the repetition over time,
+// which grouping by speaker would bury.
 //
-// The server decides that too — the threshold is a stored number evaluated over
-// what a human PLACED, and the notice names how many placed items carry no date.
-// Measured on this case, twelve of forty-six statements are dated across four
-// distinct dates, none later than 2010, so this block will honestly refuse for
-// most scenarios until the re-extraction work lands.
+// ## Why the side is styled from a TOKEN and labelled from a row
+//
+// `side` is `their_words` / `our_answer` — matched here for the dot and the
+// chip's colour. `side_label` is the word a human reads. Branching on the label
+// would silently stop telling the sides apart the day Roman reworded one, on the
+// block whose whole point is that the two are distinguishable at a glance.
 
 import React, { useState } from "react";
 
-import { absentStyle, chromeInputStyle, DIVIDER } from "./scenarioSectionStyles";
-import { SIDE_OUR_ANSWER, type RehearsalTimeline } from "../services/rehearsal";
+import {
+  linkStyle,
+} from "./rehearsalStyles";
+import {
+  timelineBodyStyle,
+  timelineDateStyle,
+  timelineDotStyle,
+  timelineFilterStyle,
+  timelineRowStyle,
+  timelineSelectStyle,
+  timelineSideStyle,
+  timelineSourceStyle,
+  timelineSpineStyle,
+} from "./rehearsalRowStyles";
+import { absentStyle } from "./scenarioSectionStyles";
+import {
+  SIDE_OUR_ANSWER,
+  type RehearsalTimeline,
+  type RehearsalTimelineEntry,
+} from "../services/rehearsal";
 
 interface Props {
   timeline: RehearsalTimeline;
 }
 
-const entryStyle: React.CSSProperties = {
-  borderTop: DIVIDER,
-  padding: "0.7rem 0",
-  display: "grid",
-  gridTemplateColumns: "9rem 1fr",
-  gap: "0.75rem",
-  alignItems: "baseline",
-};
+/** One dated row on the spine. */
+const Row: React.FC<{ entry: RehearsalTimelineEntry }> = ({ entry }) => {
+  const ours = entry.side === SIDE_OUR_ANSWER;
 
-const whenStyle: React.CSSProperties = {
-  fontSize: "0.95rem",
-  color: "var(--text-secondary)",
+  return (
+    <div style={timelineRowStyle}>
+      <span
+        style={{
+          ...timelineDotStyle,
+          background: ours ? "var(--v3-green-text)" : "var(--text-secondary)",
+        }}
+      />
+      <span style={timelineDateStyle}>{entry.when}</span>
+      <span
+        style={{
+          ...timelineSideStyle,
+          color: ours ? "var(--v3-green-text)" : "var(--text-secondary)",
+          background: ours ? "var(--state-success-bg-soft)" : "var(--v3-chrome)",
+        }}
+      >
+        {entry.side_label}
+      </span>
+      <div style={timelineBodyStyle}>
+        <span style={{ fontWeight: 600 }}>{entry.who}</span>
+        {" — "}
+        {entry.quote}
+      </div>
+      <div style={timelineSourceStyle}>
+        {entry.source.label}
+        {/* No link when the record cannot say WHICH document — the same rule the
+            instance rows follow. */}
+        {entry.source.href && (
+          <>
+            {" · "}
+            <a href={entry.source.href} style={linkStyle}>
+              {entry.source.open_label} ↗
+            </a>
+          </>
+        )}
+      </div>
+    </div>
+  );
 };
 
 const RehearsalTimelineBlock: React.FC<Props> = ({ timeline }) => {
@@ -66,14 +118,12 @@ const RehearsalTimelineBlock: React.FC<Props> = ({ timeline }) => {
           between — a control with one option cannot do anything, and a control
           that cannot do anything reads as a broken one. */}
       {timeline.people.length > 1 && (
-        <label style={{ display: "flex", gap: "0.5rem", alignItems: "baseline" }}>
-          <span style={{ fontSize: "0.9rem", color: "var(--text-secondary)" }}>
-            {timeline.filter_prompt}
-          </span>
+        <label style={timelineFilterStyle}>
+          {timeline.filter_prompt}
           <select
             value={person ?? ""}
             onChange={(e) => setPerson(e.target.value || null)}
-            style={chromeInputStyle}
+            style={timelineSelectStyle}
           >
             <option value="">{timeline.filter_all_label}</option>
             {timeline.people.map((name) => (
@@ -85,32 +135,11 @@ const RehearsalTimelineBlock: React.FC<Props> = ({ timeline }) => {
         </label>
       )}
 
-      {shown.map((entry, i) => (
-        <div key={`${entry.when}:${i}`} style={entryStyle}>
-          <span style={whenStyle}>
-            {entry.when}
-            <br />
-            {entry.who}
-          </span>
-          <span
-            style={{
-              fontSize: "1.15rem",
-              lineHeight: 1.55,
-              // The two sides read differently so the interleaving is visible at
-              // a glance. Branching on the TOKEN, never on prose — and weight
-              // rather than colour alone, so it survives a monochrome print of
-              // the rehearsal packet.
-              fontWeight: entry.side === SIDE_OUR_ANSWER ? 600 : 400,
-              color:
-                entry.side === SIDE_OUR_ANSWER
-                  ? "var(--text-primary)"
-                  : "var(--text-secondary)",
-            }}
-          >
-            {entry.quote}
-          </span>
-        </div>
-      ))}
+      <div style={timelineSpineStyle}>
+        {shown.map((entry, i) => (
+          <Row key={`${entry.when}:${i}`} entry={entry} />
+        ))}
+      </div>
     </>
   );
 };

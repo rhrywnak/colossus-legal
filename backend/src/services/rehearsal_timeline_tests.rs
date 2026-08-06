@@ -388,3 +388,75 @@ fn an_unparseable_date_still_places_an_entry_and_shows_the_stored_value() {
         "the stored value survives verbatim: {rendered:?}"
     );
 }
+
+// ── The drawn timeline's row furniture (task 2.11 C, ruling C7) ──────────────
+
+/// A timeline with BOTH sides on it, so the two assertions below are not proving
+/// one rule twice.
+fn drawn_timeline() -> RehearsalTimeline {
+    timeline(
+        &[
+            instance("ev-a"),
+            instance("ev-b"),
+            pairing("ev-b", "ev-answer"),
+        ],
+        &["ev-a", "ev-b", "ev-answer"],
+        facts(vec![
+            fact(
+                "ev-a",
+                "They refused.",
+                "George Phillips",
+                Some("2009-12-15"),
+            ),
+            fact("ev-b", "Again.", "George Phillips", Some("2010-03-22")),
+            fact(
+                "ev-answer",
+                "I am open to dividing it amicably.",
+                "Marie Awad",
+                Some("2009-11-12"),
+            ),
+        ]),
+    )
+}
+
+#[test]
+fn each_row_carries_the_stored_word_for_its_side_beside_the_token() {
+    // Both travel. The TOKEN decides the colour and the LABEL is what a human
+    // reads — a client matching on the prose would stop telling the sides apart
+    // the day Roman reworded one, silently, on a page whose whole point is that
+    // the two sides are distinguishable at a glance.
+    let timeline = drawn_timeline();
+
+    for entry in &timeline.entries {
+        let expected = if entry.side == SIDE_OUR_ANSWER {
+            "OUR ANSWER"
+        } else {
+            "THEY SAY"
+        };
+        assert_eq!(
+            entry.side_label, expected,
+            "side {} mislabelled",
+            entry.side
+        );
+    }
+    // Anti-vacuity: both sides must actually appear, or the loop proves one rule.
+    assert!(timeline.entries.iter().any(|e| e.side == SIDE_OUR_ANSWER));
+    assert!(timeline.entries.iter().any(|e| e.side == SIDE_THEIR_WORDS));
+}
+
+#[test]
+fn each_row_carries_the_pinpoint_a_witness_needs_to_produce_the_document() {
+    // Ruling C7: a timeline row IS an instance or an answer, chronologically
+    // arranged. The research the 2026-08-06 source ruling rests on is about a
+    // witness producing the source on the spot, which does not care which block
+    // she was reading when she was asked.
+    let timeline = drawn_timeline();
+
+    for entry in &timeline.entries {
+        assert!(
+            !entry.source.label.is_empty(),
+            "a row with no source label reads as a rendering fault"
+        );
+        assert_eq!(entry.source.open_label, "Open");
+    }
+}

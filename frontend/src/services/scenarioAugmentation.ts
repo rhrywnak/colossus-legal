@@ -42,8 +42,52 @@ export type HumanFactDto = {
 
 export type TalkingPointDto = {
   text: string;
+  /**
+   * Its place in the list, server-owned — AND its address.
+   *
+   * 1-based since task 2.11 C: it is the number printed in the pill beside the
+   * point and the segment `PUT …/talking-points/:position` matches, and those
+   * must be one number or editing point 2 lands on point 1.
+   */
   position: number;
   authored_tag: string | null;
+};
+
+/**
+ * The words the two authoring sections speak on THIS page (task 2.11 C).
+ *
+ * The components hold no literals: they became shared with the rehearsal page,
+ * whose standing law is that every visible word is a stored row, so each surface
+ * serves its own set into the same component. Mirrors the backend
+ * `AuthoringWordingDto` field for field.
+ */
+export type AuthoringWordingDto = {
+  points_section_heading: string;
+  /** Carries `{cap}` — filled by {@link fillCap}. */
+  points_section_meta_template: string;
+  points_empty_notice: string;
+  points_no_exhibit_notice: string;
+  points_add_label: string;
+  points_edit_label: string;
+  points_save_label: string;
+  points_saving_label: string;
+  points_cancel_label: string;
+  /** Carries `{cap}`. */
+  points_cap_reached_notice: string;
+  /** Carries `{n}`. */
+  points_field_label_template: string;
+  points_authoring_note: string;
+  points_save_failed_notice: string;
+  watch_section_heading: string;
+  watch_section_meta: string;
+  watch_field_label: string;
+  watch_add_label: string;
+  watch_save_label: string;
+  watch_edit_label: string;
+  watch_cancel_label: string;
+  watch_remove_label: string;
+  watch_edited_suffix: string;
+  watch_save_failed_notice: string;
 };
 
 export type ScenarioIdentityDto = {
@@ -72,7 +116,29 @@ export type AugmentationPanelDto = {
   talking_points: TalkingPointDto[];
   /** Served, not hardcoded — it is a tunable that task 1.6 will move. */
   talking_points_cap: number;
+  wording: AuthoringWordingDto;
 };
+
+/**
+ * Put the served cap into a stored template.
+ *
+ * The one substitution these sections perform, and it is not composition: the
+ * sentence is the human's and `{cap}` is the slot it leaves for a number the
+ * server sent alongside it. A template edited to drop the placeholder is refused
+ * by the settings write path, so an unfilled `{cap}` on screen means the store
+ * was edited around the API — and it then shows verbatim, visibly wrong, which
+ * is how a reader finds out. Mirrors `rehearsalSections.fillCode`.
+ */
+export function fillCap(template: string, cap: number): string {
+  return template.replace("{cap}", String(cap));
+}
+
+/**
+ * Put a row number into a stored template. Same rule as {@link fillCap}.
+ */
+export function fillN(template: string, n: number): string {
+  return template.replace("{n}", String(n));
+}
 
 function scenarioUrl(slug: string, scenarioId: string): string {
   return (
@@ -197,6 +263,71 @@ export async function setTalkingPoints(
     throw new Error(
       `Failed to save the talking points for scenario "${scenarioId}" ` +
         `(HTTP ${response.status}${detail}).`,
+    );
+  }
+}
+
+/**
+ * Rewrite ONE talking point, addressed by its printed position.
+ *
+ * ## Why this exists beside {@link setTalkingPoints}
+ *
+ * The list write deletes and re-inserts every row, which re-stamps each one's
+ * author and its written-on date with the editor and today. That is right for a
+ * reorder and wrong for a typo fix. Ruling C4b, 2026-08-06: update = update.
+ */
+export async function editTalkingPoint(
+  slug: string,
+  scenarioId: string,
+  position: number,
+  text: string,
+): Promise<void> {
+  const response = await authFetch(
+    `${scenarioUrl(slug, scenarioId)}/talking-points/${encodeURIComponent(String(position))}`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    },
+  );
+
+  if (!response.ok) {
+    const detail = await readErrorMessage(response);
+    throw new Error(
+      `Failed to save talking point ${position} on scenario "${scenarioId}" ` +
+        `(HTTP ${response.status}${detail}). Your words are still on screen.`,
+    );
+  }
+}
+
+/**
+ * Rewrite ONE watch item, in place.
+ *
+ * The row keeps who wrote it and when; only its updated stamp moves, which is
+ * what the "edited since written" tag reads. Until task 2.11 C a wrong word
+ * could only be fixed by removing the item and writing it again, which threw
+ * that provenance away.
+ */
+export async function editWatchItem(
+  slug: string,
+  scenarioId: string,
+  factId: string,
+  text: string,
+): Promise<void> {
+  const response = await authFetch(
+    `${scenarioUrl(slug, scenarioId)}/human-facts/${encodeURIComponent(factId)}`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    },
+  );
+
+  if (!response.ok) {
+    const detail = await readErrorMessage(response);
+    throw new Error(
+      `Failed to save that watch item on scenario "${scenarioId}" ` +
+        `(HTTP ${response.status}${detail}). Your words are still on screen.`,
     );
   }
 }

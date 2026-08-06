@@ -16,6 +16,7 @@ describe("openSectionsFrom", () => {
     // which renders as closed. Every block silently shut, nothing in the log, on
     // a page whose design is that the accusation is open when you arrive.
     const open = openSectionsFrom({
+      what_open: true,
       accusation_open: true,
       timeline_open: false,
       points_open: true,
@@ -23,6 +24,7 @@ describe("openSectionsFrom", () => {
     });
 
     expect(open).toEqual({
+      what: true,
       accusation: true,
       timeline: false,
       points: true,
@@ -34,6 +36,7 @@ describe("openSectionsFrom", () => {
     // Every section shut is a legitimate stored configuration. A helper that
     // "helpfully" forced the accusation open would be overruling the store.
     const open = openSectionsFrom({
+      what_open: false,
       accusation_open: false,
       timeline_open: false,
       points_open: false,
@@ -43,10 +46,27 @@ describe("openSectionsFrom", () => {
     expect(Object.values(open).every((v) => v === false)).toBe(true);
   });
 
+  it("carries the fifth section the signed mockup added", () => {
+    // Task 2.11 C: "What this is" folds like the others now. It was fixed open
+    // in B2, so a mapping that forgot it would leave the section permanently
+    // shut — the one failure mode a boolean nobody reads produces.
+    const open = openSectionsFrom({
+      what_open: true,
+      accusation_open: false,
+      timeline_open: false,
+      points_open: false,
+      watch_for_open: false,
+    });
+
+    expect(open.what).toBe(true);
+    expect(open.accusation).toBe(false);
+  });
+
   it("distinguishes the two fields whose names are nearly the same", () => {
     // `timeline_open` and `points_open` sit next to each other and a copy-paste
     // between them type-checks perfectly.
     const open = openSectionsFrom({
+      what_open: false,
       accusation_open: false,
       timeline_open: true,
       points_open: false,

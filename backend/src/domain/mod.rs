@@ -38,5 +38,7 @@ pub mod sentence_bounds;
 pub mod settings;
 pub mod wording;
 pub mod wording_accusation;
+pub mod wording_authoring;
 pub mod wording_rehearsal;
+pub mod wording_rehearsal_chrome;
 pub mod wording_templates;

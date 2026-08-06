@@ -15,6 +15,7 @@
 use super::*;
 use crate::domain::human_authored::HumanFactKind;
 use crate::domain::settings::Settings;
+use crate::dto::rehearsal::RehearsalWatchItem;
 use crate::repositories::scenario_accusation_repository::RehearsalFactRow;
 use crate::services::scenario_accusation::{derive, StoredJudgment};
 use std::collections::HashSet;
@@ -67,20 +68,49 @@ fn render(
     rows: HashMap<String, RehearsalFactRow>,
     accusation_text: Option<&str>,
 ) -> RehearsalScenario {
+    render_with(
+        judgments,
+        included_ids,
+        rows,
+        accusation_text,
+        Authored::default(),
+    )
+}
+
+/// Render one scenario, choosing what the store recorded about authorship.
+///
+/// Split from [`render`] so the twenty callers that do not care about the
+/// attribution lines keep their four arguments, and the three that do can say
+/// what the store holds without a fifth `Authored::default()` at every site.
+fn render_with(
+    judgments: &[StoredJudgment],
+    included_ids: &[&str],
+    rows: HashMap<String, RehearsalFactRow>,
+    accusation_text: Option<&str>,
+    authored: Authored<'_>,
+) -> RehearsalScenario {
     let settings = Settings::for_test();
     let state = derive(judgments, &included(included_ids));
     render_scenario(ScenarioInput {
         code: "S-2".to_string(),
+        scenario_id: "3f1b0a9e-2c4d-4e5f-8a7b-6c5d4e3f2a1b".to_string(),
         title: "Refused to divide property amicably",
         what_this_is: Some("Whether Marie refused to divide the estate."),
+        what_authored: authored,
         accusation_text,
+        accusation_authored: authored,
         state: &state,
         facts: &rows,
         points: vec![RehearsalPoint {
+            position: 1,
             text: "I sent a certified letter in November 2009.".to_string(),
             exhibit: None,
+            exhibit_notice: "No exhibit paired yet".to_string(),
         }],
-        watch_for: vec!["He will say she cannot work with anybody".to_string()],
+        watch_for: vec![RehearsalWatchItem {
+            id: "8b2c1d0e-3f4a-4b5c-9d6e-7f8a9b0c1d2e".to_string(),
+            text: "He will say she cannot work with anybody".to_string(),
+        }],
         settings: &settings,
     })
 }
@@ -103,8 +133,28 @@ fn the_payload_carries_nothing_it_is_excluded_from() {
     let json = serde_json::to_string(&scenario).expect("the scenario serializes");
 
     // Each entry is a thing §10 forbids this mode from carrying, paired with WHY.
-    // `document_id` and `page` are DELIBERATELY absent from this list — see the
-    // module header and the DTO's, and the ruling of 2026-08-06.
+    // `document_id` and `page` are DELIBERATELY absent — see the module header
+    // and the DTO's, and the ruling of 2026-08-06.
+    //
+    // ## `scenario_id` left this list on 2026-08-06 (task 2.11 C, ruling C1)
+    //
+    // It was banned as an "internal identifier" while this page was read-only.
+    // Roman's editing ruling made the page a CALLER of the guarded write routes —
+    // the accusation sentence, "What this is", the talking points and the watch
+    // items are all edited here — and `/cases/:slug/scenarios/:scenario_id/…` is
+    // the address those routes are reached at. A page that may edit needs the
+    // address of the thing it edits.
+    //
+    // The line §10 actually draws is CONTENT, and every content ban below still
+    // stands: a UUID renders nothing, says nothing about the evidence, and cannot
+    // be read aloud. The alternative offered — pulling the trial-prep payload in
+    // to look the id up by code — would have brought readiness VERDICTS into this
+    // page's memory, which is §10-worse by a wide margin.
+    //
+    // `graph_node_id` STAYS banned, and that is the load-bearing half: marking a
+    // statement and pairing an answer remain working-view work, so this surface
+    // never needs to address a statement. The day it does, this comment is the
+    // thing to argue with.
     for (banned, why) in [
         ("motivation", "strategy is not rehearsal material (§10)"),
         ("confidence", "no percentages, no bands (§10)"),
@@ -114,8 +164,11 @@ fn the_payload_carries_nothing_it_is_excluded_from() {
             "how much a fact carries is curation vocabulary (§10)",
         ),
         ("sort_ordinal", "an internal ordering number (§10)"),
-        ("graph_node_id", "internal identifiers (§10)"),
-        ("scenario_id", "internal identifiers (§10)"),
+        (
+            "graph_node_id",
+            "this page never addresses a STATEMENT — marking and pairing are \
+             working-view work (§10, and ruling C1's limit)",
+        ),
         ("probative", "internal vocabulary (§10)"),
         ("corroborat", "internal graph vocabulary (§9 canon)"),
         (
@@ -191,11 +244,19 @@ fn an_instance_the_record_cannot_produce_is_named_but_never_counted() {
         Some("Said 1 times, in 1 documents."),
         "the count is what the page can produce, not what was marked"
     );
-    assert!(scenario
+    let unavailable = scenario
         .accusation
         .gaps
         .iter()
-        .any(|g| g.kind == GAP_INSTANCE_UNAVAILABLE));
+        .find(|g| g.kind == GAP_INSTANCE_UNAVAILABLE)
+        .expect("the unloadable instance is named as its own gap kind");
+    // It is NOT rendered, so there is no row to jump to. A position here would
+    // send a reader from the prep list to somebody else's statement — worse than
+    // no link, because they would believe they were looking at the right one.
+    assert_eq!(
+        unavailable.position, None,
+        "an instance the record cannot produce has no row on screen"
+    );
     assert_eq!(
         scenario.accusation.gap_count,
         scenario.accusation.gaps.len()
@@ -212,6 +273,7 @@ fn a_statement_with_no_words_is_treated_as_unavailable_and_not_rendered_blank() 
 
     assert!(scenario.accusation.instances.is_empty());
     assert_eq!(scenario.accusation.gaps[0].kind, GAP_INSTANCE_UNAVAILABLE);
+    assert_eq!(scenario.accusation.gaps[0].position, None);
 }
 
 #[test]
@@ -347,11 +409,18 @@ fn a_pairing_whose_statement_has_left_is_kept_and_named() {
         None,
     );
 
-    assert!(scenario
+    let removed = scenario
         .accusation
         .gaps
         .iter()
-        .any(|g| g.kind == GAP_ACCUSATION_REMOVED));
+        .find(|g| g.kind == GAP_ACCUSATION_REMOVED)
+        .expect("the Remove law's statement side is named");
+    // This gap is about a statement that is not in the instance list at all —
+    // there is no row to hang it from, so there is no row to jump to either.
+    assert_eq!(
+        removed.position, None,
+        "a gap about a statement that left the scenario has no row"
+    );
 }
 
 #[test]
@@ -521,11 +590,11 @@ fn the_statement_kind_is_humanized_and_not_translated() {
 }
 
 #[test]
-fn the_row_says_its_own_gap_where_a_reader_will_see_it() {
-    // The design is explicit: "where an accusation has no answer yet, the row
-    // says so, loudly". The gap list is what the folded header counts; the row
-    // line is what a reader meets in place. Both from ONE composition, so they
-    // can never disagree about what is missing.
+fn the_row_says_it_has_no_answer_without_repeating_the_gap_sentence() {
+    // Ruling C5, and the beta.381 defect it closes. The row must SAY it has no
+    // answer — a reader meets the row, not the list — but the sentence naming
+    // who/when/where lives once, in the prep list. Anything else is the same
+    // sentence twice on one screen.
     let scenario = render(
         &[instance("ev-a")],
         &["ev-a"],
@@ -534,20 +603,58 @@ fn the_row_says_its_own_gap_where_a_reader_will_see_it() {
     );
 
     let row = &scenario.accusation.instances[0];
-    assert_eq!(
-        row.answer_gap.as_deref(),
-        Some(scenario.accusation.gaps[0].message.as_str()),
-        "the row and the gap list must say the same sentence"
+    let sentence = scenario.accusation.gaps[0].message.as_str();
+
+    assert_eq!(row.answer_tag, "NO ANSWER");
+    assert_eq!(row.answer_banner.as_deref(), Some("NO ANSWER PREPARED"));
+    assert!(
+        sentence.starts_with("NO ANSWER PREPARED"),
+        "the prep list still carries the loud sentence: {sentence}"
     );
-    assert!(row
-        .answer_gap
-        .as_deref()
-        .unwrap()
-        .starts_with("NO ANSWER PREPARED"));
+    assert_ne!(
+        row.answer_banner.as_deref(),
+        Some(sentence),
+        "the row must NOT repeat the prep list's sentence — that is the defect"
+    );
+    // The distinguishing fact: the sentence names the statement, the banner
+    // cannot. If the banner ever grew a `{who}` this assertion fails.
+    assert!(
+        sentence.contains("George Phillips"),
+        "the prep list names who said it: {sentence}"
+    );
+    assert!(
+        !row.answer_banner.as_deref().unwrap().contains("George"),
+        "the banner names nobody — that is what keeps it from becoming the \
+         duplicate sentence again"
+    );
 }
 
 #[test]
-fn an_answered_row_carries_no_gap_line() {
+fn the_prep_list_can_point_at_the_row_it_is_about() {
+    // The jump link's target. Rows are numbered from 1, and the entry must name
+    // the row it describes — sending a reader to row 1 for row 3's gap would be
+    // worse than no link.
+    let scenario = render(
+        &[instance("ev-a"), instance("ev-b")],
+        &["ev-a", "ev-b"],
+        facts(vec![
+            fact("ev-a", "They refused."),
+            fact("ev-b", "They refused again."),
+        ]),
+        None,
+    );
+
+    let positions: Vec<Option<usize>> = scenario
+        .accusation
+        .gaps
+        .iter()
+        .map(|gap| gap.position)
+        .collect();
+    assert_eq!(positions, vec![Some(1), Some(2)]);
+}
+
+#[test]
+fn an_answered_row_carries_the_answered_tag_and_no_banner() {
     let scenario = render(
         &[instance("ev-a"), pairing("ev-a", "ev-answer")],
         &["ev-a", "ev-answer"],
@@ -557,6 +664,123 @@ fn an_answered_row_carries_no_gap_line() {
         ]),
         None,
     );
-    assert_eq!(scenario.accusation.instances[0].answer_gap, None);
-    assert!(scenario.accusation.instances[0].answer.is_some());
+    let row = &scenario.accusation.instances[0];
+    assert_eq!(row.answer_tag, "ANSWERED");
+    assert_eq!(row.answer_banner, None);
+    assert!(row.answer.is_some());
+}
+
+// ── Which rows arrive open (task 2.11 C) ─────────────────────────────────────
+
+/// N marked instances, each with its own statement.
+fn n_instances(
+    n: usize,
+) -> (
+    Vec<StoredJudgment>,
+    Vec<String>,
+    HashMap<String, RehearsalFactRow>,
+) {
+    let ids: Vec<String> = (0..n).map(|i| format!("ev-{i}")).collect();
+    let judgments = ids.iter().map(|id| instance(id)).collect();
+    let rows = facts(
+        ids.iter()
+            .map(|id| fact(id, "They refused to divide it."))
+            .collect(),
+    );
+    (judgments, ids, rows)
+}
+
+#[test]
+fn a_scenario_at_the_cap_arrives_with_its_rows_open() {
+    // The seeded cap is 3. Three instances is a page a witness reads straight
+    // down; the compact form would hide all of it behind three clicks.
+    let (judgments, ids, rows) = n_instances(3);
+    let refs: Vec<&str> = ids.iter().map(String::as_str).collect();
+    let scenario = render(&judgments, &refs, rows, Some("They say she refused."));
+
+    assert_eq!(scenario.accusation.instances.len(), 3);
+    assert!(scenario.instances_start_expanded);
+}
+
+#[test]
+fn a_scenario_over_the_cap_arrives_compact_but_loses_no_rows() {
+    // The rule is about the ARRIVAL state and nothing else. Four instances means
+    // four rows on the payload — the list is never paginated, at any size,
+    // because a page boundary in the middle of "he said it five times" breaks the
+    // one thing the block exists to show.
+    let (judgments, ids, rows) = n_instances(4);
+    let refs: Vec<&str> = ids.iter().map(String::as_str).collect();
+    let scenario = render(&judgments, &refs, rows, Some("They say she refused."));
+
+    assert!(!scenario.instances_start_expanded);
+    assert_eq!(
+        scenario.accusation.instances.len(),
+        4,
+        "every instance is still rendered — compact is a display state, not a cut"
+    );
+}
+
+// ── The two authorship lines (ruling C2) ─────────────────────────────────────
+
+#[test]
+fn both_sentences_carry_who_wrote_them_when_the_store_recorded_it() {
+    let at = chrono::NaiveDate::from_ymd_opt(2026, 8, 6)
+        .expect("a real date")
+        .and_hms_opt(9, 0, 0)
+        .expect("a real time")
+        .and_utc();
+    let scenario = render_with(
+        &[instance("ev-a")],
+        &["ev-a"],
+        facts(vec![fact("ev-a", "They refused.")]),
+        Some("They say Marie refused to divide the property."),
+        Authored {
+            by: Some("Roman"),
+            at: Some(at),
+        },
+    );
+
+    assert_eq!(
+        scenario.what_this_is_attribution.as_deref(),
+        Some("Written by Roman · 6 Aug 2026")
+    );
+    assert_eq!(
+        scenario.accusation.attribution.as_deref(),
+        Some("Written in plain words by Roman · 6 Aug 2026"),
+        "the accusation says 'in plain words' — what distinguishes our summary \
+         from their verbatim quotes beneath it"
+    );
+}
+
+#[test]
+fn a_sentence_nobody_wrote_carries_no_authorship_line_at_all() {
+    // An authorship line over a NAMED GAP would attribute an absence. The gap
+    // sentence is the whole content of that block in this state.
+    let scenario = render(
+        &[instance("ev-a")],
+        &["ev-a"],
+        facts(vec![fact("ev-a", "They refused.")]),
+        None,
+    );
+
+    assert_eq!(scenario.accusation.text, None);
+    assert_eq!(scenario.accusation.attribution, None);
+    assert!(scenario.accusation.text_gap.is_some());
+}
+
+#[test]
+fn a_sentence_written_before_the_columns_existed_says_the_author_is_unrecorded() {
+    // The state every S-2 sentence is in on the day this ships: the migration
+    // deliberately backfilled nothing.
+    let scenario = render(
+        &[instance("ev-a")],
+        &["ev-a"],
+        facts(vec![fact("ev-a", "They refused.")]),
+        Some("They say Marie refused to divide the property."),
+    );
+
+    assert_eq!(
+        scenario.accusation.attribution.as_deref(),
+        Some("Author not recorded — written before authorship was kept.")
+    );
 }

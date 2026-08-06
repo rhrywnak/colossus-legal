@@ -92,6 +92,20 @@ pub struct ScenarioRecord {
     /// summary of all of it, which is the beta.371 defect this column exists to
     /// end.
     pub accusation_text: Option<String>,
+    /// Who last wrote [`Self::accusation_text`], and when (task 2.11 C).
+    ///
+    /// ## Domain note: `None` is a real state, not a missing read
+    ///
+    /// Every sentence written before the columns existed has no recorded author,
+    /// and the migration deliberately did NOT backfill one — stamping the last
+    /// editor of the scenario ROW would attribute a sentence to somebody who may
+    /// not have written it. The rehearsal page renders a stored "author not
+    /// recorded" line for this state; it never guesses and never blanks.
+    pub accusation_text_authored_by: Option<String>,
+    pub accusation_text_authored_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// Who last wrote [`Self::theme_statement`], and when. Same discipline.
+    pub theme_authored_by: Option<String>,
+    pub theme_authored_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 /// Shared SELECT projection for every `ScenarioRecord` read, so the `FromRow`
@@ -103,7 +117,9 @@ pub struct ScenarioRecord {
 // field update, so it cannot live in YAML/env (Standing Rule 2 does not apply).
 const SCENARIO_COLUMNS: &str = "scenario_id, name, direction, status, case_slug, \
      feeds_count_id, anchor_allegation_ids, definition, created_at, updated_at, \
-     code_ordinal, theme_statement, motivation, accusation_text";
+     code_ordinal, theme_statement, motivation, accusation_text, \
+     accusation_text_authored_by, accusation_text_authored_at, \
+     theme_authored_by, theme_authored_at";
 
 // ── CRUD ─────────────────────────────────────────────────────────
 
@@ -367,6 +383,11 @@ pub async fn update_scenario(
     // so a rename does not blank the theme a human wrote last week.
     theme_statement: Option<&str>,
     motivation: Option<&str>,
+    // Who is making this change. Recorded ONLY against `theme_statement`, and
+    // only when that column is actually being written — this is a partial update,
+    // and stamping an authorship for a rename would date a sentence nobody
+    // touched (task 2.11 C).
+    actor: &str,
 ) -> Result<ScenarioRecord, PipelineRepoError> {
     // RETURNING reuses the shared projection so the read-back can never drift
     // from `get_scenario`'s column set. `updated_at` is already in
@@ -380,13 +401,17 @@ pub async fn update_scenario(
              definition            = COALESCE($6, definition), \
              theme_statement       = COALESCE($8, theme_statement), \
              motivation            = COALESCE($9, motivation), \
+             theme_authored_by     = CASE WHEN $8 IS NULL THEN theme_authored_by ELSE $10 END, \
+             theme_authored_at     = CASE WHEN $8 IS NULL THEN theme_authored_at ELSE now() END, \
              updated_at            = now() \
          WHERE scenario_id = $1 AND case_slug = $7 \
          RETURNING {SCENARIO_COLUMNS}"
     );
 
-    // Bind order matches $1..$7 above. A `None` binds as SQL NULL, so the
-    // corresponding `COALESCE` keeps the column's existing value.
+    // Bind order matches $1..$10 above. A `None` binds as SQL NULL, so the
+    // corresponding `COALESCE` keeps the column's existing value — and the two
+    // `CASE`s read $8 for the same reason, so an absent theme leaves its
+    // authorship exactly as it was.
     let row = sqlx::query_as::<_, ScenarioRecord>(&sql)
         .bind(scenario_id)
         .bind(name)
@@ -397,6 +422,7 @@ pub async fn update_scenario(
         .bind(case_slug)
         .bind(theme_statement)
         .bind(motivation)
+        .bind(actor)
         .fetch_optional(executor)
         .await?;
 
@@ -569,16 +595,37 @@ const SCENARIO_FACT_REF_COLUMNS: &str = "scenario_id, graph_node_id, role_in_thi
 /// # Errors
 /// Returns [`PipelineRepoError`] if the statement fails, including the
 /// non-blank CHECK.
+///
+/// ## Why the authorship is written by the SAME statement (task 2.11 C)
+///
+/// Two statements would leave a window in which the sentence is stored and its
+/// author is not — and a crash inside that window would produce exactly the state
+/// the honest-gap law forbids: a sentence on screen with an authorship line that
+/// silently belongs to whoever wrote the previous one.
+///
+/// ## Why withdrawing CLEARS the pair
+///
+/// `accusation_text = NULL` is "Withdraw it". An author surviving the withdrawal
+/// would attribute a sentence that is not there, and the next writer's line would
+/// read as an edit of somebody else's words. The `CASE` binds NULL to both
+/// columns when the text itself is NULL.
 pub async fn set_scenario_accusation(
     executor: impl sqlx::PgExecutor<'_>,
     scenario_id: uuid::Uuid,
     accusation_text: Option<&str>,
+    authored_by: &str,
 ) -> Result<u64, PipelineRepoError> {
     let result = sqlx::query(
-        "UPDATE scenarios SET accusation_text = $2, updated_at = NOW() WHERE scenario_id = $1",
+        "UPDATE scenarios SET \
+             accusation_text            = $2, \
+             accusation_text_authored_by = CASE WHEN $2 IS NULL THEN NULL ELSE $3 END, \
+             accusation_text_authored_at = CASE WHEN $2 IS NULL THEN NULL ELSE NOW() END, \
+             updated_at                 = NOW() \
+         WHERE scenario_id = $1",
     )
     .bind(scenario_id)
     .bind(accusation_text)
+    .bind(authored_by)
     .execute(executor)
     .await?;
     Ok(result.rows_affected())
@@ -852,6 +899,7 @@ mod tests {
                 Some(&serde_json::json!({ "attack_text": "x", "schema_v": 1 })),
                 Some("They cannot show what they never disclosed"),
                 Some("They want the jury to think Marie is the difficult one"),
+                "roman",
             )
             .await;
     }

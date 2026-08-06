@@ -34,9 +34,26 @@ import { readErrorMessage } from "./fetchUtils";
 
 /** One talking point, optionally paired with the exhibit that backs it. */
 export type RehearsalPoint = {
+  /**
+   * The row number a human reads — AND this point's address.
+   *
+   * `PUT …/talking-points/:position` matches this number, and it is the number
+   * printed in the pill beside the text. One number, or editing point 2 lands
+   * on point 1.
+   */
+  position: number;
   text: string;
   /** Her own phrasing — "My certified letter". `null` until task 3.9. */
   exhibit: string | null;
+  /** The stored sentence shown when `exhibit` is null. Never a blank. */
+  exhibit_notice: string;
+};
+
+/** One thing to watch for, and its address. */
+export type RehearsalWatchItem = {
+  /** The row id `PUT …/human-facts/:fact_id` needs. Renders nowhere. */
+  id: string;
+  text: string;
 };
 
 /** Where a statement was made, and how to open it at that page. */
@@ -70,7 +87,15 @@ export type RehearsalInstance = {
   /** The opening, cut server-side so one rule decides it. */
   quote_first_line: string;
   answer: RehearsalAnswer | null;
-  answer_gap: string | null;
+  /** The stored ANSWERED / NO ANSWER word. Chosen server-side, always present. */
+  answer_tag: string;
+  /**
+   * The short red banner inside an OPENED row with no answer.
+   *
+   * Deliberately NOT the gap sentence: that names who/when/where and lives once,
+   * in the prep list. Rendering both was the beta.381 duplicate-gap defect.
+   */
+  answer_banner: string | null;
 };
 
 /** The four gap tokens. Branch on these, never on the sentence. */
@@ -79,11 +104,27 @@ export const GAP_ACCUSATION_REMOVED = "accusation_removed";
 export const GAP_ANSWER_REMOVED = "answer_removed";
 export const GAP_INSTANCE_UNAVAILABLE = "instance_unavailable";
 
-export type RehearsalGap = { kind: string; message: string };
+export type RehearsalGap = {
+  kind: string;
+  message: string;
+  /**
+   * The instance row this gap is about, so the entry can jump to it.
+   *
+   * `null` for the two kinds with no rendered row — a removed accusation, and an
+   * instance the record store cannot produce. A link to nowhere would scroll a
+   * reader to somebody else's statement.
+   */
+  position: number | null;
+};
 
 export type RehearsalAccusation = {
   text: string | null;
   text_gap: string | null;
+  /**
+   * Who wrote the sentence, and when — a FINISHED line, or the stored
+   * "author not recorded" notice. `null` when there is no sentence to attribute.
+   */
+  attribution: string | null;
   count_line: string | null;
   no_instances_notice: string | null;
   instances: RehearsalInstance[];
@@ -105,8 +146,13 @@ export const SIDE_OUR_ANSWER = "our_answer";
 export type RehearsalTimelineEntry = {
   when: string;
   who: string;
+  /** The token — branch on this for the colour, never on the label. */
   side: string;
+  /** The stored word for that token: "THEY SAY" / "OUR ANSWER". */
+  side_label: string;
   quote: string;
+  /** Where it was said, and how to open it (ruling C7). */
+  source: RehearsalSource;
 };
 
 export type RehearsalTimeline = {
@@ -129,16 +175,34 @@ export type RehearsalHeaders = {
 /** One ready scenario, as the seven blocks. */
 export type RehearsalScenario = {
   code: string;
+  /**
+   * The scenario's address on the guarded write routes. Renders NOWHERE.
+   *
+   * It is here because this page edits — the accusation sentence, "What this
+   * is", the points and the watch items all call the same routes the working
+   * view calls, and a route needs an address (task 2.11 C, ruling C1).
+   */
+  scenario_id: string;
   title: string;
   what_this_is: string | null;
   what_this_is_gap: string | null;
+  /** The finished authorship line, or the stored unknown notice. */
+  what_this_is_attribution: string | null;
   accusation: RehearsalAccusation;
   timeline: RehearsalTimeline;
   points: RehearsalPoint[];
   points_gap: string | null;
-  watch_for: string[];
+  watch_for: RehearsalWatchItem[];
   watch_for_gap: string | null;
   headers: RehearsalHeaders;
+  /**
+   * Whether the instance rows arrive open or one line tall.
+   *
+   * The SERVER's decision, from `rehearsal_instance_rows_expand_max` and the
+   * count it just rendered. Not a limit on what is shown: every instance is on
+   * the payload and the list is never paginated, at any size.
+   */
+  instances_start_expanded: boolean;
 };
 
 /** The standing card. Never collapsible. */
@@ -146,6 +210,7 @@ export type RehearsalAlways = { heading: string; lines: string[] };
 
 /** Which sections start open — decided on the server, never parsed here. */
 export type RehearsalCollapse = {
+  what_open: boolean;
   accusation_open: boolean;
   timeline_open: boolean;
   points_open: boolean;
@@ -176,6 +241,31 @@ export type RehearsalWording = {
   block_timeline_heading: string;
   block_points_heading: string;
   block_watch_heading: string;
+  crumb_trial_prep_label: string;
+  scenario_page_label: string;
+  go_to_row_label: string;
+  prep_list_heading: string;
+  row_open_hint: string;
+  add_point_label: string;
+  add_watch_label: string;
+  points_authoring_note: string;
+  editor: RehearsalEditorWording;
+};
+
+/**
+ * The words this page's editors speak — borrowed from the working view's rows
+ * rather than seeded again (ruling C3). "Edit", "Save", "Withdraw it" and
+ * "Cancel" are already stored and already rehearsal-voiced.
+ */
+export type RehearsalEditorWording = {
+  edit_label: string;
+  save_label: string;
+  cancel_label: string;
+  withdraw_label: string;
+  accusation_placeholder: string;
+  what_placeholder: string;
+  /** Carries `{detail}` — the failure's own words, filled by {@link fillDetail}. */
+  save_failed_template: string;
 };
 
 export type RehearsalPayload = {

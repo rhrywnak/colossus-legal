@@ -1,5 +1,5 @@
 // =============================================================================
-// WatchListBlock — C6 authoring inside the augmentation panel (task 1.5)
+// WatchListBlock — C6 authoring (task 1.5; per-row edit added in 2.11 C)
 // =============================================================================
 //
 // v2 §10's fourth rehearsal block: what the other side will wave around. These
@@ -10,23 +10,42 @@
 //
 // A watch-list note is structurally a human fact: text, an author, no citation.
 // One write path means §8's invariants (no scan writes it; editing it never
-// triggers a gather) are enforced once, for both. Phase 2 adds a COMPUTED
-// watch-list from the evidence cut and merges it onto this panel — with one
-// table that is a filter, and it lands beside these notes rather than beneath a
-// second heading.
+// triggers a gather) are enforced once, for both.
 //
-// A separate component rather than more lines in `AugmentationPanel` because
-// that file already carries three components' worth of form.
+// ## Editing, added by ruling C4b
+//
+// Until task 2.11 C a wrong word could only be fixed by REMOVING the note and
+// writing it again — which threw away who wrote it and when, and re-stamped the
+// editor as its author. `PUT …/human-facts/:fact_id` is an UPDATE in place:
+// `authored_by` and `created_at` survive, `updated_at` moves, and the "edited
+// since written" tag stays true.
+//
+// The row editor is `AuthoredLineEditor`, shared with the rehearsal page and
+// with the talking-points section. One behaviour, four call sites.
+//
+// ## Not one visible word lives in this file
+//
+// They arrive as a prop. The component is shared with a surface whose standing
+// law is that every visible word is a settings row, and a component holding a
+// literal cannot be reused there.
 
 import React, { useState } from "react";
 
-import { addHumanFact, deleteHumanFact, type HumanFactDto } from "../services/scenarioAugmentation";
+import AuthoredLineEditor from "./AuthoredLineEditor";
+import {
+  addHumanFact,
+  deleteHumanFact,
+  editWatchItem,
+  type AuthoringWordingDto,
+  type HumanFactDto,
+} from "../services/scenarioAugmentation";
 import { addButtonStyle } from "./scenarioSectionStyles";
 
 interface Props {
   slug: string;
   scenarioId: string;
   notes: HumanFactDto[];
+  wording: AuthoringWordingDto;
   /** Runs a write, surfaces failures, and re-reads — the panel's shared runner. */
   run: (work: () => Promise<void>) => void;
   boxStyle: React.CSSProperties;
@@ -36,10 +55,19 @@ interface Props {
   hairline: string;
 }
 
+const noteTextStyle: React.CSSProperties = { fontSize: "0.9rem", lineHeight: 1.6 };
+
+const rowErrorStyle: React.CSSProperties = {
+  color: "var(--state-danger-strong)",
+  fontSize: "0.78rem",
+  marginTop: "0.2rem",
+};
+
 const WatchListBlock: React.FC<Props> = ({
   slug,
   scenarioId,
   notes,
+  wording,
   run,
   boxStyle,
   labelStyle,
@@ -48,42 +76,64 @@ const WatchListBlock: React.FC<Props> = ({
   hairline,
 }) => {
   const [text, setText] = useState("");
-  // The mockup shows notes plus a "+ Add watch-list note" BUTTON — not an open
-  // textarea. An always-expanded form made the section look like a data-entry
-  // screen rather than a list of things to expect at trial, and it pushed the notes
-  // themselves above the fold's edge.
+  // The mockup shows notes plus an add BUTTON — not an open textarea. An
+  // always-expanded form made the section look like a data-entry screen rather
+  // than a list of things to expect at trial, and it pushed the notes themselves
+  // above the fold's edge.
   const [adding, setAdding] = useState(false);
 
   return (
     <div style={boxStyle}>
-
       {notes.map((note) => (
         <div key={note.id} style={{ borderBottom: hairline, paddingBottom: "0.5rem" }}>
-          <div style={{ fontSize: "0.9rem", lineHeight: 1.6 }}>{note.text}</div>
-          <div style={{ display: "flex", gap: "0.5rem", alignItems: "baseline" }}>
-            <span style={tagStyle}>
-              {note.authored_tag}
-              {note.edited && " · edited since written"}
-            </span>
-            <button
-              type="button"
-              onClick={() =>
-                run(async () => {
-                  await deleteHumanFact(slug, scenarioId, note.id);
-                })
-              }
-              style={{ marginLeft: "auto" }}
-            >
-              Remove
-            </button>
-          </div>
+          <AuthoredLineEditor
+            text={note.text}
+            wording={{
+              editLabel: wording.watch_edit_label,
+              saveLabel: wording.watch_save_label,
+              cancelLabel: wording.watch_cancel_label,
+            }}
+            onSave={(next) =>
+              editWatchItem(slug, scenarioId, note.id, next).then(() =>
+                // Re-read through the panel's runner, so the screen matches the
+                // database rather than the optimistic guess a local edit would be.
+                run(async () => undefined),
+              )
+            }
+            saveFailedNotice={wording.watch_save_failed_notice}
+            fieldLabel={wording.watch_field_label}
+            textStyle={noteTextStyle}
+            fieldStyle={fieldStyle}
+            buttonStyle={addButtonStyle}
+            errorStyle={rowErrorStyle}
+          >
+            <div style={{ display: "flex", gap: "0.5rem", alignItems: "baseline" }}>
+              <span style={tagStyle}>
+                {note.authored_tag}
+                {/* Provenance survives an edit: the tag says who wrote it, and
+                    this says the words have changed since. */}
+                {note.edited && ` · ${wording.watch_edited_suffix}`}
+              </span>
+              <button
+                type="button"
+                style={{ ...addButtonStyle, marginLeft: "auto" }}
+                onClick={() =>
+                  run(async () => {
+                    await deleteHumanFact(slug, scenarioId, note.id);
+                  })
+                }
+              >
+                {wording.watch_remove_label}
+              </button>
+            </div>
+          </AuthoredLineEditor>
         </div>
       ))}
 
       {adding ? (
         <>
           <label style={labelStyle} htmlFor="watch-text">
-            Flag something to watch for
+            {wording.watch_field_label}
           </label>
           <textarea
             id="watch-text"
@@ -91,6 +141,7 @@ const WatchListBlock: React.FC<Props> = ({
             onChange={(e) => setText(e.target.value)}
             rows={2}
             style={fieldStyle}
+            spellCheck
           />
           <div style={{ display: "flex", gap: "0.5rem" }}>
             <button
@@ -108,21 +159,17 @@ const WatchListBlock: React.FC<Props> = ({
                 })
               }
             >
-              Add note
+              {wording.watch_save_label}
             </button>
             <button
               type="button"
-              style={{
-                ...addButtonStyle,
-                color: "var(--text-secondary)",
-                boxShadow: "none",
-              }}
+              style={{ ...addButtonStyle, color: "var(--text-secondary)", boxShadow: "none" }}
               onClick={() => {
                 setAdding(false);
                 setText("");
               }}
             >
-              Cancel
+              {wording.watch_cancel_label}
             </button>
           </div>
         </>
@@ -132,7 +179,7 @@ const WatchListBlock: React.FC<Props> = ({
           style={{ ...addButtonStyle, alignSelf: "flex-start" }}
           onClick={() => setAdding(true)}
         >
-          + Add watch-list note
+          {wording.watch_add_label}
         </button>
       )}
     </div>

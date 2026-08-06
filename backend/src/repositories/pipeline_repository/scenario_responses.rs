@@ -236,6 +236,49 @@ pub async fn insert_response_item(
     Ok(id)
 }
 
+/// Rewrite ONE talking point's text, in place.
+///
+/// ## Why the address is `(response_id, item_index)` and not the row's id
+///
+/// `item_index` is server-owned and stable — nothing renumbers it — and it is the
+/// number PRINTED beside the point on both surfaces. Addressing by it means the
+/// rehearsal page can edit point 2 without carrying an internal identifier onto a
+/// witness surface (§10, and task 2.11 C's ruling C1 on what an address may be).
+///
+/// ## Why this is an UPDATE and not part of the whole-list replace
+///
+/// `set_talking_points` deletes the response row and re-inserts every item, which
+/// is right for "the human rearranged the list" and wrong for "the human fixed a
+/// typo in point 2": it destroys each row's `authored_by` and `created_at` and
+/// re-stamps them with the editor and today. Ruling C4b: update = update.
+///
+/// `authored_by` is deliberately NOT touched. It records who WROTE the point, and
+/// an edit does not make the editor its author — the same discipline
+/// `update_human_fact_text` follows one file over.
+///
+/// Returns how many rows changed: 0 means no such position in that response,
+/// which the caller turns into a named 404.
+///
+/// # Errors
+/// Returns [`PipelineRepoError`] if the update fails, including the non-blank
+/// CHECK on `text`.
+pub async fn update_response_item_text(
+    executor: impl sqlx::PgExecutor<'_>,
+    response_id: uuid::Uuid,
+    item_index: i32,
+    text: &str,
+) -> Result<u64, PipelineRepoError> {
+    let result = sqlx::query(
+        "UPDATE response_items SET text = $3 WHERE response_id = $1 AND item_index = $2",
+    )
+    .bind(response_id)
+    .bind(item_index)
+    .bind(text)
+    .execute(executor)
+    .await?;
+    Ok(result.rows_affected())
+}
+
 /// List a response's items in `item_index` order.
 ///
 /// The `(response_id, item_index)` index serves both the `WHERE` and the

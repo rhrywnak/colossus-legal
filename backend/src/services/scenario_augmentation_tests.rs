@@ -304,3 +304,82 @@ fn augmentation_writes_only_human_authored_tables() {
         );
     }
 }
+
+// ── Editing ONE line, in place (task 2.11 C, ruling C4b) ─────────────────────
+
+#[test]
+fn an_empty_edit_is_refused_rather_than_treated_as_a_deletion() {
+    // Emptying the box and saving is indistinguishable from a slip of the
+    // keyboard, and the two intentions have opposite consequences for a list a
+    // witness rehearses from. Removing is the whole-list write's job (points) or
+    // the Remove control's (watch items), where the human sees what the list
+    // becomes.
+    for blank in ["", "   ", "\n\t "] {
+        let Err(error) = checked_line(blank) else {
+            panic!("a blank line must be refused: {blank:?}");
+        };
+        assert!(matches!(error, AugmentationError::EmptyText));
+    }
+}
+
+#[test]
+fn an_edit_is_stored_trimmed_but_otherwise_verbatim() {
+    // Trimmed at the boundary like every other stored text on this surface;
+    // NOTHING else is touched. The words are a human's, and the page's whole
+    // promise is that what you save is what is stored — no autocorrect, no
+    // capitalisation, no trailing period added.
+    assert_eq!(
+        checked_line("  i am open to dividing dad's property  ").expect("real text"),
+        "i am open to dividing dad's property"
+    );
+}
+
+#[test]
+fn the_printed_position_addresses_the_stored_index_one_below_it() {
+    // The pill beside the point says 1; the row it addresses is item_index 0. A
+    // one-off here edits the neighbouring sentence, which on this surface means a
+    // witness rehearsing words she did not write.
+    assert_eq!(talking_point_index(1).expect("point 1"), 0);
+    assert_eq!(talking_point_index(3).expect("point 3"), 2);
+}
+
+#[test]
+fn position_zero_is_refused_rather_than_wrapping_to_the_end_of_the_column() {
+    // `0usize - 1` wraps to usize::MAX in release builds. Before `checked_sub`
+    // this would have aimed an UPDATE at index 9,223,372,036,854,775,807 —
+    // matching nothing today, and matching something the day the column meant
+    // anything else.
+    let Err(error) = talking_point_index(0) else {
+        panic!("position 0 is not a row");
+    };
+    let AugmentationError::NoSuchRow { what, which } = error else {
+        panic!("a bad position is a missing row, not a write failure");
+    };
+    assert_eq!(what, "talking point");
+    assert_eq!(which, "0", "the refusal names the position the human sent");
+}
+
+#[test]
+fn a_position_past_the_columns_range_is_refused_and_never_clamped() {
+    // Clamping would edit the LAST point instead of refusing — a silent write to
+    // the wrong row, which is the worst outcome available here.
+    let Err(error) = talking_point_index(usize::MAX) else {
+        panic!("a position past i32 is not a row");
+    };
+    assert!(matches!(error, AugmentationError::NoSuchRow { .. }));
+}
+
+#[test]
+fn the_missing_row_refusal_reads_as_something_the_human_can_act_on() {
+    // It is the normal outcome of two people having the page open when one of
+    // them removes a point. The sentence must say that and say what to do, not
+    // report an error code.
+    let message = AugmentationError::NoSuchRow {
+        what: "watch item".to_string(),
+        which: "8b2c1d0e-3f4a-4b5c-9d6e-7f8a9b0c1d2e".to_string(),
+    }
+    .to_string();
+
+    assert!(message.contains("watch item"), "{message}");
+    assert!(message.contains("Reload"), "it says what to do: {message}");
+}

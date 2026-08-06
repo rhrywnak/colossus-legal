@@ -111,6 +111,10 @@ pub struct RehearsalWording {
     pub source_open_label: String,
 
     // ── Which sections start open. Parsed, never rendered. ──────────────────
+    /// Task 2.11 C: "What this is" folds like the others as of the signed
+    /// mockup. B2 had it fixed open, on the argument that folding one sentence
+    /// saves nothing — the mockup gives it a caret, and the mockup is the spec.
+    pub what_default_state: String,
     pub accusation_default_state: String,
     pub timeline_default_state: String,
     pub points_default_state: String,
@@ -156,6 +160,7 @@ pub(crate) const KEY_TIMELINE_FILTER_PROMPT: &str = "rehearsal_timeline_filter_p
 pub(crate) const KEY_TIMELINE_FILTER_ALL: &str = "rehearsal_timeline_filter_all_label";
 pub const KEY_SOURCE_LABEL: &str = "rehearsal_source_label_template";
 pub(crate) const KEY_SOURCE_OPEN: &str = "rehearsal_source_open_label";
+pub(crate) const KEY_WHAT_STATE: &str = "rehearsal_what_default_state";
 pub(crate) const KEY_ACCUSATION_STATE: &str = "rehearsal_accusation_default_state";
 pub(crate) const KEY_TIMELINE_STATE: &str = "rehearsal_timeline_default_state";
 pub(crate) const KEY_POINTS_STATE: &str = "rehearsal_points_default_state";
@@ -204,6 +209,7 @@ pub const REHEARSAL_WORDING_KEYS: &[&str] = &[
     KEY_TIMELINE_FILTER_ALL,
     KEY_SOURCE_LABEL,
     KEY_SOURCE_OPEN,
+    KEY_WHAT_STATE,
     KEY_ACCUSATION_STATE,
     KEY_TIMELINE_STATE,
     KEY_POINTS_STATE,
@@ -292,13 +298,25 @@ impl RehearsalWording {
         Ok(lines)
     }
 
-    /// The four section states, parsed once.
+    /// The five section states, parsed once — in the order the page renders them.
+    ///
+    /// ## Why the order is load-bearing
+    ///
+    /// The caller reads this array positionally into [`crate::dto::rehearsal::
+    /// RehearsalCollapse`]. Page order (what → accusation → timeline → points →
+    /// watch) means a reader comparing this list to the screen is comparing two
+    /// things in the same sequence; any other order invites the copy-paste that
+    /// opens the wrong section.
     ///
     /// # Errors
     /// Returns [`SettingError`] naming the first key whose token is not one of
     /// the two this build understands.
-    pub fn section_states(&self) -> Result<[(&'static str, SectionState); 4], SettingError> {
+    pub fn section_states(&self) -> Result<[(&'static str, SectionState); 5], SettingError> {
         Ok([
+            (
+                KEY_WHAT_STATE,
+                SectionState::parse(KEY_WHAT_STATE, &self.what_default_state)?,
+            ),
             (
                 KEY_ACCUSATION_STATE,
                 SectionState::parse(KEY_ACCUSATION_STATE, &self.accusation_default_state)?,
@@ -368,6 +386,7 @@ pub fn build_rehearsal_wording<E>(
         timeline_filter_all_label: read(KEY_TIMELINE_FILTER_ALL)?,
         source_label_template: read(KEY_SOURCE_LABEL)?,
         source_open_label: read(KEY_SOURCE_OPEN)?,
+        what_default_state: read(KEY_WHAT_STATE)?,
         accusation_default_state: read(KEY_ACCUSATION_STATE)?,
         timeline_default_state: read(KEY_TIMELINE_STATE)?,
         points_default_state: read(KEY_POINTS_STATE)?,

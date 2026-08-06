@@ -19,9 +19,11 @@ use chrono::Utc;
 use sqlx::PgPool;
 
 use crate::domain::settings::Settings;
+use crate::domain::wording_rehearsal::SectionState;
 use crate::domain::wording_templates::render;
 use crate::dto::rehearsal::{
-    RehearsalAlways, RehearsalCollapse, RehearsalPayload, RehearsalScenario, RehearsalWordingDto,
+    RehearsalAlways, RehearsalCollapse, RehearsalEditorWordingDto, RehearsalPayload,
+    RehearsalScenario, RehearsalWordingDto,
 };
 use crate::repositories::pipeline_repository::{
     insert_status_transition, list_scenarios_for_case, update_scenario_status, PipelineRepoError,
@@ -291,23 +293,46 @@ fn page_chrome(
             lines,
         },
         wording: page_wording(settings),
-        collapse: RehearsalCollapse {
-            accusation_open: states[0].1.is_open(),
-            timeline_open: states[1].1.is_open(),
-            points_open: states[2].1.is_open(),
-            watch_for_open: states[3].1.is_open(),
-        },
+        collapse: opening_states(&states),
     })
+}
+
+/// Which sections arrive open, from the five parsed state tokens.
+///
+/// ## Why the read is POSITIONAL, and why that is safe here
+///
+/// `section_states` returns the five in the order the page renders them — what →
+/// accusation → timeline → points → watch — and pins that order with a test of
+/// its own. Reading positionally means adding a sixth section is a compile error
+/// here rather than a section that silently arrives shut; reading by key would
+/// compile happily with one of them never looked up.
+///
+/// Split from [`page_chrome`] for the function-size limit; the seam is the one
+/// place a copy-paste in this file would open the wrong section for a witness.
+fn opening_states(states: &[(&'static str, SectionState); 5]) -> RehearsalCollapse {
+    RehearsalCollapse {
+        what_open: states[0].1.is_open(),
+        accusation_open: states[1].1.is_open(),
+        timeline_open: states[2].1.is_open(),
+        points_open: states[3].1.is_open(),
+        watch_for_open: states[4].1.is_open(),
+    }
 }
 
 /// Every stored string the page renders that is not already a finished sentence.
 ///
-/// The six templates the server FILLS are absent by construction — there is no
-/// field for the count template or a gap template to travel in, so a browser
-/// could not recompose one if it tried. That absence IS the §10 exclusion, made
-/// structural rather than promised.
+/// The templates the server FILLS are absent by construction — there is no field
+/// for the count template, a gap template, or either attribution template to
+/// travel in, so a browser could not recompose one if it tried. That absence IS
+/// the §10 exclusion, made structural rather than promised.
+///
+/// The ONE template that does cross is `save_failed_template`, whose `{detail}`
+/// is the failure's own text — the single value that exists only on the client's
+/// side. Same carve-out, and same reasoning, as the working view's.
 fn page_wording(settings: &Settings) -> RehearsalWordingDto {
     let w = &settings.rehearsal_wording;
+    let chrome = &settings.rehearsal_chrome_wording;
+    let editing = &settings.accusation_wording;
     RehearsalWordingDto {
         answer_label: settings.accusation_wording.answer_label.clone(),
         page_heading: w.page_heading.clone(),
@@ -323,6 +348,27 @@ fn page_wording(settings: &Settings) -> RehearsalWordingDto {
         block_timeline_heading: w.block_timeline_heading.clone(),
         block_points_heading: w.block_points_heading.clone(),
         block_watch_heading: w.block_watch_heading.clone(),
+        crumb_trial_prep_label: chrome.crumb_trial_prep_label.clone(),
+        scenario_page_label: chrome.scenario_page_label.clone(),
+        go_to_row_label: chrome.go_to_row_label.clone(),
+        prep_list_heading: chrome.prep_list_heading.clone(),
+        row_open_hint: chrome.row_open_hint.clone(),
+        add_point_label: chrome.add_point_label.clone(),
+        add_watch_label: chrome.add_watch_label.clone(),
+        points_authoring_note: chrome.points_authoring_note.clone(),
+        // Ruling C3: borrowed from the working view's rows rather than seeded
+        // again. "Edit", "Save", "Withdraw it" and "Cancel" are already stored
+        // and already rehearsal-voiced; a second set would be four sentences
+        // Roman has to keep in step by hand.
+        editor: RehearsalEditorWordingDto {
+            edit_label: editing.text_edit_label.clone(),
+            save_label: editing.text_save_label.clone(),
+            cancel_label: editing.text_cancel_label.clone(),
+            withdraw_label: editing.text_clear_label.clone(),
+            accusation_placeholder: editing.text_placeholder.clone(),
+            what_placeholder: chrome.what_placeholder.clone(),
+            save_failed_template: editing.save_failed_template.clone(),
+        },
     }
 }
 

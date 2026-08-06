@@ -30,7 +30,7 @@ import {
   sectionPanelStyle,
   sectionTitleStyle,
 } from "./scenarioSectionStyles";
-import type { HumanFactDto } from "../services/scenarioAugmentation";
+import type { AuthoringWordingDto, HumanFactDto } from "../services/scenarioAugmentation";
 
 /** The style bundle `WatchListBlock` takes — it renders, this decides how. */
 const blockBoxStyle: React.CSSProperties = {
@@ -66,11 +66,19 @@ interface Props {
   slug: string;
   scenarioId: string;
   notes: HumanFactDto[];
+  /** Every word this section speaks, from the store (task 2.11 C, ruling C4b). */
+  wording: AuthoringWordingDto;
   /** Re-read the payload after a successful write. */
   onChanged: () => void;
 }
 
-const WatchListSection: React.FC<Props> = ({ slug, scenarioId, notes, onChanged }) => {
+const WatchListSection: React.FC<Props> = ({
+  slug,
+  scenarioId,
+  notes,
+  wording,
+  onChanged,
+}) => {
   const [error, setError] = useState<string | null>(null);
 
   /** Run a write, surface any failure, and re-read so the screen matches the DB. */
@@ -83,17 +91,15 @@ const WatchListSection: React.FC<Props> = ({ slug, scenarioId, notes, onChanged 
       .catch((e: unknown) => {
         // Explicit error UI, never a swallowed rejection: the human just typed
         // this, and they are the only one who can act on the refusal.
-        setError(e instanceof Error ? e.message : "That watch-list note did not save.");
+        setError(e instanceof Error ? e.message : wording.watch_save_failed_notice);
       });
   };
 
   return (
     <section>
       <div style={sectionHeaderStyle}>
-        <h2 style={sectionTitleStyle}>Watch-list</h2>
-        <span style={sectionMetaStyle}>
-what the other side will wave around
-        </span>
+        <h2 style={sectionTitleStyle}>{wording.watch_section_heading}</h2>
+        <span style={sectionMetaStyle}>{wording.watch_section_meta}</span>
       </div>
 
       <div style={sectionPanelStyle}>
@@ -114,6 +120,7 @@ what the other side will wave around
           slug={slug}
           scenarioId={scenarioId}
           notes={notes}
+          wording={wording}
           run={run}
           boxStyle={blockBoxStyle}
           labelStyle={blockLabelStyle}

@@ -267,3 +267,87 @@ fn a_real_answer_carries_its_words_its_speaker_and_its_source() {
     assert_eq!(built.who, "Marie Awad");
     assert_eq!(built.source.label, "Hearing to approve plan, p. 24");
 }
+
+// ── The authorship line (task 2.11 C, ruling C2) ─────────────────────────────
+
+/// A fixed instant, so the assertion below is about the FORMAT and not the day
+/// the suite happens to run.
+fn at(year: i32, month: u32, day: u32) -> chrono::DateTime<chrono::Utc> {
+    chrono::NaiveDate::from_ymd_opt(year, month, day)
+        .expect("a real date")
+        .and_hms_opt(14, 30, 0)
+        .expect("a real time")
+        .and_utc()
+}
+
+#[test]
+fn a_recorded_author_and_date_compose_the_stored_sentence() {
+    let line = attribution_line(
+        "Written in plain words by {who} · {when}",
+        "Author not recorded — written before authorship was kept.",
+        Some("Roman"),
+        Some(at(2026, 8, 6)),
+    );
+    assert_eq!(line, "Written in plain words by Roman · 6 Aug 2026");
+}
+
+#[test]
+fn the_date_reads_the_way_a_person_says_it() {
+    // The same rule the instance rows follow: a month NAME cannot be misread
+    // day-month by one reader and month-day by another, and no leading zero —
+    // "6 Aug 2026", not "06 Aug 2026".
+    let line = attribution_line(
+        "{who} · {when}",
+        "unknown",
+        Some("Roman"),
+        Some(at(2026, 8, 6)),
+    );
+    assert_eq!(line, "Roman · 6 Aug 2026");
+}
+
+#[test]
+fn a_sentence_written_before_authorship_was_kept_says_so() {
+    // The honest-gap law, applied to provenance. Never an invented name, never a
+    // blank — a blank reads as a rendering fault.
+    let line = attribution_line(
+        "Written by {who} · {when}",
+        "Author not recorded — written before authorship was kept.",
+        None,
+        None,
+    );
+    assert_eq!(
+        line,
+        "Author not recorded — written before authorship was kept."
+    );
+}
+
+#[test]
+fn a_half_recorded_authorship_is_treated_as_none() {
+    // The two columns are written by ONE statement, so an author without a date
+    // means something wrote around that route. Composing "Written by Roman · "
+    // would render an attribution with the day silently missing, claiming more
+    // than the record holds.
+    let unknown = "Author not recorded — written before authorship was kept.";
+
+    assert_eq!(
+        attribution_line("{who} · {when}", unknown, Some("Roman"), None),
+        unknown,
+        "an author with no date is not an attribution"
+    );
+    assert_eq!(
+        attribution_line("{who} · {when}", unknown, None, Some(at(2026, 8, 6))),
+        unknown,
+        "a date with no author is not an attribution"
+    );
+}
+
+#[test]
+fn a_blank_author_column_is_an_absence_and_not_a_name() {
+    // Whitespace is invisible in psql. An author of "   " would otherwise
+    // compose "Written by  · 6 Aug 2026" — an attribution attributing nobody.
+    let unknown = "not recorded";
+    assert_eq!(
+        attribution_line("{who} · {when}", unknown, Some("   "), Some(at(2026, 8, 6))),
+        unknown
+    );
+}

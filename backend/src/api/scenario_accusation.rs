@@ -142,7 +142,10 @@ pub async fn put_accusation_text(
 
     let trimmed = checked_accusation_text(payload.text.as_deref())?;
 
-    let rows = set_scenario_accusation(&state.pipeline_pool, id, trimmed)
+    // The author is stamped by the same statement that writes the sentence, so
+    // the two can never disagree (task 2.11 C, ruling C2). Withdrawing clears
+    // both — see `set_scenario_accusation`.
+    let rows = set_scenario_accusation(&state.pipeline_pool, id, trimmed, &user.username)
         .await
         .map_err(|e| write_failure(e, id, &user.username, "the accusation sentence"))?;
 
