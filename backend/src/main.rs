@@ -37,7 +37,7 @@ use colossus_legal_backend::{
     pipeline::context::{AppContext, AppContextDeps},
     pipeline::registry::PipelineRegistry,
     prompt_loader, restate_endpoint,
-    services::settings_store,
+    services::settings_boot,
     state::{AppState, EntityTypeInfo, RelationshipTypeInfo, SchemaMetadata},
 };
 
@@ -186,7 +186,7 @@ async fn run_serve(config: AppConfig, graph: neo4rs::Graph, http_client: reqwest
     // and is loaded here, once, into a snapshot handed to every request through
     // `AppState`. A missing, unreadable or out-of-bounds parameter ENDS the
     // process: there is deliberately no compiled-in default to fall back to.
-    let settings = settings_store::load_at_boot_or_exit(&pipeline_pool).await;
+    let settings = settings_boot::load_at_boot_or_exit(&pipeline_pool).await;
 
     // --- Load the pipeline configuration registry ---
     //
