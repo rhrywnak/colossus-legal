@@ -32,6 +32,10 @@ fn fact_record(
         } else {
             created
         },
+        // Task 2.11's anchor columns. A fact is about nothing but itself, so
+        // both are None — the honest shape for this kind.
+        anchor_graph_node_id: None,
+        answers_graph_node_id: None,
     }
 }
 
@@ -61,6 +65,9 @@ fn scenario_record() -> ScenarioRecord {
         code_ordinal: 3,
         theme_statement: None,
         motivation: None,
+        // Task 2.11: nobody has written the plain-words accusation for this
+        // fixture, which is the honest default — the page renders its gap.
+        accusation_text: None,
     }
 }
 

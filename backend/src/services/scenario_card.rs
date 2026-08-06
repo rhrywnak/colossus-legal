@@ -506,7 +506,11 @@ pub(crate) fn build_card(
     let human_link_summary = link_summary(human_links, &settings.wording);
 
     ScenarioCard {
-        code: ordinal.map(|n| format!("C-{n}")),
+        // The spelling of the handle moved to `domain::scenario_code` in task
+        // 2.11, beside its `S-n` sibling, when a third surface needed to name a
+        // fact. Two sites that must agree about a name humans say out loud is one
+        // too many.
+        code: ordinal.map(crate::domain::scenario_code::candidate_code),
         graph_node_id: instance.evidence_id.clone(),
         quote: build_quote(
             quote_text,

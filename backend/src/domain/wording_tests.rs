@@ -47,9 +47,13 @@ fn every_key_with_required_placeholders_is_a_real_key() {
     // Anti-drift: a requirement filed against a renamed key would silently stop
     // guarding anything, because `missing_placeholders` returns empty for a key
     // it does not find.
+    //
+    // Both stored-string lists count (task 2.11): this table is the one place the
+    // write path looks, so it carries the accusation section's templates as well
+    // as this module's own.
     for (key, required) in REQUIRED_PLACEHOLDERS {
         assert!(
-            WORDING_KEYS.contains(key),
+            WORDING_KEYS.contains(key) || accusation::ACCUSATION_WORDING_KEYS.contains(key),
             "{key} has placeholder requirements but is not a stored wording key"
         );
         assert!(!required.is_empty(), "{key} declares an empty requirement");
@@ -60,7 +64,12 @@ fn every_key_with_required_placeholders_is_a_real_key() {
 fn the_seeded_defaults_satisfy_their_own_placeholder_rules() {
     // If they did not, the migration would seed a store that the write path would
     // refuse — a value nobody could edit back to its own default.
-    let values = Wording::for_test_values();
+    let mut values = Wording::for_test_values();
+    // The table spans both stored-string lists (task 2.11), so the fixture it is
+    // checked against has to as well — otherwise this test would look up an
+    // accusation key in the link-panel fixture and fail on the lookup rather than
+    // on the rule it exists to check.
+    values.extend(accusation::AccusationWording::for_test_values());
     for (key, _) in REQUIRED_PLACEHOLDERS {
         let seeded = values.get(key).expect("a seeded value for every key");
         assert!(
@@ -182,7 +191,7 @@ const POLISH_MIGRATION: &str = "pipeline_migrations/20260805145731_facts_polish_
 /// report `link_panel_intro` as "This statement isn" and the comparison below
 /// would fail on every row that contains an apostrophe — which is most of the
 /// interesting ones. So this walks the literal, treating `''` as one character.
-fn seeded_value_in(sql: &str, key: &str) -> Option<String> {
+pub(crate) fn seeded_value_in(sql: &str, key: &str) -> Option<String> {
     let marker = format!("('{key}',");
     let at = sql.find(&marker)?;
     let rest = &sql[at + marker.len()..];

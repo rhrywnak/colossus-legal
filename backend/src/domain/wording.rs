@@ -37,6 +37,10 @@
 use std::collections::HashMap;
 
 use crate::domain::settings::{parse_text, SettingError};
+// Task 2.11's twenty-five strings live in their own module (Rule 17: this one has
+// no room), but their PLACEHOLDER requirements live in the table below — see the
+// note there for why there is only ever one such table.
+use crate::domain::wording_accusation as accusation;
 
 /// Every stored string this task's surfaces render.
 ///
@@ -333,6 +337,27 @@ pub const REQUIRED_PLACEHOLDERS: &[(&str, &[&str])] = &[
     (KEY_FACT_BG_MOVE_NOTICE, &["{code}"]),
     // The old footer called folded facts "shown"; only two numbers are honest.
     (KEY_FACT_FOOTER, &["{shown}", "{background}"]),
+    // ── Task 2.11: the accusation section's templates ────────────────────────
+    //
+    // Listed HERE rather than in a second table beside their own keys, because
+    // this table is the ONE place the write path looks (`validate_wording_
+    // candidate`). A second table would be a second lookup that can silently
+    // miss — and a key absent from the lookup is silently unconstrained, which is
+    // precisely the failure this table exists to prevent.
+    //
+    // "Said  times, in  documents." is a grammatical sentence with both facts
+    // removed, and nothing downstream could tell.
+    (accusation::KEY_COUNT_TEMPLATE, &["{times}", "{documents}"]),
+    // "None marked" and "none marked, out of forty-six waiting" are different
+    // states of the same scenario, and only the second says what to do next.
+    (accusation::KEY_NO_INSTANCES_NOTICE, &["{included}"]),
+    // A gap that cannot name which fact it is about is useless on a list of
+    // forty-six that look alike — and the design calls this list the single most
+    // useful thing on the page.
+    (accusation::KEY_GAP_NO_ANSWER, &["{code}"]),
+    (accusation::KEY_GAP_ACCUSATION_REMOVED, &["{code}"]),
+    (accusation::KEY_GAP_ANSWER_REMOVED, &["{code}"]),
+    (accusation::KEY_SAVE_FAILED_TEMPLATE, &["{detail}"]),
 ];
 
 /// Which required placeholders a candidate value is missing, for one key.
@@ -692,6 +717,11 @@ impl Wording {
     }
 }
 
+// `pub(crate)` rather than private (task 2.11): `wording_accusation_tests` needs
+// the migration-seed parser this module's tests own, and a second copy of it
+// would be a second thing to get wrong — the parser is the only thing standing
+// between "the fixture matches the migration" and a false green, so there must be
+// exactly one of it, tested once.
 #[cfg(test)]
 #[path = "wording_tests.rs"]
-mod tests;
+pub(crate) mod tests;

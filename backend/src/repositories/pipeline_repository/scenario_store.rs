@@ -82,6 +82,16 @@ pub struct ScenarioRecord {
     pub theme_statement: Option<String>,
     /// C1: what the other side wants the jury to believe by making this attack.
     pub motivation: Option<String>,
+    /// The standing accusation in a human's PLAIN WORDS (task 2.11).
+    ///
+    /// What the marked instances are instances OF. `None` until somebody writes
+    /// it, which the rehearsal page renders as a named gap rather than filling
+    /// in — and it is never derived from `definition->>attack_text`, which holds
+    /// THEIR verbatim words from the record and is a different thing. Rendering
+    /// that quote in this slot silently promotes one piece of evidence into the
+    /// summary of all of it, which is the beta.371 defect this column exists to
+    /// end.
+    pub accusation_text: Option<String>,
 }
 
 /// Shared SELECT projection for every `ScenarioRecord` read, so the `FromRow`
@@ -93,7 +103,7 @@ pub struct ScenarioRecord {
 // field update, so it cannot live in YAML/env (Standing Rule 2 does not apply).
 const SCENARIO_COLUMNS: &str = "scenario_id, name, direction, status, case_slug, \
      feeds_count_id, anchor_allegation_ids, definition, created_at, updated_at, \
-     code_ordinal, theme_statement, motivation";
+     code_ordinal, theme_statement, motivation, accusation_text";
 
 // ── CRUD ─────────────────────────────────────────────────────────
 
@@ -545,6 +555,34 @@ pub struct ScenarioFactRefRecord {
 const SCENARIO_FACT_REF_COLUMNS: &str = "scenario_id, graph_node_id, role_in_this_scenario, \
      status, note, confidence, source_run_id, tagged_at, defer_reason, tier, sort_ordinal, \
      tier_updated_by, tier_updated_at, order_updated_by, order_updated_at";
+
+/// Write the scenario's plain-words accusation (task 2.11).
+///
+/// `None` clears it, which returns the rehearsal block to its named gap — a
+/// human withdrawing a sentence they no longer stand behind is a real act, and
+/// an empty string is refused by the column's CHECK rather than stored as a
+/// sentence that says nothing.
+///
+/// Returns the affected row count so the caller can tell "written" from "no such
+/// scenario" rather than reporting a save that never happened.
+///
+/// # Errors
+/// Returns [`PipelineRepoError`] if the statement fails, including the
+/// non-blank CHECK.
+pub async fn set_scenario_accusation(
+    executor: impl sqlx::PgExecutor<'_>,
+    scenario_id: uuid::Uuid,
+    accusation_text: Option<&str>,
+) -> Result<u64, PipelineRepoError> {
+    let result = sqlx::query(
+        "UPDATE scenarios SET accusation_text = $2, updated_at = NOW() WHERE scenario_id = $1",
+    )
+    .bind(scenario_id)
+    .bind(accusation_text)
+    .execute(executor)
+    .await?;
+    Ok(result.rows_affected())
+}
 
 /// Tag a graph fact into a scenario, or re-tag it in place (composite-key
 /// upsert on `(scenario_id, graph_node_id)`).

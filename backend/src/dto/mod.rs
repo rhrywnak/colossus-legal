@@ -24,6 +24,7 @@ pub mod proof_review;
 pub mod query;
 pub mod rehearsal;
 pub mod scenario;
+pub mod scenario_accusation;
 pub mod scenario_augmentation;
 pub mod scenario_card;
 pub mod scenario_crud;

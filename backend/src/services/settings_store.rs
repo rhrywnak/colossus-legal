@@ -51,6 +51,7 @@ use crate::domain::settings::{
     ValueKind,
 };
 use crate::domain::wording::{build_wording, validate_wording_candidate, WORDING_KEYS};
+use crate::domain::wording_accusation::{build_accusation_wording, ACCUSATION_WORDING_KEYS};
 use crate::repositories::pipeline_repository::{
     get_setting, insert_setting_change, list_settings, update_setting_value, AppSettingRecord,
     PipelineRepoError,
@@ -258,6 +259,12 @@ pub fn build_settings(rows: &HashMap<String, AppSettingRecord>) -> Result<Settin
     // where a value comes from and what a refusal looks like (task 2.10).
     let wording = build_wording(|key| text_of(require(rows, key)?))?;
 
+    // Task 2.11's twenty-five, read by the same closure and therefore by exactly
+    // the same rules. A separate call rather than a wider `build_wording` because
+    // the two blocks belong to different surfaces and live in different modules —
+    // see `domain::wording_accusation`'s header.
+    let accusation_wording = build_accusation_wording(|key| text_of(require(rows, key)?))?;
+
     Ok(Settings {
         confidence_band_high,
         confidence_band_medium,
@@ -268,6 +275,7 @@ pub fn build_settings(rows: &HashMap<String, AppSettingRecord>) -> Result<Settin
         reanchor_close_match_tolerance: float_of(require(rows, KEY_REANCHOR_TOLERANCE)?)?,
         link_short_list_max: count_of(require(rows, KEY_LINK_SHORT_LIST_MAX)?)?,
         wording,
+        accusation_wording,
     })
 }
 
@@ -300,6 +308,10 @@ pub async fn load_settings(pool: &PgPool) -> Result<Settings, SettingsError> {
         rows = rows.len(),
         required = REQUIRED_KEYS.len(),
         wording = WORDING_KEYS.len(),
+        // Counted apart from `wording` (task 2.11) so a half-run seed names which
+        // half is missing: `rows=56 wording=48 accusation=25` says the accusation
+        // migration has not been applied, which one summed number could not.
+        accusation_wording = ACCUSATION_WORDING_KEYS.len(),
         "configuration store read"
     );
 
@@ -324,6 +336,7 @@ pub async fn load_at_boot(pool: &PgPool) -> Result<Settings, SettingsError> {
             tracing::info!(
                 parameters = REQUIRED_KEYS.len(),
                 wording_strings = WORDING_KEYS.len(),
+                accusation_strings = ACCUSATION_WORDING_KEYS.len(),
                 talking_points_cap = settings.talking_points_cap,
                 confidence_band_high = settings.confidence_band_high,
                 link_short_list_max = settings.link_short_list_max,

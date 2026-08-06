@@ -46,7 +46,13 @@ fn row(
 /// asserted.
 fn seeded() -> HashMap<String, AppSettingRecord> {
     let mut rows = numeric_rows();
-    for (key, value) in crate::domain::wording::Wording::for_test_values() {
+    // Both stored-string blocks, chained (task 2.11): the two lists key one table,
+    // and a fixture holding only one of them would let a snapshot build that the
+    // real store could not.
+    let text_rows = crate::domain::wording::Wording::for_test_values()
+        .into_iter()
+        .chain(crate::domain::wording_accusation::AccusationWording::for_test_values());
+    for (key, value) in text_rows {
         // Text rows carry no bounds: `min_value` / `max_value` are numeric
         // comparisons, and the migration leaves them NULL.
         rows.insert(
@@ -164,10 +170,36 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
         "22 from 2.10, five from 2.12, fourteen from 2.13, one latch fix, five from 2.13c"
     );
     assert_eq!(
-        seeded().len(),
-        REQUIRED_KEYS.len() + WORDING_KEYS.len(),
-        "the seed and the two required lists must describe the same store"
+        ACCUSATION_WORDING_KEYS.len(),
+        27,
+        "task 2.11's accusation section, every word of it a row"
     );
+    assert_eq!(
+        seeded().len(),
+        REQUIRED_KEYS.len() + WORDING_KEYS.len() + ACCUSATION_WORDING_KEYS.len(),
+        "the seed and the three required lists must describe the same store"
+    );
+}
+
+/// A missing ACCUSATION row refuses the snapshot exactly as the others do.
+///
+/// Its own test rather than a widened loop above: the two lists are read by two
+/// calls, and a `build_settings` that forgot the second call would still pass
+/// every assertion written against the first.
+#[test]
+fn a_missing_accusation_wording_row_refuses_the_snapshot_too() {
+    for key in ACCUSATION_WORDING_KEYS {
+        let mut rows = seeded();
+        rows.remove(*key);
+
+        let Err(error) = build_settings(&rows) else {
+            panic!("a store missing {key} must not produce a snapshot");
+        };
+        assert!(
+            error.to_string().contains(key),
+            "the refusal must name the missing string: {error}"
+        );
+    }
 }
 
 /// A missing WORDING row refuses the snapshot exactly as a missing number does.

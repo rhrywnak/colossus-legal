@@ -52,6 +52,33 @@ pub fn scenario_code(ordinal: i32) -> String {
     format!("{SCENARIO_CODE_PREFIX}{ordinal}")
 }
 
+/// The prefix on a CANDIDATE fact's handle (`C-14`).
+///
+/// Same standing as `S-`, and the same argument: a human says "C-14" out loud and
+/// writes it in a margin, so it is case vocabulary versioned with the code rather
+/// than a deployment tunable.
+const CANDIDATE_CODE_PREFIX: &str = "C-";
+
+/// Render a candidate fact's stored ordinal as its display handle.
+///
+/// ## Why this exists now, when the module header said it did not (task 2.11)
+///
+/// The header above recorded the asymmetry and its cost: the candidate handle was
+/// formatted in `services::scenario_card` and, before that, in the browser. Task
+/// 2.11's accusation gaps have to NAME the fact they are about — a gap list of
+/// forty-six items that look alike is useless without the handle — so a third site
+/// would have been spelling `C-` for itself. Two sites that must agree about a
+/// name humans have already said aloud is one site too many, so the spelling moved
+/// here beside its sibling and both callers read it.
+///
+/// Total, like `scenario_code`: every `i32` maps to a string, so there is no error
+/// path. A candidate nothing has numbered yet has no ordinal at all, and the
+/// caller's `Option::map` is where that absence lives — never a `C-0`, which would
+/// name a card that does not exist.
+pub fn candidate_code(ordinal: i32) -> String {
+    format!("{CANDIDATE_CODE_PREFIX}{ordinal}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -80,5 +107,23 @@ mod tests {
         // two constants in two files to stay apart.
         assert!(scenario_code(14).starts_with("S-"));
         assert_ne!(scenario_code(14), "C-14");
+    }
+
+    #[test]
+    fn a_candidate_handle_renders_the_shape_humans_already_say() {
+        // Pinned as literals for the same reason `S-n` is: these strings are
+        // already written in Roman's notes, and a well-meaning edit to zero-pad
+        // them would invalidate every reference made outside this system.
+        assert_eq!(candidate_code(1), "C-1");
+        assert_eq!(candidate_code(14), "C-14");
+        assert_eq!(candidate_code(148), "C-148");
+    }
+
+    #[test]
+    fn the_two_handles_can_never_be_confused_for_each_other() {
+        // S-14 and C-14 name a scenario and a fact inside one. The prefixes are
+        // two constants that must stay apart, so assert it rather than trust it.
+        assert_ne!(scenario_code(14), candidate_code(14));
+        assert!(candidate_code(14).starts_with("C-"));
     }
 }

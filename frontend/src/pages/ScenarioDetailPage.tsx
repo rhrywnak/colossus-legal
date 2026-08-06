@@ -43,6 +43,8 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
+import AccusationSection from "../components/AccusationSection";
+import { includedPickableFacts } from "../components/accusationFacts";
 import Breadcrumb from "../components/Breadcrumb";
 import ScanSection from "../components/ScanSection";
 import ScenarioDeleteConfirm from "../components/ScenarioDeleteConfirm";
@@ -60,6 +62,10 @@ import { DEFAULT_CASE_SLUG } from "../services/caseHeader";
 import { useAllegationOptions } from "../components/useAllegationOptions";
 import ScenarioNotice from "../components/ScenarioNotice";
 import { fetchScenarioCards, type ScenarioCard } from "../services/scenarioCards";
+import {
+  fetchAccusationPanel,
+  type AccusationPanelDto,
+} from "../services/scenarioAccusation";
 import {
   fetchAugmentationPanel,
   type AugmentationPanelDto,
@@ -115,6 +121,17 @@ const ScenarioDetailPage: React.FC = () => {
   const [augmentation, setAugmentation] = useState<AugmentationPanelDto | null>(null);
   const [allegations, setAllegations] = useState<AllegationDto[]>([]);
   const [cards, setCards] = useState<ScenarioCard[]>([]);
+  /**
+   * The accusation section's payload (task 2.11 B1).
+   *
+   * Its own state and its own read, NOT part of the four-read gate: a scenario
+   * whose accusation could not be loaded must still show its facts, its queue and
+   * its identity. Folding it into `Promise.all` would replace the whole page with
+   * a banner over one section — the same over-reaction the cards re-read notice
+   * exists to avoid.
+   */
+  const [accusation, setAccusation] = useState<AccusationPanelDto | null>(null);
+  const [accusationError, setAccusationError] = useState<string | null>(null);
   /**
    * The accusations the link panels offer, and the wording two sections share
    * (tasks 2.10 and 2.12).
@@ -289,6 +306,35 @@ const ScenarioDetailPage: React.FC = () => {
     };
   }, [slug, scenarioId, cardsRefreshKey]);
 
+  // The accusation read, keyed on the PAGE refresh so a marking or a pairing
+  // re-reads it — and so does anything else that changes what is included, which
+  // is what the count and the gaps are derived from.
+  useEffect(() => {
+    if (!scenarioId) return;
+    let cancelled = false;
+    fetchAccusationPanel(slug, scenarioId)
+      .then((payload) => {
+        if (cancelled) return;
+        setAccusation(payload);
+        setAccusationError(null);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        // Standing Rule 1: the section withdraws itself when it has no words to
+        // render with, so the absence has to SAY why — otherwise a whole block is
+        // simply missing from the page with nothing to diagnose.
+        setAccusation(null);
+        setAccusationError(
+          err instanceof Error
+            ? err.message
+            : "The accusation section could not be loaded.",
+        );
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [slug, scenarioId, pageRefreshKey, cardsRefreshKey]);
+
   const gatingCrumb = (
     <Breadcrumb
       items={[{ label: "Dashboard", to: "/" }, backCrumb, { label: "Scenario" }]}
@@ -406,6 +452,20 @@ const ScenarioDetailPage: React.FC = () => {
         wording={linkWording}
         onChanged={refresh}
         onFactRemoved={refreshAfterRemoval}
+      />
+
+      {/* 4b — task 2.11 B1: the accusation, its instances and their answers.
+          Placed directly beneath the facts it is built ON, because marking and
+          pairing are judgments ABOUT those facts and a human reads the two
+          together. A payload that would not load withdraws the whole section, so
+          the notice beside it is the only thing saying why. */}
+      {accusationError && <ScenarioNotice message={accusationError} />}
+      <AccusationSection
+        slug={slug}
+        scenarioId={scenarioId}
+        panel={accusation}
+        includedFacts={includedPickableFacts(cards)}
+        onChanged={refresh}
       />
 
       {/* 5 — §2.5 */}

@@ -14,6 +14,8 @@ pub mod import_validator;
 pub mod qdrant_service;
 pub mod scan_run_delta;
 pub mod scan_run_enrich;
+pub mod scenario_accusation;
+pub mod scenario_accusation_panel;
 pub mod scenario_augmentation;
 pub mod scenario_card;
 pub mod scenario_card_assembly;

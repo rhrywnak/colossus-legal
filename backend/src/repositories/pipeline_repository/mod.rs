@@ -126,7 +126,7 @@ pub use scenario_status_transitions::*;
 pub use scenario_store::{
     delete_scenario, delete_scenarios_for_case, get_scenario, insert_scenario,
     list_fact_refs_for_scenario, list_scenarios_for_case, merge_scan_run_into_scenario,
-    update_scenario, ScenarioFactRefRecord, ScenarioRecord,
+    set_scenario_accusation, update_scenario, ScenarioFactRefRecord, ScenarioRecord,
 };
 
 // ── Error type ───────────────────────────────────────────────────

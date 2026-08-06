@@ -135,6 +135,21 @@ impl TryFrom<&str> for DateType {
 /// What differs is only where they appear: a fact is knowledge the case relies
 /// on; a watch-list note is what the other side will wave around (§10's fourth
 /// rehearsal block).
+///
+/// ## Two ANCHOR kinds joined them in task 2.11
+///
+/// `AccusationInstance` and `AnswerPairing` are the same table's third shape:
+/// they carry no prose at all, only a pointer at the statement they judge. They
+/// live here rather than in a table of their own for the reason above — one
+/// write path, one set of §8 guards — and because a pairing IS a human-authored
+/// judgment, which is precisely what this table holds.
+///
+/// ## Domain note: the machine never asserts either of them
+///
+/// "This statement is them making the accusation" and "this is what we said
+/// back" are both human judgments. The second especially: asserting that one
+/// record item REBUTS another is the contradiction layer the requirement defers,
+/// and a rehearsal page that guessed it would put words in a witness's mouth.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum HumanFactKind {
@@ -142,24 +157,60 @@ pub enum HumanFactKind {
     Fact,
     /// A hazard the other side will raise — §10's watch-list.
     WatchList,
+    /// This included statement IS them making the accusation (task 2.11).
+    ///
+    /// Anchored to the statement by graph node id, carrying no text of its own —
+    /// the words are already in the record; what a human adds is the judgment
+    /// that this one counts as an instance.
+    AccusationInstance,
+    /// This record item is what we said back to an anchored accusation.
+    ///
+    /// Two anchors: `anchor_graph_node_id` is the accusation, and
+    /// `answers_graph_node_id` is the answer. One per accusation, enforced by a
+    /// partial unique index, so re-pairing overwrites rather than leaving the
+    /// page to choose between two answers with no basis for choosing.
+    AnswerPairing,
 }
 
 impl HumanFactKind {
     /// The full vocabulary — the "extensible list in code."
-    pub const ALL: &'static [HumanFactKind] = &[HumanFactKind::Fact, HumanFactKind::WatchList];
+    pub const ALL: &'static [HumanFactKind] = &[
+        HumanFactKind::Fact,
+        HumanFactKind::WatchList,
+        HumanFactKind::AccusationInstance,
+        HumanFactKind::AnswerPairing,
+    ];
+
+    /// Whether this kind is a POINTER at a statement rather than authored prose.
+    ///
+    /// The database asks the same question structurally — its non-blank CHECK is
+    /// "says something OR points at something" — and deliberately names no kind,
+    /// so a future kind gets the safe default without a migration. This is that
+    /// question in code, for the write path to branch on.
+    pub fn is_anchored(self) -> bool {
+        matches!(
+            self,
+            HumanFactKind::AccusationInstance | HumanFactKind::AnswerPairing
+        )
+    }
 
     /// The stable wire token, bound into `scenario_human_facts.kind`.
     pub fn code(self) -> &'static str {
         match self {
             HumanFactKind::Fact => "fact",
             HumanFactKind::WatchList => "watch_list",
+            HumanFactKind::AccusationInstance => "accusation_instance",
+            HumanFactKind::AnswerPairing => "answer_pairing",
         }
     }
 }
 
 /// The error produced when a stored kind token is not one this build knows.
 #[derive(Debug, thiserror::Error)]
-#[error("unknown human-fact kind '{token}' — not one of fact/watch_list")]
+#[error(
+    "unknown human-fact kind '{token}' — not one of \
+     fact/watch_list/accusation_instance/answer_pairing"
+)]
 pub struct HumanFactKindParseError {
     pub token: String,
 }
@@ -171,6 +222,8 @@ impl TryFrom<&str> for HumanFactKind {
         match token {
             "fact" => Ok(HumanFactKind::Fact),
             "watch_list" => Ok(HumanFactKind::WatchList),
+            "accusation_instance" => Ok(HumanFactKind::AccusationInstance),
+            "answer_pairing" => Ok(HumanFactKind::AnswerPairing),
             other => Err(HumanFactKindParseError {
                 token: other.to_string(),
             }),
@@ -353,6 +406,49 @@ mod tests {
         // enum VARIANT cannot quietly change what is already in the database.
         assert_eq!(HumanFactKind::Fact.code(), "fact");
         assert_eq!(HumanFactKind::WatchList.code(), "watch_list");
-        assert_eq!(HumanFactKind::ALL.len(), 2);
+        // Task 2.11's two anchor kinds. These literals are load-bearing twice
+        // over: the write path binds them, and the migration's two PARTIAL
+        // UNIQUE INDEXES name them in their WHERE clauses. A rename here without
+        // a migration would silently stop enforcing "one answer per accusation".
+        assert_eq!(
+            HumanFactKind::AccusationInstance.code(),
+            "accusation_instance"
+        );
+        assert_eq!(HumanFactKind::AnswerPairing.code(), "answer_pairing");
+        assert_eq!(HumanFactKind::ALL.len(), 4);
+    }
+
+    #[test]
+    fn only_the_anchor_kinds_point_instead_of_speaking() {
+        // The database asks this structurally ("says something OR points at
+        // something") and names no kind, so this is the code half of the same
+        // question. A fact or a watch-list note that reported itself anchored
+        // would be allowed to store blank text and render as nothing.
+        assert!(HumanFactKind::AccusationInstance.is_anchored());
+        assert!(HumanFactKind::AnswerPairing.is_anchored());
+        assert!(!HumanFactKind::Fact.is_anchored());
+        assert!(!HumanFactKind::WatchList.is_anchored());
+    }
+
+    #[test]
+    fn every_kind_round_trips_through_its_token() {
+        // Write then read must land on the same variant for all four, or a
+        // judgment stored today is unreadable tomorrow.
+        for &kind in HumanFactKind::ALL {
+            assert_eq!(
+                HumanFactKind::try_from(kind.code()).expect("its own token decodes"),
+                kind
+            );
+        }
+    }
+
+    #[test]
+    fn an_unknown_kind_token_is_refused_and_named() {
+        // Standing Rule 1: a kind this build does not define must not collapse to
+        // `fact`, which would render somebody's pairing as a note in the wrong
+        // block with nothing saying so.
+        let error = HumanFactKind::try_from("rebuttal").expect_err("undefined kind");
+        assert_eq!(error.token, "rebuttal");
+        assert!(error.to_string().contains("rebuttal"));
     }
 }

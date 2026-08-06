@@ -436,6 +436,9 @@ mod tests {
             // `None` is the honest value rather than invented prose.
             theme_statement: None,
             motivation: None,
+            // Task 2.11: nobody has written the plain-words accusation for this
+            // fixture, which is the honest default — the page renders its gap.
+            accusation_text: None,
         }
     }
 

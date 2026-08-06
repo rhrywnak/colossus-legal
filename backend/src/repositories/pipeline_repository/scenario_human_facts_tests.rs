@@ -443,3 +443,95 @@ fn the_caller_family_scan_actually_finds_the_callers() {
         );
     }
 }
+
+// ── Task 2.11: the anchored judgments ───────────────────────────────────────
+
+#[test]
+fn the_projection_covers_every_record_field() {
+    // THE drift point. A column added to the migration and to
+    // `ScenarioHumanFactRecord` but forgotten in `HUMAN_FACT_COLUMNS` is a
+    // runtime decode failure on every read path at once — it cannot be caught by
+    // the compiler, so it is caught here.
+    for column in [
+        "id",
+        "scenario_id",
+        "text",
+        "occurred_on",
+        "date_type",
+        "person_refs",
+        "authored_by",
+        "kind",
+        "created_at",
+        "updated_at",
+        "anchor_graph_node_id",
+        "answers_graph_node_id",
+    ] {
+        assert!(
+            HUMAN_FACT_COLUMNS.contains(column),
+            "{column} is on the record but missing from the SELECT projection",
+        );
+    }
+}
+
+#[test]
+fn the_anchored_upsert_replaces_an_answer_rather_than_adding_one() {
+    // Re-pairing must OVERWRITE. Two stored answers to one accusation would leave
+    // the rehearsal page choosing between them with no basis for choosing, which
+    // is the silent decision the honest-gap law forbids.
+    assert!(
+        UPSERT_ANCHORED_SQL.contains("ON CONFLICT"),
+        "re-pairing must overwrite, not accumulate",
+    );
+    assert!(
+        UPSERT_ANCHORED_SQL.contains("DO UPDATE SET answers_graph_node_id"),
+        "the conflict must replace the ANSWER",
+    );
+    // Scoped to the partial index the migration creates. Without the predicate
+    // Postgres cannot match the partial unique index and the statement fails at
+    // runtime — a bug no type check would find.
+    assert!(
+        UPSERT_ANCHORED_SQL.contains("WHERE kind = 'answer_pairing'"),
+        "the conflict target must name the partial index's predicate",
+    );
+}
+
+#[test]
+fn re_pairing_keeps_the_original_created_at_and_moves_the_author() {
+    // `created_at` records when this accusation FIRST got an answer; re-pairing
+    // edits that answer rather than making a new judgment. `authored_by` does
+    // move: the person who last decided what answers this is the person
+    // answerable for it.
+    let update = UPSERT_ANCHORED_SQL
+        .split("DO UPDATE SET")
+        .nth(1)
+        .expect("the statement has an update clause");
+    assert!(
+        !update.contains("created_at"),
+        "re-pairing must not rewrite when the answer was first given",
+    );
+    assert!(update.contains("authored_by"));
+    assert!(update.contains("updated_at"));
+}
+
+#[test]
+fn an_anchored_row_stores_no_prose() {
+    // The table's CHECK is "says something OR points at something". An anchored
+    // row points, so it binds an empty text — the legal shape, not a workaround.
+    // Binding the anchor into `text` instead would put a node id where a human's
+    // words belong, and it would render.
+    assert!(
+        UPSERT_ANCHORED_SQL.contains("VALUES ($1, '', $2, $3"),
+        "an anchored judgment carries no text of its own",
+    );
+}
+
+#[test]
+fn withdrawing_one_judgment_cannot_remove_the_other() {
+    // An accusation instance and its answer pairing share an anchor. Deleting by
+    // anchor alone would un-mark the instance AND destroy the answer somebody
+    // paired to it — one click silently undoing two judgments.
+    assert!(
+        DELETE_ANCHORED_SQL.contains("AND kind = $3"),
+        "the delete must be scoped to one kind",
+    );
+}

@@ -25,6 +25,7 @@
 use std::fmt;
 
 use crate::domain::wording::Wording;
+use crate::domain::wording_accusation::AccusationWording;
 
 /// The parsed parameters, as every consumer sees them.
 ///
@@ -71,6 +72,13 @@ pub struct Settings {
     /// are the words it SPEAKS. A reader looking for a cutoff should not have to
     /// scroll past twenty sentences to find it.
     pub wording: Wording,
+    /// The twenty-five strings task 2.11's accusation section speaks.
+    ///
+    /// A second nested block rather than more fields on `wording` for the reason
+    /// that module's own header gives, and for Rule 17: `domain::wording` has no
+    /// room left. Both are read from the same `app_settings` table by the same
+    /// rules; what separates them is which surface speaks them.
+    pub accusation_wording: AccusationWording,
 }
 
 /// A snapshot for TESTS ONLY.
@@ -102,6 +110,7 @@ impl Settings {
             reanchor_close_match_tolerance: 0.85,
             link_short_list_max: 8,
             wording: Wording::for_test(),
+            accusation_wording: AccusationWording::for_test(),
         }
     }
 }

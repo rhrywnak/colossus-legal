@@ -58,6 +58,8 @@ pub mod proof_review;
 pub mod qa;
 pub mod queries;
 pub mod rehearsal;
+pub mod scenario_accusation;
+pub mod scenario_accusation_read;
 pub mod scenario_augmentation;
 pub mod scenario_cards;
 pub mod scenario_fact_curation;
@@ -103,6 +105,10 @@ pub fn router() -> Router<AppState> {
         // beside the ruling routes — augmentation, never a ruling (§8).
         .merge(scenario_fact_curation::routes())
         .merge(scenario_augmentation::routes())
+        // Task 2.11: the accusation, its marked instances and their answers. One
+        // module, one fence — the three write concerns share the guards, never a
+        // statement (the "one write path" reading recorded 2026-08-06).
+        .merge(scenario_accusation::routes())
         .merge(rehearsal::routes())
         .merge(settings::routes())
         .merge(claim_routes())
