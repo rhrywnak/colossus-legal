@@ -26,6 +26,7 @@ use std::fmt;
 
 use crate::domain::wording::Wording;
 use crate::domain::wording_accusation::AccusationWording;
+use crate::domain::wording_rehearsal::RehearsalWording;
 
 /// The parsed parameters, as every consumer sees them.
 ///
@@ -79,6 +80,24 @@ pub struct Settings {
     /// room left. Both are read from the same `app_settings` table by the same
     /// rules; what separates them is which surface speaks them.
     pub accusation_wording: AccusationWording,
+    /// The thirty-nine strings task 2.11 B2's rehearsal page speaks.
+    ///
+    /// A third nested block, for the reason the second one has: these are the
+    /// words ONE surface speaks. The rehearsal page and the working view describe
+    /// the same judgments to two different readers — Marie preparing to testify,
+    /// and Roman curating — and their language moves independently.
+    pub rehearsal_wording: RehearsalWording,
+    /// How many DISTINCT dates the PLACED items must carry before the rehearsal
+    /// timeline is drawn at all (task 2.11 B2, ruled 2026-08-06).
+    ///
+    /// ## Domain note: measured over what is placed, never over the pool
+    ///
+    /// The timeline interleaves marked instances and their paired answers. A
+    /// threshold read against the scenario's whole included pool would let the
+    /// block promise a timeline the placed set has no rows for — measured on S-2,
+    /// four distinct dates in the pool and zero placed items. The honest-gap law
+    /// is what decides this, not a display preference.
+    pub rehearsal_timeline_min_distinct_dates: usize,
 }
 
 /// A snapshot for TESTS ONLY.
@@ -111,6 +130,8 @@ impl Settings {
             link_short_list_max: 8,
             wording: Wording::for_test(),
             accusation_wording: AccusationWording::for_test(),
+            rehearsal_wording: RehearsalWording::for_test(),
+            rehearsal_timeline_min_distinct_dates: 2,
         }
     }
 }

@@ -149,7 +149,7 @@ fn panel_wording(settings: &Settings, total: usize) -> LinkPanelWording {
         intro: w.link_panel_intro.clone(),
         scope_notice: w.link_scope_notice.clone(),
         allegations_heading: w.link_allegations_heading.clone(),
-        show_all_label: crate::domain::wording::render(
+        show_all_label: crate::domain::wording_templates::render(
             &w.link_show_all_label,
             &[("count", total.to_string().as_str())],
         ),

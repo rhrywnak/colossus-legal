@@ -17,17 +17,17 @@
 
 use chrono::Utc;
 use sqlx::PgPool;
-use uuid::Uuid;
 
-use crate::domain::human_authored::{HumanFactKind, STANDING_CARD};
-use crate::domain::scenario_code::scenario_code;
 use crate::domain::settings::Settings;
-use crate::dto::rehearsal::{RehearsalPayload, RehearsalPoint, RehearsalScenario};
-use crate::repositories::pipeline_repository::{
-    insert_status_transition, list_human_facts_for_scenario, list_items_for_response,
-    list_responses_for_scenario, list_scenarios_for_case, update_scenario_status,
-    PipelineRepoError, ScenarioRecord,
+use crate::domain::wording_templates::render;
+use crate::dto::rehearsal::{
+    RehearsalAlways, RehearsalCollapse, RehearsalPayload, RehearsalScenario, RehearsalWordingDto,
 };
+use crate::repositories::pipeline_repository::{
+    insert_status_transition, list_scenarios_for_case, update_scenario_status, PipelineRepoError,
+    ScenarioRecord,
+};
+use crate::services::rehearsal_assembly::{assemble_scenario, AssemblyError};
 
 /// The status a scenario must hold to appear in rehearsal mode.
 ///
@@ -64,6 +64,25 @@ pub enum ReadinessError {
     Write {
         #[source]
         source: PipelineRepoError,
+    },
+
+    /// A rehearsal scenario could not be built from what is stored.
+    ///
+    /// Its own variant so the record store's outages and the pipeline database's
+    /// stay apart in the log — see `assembly_to_readiness`.
+    #[error("failed to build the rehearsal view: {detail}")]
+    Assembly { detail: String },
+
+    /// A stored configuration value became unusable after boot accepted it.
+    ///
+    /// Reachable only if the snapshot was swapped mid-request. Handled rather
+    /// than unwrapped, because the value in question is the standing card, and a
+    /// rehearsal page with an empty Always block is the one failure this surface
+    /// cannot absorb.
+    #[error("{source}")]
+    Unusable {
+        #[source]
+        source: crate::domain::settings::SettingError,
     },
 }
 
@@ -178,93 +197,26 @@ pub async fn set_readiness(
     Ok(target.to_string())
 }
 
-/// Read one scenario's talking points, ordered and capped.
+/// Every READY scenario in a case, plus everything the page speaks with.
 ///
-/// ## Why `scenario_responses.status` is NOT consulted — read before changing
+/// A drafted scenario is absent — that is the gate, and it is applied HERE rather
+/// than in the browser so no client can ask for one. There is no parameter to ask
+/// with, which is the point.
 ///
-/// That column is `draft | ready`, and every 1.4 write path sets it to `'draft'`.
-/// Filtering rehearsal on it would show an empty page forever, with no error —
-/// the silent-empty failure this codebase keeps removing.
+/// ## Why the whole case is served in one read
 ///
-/// It is also wrong in principle. RULED 2026-08-01: the scenario's readiness is
-/// the ONLY gate. §6 has one `drafted ⇄ ready` transition and it is
-/// scenario-level; §10 scopes rehearsal to "ready scenarios", not ready points.
-/// The column is vestigial. If a per-point editorial gate is ever wanted it
-/// arrives as its own ratified change — not by adding a condition here.
-async fn talking_points_of(
-    pool: &PgPool,
-    scenario_id: Uuid,
-    settings: &Settings,
-) -> Result<Vec<RehearsalPoint>, ReadinessError> {
-    let responses = list_responses_for_scenario(pool, scenario_id)
-        .await
-        .map_err(|source| ReadinessError::Read { source })?;
-
-    let Some(response) = responses.first() else {
-        return Ok(Vec::new());
-    };
-
-    let items = list_items_for_response(pool, response.id)
-        .await
-        .map_err(|source| ReadinessError::Read { source })?;
-
-    Ok(items
-        .into_iter()
-        // The cap is a display law as well as a write law: a list that grew past
-        // it (through a direct write, or a lowered cap) must still rehearse as
-        // the few points a witness can hold.
-        .take(settings.talking_points_cap)
-        .map(|item| RehearsalPoint {
-            text: item.text,
-            // Pairing has no authoring surface yet (tracker 3.9), so this is
-            // always `None` today. Deriving a label from the record instead would
-            // put words in the witness's mouth and drag pinpoint sourcing into a
-            // payload the exclusion law keeps it out of.
-            exhibit: None,
-        })
-        .collect())
-}
-
-/// Assemble the four §10 blocks for one ready scenario.
-async fn rehearsal_scenario(
-    pool: &PgPool,
-    record: &ScenarioRecord,
-    settings: &Settings,
-) -> Result<RehearsalScenario, ReadinessError> {
-    let notes = list_human_facts_for_scenario(pool, record.scenario_id)
-        .await
-        .map_err(|source| ReadinessError::Read { source })?;
-
-    Ok(RehearsalScenario {
-        code: scenario_code(record.code_ordinal),
-        theme: record.theme_statement.clone(),
-        // The attack in plain words, read from the authored definition. Note what
-        // is NOT taken from that record: `motivation` sits right beside
-        // `theme_statement` on the same struct and is excluded by §10 — the type
-        // this maps into has no field for it.
-        attack: record
-            .definition
-            .get("attack_text")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
-        points: talking_points_of(pool, record.scenario_id, settings).await?,
-        watch_list: notes
-            .into_iter()
-            .filter(|n| n.kind == HumanFactKind::WatchList.code())
-            .map(|n| n.text)
-            .collect(),
-    })
-}
-
-/// Every READY scenario in a case, plus the standing card.
-///
-/// A drafted scenario is absent — that is the gate, and it is applied here rather
-/// than in the browser so no client can ask for one.
+/// §10 is worked scenario by scenario in short sessions, but the LIST of what is
+/// rehearsable is the case's. One read means moving between scenarios with the
+/// keyboard is instant and needs no network — which is the difference between a
+/// rehearsal surface and a data table. Task 2.11 B2 kept that property
+/// deliberately: the per-scenario address selects within this payload rather than
+/// fetching its own.
 ///
 /// # Errors
-/// Returns [`ReadinessError`] if a read fails.
+/// Returns [`ReadinessError`] if a read fails or a stored value is unusable.
 pub async fn rehearsal_payload(
     pool: &PgPool,
+    graph: &neo4rs::Graph,
     case_slug: &str,
     settings: &Settings,
 ) -> Result<RehearsalPayload, ReadinessError> {
@@ -272,15 +224,131 @@ pub async fn rehearsal_payload(
         .await
         .map_err(|source| ReadinessError::Read { source })?;
 
+    let ready: Vec<&ScenarioRecord> = records.iter().filter(|r| is_ready(r)).collect();
+
     let mut scenarios = Vec::new();
-    for record in records.iter().filter(|r| is_ready(r)) {
-        scenarios.push(rehearsal_scenario(pool, record, settings).await?);
+    for record in &ready {
+        scenarios.push(
+            assemble_scenario(pool, graph, record, settings)
+                .await
+                // The scenario is named HERE because it is the only place that
+                // knows it. A case with five ready scenarios otherwise returns one
+                // 500 whose log says the slug and the cause but not WHICH of the
+                // five failed, leaving an operator to test each one by hand.
+                .map_err(|e| assembly_to_readiness(e, record.scenario_id))?,
+        );
     }
+
+    page_chrome(scenarios, settings)
+}
+
+/// The page's own words, its positions, and which sections start open.
+///
+/// Split from [`rehearsal_payload`] for the function-size limit, and the seam is
+/// real: everything above it is a READ, and everything here is composition over
+/// what was read.
+///
+/// # Errors
+/// Returns [`ReadinessError::Unusable`] if a stored value that boot accepted has
+/// since become unreadable.
+fn page_chrome(
+    scenarios: Vec<RehearsalScenario>,
+    settings: &Settings,
+) -> Result<RehearsalPayload, ReadinessError> {
+    let w = &settings.rehearsal_wording;
+    // The positions are composed here, one per scenario. A client holding
+    // "Scenario {n} of {total}" would be composing prose out of two numbers, and
+    // the sentence would then live half in the store and half in a component.
+    let total = scenarios.len();
+    let positions = (1..=total)
+        .map(|n| {
+            render(
+                &w.position_template,
+                &[
+                    ("n", n.to_string().as_str()),
+                    ("total", total.to_string().as_str()),
+                ],
+            )
+        })
+        .collect();
+
+    // Both derived shapes were already parsed and REFUSED at boot if unusable, so
+    // a failure here would mean the snapshot changed under us mid-request. It is
+    // still handled rather than unwrapped: this page must never render a standing
+    // card with no lines in it.
+    let lines = w
+        .always_lines()
+        .map_err(|source| ReadinessError::Unusable { source })?;
+    let states = w
+        .section_states()
+        .map_err(|source| ReadinessError::Unusable { source })?;
 
     Ok(RehearsalPayload {
         scenarios,
-        standing_card: STANDING_CARD.iter().map(|s| (*s).to_string()).collect(),
+        positions,
+        always: RehearsalAlways {
+            heading: w.always_heading.clone(),
+            lines,
+        },
+        wording: page_wording(settings),
+        collapse: RehearsalCollapse {
+            accusation_open: states[0].1.is_open(),
+            timeline_open: states[1].1.is_open(),
+            points_open: states[2].1.is_open(),
+            watch_for_open: states[3].1.is_open(),
+        },
     })
+}
+
+/// Every stored string the page renders that is not already a finished sentence.
+///
+/// The six templates the server FILLS are absent by construction — there is no
+/// field for the count template or a gap template to travel in, so a browser
+/// could not recompose one if it tried. That absence IS the §10 exclusion, made
+/// structural rather than promised.
+fn page_wording(settings: &Settings) -> RehearsalWordingDto {
+    let w = &settings.rehearsal_wording;
+    RehearsalWordingDto {
+        answer_label: settings.accusation_wording.answer_label.clone(),
+        page_heading: w.page_heading.clone(),
+        purpose_line: w.purpose_line.clone(),
+        previous_label: w.previous_label.clone(),
+        next_label: w.next_label.clone(),
+        nothing_ready_notice: w.nothing_ready_notice.clone(),
+        not_ready_notice: w.not_ready_notice.clone(),
+        expand_all_label: w.expand_all_label.clone(),
+        collapse_all_label: w.collapse_all_label.clone(),
+        block_what_heading: w.block_what_heading.clone(),
+        block_accusation_heading: w.block_accusation_heading.clone(),
+        block_timeline_heading: w.block_timeline_heading.clone(),
+        block_points_heading: w.block_points_heading.clone(),
+        block_watch_heading: w.block_watch_heading.clone(),
+    }
+}
+
+/// Carry an assembly failure into this module's error, keeping the two record
+/// stores apart.
+///
+/// A Postgres failure and a Neo4j failure are different outages with different
+/// operators and different remedies. Collapsing them would produce one "failed to
+/// load" that says which service is down to nobody.
+fn assembly_to_readiness(error: AssemblyError, scenario_id: uuid::Uuid) -> ReadinessError {
+    match error {
+        AssemblyError::Read { source } => {
+            tracing::error!(error = %source, %scenario_id, "failed to read a rehearsal scenario");
+            ReadinessError::Read { source }
+        }
+        other => {
+            tracing::error!(
+                error = %other,
+                %scenario_id,
+                "failed to assemble a rehearsal scenario"
+            );
+            ReadinessError::Assembly {
+                detail: other.to_string(),
+            }
+        }
+    }
 }
 
 #[cfg(test)]

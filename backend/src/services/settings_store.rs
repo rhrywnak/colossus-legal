@@ -50,8 +50,10 @@ use crate::domain::settings::{
     parse_count, parse_float, parse_ratio, parse_text, Bounds, Ratio, SettingError, Settings,
     ValueKind,
 };
-use crate::domain::wording::{build_wording, validate_wording_candidate, WORDING_KEYS};
-use crate::domain::wording_accusation::{build_accusation_wording, ACCUSATION_WORDING_KEYS};
+use crate::domain::wording::{build_wording, Wording};
+use crate::domain::wording_accusation::{build_accusation_wording, AccusationWording};
+use crate::domain::wording_rehearsal::{build_rehearsal_wording, RehearsalWording};
+use crate::domain::wording_templates::validate_wording_candidate;
 use crate::repositories::pipeline_repository::{
     get_setting, insert_setting_change, list_settings, update_setting_value, AppSettingRecord,
     PipelineRepoError,
@@ -71,6 +73,7 @@ const KEY_READINESS_N: &str = "readiness_item_threshold_n";
 const KEY_CARD_TEST_RATIO: &str = "card_test_ratio";
 const KEY_REANCHOR_TOLERANCE: &str = "reanchor_close_match_tolerance";
 const KEY_LINK_SHORT_LIST_MAX: &str = "link_short_list_max";
+const KEY_TIMELINE_MIN_DATES: &str = "rehearsal_timeline_min_distinct_dates";
 
 /// Every NUMERIC key this build reads, so a missing one is caught at boot by name.
 ///
@@ -91,6 +94,7 @@ pub const REQUIRED_KEYS: &[&str] = &[
     KEY_CARD_TEST_RATIO,
     KEY_REANCHOR_TOLERANCE,
     KEY_LINK_SHORT_LIST_MAX,
+    KEY_TIMELINE_MIN_DATES,
 ];
 
 /// Why the store could not be read or written.
@@ -253,17 +257,7 @@ pub fn build_settings(rows: &HashMap<String, AppSettingRecord>) -> Result<Settin
         });
     }
 
-    // The twenty stored strings, read by the same rules as the numbers: the row
-    // must exist, declare `text`, and carry something non-blank. `build_wording`
-    // knows the KEYS and the shape; this closure is the only thing that knows
-    // where a value comes from and what a refusal looks like (task 2.10).
-    let wording = build_wording(|key| text_of(require(rows, key)?))?;
-
-    // Task 2.11's twenty-five, read by the same closure and therefore by exactly
-    // the same rules. A separate call rather than a wider `build_wording` because
-    // the two blocks belong to different surfaces and live in different modules —
-    // see `domain::wording_accusation`'s header.
-    let accusation_wording = build_accusation_wording(|key| text_of(require(rows, key)?))?;
+    let (wording, accusation_wording, rehearsal_wording) = build_all_wording(rows)?;
 
     Ok(Settings {
         confidence_band_high,
@@ -276,93 +270,50 @@ pub fn build_settings(rows: &HashMap<String, AppSettingRecord>) -> Result<Settin
         link_short_list_max: count_of(require(rows, KEY_LINK_SHORT_LIST_MAX)?)?,
         wording,
         accusation_wording,
+        rehearsal_wording,
+        rehearsal_timeline_min_distinct_dates: count_of(require(rows, KEY_TIMELINE_MIN_DATES)?)?,
     })
 }
 
+/// The three stored-string blocks, read by one rule.
+///
+/// Split from [`build_settings`] because the seam is real and not just a line
+/// count: that function decides the NUMBERS this system judges by, and this one
+/// reads the WORDS it speaks. Each block lives in its own `domain` module (Rule
+/// 17 — none of them fits in one), and all three are read by the same closure, so
+/// a row must exist, declare `text`, and carry something non-blank whichever
+/// surface it belongs to.
+///
+/// ## Why the rehearsal block's derived shapes are parsed HERE
+///
+/// `always_lines` and `section_states` turn stored text into a list and four
+/// enums. Doing it at boot means a blank standing card or an unreadable state
+/// token stops the service with a named refusal; doing it at render would
+/// surprise a witness mid-rehearsal, on the one block §10 says is never scrolled
+/// away from.
+///
+/// # Errors
+/// Returns [`SettingError`] naming the first key that is missing, of the wrong
+/// declared kind, blank, or — for the two derived shapes — unreadable.
+#[allow(clippy::type_complexity)]
+fn build_all_wording(
+    rows: &HashMap<String, AppSettingRecord>,
+) -> Result<(Wording, AccusationWording, RehearsalWording), SettingError> {
+    let wording = build_wording(|key| text_of(require(rows, key)?))?;
+    let accusation_wording = build_accusation_wording(|key| text_of(require(rows, key)?))?;
+    let rehearsal_wording = build_rehearsal_wording(|key| text_of(require(rows, key)?))?;
+
+    rehearsal_wording.always_lines()?;
+    rehearsal_wording.section_states()?;
+
+    Ok((wording, accusation_wording, rehearsal_wording))
+}
+
 /// Index rows by key.
-fn by_key(rows: Vec<AppSettingRecord>) -> HashMap<String, AppSettingRecord> {
+pub(crate) fn by_key(rows: Vec<AppSettingRecord>) -> HashMap<String, AppSettingRecord> {
     rows.into_iter().map(|r| (r.key.clone(), r)).collect()
 }
 
-/// Read the whole store and build the snapshot.
-///
-/// Called at boot and again after every write. Reads all rows in one query rather
-/// than seven, so the snapshot is internally consistent — a per-key read could
-/// interleave with a concurrent write and produce a snapshot that never existed.
-///
-/// # Errors
-/// Returns [`SettingsError`] if the read fails or any parameter is unusable.
-pub async fn load_settings(pool: &PgPool) -> Result<Settings, SettingsError> {
-    let rows = list_settings(pool)
-        .await
-        .map_err(|source| SettingsError::Read { source })?;
-
-    // What the store ACTUALLY held, before anything is parsed. The
-    // "configuration store loaded" line below reports `REQUIRED_KEYS.len()`,
-    // which is a compiled-in constant — it says what this build needs, not what
-    // it found, so it can never confirm that the seed ran. This line can: a boot
-    // log showing `rows=0 required=7` names a store that was never seeded, and a
-    // count that drifts above `required` is a parameter seeded ahead of its code
-    // (which is legal, and worth seeing).
-    tracing::info!(
-        rows = rows.len(),
-        required = REQUIRED_KEYS.len(),
-        wording = WORDING_KEYS.len(),
-        // Counted apart from `wording` (task 2.11) so a half-run seed names which
-        // half is missing: `rows=56 wording=48 accusation=25` says the accusation
-        // migration has not been applied, which one summed number could not.
-        accusation_wording = ACCUSATION_WORDING_KEYS.len(),
-        "configuration store read"
-    );
-
-    Ok(build_settings(&by_key(rows))?)
-}
-
-/// Load the snapshot at boot, or refuse to start.
-///
-/// ## Why this is a hard failure and not a warning
-///
-/// v2 §16's boot-precondition discipline, applied to configuration: serving with
-/// a parameter this build cannot read would mean serving cards banded by a number
-/// nobody chose. After task 1.6 there is no compiled-in default to fall back to —
-/// by design — so there is nothing to serve WITH. Refusing names the key in the
-/// log and stops; starting would hide it.
-///
-/// # Errors
-/// Returns [`SettingsError`] with a message naming the offending parameter.
-pub async fn load_at_boot(pool: &PgPool) -> Result<Settings, SettingsError> {
-    match load_settings(pool).await {
-        Ok(settings) => {
-            tracing::info!(
-                parameters = REQUIRED_KEYS.len(),
-                wording_strings = WORDING_KEYS.len(),
-                accusation_strings = ACCUSATION_WORDING_KEYS.len(),
-                talking_points_cap = settings.talking_points_cap,
-                confidence_band_high = settings.confidence_band_high,
-                link_short_list_max = settings.link_short_list_max,
-                "startup: configuration store loaded"
-            );
-            Ok(settings)
-        }
-        Err(error) => {
-            tracing::error!(
-                error = %error,
-                "startup: REFUSING to serve — the configuration store is unusable. \
-                 Every parameter must be present and valid in app_settings; there \
-                 are no compiled-in defaults to fall back to (v2 §2b)."
-            );
-            Err(error)
-        }
-    }
-}
-
-/// Write the new value and its ledger entry, in ONE transaction.
-///
-/// Split out of [`set_setting`] so that function stays a readable sequence of
-/// decisions (look up, refuse a no-op, validate, write, swap) and this one is the
-/// single place the atomicity rule lives.
-///
-/// # Errors
 /// Returns [`SettingsError`] if the parameter vanished mid-change or a write fails.
 async fn commit_change(
     pool: &PgPool,
@@ -401,57 +352,6 @@ async fn commit_change(
         .map_err(|e| SettingsError::Write { source: e.into() })
 }
 
-/// Load the snapshot at boot, or END THE PROCESS.
-///
-/// Wraps [`load_at_boot`] with the operator instruction and the exit, so `main`
-/// carries one call rather than twenty lines of failure handling — and so the
-/// refusal's wording lives beside the law it enforces.
-///
-/// ## Why this exits rather than returning an error to `main`
-///
-/// There is no degraded mode to return to. Serving with a parameter this build
-/// cannot read means banding cards by a number nobody chose, and after task 1.6
-/// there is no compiled-in default to substitute (v2 §2b). The only honest
-/// options are "start correctly" and "do not start".
-pub async fn load_at_boot_or_exit(pool: &PgPool) -> SettingsHandle {
-    match load_at_boot(pool).await {
-        Ok(settings) => SettingsHandle::new(settings),
-        Err(error) => {
-            // `load_at_boot` already logged the offending parameter; this is the
-            // operator's instruction for what to do about it, on stderr where a
-            // failed container start will show it.
-            eprintln!(
-                "FATAL: the configuration store is unusable — {error}\n\
-                 Fix the row in app_settings (colossus_legal_v2) and restart. \
-                 Every parameter must be present and valid; there are no \
-                 compiled-in defaults (v2 §2b)."
-            );
-            std::process::exit(1);
-        }
-    }
-}
-
-/// Change one parameter's value and return the fresh snapshot.
-///
-/// The row update and its ledger entry commit in ONE transaction; the snapshot is
-/// rebuilt from the store afterwards, so the value the caller is told about is the
-/// value that is now stored — not the value they asked for.
-///
-/// ## Why the new value is validated BEFORE the write, in TWO steps
-///
-/// Writing first and validating at reload would leave the store holding a value
-/// that makes the next boot refuse to start. So nothing is written until both
-/// checks pass:
-///
-/// 1. [`validate_candidate`] — the row's own declared kind and bounds, so a
-///    refusal names the parameter and the limit it crossed.
-/// 2. [`trial_snapshot`] — the WHOLE store rebuilt with the candidate in place,
-///    which is the only way to catch a rule that spans two rows (high vs. medium
-///    band). Step 1 alone accepted a crossed pair, because each half is valid on
-///    its own.
-///
-/// # Errors
-/// Returns [`SettingsError`] if the key is unknown, the value is invalid, the
 /// change is a no-op, or a write fails.
 pub async fn set_setting(
     pool: &PgPool,
@@ -492,31 +392,49 @@ pub async fn set_setting(
         "configuration changed"
     );
 
-    // Re-read the WHOLE store, not just this row: the snapshot must stay
-    // internally consistent, and this is also where a change that broke a
-    // cross-row invariant would surface — before anything serves with it.
-    //
-    // THE FRESHNESS LAW, in two lines: the swap happens here, before the response
-    // is sent, so the next read of `AppState` already sees the new value.
-    //
-    // A failure HERE is not the same as a failure before the write, and must not
-    // report as one — the value is already stored. `SavedButStale` carries that
-    // distinction to the operator (see the variant's doc for why it earns its own
-    // branch).
-    let fresh = load_settings(pool).await.map_err(|source| {
-        tracing::error!(
-            %key,
-            %new_value,
-            error = %source,
-            "the change WAS committed but the snapshot could not be refreshed; \
-             the process is still serving the previous value until it restarts"
-        );
-        SettingsError::SavedButStale {
-            key: key.to_string(),
-            value: new_value.to_string(),
-            source: Box::new(source),
-        }
-    })?;
+    swap_snapshot(pool, handle, key, new_value).await
+}
+
+/// Re-read the whole store and swap the running snapshot.
+///
+/// Split from [`set_setting`] for the function-size limit; the seam is the write
+/// boundary — everything before it decides and records, this makes the change
+/// LIVE.
+///
+/// Re-reads the WHOLE store, not just this row: the snapshot must stay internally
+/// consistent, and this is also where a change that broke a cross-row invariant
+/// surfaces — before anything serves with it.
+///
+/// THE FRESHNESS LAW, in one function: the swap happens before the response is
+/// sent, so the next read of `AppState` already sees the new value.
+///
+/// # Errors
+/// Returns [`SettingsError::SavedButStale`] — and NOT a plain read error —
+/// because the value is already committed by the time this runs. The two are
+/// opposite states with opposite remedies: retry, versus restart. See the
+/// variant's doc for why it earns its own branch.
+async fn swap_snapshot(
+    pool: &PgPool,
+    handle: &SettingsHandle,
+    key: &str,
+    new_value: &str,
+) -> Result<Arc<Settings>, SettingsError> {
+    let fresh = crate::services::settings_boot::load_settings(pool)
+        .await
+        .map_err(|source| {
+            tracing::error!(
+                %key,
+                %new_value,
+                error = %source,
+                "the change WAS committed but the snapshot could not be refreshed; \
+                 the process is still serving the previous value until it restarts"
+            );
+            SettingsError::SavedButStale {
+                key: key.to_string(),
+                value: new_value.to_string(),
+                source: Box::new(source),
+            }
+        })?;
 
     let fresh = Arc::new(fresh);
     handle.replace(Arc::clone(&fresh));

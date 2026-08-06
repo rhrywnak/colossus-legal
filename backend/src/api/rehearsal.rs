@@ -164,7 +164,7 @@ pub async fn get_rehearsal(
     // One snapshot for the whole payload — the cap that trims each scenario's
     // points comes from the store (v2 §2b).
     let settings = state.settings.current();
-    let payload = rehearsal_payload(&state.pipeline_pool, &slug, &settings)
+    let payload = rehearsal_payload(&state.pipeline_pool, &state.graph, &slug, &settings)
         .await
         .map_err(readiness_error_to_app_error)?;
 
@@ -203,6 +203,16 @@ fn readiness_error_to_app_error(error: ReadinessError) -> AppError {
             tracing::error!(error = %error, "failed to record a readiness change");
             AppError::Internal {
                 message: "failed to save".to_string(),
+            }
+        }
+        // Both stay opaque to the client and loud in the log: neither is about
+        // anything the reader did, and a rehearsal page that half-rendered would
+        // be worse than one that said it could not load. `Assembly` names which
+        // store failed in the log line the service already wrote.
+        ReadinessError::Assembly { .. } | ReadinessError::Unusable { .. } => {
+            tracing::error!(error = %error, "failed to build the rehearsal view");
+            AppError::Internal {
+                message: "failed to load".to_string(),
             }
         }
     }

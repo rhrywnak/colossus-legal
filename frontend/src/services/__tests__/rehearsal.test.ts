@@ -38,57 +38,121 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+/** A minimal but complete payload, matching the backend DTO. */
+function payload(overrides: Record<string, unknown> = {}) {
+  return {
+    scenarios: [],
+    positions: [],
+    always: { heading: "Always", lines: ["Tell the truth."] },
+    collapse: {
+      accusation_open: true,
+      timeline_open: false,
+      points_open: true,
+      watch_for_open: true,
+    },
+    wording: {
+      answer_label: "Our answer:",
+      page_heading: "Rehearsal",
+      purpose_line: "Your testimony-prep view.",
+      previous_label: "Back",
+      next_label: "Next",
+      nothing_ready_notice: "Nothing is ready to rehearse yet.",
+      not_ready_notice: "{code} is not ready to rehearse yet.",
+      expand_all_label: "Open everything",
+      collapse_all_label: "Fold everything",
+      block_what_heading: "What this is",
+      block_accusation_heading: "The accusation",
+      block_timeline_heading: "The timeline",
+      block_points_heading: "Your points",
+      block_watch_heading: "Watch for",
+    },
+    ...overrides,
+  };
+}
+
 describe("fetchRehearsal", () => {
-  it("asks the case-level endpoint and sends no status filter", () => {
+  it("asks the case-level endpoint and sends no status filter", async () => {
     // The gate is the SERVER's. A client that could ask for drafted scenarios is
-    // a client that could put one in front of a witness.
-    mockFetch.mockResolvedValue(ok({ scenarios: [], standing_card: [] }));
+    // a client that could put one in front of a witness — so there is no
+    // parameter to ask with, and this asserts there never quietly becomes one.
+    mockFetch.mockResolvedValue(ok(payload()));
 
-    void fetchRehearsal("awad-v-cfs");
+    await fetchRehearsal("awad_v_catholic_family_service");
 
-    const url = String(mockFetch.mock.calls[0]?.[0]);
-    expect(url).toContain("/cases/awad-v-cfs/rehearsal");
+    const [url] = mockFetch.mock.calls[0];
+    expect(url).toContain("/api/cases/awad_v_catholic_family_service/rehearsal");
     expect(url).not.toContain("status");
+    expect(url).not.toContain("ready");
   });
 
-  it("encodes a slug that would otherwise change the path", async () => {
-    mockFetch.mockResolvedValue(ok({ scenarios: [], standing_card: [] }));
-
+  it("percent-encodes the slug", async () => {
+    mockFetch.mockResolvedValue(ok(payload()));
     await fetchRehearsal("a/b");
-
-    expect(String(mockFetch.mock.calls[0]?.[0])).toContain("a%2Fb");
+    expect(String(mockFetch.mock.calls[0][0])).toContain("a%2Fb");
   });
 
-  it("returns an empty list as a real state, not an error", async () => {
-    // Nobody has declared a scenario ready yet. That is a legitimate reading of
-    // the case, and the page says so in words.
-    mockFetch.mockResolvedValue(ok({ scenarios: [], standing_card: ["Tell the truth."] }));
-
-    const payload = await fetchRehearsal("awad-v-cfs");
-
-    expect(payload.scenarios).toEqual([]);
-    expect(payload.standing_card).toHaveLength(1);
+  it("names no path the gateway already adds", async () => {
+    // The .377 failure class:  is reachable by nothing, and on screen
+    // it is indistinguishable from a feature nobody built.
+    mockFetch.mockResolvedValue(ok(payload()));
+    await fetchRehearsal("awad_v_catholic_family_service");
+    expect(String(mockFetch.mock.calls[0][0])).not.toContain("/api/api/");
   });
 
-  it("throws with the backend message on a failure", async () => {
-    mockFetch.mockResolvedValue(failure(500, "failed to load"));
-
-    await expect(fetchRehearsal("awad-v-cfs")).rejects.toThrow(/500/);
+  it("throws with the case and status on a non-OK response", async () => {
+    mockFetch.mockResolvedValue(failure(500, "boom"));
+    await expect(fetchRehearsal("awad")).rejects.toThrow(/rehearsal mode for "awad".*HTTP 500/);
   });
 
-  it("throws when the payload is missing its scenarios", async () => {
-    // A contract mismatch must fail HERE with context, not as an
-    // `undefined.map` in the middle of a rehearsal.
-    mockFetch.mockResolvedValue(ok({ standing_card: [] }));
+  it("returns the payload whole, including the standing card", async () => {
+    mockFetch.mockResolvedValue(
+      ok(payload({ always: { heading: "Always", lines: ["Tell the truth.", "Don't guess."] } })),
+    );
 
-    await expect(fetchRehearsal("awad-v-cfs")).rejects.toThrow(/contract/);
+    const loaded = await fetchRehearsal("awad");
+    expect(loaded.always.lines).toHaveLength(2);
+    expect(loaded.always.heading).toBe("Always");
   });
 
-  it("throws when the standing card is missing", async () => {
-    // §10 makes the card always-shown. A payload without it is not a rehearsal.
-    mockFetch.mockResolvedValue(ok({ scenarios: [] }));
+  it("accepts an empty rehearsal as a valid, distinct answer", async () => {
+    // Nobody has declared a scenario ready. A real state with its own stored
+    // sentence — it must NOT throw, or the page would report a failure for a
+    // case that is simply not started.
+    mockFetch.mockResolvedValue(ok(payload()));
+    await expect(fetchRehearsal("awad")).resolves.toMatchObject({ scenarios: [] });
+  });
 
-    await expect(fetchRehearsal("awad-v-cfs")).rejects.toThrow(/standing card/);
+  it("throws when the wording block is missing rather than rendering blank headings", async () => {
+    // R4: there is no literal to fall back to. A page with no words is a column
+    // of unlabelled sections, which is worse than a stated failure.
+    const { wording: _dropped, ...rest } = payload();
+    mockFetch.mockResolvedValue(ok(rest));
+
+    await expect(fetchRehearsal("awad")).rejects.toThrow(
+      /missing scenarios\/positions\/always\/wording\/collapse/,
+    );
+  });
+
+  it("throws when the standing card is missing rather than dropping it silently", async () => {
+    // §10 makes the Always card the one block never scrolled away from. Losing it
+    // quietly is the failure this guard exists for.
+    const { always: _dropped, ...rest } = payload();
+    mockFetch.mockResolvedValue(ok(rest));
+
+    await expect(fetchRehearsal("awad")).rejects.toThrow(/backend\/frontend contract mismatch/);
+  });
+
+  it("throws when the standing card has no lines array", async () => {
+    // A heading with nothing under it renders a bordered box and a title — which
+    // looks deliberate, and is the worst way for this block to fail.
+    mockFetch.mockResolvedValue(ok(payload({ always: { heading: "Always" } })));
+    await expect(fetchRehearsal("awad")).rejects.toThrow(/contract mismatch/);
+  });
+
+  it("throws when the positions are missing rather than blanking the position line", async () => {
+    const { positions: _dropped, ...rest } = payload();
+    mockFetch.mockResolvedValue(ok(rest));
+    await expect(fetchRehearsal("awad")).rejects.toThrow(/contract mismatch/);
   });
 });
 

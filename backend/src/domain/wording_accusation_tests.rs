@@ -12,7 +12,7 @@
 
 use super::*;
 use crate::domain::wording::tests::seeded_value_in;
-use crate::domain::wording::{missing_placeholders, REQUIRED_PLACEHOLDERS};
+use crate::domain::wording_templates::{missing_placeholders, REQUIRED_PLACEHOLDERS};
 
 /// The migration that seeds all twenty-seven rows.
 ///

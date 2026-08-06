@@ -56,15 +56,22 @@ export function stepTo(current: number, total: number, step: RehearsalStep): num
 }
 
 /**
- * "Scenario 2 of 5" — the position line.
+ * Where in the list a step lands, clamped into range.
  *
- * Composed here rather than inline so it stays one sentence in one place, and so
- * the 1-based count (what a human says) can never drift from the 0-based index
- * (what the array uses). Off-by-one in a position label is the kind of thing
- * nobody notices until it is on a screen in a courtroom.
+ * ## Why the position SENTENCE is no longer composed here (task 2.11 B2)
+ *
+ * `positionLabel` used to build "Scenario 2 of 5" from two numbers. That was
+ * prose composed in a component, and the rehearsal page's language is a settings
+ * row now — Roman edits it without a build. The backend fills the template once
+ * per scenario and ships the finished sentences as `payload.positions`, so this
+ * module keeps the ARITHMETIC (which is not language) and has given up the words.
+ *
+ * The off-by-one this file used to guard against is guarded on the other side:
+ * the positions are generated `1..=total`, so a 0-based index can only ever be
+ * used to look one up, never to build one.
  */
-export function positionLabel(index: number, total: number): string {
-  if (total <= 0) return "No scenarios are ready to rehearse";
-  const safe = Math.min(Math.max(index, 0), total - 1);
-  return `Scenario ${safe + 1} of ${total}`;
+export function positionAt(index: number, positions: string[]): string | null {
+  if (positions.length === 0) return null;
+  const safe = Math.min(Math.max(index, 0), positions.length - 1);
+  return positions[safe] ?? null;
 }

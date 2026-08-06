@@ -1,43 +1,45 @@
 // =============================================================================
-// RehearsalPage — where Marie rehearses (task 1.5, v2 §10)
+// RehearsalPage — where Marie rehearses (task 2.11 B2, v2 §10)
 // =============================================================================
 //
-// One READY scenario per screen: our theme, their attack, her talking points,
-// and the watch-list — plus the standing card, always visible.
+// One READY scenario per screen: what it is, the accusation and every time they
+// made it, our answer under each one, the timeline, her points, what to watch for
+// — plus the standing card, always visible and never collapsible.
 //
 // ## Why the type is bigger here than anywhere else in the app
 //
 // This is a rehearsal surface, not a data table. It is read aloud, from a
 // distance, under stress, by someone who is not looking for a row. §2c's visual
-// language still applies (one accent, hairline rules, generous whitespace); the
-// scale is the one place this page departs from the rest of the app, and it does
-// so deliberately.
+// language still applies; the scale is the one deliberate departure.
 //
-// ## What is NOT on this page, and why that is not an omission
+// ## Every word on this page is a settings row
 //
-// No motivation or strategy, no confidence, no verdicts, no page citations, no
-// internal vocabulary (v2 §10). Those exclusions are enforced by the PAYLOAD —
-// the backend DTO has no fields for them — so this page cannot show them even by
-// mistake. Marie's general access is unchanged: the full working view is still
-// hers. The mode is slim; her rights are not.
+// Task 2.11 B2 moved eighteen literals off this file — the purpose line, all four
+// block labels, the position sentence, both empty states, and the standing card
+// itself. Roman edits this page's language without a build.
 //
-// ## Phase 2 is absent, not faked
+// Three strings remain in code and are marked as such below: the loading line,
+// the load-failure line, and Retry. They describe the state where NO PAYLOAD
+// EXISTS, so they cannot be served by the payload they are reporting the failure
+// of. Recorded as an exception rather than quietly excused.
 //
-// Verdicts and the computed hazard/ammunition list ship later. Nothing here
-// pretends they exist.
+// ## The per-scenario address
+//
+// `/cases/:slug/rehearsal/:code` selects within the payload this page already
+// loaded. A code that is not in it — because nobody declared that scenario ready
+// — gets the stored not-ready sentence. NOT a 404: the address is right and the
+// scenario simply is not ready. NOT a leak: the payload never contained it, so
+// this page can say nothing about it beyond the code the reader typed.
 
-import React, { useCallback, useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 
 import Breadcrumb from "../components/Breadcrumb";
 import RehearsalScenarioBlocks from "../components/RehearsalScenarioBlocks";
-import {
-  fetchRehearsal,
-  type RehearsalPayload,
-  type RehearsalScenario,
-} from "../services/rehearsal";
-import { getTrialPrepDashboard } from "../services/trialPrep";
-import { positionLabel, stepForKey, stepTo } from "./rehearsalNav";
+import { ghostButtonStyle } from "../components/scenarioSectionStyles";
+import { fetchRehearsal, type RehearsalPayload } from "../services/rehearsal";
+import { fillCode, openSectionsFrom, type OpenSections } from "./rehearsalSections";
+import { positionAt, stepForKey, stepTo } from "./rehearsalNav";
 
 const pageStyle: React.CSSProperties = {
   padding: "28px 40px 80px",
@@ -47,76 +49,21 @@ const pageStyle: React.CSSProperties = {
   lineHeight: 1.7,
 };
 
-/**
- * The purpose line (task 1.7D, item 9b).
- *
- * Roman's 2026-08-03 session: he opened this view and could not tell what it was
- * FOR. A rehearsal surface with no self-description reads as a stripped-down
- * scenario page — the exclusions (§10) look like missing data rather than a
- * deliberate slim.
- *
- * One sentence, naming what is here AND the rule that decides what appears. The
- * second half matters as much as the first: an empty view is otherwise
- * indistinguishable from a broken one.
- */
-// CONST: user-facing copy, ordered verbatim in the instruction.
-const PURPOSE =
-  "Marie's testimony-prep view — the theme, the attack, her talking points, and " +
-  "what the other side will wave around. Only scenarios marked Ready appear here.";
-
-const blockLabelStyle: React.CSSProperties = {
-  fontSize: "0.8rem",
-  letterSpacing: "0.06em",
-  textTransform: "uppercase",
-  color: "var(--text-muted)",
-  marginBottom: "0.35rem",
-};
-
-const blockStyle: React.CSSProperties = {
-  borderTop: "1px solid var(--border-default)",
-  paddingTop: "1rem",
-  marginTop: "1.5rem",
-};
-
-const bodyStyle: React.CSSProperties = { fontSize: "1.35rem" };
+// CONST: the three strings that describe the absence of a payload, and therefore
+// cannot come from one. Every other word on this page is a settings row.
+const LOADING = "Loading rehearsal mode…";
+const LOAD_FAILED = "Rehearsal mode did not load.";
+const RETRY = "Try again";
 
 const RehearsalPage: React.FC = () => {
-  const { slug } = useParams<{ slug: string }>();
+  const { slug, code } = useParams<{ slug: string; code?: string }>();
+  const navigate = useNavigate();
 
   const [payload, setPayload] = useState<RehearsalPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [index, setIndex] = useState(0);
-
-  /**
-   * `code` → `scenarioId`, so each screen can link back to the scenario it shows
-   * (item 9a).
-   *
-   * ## Why a second read and not a payload field
-   *
-   * The rehearsal DTO carries `code` ("S-2") but no id, and the back link needs
-   * `/cases/:slug/trial-prep/:scenarioId`. Adding the id to the DTO would have been
-   * one line — and a backend diff, which this task's authorization put at ZERO. The
-   * Trial Prep dashboard already serves `id` and `code` together, so the map is
-   * resolvable entirely on this side for the cost of one cached-ish GET.
-   *
-   * It degrades to nothing rather than to something wrong: if this read fails the
-   * per-screen deep link is OMITTED and the Trial Prep crumb (also required by 9a)
-   * still gets Marie out. A link labelled "Back to S-2" that did not go to S-2
-   * would be worse than no link.
-   */
-  const [idByCode, setIdByCode] = useState<Record<string, string>>({});
-  /**
-   * Set when the code→id read failed, so the missing back links are SAID.
-   *
-   * Standing Rule 1 has no best-effort carve-out for a network read — the
-   * localStorage exemption covers cosmetic browser-storage preferences and
-   * explicitly not `fetch`/`authFetch`. A `console.warn` alone left the links
-   * quietly absent, which is indistinguishable from "this build has no back
-   * links". The notice is muted and non-blocking because the failure costs a
-   * convenience, not the view: the breadcrumb below is unconditional.
-   */
-  const [backLinksUnavailable, setBackLinksUnavailable] = useState(false);
+  const [open, setOpen] = useState<OpenSections | null>(null);
 
   const load = useCallback(async () => {
     if (!slug) return;
@@ -124,36 +71,16 @@ const RehearsalPage: React.FC = () => {
     try {
       const loaded = await fetchRehearsal(slug);
       setPayload(loaded);
-
-      // Best-effort, and deliberately NOT awaited into the gating path: the
-      // rehearsal view must open even if the dashboard read fails, because its job
-      // is to be read aloud and a missing back link does not stop that.
-      getTrialPrepDashboard(slug)
-        .then((dashboard) => {
-          setIdByCode(
-            Object.fromEntries(dashboard.scenarios.map((row) => [row.code, row.id])),
-          );
-          setBackLinksUnavailable(false);
-        })
-        .catch((e: unknown) => {
-          // The deep links are omitted rather than rendered wrong — but the absence
-          // is SAID, not swallowed (Standing Rule 1). Muted and inline rather than a
-          // banner: the view still works and the breadcrumb still gets Marie out, so
-          // an alarm would overstate a lost convenience.
-          setBackLinksUnavailable(true);
-          console.warn(
-            "could not resolve scenario ids for the rehearsal back links; the " +
-              "breadcrumb remains the way back",
-            e,
-          );
-        });
+      // The default states are the SERVER's, parsed from the store at boot where a
+      // typo is a named refusal. This page receives the decided answer.
+      setOpen(openSectionsFrom(loaded.collapse));
       // Clamp rather than reset: a reload after one scenario was demoted should
       // keep Marie roughly where she was, not send her back to the start.
       setIndex((current) => stepTo(current, loaded.scenarios.length, null));
       setError(null);
     } catch (e: unknown) {
       // Explicit error UI, never a swallowed rejection (Standing Rule 1).
-      setError(e instanceof Error ? e.message : "Rehearsal mode did not load.");
+      setError(e instanceof Error ? e.message : LOAD_FAILED);
     } finally {
       setLoading(false);
     }
@@ -165,70 +92,111 @@ const RehearsalPage: React.FC = () => {
 
   const total = payload?.scenarios.length ?? 0;
 
+  /** Where the address points, when it names a scenario. */
+  const addressed = useMemo(
+    () => payload?.scenarios.findIndex((s) => s.code === code) ?? -1,
+    [payload, code],
+  );
+
+  // An address that names a READY scenario moves the reader to it. One that names
+  // a scenario nobody declared ready falls through to the notice below — the page
+  // never navigates somewhere it cannot show.
+  useEffect(() => {
+    if (addressed >= 0) setIndex(addressed);
+  }, [addressed]);
+
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       const step = stepForKey(event.key);
       if (step === null) return;
       // Space would otherwise scroll the page out from under the reader.
       event.preventDefault();
-      setIndex((current) => stepTo(current, total, step));
+      setIndex((current) => {
+        const next = stepTo(current, total, step);
+        // The address follows the reader, so a scenario can be linked to and
+        // returned to. `replace` rather than push: a rehearsal is worked through
+        // in one pass, and filling the back button with every step would make the
+        // browser's Back mean "one scenario ago" instead of "out of here".
+        const moved = payload?.scenarios[next];
+        if (moved && slug) {
+          navigate(`/cases/${slug}/rehearsal/${moved.code}`, { replace: true });
+        }
+        return next;
+      });
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [total]);
+  }, [total, payload, slug, navigate]);
 
-  if (loading) return <div style={pageStyle} data-surface="v3">Loading rehearsal mode…</div>;
+  const toggle = (section: keyof OpenSections) =>
+    setOpen((current) => (current ? { ...current, [section]: !current[section] } : current));
 
-  if (error) {
+  const setAll = (value: boolean) =>
+    setOpen({ accusation: value, timeline: value, points: value, watchFor: value });
+
+  if (loading) {
+    return (
+      <div style={pageStyle} data-surface="v3">
+        {LOADING}
+      </div>
+    );
+  }
+
+  if (error || !payload || !open) {
     return (
       <div style={pageStyle} data-surface="v3">
         <div role="alert" style={{ color: "var(--state-danger-strong)" }}>
-          {error}
+          {error ?? LOAD_FAILED}
         </div>
-        <button type="button" onClick={() => void load()} style={{ marginTop: "1rem" }}>
-          Retry
+        <button
+          type="button"
+          onClick={() => void load()}
+          style={{ ...ghostButtonStyle, marginTop: "1rem" }}
+        >
+          {RETRY}
         </button>
       </div>
     );
   }
 
-  if (!payload) return <div style={pageStyle} data-surface="v3">Rehearsal mode is unavailable.</div>;
-
+  const w = payload.wording;
   const scenario = payload.scenarios[index];
+  // The address named something this page is not showing. It exists or it does
+  // not; either way it is not ready, and that is all this page may say about it.
+  const notReady = code !== undefined && addressed < 0;
 
   return (
     <div style={pageStyle} data-surface="v3">
-      {/* Item 9a: the browser back button must never be the only way out. */}
+      {/* The browser's Back button must never be the only way out. */}
       <Breadcrumb
         items={[
           { label: "Dashboard", to: "/" },
           { label: "Trial Prep", to: `/cases/${slug}/trial-prep` },
-          { label: "Rehearsal" },
+          { label: w.page_heading },
         ]}
       />
 
-      <div style={{ display: "flex", alignItems: "baseline", gap: "1rem" }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: "1rem", flexWrap: "wrap" }}>
         <h1 style={{ fontSize: "1.1rem", color: "var(--text-muted)", fontWeight: 500 }}>
-          Rehearsal
+          {w.page_heading}
         </h1>
-        <span style={{ color: "var(--text-muted)" }}>{positionLabel(index, total)}</span>
+        <span style={{ color: "var(--text-muted)" }}>
+          {positionAt(index, payload.positions)}
+        </span>
+        {/* Expand all / Collapse all — the accordion rules require both, because a
+            reader who wants the whole page should not click six carets. */}
+        {scenario && (
+          <span style={{ display: "flex", gap: "0.5rem", marginLeft: "auto" }}>
+            <button type="button" onClick={() => setAll(true)} style={ghostButtonStyle}>
+              {w.expand_all_label}
+            </button>
+            <button type="button" onClick={() => setAll(false)} style={ghostButtonStyle}>
+              {w.collapse_all_label}
+            </button>
+          </span>
+        )}
       </div>
 
-      {backLinksUnavailable && (
-        <p
-          role="status"
-          style={{
-            fontSize: "0.8rem",
-            color: "var(--text-muted)",
-            margin: "0.35rem 0 0",
-          }}
-        >
-          Links back to individual scenarios are unavailable right now — use Trial
-          Prep above.
-        </p>
-      )}
-
-      {/* Item 9b: one line saying what this view is and what decides its contents. */}
       <p
         style={{
           fontSize: "0.95rem",
@@ -238,26 +206,30 @@ const RehearsalPage: React.FC = () => {
           maxWidth: "44rem",
         }}
       >
-        {PURPOSE}
+        {w.purpose_line}
       </p>
+
+      {notReady && (
+        <p role="status" style={{ fontSize: "1.1rem", marginTop: "1.5rem" }}>
+          {fillCode(w.not_ready_notice, code)}
+        </p>
+      )}
 
       {/* An empty rehearsal is a REAL state, not a failure: nobody has declared a
           scenario ready yet. It says so, and says what to do about it. */}
       {!scenario ? (
-        <p style={{ ...bodyStyle, marginTop: "2rem" }}>
-          Nothing is ready to rehearse yet. A scenario appears here once someone
-          switches it to Ready on its page —{" "}
-          <Link to={`/cases/${slug}/trial-prep`} style={{ color: "var(--accent-primary)" }}>
-            open Trial Prep
-          </Link>{" "}
-          to pick one.
-        </p>
+        /* The stored sentence already says what to do ("a scenario appears here
+           once someone switches it to Ready on its page"), and the breadcrumb
+           above is the way there. An inline link would need a label, and a label
+           compiled in here is exactly what this task removed. */
+        <p style={{ fontSize: "1.3rem", marginTop: "2rem" }}>{w.nothing_ready_notice}</p>
       ) : (
         <>
           <RehearsalScenarioBlocks
             scenario={scenario}
-            slug={slug}
-            scenarioId={idByCode[scenario.code]}
+            wording={w}
+            open={open}
+            onToggle={toggle}
           />
 
           <div style={{ display: "flex", gap: "0.75rem", marginTop: "2rem" }}>
@@ -265,44 +237,48 @@ const RehearsalPage: React.FC = () => {
               type="button"
               onClick={() => setIndex(stepTo(index, total, "previous"))}
               disabled={index === 0}
+              style={ghostButtonStyle}
             >
-              ← Previous
+              {w.previous_label}
             </button>
             <button
               type="button"
               onClick={() => setIndex(stepTo(index, total, "next"))}
               disabled={index >= total - 1}
+              style={ghostButtonStyle}
             >
-              Next →
+              {w.next_label}
             </button>
           </div>
         </>
       )}
 
-      {/* The standing card. Always visible, on every screen, including the empty
-          one — §10 makes it the one thing that is never scrolled away from. Its
-          lines are backend-composed; this renders them verbatim. */}
+      {/* The standing card. Always visible, on every screen including the empty
+          one, and the ONE block with no fold to close — §10 makes it the thing
+          that is never scrolled away from, and the addendum makes that a rule.
+          Its lines are backend-composed; this renders them verbatim. */}
       <div
         style={{
-          ...blockStyle,
           marginTop: "2.5rem",
           background: "var(--bg-surface)",
-          // v3: a card is carried by its shadow, never a border. This one only
-          // became a v3 surface when task 1.7D scoped ALL of this page's render
-          // paths — before that it sat outside the palette and its hairline was
-          // correct. Inside the scope the border resolves to #eef0f3 and would read
-          // as a faint double edge against the shadow, which is precisely what the
-          // ruling removed. `borderTop` from `blockStyle` is cleared for the same
-          // reason: a card is not a section divider.
-          borderTop: "none",
           borderRadius: "var(--radius-card)",
           boxShadow: "var(--shadow-card)",
           padding: "1rem 1.25rem",
         }}
       >
-        <div style={blockLabelStyle}>Always</div>
+        <div
+          style={{
+            fontSize: "0.8rem",
+            letterSpacing: "0.06em",
+            textTransform: "uppercase",
+            color: "var(--text-muted)",
+            marginBottom: "0.35rem",
+          }}
+        >
+          {payload.always.heading}
+        </div>
         <ul style={{ fontSize: "1.15rem", paddingLeft: "1.4rem" }}>
-          {payload.standing_card.map((line, i) => (
+          {payload.always.lines.map((line, i) => (
             <li key={i}>{line}</li>
           ))}
         </ul>

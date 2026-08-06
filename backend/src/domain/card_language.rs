@@ -158,6 +158,26 @@ pub fn grounding_label(state: &str) -> Option<&'static str> {
     }
 }
 
+/// The viewer link for a statement, assembled server-side.
+///
+/// Matches the route the document workspace already serves (`/documents/:id`)
+/// with the page anchor it already reads. Built on this side of the wire because
+/// v2 §7 item 2 puts every display decision here.
+///
+/// ## Why it moved into this module (task 2.11 B2)
+///
+/// It was private to `services::scenario_card` until the rehearsal page needed
+/// the same address. Two functions producing the same URL is one too many: the
+/// day the viewer's tab parameter changes, a missed site is a dead link a human
+/// clicks in front of opposing counsel, and no compiler error stands behind it.
+/// This module is where a display decision belongs.
+pub fn viewer_href(document_id: &str, page: Option<i64>) -> String {
+    match page {
+        Some(page) => format!("/documents/{document_id}?page={page}&tab=document"),
+        None => format!("/documents/{document_id}?tab=document"),
+    }
+}
+
 /// The plain-trial name for a kind of statement, from the extraction's
 /// `statement_type`.
 ///

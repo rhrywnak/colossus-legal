@@ -264,18 +264,6 @@ fn pinpoint_label(document_title: &str, page: Option<i64>) -> String {
     }
 }
 
-/// The viewer link for a pinpoint, assembled server-side.
-///
-/// Matches the route the document workspace already serves (`/documents/:id`)
-/// with the page anchor it already reads. Built here rather than in the browser
-/// because v2 §7 item 2 puts every display decision on this side of the wire.
-fn viewer_href(document_id: &str, page: Option<i64>) -> String {
-    match page {
-        Some(page) => format!("/documents/{document_id}?page={page}&tab=document"),
-        None => format!("/documents/{document_id}?tab=document"),
-    }
-}
-
 /// Why this card cannot be ruled on as it stands, or `None` if it can.
 ///
 /// ## Domain note: the two unrulable classes
@@ -401,7 +389,7 @@ fn build_pinpoint(instance: &BiasInstance) -> CardPinpoint {
         label: pinpoint_label(&document_title, instance.page_number),
         document_title,
         page: instance.page_number,
-        viewer_href: viewer_href(&document_id, instance.page_number),
+        viewer_href: crate::domain::card_language::viewer_href(&document_id, instance.page_number),
         document_id,
     }
 }

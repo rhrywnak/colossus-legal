@@ -1,18 +1,19 @@
-//! Unit tests for [`super`] — the ready gate and the rehearsal read (task 1.5).
+//! Unit tests for [`super`] — the ready gate and the readiness transitions.
 //!
-//! The load-bearing test here is not the gate arithmetic, it is
-//! `the_payload_carries_nothing_it_is_excluded_from`: v2 §10's exclusion law is
-//! the one thing in this task that a witness would be harmed by getting wrong,
-//! and it is enforced by CONSTRUCTION (the DTO has no such fields). A test that
-//! serializes the payload and scans it proves the construction actually holds,
-//! and keeps holding when someone adds a field in six months.
+//! What this module owns is the GATE: which scenarios a witness may be shown at
+//! all, and the two human acts that move a scenario across it. Getting the gate
+//! wrong puts a drafted scenario in front of a witness, which is the one failure
+//! in this area that would actually harm somebody.
+//!
+//! §10's exclusion law moved to `services::rehearsal_render`'s tests with task
+//! 2.11 B2, beside the payload it now guards — the ban list and the payload only
+//! mean anything together.
 //!
 //! The transactional writes need a live Postgres and are DEV-verified, matching
 //! the convention of every sibling service.
 
 use super::*;
-
-use crate::dto::rehearsal::{RehearsalPayload, RehearsalPoint, RehearsalScenario};
+use uuid::Uuid;
 
 // ── The gate ─────────────────────────────────────────────────────────────────
 
@@ -43,81 +44,18 @@ fn an_unknown_status_stays_out_of_rehearsal() {
     assert!(!is_ready(&record_with_status("archived")));
 }
 
-// ── The exclusion law (v2 §10) ───────────────────────────────────────────────
-
-/// Nothing §10 excludes can appear in the payload, at any depth.
-///
-/// ## Why a substring scan and not a field-by-field review
-///
-/// The DTO's shape is the real enforcement — `RehearsalScenario` has no
-/// `motivation` field, so no motivation can be sent. But shape is a claim about
-/// today's struct. This test serializes a payload whose every free-text slot is
-/// filled with the excluded vocabulary's own words and asserts the JSON is clean,
-/// so ADDING a field that carries one of them fails here rather than in front of
-/// a witness.
-#[test]
-fn the_payload_carries_nothing_it_is_excluded_from() {
-    let payload = RehearsalPayload {
-        scenarios: vec![RehearsalScenario {
-            code: "S-2".to_string(),
-            theme: Some("We answered every request we received.".to_string()),
-            attack: Some("They say we hid the file.".to_string()),
-            points: vec![RehearsalPoint {
-                text: "I sent the folder the day they asked.".to_string(),
-                exhibit: Some("Exhibit 14".to_string()),
-            }],
-            watch_list: vec!["The April email chain".to_string()],
-        }],
-        standing_card: STANDING_CARD.iter().map(|s| (*s).to_string()).collect(),
-    };
-
-    let json = serde_json::to_string(&payload).expect("the payload serializes");
-
-    // Each entry is a thing §10 forbids the mode from carrying, paired with WHY —
-    // the message is what a future reader needs, not the token.
-    for (banned, why) in [
-        ("motivation", "strategy is not rehearsal material (§10)"),
-        ("confidence", "no percentages, no bands (§10)"),
-        ("status", "internal state vocabulary (§10)"),
-        ("graph_node_id", "internal identifiers (§10)"),
-        ("document_id", "pinpoint impeachment sourcing (§10)"),
-        ("page", "pinpoint impeachment sourcing (§10)"),
-        ("verdict", "no verdicts before Phase 2 (§10)"),
-        ("corroborat", "internal graph vocabulary (§9 canon)"),
-        ("rebut", "internal graph vocabulary (§9 canon)"),
-        ("probative", "internal vocabulary (§10)"),
-        ("%", "no percentages (§10)"),
-    ] {
-        assert!(
-            !json.to_lowercase().contains(banned),
-            "the rehearsal payload contains '{banned}' — {why}. Payload: {json}"
-        );
-    }
-}
-
-/// The standing card is served, and served whole.
-///
-/// §10 makes it always-shown, so it is backend-composed like every other string
-/// in this mode. A card missing a line would be a rehearsal that quietly stopped
-/// telling Marie one of the four things that matter.
-#[test]
-fn the_standing_card_ships_all_four_lines() {
-    assert_eq!(STANDING_CARD.len(), 4, "§10 specifies four lines");
-    for expected in [
-        "Tell the truth.",
-        "Answer only what's asked.",
-        "Don't guess.",
-    ] {
-        assert!(
-            STANDING_CARD.contains(&expected),
-            "the standing card must carry {expected:?}"
-        );
-    }
-    assert!(
-        STANDING_CARD.iter().any(|l| l.contains("I don't recall")),
-        "the standing card must carry the 'I don't recall' line"
-    );
-}
+// ── The exclusion law (v2 §10, as amended 2026-08-06) ───────────────────────
+//
+// The banned list MOVED with task 2.11 B2, and the move was ruled rather than
+// assumed. `document_id` and `page` are gone from it: REHEARSAL_VIEW_DESIGN_v2 is
+// later, specific, and Roman-signed with the "Deposition, p. 42 · [open]" table in
+// it, and the research it rests on says a witness who cannot produce the source on
+// the spot loses credibility. §10 exists to keep impeachment MACHINERY off this
+// surface — the grading, the confidence, the verdict, the strategy — and every one
+// of those is still banned below.
+//
+// The list lives in `rehearsal_exclusion_tests.rs` with the payload-shaped test
+// that uses it, because the two only mean anything together.
 
 // ── The refusals ─────────────────────────────────────────────────────────────
 
@@ -204,4 +142,54 @@ fn record_with_status(status: &str) -> ScenarioRecord {
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
     }
+}
+
+// ── Which store failed, and therefore which operator it belongs to ──────────
+
+#[test]
+fn a_postgres_failure_and_a_record_store_failure_route_to_different_errors() {
+    // The two have different operators and different remedies. If the branch
+    // condition were wrong, a Neo4j outage would arrive attributed to Postgres —
+    // sending somebody to the wrong service with nothing in the failure signature
+    // to say so.
+    let postgres = assembly_to_readiness(
+        AssemblyError::Read {
+            source: PipelineRepoError::Database("connection refused".to_string()),
+        },
+        Uuid::nil(),
+    );
+    let record = assembly_to_readiness(
+        AssemblyError::Record {
+            source:
+                crate::repositories::scenario_card_repository::ScenarioCardRepoError::RowDecode {
+                    operation: "fetch_rehearsal_facts",
+                    source: neo4rs::DeError::PropertyMissingButRequired,
+                },
+        },
+        Uuid::nil(),
+    );
+
+    assert!(matches!(postgres, ReadinessError::Read { .. }));
+    assert!(matches!(record, ReadinessError::Assembly { .. }));
+    assert_ne!(postgres.to_string(), record.to_string());
+    assert!(postgres.to_string().contains("scenario"), "{postgres}");
+    assert!(record.to_string().contains("rehearsal view"), "{record}");
+}
+
+#[test]
+fn an_undecodable_row_is_an_assembly_failure_and_not_a_read_one() {
+    // A stored token this build cannot classify is not an outage. It must not be
+    // reported as one, or an operator restarts a healthy database looking for it.
+    let error = assembly_to_readiness(
+        AssemblyError::Undecodable {
+            detail: "unknown human-fact kind 'rehearsal_highlight'".to_string(),
+        },
+        Uuid::nil(),
+    );
+
+    assert!(matches!(error, ReadinessError::Assembly { .. }));
+    assert!(
+        error.to_string().contains("rehearsal_highlight"),
+        "the offending token must survive to the operator: {error}"
+    );
 }

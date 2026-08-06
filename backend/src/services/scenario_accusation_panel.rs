@@ -29,8 +29,8 @@
 use std::collections::HashMap;
 
 use crate::domain::scenario_code::candidate_code;
-use crate::domain::wording::render;
 use crate::domain::wording_accusation::AccusationWording;
+use crate::domain::wording_templates::render;
 use crate::dto::scenario_accusation::{
     AccusationGapDto, AccusationInstanceDto, AccusationPanelDto, AccusationWordingDto,
 };

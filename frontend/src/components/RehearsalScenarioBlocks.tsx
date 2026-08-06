@@ -1,176 +1,204 @@
 // =============================================================================
-// RehearsalScenarioBlocks — one ready scenario, as Marie reads it (task 1.7D)
+// RehearsalScenarioBlocks — one ready scenario, as Marie reads it (task 2.11 B2)
 // =============================================================================
 //
-// Their claim, our answer, her points, what to watch for. Extracted from
-// `RehearsalPage` for the module-size limit (Rule 17): task 1.7D added the
-// breadcrumb, the purpose line, the code->id resolution and the guidance links,
-// taking that page from 184 to over 300 non-comment lines.
+// The seven blocks of REHEARSAL_VIEW_DESIGN_v2, replacing the four of task 1.5:
 //
-// The seam is the obvious one — this file is ONE SCENARIO as it is read aloud, and
-// what remains in the page is the shell she navigates with.
+//   1  What this is                2  The accusation + every instance
+//   3  Our answer under each one   4  The timeline
+//   5  Her points                  6  Watch for
+//   7  Always  (rendered by the page — it never collapses)
 //
-// ## What is NOT here, and why that is not an omission
+// ## What died here, and why it was a defect and not a style
 //
-// No motivation or strategy, no confidence, no verdicts, no page citations, no
-// internal vocabulary (v2 §10). Those exclusions are enforced by the PAYLOAD — the
-// backend DTO has no fields for them — so this component cannot show them even by
-// mistake.
+// The old block labelled "What they say" rendered `attack_text` — a verbatim
+// first-person quote from the record, promoted into the summary of all of it. The
+// block labelled "Our answer" rendered the THEME, which is not an answer. Both are
+// gone at the root: the payload now carries a human's plain-words accusation and
+// the record items a human PAIRED as our answers, and this component has no field
+// to render the old ones from.
+//
+// ## Every word is the store's
+//
+// There is not one user-facing literal below. Headings, gap sentences, counts and
+// the answer label all arrive on the payload, composed. A block with nothing in it
+// renders its NAMED gap, never a blank — the honest-gap law, which is what the
+// page's whole credibility rests on.
 
 import React from "react";
-import { Link } from "react-router-dom";
 
-import type { RehearsalScenario } from "../services/rehearsal";
+import RehearsalInstanceRow from "./RehearsalInstanceRow";
+import RehearsalSection from "./RehearsalSection";
+import RehearsalTimelineBlock from "./RehearsalTimelineBlock";
+import { absentStyle, DIVIDER } from "./scenarioSectionStyles";
+import {
+  GAP_NO_ANSWER,
+  type RehearsalPayload,
+  type RehearsalScenario,
+} from "../services/rehearsal";
+import type { OpenSections } from "../pages/rehearsalSections";
 
-const blockLabelStyle: React.CSSProperties = {
-  fontSize: "0.8rem",
-  letterSpacing: "0.06em",
-  textTransform: "uppercase",
-  color: "var(--text-muted)",
-  marginBottom: "0.35rem",
+interface Props {
+  scenario: RehearsalScenario;
+  wording: RehearsalPayload["wording"];
+  open: OpenSections;
+  onToggle: (section: keyof OpenSections) => void;
+}
+
+// The scale is the one place this surface departs from the rest of the app, and
+// it does so deliberately: read aloud, from a distance, under stress.
+const bodyStyle: React.CSSProperties = { fontSize: "1.3rem", lineHeight: 1.6 };
+
+const accusationStyle: React.CSSProperties = {
+  ...bodyStyle,
+  fontSize: "1.5rem",
+  fontWeight: 600,
 };
 
-const blockStyle: React.CSSProperties = {
-  borderTop: "1px solid var(--border-default)",
-  paddingTop: "1rem",
-  marginTop: "1.5rem",
-};
-
-// The scale is the one place the rehearsal surface departs from the rest of the
-// app, and it does so deliberately: this text is read aloud, from a distance,
-// under stress, by someone who is not looking for a row.
-const bodyStyle: React.CSSProperties = { fontSize: "1.35rem" };
+const listStyle: React.CSSProperties = { ...bodyStyle, paddingLeft: "1.4rem" };
 
 /**
- * One ready scenario's four blocks: their claim, our answer, her points, what to
- * watch for.
+ * The gap list, beneath the instances.
  *
- * Extracted from the page for the module-size limit (Rule 17) — task 1.7D added the
- * breadcrumb, the purpose line, the code→id map and the guidance links, which took
- * the page from 184 to 332 non-comment lines. The seam is the obvious one: this is
- * ONE SCENARIO as Marie reads it, and what remains in the page is the shell she
- * navigates with.
- *
- * `scenarioId` is optional because the code→id read is best-effort — see the page.
- * Every link built from it is guarded, so a failed resolution omits links rather
- * than rendering dead ones.
+ * The prep list reads loudest because it is the one a human can act on today; the
+ * other three are named plainly. Branching on the TOKEN, never the sentence —
+ * Roman is invited to edit these words, and a client matching on "NO ANSWER"
+ * would silently stop telling the kinds apart the day he did.
  */
-const RehearsalScenarioBlocks: React.FC<{
-  scenario: RehearsalScenario;
-  slug: string | undefined;
-  scenarioId: string | undefined;
-}> = ({ scenario, slug, scenarioId }) => {
-  /** The scenario page, when we could resolve it — otherwise plain text. */
-  const link = (text: string) =>
-    scenarioId ? (
-      <Link
-        to={`/cases/${slug}/trial-prep/${scenarioId}`}
-        style={{ color: "var(--accent-primary)" }}
+const GapList: React.FC<{ gaps: RehearsalScenario["accusation"]["gaps"] }> = ({
+  gaps,
+}) => (
+  <ul style={{ ...listStyle, marginTop: "1rem" }}>
+    {gaps.map((gap, i) => (
+      <li
+        key={`${gap.kind}:${i}`}
+        style={{
+          marginBottom: "0.4rem",
+          fontWeight: gap.kind === GAP_NO_ANSWER ? 600 : 400,
+          color:
+            gap.kind === GAP_NO_ANSWER
+              ? "var(--state-danger-strong)"
+              : "var(--text-secondary)",
+        }}
       >
-        {text}
-      </Link>
-    ) : (
-      text
-    );
+        {gap.message}
+      </li>
+    ))}
+  </ul>
+);
 
-  return (
-    <>
-          <div style={{ ...blockStyle, borderTop: "none", marginTop: "1.5rem" }}>
-            <div
-              style={{
-                ...blockLabelStyle,
-                display: "flex",
-                alignItems: "baseline",
-                gap: "0.75rem",
-                flexWrap: "wrap",
-              }}
-            >
-              <span>{scenario.code} · What they say</span>
-              {/* Item 9a: back to the scenario this screen is showing. Omitted —
-                  never rendered as a dead or wrong link — when the id could not be
-                  resolved (see `idByCode`). */}
-              {scenarioId && (
-                <Link
-                  to={`/cases/${slug}/trial-prep/${scenarioId}`}
-                  style={{
-                    fontSize: "0.75rem",
-                    textTransform: "none",
-                    letterSpacing: "normal",
-                    color: "var(--accent-primary)",
-                    textDecoration: "none",
-                  }}
-                >
-                  ‹ Back to {scenario.code}
-                </Link>
+const RehearsalScenarioBlocks: React.FC<Props> = ({
+  scenario,
+  wording,
+  open,
+  onToggle,
+}) => (
+  <>
+    {/* 1 — What this is. Not collapsible: it is one sentence, and folding a
+        sentence saves nothing while costing the reader their bearings. */}
+    <div style={{ borderTop: DIVIDER, paddingTop: "1rem", marginTop: "1.5rem" }}>
+      <div style={{ fontSize: "0.8rem", letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--text-muted)" }}>
+        {wording.block_what_heading}
+      </div>
+      <p style={bodyStyle}>
+        {scenario.what_this_is ?? (
+          <span style={absentStyle}>{scenario.what_this_is_gap}</span>
+        )}
+      </p>
+    </div>
+
+    {/* 2 and 3 — the page. */}
+    <RehearsalSection
+      heading={wording.block_accusation_heading}
+      count={scenario.headers.accusation}
+      open={open.accusation}
+      onToggle={() => onToggle("accusation")}
+    >
+      <p style={accusationStyle}>
+        {scenario.accusation.text ?? (
+          <span style={{ ...absentStyle, fontSize: "1.2rem", fontWeight: 400 }}>
+            {scenario.accusation.text_gap}
+          </span>
+        )}
+      </p>
+
+      {/* Exactly one of these is ever present — the backend decides. */}
+      <p style={{ ...bodyStyle, fontSize: "1.05rem", color: "var(--text-secondary)" }}>
+        {scenario.accusation.count_line ?? scenario.accusation.no_instances_notice}
+      </p>
+
+      {scenario.accusation.instances.map((instance) => (
+        <RehearsalInstanceRow
+          key={instance.position}
+          instance={instance}
+          answerLabel={wording.answer_label}
+        />
+      ))}
+
+      {scenario.accusation.gaps.length > 0 && (
+        <GapList gaps={scenario.accusation.gaps} />
+      )}
+    </RehearsalSection>
+
+    {/* 4 — the conditional timeline. */}
+    <RehearsalSection
+      heading={wording.block_timeline_heading}
+      count={scenario.headers.timeline}
+      open={open.timeline}
+      onToggle={() => onToggle("timeline")}
+    >
+      <RehearsalTimelineBlock timeline={scenario.timeline} />
+    </RehearsalSection>
+
+    {/* 5 — her points, in her words. */}
+    <RehearsalSection
+      heading={wording.block_points_heading}
+      count={scenario.headers.points}
+      open={open.points}
+      onToggle={() => onToggle("points")}
+    >
+      {scenario.points.length === 0 ? (
+        <p style={absentStyle}>{scenario.points_gap}</p>
+      ) : (
+        <ol style={listStyle}>
+          {scenario.points.map((point, i) => (
+            <li key={i} style={{ marginBottom: "0.6rem" }}>
+              {point.text}
+              {/* The paired exhibit, in HER phrasing, when one is authored. A
+                  plain label and never a page: the source citation belongs to an
+                  instance row, not to a talking point. */}
+              {point.exhibit && (
+                <span style={{ color: "var(--text-muted)", fontSize: "1rem" }}>
+                  {" "}
+                  ({point.exhibit})
+                </span>
               )}
-            </div>
-            <div style={bodyStyle}>
-              {scenario.attack ?? "Their claim has not been written down yet."}
-            </div>
-          </div>
+            </li>
+          ))}
+        </ol>
+      )}
+    </RehearsalSection>
 
-          <div style={blockStyle}>
-            <div style={blockLabelStyle}>Our answer</div>
-            <div style={{ ...bodyStyle, fontWeight: 600 }}>
-              {scenario.theme ?? "Our answer has not been framed yet."}
-            </div>
-          </div>
-
-          <div style={blockStyle}>
-            <div style={blockLabelStyle}>Your points</div>
-            {scenario.points.length === 0 ? (
-              // Item 9c: an empty block says WHERE the fix is, not just that it is
-              // empty. A ready scenario with no talking points is a real state — the
-              // readiness gate does not require them — so this is guidance, not an
-              // error.
-              <div style={{ ...bodyStyle, color: "var(--text-muted)" }}>
-                No talking points yet —{" "}
-                {link("add them on the scenario page")}
-                .
-              </div>
-            ) : (
-              <ol style={{ ...bodyStyle, paddingLeft: "1.4rem" }}>
-                {scenario.points.map((point, i) => (
-                  <li key={i} style={{ marginBottom: "0.6rem" }}>
-                    {point.text}
-                    {/* The paired exhibit, when one is authored. A plain label —
-                        never a page or a line number: §10 excludes pinpoint
-                        impeachment sourcing from this surface. */}
-                    {point.exhibit && (
-                      <span style={{ color: "var(--text-muted)", fontSize: "1rem" }}>
-                        {" "}
-                        ({point.exhibit})
-                      </span>
-                    )}
-                  </li>
-                ))}
-              </ol>
-            )}
-          </div>
-
-          <div style={blockStyle}>
-            <div style={blockLabelStyle}>Watch for</div>
-            {scenario.watch_list.length === 0 ? (
-              // Honest, and deliberately NOT phrased as a warning: nothing flagged
-              // is a legitimate and often correct state for a scenario.
-              <div style={{ ...bodyStyle, color: "var(--text-muted)" }}>
-                Nothing flagged yet —{" "}
-                {link("add watch-list notes on the scenario page")}
-                .
-              </div>
-            ) : (
-              <ul style={{ ...bodyStyle, paddingLeft: "1.4rem" }}>
-                {scenario.watch_list.map((note, i) => (
-                  <li key={i} style={{ marginBottom: "0.6rem" }}>
-                    {note}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-
-    </>
-  );
-};
+    {/* 6 — what they will wave around. */}
+    <RehearsalSection
+      heading={wording.block_watch_heading}
+      count={scenario.headers.watch_for}
+      open={open.watchFor}
+      onToggle={() => onToggle("watchFor")}
+    >
+      {scenario.watch_for.length === 0 ? (
+        <p style={absentStyle}>{scenario.watch_for_gap}</p>
+      ) : (
+        <ul style={listStyle}>
+          {scenario.watch_for.map((note, i) => (
+            <li key={i} style={{ marginBottom: "0.6rem" }}>
+              {note}
+            </li>
+          ))}
+        </ul>
+      )}
+    </RehearsalSection>
+  </>
+);
 
 export default RehearsalScenarioBlocks;

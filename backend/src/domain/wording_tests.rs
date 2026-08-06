@@ -10,6 +10,13 @@
 
 use super::*;
 use crate::domain::link_cut::LinkCut;
+use std::collections::HashMap;
+
+// The template rules moved to their own module in task 2.11 B2 — they are the
+// rules for ALL stored text, not this surface's.
+use crate::domain::wording_accusation as accusation;
+use crate::domain::wording_rehearsal as rehearsal;
+use crate::domain::wording_templates::{missing_placeholders, render, REQUIRED_PLACEHOLDERS};
 
 // ── The placeholder rules ────────────────────────────────────────────────────
 
@@ -53,7 +60,9 @@ fn every_key_with_required_placeholders_is_a_real_key() {
     // as this module's own.
     for (key, required) in REQUIRED_PLACEHOLDERS {
         assert!(
-            WORDING_KEYS.contains(key) || accusation::ACCUSATION_WORDING_KEYS.contains(key),
+            WORDING_KEYS.contains(key)
+                || accusation::ACCUSATION_WORDING_KEYS.contains(key)
+                || rehearsal::REHEARSAL_WORDING_KEYS.contains(key),
             "{key} has placeholder requirements but is not a stored wording key"
         );
         assert!(!required.is_empty(), "{key} declares an empty requirement");
@@ -70,6 +79,7 @@ fn the_seeded_defaults_satisfy_their_own_placeholder_rules() {
     // accusation key in the link-panel fixture and fail on the lookup rather than
     // on the rule it exists to check.
     values.extend(accusation::AccusationWording::for_test_values());
+    values.extend(rehearsal::RehearsalWording::for_test_values());
     for (key, _) in REQUIRED_PLACEHOLDERS {
         let seeded = values.get(key).expect("a seeded value for every key");
         assert!(
@@ -377,5 +387,169 @@ fn no_stored_string_is_blank() {
     // pins the DEFAULTS, which the write path never sees.
     for (key, value) in Wording::for_test_values() {
         assert!(!value.trim().is_empty(), "{key} seeds a blank string");
+    }
+}
+
+/// The seeded wording, for TESTS ONLY.
+///
+/// ## Why this is `#[cfg(test)]`, exactly like `Settings::for_test`
+///
+/// A production-reachable `Default for Wording` would be a compiled-in set of
+/// user-facing strings — the precise defect Roman's ruling deletes — and it would
+/// be reachable by accident through `unwrap_or_default()`. Gating it on
+/// `cfg(test)` means it cannot exist in a release binary at all.
+///
+/// The values match the migration's seed, and `wording_tests` asserts that
+/// against the migration file itself, so the two cannot drift silently.
+#[cfg(test)]
+impl Wording {
+    pub fn for_test() -> Self {
+        Wording {
+            link_panel_intro: "This statement isn't linked to anything they've accused you of. \
+                               Link it and you can rule it."
+                .to_string(),
+            link_scope_notice: "An accusation link belongs to the statement, not to this \
+                                scenario — linking it here links it wherever this item appears."
+                .to_string(),
+            link_allegations_heading: "What it bears on".to_string(),
+            link_show_all_label: "Show all {count}".to_string(),
+            link_filter_placeholder: "Type to filter".to_string(),
+            link_no_match_notice: "No accusation matches that.".to_string(),
+            link_empty_options_notice: "No accusations are stored for this case yet, so there \
+                                        is nothing to link to."
+                .to_string(),
+            link_cut_heading: "How it cuts".to_string(),
+            link_cut_supports_label: "It supports us".to_string(),
+            link_cut_against_label: "They'll use it against us".to_string(),
+            link_cut_supports_phrase: "it supports us".to_string(),
+            link_cut_against_phrase: "they'll use it against us".to_string(),
+            // Task 2.12 item A: the button no longer moves anyone, so it no
+            // longer says it does. The migration UPDATEs the already-seeded row.
+            link_save_label: "Save".to_string(),
+            link_cancel_label: "Cancel".to_string(),
+            link_unlink_label: "Unlink".to_string(),
+            link_missing_cut_refusal: "Say which way this cuts before saving — a link with no \
+                                       cut can't tell ammunition from hazard."
+                .to_string(),
+            link_missing_allegation_refusal: "Tick at least one accusation before saving."
+                .to_string(),
+            link_summary_template: "You linked this to {allegations} · {cut}.".to_string(),
+            link_progress_template: "{linked} of {total} linked.".to_string(),
+            question_revert_label: "Restore the system's wording".to_string(),
+            link_unlink_found_nothing: "That link was already gone — your view was out of \
+                                        date, and it has been refreshed."
+                .to_string(),
+            link_save_failed_template: "That link did not save: {detail} The queue has been \
+                                        reloaded from the server, so what you see now is \
+                                        what is stored."
+                .to_string(),
+            link_save_blocks_ruling: "Save the link first.".to_string(),
+            fact_remove_label: "Remove".to_string(),
+            fact_remove_confirm_template: "Remove {code} from this scenario? It goes back \
+                                           to the queue as not ruled."
+                .to_string(),
+            fact_remove_confirm_yes: "Remove it".to_string(),
+            fact_remove_confirm_cancel: "Keep it".to_string(),
+            fact_remove_failed_template: "That fact could not be removed: {detail} Reload \
+                                          the page to see what is actually stored."
+                .to_string(),
+            fact_question_label: "Q:".to_string(),
+            fact_statement_kind_label: "Kind:".to_string(),
+            fact_tier_carries_label: "Carries the scenario".to_string(),
+            fact_tier_backup_label: "Backup".to_string(),
+            fact_tier_background_label: "Background".to_string(),
+            fact_tier_prompt: "How much does this fact carry?".to_string(),
+            fact_tier_background_default_state: "collapsed".to_string(),
+            fact_background_count_template: "{count} in the background · show".to_string(),
+            fact_background_hide_label: "Hide background".to_string(),
+            fact_order_drag_hint: "Drag to reorder".to_string(),
+            fact_tier_save_failed_template: "Could not save the weight for {code}. {reason}"
+                .to_string(),
+            fact_order_save_failed_template: "Could not save the new order for {code}. {reason}"
+                .to_string(),
+            queue_empty_pool_summary: "No candidates gathered yet".to_string(),
+            queue_all_ruled_summary: "All candidates ruled".to_string(),
+            queue_counting_summary: "Counting candidates…".to_string(),
+            fact_answer_label: "A:".to_string(),
+            fact_background_move_notice: "{code} moved to the background pile — show".to_string(),
+            fact_weights_hint: "Star each fact by how much it carries — carries, backup, \
+                                background — and drag to set the order."
+                .to_string(),
+            fact_footer_template: "{shown} shown · {background} in background".to_string(),
+            fact_unplace_label: "Clear my order".to_string(),
+        }
+    }
+
+    /// The test fixture as a key→value map, in the shape the store reads.
+    ///
+    /// Lets `settings_store_tests` extend its own seeded fixture without holding a
+    /// second hand-typed copy of twenty sentences — the copy that matters is
+    /// [`Wording::for_test`], and `wording_tests` pins THAT to the migration.
+    pub fn for_test_values() -> HashMap<&'static str, String> {
+        let w = Wording::for_test();
+        WORDING_KEYS
+            .iter()
+            .map(|key| {
+                let value = match *key {
+                    KEY_PANEL_INTRO => w.link_panel_intro.clone(),
+                    KEY_SCOPE_NOTICE => w.link_scope_notice.clone(),
+                    KEY_ALLEGATIONS_HEADING => w.link_allegations_heading.clone(),
+                    KEY_SHOW_ALL_LABEL => w.link_show_all_label.clone(),
+                    KEY_FILTER_PLACEHOLDER => w.link_filter_placeholder.clone(),
+                    KEY_NO_MATCH_NOTICE => w.link_no_match_notice.clone(),
+                    KEY_EMPTY_OPTIONS_NOTICE => w.link_empty_options_notice.clone(),
+                    KEY_CUT_HEADING => w.link_cut_heading.clone(),
+                    KEY_CUT_SUPPORTS_LABEL => w.link_cut_supports_label.clone(),
+                    KEY_CUT_AGAINST_LABEL => w.link_cut_against_label.clone(),
+                    KEY_CUT_SUPPORTS_PHRASE => w.link_cut_supports_phrase.clone(),
+                    KEY_CUT_AGAINST_PHRASE => w.link_cut_against_phrase.clone(),
+                    KEY_SAVE_LABEL => w.link_save_label.clone(),
+                    KEY_CANCEL_LABEL => w.link_cancel_label.clone(),
+                    KEY_UNLINK_LABEL => w.link_unlink_label.clone(),
+                    KEY_MISSING_CUT_REFUSAL => w.link_missing_cut_refusal.clone(),
+                    KEY_MISSING_ALLEGATION_REFUSAL => w.link_missing_allegation_refusal.clone(),
+                    KEY_SUMMARY_TEMPLATE => w.link_summary_template.clone(),
+                    KEY_PROGRESS_TEMPLATE => w.link_progress_template.clone(),
+                    KEY_QUESTION_REVERT_LABEL => w.question_revert_label.clone(),
+                    KEY_UNLINK_FOUND_NOTHING => w.link_unlink_found_nothing.clone(),
+                    KEY_SAVE_FAILED_TEMPLATE => w.link_save_failed_template.clone(),
+                    KEY_SAVE_BLOCKS_RULING => w.link_save_blocks_ruling.clone(),
+                    KEY_FACT_REMOVE_LABEL => w.fact_remove_label.clone(),
+                    KEY_FACT_REMOVE_CONFIRM => w.fact_remove_confirm_template.clone(),
+                    KEY_FACT_REMOVE_YES => w.fact_remove_confirm_yes.clone(),
+                    KEY_FACT_REMOVE_CANCEL => w.fact_remove_confirm_cancel.clone(),
+                    KEY_FACT_REMOVE_FAILED => w.fact_remove_failed_template.clone(),
+                    KEY_FACT_QUESTION_LABEL => w.fact_question_label.clone(),
+                    KEY_FACT_STATEMENT_KIND_LABEL => w.fact_statement_kind_label.clone(),
+                    KEY_FACT_TIER_CARRIES => w.fact_tier_carries_label.clone(),
+                    KEY_FACT_TIER_BACKUP => w.fact_tier_backup_label.clone(),
+                    KEY_FACT_TIER_BACKGROUND => w.fact_tier_background_label.clone(),
+                    KEY_FACT_TIER_PROMPT => w.fact_tier_prompt.clone(),
+                    KEY_FACT_BACKGROUND_DEFAULT_STATE => {
+                        w.fact_tier_background_default_state.clone()
+                    }
+                    KEY_FACT_BACKGROUND_COUNT => w.fact_background_count_template.clone(),
+                    KEY_FACT_BACKGROUND_HIDE => w.fact_background_hide_label.clone(),
+                    KEY_FACT_ORDER_DRAG_HINT => w.fact_order_drag_hint.clone(),
+                    KEY_FACT_TIER_SAVE_FAILED => w.fact_tier_save_failed_template.clone(),
+                    KEY_FACT_ORDER_SAVE_FAILED => w.fact_order_save_failed_template.clone(),
+                    KEY_QUEUE_EMPTY_POOL => w.queue_empty_pool_summary.clone(),
+                    KEY_QUEUE_ALL_RULED => w.queue_all_ruled_summary.clone(),
+                    KEY_QUEUE_COUNTING => w.queue_counting_summary.clone(),
+                    KEY_FACT_ANSWER_LABEL => w.fact_answer_label.clone(),
+                    KEY_FACT_BG_MOVE_NOTICE => w.fact_background_move_notice.clone(),
+                    KEY_FACT_WEIGHTS_HINT => w.fact_weights_hint.clone(),
+                    KEY_FACT_FOOTER => w.fact_footer_template.clone(),
+                    KEY_FACT_UNPLACE_LABEL => w.fact_unplace_label.clone(),
+                    // Unreachable by construction: the match above covers every
+                    // entry of WORDING_KEYS, and the test below proves it. A panic
+                    // here would only fire in a test binary, on a key someone added
+                    // to the list and forgot here — which is exactly when a loud
+                    // stop is what you want.
+                    other => panic!("{other} is in WORDING_KEYS but not in for_test_values"),
+                };
+                (*key, value)
+            })
+            .collect()
     }
 }

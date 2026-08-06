@@ -231,24 +231,6 @@ impl TryFrom<&str> for HumanFactKind {
     }
 }
 
-/// The standing card shown on every rehearsal screen (v2 §10).
-///
-/// ## Why this is served by the backend and is not configuration
-///
-/// It is witness-prep DOCTRINE, not a preference — ABA Formal Opinion 508's
-/// substance in four sentences, and the reason rehearsal mode is theme-level
-/// rather than a script. A deployment cannot sensibly want different advice, and
-/// a browser that held its own copy could drift from the one the exports use.
-///
-/// Served as data rather than compiled into the page for the same reason every
-/// other user-visible string is: one source, one wording.
-pub const STANDING_CARD: &[&str] = &[
-    "Tell the truth.",
-    "Answer only what's asked.",
-    "\"I don't recall\" is fine if it's true.",
-    "Don't guess.",
-];
-
 /// The visible tag that marks content as human-authored (§8).
 ///
 /// ## Domain note: why the tag names the person

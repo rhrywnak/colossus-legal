@@ -77,6 +77,10 @@ const App: React.FC = () => {
               <Route path="/cases/:slug/proof-matrix" element={<ProofMatrixPage />} />
               <Route path="/cases/:slug/proof-review" element={<ProofReviewPage />} />
               <Route path="/cases/:slug/rehearsal" element={<RehearsalPage />} />
+              {/* Task 2.11 B2: the per-scenario rehearsal address. Selects within
+                  the payload the page already loaded; a code nobody declared
+                  ready gets the stored not-ready sentence, never a 404. */}
+              <Route path="/cases/:slug/rehearsal/:code" element={<RehearsalPage />} />
               <Route path="/cases/:slug/trial-prep" element={<TrialPrepDashboardPage />} />
               <Route path="/cases/:slug/trial-prep/:scenarioId" element={<ScenarioDetailPage />} />
               <Route path="/contradictions" element={<ContradictionsPage />} />

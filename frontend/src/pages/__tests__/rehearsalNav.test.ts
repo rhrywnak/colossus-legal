@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { positionLabel, stepForKey, stepTo } from "../rehearsalNav";
+import { positionAt, stepForKey, stepTo } from "../rehearsalNav";
 
 describe("stepForKey", () => {
   it("moves forward on the keys a one-handed reader reaches for", () => {
@@ -48,19 +48,28 @@ describe("stepTo", () => {
   });
 });
 
-describe("positionLabel", () => {
-  it("counts from one, the way a human says it", () => {
-    expect(positionLabel(0, 5)).toBe("Scenario 1 of 5");
-    expect(positionLabel(4, 5)).toBe("Scenario 5 of 5");
+describe("positionAt", () => {
+  it("picks the sentence the backend composed for that index", () => {
+    // The words are the store's now (task 2.11 B2). This module picks; it does
+    // not compose — the off-by-one it used to guard is guarded by the backend
+    // generating 1..=total, so an index can only look one up.
+    const positions = ["Scenario 1 of 3", "Scenario 2 of 3", "Scenario 3 of 3"];
+    expect(positionAt(0, positions)).toBe("Scenario 1 of 3");
+    expect(positionAt(2, positions)).toBe("Scenario 3 of 3");
   });
 
-  it("says plainly when nothing is ready", () => {
-    // An empty rehearsal is a real state — nobody has declared a scenario ready
-    // yet — and it must read as that rather than as "Scenario 1 of 0".
-    expect(positionLabel(0, 0)).toBe("No scenarios are ready to rehearse");
+  it("clamps a stale index rather than returning nothing", () => {
+    // A scenario demoted while the page was open leaves the index past the end.
+    // Clamping keeps a sentence on screen; `undefined` would blank the line with
+    // nothing saying why.
+    const positions = ["Scenario 1 of 2", "Scenario 2 of 2"];
+    expect(positionAt(9, positions)).toBe("Scenario 2 of 2");
+    expect(positionAt(-3, positions)).toBe("Scenario 1 of 2");
   });
 
-  it("never reports a position outside the list", () => {
-    expect(positionLabel(9, 3)).toBe("Scenario 3 of 3");
+  it("returns null when nothing is ready, so the caller shows its own notice", () => {
+    // An empty rehearsal is a real state with its own stored sentence. Inventing
+    // a position line for it would be composing prose about nothing.
+    expect(positionAt(0, [])).toBeNull();
   });
 });

@@ -30,7 +30,8 @@ use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 
 use crate::domain::link_cut::LinkCut;
-use crate::domain::wording::{render, Wording};
+use crate::domain::wording::Wording;
+use crate::domain::wording_templates::render;
 use crate::dto::scenario_card::{
     CardHumanLink, CardQuestionAuthorship, QuestionSource, ScenarioCard,
 };

@@ -11,6 +11,13 @@
 
 use super::*;
 
+// The three key LISTS moved with the boot loader (task 2.11 B2 split); this
+// module still counts them, because the count is what proves the seed and the
+// code describe the same store.
+use crate::domain::wording::WORDING_KEYS;
+use crate::domain::wording_accusation::ACCUSATION_WORDING_KEYS;
+use crate::domain::wording_rehearsal::REHEARSAL_WORDING_KEYS;
+
 use chrono::Utc;
 
 /// One stored row, with the shape the migration seeds.
@@ -35,7 +42,7 @@ fn row(
     }
 }
 
-/// The whole store as the two migrations seed it: eight numbers and twenty words.
+/// The whole store as the migrations seed it: nine numbers and 114 stored strings.
 ///
 /// ## Why the wording rows come from `Wording::for_test_values` (task 2.10)
 ///
@@ -51,7 +58,8 @@ fn seeded() -> HashMap<String, AppSettingRecord> {
     // real store could not.
     let text_rows = crate::domain::wording::Wording::for_test_values()
         .into_iter()
-        .chain(crate::domain::wording_accusation::AccusationWording::for_test_values());
+        .chain(crate::domain::wording_accusation::AccusationWording::for_test_values())
+        .chain(crate::domain::wording_rehearsal::RehearsalWording::for_test_values());
     for (key, value) in text_rows {
         // Text rows carry no bounds: `min_value` / `max_value` are numeric
         // comparisons, and the migration leaves them NULL.
@@ -63,7 +71,7 @@ fn seeded() -> HashMap<String, AppSettingRecord> {
     rows
 }
 
-/// The eight numeric rows as the migrations seed them.
+/// The nine numeric rows as the migrations seed them.
 fn numeric_rows() -> HashMap<String, AppSettingRecord> {
     by_key(vec![
         row(
@@ -103,6 +111,15 @@ fn numeric_rows() -> HashMap<String, AppSettingRecord> {
             "8",
             ValueKind::Count,
             Some(1.0),
+            None,
+        ),
+        // Task 2.11 B2: distinct dates needed before the rehearsal timeline is
+        // drawn. Minimum 2 — a threshold of one draws a timeline from one point.
+        row(
+            KEY_TIMELINE_MIN_DATES,
+            "2",
+            ValueKind::Count,
+            Some(2.0),
             None,
         ),
     ])
@@ -161,8 +178,8 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     // at whatever moment it happened to be read.
     assert_eq!(
         REQUIRED_KEYS.len(),
-        8,
-        "seven numbers, plus 2.10's short-list cap"
+        9,
+        "seven numbers, 2.10's short-list cap, and 2.11 B2's timeline threshold"
     );
     assert_eq!(
         WORDING_KEYS.len(),
@@ -175,9 +192,17 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
         "task 2.11's accusation section, every word of it a row"
     );
     assert_eq!(
+        REHEARSAL_WORDING_KEYS.len(),
+        40,
+        "task 2.11 B2's rehearsal page, every word of it a row"
+    );
+    assert_eq!(
         seeded().len(),
-        REQUIRED_KEYS.len() + WORDING_KEYS.len() + ACCUSATION_WORDING_KEYS.len(),
-        "the seed and the three required lists must describe the same store"
+        REQUIRED_KEYS.len()
+            + WORDING_KEYS.len()
+            + ACCUSATION_WORDING_KEYS.len()
+            + REHEARSAL_WORDING_KEYS.len(),
+        "the seed and the four required lists must describe the same store"
     );
 }
 
@@ -561,6 +586,9 @@ fn the_fixtures_carry_the_values_the_migration_actually_seeds() {
     let sql: String = [
         "pipeline_migrations/20260801225147_create_app_settings_store.sql",
         "pipeline_migrations/20260804132730_create_evidence_allegation_links.sql",
+        // Task 2.11 B2's timeline threshold — the ninth number, seeded with the
+        // rehearsal page's wording because it is that page's tunable.
+        "pipeline_migrations/20260806100704_rehearsal_render_wording.sql",
     ]
     .iter()
     .map(|relative| {
@@ -593,7 +621,7 @@ fn the_fixtures_carry_the_values_the_migration_actually_seeds() {
 
     // Anti-vacuity: a parsing change that stopped finding rows would otherwise
     // make this test pass while comparing nothing.
-    assert_eq!(checked, 8, "all eight numeric parameters must be compared");
+    assert_eq!(checked, 9, "all nine numeric parameters must be compared");
 }
 
 /// The snapshot built from the fixture matches the one `Settings::for_test`
