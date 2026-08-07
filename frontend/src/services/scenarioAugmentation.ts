@@ -90,6 +90,25 @@ export type AuthoringWordingDto = {
   watch_save_failed_notice: string;
 };
 
+/**
+ * The words the identity modal speaks about a scenario's TARGET (2026-08-07).
+ *
+ * Mirrors the backend `ScenarioIdentityWordingDto` field for field. It rides
+ * this payload because the modal already reads it on open — a second request for
+ * four strings, fired at the same instant, would buy nothing.
+ */
+export type ScenarioIdentityWording = {
+  target_label: string;
+  target_helper: string;
+  target_unset_option: string;
+  /** Shown when the party vocabulary cannot be read. Tells the human not to
+   *  save — saving then would clear the target the scenario already has. */
+  target_options_failed_notice: string;
+  /** Refuses a save that names a target while "what they say" is blank — the
+   *  one combination a stored definition has no valid shape for. */
+  target_needs_attack_text: string;
+};
+
 export type ScenarioIdentityDto = {
   code: string;
   name: string;
@@ -117,6 +136,7 @@ export type AugmentationPanelDto = {
   /** Served, not hardcoded — it is a tunable that task 1.6 will move. */
   talking_points_cap: number;
   wording: AuthoringWordingDto;
+  identity_wording: ScenarioIdentityWording;
 };
 
 /**

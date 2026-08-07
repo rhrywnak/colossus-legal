@@ -22,8 +22,11 @@ use uuid::Uuid;
 
 use crate::{
     auth::{require_edit, AuthUser},
-    domain::scenario_code::scenario_code,
-    dto::{ScenarioCreateRequest, ScenarioDto, ScenarioUpdateRequest},
+    domain::{scenario_code::scenario_code, wording_scenario_authoring::ScenarioAuthoringWording},
+    dto::{
+        scenario_crud::CURRENT_SCHEMA_V, ScenarioCreateRequest, ScenarioDefinition, ScenarioDto,
+        ScenarioUpdateRequest,
+    },
     error::AppError,
     repositories::pipeline_repository::{
         delete_scenario as delete_scenario_row, get_scenario, insert_scenario,
@@ -79,6 +82,81 @@ fn validate_status(status: &str) -> Result<(), AppError> {
         });
     }
     Ok(())
+}
+
+/// Compose the stored `definition` for a NEW scenario from the two fields the
+/// create form collects, or refuse by name if either is blank.
+///
+/// ## Domain note: why the accusation fills BOTH attack fields (ruled 2026-08-07)
+///
+/// A v2 definition carries two texts about the attack:
+///
+///   `attack_text`    — the attack in the WIELDER'S framing, ideally their
+///                      verbatim words ("…the parties did not cooperate with
+///                      each other.")
+///   `attack_meaning` — a plain-language gloss of what that actually asserts
+///
+/// `attack_text` is REQUIRED by the parse contract, and the create form does not
+/// ask for it: at creation time the human is naming a scenario, not yet holding
+/// the quote. Leaving it out would store a definition that fails to parse —
+/// which is exactly the un-authored state this task exists to end, reached by a
+/// different road.
+///
+/// So the plain-language accusation seeds both. The definition parses from the
+/// first moment, the scan has its judging criteria, and the identity modal —
+/// which already edits `attack_text` and `attack_meaning` separately — is where
+/// the real quote replaces the placeholder once it is found. Roman's ruling,
+/// over the alternatives of adding a third create field or making `attack_text`
+/// optional (a schema change reaching the parser, the frontend guard, and the
+/// modal).
+///
+/// ## Why the refusals come from stored rows
+///
+/// These two sentences are the ones a human meets when the form stops them, so
+/// they are configuration like every other user-facing string (v2 §2b). They
+/// also each name a CONSEQUENCE rather than a constraint — see the seed
+/// migration for why.
+fn authored_definition(
+    target: &str,
+    accusation: &str,
+    wording: &ScenarioAuthoringWording,
+) -> Result<serde_json::Value, AppError> {
+    let target = target.trim();
+    if target.is_empty() {
+        return Err(AppError::BadRequest {
+            message: wording.create_target_required_refusal.clone(),
+            details: json!({ "field": "target" }),
+        });
+    }
+
+    let accusation = accusation.trim();
+    if accusation.is_empty() {
+        return Err(AppError::BadRequest {
+            message: wording.create_accusation_required_refusal.clone(),
+            details: json!({ "field": "accusation" }),
+        });
+    }
+
+    let definition = ScenarioDefinition {
+        attack_text: accusation.to_string(),
+        attack_meaning: Some(accusation.to_string()),
+        target: Some(target.to_string()),
+        // Nobody is named as wielding the attack yet — that is authored later in
+        // the identity modal. An empty list is the honest "not yet said", and it
+        // is what `ScenarioDefinition`'s `#[serde(default)]` would produce anyway.
+        wielders: Vec::new(),
+        schema_v: CURRENT_SCHEMA_V,
+    };
+
+    definition.to_value().map_err(|e| {
+        // All-scalar shape; this cannot fail in practice. Surfaced rather than
+        // unwrapped so that if it ever did, it would be an observable 500 and not
+        // a panic (Standing Rule 1).
+        tracing::error!(error = %e, "failed to serialize the new scenario's definition");
+        AppError::Internal {
+            message: "failed to serialize scenario definition".to_string(),
+        }
+    })
 }
 
 /// The generic update route may not change `status` (task 1.5, ruled 2026-08-01).
@@ -222,6 +300,20 @@ pub async fn get_scenario_by_id(
 ///
 /// `case_slug` is sourced from the PATH, never the body, so a request cannot
 /// write a scenario into a different case than its URL names.
+///
+/// ## Every scenario this route creates is fully defined (2026-08-07)
+///
+/// It used to accept an optional `definition` and default it to `{}` — which is
+/// what every UI-created scenario got, because the form could not author one.
+/// The result was a scenario with no target, which silently gathered evidence
+/// over the case-default subject and rendered as a copy of whichever scenario
+/// had named that subject on purpose (see
+/// `CC-REPORTS/CC_REPORT_SCENARIO_COPY_DIAGNOSTIC.md`).
+///
+/// Now the target and the accusation are required fields, and
+/// [`authored_definition`] composes a definition that PARSES from the moment the
+/// row exists. The un-authored state is still reachable — legacy rows carry it,
+/// and the read paths render it by name — but it can no longer be created.
 #[tracing::instrument(skip(state, user, payload), fields(slug = %slug))]
 pub async fn create_scenario(
     user: AuthUser,
@@ -240,8 +332,14 @@ pub async fn create_scenario(
     let status = payload.status.unwrap_or_else(|| DEFAULT_STATUS.to_string());
     validate_status(&status)?;
 
-    // The column is NOT NULL — an omitted definition becomes `{}`, never SQL null.
-    let definition = payload.definition.unwrap_or_else(|| json!({}));
+    // The definition, composed and validated before anything is written: a
+    // refusal here means no row is created at all, so a half-defined scenario
+    // never reaches the database (and never reaches a candidate queue).
+    let definition = authored_definition(
+        &payload.target,
+        &payload.accusation,
+        &state.settings.current().scenario_authoring_wording,
+    )?;
 
     // Creation ALSO allocates the scenario's `S-n` code, atomically in the same
     // statement — see `INSERT_SCENARIO_SQL`. Both come back so the response can
@@ -271,9 +369,9 @@ pub async fn create_scenario(
     // values inserted are exactly the values returned, so no read-back is needed.
     let dto = ScenarioDto {
         scenario_id: scenario_id.to_string(),
-        // A freshly created scenario is not yet framed: the create form asks for
-        // a name and a direction, and the theme is written later on the working
-        // view. `None` is the honest answer, not an empty string.
+        // A freshly created scenario has a definition but no ANSWER yet: the
+        // theme statement is how WE reply to the attack, and it is written later
+        // on the working view. `None` is the honest answer, not an empty string.
         theme_statement: None,
         motivation: None,
         code: scenario_code(code_ordinal),
@@ -501,203 +599,5 @@ pub async fn delete_scenario(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn sample_record(anchor: Option<Vec<String>>) -> ScenarioRecord {
-        // A fixed epoch timestamp keeps the record deterministic (and avoids the
-        // chrono `clock` feature); `to_dto` drops timestamps anyway.
-        let ts = chrono::DateTime::from_timestamp(0, 0).expect("epoch is valid");
-        ScenarioRecord {
-            scenario_id: Uuid::nil(),
-            name: "Marie is obstructive".to_string(),
-            direction: "defense".to_string(),
-            status: "draft".to_string(),
-            case_slug: "awad_v_catholic_family_service".to_string(),
-            feeds_count_id: None,
-            anchor_allegation_ids: anchor,
-            definition: json!({}),
-            created_at: ts,
-            updated_at: ts,
-            // Every scenario carries a code after the 2026-08-01 backfill;
-            // a fixture without one would be a state the column forbids.
-            code_ordinal: 1,
-            // Unframed: a scenario is created before anyone writes its theme, and
-            // `None` is the honest value rather than invented prose.
-            theme_statement: None,
-            motivation: None,
-            // Task 2.11: nobody has written the plain-words accusation for this
-            // fixture, which is the honest default — the page renders its gap.
-            accusation_text: None,
-            accusation_text_authored_by: None,
-            accusation_text_authored_at: None,
-            theme_authored_by: None,
-            theme_authored_at: None,
-        }
-    }
-
-    #[test]
-    fn validate_name_rejects_blank() {
-        // The error must be a BadRequest naming the field (the response contract),
-        // not merely "an error" — matching the direction/status validator tests.
-        match validate_name("   ") {
-            Err(AppError::BadRequest { details, .. }) => {
-                assert_eq!(details, json!({ "field": "name" }));
-            }
-            other => panic!("expected BadRequest naming name, got {other:?}"),
-        }
-        // An empty string is rejected the same way.
-        assert!(validate_name("").is_err());
-    }
-
-    #[test]
-    fn validate_name_accepts_nonempty() {
-        assert!(validate_name("Marie is obstructive").is_ok());
-    }
-
-    #[test]
-    fn validate_direction_accepts_both_valid() {
-        assert!(validate_direction("offense").is_ok());
-        assert!(validate_direction("defense").is_ok());
-    }
-
-    #[test]
-    fn validate_direction_rejects_unknown() {
-        match validate_direction("sideways") {
-            Err(AppError::BadRequest { details, .. }) => {
-                assert_eq!(details, json!({ "field": "direction" }));
-            }
-            other => panic!("expected BadRequest naming direction, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn validate_status_accepts_all_three_valid() {
-        for s in ["draft", "needs_evidence", "ready"] {
-            assert!(validate_status(s).is_ok(), "status {s} should be valid");
-        }
-    }
-
-    #[test]
-    fn validate_status_rejects_unknown() {
-        match validate_status("archived") {
-            Err(AppError::BadRequest { details, .. }) => {
-                assert_eq!(details, json!({ "field": "status" }));
-            }
-            other => panic!("expected BadRequest naming status, got {other:?}"),
-        }
-    }
-
-    // ── The ready gate's other half (task 1.5) ───────────────────────────────
-
-    #[test]
-    fn an_update_carrying_a_status_is_refused_and_told_where_to_go() {
-        // BEHAVIOURAL, not structural: the source scan in `rehearsal_tests` proves
-        // the check is present, but it would still pass if the `return Err` were
-        // softened to a `tracing::warn!`. This pins what the caller actually gets.
-        let Err(AppError::BadRequest { message, details }) = refuse_status_edit(Some("ready"))
-        else {
-            panic!("a status on the generic update must be refused");
-        };
-        assert_eq!(details, json!({ "field": "status" }));
-        // The refusal has to be actionable — a caller who wanted to promote a
-        // scenario still needs to know how.
-        assert!(message.contains("POST"), "{message}");
-        assert!(message.contains("/ready"), "{message}");
-        assert!(message.contains("recorded human act"), "{message}");
-    }
-
-    #[test]
-    fn every_status_value_is_refused_including_the_drafted_ones() {
-        // Not just `ready`. A demotion through this route would be equally
-        // unattributed, and the withdraw direction is the one someone actually
-        // asks about later.
-        for status in ["draft", "needs_evidence", "ready", "archived"] {
-            assert!(
-                refuse_status_edit(Some(status)).is_err(),
-                "'{status}' must not be settable through the generic update"
-            );
-        }
-    }
-
-    #[test]
-    fn an_update_without_a_status_passes_through_untouched() {
-        // The common case: a rename, or a theme edit. Refusing those would break
-        // every existing caller.
-        assert!(refuse_status_edit(None).is_ok());
-    }
-
-    #[test]
-    fn to_dto_flattens_none_anchor_to_empty_vec() {
-        let dto = to_dto(sample_record(None));
-        assert_eq!(dto.anchor_allegation_ids, Vec::<String>::new());
-        // The Uuid renders as its canonical string form.
-        assert_eq!(dto.scenario_id, "00000000-0000-0000-0000-000000000000");
-    }
-
-    #[test]
-    fn to_dto_preserves_populated_anchor() {
-        let ids = vec![
-            "doc-awad-v-catholic-family-complaint-11-1-13:allegation:cd24fccb".to_string(),
-            "doc-x:allegation:def".to_string(),
-        ];
-        let dto = to_dto(sample_record(Some(ids.clone())));
-        assert_eq!(dto.anchor_allegation_ids, ids);
-    }
-
-    #[test]
-    fn map_update_error_not_found_becomes_404() {
-        // A store `NotFound` (missing id OR cross-case mismatch) must surface as a
-        // 404, so the response never confirms the row exists under another case.
-        match map_update_error(
-            PipelineRepoError::NotFound("some-uuid".to_string()),
-            "awad_v_cfs",
-        ) {
-            AppError::NotFound { message } => assert!(message.contains("not found")),
-            other => panic!("expected NotFound → 404, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn map_update_error_other_becomes_500() {
-        // Any non-NotFound store error is an unexpected server fault → 500, never a
-        // silent success (Standing Rule 1).
-        match map_update_error(
-            PipelineRepoError::Database("conn refused".to_string()),
-            "awad_v_cfs",
-        ) {
-            AppError::Internal { message } => assert!(message.contains("update scenario")),
-            other => panic!("expected Internal → 500, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn delete_rows_zero_becomes_404() {
-        // A delete that matched no row (unknown id OR wrong case) must be a 404 —
-        // never a silent 204 pretending the delete happened (Standing Rule 1).
-        match delete_rows_to_status(0) {
-            Err(AppError::NotFound { message }) => assert!(message.contains("not found")),
-            other => panic!("expected 0 rows → NotFound (404), got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn delete_rows_one_becomes_204() {
-        // Exactly one row deleted (the normal case, since scenario_id is the PK) is
-        // a 204 No Content.
-        match delete_rows_to_status(1) {
-            Ok(status) => assert_eq!(status, StatusCode::NO_CONTENT),
-            other => panic!("expected 1 row → 204, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn delete_rows_many_still_succeeds_204() {
-        // The PK fence makes a count above 1 impossible, but the mapper treats
-        // "≥ 1" as success rather than panicking on an unexpected count.
-        match delete_rows_to_status(2) {
-            Ok(status) => assert_eq!(status, StatusCode::NO_CONTENT),
-            other => panic!("expected ≥1 rows → 204, got {other:?}"),
-        }
-    }
-}
+#[path = "scenarios_tests.rs"]
+mod tests;

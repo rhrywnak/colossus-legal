@@ -20,6 +20,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::dto::scenario_authoring_wording::ScenarioCreateWordingDto;
+
 /// Scenario lifecycle — drives the status dot and labels on each card.
 ///
 /// The vocabulary is the real `scenarios` table CHECK set: `draft`,
@@ -114,6 +116,16 @@ pub struct TrialPrepDashboard {
     pub metrics: TrialPrepMetrics,
     pub alerts: Vec<TrialPrepAlert>,
     pub scenarios: Vec<ScenarioSummary>,
+    /// The words the create-scenario form speaks (2026-08-07).
+    ///
+    /// ## Why they ride the dashboard payload rather than their own endpoint
+    ///
+    /// The form lives on this page and nowhere else, and this page already
+    /// fetches exactly once on mount. A dedicated route would be a second
+    /// request for five strings, on a surface that has one; riding along means
+    /// the form's words and the scenario cards beside it come from one snapshot
+    /// of the settings store and cannot disagree.
+    pub create_wording: ScenarioCreateWordingDto,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -271,6 +283,15 @@ mod tests {
                     baseless_repeat_count: None,
                 },
             ],
+            create_wording: ScenarioCreateWordingDto {
+                target_label: "Who this scenario is about".to_string(),
+                target_helper: "Evidence is gathered about this person.".to_string(),
+                target_unset_option: "Choose a person…".to_string(),
+                accusation_label: "The accusation, in plain language".to_string(),
+                accusation_helper: "What the other side is saying.".to_string(),
+                target_required: "Choose who this scenario is about.".to_string(),
+                accusation_required: "Write the accusation in plain language.".to_string(),
+            },
         };
 
         let value = serde_json::to_value(&dashboard).expect("dashboard serializes");
@@ -306,7 +327,16 @@ mod tests {
                         "speakers": ["CFS"],
                         "baseless_repeat_count": null
                     }
-                ]
+                ],
+                "create_wording": {
+                    "target_label": "Who this scenario is about",
+                    "target_helper": "Evidence is gathered about this person.",
+                    "target_unset_option": "Choose a person…",
+                    "accusation_label": "The accusation, in plain language",
+                    "accusation_helper": "What the other side is saying.",
+                    "target_required": "Choose who this scenario is about.",
+                    "accusation_required": "Write the accusation in plain language."
+                }
             })
         );
     }

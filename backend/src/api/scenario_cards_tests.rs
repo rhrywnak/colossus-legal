@@ -229,3 +229,27 @@ fn the_positions_it_assigns_are_distinct_and_ordered_by_candidate_number() {
         "an untouched list follows the candidate numbers: C-1 before C-2",
     );
 }
+
+/// The card queue's half of the same guarantee.
+///
+/// This is the surface the 2026-08-07 defect was SEEN on: 148 cards gathered
+/// over a subject nobody chose. An empty payload here without the notice would
+/// leave the human with no cards and no reason, which is the second-worst
+/// outcome after the borrowed ones.
+#[test]
+fn a_scenario_with_no_target_is_told_why_its_queue_is_empty() {
+    let notice = "No target defined — this scenario cannot gather evidence.";
+    let response = no_target_response(notice);
+
+    assert_eq!(
+        response.no_target_notice.as_deref(),
+        Some(notice),
+        "an empty queue must carry its own explanation, not just be empty"
+    );
+    assert!(response.pool.is_empty() && response.set_aside.is_empty());
+    assert!(
+        response.link_progress.is_none(),
+        "there is no stuck pile to report progress against — '0 of 0 linked' \
+         would be a true sentence about a question nobody asked"
+    );
+}

@@ -55,30 +55,64 @@ pub struct ScenarioDto {
 
 /// The create-scenario request body.
 ///
-/// `name` and `direction` are required; everything else is optional with a
-/// server-applied default (`status` → `"draft"`, `definition` → `{}`). Note that
+/// `name`, `direction`, `target` and `accusation` are required; the rest is
+/// optional with a server-applied default (`status` → `"draft"`). Note that
 /// `case_slug` is NOT here on purpose — the handler sources it from the URL path,
 /// so a request can never write a scenario into a case other than the one its URL
 /// names.
+///
+/// ## Why the definition is NOT a field on this request (2026-08-07)
+///
+/// This body used to carry `definition: Option<serde_json::Value>`, defaulting to
+/// `{}`. Every scenario the UI ever created took that default, because the create
+/// form has no way to author a definition — and a definition of `{}` names no
+/// target, which used to mean the scenario silently gathered over the case
+/// default. One scenario created that way showed 148 candidate cards belonging to
+/// the scenario beside it.
+///
+/// So the request now carries the two things a definition MUST have, as
+/// first-class required fields, and the handler composes the definition from
+/// them. Three consequences worth stating:
+///
+/// * **A scenario cannot be created un-authored.** Not "should not" — the type
+///   has no shape for it.
+/// * **The composition rule lives in the backend** (Rule 12: no business logic in
+///   the frontend). The browser sends what the human typed; how that becomes
+///   `attack_text` / `attack_meaning` / `target` is the server's decision, in one
+///   place, testable without a browser.
+/// * **A caller can no longer post an arbitrary jsonb blob** into the column.
+///   Editing a definition beyond these two fields is `PUT`'s job, where the body
+///   is a fully typed [`ScenarioDefinition`].
 ///
 /// ## Rust Learning: `Option<T>` fields are optional without `#[serde(default)]`
 ///
 /// serde already treats a missing key as `None` for an `Option<T>` field, so
 /// these need no `#[serde(default)]`. `deny_unknown_fields` still rejects keys
 /// the struct does NOT declare — a typo'd field fails loudly rather than being
-/// silently ignored (Standing Rule 1).
+/// silently ignored (Standing Rule 1). It also means the retired `definition` key
+/// is now a named 400 rather than a value quietly ignored.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ScenarioCreateRequest {
     pub name: String,
     pub direction: String,
+    /// WHO this scenario is about — a party node id from the live vocabulary
+    /// (`available-filters` subjects), never free text and never blank.
+    ///
+    /// Required, and the reason this whole request shape changed: this is the
+    /// field whose absence the case-default fallback used to paper over.
+    pub target: String,
+    /// The accusation in plain language — what the other side is saying about
+    /// the target.
+    ///
+    /// Required. The Theme Scan judges every candidate fact against this
+    /// sentence, so a scenario without one can be created, opened, and scanned,
+    /// and only then reveals it had no judging criteria.
+    pub accusation: String,
     /// Absent → the handler defaults to `"draft"`.
     pub status: Option<String>,
     pub feeds_count_id: Option<String>,
     pub anchor_allegation_ids: Option<Vec<String>>,
-    /// Absent → the handler defaults to an empty JSON object `{}` (the column is
-    /// NOT NULL; SQL null is never written).
-    pub definition: Option<serde_json::Value>,
 }
 
 // ─── Typed definition body (the jsonb boundary) ─────────────────────────────

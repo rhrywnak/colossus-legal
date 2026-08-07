@@ -98,7 +98,21 @@ pub async fn list_allegation_options(
 
     let id = parse_scenario_id(&scenario_id)?;
     ensure_scenario_in_case(&state, id, &slug).await?;
-    let subject_id = resolve_gather_subject(&state, id).await?;
+
+    // No target → no catalogue. The accusations offered here are the ones this
+    // scenario's SUBJECT is accused of, so a scenario that names no subject has
+    // no basis for a list; serving the case-default subject's accusations was
+    // the same borrowed-identity defect this task removes from gather and cards
+    // (2026-08-07, ruled: kill the fallback everywhere it reaches).
+    //
+    // In practice this is unreachable from the UI — the panels this feeds only
+    // appear on cards, and a target-less scenario now has none — but "unreachable
+    // today" is not a contract, and an endpoint that quietly answered with
+    // somebody else's accusations would be a live defect the moment a caller
+    // reached it.
+    let Some(subject_id) = resolve_gather_subject(&state, id).await? else {
+        return Ok(Json(empty_options(&state)));
+    };
 
     // The scenario's own anchors, which head the short list. A scenario row that
     // vanished between the fence check and here is a race, and a 404 — the same
@@ -144,6 +158,20 @@ pub async fn list_allegation_options(
     );
 
     Ok(Json(response))
+}
+
+/// The catalogue for a scenario that names no subject: no accusations, and the
+/// panel's wording intact.
+///
+/// ## Why this goes through `build_options` rather than constructing the DTO
+///
+/// The response carries `wording`, which `build_options` composes from stored
+/// rows (including a "show all" label that bakes in the total). Hand-building
+/// the struct here would be a second place that knows how to word this panel,
+/// free to drift from the first. Passing no rows and no anchors gives the same
+/// function the empty case, and the wording is composed exactly once.
+fn empty_options(state: &AppState) -> AllegationOptionsResponse {
+    build_options(Vec::new(), &[], &state.settings.current())
 }
 
 /// `POST …/evidence/:graph_node_id/links` — link a statement to accusations.

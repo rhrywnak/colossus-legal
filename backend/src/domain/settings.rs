@@ -29,6 +29,7 @@ use crate::domain::wording_accusation::AccusationWording;
 use crate::domain::wording_authoring::AuthoringWording;
 use crate::domain::wording_rehearsal::RehearsalWording;
 use crate::domain::wording_rehearsal_chrome::RehearsalChromeWording;
+use crate::domain::wording_scenario_authoring::ScenarioAuthoringWording;
 
 /// The parsed parameters, as every consumer sees them.
 ///
@@ -107,6 +108,14 @@ pub struct Settings {
     /// The twenty-three strings the two shared authoring sections speak on the
     /// scenario working page (task 2.11 C, ruling C4b).
     pub authoring_wording: AuthoringWording,
+    /// The twelve strings the surfaces that DEFINE a scenario speak — the create
+    /// form, the identity modal, and the notice a target-less scenario shows in
+    /// place of a candidate queue (2026-08-07 fix).
+    ///
+    /// A sixth nested block for the reason the others are separate: these words
+    /// belong to the moment a scenario is being defined, which is a different
+    /// surface and a different reader from curating one that already exists.
+    pub scenario_authoring_wording: ScenarioAuthoringWording,
     /// How many instances a scenario may carry before the rehearsal page's rows
     /// arrive COMPACT rather than expanded (task 2.11 C).
     ///
@@ -153,6 +162,7 @@ impl Settings {
             rehearsal_timeline_min_distinct_dates: 2,
             rehearsal_chrome_wording: RehearsalChromeWording::for_test(),
             authoring_wording: AuthoringWording::for_test(),
+            scenario_authoring_wording: ScenarioAuthoringWording::for_test(),
             rehearsal_instance_rows_expand_max: 3,
         }
     }

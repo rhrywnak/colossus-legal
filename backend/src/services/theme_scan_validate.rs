@@ -104,7 +104,7 @@ pub(crate) async fn validate_scan_request(
         .ok_or(ThemeScanError::EmptyAttackMeaning { scenario_id })?
         .to_string();
 
-    let subject_id = resolve_subject(state, &definition, scenario_id).await?;
+    let subject_id = resolve_subject(&definition, scenario_id)?;
 
     // Per-run provider: resolve the model id → row → params → provider via the
     // unified seam (Chunk B), replacing the removed boot-time `theme_scan_provider`.
@@ -126,27 +126,26 @@ pub(crate) async fn validate_scan_request(
 /// scan's existing [`ThemeScanError`] variants here — the scan's error surface
 /// is unchanged; only where those variants are *constructed* moved.
 ///
-/// Split from the candidate read (its former caller) by the 400 split: an
-/// unresolvable subject is a request the human can fix, while a failed graph
-/// read is not, so the two now sit on opposite sides of the run record.
-async fn resolve_subject(
-    state: &AppState,
+/// Split from the candidate read (its former caller) by the 400 split: a
+/// scenario that names nobody is a request the human can fix, and it belongs on
+/// the pre-stub side of the run record for exactly that reason.
+///
+/// ## What changed on 2026-08-07
+///
+/// This used to be `async` and take `&AppState`, because the shared resolver
+/// could fall back to a graph lookup for the case-default subject. That fallback
+/// is gone (see `services::scenario_subject`), so there is no graph call and no
+/// `DefaultLookupFailed` to map — one variant in, one variant out. A scan
+/// started on a target-less scenario now refuses BY NAME instead of quietly
+/// scanning a subject nobody chose and writing its verdicts into that
+/// scenario's fact-refs.
+fn resolve_subject(
     definition: &ScenarioDefinition,
     scenario_id: Uuid,
 ) -> Result<String, ThemeScanError> {
-    let subject_id = resolve_scenario_subject(state, definition)
-        .await
-        .map_err(|e| match e {
-            SubjectResolveError::DefaultLookupFailed { source } => {
-                ThemeScanError::SubjectResolveFailed {
-                    scenario_id,
-                    source,
-                }
-            }
-            SubjectResolveError::Unresolvable => {
-                ThemeScanError::SubjectUnresolvable { scenario_id }
-            }
-        })?;
+    let subject_id = resolve_scenario_subject(definition).map_err(|e| match e {
+        SubjectResolveError::NoTarget => ThemeScanError::SubjectUnresolvable { scenario_id },
+    })?;
     tracing::debug!(%scenario_id, subject_id = %subject_id, "theme scan: subject resolved");
     Ok(subject_id)
 }

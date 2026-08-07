@@ -405,4 +405,16 @@ pub struct ScenarioCardsResponse {
     /// next to twelve green chips. Composed here rather than in the browser for
     /// the same reason every other sentence is (the language law).
     pub link_progress: Option<String>,
+    /// Present ONLY when this scenario names no target, in which case both card
+    /// lists are empty and this sentence says why (2026-08-07 fix).
+    ///
+    /// ## Domain note: this is the card queue's half of the fix
+    ///
+    /// The gather endpoint carries the same field, but THIS is the surface the
+    /// defect was seen on: on 2026-08-07 a target-less scenario served 148 cards
+    /// here, gathered over the case-default subject, indistinguishable from the
+    /// scenario beside it that had named that subject deliberately. An empty
+    /// queue with a reason is the whole remedy.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub no_target_notice: Option<String>,
 }

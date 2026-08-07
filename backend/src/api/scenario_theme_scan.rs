@@ -308,17 +308,18 @@ fn map_scan_error(err: ThemeScanError) -> AppError {
         // The pre-stub server-side failures: still 500 (nothing about the request
         // is wrong), but they KEEP their message.
         //
-        // The generic-500 policy below rests on an assumption these three break.
+        // The generic-500 policy below rests on an assumption these two break.
         // It is safe to answer "theme scan failed" only because the run row
         // carries the real reason — the operator opens Run History and reads it.
-        // Since the 400 split these three fail BEFORE the row exists, so a generic
+        // Since the 400 split these fail BEFORE the row exists, so a generic
         // message leaves nothing anywhere: no row to open, and a toast that names
         // neither the scenario, the model, nor what to do. Their `#[error]` strings
         // were written to carry a recovery action precisely because this is their
         // only surface; discarding them here would make that a lie.
-        ThemeScanError::DefinitionInvalid { .. }
-        | ThemeScanError::SubjectResolveFailed { .. }
-        | ThemeScanError::ModelLookupFailed { .. } => {
+        //
+        // Two, not three: `SubjectResolveFailed` was retired on 2026-08-07 with
+        // the case-default fallback that was its only cause.
+        ThemeScanError::DefinitionInvalid { .. } | ThemeScanError::ModelLookupFailed { .. } => {
             tracing::error!(error = %message, "theme scan: failed before any run was recorded");
             AppError::Internal { message }
         }

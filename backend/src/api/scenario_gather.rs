@@ -171,6 +171,10 @@ fn reconcile_candidates(
     Ok(GatherCandidatesResponse {
         pool: working,
         dropped,
+        // A pool was gathered, so whatever it contains is the evidence's own
+        // answer. The no-target notice belongs to the OTHER path (see
+        // `gather_scenario_candidates`), never to a real gather.
+        no_target_notice: None,
     })
 }
 
@@ -297,7 +301,21 @@ pub async fn gather_scenario_candidates(
     let id = parse_scenario_id(&scenario_id)?;
     ensure_scenario_in_case(&state, id, &slug).await?;
 
-    let subject_id = resolve_gather_subject(&state, id).await?;
+    // No target → no gather. 200 with an EMPTY pool and the stored sentence that
+    // says why, rather than a pool borrowed from the case-default subject (the
+    // 2026-08-07 defect) or an unexplained empty list. Returning early also means
+    // no ordinals are minted: numbering 148 candidates for a scenario that has
+    // not chosen a subject would leave identity rows behind for a pool it may
+    // never gather.
+    let Some(subject_id) = resolve_gather_subject(&state, id).await? else {
+        return Ok(Json(no_target_response(
+            &state
+                .settings
+                .current()
+                .scenario_authoring_wording
+                .no_target_notice,
+        )));
+    };
 
     // The pool: every Evidence node ABOUT the subject (ungated by pattern_tags).
     let pool = BiasRepository::new(state.graph.clone())
@@ -326,6 +344,31 @@ pub async fn gather_scenario_candidates(
 
     let response = reconcile_candidates(pool, refs, &ordinals)?;
     Ok(Json(response))
+}
+
+/// The payload for a scenario that names no target: nothing gathered, and the
+/// stored sentence saying why.
+///
+/// ## Rust Learning: why this takes `&str` and not `&AppState`
+///
+/// The notice lives in the settings snapshot, so the obvious signature is
+/// `fn(&AppState)` — and that is what this was until the test auditor pointed
+/// out the consequence: a function taking `&AppState` cannot be called without a
+/// database, a graph and a settings store, so the payload it builds can only be
+/// checked by running the whole service.
+///
+/// Passing the already-read string instead makes this a pure function of one
+/// `&str`, callable from a unit test in one line. The caller does the reading —
+/// it is the one that holds the state — and this does the shaping. That seam is
+/// the same one `build_card` and the dashboard assembler are built on, and it is
+/// what makes "does an un-targeted scenario carry its explanation?" a question a
+/// test can ask.
+fn no_target_response(notice: &str) -> GatherCandidatesResponse {
+    GatherCandidatesResponse {
+        pool: Vec::new(),
+        dropped: Vec::new(),
+        no_target_notice: Some(notice.to_string()),
+    }
 }
 
 /// Assign ordinals to any new pool members, then read the scenario's full
@@ -389,21 +432,33 @@ async fn ensure_candidate_ordinals(
 /// handler's `#[tracing::instrument]` span, so its logs still carry `slug` /
 /// `scenario_id`.
 ///
-/// ## Gather's tolerated-fallback policy (vs the Theme Scan's)
+/// Returns `Ok(None)` when the scenario names no target — a real, renderable
+/// state, not an error. Every caller turns that into an empty result plus the
+/// stored no-target notice.
+///
+/// ## Gather's tolerated-parse policy (vs the Theme Scan's)
 ///
 /// A half-authored scenario's stored `definition` is `{}` / a retired v1 shape,
-/// which `ScenarioDefinition::from_value` rejects. Gather must still show that
-/// scenario's pool, so a parse failure here is NOT an error — it is logged at
-/// debug and falls back to a target-less [`fallback_definition`], letting the
-/// shared resolver use the case default. (Contrast the Theme Scan, which errors
-/// on an unparseable definition because it also needs `attack_meaning`.) The
-/// divergence is a deliberate per-caller policy, not resolver behavior.
+/// which `ScenarioDefinition::from_value` rejects. Gather must still ANSWER for
+/// that scenario, so a parse failure here is not an error — it is logged at
+/// debug and falls back to a target-less [`fallback_definition`]. (Contrast the
+/// Theme Scan, which errors on an unparseable definition because it also needs
+/// `attack_meaning`.) The divergence is a deliberate per-caller policy, not
+/// resolver behavior.
 ///
-/// `pub(crate)` so the sibling `api::scenario_cards` handler resolves the pool's
-/// subject through the SAME policy — including the tolerated-fallback behaviour
-/// documented above. Re-deriving it there would let the two endpoints disagree
-/// about which candidates a scenario even has.
-pub(crate) async fn resolve_gather_subject(state: &AppState, id: Uuid) -> Result<String, AppError> {
+/// What changed on 2026-08-07 is where that target-less definition LANDS. It
+/// used to reach a resolver that substituted the case-default subject, so an
+/// unauthored scenario rendered as a full one; now it resolves to `None` and the
+/// caller says so out loud.
+///
+/// `pub(crate)` so the sibling `api::scenario_cards` and `api::evidence_links`
+/// handlers resolve the pool's subject through the SAME policy. Re-deriving it
+/// there would let the endpoints disagree about which candidates a scenario even
+/// has.
+pub(crate) async fn resolve_gather_subject(
+    state: &AppState,
+    id: Uuid,
+) -> Result<Option<String>, AppError> {
     // Re-read the row for its definition (the existence/case fence in the caller
     // does not hand it back). A `None` here is a race — the scenario was deleted
     // between the fence check and this read — so it is a 404, not a 500.
@@ -422,52 +477,34 @@ pub(crate) async fn resolve_gather_subject(state: &AppState, id: Uuid) -> Result
             }
         })?;
 
-    // Parse failure = "not yet authored" (a valid state) → fall back to a
-    // target-less definition. Observable at debug, not a swallowed error.
+    // Parse failure = "not yet authored" (a valid state) → a target-less
+    // definition, which now resolves to `None` rather than to a borrowed pool.
+    // Observable at debug, not a swallowed error.
     let definition = match ScenarioDefinition::from_value(record.definition) {
         Ok(def) => def,
         Err(e) => {
             tracing::debug!(
                 scenario_id = %id,
                 parse_error = %e,
-                "scenario definition not authored/parseable; gather falls back to the case-default subject"
+                "scenario definition not authored/parseable; gather has no target to work from"
             );
             fallback_definition()
         }
     };
 
-    resolve_scenario_subject(state, &definition)
-        .await
-        .map_err(|e| map_subject_error(id, e))
-}
-
-/// Map the shared [`SubjectResolveError`] into this handler's `AppError`.
-///
-/// - `Unresolvable` → **503** `ServiceUnavailable`: no target and no configured
-///   case-default subject is a MISCONFIGURATION the operator fixes by setting
-///   `CASE_DEFAULT_SUBJECT_NAME` — distinct from "zero candidates" (a 200 with an
-///   empty pool). Standing Rule 1 keeps the two observables apart.
-/// - `DefaultLookupFailed` → **500** `Internal`: a graph fault inside the server,
-///   with the underlying cause logged.
-fn map_subject_error(scenario_id: Uuid, err: SubjectResolveError) -> AppError {
-    match err {
-        SubjectResolveError::Unresolvable => {
-            tracing::error!(
-                %scenario_id,
-                "cannot gather candidates: scenario names no target and no case-default \
-                 subject is configured (CASE_DEFAULT_SUBJECT_NAME)"
+    match resolve_scenario_subject(&definition) {
+        Ok(subject_id) => Ok(Some(subject_id)),
+        // NOT an error response. A scenario nobody has finished defining is an
+        // ordinary state of the product — the human is mid-way through creating
+        // it — and the caller renders it with a sentence. It is logged at INFO
+        // rather than debug because "why is this scenario empty?" is a question
+        // asked of the logs, and this is its answer.
+        Err(SubjectResolveError::NoTarget) => {
+            tracing::info!(
+                scenario_id = %id,
+                "scenario names no target; gathering nothing and returning the no-target notice"
             );
-            AppError::ServiceUnavailable {
-                message: "no subject configured for this case (CASE_DEFAULT_SUBJECT_NAME); \
-                          cannot gather candidates"
-                    .to_string(),
-            }
-        }
-        SubjectResolveError::DefaultLookupFailed { source } => {
-            tracing::error!(%scenario_id, error = %source, "failed to resolve case-default subject for gather");
-            AppError::Internal {
-                message: "failed to resolve scenario subject".to_string(),
-            }
+            Ok(None)
         }
     }
 }

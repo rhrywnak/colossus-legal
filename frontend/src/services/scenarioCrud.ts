@@ -46,18 +46,31 @@ export interface ScenarioDto {
 
 /**
  * The create-scenario request body (the backend sources `case_slug` from the
- * URL, never the body). Mirrors the backend `ScenarioCreateRequest`: `name` and
- * `direction` are required; the rest are optional with server-applied defaults.
- * `feeds_count_id` and `definition` have no form field yet (a later chunk) but
- * are typed here so the payload faithfully matches the backend request shape.
+ * URL, never the body). Mirrors the backend `ScenarioCreateRequest`.
+ *
+ * ## `definition` is gone; `target` and `accusation` replaced it (2026-08-07)
+ *
+ * This payload used to carry an opaque `definition?: unknown` that no caller
+ * ever filled, so every scenario the UI created was stored with `{}` — a
+ * definition naming no target, which the backend then silently gathered evidence
+ * for over the case-default subject.
+ *
+ * The two fields below are what a definition MUST have, and they are REQUIRED
+ * here: TypeScript now refuses a create call that would produce an un-authored
+ * scenario, at compile time. How they become a stored definition is the
+ * backend's decision, not this file's (Rule 12) — the browser sends what the
+ * human typed.
  */
 export interface ScenarioCreatePayload {
   name: string;
   direction: ScenarioDirection;
+  /** A party node id from `available-filters` subjects — never free text. */
+  target: string;
+  /** The accusation in plain language; the Theme Scan's judging criterion. */
+  accusation: string;
   status?: ScenarioStatus;
   feeds_count_id?: string;
   anchor_allegation_ids?: string[];
-  definition?: unknown;
 }
 
 /**

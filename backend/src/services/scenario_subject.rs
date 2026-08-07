@@ -13,6 +13,25 @@
 //! the same subject *by construction*, not by two implementations that happen to
 //! match today.
 //!
+//! ## The case-default fallback was REMOVED on 2026-08-07
+//!
+//! Until this date, a scenario naming no `target` fell back to the case-default
+//! subject (`CASE_DEFAULT_SUBJECT_NAME`), logged at `debug` and invisible to the
+//! caller. The measured consequence: a scenario created that morning with an
+//! empty definition gathered 148 candidates over `person-marie-awad` — byte for
+//! byte the pool of the scenario beside it, which named that target explicitly —
+//! and rendered as though two weeks of curation had been copied into it. The
+//! diagnostic is `CC-REPORTS/CC_REPORT_SCENARIO_COPY_DIAGNOSTIC.md`.
+//!
+//! Two operationally distinct states — "the pool I chose" and "the pool a
+//! default chose for me" — produced one observable. That is precisely what
+//! Standing Rule 1 forbids, so the fallback is gone: a definition with no target
+//! now resolves to nothing, loudly, and every caller renders that state by name.
+//!
+//! `CASE_DEFAULT_SUBJECT_NAME` still exists and is still used — by the Bias
+//! Explorer's "About" filter, where a default is a *starting view* the human can
+//! see and change, not a silent substitution inside a stored definition.
+//!
 //! ## Why this is a `services/` module, not a helper inside either caller
 //!
 //! The Theme Scan lives in `services::theme_scan`; the gather handler lives in
@@ -24,11 +43,9 @@
 //! seam in `scenario_store.rs`, which lets one function serve both a `&PgPool`
 //! caller and a transaction caller.
 
-use crate::bias::repository::BiasRepository;
 use crate::dto::scenario_crud::ScenarioDefinition;
-use crate::state::AppState;
 
-/// Failure modes of subject resolution.
+/// The one way subject resolution can fail: the scenario names nobody.
 ///
 /// ## Rust Learning: a shared leaf carries its OWN error type
 ///
@@ -38,82 +55,76 @@ use crate::state::AppState;
 /// callers to each other through this shared leaf (the API layer would suddenly
 /// depend on `ThemeScanError`, or the service on `AppError`). A leaf at a layer
 /// boundary must stay ignorant of who calls it — "dependencies point inward"
-/// expressed in the type system. The two variants below are the only two ways
-/// resolution can fail; everything else is an `Ok(subject_id)`.
+/// expressed in the type system.
+///
+/// ## Rust Learning: why an `enum` with ONE variant, and not `Option`
+///
+/// This enum carried two variants until 2026-08-07; removing the case-default
+/// fallback (see the module header) removed the graph lookup and with it both
+/// old variants. What is left could be modelled as `Option<String>` — but an
+/// `Option`'s `None` carries no message, and every caller here has to TELL A
+/// HUMAN what went wrong. A `thiserror` variant carries its own sentence,
+/// including the fix, and `?` still works at every call site. The enum shape
+/// also means adding a second failure mode later is an additive change rather
+/// than a signature change through four callers.
 #[derive(Debug, thiserror::Error)]
 pub enum SubjectResolveError {
-    /// The case-default lookup hit the graph and the graph failed (connection,
-    /// query, decode). The underlying cause is preserved via `#[source]`.
-    #[error("failed to resolve the case-default subject: {source}")]
-    DefaultLookupFailed {
-        #[source]
-        source: crate::bias::repository::BiasRepositoryError,
-    },
-
-    /// The scenario names no `target` AND no case-default subject is configured
-    /// (`CASE_DEFAULT_SUBJECT_NAME` unset, or it matched no subject in the
-    /// graph). A genuine misconfiguration — distinct from "zero candidates" —
-    /// so the caller surfaces it loudly rather than returning an empty pool
-    /// (Standing Rule 1). The message names the config key that fixes it.
+    /// The scenario's definition names no `target`.
+    ///
+    /// Before 2026-08-07 this silently became the case-default subject. It is
+    /// now a real outcome with a real surface: the gather and card endpoints
+    /// answer 200 with an EMPTY pool and a stored notice, and the Theme Scan
+    /// refuses to start. Never an empty pool with no explanation, and never
+    /// somebody else's pool.
     #[error(
-        "no subject: scenario names no target and no case-default subject is \
-         configured (CASE_DEFAULT_SUBJECT_NAME)"
+        "the scenario names no target — nothing can be gathered until one is \
+         chosen (edit the scenario's identity and name who it is about)"
     )]
-    Unresolvable,
+    NoTarget,
 }
 
 /// Resolve the subject a scenario's evidence pool is gathered/scanned over.
 ///
-/// Precedence: the definition's `target` (a party node id chosen from the live
-/// vocabulary) if it names one, else the case-default subject
-/// (`CASE_DEFAULT_SUBJECT_NAME` → id, via the Bias Explorer's resolver so this
-/// and the "About" filter agree on the default). A `target`-present scenario
-/// never touches the graph here — the short-circuit avoids the default lookup.
+/// The scenario's own `target` — a party node id chosen from the live vocabulary
+/// — and nothing else. A definition that names none resolves to
+/// [`SubjectResolveError::NoTarget`]; it does NOT borrow a default (see the
+/// module header for the defect that rule exists to prevent).
 ///
 /// Takes an already-parsed `&ScenarioDefinition`, so it is agnostic to HOW the
-/// caller obtained it. That matters because the two callers treat an
-/// *unparseable* definition differently — the Theme Scan errors (it also needs
+/// caller obtained it. That matters because the callers treat an *unparseable*
+/// definition differently — the Theme Scan errors on it (it also needs
 /// `attack_meaning`), while gather tolerates it and passes a target-less
-/// synthetic definition so this falls through to the case default. That
-/// per-caller policy lives in the CALLERS; this resolver only ever sees a valid
-/// `&ScenarioDefinition` and only reads its `target`.
+/// synthetic definition, which now lands on `NoTarget` instead of on a borrowed
+/// pool. That per-caller policy lives in the CALLERS; this resolver only ever
+/// sees a valid `&ScenarioDefinition` and only reads its `target`.
+///
+/// ## Rust Learning: this function stopped being `async`
+///
+/// It used to take `&AppState` and `.await` a graph query for the case default.
+/// With the fallback gone there is no I/O left — it reads one `Option<String>`
+/// off a struct — so it is a plain synchronous `fn` over borrowed data. That is
+/// worth noticing rather than leaving `async` for symmetry: an `async fn` tells
+/// every reader "this may block, this needs a runtime, this must be `.await`ed",
+/// and saying so when it is not true is a lie the compiler will not catch. It
+/// also makes the whole resolver unit-testable with no database and no graph.
 ///
 /// # Errors
-/// - [`SubjectResolveError::DefaultLookupFailed`] if the case-default lookup
-///   fails at the graph layer.
-/// - [`SubjectResolveError::Unresolvable`] if there is neither a `target` nor a
-///   configured case-default subject.
-pub async fn resolve_scenario_subject(
-    state: &AppState,
+/// [`SubjectResolveError::NoTarget`] if the definition names no target.
+pub fn resolve_scenario_subject(
     definition: &ScenarioDefinition,
 ) -> Result<String, SubjectResolveError> {
-    // A definition-named target takes precedence and short-circuits the graph
-    // lookup entirely.
-    if let Some(subject_id) = target_subject(definition.target.as_deref()) {
-        return Ok(subject_id);
-    }
-
-    // No target → fall back to the case default, reusing the Bias Explorer's
-    // public resolver so the scan, the gather pool, and the "About" filter all
-    // agree on the default subject.
-    let repo = BiasRepository::new(state.graph.clone());
-    let filters = repo
-        .available_filters(state.config.case_default_subject_name.as_deref())
-        .await
-        .map_err(|source| SubjectResolveError::DefaultLookupFailed { source })?;
-
-    filters
-        .default_subject_id
-        .ok_or(SubjectResolveError::Unresolvable)
+    target_subject(definition.target.as_deref()).ok_or(SubjectResolveError::NoTarget)
 }
 
 /// Pure branch-selector: a non-blank `target` is the subject; a blank or absent
-/// one means "no target, fall back".
+/// one means "no target".
 ///
-/// Extracted as a pure `fn` (no `AppState`, no I/O) so the precedence rule —
-/// "trim, and treat an all-whitespace target as absent" — is unit-testable
-/// without a live graph. Keeping it separate is also why the async resolver can
-/// short-circuit before ever constructing a `BiasRepository`.
+/// Kept as its own function even now that the resolver is a one-liner around it,
+/// because the normalisation rule it carries — "trim, and treat an
+/// all-whitespace target as absent" — is the load-bearing half. A target of
+/// `"   "` passed through to the graph as a node id would match nothing and
+/// return an empty pool, which is the silent-empty state this whole change
+/// exists to eliminate.
 fn target_subject(target: Option<&str>) -> Option<String> {
     target
         .map(str::trim)
@@ -124,62 +135,72 @@ fn target_subject(target: Option<&str>) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dto::scenario_crud::CURRENT_SCHEMA_V;
+
+    /// A definition carrying the given target, and nothing else that matters
+    /// here.
+    fn definition_with_target(target: Option<&str>) -> ScenarioDefinition {
+        ScenarioDefinition {
+            attack_text: "they say she refused to divide the property".to_string(),
+            attack_meaning: None,
+            target: target.map(str::to_string),
+            wielders: Vec::new(),
+            schema_v: CURRENT_SCHEMA_V,
+        }
+    }
 
     #[test]
-    fn target_subject_uses_a_named_target() {
+    fn a_named_target_is_the_subject() {
+        let definition = definition_with_target(Some("person-marie-awad"));
         assert_eq!(
-            target_subject(Some("person-marie-awad")),
-            Some("person-marie-awad".to_string())
+            resolve_scenario_subject(&definition).expect("a named target resolves"),
+            "person-marie-awad"
         );
     }
 
     #[test]
-    fn target_subject_trims_surrounding_whitespace() {
+    fn a_surrounding_space_does_not_make_a_different_subject() {
+        // A pasted id with a stray space would otherwise be sent to the graph
+        // verbatim, match no node, and return an empty pool with no explanation.
+        let definition = definition_with_target(Some("  person-marie-awad  "));
         assert_eq!(
-            target_subject(Some("  person-marie-awad  ")),
-            Some("person-marie-awad".to_string())
+            resolve_scenario_subject(&definition).expect("a padded target resolves"),
+            "person-marie-awad"
         );
     }
 
+    /// THE regression test for 2026-08-07.
+    ///
+    /// Before the fix, each of these three definitions resolved to
+    /// `person-marie-awad` — the case default — and gathered 148 candidates
+    /// belonging to a scenario the human never named. Any of them resolving to
+    /// a subject again means the fallback is back.
     #[test]
-    fn target_subject_treats_blank_as_absent() {
-        // An all-whitespace target is NOT a subject — it must fall through to the
-        // case default, exactly like `None`. Otherwise a stray-space value would
-        // be passed to the graph as a node id and match nothing.
-        assert_eq!(target_subject(Some("   ")), None);
-        assert_eq!(target_subject(Some("")), None);
-        assert_eq!(target_subject(None), None);
+    fn no_target_resolves_to_nothing_rather_than_to_the_case_default() {
+        for absent in [None, Some(""), Some("   ")] {
+            let definition = definition_with_target(absent);
+            let error = resolve_scenario_subject(&definition)
+                .expect_err("a target-less scenario must not resolve to any subject");
+            assert!(
+                matches!(error, SubjectResolveError::NoTarget),
+                "target {absent:?} produced {error:?} instead of NoTarget"
+            );
+        }
     }
 
     #[test]
-    fn unresolvable_display_names_the_config_key() {
-        // The operator's fix for an unresolvable subject is to set the env var —
-        // so the message must name it (Standing Rule 1: the failure says how to
-        // fix it). Mirrors `theme_scan`'s `SubjectUnresolvable` display test.
-        let msg = SubjectResolveError::Unresolvable.to_string();
+    fn the_refusal_tells_the_human_what_to_do_about_it() {
+        // Standing Rule 1: the message a human meets must carry its own fix. The
+        // operator action here is not a config key — it is authoring a target on
+        // the scenario, which is the sentence this must name.
+        let msg = SubjectResolveError::NoTarget.to_string();
         assert!(
-            msg.contains("CASE_DEFAULT_SUBJECT_NAME"),
-            "message must name the config key that fixes it: {msg}"
-        );
-    }
-
-    #[test]
-    fn default_lookup_failed_display_surfaces_source() {
-        use serde::de::Error as _;
-        // The wrapped graph error must reach the operator via `{source}`.
-        // Construct a `BiasRepositoryError` via serde's `custom` so the test
-        // needs no live Neo4j (same construction as theme_scan's error tests).
-        let source = crate::bias::repository::BiasRepositoryError::Deserialize(
-            neo4rs::DeError::custom("subjects query failed"),
-        );
-        let msg = SubjectResolveError::DefaultLookupFailed { source }.to_string();
-        assert!(
-            msg.contains("case-default subject"),
-            "message must describe what failed: {msg}"
+            msg.contains("target"),
+            "the refusal must name what is missing: {msg}"
         );
         assert!(
-            msg.contains("subjects query failed"),
-            "the underlying cause must be surfaced: {msg}"
+            msg.contains("identity"),
+            "the refusal must name the control that fixes it: {msg}"
         );
     }
 }

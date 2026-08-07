@@ -31,6 +31,7 @@ use uuid::Uuid;
 
 use crate::domain::scenario_code::scenario_code;
 use crate::dto::scenario::{AnchoredAllegationEvidenceResponse, AnchoredEvidenceFact};
+use crate::dto::scenario_authoring_wording::ScenarioCreateWordingDto;
 use crate::dto::trial_prep::{
     ExchangeTurn, ScenarioDetail, ScenarioStatus, ScenarioSummary, TrialPrepDashboard,
     TrialPrepMetrics,
@@ -134,10 +135,20 @@ impl ScenarioDashboardAssembler {
     /// allegation per scenario. Everything after that is the pure shaping in
     /// `record_to_card` / `compute_metrics`, so the mapping is unit-testable
     /// without a live DB/graph.
-    #[tracing::instrument(skip(self), fields(case_slug = %case_slug))]
+    ///
+    /// ## Why the wording arrives as a PARAMETER and not from a held handle
+    ///
+    /// The assembler owns two data-source handles and no `AppState` — that is
+    /// what keeps it constructible in a test from a repo and a pool. Giving it a
+    /// `SettingsHandle` to read the create form's words from would drag the whole
+    /// configuration store into every construction site. The caller already holds
+    /// a snapshot (`state.settings.current()`), so it passes the block it needs;
+    /// the assembler stays a shaper of data it was handed.
+    #[tracing::instrument(skip(self, create_wording), fields(case_slug = %case_slug))]
     pub async fn assemble(
         &self,
         case_slug: &str,
+        create_wording: ScenarioCreateWordingDto,
     ) -> Result<TrialPrepDashboard, ScenarioDashboardError> {
         let records = list_scenarios_for_case(&self.pipeline_pool, case_slug)
             .await
@@ -158,6 +169,7 @@ impl ScenarioDashboardAssembler {
             // NOT the old hardcoded placeholder strings.
             alerts: Vec::new(),
             scenarios: cards,
+            create_wording,
         })
     }
 

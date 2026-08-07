@@ -170,28 +170,24 @@ pub enum ThemeScanError {
         source: PipelineRepoError,
     },
 
-    /// Resolving the case-default subject failed at the graph layer.
+    /// The scenario's definition names no `target`, so there is nobody to scan.
     ///
-    /// Distinct from [`Self::SubjectUnresolvable`], which is the scenario naming
-    /// nobody: this is the lookup itself failing. Like [`Self::DefinitionInvalid`]
-    /// it now fails before the run row exists, so the message carries its own
-    /// recovery action rather than relying on Run History to be read later.
+    /// ## Why the sibling `SubjectResolveFailed` variant is gone (2026-08-07)
+    ///
+    /// Until this date, resolution could also fail at the GRAPH layer, because a
+    /// target-less scenario fell back to looking up the case-default subject —
+    /// and that fallback is what let a scenario scan and gather over a subject
+    /// nobody chose (see `services::scenario_subject`). With the fallback
+    /// removed, resolution reads one field off a parsed definition: it cannot
+    /// touch the graph, so it cannot fail at the graph, and a variant for a
+    /// failure that can no longer happen would be a message no operator will
+    /// ever see and every reader has to reason about.
+    ///
+    /// The message names the human fix (author a target), not a config key: this
+    /// is now a scenario-authoring state, not a deployment misconfiguration.
     #[error(
-        "failed to resolve the default subject for scenario {scenario_id}: {source} \
-         — verify the graph is reachable, or that CASE_DEFAULT_SUBJECT_NAME names a \
-         party this case actually has"
-    )]
-    SubjectResolveFailed {
-        scenario_id: Uuid,
-        #[source]
-        source: BiasRepositoryError,
-    },
-
-    /// Neither the scenario definition's `target` nor a configured case-default
-    /// subject yielded a subject to scan.
-    #[error(
-        "scenario {scenario_id}: no subject to scan — the scenario names no target \
-         and no case-default subject is configured (CASE_DEFAULT_SUBJECT_NAME)"
+        "scenario {scenario_id}: no subject to scan — the scenario names no target. \
+         Edit the scenario's identity and name who it is about, then scan again"
     )]
     SubjectUnresolvable { scenario_id: Uuid },
 

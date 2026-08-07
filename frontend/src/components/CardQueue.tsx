@@ -201,6 +201,8 @@ const CardQueue: React.FC<Props> = ({
   const [rulingError, setRulingError] = useState<string | null>(null);
   /** The stuck pile's progress sentence, or `null` when nothing is stuck. */
   const [linkProgress, setLinkProgress] = useState<string | null>(null);
+  /** The stored sentence a target-less scenario shows INSTEAD of a queue. */
+  const [noTargetNotice, setNoTargetNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   // `null` until the first pool arrives: the default view is computed from the
   // counts (rulable if any exist), and choosing it before the counts exist would
@@ -260,6 +262,10 @@ const CardQueue: React.FC<Props> = ({
       // describes and replaced on every read, so it can never be stale relative to
       // the chips beneath it.
       setLinkProgress(cards.link_progress);
+      // Present only when the scenario names nobody, in which case both lists
+      // above were empty. Held rather than derived: an empty queue is not by
+      // itself this state (see the field's own note).
+      setNoTargetNotice(cards.no_target_notice ?? null);
       setError(null);
     } catch (e: unknown) {
       // Name WHAT failed, WHERE, and WHY. The scenario is in scope here and the
@@ -376,6 +382,22 @@ const CardQueue: React.FC<Props> = ({
   }, [onProgress, ruled, total]);
 
   if (loading) return <div style={{ padding: "1rem" }}>Loading the candidate queue…</div>;
+
+  // A scenario that names nobody has no queue to show, and the sentence saying
+  // so replaces it entirely — before this, the same state rendered 148 cards
+  // gathered over a subject the human never chose, indistinguishable from the
+  // scenario beside it (CC_REPORT_SCENARIO_COPY_DIAGNOSTIC.md).
+  //
+  // Placed above the error branch because it is not an error: nothing failed,
+  // and a red box would send someone looking for a fault instead of to the
+  // Edit-identity control the sentence names.
+  if (noTargetNotice) {
+    return (
+      <div style={{ padding: "1rem", color: "var(--text-secondary)" }}>
+        {noTargetNotice}
+      </div>
+    );
+  }
 
   if (error) {
     // Explicit error UI, never a silent empty queue (Standing Rule 1).

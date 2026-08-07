@@ -167,6 +167,7 @@ const TrialPrepDashboardPage: React.FC = () => {
       {showForm && (
         <ScenarioCreateForm
           slug={slug}
+          wording={dashboard.create_wording}
           onCreated={() => {
             setShowForm(false);
             setRefreshKey((k) => k + 1);

@@ -28,6 +28,15 @@ const validResponse: TrialPrepDashboard = {
     instances: 16,
   },
   alerts: [{ message: "an alert" }],
+  create_wording: {
+    target_label: "Who this scenario is about",
+    target_helper: "Evidence is gathered about this person and nobody else.",
+    target_unset_option: "Choose a person…",
+    accusation_label: "The accusation, in plain language",
+    accusation_helper: "What the other side is actually saying.",
+    target_required: "Choose who this scenario is about.",
+    accusation_required: "Write the accusation in plain language.",
+  },
   scenarios: [
     {
       id: "marie-obstructive",
