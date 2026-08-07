@@ -57,7 +57,8 @@ import { fillDetail } from "../services/scenarioAccusation";
 import { fetchRehearsal, type RehearsalPayload } from "../services/rehearsal";
 import { rehearsalEdits } from "./rehearsalEdits";
 import { fillCode, openSectionsFrom, type OpenSections } from "./rehearsalSections";
-import { positionAt, stepForKey, stepTo } from "./rehearsalNav";
+import { positionAt, stepForKey, stepTo, type RehearsalStep } from "./rehearsalNav";
+import { rehearsalScenarioPath } from "../utils/routePaths";
 
 // CONST: the three strings that describe the absence of a payload, and therefore
 // cannot come from one. Every other word on this page is a settings row.
@@ -136,6 +137,44 @@ const RehearsalPage: React.FC = () => {
     if (addressed >= 0) setIndex(addressed);
   }, [addressed]);
 
+  /**
+   * Move one scenario, and take the ADDRESS with you.
+   *
+   * ## Why both the keys and the buttons come through here
+   *
+   * They did not, until this fix. The keyboard handler updated the URL on every
+   * step; the ‹ Back / Next › buttons only moved the index and left the address
+   * behind. So arrow-keying to S-3 produced a page you could send someone, and
+   * clicking Next to S-3 produced one you could not — the same position, two
+   * different degrees of linkable, decided by how the reader happened to get
+   * there. One mover, one rule, and the paper cut is gone.
+   *
+   * `replace` rather than push: a rehearsal is worked through in one pass, and
+   * filling history with every step would make the browser's Back button mean
+   * "one scenario ago" instead of "out of here" — which is the one thing a
+   * witness under stress needs it to mean.
+   *
+   * ## Why `index` is read directly rather than through a functional update
+   *
+   * Navigating is a side effect, and a `setIndex(current => …)` updater is not
+   * the place for one — React may invoke an updater more than once. Reading
+   * `index` from the render it belongs to keeps the effect beside the state
+   * change instead of inside it; the cost is that this callback (and the key
+   * listener below) is rebuilt when the index moves, which is exactly when the
+   * rebuilt version is the correct one.
+   */
+  const move = useCallback(
+    (step: RehearsalStep) => {
+      const next = stepTo(index, total, step);
+      setIndex(next);
+      const moved = payload?.scenarios[next];
+      if (moved && slug) {
+        navigate(rehearsalScenarioPath(slug, moved.code), { replace: true });
+      }
+    },
+    [index, total, payload, slug, navigate],
+  );
+
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       // A keystroke inside a box a human is typing in is text, not navigation.
@@ -147,22 +186,11 @@ const RehearsalPage: React.FC = () => {
       if (step === null) return;
       // Space would otherwise scroll the page out from under the reader.
       event.preventDefault();
-      setIndex((current) => {
-        const next = stepTo(current, total, step);
-        // The address follows the reader, so a scenario can be linked to and
-        // returned to. `replace` rather than push: a rehearsal is worked through
-        // in one pass, and filling the back button with every step would make the
-        // browser's Back mean "one scenario ago" instead of "out of here".
-        const moved = payload?.scenarios[next];
-        if (moved && slug) {
-          navigate(`/cases/${slug}/rehearsal/${moved.code}`, { replace: true });
-        }
-        return next;
-      });
+      move(step);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [total, payload, slug, navigate]);
+  }, [move]);
 
   const toggle = (section: keyof OpenSections) =>
     setOpen((current) => (current ? { ...current, [section]: !current[section] } : current));
@@ -279,8 +307,8 @@ const RehearsalPage: React.FC = () => {
         wording={w}
         scenario={scenario}
         position={positionAt(index, payload.positions)}
-        onPrevious={() => setIndex(stepTo(index, total, "previous"))}
-        onNext={() => setIndex(stepTo(index, total, "next"))}
+        onPrevious={() => move("previous")}
+        onNext={() => move("next")}
         atFirst={index === 0}
         atLast={index >= total - 1}
         onOpenAll={() => setAll(true)}

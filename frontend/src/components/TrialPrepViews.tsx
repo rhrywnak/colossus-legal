@@ -27,6 +27,7 @@ import {
   showsRepeatFlag,
   statusMeta,
 } from "../pages/trialPrepHelpers";
+import { scenarioPagePath } from "../utils/routePaths";
 
 const EMDASH = "—";
 
@@ -191,7 +192,7 @@ export const ScenarioCard: React.FC<{
     // to keep the card's visual styling — children carry their own colors; only
     // the trailing "Open scenario →" hint is accent-colored.
     <Link
-      to={`/cases/${slug}/trial-prep/${scenario.id}`}
+      to={scenarioPagePath(slug, scenario.id)}
       style={{ ...scenarioCardStyle, textDecoration: "none", color: "var(--text-primary)" }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>

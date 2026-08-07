@@ -72,6 +72,7 @@ import {
 } from "../services/scenarioAugmentation";
 import { deleteScenario } from "../services/scenarioCrud";
 import { getScenarioDetailLive } from "../services/trialPrep";
+import { trialPrepPath } from "../utils/routePaths";
 import type { ScenarioDetail } from "./trialPrepData";
 
 /**
@@ -113,7 +114,7 @@ const ScenarioDetailPage: React.FC = () => {
   const { slug: slugParam, scenarioId } = useParams<{ slug: string; scenarioId: string }>();
   const slug = slugParam ?? DEFAULT_CASE_SLUG;
   const navigate = useNavigate();
-  const backCrumb = { label: "Trial Prep", to: `/cases/${slug}/trial-prep` };
+  const backCrumb = { label: "Trial Prep", to: trialPrepPath(slug) };
 
   // Gating fetch. `null` after load = a real 404, which renders the "not found"
   // empty state — distinct from a fetch error (banner) and from still-loading.
@@ -217,7 +218,7 @@ const ScenarioDetailPage: React.FC = () => {
     setDeleting(true);
     setDeleteError(null);
     deleteScenario(slug, scenarioId)
-      .then(() => navigate(`/cases/${slug}/trial-prep`))
+      .then(() => navigate(trialPrepPath(slug)))
       .catch((err: unknown) => {
         // Standing Rule 1: a failed DELETE stays visible IN the modal. We do NOT
         // navigate away or close, which would imply a success that did not happen.
