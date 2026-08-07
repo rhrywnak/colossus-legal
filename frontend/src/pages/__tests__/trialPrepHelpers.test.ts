@@ -11,7 +11,6 @@ import { describe, expect, it } from "vitest";
 import {
   isAnticipated,
   patternFlagText,
-  scenarioMetaLine,
   showsRepeatFlag,
   sortTimelineByDate,
   statusMeta,
@@ -43,9 +42,6 @@ const makeSummary = (
   code: "S-1",
   attack: "An attack",
   status: "draft",
-  instance_count: 4,
-  response_count: 2,
-  speakers: ["George Phillips", "CFS"],
   baseless_repeat_count: 0,
   ...overrides,
 });
@@ -70,20 +66,6 @@ describe("patternFlagText", () => {
       text: "repeated 3× after rebuttal",
       muted: false,
     });
-  });
-});
-
-describe("scenarioMetaLine", () => {
-  it("formats 'N instances · speakers · N responses'", () => {
-    expect(scenarioMetaLine(makeSummary())).toBe(
-      "4 instances · George Phillips, CFS · 2 responses",
-    );
-  });
-
-  it("handles no speakers without producing an empty segment", () => {
-    expect(scenarioMetaLine(makeSummary({ speakers: [] }))).toBe(
-      "4 instances · no speakers yet · 2 responses",
-    );
   });
 });
 

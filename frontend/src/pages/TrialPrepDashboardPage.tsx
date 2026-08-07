@@ -19,12 +19,15 @@ import {
   EmptyState,
   GenerateScenarioCard,
   MetricsBand,
-  ScenarioCard,
 } from "../components/TrialPrepViews";
+import ScenarioCard from "../components/ScenarioCard";
 import ScenarioCreateForm from "../components/ScenarioCreateForm";
+import ScenarioDeleteConfirm from "../components/ScenarioDeleteConfirm";
+import { scenarioDeleteCopy } from "../components/scenarioDeleteCopy";
 import { DEFAULT_CASE_SLUG } from "../services/caseHeader";
+import { deleteScenario } from "../services/scenarioCrud";
 import { getTrialPrepDashboard } from "../services/trialPrep";
-import type { TrialPrepDashboard } from "./trialPrepData";
+import type { ScenarioSummary, TrialPrepDashboard } from "./trialPrepData";
 
 const containerStyle: React.CSSProperties = {
   paddingTop: "32px",
@@ -128,11 +131,59 @@ const TrialPrepDashboardPage: React.FC = () => {
   const { slug: slugParam } = useParams<{ slug: string }>();
   const slug = slugParam ?? DEFAULT_CASE_SLUG;
 
-  // Bumping `refreshKey` re-runs the gating fetch (e.g. after a create).
+  // Bumping `refreshKey` re-runs the gating fetch (e.g. after a create or a
+  // delete) — which is what makes a deleted card disappear AND the metrics band
+  // above it drop by one, from one source, rather than two hand-patched states.
   const [refreshKey, setRefreshKey] = useState(0);
   const [showForm, setShowForm] = useState(false);
 
+  // Delete lives on the PAGE, not on the card: one dialog serves N cards, and
+  // the page is what owns the refresh that follows a successful delete.
+  // `pendingDelete` is the scenario the dialog is asking about — `null` means
+  // no dialog. Holding the scenario rather than a boolean is what lets the
+  // dialog name it.
+  const [pendingDelete, setPendingDelete] = useState<ScenarioSummary | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
   const { dashboard, loading, error } = useTrialPrepDashboard(slug, refreshKey);
+
+  const confirmDelete = () => {
+    if (!pendingDelete) return;
+    // Captured before the async call so the failure handler cannot read a
+    // `pendingDelete` the human has since changed.
+    const target = pendingDelete;
+    setDeleting(true);
+    setDeleteError(null);
+    deleteScenario(slug, target.id)
+      .then(() => {
+        // Closed only AFTER the DELETE resolved. The dialog closing is not proof
+        // the scenario is gone; the re-read is (Standing Rule 1).
+        setDeleting(false);
+        setPendingDelete(null);
+        setRefreshKey((k) => k + 1);
+      })
+      .catch((err: unknown) => {
+        // The dialog STAYS OPEN with the failure on it — the same contract the
+        // scenario page's delete follows. Closing here would tell the human a
+        // scenario was deleted that is still there, and the grid behind would
+        // agree with them until the next reload.
+        setDeleting(false);
+        setDeleteError(
+          err instanceof Error
+            ? err.message
+            : // A non-`Error` throw carries no message of its own, so this
+              // branch composes the whole diagnosis. It NAMES the scenario:
+              // `deleteScenario` bakes the id into the errors it throws, but a
+              // throw from anywhere else does not, and on a grid of cards
+              // "failed to delete the scenario" identifies none of them. The
+              // dialog above shows the name; the error line must not depend on
+              // the reader connecting the two.
+              `Failed to delete “${target.attack}” (${target.code}). ` +
+              `It has not been deleted — try again.`,
+        );
+      });
+  };
 
   if (loading)
     return <div style={messageStyle}>Loading Trial Prep dashboard…</div>;
@@ -185,11 +236,33 @@ const TrialPrepDashboardPage: React.FC = () => {
       ) : (
         <div style={gridStyle}>
           {dashboard.scenarios.map((s) => (
-            <ScenarioCard key={s.id} scenario={s} slug={slug} />
+            <ScenarioCard
+              key={s.id}
+              scenario={s}
+              slug={slug}
+              onRequestDelete={setPendingDelete}
+            />
           ))}
           {/* On-demand entry point — visual affordance only in Stage 1. */}
           <GenerateScenarioCard />
         </div>
+      )}
+
+      {/* Mounted only while a scenario is pending, so the dialog can never carry
+          a stale name from a card the human dismissed earlier. */}
+      {pendingDelete && (
+        <ScenarioDeleteConfirm
+          // The same builder the scenario page uses — one question, asked in one
+          // set of words wherever a scenario is deleted from.
+          {...scenarioDeleteCopy(pendingDelete.attack)}
+          busy={deleting}
+          error={deleteError}
+          onConfirm={confirmDelete}
+          onCancel={() => {
+            setPendingDelete(null);
+            setDeleteError(null);
+          }}
+        />
       )}
     </div>
   );

@@ -48,6 +48,7 @@ import { includedPickableFacts } from "../components/accusationFacts";
 import Breadcrumb from "../components/Breadcrumb";
 import ScanSection from "../components/ScanSection";
 import ScenarioDeleteConfirm from "../components/ScenarioDeleteConfirm";
+import { scenarioDeleteCopy } from "../components/scenarioDeleteCopy";
 import ScenarioFactsSection from "../components/ScenarioFactsSection";
 import ScenarioHeaderTiers from "../components/ScenarioHeaderTiers";
 import { ghostButtonStyle } from "../components/scenarioSectionStyles";
@@ -523,13 +524,9 @@ const ScenarioDetailPage: React.FC = () => {
 
       {showDelete && (
         <ScenarioDeleteConfirm
-          title="Delete this scenario?"
-          message={
-            `“${scenario.attack}” and its curated facts and responses will be ` +
-            `permanently deleted. This cannot be undone. (The underlying evidence ` +
-            `in the case graph is not affected.)`
-          }
-          confirmLabel="Delete scenario"
+          // One vocabulary, two surfaces: the dashboard's card kebab asks this
+          // same question through the same builder (2026-08-07).
+          {...scenarioDeleteCopy(scenario.attack)}
           busy={deleting}
           error={deleteError}
           onConfirm={handleDelete}

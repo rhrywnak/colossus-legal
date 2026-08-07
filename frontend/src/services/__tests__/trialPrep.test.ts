@@ -25,7 +25,6 @@ const validResponse: TrialPrepDashboard = {
     scenarios: 5,
     ready: 1,
     drafted_or_review: 3,
-    instances: 16,
   },
   alerts: [{ message: "an alert" }],
   create_wording: {
@@ -43,9 +42,6 @@ const validResponse: TrialPrepDashboard = {
       code: "S-1",
       attack: "Marie is obstructive and uncooperative",
       status: "draft",
-      instance_count: 4,
-      response_count: 1,
-      speakers: ["CFS", "George Phillips"],
       baseless_repeat_count: 3,
     },
   ],

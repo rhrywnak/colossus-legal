@@ -21,9 +21,6 @@ export interface ScenarioSummary {
   code: string;
   attack: string;
   status: ScenarioStatus;
-  instance_count: number;
-  response_count: number;
-  speakers: string[];
   /** null = pattern analysis pending; 0 = analysed, no baseless repeat. */
   baseless_repeat_count: number | null;
 }
@@ -34,7 +31,6 @@ export interface TrialPrepDashboard {
     scenarios: number;
     ready: number;
     drafted_or_review: number;
-    instances: number;
   };
   /** Living-binder notices ("N new instances …"). Empty array = no alerts. */
   alerts: { message: string }[];
