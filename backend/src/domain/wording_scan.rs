@@ -49,6 +49,37 @@ pub struct ScanWording {
     /// support a human has for the rulings that came out of it. One stray click on
     /// a ✕ used to be enough.
     pub history_delete_confirm_template: String,
+
+    // ── Scan → ruling (2026-08-08) ───────────────────────────────────────────
+    /// The one line a COLLAPSED scan card shows. Carries `{when}`, `{model}` and
+    /// `{count}`.
+    ///
+    /// Domain note: the scan card collapses once a run exists because the scan is
+    /// no longer where the work happens — the queue below it is. This sentence has
+    /// to carry enough that a human never expands the card just to find out
+    /// whether it is worth expanding.
+    pub card_collapsed_summary_template: String,
+    /// The line under the scan report's heading, saying the report needs no click.
+    ///
+    /// Domain note: this is the epitaph of select-twice. The findings list used to
+    /// be a work surface with checkboxes and a Merge button; it is now a receipt,
+    /// and the sentence says so before anybody goes looking for the controls that
+    /// used to be there.
+    pub report_advisory_note: String,
+    /// The report's live proposed line. Carries `{count}`.
+    ///
+    /// Domain note: kept OUT of the conservation sentence deliberately (architect
+    /// ruling R5). Conservation is composed from the run's FROZEN counts and
+    /// describes what that run did; "proposed" falls every time the human rules.
+    /// Splicing a live number into a frozen record would make the record appear to
+    /// move, so the two sentences stay separate and this one says it is live.
+    pub report_proposed_line_template: String,
+    /// The five report tile captions, in the order the tiles are shown.
+    pub report_tile_gathered: String,
+    pub report_tile_folded: String,
+    pub report_tile_set_aside: String,
+    pub report_tile_judged: String,
+    pub report_tile_proposed: String,
 }
 
 // KEYS: the stable identifiers of the three stored strings. Renaming one is a
@@ -56,6 +87,14 @@ pub struct ScanWording {
 pub(crate) const KEY_CONSERVATION_LINE: &str = "scan_conservation_line_template";
 pub(crate) const KEY_HISTORY_VIEW_LABEL: &str = "scan_history_view_label";
 pub(crate) const KEY_HISTORY_DELETE_CONFIRM: &str = "scan_history_delete_confirm_template";
+pub(crate) const KEY_CARD_COLLAPSED_SUMMARY: &str = "scan_card_collapsed_summary_template";
+pub(crate) const KEY_REPORT_ADVISORY_NOTE: &str = "scan_report_advisory_note";
+pub(crate) const KEY_REPORT_PROPOSED_LINE: &str = "scan_report_proposed_line_template";
+pub(crate) const KEY_REPORT_TILE_GATHERED: &str = "scan_report_tile_gathered";
+pub(crate) const KEY_REPORT_TILE_FOLDED: &str = "scan_report_tile_folded";
+pub(crate) const KEY_REPORT_TILE_SET_ASIDE: &str = "scan_report_tile_set_aside";
+pub(crate) const KEY_REPORT_TILE_JUDGED: &str = "scan_report_tile_judged";
+pub(crate) const KEY_REPORT_TILE_PROPOSED: &str = "scan_report_tile_proposed";
 
 /// Every scan-wording key this build reads, so a missing one is caught at boot BY
 /// NAME rather than as a blank control in front of a human mid-scan.
@@ -63,6 +102,14 @@ pub const SCAN_WORDING_KEYS: &[&str] = &[
     KEY_CONSERVATION_LINE,
     KEY_HISTORY_VIEW_LABEL,
     KEY_HISTORY_DELETE_CONFIRM,
+    KEY_CARD_COLLAPSED_SUMMARY,
+    KEY_REPORT_ADVISORY_NOTE,
+    KEY_REPORT_PROPOSED_LINE,
+    KEY_REPORT_TILE_GATHERED,
+    KEY_REPORT_TILE_FOLDED,
+    KEY_REPORT_TILE_SET_ASIDE,
+    KEY_REPORT_TILE_JUDGED,
+    KEY_REPORT_TILE_PROPOSED,
 ];
 
 /// Build a [`ScanWording`] from the stored rows, or say which key is wrong.
@@ -80,6 +127,14 @@ pub fn build_scan_wording<E>(read: impl Fn(&str) -> Result<String, E>) -> Result
         conservation_line_template: read(KEY_CONSERVATION_LINE)?,
         history_view_label: read(KEY_HISTORY_VIEW_LABEL)?,
         history_delete_confirm_template: read(KEY_HISTORY_DELETE_CONFIRM)?,
+        card_collapsed_summary_template: read(KEY_CARD_COLLAPSED_SUMMARY)?,
+        report_advisory_note: read(KEY_REPORT_ADVISORY_NOTE)?,
+        report_proposed_line_template: read(KEY_REPORT_PROPOSED_LINE)?,
+        report_tile_gathered: read(KEY_REPORT_TILE_GATHERED)?,
+        report_tile_folded: read(KEY_REPORT_TILE_FOLDED)?,
+        report_tile_set_aside: read(KEY_REPORT_TILE_SET_ASIDE)?,
+        report_tile_judged: read(KEY_REPORT_TILE_JUDGED)?,
+        report_tile_proposed: read(KEY_REPORT_TILE_PROPOSED)?,
     })
 }
 

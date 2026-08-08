@@ -67,6 +67,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import {
   fetchScenarioCards,
+  type ProposalSource,
   type ScenarioCard,
   type ScenarioCardsResponse,
 } from "../services/scenarioCards";
@@ -203,6 +204,13 @@ const CardQueue: React.FC<Props> = ({
   const [linkProgress, setLinkProgress] = useState<string | null>(null);
   /** The stored sentence a target-less scenario shows INSTEAD of a queue. */
   const [noTargetNotice, setNoTargetNotice] = useState<string | null>(null);
+  /**
+   * Which completed run is proposing the cards below, or `null` (2026-08-08).
+   *
+   * Held beside the cards it describes and replaced on every read, so the
+   * attribution on a card can never name a run the payload no longer carries.
+   */
+  const [proposalSource, setProposalSource] = useState<ProposalSource | null>(null);
   const [loading, setLoading] = useState(true);
   // `null` until the first pool arrives: the default view is computed from the
   // counts (rulable if any exist), and choosing it before the counts exist would
@@ -266,6 +274,7 @@ const CardQueue: React.FC<Props> = ({
       // above were empty. Held rather than derived: an empty queue is not by
       // itself this state (see the field's own note).
       setNoTargetNotice(cards.no_target_notice ?? null);
+      setProposalSource(cards.proposal_source ?? null);
       setError(null);
     } catch (e: unknown) {
       // Name WHAT failed, WHERE, and WHY. The scenario is in scope here and the
@@ -326,9 +335,11 @@ const CardQueue: React.FC<Props> = ({
   const active = filters ?? UNFILTERED;
   const visible = useMemo(() => filterCandidates(state.cards, active), [state.cards, active]);
 
-  // The default view is computed once, from the first pool that arrives: "Rulable
-  // now" while any exist, else "Not ruled". Recomputing it on every load would
-  // yank the human's chosen filter away whenever a ruling triggered a reload.
+  // The default view is computed once, from the first pool that arrives:
+  // "Proposed" while a scan is proposing anything, else the 1.7E computed default
+  // (architect ruling R8). Recomputing it on every load would yank the human's
+  // chosen filter away whenever a ruling triggered a reload — and it would also
+  // move them off Proposed the moment they ruled the last proposal, mid-session.
   const chosen = filters !== null;
   useEffect(() => {
     if (!chosen && !loading && state.cards.length > 0) setFilters(defaultFilters(counts));
@@ -471,6 +482,17 @@ const CardQueue: React.FC<Props> = ({
         // with. The keyboard's own path, above, is the one that reads the
         // selection, because the selection is what a keyboard is aimed at.
         onRule={(key, graphNodeId) => dispatch({ type: "rule", key, graphNodeId })}
+        // ONE sentence for the whole list: only the latest completed run projects,
+        // so every proposed card shares it. `null` when nothing is proposed, and
+        // each card checks its own `proposed` field before rendering it.
+        proposedAttribution={
+          proposalSource && linkOptions
+            ? linkOptions.wording.card_proposed_attribution_template.replace(
+                "{when}",
+                formatProposedDate(proposalSource.started_at),
+              )
+            : null
+        }
         onCorrectQuestion={correctQuestion}
         onRevertQuestion={revertQuestion}
         linkOptions={linkOptions}
@@ -537,5 +559,24 @@ const DeferPrompt: React.FC<{
     />
   </div>
 );
+
+/**
+ * The proposing run's date, as the attribution says it: "Aug 7".
+ *
+ * The BROWSER formats it because the server does not know the reader's locale —
+ * the same split the scan-history delete confirmation makes with `{run}`, so both
+ * dates on this page read alike. An unparseable timestamp falls back to the raw
+ * string rather than "Invalid Date": a card naming an ugly date still says which
+ * scan proposed it, which is the whole job of the line.
+ *
+ * Kept identical to `ScanSection`'s copy on purpose — the two sentences sit within
+ * a few inches of each other, and a shared helper would be a third module for one
+ * `toLocaleDateString` call. If a third caller appears, extract it then.
+ */
+function formatProposedDate(iso: string): string {
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return iso;
+  return at.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
 
 export default CardQueue;

@@ -12,6 +12,7 @@ fn settings() -> Settings {
     Settings::for_test()
 }
 use crate::bias::dto::{ActorOption, DocumentRef};
+use crate::domain::confidence_band::ConfidenceBand;
 
 /// A candidate with everything the record can carry, on a given page.
 fn full_instance() -> BiasInstance {
@@ -92,9 +93,12 @@ fn set_aside_items_are_partitioned_into_their_own_list() {
         &ordinals(&[("ev-1", 1), ("ev-2", 2), ("ev-3", 3)]),
         &HashMap::new(),
         &settings(),
-        HumanTouchIndex {
-            question_overrides: &Default::default(),
-            links: &HashMap::new(),
+        PoolIndexes {
+            human: HumanTouchIndex {
+                question_overrides: &Default::default(),
+                links: &HashMap::new(),
+            },
+            proposals: &HashMap::new(),
         },
     );
 
@@ -114,9 +118,12 @@ fn a_candidate_with_no_ref_row_is_undecided_and_in_the_pool() {
         &HashMap::new(),
         &HashMap::new(),
         &settings(),
-        HumanTouchIndex {
-            question_overrides: &Default::default(),
-            links: &HashMap::new(),
+        PoolIndexes {
+            human: HumanTouchIndex {
+                question_overrides: &Default::default(),
+                links: &HashMap::new(),
+            },
+            proposals: &HashMap::new(),
         },
     );
     assert_eq!(response.pool.len(), 1);
@@ -134,9 +141,12 @@ fn cards_sort_by_ordinal_numerically_not_lexicographically() {
         &ordinals(&[("ev-a", 10), ("ev-b", 9)]),
         &HashMap::new(),
         &settings(),
-        HumanTouchIndex {
-            question_overrides: &Default::default(),
-            links: &HashMap::new(),
+        PoolIndexes {
+            human: HumanTouchIndex {
+                question_overrides: &Default::default(),
+                links: &HashMap::new(),
+            },
+            proposals: &HashMap::new(),
         },
     );
     assert_eq!(response.pool[0].code.as_deref(), Some("C-9"));
@@ -158,9 +168,12 @@ fn un_numbered_candidates_sort_last_and_deterministically() {
         &ordinals(&[("ev-1", 1)]),
         &HashMap::new(),
         &settings(),
-        HumanTouchIndex {
-            question_overrides: &Default::default(),
-            links: &HashMap::new(),
+        PoolIndexes {
+            human: HumanTouchIndex {
+                question_overrides: &Default::default(),
+                links: &HashMap::new(),
+            },
+            proposals: &HashMap::new(),
         },
     );
     assert_eq!(response.pool[0].code.as_deref(), Some("C-1"));
@@ -189,9 +202,12 @@ fn page_text_is_joined_by_document_and_page() {
         &HashMap::new(),
         &page_text,
         &settings(),
-        HumanTouchIndex {
-            question_overrides: &Default::default(),
-            links: &HashMap::new(),
+        PoolIndexes {
+            human: HumanTouchIndex {
+                question_overrides: &Default::default(),
+                links: &HashMap::new(),
+            },
+            proposals: &HashMap::new(),
         },
     );
     assert!(response.pool[0].quote.context_before.contains("PAGE TWO"));
@@ -209,9 +225,12 @@ fn a_candidate_with_no_stored_page_text_still_serves_a_card() {
         &HashMap::new(),
         &HashMap::new(),
         &settings(),
-        HumanTouchIndex {
-            question_overrides: &Default::default(),
-            links: &HashMap::new(),
+        PoolIndexes {
+            human: HumanTouchIndex {
+                question_overrides: &Default::default(),
+                links: &HashMap::new(),
+            },
+            proposals: &HashMap::new(),
         },
     );
     let card = &response.pool[0];
@@ -228,4 +247,167 @@ fn the_page_key_is_scoped_to_its_document() {
     // Two documents both have a page 14; the key must keep them apart.
     assert_ne!(page_key("doc-7", 14), page_key("doc-8", 14));
     assert_eq!(page_key("doc-7", 14), "doc-7:14");
+}
+
+// ── The projection reaching the cards (2026-08-08) ───────────────────────────
+
+/// One admitted verdict, folded into the group the assembler is handed.
+fn group(node: &str, role: &str, confidence: f32) -> ProposalGroup {
+    ProposalGroup {
+        representative: node.to_string(),
+        covers: vec![node.to_string()],
+        role: Some(role.to_string()),
+        confidence: Some(confidence),
+        reason: Some("the judge's reason".to_string()),
+    }
+}
+
+/// The assembler's own index shape: representative node → its group.
+fn proposal_index<'a>(groups: &'a [ProposalGroup]) -> ProposalIndex<'a> {
+    groups
+        .iter()
+        .map(|g| (g.representative.as_str(), g))
+        .collect()
+}
+
+fn assemble_with(
+    pool: Vec<BiasInstance>,
+    ref_states: &HashMap<String, CardRefState>,
+    proposals: &ProposalIndex<'_>,
+    settings: &Settings,
+) -> ScenarioCardsResponse {
+    assemble(
+        pool,
+        &HashMap::new(),
+        ref_states,
+        &ordinals(&[("ev-1", 1), ("ev-2", 2)]),
+        &HashMap::new(),
+        settings,
+        PoolIndexes {
+            human: HumanTouchIndex {
+                question_overrides: &Default::default(),
+                links: &HashMap::new(),
+            },
+            proposals,
+        },
+    )
+}
+
+#[test]
+fn a_projected_verdict_reaches_its_card_as_a_proposal() {
+    // THE path the whole projection exists to deliver: a node with NO reference
+    // row, carrying a live verdict, comes out of the assembler as a card that says
+    // what the scan proposed — role, reason, and a BAND computed from the verdict's
+    // own score. Before this, a card with no row got the empty default and the
+    // scan's judgment reached the human only through a Merge they had to press.
+    let settings = settings();
+    let groups = [group("ev-1", "supports", 0.91)];
+
+    let response = assemble_with(
+        vec![pool_item("ev-1", Some(14))],
+        &HashMap::new(),
+        &proposal_index(&groups),
+        &settings,
+    );
+
+    let card = &response.pool[0];
+    let proposal = card.proposed.as_ref().expect("the node was proposed");
+    assert_eq!(proposal.reason.as_deref(), Some("the judge's reason"));
+    assert!(
+        proposal
+            .role_label
+            .as_deref()
+            .is_some_and(|l| l.contains("supports")),
+        "the chip carries the canon stance word: {:?}",
+        proposal.role_label
+    );
+    // The band comes from the VERDICT's score — the same number the retired merge
+    // used to copy into the column — so a proposed card is banded like any other.
+    assert_eq!(card.confidence.band, ConfidenceBand::High);
+    // And it is still an unruled candidate: a proposal is a view, not a row.
+    assert_eq!(card.status, FactStatus::Undecided);
+    assert!(
+        card.tier.is_none(),
+        "nothing has weighed a card nobody has ruled"
+    );
+}
+
+#[test]
+fn a_node_with_a_reference_row_ignores_the_projection_entirely() {
+    // R-a at the assembly seam. `project` already drops ruled nodes, so a
+    // populated entry here could only arrive from a future caller that forgot —
+    // and the assembler must still prefer the stored row rather than letting a
+    // verdict overwrite a human's decision on the way to the screen.
+    let settings = settings();
+    let groups = [group("ev-1", "supports", 0.91)];
+
+    let response = assemble_with(
+        vec![pool_item("ev-1", Some(14))],
+        &states(&[("ev-1", FactStatus::Included)]),
+        &proposal_index(&groups),
+        &settings,
+    );
+
+    let card = &response.pool[0];
+    assert!(card.proposed.is_none(), "a ruled card is never a proposal");
+    assert_eq!(card.status, FactStatus::Included);
+}
+
+#[test]
+fn count_proposed_counts_across_both_lists() {
+    // The live number (R-e), counted over the finished payload so it and the cards
+    // it describes are the same set by construction.
+    let settings = settings();
+    let groups = [group("ev-1", "supports", 0.91)];
+
+    // One proposed card, one ruled-out card that lands in `set_aside`.
+    let response = assemble_with(
+        vec![pool_item("ev-1", Some(14)), pool_item("ev-2", Some(15))],
+        &states(&[("ev-2", FactStatus::Dropped)]),
+        &proposal_index(&groups),
+        &settings,
+    );
+
+    assert_eq!(response.pool.len(), 1);
+    assert_eq!(response.set_aside.len(), 1);
+    assert_eq!(
+        count_proposed(&response),
+        1,
+        "exactly the proposed card is counted"
+    );
+
+    // Both lists are walked deliberately. An excluded card can carry no proposal
+    // today — precedence forbids it — so this asserts the WALK rather than a
+    // reachable state: a future change to the partition must not be able to lose a
+    // number by moving a card between the two lists.
+    let mut moved = response;
+    let card = moved.pool.remove(0);
+    moved.set_aside.push(card);
+    assert_eq!(
+        count_proposed(&moved),
+        1,
+        "the count follows the card across the partition"
+    );
+}
+
+#[test]
+fn nothing_proposed_is_a_zero_count_and_no_proposal_fields() {
+    // The ordinary state of every scenario nothing has scanned, and of every one
+    // whose picks are all ruled. It must be a clean zero rather than an absence
+    // the caller has to interpret.
+    let settings = settings();
+    let response = assemble_with(
+        vec![pool_item("ev-1", Some(14))],
+        &HashMap::new(),
+        &ProposalIndex::new(),
+        &settings,
+    );
+
+    assert_eq!(count_proposed(&response), 0);
+    assert!(response.pool[0].proposed.is_none());
+    assert_eq!(
+        response.pool[0].confidence.band,
+        ConfidenceBand::Unscored,
+        "no verdict, no band — never a fabricated score"
+    );
 }

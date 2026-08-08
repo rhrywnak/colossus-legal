@@ -3,10 +3,10 @@
 // =============================================================================
 //
 // The headline tests are the RECONCILIATION ones: the four state counts sum to
-// All, "Rulable now" is a subset of "Not ruled" rather than a sixth state, and the
-// scanned facet partitions the pool as well. §9's promise is not that the numbers
-// look plausible — it is that they add up, and a filter bar that quietly
-// double-counts is the defect this task exists to remove.
+// All, and "Rulable now" and "Proposed" are each a SUBSET of "Not ruled" rather
+// than a state of their own. §9's promise is not that the numbers look plausible —
+// it is that they add up, and a filter bar that quietly double-counts is the
+// defect this task exists to remove.
 
 import { describe, expect, it } from "vitest";
 
@@ -17,11 +17,10 @@ import {
   defaultFilters,
   filterCandidates,
   hasAnyFilter,
+  isProposed,
   isRulableNow,
-  isScanScored,
   stateChip,
   stateOptions,
-  scannedOptions,
   UNFILTERED,
   type CandidateFilters,
 } from "../candidateFilters";
@@ -93,6 +92,17 @@ const excluded = () => card({ status: "dropped", status_label: "Set aside" });
 const parked = () => card({ defer_reason: "Need to read the full page first" });
 const neverScanned = () => card({ confidence: { band: "unscored", label: "Not scanned" } });
 
+/** A card the latest completed scan is PROPOSING (2026-08-08). */
+const proposed = () =>
+  card({
+    proposed: {
+      role_label: "Scan: supports",
+      reason: "direct admission by the accusing party",
+      duplicate_count: 1,
+      duplicate_label: null,
+    },
+  });
+
 // ─── The four states ────────────────────────────────────────────────────────
 
 describe("candidateState", () => {
@@ -140,14 +150,20 @@ describe("the rulable predicate", () => {
   });
 });
 
-describe("the scanned facet", () => {
-  it("treats unscored as never scanned, not as low confidence", () => {
-    // The band vocabulary preserves this distinction on purpose: "the model looked
-    // and was unconvinced" and "nobody has looked" are different facts.
-    expect(isScanScored(neverScanned())).toBe(false);
-    expect(isScanScored(card({ confidence: { band: "low", label: "Scan was unsure" } }))).toBe(
-      true,
+describe("the proposed facet", () => {
+  it("reads the projection, not the confidence band", () => {
+    // The retired "scan-scored" facet read the band, and a band only existed once
+    // a verdict had been MERGED — so it measured merges, and a card that was ruled
+    // IN silently left the facet when its confidence was nulled. Presence of the
+    // projection is the honest test.
+    expect(isProposed(proposed())).toBe(true);
+    expect(isProposed(card({ confidence: { band: "high", label: "Scan was confident" } }))).toBe(
+      false,
     );
+  });
+
+  it("is empty on a scenario nothing has scanned", () => {
+    expect(isProposed(neverScanned())).toBe(false);
   });
 });
 
@@ -173,8 +189,7 @@ describe("candidateCounts", () => {
     expect(counts.included).toBe(2);
     expect(counts.excluded).toBe(1);
     expect(counts.deferred).toBe(1);
-    expect(counts.never_scanned).toBe(1);
-    expect(counts.scored).toBe(7);
+    expect(counts.proposed).toBe(0);
   });
 
   it("RECONCILES: the four states partition the pool exactly", () => {
@@ -189,8 +204,12 @@ describe("candidateCounts", () => {
     expect(counts.rulable).toBeLessThanOrEqual(counts.not_ruled);
   });
 
-  it("RECONCILES: the scanned facet partitions the pool as well", () => {
-    expect(counts.scored + counts.never_scanned).toBe(counts.all);
+  it("RECONCILES: proposed is a SUBSET of not-ruled too", () => {
+    // Precedence R-a is what guarantees it: a human-touched card is never
+    // proposed, so a proposal can only ever be one of the not-ruled.
+    const withProposals = candidateCounts([proposed(), proposed(), included(), parked()]);
+    expect(withProposals.proposed).toBe(2);
+    expect(withProposals.proposed).toBeLessThanOrEqual(withProposals.not_ruled);
   });
 
   it("counts an empty pool as zeroes rather than refusing", () => {
@@ -204,9 +223,7 @@ describe("candidateCounts", () => {
     const options = stateOptions(counts);
     expect(options.find((o) => o.facet === "all")?.count).toBe(counts.all);
     expect(options.find((o) => o.facet === "rulable")?.count).toBe(counts.rulable);
-    expect(scannedOptions(counts).find((o) => o.facet === "never")?.count).toBe(
-      counts.never_scanned,
-    );
+    expect(options.find((o) => o.facet === "proposed")?.count).toBe(counts.proposed);
   });
 
   it("every option carries its count into the dropdown (ruling R3)", () => {
@@ -214,7 +231,7 @@ describe("candidateCounts", () => {
     // count nobody can see". R3 overrules it on the condition that the counts come
     // WITH the options, Bias-Analysis style — so an option with no count is the
     // regression that ruling was worried about.
-    for (const option of [...stateOptions(counts), ...scannedOptions(counts)]) {
+    for (const option of stateOptions(counts)) {
       expect(option.count, `${option.label} has no count`).toBeTypeOf("number");
     }
   });
@@ -225,11 +242,12 @@ describe("candidateCounts", () => {
     expect(rulable?.hint).toContain("Part of Not ruled");
   });
 
-  it("offers exactly the six Status facets and three Scan facets the design names", () => {
-    // The signed design lists them: All · Not ruled · Rulable now · Deferred ·
-    // Included · Excluded, and Any · Scored by a scan · Never scanned. A facet
-    // added or dropped here changes what a human can ask for.
+  it("leads with Proposed and drops the Scan facets entirely", () => {
+    // Proposed comes FIRST because it is what the queue opens on when a scan has
+    // run, and it is the work the page exists to get through. The Scan dropdown is
+    // gone with the facet that measured merges rather than scans.
     expect(stateOptions(counts).map((o) => o.facet)).toEqual([
+      "proposed",
       "all",
       "not_ruled",
       "rulable",
@@ -237,7 +255,6 @@ describe("candidateCounts", () => {
       "included",
       "excluded",
     ]);
-    expect(scannedOptions(counts).map((o) => o.facet)).toEqual(["any", "scored", "never"]);
   });
 });
 
@@ -256,18 +273,18 @@ describe("filterCandidates", () => {
 
   it("each state facet shows exactly what its option counted", () => {
     const counts = candidateCounts(pool);
-    expect(shown({ state: "not_ruled", scanned: "any" })).toBe(counts.not_ruled);
-    expect(shown({ state: "rulable", scanned: "any" })).toBe(counts.rulable);
-    expect(shown({ state: "included", scanned: "any" })).toBe(counts.included);
-    expect(shown({ state: "excluded", scanned: "any" })).toBe(counts.excluded);
-    expect(shown({ state: "deferred", scanned: "any" })).toBe(counts.deferred);
+    expect(shown({ state: "not_ruled" })).toBe(counts.not_ruled);
+    expect(shown({ state: "rulable" })).toBe(counts.rulable);
+    expect(shown({ state: "included" })).toBe(counts.included);
+    expect(shown({ state: "excluded" })).toBe(counts.excluded);
+    expect(shown({ state: "deferred" })).toBe(counts.deferred);
   });
 
-  it("combines the two facets rather than letting the later one win", () => {
-    // Rulable AND never scanned: the unscanned card is the only one that is both.
-    const both = filterCandidates(pool, { state: "rulable", scanned: "never" });
-    expect(both).toHaveLength(1);
-    expect(both[0].confidence.band).toBe("unscored");
+  it("shows exactly the proposed cards under Proposed", () => {
+    const withProposals = [...pool, proposed(), proposed()];
+    const only = filterCandidates(withProposals, { state: "proposed" });
+    expect(only).toHaveLength(2);
+    expect(only.every((c) => c.proposed != null)).toBe(true);
   });
 
   it("preserves the payload's order — the browser re-sorts nothing", () => {
@@ -280,24 +297,26 @@ describe("filterCandidates", () => {
   it("returns an empty list rather than everything when a facet matches nothing", () => {
     // The failure mode worth guarding: a filter that silently degrades to "show
     // all" would look like a working filter over a pool with no matches.
-    expect(filterCandidates([included()], { state: "excluded", scanned: "any" })).toEqual([]);
+    expect(filterCandidates([included()], { state: "excluded" })).toEqual([]);
   });
 });
 
 describe("the default view", () => {
-  it("opens on Rulable now while any exist", () => {
-    // The task's own premise: the human is hunting for the handful they can decide.
-    expect(defaultFilters(candidateCounts([card(), included()]))).toEqual({
-      state: "rulable",
-      scanned: "any",
+  it("queue_defaults_to_proposed_when_proposals_exist_and_keeps_the_computed_default_otherwise", () => {
+    // Architect ruling R8, both branches in one test because the rule IS the pair.
+    //
+    // With proposals: they lead. They are what the human came to rule, and before
+    // this they arrived buried in a pool of 148 with nothing marking them.
+    expect(defaultFilters(candidateCounts([proposed(), card(), included()]))).toEqual({
+      state: "proposed",
     });
-  });
 
-  it("falls back to Not ruled when none are rulable", () => {
-    // Opening on an empty list would be honest and useless.
+    // Without: the 1.7E computed default STANDS. A scanned-and-fully-ruled
+    // scenario must not open on all 148 — that is the wall this page spent three
+    // tasks removing.
+    expect(defaultFilters(candidateCounts([card(), included()]))).toEqual({ state: "rulable" });
     expect(defaultFilters(candidateCounts([deferOnly(), included()]))).toEqual({
       state: "not_ruled",
-      scanned: "any",
     });
   });
 });
@@ -305,16 +324,14 @@ describe("the default view", () => {
 describe("hasAnyFilter", () => {
   it("is false only for the untouched bar", () => {
     expect(hasAnyFilter(UNFILTERED)).toBe(false);
-    expect(hasAnyFilter({ state: "rulable", scanned: "any" })).toBe(true);
-    // The scanned facet counts as a filter too — a counter line that ignored it
-    // would read "Showing all" over a narrowed list.
-    expect(hasAnyFilter({ state: "all", scanned: "never" })).toBe(true);
+    expect(hasAnyFilter({ state: "rulable" })).toBe(true);
+    expect(hasAnyFilter({ state: "proposed" })).toBe(true);
   });
 });
 
 describe("the counter line", () => {
   it("names the total pool, not the filtered view", () => {
-    expect(candidateCounterLine(24, 148, { state: "rulable", scanned: "any" })).toBe(
+    expect(candidateCounterLine(24, 148, { state: "rulable" })).toBe(
       "Filtered: 24 of 148 candidates",
     );
   });

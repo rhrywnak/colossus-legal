@@ -174,6 +174,28 @@ pub struct Wording {
     /// do not have. Behind this control they are still one click away, and
     /// honestly named.
     pub queue_raw_pool_toggle_template: String,
+
+    // ── Scan → ruling (2026-08-08) ───────────────────────────────────────────
+    /// The queue's heading when a completed scan is proposing candidates. Carries
+    /// `{count}` and `{when}`.
+    ///
+    /// Domain note: the queue LEADS with proposals now, so this sentence is the
+    /// first thing a curator reads on a scanned scenario. It names the source
+    /// because "30 awaiting ruling" and "30 the Aug 7 scan put in front of you"
+    /// are different claims, and only the second is true of a projection.
+    pub queue_proposed_heading_template: String,
+    /// The attribution line on a proposed card. Carries `{when}`.
+    pub card_proposed_attribution_template: String,
+    /// The proposed-role chip. Carries `{verb}`, which is the canon stance word.
+    ///
+    /// Domain note: the template exists so the chip can NAME THE SCAN as the
+    /// speaker, exactly as the banded-confidence label does. A chip reading
+    /// "supports" beside a sworn admission reads as the record's own stance; this
+    /// one cannot be mistaken for it.
+    pub card_proposed_role_template: String,
+    /// The badge on a card whose one ruling settles a byte-identical twin. Carries
+    /// `{count}` and `{codes}`.
+    pub card_proposed_covers_template: String,
 }
 
 /// Whether the background pile starts folded away.
@@ -263,6 +285,10 @@ pub(crate) const KEY_FACT_WEIGHTS_HINT: &str = "fact_weights_hint";
 pub(crate) const KEY_FACT_FOOTER: &str = "fact_footer_template";
 pub(crate) const KEY_FACT_UNPLACE_LABEL: &str = "fact_unplace_label";
 pub(crate) const KEY_QUEUE_RAW_POOL_TOGGLE: &str = "queue_raw_pool_toggle_template";
+pub(crate) const KEY_QUEUE_PROPOSED_HEADING: &str = "queue_proposed_heading_template";
+pub(crate) const KEY_CARD_PROPOSED_ATTRIBUTION: &str = "card_proposed_attribution_template";
+pub(crate) const KEY_CARD_PROPOSED_ROLE: &str = "card_proposed_role_template";
+pub(crate) const KEY_CARD_PROPOSED_COVERS: &str = "card_proposed_covers_template";
 
 /// Every wording key this build reads, so a missing one is caught at boot by name.
 ///
@@ -320,6 +346,10 @@ pub const WORDING_KEYS: &[&str] = &[
     KEY_FACT_FOOTER,
     KEY_FACT_UNPLACE_LABEL,
     KEY_QUEUE_RAW_POOL_TOGGLE,
+    KEY_QUEUE_PROPOSED_HEADING,
+    KEY_CARD_PROPOSED_ATTRIBUTION,
+    KEY_CARD_PROPOSED_ROLE,
+    KEY_CARD_PROPOSED_COVERS,
 ];
 
 /// Build a [`Wording`] from the stored rows, or say precisely which key is wrong.
@@ -390,6 +420,10 @@ pub fn build_wording<E>(read: impl Fn(&str) -> Result<String, E>) -> Result<Word
         fact_footer_template: read(KEY_FACT_FOOTER)?,
         fact_unplace_label: read(KEY_FACT_UNPLACE_LABEL)?,
         queue_raw_pool_toggle_template: read(KEY_QUEUE_RAW_POOL_TOGGLE)?,
+        queue_proposed_heading_template: read(KEY_QUEUE_PROPOSED_HEADING)?,
+        card_proposed_attribution_template: read(KEY_CARD_PROPOSED_ATTRIBUTION)?,
+        card_proposed_role_template: read(KEY_CARD_PROPOSED_ROLE)?,
+        card_proposed_covers_template: read(KEY_CARD_PROPOSED_COVERS)?,
     })
 }
 

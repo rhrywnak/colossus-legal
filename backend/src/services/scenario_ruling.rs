@@ -73,6 +73,21 @@ pub struct RulingRequest<'a> {
     pub note: Option<&'a str>,
     /// Required for defer, rejected for everything else.
     pub defer_reason: Option<&'a str>,
+    /// The scan run that PROPOSED this card, when the human is ruling a proposal
+    /// rather than a raw candidate (2026-08-08).
+    ///
+    /// ## Domain note: this is resolved server-side, never taken from the client
+    ///
+    /// Same law as the anchor twenty lines up, and for the same reason: an id
+    /// supplied by the caller records what the caller CLAIMED. The ruling route
+    /// re-resolves the projecting run for this node from the same query that built
+    /// the card, so the recorded provenance is by construction the run that put
+    /// the card on screen — a stale tab cannot mis-attribute a ruling, and nothing
+    /// can forge one.
+    ///
+    /// `None` for a hand-picked candidate no scan proposed. That is a positive
+    /// statement, not a gap.
+    pub source_run_id: Option<Uuid>,
 }
 
 /// Why a ruling could not be recorded.
@@ -347,6 +362,10 @@ pub async fn record_ruling(
         // the permanent, correct value — not a placeholder.
         None,
         request.defer_reason,
+        // …but WHICH run proposed the card is worth keeping, and this is the only
+        // moment it is known. See the field's own note for why it is never the
+        // client's word for it.
+        request.source_run_id,
     )
     .await
     .map_err(|source| RulingError::Write { source })?;

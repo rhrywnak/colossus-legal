@@ -146,25 +146,32 @@ pub enum ThemeScanError {
     )]
     EmptyAttackMeaning { scenario_id: Uuid },
 
-    /// A merge was requested with no picks checked. User-fixable (check at least
-    /// one pick) → 400; kept distinct from a run that merges zero because it HAS no
-    /// relevant picks, so the two look different to the caller (Standing Rule 1).
-    #[error("no picks selected to merge from run {run_id} — check at least one pick, then Merge")]
-    EmptySelection { run_id: Uuid },
-
-    /// A delete was requested for a run whose judgments are already part of the
-    /// case. Refused as a 409 rather than performed, because deleting the run would
-    /// destroy both provenance records at once — the `scan_run_merges` events
-    /// cascade away and every `scenario_fact_refs.source_run_id` pointing at it
-    /// nulls out — leaving merged judgments in the case with no trace of their
-    /// origin. Unmerged runs remain deletable, so this never blocks junk-scan
-    /// cleanup. The counts ride the message so the human knows what is holding it.
+    /// A delete was requested for a run the RECORD depends on. Refused as a 409
+    /// rather than performed, because deleting the run would destroy both
+    /// provenance records at once — the `scan_run_merges` events cascade away and
+    /// every `scenario_fact_refs.source_run_id` pointing at it nulls out — leaving
+    /// the human's rulings in the case with no trace of what put those candidates
+    /// in front of them.
+    ///
+    /// ## Domain note: what "cited" means since the projection (architect ruling R1)
+    ///
+    /// Under the retired merge model this fired for a run somebody had merged.
+    /// Under the projection there are no new merge events, and the count that
+    /// matters is the second one: how many RULINGS name this run as the thing that
+    /// proposed them. A run one ruling has drawn on is part of the ledger's chain
+    /// of custody and stays undeletable; a junk scan nobody ruled from has neither
+    /// count above zero and deletes freely, taking its unruled proposals with it.
+    /// That is the case R-d exists for, and it still works.
+    ///
+    /// The message says so in plain words, because a human meeting this 409 is
+    /// mid-cleanup and needs to know it is a rule rather than a fault.
     #[error(
-        "scan run {run_id} has been merged ({merge_events} merge event(s), \
-         {attributed_facts} candidate fact(s) still credit it) — its provenance is \
-         retained and the run cannot be deleted"
+        "scan run {run_id} is part of the record — {attributed_facts} ruling(s) \
+         cite it as the scan that proposed them, and {merge_events} historical \
+         merge event(s) reference it. Its provenance is kept on purpose, so the \
+         run cannot be deleted. Rulings you have already made are unaffected."
     )]
-    ScanRunMerged {
+    ScanRunCited {
         run_id: Uuid,
         merge_events: i64,
         attributed_facts: i64,
@@ -354,18 +361,6 @@ pub enum ThemeScanError {
     /// collapsed). Names the `run_id` it could not delete. Server-side (500).
     #[error("failed to delete scan run {run_id}: {source}")]
     ScanRunDeleteFailed {
-        run_id: Uuid,
-        #[source]
-        source: PipelineRepoError,
-    },
-
-    /// Merging one scan run's relevant picks into the scenario failed (DB error).
-    /// Distinct from [`Self::ScanRunNotFound`] (the run is absent / not in this
-    /// scenario → 404) and from a legitimate zero-count merge (the run has no
-    /// relevant picks, or every pick was preserved as human curation → 200 with
-    /// `merged = 0`). This is an actual write failure. Server-side (500).
-    #[error("failed to merge scan run {run_id}: {source}")]
-    ScanRunMergeFailed {
         run_id: Uuid,
         #[source]
         source: PipelineRepoError,

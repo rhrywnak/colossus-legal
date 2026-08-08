@@ -68,6 +68,7 @@ pub mod review_edit_history;
 pub mod review_grounding;
 pub mod review_items;
 pub mod scan_run_merges;
+pub mod scan_run_projection;
 pub mod scan_run_verdicts;
 pub mod scan_runs;
 pub mod scenario_candidate_ordinals;
@@ -96,6 +97,7 @@ pub use report_queries::{
     RelationshipTypeCount,
 };
 pub use scan_run_merges::*;
+pub use scan_run_projection::*;
 pub use scan_run_verdicts::*;
 pub use scan_runs::*;
 pub use scenario_candidate_ordinals::*;
@@ -125,8 +127,8 @@ pub use scenario_status_transitions::*;
 // before.
 pub use scenario_store::{
     delete_scenario, delete_scenarios_for_case, get_scenario, insert_scenario,
-    list_fact_refs_for_scenario, list_scenarios_for_case, merge_scan_run_into_scenario,
-    set_scenario_accusation, update_scenario, ScenarioFactRefRecord, ScenarioRecord,
+    list_fact_refs_for_scenario, list_scenarios_for_case, set_scenario_accusation, update_scenario,
+    ScenarioFactRefRecord, ScenarioRecord,
 };
 
 // ── Error type ───────────────────────────────────────────────────

@@ -85,30 +85,43 @@ export function isRulableNow(card: ScenarioCard): boolean {
 }
 
 /**
- * Whether any scan has ever scored this item.
+ * Whether the latest completed scan is PROPOSING this card (2026-08-08).
  *
- * Roman's finding, 2026-08-03: the pool carries fossils from old processing runs
- * that no current scan has looked at, and they deserve visible skepticism. The
- * band vocabulary already preserves the distinction — `unscored` is NOT `low`
- * (see `ConfidenceBand::Unscored`) — so the facet reads the band rather than
- * inventing a second notion of "scanned".
+ * ## Why this replaced the "scan-scored" facet
+ *
+ * That facet read `confidence.band !== "unscored"`, and a card only gained a
+ * confidence when a scan verdict was MERGED onto it — so "scan-scored" actually
+ * meant "somebody merged this", and a scenario scanned three times with nothing
+ * merged reported every card as never scanned. Worse, ruling a card IN nulls its
+ * confidence, so an included card silently LEFT the facet it had been in.
+ *
+ * Both defects are gone by construction rather than by repair. `proposed` is
+ * present exactly when the projection put this card forward, and precedence R-a
+ * keeps any human-touched card out of it whatever its confidence says.
  */
-export function isScanScored(card: ScenarioCard): boolean {
-  return card.confidence.band !== "unscored";
+export function isProposed(card: ScenarioCard): boolean {
+  return card.proposed != null;
 }
 
 // ─── The filter model ───────────────────────────────────────────────────────
 
-/** The state facet: the four states, the rulable subset, or everything. */
-export type StateFacet = "all" | CandidateState | "rulable";
+/**
+ * The state facet: the four states, the rulable subset, the proposed subset, or
+ * everything.
+ *
+ * ## The Scan dropdown is gone (2026-08-08)
+ *
+ * It offered "Scan-scored" and "Never scanned", both of which measured merges
+ * rather than scans (see `isProposed`). "Proposed" replaces them as a STATUS
+ * option, which is also where a human looks for it: it is a fact about what this
+ * candidate is waiting for, not a second axis to cross the first with.
+ */
+export type StateFacet = "all" | CandidateState | "rulable" | "proposed";
 
-/** The scanned facet (Roman's skepticism filter). */
-export type ScannedFacet = "any" | "scored" | "never";
-
-export type CandidateFilters = { state: StateFacet; scanned: ScannedFacet };
+export type CandidateFilters = { state: StateFacet };
 
 /** No filter at all — the honest denominator's view. */
-export const UNFILTERED: CandidateFilters = { state: "all", scanned: "any" };
+export const UNFILTERED: CandidateFilters = { state: "all" };
 
 /**
  * Whether the human has narrowed anything.
@@ -117,7 +130,7 @@ export const UNFILTERED: CandidateFilters = { state: "all", scanned: "any" };
  * the arithmetic accident that the filtered count equals the total.
  */
 export function hasAnyFilter(filters: CandidateFilters): boolean {
-  return filters.state !== "all" || filters.scanned !== "any";
+  return filters.state !== "all";
 }
 
 /** Every facet count, derived in one pass so no two of them can disagree. */
@@ -128,17 +141,19 @@ export type CandidateCounts = {
   deferred: number;
   included: number;
   excluded: number;
-  scored: number;
-  never_scanned: number;
+  /** Cards the latest completed scan is proposing — a SUBSET of `not_ruled`,
+   *  exactly as `rulable` is, because precedence keeps every human-touched card
+   *  out of it. Never added into the total. */
+  proposed: number;
 };
 
 /**
  * Count every facet in a single walk of the pool (ruling R1).
  *
- * The four state counts partition `all` exactly; `rulable` is a subset of
- * `not_ruled`; `scored` + `never_scanned` is `all` again. Those three identities
- * are asserted by the tests, because §9's promise is not that the numbers look
- * plausible but that they reconcile.
+ * The four state counts partition `all` exactly; `rulable` and `proposed` are
+ * each a subset of `not_ruled`. Those identities are asserted by the tests,
+ * because §9's promise is not that the numbers look plausible but that they
+ * reconcile.
  */
 export function candidateCounts(cards: ScenarioCard[]): CandidateCounts {
   const counts: CandidateCounts = {
@@ -148,8 +163,7 @@ export function candidateCounts(cards: ScenarioCard[]): CandidateCounts {
     deferred: 0,
     included: 0,
     excluded: 0,
-    scored: 0,
-    never_scanned: 0,
+    proposed: 0,
   };
 
   for (const card of cards) {
@@ -170,23 +184,18 @@ export function candidateCounts(cards: ScenarioCard[]): CandidateCounts {
         break;
     }
     if (isRulableNow(card)) counts.rulable += 1;
-    if (isScanScored(card)) counts.scored += 1;
-    else counts.never_scanned += 1;
+    if (isProposed(card)) counts.proposed += 1;
   }
 
   return counts;
 }
 
-/** Whether one card survives the active filters. */
+/** Whether one card survives the active filter. */
 function matches(card: ScenarioCard, filters: CandidateFilters): boolean {
-  const state = candidateState(card);
-  const stateOk =
-    filters.state === "all" ||
-    (filters.state === "rulable" ? isRulableNow(card) : filters.state === state);
-  if (!stateOk) return false;
-
-  if (filters.scanned === "any") return true;
-  return filters.scanned === "scored" ? isScanScored(card) : !isScanScored(card);
+  if (filters.state === "all") return true;
+  if (filters.state === "rulable") return isRulableNow(card);
+  if (filters.state === "proposed") return isProposed(card);
+  return filters.state === candidateState(card);
 }
 
 /**
@@ -209,14 +218,22 @@ export function filterCandidates(
 /**
  * Which filter the list opens on.
  *
- * "Rulable now" while any exist, else "Not ruled". The reason is the task's own
- * premise: the human is looking for the handful of candidates they can actually
- * decide, and opening on All means finding them by scrolling — which is the
- * defect. When none are rulable, defaulting to Rulable now would open on an empty
- * list, so it falls back to the honest next-widest view.
+ * ## Proposals lead when there are any (2026-08-08)
+ *
+ * A completed scan's candidates are what the human came to the page to rule, and
+ * before this they arrived buried in a pool of 148 with nothing marking them. So
+ * when the projection is proposing anything, the queue opens on it.
+ *
+ * ## And when there are none, the computed default STANDS (architect ruling R8)
+ *
+ * "Rulable now" while any exist, else "Not ruled" — the 1.7E behaviour, unchanged.
+ * The human is looking for the handful of candidates they can actually decide, and
+ * opening a scanned-and-fully-ruled scenario on all 148 would hand them back the
+ * wall this page spent three tasks removing.
  */
 export function defaultFilters(counts: CandidateCounts): CandidateFilters {
-  return { state: counts.rulable > 0 ? "rulable" : "not_ruled", scanned: "any" };
+  if (counts.proposed > 0) return { state: "proposed" };
+  return { state: counts.rulable > 0 ? "rulable" : "not_ruled" };
 }
 
 // ─── The dropdown options ───────────────────────────────────────────────────
@@ -242,6 +259,17 @@ export type FilterOption<F> = { facet: F; label: string; count: number; hint: st
 /** The Status options, in display order. Counts come from the one derivation. */
 export function stateOptions(counts: CandidateCounts): FilterOption<StateFacet>[] {
   return [
+    // Proposed LEADS, because it is what the queue opens on when a scan has run
+    // and it is the work the page exists to get through.
+    {
+      facet: "proposed",
+      label: "Proposed",
+      count: counts.proposed,
+      hint:
+        "Candidates the latest completed scan put forward and nobody has ruled " +
+        "yet. Part of Not ruled, not a separate group — and a card leaves this " +
+        "list the moment you rule it.",
+    },
     {
       facet: "all",
       label: "All",
@@ -280,32 +308,6 @@ export function stateOptions(counts: CandidateCounts): FilterOption<StateFacet>[
       label: "Excluded",
       count: counts.excluded,
       hint: "Set aside for this scenario. The evidence itself is untouched elsewhere.",
-    },
-  ];
-}
-
-/** The Scan options. Roman's skepticism filter, said out loud. */
-export function scannedOptions(counts: CandidateCounts): FilterOption<ScannedFacet>[] {
-  return [
-    {
-      facet: "any",
-      label: "Any",
-      count: counts.all,
-      hint: "Scanned or not — no filter on scan history.",
-    },
-    {
-      facet: "scored",
-      label: "Scan-scored",
-      count: counts.scored,
-      hint: "A scan has looked at these and reported a confidence.",
-    },
-    {
-      facet: "never",
-      label: "Never scanned",
-      count: counts.never_scanned,
-      hint:
-        "No scan has ever scored these — they are pool fossils from earlier " +
-        "processing. Unscored is not low confidence; nobody has looked.",
     },
   ];
 }

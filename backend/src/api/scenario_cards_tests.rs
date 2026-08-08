@@ -5,8 +5,12 @@
 //! stable ordering, the page-text join, and the loud status decode.
 
 use super::*;
+// `apply_display_order` and `build_ref_states` moved to the pool assembler when
+// this route module hit the 300-line limit; the tests stayed with the payload
+// they describe.
 use crate::bias::dto::DocumentRef;
 use crate::repositories::pipeline_repository::ScenarioFactRefRecord;
+use crate::services::scenario_card_assembly::apply_display_order;
 
 fn instance(id: &str, page: Option<i64>) -> BiasInstance {
     BiasInstance {
@@ -82,9 +86,12 @@ fn the_bare_card_count_sees_context_less_cards_and_ignores_the_rest() {
         &ordinals(&[("ev-1", 1), ("ev-2", 2)]),
         &page_text,
         &settings,
-        HumanTouchIndex {
-            question_overrides: &HashMap::new(),
-            links: &HashMap::new(),
+        PoolIndexes {
+            human: HumanTouchIndex {
+                question_overrides: &HashMap::new(),
+                links: &HashMap::new(),
+            },
+            proposals: &HashMap::new(),
         },
     );
 
@@ -114,9 +121,12 @@ fn the_bare_card_count_ignores_an_item_with_no_quote_at_all() {
         &ordinals(&[("ev-3", 3)]),
         &HashMap::new(),
         &settings,
-        HumanTouchIndex {
-            question_overrides: &HashMap::new(),
-            links: &HashMap::new(),
+        PoolIndexes {
+            human: HumanTouchIndex {
+                question_overrides: &HashMap::new(),
+                links: &HashMap::new(),
+            },
+            proposals: &HashMap::new(),
         },
     );
 

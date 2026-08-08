@@ -5,48 +5,56 @@
 // POLL the GET every 3s (the DocumentsPage idiom) and render three states:
 //   SETUP    — model radio-cards + Run button.
 //   RUNNING  — live "X of N judged" + mono elapsed timer + progress bar + tiles.
-//   COMPLETE — Complete pill + duration; counts; the relevant findings with a
-//              checkbox each; and, when a second model has been run, a HERO
-//              agreement block comparing them.
+//   COMPLETE — the scan REPORT: five tiles, the reconciliation line, and the live
+//              proposed count. Numbers only.
 //
 // SCANNING IS SCORING, NEVER COMMITTING. A scan writes nothing to the scenario.
-// The single write path from here into Candidate Facts is **Merge selected (N)**,
-// which applies the scan's judgment to exactly the picks the human checked. There
-// is no run-level Merge, no Re-merge, and no benchmark toggle: those belonged to a
-// retired model in which a whole RUN was the unit of merge.
 //
-// Two runs (e.g. Opus + Qwen-14B) accumulate in session state so they sit side by
-// side. Every color comes from tokens.css (no hardcoded hex — "elevation via
-// borders", not shadows). Reuses PipelineProgressBar (the bar) and EvidenceCard
-// (findings); the status pills are purpose-built for the scan states.
+// ## The findings list and the Merge button are GONE (2026-08-08)
+//
+// This panel used to be a work surface: every admitted finding rendered inline
+// with a checkbox, and "Merge selected (N)" was the one write path into Candidate
+// Facts. That made a human select each candidate TWICE — once as a checkbox here,
+// once as a card in the queue — which is the defect this build removes.
+//
+// A completed run's admitted verdicts now reach the queue as a READ-TIME
+// PROJECTION, so they are simply THERE, marked "Proposed by the … scan", already
+// carrying quote-in-context, pinpoint, stance, bears-on, grounding and the three
+// ruling buttons the finding rows never had. What is left here is a RECEIPT: what
+// was gathered, what was folded, what was set aside, what was judged, and how many
+// are waiting below. The unbounded findings list — measured as the panel's scroll
+// defect — dies with it.
+//
+// ## The card collapses, and this component still mounts (architect ruling R3)
+//
+// Once a run has completed the card folds to one line, because the work has moved
+// to the queue underneath it. The collapse is INSIDE this component and hides its
+// BODY: the mount effect below calls `gatherCandidates`, and gather is the one
+// place candidate ordinals are minted. Unmounting the panel would stop new
+// candidates being numbered and a proposed card would arrive with `code: null`.
+//
+// Every color comes from tokens.css (no hardcoded hex — "elevation via borders",
+// not shadows). Reuses PipelineProgressBar for the running bar.
 // =============================================================================
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 
-import EvidenceCard from "../pages/BiasExplorer/EvidenceCard";
 import PipelineProgressBar from "./pipeline/PipelineProgressBar";
 import ScanHistoryTable from "./ScanHistoryTable";
 import ScanControlLine from "./ScanControlLine";
-import {
-  computeAgreement,
-  costLabel,
-  formatElapsed,
-  lastRunSummary,
-} from "./themeScanFormat";
-import { candidateChip } from "./candidateWorkbench";
+import { collapsedScanSummary, formatElapsed, lastRunSummary } from "./themeScanFormat";
 import { gatherCandidates } from "../services/scenarioGather";
+import type { ProposalSource } from "../services/scenarioCards";
 import {
   deleteScanRun,
   fetchScanModels,
   fetchScanRuns,
   getScanRun,
-  mergeScanRun,
   startThemeScan,
-  type ScanHistoryWording,
+  type ScanWording,
   type ScanModel,
   type ScanRunHeader,
   type ScanRunStatus,
-  type ThemeScanSuggestion,
   type ThemeScanSummary,
 } from "../services/themeScan";
 
@@ -116,6 +124,10 @@ interface Props {
   slug: string;
   scenarioId: string;
   scenarioTitle: string;
+  /** Which completed run is proposing candidates below, or `null` (2026-08-08).
+   *  Served with the cards; the panel uses it for the collapsed one-liner and to
+   *  decide which history row may show a proposed count. */
+  proposalSource: ProposalSource | null;
   /** Called after a merge successfully writes candidate facts, so the page can
    *  refresh the curation panel below. Optional: the panel works standalone (the
    *  outcome notice is still shown), it simply cannot refresh a sibling it does
@@ -128,6 +140,7 @@ const ThemeScanPanel: React.FC<Props> = ({
   scenarioId,
   scenarioTitle,
   onFactsChanged,
+  proposalSource,
 }) => {
   const [models, setModels] = useState<ScanModel[]>([]);
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
@@ -166,25 +179,15 @@ const ThemeScanPanel: React.FC<Props> = ({
   // The words the history's own controls speak, served with the list. `null`
   // until it loads — the table renders no control it has no words for, rather
   // than falling back to a literal (the configuration law).
-  const [historyWording, setHistoryWording] = useState<ScanHistoryWording | null>(null);
+  const [historyWording, setHistoryWording] = useState<ScanWording | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [summaries, setSummaries] = useState<Record<string, ThemeScanSummary>>({});
   const [selectedRunIds, setSelectedRunIds] = useState<string[]>([]);
   // A per-run detail-load failure is distinct from the list-load failure above.
   const [detailError, setDetailError] = useState<string | null>(null);
-  // The outcome of the most recent Merge, shown as a transient notice under the
-  // results. `ok` distinguishes a success confirmation from a failure (Standing
-  // Rule 1 — the two states look different, not one collapsed "done").
-  // Three tones, because a merge has THREE distinguishable outcomes and a boolean
-  // can only express two: the merge failed (nothing written); it succeeded; or it
-  // succeeded but the follow-up refresh did not, so what is on screen is stale.
-  // Collapsing the third into "error" tells the human their merge failed when it
-  // did not — and invites a retry that would write a second merge event for the
-  // same picks (Standing Rule 1).
-  const [mergeStatus, setMergeStatus] = useState<
-    { tone: "ok" | "warn" | "error"; text: string } | null
-  >(null);
-
+  /** The human's own collapse choice, or `null` while the computed default
+   *  stands. See `expanded` below for why it is not persisted. */
+  const [expandOverride, setExpandOverride] = useState<boolean | null>(null);
   // Collapsed state — remembered per-scenario (see readCollapsed/writeCollapsed).
   // The initializer reads localStorage once; the effect re-reads if the scenario
   // changes without a remount (a route-param change on the same component).
@@ -412,84 +415,6 @@ const ThemeScanPanel: React.FC<Props> = ({
     [slug, scenarioId, refreshRuns],
   );
 
-  // ── Re-read one run's stored detail ─────────────────────────────────────────
-  // Unlike `onSelectRun`, this always refetches — it exists precisely to pick up
-  // server-derived state that changed underneath the cached summary (a pick's
-  // `applied` flag after a merge), so a cache hit is the wrong answer here.
-  const refreshRunDetail = useCallback(
-    async (runId: string) => {
-      const status = await getScanRun(slug, scenarioId, runId);
-      if (status.summary) {
-        setSummaries((m) => ({ ...m, [runId]: status.summary as ThemeScanSummary }));
-      }
-    },
-    [slug, scenarioId],
-  );
-
-  // ── Merge the selected picks into the scenario ──────────────────────────────
-  // The button owns the confirm; the panel owns the network call and the outcome
-  // notice. Replays stored verdicts (zero LLM spend); status-preserving, so a
-  // failure is surfaced (Standing Rule 1) and a success reports how many picks
-  // landed.
-  //
-  // Three things happen ONLY on success, in this order:
-  //   1. `onApplied()` clears the run's checkboxes — the selection was consumed. A
-  //      surviving selection invites an immediate duplicate merge, and it is why
-  //      the button used to read "Re-merge (3)" with nothing left to do. On
-  //      FAILURE the selection deliberately survives, so a retry costs no re-checking.
-  //   2. `onFactsChanged()` tells the page to re-fetch the candidate facts, so the
-  //      merged judgment strips appear in the panel below immediately. (A previous
-  //      comment here claimed that list "lives on a different page" — it does not;
-  //      both panels mount on ScenarioDetailPage, which is why nothing refreshed.)
-  //   3. `refreshRunDetail()` re-reads the run so each merged pick re-renders in
-  //      its APPLIED state — the visible proof the write landed, and what stops the
-  //      human from merging the same pick twice.
-  //
-  // The WRITE and the REFRESH are in separate try/catch blocks on purpose. They
-  // fail for different reasons and demand different things of the human: a failed
-  // write means "nothing happened, retry"; a failed refresh means "it worked, but
-  // this view is stale — reload". Sharing one catch (as this did) let a refresh
-  // hiccup overwrite the success notice with "Failed to merge the run.", which is
-  // false, and would push the human to re-merge picks that were already applied.
-  const onMergeRun = useCallback(
-    async (runId: string, graphNodeIds: string[], onApplied: () => void) => {
-      setMergeStatus(null);
-
-      // ── Stage 1: the write. A failure here means nothing was applied. ────────
-      let merged: number;
-      try {
-        ({ merged } = await mergeScanRun(slug, scenarioId, runId, graphNodeIds));
-      } catch (e) {
-        setMergeStatus({
-          tone: "error",
-          text: e instanceof Error ? e.message : "Failed to merge the run.",
-        });
-        // The selection deliberately SURVIVES a failed merge, so a retry costs no
-        // re-checking. Nothing else runs — there is nothing to refresh.
-        return;
-      }
-
-      const noun = merged === 1 ? "pick" : "picks";
-      const success = `Merged ${merged} selected ${noun} into Candidate Facts as Undecided. Your included/dropped decisions were preserved.`;
-      setMergeStatus({ tone: "ok", text: success });
-      onApplied();
-      onFactsChanged?.();
-
-      // ── Stage 2: the refresh. The merge already landed; only the VIEW is at
-      // risk. Reported as a warning that states both facts, never as a failure.
-      try {
-        await refreshRunDetail(runId);
-      } catch (e) {
-        const why = e instanceof Error ? e.message : "the run could not be re-read";
-        setMergeStatus({
-          tone: "warn",
-          text: `${success} However, this run's view could not be refreshed (${why}), so its picks may still show as un-merged. Reload the page to see their applied state — do NOT merge them again.`,
-        });
-      }
-    },
-    [slug, scenarioId, refreshRunDetail, onFactsChanged],
-  );
-
   // The selected runs whose full summaries are loaded, keyed by run_id — this is
   // what feeds the EXISTING results display + comparison hero (one entry → a
   // single result; two → the hero). Order follows selection.
@@ -503,30 +428,62 @@ const ThemeScanPanel: React.FC<Props> = ({
   const running = activeRun !== null;
   const hasSelectedResults = Object.keys(selectedSummaries).length > 0;
 
+  // ── The collapsed card (piece 4a) ──────────────────────────────────────────
+  //
+  // The one line a folded card shows, or `null` when there is nothing to fold —
+  // no completed run yet, or the words have not loaded. `null` means the card has
+  // no collapse control at all and renders expanded, which is exactly right for a
+  // never-scanned scenario: running the first scan IS the work there.
+  //
+  // Composed from the STORED template. A card that invented its own summary would
+  // be the one sentence on this screen the configuration law does not reach.
+  const latestCompleted = runs.find((r) => r.status === "completed") ?? null;
+  const collapsedSummary =
+    historyWording && latestCompleted
+      ? collapsedScanSummary(
+          historyWording.card_collapsed_summary_template,
+          formatRunDate(latestCompleted.started_at),
+          modelName(latestCompleted.model_id),
+          proposalSource?.proposed_count ?? null,
+        )
+      : null;
+
+  // Default: COLLAPSED once a run has completed, EXPANDED before that. The
+  // human's own click wins from then on, and is deliberately NOT persisted — the
+  // same ruling (R7) that keeps the queue's own collapse un-remembered, for the
+  // same reason: a card that remembers "folded" through a scan the human then
+  // cannot find is a silent failure wearing a preference's clothes.
+  const expanded = expandOverride ?? collapsedSummary === null;
+
   return (
     <section style={S.card}>
       {/* Keyframes for the "Scanning" pulse dot — inlined like ProcessingPanel's
           colossus-spin, so the animation ships with the component. */}
       <style>{`@keyframes colossus-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }`}</style>
-      {/* The panel's own title header is SUPPRESSED on the v3 scenario page.
-          The mockup's scan area is one row — Run scan · model · last-run meta ·
-          Scan history — and the section's own "Scan & candidates" h2 above it
-          already does the titling. A second "Theme Scan" heading inside the same
-          card was duplicate chrome, and it carried its own collapse chevron beside
-          the queue's, which invited a human to fold the wrong thing.
+      {/* THE COLLAPSED CARD (piece 4a). Once a run has completed, the scan is no
+          longer where the work happens — the queue below is — so the card folds to
+          one line naming the run, the model and how many candidates are waiting.
+          A never-scanned scenario opens expanded, because running the first scan
+          IS the work there.
 
-          The panel-collapse STATE is still honoured (`collapsed` below), so a
-          previously-collapsed panel stays collapsed; only the control moved out.
-          Flagged in the Phase B report as the one place parity required removing an
-          affordance rather than restyling one. */}
-      {/* ALWAYS expanded on the v3 surface. The collapse control lived in the
-          suppressed header, and a body still gated on the remembered `collapsed`
-          flag would strand anyone who collapsed this panel in beta.367 — an empty
-          scan section with no control to bring it back. The flag and its
-          localStorage helpers are left in place for task 3.14, which decides
-          whether the panel gets a collapse affordance of its own; nothing reads it
-          to decide visibility now. */}
-      {true && (
+          The control is here rather than in `ScanSection` for a mechanical reason
+          worth stating: the summary is composed from this component's own state
+          (the run history and the scan wording it fetched), and lifting it would
+          mean a second fetch of both. What must NOT move is the component itself —
+          see the module header on why unmounting breaks candidate codes. */}
+      {collapsedSummary !== null && (
+        <button
+          type="button"
+          style={S.collapseRow}
+          onClick={() => setExpandOverride(!expanded)}
+          aria-expanded={expanded}
+        >
+          <span style={S.collapseChevron}>{expanded ? "▾" : "▸"}</span>
+          <span style={S.collapseSummary}>{collapsedSummary}</span>
+        </button>
+      )}
+
+      {expanded && (
         <>
           {running ? (
             <RunningView poll={poll} modelName={modelName(activeRun.modelId)} elapsedMs={elapsedMs} />
@@ -548,6 +505,8 @@ const ThemeScanPanel: React.FC<Props> = ({
                   onToggle={onSelectRun}
                   onDelete={onDeleteRun}
                   modelName={modelName}
+                  proposingRunId={proposalSource?.run_id ?? null}
+                  proposedCount={proposalSource?.proposed_count ?? null}
                 />
               }
               onSelect={setSelectedModel}
@@ -571,18 +530,27 @@ const ThemeScanPanel: React.FC<Props> = ({
             </div>
           )}
 
-          {/* The EXISTING results display + comparison hero, fed by the selected
-              runs (one → a single result; two → the hero). */}
-          {hasSelectedResults && (
-            <ResultsArea
-              completed={selectedSummaries}
-              modelName={modelName}
-              onMerge={onMergeRun}
-            />
-          )}
-          {mergeStatus && (
-            <div style={noticeStyle(mergeStatus.tone)} role="status">
-              {mergeStatus.text}
+          {/* The scan REPORT — numbers only (piece 4b). No findings list, no
+              checkboxes, no Merge. The proposed candidates are in the queue below;
+              this says where they came from and proves nothing was lost. */}
+          {hasSelectedResults && historyWording && (
+            <div style={S.results}>
+              {Object.entries(selectedSummaries).map(([runId, summary]) => (
+                <RunReport
+                  key={runId}
+                  summary={summary}
+                  modelName={modelName(summary.model_id)}
+                  wording={historyWording}
+                  // The live count belongs to THIS run only when this run is the
+                  // one projecting. Reopening an older run must not borrow the
+                  // current run's number (R-b).
+                  proposedCount={
+                    proposalSource && proposalSource.run_id === runId
+                      ? proposalSource.proposed_count
+                      : null
+                  }
+                />
+              ))}
             </div>
           )}
         </>
@@ -640,304 +608,132 @@ const LiveTile: React.FC<{ label: string; value: number; tone: "success" | "mute
 
 // ─── COMPLETE / COMPARISON ────────────────────────────────────────────────────
 
-const ResultsArea: React.FC<{
-  // Keyed by run_id (a run's stable identity — the same model can appear twice in
-  // history). The display name comes from each summary's own `model_id`, NOT the
-  // record key, so a run still labels correctly.
-  completed: Record<string, ThemeScanSummary>;
-  modelName: (id: string) => string;
-  onMerge: (runId: string, graphNodeIds: string[], onApplied: () => void) => void;
-  /** Per-run merge provenance (count + last time), keyed by run_id. A run absent
-   *  from the map (or with count 0) is treated as never-merged. */
-}> = ({ completed, modelName, onMerge }) => {
-  const runs = Object.entries(completed);
-  const showHero = runs.length >= 2;
-  const [a, b] = runs.map(([, s]) => s);
-
-  return (
-    <div style={S.results}>
-      {showHero && (
-        <div style={S.sticky}>
-          <ComparisonHero a={a} b={b} modelName={modelName} />
-        </div>
-      )}
-      {runs.map(([runId, summary]) => (
-        <RunResult
-          key={runId}
-          summary={summary}
-          modelName={modelName(summary.model_id)}
-          onMerge={onMerge}
-        />
-      ))}
-    </div>
-  );
-};
-
-const ComparisonHero: React.FC<{
-  a: ThemeScanSummary;
-  b: ThemeScanSummary;
-  modelName: (id: string) => string;
-}> = ({ a, b, modelName }) => {
-  const { relevantPct, rolePct, sharedCount } = computeAgreement(a, b);
-  return (
-    <div style={S.hero}>
-      <div style={S.heroEyebrow}>Relevant-set overlap · at-a-glance estimate</div>
-      <div style={S.heroPct}>{relevantPct}%</div>
-      <div style={S.heroLabel}>
-        {rolePct}% role agreement on {sharedCount} shared quotes
-      </div>
-      {/* Flag 3: this client-side Jaccard is an ESTIMATE, NOT the promotion
-          number. The authoritative agreement (relevant AND role over the full
-          ~94-verdict set) is the scan_run_verdicts SQL join at L3 — never this. */}
-      <div style={S.heroCaption}>
-        Estimate only — not the promotion number. The authoritative agreement is the
-        full-verdict-set SQL comparison (scan_run_verdicts), run separately.
-      </div>
-      <div style={S.heroCompare}>
-        <HeroSide summary={a} modelName={modelName(a.model_id)} />
-        <span style={S.heroVs}>vs</span>
-        <HeroSide summary={b} modelName={modelName(b.model_id)} />
-      </div>
-    </div>
-  );
-};
-
-const HeroSide: React.FC<{ summary: ThemeScanSummary; modelName: string }> = ({
-  summary,
-  modelName,
-}) => (
-  <div style={S.heroSide}>
-    <div style={S.heroSideName}>{modelName}</div>
-    <div style={S.heroSideMeta}>
-      {costLabel(summary)} · {formatElapsed(summary.duration_ms)}
-    </div>
-  </div>
-);
-
-const RunResult: React.FC<{
+/**
+ * One completed run's REPORT: five tiles, the reconciliation line, and the live
+ * proposed count. Numbers only (piece 4b).
+ *
+ * ## What this replaced, and why nothing was lost
+ *
+ * It used to render every admitted finding inline with a merge checkbox. Those
+ * findings ARE the proposed cards in the queue below — richer there than they
+ * ever were here (quote in context, pinpoint, stance with its object, bears-on,
+ * grounding, and the three ruling buttons) — so listing them again would be the
+ * same candidates twice on one screen, which is the select-twice defect wearing a
+ * read-only coat. What a human needs from a finished run is proof that nothing
+ * was lost, and that is arithmetic.
+ *
+ * Every string is served. The tile captions, the advisory note and the live line
+ * come from the settings store; the reconciliation sentence is composed by the
+ * BACKEND from this run's own frozen counts.
+ */
+const RunReport: React.FC<{
   summary: ThemeScanSummary;
   modelName: string;
-  onMerge: (runId: string, graphNodeIds: string[], onApplied: () => void) => void;
-}> = ({ summary, modelName, onMerge }) => {
-  // Backend-supplied order, rendered as-is. The suggestions arrive in ascending
-  // candidate-id order — the SAME order Candidate Facts uses — so "C-14" sits in a
-  // comparable place in both listings. The previous confidence sort is gone: it had
-  // no tie-break (so equal-confidence picks reordered between reloads) and it
-  // re-imported the "highest score first" premise the per-pick model rejects. The
-  // human decides which picks matter; confidence stays visible on each card.
-  const suggestions = summary.suggestions;
+  wording: ScanWording;
+  /** The LIVE count, or `null` when this run is not the one projecting. */
+  proposedCount: number | null;
+}> = ({ summary, modelName, wording, proposedCount }) => (
+  <div style={S.runResult}>
+    <div style={S.runResultHead}>
+      <span style={S.modelChip}>{modelName}</span>
+      <span style={S.completePill}>Complete</span>
+      <span style={S.muted}>{formatElapsed(summary.duration_ms)}</span>
+    </div>
+    <div style={S.advisory}>{wording.report_advisory_note}</div>
 
-  // Per-item merge selection (ratified Option A): merge writes the scan's judgment
-  // onto ONLY the CHECKED picks. Default ALL-UNCHECKED — the human opts each pick
-  // in, so a low-confidence guess never lands unless chosen. Keyed by
-  // graph_node_id; lives here (per RunResult) so each viewed run owns its selection.
-  const [checked, setChecked] = useState<Set<string>>(new Set());
-  const toggleOne = (id: string) =>
-    setChecked((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-
-  // Only NOT-yet-applied picks are selectable. A pick whose judgment this run
-  // already contributed renders as applied instead of offering a checkbox —
-  // re-merging it would be a no-op the human could not see (the status-preserving
-  // reconcile would skip it), so offering the action would be a lie.
-  const selectableIds = suggestions.filter((s) => !s.applied).map((s) => s.graph_node_id);
-  const allChecked = selectableIds.length > 0 && selectableIds.every((id) => checked.has(id));
-  const selectAll = () => setChecked(new Set(selectableIds));
-  const selectNone = () => setChecked(new Set());
-
-  // Derived from the SAME filtered list the merge payload uses, so the count on the
-  // button can never disagree with what a click would send. (Reading `checked.size`
-  // raw would drift if a stale id lingered in the Set.)
-  const selectedIds = selectableIds.filter((id) => checked.has(id));
-  const selectedCount = selectedIds.length;
-
-  // What the merge actually WRITES: every node each checked pick speaks for
-  // (task 2.15, item 1a). A folded pick was judged once because its twins are
-  // byte-identical, and Roman's ruling is that one ruling covers the set — so the
-  // payload carries the twins too, or the same sentence returns tomorrow as an
-  // unruled candidate and the fold saved nothing but an LLM call.
-  //
-  // The BUTTON still counts picks (what the human checked), not nodes: "Merge 3
-  // selected" over three checkboxes is what they did, and reporting 4 because one
-  // had a twin would read as a miscount.
-  const mergeNodeIds = suggestions
-    .filter((s) => checked.has(s.graph_node_id) && !s.applied)
-    // A payload written before this field existed carries no `covers_node_ids`;
-    // falling back to the pick's own id keeps an old cached summary mergeable
-    // rather than sending an empty list the backend would refuse.
-    .flatMap((s) => (s.covers_node_ids?.length ? s.covers_node_ids : [s.graph_node_id]));
-
-  const confirmMerge = (e: React.MouseEvent) => {
-    // Defensive stopPropagation (harmless here — the dashboard is not a clickable
-    // row): keeps the button safe if RunResult is ever nested in a selectable
-    // container. Confirm is the guard before a write.
-    e.stopPropagation();
-    if (selectedCount === 0) return; // Button is disabled here; belt-and-suspenders.
-    const noun = selectedCount === 1 ? "pick" : "picks";
-    if (
-      window.confirm(
-        `Merge ${selectedCount} selected ${noun}? Your included/dropped decisions are preserved.`,
-      )
-    ) {
-      // Clearing is passed as a callback rather than done here: the selection must
-      // survive a FAILED merge (so the human can retry without re-checking), and
-      // only the caller knows whether the write actually landed.
-      onMerge(summary.run_id, mergeNodeIds, selectNone);
-    }
-  };
-
-  return (
-    <div style={S.runResult}>
-      <div style={S.runResultHead}>
-        <span style={S.modelChip}>{modelName}</span>
-        <span style={S.completePill}>Complete</span>
-        <span style={S.muted}>{formatElapsed(summary.duration_ms)}</span>
-        {/* ONE write affordance. No run-level Merge, no Re-merge, no "merged N×":
-            those belonged to the retired run-level model, where a run was the unit
-            of merge. Merging more picks later — from this run or another — is this
-            same button, which is why it never changes its name. Disabled at zero:
-            a button that does nothing teaches nothing. */}
-        <button
-          type="button"
-          style={{
-            ...S.mergeButton,
-            ...(selectedCount === 0 ? S.mergeButtonDisabled : {}),
-          }}
-          onClick={confirmMerge}
-          disabled={selectedCount === 0}
-          title={
-            selectedCount === 0
-              ? "Check at least one pick to merge"
-              : `Merge ${selectedCount} selected`
-          }
-        >
-          Merge selected ({selectedCount})
-        </button>
+    {/* The conservation tiles. Rendered only when the run MEASURED conservation:
+        runs recorded before task 2.15 carry no such block, and zeroed tiles would
+        claim they counted something they never did (Standing Rule 1). Those runs
+        show their own frozen four instead. */}
+    {summary.conservation ? (
+      <div style={S.tileRow}>
+        <LiveTile label={wording.report_tile_gathered} value={summary.conservation.pool} tone="muted" />
+        <LiveTile
+          label={wording.report_tile_folded}
+          value={summary.conservation.duplicates_collapsed}
+          tone="muted"
+        />
+        <LiveTile
+          label={wording.report_tile_set_aside}
+          value={setAsideTotal(summary.conservation)}
+          tone="muted"
+        />
+        <LiveTile label={wording.report_tile_judged} value={summary.conservation.judged} tone="muted" />
+        {/* The one live tile. An em dash rather than a zero when this run is not
+            the projecting one: "not the current run" and "current run proposing
+            nothing" are different facts. */}
+        <ReportTile
+          label={wording.report_tile_proposed}
+          value={proposedCount === null ? "—" : String(proposedCount)}
+        />
       </div>
-
-      <div style={{ ...S.tileRow, ...S.sticky }}>
-        {/* "Judged", not "Read": since task 2.15 the pool is de-duplicated and
-            pre-filtered first, so this tile counts what the model was actually
-            asked. What the POOL was, and where the difference went, is the
-            reconciliation line below — one number cannot say both. */}
+    ) : (
+      <div style={S.tileRow}>
         <LiveTile label="Judged" value={summary.candidates_read} tone="muted" />
-        {/* "Relevant", not "Written": a scan writes nothing. This tile counts picks
-            awaiting the human's decision. */}
         <LiveTile label="Relevant" value={summary.relevant} tone="success" />
         <LiveTile label="Not relevant" value={summary.irrelevant} tone="muted" />
         <LiveTile label="Failed" value={summary.failed} tone="danger" />
       </div>
+    )}
 
-      {/* Conservation (task 2.15, item 1c): pool → set aside → folded → judged →
-          relevant, reconciled on screen. Composed BY THE BACKEND from this run's
-          own frozen counts and the stored template; the browser renders it and
-          computes nothing. Absent on runs recorded before 2.15 — which is honest:
-          those runs never measured it, and a zeroed line would say they did. */}
-      {summary.conservation_line && (
-        <div style={S.conservationLine}>{summary.conservation_line}</div>
-      )}
+    {/* Composed BY THE BACKEND from this run's own FROZEN counts and the stored
+        template. Absent on runs recorded before 2.15 — which is honest: those runs
+        never measured it, and a zeroed line would say they did. */}
+    {summary.conservation_line && <div style={S.conservationLine}>{summary.conservation_line}</div>}
 
-      <div style={S.findingsHead}>
-        <span>Relevant findings</span>
-        {/* Select-all / none convenience — only meaningful when something is still
-            selectable (every pick already applied leaves nothing to check). */}
-        {selectableIds.length > 0 && (
-          <span style={S.selectControls}>
-            <button
-              type="button"
-              style={S.selectLink}
-              onClick={allChecked ? selectNone : selectAll}
-            >
-              {allChecked ? "Select none" : "Select all"}
-            </button>
-          </span>
-        )}
+    {/* The live number, in its own sentence and labelled as live (architect ruling
+        R5). Kept OUT of the reconciliation line above because that line describes
+        what the run DID and must never appear to move, while this falls every time
+        the human rules a card. */}
+    {proposedCount !== null && (
+      <div style={S.proposedLine}>
+        {wording.report_proposed_line_template.replace("{count}", String(proposedCount))}
       </div>
-      {suggestions.length === 0 && <div style={S.muted}>No relevant quotes found.</div>}
-      {suggestions.map((sug) => (
-        <div key={sug.graph_node_id} style={S.finding}>
-          <SuggestionRow
-            suggestion={sug}
-            checked={checked.has(sug.graph_node_id)}
-            onToggle={() => toggleOne(sug.graph_node_id)}
-          />
-        </div>
-      ))}
-    </div>
-  );
-};
+    )}
+  </div>
+);
 
-/** One scan suggestion: an applied pick (read-only) or a checkable one.
+/** One tile whose value is not a plain count — the live proposed number, which
+ *  renders an em dash when this run is not the one projecting. */
+const ReportTile: React.FC<{ label: string; value: string }> = ({ label, value }) => (
+  <div style={S.tile}>
+    <div style={{ ...S.tileValue, color: "var(--text-primary)" }}>{value}</div>
+    <div style={S.tileLabel}>{label}</div>
+  </div>
+);
+
+/**
+ * Everything the pre-filter kept from the judge, as ONE number.
  *
- *  Split from `RunResult` to keep it within the function-size limit and to make the
- *  applied/checkable fork explicit — the two render as visibly different things,
- *  which is the point: the human must be able to see at a glance which of this
- *  run's judgments are already in the case. */
-const SuggestionRow: React.FC<{
-  suggestion: ThemeScanSuggestion;
-  checked: boolean;
-  onToggle: () => void;
-}> = ({ suggestion: sug, checked, onToggle }) => {
-  const card = (
-    <EvidenceCard
-      instance={sug.content}
-      // The C-chip leads the scan card exactly as it leads the Candidate Facts
-      // card, so the same fact carries the same handle in both listings — that is
-      // what lets a human read "C-14 · corroborates · 85%" here and then find C-14
-      // in the curation list. The full graph node id stays on hover.
-      leadBadge={
-        candidateChip(sug.ordinal) && (
-          <span style={S.chip} title={sug.graph_node_id}>
-            {candidateChip(sug.ordinal)}
-          </span>
-        )
-      }
-      action={
-        <span style={S.roleBadge}>
-          {sug.proposed_role} · {Math.round(sug.confidence * 100)}%
-          {/* A folded pick says so, because ruling it settles more than one row
-              (task 2.15, item 1a). Silence here would make the pool shrink by two
-              on a single click with nothing having said why. */}
-          {sug.duplicate_count > 1 && ` · ×${sug.duplicate_count}`}
-        </span>
-      }
-    />
-  );
-
-  // Already applied: no checkbox, a badge instead. Rendering a checked-and-disabled
-  // box would read as "selected", which is a different claim from "already done".
-  if (sug.applied) {
-    return (
-      <div style={S.appliedRow}>
-        <span style={S.appliedBadge} title="This run's judgment is already in the scenario">
-          Applied ✓
-        </span>
-        <span style={S.pickCardWrap}>{card}</span>
-      </div>
-    );
-  }
-
-  return (
-    <label style={S.pickRow}>
-      <input type="checkbox" checked={checked} onChange={onToggle} />
-      <span style={S.pickCardWrap}>{card}</span>
-    </label>
-  );
-};
+ * The three exclusion reasons are counted separately in the record (empty quote,
+ * content-free statement kind, unanchored fragment) and the backend's
+ * reconciliation sentence names each with its own count. The tile is the total,
+ * because a row of three near-identical tiles would spend the report's width on a
+ * breakdown the sentence beneath it already gives.
+ */
+function setAsideTotal(c: NonNullable<ThemeScanSummary["conservation"]>): number {
+  return c.excluded_empty + c.excluded_statement_type + c.excluded_too_short;
+}
 
 // ─── styling (tokens.css only) ────────────────────────────────────────────────
 
-/** Pick the notice box for a merge outcome. Three tones so the three outcomes read
- *  differently at a glance — green "done", amber "done but your view is stale", red
- *  "nothing happened" (Standing Rule 1). */
-function noticeStyle(tone: "ok" | "warn" | "error"): React.CSSProperties {
-  if (tone === "ok") return S.mergeNotice;
-  if (tone === "warn") return S.mergeWarnNotice;
-  return S.errorBox;
+/**
+ * The run's start time, as the collapsed summary says it: "Aug 7, 09:37 PM".
+ *
+ * Formatted by the BROWSER because the server does not know the reader's locale —
+ * the same split the delete confirmation's `{run}` already makes, so both dates on
+ * this card read alike. An unparseable timestamp falls back to the raw string:
+ * a summary naming an ugly date still identifies its run, which is the job.
+ */
+function formatRunDate(iso: string): string {
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return iso;
+  return at.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 function toneColor(tone: "success" | "muted" | "danger"): string {
@@ -1033,6 +829,47 @@ const S: Record<string, React.CSSProperties> = {
     color: "var(--text-secondary)",
     fontSize: "0.78rem",
     padding: "0.35rem 0 0.6rem",
+  },
+
+  /**
+   * The collapsed card's one-line row (piece 4a).
+   *
+   * A `<button>` rather than a styled `<div>`: it is the only control on a folded
+   * card, and the keyboard has to reach it. Styled flat so it reads as a heading
+   * line rather than as a second call to action beside "Run scan" — §2c's colour
+   * budget is one accent plus chips, and this is neither.
+   */
+  collapseRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: "10px",
+    width: "100%",
+    padding: "10px 0",
+    background: "none",
+    border: "none",
+    cursor: "pointer",
+    font: "inherit",
+    textAlign: "left",
+    color: "var(--text-primary)",
+  },
+  /** Reuses the existing `collapseChevron` above — one chevron style on this
+   *  card, whatever is being folded. */
+  collapseSummary: { fontSize: "0.85rem", color: "var(--text-secondary)" },
+
+  /** The report's "advisory only" line — quiet, because it is telling the reader
+   *  there is nothing to do here. */
+  advisory: {
+    fontSize: "0.78rem",
+    color: "var(--text-muted)",
+    padding: "0 0 0.7rem",
+  },
+
+  /** The LIVE proposed sentence, set apart from the frozen reconciliation line
+   *  above it so the two are not read as one claim (architect ruling R5). */
+  proposedLine: {
+    fontSize: "0.8rem",
+    color: "var(--text-primary)",
+    padding: "0.2rem 0 0",
   },
 
   setup: { display: "flex", flexDirection: "column", gap: "14px" },
@@ -1135,186 +972,9 @@ const S: Record<string, React.CSSProperties> = {
     color: "var(--state-danger-strong)",
     fontSize: "0.85rem",
   },
-  mergeButton: {
-    // Pinned to the right of the result header (marginLeft:auto after the muted
-    // elapsed). Accent-outlined to read as the primary action on a viewed run.
-    marginLeft: "auto",
-    fontSize: "0.78rem",
-    fontWeight: 600,
-    color: "var(--accent-primary)",
-    background: "var(--accent-bg-soft)",
-    border: "1px solid var(--accent-primary)",
-    borderRadius: "8px",
-    padding: "4px 12px",
-    cursor: "pointer",
-    fontFamily: "var(--font-sans)",
-  },
-  mergeNotice: {
-    // Success twin of errorBox — same shape, success color, so a merge outcome
-    // reads as distinct from a failure at a glance (Standing Rule 1).
-    marginTop: "12px",
-    padding: "12px 14px",
-    background: "var(--bg-surface)",
-    border: "1px solid var(--state-success-strong)",
-    borderRadius: "8px",
-    color: "var(--state-success-strong)",
-    fontSize: "0.85rem",
-  },
 
-  mergeWarnNotice: {
-    // Third twin of errorBox/mergeNotice: the merge LANDED but the view is stale.
-    // A distinct color because it is neither a clean success nor a failure, and
-    // conflating it with either would misdirect the human's next action.
-    marginTop: "12px",
-    padding: "12px 14px",
-    background: "var(--bg-surface)",
-    border: "1px solid var(--state-warning-strong)",
-    borderRadius: "8px",
-    color: "var(--state-warning-strong)",
-    fontSize: "0.85rem",
-  },
 
   results: { marginTop: "18px", display: "flex", flexDirection: "column", gap: "16px" },
-  sticky: {
-    position: "sticky",
-    top: 0,
-    background: "var(--bg-surface)",
-    zIndex: 1,
-    paddingTop: "4px",
-    paddingBottom: "4px",
-  },
-  hero: {
-    background: "var(--bg-surface)",
-    // v3: no card borders — the shadow is the edge (tokens.css).
-    boxShadow: "var(--shadow-card)",
-    borderRadius: "12px",
-    padding: "18px 20px",
-    textAlign: "center",
-  },
-  heroEyebrow: {
-    fontSize: "0.72rem",
-    fontWeight: 600,
-    textTransform: "uppercase",
-    letterSpacing: "0.05em",
-    color: "var(--text-muted)",
-  },
-  heroPct: { fontSize: "2.4rem", fontWeight: 800, color: "var(--accent-primary)" },
-  heroLabel: { fontSize: "0.82rem", color: "var(--text-secondary)" },
-  heroCaption: {
-    fontSize: "0.72rem",
-    fontStyle: "italic",
-    color: "var(--text-muted)",
-    maxWidth: "42ch",
-    margin: "6px auto 12px",
-  },
-  heroCompare: { display: "flex", alignItems: "center", justifyContent: "center", gap: "16px" },
-  heroSide: { textAlign: "center" },
-  heroSideName: { fontSize: "0.85rem", fontWeight: 600, color: "var(--text-primary)" },
-  heroSideMeta: { fontSize: "0.8rem", color: "var(--text-secondary)" },
-  heroVs: { fontSize: "0.8rem", color: "var(--text-muted)" },
-
-  runResult: {
-    // v3: no card borders — the shadow is the edge (tokens.css).
-    boxShadow: "var(--shadow-card)",
-    borderRadius: "12px",
-    padding: "16px",
-    background: "var(--bg-surface)",
-  },
-  runResultHead: { display: "flex", alignItems: "center", gap: "10px", marginBottom: "12px" },
-  completePill: {
-    fontSize: "0.78rem",
-    fontWeight: 600,
-    color: "var(--state-success-strong)",
-    background: "var(--bg-page)",
-    border: "1px solid var(--state-success-strong)",
-    borderRadius: "999px",
-    padding: "2px 10px",
-  },
-  findingsHead: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    fontSize: "0.78rem",
-    fontWeight: 600,
-    textTransform: "uppercase",
-    letterSpacing: "0.04em",
-    color: "var(--text-muted)",
-    margin: "14px 0 8px",
-  },
-  selectControls: { display: "flex", gap: "10px" },
-  // A quiet text-button for "Select all / none" — reads as a convenience link, not
-  // a primary action.
-  selectLink: {
-    background: "none",
-    border: "none",
-    padding: 0,
-    fontSize: "0.74rem",
-    fontWeight: 600,
-    textTransform: "none",
-    letterSpacing: "normal",
-    color: "var(--accent-primary)",
-    cursor: "pointer",
-    fontFamily: "var(--font-sans)",
-  },
-  finding: { marginBottom: "8px" },
-  // The pick row: checkbox at the left, the card taking the rest. `align-items:
-  // flex-start` keeps the checkbox at the card's top rather than vertically centered
-  // on a tall card. The whole row is a <label> so clicking the card body toggles it.
-  pickRow: {
-    display: "flex",
-    alignItems: "flex-start",
-    gap: "10px",
-    cursor: "pointer",
-  },
-  pickCardWrap: { flex: 1, minWidth: 0 },
-  // An applied pick mirrors `pickRow`'s layout so the two sit in one visual column,
-  // but is NOT a label and has no cursor: there is nothing to click. The gap width
-  // matches the checkbox's footprint so the cards stay aligned down the list.
-  appliedRow: {
-    display: "flex",
-    alignItems: "flex-start",
-    gap: "10px",
-  },
-  appliedBadge: {
-    fontSize: "0.66rem",
-    fontWeight: 600,
-    color: "var(--state-success-strong)",
-    whiteSpace: "nowrap",
-    // Roughly a checkbox's width, so an applied row's card lines up with a
-    // checkable row's card rather than shifting left.
-    minWidth: "13px",
-  },
-  roleBadge: {
-    fontSize: "0.72rem",
-    fontWeight: 600,
-    color: "var(--accent-primary)",
-    background: "var(--bg-page)",
-    border: "1px solid var(--border-default)",
-    borderRadius: "6px",
-    padding: "2px 8px",
-    whiteSpace: "nowrap",
-  },
-  // The stable id chip (§4) — short monospace handle leading the scan-result card,
-  // matching the Candidate Facts chip so the same fact reads the same on both.
-  chip: {
-    fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-    fontSize: "0.7rem",
-    fontWeight: 600,
-    color: "var(--text-muted)",
-    background: "var(--bg-page)",
-    border: "1px solid var(--border-default)",
-    borderRadius: "5px",
-    padding: "1px 6px",
-    whiteSpace: "nowrap",
-  },
-  // Re-merge, DEMOTED (§6.2): a neutral outline text-button, quieter than the accent
-  // Merge, so the rare reconcile does not read as the primary action.
-  // Disabled Merge/Re-merge (no picks checked, D2): muted + not-allowed, so the
-  // gate is visible, not just non-functional.
-  mergeButtonDisabled: {
-    opacity: 0.5,
-    cursor: "not-allowed",
-  },
 };
 
 export default ThemeScanPanel;

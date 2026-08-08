@@ -221,9 +221,10 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     );
     assert_eq!(
         WORDING_KEYS.len(),
-        49,
+        53,
         "22 from 2.10, five from 2.12, fourteen from 2.13, one latch fix, five \
-         from 2.13c, and 2.15's raw-pool opt-in"
+         from 2.13c, 2.15's raw-pool opt-in, and the projection's four — the \
+         queue's proposed heading and the three things a proposed card says"
     );
     assert_eq!(
         ACCUSATION_WORDING_KEYS.len(),
@@ -254,8 +255,10 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     );
     assert_eq!(
         SCAN_WORDING_KEYS.len(),
-        3,
-        "task 2.15 Tier 2: the conservation line and the two scan-history controls"
+        11,
+        "2.15 Tier 2's conservation line and two history controls, plus the \
+         projection's eight: the collapsed summary and the seven strings of the \
+         numbers-only report"
     );
     assert_eq!(
         seeded().len(),

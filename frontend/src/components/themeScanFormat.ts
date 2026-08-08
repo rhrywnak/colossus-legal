@@ -128,3 +128,38 @@ export function computeAgreement(
   const rolePct = shared.length === 0 ? 0 : Math.round((roleMatches / shared.length) * 100);
   return { relevantPct, rolePct, sharedCount: shared.length };
 }
+
+// ─── The collapsed scan card (piece 4a, 2026-08-08) ─────────────────────────
+
+/**
+ * The one line a FOLDED scan card shows: when, which model, how many proposed.
+ *
+ * ## Why this is a function and not three `.replace()` calls in the JSX
+ *
+ * CLAUDE.md rule 30 records that component-test infrastructure is deliberately not
+ * set up, so a sentence composed inside a React tree is a sentence nothing can
+ * assert. The card folds by default — this line is the ONLY thing most readers
+ * will see of a completed scan — and "reports the run, the model and the proposed
+ * count" is exactly the kind of claim that should be a test rather than a promise.
+ *
+ * Every part is supplied by the caller: the template from the settings store, the
+ * model's display name from the panel's catalogue, and the date already formatted
+ * in the reader's locale (the server owns the sentence, the browser owns the date
+ * format — the same split the delete confirmation makes).
+ *
+ * `proposedCount` is `null` when nothing is proposed, which renders as `0` rather
+ * than an em dash: on a collapsed card "0 proposed" is the true and useful
+ * statement — the run finished and there is nothing waiting — while a dash would
+ * read as "not measured".
+ */
+export function collapsedScanSummary(
+  template: string,
+  when: string,
+  model: string,
+  proposedCount: number | null,
+): string {
+  return template
+    .replace("{when}", when)
+    .replace("{model}", model)
+    .replace("{count}", String(proposedCount ?? 0));
+}

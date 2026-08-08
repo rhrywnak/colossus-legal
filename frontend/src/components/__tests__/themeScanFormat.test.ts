@@ -4,6 +4,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  collapsedScanSummary,
   computeAgreement,
   costLabel,
   formatCost,
@@ -201,5 +202,38 @@ describe("lastRunSummary", () => {
       },
     ]);
     expect(summary).not.toContain("claude-opus-4-8");
+  });
+});
+
+// ─── The collapsed scan card (piece 4a, 2026-08-08) ─────────────────────────
+
+describe("scan_card_collapsed_summary_reports_run_model_and_proposed_count", () => {
+  const TEMPLATE = "Last scan {when} · {model} · {count} proposed";
+
+  it("names all three facts, so nobody has to expand the card to learn them", () => {
+    // The card folds by default once a run has completed, because the work has
+    // moved to the queue below it. This line is the only thing most readers will
+    // see of that run — if it withheld any of the three, the fold would cost a
+    // click to answer a question the summary exists to answer.
+    const line = collapsedScanSummary(TEMPLATE, "Aug 7, 9:37 PM", "Claude Opus 4.8", 30);
+
+    expect(line).toBe("Last scan Aug 7, 9:37 PM · Claude Opus 4.8 · 30 proposed");
+    expect(line).not.toContain("{");
+  });
+
+  it("says zero rather than an em dash when nothing is proposed", () => {
+    // On a collapsed card "0 proposed" is true and useful — the run finished and
+    // there is nothing waiting. A dash would read as "not measured", which is a
+    // different (and here false) claim.
+    expect(collapsedScanSummary(TEMPLATE, "Aug 7", "Qwen", null)).toContain("0 proposed");
+  });
+
+  it("renders whatever the stored template says, inventing nothing", () => {
+    // The configuration law: Roman can re-word this line on the Settings page and
+    // it takes effect on the next read. A composer that hard-coded the separators
+    // or the order would silently ignore the edit.
+    expect(collapsedScanSummary("{count} waiting — {model}, {when}", "Aug 7", "Qwen", 4)).toBe(
+      "4 waiting — Qwen, Aug 7",
+    );
   });
 });

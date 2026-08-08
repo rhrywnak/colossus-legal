@@ -33,8 +33,7 @@ use axum::{
 use crate::{
     auth::AuthUser,
     bias::{dto::BiasInstance, repository::BiasRepository},
-    domain::{fact_status::FactStatus, fact_tier::FactTier},
-    dto::scenario_card::ScenarioCardsResponse,
+    dto::scenario_card::{ProposalSource, ScenarioCardsResponse},
     error::AppError,
     repositories::{
         allegation_options_repository::fetch_allegation_options,
@@ -44,12 +43,16 @@ use crate::{
         },
         scenario_card_repository::fetch_card_extras,
     },
-    services::scenario_card::{collapse_extras, CardRefState},
-    services::scenario_card_assembly::{assemble, page_key, HumanTouchIndex},
+    services::scenario_card::collapse_extras,
+    services::scenario_card_assembly::{
+        assemble, build_ref_states, count_proposed, page_key, HumanTouchIndex, PoolIndexes,
+        ProposalIndex,
+    },
+    services::scenario_card_projection::index_by_covered_node,
     services::scenario_cards_scan_state::never_scanned_notice,
-    services::scenario_fact_order::{effective_order, OrderableFact},
     services::scenario_human_links::resolve_links,
     services::scenario_link_options::label_index,
+    services::scenario_proposal_lookup::{load_projecting_run, project_run},
     state::AppState,
 };
 
@@ -148,7 +151,7 @@ pub async fn get_scenario_cards(
     // number per card. Doing it server-side is what stopped the browser and the
     // backend disagreeing about where a newly included fact belongs — they did,
     // and a re-included card came back fourth instead of last.
-    apply_display_order(&mut ref_states, &ordinals);
+    crate::services::scenario_card_assembly::apply_display_order(&mut ref_states, &ordinals);
 
     // Task 1.7F Part B: the humans' corrections for this pool, in ONE query.
     // Read here beside the other joins rather than inside the assembler, which is
@@ -174,6 +177,23 @@ pub async fn get_scenario_cards(
 
     let human_links = load_human_links(&state, &node_ids, &subject_id, &settings).await?;
 
+    // The projection (2026-08-08): what the latest COMPLETED run proposes to this
+    // queue right now. Read before assembly because a proposal is part of a card's
+    // state, not an annotation layered on afterwards.
+    let projecting_run = load_projecting_run(&state, id).await?;
+    let groups = match &projecting_run {
+        None => Vec::new(),
+        Some(run) => project_run(&state, run, &pool, &ref_states, &ordinals).await?,
+    };
+    let proposals: ProposalIndex<'_> = index_by_covered_node(&groups)
+        .into_iter()
+        // Only the REPRESENTATIVE carries the card. Its covered twins stay ordinary
+        // unruled pool rows — the ruling settles them, so proposing them a second
+        // time would ask the human to decide the same sentence twice, which is the
+        // duplicate work the fold exists to end.
+        .filter(|(node, group)| *node == group.representative)
+        .collect();
+
     let mut response = assemble(
         pool,
         &extras,
@@ -181,11 +201,31 @@ pub async fn get_scenario_cards(
         &ordinals,
         &page_text,
         &settings,
-        HumanTouchIndex {
-            question_overrides: &overrides,
-            links: &human_links,
+        PoolIndexes {
+            human: HumanTouchIndex {
+                question_overrides: &overrides,
+                links: &human_links,
+            },
+            proposals: &proposals,
         },
     );
+
+    // Attach the run's identity to the count the assembly produced.
+    //
+    // The `filter` is what keeps ONE meaning for this field's presence: "there are
+    // proposals below". A completed run whose every admitted verdict has already
+    // been ruled is a FINISHED queue, and a source object carrying a count of zero
+    // would make the page lead with a proposal heading over nothing.
+    let proposed_count = count_proposed(&response);
+    response.proposal_source =
+        projecting_run
+            .filter(|_| proposed_count > 0)
+            .map(|run| ProposalSource {
+                run_id: run.run_id,
+                model_id: run.model_id,
+                started_at: run.started_at,
+                proposed_count,
+            });
 
     // Task 2.15 piece 3: the cards are still served in full — this only says
     // whether anything has ever JUDGED them, which is what the page needs before
@@ -240,6 +280,9 @@ fn no_target_response(notice: &str) -> ScenarioCardsResponse {
         // second one would stack two answers to two questions the human has not
         // reached yet.
         never_scanned_notice: None,
+        // Nothing was gathered, so nothing can be proposed about it — and a scan
+        // cannot have run on a scenario that names no target.
+        proposal_source: None,
     }
 }
 
@@ -334,102 +377,6 @@ fn cards_without_context(response: &ScenarioCardsResponse) -> usize {
                 && card.quote.context_after.is_empty()
         })
         .count()
-}
-
-/// Compute each INCLUDED fact's place in the list, and record it on its state.
-///
-/// ## Why this runs over the whole set rather than per card
-///
-/// Where a fact sits depends on every other fact: an unplaced one takes its
-/// position from the tail it shares with the others, and the tail's numbering
-/// starts above the largest stored ordinal. A per-card function could not see
-/// that. `effective_order` already computes exactly this ordering for the drag
-/// route, so the list the human READS and the arithmetic a drop is computed
-/// against are the same function — which is the property that broke when the
-/// browser had its own copy of the rule.
-///
-/// Only `Included` refs take part: an undecided or dropped candidate has no
-/// position in a list it does not appear in, and its `display_ordinal` stays
-/// `None`.
-fn apply_display_order(
-    states: &mut std::collections::HashMap<String, CardRefState>,
-    ordinals: &std::collections::HashMap<String, i32>,
-) {
-    let facts: Vec<OrderableFact> = states
-        .iter()
-        .filter(|(_, st)| st.status == Some(FactStatus::Included))
-        .map(|(node, st)| OrderableFact {
-            graph_node_id: node.clone(),
-            sort_ordinal: st.sort_ordinal,
-            code_ordinal: ordinals.get(node).copied(),
-            tier: st.tier.unwrap_or(FactTier::DEFAULT),
-        })
-        .collect();
-
-    for (node, position) in effective_order(&facts) {
-        if let Some(state) = states.get_mut(&node) {
-            state.display_ordinal = Some(position);
-        }
-    }
-}
-
-/// Decode each fact-ref row into the card's view of it.
-///
-/// ## The status decode is a loud boundary (Standing Rule 1)
-///
-/// Same discipline as `scenario_gather::build_ref_index`: a status token this
-/// build does not understand is a data-integrity fault, logged with its ids and
-/// surfaced, never collapsed to `Undecided`. Silently bucketing it would show the
-/// human a card labelled "Not yet decided" for an item somebody had already ruled
-/// on.
-fn build_ref_states(
-    refs: Vec<crate::repositories::pipeline_repository::ScenarioFactRefRecord>,
-) -> Result<HashMap<String, CardRefState>, AppError> {
-    let mut states = HashMap::new();
-    for r in refs {
-        let status = FactStatus::try_from(r.status.as_str()).map_err(|e| {
-            tracing::error!(
-                error = %e,
-                graph_node_id = %r.graph_node_id,
-                scenario_id = %r.scenario_id,
-                "scenario_fact_refs carries a status token this build does not define"
-            );
-            AppError::Internal {
-                message: "failed to read candidate state".to_string(),
-            }
-        })?;
-        // Task 2.13: the tier decode is the SAME loud boundary as the status
-        // decode above, for the same reason. A token this build does not define
-        // must not collapse to `backup` — that would show the human "Backup" for a
-        // fact they had deliberately marked as carrying the scenario, and the
-        // screen would be confidently wrong with nothing in the log.
-        let tier = FactTier::try_from(r.tier.as_str()).map_err(|e| {
-            tracing::error!(
-                error = %e,
-                graph_node_id = %r.graph_node_id,
-                scenario_id = %r.scenario_id,
-                "scenario_fact_refs carries a tier token this build does not define"
-            );
-            AppError::Internal {
-                message: "failed to read candidate state".to_string(),
-            }
-        })?;
-        states.insert(
-            r.graph_node_id,
-            CardRefState {
-                status: Some(status),
-                confidence: r.confidence,
-                defer_reason: r.defer_reason,
-                tier: Some(tier),
-                sort_ordinal: r.sort_ordinal,
-                // Filled in by `apply_display_order` once every ref is decoded —
-                // a card's position depends on the whole set, so it cannot be
-                // known while the set is still being built.
-                display_ordinal: None,
-            },
-        );
-    }
-    Ok(states)
 }
 
 /// Read the page text backing every candidate's quote, keyed `doc_id:page`.

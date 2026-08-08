@@ -153,6 +153,63 @@ export type CardGrounding = { state: string; label: string };
 export type CardConfidence = { band: ConfidenceBand; label: string };
 
 /**
+ * What the latest completed scan PROPOSED about this card (2026-08-08).
+ *
+ * Present exactly when the card is a read-time projection of an admitted verdict
+ * no human has touched. Absent — not empty, not zeroed — on every other card, so
+ * "the scan proposed this" and "nobody proposed this" are different shapes rather
+ * than a flag to interpret.
+ *
+ * ## There is no confidence NUMBER here, and there never will be
+ *
+ * §7.8 is binding: banded words, never a naked percentage. The verdict's score
+ * decides `ScenarioCard.confidence.band` on the SERVER and is then discarded. A
+ * client that never receives the number cannot render it — which is the point:
+ * the rule stops depending on every future component remembering it.
+ */
+export type CardProposal = {
+  /** The role the judge assigned, in plain trial language and attributed to the
+   *  scan ("Scan: supports"). `null` when the stored verdict carries a role token
+   *  this build cannot name — the chip is then absent rather than showing a raw
+   *  token. */
+  role_label: string | null;
+  /** The judge's own justification, verbatim. Not composed, not translated: this
+   *  is the model's sentence, and it is what the human is being asked to weigh. */
+  reason: string | null;
+  /** How many pool rows this one card speaks for — `1` ordinarily, `2` for a
+   *  byte-identical twin pair. Ruling the card settles all of them. */
+  duplicate_count: number;
+  /** "×2 — covers C-46". `null` when the card speaks only for itself, because a
+   *  badge reading "×1" is noise on every card in the queue. */
+  duplicate_label: string | null;
+};
+
+/**
+ * Which run put the proposals in this payload, and how many there are.
+ *
+ * Response-level rather than per-card: only the LATEST COMPLETED run projects
+ * (R-b), so every proposal in one payload comes from one run, and repeating its
+ * identity on thirty cards would be thirty chances for them to disagree.
+ */
+export type ProposalSource = {
+  /** The scan panel matches its history rows against this to decide which row may
+   *  show a proposed count. Every other row projects nothing. */
+  run_id: string;
+  /** The model that judged, as its stored id. The panel already maps ids to
+   *  display names; sending the name here would make this the second place that
+   *  mapping happens. */
+  model_id: string;
+  /** When the run started — the date the attribution names. Formatted by the
+   *  browser, in the reader's locale, exactly as the delete confirmation's
+   *  `{run}` already is. */
+  started_at: string;
+  /** How many cards in this payload carry a proposal. The LIVE number (R-e):
+   *  admitted verdicts minus everything precedence has already ruled, counted
+   *  over the payload being served, so it falls as the human rules. */
+  proposed_count: number;
+};
+
+/**
  * One complete candidate card.
  *
  * TS-learning: the optional fields are `T | null`, not `T | undefined`. The
@@ -214,6 +271,14 @@ export type ScenarioCard = {
    *  must not own a second copy of. Absent for anything that is not an included
    *  fact. */
   display_ordinal?: number;
+  /** What the latest completed scan proposed about this card, absent when nothing
+   *  proposed it (2026-08-08).
+   *
+   *  Presence is what "PROPOSED" MEANS — there is no `proposed` status and no
+   *  third writer. A proposed card is one with no reference row and a live verdict
+   *  behind it, which is why the queue's Proposed facet is "not ruled AND this is
+   *  present" rather than a status token to decode. */
+  proposed?: CardProposal;
 };
 
 /** The three weights a fact can carry (task 2.13). Mirrors the backend enum. */
@@ -252,6 +317,17 @@ export type ScenarioCardsResponse = {
    * truthful source, and it lives in the pipeline database.
    */
   never_scanned_notice?: string;
+  /**
+   * Which completed run put the proposals in this payload, absent when nothing is
+   * proposed (2026-08-08).
+   *
+   * Absent covers three situations that need no distinguishing here — no run has
+   * completed, the latest completed run admitted nothing, or every admitted
+   * verdict has already been ruled — because the answer is the same in all three:
+   * lead with the pool, not with proposals. The first is separately visible as
+   * `never_scanned_notice`.
+   */
+  proposal_source?: ProposalSource;
 };
 
 // ─── Client ─────────────────────────────────────────────────────────────────

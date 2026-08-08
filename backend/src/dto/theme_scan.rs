@@ -208,17 +208,21 @@ pub struct ScanRunHeader {
 #[derive(Debug, Clone, Serialize)]
 pub struct ScanRunListResponse {
     pub runs: Vec<ScanRunHeader>,
-    /// The words the history's own controls speak, from the settings store.
+    /// Every word the scan surface speaks, from the settings store.
     ///
     /// Served with the list rather than fetched separately because they are
     /// useless without it, and because a second round-trip would let a row render
     /// before its controls have words — which is how a button ships blank.
-    pub wording: ScanHistoryWording,
+    pub wording: ScanPanelWording,
 }
 
-/// The two stored strings a scan-history row renders (task 2.15).
+/// The stored strings the scan panel renders.
+///
+/// Named for the SURFACE rather than for the history row it started as (2.15
+/// shipped two strings; the projection added eight more, and they are the report's
+/// and the collapsed card's, not the table's).
 #[derive(Debug, Clone, Serialize)]
-pub struct ScanHistoryWording {
+pub struct ScanPanelWording {
     /// The control that reopens a run's results.
     pub view_label: String,
     /// The confirmation before a run is destroyed. Carries `{run}`, which the
@@ -226,45 +230,20 @@ pub struct ScanHistoryWording {
     /// sentence the server cannot know, because the timestamp is formatted in the
     /// reader's locale.
     pub delete_confirm_template: String,
-}
-
-/// Request body for `POST …/scan-runs/:run_id/merge`.
-///
-/// `graph_node_ids` are the picks the human CHECKED in the results list — merge
-/// writes the scan's judgment onto ONLY these (ratified Option A). An empty list is
-/// rejected as a 400 by the service ([`ThemeScanError::EmptySelection`]); the
-/// frontend also disables Merge until a pick is checked, so an empty body is a
-/// defensive floor, not the normal path.
-///
-/// ## Rust Learning: `#[serde(default)]` on the field, `deny_unknown_fields` on the struct
-///
-/// A missing `graph_node_ids` key deserializes to an empty `Vec` rather than a 422
-/// deserialization error, so a malformed/empty body reaches our OWN empty-selection
-/// check and returns the domain-specific 400 ("check at least one pick") instead of a
-/// generic serde rejection — a clearer, actionable message (Standing Rule 1). But a
-/// MISSPELLED key (`graph_node_id` for `graph_node_ids`) is a caller mistake, not an
-/// absence: `deny_unknown_fields` rejects it as a 400 rather than silently merging
-/// zero — the same discipline `ScanRequest` uses, so a typo can never masquerade as
-/// "nothing selected".
-// serde: deny_unknown_fields — an unknown key here is a client bug (a typo'd
-// `graph_node_id`), and ignoring it would let a mistake read as an empty selection.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ScanRunMergeRequest {
-    #[serde(default)]
-    pub graph_node_ids: Vec<String>,
-}
-
-/// Result of merging one stored run's relevant picks into a scenario.
-///
-/// `merged` is the number of candidate facts inserted or refreshed as `undecided`
-/// suggestions — picks preserved as existing human `included`/`dropped` curation
-/// are deliberately NOT counted (see `merge_scan_run_into_scenario`). `i64`
-/// because the source `rows_affected` is a `u64` count; a scan's ~94-candidate
-/// ceiling is nowhere near the `i64` range, so the cast is lossless.
-#[derive(Debug, Clone, Serialize)]
-pub struct ScanRunMergeResponse {
-    pub merged: i64,
+    /// The one line a COLLAPSED scan card shows. Carries `{when}`, `{model}` and
+    /// `{count}`.
+    pub card_collapsed_summary_template: String,
+    /// The line under the report's heading saying it needs no click.
+    pub report_advisory_note: String,
+    /// The report's LIVE proposed line. Carries `{count}`. Deliberately separate
+    /// from the frozen conservation sentence (architect ruling R5).
+    pub report_proposed_line_template: String,
+    /// The five tile captions, in display order.
+    pub report_tile_gathered: String,
+    pub report_tile_folded: String,
+    pub report_tile_set_aside: String,
+    pub report_tile_judged: String,
+    pub report_tile_proposed: String,
 }
 
 /// Result of one Theme Scan run.

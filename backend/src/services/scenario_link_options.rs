@@ -209,6 +209,10 @@ fn panel_wording(settings: &Settings, total: usize) -> LinkPanelWording {
         fact_weights_hint: w.fact_weights_hint.clone(),
         fact_footer_template: w.fact_footer_template.clone(),
         fact_unplace_label: w.fact_unplace_label.clone(),
+        queue_proposed_heading_template: w.queue_proposed_heading_template.clone(),
+        card_proposed_attribution_template: w.card_proposed_attribution_template.clone(),
+        card_proposed_role_template: w.card_proposed_role_template.clone(),
+        card_proposed_covers_template: w.card_proposed_covers_template.clone(),
     }
 }
 

@@ -7,6 +7,10 @@
 //! `params_snapshot` itself into `theme_scan_start_tests.rs`.)
 
 use super::*;
+// `Utc` is only needed by these fixtures' timestamps: the module under test
+// stopped importing chrono when the merge path (which bound `Utc::now()` for the
+// merge event) was removed.
+use chrono::Utc;
 
 /// The repository header row maps 1:1 onto the wire DTO — every column the
 /// history row shows is carried across, including the nullable `computed_cost`

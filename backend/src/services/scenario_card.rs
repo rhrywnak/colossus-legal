@@ -57,10 +57,28 @@ use crate::services::scenario_human_links::{link_summary, resolve_question, Huma
 ///
 /// Assembled by the caller from the fact-ref row so the pure builder takes plain
 /// data and no repository types.
+///
+/// ## Why a PROJECTED proposal arrives in the same struct (2026-08-08)
+///
+/// A card's non-graph state has exactly two possible sources and they are mutually
+/// exclusive: a stored reference row (a human has touched it) or the latest
+/// completed scan's verdict (nobody has). Precedence R-a is what makes them
+/// exclusive — a ref row always wins — so one struct with one filled shape per
+/// card is the honest model, and a second parallel argument would have invited a
+/// caller to supply both and leave the tie-break to whoever read the fields last.
+///
+/// For a projected card `status` and `tier` stay `None` (there IS no row), and
+/// `confidence` carries the VERDICT's score — which is the same number the retired
+/// merge used to copy into the column, banded by the same cutoffs.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct CardRefState {
     pub status: Option<FactStatus>,
     pub confidence: Option<f32>,
+    /// What the latest completed scan proposed, display-ready, or `None` when
+    /// nothing proposed this card. Composed by
+    /// `services::scenario_card_projection` — the assembler holds the ordinals and
+    /// the wording the badge needs, and this builder holds neither.
+    pub proposal: Option<crate::dto::scenario_card::CardProposal>,
     pub defer_reason: Option<String>,
     /// The decoded weight tier, or `None` when there is no reference row at all
     /// (an unruled candidate has no weight in this scenario).
@@ -529,6 +547,10 @@ pub(crate) fn build_card(
         defer_required: defer_required_reason.is_some(),
         defer_required_reason,
         defer_reason: ref_state.defer_reason.clone(),
+        // Present exactly when this card is a projection of an admitted verdict no
+        // human has touched. The band above was computed from the SAME score, so a
+        // proposed card's chip and its judgment can never describe different runs.
+        proposed: ref_state.proposal.clone(),
         human_links: human_links.to_vec(),
         human_link_summary,
     }

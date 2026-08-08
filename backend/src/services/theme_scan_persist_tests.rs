@@ -186,8 +186,18 @@ fn irrelevant_outcome() -> JudgeOutcome {
     }
 }
 
-/// The scan must NEVER touch `scenario_fact_refs` — merge is the only write path
-/// into a scenario's candidate facts.
+/// The scan must NEVER touch `scenario_fact_refs` — the human's ruling is the
+/// only write path into a scenario's candidate facts.
+///
+/// ## RE-SCOPED, not retired (2026-08-08)
+///
+/// This test used to pin "merge is the only writer". Merge is gone, and what it
+/// pinned is now MORE load-bearing rather than less: a completed run's admitted
+/// verdicts reach the queue as a read-time PROJECTION, and the whole safety of
+/// that design — junk scans cost nothing, a re-scan cannot touch a ruling, a run
+/// can be deleted and its unruled proposals simply vanish — rests on scan
+/// COMPLETION writing no candidate fact at all. The day something here starts
+/// writing one, every one of those properties quietly stops being true.
 ///
 /// The dead pool is the instrument: if any per-candidate write were still
 /// attempted it would fail here and be counted as a per-item failure (that is

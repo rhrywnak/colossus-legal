@@ -219,5 +219,20 @@ export function metaChips(card: ScenarioCard): MetaChip[] {
   if (card.confidence.band !== "unscored") {
     chips.push({ text: card.confidence.label, warning: false });
   }
+  // What the scan PROPOSED, on the same row as the band it earned (2026-08-08).
+  //
+  // Both strings are composed server-side and rendered verbatim. The role chip
+  // reads "Scan: supports" rather than "supports" because the sentence has to name
+  // its speaker: a bare stance word beside a sworn admission reads as the record's
+  // own position, which is the C-222 shape §7.5 exists to forbid.
+  if (card.proposed?.role_label) {
+    chips.push({ text: card.proposed.role_label, warning: false });
+  }
+  // "×2 — covers C-46": one ruling here settles more than the card in front of
+  // you, and silence about that is a pool that shrinks by two on a single click
+  // with nothing having said why.
+  if (card.proposed?.duplicate_label) {
+    chips.push({ text: card.proposed.duplicate_label, warning: false });
+  }
   return chips;
 }

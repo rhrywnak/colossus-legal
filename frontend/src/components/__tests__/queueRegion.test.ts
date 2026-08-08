@@ -9,12 +9,14 @@ const WORDS = {
   emptyPool: "No candidates gathered yet",
   allRuled: "All candidates ruled",
   counting: "Counting candidates…",
+  proposedHeading: "Candidates awaiting ruling — {count} proposed by the {when} scan",
 };
 
 import {
   anyScanScored,
   keyboardShouldRule,
   nextUpHint,
+  proposedCount,
   queueRegion,
   progressFromCards,
 } from "../queueRegion";
@@ -54,24 +56,56 @@ describe("the summary line", () => {
     // sentence. The head line keeps the load-bearing half — that the count spans
     // every scan — and the structural test below pins the other half's new home so
     // the law cannot go missing between the two.
-    // Task 2.15 (piece 3b) added the condition: the clause is only true when a
-    // scan has actually scored something in this pool, so it is now EARNED rather
-    // than always printed. The third argument is that fact.
-    expect(queueRegion({ ruled: 3, total: 148 }, null, true).scope).toContain("all scans");
+    // Task 2.15 (piece 3b) made the clause EARNED rather than always printed, and
+    // 2026-08-08 changed what earns it: the clause belongs to a queue led by the
+    // POOL. When the projection is leading instead, the heading names its own scan
+    // and this clause would be a second, wronger answer to the same question.
+    expect(queueRegion({ ruled: 3, total: 148 }, null, null, true).scope).toContain("all scans");
   });
 
-  it("reads scan parentage off the CARDS, and says no before the pool is read", () => {
-    // What feeds the clause. A card is scan-scored once it carries a confidence
-    // band that is not `unscored`; before the page's own read lands there is
-    // nothing measured at all, and an unread pool must not claim a scan touched
-    // it (the same third-state rule `QueueProgress | null` exists for).
-    const unscored = { confidence: { band: "unscored" } } as unknown as ScenarioCard;
+  it("still refuses the clause on a pool no scan has scored", () => {
+    // The 2026-08-07 defect, guarded through the change: the clause is EARNED by
+    // the data, and a projection-led heading does not change that for the pool-led
+    // case underneath it.
     const scored = { confidence: { band: "high" } } as unknown as ScenarioCard;
-
+    const unscored = { confidence: { band: "unscored" } } as unknown as ScenarioCard;
     expect(anyScanScored(null)).toBe(false);
-    expect(anyScanScored([])).toBe(false);
-    expect(anyScanScored([unscored, unscored])).toBe(false);
+    expect(anyScanScored([unscored])).toBe(false);
     expect(anyScanScored([unscored, scored])).toBe(true);
+  });
+
+  it("leads with the PROPOSALS when a scan is proposing anything", () => {
+    // The queue's whole reason for existing on a scanned scenario. The heading is
+    // the stored template, filled with the live count and the run's date — and it
+    // names the scan, because "30 awaiting ruling" and "30 the Aug 7 scan put in
+    // front of you" are different claims and only the second is true here.
+    const led = queueRegion({ ruled: 0, total: 148 }, WORDS, { count: 30, when: "Aug 7" });
+    expect(led.summary).toBe("Candidates awaiting ruling — 30 proposed by the Aug 7 scan");
+    // And the pool's own labelling clause stands down: one answer, not two.
+    expect(led.scope).toBeNull();
+  });
+
+  it("falls back to the pool heading when the projection proposes nothing", () => {
+    // A completed run whose every pick has been ruled is a FINISHED queue, not a
+    // proposing one — the payload withholds the source entirely in that case, and
+    // a count of zero must never render "0 proposed by the …".
+    const none = queueRegion({ ruled: 3, total: 148 }, WORDS, { count: 0, when: "Aug 7" });
+    expect(none.summary).toBe("Candidates awaiting ruling — 145");
+  });
+
+  it("counts the proposals off the CARDS, and says none before the pool is read", () => {
+    // What feeds the heading. Before the page's own read lands there is nothing
+    // measured at all, and an unread pool must not claim a scan proposed anything
+    // (the same third-state rule `QueueProgress | null` exists for).
+    const plain = {} as unknown as ScenarioCard;
+    const proposed = {
+      proposed: { role_label: null, reason: null, duplicate_count: 1, duplicate_label: null },
+    } as unknown as ScenarioCard;
+
+    expect(proposedCount(null)).toBe(0);
+    expect(proposedCount([])).toBe(0);
+    expect(proposedCount([plain, plain])).toBe(0);
+    expect(proposedCount([plain, proposed])).toBe(1);
   });
 
   it("never claims a scan parentage the pool does not have (task 2.15)", () => {
@@ -79,7 +113,7 @@ describe("the summary line", () => {
     // "Candidates awaiting ruling — 148 · from all scans" while the same screen
     // reported all 148 never scanned. The count was right; the clause was a claim
     // about where the rows came from, and no scan had ever looked at them.
-    const unscanned = queueRegion({ ruled: 0, total: 148 }, null, false);
+    const unscanned = queueRegion({ ruled: 0, total: 148 }, null, null, false);
     expect(unscanned.scope).toBeNull();
     // The COUNT is untouched — the rows are real and still queued. Only the
     // provenance claim is withdrawn.

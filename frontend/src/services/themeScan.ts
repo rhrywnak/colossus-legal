@@ -251,7 +251,7 @@ export async function fetchScanRuns(
   }
   const body = (await response.json()) as {
     runs?: ScanRunHeader[];
-    wording?: ScanHistoryWording;
+    wording?: ScanWording;
   };
   // `wording` is `null` rather than invented when the payload predates it: the
   // table renders no control it has no words for, which is the absent-not-fake
@@ -263,54 +263,41 @@ export async function fetchScanRuns(
 /** The history list and the words its own controls speak. */
 export type ScanRunList = {
   runs: ScanRunHeader[];
-  wording: ScanHistoryWording | null;
+  wording: ScanWording | null;
 };
 
-/** The two stored strings a history row renders (backend `ScanHistoryWording`). */
-export type ScanHistoryWording = {
+/**
+ * Every stored string the scan panel renders (backend `ScanPanelWording`).
+ *
+ * Named for the SURFACE rather than the history row it started as: 2.15 shipped
+ * two strings, and the projection added the collapsed card's summary and the
+ * numbers-only report's seven.
+ */
+export type ScanWording = {
   view_label: string;
   /** Carries `{run}` — filled with the row's own when-label, which is formatted
    *  in the reader's locale and is therefore the one part the server cannot. */
   delete_confirm_template: string;
+  /** The one line a COLLAPSED scan card shows. Carries `{when}`, `{model}` and
+   *  `{count}` — the three facts that let a human decide not to open it. */
+  card_collapsed_summary_template: string;
+  /** The line under the report's heading, saying it needs no click. */
+  report_advisory_note: string;
+  /** The report's LIVE proposed line. Carries `{count}`. Kept separate from the
+   *  frozen conservation sentence on purpose: everything above it describes what
+   *  the run did and never changes, and this falls as you rule. */
+  report_proposed_line_template: string;
+  /** The five tile captions, in display order. */
+  report_tile_gathered: string;
+  report_tile_folded: string;
+  report_tile_set_aside: string;
+  report_tile_judged: string;
+  report_tile_proposed: string;
 };
 
-/** Result of merging a stored run's relevant picks into the scenario (backend
- *  `ScanRunMergeResponse`). `merged` is how many candidate facts were inserted or
- *  refreshed as Undecided suggestions — your Included/Dropped decisions are
- *  preserved and NOT counted. */
-export type ScanRunMergeResponse = {
-  merged: number;
-};
-
-/** Merge the CHECKED picks of a stored run into the scenario's candidate facts.
- *
- *  `graphNodeIds` are the picks the human selected — merge writes the scan's
- *  judgment (role + confidence) onto ONLY these (ratified Option A); unchecked
- *  picks stay unscored Undecided candidates in the pool, never removed. Replays
- *  already-stored verdicts (zero LLM spend). Status-preserving: picks land as
- *  Undecided suggestions, but any Included/Dropped ruling you made survives, and a
- *  previously-merged pick left unchecked KEEPS its prior score (merge is additive,
- *  never subtractive). An empty selection is a 400 (the panel disables Merge until
- *  a pick is checked). A non-2xx throws with the backend message (Standing Rule 1). */
-export async function mergeScanRun(
-  slug: string,
-  scenarioId: string,
-  runId: string,
-  graphNodeIds: string[],
-): Promise<ScanRunMergeResponse> {
-  const response = await authFetch(
-    `${scenarioBase(slug, scenarioId)}/scan-runs/${encodeURIComponent(runId)}/merge`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ graph_node_ids: graphNodeIds }),
-    },
-  );
-  if (!response.ok) {
-    throw new Error(`Failed to merge scan run${await readErrorMessage(response)}`);
-  }
-  return (await response.json()) as ScanRunMergeResponse;
-}
+// There is no merge client (2026-08-08). A completed run's admitted verdicts
+// reach the queue as a read-time projection served with the cards, and the
+// human's ruling is the only write — so there is nothing here to POST.
 
 /** Delete one scan run (and its per-candidate verdicts, which cascade backend-side).
  *

@@ -224,6 +224,15 @@ export const CandidateCard: React.FC<{
   onSaveLinks: (allegationIds: string[], cut: LinkCut) => Promise<void>;
   /** Take one of this card's links back. */
   onUnlink: (allegationId: string) => void;
+  /**
+   * "Proposed by the Aug 7 scan" — composed by the list from the stored template
+   * and the run's date, or `null` when nothing proposed this card (2026-08-08).
+   *
+   * Passed DOWN rather than composed here: every proposed card in one payload
+   * comes from the same run (R-b), so the sentence is built once by the list and
+   * not thirty times by thirty cards that could each format the date differently.
+   */
+  proposedAttribution?: string | null;
 }> = ({
   card,
   selected,
@@ -236,6 +245,7 @@ export const CandidateCard: React.FC<{
   linkOptions,
   onSaveLinks,
   onUnlink,
+  proposedAttribution = null,
 }) => {
   const rows = useMemo(() => cardRows(card), [card]);
   const code = rows.find((r) => r.element === "code");
@@ -373,6 +383,21 @@ export const CandidateCard: React.FC<{
       ))}
 
       <MetaRow card={card} />
+
+      {/* What the SCAN said, in its own words and marked as its own (2026-08-08).
+          The judge's reason is the thing the human is being asked to weigh, and a
+          card that showed a role and a band without it would be the C-222 shape
+          again — a verdict with no argument behind it.
+
+          Rendered verbatim: `reason` is the model's sentence, not something to
+          compose, and the attribution beneath it is a stored template the browser
+          fills with the run's date in the reader's locale. */}
+      {card.proposed?.reason && (
+        <div style={{ ...contextStyle, fontStyle: "italic" }}>{card.proposed.reason}</div>
+      )}
+      {card.proposed && proposedAttribution && (
+        <div style={{ ...contextStyle, color: "var(--text-muted)" }}>{proposedAttribution}</div>
+      )}
 
       {/* A reason a HUMAN gave, distinct from the system's defer notice above. */}
       {card.defer_reason && (

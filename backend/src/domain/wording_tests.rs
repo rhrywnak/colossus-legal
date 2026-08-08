@@ -209,6 +209,11 @@ const POLISH_MIGRATION: &str = "pipeline_migrations/20260805145731_facts_polish_
 /// it answers rather than in a migration of its own.
 const TIER2_MIGRATION: &str =
     "pipeline_migrations/20260808084539_theme_scan_tier2_settings_and_scan_wording.sql";
+/// Scan → ruling: the queue's proposal heading and the three things a PROPOSED
+/// card says. A seventh file for the reason the third one gives — `ON CONFLICT
+/// (key) DO NOTHING` makes editing an applied migration a no-op everywhere it has
+/// already run, so new rows can only ever arrive in a new file.
+const PROJECTION_MIGRATION: &str = "pipeline_migrations/20260808141052_scan_to_ruling_wording.sql";
 
 /// Pull one key's seeded value out of the migration's INSERT.
 ///
@@ -278,6 +283,8 @@ fn the_wording_fixture_carries_the_values_the_migration_actually_seeds() {
         .expect("the 2.13c polish wording migration is on disk");
     let tier2 = std::fs::read_to_string(root.join(TIER2_MIGRATION))
         .expect("the 2.15 Tier-2 scan migration is on disk");
+    let projection = std::fs::read_to_string(root.join(PROJECTION_MIGRATION))
+        .expect("the scan-to-ruling wording migration is on disk");
 
     let fixture = Wording::for_test_values();
     let mut checked = 0usize;
@@ -289,6 +296,7 @@ fn the_wording_fixture_carries_the_values_the_migration_actually_seeds() {
             .or_else(|| seeded_value_in(&counting, key))
             .or_else(|| seeded_value_in(&polish, key))
             .or_else(|| seeded_value_in(&tier2, key))
+            .or_else(|| seeded_value_in(&projection, key))
             .unwrap_or_else(|| panic!("{key} is not seeded by any migration"));
         let in_fixture = fixture
             .get(*key)
@@ -311,7 +319,7 @@ fn the_wording_fixture_carries_the_values_the_migration_actually_seeds() {
         "every stored string must be compared — counted from the list itself so \
          adding a key cannot quietly skip it"
     );
-    assert_eq!(WORDING_KEYS.len(), 49);
+    assert_eq!(WORDING_KEYS.len(), 53);
 }
 
 // ── Item A's correction: the one that can ship a lying button ────────────────
@@ -501,6 +509,11 @@ impl Wording {
             fact_footer_template: "{shown} shown · {background} in background".to_string(),
             fact_unplace_label: "Clear my order".to_string(),
             queue_raw_pool_toggle_template: "Browse the raw evidence pool ({count})".to_string(),
+            queue_proposed_heading_template:
+                "Candidates awaiting ruling — {count} proposed by the {when} scan".to_string(),
+            card_proposed_attribution_template: "Proposed by the {when} scan".to_string(),
+            card_proposed_role_template: "Scan: {verb}".to_string(),
+            card_proposed_covers_template: "×{count} — covers {codes}".to_string(),
         }
     }
 
@@ -566,6 +579,10 @@ impl Wording {
                     KEY_FACT_FOOTER => w.fact_footer_template.clone(),
                     KEY_FACT_UNPLACE_LABEL => w.fact_unplace_label.clone(),
                     KEY_QUEUE_RAW_POOL_TOGGLE => w.queue_raw_pool_toggle_template.clone(),
+                    KEY_QUEUE_PROPOSED_HEADING => w.queue_proposed_heading_template.clone(),
+                    KEY_CARD_PROPOSED_ATTRIBUTION => w.card_proposed_attribution_template.clone(),
+                    KEY_CARD_PROPOSED_ROLE => w.card_proposed_role_template.clone(),
+                    KEY_CARD_PROPOSED_COVERS => w.card_proposed_covers_template.clone(),
                     // Unreachable by construction: the match above covers every
                     // entry of WORDING_KEYS, and the test below proves it. A panic
                     // here would only fire in a test binary, on a key someone added

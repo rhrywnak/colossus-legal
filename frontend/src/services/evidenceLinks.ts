@@ -129,6 +129,19 @@ export type LinkPanelWording = {
    *  Carries `{count}` (task 2.15, piece 3a). */
   queue_raw_pool_toggle_template: string;
 
+  // ── Scan → ruling (2026-08-08) ──────────────────────────────────────────────
+  /** The queue's heading when a completed scan is proposing candidates. Carries
+   *  `{count}` and `{when}`. */
+  queue_proposed_heading_template: string;
+  /** The attribution line on a proposed card. Carries `{when}`. */
+  card_proposed_attribution_template: string;
+  /** The proposed-role chip. Carries `{verb}` — the chip NAMES THE SCAN as the
+   *  speaker, exactly as the banded-confidence label does. */
+  card_proposed_role_template: string;
+  /** The badge on a card whose one ruling settles a byte-identical twin. Carries
+   *  `{count}` and `{codes}`. */
+  card_proposed_covers_template: string;
+
   // ── Task 2.13c ──────────────────────────────────────────────────────────────
   /** Marks the answer beneath its question — the question label's partner. */
   fact_answer_label: string;

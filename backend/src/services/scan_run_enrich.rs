@@ -1,17 +1,21 @@
 //! Read-time annotation of a stored scan summary.
 //!
 //! A completed run's `summary_json` is a HISTORICAL RECORD: it is exactly what the
-//! scan produced, written once and never rewritten. Two things the run-results list
-//! must show are deliberately NOT in it, because neither belongs to the scan:
+//! scan produced, written once and never rewritten. One thing a reader needs is
+//! deliberately NOT in it, because it does not belong to the scan: the **candidate
+//! ordinal** (`C-14`), identity owned by the scenario, which may be assigned after
+//! the run (a scan can judge a candidate that gathers later).
 //!
-//! * the **candidate ordinal** (`C-14`) — identity owned by the scenario, which may
-//!   be assigned after the run (a scan can judge a candidate that gathers later);
-//! * the **applied** state — whether this run's judgment for a pick has already been
-//!   merged, which changes every time the human merges and is therefore never a
-//!   property of the run itself.
-//!
-//! Both are derived here, at read time, and layered onto a COPY of the stored JSON.
+//! It is derived here, at read time, and layered onto a COPY of the stored JSON.
 //! The stored row is never modified.
+//!
+//! ## The `applied` flag is gone (2026-08-08)
+//!
+//! It said whether this run's judgment for a pick had been MERGED — and merge is
+//! retired. A completed run's admitted verdicts now reach the queue as a read-time
+//! projection, so there is nothing to apply and no second selection to suppress.
+//! Whether a human has RULED a candidate is a question the queue answers, on the
+//! card, where the ruling is made.
 //!
 //! ## Why this walks `serde_json::Value` instead of deserializing the summary
 //!
@@ -23,10 +27,10 @@
 //! it adds, so every summary ever written stays readable.
 //!
 //! A summary whose shape is unrecognized is left EXACTLY as found and logged, never
-//! silently blanked: an un-annotated row renders as a run whose picks carry no chip
-//! and no applied badge, which is honest, rather than as an empty result list.
+//! silently blanked: an un-annotated row renders as a run whose picks carry no chip,
+//! which is honest, rather than as an empty result list.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use serde_json::Value;
 use uuid::Uuid;
@@ -44,9 +48,8 @@ use uuid::Uuid;
 const SUGGESTIONS_KEY: &str = "suggestions";
 /// The key each suggestion carries identifying its graph node.
 const NODE_ID_KEY: &str = "graph_node_id";
-/// The annotation keys this module adds.
+/// The annotation key this module adds.
 const ORDINAL_KEY: &str = "ordinal";
-const APPLIED_KEY: &str = "applied";
 
 /// What one annotation pass did — the two counts a reader needs to tell a healthy
 /// summary from a damaged one.
@@ -56,7 +59,7 @@ const APPLIED_KEY: &str = "applied";
 /// the difference (Standing Rule 1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct AnnotationOutcome {
-    /// Suggestions that received an ordinal + applied state.
+    /// Suggestions that received an ordinal.
     pub annotated: usize,
     /// Suggestions left untouched because they carry no readable `graph_node_id`.
     /// Should always be 0 — every suggestion is written with its `evidence_id` —
@@ -64,7 +67,7 @@ pub(crate) struct AnnotationOutcome {
     pub skipped: usize,
 }
 
-/// Annotate every suggestion in `summary` with its ordinal and applied state.
+/// Annotate every suggestion in `summary` with its candidate ordinal.
 ///
 /// Mutates in place (the caller owns a copy read from the row). Returns what the
 /// pass did, so the caller can log a damaged summary rather than reporting a
@@ -85,7 +88,6 @@ pub(crate) struct AnnotationOutcome {
 pub(crate) fn annotate_suggestions(
     summary: &mut Value,
     ordinals: &HashMap<String, i32>,
-    applied: &HashSet<String>,
 ) -> Option<AnnotationOutcome> {
     // `as_array_mut` yields None for both "key absent" and "present but not an
     // array" — the caller treats either as the same unexpected-shape case.
@@ -121,10 +123,6 @@ pub(crate) fn annotate_suggestions(
                 .get(&node_id)
                 .map_or(Value::Null, |o| Value::from(*o)),
         );
-        object.insert(
-            APPLIED_KEY.to_string(),
-            Value::Bool(applied.contains(&node_id)),
-        );
         annotated += 1;
     }
 
@@ -140,9 +138,8 @@ pub(crate) fn annotate_summary_logged(
     summary: &mut Value,
     run_id: Uuid,
     ordinals: &HashMap<String, i32>,
-    applied: &HashSet<String>,
 ) {
-    match annotate_suggestions(summary, ordinals, applied) {
+    match annotate_suggestions(summary, ordinals) {
         Some(outcome) => {
             tracing::debug!(
                 %run_id,
@@ -159,8 +156,8 @@ pub(crate) fn annotate_summary_logged(
                     skipped = outcome.skipped,
                     annotated = outcome.annotated,
                     "stored scan summary contains suggestions with no readable \
-                     `graph_node_id`; they were left un-annotated (no candidate id, \
-                     no applied state) — the stored row is malformed"
+                     `graph_node_id`; they were left un-annotated (no candidate id) \
+                     — the stored row is malformed"
                 );
             }
         }
@@ -168,7 +165,7 @@ pub(crate) fn annotate_summary_logged(
             tracing::warn!(
                 %run_id,
                 "stored scan summary has no readable `suggestions` array; serving it \
-                 un-annotated (picks will show no candidate id and no applied state)"
+                 un-annotated (picks will show no candidate id)"
             );
         }
     }
@@ -183,12 +180,8 @@ mod tests {
         pairs.iter().map(|(n, o)| (n.to_string(), *o)).collect()
     }
 
-    fn applied(ids: &[&str]) -> HashSet<String> {
-        ids.iter().map(|s| s.to_string()).collect()
-    }
-
     #[test]
-    fn annotates_each_suggestion_with_its_ordinal_and_applied_state() {
+    fn annotates_each_suggestion_with_its_candidate_ordinal() {
         let mut summary = json!({
             "suggestions": [
                 { "graph_node_id": "ev-a", "confidence": 0.9 },
@@ -196,11 +189,7 @@ mod tests {
             ]
         });
 
-        let count = annotate_suggestions(
-            &mut summary,
-            &ordinals(&[("ev-a", 14), ("ev-b", 22)]),
-            &applied(&["ev-a"]),
-        );
+        let count = annotate_suggestions(&mut summary, &ordinals(&[("ev-a", 14), ("ev-b", 22)]));
 
         assert_eq!(
             count,
@@ -211,12 +200,7 @@ mod tests {
         );
         let s = &summary["suggestions"];
         assert_eq!(s[0]["ordinal"], 14);
-        assert_eq!(s[0]["applied"], true, "ev-a's judgment was already merged");
         assert_eq!(s[1]["ordinal"], 22);
-        assert_eq!(
-            s[1]["applied"], false,
-            "ev-b is still checkable — not merged from this run"
-        );
         // The scan's own data is untouched.
         assert_eq!(s[0]["confidence"], 0.9);
     }
@@ -227,13 +211,12 @@ mod tests {
         // render as "C-0", a card that does not exist.
         let mut summary = json!({ "suggestions": [{ "graph_node_id": "ev-new" }] });
 
-        annotate_suggestions(&mut summary, &HashMap::new(), &HashSet::new());
+        annotate_suggestions(&mut summary, &HashMap::new());
 
         assert!(
             summary["suggestions"][0]["ordinal"].is_null(),
             "an unassigned ordinal must be an explicit null"
         );
-        assert_eq!(summary["suggestions"][0]["applied"], false);
     }
 
     #[test]
@@ -248,8 +231,7 @@ mod tests {
             "suggestions": [{ "graph_node_id": "ev-old", "proposed_role": "supports" }]
         });
 
-        let count =
-            annotate_suggestions(&mut summary, &ordinals(&[("ev-old", 3)]), &HashSet::new());
+        let count = annotate_suggestions(&mut summary, &ordinals(&[("ev-old", 3)]));
 
         assert_eq!(
             count,
@@ -269,17 +251,11 @@ mod tests {
     fn an_unrecognized_shape_reports_none_rather_than_claiming_success() {
         // No suggestions key at all (a running/failed run's partial summary).
         let mut no_key = json!({ "candidates_read": 0 });
-        assert_eq!(
-            annotate_suggestions(&mut no_key, &HashMap::new(), &HashSet::new()),
-            None
-        );
+        assert_eq!(annotate_suggestions(&mut no_key, &HashMap::new()), None);
 
         // Present but the wrong type — must not be treated as "zero suggestions".
         let mut wrong_type = json!({ "suggestions": "none" });
-        assert_eq!(
-            annotate_suggestions(&mut wrong_type, &HashMap::new(), &HashSet::new()),
-            None
-        );
+        assert_eq!(annotate_suggestions(&mut wrong_type, &HashMap::new()), None);
         assert_eq!(
             wrong_type["suggestions"], "none",
             "an unrecognized summary is left exactly as stored"
@@ -297,7 +273,7 @@ mod tests {
             ]
         });
 
-        let count = annotate_suggestions(&mut summary, &ordinals(&[("ev-a", 1)]), &HashSet::new());
+        let count = annotate_suggestions(&mut summary, &ordinals(&[("ev-a", 1)]));
 
         // The un-keyable entry is counted as SKIPPED, not silently absorbed: the
         // caller warns on a non-zero skip, which is what lets an operator tell a
@@ -311,6 +287,5 @@ mod tests {
             "only the keyable suggestion is annotated; the other is counted skipped"
         );
         assert!(summary["suggestions"][1].get("ordinal").is_none());
-        assert!(summary["suggestions"][1].get("applied").is_none());
     }
 }

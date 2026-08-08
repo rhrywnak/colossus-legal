@@ -8,13 +8,23 @@
 //!
 //! ## Domain note: SCANNING IS SCORING, NEVER COMMITTING
 //!
-//! This module deliberately does NOT write `scenario_fact_refs`. Under the unified
-//! merge model there is exactly ONE write path from scan-land into a scenario's
-//! candidate facts — an explicit, human-driven **Merge selected** — and it is
-//! pick-keyed, not run-keyed. A scan produces verdicts and costs money; it never
-//! decides anything on the human's behalf.
+//! This module deliberately does NOT write `scenario_fact_refs`, and since
+//! 2026-08-08 that is the design's foundation rather than a restriction on it.
+//! There is exactly ONE write path into a scenario's candidate facts — the
+//! HUMAN'S RULING — and a scan reaches the queue by being READ, not by writing:
+//! the cards route projects the latest completed run's admitted verdicts as
+//! proposals (`services::scenario_card_projection`).
 //!
-//! That is why the old `dry_run` distinction is gone rather than defaulted: it
+//! Everything that makes that safe depends on the absence of a write here. A junk
+//! scan costs nothing to undo, because there is nothing to undo. A re-scan cannot
+//! disturb a ruling, because it never touches a row. A run can be deleted and its
+//! un-ruled proposals simply stop being projected. The dead-database test in the
+//! sibling test module pins the absence, and it is not a formality.
+//!
+//! (The retired **Merge selected** button was the previous single writer, and the
+//! reason a human had to select every candidate twice. It is gone.)
+//!
+//! That is also why the old `dry_run` distinction is gone rather than defaulted: it
 //! existed to answer "should this scan auto-write its picks?", and in this model
 //! the answer is permanently no. Nothing here branches on it, so a scan and a
 //! former "benchmark" scan are now the same operation.

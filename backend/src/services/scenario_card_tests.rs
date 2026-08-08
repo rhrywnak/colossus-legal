@@ -17,7 +17,7 @@ fn settings() -> Settings {
     Settings::for_test()
 }
 use crate::bias::dto::{ActorOption, DocumentRef};
-use crate::dto::scenario_card::{CardHumanLink, QuestionSource};
+use crate::dto::scenario_card::{CardHumanLink, CardProposal, QuestionSource};
 use crate::repositories::scenario_card_repository::CardExtrasRow;
 use chrono::{DateTime, Utc};
 
@@ -91,6 +91,7 @@ fn scored_ref() -> CardRefState {
         status: Some(FactStatus::Undecided),
         confidence: Some(0.70),
         defer_reason: None,
+        proposal: None,
         // Task 2.13: an undecided candidate has no weight and no place in this
         // scenario yet — it is not IN the scenario. `None` for both, which is what
         // distinguishes it from an included fact nobody has weighed (`backup`).
@@ -866,6 +867,7 @@ fn a_humans_defer_reason_rides_the_card_separately_from_the_system_flag() {
         status: Some(FactStatus::Undecided),
         confidence: Some(0.9),
         defer_reason: Some("waiting on the unredacted page".to_string()),
+        proposal: None,
         tier: None,
         sort_ordinal: None,
         display_ordinal: None,
@@ -1322,4 +1324,104 @@ fn an_untouched_card_carries_no_human_link_fields() {
     );
     assert!(card.human_links.is_empty());
     assert!(card.human_link_summary.is_none());
+}
+
+// ── The projection on a card (2026-08-08) ────────────────────────────────────
+
+/// A projected card's state: no reference row, the verdict's score, and the
+/// display-ready proposal the assembler composed.
+fn proposed_ref(confidence: Option<f32>, proposal: CardProposal) -> CardRefState {
+    CardRefState {
+        // No row exists — that IS what makes it a proposal (R-a).
+        status: None,
+        confidence,
+        proposal: Some(proposal),
+        defer_reason: None,
+        tier: None,
+        sort_ordinal: None,
+        display_ordinal: None,
+    }
+}
+
+fn a_proposal() -> CardProposal {
+    CardProposal {
+        role_label: Some("Scan: supports".to_string()),
+        reason: Some("direct admission by the accusing party".to_string()),
+        duplicate_count: 2,
+        duplicate_label: Some("×2 — covers C-46".to_string()),
+    }
+}
+
+#[test]
+fn a_proposed_card_always_carries_a_code() {
+    // §2a: "pull up C-14" must be speakable, and a proposed card is the FIRST
+    // thing a curator reads on a scanned scenario. `code: null` there would be a
+    // card nobody can refer to out loud.
+    //
+    // The ordinal is minted by the gather route, which numbers the whole pool —
+    // and every projectable node is a pool node, so a proposal always arrives with
+    // one. This pins the composition end: given an ordinal, the card renders it.
+    let card = build_card(
+        &full_instance(),
+        Some(&extras_for(vec![linked_row(crate::neo4j::schema::REBUTS)])),
+        &proposed_ref(Some(0.91), a_proposal()),
+        Some(14),
+        None,
+        &settings(),
+        HumanTouches::none(),
+    );
+
+    assert_eq!(card.code.as_deref(), Some("C-14"));
+    assert!(card.proposed.is_some(), "the fixture is a proposal");
+}
+
+#[test]
+fn banded_confidence_never_a_percentage_on_the_card() {
+    // §7.8 is binding: "Model confidence: high", never "91%". The verdict's score
+    // decides the BAND on this side of the wire and is then discarded — a client
+    // that never receives the number cannot render it, which is why the proposal
+    // carries no confidence field at all.
+    let card = build_card(
+        &full_instance(),
+        Some(&extras_for(vec![linked_row(crate::neo4j::schema::REBUTS)])),
+        &proposed_ref(Some(0.91), a_proposal()),
+        Some(14),
+        None,
+        &settings(),
+        HumanTouches::none(),
+    );
+
+    // The band comes from the VERDICT's score, banded by the settings cutoffs —
+    // the same number the retired merge used to copy into the column.
+    assert_eq!(card.confidence.band, ConfidenceBand::High);
+    assert!(
+        !card.confidence.label.contains('%') && !card.confidence.label.contains("91"),
+        "the label is words, not a score: {}",
+        card.confidence.label
+    );
+
+    // And nothing anywhere on the serialized card carries the raw score.
+    let json = serde_json::to_string(&card).expect("a card serializes");
+    assert!(
+        !json.contains("0.91") && !json.contains("91"),
+        "no naked percentage may reach the wire: {json}"
+    );
+}
+
+#[test]
+fn a_ruled_card_carries_no_proposal() {
+    // R-a on the card itself: a human-touched candidate renders as their decision,
+    // never as something a scan is still proposing. `scored_ref` is a real
+    // reference row, which is exactly what precedence tests for.
+    let card = build_card(
+        &full_instance(),
+        Some(&extras_for(vec![linked_row(crate::neo4j::schema::REBUTS)])),
+        &scored_ref(),
+        Some(14),
+        None,
+        &settings(),
+        HumanTouches::none(),
+    );
+
+    assert!(card.proposed.is_none());
 }

@@ -22,7 +22,8 @@
 // the right reason — a queue that remembers "collapsed" over 145 unruled
 // candidates is a silent failure wearing a preference's clothes.
 
-import { candidateState, isScanScored } from "./candidateFilters";
+import { candidateState, isProposed } from "./candidateFilters";
+import { fillCount } from "../services/evidenceLinks";
 import type { ScenarioCard } from "../services/scenarioCards";
 
 /** What the collapsible region shows, as data. */
@@ -31,7 +32,8 @@ export type QueueRegionDescriptor = {
   open: boolean;
   /** The head line's headline, e.g. `"Candidates awaiting ruling — 145"`. */
   summary: string;
-  /** The labelling-law clause that sits beside it, or `null` at zero. */
+  /** The labelling-law clause that sits beside it, or `null` — at zero, and on a
+   *  queue led by proposals, where the heading already names its own source. */
   scope: string | null;
   /** The chevron's accessible label + tooltip, naming what collapsing costs. */
   chevronLabel: string;
@@ -65,21 +67,58 @@ export type QueueSummaryWording = {
   allRuled: string;
   /** Shown while the counts are NOT KNOWN — nothing has measured the pool yet. */
   counting: string;
+  /** The heading when a completed scan is proposing candidates. Carries
+   *  `{count}` and `{when}` (2026-08-08). */
+  proposedHeading: string;
 };
+
+/**
+ * What the projection is putting in front of the human, or `null`.
+ *
+ * `when` arrives already formatted, in the reader's locale — the same division of
+ * labour the scan-history delete confirmation uses for its `{run}`: the server
+ * owns the sentence, the browser owns the date format.
+ */
+export type QueueProposals = { count: number; when: string };
 
 /** What the queue has measured, or `null` when it has not measured anything. */
 export type QueueProgress = { ruled: number; total: number };
 
 /**
+ * How many cards the latest completed scan is proposing.
+ *
+ * `null` in, `0` out: an unread pool proposes nothing, and a heading claiming
+ * otherwise before the read lands is the same false-before-measured defect
+ * `QueueProgress | null` exists to prevent.
+ *
+ * ## Why the browser counts this and the payload also carries it
+ *
+ * They are the same number counted two ways over the same served payload, and
+ * that is deliberate rather than duplicated: `proposal_source.proposed_count` is
+ * what the SCAN CARD reports (it is a fact about the run), while this counts the
+ * cards actually in hand for the queue's own heading. If the two ever disagree,
+ * something dropped a card between the wire and the list — which is exactly the
+ * class of defect §9 exists to make visible.
+ */
+export function proposedCount(cards: ScenarioCard[] | null): number {
+  return cards === null ? 0 : cards.filter(isProposed).length;
+}
+
+/**
  * Whether ANY card in the pool carries a scan's score.
  *
- * The test behind the labelling clause (piece 3b). `null` in, `false` out: an
- * unread pool has nothing scored in it, and a clause claiming otherwise before
- * the read lands is the same false-before-measured defect `QueueProgress | null`
- * exists to prevent.
+ * The test behind the "from all scans" clause (task 2.15, piece 3b), and it
+ * SURVIVES the projection deliberately. The clause describes a queue led by the
+ * POOL — the state a scanned-and-fully-ruled scenario is in, where the rows do
+ * have scan parentage but nothing is being proposed. Measured 2026-08-07: without
+ * this condition a freshly created scenario led with "148 · from all scans" over a
+ * pool no scan had ever touched, and that defect must not come back through the
+ * door this task opened.
+ *
+ * `null` in, `false` out: an unread pool has nothing scored in it.
  */
 export function anyScanScored(cards: ScenarioCard[] | null): boolean {
-  return cards !== null && cards.some(isScanScored);
+  return cards !== null && cards.some((c) => c.confidence.band !== "unscored");
 }
 
 /**
@@ -101,6 +140,7 @@ export function anyScanScored(cards: ScenarioCard[] | null): boolean {
 export function queueRegion(
   progress: QueueProgress | null,
   wording: QueueSummaryWording | null = null,
+  proposals: QueueProposals | null = null,
   scanScored = false,
 ): QueueRegionDescriptor {
   // Counts unknown: say so and nothing else. No progress figure, no remaining
@@ -128,10 +168,24 @@ export function queueRegion(
   const safeRuled = Math.min(Math.max(0, progress.ruled), safeTotal);
   const unruled = safeTotal - safeRuled;
 
+  // The queue LEADS with proposals when there are any (2026-08-08): they are what
+  // the human came to rule, and before this they arrived buried in a pool of 148
+  // with nothing marking them. The heading names the scan, because "30 awaiting
+  // ruling" and "30 the Aug 7 scan put in front of you" are different claims and
+  // only the second is true of a projection.
+  const proposedHeading =
+    proposals && proposals.count > 0 && wording
+      ? fillCount(wording.proposedHeading, proposals.count).replace(
+          "{when}",
+          proposals.when,
+        )
+      : null;
+
   return {
     open: unruled > 0,
     summary:
-      unruled > 0
+      proposedHeading ??
+      (unruled > 0
         ? `Candidates awaiting ruling — ${unruled}`
         : // At zero the region is a receipt, not a queue — but WHICH receipt
           // depends on whether there is a pool at all.
@@ -148,7 +202,7 @@ export function queueRegion(
           // work is done". They are different facts and now say different things.
           safeTotal === 0
           ? (wording?.emptyPool ?? "")
-          : (wording?.allRuled ?? ""),
+          : (wording?.allRuled ?? "")),
     // v3 shortens this to the mockup's "from all scans". The labelling law it
     // carries is unchanged — the queue is EVERY unruled candidate across every
     // scan — and the section subtitle above still spells out that scans only add
@@ -161,7 +215,13 @@ export function queueRegion(
     // The clause now appears only when something in the pool actually carries a
     // scan's score, so it describes the rows it sits above rather than the label
     // somebody expected them to have.
-    scope: unruled > 0 && scanScored ? "from all scans" : null,
+    // TWO conditions now, and both are load-bearing. It is absent when the
+    // proposal heading is showing — that sentence already names its source, and a
+    // second clause underneath would be the page saying "from all scans" beside
+    // "proposed by the Aug 7 scan": two answers to one question. And it is still
+    // EARNED by the data (task 2.15, piece 3b), because a pool nothing has scanned
+    // must not claim a scan parentage.
+    scope: proposedHeading === null && unruled > 0 && scanScored ? "from all scans" : null,
     chevronLabel:
       unruled > 0
         ? "Collapse the queue — only this arrow collapses it; keys pause while collapsed"

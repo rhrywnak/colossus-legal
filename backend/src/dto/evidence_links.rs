@@ -155,6 +155,16 @@ pub struct LinkPanelWording {
     pub fact_footer_template: String,
     /// The control that forgets where a human dragged one fact.
     pub fact_unplace_label: String,
+    /// The queue's heading when a completed scan is proposing candidates. Carries
+    /// `{count}` and `{when}` (2026-08-08).
+    pub queue_proposed_heading_template: String,
+    /// The attribution line on a proposed card. Carries `{when}`.
+    pub card_proposed_attribution_template: String,
+    /// The proposed-role chip. Carries `{verb}`.
+    pub card_proposed_role_template: String,
+    /// The badge on a card whose one ruling settles a twin. Carries `{count}` and
+    /// `{codes}`.
+    pub card_proposed_covers_template: String,
 }
 
 /// The whole panel in one read.

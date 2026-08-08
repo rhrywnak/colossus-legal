@@ -98,6 +98,15 @@ const CandidateList: React.FC<{
   onSaveLinks: (graphNodeId: string, allegationIds: string[], cut: LinkCut) => Promise<void>;
   /** Take one link back, on one named card. */
   onUnlink: (graphNodeId: string, allegationId: string) => void;
+  /**
+   * "Proposed by the Aug 7 scan", or `null` when nothing is being proposed
+   * (2026-08-08).
+   *
+   * ONE sentence for the whole list, composed once by the queue: only the latest
+   * completed run projects (R-b), so every proposed card in a payload shares it.
+   * Composing it per card would be thirty chances to format one date thirty ways.
+   */
+  proposedAttribution: string | null;
 }> = ({
   cards,
   selectedId,
@@ -110,6 +119,7 @@ const CandidateList: React.FC<{
   linkOptions,
   onSaveLinks,
   onUnlink,
+  proposedAttribution,
 }) => {
   // One ref for the selected row, re-pointed on every render. A map of refs would
   // let the effect scroll a card that is no longer selected.
@@ -174,6 +184,10 @@ const CandidateList: React.FC<{
                 onSaveLinks(card.graph_node_id, allegationIds, cut)
               }
               onUnlink={(allegationId) => onUnlink(card.graph_node_id, allegationId)}
+              // Rendered only on a card that IS a proposal — the card checks its
+              // own `proposed` field before showing it, so a shared sentence
+              // cannot leak onto a ruled card.
+              proposedAttribution={proposedAttribution}
               keyboardRefused={selected && notice !== null}
             />
           </div>

@@ -55,7 +55,10 @@ use super::PipelineRepoError;
 /// `pub(crate)` so the POST handler can label the freshly-spawned run without a
 /// magic string of its own.
 pub(crate) const SCAN_STATUS_RUNNING: &str = "running";
-const SCAN_STATUS_COMPLETED: &str = "completed";
+/// `pub(crate)` so the sibling `scan_run_projection` module can gate the
+/// projecting-run query on the same token this module finalizes runs with. Two
+/// spellings of "completed" is exactly the drift the constants exist to prevent.
+pub(crate) const SCAN_STATUS_COMPLETED: &str = "completed";
 const SCAN_STATUS_FAILED: &str = "failed";
 
 /// The message stamped on a run the startup sweep finds still `running`.

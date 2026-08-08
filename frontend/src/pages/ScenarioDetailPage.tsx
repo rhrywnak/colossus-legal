@@ -62,7 +62,11 @@ import { getAllegations, type AllegationDto } from "../services/allegations";
 import { DEFAULT_CASE_SLUG } from "../services/caseHeader";
 import { useAllegationOptions } from "../components/useAllegationOptions";
 import ScenarioNotice from "../components/ScenarioNotice";
-import { fetchScenarioCards, type ScenarioCard } from "../services/scenarioCards";
+import {
+  fetchScenarioCards,
+  type ProposalSource,
+  type ScenarioCard,
+} from "../services/scenarioCards";
 import {
   fetchAccusationPanel,
   type AccusationPanelDto,
@@ -132,6 +136,16 @@ const ScenarioDetailPage: React.FC = () => {
    * the queue's own notice follows in `CardQueue`.
    */
   const [neverScannedNotice, setNeverScannedNotice] = useState<string | null>(null);
+  /**
+   * Which completed run is proposing candidates, or `null` when nothing is
+   * (2026-08-08).
+   *
+   * Read WITH the cards and replaced with them, exactly as `neverScannedNotice`
+   * is: the queue's heading and the scan card's summary both name this run, and a
+   * value that outlived its payload would have them naming a run whose proposals
+   * are no longer on screen.
+   */
+  const [proposalSource, setProposalSource] = useState<ProposalSource | null>(null);
   /**
    * The accusation section's payload (task 2.11 B1).
    *
@@ -264,6 +278,7 @@ const ScenarioDetailPage: React.FC = () => {
         setAllegations(allegationList.allegations);
         setCards([...cardPayload.pool, ...cardPayload.set_aside]);
         setNeverScannedNotice(cardPayload.never_scanned_notice ?? null);
+        setProposalSource(cardPayload.proposal_source ?? null);
         setLoading(false);
       })
       .catch((err: unknown) => {
@@ -300,6 +315,7 @@ const ScenarioDetailPage: React.FC = () => {
         // Re-read with the cards, so a scan that completed while this page was
         // open stops the section claiming nothing has scanned it.
         setNeverScannedNotice(payload.never_scanned_notice ?? null);
+        setProposalSource(payload.proposal_source ?? null);
         // A read that worked clears the last one's complaint; leaving it up would
         // put a stale warning over a list that is now current.
         setFactsNotice(null);
@@ -434,6 +450,7 @@ const ScenarioDetailPage: React.FC = () => {
         externalRefresh={pageRefreshKey + queueRefreshKey}
         // Served, not derived — see the field's note on the payload.
         neverScannedNotice={neverScannedNotice}
+        proposalSource={proposalSource}
         onFactsChanged={refresh}
         // A ruling the SERVER confirmed. Re-reads the cards alone, so the fact
         // appears below without the queue above being reloaded under the human.

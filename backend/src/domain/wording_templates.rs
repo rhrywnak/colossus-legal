@@ -148,6 +148,32 @@ pub const REQUIRED_PLACEHOLDERS: &[(&str, &[&str])] = &[
     // "Browse the raw evidence pool" without its size hides how much is behind
     // the control — which is the whole reason it is behind one.
     (curation::KEY_QUEUE_RAW_POOL_TOGGLE, &["{count}"]),
+    // ── Scan → ruling (2026-08-08): the proposal's own sentences ─────────────
+    //
+    // The queue's leading heading is the first line a curator reads on a scanned
+    // scenario, and both of its facts are load-bearing: how many are waiting, and
+    // WHICH scan put them there. Without the second, a projection is
+    // indistinguishable from the raw pool — the exact false claim task 2.15
+    // piece 3 removed from this same heading.
+    (curation::KEY_QUEUE_PROPOSED_HEADING, &["{count}", "{when}"]),
+    // An attribution with no date attributes nothing; the point of the line is
+    // that a human can tell last night's judgment from last month's.
+    (curation::KEY_CARD_PROPOSED_ATTRIBUTION, &["{when}"]),
+    // The chip's whole job is to name the SCAN as the speaker of a stance. Drop
+    // the verb and it says nothing; drop the surrounding words and it becomes the
+    // record's own stance, which it is not.
+    (curation::KEY_CARD_PROPOSED_ROLE, &["{verb}"]),
+    // "covers" with no codes tells a human a ruling reaches further than the card
+    // in front of them and refuses to say how far.
+    (curation::KEY_CARD_PROPOSED_COVERS, &["{count}", "{codes}"]),
+    // A collapsed scan card exists so nobody has to expand it to learn whether it
+    // is worth expanding. All three facts are that sentence's reason to exist.
+    (
+        scan::KEY_CARD_COLLAPSED_SUMMARY,
+        &["{when}", "{model}", "{count}"],
+    ),
+    // A live count that does not say its number is a label, not a report.
+    (scan::KEY_REPORT_PROPOSED_LINE, &["{count}"]),
 ];
 
 /// Which required placeholders a candidate value is missing, for one key.

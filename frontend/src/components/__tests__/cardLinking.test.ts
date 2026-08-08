@@ -73,6 +73,10 @@ const wording: LinkPanelWording = {
     "Star each fact by how much it carries — carries, backup, background — and drag to set the order.",
   fact_footer_template: "{shown} shown · {background} in background",
   fact_unplace_label: "Clear my order",
+  queue_proposed_heading_template: "Candidates awaiting ruling — {count} proposed by the {when} scan",
+  card_proposed_attribution_template: "Proposed by the {when} scan",
+  card_proposed_role_template: "Scan: {verb}",
+  card_proposed_covers_template: "×{count} — covers {codes}",
 };
 
 function option(id: string, label: string, count: string | null = null): AllegationOption {

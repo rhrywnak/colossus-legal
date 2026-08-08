@@ -40,24 +40,13 @@ fn subject_unresolvable_maps_to_400() {
 }
 
 #[test]
-fn empty_selection_maps_to_400() {
-    // A merge with nothing checked is user-fixable — a 400, distinct from a
-    // not-found run (which is a 404). Pins the arm so a future refactor cannot
-    // silently demote it to a 500 or collapse it into the not-found case.
-    let e = ThemeScanError::EmptySelection {
-        run_id: Uuid::nil(),
-    };
-    assert!(matches!(map_scan_error(e), AppError::BadRequest { .. }));
-}
-
-#[test]
-fn merged_run_deletion_maps_to_409_and_explains_why() {
-    // Deleting a merged run is refused as a CONFLICT — not a 404 (the run
-    // plainly exists), not a 400 (the request is well-formed), not a 500 (the
-    // server is fine). Pins the arm so a refactor cannot demote it into the
+fn deleting_a_run_the_record_cites_maps_to_409_and_explains_why() {
+    // Deleting a run the record depends on is refused as a CONFLICT — not a 404
+    // (the run plainly exists), not a 400 (the request is well-formed), not a 500
+    // (the server is fine). Pins the arm so a refactor cannot demote it into the
     // catch-all 500, which would read to the user as a transient glitch worth
     // retrying rather than a deliberate, permanent refusal.
-    let e = ThemeScanError::ScanRunMerged {
+    let e = ThemeScanError::ScanRunCited {
         run_id: Uuid::nil(),
         merge_events: 2,
         attributed_facts: 7,
@@ -65,17 +54,18 @@ fn merged_run_deletion_maps_to_409_and_explains_why() {
     let mapped = map_scan_error(e);
     match mapped {
         AppError::Conflict { message, details } => {
-            // The message must say WHY, and carry the counts — a bare "cannot
-            // delete" would leave the human guessing what is holding the run.
+            // The message must say WHY in PLAIN WORDS (architect ruling R1) — a
+            // human meeting this 409 is mid-cleanup and needs to know it is a rule
+            // rather than a fault, and that their own rulings are safe.
             assert!(
-                message.contains("merged") && message.contains("provenance"),
-                "409 must explain the refusal: {message}"
+                message.contains("ruling") && message.contains("cannot be deleted"),
+                "409 must explain the refusal in plain words: {message}"
             );
             assert!(
                 message.contains('2') && message.contains('7'),
                 "409 must name what is holding the run: {message}"
             );
-            assert_eq!(details["reason"], "run_merged");
+            assert_eq!(details["reason"], "run_cited");
         }
         other => panic!("expected 409 Conflict, got {other:?}"),
     }
@@ -166,20 +156,6 @@ fn scan_run_delete_failed_maps_to_500() {
     // logged, never leaked (same policy as ScanRunReadFailed / ScanRunListFailed).
     // Distinct from ScanRunNotFound (zero rows deleted), which maps to 404.
     let e = ThemeScanError::ScanRunDeleteFailed {
-        run_id: Uuid::nil(),
-        source: crate::repositories::pipeline_repository::PipelineRepoError::Database(
-            "boom".to_string(),
-        ),
-    };
-    assert!(matches!(map_scan_error(e), AppError::Internal { .. }));
-}
-
-#[test]
-fn scan_run_merge_failed_maps_to_500() {
-    // A DB failure MERGING a run's picks is server-side: a generic 500 whose
-    // cause is logged, never leaked. Distinct from ScanRunNotFound (run absent
-    // / wrong scenario → 404) and from a legitimate merged=0 (200).
-    let e = ThemeScanError::ScanRunMergeFailed {
         run_id: Uuid::nil(),
         source: crate::repositories::pipeline_repository::PipelineRepoError::Database(
             "boom".to_string(),

@@ -251,6 +251,89 @@ pub struct CardHumanLink {
     pub cut_label: String,
 }
 
+/// What the latest completed scan PROPOSED about this candidate.
+///
+/// Present exactly when the card is a read-time projection of an admitted verdict
+/// that no human has touched (R-a). Absent — not empty, not zeroed — on every
+/// other card, so "the scan proposed this" and "nobody proposed this" are
+/// different shapes on the wire and not a flag to interpret.
+///
+/// ## Domain note: everything here is the MACHINE'S claim, and says so
+///
+/// The card's other elements describe the record: who said it, on what page, what
+/// it bears on. These three describe what a model thought about it last night.
+/// `role_label` therefore names the scan as its subject exactly as
+/// [`CardConfidence::label`] does — a chip reading "supports" beside a sworn
+/// admission would read as the record's own stance, which it is not.
+///
+/// ## Why there is no confidence NUMBER here
+///
+/// §7.8 is binding: banded words, never a naked percentage. The verdict's score
+/// decides [`ScenarioCard::confidence`]'s band on this side of the wire and is
+/// then discarded — a client that never receives the number cannot render it, and
+/// the rule stops depending on every future component remembering it.
+///
+/// ## Why there are no covered node ids here
+///
+/// Ruling a folded card settles its twins, and WHICH nodes those are is resolved
+/// server-side at ruling time from the same projection that built this card
+/// (architect ruling R4). Shipping the list would invite a client to send it back,
+/// and a client-supplied "these nodes go with it" is a claim the server cannot
+/// check — the same reasoning that keeps the ruling ANCHOR a server-side read.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CardProposal {
+    /// The role the judge assigned, in plain trial language and attributed to the
+    /// scan ("Scan: supports"). `None` when the stored verdict carries a role token
+    /// this build cannot name — the chip is then absent rather than showing a raw
+    /// token, and the decode failure is logged (Standing Rule 1).
+    pub role_label: Option<String>,
+    /// The judge's own justification, verbatim from `scan_run_verdicts.reason`.
+    ///
+    /// Not composed and not translated: this is the model's sentence, and it is
+    /// the thing the human is being asked to weigh. `None` for a verdict recorded
+    /// without one.
+    pub reason: Option<String>,
+    /// How many pool rows this one card speaks for — `1` ordinarily, `2` for a
+    /// byte-identical twin pair. Ruling the card settles all of them.
+    pub duplicate_count: usize,
+    /// The badge naming what a single ruling here covers ("×2 — covers C-46").
+    /// `None` when the card speaks only for itself, because a badge reading "×1"
+    /// is noise on every card in the queue.
+    pub duplicate_label: Option<String>,
+}
+
+/// Which run put the proposals in this payload, and how many there are.
+///
+/// Response-level rather than per-card: R-b means every proposal in one payload
+/// comes from ONE run, so repeating its identity on thirty cards would be thirty
+/// chances for them to disagree.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProposalSource {
+    /// The run whose verdicts these proposals are. The scan panel matches its
+    /// history rows against this to decide which row may show a proposed count
+    /// (every other row projects nothing, and shows an em dash).
+    pub run_id: uuid::Uuid,
+    /// The model that judged, as its stored id. The panel already maps ids to
+    /// display names for the history table and the run controls; sending the
+    /// display name here would make this the second place that mapping happens.
+    pub model_id: String,
+    /// When the run started — the date the attribution line names. Formatted by
+    /// the browser, in the reader's locale, exactly as the scan-history delete
+    /// confirmation's `{run}` already is.
+    pub started_at: chrono::DateTime<chrono::Utc>,
+    /// How many cards in this payload carry a proposal.
+    ///
+    /// ## Domain note: this is the LIVE number (R-e)
+    ///
+    /// Admitted verdicts minus everything precedence has already ruled, counted
+    /// over the payload being served — so it falls as the human rules and can
+    /// never disagree with the cards beneath it. The run's own frozen counts are
+    /// NOT rewritten; this number is served beside them and labelled live.
+    pub proposed_count: usize,
+}
+
 /// Whether the quote was located in its source (§7.7).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -372,6 +455,17 @@ pub struct ScenarioCard {
     /// ordinary state; a non-empty list is what clears `defer_required` on a card
     /// the extraction never linked.
     pub human_links: Vec<CardHumanLink>,
+    /// What the latest completed scan proposed about this card, or `None` when
+    /// nothing proposed it.
+    ///
+    /// ## Domain note: presence is what "PROPOSED" means
+    ///
+    /// There is no `proposed` status and no third writer. A proposed card is one
+    /// with no reference row and a live verdict behind it, and this field is the
+    /// whole of that state on the wire — which is why the queue's Proposed facet is
+    /// `not_ruled` AND this being present, rather than a status token to decode.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub proposed: Option<CardProposal>,
     /// What the human did, in their own terms — "You linked this to ¶41 · they'll
     /// use it against us." Present exactly when `human_links` is non-empty.
     ///
@@ -432,4 +526,14 @@ pub struct ScenarioCardsResponse {
     /// branches on presence exactly as it does for [`Self::no_target_notice`].
     #[serde(skip_serializing_if = "Option::is_none")]
     pub never_scanned_notice: Option<String>,
+    /// Which completed run put the proposals in this payload, or `None` when
+    /// nothing is proposed.
+    ///
+    /// `None` covers three different situations that need no distinguishing HERE —
+    /// no run has completed, the latest completed run admitted nothing, or every
+    /// admitted verdict has already been ruled — because the queue's answer is the
+    /// same in all three: lead with the pool, not with proposals. The first of the
+    /// three is separately visible as [`Self::never_scanned_notice`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub proposal_source: Option<ProposalSource>,
 }

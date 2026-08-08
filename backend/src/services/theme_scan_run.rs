@@ -1,5 +1,5 @@
 //! Theme Scan reads and curation of runs that ALREADY EXIST: the poll, the
-//! history list, the delete, and the merge.
+//! history list, and the delete.
 //!
 //! The START path — the only code that creates a run — lives in the sibling
 //! [`crate::services::theme_scan_start`]; `theme_scan.rs` owns the synchronous
@@ -11,16 +11,13 @@
 //! or a run — exists in another case, so a cross-case id is reported exactly like
 //! an absent one.
 
-use std::collections::HashSet;
-
-use chrono::Utc;
 use uuid::Uuid;
 
-use crate::dto::theme_scan::ScanHistoryWording;
+use crate::dto::theme_scan::ScanPanelWording;
 use crate::dto::{ScanRunHeader, ScanRunListResponse, ScanRunStatusResponse};
 use crate::repositories::pipeline_repository::{
-    count_run_provenance, delete_scan_run, get_scan_run, list_applied_node_ids_for_run,
-    list_candidate_ordinals, list_scan_runs, merge_run_into_scenario_recording, ScanRunHeaderRow,
+    count_run_provenance, delete_scan_run, get_scan_run, list_candidate_ordinals, list_scan_runs,
+    ScanRunHeaderRow,
 };
 use crate::services::scan_conservation::annotate_conservation_line;
 use crate::services::scan_run_delta::with_pool_deltas;
@@ -38,13 +35,14 @@ use crate::state::AppState;
 /// ## The summary is ANNOTATED on the way out
 ///
 /// A completed run's stored summary is a historical record and is never rewritten.
-/// Two things the results list needs are not in it, because neither belongs to the
-/// run: each pick's candidate ordinal (`C-14`, owned by the scenario) and whether
-/// this run's judgment for that pick has already been merged. Both are derived here
-/// and layered onto a copy — see [`crate::services::scan_run_enrich`].
+/// One thing the report needs is not in it, because it does not belong to the run:
+/// each pick's candidate ordinal (`C-14`, which the SCENARIO owns and may assign
+/// after the run judged). It is derived here and layered onto a copy — see
+/// [`crate::services::scan_run_enrich`].
 ///
-/// This is where "applied" is computed rather than in the merge response, because a
-/// reopened HISTORICAL run needs it just as much as the one just merged.
+/// The "applied" flag that used to ride beside it is gone with merge: a pick is no
+/// longer something to apply, and whether a human has ruled it is a question the
+/// QUEUE answers, on the card, where the ruling is made.
 pub async fn get_scan_run_status(
     state: &AppState,
     case_slug: &str,
@@ -86,13 +84,13 @@ pub async fn get_scan_run_status(
     })
 }
 
-/// Read the scenario's ordinals and this run's applied picks, then annotate.
+/// Read the scenario's ordinals, then annotate.
 ///
 /// Split from [`get_scan_run_status`] to keep it within the function-size limit.
-/// Both reads are hard failures rather than degradations: serving a results list
-/// with silently-missing chips or a silently-absent applied state would invite the
-/// human to re-merge picks that are already applied (Standing Rule 1 — a partial
-/// answer that looks complete is the failure mode to avoid).
+/// The read is a hard failure rather than a degradation: a report whose entries
+/// silently lost their C-codes looks exactly like a report of un-numbered
+/// candidates (Standing Rule 1 — a partial answer that looks complete is the
+/// failure mode to avoid).
 async fn annotate_run_summary(
     state: &AppState,
     scenario_id: Uuid,
@@ -103,13 +101,7 @@ async fn annotate_run_summary(
         .await
         .map_err(|source| ThemeScanError::ScanRunReadFailed { run_id, source })?;
 
-    let applied: HashSet<String> = list_applied_node_ids_for_run(&state.pipeline_pool, run_id)
-        .await
-        .map_err(|source| ThemeScanError::ScanRunReadFailed { run_id, source })?
-        .into_iter()
-        .collect();
-
-    annotate_summary_logged(summary, run_id, &ordinals, &applied);
+    annotate_summary_logged(summary, run_id, &ordinals);
     // The reconciliation sentence, composed here from the run's FROZEN counts and
     // the LIVE stored template (task 2.15 item 1c). Read-time for the same reason
     // the two annotations above are: the record is what the run did, the words are
@@ -156,9 +148,17 @@ pub async fn list_scenario_scan_runs(
     let words = &state.settings.current().scan_wording;
     Ok(ScanRunListResponse {
         runs,
-        wording: ScanHistoryWording {
+        wording: ScanPanelWording {
             view_label: words.history_view_label.clone(),
             delete_confirm_template: words.history_delete_confirm_template.clone(),
+            card_collapsed_summary_template: words.card_collapsed_summary_template.clone(),
+            report_advisory_note: words.report_advisory_note.clone(),
+            report_proposed_line_template: words.report_proposed_line_template.clone(),
+            report_tile_gathered: words.report_tile_gathered.clone(),
+            report_tile_folded: words.report_tile_folded.clone(),
+            report_tile_set_aside: words.report_tile_set_aside.clone(),
+            report_tile_judged: words.report_tile_judged.clone(),
+            report_tile_proposed: words.report_tile_proposed.clone(),
         },
     })
 }
@@ -181,15 +181,26 @@ pub async fn list_scenario_scan_runs(
 ///
 /// ## The provenance gate (fence 3)
 ///
-/// Before deleting, the run is checked for merge provenance. A run whose judgments
-/// have entered the case is REFUSED with [`ThemeScanError::ScanRunMerged`] → 409.
+/// Before deleting, the run is checked for provenance. A run the RECORD depends on
+/// — one any ruling cites as the scan that proposed it, or one a historical merge
+/// references — is REFUSED with [`ThemeScanError::ScanRunCited`] → 409.
 ///
 /// This is a deliberate restriction, not a database constraint: the FKs would
 /// happily let the delete proceed (`scan_run_merges` cascades, `source_run_id`
 /// sets null), and that is precisely the problem — one delete would silently
-/// destroy both provenance records while leaving the merged judgments in the case.
-/// The FK behaviors stay as defence-in-depth for the unmerged path; this check is
-/// the primary guard.
+/// destroy both provenance records while leaving the rulings in the case with
+/// nothing to say what put those candidates in front of the human. The FK
+/// behaviours stay as defence-in-depth for the un-cited path; this check is the
+/// primary guard.
+///
+/// ## What this means under the projection (architect ruling R1, 2026-08-08)
+///
+/// The guard is UNCHANGED and its reach has grown, deliberately. Every ruling made
+/// on a proposed card now records `source_run_id`, so a run one ruling has drawn on
+/// becomes undeletable — it is part of the ledger's chain of custody. A junk scan
+/// nobody ruled from carries neither count and deletes freely, taking its unruled
+/// proposals with it (they are a projection; nothing has to be cleaned up). That is
+/// the case R-d exists for, and it is the one that matters for scan hygiene.
 ///
 /// The check runs AFTER the case fence, so it can never reveal the existence of
 /// another case's run, and BEFORE the delete, so a refusal leaves nothing
@@ -214,9 +225,9 @@ pub async fn delete_scenario_scan_run(
             %run_id, %scenario_id,
             merge_events = provenance.merge_events,
             attributed_facts = provenance.attributed_facts,
-            "refusing to delete a merged scan run; its provenance is retained"
+            "refusing to delete a scan run the record cites; its provenance is retained"
         );
-        return Err(ThemeScanError::ScanRunMerged {
+        return Err(ThemeScanError::ScanRunCited {
             run_id,
             merge_events: provenance.merge_events,
             attributed_facts: provenance.attributed_facts,
@@ -231,75 +242,6 @@ pub async fn delete_scenario_scan_run(
         return Err(ThemeScanError::ScanRunNotFound { run_id });
     }
     Ok(())
-}
-
-/// Merge one stored scan run's relevant picks into the scenario's candidate facts.
-///
-/// The Merge (set-as-basis) feature: promote a run you already paid for into the
-/// working scenario, status-preserving, with zero LLM calls. Case-fenced with the
-/// SAME two fences as [`get_scan_run_status`] (a caller must not merge across
-/// cases or scenarios):
-///   * **fence 1** — the scenario belongs to `case_slug` ([`load_scenario_fenced`]).
-///   * **fence 2** — the run belongs to THIS scenario. A run that is absent, or
-///     that lives under a different scenario, is [`ThemeScanError::ScanRunNotFound`]
-///     → 404 (identical to the poll's fence-2). This is why fence 2 is an explicit
-///     read+compare here and not left to the merge SQL's own scenario JOIN: the
-///     JOIN would silently merge zero rows, which we must NOT collapse with a
-///     legitimate "run has no relevant picks" zero (Standing Rule 1).
-///
-/// Returns the number of picks that landed as `undecided` suggestions (new or
-/// refreshed); picks preserved as existing `included`/`dropped` curation are not
-/// counted. A completed benchmark run is the normal input, but no status gate is
-/// imposed — a run with no relevant verdicts simply merges zero.
-///
-/// `selected_ids` are the graph_node_ids the human CHECKED in the results list —
-/// merge writes the scan's judgment onto ONLY these (Option A). An empty selection
-/// is rejected up front as a 400 ([`ThemeScanError::EmptySelection`]) rather than
-/// silently merging zero rows, so "you selected nothing" stays a distinct,
-/// actionable observable from "the run had no relevant picks" (Standing Rule 1).
-pub async fn merge_scenario_scan_run(
-    state: &AppState,
-    case_slug: &str,
-    scenario_id: Uuid,
-    run_id: Uuid,
-    selected_ids: &[String],
-) -> Result<u64, ThemeScanError> {
-    // A merge with nothing checked is a user error, not a no-op: fail loudly with a
-    // 400 so the caller knows to check at least one pick. The frontend also disables
-    // Merge until a pick is checked, so this is defence-in-depth, not the happy path.
-    if selected_ids.is_empty() {
-        return Err(ThemeScanError::EmptySelection { run_id });
-    }
-
-    // fence 1: the scenario belongs to the case.
-    load_scenario_fenced(&state.pipeline_pool, case_slug, scenario_id).await?;
-
-    // fence 2: the run belongs to THIS scenario (else 404) — read+compare, exactly
-    // as get_scan_run_status does, so a wrong-scenario run is a clean not-found
-    // rather than a silent zero-count merge.
-    let row = get_scan_run(&state.pipeline_pool, run_id)
-        .await
-        .map_err(|source| ThemeScanError::ScanRunReadFailed { run_id, source })?
-        .ok_or(ThemeScanError::ScanRunNotFound { run_id })?;
-    if row.scenario_id != scenario_id {
-        return Err(ThemeScanError::ScanRunNotFound { run_id });
-    }
-
-    // Merge the run's picks AND record the merge event in ONE transaction (decision:
-    // same-transaction atomicity — either both land or neither). The transaction is
-    // owned by the repository layer (`merge_run_into_scenario_recording`), matching
-    // the house pattern where multi-statement writes hold their own `pool.begin()`
-    // (e.g. `insert_scan_run_verdicts`); this service keeps only the case/scenario
-    // fences. `Utc::now()` is bound here so the timestamp is the application's.
-    merge_run_into_scenario_recording(
-        &state.pipeline_pool,
-        scenario_id,
-        run_id,
-        selected_ids,
-        Utc::now(),
-    )
-    .await
-    .map_err(|source| ThemeScanError::ScanRunMergeFailed { run_id, source })
 }
 
 /// Map one repository header row to its wire DTO. Pure (no I/O) and split out so

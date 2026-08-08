@@ -31,8 +31,8 @@ import React, { useState } from "react";
 import CardQueue from "./CardQueue";
 import { fillCount, type AllegationOptions } from "../services/evidenceLinks";
 import ThemeScanPanel from "./ThemeScanPanel";
-import type { ScenarioCard } from "../services/scenarioCards";
-import { anyScanScored, progressFromCards, queueRegion } from "./queueRegion";
+import type { ProposalSource, ScenarioCard } from "../services/scenarioCards";
+import { anyScanScored, progressFromCards, proposedCount, queueRegion } from "./queueRegion";
 
 import {
   kbdStyle,
@@ -142,6 +142,16 @@ interface Props {
    * a page that showed both answers at once. See the payload field's own note.
    */
   neverScannedNotice: string | null;
+  /**
+   * Which completed run is proposing the candidates below, or `null` when
+   * nothing is proposed (2026-08-08).
+   *
+   * Served, never inferred — the same discipline as `neverScannedNotice`. It
+   * feeds two surfaces that must agree: the queue's heading ("30 proposed by the
+   * Aug 7 scan") and the collapsed scan card's one-liner. One value, read once,
+   * passed to both.
+   */
+  proposalSource: ProposalSource | null;
 }
 
 const ScanSection: React.FC<Props> = ({
@@ -154,6 +164,7 @@ const ScanSection: React.FC<Props> = ({
   linkOptions,
   cards,
   neverScannedNotice,
+  proposalSource,
 }) => {
   // Queue progress is owned by `CardQueue` (it does the fetching), and this
   // section needs it for the summary line and the progress bar. So the queue
@@ -177,6 +188,17 @@ const ScanSection: React.FC<Props> = ({
   // `progress` is passed WHOLE, nullability and all. Collapsing it to
   // `?? 0` here is what made "not counted yet" indistinguishable from "empty"
   // and put two false sentences on DEV in successive builds.
+  // The date the attribution names, formatted in the READER's locale — the same
+  // division of labour the scan-history delete confirmation already uses: the
+  // server owns the sentence, the browser owns the date format.
+  const proposals =
+    proposalSource === null
+      ? null
+      : {
+          count: proposedCount(cards),
+          when: formatScanDate(proposalSource.started_at),
+        };
+
   const region = queueRegion(
     progress,
     linkOptions
@@ -184,10 +206,13 @@ const ScanSection: React.FC<Props> = ({
           emptyPool: linkOptions.wording.queue_empty_pool_summary,
           allRuled: linkOptions.wording.queue_all_ruled_summary,
           counting: linkOptions.wording.queue_counting_summary,
+          proposedHeading: linkOptions.wording.queue_proposed_heading_template,
         }
       : null,
-    // The labelling clause is earned by the DATA: "from all scans" only when
-    // something in this pool actually carries a scan's score (piece 3b).
+    proposals,
+    // The pool's own labelling clause is still earned by the DATA — it applies to
+    // a queue led by the POOL, which is what a scanned-and-fully-ruled scenario
+    // shows (piece 3b, unchanged).
     anyScanScored(cards),
   );
 
@@ -248,12 +273,21 @@ const ScanSection: React.FC<Props> = ({
         {/* 1 + 2: the scan control line, the last-run meta, and the history
             disclosure. Behaviour unchanged from 1.7B. */}
         {/* No wrapper padding: the scan row carries the mockup's own 14px/24px. */}
+        {/* MUST STAY MOUNTED, collapsed or not (architect ruling R3).
+            The panel's mount effect calls `gatherCandidates`, and gather is the
+            ONE place candidate ordinals are minted — every card's `C-14` handle.
+            Unmounting the panel when the scan card collapses would stop new
+            candidates being numbered, and a proposed card would arrive with
+            `code: null`, which §2a forbids ("pull up C-14" must be speakable).
+            The collapse is INSIDE the panel and hides its body only. Do not
+            "optimize" this into a conditional render. */}
         <div>
           <ThemeScanPanel
             slug={slug}
             scenarioId={scenarioId}
             scenarioTitle={scenarioTitle}
             onFactsChanged={onFactsChanged}
+            proposalSource={proposalSource}
           />
         </div>
 
@@ -372,5 +406,25 @@ const ScanSection: React.FC<Props> = ({
     </section>
   );
 };
+
+/**
+ * The run's start time, as the attribution says it: "Aug 7".
+ *
+ * ## Why the BROWSER formats this and the server does not
+ *
+ * The sentence is the server's (the language law); the DATE FORMAT is the
+ * reader's, and the server does not know their locale. This is the same split the
+ * scan-history delete confirmation already makes with its `{run}` placeholder, so
+ * the two dates on this page read alike.
+ *
+ * An unparseable timestamp yields the raw string rather than "Invalid Date": a
+ * heading that names a nonsense date is worse than one naming an ugly one, and
+ * both are better than a heading that silently drops which scan it means.
+ */
+function formatScanDate(iso: string): string {
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return iso;
+  return at.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
 
 export default ScanSection;

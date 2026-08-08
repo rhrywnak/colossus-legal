@@ -1,41 +1,36 @@
-//! Repository for the `scan_run_merges` audit table in the `colossus_legal_v2`
-//! pipeline database — one row per scan-run → scenario **merge event**.
+//! The `scan_run_merges` audit table, and the guard that protects a run the
+//! RECORD depends on. Pipeline database (`colossus_legal_v2`).
 //!
-//! ## Why a whole module for one insert
+//! ## MERGE IS RETIRED — this module is history plus one guard (2026-08-08)
 //!
-//! `scan_runs.rs` is already near the Rule 17 size limit, and the merge-event
-//! write has a distinct owner (the Merge/set-as-basis service) from the scan
-//! lifecycle writes. Splitting it keeps each module focused — the same discipline
-//! that put `scan_run_verdicts`' reads beside its parent rather than in a third
-//! file only when they grew.
+//! Nothing writes a merge event any more. Merge was the single path from
+//! scan-land into a scenario's candidate facts, and it required the human to
+//! select every candidate twice: once as a checkbox in the scan report, once as a
+//! card in the queue. A completed run's admitted verdicts now reach the queue as a
+//! READ-TIME PROJECTION (`services::scenario_card_projection`) that writes nothing
+//! at all, and the human's ruling is the only write.
 //!
-//! ## The event model (why a row per merge, not a boolean)
+//! What survives, and why:
 //!
-//! Merging is legitimately repeatable — the human checks a few picks today and a
-//! few more next week, from this run or an older one — and the reconcile is
-//! status-preserving, so repetition is safe. This module records EACH merge as its
-//! own row, with the selection that produced it. A single `merged_at`/boolean
-//! column could not represent that history, which is why the table exists.
-//!
-//! ## Audit-only: nothing here feeds the UI
-//!
-//! These rows once drove a "merged N× · last …" counter on the run header. That
-//! counter belonged to the retired run-level merge model — merge is now pick-keyed,
-//! so a per-RUN merge count answers a question the workbench no longer asks, and
-//! the `LIST_SCAN_RUNS_SQL` subqueries that computed it are gone.
-//!
-//! The table remains as chain-of-custody hygiene: for a trial-preparation system,
-//! "which run's verdicts were applied, when, and to which picks" is worth keeping
-//! whether or not a screen shows it. Note it records EVENTS, including merges whose
-//! writes were entirely blocked by the reconcile guard — something the per-fact
-//! `scenario_fact_refs.source_run_id` provenance cannot express, which is why both
-//! exist.
+//! * **The table and its row type.** Rows written before 2026-08-08 are
+//!   chain-of-custody history for a trial-preparation system: which run's verdicts
+//!   were applied, when, and to which picks. History is not deleted because the
+//!   mechanism that produced it was replaced. [`insert_scan_run_merge`] is kept
+//!   beside the record it writes so the table's shape stays readable and testable
+//!   from one place.
+//! * **[`count_run_provenance`] — the delete guard.** Its second count is what
+//!   matters now: how many RULINGS name a run as the scan that proposed them.
+//!   Every ruling on a proposed card records that (`scenario_fact_refs.source_run_id`),
+//!   so a run one ruling has drawn on is part of the ledger's chain of custody and
+//!   cannot be deleted. A junk scan nobody ruled from has neither count above zero
+//!   and deletes freely, taking its unruled proposals with it — they are a
+//!   projection, so there is nothing to clean up.
 
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use super::{merge_scan_run_into_scenario, PipelineRepoError};
+use super::PipelineRepoError;
 
 /// The fields recorded for one merge event.
 ///
@@ -133,15 +128,17 @@ pub async fn insert_scan_run_merge(
 /// delete would destroy.
 ///
 /// Returned as a pair rather than a bare `bool` so the caller's refusal message
-/// can say WHICH record exists. The two are genuinely independent: a merge whose
-/// writes were entirely blocked by the reconcile guard leaves an event with no
-/// fact-ref references, and a fact ref can outlive nothing else if its event rows
-/// were removed by an older code path. Either alone is reason to refuse.
+/// can say WHICH record exists. The two are genuinely independent: a historical
+/// merge whose writes were entirely blocked by the reconcile guard left an event
+/// with no fact-ref references, and a ruling made on a proposed card records its
+/// source run with no merge event anywhere. Either alone is reason to refuse.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RunProvenance {
     /// Rows in `scan_run_merges` for this run — merges that were performed.
     pub merge_events: i64,
-    /// Rows in `scenario_fact_refs` still attributing their judgment to this run.
+    /// Rows in `scenario_fact_refs` naming this run as the scan that proposed
+    /// them — i.e. RULINGS that cite it. Since 2026-08-08 this is the count that
+    /// normally decides: it grows every time a human rules a proposed card.
     pub attributed_facts: i64,
 }
 
@@ -150,12 +147,13 @@ impl RunProvenance {
     ///
     /// ## Domain note: why deletion is refused rather than cascaded
     ///
-    /// Deleting a merged run destroys BOTH records at once — `scan_run_merges`
+    /// Deleting a cited run destroys BOTH records at once — `scan_run_merges`
     /// rows cascade away on the run's FK, and `source_run_id` references null out.
     /// For a trial-preparation system that is an unacceptable chain-of-custody
-    /// loss: the case would still carry the model's judgments while losing every
-    /// trace of where they came from. Unmerged runs stay freely deletable, which
-    /// is what keeps junk-scan hygiene possible.
+    /// loss: the case would still carry the human's rulings while losing every
+    /// trace of what put those candidates in front of them. Un-cited runs stay
+    /// freely deletable, which is what keeps junk-scan hygiene possible
+    /// (architect ruling R1, 2026-08-08).
     pub fn is_protected(self) -> bool {
         self.merge_events > 0 || self.attributed_facts > 0
     }
@@ -191,102 +189,6 @@ pub async fn count_run_provenance(
         merge_events: row.0,
         attributed_facts: row.1,
     })
-}
-
-/// Every `graph_node_id` whose fact ref currently credits this run.
-///
-/// This is the "applied" state, derived exactly rather than guessed: a suggestion
-/// is already-applied precisely when a fact ref names this run as its source. The
-/// alternative signals are both wrong — a present `confidence` proves only that
-/// SOME run scored the fact, and a merge-event row proves only that a merge
-/// happened, not that this pick survived the status-preserving guard.
-///
-/// Returned as a `Vec<String>` for the caller to index however it needs (it builds
-/// a `HashSet` for O(1) membership while walking the suggestions).
-///
-/// # Errors
-/// Returns [`PipelineRepoError`] if the query fails.
-pub async fn list_applied_node_ids_for_run(
-    pool: &PgPool,
-    run_id: Uuid,
-) -> Result<Vec<String>, PipelineRepoError> {
-    let rows: Vec<(String,)> =
-        sqlx::query_as("SELECT graph_node_id FROM scenario_fact_refs WHERE source_run_id = $1")
-            .bind(run_id)
-            .fetch_all(pool)
-            .await?;
-    Ok(rows.into_iter().map(|(id,)| id).collect())
-}
-
-/// Narrow a `u64` merge row-count to the `INTEGER` column. A merge never applies
-/// anywhere near `i32::MAX` rows (the ~94-candidate ceiling), so the impossible
-/// overflow is logged and capped rather than silently wrapping (Standing Rule 1).
-/// Kept local to the repo (rather than reusing the service's `count_to_i32`) so
-/// this module does not reach up into the service layer for a one-line narrow.
-fn narrow_rows_affected(merged: u64) -> i32 {
-    i32::try_from(merged).unwrap_or_else(|_| {
-        tracing::error!(
-            value = merged,
-            "scan_run_merges: rows_affected exceeded i32 — capped"
-        );
-        i32::MAX
-    })
-}
-
-/// Merge one stored run's relevant picks into a scenario AND record the merge
-/// event, atomically in ONE transaction.
-///
-/// This is the provenance-aware merge the workbench calls: it wraps the existing
-/// status-preserving merge ([`merge_scan_run_into_scenario`], SQL unchanged) and
-/// the [`insert_scan_run_merge`] audit write in a single `pool.begin()` boundary,
-/// so a merge is never applied-without-recording or recorded-without-applying.
-///
-/// ## Rust Learning: transactions live in the repository layer here
-///
-/// `pool.begin()` yields a `Transaction` owning one connection; passing `&mut *tx`
-/// (a reborrow) to each write threads BOTH onto that connection so they share a
-/// commit boundary. Any `?` before `commit()` drops the transaction → ROLLBACK, so
-/// a failed event-insert also aborts the merge (Standing Rule 1 — no half-merge).
-/// Owning the transaction here (not in the service) matches the house pattern —
-/// `insert_scan_run_verdicts` and `documents_delete` also `begin()` in the repo.
-///
-/// `merged_at` is passed in (bound from the service's `Utc::now()`) so the caller
-/// owns the timestamp, matching `scan_runs.started_at`. `selected_ids` are the
-/// graph_node_ids the human checked — only their verdicts are written (Option A);
-/// the recorded `rows_affected` therefore reflects the SELECTED count (minus any
-/// already-curated rows the reconcile skipped), which is the honest audit figure.
-/// Returns the merged row count (the number of undecided suggestions inserted/refreshed).
-///
-/// # Errors
-/// [`PipelineRepoError`] if `begin`, either write, or `commit` fails — the caller
-/// maps it to its user-facing merge error.
-pub async fn merge_run_into_scenario_recording(
-    pool: &PgPool,
-    scenario_id: Uuid,
-    run_id: Uuid,
-    selected_ids: &[String],
-    merged_at: DateTime<Utc>,
-) -> Result<u64, PipelineRepoError> {
-    let mut tx = pool.begin().await?;
-
-    let merged = merge_scan_run_into_scenario(&mut *tx, scenario_id, run_id, selected_ids).await?;
-
-    let record = ScanRunMergeRecord {
-        merge_id: Uuid::new_v4(),
-        run_id,
-        scenario_id,
-        merged_at,
-        rows_affected: narrow_rows_affected(merged),
-        // The selection is recorded as the human gave it — NOT filtered down to the
-        // picks that actually landed. A pick the reconcile skipped (its target was
-        // already included/dropped) was still chosen, and the audit must say so;
-        // the difference against `rows_affected` is exactly the guard's footprint.
-        selected_node_ids: selected_ids.to_vec(),
-    };
-    insert_scan_run_merge(&mut *tx, &record).await?;
-
-    tx.commit().await?;
-    Ok(merged)
 }
 
 #[cfg(test)]
@@ -388,15 +290,5 @@ mod tests {
             sql.contains("AS merge_events") && sql.contains("AS attributed_facts"),
             "both counts must be named: {sql}"
         );
-    }
-
-    #[test]
-    fn narrow_rows_affected_passes_normal_counts_and_caps_overflow() {
-        // A real merge count round-trips unchanged.
-        assert_eq!(narrow_rows_affected(0), 0);
-        assert_eq!(narrow_rows_affected(94), 94);
-        // The impossible >i32::MAX count caps rather than wrapping to a negative
-        // (Standing Rule 1 — a wrapped negative would be a nonsense audit figure).
-        assert_eq!(narrow_rows_affected(u64::MAX), i32::MAX);
     }
 }

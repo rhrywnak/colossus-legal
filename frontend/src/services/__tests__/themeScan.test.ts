@@ -10,7 +10,6 @@ import {
   fetchScanModels,
   fetchScanRuns,
   getScanRun,
-  mergeScanRun,
   startThemeScan,
 } from "../themeScan";
 
@@ -172,39 +171,12 @@ describe("deleteScanRun", () => {
   });
 });
 
-describe("mergeScanRun", () => {
-  it("POSTs the merge URL and returns the merged count", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ merged: 12 }),
-    });
-    // @ts-ignore — minimal fetch mock
-    global.fetch = fetchMock;
-
-    await expect(
-      mergeScanRun(SLUG, SCENARIO, RUN, ["ev-a", "ev-b"]),
-    ).resolves.toEqual({ merged: 12 });
-
-    const [url, options] = fetchMock.mock.calls[0];
-    expect(url).toContain(`/api/cases/${SLUG}/scenarios/${SCENARIO}/scan-runs/${RUN}/merge`);
-    expect(options.method).toBe("POST");
-    // The selected picks ride in the body as graph_node_ids (selective merge).
-    expect(JSON.parse(options.body)).toEqual({ graph_node_ids: ["ev-a", "ev-b"] });
-  });
-
-  it("throws with the backend message on a non-2xx (e.g. 404 not found)", async () => {
-    // @ts-ignore
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 404,
-      json: async () => ({ message: "scan run not found" }),
-    });
-    await expect(mergeScanRun(SLUG, SCENARIO, RUN, ["ev-a"])).rejects.toThrow(
-      /Failed to merge scan run.*scan run not found/,
-    );
-  });
-});
+// The merge client and its three tests are GONE (2026-08-08). Merge was the one
+// write path from the scan panel into Candidate Facts, and it required a human to
+// select every candidate twice — once as a checkbox in the findings list, once as
+// a card in the queue. A completed run's admitted verdicts now reach the queue as
+// a read-time projection served with the cards, so there is no request to make and
+// nothing here to test.
 
 describe("fetchScanModels", () => {
   it("returns the catalog, and empty lists when the keys are absent", async () => {

@@ -2,10 +2,17 @@
 // CandidateFilterBar — the candidate list's filter row (task 1.7G, Fix 2)
 // =============================================================================
 //
-// Two labelled dropdowns, a Clear filters link, and one honest counter line:
+// One labelled dropdown, a Clear filters link, and one honest counter line:
 //
-//     Status: [Rulable now (42) ▾]   Scan: [Any (148) ▾]   Clear filters
-//     Filtered: 42 of 148 candidates
+//     Status: [Proposed (30) ▾]   Clear filters
+//     Filtered: 30 of 148 candidates
+//
+// ## The Scan dropdown is gone (2026-08-08)
+//
+// It offered "Scan-scored" and "Never scanned", and both measured MERGES rather
+// than scans — a card only carried a confidence once a verdict had been merged
+// onto it. Merge is retired, and what the human actually wants from that control
+// is now the leading Status option: Proposed.
 //
 // ## Why this replaced the pills, in Roman's words
 //
@@ -40,15 +47,9 @@ import type {
   CandidateCounts,
   CandidateFilters,
   FilterOption,
-  ScannedFacet,
   StateFacet,
 } from "./candidateFilters";
-import {
-  candidateCounterLine,
-  scannedOptions,
-  stateOptions,
-  UNFILTERED,
-} from "./candidateFilters";
+import { candidateCounterLine, stateOptions, UNFILTERED } from "./candidateFilters";
 
 /** The bar sits on the card surface, divided from the queue meta above it. */
 const barStyle: React.CSSProperties = {
@@ -121,10 +122,11 @@ const counterStyle: React.CSSProperties = {
  * ## TS learning: a generic component over the facet type
  *
  * `<F,>` (the trailing comma is what tells the .tsx parser this is a type
- * parameter and not a JSX tag) lets the same control render the Status facets and
- * the Scan facets while keeping `onPick` typed to the facet it actually hands
- * back. The alternative — `facet: string` — would compile happily and let a scan
- * facet be passed to the status setter.
+ * parameter and not a JSX tag) keeps `onPick` typed to the facet the control
+ * actually hands back. The alternative — `facet: string` — would compile happily
+ * and let any string reach the setter. It stayed generic when the second dropdown
+ * was retired: the narrowing at the `<select>` boundary is the point, and it is
+ * worth exactly as much with one caller as with two.
  *
  * ## Rust parallel: the closed enum at the parse boundary
  *
@@ -173,7 +175,7 @@ function FacetSelect<F extends string>({
 }
 
 /**
- * The filter row: the two selects, Clear filters, and the honest counter line.
+ * The filter row: the Status select, Clear filters, and the honest counter line.
  *
  * `counts` arrives already derived (one pass, one source) rather than being
  * computed here — a bar that counted its own options would be the second
@@ -195,18 +197,11 @@ const CandidateFilterBar: React.FC<{
         active={filters.state}
         onPick={(state) => onChange({ ...filters, state })}
       />
-      <FacetSelect<ScannedFacet>
-        id="candidate-filter-scan"
-        label="Scan"
-        options={scannedOptions(counts)}
-        active={filters.scanned}
-        onPick={(scanned) => onChange({ ...filters, scanned })}
-      />
       {/* Always visible, like the Bias Analysis page's — a control that appears
           only once a filter is active is a control you have to discover twice.
-          It resets to All / Any, which is the honest denominator's view, NOT the
-          "Rulable now" the page opens on: clearing a filter means showing
-          everything, not returning to a default that hides 106 candidates. */}
+          It resets to All, which is the honest denominator's view, NOT the
+          default the page opens on: clearing a filter means showing everything,
+          not returning to a default that hides 118 candidates. */}
       <button type="button" style={clearBtnStyle} onClick={() => onChange(UNFILTERED)}>
         Clear filters
       </button>

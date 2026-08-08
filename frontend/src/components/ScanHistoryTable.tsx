@@ -23,7 +23,7 @@
 import React from "react";
 
 import { scanHistoryRows, scanHistorySummary } from "./scanHistoryRows";
-import type { ScanHistoryWording, ScanRunHeader } from "../services/themeScan";
+import type { ScanRunHeader, ScanWording } from "../services/themeScan";
 
 // v3: the divider token, resolved inside the scoped layer to #eef0f3.
 const HAIRLINE = "1px solid var(--border-default)";
@@ -96,7 +96,7 @@ interface Props {
    * a surface the configuration law covers, and a blank button is worse than an
    * absent one.
    */
-  wording: ScanHistoryWording | null;
+  wording: ScanWording | null;
   /** run_ids currently selected for display (single-select: 0 or 1). */
   selectedRunIds: string[];
   onToggle: (runId: string) => void;
@@ -104,6 +104,17 @@ interface Props {
   onDelete: (runId: string) => void;
   /** Resolves a model id to its display name (the panel's model catalogue). */
   modelName: (id: string) => string;
+  /**
+   * The run whose verdicts are currently PROPOSING candidates, or `null`.
+   *
+   * Only the latest completed run projects (R-b), so at most one row may carry a
+   * proposed count. Every other row shows an em dash — architect ruling R6: a
+   * run's frozen relevant count under a "Proposed" heading would be a false claim
+   * about every row but one.
+   */
+  proposingRunId: string | null;
+  /** How many candidates that run is proposing right now. The LIVE number. */
+  proposedCount: number | null;
 }
 
 const ScanHistoryTable: React.FC<Props> = ({
@@ -113,6 +124,8 @@ const ScanHistoryTable: React.FC<Props> = ({
   onToggle,
   onDelete,
   modelName,
+  proposingRunId,
+  proposedCount,
 }) => {
   const summary = scanHistorySummary(runs.length);
   // No runs → no disclosure at all. A `<details>` that opens onto an empty table
@@ -132,6 +145,7 @@ const ScanHistoryTable: React.FC<Props> = ({
             <th style={headStyle}>Model</th>
             <th style={headStyle}>Candidates</th>
             <th style={headStyle}>New</th>
+            <th style={headStyle}>Proposed</th>
             <th style={headStyle}>Status</th>
             {/* Not in §2.3's sketch — see the module header on why delete stays.
                 The header cell is deliberately EMPTY rather than labelled: the
@@ -172,6 +186,15 @@ const ScanHistoryTable: React.FC<Props> = ({
                 </td>
                 <td style={cellStyle}>{row.candidates}</td>
                 <td style={cellStyle}>{row.newCount}</td>
+                {/* Live, and only on the run that is actually projecting (R6).
+                    The em dash is the house treatment for "not measured here" —
+                    an older completed run proposes nothing, and printing its
+                    frozen relevant count under this heading would say it does. */}
+                <td style={cellStyle}>
+                  {row.runId === proposingRunId && proposedCount !== null
+                    ? proposedCount
+                    : "—"}
+                </td>
                 <td style={cellStyle}>{row.status}</td>
                 {/* The VIEW control (task 2.15, piece 4a).
 

@@ -64,10 +64,10 @@ use crate::{
     domain::{fact_status::FactStatus, ruling_anchor::RulingKind},
     dto::{AddFactRequest, FactActionRequest, ScenarioFactDto},
     error::AppError,
-    repositories::pipeline_repository::{
-        assign_end_ordinal, get_scenario, list_fact_refs_for_scenario,
-    },
+    repositories::pipeline_repository::{get_scenario, list_fact_refs_for_scenario},
+    services::scenario_proposal_lookup::resolve_proposed_ruling,
     services::scenario_ruling::{record_removal, record_ruling, RulingRequest},
+    services::scenario_ruling_apply::{rule_one, RulingFields},
     state::AppState,
 };
 
@@ -258,6 +258,10 @@ pub async fn add_scenario_fact(
             note: payload.note.as_deref(),
             // A save is never a defer, so no reason may ride along.
             defer_reason: None,
+            // This route saves a fact the human named directly — there is no card
+            // and therefore no proposal behind it. The projection's provenance is
+            // recorded by `apply_fact_action`, which is the route the queue uses.
+            source_run_id: None,
         },
         FactStatus::Included,
         Utc::now(),
@@ -324,6 +328,8 @@ pub async fn remove_scenario_fact(
             role: None,
             note: None,
             defer_reason: None,
+            // A removal DELETES the row, so there is no column left to attribute.
+            source_run_id: None,
         },
         Utc::now(),
     )
@@ -410,66 +416,38 @@ pub async fn apply_fact_action(
     let status = action_to_status(payload.action);
     let kind = action_to_ruling_kind(payload.action);
 
-    // role / note = None on every action — see the doc comment above: no scan
-    // judgment should survive an include/drop/undrop ruling. The defer reason is
-    // the one caller-supplied field, and `record_ruling` refuses it on any verb
-    // but defer (and refuses a defer without one).
-    let anchor_id = record_ruling(
-        &state.pipeline_pool,
-        &BiasRepository::new(state.graph.clone()),
-        &RulingRequest {
-            scenario_id: id,
-            graph_node_id: &graph_node_id,
-            kind,
-            ruled_by: &user.username,
-            role: None,
-            note: None,
-            defer_reason: payload.reason.as_deref(),
-        },
-        status,
-        Utc::now(),
-    )
-    .await
-    .map_err(|e| ruling_error_to_app_error(e, &graph_node_id))?;
+    // Is this card a PROPOSAL, and what does ruling it settle? Both answers are
+    // re-derived server-side from the projecting run — never taken from the client
+    // (architect rulings R2 and R4). `None` is the ordinary case: a raw candidate,
+    // or a re-ruling, which settles exactly itself and records no provenance.
+    let proposal = resolve_proposed_ruling(&state, id, &graph_node_id).await?;
+    let source_run_id = proposal.as_ref().map(|p| p.run_id);
+    let targets: Vec<String> = match &proposal {
+        Some(p) => p.covers.clone(),
+        None => vec![graph_node_id.clone()],
+    };
+    if targets.len() > 1 {
+        tracing::info!(
+            %graph_node_id,
+            covered = targets.len(),
+            "one ruling settles a byte-identical twin set"
+        );
+    }
 
-    tracing::info!(
-        anchor_id = %anchor_id,
-        graph_node_id = %graph_node_id,
-        ruling = %kind.code(),
-        "recorded an anchored ruling"
-    );
-
-    // Task 2.13c item 10: a fact the human just ruled IN belongs at the END of
-    // the facts list, where they will see it. Leaving its ordinal NULL put it
-    // wherever its C-number fell — on S-2 a re-included C-129 came back in fourth
-    // place, which is the .378 acceptance FAIL.
-    //
-    // Only on INCLUDE, and only for a row with no ordinal yet: re-ruling a fact
-    // somebody has already dragged must not rip it out of the place they put it
-    // (§8 — a ruling never edits human augmentation).
-    //
-    // A failure here is logged and NOT propagated: the ruling itself is recorded
-    // and ledgered, and refusing the whole request for a presentation detail
-    // would tell the human their ruling failed when it did not. The honest
-    // outcome is a stored ruling whose card sits in the old position, and a log
-    // line naming it.
-    if status == FactStatus::Included {
-        if let Err(e) = assign_end_ordinal(
-            &state.pipeline_pool,
+    for target in &targets {
+        rule_one(
+            &state,
             id,
-            &graph_node_id,
-            crate::services::scenario_fact_order::ORDINAL_STEP,
+            target,
+            RulingFields {
+                kind,
+                status,
+                ruled_by: &user.username,
+                defer_reason: payload.reason.as_deref(),
+                source_run_id,
+            },
         )
-        .await
-        {
-            tracing::error!(
-                error = %e,
-                %graph_node_id,
-                scenario_id = %id,
-                "ruled a fact in but could not place it at the end of the list; \
-                 the ruling stands and the card keeps its C-ordinal position"
-            );
-        }
+        .await?;
     }
 
     Ok(StatusCode::OK)

@@ -670,18 +670,25 @@ pub async fn set_scenario_accusation(
 /// ample and the column is half the width. A deliberate width choice, matched
 /// to the `REAL` column added by the 2026-07-06 migration.
 ///
-/// ## Why `source_run_id` is absent from BOTH the column list and the DO UPDATE
+/// ## Why `source_run_id` is written on INSERT and never on CONFLICT
 ///
-/// This is the HUMAN writer, and the omission does two different jobs at once:
-/// * on INSERT, the column defaults to NULL — the correct, permanent statement
-///   that no scan put this row here (a hand-tagged fact is human-authored);
-/// * on CONFLICT, leaving it out of the `SET` list PRESERVES whatever run was
-///   already recorded. Including a merged suggestion must not erase the run that
-///   proposed it — "the model suggested this and the human then included it" is
-///   the honest record, and it is exactly what the merge's undecided-gated tail
-///   is protecting when it refuses to touch a curated row.
+/// This is the HUMAN writer, and the asymmetry does two different jobs at once:
 ///
-/// So a human ruling never invents provenance and never destroys it.
+/// * on INSERT it records WHICH scan proposed the card the human just ruled
+///   (2026-08-08). Before the projection there was nothing to record here — a
+///   human ruling only ever landed on a raw candidate or on a row the merge had
+///   already stamped — and the measured consequence was that 82 of S-2's 83 refs
+///   carried NULL despite four recorded merges. A card that came from a scan now
+///   says so in its own row, at the moment the ruling is made. `None` stays the
+///   correct, permanent value for a hand-picked candidate no scan proposed.
+/// * on CONFLICT it is left out of the `SET` list, which PRESERVES whatever run
+///   was already recorded. Re-ruling a fact must not re-attribute it to a later
+///   scan that happened to re-judge the same node — "the Aug 7 scan proposed this
+///   and the human then included it" is the honest record, and a re-attribution
+///   would silently rewrite provenance the ledger's anchors already point at.
+///
+/// So a human ruling records provenance where there was none, and never destroys
+/// provenance that exists.
 ///
 /// # Errors
 /// Returns [`PipelineRepoError`] if the write fails — notably a foreign-key
@@ -702,108 +709,52 @@ pub async fn upsert_fact_ref(
     note: Option<&str>,
     confidence: Option<f32>,
     defer_reason: Option<&str>,
+    source_run_id: Option<uuid::Uuid>,
 ) -> Result<(), PipelineRepoError> {
-    sqlx::query(
-        r#"INSERT INTO scenario_fact_refs
-               (scenario_id, graph_node_id, role_in_this_scenario, status, note,
-                confidence, defer_reason)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)
-           ON CONFLICT (scenario_id, graph_node_id) DO UPDATE SET
-               role_in_this_scenario = EXCLUDED.role_in_this_scenario,
-               status                = EXCLUDED.status,
-               note                  = EXCLUDED.note,
-               confidence            = EXCLUDED.confidence,
-               defer_reason          = EXCLUDED.defer_reason,
-               tagged_at             = NOW()"#,
-    )
-    .bind(scenario_id)
-    .bind(graph_node_id)
-    .bind(role_in_this_scenario)
-    .bind(status.code())
-    .bind(note)
-    .bind(confidence)
-    .bind(defer_reason)
-    .execute(executor)
-    .await?;
+    sqlx::query(UPSERT_FACT_REF_SQL)
+        .bind(scenario_id)
+        .bind(graph_node_id)
+        .bind(role_in_this_scenario)
+        .bind(status.code())
+        .bind(note)
+        .bind(confidence)
+        .bind(defer_reason)
+        .bind(source_run_id)
+        .execute(executor)
+        .await?;
     Ok(())
 }
 
-const MERGE_SCAN_RUN_SQL: &str = r#"INSERT INTO scenario_fact_refs
-        (scenario_id, graph_node_id, role_in_this_scenario, status, confidence, source_run_id)
-    SELECT $1, v.graph_node_id, v.proposed_role, $2, v.confidence, $3
-    FROM scan_run_verdicts v
-    JOIN scan_runs r ON r.run_id = v.run_id
-    WHERE v.run_id = $3 AND r.scenario_id = $1 AND v.relevant = true
-      AND v.graph_node_id = ANY($4)
-    ON CONFLICT (scenario_id, graph_node_id) DO UPDATE SET
-        role_in_this_scenario = EXCLUDED.role_in_this_scenario,
-        confidence            = EXCLUDED.confidence,
-        source_run_id         = EXCLUDED.source_run_id,
-        tagged_at             = NOW()
-      WHERE scenario_fact_refs.status = $2"#;
+// CONST: the human ruling's write. Held as a `const` so the provenance asymmetry
+// above — `source_run_id` in the INSERT list, absent from the `DO UPDATE SET` —
+// is assertable by a SQL-shape test without a live database (the house pattern).
+// Query text, not config, so Rule 13 does not apply.
+const UPSERT_FACT_REF_SQL: &str = r#"INSERT INTO scenario_fact_refs
+       (scenario_id, graph_node_id, role_in_this_scenario, status, note,
+        confidence, defer_reason, source_run_id)
+   VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+   ON CONFLICT (scenario_id, graph_node_id) DO UPDATE SET
+       role_in_this_scenario = EXCLUDED.role_in_this_scenario,
+       status                = EXCLUDED.status,
+       note                  = EXCLUDED.note,
+       confidence            = EXCLUDED.confidence,
+       defer_reason          = EXCLUDED.defer_reason,
+       tagged_at             = NOW()"#;
 
-/// Merge one stored scan run's RELEVANT verdicts into a scenario's candidate
-/// facts, status-preserving. The heart of the Merge (set-as-basis) feature: it
-/// reuses `scan_run_verdicts` a benchmark run already recorded, so promoting a
-/// run's picks costs zero LLM calls (contrast re-scanning, which re-judges and
-/// re-charges).
-///
-/// Each relevant pick is reconciled with the status-preserving rules
-/// (new/undecided → applied; included/dropped → preserved), just done as one
-/// set-based statement instead of a per-row loop.
-///
-/// Returns the number of fact-ref rows actually inserted-or-refreshed — i.e. the
-/// picks that landed as `undecided` suggestions (new, or an existing `undecided`
-/// row refreshed). Picks whose target is already `included`/`dropped` are
-/// preserved and therefore NOT counted (an `ON CONFLICT … WHERE`-skipped row does
-/// not add to `rows_affected`). So the count answers "how many suggestions did
-/// this merge add or refresh", with your curation deliberately excluded.
-///
-/// The caller MUST have already fenced `run_id` to `scenario_id` (case + scenario
-/// ownership); the in-SQL `JOIN … r.scenario_id = $1` is a second guard, not the
-/// primary one (it cannot produce a 404 — a wrong-scenario run would merge zero
-/// rows, indistinguishable from a run with no relevant picks).
-///
-/// `selected_ids` are the graph_node_ids the human CHECKED — only their verdicts
-/// are written (Option A). An id in the set that is NOT a relevant verdict of this
-/// run simply matches nothing (the `v.relevant = true` + run/scenario fences still
-/// apply), so passing a stray id is harmless, not an error. An EMPTY slice merges
-/// zero rows — callers disable Merge in that case (a distinct 400), so this is a
-/// defensive floor, not the normal path.
-///
-/// ## Rust Learning: binding a slice to a Postgres array parameter
-///
-/// `$4` is a `text[]`; sqlx maps a Rust `&[String]` (or `&Vec<String>`) straight
-/// onto it, and `graph_node_id = ANY($4)` is the set-membership test — one bind for
-/// the whole selection instead of building `IN ($4, $5, …$n)` with a variable
-/// placeholder count. This keeps the statement a single fixed-shape prepared query
-/// regardless of how many picks were checked.
-///
-/// ## Rust Learning: `impl sqlx::PgExecutor<'_>` so the caller can wrap this in a transaction
-///
-/// This takes a generic executor rather than a concrete `&PgPool` — the same
-/// generalization the sibling writers already use. The Merge service passes a
-/// `&mut *tx` so this `INSERT … SELECT` and the sibling `insert_scan_run_merge`
-/// (the provenance event) commit as ONE unit: either both land or neither does,
-/// so a merge can never be recorded-without-applying or applied-without-recording.
-/// The status-preserving reconcile tail is UNCHANGED — selection narrows WHICH
-/// verdicts are read, never how a conflict on a curated row is handled. A plain
-/// `&PgPool` still satisfies the bound for a standalone (non-transactional) merge.
-pub async fn merge_scan_run_into_scenario(
-    executor: impl sqlx::PgExecutor<'_>,
-    scenario_id: uuid::Uuid,
-    run_id: uuid::Uuid,
-    selected_ids: &[String],
-) -> Result<u64, PipelineRepoError> {
-    let result = sqlx::query(MERGE_SCAN_RUN_SQL)
-        .bind(scenario_id)
-        .bind(FactStatus::Undecided.code())
-        .bind(run_id)
-        .bind(selected_ids)
-        .execute(executor)
-        .await?;
-    Ok(result.rows_affected())
-}
+// The merge SQL is GONE (2026-08-08). It was the one path from scan-land into a
+// scenario's candidate facts, and it required the human to select every candidate
+// twice — once as a checkbox in the scan report, once as a card in the queue. A
+// completed run's admitted verdicts now reach the queue as a READ-TIME PROJECTION
+// (`services::scenario_card_projection`), which writes nothing at all, so there is
+// no second write path left to guard. `scan_run_merges` rows are retained as
+// history; nothing writes new ones.
+//
+// The status-preserving `ON CONFLICT … WHERE status = 'undecided'` tail that used
+// to live here has not been lost — it has been replaced by something stronger.
+// That clause protected an included or dropped row and, as measured on
+// 2026-08-08, silently overwrote a DEFERRED one (a defer is `undecided` plus a
+// reason). Precedence R-a tests for the PRESENCE of a reference row, so all three
+// human decisions are equally untouchable.
 
 /// List every fact reference for one scenario, oldest tag first.
 ///
@@ -1153,85 +1104,54 @@ mod tests {
     // the identical status-preserving tail and is asserted for all of them below.
 
     #[test]
-    fn merge_sql_is_relevant_only_and_fenced_to_run_and_scenario() {
-        let sql = super::MERGE_SCAN_RUN_SQL;
+    fn ruling_a_proposed_card_records_the_proposing_run() {
+        // The SQL half of the provenance fix. Measured 2026-08-06: 82 of S-2's 83
+        // reference rows carried a NULL `source_run_id` despite four recorded
+        // merges, because the human ruling path never wrote the column. Every
+        // ruling on a proposed card now does — and a re-ruling must NOT rewrite it.
+        let sql = super::UPSERT_FACT_REF_SQL;
+
+        // Written on INSERT: the column is in the list and $8 supplies it. The run
+        // id is resolved server-side from the projecting run (see
+        // `services::scenario_proposal_lookup`), never taken from the client.
         assert!(
-            sql.contains("INSERT INTO scenario_fact_refs"),
-            "merge must write scenario_fact_refs: {sql}"
+            sql.contains("confidence, defer_reason, source_run_id)"),
+            "a ruling must insert source_run_id: {sql}"
         );
         assert!(
-            sql.contains("FROM scan_run_verdicts"),
-            "merge must read the stored verdicts: {sql}"
+            sql.contains("$7, $8)"),
+            "the eighth bind is the proposing run: {sql}"
         );
-        // Relevant-only: NULL (failed) and false (not-relevant) verdicts excluded.
-        assert!(
-            sql.contains("v.relevant = true"),
-            "merge must promote only relevant verdicts: {sql}"
-        );
-        // Fenced to the run AND its owning scenario (defence-in-depth against a
-        // cross-scenario write).
-        assert!(
-            sql.contains("v.run_id = $3") && sql.contains("r.scenario_id = $1"),
-            "merge must be fenced to run + scenario: {sql}"
-        );
-        // Selective merge: narrowed to the CHECKED picks via a set-membership test
-        // on the $4 array — the whole point of Option A (write judgment onto only
-        // the chosen picks). A regression that dropped this would silently merge the
-        // entire relevant set again.
-        assert!(
-            sql.contains("v.graph_node_id = ANY($4)"),
-            "merge must be narrowed to the selected graph_node_ids ($4): {sql}"
-        );
-        // Same status-preserving reconcile tail: gated to undecided, never SETs
-        // status, never writes note.
-        assert!(
-            sql.contains("WHERE scenario_fact_refs.status = $2"),
-            "merge conflict update must be gated to undecided rows: {sql}"
-        );
+
+        // ABSENT from the conflict update, which is what makes provenance
+        // permanent: re-ruling a fact must not re-attribute it to whichever scan
+        // most recently re-judged the node. "The Aug 7 scan proposed this and the
+        // human then included it" is the honest record, and the ledger's anchors
+        // already point at it.
         let set_clause = set_assignments(sql);
         assert!(
-            !set_clause.contains("status") && !sql.contains("note"),
-            "merge must preserve status and never write note: {set_clause}"
+            !set_clause.contains("source_run_id"),
+            "a re-ruling must never overwrite recorded provenance: {set_clause}"
         );
     }
 
-    /// The merge must stamp the source run onto every pick it writes, and must do
-    /// so INSIDE the undecided gate — so a curated row's provenance freezes with
-    /// its status rather than being re-attributed by a later merge.
-    ///
-    /// This is the SQL-shape half of the "applied" state: without the stamp, the
-    /// run-results list cannot tell an already-applied suggestion from a fresh one,
-    /// and every reopened run would offer to re-merge picks it already merged.
     #[test]
-    fn merge_sql_stamps_source_run_id_inside_the_undecided_gate() {
-        let sql = super::MERGE_SCAN_RUN_SQL;
-        // Written on INSERT: the column is in the list, and the SELECT supplies the
-        // run id ($3 — the same parameter the run fence uses, so provenance can
-        // never disagree with which run was actually replayed).
+    fn a_ruling_never_writes_a_model_score_or_touches_the_scan_columns() {
+        // A human ruling is not a judgment by a model: `confidence` is bound `None`
+        // by `record_ruling` and is the human's blank, not a placeholder. What this
+        // pins is that the STATEMENT still carries the column at all — dropping it
+        // would leave a previously-proposed card's model score in place after a
+        // human ruled it, and the card would go on claiming a band nobody stands
+        // behind.
+        let sql = super::UPSERT_FACT_REF_SQL;
         assert!(
-            sql.contains("confidence, source_run_id)"),
-            "merge must insert source_run_id: {sql}"
+            set_assignments(sql).contains("confidence            = EXCLUDED.confidence"),
+            "a ruling must clear the model score it replaces: {sql}"
         );
+        // The scan's own tables are not touched by a ruling — there is no merge.
         assert!(
-            sql.contains("v.confidence, $3"),
-            "merge must stamp the merged run's own id ($3) as the source: {sql}"
-        );
-        // Refreshed on an undecided conflict, alongside role and confidence — a
-        // re-merge from a DIFFERENT run must re-attribute a still-undecided row.
-        // Matched on the `EXCLUDED.` reference rather than the whole assignment:
-        // the SET list is whitespace-aligned for readability, so an exact-spacing
-        // match would break on a purely cosmetic reformat (the sibling confidence
-        // assertion above takes the same approach for the same reason).
-        let set_clause = set_assignments(sql);
-        assert!(
-            set_clause.contains("EXCLUDED.source_run_id"),
-            "an undecided row must be re-attributed to the merging run: {set_clause}"
-        );
-        // The gate is unchanged and still guards the whole SET — including the new
-        // assignment. This is what freezes a curated row's provenance.
-        assert!(
-            sql.contains("WHERE scenario_fact_refs.status = $2"),
-            "the provenance refresh must stay inside the undecided gate: {sql}"
+            !sql.contains("scan_run_verdicts"),
+            "a ruling reads no scan table: {sql}"
         );
     }
 

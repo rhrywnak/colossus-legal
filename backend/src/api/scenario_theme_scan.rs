@@ -2,7 +2,7 @@
 //!
 //! One `POST` route that runs the LLM judge over every candidate quote about a
 //! scenario's subject and records every verdict to `scan_run_verdicts`, plus the
-//! reads (poll, history) and the two writes (merge, delete) around a run.
+//! reads (poll, history) and the one write (delete) around a run.
 //!
 //! The judgment logic lives in `services::theme_scan`; this module is a thin
 //! transport shell — extract, authorize, delegate, map the typed service error
@@ -13,8 +13,13 @@
 //! An earlier version of this doc said the scan "persists the relevant verdicts as
 //! `confirmed=false` suggestions". Both halves are now wrong: the `confirmed`
 //! column was replaced by `status` in migration 20260706162558, and a scan writes
-//! nothing to `scenario_fact_refs` at all. Scanning SCORES; the human's explicit
-//! **Merge selected** is the one write path into a scenario's candidate facts.
+//! nothing to `scenario_fact_refs` at all. Scanning SCORES.
+//!
+//! What a completed run's verdicts DO is show up in the candidate queue as
+//! proposals — a read-time projection composed by `api::scenario_cards`, which
+//! writes nothing either. The human's ruling is the one write path into a
+//! scenario's candidate facts (2026-08-08; the **Merge selected** route this
+//! module used to carry is gone, and select-twice with it).
 
 use axum::{
     extract::{Path, State},
@@ -26,16 +31,12 @@ use uuid::Uuid;
 
 use crate::{
     auth::{require_edit, AuthUser},
-    dto::{
-        ScanRequest, ScanRunListResponse, ScanRunMergeRequest, ScanRunMergeResponse,
-        ScanRunStatusResponse, ScanStartedResponse,
-    },
+    dto::{ScanRequest, ScanRunListResponse, ScanRunStatusResponse, ScanStartedResponse},
     error::AppError,
     repositories::pipeline_repository::SCAN_STATUS_RUNNING,
     services::theme_scan::ThemeScanError,
     services::theme_scan_run::{
         delete_scenario_scan_run, get_scan_run_status, list_scenario_scan_runs,
-        merge_scenario_scan_run,
     },
     services::theme_scan_start::start_theme_scan,
     state::AppState,
@@ -45,14 +46,11 @@ use crate::{
 ///
 /// ## Why this is edit-gated even though a scan writes no candidate facts
 ///
-/// A scan does NOT write `scenario_fact_refs` — merge is the only path into a
-/// scenario's candidate facts, and it is explicitly human-driven. The gate is
-/// still correct, for two other reasons: a scan SPENDS REAL LLM BUDGET, and it
-/// writes the `scan_runs` / `scan_run_verdicts` audit rows. Both are mutations of
-/// the case's record and its cost, so a read-only viewer must not be able to
-/// trigger one. (This comment previously claimed the gate existed because the scan
-/// wrote suggestions into `scenario_fact_refs` — it no longer does, and the gate's
-/// real justification is budget spend plus audit writes.)
+/// A scan does NOT write `scenario_fact_refs` — the human's ruling is the only
+/// path into a scenario's candidate facts. The gate is still correct, for two
+/// other reasons: a scan SPENDS REAL LLM BUDGET, and it writes the `scan_runs` /
+/// `scan_run_verdicts` audit rows. Both are mutations of the case's record and its
+/// cost, so a read-only viewer must not be able to trigger one.
 ///
 /// The `(slug, scenario_id)` pair is case-fenced inside the service. The optional
 /// JSON body carries the per-run model picker.
@@ -194,50 +192,6 @@ pub async fn delete_scenario_scan_run_handler(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// `POST /cases/:slug/scenarios/:scenario_id/scan-runs/:run_id/merge` — merge a
-/// stored run's relevant picks into the scenario's candidate facts.
-///
-/// Edit-gated (`require_edit` — it WRITES `scenario_fact_refs`) and case-fenced
-/// identically to [`get_scenario_scan_run`]. Replays already-stored verdicts, so
-/// it spends NO LLM budget. Returns `{ merged }` — the number of picks inserted or
-/// refreshed as `undecided` suggestions; existing human `included`/`dropped`
-/// curation is preserved and NOT counted. A run absent from this scenario is a 404.
-///
-/// The request body carries `graph_node_ids` — the picks the human CHECKED. Merge
-/// writes the scan's judgment onto ONLY these (Option A); an empty list is a 400
-/// ("check at least one pick"). `Json` is the LAST extractor because it consumes
-/// the request body — an Axum requirement (a body-consuming extractor must come
-/// after the borrow-only `Path`/`State`).
-#[tracing::instrument(skip(state, user, body), fields(slug = %slug, scenario_id = %scenario_id, run_id = %run_id, selected = body.graph_node_ids.len()))]
-pub async fn merge_scenario_scan_run_handler(
-    user: AuthUser,
-    State(state): State<AppState>,
-    Path((slug, scenario_id, run_id)): Path<(String, String, String)>,
-    Json(body): Json<ScanRunMergeRequest>,
-) -> Result<Json<ScanRunMergeResponse>, AppError> {
-    require_edit(&user)?;
-
-    // Both path ids parse up front so a malformed id is a clean 400, not a "not
-    // found" masquerade (identical to the GET poll and DELETE).
-    let scenario_uuid = Uuid::parse_str(&scenario_id).map_err(|_| AppError::BadRequest {
-        message: "scenario_id must be a valid UUID".to_string(),
-        details: json!({ "field": "scenario_id" }),
-    })?;
-    let run_uuid = Uuid::parse_str(&run_id).map_err(|_| AppError::BadRequest {
-        message: "run_id must be a valid UUID".to_string(),
-        details: json!({ "field": "run_id" }),
-    })?;
-
-    let merged =
-        merge_scenario_scan_run(&state, &slug, scenario_uuid, run_uuid, &body.graph_node_ids)
-            .await
-            .map_err(map_scan_error)?;
-    // `rows_affected` is a u64; the ~94-candidate ceiling is nowhere near i64 range.
-    Ok(Json(ScanRunMergeResponse {
-        merged: merged as i64,
-    }))
-}
-
 /// Map a [`ThemeScanError`] onto its HTTP surface.
 ///
 /// The split is deliberate (Standing Rule 1 — a caller can tell *what* went
@@ -262,24 +216,19 @@ fn map_scan_error(err: ThemeScanError) -> AppError {
             message,
             details: json!({ "precondition": "attack_meaning" }),
         },
-        // Nothing checked to merge — user-fixable (check a pick), so a 400 with a
-        // hint the frontend can key on, distinct from a not-found run.
-        ThemeScanError::EmptySelection { .. } => AppError::BadRequest {
-            message,
-            details: json!({ "precondition": "selection" }),
-        },
         ThemeScanError::SubjectUnresolvable { .. } => AppError::BadRequest {
             message,
             details: json!({ "precondition": "subject" }),
         },
-        // The run's judgments are already part of the case. A 409 (not a 403 or a
-        // 400): the request is well-formed and the caller is permitted — it
-        // conflicts with the current STATE of the resource. Nothing the caller can
-        // fix by retrying or rephrasing, which is why the message explains that the
-        // provenance is retained on purpose rather than implying a transient fault.
-        ThemeScanError::ScanRunMerged { .. } => AppError::Conflict {
+        // The run is part of the record — rulings cite it as the scan that
+        // proposed them. A 409 (not a 403 or a 400): the request is well-formed and
+        // the caller is permitted — it conflicts with the current STATE of the
+        // resource. Nothing the caller can fix by retrying or rephrasing, which is
+        // why the message explains that the provenance is kept on purpose rather
+        // than implying a transient fault.
+        ThemeScanError::ScanRunCited { .. } => AppError::Conflict {
             message,
-            details: json!({ "reason": "run_merged" }),
+            details: json!({ "reason": "run_cited" }),
         },
         // Bad model CHOICE (unknown/inactive, un-satisfiable params, or an
         // un-buildable row like a vLLM model with no endpoint): the operator
