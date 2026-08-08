@@ -42,6 +42,7 @@ import {
   getScanRun,
   mergeScanRun,
   startThemeScan,
+  type ScanHistoryWording,
   type ScanModel,
   type ScanRunHeader,
   type ScanRunStatus,
@@ -162,6 +163,10 @@ const ThemeScanPanel: React.FC<Props> = ({
   // cache of each run's full result, filled by clicking a row (getScanRun).
   // `selectedRunIds` (0 or 1 — single-select) drives which run renders.
   const [runs, setRuns] = useState<ScanRunHeader[]>([]);
+  // The words the history's own controls speak, served with the list. `null`
+  // until it loads — the table renders no control it has no words for, rather
+  // than falling back to a literal (the configuration law).
+  const [historyWording, setHistoryWording] = useState<ScanHistoryWording | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [summaries, setSummaries] = useState<Record<string, ThemeScanSummary>>({});
   const [selectedRunIds, setSelectedRunIds] = useState<string[]>([]);
@@ -197,8 +202,9 @@ const ThemeScanPanel: React.FC<Props> = ({
   // Re-read the persisted history (after a scan finishes, or on mount).
   const refreshRuns = useCallback(() => {
     fetchScanRuns(slug, scenarioId)
-      .then((rs) => {
-        setRuns(rs);
+      .then((list) => {
+        setRuns(list.runs);
+        setHistoryWording(list.wording);
         setHistoryError(null);
       })
       .catch((e: unknown) => {
@@ -348,6 +354,36 @@ const ThemeScanPanel: React.FC<Props> = ({
     },
     [selectedRunIds, summaries, slug, scenarioId],
   );
+
+  // ── A completed run's results survive a page refresh (task 2.15, piece 4a) ──
+  //
+  // The measured defect, 2026-08-07 night: after a reload the RELEVANT FINDINGS
+  // panel was simply gone. The wiring to bring it back was already here — clicking
+  // a history row loads and renders that run — but the history disclosure starts
+  // closed and the rows did not look clickable, so "the verdicts are unreachable"
+  // was the honest reading of the screen.
+  //
+  // So the panel now opens its most recent COMPLETED run by itself. That is also
+  // piece 3c's law from the other side: when a scan HAS run, the section leads
+  // with the scan's results.
+  //
+  // ## Why a ref rather than "select when nothing is selected"
+  //
+  // Clicking the open row collapses it (`onSelectRun` toggles). A condition on an
+  // empty selection would re-open it on the very next render, and the control
+  // would look broken. The ref makes this a once-per-scenario arrival, after which
+  // the human's clicks are the only thing that moves it.
+  const autoOpenedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (autoOpenedFor.current === scenarioId) return;
+    // Server order is newest-first, so the first completed row IS the latest one.
+    // A failed or running run is deliberately skipped: it has no stored result,
+    // and auto-opening it would put "that run failed" on screen unprompted.
+    const latest = runs.find((run) => run.status === "completed");
+    if (!latest) return;
+    autoOpenedFor.current = scenarioId;
+    void onSelectRun(latest.run_id);
+  }, [runs, scenarioId, onSelectRun]);
 
   // ── Delete a history run ────────────────────────────────────────────────────
   // The row owns the confirm; the panel owns the network call, its error UI, and
@@ -507,6 +543,7 @@ const ThemeScanPanel: React.FC<Props> = ({
                 /* Run history from the DB, inline on the control line (v3). */
                 <ScanHistoryTable
                   runs={runs}
+                  wording={historyWording}
                   selectedRunIds={selectedRunIds}
                   onToggle={onSelectRun}
                   onDelete={onDeleteRun}
@@ -718,6 +755,22 @@ const RunResult: React.FC<{
   const selectedIds = selectableIds.filter((id) => checked.has(id));
   const selectedCount = selectedIds.length;
 
+  // What the merge actually WRITES: every node each checked pick speaks for
+  // (task 2.15, item 1a). A folded pick was judged once because its twins are
+  // byte-identical, and Roman's ruling is that one ruling covers the set — so the
+  // payload carries the twins too, or the same sentence returns tomorrow as an
+  // unruled candidate and the fold saved nothing but an LLM call.
+  //
+  // The BUTTON still counts picks (what the human checked), not nodes: "Merge 3
+  // selected" over three checkboxes is what they did, and reporting 4 because one
+  // had a twin would read as a miscount.
+  const mergeNodeIds = suggestions
+    .filter((s) => checked.has(s.graph_node_id) && !s.applied)
+    // A payload written before this field existed carries no `covers_node_ids`;
+    // falling back to the pick's own id keeps an old cached summary mergeable
+    // rather than sending an empty list the backend would refuse.
+    .flatMap((s) => (s.covers_node_ids?.length ? s.covers_node_ids : [s.graph_node_id]));
+
   const confirmMerge = (e: React.MouseEvent) => {
     // Defensive stopPropagation (harmless here — the dashboard is not a clickable
     // row): keeps the button safe if RunResult is ever nested in a selectable
@@ -733,7 +786,7 @@ const RunResult: React.FC<{
       // Clearing is passed as a callback rather than done here: the selection must
       // survive a FAILED merge (so the human can retry without re-checking), and
       // only the caller knows whether the write actually landed.
-      onMerge(summary.run_id, selectedIds, selectNone);
+      onMerge(summary.run_id, mergeNodeIds, selectNone);
     }
   };
 
@@ -767,13 +820,26 @@ const RunResult: React.FC<{
       </div>
 
       <div style={{ ...S.tileRow, ...S.sticky }}>
-        <LiveTile label="Read" value={summary.candidates_read} tone="muted" />
+        {/* "Judged", not "Read": since task 2.15 the pool is de-duplicated and
+            pre-filtered first, so this tile counts what the model was actually
+            asked. What the POOL was, and where the difference went, is the
+            reconciliation line below — one number cannot say both. */}
+        <LiveTile label="Judged" value={summary.candidates_read} tone="muted" />
         {/* "Relevant", not "Written": a scan writes nothing. This tile counts picks
             awaiting the human's decision. */}
         <LiveTile label="Relevant" value={summary.relevant} tone="success" />
         <LiveTile label="Not relevant" value={summary.irrelevant} tone="muted" />
         <LiveTile label="Failed" value={summary.failed} tone="danger" />
       </div>
+
+      {/* Conservation (task 2.15, item 1c): pool → set aside → folded → judged →
+          relevant, reconciled on screen. Composed BY THE BACKEND from this run's
+          own frozen counts and the stored template; the browser renders it and
+          computes nothing. Absent on runs recorded before 2.15 — which is honest:
+          those runs never measured it, and a zeroed line would say they did. */}
+      {summary.conservation_line && (
+        <div style={S.conservationLine}>{summary.conservation_line}</div>
+      )}
 
       <div style={S.findingsHead}>
         <span>Relevant findings</span>
@@ -833,6 +899,10 @@ const SuggestionRow: React.FC<{
       action={
         <span style={S.roleBadge}>
           {sug.proposed_role} · {Math.round(sug.confidence * 100)}%
+          {/* A folded pick says so, because ruling it settles more than one row
+              (task 2.15, item 1a). Silence here would make the pool shrink by two
+              on a single click with nothing having said why. */}
+          {sug.duplicate_count > 1 && ` · ×${sug.duplicate_count}`}
         </span>
       }
     />
@@ -955,6 +1025,15 @@ const S: Record<string, React.CSSProperties> = {
   // "Merged ✓ · merged N× · last …" — a durable-state chip (muted, success-tinted),
   // distinct from the actionable Merge/Re-merge button beside it.
   muted: { color: "var(--text-muted)", fontSize: "0.82rem" },
+
+  /** The conservation line: quiet, full-width, directly under the tiles it
+   *  reconciles. Sized between the tile labels and the body text — it is a
+   *  receipt, not a headline. */
+  conservationLine: {
+    color: "var(--text-secondary)",
+    fontSize: "0.78rem",
+    padding: "0.35rem 0 0.6rem",
+  },
 
   setup: { display: "flex", flexDirection: "column", gap: "14px" },
   sectionLabel: {

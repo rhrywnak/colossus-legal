@@ -50,6 +50,7 @@ fn rejected(id: &str) -> ThemeScanRejected {
             title: String::new(),
             verbatim_quote: None,
             question: None,
+            statement_type: None,
             page_number: None,
             pattern_tags: Vec::new(),
             stated_by: None,
@@ -98,6 +99,7 @@ fn bias_instance(id: &str) -> BiasInstance {
         title: String::new(),
         verbatim_quote: None,
         question: None,
+        statement_type: None,
         page_number: None,
         pattern_tags: Vec::new(),
         stated_by: None,
@@ -135,6 +137,37 @@ fn meta() -> ScanRunMeta {
         cost_per_input_token: None,
         cost_per_output_token: None,
         duration_ms: 0,
+        // These tests are about classification, not about the pre-filter; the
+        // counts ride through untouched and each test that cares sets its own.
+        conservation: conservation(0, 0),
+    }
+}
+
+/// A conservation block for a pool of `pool` rows that judged `judged` groups.
+fn conservation(pool: usize, judged: usize) -> ScanConservation {
+    ScanConservation {
+        pool,
+        excluded_empty: 0,
+        excluded_statement_type: 0,
+        excluded_too_short: 0,
+        duplicates_collapsed: pool.saturating_sub(judged),
+        judged,
+    }
+}
+
+/// One candidate, judged alone — the ordinary (non-duplicate) case.
+fn group(id: &str) -> CandidateGroup {
+    CandidateGroup {
+        representative: bias_instance(id),
+        members: vec![id.to_string()],
+    }
+}
+
+/// One candidate speaking for itself AND a byte-identical twin.
+fn collapsed_group(id: &str, twin: &str) -> CandidateGroup {
+    CandidateGroup {
+        representative: bias_instance(id),
+        members: vec![id.to_string(), twin.to_string()],
     }
 }
 
@@ -165,7 +198,7 @@ async fn scan_never_attempts_a_fact_ref_write_even_against_a_dead_database() {
     let summary = persist_and_summarize(
         &dead_pool(),
         meta(),
-        vec![(bias_instance("ev-1"), relevant_outcome())],
+        vec![(group("ev-1"), relevant_outcome())],
     )
     .await;
 
@@ -192,9 +225,9 @@ async fn every_relevant_verdict_becomes_a_suggestion_and_irrelevant_ones_do_not(
         &dead_pool(),
         meta(),
         vec![
-            (bias_instance("ev-1"), relevant_outcome()),
-            (bias_instance("ev-2"), irrelevant_outcome()),
-            (bias_instance("ev-3"), relevant_outcome()),
+            (group("ev-1"), relevant_outcome()),
+            (group("ev-2"), irrelevant_outcome()),
+            (group("ev-3"), relevant_outcome()),
         ],
     )
     .await;
@@ -219,6 +252,76 @@ async fn every_relevant_verdict_becomes_a_suggestion_and_irrelevant_ones_do_not(
         summary.candidates_read,
         summary.relevant + summary.irrelevant + summary.failed,
         "every candidate read must land in exactly one bucket"
+    );
+}
+
+/// A collapsed pair is judged once and RULED as a set (task 2.15 Tier 2, R2).
+///
+/// Two things must be true at once, and they pull in opposite directions:
+/// the run's tallies count the group ONCE (it cost one call, and a scan that
+/// judged 124 quotes must not report 138), while the pick the human sees carries
+/// BOTH node ids — because merging it has to rule the twin too, or the identical
+/// sentence returns tomorrow as an unruled candidate.
+#[tokio::test]
+async fn a_collapsed_duplicate_is_counted_once_and_merged_as_a_set() {
+    let summary = persist_and_summarize(
+        &dead_pool(),
+        meta(),
+        vec![(collapsed_group("ev-45", "ev-46"), relevant_outcome())],
+    )
+    .await;
+
+    assert_eq!(
+        summary.relevant, 1,
+        "one quote was judged, so the run reports one relevant verdict"
+    );
+    assert_eq!(summary.suggestions.len(), 1, "the human sees ONE card");
+
+    let pick = &summary.suggestions[0];
+    assert_eq!(
+        pick.covers_node_ids,
+        vec!["ev-45".to_string(), "ev-46".to_string()],
+        "merging this pick must write the judgment onto the twin as well"
+    );
+    assert_eq!(
+        pick.duplicate_count, 2,
+        "the card says how many pool rows this one ruling settles"
+    );
+}
+
+/// Every member of a collapsed group gets its OWN verdict row.
+///
+/// The scorecard joins Roman's ledger to `scan_run_verdicts` on `graph_node_id`.
+/// A twin with no row would be scored as a statement the scan LOST, when in fact
+/// the scan judged its text and folded the row on purpose — so the audit trail
+/// carries one row per node even though only one call was made.
+#[test]
+fn every_member_of_a_collapsed_group_gets_its_own_verdict_row() {
+    let mut acc = Accumulator::default();
+    process_one(
+        &meta(),
+        collapsed_group("ev-45", "ev-46"),
+        relevant_outcome(),
+        &mut acc,
+    );
+
+    let ids: Vec<&str> = acc
+        .verdicts
+        .iter()
+        .map(|v| v.graph_node_id.as_str())
+        .collect();
+    assert_eq!(
+        ids,
+        vec!["ev-45", "ev-46"],
+        "both nodes are answerable in the audit table"
+    );
+    assert!(
+        acc.verdicts.iter().all(|v| v.relevant == Some(true)),
+        "the twin carries the SAME verdict — it is the same sentence"
+    );
+    assert_eq!(
+        acc.relevant, 1,
+        "the run's tally still counts the judged group once"
     );
 }
 

@@ -200,6 +200,7 @@ fn panel_wording(settings: &Settings, total: usize) -> LinkPanelWording {
         fact_order_drag_hint: w.fact_order_drag_hint.clone(),
         fact_tier_save_failed_template: w.fact_tier_save_failed_template.clone(),
         fact_order_save_failed_template: w.fact_order_save_failed_template.clone(),
+        queue_raw_pool_toggle_template: w.queue_raw_pool_toggle_template.clone(),
         queue_empty_pool_summary: w.queue_empty_pool_summary.clone(),
         queue_all_ruled_summary: w.queue_all_ruled_summary.clone(),
         queue_counting_summary: w.queue_counting_summary.clone(),

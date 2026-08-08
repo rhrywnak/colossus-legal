@@ -198,6 +198,13 @@ pub(super) fn evidence_by_ids() -> String {
 /// `e.verbatim_quote` and the interrogatory in `e.question`; projecting the
 /// latter lets the theme-scan judge read a bare Yes/No in light of what was
 /// asked.
+///
+/// Domain note: `statement_type` is projected for the SAME reason `question` is
+/// — it changes what a quote MEANS. A `referral` ("See the responses to the
+/// previous interrogatories.") is a cross-reference carrying no assertion at
+/// all, so the scan's pre-filter drops it before it costs an LLM call
+/// (`services::theme_scan_prefilter`). Which types are droppable is a stored
+/// setting, never a literal here — this query only carries the fact across.
 pub(super) fn all_evidence_about_subject() -> String {
     format!(
         "
@@ -211,6 +218,7 @@ pub(super) fn all_evidence_about_subject() -> String {
               coalesce(e.title, '') AS title,
               e.verbatim_quote AS verbatim_quote,
               e.question AS question,
+              e.statement_type AS statement_type,
               e.page_number AS page_number,
               e.pattern_tags AS pattern_tags_raw,
               coalesce(actor.id, '') AS actor_id,

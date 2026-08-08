@@ -296,8 +296,9 @@ fn map_scan_error(err: ThemeScanError) -> AppError {
             AppError::ServiceUnavailable { message }
         }
         // A missing judging prompt is the SAME shape as the gate refusals: a
-        // deployment dependency the operator corrects (deploy the file, or fix
-        // THEME_SCAN_PROMPT_FILE), not a bug in the request and not an opaque
+        // deployment dependency the operator corrects (deploy the file, or point
+        // the `theme_scan_prompt_file` row at one that exists), not a bug in the
+        // request and not an opaque
         // server fault. It was previously folded into the 500 below, which threw
         // away the one thing that makes it fixable — the path. 503 with the full
         // message, which names the path and the recovery action.

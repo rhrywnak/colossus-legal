@@ -22,6 +22,7 @@ use crate::domain::wording_accusation::ACCUSATION_WORDING_KEYS;
 use crate::domain::wording_authoring::AUTHORING_WORDING_KEYS;
 use crate::domain::wording_rehearsal::REHEARSAL_WORDING_KEYS;
 use crate::domain::wording_rehearsal_chrome::REHEARSAL_CHROME_KEYS;
+use crate::domain::wording_scan::SCAN_WORDING_KEYS;
 use crate::domain::wording_scenario_authoring::SCENARIO_AUTHORING_WORDING_KEYS;
 use crate::repositories::pipeline_repository::list_settings;
 use crate::services::settings_handle::SettingsHandle;
@@ -59,6 +60,7 @@ pub async fn load_settings(pool: &PgPool) -> Result<Settings, SettingsError> {
         rehearsal_chrome = REHEARSAL_CHROME_KEYS.len(),
         authoring_wording = AUTHORING_WORDING_KEYS.len(),
         scenario_authoring_wording = SCENARIO_AUTHORING_WORDING_KEYS.len(),
+        scan_wording = SCAN_WORDING_KEYS.len(),
         "configuration store read"
     );
 

@@ -417,4 +417,19 @@ pub struct ScenarioCardsResponse {
     /// queue with a reason is the whole remedy.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub no_target_notice: Option<String>,
+    /// Present ONLY when no scan run has COMPLETED for this scenario (task 2.15,
+    /// piece 3). The cards are served in full alongside it.
+    ///
+    /// ## Domain note: this replaces a claim, not a list
+    ///
+    /// The cards are real — they are every statement about the subject. What was
+    /// false, measured on 2026-08-07, was the page describing them as "Candidates
+    /// awaiting ruling — 148 · from all scans" on a scenario no scan had ever
+    /// touched. This sentence is what leads instead; the pool moves behind an
+    /// explicit opt-in and keeps every one of its rows.
+    ///
+    /// Absent (not `false`, not empty) once a scan has completed, so the client
+    /// branches on presence exactly as it does for [`Self::no_target_notice`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub never_scanned_notice: Option<String>,
 }

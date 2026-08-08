@@ -20,6 +20,7 @@ fn full_instance() -> BiasInstance {
         title: "Interrogatory answer 14".to_string(),
         verbatim_quote: Some("  I do NOT   recall  ".to_string()),
         question: None,
+        statement_type: None,
         page_number: Some(14),
         pattern_tags: Vec::new(),
         stated_by: Some(ActorOption {

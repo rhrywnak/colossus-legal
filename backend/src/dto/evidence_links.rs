@@ -137,6 +137,9 @@ pub struct LinkPanelWording {
     pub fact_order_save_failed_template: String,
     /// The queue's summary when there is no pool at all — including before it has
     /// loaded, which is the state that used to claim the work was finished.
+    /// The opt-in that opens the raw evidence pool on a never-scanned scenario.
+    /// Carries `{count}` (task 2.15, piece 3a).
+    pub queue_raw_pool_toggle_template: String,
     pub queue_empty_pool_summary: String,
     /// The queue's summary when a real pool exists and none of it is outstanding.
     pub queue_all_ruled_summary: String,

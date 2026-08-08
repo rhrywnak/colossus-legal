@@ -203,10 +203,29 @@ pub struct ScanRunHeader {
 ///
 /// Wrapped in `{ runs: [...] }` (rather than a bare array) to mirror the
 /// `/api/scan/models` `{ models: [...] }` shape and to leave room for list-level
-/// metadata later without a breaking change.
+/// metadata later without a breaking change. Task 2.15 is the first taker: the
+/// history's two control strings ride here.
 #[derive(Debug, Clone, Serialize)]
 pub struct ScanRunListResponse {
     pub runs: Vec<ScanRunHeader>,
+    /// The words the history's own controls speak, from the settings store.
+    ///
+    /// Served with the list rather than fetched separately because they are
+    /// useless without it, and because a second round-trip would let a row render
+    /// before its controls have words — which is how a button ships blank.
+    pub wording: ScanHistoryWording,
+}
+
+/// The two stored strings a scan-history row renders (task 2.15).
+#[derive(Debug, Clone, Serialize)]
+pub struct ScanHistoryWording {
+    /// The control that reopens a run's results.
+    pub view_label: String,
+    /// The confirmation before a run is destroyed. Carries `{run}`, which the
+    /// browser fills with the row's own when-label — the only part of this
+    /// sentence the server cannot know, because the timestamp is formatted in the
+    /// reader's locale.
+    pub delete_confirm_template: String,
 }
 
 /// Request body for `POST …/scan-runs/:run_id/merge`.
@@ -281,9 +300,20 @@ pub struct ThemeScanSummary {
     /// Wall-clock duration of the judging fan-out in milliseconds (computed at
     /// completion). Lets the benchmark compare Opus vs Qwen latency.
     pub duration_ms: i64,
-    /// Total candidate quotes read for the subject (the ungated
-    /// `all_evidence_about_subject` count — every Evidence ABOUT the subject).
+    /// Candidate quotes JUDGED — one per LLM call, so one per de-duplicated,
+    /// non-excluded group (task 2.15 Tier 2).
+    ///
+    /// ## This number changed meaning on 2026-08-08, and the old one did not vanish
+    ///
+    /// It used to be the whole gathered pool, because every gathered row was
+    /// judged. Now the pool is de-duplicated and pre-filtered first, so the pool
+    /// size lives in [`Self::conservation`]`.pool` and this is what the judge
+    /// actually saw. The identity `candidates_read == relevant + irrelevant +
+    /// failed` still holds exactly; what it partitions is the judged set.
     pub candidates_read: usize,
+    /// Where every gathered row went — the arithmetic that proves nothing was
+    /// dropped silently (Standing Rule 1). Rendered under the run's results.
+    pub conservation: ScanConservation,
     /// Verdicts judged RELEVANT to the accusation — the picks offered to the human
     /// for selection. NOTHING is persisted to `scenario_fact_refs` on their behalf;
     /// they become candidate facts only when the human merges them.
@@ -312,6 +342,42 @@ pub struct ThemeScanSummary {
     /// honesty check. Empty when nothing was rejected; at most
     /// `THEME_SCAN_REJECTED_SAMPLE_SIZE` entries otherwise.
     pub rejected_sample: Vec<ThemeScanRejected>,
+}
+
+/// Where every gathered candidate went in one run (task 2.15 Tier 2, item 1c).
+///
+/// ## The identity, and why it is a wire type rather than a log line
+///
+/// ```text
+/// pool = excluded_empty + excluded_statement_type + excluded_too_short
+///      + duplicates_collapsed + judged
+/// ```
+///
+/// A scan that quietly judged 124 of a 148-row pool would otherwise look exactly
+/// like a scan of a 124-row pool. These counts are what make the difference
+/// visible — on screen, under the results, in the run's own record. They are
+/// stored in the run summary (JSONB, so no migration) and are FROZEN there: they
+/// describe what this run did, and a later settings change must not rewrite them.
+///
+/// Historical runs recorded before this shipped carry no `conservation` key at
+/// all; the read path treats that as "not measured" and shows no line, never as
+/// a pool of zero (Standing Rule 1).
+#[derive(Debug, Clone, Serialize)]
+pub struct ScanConservation {
+    /// Rows the gather query returned — the ungated 100%-recall pool.
+    pub pool: usize,
+    /// Set aside: no quote text at all, or only whitespace.
+    pub excluded_empty: usize,
+    /// Set aside: a statement kind the settings row names as content-free.
+    pub excluded_statement_type: usize,
+    /// Set aside: shorter than the configured minimum, with no paired question.
+    pub excluded_too_short: usize,
+    /// Folded into a byte-identical twin. Each still receives its own verdict row
+    /// and is covered by one merge (ruling R2) — this counts LLM calls saved, not
+    /// candidates discarded.
+    pub duplicates_collapsed: usize,
+    /// Groups sent to the judge — one LLM call each.
+    pub judged: usize,
 }
 
 /// One RELEVANT verdict — a pick offered to the human, written nowhere.
@@ -350,6 +416,24 @@ pub struct ThemeScanSuggestion {
     /// The judge's self-reported confidence in `[0.0, 1.0]`. Reaches
     /// `scenario_fact_refs.confidence` only if the human merges this pick.
     pub confidence: f32,
+    /// Every node id this ONE pick speaks for — `graph_node_id` first, then any
+    /// byte-identical twin folded into it (task 2.15 Tier 2, item 1a).
+    ///
+    /// ## Why the client merges this list and not the single id
+    ///
+    /// The twins were never judged separately (one quote, one call), and Roman's
+    /// ruling is that one ruling covers the set. So checking this pick and
+    /// pressing Merge must write the judgment onto every member — otherwise the
+    /// identical sentence would come back tomorrow as an unruled candidate, which
+    /// is the exact duplicate work the collapse exists to end.
+    ///
+    /// Always at least one entry, so the client needs no special case for a pick
+    /// with no twins.
+    pub covers_node_ids: Vec<String>,
+    /// How many pool rows this pick speaks for. `1` for an ordinary pick; `2` for
+    /// one of the measured S-4 twins. Shown on the card so the human knows a
+    /// single ruling is doing more than one row's work.
+    pub duplicate_count: usize,
     /// Live graph card content for the referenced node, so the client renders
     /// the suggestion as a normal fact card.
     pub content: BiasInstance,

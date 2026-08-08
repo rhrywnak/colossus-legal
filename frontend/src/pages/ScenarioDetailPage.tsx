@@ -124,6 +124,15 @@ const ScenarioDetailPage: React.FC = () => {
   const [allegations, setAllegations] = useState<AllegationDto[]>([]);
   const [cards, setCards] = useState<ScenarioCard[]>([]);
   /**
+   * The served "nothing has scanned this yet" sentence, or `null` once a scan has
+   * completed (task 2.15, piece 3).
+   *
+   * Held beside the cards it arrives with and replaced on every read of them, so
+   * it can never describe a pool the page is no longer showing — the same rule
+   * the queue's own notice follows in `CardQueue`.
+   */
+  const [neverScannedNotice, setNeverScannedNotice] = useState<string | null>(null);
+  /**
    * The accusation section's payload (task 2.11 B1).
    *
    * Its own state and its own read, NOT part of the four-read gate: a scenario
@@ -254,6 +263,7 @@ const ScenarioDetailPage: React.FC = () => {
         setAugmentation(panel);
         setAllegations(allegationList.allegations);
         setCards([...cardPayload.pool, ...cardPayload.set_aside]);
+        setNeverScannedNotice(cardPayload.never_scanned_notice ?? null);
         setLoading(false);
       })
       .catch((err: unknown) => {
@@ -287,6 +297,9 @@ const ScenarioDetailPage: React.FC = () => {
       .then((payload) => {
         if (cancelled) return;
         setCards([...payload.pool, ...payload.set_aside]);
+        // Re-read with the cards, so a scan that completed while this page was
+        // open stops the section claiming nothing has scanned it.
+        setNeverScannedNotice(payload.never_scanned_notice ?? null);
         // A read that worked clears the last one's complaint; leaving it up would
         // put a stale warning over a list that is now current.
         setFactsNotice(null);
@@ -419,6 +432,8 @@ const ScenarioDetailPage: React.FC = () => {
         // the VALUE is never read — only its change — and both only ever
         // increment, so a bump to either is always a change to the sum.
         externalRefresh={pageRefreshKey + queueRefreshKey}
+        // Served, not derived — see the field's note on the payload.
+        neverScannedNotice={neverScannedNotice}
         onFactsChanged={refresh}
         // A ruling the SERVER confirmed. Re-reads the cards alone, so the fact
         // appears below without the queue above being reloaded under the human.

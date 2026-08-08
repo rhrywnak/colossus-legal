@@ -8,6 +8,14 @@
 
 use super::*;
 
+/// A pre-filter snapshot, as a run would freeze it.
+fn prefilter(min_chars: usize) -> PrefilterSnapshot {
+    PrefilterSnapshot {
+        min_chars,
+        statement_types: vec!["referral".to_string()],
+    }
+}
+
 /// The `resolved_params` JSONB snapshot must carry the resolved prompt
 /// filename (run→prompt provenance) alongside the existing param fields.
 #[test]
@@ -17,13 +25,37 @@ fn params_snapshot_records_prompt_file_alongside_params() {
         timeout_secs: 90,
         max_tokens: 512,
     };
-    let snapshot = params_snapshot(&params, "theme_scan_prompt_v2.md");
+    let snapshot = params_snapshot(&params, "theme_scan_prompt_v2.md", &prefilter(60));
 
     assert_eq!(snapshot["prompt_file"], "theme_scan_prompt_v2.md");
     // The pre-existing fields must survive the addition.
     assert_eq!(snapshot["timeout_secs"], 90);
     assert_eq!(snapshot["max_tokens"], 512);
     assert_eq!(snapshot["temperature"], 0.0);
+}
+
+/// The snapshot also freezes WHICH candidates were put in front of the judge.
+///
+/// Without this, two runs a week apart can differ in their admitted set and the
+/// audit trail cannot say whether the prompt changed or a pre-filter dial did —
+/// the conservation block records that fifteen quotes were set aside for length,
+/// but not the threshold that set them aside (task 2.15, observability gate).
+#[test]
+fn params_snapshot_freezes_the_prefilter_dials_that_chose_the_pool() {
+    let params = ResolvedLlmParams {
+        temperature: Some(0.0),
+        timeout_secs: 90,
+        max_tokens: 512,
+    };
+
+    let strict = params_snapshot(&params, "theme_scan_prompt_v3.md", &prefilter(60));
+    assert_eq!(strict["prefilter_min_chars"], 60);
+    assert_eq!(strict["prefilter_statement_types"][0], "referral");
+
+    // A run started after the dial was turned records the NEW value, so the two
+    // runs are distinguishable in the audit trail rather than merely different.
+    let loose = params_snapshot(&params, "theme_scan_prompt_v3.md", &prefilter(0));
+    assert_eq!(loose["prefilter_min_chars"], 0);
 }
 
 /// A non-default (overridden) prompt filename is recorded verbatim, so a run
@@ -35,7 +67,7 @@ fn params_snapshot_records_an_overridden_prompt_file() {
         timeout_secs: 30,
         max_tokens: 256,
     };
-    let snapshot = params_snapshot(&params, "theme_scan_prompt_v3.md");
+    let snapshot = params_snapshot(&params, "theme_scan_prompt_v3.md", &prefilter(60));
     assert_eq!(snapshot["prompt_file"], "theme_scan_prompt_v3.md");
 }
 

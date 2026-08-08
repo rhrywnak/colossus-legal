@@ -19,6 +19,7 @@ use crate::domain::wording_accusation::ACCUSATION_WORDING_KEYS;
 use crate::domain::wording_authoring::AUTHORING_WORDING_KEYS;
 use crate::domain::wording_rehearsal::REHEARSAL_WORDING_KEYS;
 use crate::domain::wording_rehearsal_chrome::REHEARSAL_CHROME_KEYS;
+use crate::domain::wording_scan::SCAN_WORDING_KEYS;
 use crate::domain::wording_scenario_authoring::SCENARIO_AUTHORING_WORDING_KEYS;
 
 use chrono::Utc;
@@ -45,7 +46,8 @@ fn row(
     }
 }
 
-/// The whole store as the migrations seed it: ten numbers and 170 stored strings.
+/// The whole store as the migrations seed it: every not-wording parameter and
+/// every stored string, from the same fixtures the product's own tests use.
 ///
 /// ## Why the wording rows come from `Wording::for_test_values` (task 2.10)
 ///
@@ -56,10 +58,10 @@ fn row(
 /// asserted.
 fn seeded() -> HashMap<String, AppSettingRecord> {
     let mut rows = numeric_rows();
-    // All six stored-string blocks, chained (2.10, 2.11 B1/B2, 2.11 C, and the
-    // 2026-08-07 scenario-authoring block): the lists key ONE table, and a
-    // fixture holding only some of them would let a snapshot build that the real
-    // store could not.
+    // All seven stored-string blocks, chained (2.10, 2.11 B1/B2, 2.11 C, the
+    // 2026-08-07 scenario-authoring block, and 2.15's scan block): the lists key
+    // ONE table, and a fixture holding only some of them would let a snapshot
+    // build that the real store could not.
     let text_rows = crate::domain::wording::Wording::for_test_values()
         .into_iter()
         .chain(crate::domain::wording_accusation::AccusationWording::for_test_values())
@@ -68,7 +70,18 @@ fn seeded() -> HashMap<String, AppSettingRecord> {
         .chain(crate::domain::wording_authoring::AuthoringWording::for_test_values())
         .chain(
             crate::domain::wording_scenario_authoring::ScenarioAuthoringWording::for_test_values(),
-        );
+        )
+        .chain(crate::domain::wording_scan::ScanWording::for_test_values())
+        // Task 2.15 Tier 2: two TEXT rows that are not wording — one names a
+        // file, one holds a comma-separated list — so they are seeded here rather
+        // than borrowed from a `for_test_values` block.
+        .chain([
+            (
+                KEY_THEME_SCAN_PROMPT_FILE,
+                "theme_scan_prompt_v3.md".to_string(),
+            ),
+            (KEY_PREFILTER_STATEMENT_TYPES, "referral".to_string()),
+        ]);
     for (key, value) in text_rows {
         // Text rows carry no bounds: `min_value` / `max_value` are numeric
         // comparisons, and the migration leaves them NULL.
@@ -80,7 +93,8 @@ fn seeded() -> HashMap<String, AppSettingRecord> {
     rows
 }
 
-/// The ten numeric rows as the migrations seed them.
+/// The numeric rows as the migrations seed them (the not-wording text rows are
+/// chained in by `seeded`, beside the wording blocks).
 fn numeric_rows() -> HashMap<String, AppSettingRecord> {
     by_key(vec![
         row(
@@ -135,6 +149,15 @@ fn numeric_rows() -> HashMap<String, AppSettingRecord> {
         // rehearsal page's rows arrive compact. Minimum 1 — zero would fold the
         // only row on a single-instance scenario.
         row(KEY_ROWS_EXPAND_MAX, "3", ValueKind::Count, Some(1.0), None),
+        // Task 2.15 Tier 2: the shortest unanchored quote that still reaches the
+        // judge. Minimum 0, which is the documented "rule off" value.
+        row(
+            KEY_PREFILTER_MIN_CHARS,
+            "60",
+            ValueKind::Count,
+            Some(0.0),
+            None,
+        ),
     ])
 }
 
@@ -191,14 +214,16 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     // at whatever moment it happened to be read.
     assert_eq!(
         REQUIRED_KEYS.len(),
-        10,
-        "seven numbers, 2.10's short-list cap, 2.11 B2's timeline threshold, and \
-         2.11 C's row-expand cap"
+        13,
+        "seven numbers, 2.10's short-list cap, 2.11 B2's timeline threshold, \
+         2.11 C's row-expand cap, and 2.15's three scan parameters (the prompt \
+         filename and the two pre-filter dials)"
     );
     assert_eq!(
         WORDING_KEYS.len(),
-        48,
-        "22 from 2.10, five from 2.12, fourteen from 2.13, one latch fix, five from 2.13c"
+        49,
+        "22 from 2.10, five from 2.12, fourteen from 2.13, one latch fix, five \
+         from 2.13c, and 2.15's raw-pool opt-in"
     );
     assert_eq!(
         ACCUSATION_WORDING_KEYS.len(),
@@ -222,9 +247,15 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     );
     assert_eq!(
         SCENARIO_AUTHORING_WORDING_KEYS.len(),
-        13,
+        14,
         "2026-08-07: the create form's two new fields, the identity modal's \
-         target control, and the no-target notice"
+         target control, and the no-target notice — plus 2.15's never-scanned \
+         notice, its sibling"
+    );
+    assert_eq!(
+        SCAN_WORDING_KEYS.len(),
+        3,
+        "task 2.15 Tier 2: the conservation line and the two scan-history controls"
     );
     assert_eq!(
         seeded().len(),
@@ -234,8 +265,9 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
             + REHEARSAL_WORDING_KEYS.len()
             + REHEARSAL_CHROME_KEYS.len()
             + AUTHORING_WORDING_KEYS.len()
-            + SCENARIO_AUTHORING_WORDING_KEYS.len(),
-        "the seed and the seven required lists must describe the same store"
+            + SCENARIO_AUTHORING_WORDING_KEYS.len()
+            + SCAN_WORDING_KEYS.len(),
+        "the seed and the eight required lists must describe the same store"
     );
 }
 
@@ -626,6 +658,9 @@ fn the_fixtures_carry_the_values_the_migration_actually_seeds() {
         // Task 2.11 C's row-expand cap — the tenth number, seeded with the
         // rebuilt page's wording for the same reason.
         "pipeline_migrations/20260806135509_rehearsal_visual_2_11c.sql",
+        // Task 2.15 Tier 2 — the prompt-file row, the two pre-filter dials, and
+        // the scan surface's words.
+        "pipeline_migrations/20260808084539_theme_scan_tier2_settings_and_scan_wording.sql",
     ]
     .iter()
     .map(|relative| {
@@ -658,7 +693,12 @@ fn the_fixtures_carry_the_values_the_migration_actually_seeds() {
 
     // Anti-vacuity: a parsing change that stopped finding rows would otherwise
     // make this test pass while comparing nothing.
-    assert_eq!(checked, 10, "all ten numeric parameters must be compared");
+    assert_eq!(
+        checked,
+        REQUIRED_KEYS.len(),
+        "every not-wording parameter must be compared against the migration — \
+         counted from the list itself so adding a key cannot quietly skip it"
+    );
 }
 
 /// The snapshot built from the fixture matches the one `Settings::for_test`

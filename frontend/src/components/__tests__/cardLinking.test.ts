@@ -66,6 +66,7 @@ const wording: LinkPanelWording = {
   queue_empty_pool_summary: "No candidates gathered yet",
   queue_all_ruled_summary: "All candidates ruled",
   queue_counting_summary: "Counting candidates…",
+  queue_raw_pool_toggle_template: "Browse the raw evidence pool ({count})",
   fact_answer_label: "A:",
   fact_background_move_notice: "{code} moved to the background pile — show",
   fact_weights_hint:

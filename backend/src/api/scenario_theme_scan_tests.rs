@@ -304,8 +304,11 @@ fn missing_prompt_file_maps_to_503_naming_the_path() {
                 "the operator cannot fix what the message does not name: {message}"
             );
             assert!(
-                message.contains("THEME_SCAN_PROMPT_FILE"),
-                "the message must name the env var that selects the file: {message}"
+                message.contains("theme_scan_prompt_file"),
+                "the message must name the SETTINGS ROW that selects the file — the \
+                 env var it used to name was retired in task 2.15, and pointing an \
+                 operator at it would send them hunting for something this build \
+                 does not read: {message}"
             );
         }
         other => panic!("expected a 503 naming the path, got {other:?}"),

@@ -30,6 +30,9 @@ pub(crate) struct BiasRow {
     /// two queries that don't return it (`execute_filtered_query`) decode to
     /// `None` unchanged.
     question: Option<String>,
+    /// The extractor's statement classification, when the query SELECTed it.
+    /// Same `.ok()` treatment as `question` — absent column decodes to `None`.
+    statement_type: Option<String>,
     page_number: Option<i64>,
     pattern_tags_raw: Option<String>,
     actor_id: String,
@@ -81,6 +84,14 @@ impl BiasRow {
             // and `evidence_by_ids` return the column, so only they yield
             // `Some`.
             question: row.get("question").ok(),
+            // best-effort: an ABSENT COLUMN decodes to `None`, which is the
+            // honest reading and not a swallowed failure — neo4rs returns Err for
+            // a column the query never SELECTed, and the two filtered-evidence
+            // queries do not project `statement_type`. Only the scan's gather
+            // query returns it, and only the scan's pre-filter reads it, so
+            // `None` here means "this query did not ask", never "the value was
+            // lost". Same tolerance as `question` above.
+            statement_type: row.get("statement_type").ok(),
             page_number: row.get("page_number").ok(),
             pattern_tags_raw: row.get("pattern_tags_raw").ok(),
             actor_id: row.get("actor_id").unwrap_or_default(),
@@ -135,6 +146,7 @@ impl AggregationState {
                 title: row.title,
                 verbatim_quote: row.verbatim_quote,
                 question: row.question,
+                statement_type: row.statement_type,
                 page_number: row.page_number,
                 pattern_tags: parse_pattern_tags(row.pattern_tags_raw.as_deref().unwrap_or("")),
                 stated_by: Some(ActorOption {

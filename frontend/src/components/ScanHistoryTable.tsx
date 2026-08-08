@@ -23,7 +23,7 @@
 import React from "react";
 
 import { scanHistoryRows, scanHistorySummary } from "./scanHistoryRows";
-import type { ScanRunHeader } from "../services/themeScan";
+import type { ScanHistoryWording, ScanRunHeader } from "../services/themeScan";
 
 // v3: the divider token, resolved inside the scoped layer to #eef0f3.
 const HAIRLINE = "1px solid var(--border-default)";
@@ -55,8 +55,48 @@ const summaryStyle: React.CSSProperties = {
   fontSize: "0.82rem",
 };
 
+/**
+ * The view control, quiet when closed and marked when open.
+ *
+ * A style function rather than two constants: the only difference is which state
+ * it is in, and two near-identical objects invite one of them to drift.
+ */
+function viewButtonStyle(selected: boolean): React.CSSProperties {
+  return {
+    border: "none",
+    background: selected ? "var(--v3-chrome-strong)" : "var(--v3-chrome)",
+    borderRadius: "6px",
+    padding: "0.2rem 0.5rem",
+    cursor: "pointer",
+    color: selected ? "var(--text-primary)" : "var(--accent-primary)",
+    fontFamily: "inherit",
+    fontSize: "0.78rem",
+  };
+}
+
+/**
+ * Fill `{run}` in the delete confirmation.
+ *
+ * The row's when-label is formatted in the reader's locale (see
+ * `formatRunTimestamp`), so it is the one part of this sentence the server cannot
+ * compose — which is why this template, alone among the scan's strings, is filled
+ * in the browser. Same single-`replace` shape as `fillCode` beside it.
+ */
+function fillRun(template: string, run: string): string {
+  return template.replace("{run}", run);
+}
+
 interface Props {
   runs: ScanRunHeader[];
+  /**
+   * The words this table's own controls speak, served with the list.
+   *
+   * `null` while the payload is still loading, or if it predates them. A control
+   * with no label is NOT rendered — a compiled-in fallback would be a literal on
+   * a surface the configuration law covers, and a blank button is worse than an
+   * absent one.
+   */
+  wording: ScanHistoryWording | null;
   /** run_ids currently selected for display (single-select: 0 or 1). */
   selectedRunIds: string[];
   onToggle: (runId: string) => void;
@@ -68,6 +108,7 @@ interface Props {
 
 const ScanHistoryTable: React.FC<Props> = ({
   runs,
+  wording,
   selectedRunIds,
   onToggle,
   onDelete,
@@ -99,6 +140,9 @@ const ScanHistoryTable: React.FC<Props> = ({
                 reader announces. A visible "Remove" heading would add a word to
                 every reading of the table for no gain. `scope="col"` keeps the
                 empty cell a legitimate header rather than a stray blank. */}
+            {/* Two unlabelled control columns: view, then remove. Empty for the
+                same reason — each button carries its own accessible name. */}
+            <th style={headStyle} scope="col" aria-label="Open a run's results" />
             <th style={headStyle} scope="col" aria-label="Remove a run" />
           </tr>
         </thead>
@@ -129,27 +173,68 @@ const ScanHistoryTable: React.FC<Props> = ({
                 <td style={cellStyle}>{row.candidates}</td>
                 <td style={cellStyle}>{row.newCount}</td>
                 <td style={cellStyle}>{row.status}</td>
+                {/* The VIEW control (task 2.15, piece 4a).
+
+                    The whole row has been clickable since 1.7C and nothing said
+                    so, which is why a completed run's findings read as
+                    unreachable after a refresh — the human had to guess that a
+                    table row was a button. The row stays clickable; this names
+                    the action. Rendered only for a run that HAS a stored result:
+                    offering "View results" on a failed run promises a panel that
+                    would open onto an error. */}
+                <td style={{ ...cellStyle, textAlign: "right", whiteSpace: "nowrap" }}>
+                  {wording && row.status === "completed" && (
+                    <button
+                      type="button"
+                      style={viewButtonStyle(selected)}
+                      onClick={(event) => {
+                        // The row's own click already toggles; without this the
+                        // two would fire and cancel each other out.
+                        event.stopPropagation();
+                        onToggle(row.runId);
+                      }}
+                      aria-expanded={selected}
+                    >
+                      {wording.view_label}
+                    </button>
+                  )}
+                </td>
                 <td style={{ ...cellStyle, textAlign: "right" }}>
-                  <button
-                    type="button"
-                    aria-label={`Remove the scan run from ${row.when}`}
-                    title="Remove this run"
-                    onClick={(event) => {
-                      // The row's own click selects; this must not also do that.
-                      event.stopPropagation();
-                      onDelete(row.runId);
-                    }}
-                    style={{
-                      border: "none",
-                      background: "none",
-                      cursor: "pointer",
-                      color: "var(--text-muted)",
-                      fontFamily: "inherit",
-                      fontSize: "0.8rem",
-                    }}
-                  >
-                    ✕
-                  </button>
+                  {/* No words, no ✕ (task 2.15, piece 4b).
+
+                      The confirmation IS the mis-click guard, and its sentence is
+                      a stored row. A ✕ rendered without it would either delete
+                      unguarded — the defect — or refuse silently, which is worse:
+                      a control that does nothing teaches the human it is broken.
+                      So the destructive control does not exist until the words
+                      that guard it have arrived. */}
+                  {wording && (
+                    <button
+                      type="button"
+                      aria-label={`Remove the scan run from ${row.when}`}
+                      title="Remove this run"
+                      onClick={(event) => {
+                        // The row's own click selects; this must not also do that.
+                        event.stopPropagation();
+                        // Until now one stray click here destroyed the run AND
+                        // every verdict in it — the only support the rulings it
+                        // produced have. Same shape as the merge confirm.
+                        if (window.confirm(fillRun(wording.delete_confirm_template, row.when))) {
+                          onDelete(row.runId);
+                        }
+                      }}
+                      style={{
+                        border: "none",
+                        background: "none",
+                        cursor: "pointer",
+                        color: "var(--text-muted)",
+                        fontFamily: "inherit",
+                        fontSize: "0.8rem",
+                      }}
+                    >
+                      ✕
+                    </button>
+                  )}
                 </td>
               </tr>
             );

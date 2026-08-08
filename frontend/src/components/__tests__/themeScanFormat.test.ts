@@ -38,6 +38,9 @@ function sug(id: string, role: string) {
     reason: "r",
     confidence: 0.9,
     content: { evidence_id: id, title: "", pattern_tags: [], about: [] },
+    // A pick with no folded twin — the ordinary case (task 2.15).
+    covers_node_ids: [id],
+    duplicate_count: 1,
     // Backend-annotated at read time; the agreement maths ignores both, but the
     // fixture must be a real ThemeScanSuggestion.
     ordinal: null,

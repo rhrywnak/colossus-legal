@@ -125,6 +125,9 @@ export type LinkPanelWording = {
   /** The queue's summary while the counts are not known yet — the third state,
    *  distinct from both "no candidates" and "all ruled". */
   queue_counting_summary: string;
+  /** The opt-in that opens the raw evidence pool on a never-scanned scenario.
+   *  Carries `{count}` (task 2.15, piece 3a). */
+  queue_raw_pool_toggle_template: string;
 
   // ── Task 2.13c ──────────────────────────────────────────────────────────────
   /** Marks the answer beneath its question — the question label's partner. */

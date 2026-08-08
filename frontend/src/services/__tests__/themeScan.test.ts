@@ -114,7 +114,12 @@ describe("fetchScanRuns", () => {
     // @ts-ignore — minimal fetch mock
     global.fetch = fetchMock;
 
-    await expect(fetchScanRuns(SLUG, SCENARIO)).resolves.toEqual([header]);
+    // The rows AND the words the history's own controls speak (task 2.15): the
+    // table renders no control it has no label for, so both travel together.
+    await expect(fetchScanRuns(SLUG, SCENARIO)).resolves.toEqual({
+      runs: [header],
+      wording: null,
+    });
     // The list URL is the scan-runs collection (no :run_id suffix).
     expect(fetchMock.mock.calls[0][0]).toContain(
       `/api/cases/${SLUG}/scenarios/${SCENARIO}/scan-runs`,
@@ -122,10 +127,16 @@ describe("fetchScanRuns", () => {
     expect(fetchMock.mock.calls[0][0]).not.toContain(`/scan-runs/${RUN}`);
   });
 
-  it("returns [] when the runs key is absent (unscanned scenario)", async () => {
+  it("returns no runs and no wording when the payload carries neither", async () => {
+    // An unscanned scenario, and (for a payload predating task 2.15) a list with
+    // no wording. `null` rather than invented defaults: a control with no words is
+    // not rendered at all, which is the absent-not-fake law applied to a button.
     // @ts-ignore
     global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({}) });
-    await expect(fetchScanRuns(SLUG, SCENARIO)).resolves.toEqual([]);
+    await expect(fetchScanRuns(SLUG, SCENARIO)).resolves.toEqual({
+      runs: [],
+      wording: null,
+    });
   });
 
   it("throws on a non-OK response", async () => {

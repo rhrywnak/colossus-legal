@@ -41,5 +41,6 @@ pub mod wording_accusation;
 pub mod wording_authoring;
 pub mod wording_rehearsal;
 pub mod wording_rehearsal_chrome;
+pub mod wording_scan;
 pub mod wording_scenario_authoring;
 pub mod wording_templates;

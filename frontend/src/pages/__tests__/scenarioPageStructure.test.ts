@@ -35,7 +35,6 @@ const read = (...parts: string[]) => readFileSync(join(SRC, ...parts), "utf8");
 const SCENARIO_TREE = [
   "pages/ScenarioDetailPage.tsx",
   "components/ScenarioHeaderTiers.tsx",
-  "components/ScenarioKebab.tsx",
   "components/ScenarioIdentityBlock.tsx",
   "components/ScanSection.tsx",
   "components/ThemeScanPanel.tsx",
@@ -160,23 +159,67 @@ describe("the page has one editor for identity (1.7B, carried)", () => {
   });
 });
 
-describe("destructive actions live only in the kebab (task 1.7C, defect D7)", () => {
-  it("the header tiers carry no Delete of their own", () => {
-    // D7: `Delete` sat as a bare button in the middle of the 1.7B header row, one
-    // mis-click from "Mark ready to rehearse".
-    const header = read("components", "ScenarioHeaderTiers.tsx");
-    expect(header).not.toContain("Delete</button>");
-    expect(header, "the header must delegate to the kebab").toContain("ScenarioKebab");
+describe("Delete is a visible button, guarded by the dialog (D7 OVERRULED 2026-08-07)", () => {
+  /**
+   * ## The history this describes
+   *
+   * D7 (task 1.7C) moved Delete behind a ⋯ kebab, because a bare Delete had sat
+   * one mis-click from "Mark ready to rehearse". Roman asked for a button twice
+   * and got a menu twice; on 2026-08-07 he OVERRULED D7 for Delete. The guard is
+   * the confirm dialog — it names the scenario and stays open on failure — plus
+   * distance, and both are asserted below.
+   *
+   * These tests still earn their place under the standing law: each one fails
+   * when a user-visible promise breaks (a delete with no confirmation, or a
+   * destructive control back beside the status one), not when markup moves.
+   */
+  it("both surfaces route Delete through the page's confirm dialog", () => {
+    // The mis-click guard, and the only reason a visible Delete is safe. Neither
+    // surface may call the delete service itself.
+    // Each surface raises its own request upward — the header's `onDelete`, the
+    // card's `onRequestDelete` — and neither may call the delete service itself.
+    for (const [file, callback] of [
+      ["ScenarioHeaderTiers.tsx", "onDelete"],
+      ["ScenarioCard.tsx", "onRequestDelete"],
+    ]) {
+      const source = read("components", file);
+      expect(source, `${file} must raise the request, not perform it`).not.toContain(
+        "deleteScenario",
+      );
+      expect(source, `${file} must ask the page to open the dialog`).toContain(callback);
+    }
+    // The page owns both the dialog and the write.
+    const page = read("pages", "ScenarioDetailPage.tsx");
+    expect(page).toContain("ScenarioDeleteConfirm");
+    expect(page).toContain("scenarioDeleteCopy");
   });
 
-  it("no Archive action is rendered, because none exists (ruling R1)", () => {
-    // Measured in Phase A: no archive endpoint, and `scenarios_status_check` allows
-    // only draft | needs_evidence | ready, so there is no state to archive INTO.
-    // A control that cannot act is a promise the page cannot keep — and a DISABLED
-    // one would say the feature is here and broken rather than unbuilt.
-    const kebab = read("components", "ScenarioKebab.tsx");
-    expect(kebab).not.toContain("Archive scenario");
-    expect(kebab).not.toContain('role="menuitem"\n            disabled');
+  it("Delete is not adjacent to the status control on the header", () => {
+    // The half of D7's concern that survives the overrule: "Mark ready to
+    // rehearse" is the status control, and it must not sit next to the
+    // destructive one. It lives in the IDENTITY row; Delete is last in the
+    // ACTIONS row, behind a separator.
+    const header = read("components", "ScenarioHeaderTiers.tsx");
+    const statusAt = header.indexOf("<ScenarioStatusControl");
+    const deleteAt = header.indexOf("deleteButtonStyle}");
+    expect(statusAt, "the status control is still on the header").toBeGreaterThan(-1);
+    expect(deleteAt, "Delete is still on the header").toBeGreaterThan(-1);
+    expect(header.slice(statusAt, deleteAt)).toContain("actionsRowStyle");
+    expect(header).toContain("actionSeparatorStyle");
+  });
+
+  it("the kebab is deleted from the tree, not merely unmounted", () => {
+    // It held Delete and nothing else, so nothing consumes it after the two
+    // buttons landed. Asserting its ABSENCE FROM DISK is what stops it being
+    // restored by someone tidying an import — the same rule the three retired
+    // 1.7B panels are held to below.
+    const present = readdirSync(join(SRC, "components")).filter(
+      (name) => name === "ScenarioKebab.tsx",
+    );
+    expect(
+      present,
+      "ScenarioKebab.tsx has no consumer since Roman overruled D7 for Delete",
+    ).toEqual([]);
   });
 });
 

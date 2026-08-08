@@ -16,11 +16,13 @@ use std::collections::HashSet;
 use chrono::Utc;
 use uuid::Uuid;
 
+use crate::dto::theme_scan::ScanHistoryWording;
 use crate::dto::{ScanRunHeader, ScanRunListResponse, ScanRunStatusResponse};
 use crate::repositories::pipeline_repository::{
     count_run_provenance, delete_scan_run, get_scan_run, list_applied_node_ids_for_run,
     list_candidate_ordinals, list_scan_runs, merge_run_into_scenario_recording, ScanRunHeaderRow,
 };
+use crate::services::scan_conservation::annotate_conservation_line;
 use crate::services::scan_run_delta::with_pool_deltas;
 use crate::services::scan_run_enrich::annotate_summary_logged;
 use crate::services::theme_scan::{load_scenario_fenced, ThemeScanError};
@@ -108,6 +110,19 @@ async fn annotate_run_summary(
         .collect();
 
     annotate_summary_logged(summary, run_id, &ordinals, &applied);
+    // The reconciliation sentence, composed here from the run's FROZEN counts and
+    // the LIVE stored template (task 2.15 item 1c). Read-time for the same reason
+    // the two annotations above are: the record is what the run did, the words are
+    // what today's store says.
+    annotate_conservation_line(
+        summary,
+        run_id,
+        &state
+            .settings
+            .current()
+            .scan_wording
+            .conservation_line_template,
+    );
     Ok(())
 }
 
@@ -138,7 +153,14 @@ pub async fn list_scenario_scan_runs(
     // history at once (task 1.7C, R2) — a single row cannot know how much bigger
     // its pool read was than the one before it.
     let runs = with_pool_deltas(rows.into_iter().map(scan_run_header_from_row).collect());
-    Ok(ScanRunListResponse { runs })
+    let words = &state.settings.current().scan_wording;
+    Ok(ScanRunListResponse {
+        runs,
+        wording: ScanHistoryWording {
+            view_label: words.history_view_label.clone(),
+            delete_confirm_template: words.history_delete_confirm_template.clone(),
+        },
+    })
 }
 
 /// Delete one of a scenario's scan runs.

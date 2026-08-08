@@ -46,6 +46,7 @@ use crate::{
     },
     services::scenario_card::{collapse_extras, CardRefState},
     services::scenario_card_assembly::{assemble, page_key, HumanTouchIndex},
+    services::scenario_cards_scan_state::never_scanned_notice,
     services::scenario_fact_order::{effective_order, OrderableFact},
     services::scenario_human_links::resolve_links,
     services::scenario_link_options::label_index,
@@ -173,7 +174,7 @@ pub async fn get_scenario_cards(
 
     let human_links = load_human_links(&state, &node_ids, &subject_id, &settings).await?;
 
-    let response = assemble(
+    let mut response = assemble(
         pool,
         &extras,
         &ref_states,
@@ -185,6 +186,11 @@ pub async fn get_scenario_cards(
             links: &human_links,
         },
     );
+
+    // Task 2.15 piece 3: the cards are still served in full — this only says
+    // whether anything has ever JUDGED them, which is what the page needs before
+    // it may call them candidates from a scan.
+    response.never_scanned_notice = never_scanned_notice(&state, id).await?;
 
     tracing::info!(
         pool = response.pool.len(),
@@ -229,6 +235,11 @@ fn no_target_response(notice: &str) -> ScenarioCardsResponse {
         set_aside: Vec::new(),
         link_progress: None,
         no_target_notice: Some(notice.to_string()),
+        // A scenario with no target has no pool to describe, scanned or not. The
+        // no-target notice is the whole explanation this payload owes; adding a
+        // second one would stack two answers to two questions the human has not
+        // reached yet.
+        never_scanned_notice: None,
     }
 }
 

@@ -57,16 +57,20 @@ fn every_key_with_required_placeholders_is_a_real_key() {
     // guarding anything, because `missing_placeholders` returns empty for a key
     // it does not find.
     //
-    // All FIVE stored-string lists count (2.10, 2.11 B1/B2, 2.11 C): this table
-    // is the one place the write path looks, so it carries every surface's
-    // templates as well as this module's own.
+    // All SEVEN stored-string lists count (2.10, 2.11 B1/B2, 2.11 C, the
+    // 2026-08-07 scenario-authoring block, and 2.15's scan block): this table is
+    // the one place the write path looks, so it carries every surface's templates
+    // as well as this module's own.
     for (key, required) in REQUIRED_PLACEHOLDERS {
         assert!(
             WORDING_KEYS.contains(key)
                 || accusation::ACCUSATION_WORDING_KEYS.contains(key)
                 || rehearsal::REHEARSAL_WORDING_KEYS.contains(key)
                 || chrome::REHEARSAL_CHROME_KEYS.contains(key)
-                || authoring::AUTHORING_WORDING_KEYS.contains(key),
+                || authoring::AUTHORING_WORDING_KEYS.contains(key)
+                || crate::domain::wording_scenario_authoring::SCENARIO_AUTHORING_WORDING_KEYS
+                    .contains(key)
+                || crate::domain::wording_scan::SCAN_WORDING_KEYS.contains(key),
             "{key} has placeholder requirements but is not a stored wording key"
         );
         assert!(!required.is_empty(), "{key} declares an empty requirement");
@@ -86,6 +90,10 @@ fn the_seeded_defaults_satisfy_their_own_placeholder_rules() {
     values.extend(rehearsal::RehearsalWording::for_test_values());
     values.extend(chrome::RehearsalChromeWording::for_test_values());
     values.extend(authoring::AuthoringWording::for_test_values());
+    values.extend(
+        crate::domain::wording_scenario_authoring::ScenarioAuthoringWording::for_test_values(),
+    );
+    values.extend(crate::domain::wording_scan::ScanWording::for_test_values());
     for (key, _) in REQUIRED_PLACEHOLDERS {
         let seeded = values.get(key).expect("a seeded value for every key");
         assert!(
@@ -197,6 +205,10 @@ const COUNTING_MIGRATION: &str =
 /// Task 2.13c's five rows — the answer label, the background-move notice, the
 /// weights hint, the honest footer, and the un-place control.
 const POLISH_MIGRATION: &str = "pipeline_migrations/20260805145731_facts_polish_2_13c_wording.sql";
+/// Task 2.15 Tier 2: the raw-pool opt-in, seeded with the scan work whose defect
+/// it answers rather than in a migration of its own.
+const TIER2_MIGRATION: &str =
+    "pipeline_migrations/20260808084539_theme_scan_tier2_settings_and_scan_wording.sql";
 
 /// Pull one key's seeded value out of the migration's INSERT.
 ///
@@ -264,6 +276,8 @@ fn the_wording_fixture_carries_the_values_the_migration_actually_seeds() {
         .expect("the queue counting-state wording migration is on disk");
     let polish = std::fs::read_to_string(root.join(POLISH_MIGRATION))
         .expect("the 2.13c polish wording migration is on disk");
+    let tier2 = std::fs::read_to_string(root.join(TIER2_MIGRATION))
+        .expect("the 2.15 Tier-2 scan migration is on disk");
 
     let fixture = Wording::for_test_values();
     let mut checked = 0usize;
@@ -274,6 +288,7 @@ fn the_wording_fixture_carries_the_values_the_migration_actually_seeds() {
             .or_else(|| seeded_value_in(&slice1, key))
             .or_else(|| seeded_value_in(&counting, key))
             .or_else(|| seeded_value_in(&polish, key))
+            .or_else(|| seeded_value_in(&tier2, key))
             .unwrap_or_else(|| panic!("{key} is not seeded by any migration"));
         let in_fixture = fixture
             .get(*key)
@@ -291,10 +306,12 @@ fn the_wording_fixture_carries_the_values_the_migration_actually_seeds() {
     // Anti-vacuity: a parsing change that stopped finding rows would otherwise
     // make this test pass while comparing nothing.
     assert_eq!(
-        checked, 48,
-        "all forty-eight stored strings must be compared"
+        checked,
+        WORDING_KEYS.len(),
+        "every stored string must be compared — counted from the list itself so \
+         adding a key cannot quietly skip it"
     );
-    assert_eq!(WORDING_KEYS.len(), 48);
+    assert_eq!(WORDING_KEYS.len(), 49);
 }
 
 // ── Item A's correction: the one that can ship a lying button ────────────────
@@ -483,6 +500,7 @@ impl Wording {
                 .to_string(),
             fact_footer_template: "{shown} shown · {background} in background".to_string(),
             fact_unplace_label: "Clear my order".to_string(),
+            queue_raw_pool_toggle_template: "Browse the raw evidence pool ({count})".to_string(),
         }
     }
 
@@ -547,6 +565,7 @@ impl Wording {
                     KEY_FACT_WEIGHTS_HINT => w.fact_weights_hint.clone(),
                     KEY_FACT_FOOTER => w.fact_footer_template.clone(),
                     KEY_FACT_UNPLACE_LABEL => w.fact_unplace_label.clone(),
+                    KEY_QUEUE_RAW_POOL_TOGGLE => w.queue_raw_pool_toggle_template.clone(),
                     // Unreachable by construction: the match above covers every
                     // entry of WORDING_KEYS, and the test below proves it. A panic
                     // here would only fire in a test binary, on a key someone added

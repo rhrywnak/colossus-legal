@@ -47,8 +47,8 @@ use chrono::Utc;
 use sqlx::PgPool;
 
 use crate::domain::settings::{
-    parse_count, parse_float, parse_ratio, parse_text, Bounds, Ratio, SettingError, Settings,
-    ValueKind,
+    parse_count, parse_float, parse_ratio, parse_text, parse_token_list, Bounds, Ratio,
+    SettingError, Settings, ValueKind,
 };
 use crate::domain::wording_templates::validate_wording_candidate;
 use crate::repositories::pipeline_repository::{
@@ -56,6 +56,7 @@ use crate::repositories::pipeline_repository::{
     PipelineRepoError,
 };
 use crate::services::settings_handle::SettingsHandle;
+use crate::services::settings_template_file::{check_named_file, TemplateDir};
 
 // KEYS: the stable identifiers of the seven stored parameters. These are not
 // tunables — they are the NAMES of tunables, the join key between this code and
@@ -72,17 +73,29 @@ const KEY_REANCHOR_TOLERANCE: &str = "reanchor_close_match_tolerance";
 const KEY_LINK_SHORT_LIST_MAX: &str = "link_short_list_max";
 const KEY_TIMELINE_MIN_DATES: &str = "rehearsal_timeline_min_distinct_dates";
 const KEY_ROWS_EXPAND_MAX: &str = "rehearsal_instance_rows_expand_max";
+// Task 2.15 Tier 2. The first is TEXT but is NOT wording — it names a file, not a
+// sentence a human reads — so it belongs in this list rather than in a wording
+// key list, and it is the reason the doc below says "not-wording" rather than
+// "numeric".
+pub(crate) const KEY_THEME_SCAN_PROMPT_FILE: &str = "theme_scan_prompt_file";
+const KEY_PREFILTER_MIN_CHARS: &str = "theme_scan_prefilter_min_chars";
+const KEY_PREFILTER_STATEMENT_TYPES: &str = "theme_scan_prefilter_statement_types";
 
-/// Every NUMERIC key this build reads, so a missing one is caught at boot by name.
+/// Every NOT-WORDING key this build reads, so a missing one is caught at boot by
+/// name.
 ///
 /// The anti-drift half of the configuration law: the store may hold parameters
 /// this build does not know about (a future task's, seeded early), but this build
 /// must never START without every parameter it does know about.
 ///
-/// The twenty stored STRINGS live in `wording::WORDING_KEYS` rather than here.
-/// Two lists rather than one flat twenty-eight because they answer different
-/// questions — these decide how the system judges, those are the words it speaks
-/// — and because a boot log reporting both counts says more than one number does.
+/// The stored SENTENCES live in the `*_WORDING_KEYS` lists rather than here. Two
+/// kinds of list rather than one flat one because they answer different questions
+/// — these decide how the system judges, those are the words it speaks — and
+/// because a boot log reporting both counts says more than one number does.
+///
+/// `theme_scan_prompt_file` is text and still belongs HERE: it names a file the
+/// scan reads, not a sentence anybody reads, and it decides what the judge is
+/// told — which is a judgment parameter in every sense that matters.
 pub const REQUIRED_KEYS: &[&str] = &[
     KEY_BAND_HIGH,
     KEY_BAND_MEDIUM,
@@ -94,6 +107,9 @@ pub const REQUIRED_KEYS: &[&str] = &[
     KEY_LINK_SHORT_LIST_MAX,
     KEY_TIMELINE_MIN_DATES,
     KEY_ROWS_EXPAND_MAX,
+    KEY_THEME_SCAN_PROMPT_FILE,
+    KEY_PREFILTER_MIN_CHARS,
+    KEY_PREFILTER_STATEMENT_TYPES,
 ];
 
 /// Why the store could not be read or written.
@@ -112,6 +128,26 @@ pub enum SettingsError {
 
     #[error("no parameter named '{key}' can be changed — this build stores no such key")]
     UnknownKey { key: String },
+
+    /// A row that NAMES A FILE was set to one that does not resolve.
+    ///
+    /// ## Why this is refused at the page rather than discovered at the next scan
+    ///
+    /// `theme_scan_prompt_file` decides what the judge is told. A typo passes every
+    /// other check a `text` row has (it is non-blank and carries no placeholders),
+    /// so without this the change would commit, the next scan would fail with a
+    /// missing-path error, and the next RESTART would refuse to boot — hours after
+    /// the edit, on a screen that said "saved". Naming the path here is what lets
+    /// the human fix it in the moment.
+    #[error(
+        "{key} names '{value}', and no such file is deployed at '{path}' — \
+         deploy the file to the template directory first, or correct the name"
+    )]
+    FileNotFound {
+        key: String,
+        value: String,
+        path: String,
+    },
 
     #[error("{key} is already '{value}' — nothing to change")]
     Unchanged { key: String, value: String },
@@ -213,6 +249,16 @@ pub(crate) fn text_of(record: &AppSettingRecord) -> Result<String, SettingError>
     parse_text(&record.key, &record.value)
 }
 
+/// Read one `text` row as a comma-separated list of tokens (task 2.15 Tier 2).
+///
+/// The declared kind is still `text` — the store has no list kind, and inventing
+/// one would be a migration for a single row. What makes the list a list is the
+/// PARSE, which is where every other stored shape is decided too.
+fn token_list_of(record: &AppSettingRecord) -> Result<Vec<String>, SettingError> {
+    expect_kind(record, ValueKind::Text)?;
+    parse_token_list(&record.key, &record.value)
+}
+
 /// Confirm a row's stored kind is the one this build expects to read.
 fn expect_kind(record: &AppSettingRecord, expected: ValueKind) -> Result<(), SettingError> {
     let stored = ValueKind::try_from(record.value_kind.as_str())?;
@@ -274,6 +320,13 @@ pub fn build_settings(rows: &HashMap<String, AppSettingRecord>) -> Result<Settin
         rehearsal_chrome_wording: words.chrome,
         authoring_wording: words.authoring,
         scenario_authoring_wording: words.scenario_authoring,
+        theme_scan_prompt_file: text_of(require(rows, KEY_THEME_SCAN_PROMPT_FILE)?)?,
+        theme_scan_prefilter_min_chars: count_of(require(rows, KEY_PREFILTER_MIN_CHARS)?)?,
+        theme_scan_prefilter_statement_types: token_list_of(require(
+            rows,
+            KEY_PREFILTER_STATEMENT_TYPES,
+        )?)?,
+        scan_wording: words.scan,
         rehearsal_instance_rows_expand_max: count_of(require(rows, KEY_ROWS_EXPAND_MAX)?)?,
     })
 }
@@ -328,6 +381,7 @@ pub async fn set_setting(
     key: &str,
     new_value: &str,
     actor: &str,
+    templates: &TemplateDir,
 ) -> Result<Arc<Settings>, SettingsError> {
     let record = get_setting(pool, key)
         .await
@@ -348,6 +402,7 @@ pub async fn set_setting(
     }
 
     validate_candidate(&record, new_value)?;
+    check_named_file(key, new_value, templates)?;
     trial_snapshot(pool, key, new_value).await?;
 
     let now = Utc::now();

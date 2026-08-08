@@ -238,6 +238,20 @@ export type ScenarioCardsResponse = {
    * presence is the signal; its text is what the human reads.
    */
   no_target_notice?: string;
+  /**
+   * Present ONLY when no scan run has COMPLETED for this scenario (task 2.15,
+   * piece 3). The cards are served in full alongside it.
+   *
+   * ## Why the browser cannot work this out for itself
+   *
+   * The two numbers on screen that look like they answer it do not: the queue's
+   * count comes from the card pool (nothing to do with scans), and the "Never
+   * scanned" facet counts cards with no confidence — which a card only gains when
+   * a scan verdict is MERGED onto it. A scenario scanned three times with nothing
+   * merged reads as never scanned by that test. The run history is the only
+   * truthful source, and it lives in the pipeline database.
+   */
+  never_scanned_notice?: string;
 };
 
 // ─── Client ─────────────────────────────────────────────────────────────────

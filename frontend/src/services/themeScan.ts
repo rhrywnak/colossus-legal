@@ -41,6 +41,15 @@ export type ThemeScanSuggestion = {
   proposed_role: string;
   reason: string;
   confidence: number;
+  /** Every node id this ONE pick speaks for — `graph_node_id` first, then any
+   *  byte-identical twin the scan folded into it (task 2.15 Tier 2).
+   *
+   *  Merging sends this whole list, not the single id: the twins were never
+   *  judged separately (one quote, one call), so one ruling covers the set —
+   *  otherwise the identical sentence returns tomorrow as an unruled candidate. */
+  covers_node_ids: string[];
+  /** How many pool rows this pick settles. `1` normally; `2` for a folded twin. */
+  duplicate_count: number;
   content: BiasInstance;
   /** The candidate's persisted scenario ordinal, rendered `C-{ordinal}` — the SAME
    *  chip the fact wears in Candidate Facts, which is what makes the two listings
@@ -81,6 +90,26 @@ export type ThemeScanSummary = {
   failed: number;
   suggestions: ThemeScanSuggestion[];
   rejected_sample: ThemeScanRejected[];
+  /** Where every gathered row went (task 2.15 item 1c). Frozen into the run when
+   *  it completed, so a run recorded before that task carries none — hence
+   *  optional, and the panel shows no reconciliation for those. */
+  conservation?: ScanConservation;
+  /** The reconciliation sentence, composed BY THE BACKEND at read time from the
+   *  counts above and the stored template. Absent for a run with no counts.
+   *
+   *  The browser renders it and computes nothing: the numbers are the run's, the
+   *  words are the settings store's, and neither is the client's to invent. */
+  conservation_line?: string;
+};
+
+/** pool → excluded → collapsed → judged, as one run measured it. */
+export type ScanConservation = {
+  pool: number;
+  excluded_empty: number;
+  excluded_statement_type: number;
+  excluded_too_short: number;
+  duplicates_collapsed: number;
+  judged: number;
 };
 
 /** The poll response (backend `ScanRunStatusResponse`). While `running`, the
@@ -215,14 +244,35 @@ export async function getScanRun(
 export async function fetchScanRuns(
   slug: string,
   scenarioId: string,
-): Promise<ScanRunHeader[]> {
+): Promise<ScanRunList> {
   const response = await authFetch(`${scenarioBase(slug, scenarioId)}/scan-runs`);
   if (!response.ok) {
     throw new Error(`Failed to load scan history${await readErrorMessage(response)}`);
   }
-  const body = (await response.json()) as { runs?: ScanRunHeader[] };
-  return body.runs ?? [];
+  const body = (await response.json()) as {
+    runs?: ScanRunHeader[];
+    wording?: ScanHistoryWording;
+  };
+  // `wording` is `null` rather than invented when the payload predates it: the
+  // table renders no control it has no words for, which is the absent-not-fake
+  // law — a button labelled with a compiled-in fallback would be a literal on a
+  // surface the configuration law covers.
+  return { runs: body.runs ?? [], wording: body.wording ?? null };
 }
+
+/** The history list and the words its own controls speak. */
+export type ScanRunList = {
+  runs: ScanRunHeader[];
+  wording: ScanHistoryWording | null;
+};
+
+/** The two stored strings a history row renders (backend `ScanHistoryWording`). */
+export type ScanHistoryWording = {
+  view_label: string;
+  /** Carries `{run}` — filled with the row's own when-label, which is formatted
+   *  in the reader's locale and is therefore the one part the server cannot. */
+  delete_confirm_template: string;
+};
 
 /** Result of merging a stored run's relevant picks into the scenario (backend
  *  `ScanRunMergeResponse`). `merged` is how many candidate facts were inserted or

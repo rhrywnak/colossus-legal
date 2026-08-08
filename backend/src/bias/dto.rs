@@ -186,6 +186,21 @@ pub struct BiasInstance {
     /// query and the curation hydrate path; `None` everywhere else.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub question: Option<String>,
+    /// The extractor's classification of this statement — `admission`,
+    /// `partial_admission`, `attorney_argument`, `court_finding`, `referral`, …
+    ///
+    /// Three states, kept apart for the same reason [`Self::question`] keeps
+    /// three: `Some(kind)` is a classified statement, `None` is one this query
+    /// did not ask for (only the scan's gather query projects the column) or a
+    /// node that carries no classification. Never defaulted to a sentinel kind —
+    /// a fabricated "unknown" would be filtered and counted like a real one.
+    ///
+    /// Domain note: the vocabulary is the EXTRACTOR'S, not this build's. Nothing
+    /// here compares it against a literal; the scan's pre-filter reads the types
+    /// it drops from a settings row, so a new document type can add a kind
+    /// without a rebuild (Standing Rule 2).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub statement_type: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub page_number: Option<i64>,
     pub pattern_tags: Vec<String>,

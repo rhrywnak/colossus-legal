@@ -18,8 +18,16 @@ use super::*;
 use crate::domain::wording::tests::seeded_value_in;
 use std::collections::HashMap;
 
-/// The migration that seeds all thirteen rows.
-const SEED_MIGRATION: &str = "pipeline_migrations/20260807155419_scenario_authoring_wording.sql";
+/// The migrations that seed these rows, concatenated before the search.
+///
+/// Two files since task 2.15: the original thirteen, and the never-scanned notice
+/// that arrived with the scan work whose defect it answers. Concatenated rather
+/// than searched one at a time because WHERE a row is seeded is a fact about
+/// migration history — only its VALUE is what this test pins.
+const SEED_MIGRATIONS: &[&str] = &[
+    "pipeline_migrations/20260807155419_scenario_authoring_wording.sql",
+    "pipeline_migrations/20260808084539_theme_scan_tier2_settings_and_scan_wording.sql",
+];
 
 /// The seeded values, for TESTS ONLY — kept beside the test that pins them to
 /// the migration file, so a fixture and its proof cannot drift apart.
@@ -55,6 +63,11 @@ const TEST_SEED: &[(&str, &str)] = &[
         KEY_NO_TARGET_NOTICE,
         "No target defined — this scenario cannot gather evidence. Use Edit \
          identity to name who it is about.",
+    ),
+    (
+        KEY_NEVER_SCANNED_NOTICE,
+        "No scan has run yet. Run a theme scan above, or browse the raw evidence \
+         pool.",
     ),
     (KEY_IDENTITY_TARGET_LABEL, "Who this scenario is about"),
     (
@@ -108,8 +121,14 @@ impl ScenarioAuthoringWording {
 #[test]
 fn every_declared_key_is_seeded_with_the_value_this_build_expects() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let sql = std::fs::read_to_string(root.join(SEED_MIGRATION))
-        .expect("the scenario-authoring wording migration is on disk");
+    let sql: String = SEED_MIGRATIONS
+        .iter()
+        .map(|relative| {
+            std::fs::read_to_string(root.join(relative))
+                .unwrap_or_else(|_| panic!("{relative} is on disk"))
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
 
     let fixture = ScenarioAuthoringWording::for_test_values();
 

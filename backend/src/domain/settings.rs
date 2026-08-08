@@ -29,6 +29,7 @@ use crate::domain::wording_accusation::AccusationWording;
 use crate::domain::wording_authoring::AuthoringWording;
 use crate::domain::wording_rehearsal::RehearsalWording;
 use crate::domain::wording_rehearsal_chrome::RehearsalChromeWording;
+use crate::domain::wording_scan::ScanWording;
 use crate::domain::wording_scenario_authoring::ScenarioAuthoringWording;
 
 /// The parsed parameters, as every consumer sees them.
@@ -116,6 +117,37 @@ pub struct Settings {
     /// belong to the moment a scenario is being defined, which is a different
     /// surface and a different reader from curating one that already exists.
     pub scenario_authoring_wording: ScenarioAuthoringWording,
+    /// Which judging prompt a Theme Scan reads at START (task 2.15 Tier 2, item
+    /// 1d — Roman's amendment of 2026-08-08).
+    ///
+    /// ## Why this stopped being an env var
+    ///
+    /// It was `THEME_SCAN_PROMPT_FILE`, with a compiled-in default. Both are gone.
+    /// An env var is a deploy to change and invisible once set — measured on DEV,
+    /// it was never set at all, so the compiled default silently decided which
+    /// prompt judged every scan. As a row it is visible on the Settings page,
+    /// editable without a rebuild, asserted at boot, and recorded per run in
+    /// `scan_runs.resolved_params`.
+    ///
+    /// A filename only; it resolves against the registry's template directory.
+    pub theme_scan_prompt_file: String,
+    /// Shortest quote (with NO paired question) that still reaches the judge.
+    /// `0` disables the rule.
+    ///
+    /// Domain note: the no-question clause is what makes this safe. A four-word
+    /// answer is decisive when the interrogatory that prompted it is in evidence,
+    /// and the judge is shown both — so only an unanchored fragment is set aside.
+    pub theme_scan_prefilter_min_chars: usize,
+    /// Statement kinds that never reach the judge, lower-cased and de-duplicated
+    /// at parse time. Empty (the stored token `none`) disables the rule.
+    ///
+    /// Domain note: `referral` — "See the responses to the previous
+    /// interrogatories." — is a cross-reference with no assertion in it. The
+    /// vocabulary belongs to the extractor, not to this build, which is why the
+    /// list is a stored row and not a `match` arm (Standing Rule 2).
+    pub theme_scan_prefilter_statement_types: Vec<String>,
+    /// The three strings the scan surface speaks (task 2.15 Tier 2).
+    pub scan_wording: ScanWording,
     /// How many instances a scenario may carry before the rehearsal page's rows
     /// arrive COMPACT rather than expanded (task 2.11 C).
     ///
@@ -163,6 +195,10 @@ impl Settings {
             rehearsal_chrome_wording: RehearsalChromeWording::for_test(),
             authoring_wording: AuthoringWording::for_test(),
             scenario_authoring_wording: ScenarioAuthoringWording::for_test(),
+            theme_scan_prompt_file: "theme_scan_prompt_v3.md".to_string(),
+            theme_scan_prefilter_min_chars: 60,
+            theme_scan_prefilter_statement_types: vec!["referral".to_string()],
+            scan_wording: ScanWording::for_test(),
             rehearsal_instance_rows_expand_max: 3,
         }
     }
@@ -500,6 +536,50 @@ pub fn parse_text(key: &str, value: &str) -> Result<String, SettingError> {
         });
     }
     Ok(text.to_string())
+}
+
+/// The stored token that means "this list is deliberately empty".
+///
+/// A `text` row may not be blank (see [`parse_text`] — a blank label is an
+/// invisible control), so "no statement types are filtered" needs a word. It is
+/// spelled out in the row's own `meaning` on the Settings page, and the resolved
+/// list is logged at every scan start, so a human can always see which of the two
+/// states they are in.
+pub const LIST_NONE_TOKEN: &str = "none";
+
+/// Read a `text` parameter holding a comma-separated LIST of tokens.
+///
+/// Lower-cased and de-duplicated, empty entries dropped, order preserved. The
+/// literal `none` (alone, in any case) yields an empty list.
+///
+/// ## Why this is a parse and not a `split(',')` at the call site
+///
+/// Two call sites splitting the same row would eventually disagree about
+/// whitespace or case — and a mismatch there is silent: the setting simply stops
+/// matching anything, with no error and no log line. Parsing once, here, means
+/// every consumer holds an already-normalised `Vec<String>` and the normalisation
+/// rules are testable on their own.
+///
+/// # Errors
+/// Returns [`SettingError::Blank`] when the value has no non-whitespace
+/// characters — the same rule every text row obeys. Use `none` for an empty list.
+pub fn parse_token_list(key: &str, value: &str) -> Result<Vec<String>, SettingError> {
+    let text = parse_text(key, value)?;
+    if text.eq_ignore_ascii_case(LIST_NONE_TOKEN) {
+        return Ok(Vec::new());
+    }
+
+    let mut tokens: Vec<String> = Vec::new();
+    for raw in text.split(',') {
+        let token = raw.trim().to_lowercase();
+        // A trailing comma or a double comma is a typo, not an instruction to
+        // filter the empty string — which would match every unclassified node.
+        if token.is_empty() || tokens.contains(&token) {
+            continue;
+        }
+        tokens.push(token);
+    }
+    Ok(tokens)
 }
 
 #[cfg(test)]

@@ -4,8 +4,9 @@
 //
 // The thirteen strings the two surfaces that AUTHOR a scenario's definition speak:
 // the create form on the Trial Prep dashboard, and the identity modal on the
-// working page. Plus the one notice a scenario shows when it has no target and
-// therefore gathers nothing.
+// working page. Plus the two notices a scenario shows in place of a candidate
+// queue — when it has no target and gathers nothing, and (task 2.15) when nothing
+// has scanned it yet.
 //
 // ## Why these are rows and not literals in the React components
 //
@@ -61,6 +62,15 @@ pub struct ScenarioAuthoringWording {
     /// target-less scenario silently borrowed the case-default subject's pool
     /// and rendered as a full one.
     pub no_target_notice: String,
+    /// Shown IN PLACE OF the candidate queue on a scenario NOTHING HAS SCANNED
+    /// yet (task 2.15, 2026-08-08). Its sibling above answers "there is nobody to
+    /// gather about"; this one answers "nobody has judged any of this".
+    ///
+    /// Domain note: measured 2026-08-07 — a freshly created scenario led with 148
+    /// raw pool cards labelled "Candidates awaiting ruling — from all scans", on
+    /// a screen that simultaneously reported them as never scanned. The workflow
+    /// is create → scan → rule, and this sentence is the first step said out loud.
+    pub never_scanned_notice: String,
 
     // ── The identity modal (working page) ───────────────────────────────────
     pub identity_target_label: String,
@@ -89,7 +99,7 @@ pub struct ScenarioAuthoringWording {
     pub identity_target_needs_attack_text: String,
 }
 
-// KEYS: the stable identifiers of the thirteen stored strings. Renaming one is a
+// KEYS: the stable identifiers of the fourteen stored strings. Renaming one is a
 // migration, and until it runs the boot loader refuses to start.
 pub(crate) const KEY_CREATE_TARGET_LABEL: &str = "scenario_create_target_label";
 pub(crate) const KEY_CREATE_TARGET_HELPER: &str = "scenario_create_target_helper";
@@ -100,6 +110,7 @@ pub(crate) const KEY_CREATE_TARGET_REQUIRED: &str = "scenario_create_target_requ
 pub(crate) const KEY_CREATE_ACCUSATION_REQUIRED: &str =
     "scenario_create_accusation_required_refusal";
 pub(crate) const KEY_NO_TARGET_NOTICE: &str = "scenario_no_target_notice";
+pub(crate) const KEY_NEVER_SCANNED_NOTICE: &str = "scenario_never_scanned_notice";
 pub(crate) const KEY_IDENTITY_TARGET_LABEL: &str = "scenario_identity_target_label";
 pub(crate) const KEY_IDENTITY_TARGET_HELPER: &str = "scenario_identity_target_helper";
 pub(crate) const KEY_IDENTITY_TARGET_UNSET: &str = "scenario_identity_target_unset_option";
@@ -117,6 +128,7 @@ pub const SCENARIO_AUTHORING_WORDING_KEYS: &[&str] = &[
     KEY_CREATE_TARGET_REQUIRED,
     KEY_CREATE_ACCUSATION_REQUIRED,
     KEY_NO_TARGET_NOTICE,
+    KEY_NEVER_SCANNED_NOTICE,
     KEY_IDENTITY_TARGET_LABEL,
     KEY_IDENTITY_TARGET_HELPER,
     KEY_IDENTITY_TARGET_UNSET,
@@ -152,6 +164,7 @@ pub fn build_scenario_authoring_wording<E>(
         create_target_required_refusal: read(KEY_CREATE_TARGET_REQUIRED)?,
         create_accusation_required_refusal: read(KEY_CREATE_ACCUSATION_REQUIRED)?,
         no_target_notice: read(KEY_NO_TARGET_NOTICE)?,
+        never_scanned_notice: read(KEY_NEVER_SCANNED_NOTICE)?,
         identity_target_label: read(KEY_IDENTITY_TARGET_LABEL)?,
         identity_target_helper: read(KEY_IDENTITY_TARGET_HELPER)?,
         identity_target_unset_option: read(KEY_IDENTITY_TARGET_UNSET)?,

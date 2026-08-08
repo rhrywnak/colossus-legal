@@ -35,6 +35,7 @@ use crate::{
     error::AppError,
     repositories::pipeline_repository::{list_settings, AppSettingRecord},
     services::settings_store::{set_setting, SettingsError},
+    services::settings_template_file::TemplateDir,
     state::AppState,
 };
 
@@ -153,12 +154,17 @@ pub async fn put_setting(
 ) -> Result<Json<SettingChangedDto>, AppError> {
     require_admin(&user)?;
 
+    // The template directory travels with the change so a row that names a FILE
+    // (`theme_scan_prompt_file`) can be refused here, while the human is still
+    // looking at the field — see `settings_template_file` for why the check cannot
+    // wait for boot.
     let settings = set_setting(
         &state.pipeline_pool,
         &state.settings,
         &key,
         &payload.value,
         &user.username,
+        &TemplateDir::new(state.registry.template_dir()),
     )
     .await
     .map_err(settings_error_to_app_error)?;
@@ -189,7 +195,12 @@ pub async fn put_setting(
 /// server faults stay opaque and are logged with their cause.
 fn settings_error_to_app_error(error: SettingsError) -> AppError {
     match error {
-        SettingsError::Invalid { .. } | SettingsError::Unchanged { .. } => AppError::BadRequest {
+        // `FileNotFound` joins the human-caused refusals: the value is the
+        // human's, the remedy is the human's (deploy the file, or fix the name),
+        // and the message already names both the value and the path it looked in.
+        SettingsError::Invalid { .. }
+        | SettingsError::Unchanged { .. }
+        | SettingsError::FileNotFound { .. } => AppError::BadRequest {
             message: error.to_string(),
             details: json!({ "reason": "invalid_setting" }),
         },

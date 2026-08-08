@@ -23,10 +23,12 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::bias::dto::BiasInstance;
+use crate::dto::theme_scan::ScanConservation;
 use crate::dto::{ThemeScanRejected, ThemeScanSuggestion, ThemeScanSummary};
 use crate::repositories::pipeline_repository::{insert_scan_run_verdicts, ScanRunVerdictRecord};
 use crate::services::theme_scan_judge::JudgeOutcome;
 use crate::services::theme_scan_parse::Verdict;
+use crate::services::theme_scan_prefilter::CandidateGroup;
 
 // CONST: honesty-check sample size — a fixed UX constant, not a deployment knob.
 // Bounds how many rejected quotes ride inline in the response for a human
@@ -45,6 +47,10 @@ pub(crate) struct ScanRunMeta {
     pub cost_per_input_token: Option<f64>,
     pub cost_per_output_token: Option<f64>,
     pub duration_ms: i64,
+    /// Where every gathered row went, measured by the pre-filter before judging
+    /// began. Carried through unchanged and frozen into the summary — this run's
+    /// record of its own input (task 2.15 Tier 2, item 1c).
+    pub conservation: ScanConservation,
 }
 
 /// Running tallies + the verdict rows accumulated across one run.
@@ -68,15 +74,15 @@ struct Accumulator {
 pub(crate) async fn persist_and_summarize(
     pool: &PgPool,
     meta: ScanRunMeta,
-    results: Vec<(BiasInstance, JudgeOutcome)>,
+    results: Vec<(CandidateGroup, JudgeOutcome)>,
 ) -> ThemeScanSummary {
     let candidates_read = results.len();
     let mut acc = Accumulator::default();
-    for (candidate, outcome) in results {
+    for (group, outcome) in results {
         // Classification is now pure (no DB round-trip per candidate): with the
         // fact-ref write gone, the only I/O left in this module is the single
         // batched `write_verdicts` below.
-        process_one(&meta, candidate, outcome, &mut acc);
+        process_one(&meta, group, outcome, &mut acc);
     }
 
     let computed_cost = compute_cost(
@@ -96,6 +102,7 @@ pub(crate) async fn persist_and_summarize(
         computed_cost,
         duration_ms: meta.duration_ms,
         candidates_read,
+        conservation: meta.conservation,
         relevant: acc.relevant,
         irrelevant: acc.irrelevant,
         failed: acc.failed,
@@ -104,29 +111,48 @@ pub(crate) async fn persist_and_summarize(
     }
 }
 
-/// Classify one judged candidate: accumulate its tokens, tally it, and record its
-/// `scan_run_verdicts` row.
+/// Classify one judged GROUP: accumulate its tokens, tally it once, and record a
+/// `scan_run_verdicts` row for every node the group speaks for.
+///
+/// ## Why the verdict FANS OUT to the twins (ruling R2, 2026-08-08)
+///
+/// The group cost one LLM call because its quotes are byte-identical, but the
+/// audit trail is keyed on `graph_node_id` — and the scorecard that measures the
+/// scan against Roman's rulings joins his ledger to `scan_run_verdicts` on exactly
+/// that key. A twin with no verdict row would be counted as a statement the scan
+/// LOST, when in truth the scan judged its text and folded the row deliberately.
+/// So each member gets the same verdict, and the run's own tallies count the group
+/// ONCE (a scan that judged 124 quotes did not judge 138).
 fn process_one(
     meta: &ScanRunMeta,
-    candidate: BiasInstance,
+    group: CandidateGroup,
     outcome: JudgeOutcome,
     acc: &mut Accumulator,
 ) {
     add_tokens(&mut acc.input_tokens, outcome.input_tokens);
     add_tokens(&mut acc.output_tokens, outcome.output_tokens);
 
-    let fields = classify(meta, &candidate, &outcome.verdict, acc);
+    let CandidateGroup {
+        representative,
+        members,
+    } = group;
+    let fields = classify(meta, &representative, &members, &outcome.verdict, acc);
 
-    acc.verdicts.push(ScanRunVerdictRecord {
-        run_id: meta.run_id,
-        graph_node_id: candidate.evidence_id,
-        relevant: fields.relevant,
-        proposed_role: fields.proposed_role,
-        confidence: fields.confidence,
-        reason: fields.reason,
-        raw_reply: outcome.raw_reply,
-        error: fields.error,
-    });
+    for graph_node_id in members {
+        acc.verdicts.push(ScanRunVerdictRecord {
+            run_id: meta.run_id,
+            graph_node_id,
+            relevant: fields.relevant,
+            proposed_role: fields.proposed_role.clone(),
+            confidence: fields.confidence,
+            reason: fields.reason.clone(),
+            // The same reply produced every one of these verdicts; storing it on
+            // each row keeps a member's audit record self-contained rather than a
+            // pointer to a sibling that a later delete could remove.
+            raw_reply: outcome.raw_reply.clone(),
+            error: fields.error.clone(),
+        });
+    }
 }
 
 /// The verdict-row fields for one candidate (mirrors `scan_run_verdicts`).
@@ -146,11 +172,12 @@ struct VerdictFields {
 fn classify(
     meta: &ScanRunMeta,
     candidate: &BiasInstance,
+    members: &[String],
     verdict: &Result<Verdict, String>,
     acc: &mut Accumulator,
 ) -> VerdictFields {
     match verdict {
-        Ok(v) if v.relevant => handle_relevant(candidate, v, acc),
+        Ok(v) if v.relevant => handle_relevant(candidate, members, v, acc),
         Ok(v) => handle_irrelevant(candidate, v, acc),
         Err(reason) => handle_failed(meta, candidate, reason, acc),
     }
@@ -167,9 +194,15 @@ fn classify(
 /// scoring, there is no write to fail — every relevant verdict now reaches the
 /// human as a checkable suggestion. `failed` is left to mean what its name says:
 /// the model could not produce a verdict.
-fn handle_relevant(candidate: &BiasInstance, v: &Verdict, acc: &mut Accumulator) -> VerdictFields {
+fn handle_relevant(
+    candidate: &BiasInstance,
+    members: &[String],
+    v: &Verdict,
+    acc: &mut Accumulator,
+) -> VerdictFields {
     acc.relevant += 1;
-    acc.suggestions.push(to_suggestion(candidate.clone(), v));
+    acc.suggestions
+        .push(to_suggestion(candidate.clone(), members, v));
     VerdictFields {
         relevant: Some(true),
         proposed_role: Some(v.proposed_role.code().to_string()),
@@ -240,13 +273,23 @@ async fn write_verdicts(pool: &PgPool, meta: &ScanRunMeta, verdicts: &[ScanRunVe
     }
 }
 
-/// Map a written verdict to its wire suggestion (carries the graph card content).
-fn to_suggestion(candidate: BiasInstance, verdict: &Verdict) -> ThemeScanSuggestion {
+/// Map a judged verdict to its wire suggestion (carries the graph card content).
+///
+/// `covers_node_ids` is the group's whole membership, so a merge of this ONE pick
+/// rules every byte-identical twin with it — the human sees one card, and the
+/// duplicate does not return tomorrow as an unruled candidate.
+fn to_suggestion(
+    candidate: BiasInstance,
+    members: &[String],
+    verdict: &Verdict,
+) -> ThemeScanSuggestion {
     ThemeScanSuggestion {
         graph_node_id: candidate.evidence_id.clone(),
         proposed_role: verdict.proposed_role.code().to_string(),
         reason: verdict.reason.clone(),
         confidence: verdict.confidence,
+        covers_node_ids: members.to_vec(),
+        duplicate_count: members.len(),
         content: candidate,
     }
 }

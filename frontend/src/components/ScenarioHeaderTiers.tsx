@@ -6,7 +6,7 @@
 //
 //   eyebrow   SCENARIO
 //   left      S-2 · name · direction chip · [status segmented control]
-//   right     ✎ Edit · Rehearsal view → · ⋯
+//   right     ✎ Edit · Rehearsal view → · | · Delete
 //
 // ## What changed from 1.7C
 //
@@ -33,7 +33,6 @@
 import React from "react";
 import { Link } from "react-router-dom";
 
-import ScenarioKebab from "./ScenarioKebab";
 import ScenarioStatusControl from "./ScenarioStatusControl";
 import { headerDescriptor } from "./scenarioHeader";
 import { chipStyle, ghostButtonStyle } from "./scenarioSectionStyles";
@@ -94,6 +93,38 @@ const actionsRowStyle: React.CSSProperties = {
   paddingTop: "14px",
 };
 
+/**
+ * The gap between the routine actions and the destructive one.
+ *
+ * Not decoration: it is half of what replaced the kebab. D7's concern was
+ * ADJACENCY, and a visible separator is what keeps Delete from reading as the
+ * next item in a list of harmless controls.
+ */
+const actionSeparatorStyle: React.CSSProperties = {
+  width: "1px",
+  height: "18px",
+  background: "var(--border-default)",
+  margin: "0 4px",
+};
+
+/**
+ * Delete, as a button that says what it does.
+ *
+ * Danger-coloured TEXT on a plain background rather than a filled red button: it
+ * must be findable and unmistakable, not the loudest thing on the page. The
+ * confirm dialog is the commitment step; this is the request.
+ */
+const deleteButtonStyle: React.CSSProperties = {
+  border: "none",
+  background: "none",
+  padding: "6px 8px",
+  borderRadius: "8px",
+  cursor: "pointer",
+  color: "var(--state-danger-strong)",
+  fontFamily: "inherit",
+  fontSize: "13.5px",
+};
+
 /** Mockup `.link`: accent, 13.5px, no underline. */
 const linkStyle: React.CSSProperties = {
   color: "var(--accent-primary)",
@@ -111,7 +142,9 @@ interface Props {
   status: ScenarioStatus;
   /** Opens the ONE identity modal (§2.1's one-modal law). */
   onEdit: () => void;
-  /** Opens the delete confirmation, from inside the kebab and nowhere else. */
+  /** Opens the delete confirmation. The header never deletes anything itself —
+   *  the page owns the dialog, which names the scenario and stays open on
+   *  failure (the mis-click guard, since Roman overruled D7 for Delete). */
   onDelete: () => void;
   /** The status control saved; the page re-fetches. */
   onReadyChanged: () => void;
@@ -198,8 +231,26 @@ const ScenarioHeaderTiers: React.FC<Props> = ({
           Rehearsal view →
         </Link>
 
-        {/* Destructive actions live ONLY here (D7). */}
-        <ScenarioKebab onDelete={onDelete} />
+        {/* DELETE, VISIBLE (Roman overruled D7 for Delete on 2026-08-07).
+
+            D7 put Delete behind a ⋯ kebab because a bare Delete had sat one
+            mis-click from the ready-to-rehearse control. Roman asked twice for a
+            button and got a menu twice; his ruling is that the confirm dialog —
+            which names the scenario and stays open on failure — is the guard, and
+            distance does the rest.
+
+            DISTANCE, concretely: the readiness control lives in the IDENTITY row
+            above, not here, and this button sits last in the actions row behind a
+            separator. Nothing destructive is adjacent to anything routine. */}
+        <span style={actionSeparatorStyle} aria-hidden="true" />
+        <button
+          type="button"
+          style={deleteButtonStyle}
+          title="Delete this scenario — asks for confirmation first"
+          onClick={onDelete}
+        >
+          Delete
+        </button>
       </div>
     </div>
   );

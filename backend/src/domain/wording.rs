@@ -162,6 +162,18 @@ pub struct Wording {
     pub fact_footer_template: String,
     /// The control that forgets where a human dragged one fact.
     pub fact_unplace_label: String,
+
+    // ── Task 2.15 Tier 2 (2026-08-08) ────────────────────────────────────────
+    /// The opt-in that opens the raw evidence pool on a scenario nothing has
+    /// scanned yet. Carries `{count}`.
+    ///
+    /// Domain note: on a never-scanned scenario the pool is not a queue of
+    /// candidates — it is every statement about the subject, which no judgment has
+    /// touched. Leading the page with it (measured 2026-08-07: 148 cards under
+    /// "Candidates awaiting ruling — from all scans") claims a parentage the rows
+    /// do not have. Behind this control they are still one click away, and
+    /// honestly named.
+    pub queue_raw_pool_toggle_template: String,
 }
 
 /// Whether the background pile starts folded away.
@@ -250,6 +262,7 @@ pub(crate) const KEY_FACT_BG_MOVE_NOTICE: &str = "fact_background_move_notice";
 pub(crate) const KEY_FACT_WEIGHTS_HINT: &str = "fact_weights_hint";
 pub(crate) const KEY_FACT_FOOTER: &str = "fact_footer_template";
 pub(crate) const KEY_FACT_UNPLACE_LABEL: &str = "fact_unplace_label";
+pub(crate) const KEY_QUEUE_RAW_POOL_TOGGLE: &str = "queue_raw_pool_toggle_template";
 
 /// Every wording key this build reads, so a missing one is caught at boot by name.
 ///
@@ -306,6 +319,7 @@ pub const WORDING_KEYS: &[&str] = &[
     KEY_FACT_WEIGHTS_HINT,
     KEY_FACT_FOOTER,
     KEY_FACT_UNPLACE_LABEL,
+    KEY_QUEUE_RAW_POOL_TOGGLE,
 ];
 
 /// Build a [`Wording`] from the stored rows, or say precisely which key is wrong.
@@ -375,6 +389,7 @@ pub fn build_wording<E>(read: impl Fn(&str) -> Result<String, E>) -> Result<Word
         fact_weights_hint: read(KEY_FACT_WEIGHTS_HINT)?,
         fact_footer_template: read(KEY_FACT_FOOTER)?,
         fact_unplace_label: read(KEY_FACT_UNPLACE_LABEL)?,
+        queue_raw_pool_toggle_template: read(KEY_QUEUE_RAW_POOL_TOGGLE)?,
     })
 }
 

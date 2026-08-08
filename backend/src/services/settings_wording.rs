@@ -6,7 +6,7 @@
 //! system judges by, and this decides the WORDS it speaks.
 //!
 //! Nothing here does I/O. It takes the rows the store has already read and turns
-//! them into six typed blocks, or names the first key that is wrong.
+//! them into seven typed blocks, or names the first key that is wrong.
 
 use std::collections::HashMap;
 
@@ -18,6 +18,7 @@ use crate::domain::wording_rehearsal::{build_rehearsal_wording, RehearsalWording
 use crate::domain::wording_rehearsal_chrome::{
     build_rehearsal_chrome_wording, RehearsalChromeWording,
 };
+use crate::domain::wording_scan::{build_scan_wording, ScanWording};
 use crate::domain::wording_scenario_authoring::{
     build_scenario_authoring_wording, ScenarioAuthoringWording,
 };
@@ -41,12 +42,14 @@ pub(crate) struct AllWording {
     pub(crate) chrome: RehearsalChromeWording,
     pub(crate) authoring: AuthoringWording,
     pub(crate) scenario_authoring: ScenarioAuthoringWording,
+    /// The scan surface's three strings (task 2.15 Tier 2).
+    pub(crate) scan: ScanWording,
 }
 
-/// The six stored-string blocks, read by one rule.
+/// The seven stored-string blocks, read by one rule.
 ///
 /// Each block lives in its own `domain` module (Rule 17 — none of them fits in
-/// one), and all six are read by the same closure, so a row must exist, declare
+/// one), and all seven are read by the same closure, so a row must exist, declare
 /// `text`, and carry something non-blank whichever surface it belongs to.
 ///
 /// ## Why the rehearsal block's derived shapes are parsed HERE
@@ -69,6 +72,7 @@ pub(crate) fn build_all_wording(
     let chrome = build_rehearsal_chrome_wording(|key| text_of(require(rows, key)?))?;
     let authoring = build_authoring_wording(|key| text_of(require(rows, key)?))?;
     let scenario_authoring = build_scenario_authoring_wording(|key| text_of(require(rows, key)?))?;
+    let scan = build_scan_wording(|key| text_of(require(rows, key)?))?;
 
     rehearsal.always_lines()?;
     rehearsal.section_states()?;
@@ -80,5 +84,6 @@ pub(crate) fn build_all_wording(
         chrome,
         authoring,
         scenario_authoring,
+        scan,
     })
 }

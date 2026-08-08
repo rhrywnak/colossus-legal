@@ -50,7 +50,8 @@ use crate::repositories::pipeline_repository::{
     ScanRunFinal, ScanRunStart, ScanRunStub,
 };
 use crate::services::theme_scan::{
-    load_scenario_fenced, prepare_scan, PreparedScan, ScanPrompt, ThemeScanError, ValidatedScan,
+    load_scenario_fenced, prepare_scan, PrefilterSnapshot, PreparedScan, ScanPrompt,
+    ThemeScanError, ValidatedScan,
 };
 use crate::services::theme_scan_judge::judge_all;
 use crate::services::theme_scan_persist::{count_to_i32, persist_and_summarize, ScanRunMeta};
@@ -94,11 +95,18 @@ pub async fn start_theme_scan(
     .map_err(|source| ThemeScanError::ScanRunWriteFailed { run_id, source })?;
 
     // 5: prepare, recording any failure onto the stub before it propagates.
-    let prepared = prepare_or_record(state, run_id, validated, prompt).await?;
-    let candidates_total = count_to_i32(prepared.candidates.len(), "candidates_total");
+    let prepared = prepare_or_record(state, run_id, scenario_id, validated, prompt).await?;
+    // TWO numbers since task 2.15 Tier 2, and they are no longer the same one.
+    // `candidates_total` is the progress DENOMINATOR — what the judge will be
+    // asked, after de-duplication and the pre-filter — so "43 of 124" counts the
+    // work that is actually happening. `candidates_read` stays the POOL, because
+    // the history's Candidates column and its +Δ delta measure how much evidence
+    // exists about the subject, which pre-filtering does not change.
+    let candidates_total = count_to_i32(prepared.groups.len(), "candidates_total");
+    let candidates_read = count_to_i32(prepared.conservation.pool, "candidates_read");
 
     // 6: promote and spawn.
-    promote_run(state, run_id, &prepared, candidates_total).await?;
+    promote_run(state, run_id, &prepared, candidates_total, candidates_read).await?;
     spawn_scan_job(state, prepared, run_id, scenario_id, candidates_total);
 
     Ok(ScanStarted {
@@ -123,10 +131,11 @@ pub async fn start_theme_scan(
 async fn prepare_or_record(
     state: &AppState,
     run_id: Uuid,
+    scenario_id: Uuid,
     validated: ValidatedScan,
     prompt: ScanPrompt,
 ) -> Result<PreparedScan, ThemeScanError> {
-    match prepare_scan(state, validated, prompt).await {
+    match prepare_scan(state, scenario_id, validated, prompt).await {
         Ok(prepared) => Ok(prepared),
         Err(e) => {
             tracing::error!(%run_id, error = %e, "theme scan: preparation failed; run recorded as failed");
@@ -160,14 +169,20 @@ async fn promote_run(
     run_id: Uuid,
     prepared: &PreparedScan,
     candidates_total: i32,
+    candidates_read: i32,
 ) -> Result<(), ThemeScanError> {
     let rows = promote_scan_run_running(
         &state.pipeline_pool,
         &ScanRunStart {
             run_id,
             model_id: prepared.model_id.clone(),
-            resolved_params: params_snapshot(&prepared.params, &prepared.prompt_file),
+            resolved_params: params_snapshot(
+                &prepared.params,
+                &prepared.prompt_file,
+                &prepared.prefilter,
+            ),
             candidates_total,
+            candidates_read,
         },
     )
     .await
@@ -242,7 +257,7 @@ async fn run_scan_job(
         Arc::clone(&prepared.scan_prompt),
         Arc::clone(&prepared.attack_meaning),
         prepared.params,
-        prepared.candidates,
+        prepared.groups,
         state.pipeline_pool.clone(),
         run_id,
     )
@@ -259,6 +274,7 @@ async fn run_scan_job(
             cost_per_input_token: prepared.cost_per_input_token,
             cost_per_output_token: prepared.cost_per_output_token,
             duration_ms,
+            conservation: prepared.conservation,
         },
         results,
     )
@@ -301,19 +317,39 @@ fn build_run_final(
     }
 }
 
-/// Serialize the resolved params to the `scan_runs.resolved_params` JSONB shape.
+/// Serialize everything that DECIDED this run into the `scan_runs.resolved_params`
+/// JSONB snapshot.
 ///
-/// `prompt_file` is the resolved judging-prompt filename (from
-/// `THEME_SCAN_PROMPT_FILE`). Recording it here is what makes each run's
-/// provenance answerable from data — "which prompt judged this run" — now that
-/// the filename is deployment config rather than a compiled-in const. The column
-/// is JSONB (caller-owns-serialization), so this addition needs no migration.
-fn params_snapshot(p: &ResolvedLlmParams, prompt_file: &str) -> serde_json::Value {
+/// Three groups, and all three are settings a human can change between two runs:
+///
+/// * the LLM parameters — HOW each candidate was judged;
+/// * `prompt_file` — WHAT the judge was told; the `theme_scan_prompt_file`
+///   settings row as it stood when this run started (task 2.15 — it was an env
+///   var with a compiled default before, and could not change between two runs);
+/// * the pre-filter dials — WHICH candidates were put in front of it at all.
+///
+/// The last group is the 2.15 addition, and it closes a real gap: the conservation
+/// block records that fifteen quotes were set aside for length, but not the
+/// threshold that set them aside. Without both, an operator comparing two runs a
+/// week apart cannot tell a prompt change from a settings change — the numbers
+/// moved and nothing says which dial turned.
+///
+/// A SNAPSHOT, never a pointer at the mutable rows (design 5.9): an operator
+/// editing a parameter between two benchmark runs would otherwise make them
+/// incomparable. The column is JSONB (caller-owns-serialization), so growing this
+/// shape needs no migration.
+fn params_snapshot(
+    p: &ResolvedLlmParams,
+    prompt_file: &str,
+    prefilter: &PrefilterSnapshot,
+) -> serde_json::Value {
     serde_json::json!({
         "temperature": p.temperature,
         "timeout_secs": p.timeout_secs,
         "max_tokens": p.max_tokens,
         "prompt_file": prompt_file,
+        "prefilter_min_chars": prefilter.min_chars,
+        "prefilter_statement_types": prefilter.statement_types,
     })
 }
 

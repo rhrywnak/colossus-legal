@@ -11,7 +11,13 @@ const WORDS = {
   counting: "Counting candidates…",
 };
 
-import { keyboardShouldRule, nextUpHint, queueRegion, progressFromCards } from "../queueRegion";
+import {
+  anyScanScored,
+  keyboardShouldRule,
+  nextUpHint,
+  queueRegion,
+  progressFromCards,
+} from "../queueRegion";
 import { candidateCounts } from "../candidateFilters";
 import type { ScenarioCard } from "../../services/scenarioCards";
 
@@ -48,7 +54,36 @@ describe("the summary line", () => {
     // sentence. The head line keeps the load-bearing half — that the count spans
     // every scan — and the structural test below pins the other half's new home so
     // the law cannot go missing between the two.
-    expect(queueRegion({ ruled: 3, total: 148 }).scope).toContain("all scans");
+    // Task 2.15 (piece 3b) added the condition: the clause is only true when a
+    // scan has actually scored something in this pool, so it is now EARNED rather
+    // than always printed. The third argument is that fact.
+    expect(queueRegion({ ruled: 3, total: 148 }, null, true).scope).toContain("all scans");
+  });
+
+  it("reads scan parentage off the CARDS, and says no before the pool is read", () => {
+    // What feeds the clause. A card is scan-scored once it carries a confidence
+    // band that is not `unscored`; before the page's own read lands there is
+    // nothing measured at all, and an unread pool must not claim a scan touched
+    // it (the same third-state rule `QueueProgress | null` exists for).
+    const unscored = { confidence: { band: "unscored" } } as unknown as ScenarioCard;
+    const scored = { confidence: { band: "high" } } as unknown as ScenarioCard;
+
+    expect(anyScanScored(null)).toBe(false);
+    expect(anyScanScored([])).toBe(false);
+    expect(anyScanScored([unscored, unscored])).toBe(false);
+    expect(anyScanScored([unscored, scored])).toBe(true);
+  });
+
+  it("never claims a scan parentage the pool does not have (task 2.15)", () => {
+    // THE measured defect of 2026-08-07: a freshly created scenario led with
+    // "Candidates awaiting ruling — 148 · from all scans" while the same screen
+    // reported all 148 never scanned. The count was right; the clause was a claim
+    // about where the rows came from, and no scan had ever looked at them.
+    const unscanned = queueRegion({ ruled: 0, total: 148 }, null, false);
+    expect(unscanned.scope).toBeNull();
+    // The COUNT is untouched — the rows are real and still queued. Only the
+    // provenance claim is withdrawn.
+    expect(unscanned.summary).toContain("148");
   });
 
   it("tells an empty pool apart from a finished one (task 2.13)", () => {

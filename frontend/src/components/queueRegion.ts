@@ -22,7 +22,7 @@
 // the right reason — a queue that remembers "collapsed" over 145 unruled
 // candidates is a silent failure wearing a preference's clothes.
 
-import { candidateState } from "./candidateFilters";
+import { candidateState, isScanScored } from "./candidateFilters";
 import type { ScenarioCard } from "../services/scenarioCards";
 
 /** What the collapsible region shows, as data. */
@@ -71,6 +71,18 @@ export type QueueSummaryWording = {
 export type QueueProgress = { ruled: number; total: number };
 
 /**
+ * Whether ANY card in the pool carries a scan's score.
+ *
+ * The test behind the labelling clause (piece 3b). `null` in, `false` out: an
+ * unread pool has nothing scored in it, and a clause claiming otherwise before
+ * the read lands is the same false-before-measured defect `QueueProgress | null`
+ * exists to prevent.
+ */
+export function anyScanScored(cards: ScenarioCard[] | null): boolean {
+  return cards !== null && cards.some(isScanScored);
+}
+
+/**
  * ## Why this takes `QueueProgress | null` and not two numbers
  *
  * It used to take `(ruled, total)`, and every caller passed
@@ -89,6 +101,7 @@ export type QueueProgress = { ruled: number; total: number };
 export function queueRegion(
   progress: QueueProgress | null,
   wording: QueueSummaryWording | null = null,
+  scanScored = false,
 ): QueueRegionDescriptor {
   // Counts unknown: say so and nothing else. No progress figure, no remaining
   // count, no scope clause — every one of those would be a claim about a pool
@@ -140,7 +153,15 @@ export function queueRegion(
     // carries is unchanged — the queue is EVERY unruled candidate across every
     // scan — and the section subtitle above still spells out that scans only add
     // and rulings only drain.
-    scope: unruled > 0 ? "from all scans" : null,
+    //
+    // ## The clause is EARNED, not decorative (task 2.15, piece 3b)
+    //
+    // Measured 2026-08-07: a scenario nothing had ever scanned led with "148 ·
+    // from all scans" — a claim of scan parentage over a pool no scan had touched.
+    // The clause now appears only when something in the pool actually carries a
+    // scan's score, so it describes the rows it sits above rather than the label
+    // somebody expected them to have.
+    scope: unruled > 0 && scanScored ? "from all scans" : null,
     chevronLabel:
       unruled > 0
         ? "Collapse the queue — only this arrow collapses it; keys pause while collapsed"

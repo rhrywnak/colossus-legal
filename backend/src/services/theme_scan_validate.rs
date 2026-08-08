@@ -16,6 +16,7 @@
 use crate::dto::scenario_crud::ScenarioDefinition;
 use crate::repositories::pipeline_repository::ScenarioRecord;
 use crate::services::scenario_subject::{resolve_scenario_subject, SubjectResolveError};
+use crate::services::settings_template_file::TemplateDir;
 use crate::services::theme_scan::{ScanPrompt, ThemeScanError, ValidatedScan};
 use crate::services::theme_scan_provider::resolve_scan_provider;
 use crate::state::AppState;
@@ -24,9 +25,21 @@ use uuid::Uuid;
 /// Read the configured judging prompt — the TEMPLATE PRESENCE CHECK that runs
 /// before a scan records anything at all.
 ///
-/// The prompt filename is deployment config (env `THEME_SCAN_PROMPT_FILE`,
-/// resolved+defaulted in `config.rs`), not a compiled-in const; `template_path`
-/// resolves it against the registry's env-driven template dir.
+/// The prompt filename is a SETTINGS ROW (`theme_scan_prompt_file`, task 2.15
+/// Tier 2 — Roman's amendment of 2026-08-08), read from the live snapshot here at
+/// scan start; `template_path` resolves it against the registry's env-driven
+/// template dir. It was an env var with a compiled-in default until this task, and
+/// the change is what makes "which prompt judges my scans" both visible and
+/// editable without a deploy.
+///
+/// ## Why the row is read HERE and not cached anywhere
+///
+/// The settings write path swaps the whole snapshot before its response returns
+/// (the freshness law), so a prompt changed on the Settings page is in force for
+/// the NEXT scan with no restart. Reading it at the top of the start sequence is
+/// what makes that true — and it is also why the boot assertion in `main.rs` is
+/// not the last word: the row can change after boot, so the read still has to
+/// fail loudly on its own.
 ///
 /// ## Why this is the FIRST thing a scan start does
 ///
@@ -37,8 +50,27 @@ use uuid::Uuid;
 /// is recorded for a scan that could never have run. The read IS the check: an
 /// exists()-then-read would race, and would still have to handle the read error.
 pub(crate) fn load_scan_prompt(state: &AppState) -> Result<ScanPrompt, ThemeScanError> {
-    let file = state.config.theme_scan_prompt_file.clone();
-    let path = state.registry.template_path(&file);
+    read_scan_prompt(
+        state.settings.current().theme_scan_prompt_file.clone(),
+        &TemplateDir::new(state.registry.template_dir()),
+    )
+}
+
+/// The read itself, with the two inputs handed in.
+///
+/// Split from [`load_scan_prompt`] so the one behaviour that matters — **the scan
+/// reads the file the settings row names** — is testable without an `AppState`.
+/// A function taking `&AppState` needs a database, a graph and a registry before
+/// it can be called at all; this one needs a string and a directory, so a test can
+/// put two prompts on disk, name each in turn, and prove the scan follows the row.
+///
+/// # Errors
+/// Returns [`ThemeScanError::PromptFileMissing`] naming the full path it tried.
+pub(crate) fn read_scan_prompt(
+    file: String,
+    templates: &TemplateDir,
+) -> Result<ScanPrompt, ThemeScanError> {
+    let path = templates.path_of(&file).display().to_string();
     let text = std::fs::read_to_string(&path)
         .map_err(|source| ThemeScanError::PromptFileMissing { path, source })?;
     Ok(ScanPrompt { file, text })
@@ -148,4 +180,81 @@ fn resolve_subject(
     })?;
     tracing::debug!(%scenario_id, subject_id = %subject_id, "theme scan: subject resolved");
     Ok(subject_id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::path::PathBuf;
+
+    /// A scratch template directory holding two prompt versions.
+    struct Prompts(PathBuf);
+
+    impl Prompts {
+        fn new(name: &str) -> Self {
+            let path = std::env::temp_dir().join(format!("colossus-scan-prompt-{name}"));
+            let _ = fs::remove_dir_all(&path); // best-effort: a leftover run
+            fs::create_dir_all(&path).expect("scratch dir is creatable");
+            fs::write(path.join("theme_scan_prompt_v2.md"), "JUDGE, v2 rules")
+                .expect("v2 is writable");
+            fs::write(path.join("theme_scan_prompt_v3.md"), "JUDGE, v3 rules")
+                .expect("v3 is writable");
+            Prompts(path)
+        }
+
+        fn dir(&self) -> TemplateDir {
+            TemplateDir::new(self.0.to_string_lossy().to_string())
+        }
+    }
+
+    impl Drop for Prompts {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0); // best-effort: test cleanup
+        }
+    }
+
+    /// Changing the settings row changes which prompt the NEXT scan judges with.
+    ///
+    /// This is the whole of item 1d as a behaviour: before this task the filename
+    /// was a compiled-in default behind an env var nobody had set, so the only way
+    /// to change it was a rebuild. The two reads below are the same code path a
+    /// scan takes at start; only the stored value differs.
+    #[test]
+    fn the_scan_reads_the_prompt_file_the_settings_row_names() {
+        let prompts = Prompts::new("switch");
+
+        let v3 = read_scan_prompt("theme_scan_prompt_v3.md".to_string(), &prompts.dir())
+            .expect("v3 is deployed");
+        assert_eq!(v3.text, "JUDGE, v3 rules");
+        assert_eq!(
+            v3.file, "theme_scan_prompt_v3.md",
+            "the filename rides along as the run's prompt provenance"
+        );
+
+        // The row is edited on the Settings page; the next scan reads the other
+        // file, with no restart and no rebuild.
+        let v2 = read_scan_prompt("theme_scan_prompt_v2.md".to_string(), &prompts.dir())
+            .expect("v2 is deployed");
+        assert_eq!(v2.text, "JUDGE, v2 rules");
+    }
+
+    /// A named prompt that is not deployed refuses BY PATH, before any spend.
+    #[test]
+    fn a_missing_prompt_names_the_path_it_looked_for() {
+        let prompts = Prompts::new("missing");
+
+        let error = read_scan_prompt("theme_scan_prompt_v9.md".to_string(), &prompts.dir())
+            .expect_err("v9 was never deployed");
+
+        let message = error.to_string();
+        assert!(
+            message.contains("theme_scan_prompt_v9.md"),
+            "the refusal must name the file: {message}"
+        );
+        assert!(
+            message.contains(&prompts.0.to_string_lossy().to_string()),
+            "and the directory it looked in: {message}"
+        );
+    }
 }

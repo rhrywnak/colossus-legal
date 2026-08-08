@@ -52,7 +52,11 @@ use uuid::Uuid;
 use crate::bias::dto::BiasInstance;
 use crate::bias::repository::{BiasRepository, BiasRepositoryError};
 use crate::domain::llm_params::{LlmConfigError, ResolvedLlmParams};
+use crate::dto::theme_scan::ScanConservation;
 use crate::repositories::pipeline_repository::{get_scenario, PipelineRepoError, ScenarioRecord};
+use crate::services::theme_scan_prefilter::{
+    log_prefilter, prepare_pool, CandidateGroup, PrefilterConfig,
+};
 use crate::services::theme_scan_provider::ResolvedScanProvider;
 use crate::services::vllm_model_gate::{assert_vllm_model_loaded, VllmGateError};
 use crate::state::AppState;
@@ -67,18 +71,24 @@ use crate::state::AppState;
 // source of truth (Chunk B).
 pub const THEME_SCAN_MAX_TOKENS: u32 = 512;
 
-// Why no `const THEME_SCAN_PROMPT` here anymore: the prompt FILENAME (its
-// version) was a compiled-in const, so bumping the prompt version meant a
-// rebuild+deploy — a Standing-Rule-2 violation (config that varies across
-// deployments must be editable via env/YAML + restart). It now comes from
-// `AppConfig::theme_scan_prompt_file` (env `THEME_SCAN_PROMPT_FILE`, default
-// `theme_scan_prompt_v2.md`), resolved in `config.rs`. The resolved filename is
-// carried on `PreparedScan.prompt_file` and recorded per-run into
-// `scan_runs.resolved_params` — which is what actually satisfies the
+// Why no `const THEME_SCAN_PROMPT` here anymore, in two moves.
+//
+// It began as a compiled-in const, so bumping the prompt version meant a
+// rebuild+deploy — a Standing-Rule-2 violation. It then became the env var
+// `THEME_SCAN_PROMPT_FILE` with a compiled default, which fixed the rebuild and
+// left the value invisible: measured on DEV, the var was never set, so a constant
+// nobody could see still decided which prompt judged every scan.
+//
+// Since task 2.15 it is the `theme_scan_prompt_file` SETTINGS ROW — visible on the
+// Settings page, editable with no restart, asserted at boot, and refused at write
+// time if it names a file that is not deployed. There is no env var and no
+// compiled default left to fall back to.
+//
+// The resolved filename is carried on `PreparedScan.prompt_file` and recorded
+// per-run into `scan_runs.resolved_params`, which is what actually satisfies the
 // "which prompt judged this run" provenance concern the const only pretended to.
-// The directory the filename resolves against was already env-driven via the
-// registry's `template_path` (unchanged read path). The read itself now lives in
-// [`load_scan_prompt`], called at the very start of a scan — see its doc.
+// The directory it resolves against is still the registry's env-driven template
+// dir. The read lives in `load_scan_prompt`, called at the very start of a scan.
 
 /// Top-level, scan-aborting failures.
 ///
@@ -200,12 +210,23 @@ pub enum ThemeScanError {
     },
 
     /// The configured prompt file is missing/unreadable. Fail-loud, naming the
-    /// path (mirrors the extraction template load). Now that the filename is
-    /// `THEME_SCAN_PROMPT_FILE` config, the realistic trigger is a misconfigured
-    /// env var or an un-deployed asset — so the message names the recovery action.
+    /// path (mirrors the extraction template load).
+    ///
+    /// Since task 2.15 the filename is the `theme_scan_prompt_file` SETTINGS ROW,
+    /// and both realistic triggers point at the same two fixes: the row names a
+    /// file nobody deployed, or the file was removed after the row was set. The
+    /// message names both — and deliberately no longer names the retired
+    /// `THEME_SCAN_PROMPT_FILE` env var, which would send an operator hunting for
+    /// something this build does not read.
+    ///
+    /// Reaching this at all means the two guards were passed: the write path
+    /// refuses a filename that does not resolve, and boot refuses to start when
+    /// the stored one has stopped resolving. So the realistic path here is a file
+    /// that vanished while the service was running.
     #[error(
         "Theme Scan prompt file not readable at '{path}': {source} \
-         — deploy the file to the registry's template dir or correct THEME_SCAN_PROMPT_FILE"
+         — deploy the file to the template directory, or correct the \
+         theme_scan_prompt_file row on the Settings page"
     )]
     PromptFileMissing {
         path: String,
@@ -365,16 +386,44 @@ pub(crate) struct PreparedScan {
     pub(crate) params: ResolvedLlmParams,
     /// The resolved model id (after request/`THEME_SCAN_MODEL`/chat-default).
     pub(crate) model_id: String,
-    /// The resolved prompt filename this run judged with (from
-    /// `THEME_SCAN_PROMPT_FILE`, default `theme_scan_prompt_v2.md`). Carried so
-    /// it can be recorded into `scan_runs.resolved_params` — the run→prompt
-    /// provenance that was previously only implied by the compiled-in const.
+    /// The prompt filename this run judged with, resolved from the
+    /// `theme_scan_prompt_file` settings row at scan start. Carried so it can be
+    /// recorded into `scan_runs.resolved_params` — the run→prompt provenance that
+    /// was previously only implied by a compiled-in const, and that matters more
+    /// now that the value can change between two runs without a deploy.
     pub(crate) prompt_file: String,
     /// Per-run fan-out cap (A5: model `max_concurrency`, else env default).
     pub(crate) concurrency: usize,
     pub(crate) cost_per_input_token: Option<f64>,
     pub(crate) cost_per_output_token: Option<f64>,
-    pub(crate) candidates: Vec<BiasInstance>,
+    /// What the judge will see: one group per LLM call, byte-identical twins
+    /// already folded together (task 2.15 Tier 2). A group of one is the ordinary
+    /// case and is not special-cased anywhere downstream.
+    pub(crate) groups: Vec<CandidateGroup>,
+    /// The pre-filter settings THIS run was started with, frozen into
+    /// `scan_runs.resolved_params` beside the LLM parameters.
+    ///
+    /// ## Why the settings and not just their effect
+    ///
+    /// The conservation block records what the pre-filter DID (15 quotes set aside
+    /// for length); this records the threshold that produced it. Without it, an
+    /// operator comparing two runs a week apart cannot tell a prompt change from a
+    /// settings change — the numbers moved and nothing says which dial turned.
+    /// Same argument as `prompt_file`, and the same reason `resolved_params` is a
+    /// snapshot rather than a pointer at the mutable row (design 5.9).
+    pub(crate) prefilter: PrefilterSnapshot,
+    /// pool → excluded → collapsed → judged, frozen into the run's summary.
+    pub(crate) conservation: ScanConservation,
+}
+
+/// The pre-filter parameters one run used, as recorded in its snapshot.
+///
+/// Owned `String`s rather than borrows: this outlives the settings snapshot it was
+/// read from (the run record must stay readable after the row is edited), which is
+/// exactly the difference between a snapshot and a reference.
+pub(crate) struct PrefilterSnapshot {
+    pub(crate) min_chars: usize,
+    pub(crate) statement_types: Vec<String>,
 }
 
 /// The judging prompt, read from disk before a scan is allowed to start.
@@ -382,6 +431,8 @@ pub(crate) struct PreparedScan {
 /// Carries the FILENAME alongside the text because the filename is the run's
 /// prompt provenance (recorded into `scan_runs.resolved_params`), and the text is
 /// what the judge actually sends.
+// Debug so a test can `expect_err` on the read (which formats the Ok side).
+#[derive(Debug)]
 pub(crate) struct ScanPrompt {
     pub(crate) file: String,
     pub(crate) text: String,
@@ -410,6 +461,7 @@ pub(crate) struct ValidatedScan {
 /// `theme_scan_start::start_theme_scan` for the full order and why it matters.
 pub(crate) async fn prepare_scan(
     state: &AppState,
+    scenario_id: Uuid,
     validated: ValidatedScan,
     prompt: ScanPrompt,
 ) -> Result<PreparedScan, ThemeScanError> {
@@ -430,6 +482,19 @@ pub(crate) async fn prepare_scan(
 
     let candidates = read_candidates(state, &subject_id).await?;
 
+    // Tier 2: de-duplicate and pre-filter BEFORE any call is dispatched. Nothing
+    // is discarded — see `theme_scan_prefilter` for the conservation identity that
+    // every count below has to satisfy.
+    let settings = state.settings.current();
+    let prepared = prepare_pool(
+        candidates,
+        PrefilterConfig {
+            min_chars: settings.theme_scan_prefilter_min_chars,
+            dropped_statement_types: &settings.theme_scan_prefilter_statement_types,
+        },
+    );
+    log_prefilter(scenario_id, &prepared);
+
     Ok(PreparedScan {
         attack_meaning: Arc::from(attack_meaning),
         scan_prompt: Arc::from(prompt.text),
@@ -440,7 +505,12 @@ pub(crate) async fn prepare_scan(
         concurrency: resolved.concurrency,
         cost_per_input_token: resolved.cost_per_input_token,
         cost_per_output_token: resolved.cost_per_output_token,
-        candidates,
+        groups: prepared.groups,
+        prefilter: PrefilterSnapshot {
+            min_chars: settings.theme_scan_prefilter_min_chars,
+            statement_types: settings.theme_scan_prefilter_statement_types.clone(),
+        },
+        conservation: prepared.conservation,
     })
 }
 

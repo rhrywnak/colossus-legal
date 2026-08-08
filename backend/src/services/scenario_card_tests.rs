@@ -28,6 +28,7 @@ fn full_instance() -> BiasInstance {
         title: "Interrogatory answer 14".to_string(),
         verbatim_quote: Some("I do not recall that meeting.".to_string()),
         question: Some("Did you attend the meeting on March 3, 2019?".to_string()),
+        statement_type: None,
         page_number: Some(14),
         pattern_tags: Vec::new(),
         stated_by: Some(ActorOption {

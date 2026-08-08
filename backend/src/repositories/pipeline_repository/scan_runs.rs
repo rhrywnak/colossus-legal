@@ -155,8 +155,14 @@ pub struct ScanRunStart {
     /// `{"temperature": <number|null>, "timeout_secs": <int>, "max_tokens": <int>,
     /// "prompt_file": <string>}`.
     pub resolved_params: serde_json::Value,
-    /// The progress denominator, known from the candidate-pool read.
+    /// The progress denominator: how many candidates the judge will be asked
+    /// about, AFTER de-duplication and the pre-filter (task 2.15 Tier 2).
     pub candidates_total: i32,
+    /// The candidate POOL the gather read returned, before anything was folded or
+    /// set aside. Distinct from `candidates_total` since Tier 2 — the history's
+    /// Candidates column and its +Δ delta measure the evidence that EXISTS about
+    /// the subject, which a pre-filter setting must not appear to change.
+    pub candidates_read: i32,
 }
 
 /// Promote a stub row to `running`: record the model actually resolved, the
@@ -165,9 +171,12 @@ pub struct ScanRunStart {
 /// Clearing `error` is load-bearing, not cosmetic: the stub was born carrying a
 /// failure reason, so a promotion that left it in place would show a running (and
 /// later completed) run alongside an error message that never happened.
-/// `candidates_read` is set to `candidates_total` here — we DID read the whole
-/// pool to size it. The final tally/token/cost columns stay at their stub values
-/// until [`finalize_scan_run_completed`] overwrites them.
+/// `candidates_read` records the POOL and `candidates_total` the judged
+/// denominator; before task 2.15 they were the same number and this function
+/// bound one value to both. They separated when the pre-filter landed: the pool
+/// is what the gather read returned, the denominator is what the judge was asked.
+/// The final tally/token/cost columns stay at their stub values until
+/// [`finalize_scan_run_completed`] overwrites them.
 ///
 /// The `WHERE status = $8` clause is a guard, not decoration: it makes promotion
 /// apply only to a row still in the birth state, so a promote that arrives after
@@ -192,7 +201,7 @@ pub async fn promote_scan_run_running(
     .bind(SCAN_STATUS_RUNNING)
     .bind(&start.model_id)
     .bind(&start.resolved_params)
-    .bind(start.candidates_total)
+    .bind(start.candidates_read)
     .bind(start.candidates_total)
     .bind(Utc::now())
     .bind(SCAN_STATUS_FAILED)
@@ -455,6 +464,33 @@ pub async fn list_scan_runs(
         .fetch_all(pool)
         .await?;
     Ok(rows)
+}
+
+/// How many COMPLETED runs one scenario has (task 2.15, piece 3).
+///
+/// ## Why completed, and not "any run"
+///
+/// The question the caller is asking is "has anything ever judged this
+/// scenario's pool?" — because the answer decides whether the page may describe
+/// its candidates as scan output. A run that failed at the vLLM gate judged
+/// nothing, so counting it would let a scenario claim a scan parentage no verdict
+/// supports. The failed run is still visible in the history, which is where it
+/// belongs.
+///
+/// A COUNT rather than reusing `list_scan_runs`: the caller needs one number on a
+/// page-load path that already makes six reads, and shipping every header row to
+/// discard all but the length is work nobody uses.
+pub async fn count_completed_scan_runs(
+    pool: &PgPool,
+    scenario_id: Uuid,
+) -> Result<i64, PipelineRepoError> {
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM scan_runs WHERE scenario_id = $1 AND status = $2")
+            .bind(scenario_id)
+            .bind(SCAN_STATUS_COMPLETED)
+            .fetch_one(pool)
+            .await?;
+    Ok(count)
 }
 
 /// The history-list query. Extracted as a `const` so the scenario-scoping and

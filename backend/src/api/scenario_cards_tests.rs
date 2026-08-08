@@ -14,6 +14,7 @@ fn instance(id: &str, page: Option<i64>) -> BiasInstance {
         title: String::new(),
         verbatim_quote: Some("I do not recall.".to_string()),
         question: None,
+        statement_type: None,
         page_number: page,
         pattern_tags: Vec::new(),
         stated_by: None,

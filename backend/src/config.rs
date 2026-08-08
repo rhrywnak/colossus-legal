@@ -139,19 +139,16 @@ pub struct AppConfig {
     /// here is the documented forward-compatible default, overridable per
     /// deployment without a rebuild.
     pub theme_scan_concurrency: usize,
-
-    /// Filename of the Theme Scan judging prompt, read from
-    /// `THEME_SCAN_PROMPT_FILE` (default `theme_scan_prompt_v2.md`).
-    ///
-    /// The prompt VERSION is a deployment decision, not a code decision: bumping
-    /// it (e.g. `_v2` → `_v3`) must be an env edit + restart, never a rebuild
-    /// (Standing Rule 2). Only the filename is configured here; it resolves
-    /// against the registry's env-driven template dir via `template_path`, and a
-    /// missing file fails loud (`PromptFileMissing`). Unlike `theme_scan_model`
-    /// (a silent `Option`), defaulting this field emits a `tracing::warn!` at
-    /// startup so "which prompt is this run judging with" is observable — and it
-    /// is additionally recorded per-run in `scan_runs.resolved_params`.
-    pub theme_scan_prompt_file: String,
+    // RETIRED 2026-08-08 (task 2.15 Tier 2, Roman's amendment): the Theme Scan
+    // judging-prompt filename was `theme_scan_prompt_file` here, read from
+    // `THEME_SCAN_PROMPT_FILE` with a compiled-in default of
+    // `theme_scan_prompt_v2.md`. It is now the `theme_scan_prompt_file` SETTINGS
+    // ROW, read from the live snapshot at scan start (see
+    // `services::theme_scan_validate::load_scan_prompt`) and asserted at boot in
+    // `main.rs`. The env var is no longer read at all — measured on DEV, it was
+    // never set, so the compiled default silently decided which prompt judged
+    // every scan, which is the invisibility the row removes. No Ansible template
+    // change is owed for the same reason: there was nothing to remove there.
 }
 
 impl AppConfig {
@@ -294,23 +291,6 @@ impl AppConfig {
             .filter(|&n| n > 0) // a zero cap would deadlock the semaphore — treat as unset
             .unwrap_or(4);
 
-        // THEME_SCAN_PROMPT_FILE — optional, defaults to the current shipped
-        // prompt version. The one impure read (process env) happens here; the
-        // pure `resolve_theme_scan_prompt_file` owns the fallback decision so it
-        // is unit-testable without touching the environment. A defaulted value is
-        // WARNED (project convention: sensible dev default, but log when defaults
-        // are used) — Standing Rule 1 wants defaulting observable.
-        // best-effort: env-var-unset → None → resolver applies the documented default (and warns)
-        let prompt_file_env = std::env::var("THEME_SCAN_PROMPT_FILE").ok();
-        let (theme_scan_prompt_file, prompt_file_defaulted) =
-            resolve_theme_scan_prompt_file(prompt_file_env);
-        if prompt_file_defaulted {
-            tracing::warn!(
-                default = %theme_scan_prompt_file,
-                "THEME_SCAN_PROMPT_FILE unset — using built-in default Theme Scan prompt file"
-            );
-        }
-
         Ok(Self {
             neo4j_uri,
             neo4j_user,
@@ -337,82 +317,13 @@ impl AppConfig {
             case_slug,
             theme_scan_model,
             theme_scan_concurrency,
-            theme_scan_prompt_file,
         })
     }
 }
 
-/// Resolve the Theme Scan prompt filename from its optional env value.
-///
-/// Returns `(filename, defaulted)`. `defaulted` is `true` when the env var was
-/// unset OR blank/whitespace-only and the built-in fallback was used — the caller
-/// uses it to emit a startup warning, so a run silently judging with the default
-/// prompt is impossible (Standing Rule 1: defaulting is observable).
-///
-/// ## Rust Learning: a pure helper for a testable env read
-/// `std::env::var` reads process-global state, so a test that sets it races every
-/// other test in the same binary (Rust runs tests in parallel threads by
-/// default). Splitting the *decision* (env value → filename) into a pure function
-/// lets us unit-test the fallback logic deterministically by passing values in,
-/// never touching the real environment. `from_env` performs the single impure
-/// read and hands the value here — the classic "functional core, imperative
-/// shell" split.
-fn resolve_theme_scan_prompt_file(env_value: Option<String>) -> (String, bool) {
-    // The forward-compatible default (Standing Rule 2): the current shipped
-    // prompt version. Overridable per deployment via `THEME_SCAN_PROMPT_FILE`
-    // with no rebuild — bumping the prompt version is now an env edit + restart.
-    const DEFAULT_THEME_SCAN_PROMPT_FILE: &str = "theme_scan_prompt_v2.md";
-
-    // A blank env value (`""` or whitespace) is treated as unset, not as a
-    // literal empty filename: an empty filename could never resolve to a readable
-    // prompt, so collapsing it to the default (with the warn) is the honest,
-    // fail-safe reading — distinct from a genuine filename, which is kept verbatim.
-    match env_value
-        .map(|v| v.trim().to_string())
-        .filter(|v| !v.is_empty())
-    {
-        Some(name) => (name, false),
-        None => (DEFAULT_THEME_SCAN_PROMPT_FILE.to_string(), true),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn prompt_file_uses_env_value_when_set() {
-        let (file, defaulted) =
-            resolve_theme_scan_prompt_file(Some("theme_scan_prompt_v3.md".to_string()));
-        assert_eq!(file, "theme_scan_prompt_v3.md");
-        assert!(!defaulted, "an explicit env value is not a default");
-    }
-
-    #[test]
-    fn prompt_file_falls_back_to_default_when_unset() {
-        let (file, defaulted) = resolve_theme_scan_prompt_file(None);
-        assert_eq!(file, "theme_scan_prompt_v2.md");
-        assert!(
-            defaulted,
-            "unset must report defaulted=true to drive the warn"
-        );
-    }
-
-    #[test]
-    fn prompt_file_treats_blank_env_as_default() {
-        // A whitespace-only value can't name a readable prompt — it must collapse
-        // to the default (and warn), identical to unset.
-        let (file, defaulted) = resolve_theme_scan_prompt_file(Some("   ".to_string()));
-        assert_eq!(file, "theme_scan_prompt_v2.md");
-        assert!(defaulted, "blank env value must report defaulted=true");
-    }
-
-    #[test]
-    fn prompt_file_trims_surrounding_whitespace_from_a_real_value() {
-        // A real filename with stray whitespace is kept (trimmed), NOT defaulted.
-        let (file, defaulted) =
-            resolve_theme_scan_prompt_file(Some("  theme_scan_prompt_v3.md  ".to_string()));
-        assert_eq!(file, "theme_scan_prompt_v3.md");
-        assert!(!defaulted);
-    }
-}
+// No `#[cfg(test)] mod tests` here any more. Its four tests all exercised
+// `resolve_theme_scan_prompt_file`, which task 2.15 retired along with the env var
+// it resolved — the prompt filename is a settings row now, and the store's own
+// parse/bounds tests cover it. Deleting them beat keeping tests for a function
+// that no longer exists (Rule 6: a test asserts behaviour, and this behaviour has
+// moved).

@@ -35,6 +35,7 @@ use crate::domain::wording_accusation as accusation;
 use crate::domain::wording_authoring as authoring;
 use crate::domain::wording_rehearsal as rehearsal;
 use crate::domain::wording_rehearsal_chrome as chrome;
+use crate::domain::wording_scan as scan;
 
 /// The placeholders a stored string MUST still contain after a human edits it.
 ///
@@ -126,6 +127,27 @@ pub const REQUIRED_PLACEHOLDERS: &[(&str, &[&str])] = &[
     // Without {n} every editing box in the list announces itself identically to a
     // screen reader, which is the same as none of them being labelled.
     (authoring::KEY_POINTS_FIELD_LABEL, &["{n}"]),
+    // ── Task 2.15 Tier 2: the scan's own words ───────────────────────────────
+    //
+    // The conservation line IS its five numbers. An edit that dropped one would
+    // leave a sentence claiming to reconcile a pool while withholding the term
+    // that does not add up — worse than no line at all, because it looks checked.
+    (
+        scan::KEY_CONSERVATION_LINE,
+        &[
+            "{pool}",
+            "{collapsed}",
+            "{excluded}",
+            "{judged}",
+            "{relevant}",
+        ],
+    ),
+    // A destructive confirmation that cannot name WHICH run is being destroyed is
+    // the mis-click guard failing quietly on a list of four look-alike rows.
+    (scan::KEY_HISTORY_DELETE_CONFIRM, &["{run}"]),
+    // "Browse the raw evidence pool" without its size hides how much is behind
+    // the control — which is the whole reason it is behind one.
+    (curation::KEY_QUEUE_RAW_POOL_TOGGLE, &["{count}"]),
 ];
 
 /// Which required placeholders a candidate value is missing, for one key.

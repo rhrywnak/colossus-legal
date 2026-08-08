@@ -29,10 +29,10 @@
 import React, { useState } from "react";
 
 import CardQueue from "./CardQueue";
-import type { AllegationOptions } from "../services/evidenceLinks";
+import { fillCount, type AllegationOptions } from "../services/evidenceLinks";
 import ThemeScanPanel from "./ThemeScanPanel";
 import type { ScenarioCard } from "../services/scenarioCards";
-import { progressFromCards, queueRegion } from "./queueRegion";
+import { anyScanScored, progressFromCards, queueRegion } from "./queueRegion";
 
 import {
   kbdStyle,
@@ -61,6 +61,25 @@ const chevronStyle: React.CSSProperties = {
   marginLeft: "auto",
   width: "30px",
   height: "30px",
+  borderRadius: "8px",
+  background: "var(--v3-chrome)",
+  border: "none",
+  cursor: "pointer",
+  color: "var(--text-secondary)",
+  fontSize: "13px",
+  fontFamily: "inherit",
+  flexShrink: 0,
+};
+
+/**
+ * The never-scanned opt-in (piece 3a): the chevron's job, wearing its words.
+ *
+ * Right-aligned like the chevron it replaces, and deliberately quiet — it opens a
+ * pool nobody has judged, which is browsing, not work waiting to be done.
+ */
+const rawPoolToggleStyle: React.CSSProperties = {
+  marginLeft: "auto",
+  padding: "6px 12px",
   borderRadius: "8px",
   background: "var(--v3-chrome)",
   border: "none",
@@ -114,6 +133,15 @@ interface Props {
    * candidates over a pool of 148.
    */
   cards: ScenarioCard[] | null;
+  /**
+   * Present ONLY when no scan run has completed for this scenario (task 2.15,
+   * piece 3) — the sentence the section leads with instead of a queue.
+   *
+   * Served, never inferred: the browser cannot tell "nothing has been scanned"
+   * from "nothing scanned has been merged", and on 2026-08-07 it guessed wrong on
+   * a page that showed both answers at once. See the payload field's own note.
+   */
+  neverScannedNotice: string | null;
 }
 
 const ScanSection: React.FC<Props> = ({
@@ -125,6 +153,7 @@ const ScanSection: React.FC<Props> = ({
   onRulingSaved,
   linkOptions,
   cards,
+  neverScannedNotice,
 }) => {
   // Queue progress is owned by `CardQueue` (it does the fetching), and this
   // section needs it for the summary line and the progress bar. So the queue
@@ -157,7 +186,26 @@ const ScanSection: React.FC<Props> = ({
           counting: linkOptions.wording.queue_counting_summary,
         }
       : null,
+    // The labelling clause is earned by the DATA: "from all scans" only when
+    // something in this pool actually carries a scan's score (piece 3b).
+    anyScanScored(cards),
   );
+
+  // ── The never-scanned state (piece 3a) ─────────────────────────────────────
+  //
+  // The workflow is create → scan → rule, and until the first scan runs these
+  // rows are not candidates at all — they are the raw evidence pool. So the
+  // section leads with the served notice, and the pool moves behind an explicit
+  // control that names its size. Nothing is removed: the same cards, the same
+  // queue, the same keys, one click away.
+  //
+  // Presence of the notice is the whole condition. Deriving it from the counts
+  // here is exactly the guess the payload field exists to replace.
+  const neverScanned = neverScannedNotice !== null;
+  const rawPoolLabel =
+    linkOptions && cards
+      ? fillCount(linkOptions.wording.queue_raw_pool_toggle_template, cards.length)
+      : null;
 
   // Mirrors the descriptor's computed default, then follows the human's clicks.
   // Keyed on the default so a queue that drains to zero collapses on its own —
@@ -175,7 +223,13 @@ const ScanSection: React.FC<Props> = ({
   }
   // The descriptor already returns `open: true` while the counts are unknown, so
   // this no longer special-cases `null` — one place decides, not two.
-  const open = openOverride ?? region.open;
+  //
+  // A never-scanned scenario starts CLOSED regardless of what the descriptor
+  // computed: the descriptor opens on unruled candidates, and on this scenario
+  // every row is unruled precisely because nothing has judged any of them. The
+  // human's own click still wins (`openOverride`) — this changes what leads the
+  // page, not what is reachable.
+  const open = openOverride ?? (neverScanned ? false : region.open);
 
   return (
     <section>
@@ -217,23 +271,55 @@ const ScanSection: React.FC<Props> = ({
             the body, with the mockup's "— or use the buttons" — where it sits beside
             the buttons it is describing, and where it disappears with the body it
             applies to rather than advertising keys that are paused. */}
+        {/* The head row says one of two things, and which one is a fact the
+            SERVER established (piece 3a):
+
+            - nothing has ever scanned this scenario → the served notice, with
+              the raw pool behind a named opt-in;
+            - a scan has run → the queue exactly as before.
+
+            The chevron is the same control in both cases, so the body below needs
+            no second code path and the keyboard guard keeps working unchanged. */}
         <div style={queueHeadStyle}>
-          <b style={{ fontSize: "14px" }}>{region.summary}</b>
-          {region.scope && (
-            <span style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
-              {region.scope}
-            </span>
+          {neverScanned ? (
+            <>
+              <b style={{ fontSize: "14px" }}>{neverScannedNotice}</b>
+              {/* The opt-in IS the chevron's label here: a bare arrow beside a
+                  sentence saying "no scan has run" gives no hint that 148 rows are
+                  behind it. `rawPoolLabel` is null only while the wording or the
+                  pool is still loading, and a control with no words is not
+                  rendered at all (the absent-not-fake law). */}
+              {rawPoolLabel && (
+                <button
+                  type="button"
+                  style={rawPoolToggleStyle}
+                  onClick={() => setOpenOverride(!open)}
+                  aria-expanded={open}
+                >
+                  {open ? "▾" : "▸"} {rawPoolLabel}
+                </button>
+              )}
+            </>
+          ) : (
+            <>
+              <b style={{ fontSize: "14px" }}>{region.summary}</b>
+              {region.scope && (
+                <span style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
+                  {region.scope}
+                </span>
+              )}
+              <button
+                type="button"
+                style={chevronStyle}
+                onClick={() => setOpenOverride(!open)}
+                aria-expanded={open}
+                aria-label={region.chevronLabel}
+                title={region.chevronLabel}
+              >
+                {open ? "▾" : "▸"}
+              </button>
+            </>
           )}
-          <button
-            type="button"
-            style={chevronStyle}
-            onClick={() => setOpenOverride(!open)}
-            aria-expanded={open}
-            aria-label={region.chevronLabel}
-            title={region.chevronLabel}
-          >
-            {open ? "▾" : "▸"}
-          </button>
         </div>
 
         {open && (

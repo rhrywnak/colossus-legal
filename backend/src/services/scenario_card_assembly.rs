@@ -129,6 +129,11 @@ pub(crate) fn assemble(
         // HAS a subject. The no-target notice belongs to the route's early
         // return, which never reaches this assembler.
         no_target_notice: None,
+        // Left `None` here for a different reason than the line above: whether
+        // anything has scanned this scenario is a fact about the RUN HISTORY, in
+        // another database, and this assembler is documented pure. The route fills
+        // it in after this returns (task 2.15, piece 3).
+        never_scanned_notice: None,
     }
 }
 
