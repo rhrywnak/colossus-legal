@@ -190,7 +190,19 @@ export function candidateCounts(cards: ScenarioCard[]): CandidateCounts {
   return counts;
 }
 
-/** Whether one card survives the active filter. */
+/**
+ * Whether one card survives the active filter.
+ *
+ * Exported since 2026-08-08 because the QUEUE has to ask it about a card it has
+ * just ruled: a ruled card usually stops matching (Proposed and Rulable-now both
+ * exclude it), so it leaves the list — and a card that disappears with nothing
+ * said reads exactly like a click that did nothing. That was the measured
+ * beta.385 defect. The queue asks this, and says so.
+ */
+export function matchesFilter(card: ScenarioCard, filters: CandidateFilters): boolean {
+  return matches(card, filters);
+}
+
 function matches(card: ScenarioCard, filters: CandidateFilters): boolean {
   if (filters.state === "all") return true;
   if (filters.state === "rulable") return isRulableNow(card);
@@ -310,6 +322,26 @@ export function stateOptions(counts: CandidateCounts): FilterOption<StateFacet>[
       hint: "Set aside for this scenario. The evidence itself is untouched elsewhere.",
     },
   ];
+}
+
+/**
+ * The active facet's own label, for a sentence that has to name the list.
+ *
+ * Reads the same option table the dropdown renders, so the sentence and the
+ * control can never call one list two names — the counts are irrelevant here, so
+ * a zeroed set is passed rather than threading the real ones through.
+ */
+export function facetLabel(facet: StateFacet): string {
+  const zero: CandidateCounts = {
+    all: 0,
+    not_ruled: 0,
+    rulable: 0,
+    deferred: 0,
+    included: 0,
+    excluded: 0,
+    proposed: 0,
+  };
+  return stateOptions(zero).find((o) => o.facet === facet)?.label ?? facet;
 }
 
 /**

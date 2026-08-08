@@ -77,6 +77,13 @@ const wording: LinkPanelWording = {
   card_proposed_attribution_template: "Proposed by the {when} scan",
   card_proposed_role_template: "Scan: {verb}",
   card_proposed_covers_template: "×{count} — covers {codes}",
+  card_ruling_saved_template: "Saved — {code} is now {state}.",
+  card_ruling_left_filter_template:
+    "{code} has left the {filter} list — that is where ruled candidates go.",
+  card_defer_recorded_template: "Deferred. The reason recorded is: {reason}",
+  card_ruling_failed_template:
+    "{code} could not be saved: {detail} The queue has been reloaded, so what you see now is what is stored.",
+  card_locked_condition_label: "Include and Exclude are closed on this card:",
 };
 
 function option(id: string, label: string, count: string | null = null): AllegationOption {

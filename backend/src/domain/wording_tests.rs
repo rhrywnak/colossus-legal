@@ -214,6 +214,18 @@ const TIER2_MIGRATION: &str =
 /// (key) DO NOTHING` makes editing an applied migration a no-op everywhere it has
 /// already run, so new rows can only ever arrive in a new file.
 const PROJECTION_MIGRATION: &str = "pipeline_migrations/20260808141052_scan_to_ruling_wording.sql";
+/// The ruling-acknowledgment rows: every ruling says what it did, and a locked
+/// card states its condition on its face. Seeded after the measured beta.385
+/// silent-defer walk.
+// STRUCTURAL: a migration filename, not a deployment value. This test reads the
+// seed off disk to prove the fixture below says what the migration actually
+// seeds — a declared key with no row is a BOOT REFUSAL, and reading the file is
+// the only thing that catches that before a deploy takes DEV down (Rule 21).
+// The path is therefore part of the assertion itself: it can only change when
+// somebody renames the file in this repo, and it cannot vary per environment.
+// The seven sibling constants above are the same shape and predate this task.
+const ACKNOWLEDGMENT_MIGRATION: &str =
+    "pipeline_migrations/20260808171630_ruling_acknowledgment_wording.sql";
 
 /// Pull one key's seeded value out of the migration's INSERT.
 ///
@@ -285,6 +297,8 @@ fn the_wording_fixture_carries_the_values_the_migration_actually_seeds() {
         .expect("the 2.15 Tier-2 scan migration is on disk");
     let projection = std::fs::read_to_string(root.join(PROJECTION_MIGRATION))
         .expect("the scan-to-ruling wording migration is on disk");
+    let acknowledgment = std::fs::read_to_string(root.join(ACKNOWLEDGMENT_MIGRATION))
+        .expect("the ruling-acknowledgment wording migration is on disk");
 
     let fixture = Wording::for_test_values();
     let mut checked = 0usize;
@@ -297,6 +311,7 @@ fn the_wording_fixture_carries_the_values_the_migration_actually_seeds() {
             .or_else(|| seeded_value_in(&polish, key))
             .or_else(|| seeded_value_in(&tier2, key))
             .or_else(|| seeded_value_in(&projection, key))
+            .or_else(|| seeded_value_in(&acknowledgment, key))
             .unwrap_or_else(|| panic!("{key} is not seeded by any migration"));
         let in_fixture = fixture
             .get(*key)
@@ -319,7 +334,7 @@ fn the_wording_fixture_carries_the_values_the_migration_actually_seeds() {
         "every stored string must be compared — counted from the list itself so \
          adding a key cannot quietly skip it"
     );
-    assert_eq!(WORDING_KEYS.len(), 53);
+    assert_eq!(WORDING_KEYS.len(), 58);
 }
 
 // ── Item A's correction: the one that can ship a lying button ────────────────
@@ -514,6 +529,15 @@ impl Wording {
             card_proposed_attribution_template: "Proposed by the {when} scan".to_string(),
             card_proposed_role_template: "Scan: {verb}".to_string(),
             card_proposed_covers_template: "×{count} — covers {codes}".to_string(),
+            card_ruling_saved_template: "Saved — {code} is now {state}.".to_string(),
+            card_ruling_left_filter_template:
+                "{code} has left the {filter} list — that is where ruled candidates go.".to_string(),
+            card_defer_recorded_template: "Deferred. The reason recorded is: {reason}".to_string(),
+            card_ruling_failed_template:
+                "{code} could not be saved: {detail} The queue has been reloaded, so what \
+                 you see now is what is stored."
+                    .to_string(),
+            card_locked_condition_label: "Include and Exclude are closed on this card:".to_string(),
         }
     }
 
@@ -583,6 +607,11 @@ impl Wording {
                     KEY_CARD_PROPOSED_ATTRIBUTION => w.card_proposed_attribution_template.clone(),
                     KEY_CARD_PROPOSED_ROLE => w.card_proposed_role_template.clone(),
                     KEY_CARD_PROPOSED_COVERS => w.card_proposed_covers_template.clone(),
+                    KEY_CARD_RULING_SAVED => w.card_ruling_saved_template.clone(),
+                    KEY_CARD_RULING_LEFT_FILTER => w.card_ruling_left_filter_template.clone(),
+                    KEY_CARD_DEFER_RECORDED => w.card_defer_recorded_template.clone(),
+                    KEY_CARD_RULING_FAILED => w.card_ruling_failed_template.clone(),
+                    KEY_CARD_LOCKED_CONDITION => w.card_locked_condition_label.clone(),
                     // Unreachable by construction: the match above covers every
                     // entry of WORDING_KEYS, and the test below proves it. A panic
                     // here would only fire in a test binary, on a key someone added

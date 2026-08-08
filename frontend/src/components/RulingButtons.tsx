@@ -235,6 +235,13 @@ export const CardHead: React.FC<{
   unsavedLinkReason?: string | null;
   /** True when the human just pressed I or E and was refused. */
   keyboardRefused: boolean;
+  /**
+   * The stored label that introduces the standing condition (D3a, 2026-08-08).
+   *
+   * `null` until the wording loads, which suppresses the whole line rather than
+   * inventing one — the absent-not-fake law.
+   */
+  lockedConditionLabel?: string | null;
   onRule: (key: RulingKey) => void;
 }> = ({
   code,
@@ -245,6 +252,7 @@ export const CardHead: React.FC<{
   keyboardRefused,
   reasonShownElsewhere = false,
   unsavedLinkReason = null,
+  lockedConditionLabel = null,
   onRule,
 }) => (
   <div style={{ marginBottom: "14px" }}>
@@ -298,12 +306,35 @@ export const CardHead: React.FC<{
       </span>
     </div>
 
-    {/* One sentence, never two (Q4). While the panel holds unsaved choices that
-        sentence is item B's; otherwise it is the payload's, and it is suppressed
-        entirely when the panel below is already explaining the same thing. */}
+    {/* D3a (Roman's session finding, 2026-08-08): a locked card states its
+        condition ON ITS FACE.
+        
+        This overrides Q4's suppression, and deliberately. Q4 removed the sentence
+        whenever the link panel below was explaining the same problem — one
+        sentence on screen, which was right about clutter and wrong about
+        discovery: the condition was then reachable only by hovering the disabled
+        buttons, and a condition most humans never find is also the PROMISE that
+        Defer will work on this card. The stored label carries it now, so the
+        sentence has an owner on the face and the panel's own copy still explains
+        what to DO about it. */}
+    {deferOnly && lockedConditionLabel && !unsavedLinkReason && !keyboardRefused && (
+      <div
+        style={{
+          marginTop: "8px",
+          fontSize: "12.5px",
+          lineHeight: 1.5,
+          color: "var(--text-secondary)",
+        }}
+      >
+        <b style={{ fontWeight: 600 }}>{lockedConditionLabel}</b> {deferOnlyReason}
+      </div>
+    )}
+
+    {/* The louder variants: an unsaved draft, or a key the human just pressed and
+        was refused. Both are events rather than standing information, so they
+        keep the tinted treatment and the alert role. */}
     {deferOnly &&
-      (unsavedLinkReason ??
-        (!reasonShownElsewhere || keyboardRefused ? deferOnlyReason : null)) && (
+      (unsavedLinkReason ?? (keyboardRefused ? deferOnlyReason : null)) && (
       // `role="alert"` only on the keypress, deliberately: the sentence is
       // standing information on this card and a live region that announced itself
       // on every selection would talk over the human browsing the list.

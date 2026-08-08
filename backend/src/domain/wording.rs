@@ -196,6 +196,36 @@ pub struct Wording {
     /// The badge on a card whose one ruling settles a byte-identical twin. Carries
     /// `{count}` and `{codes}`.
     pub card_proposed_covers_template: String,
+
+    // ── Ruling acknowledgment (2026-08-08) ───────────────────────────────────
+    //
+    // Every ruling action says what it did, in success AND in failure. The
+    // measured defect these answer: on beta.385 a defer landed in the database —
+    // anchor, reference row and provenance — and the screen said nothing at all,
+    // so the architect reported the feature dead. It was not dead; it was silent.
+    /// Said when a ruling has been STORED. Carries `{code}` and `{state}`.
+    pub card_ruling_saved_template: String,
+    /// Said when a stored ruling takes the card out of the list the human is
+    /// looking at. Carries `{code}` and `{filter}`.
+    ///
+    /// Domain note: this is the "vanish". Under the Proposed filter a ruled card
+    /// stops being proposed and leaves the list — correct behaviour that reads
+    /// exactly like a click doing nothing, unless the queue says so as it goes.
+    pub card_ruling_left_filter_template: String,
+    /// Said when a LOCKED card's one-press defer records the system's own
+    /// sentence. Carries `{reason}`.
+    ///
+    /// Domain note: the human should be able to read the sentence they just
+    /// signed. A one-press commit that shows nothing is a signature nobody saw.
+    pub card_defer_recorded_template: String,
+    /// Said when a ruling could NOT be stored. Carries `{code}` and `{detail}`.
+    pub card_ruling_failed_template: String,
+    /// The standing condition on a card whose Include and Exclude are shut.
+    ///
+    /// Domain note (D3a): the sentence already existed as the disabled buttons'
+    /// tooltip. A condition a human can only discover by hovering is a condition
+    /// most humans never discover, so it is stated on the card's face.
+    pub card_locked_condition_label: String,
 }
 
 /// Whether the background pile starts folded away.
@@ -289,6 +319,11 @@ pub(crate) const KEY_QUEUE_PROPOSED_HEADING: &str = "queue_proposed_heading_temp
 pub(crate) const KEY_CARD_PROPOSED_ATTRIBUTION: &str = "card_proposed_attribution_template";
 pub(crate) const KEY_CARD_PROPOSED_ROLE: &str = "card_proposed_role_template";
 pub(crate) const KEY_CARD_PROPOSED_COVERS: &str = "card_proposed_covers_template";
+pub(crate) const KEY_CARD_RULING_SAVED: &str = "card_ruling_saved_template";
+pub(crate) const KEY_CARD_RULING_LEFT_FILTER: &str = "card_ruling_left_filter_template";
+pub(crate) const KEY_CARD_DEFER_RECORDED: &str = "card_defer_recorded_template";
+pub(crate) const KEY_CARD_RULING_FAILED: &str = "card_ruling_failed_template";
+pub(crate) const KEY_CARD_LOCKED_CONDITION: &str = "card_locked_condition_label";
 
 /// Every wording key this build reads, so a missing one is caught at boot by name.
 ///
@@ -350,6 +385,11 @@ pub const WORDING_KEYS: &[&str] = &[
     KEY_CARD_PROPOSED_ATTRIBUTION,
     KEY_CARD_PROPOSED_ROLE,
     KEY_CARD_PROPOSED_COVERS,
+    KEY_CARD_RULING_SAVED,
+    KEY_CARD_RULING_LEFT_FILTER,
+    KEY_CARD_DEFER_RECORDED,
+    KEY_CARD_RULING_FAILED,
+    KEY_CARD_LOCKED_CONDITION,
 ];
 
 /// Build a [`Wording`] from the stored rows, or say precisely which key is wrong.
@@ -424,6 +464,11 @@ pub fn build_wording<E>(read: impl Fn(&str) -> Result<String, E>) -> Result<Word
         card_proposed_attribution_template: read(KEY_CARD_PROPOSED_ATTRIBUTION)?,
         card_proposed_role_template: read(KEY_CARD_PROPOSED_ROLE)?,
         card_proposed_covers_template: read(KEY_CARD_PROPOSED_COVERS)?,
+        card_ruling_saved_template: read(KEY_CARD_RULING_SAVED)?,
+        card_ruling_left_filter_template: read(KEY_CARD_RULING_LEFT_FILTER)?,
+        card_defer_recorded_template: read(KEY_CARD_DEFER_RECORDED)?,
+        card_ruling_failed_template: read(KEY_CARD_RULING_FAILED)?,
+        card_locked_condition_label: read(KEY_CARD_LOCKED_CONDITION)?,
     })
 }
 

@@ -174,6 +174,21 @@ pub const REQUIRED_PLACEHOLDERS: &[(&str, &[&str])] = &[
     ),
     // A live count that does not say its number is a label, not a report.
     (scan::KEY_REPORT_PROPOSED_LINE, &["{count}"]),
+    // ── Ruling acknowledgment (2026-08-08) ──────────────────────────────────
+    //
+    // An acknowledgment that cannot name the card is useless on a list where
+    // thirty cards look alike — which is the whole reason the silent defer read
+    // as a dead button rather than as a card that had moved.
+    (curation::KEY_CARD_RULING_SAVED, &["{code}", "{state}"]),
+    (
+        curation::KEY_CARD_RULING_LEFT_FILTER,
+        &["{code}", "{filter}"],
+    ),
+    // The point of the sentence is the sentence the human signed.
+    (curation::KEY_CARD_DEFER_RECORDED, &["{reason}"]),
+    // A failure that names neither the card nor the cause sends the reader to the
+    // logs, which is the silent-failure shape Rule 1 exists to prevent.
+    (curation::KEY_CARD_RULING_FAILED, &["{code}", "{detail}"]),
 ];
 
 /// Which required placeholders a candidate value is missing, for one key.

@@ -142,6 +142,21 @@ export type LinkPanelWording = {
    *  `{count}` and `{codes}`. */
   card_proposed_covers_template: string;
 
+  // ── Ruling acknowledgment (2026-08-08) ─────────────────────────────────────
+  /** Said when a ruling is STORED. Carries `{code}` and `{state}`. */
+  card_ruling_saved_template: string;
+  /** Said when a stored ruling takes the card out of the list the human is
+   *  looking at — the "vanish". Carries `{code}` and `{filter}`. */
+  card_ruling_left_filter_template: string;
+  /** Said when a locked card's one-press defer records the system's own
+   *  sentence, so the human can read what they signed. Carries `{reason}`. */
+  card_defer_recorded_template: string;
+  /** Said when a ruling could NOT be stored. Carries `{code}` and `{detail}`. */
+  card_ruling_failed_template: string;
+  /** Introduces the standing reason a card's Include and Exclude are shut,
+   *  stated on the card's face rather than in a tooltip (D3a). */
+  card_locked_condition_label: string;
+
   // ── Task 2.13c ──────────────────────────────────────────────────────────────
   /** Marks the answer beneath its question — the question label's partner. */
   fact_answer_label: string;

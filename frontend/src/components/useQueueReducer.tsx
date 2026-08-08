@@ -28,6 +28,7 @@ import {
   type QueueEvent,
   type QueueState,
 } from "./cardTriage";
+import type { FactAction } from "../services/scenarioGather";
 
 /**
  * The reducer, wired so its effects reach the backend.
@@ -49,10 +50,35 @@ import {
  * neither — the audience that must act is the person ruling, not a developer with
  * devtools open (Standing Rule 1).
  */
+/** What a ruling did, once the server has answered. */
+export type RulingOutcome = {
+  graphNodeId: string;
+  action: FactAction;
+  /** The reason that was recorded, for a defer. */
+  reason?: string;
+  /** `null` on success; the server's own detail when the write was refused. */
+  failure: string | null;
+};
+
 export function useReducerWithEffects(
   slug: string,
   scenarioId: string,
-  onRulingFailed: (message: string) => void,
+  /**
+   * Called for EVERY ruling the server has answered — landed or refused
+   * (architect's reframed rider, 2026-08-08).
+   *
+   * ## Why success needs a callback at all
+   *
+   * It did not, while a ruling's only visible consequence was a chip changing on
+   * a card that stayed put. Then the projection arrived: ruling a card makes it
+   * human-touched, so it stops being proposed and LEAVES the Proposed list. On
+   * beta.385 the architect deferred a card, the write landed perfectly — anchor,
+   * reference row, provenance, all measured in the database afterwards — and the
+   * card silently disappeared. They reported the feature dead. A correct write
+   * and a correct filter, with nothing said between them, is indistinguishable
+   * from a dead button.
+   */
+  onRulingOutcome: (outcome: RulingOutcome) => void,
   /**
    * Called once the SERVER has confirmed a ruling (task 1.7F Part A).
    *
@@ -71,6 +97,9 @@ export function useReducerWithEffects(
    * already cleared itself and the screen must go back to matching the database.
    */
   onLinksChanged: () => void,
+  /** Said when a LINK write fails — distinct from a ruling, which reports through
+   *  [`RulingOutcome`] and names the card it was about. */
+  onLinkFailed: (message: string) => void,
   /**
    * The stored words this hook needs to report a link write (task 2.10, R4).
    *
@@ -109,7 +138,9 @@ export function useReducerWithEffects(
         const said = linkWording;
         const failed = (e: unknown) => {
           const detail = e instanceof Error ? e.message : String(e);
-          if (said) onRulingFailed(fillDetail(said.save_failed_template, detail));
+          // A LINK failure is not a ruling outcome — it has no ruled card and no
+          // verb — so it keeps its own reporter and its own sentence.
+          if (said) onLinkFailed(fillDetail(said.save_failed_template, detail));
           // Reconcile as well as say so. Without this the panel would clear on a
           // save that never happened, and the card would look linked until
           // something else reloaded it.
@@ -122,7 +153,7 @@ export function useReducerWithEffects(
             // Silently reloading would make "I removed your link" and "there was
             // nothing there" the same observable, which is the distinction the
             // backend goes to the trouble of reporting (Standing Rule 1).
-            if (!result.removed && said) onRulingFailed(said.unlink_found_nothing);
+            if (!result.removed && said) onLinkFailed(said.unlink_found_nothing);
             onLinksChanged();
           }, failed);
           return;
@@ -143,18 +174,34 @@ export function useReducerWithEffects(
       // that saved perfectly. The rejection handler here sees only the request's
       // own failure.
       applyFactAction(slug, scenarioId, effect.graphNodeId, effect.action, effect.reason).then(
-        () => onRulingSaved(),
+        () => {
+          onRulingSaved();
+          onRulingOutcome({
+            graphNodeId: effect.graphNodeId,
+            action: effect.action,
+            reason: effect.reason,
+            failure: null,
+          });
+        },
         (e: unknown) => {
-          const detail = e instanceof Error ? e.message : String(e);
-          onRulingFailed(
-            `That ruling did not save (${effect.action} on ${effect.graphNodeId}): ` +
-              `${detail} The queue has been reloaded from the server, so what you ` +
-              `see now is what is stored.`,
-          );
+          onRulingOutcome({
+            graphNodeId: effect.graphNodeId,
+            action: effect.action,
+            reason: effect.reason,
+            failure: e instanceof Error ? e.message : String(e),
+          });
         },
       );
     },
-    [slug, scenarioId, onRulingFailed, onRulingSaved, onLinksChanged, linkWording],
+    [
+      slug,
+      scenarioId,
+      onRulingOutcome,
+      onRulingSaved,
+      onLinksChanged,
+      onLinkFailed,
+      linkWording,
+    ],
   );
 
   return [state, dispatch];

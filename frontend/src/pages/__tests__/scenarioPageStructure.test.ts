@@ -442,8 +442,20 @@ describe("the live facts update and the summary override (task 1.7F)", () => {
     // RULING R3, and the 1.3 law behind it — optimistic rows over a swallowed
     // save failure could have shown fifty rulings that were never recorded. The
     // callback fires from the resolve handler of the write, never beside it.
+    //
+    // Asserted as ORDER rather than as a literal arrow (2026-08-08): the success
+    // handler gained a second call — the ruling's acknowledgment — and pinning
+    // its exact formatting made this test fail for a change that left the law
+    // untouched. What the law actually says is that `onRulingSaved` appears
+    // AFTER the write is issued and inside its resolve handler, never before.
     const hook = read("components", "useQueueReducer.tsx");
-    expect(hook).toContain("() => onRulingSaved(),");
+    const issued = hook.indexOf("applyFactAction(slug, scenarioId,");
+    const confirmed = hook.indexOf("onRulingSaved()", issued);
+    expect(issued, "the ruling write is issued in this hook").toBeGreaterThan(-1);
+    expect(
+      confirmed,
+      "onRulingSaved must fire from the write's resolve handler, not beside it",
+    ).toBeGreaterThan(issued);
     // Two-argument `then`, so an exception inside the success callback is not
     // reported to the human as a failed ruling.
     expect(hook).not.toContain(".catch(\n");

@@ -213,6 +213,11 @@ fn panel_wording(settings: &Settings, total: usize) -> LinkPanelWording {
         card_proposed_attribution_template: w.card_proposed_attribution_template.clone(),
         card_proposed_role_template: w.card_proposed_role_template.clone(),
         card_proposed_covers_template: w.card_proposed_covers_template.clone(),
+        card_ruling_saved_template: w.card_ruling_saved_template.clone(),
+        card_ruling_left_filter_template: w.card_ruling_left_filter_template.clone(),
+        card_defer_recorded_template: w.card_defer_recorded_template.clone(),
+        card_ruling_failed_template: w.card_ruling_failed_template.clone(),
+        card_locked_condition_label: w.card_locked_condition_label.clone(),
     }
 }
 

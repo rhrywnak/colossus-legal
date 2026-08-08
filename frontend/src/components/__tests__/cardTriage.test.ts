@@ -22,6 +22,10 @@ import {
 // The §7 descriptor moved to its own module in 1.7E (Rule 17 — see that file's
 // header). Same functions, same assertions; only the import line moved.
 import { cardRows, metaChips, missingElements, REQUIRED_CARD_ELEMENTS } from "../cardRows";
+// The facet counts are the surface this reducer's patch has to stay honest with:
+// the queue derives them from ITS OWN cards, so a field the patch forgets is a
+// number that stops moving (measured, beta.385).
+import { candidateCounts } from "../candidateFilters";
 import type { ScenarioCard } from "../../services/scenarioCards";
 
 // ─── Fixtures ───────────────────────────────────────────────────────────────
@@ -1306,4 +1310,88 @@ describe("the running count", () => {
     expect(pressed.effect).toMatchObject({ kind: "rule", action: "reopen", graphNodeId: "ev-3" });
   });
 
+});
+
+// ─── The optimistic patch keeps EVERY visible field (2026-08-08) ─────────────
+//
+// Measured on DEV beta.385: after a ruling the queue's own "Proposed (N)" facet
+// stayed at its fetch-time value while the heading and the collapsed summary
+// moved — 25 beside 27, reconciling only on reload. The patch maintained
+// `status` and stopped there, and `proposed` had become visible the day the
+// facet was added.
+
+describe("the optimistic patch and the proposed facet", () => {
+  const proposal = {
+    role_label: "Scan: supports",
+    reason: "direct admission by the accusing party",
+    duplicate_count: 1,
+    duplicate_label: null,
+  };
+  // Distinct ids: `withCard` patches BY id, so a pool of same-id fixtures would
+  // have one ruling silently rewrite every card in it.
+  const proposedCard = (id = "ev-1") => fullCard({ graph_node_id: id, proposed: proposal });
+
+  it("clears `proposed` on include, exclude AND defer", () => {
+    // A ruling makes the card human-touched, so precedence R-a stops the server
+    // proposing it — the very next payload has no `proposed` at all. The patch
+    // has to agree with the payload it is standing in for.
+    for (const key of ["i", "e"] as const) {
+      const { state } = press(stateOf([proposedCard()]), key);
+      expect(state.cards[0].proposed, `${key} must clear the proposal`).toBeUndefined();
+    }
+
+    // Defer goes through the prompt, so it takes two presses to commit.
+    let s = press(stateOf([proposedCard()]), "d").state;
+    s = press(s, "2").state;
+    s = press(s, "Enter").state;
+    expect(s.cards[0].proposed, "a deferred card is human-touched too").toBeUndefined();
+    // …and it is still a defer: the reason is what distinguishes parked from
+    // never-looked-at, and clearing the proposal must not have touched it.
+    expect(s.cards[0].defer_reason).toBe(DEFER_QUICK_REASONS[1]);
+  });
+
+  it("facet_counts_reconcile_after_an_in_page_ruling", () => {
+    // The §9 promise, at the moment it used to break: what the browser counts
+    // after an in-page ruling must equal what a fresh fetch would report. The
+    // server's version of a ruled card carries no proposal, so the patched card
+    // must not either — otherwise the facet and the heading describe different
+    // worlds until somebody reloads.
+    const pool = [proposedCard("ev-1"), proposedCard("ev-2"), proposedCard("ev-3")];
+    expect(candidateCounts(pool).proposed).toBe(3);
+
+    const afterOne = press(stateOf(pool), "i").state;
+    expect(candidateCounts(afterOne.cards).proposed).toBe(2);
+
+    // And what the server would say, modelled as the payload it would return:
+    // the ruled card comes back with no `proposed` and the rest unchanged.
+    const asServed = afterOne.cards.map((c) =>
+      c.status === "included" ? { ...c, proposed: undefined } : c,
+    );
+    expect(candidateCounts(asServed).proposed).toBe(
+      candidateCounts(afterOne.cards).proposed,
+    );
+  });
+
+  it("undo restores the proposal the card arrived with (ruling R2)", () => {
+    // A card un-ruled is proposed again if the projection still proposes it. The
+    // stash is the ORIGINAL served value — the browser restores what it was given
+    // and never invents a proposal, which is a claim only precedence can make.
+    const ruled = press(stateOf([proposedCard()]), "i").state;
+    expect(ruled.cards[0].proposed).toBeUndefined();
+
+    const undone = press(ruled, "u").state;
+    expect(undone.cards[0].proposed).toEqual(proposal);
+    expect(undone.cards[0].status).toBe("undecided");
+    expect(candidateCounts(undone.cards).proposed).toBe(1);
+  });
+
+  it("undo on a card nothing proposed leaves it unproposed", () => {
+    // The stash is `undefined` for a card that was never a proposal, and undo
+    // must not conjure one out of the absence.
+    const ruled = press(stateOf([fullCard()]), "i").state;
+    const undone = press(ruled, "u").state;
+
+    expect(undone.cards[0].proposed).toBeUndefined();
+    expect(candidateCounts(undone.cards).proposed).toBe(0);
+  });
 });

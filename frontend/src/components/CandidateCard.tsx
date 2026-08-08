@@ -67,9 +67,10 @@ import { needsLinking } from "./cardLinking";
 import LinkToAccusationPanel from "./LinkToAccusationPanel";
 import { HumanLinkSection } from "./HumanLinkSection";
 import { candidateState, stateChip } from "./candidateFilters";
-import type { RulingKey } from "./cardTriage";
+import { DEFER_QUICK_REASONS, type RulingKey } from "./cardTriage";
 import QuestionLine from "./QuestionLine";
 import { CardHead, StateChipView, codeBadgeStyle } from "./RulingButtons";
+import type { RulingReceipt } from "./rulingAcknowledgment";
 import { openViewerWindow } from "./viewerWindow";
 import type { ScenarioCard } from "../services/scenarioCards";
 import type { AllegationOptions, LinkCut } from "../services/evidenceLinks";
@@ -195,6 +196,91 @@ const MetaRow: React.FC<{ card: ScenarioCard }> = ({ card }) => {
  * caller binds this callback to that card's id. So every card carries its own
  * controls and none of them can reach another card.
  */
+/** The receipt on a card: quiet for a landing, loud for a refusal. */
+const cardReceiptStyle: React.CSSProperties = {
+  border: "1px solid var(--border-default)",
+  borderRadius: "8px",
+  padding: "0.5rem 0.7rem",
+  marginBottom: "10px",
+  fontSize: "0.82rem",
+  color: "var(--text-secondary)",
+  background: "var(--v3-chrome)",
+};
+
+const cardReceiptFailedStyle: React.CSSProperties = {
+  ...cardReceiptStyle,
+  borderColor: "var(--state-danger-strong)",
+  color: "var(--state-danger-strong)",
+  background: "var(--bg-surface)",
+};
+
+/**
+ * The defer reason, collected ON the card (architect ruling R1, 2026-08-08).
+ *
+ * ## Why it moved here
+ *
+ * It rendered at the bottom of the queue, after a `maxHeight: 70vh` scroll
+ * window — so pressing Defer on a card near the top of that window opened a
+ * prompt the human could be a full viewport away from. §7's contract is that a
+ * card is rulable from the card alone; the one ruling that needs a word from the
+ * human was collecting it somewhere else entirely.
+ *
+ * Behaviour is unchanged and still lives in the reducer: quick picks, free text,
+ * Enter commits, Esc cancels. This is placement, not a new flow.
+ */
+const DeferReasonForm: React.FC<{
+  draft: string;
+  inputRef?: React.RefObject<HTMLInputElement>;
+  onDraft: (draft: string) => void;
+}> = ({ draft, inputRef, onDraft }) => (
+  <div
+    style={{
+      border: "1px solid var(--state-warning-strong)",
+      borderRadius: "8px",
+      padding: "10px 12px",
+      marginBottom: "12px",
+      display: "flex",
+      flexDirection: "column",
+      gap: "0.5rem",
+      background: "var(--state-warning-bg-soft)",
+    }}
+  >
+    <div style={{ fontSize: "0.8rem", color: "var(--v3-amber-text)" }}>
+      Why defer this? Enter commits · Esc cancels
+    </div>
+    <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
+      {DEFER_QUICK_REASONS.map((reason, i) => (
+        <button
+          key={reason}
+          type="button"
+          // The card's own click selects it; a quick pick is not a selection.
+          onClick={(event) => {
+            event.stopPropagation();
+            onDraft(reason);
+          }}
+          style={{ ...chipStyle, cursor: "pointer", background: "var(--bg-surface)" }}
+        >
+          {i + 1}. {reason}
+        </button>
+      ))}
+    </div>
+    <input
+      ref={inputRef}
+      value={draft}
+      onChange={(e) => onDraft(e.target.value)}
+      onClick={(e) => e.stopPropagation()}
+      placeholder="or type a reason"
+      style={{
+        border: "1px solid var(--border-default)",
+        borderRadius: "6px",
+        padding: "0.4rem 0.6rem",
+        fontWeight: 400,
+        fontFamily: "inherit",
+      }}
+    />
+  </div>
+);
+
 export const CandidateCard: React.FC<{
   card: ScenarioCard;
   /** The card the keyboard is aimed at. Raised and expanded. */
@@ -233,6 +319,23 @@ export const CandidateCard: React.FC<{
    * not thirty times by thirty cards that could each format the date differently.
    */
   proposedAttribution?: string | null;
+  /**
+   * What the last ruling did, when it was about THIS card (2026-08-08).
+   *
+   * The acknowledgment renders where the human's eye already is. `null` on every
+   * other card — the list gives it to the one card it names.
+   */
+  receipt?: RulingReceipt | null;
+  /**
+   * The open defer prompt, when it is THIS card's (architect ruling R1).
+   *
+   * The reason input renders under the action row, on the card being deferred.
+   * It used to render at the bottom of the queue below a 70vh scroll window,
+   * where it could open entirely outside the human's view.
+   */
+  deferring?: { graphNodeId: string; draft: string } | null;
+  deferInputRef?: React.RefObject<HTMLInputElement>;
+  onDeferDraft?: (draft: string) => void;
 }> = ({
   card,
   selected,
@@ -246,6 +349,10 @@ export const CandidateCard: React.FC<{
   onSaveLinks,
   onUnlink,
   proposedAttribution = null,
+  receipt = null,
+  deferring = null,
+  deferInputRef,
+  onDeferDraft,
 }) => {
   const rows = useMemo(() => cardRows(card), [card]);
   const code = rows.find((r) => r.element === "code");
@@ -310,11 +417,40 @@ export const CandidateCard: React.FC<{
         // print it a second time three inches away. A card with no panel — one
         // with no quote — keeps its sentence exactly where 1.7E-a put it.
         reasonShownElsewhere={linkPanel}
+        // D3a: the standing condition is stated on the card's face, from the
+        // stored label. `null` until the wording loads, which renders nothing
+        // rather than a compiled-in sentence.
+        lockedConditionLabel={linkOptions?.wording.card_locked_condition_label ?? null}
         unsavedLinkReason={
           linkDraftDirty && linkOptions ? linkOptions.wording.save_blocks_ruling : null
         }
         onRule={onRule}
       />
+
+      {/* R1: the reason input, on the card, directly under the action row. A
+          human who presses Defer types their reason where they are looking —
+          §7's "rulable from the card alone", applied to the one ruling that
+          needs a word from them. */}
+      {deferring && onDeferDraft && (
+        <DeferReasonForm
+          draft={deferring.draft}
+          inputRef={deferInputRef}
+          onDraft={onDeferDraft}
+        />
+      )}
+
+      {/* What the last ruling on THIS card did — landed or refused. Every ruling
+          leaves one: on beta.385 a defer wrote an anchor, a reference row and its
+          provenance, and said nothing at all, so it was reported as a dead
+          button. */}
+      {receipt && (
+        <div
+          role={receipt.failed ? "alert" : "status"}
+          style={receipt.failed ? cardReceiptFailedStyle : cardReceiptStyle}
+        >
+          {receipt.text}
+        </div>
+      )}
 
       {/* §7.1 — the question that makes a bare answer interpretable, then the
           quote in its surrounding text.

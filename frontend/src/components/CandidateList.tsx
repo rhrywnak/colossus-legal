@@ -28,6 +28,7 @@ import { CandidateCard } from "./CandidateCard";
 import { candidateState } from "./candidateFilters";
 import type { RulingKey } from "./cardTriage";
 import type { ScenarioCard } from "../services/scenarioCards";
+import type { RulingReceipt } from "./rulingAcknowledgment";
 import type { AllegationOptions, LinkCut } from "../services/evidenceLinks";
 
 /**
@@ -99,6 +100,23 @@ const CandidateList: React.FC<{
   /** Take one link back, on one named card. */
   onUnlink: (graphNodeId: string, allegationId: string) => void;
   /**
+   * What the last ruling did, or `null`. Rendered on the ONE card it names — the
+   * acknowledgment belongs where the human's eye already is, not in a banner
+   * they have to go looking for.
+   */
+  receipt: RulingReceipt | null;
+  /**
+   * The open defer prompt, or `null` (architect ruling R1, 2026-08-08).
+   *
+   * The reason input renders on the card being deferred, under its action row.
+   * It used to render at the BOTTOM of the queue, below a 70vh scroll window,
+   * where it could open entirely outside the human's view — §7 says a card is
+   * rulable from the card alone, and collecting the reason elsewhere broke that.
+   */
+  deferring: { graphNodeId: string; draft: string } | null;
+  deferInputRef: React.RefObject<HTMLInputElement>;
+  onDeferDraft: (draft: string) => void;
+  /**
    * "Proposed by the Aug 7 scan", or `null` when nothing is being proposed
    * (2026-08-08).
    *
@@ -120,6 +138,10 @@ const CandidateList: React.FC<{
   onSaveLinks,
   onUnlink,
   proposedAttribution,
+  receipt,
+  deferring,
+  deferInputRef,
+  onDeferDraft,
 }) => {
   // One ref for the selected row, re-pointed on every render. A map of refs would
   // let the effect scroll a card that is no longer selected.
@@ -188,6 +210,12 @@ const CandidateList: React.FC<{
               // own `proposed` field before showing it, so a shared sentence
               // cannot leak onto a ruled card.
               proposedAttribution={proposedAttribution}
+              // Both of these name their card, so a receipt or an open prompt
+              // can never appear on a card it is not about.
+              receipt={receipt?.graphNodeId === card.graph_node_id ? receipt : null}
+              deferring={deferring?.graphNodeId === card.graph_node_id ? deferring : null}
+              deferInputRef={deferInputRef}
+              onDeferDraft={onDeferDraft}
               keyboardRefused={selected && notice !== null}
             />
           </div>

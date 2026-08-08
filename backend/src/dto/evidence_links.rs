@@ -165,6 +165,19 @@ pub struct LinkPanelWording {
     /// The badge on a card whose one ruling settles a twin. Carries `{count}` and
     /// `{codes}`.
     pub card_proposed_covers_template: String,
+    /// Said when a ruling is stored. Carries `{code}` and `{state}`.
+    pub card_ruling_saved_template: String,
+    /// Said when a stored ruling takes the card out of the active list. Carries
+    /// `{code}` and `{filter}`.
+    pub card_ruling_left_filter_template: String,
+    /// Said when a locked card's one-press defer records the system's sentence.
+    /// Carries `{reason}`.
+    pub card_defer_recorded_template: String,
+    /// Said when a ruling could not be stored. Carries `{code}` and `{detail}`.
+    pub card_ruling_failed_template: String,
+    /// Introduces the standing reason a card cannot be included or excluded,
+    /// stated on the card's face rather than in a tooltip (D3a).
+    pub card_locked_condition_label: String,
 }
 
 /// The whole panel in one read.

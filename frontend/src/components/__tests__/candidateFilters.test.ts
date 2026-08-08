@@ -15,8 +15,10 @@ import {
   candidateCounts,
   candidateState,
   defaultFilters,
+  facetLabel,
   filterCandidates,
   hasAnyFilter,
+  matchesFilter,
   isProposed,
   isRulableNow,
   stateChip,
@@ -365,5 +367,68 @@ describe("stateChip", () => {
     // decided" — the one thing the chip must not say about a card a human
     // deliberately parked.
     expect(stateChip(candidateState(parked())).label).toBe("Deferred");
+  });
+});
+
+
+// ─── What the QUEUE asks about one card (2026-08-08) ────────────────────────
+//
+// Both of these feed the ruling acknowledgment: after a ruling the queue asks
+// whether the card is still in the list, and if it is not, names the list it
+// left. The measured defect behind them is the vanish — on beta.385 a ruled card
+// silently left the Proposed filter and the click read as a dead button.
+
+describe("matchesFilter", () => {
+  it("gives the same answer the list itself computes", () => {
+    // The property that matters: the queue's per-card question and the list's
+    // own filtering must never disagree, or the acknowledgment would announce a
+    // card leaving a list it is still in (or say nothing while it vanishes).
+    const pool = [card(), deferOnly(), included(), excluded(), parked(), proposed()];
+
+    for (const state of [
+      "all",
+      "not_ruled",
+      "rulable",
+      "proposed",
+      "deferred",
+      "included",
+      "excluded",
+    ] as const) {
+      const filters = { state };
+      const byList = filterCandidates(pool, filters).map((c) => c.graph_node_id);
+      const byPredicate = pool.filter((c) => matchesFilter(c, filters)).map((c) => c.graph_node_id);
+      expect(byPredicate, `the two disagree under "${state}"`).toEqual(byList);
+    }
+  });
+
+  it("is what tells the queue a ruled card has LEFT the proposed list", () => {
+    // The vanish, as the queue detects it: a proposed card matches, and the same
+    // card once ruled does not — which is the moment the acknowledgment has to
+    // say where it went.
+    const before = proposed();
+    const after = { ...before, status: "included" as const, proposed: undefined };
+
+    expect(matchesFilter(before, { state: "proposed" })).toBe(true);
+    expect(matchesFilter(after, { state: "proposed" })).toBe(false);
+  });
+});
+
+describe("facetLabel", () => {
+  it("names each facet exactly as its own dropdown option does", () => {
+    // The sentence says "C-14 has left the Proposed list", and the control above
+    // it says "Proposed". Two names for one list is the §9 defect in words
+    // rather than in numbers — so the label is READ from the option table the
+    // dropdown renders, never written out a second time.
+    const counts = candidateCounts([card()]);
+    for (const option of stateOptions(counts)) {
+      expect(facetLabel(option.facet)).toBe(option.label);
+    }
+  });
+
+  it("falls back to the facet key rather than an empty string", () => {
+    // An unknown facet cannot happen through the typed API, and if it ever did,
+    // "has left the  list" is a sentence with a hole in it. The key is ugly and
+    // it is legible, which is the right trade for an impossible branch.
+    expect(facetLabel("something_new" as never)).toBe("something_new");
   });
 });

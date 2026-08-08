@@ -74,16 +74,21 @@ import {
 import { chipStyle } from "./CandidateCard";
 import CandidateFilterBar from "./CandidateFilterBar";
 import CandidateList from "./CandidateList";
-import { useReducerWithEffects } from "./useQueueReducer";
-import { DEFER_QUICK_REASONS, progress } from "./cardTriage";
+import { useReducerWithEffects, type RulingOutcome } from "./useQueueReducer";
+import { progress } from "./cardTriage";
 import {
   candidateCounts,
+  candidateState,
   defaultFilters,
+  facetLabel,
   filterCandidates,
   hasAnyFilter,
+  matchesFilter,
+  stateChip,
   UNFILTERED,
   type CandidateFilters,
 } from "./candidateFilters";
+import { rulingAcknowledgment, type RulingReceipt } from "./rulingAcknowledgment";
 import { keyboardShouldRule, nextUpHint } from "./queueRegion";
 import type { AllegationOptions } from "../services/evidenceLinks";
 import { revertQuestionOverride, saveQuestionOverride } from "../services/evidenceSummary";
@@ -92,6 +97,29 @@ import { revertQuestionOverride, saveQuestionOverride } from "../services/eviden
 
 const SURFACE = "var(--bg-surface)"; // #ffffff — pure white, per §2c
 const HAIRLINE = "1px solid var(--border-default)";
+
+/**
+ * The receipt strip: what the last ruling did, when its card has left the list.
+ *
+ * Quiet by default — an acknowledgment is information, not a warning — and only
+ * the failure variant raises its voice.
+ */
+const receiptStyle: React.CSSProperties = {
+  border: "1px solid var(--border-default)",
+  borderRadius: "8px",
+  padding: "0.55rem 0.8rem",
+  margin: "0.5rem 0",
+  fontSize: "0.85rem",
+  color: "var(--text-secondary)",
+  background: "var(--v3-chrome)",
+};
+
+const receiptFailedStyle: React.CSSProperties = {
+  ...receiptStyle,
+  borderColor: "var(--state-danger-strong)",
+  color: "var(--state-danger-strong)",
+  background: "var(--bg-surface)",
+};
 
 const hintBarStyle: React.CSSProperties = {
   display: "flex",
@@ -199,7 +227,17 @@ const CardQueue: React.FC<Props> = ({
   onRulingSaved,
 }) => {
   const [error, setError] = useState<string | null>(null);
-  const [rulingError, setRulingError] = useState<string | null>(null);
+  /** A LINK write's failure. Rulings report through `receipt` instead — they know
+   *  which card they were about, and say so on it. */
+  const [linkError, setLinkError] = useState<string | null>(null);
+  /**
+   * What the last ruling did, named on the card it was about.
+   *
+   * Every ruling produces one, landed or refused (the reframed rider). It is
+   * REPLACED rather than accumulated: the human rules one card at a time, and a
+   * stack of receipts would bury the queue it is meant to annotate.
+   */
+  const [receipt, setReceipt] = useState<RulingReceipt | null>(null);
   /** The stuck pile's progress sentence, or `null` when nothing is stuck. */
   const [linkProgress, setLinkProgress] = useState<string | null>(null);
   /** The stored sentence a target-less scenario shows INSTEAD of a queue. */
@@ -222,10 +260,36 @@ const CardQueue: React.FC<Props> = ({
   // reaches it through a ref — a plain closure would capture the first `load`.
   const loadRef = useRef<() => Promise<void>>(async () => {});
 
-  const onRulingFailed = useCallback((message: string) => {
-    setRulingError(message);
-    // RECONCILE: re-read the pool so the screen shows what the database holds,
-    // not what the optimistic ruling assumed.
+  /**
+   * Say what a ruling did, and reconcile if it failed.
+   *
+   * The sentence is composed by a pure helper from the STORED templates, so this
+   * callback stays the wiring and the words stay testable. A failure also
+   * re-reads the pool: the screen must show what the database holds, not what
+   * the optimistic patch assumed.
+   */
+  const onRulingOutcome = useCallback(
+    (outcome: RulingOutcome) => {
+      const card = cardsRef.current.find((c) => c.graph_node_id === outcome.graphNodeId);
+      setReceipt(
+        rulingAcknowledgment({
+          outcome,
+          card,
+          state: card ? candidateState(card) : null,
+          stateLabel: card ? stateChip(candidateState(card)).label : null,
+          leftTheList: card ? !matchesFilter(card, filtersRef.current) : false,
+          filterLabel: facetLabel(filtersRef.current.state),
+          wording: linkOptionsRef.current?.wording ?? null,
+        }),
+      );
+      if (outcome.failure !== null) void loadRef.current();
+    },
+    [],
+  );
+
+  const onLinkFailed = useCallback((message: string) => {
+    setLinkError(message);
+    // RECONCILE: re-read the pool so the screen shows what the database holds.
     void loadRef.current();
   }, []);
 
@@ -245,11 +309,21 @@ const CardQueue: React.FC<Props> = ({
   const [state, dispatch] = useReducerWithEffects(
     slug,
     scenarioId,
-    onRulingFailed,
+    onRulingOutcome,
     onSaved,
     onLinksChanged,
+    onLinkFailed,
     linkOptions?.wording ?? null,
   );
+
+  // The outcome callback fires from a promise, long after the render that made
+  // it. Refs keep it reading TODAY's cards, filter and wording rather than the
+  // ones captured when it was created — the same reason `loadRef` exists.
+  const cardsRef = useRef(state.cards);
+  cardsRef.current = state.cards;
+  const filtersRef = useRef<CandidateFilters>(UNFILTERED);
+  const linkOptionsRef = useRef(linkOptions);
+  linkOptionsRef.current = linkOptions;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -333,6 +407,7 @@ const CardQueue: React.FC<Props> = ({
   // pass anywhere here is a number that can disagree with the filter row.
   const counts = useMemo(() => candidateCounts(state.cards), [state.cards]);
   const active = filters ?? UNFILTERED;
+  filtersRef.current = active;
   const visible = useMemo(() => filterCandidates(state.cards, active), [state.cards, active]);
 
   // The default view is computed once, from the first pool that arrives:
@@ -424,7 +499,10 @@ const CardQueue: React.FC<Props> = ({
 
   return (
     <div style={{ background: SURFACE }}>
-      {rulingError && (
+      {/* A LINK write's failure. A RULING's outcome is not shown here — it goes on
+          the card it was about, and only falls back to this strip when that card
+          has left the list (which is itself one of the things it says). */}
+      {linkError && (
         <div
           role="alert"
           style={{
@@ -437,10 +515,10 @@ const CardQueue: React.FC<Props> = ({
             fontSize: "0.85rem",
           }}
         >
-          {rulingError}
+          {linkError}
           <button
             type="button"
-            onClick={() => setRulingError(null)}
+            onClick={() => setLinkError(null)}
             style={{ ...chipStyle, marginLeft: "0.6rem", cursor: "pointer", background: SURFACE }}
           >
             Dismiss
@@ -467,6 +545,20 @@ const CardQueue: React.FC<Props> = ({
         )}
       </div>
 
+      {/* THE VANISH, said out loud. When a ruling takes its card out of the list,
+          the card is no longer there to carry its own receipt — so it is reported
+          here, above the list, where the human is already looking. This is the
+          sentence whose absence made a working defer read as a dead button on
+          beta.385. */}
+      {receipt && !visible.some((c) => c.graph_node_id === receipt.graphNodeId) && (
+        <div
+          role={receipt.failed ? "alert" : "status"}
+          style={receipt.failed ? receiptFailedStyle : receiptStyle}
+        >
+          {receipt.text}
+        </div>
+      )}
+
       <CandidateList
         cards={visible}
         selectedId={selectedId}
@@ -485,6 +577,10 @@ const CardQueue: React.FC<Props> = ({
         // ONE sentence for the whole list: only the latest completed run projects,
         // so every proposed card shares it. `null` when nothing is proposed, and
         // each card checks its own `proposed` field before rendering it.
+        // The receipt for a card still ON the list rides on that card, where the
+        // human's eye already is. `CandidateList` gives it to the one card it
+        // names and to no other.
+        receipt={receipt}
         proposedAttribution={
           proposalSource && linkOptions
             ? linkOptions.wording.card_proposed_attribution_template.replace(
@@ -504,61 +600,27 @@ const CardQueue: React.FC<Props> = ({
         onUnlink={(graphNodeId, allegationId) =>
           dispatch({ type: "unlink", graphNodeId, allegationId })
         }
+        // R1 (architect, 2026-08-08): the reason input renders ON the card being
+        // deferred, under its action row — not at the bottom of the queue, below
+        // a 70vh scroll window, where the previous prompt could open entirely
+        // outside the human's view. §7's contract is that a card is rulable from
+        // the card alone, and collecting the reason anywhere else broke it.
+        deferring={state.mode.kind === "deferring" ? state.mode : null}
+        deferInputRef={deferInputRef}
+        onDeferDraft={(draft) => dispatch({ type: "defer_draft", draft })}
       />
 
-      {state.mode.kind === "deferring" && (
-        <DeferPrompt
-          inputRef={deferInputRef}
-          draft={state.mode.draft}
-          onDraft={(draft) => dispatch({ type: "defer_draft", draft })}
-        />
-      )}
     </div>
   );
 };
 
-/** The inline defer prompt: quick picks, free text, Enter commits, Esc cancels. */
-const DeferPrompt: React.FC<{
-  draft: string;
-  onDraft: (draft: string) => void;
-  inputRef: React.RefObject<HTMLInputElement>;
-}> = ({ draft, onDraft, inputRef }) => (
-  <div
-    style={{
-      background: SURFACE,
-      borderRadius: "var(--radius-card)",
-      boxShadow: "var(--shadow-raised)",
-      padding: "14px 18px",
-      marginTop: "0.75rem",
-      display: "flex",
-      flexDirection: "column",
-      gap: "0.5rem",
-    }}
-  >
-    <div style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
-      Why defer this? Enter commits · Esc cancels
-    </div>
-    <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
-      {DEFER_QUICK_REASONS.map((reason, i) => (
-        <button
-          key={reason}
-          type="button"
-          onClick={() => onDraft(reason)}
-          style={{ ...chipStyle, cursor: "pointer", background: "var(--v3-chrome)" }}
-        >
-          {i + 1}. {reason}
-        </button>
-      ))}
-    </div>
-    <input
-      ref={inputRef}
-      value={draft}
-      onChange={(e) => onDraft(e.target.value)}
-      placeholder="or type a reason"
-      style={{ border: HAIRLINE, borderRadius: "6px", padding: "0.4rem 0.6rem", fontWeight: 400 }}
-    />
-  </div>
-);
+// The defer prompt that used to live here is GONE (architect ruling R1,
+// 2026-08-08). It rendered after the card list — i.e. below a `maxHeight: 70vh`
+// scroll window — so pressing Defer on a card near the top of that window opened
+// a prompt the human could be a full viewport away from. §7 says a card is
+// rulable from the card alone, and the one ruling that needs a word from the
+// human was collecting it somewhere else entirely. It is now `DeferReasonForm`
+// in `CandidateCard`, under the action row of the card being deferred.
 
 /**
  * The proposing run's date, as the attribution says it: "Aug 7".

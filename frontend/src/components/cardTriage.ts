@@ -112,6 +112,22 @@ export type LastRuling = {
   action: FactAction;
   /** Where the focus was, so undo returns the human to the card they ruled. */
   index: number;
+  /**
+   * What the scan was proposing about this card BEFORE the ruling, so undo can
+   * put it back (architect ruling R2, 2026-08-08).
+   *
+   * ## Domain note: a card un-ruled is proposed again
+   *
+   * Ruling a card clears its proposal, because precedence R-a says a reference
+   * row always wins and the server will stop projecting it. Undo removes that
+   * row — so the projection resumes, and the card the human is looking at should
+   * say so without waiting for a refetch. Stashing the ORIGINAL value rather
+   * than reconstructing one is what keeps this honest: the browser never invents
+   * a proposal, it only restores the one it was served.
+   *
+   * `undefined` when nothing was proposing the card.
+   */
+  proposed: ScenarioCard["proposed"];
 };
 
 export type QueueState = {
@@ -336,30 +352,58 @@ function moveSelection(state: QueueState, step: 1 | -1): QueueResult {
  * The list wears a state chip on every card (item 2). Without this patch, a human
  * who presses I watches the card stay "Not ruled" until something else reloads
  * the pool — the screen telling them their ruling did not happen. The optimistic
- * advance has always worked this way; this extends it to the one field that is
- * now visible.
+ * advance has always worked this way; this extends it to every field that is
+ * VISIBLE, which is the property that has to be maintained rather than the list.
  *
  * It stays honest because the failure path already exists: a refused ruling
- * surfaces an alert AND re-reads the pool (`useQueueReducer`), so what survives
- * on screen is what the database holds.
+ * surfaces its sentence AND re-reads the pool (`useQueueReducer`), so what
+ * survives on screen is what the database holds.
+ *
+ * ## `proposed` is cleared, and that was a measured defect (2026-08-08)
+ *
+ * A ruling makes the card human-touched, so precedence R-a stops the server
+ * projecting it — the next payload has no `proposed` at all. Until this cleared
+ * it, the queue's own Proposed facet went on counting a card it had just ruled
+ * while every server-sourced number moved: measured on DEV beta.385 as a heading
+ * reading 25 beside a facet reading 27, reconciling only on reload. The rule this
+ * function has to obey is not "patch status" but "patch everything the screen
+ * reads", and `proposed` became one of those the day the facet did.
  */
 function applyRulingToCard(
   card: ScenarioCard,
   action: FactAction,
   reason: string | undefined,
+  /**
+   * The proposal to restore — undo's stash (R2). Omitted on a forward ruling,
+   * which always clears.
+   */
+  restoreProposed?: ScenarioCard["proposed"],
 ): ScenarioCard {
   switch (action) {
     case "include":
-      return { ...card, status: "included", defer_reason: null };
+      return { ...card, status: "included", defer_reason: null, proposed: undefined };
     case "drop":
-      return { ...card, status: "dropped", defer_reason: null };
+      return { ...card, status: "dropped", defer_reason: null, proposed: undefined };
     case "defer":
       // A defer lands in `undecided` WITH a reason — that pair is what
       // distinguishes "parked" from "never looked at" (backend `FactAction`).
-      return { ...card, status: "undecided", defer_reason: reason ?? card.defer_reason };
+      // It is still a human touch, so the proposal goes with the other two.
+      return {
+        ...card,
+        status: "undecided",
+        defer_reason: reason ?? card.defer_reason,
+        proposed: undefined,
+      };
     case "undrop":
     case "reopen":
-      return { ...card, status: "undecided", defer_reason: null };
+      // The two un-ruling verbs: the reference row goes, so the projection
+      // resumes and the card carries whatever it was proposing before (R2).
+      return {
+        ...card,
+        status: "undecided",
+        defer_reason: null,
+        proposed: restoreProposed,
+      };
   }
 }
 
@@ -713,7 +757,9 @@ function rule(
       // not by the unit tests, which had only ever exercised the rescue with the
       // selection already on the ruled card.
       index: anchor,
-      lastRuling: { graphNodeId, action, index: anchor },
+      // The proposal is stashed BEFORE the patch clears it, so undo can put back
+      // exactly what the server served rather than a reconstruction (R2).
+      lastRuling: { graphNodeId, action, index: anchor, proposed: target?.proposed },
       // A card ruled twice counts once — the running count is "how many of the
       // pool have been dealt with", not "how many keys were pressed".
       ruled: state.ruled.includes(graphNodeId) ? state.ruled : [...state.ruled, graphNodeId],
@@ -741,7 +787,14 @@ function undo(state: QueueState): QueueResult {
   // The card's own state goes back with the selection — otherwise the chip would
   // still read "Included" on a card the human has just taken back.
   const cards = target
-    ? withCard(state, last.graphNodeId, applyRulingToCard(target, "reopen", undefined))
+    ? withCard(
+        state,
+        last.graphNodeId,
+        // The stash goes back with the status: a card the human un-rules is
+        // proposed again if the projection was proposing it (R2), and the next
+        // refetch is what confirms it rather than what discovers it.
+        applyRulingToCard(target, "reopen", undefined, last.proposed),
+      )
     : state.cards;
   return {
     state: {
