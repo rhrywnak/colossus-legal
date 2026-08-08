@@ -333,42 +333,49 @@ fn dropped_candidates_keep_their_ordinals_and_their_own_order() {
     assert_eq!(order, vec![7, 31], "dropped keeps its ids, in id order");
 }
 
+/// An unparseable definition must reach the resolver as "no target", which is
+/// now the state that STOPS a gather instead of starting a borrowed one.
+///
+/// This test survived the 2026-08-07 change with its assertion intact and its
+/// meaning inverted, which is worth naming: before, `target: None` was what let
+/// the fallback take over; now it is what refuses. Same property, opposite
+/// consequence — so the assertion is kept and the reason rewritten.
 #[test]
-fn fallback_definition_has_no_target() {
-    // The gather fallback must have `target: None` so the shared resolver
-    // falls through to the case default — the whole reason it exists.
-    assert!(fallback_definition().target.is_none());
-}
-
-#[test]
-fn map_subject_error_unresolvable_is_503_naming_config_key() {
-    // An unresolvable subject is a MISCONFIGURATION → 503, and the message
-    // must name the env var that fixes it (distinct from a 200 empty pool).
-    let err = map_subject_error(Uuid::nil(), SubjectResolveError::Unresolvable);
-    match err {
-        AppError::ServiceUnavailable { message } => assert!(
-            message.contains("CASE_DEFAULT_SUBJECT_NAME"),
-            "503 message must name the config key: {message}"
-        ),
-        other => panic!("expected 503 ServiceUnavailable, got {other:?}"),
-    }
-}
-
-#[test]
-fn map_subject_error_lookup_failed_is_internal_500() {
-    use serde::de::Error as _;
-    // A graph fault while resolving the default subject is a server-side 500,
-    // not a config problem. Construct the wrapped BiasRepositoryError via
-    // serde's `custom` so no live Neo4j is needed (mirrors theme_scan's tests).
-    let source = crate::bias::repository::BiasRepositoryError::Deserialize(
-        neo4rs::DeError::custom("subjects query failed"),
-    );
-    let err = map_subject_error(
-        Uuid::nil(),
-        SubjectResolveError::DefaultLookupFailed { source },
-    );
+fn an_unauthored_definition_gathers_nothing_rather_than_a_default_pool() {
+    let definition = fallback_definition();
+    assert!(definition.target.is_none());
     assert!(
-        matches!(err, AppError::Internal { .. }),
-        "a graph-layer lookup fault must map to 500 Internal"
+        matches!(
+            crate::services::scenario_subject::resolve_scenario_subject(&definition),
+            Err(SubjectResolveError::NoTarget)
+        ),
+        "an unauthored definition must resolve to NoTarget — the case-default \
+         fallback it used to reach is what served one scenario's pool under \
+         another scenario's name on 2026-08-07"
+    );
+}
+
+/// The payload a target-less scenario actually receives.
+///
+/// The resolver test above proves no subject is resolved; this proves what the
+/// caller then SENDS. They are different failures: a `no_target_notice` left at
+/// `None` here would still gather nothing, but the human would meet an empty
+/// queue with no explanation — the undiagnosed state this whole task exists to
+/// eliminate, reached by the other road.
+#[test]
+fn a_scenario_with_no_target_is_told_why_its_queue_is_empty() {
+    let notice = "No target defined — this scenario cannot gather evidence.";
+    let response = no_target_response(notice);
+
+    assert_eq!(
+        response.no_target_notice.as_deref(),
+        Some(notice),
+        "an empty gather must carry its own explanation, not just be empty"
+    );
+    assert!(response.pool.is_empty(), "nothing may be gathered");
+    assert!(
+        response.dropped.is_empty(),
+        "a scenario with no subject has no dropped candidates either — the \
+         dropped list is a ruling record, and nothing was ever ruled on"
     );
 }

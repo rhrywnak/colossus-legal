@@ -36,6 +36,7 @@ pub mod scenario_subject;
 pub mod settings_boot;
 pub mod settings_handle;
 pub mod settings_store;
+pub mod settings_wording;
 pub mod theme_scan;
 pub mod theme_scan_judge;
 pub mod theme_scan_parse;

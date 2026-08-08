@@ -19,6 +19,7 @@ use crate::domain::wording_accusation::ACCUSATION_WORDING_KEYS;
 use crate::domain::wording_authoring::AUTHORING_WORDING_KEYS;
 use crate::domain::wording_rehearsal::REHEARSAL_WORDING_KEYS;
 use crate::domain::wording_rehearsal_chrome::REHEARSAL_CHROME_KEYS;
+use crate::domain::wording_scenario_authoring::SCENARIO_AUTHORING_WORDING_KEYS;
 
 use chrono::Utc;
 
@@ -44,7 +45,7 @@ fn row(
     }
 }
 
-/// The whole store as the migrations seed it: ten numbers and 157 stored strings.
+/// The whole store as the migrations seed it: ten numbers and 170 stored strings.
 ///
 /// ## Why the wording rows come from `Wording::for_test_values` (task 2.10)
 ///
@@ -55,15 +56,19 @@ fn row(
 /// asserted.
 fn seeded() -> HashMap<String, AppSettingRecord> {
     let mut rows = numeric_rows();
-    // All five stored-string blocks, chained (2.10, 2.11 B1/B2, 2.11 C): the
-    // lists key ONE table, and a fixture holding only some of them would let a
-    // snapshot build that the real store could not.
+    // All six stored-string blocks, chained (2.10, 2.11 B1/B2, 2.11 C, and the
+    // 2026-08-07 scenario-authoring block): the lists key ONE table, and a
+    // fixture holding only some of them would let a snapshot build that the real
+    // store could not.
     let text_rows = crate::domain::wording::Wording::for_test_values()
         .into_iter()
         .chain(crate::domain::wording_accusation::AccusationWording::for_test_values())
         .chain(crate::domain::wording_rehearsal::RehearsalWording::for_test_values())
         .chain(crate::domain::wording_rehearsal_chrome::RehearsalChromeWording::for_test_values())
-        .chain(crate::domain::wording_authoring::AuthoringWording::for_test_values());
+        .chain(crate::domain::wording_authoring::AuthoringWording::for_test_values())
+        .chain(
+            crate::domain::wording_scenario_authoring::ScenarioAuthoringWording::for_test_values(),
+        );
     for (key, value) in text_rows {
         // Text rows carry no bounds: `min_value` / `max_value` are numeric
         // comparisons, and the migration leaves them NULL.
@@ -216,14 +221,21 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
         "task 2.11 C, ruling C4b: the literals that left two React components"
     );
     assert_eq!(
+        SCENARIO_AUTHORING_WORDING_KEYS.len(),
+        13,
+        "2026-08-07: the create form's two new fields, the identity modal's \
+         target control, and the no-target notice"
+    );
+    assert_eq!(
         seeded().len(),
         REQUIRED_KEYS.len()
             + WORDING_KEYS.len()
             + ACCUSATION_WORDING_KEYS.len()
             + REHEARSAL_WORDING_KEYS.len()
             + REHEARSAL_CHROME_KEYS.len()
-            + AUTHORING_WORDING_KEYS.len(),
-        "the seed and the six required lists must describe the same store"
+            + AUTHORING_WORDING_KEYS.len()
+            + SCENARIO_AUTHORING_WORDING_KEYS.len(),
+        "the seed and the seven required lists must describe the same store"
     );
 }
 

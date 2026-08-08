@@ -48,6 +48,7 @@ import { includedPickableFacts } from "../components/accusationFacts";
 import Breadcrumb from "../components/Breadcrumb";
 import ScanSection from "../components/ScanSection";
 import ScenarioDeleteConfirm from "../components/ScenarioDeleteConfirm";
+import { scenarioDeleteCopy } from "../components/scenarioDeleteCopy";
 import ScenarioFactsSection from "../components/ScenarioFactsSection";
 import ScenarioHeaderTiers from "../components/ScenarioHeaderTiers";
 import { ghostButtonStyle } from "../components/scenarioSectionStyles";
@@ -72,6 +73,7 @@ import {
 } from "../services/scenarioAugmentation";
 import { deleteScenario } from "../services/scenarioCrud";
 import { getScenarioDetailLive } from "../services/trialPrep";
+import { trialPrepPath } from "../utils/routePaths";
 import type { ScenarioDetail } from "./trialPrepData";
 
 /**
@@ -113,7 +115,7 @@ const ScenarioDetailPage: React.FC = () => {
   const { slug: slugParam, scenarioId } = useParams<{ slug: string; scenarioId: string }>();
   const slug = slugParam ?? DEFAULT_CASE_SLUG;
   const navigate = useNavigate();
-  const backCrumb = { label: "Trial Prep", to: `/cases/${slug}/trial-prep` };
+  const backCrumb = { label: "Trial Prep", to: trialPrepPath(slug) };
 
   // Gating fetch. `null` after load = a real 404, which renders the "not found"
   // empty state — distinct from a fetch error (banner) and from still-loading.
@@ -217,7 +219,7 @@ const ScenarioDetailPage: React.FC = () => {
     setDeleting(true);
     setDeleteError(null);
     deleteScenario(slug, scenarioId)
-      .then(() => navigate(`/cases/${slug}/trial-prep`))
+      .then(() => navigate(trialPrepPath(slug)))
       .catch((err: unknown) => {
         // Standing Rule 1: a failed DELETE stays visible IN the modal. We do NOT
         // navigate away or close, which would imply a success that did not happen.
@@ -522,13 +524,9 @@ const ScenarioDetailPage: React.FC = () => {
 
       {showDelete && (
         <ScenarioDeleteConfirm
-          title="Delete this scenario?"
-          message={
-            `“${scenario.attack}” and its curated facts and responses will be ` +
-            `permanently deleted. This cannot be undone. (The underlying evidence ` +
-            `in the case graph is not affected.)`
-          }
-          confirmLabel="Delete scenario"
+          // One vocabulary, two surfaces: the dashboard's card kebab asks this
+          // same question through the same builder (2026-08-07).
+          {...scenarioDeleteCopy(scenario.attack)}
           busy={deleting}
           error={deleteError}
           onConfirm={handleDelete}

@@ -19,6 +19,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::dto::scenario_authoring_wording::ScenarioIdentityWordingDto;
+
 /// One human fact, ready to render.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -110,6 +112,14 @@ pub struct AugmentationPanelDto {
     /// that forbids one — so the components now take their words as a prop, and
     /// each surface serves its own.
     pub wording: AuthoringWordingDto,
+    /// The words the identity modal speaks about this scenario's TARGET
+    /// (2026-08-07).
+    ///
+    /// Rides this payload because the modal already fetches it on open — it is
+    /// where the modal reads the identity it is about to edit. A separate
+    /// endpoint would be a second request opened at the same instant, for four
+    /// strings.
+    pub identity_wording: ScenarioIdentityWordingDto,
 }
 
 /// Request body for adding a human fact.

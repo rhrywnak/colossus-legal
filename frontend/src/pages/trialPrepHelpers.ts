@@ -46,18 +46,6 @@ export function patternFlagText(baselessRepeatCount: number | null): PatternFlag
 }
 
 /**
- * The card's "N instances · speakers · N responses" summary line. Counts come
- * straight from the payload; speakers are joined with a comma. Pure string
- * formatting — no derivation of the counts themselves.
- */
-export function scenarioMetaLine(scenario: ScenarioSummary): string {
-  const speakers = scenario.speakers.length
-    ? scenario.speakers.join(", ")
-    : "no speakers yet";
-  return `${scenario.instance_count} instances · ${speakers} · ${scenario.response_count} responses`;
-}
-
-/**
  * Order an exchange timeline chronologically by `date` ascending. Turns with a
  * `null` date (anticipated/projected moves, which have no record date) sort
  * LAST, after all dated turns. Pure: returns a new array, never mutates input.

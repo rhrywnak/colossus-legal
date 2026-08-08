@@ -3,7 +3,8 @@
 // =============================================================================
 //
 // War Room dashboard assembler — composes the Trial Prep dashboard payload from
-// the REAL scenarios in Postgres plus their live graph-derived counts.
+// the REAL scenarios in Postgres. The per-scenario DETAIL timeline additionally
+// reads the graph; the dashboard list does not (2026-08-07 — see below).
 //
 // This is DELIBERATELY NOT the existing `ScenarioPageAssembler` (services/
 // scenario_page.rs). That one composes a wielder/anchor *facts* page; this one
@@ -14,28 +15,34 @@
 // Two data sources:
 //   - Postgres (pipeline DB `colossus_legal_v2`, via `pipeline_pool`): the
 //     authored `scenarios` rows — the list of cards and their identity/status.
-//   - Neo4j (via `ScenarioRepository`): for each scenario's anchor allegation(s),
-//     the live REBUTS count that drives the card's `instance_count`.
+//     This is now the DASHBOARD's only source.
+//   - Neo4j (via `ScenarioRepository`): the anchor allegations' evidence, for
+//     ONE scenario's detail timeline (`assemble_detail`).
+//
+// Until 2026-08-07 the dashboard also read the graph, once per anchor allegation
+// per scenario, to compute a REBUTS total for each card's `instance_count`. That
+// metric was removed (Roman's ruling — see `TrialPrepMetrics`), and the reads
+// went with it: listing scenarios no longer touches Neo4j at all.
 //
 // With zero scenarios in the table the dashboard is honestly empty (no cards,
 // zeroed metrics, no alerts). Cards appear as scenarios are authored.
 //
 // Testability split: the per-record shaping (status-string → enum, record →
-// card, metrics) is pure and unit-tested without a DB/graph. Only `assemble`
-// (and its `count_record_rebuts` helper) touch I/O; those are DEV-verified, the
-// same convention the `ScenarioRepository` query methods follow.
+// card, metrics) is pure and unit-tested without a DB/graph. Only the two
+// `assemble*` methods touch I/O; those are DEV-verified, the same convention the
+// `ScenarioRepository` query methods follow.
 // =============================================================================
 
 use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::domain::scenario_code::scenario_code;
-use crate::dto::scenario::{AnchoredAllegationEvidenceResponse, AnchoredEvidenceFact};
+use crate::dto::scenario::AnchoredEvidenceFact;
+use crate::dto::scenario_authoring_wording::ScenarioCreateWordingDto;
 use crate::dto::trial_prep::{
     ExchangeTurn, ScenarioDetail, ScenarioStatus, ScenarioSummary, TrialPrepDashboard,
     TrialPrepMetrics,
 };
-use crate::neo4j::schema;
 use crate::repositories::pipeline_repository::{
     get_scenario, list_scenarios_for_case, PipelineRepoError, ScenarioRecord,
 };
@@ -107,7 +114,14 @@ pub enum ScenarioDashboardError {
 // Assembler
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Composes the dashboard from the real scenarios + their live graph counts.
+/// Assembles the dashboard LIST from Postgres scenarios, and one scenario's
+/// DETAIL timeline from Postgres plus the graph.
+///
+/// The distinction is load-bearing since 2026-08-07: `assemble` performs no
+/// graph reads at all, so a reader here for latency, caching or connection-pool
+/// reasons should not conclude from the held `ScenarioRepository` that listing
+/// scenarios touches Neo4j. It does not — the repository is here for
+/// `assemble_detail`.
 ///
 /// Holds both data-source handles, each a cheap `Clone`: `ScenarioRepository`
 /// (Arc over the Neo4j pool) and `PgPool` (Arc over the Postgres pool). Build it
@@ -134,10 +148,20 @@ impl ScenarioDashboardAssembler {
     /// allegation per scenario. Everything after that is the pure shaping in
     /// `record_to_card` / `compute_metrics`, so the mapping is unit-testable
     /// without a live DB/graph.
-    #[tracing::instrument(skip(self), fields(case_slug = %case_slug))]
+    ///
+    /// ## Why the wording arrives as a PARAMETER and not from a held handle
+    ///
+    /// The assembler owns two data-source handles and no `AppState` — that is
+    /// what keeps it constructible in a test from a repo and a pool. Giving it a
+    /// `SettingsHandle` to read the create form's words from would drag the whole
+    /// configuration store into every construction site. The caller already holds
+    /// a snapshot (`state.settings.current()`), so it passes the block it needs;
+    /// the assembler stays a shaper of data it was handed.
+    #[tracing::instrument(skip(self, create_wording), fields(case_slug = %case_slug))]
     pub async fn assemble(
         &self,
         case_slug: &str,
+        create_wording: ScenarioCreateWordingDto,
     ) -> Result<TrialPrepDashboard, ScenarioDashboardError> {
         let records = list_scenarios_for_case(&self.pipeline_pool, case_slug)
             .await
@@ -146,11 +170,14 @@ impl ScenarioDashboardAssembler {
                 source,
             })?;
 
-        let mut cards = Vec::with_capacity(records.len());
-        for record in &records {
-            let instance_count = self.count_record_rebuts(record).await?;
-            cards.push(record_to_card(record, instance_count)?);
-        }
+        // Pure shaping, no I/O. Until 2026-08-07 this loop ran one graph read per
+        // anchor allegation per scenario to compute a REBUTS count for the card —
+        // the dashboard's only per-scenario graph traffic. Dropping the metric
+        // dropped the reads with it.
+        let cards = records
+            .iter()
+            .map(record_to_card)
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(TrialPrepDashboard {
             metrics: compute_metrics(&cards),
@@ -158,6 +185,7 @@ impl ScenarioDashboardAssembler {
             // NOT the old hardcoded placeholder strings.
             alerts: Vec::new(),
             scenarios: cards,
+            create_wording,
         })
     }
 
@@ -199,34 +227,6 @@ impl ScenarioDashboardAssembler {
         }
 
         Ok(Some(build_detail(&record, &facts)?))
-    }
-
-    /// Sum the live REBUTS count across all of a scenario's anchor allegations.
-    ///
-    /// A scenario may have 0, 1, or several anchors (`Option<Vec<String>>`). No
-    /// anchors → 0 (a not-yet-anchored scenario is valid; it shows 0, not an
-    /// error). Each anchor's graph read that fails is wrapped with that anchor's
-    /// id so the failure names WHERE it occurred.
-    async fn count_record_rebuts(
-        &self,
-        record: &ScenarioRecord,
-    ) -> Result<u32, ScenarioDashboardError> {
-        let anchors = record.anchor_allegation_ids.as_deref().unwrap_or(&[]);
-
-        let mut total = 0u32;
-        for anchor in anchors {
-            let evidence = self
-                .repo
-                .anchored_allegation_evidence(anchor, EvidencePolarity::Both)
-                .await
-                .map_err(|source| ScenarioDashboardError::Repository {
-                    scenario_id: record.scenario_id.to_string(),
-                    allegation_id: anchor.clone(),
-                    source: Box::new(source),
-                })?;
-            total += count_rebuts(&evidence);
-        }
-        Ok(total)
     }
 }
 
@@ -323,18 +323,6 @@ fn fact_to_turn(fact: &AnchoredEvidenceFact) -> ExchangeTurn {
     }
 }
 
-/// Count the facts whose edge is a REBUTS.
-///
-/// Compares against `schema::REBUTS` rather than a re-spelled `"REBUTS"` literal
-/// (Rule 16 — no magic strings; a rename in schema.rs flows here automatically).
-fn count_rebuts(evidence: &AnchoredAllegationEvidenceResponse) -> u32 {
-    evidence
-        .facts
-        .iter()
-        .filter(|f| f.polarity == schema::REBUTS)
-        .count() as u32
-}
-
 /// Parse a DB status string into the `ScenarioStatus` enum.
 ///
 /// ## Rust Learning: reuse the enum's `Deserialize` as the single vocabulary source
@@ -353,25 +341,26 @@ fn parse_status(status: &str, scenario_id: Uuid) -> Result<ScenarioStatus, Scena
     )
 }
 
-/// Map one scenario record + its computed REBUTS count into a dashboard card.
+/// Map one scenario record into a dashboard card.
 ///
-/// Several fields are honestly empty for this chunk because their sources are not
-/// wired yet (documented inline) — they are NOT placeholders to be invented.
-fn record_to_card(
-    record: &ScenarioRecord,
-    instance_count: u32,
-) -> Result<ScenarioSummary, ScenarioDashboardError> {
+/// ## Why this no longer takes a count (2026-08-07)
+///
+/// It used to take an `instance_count` — a live REBUTS total the caller computed
+/// with one graph read per anchor allegation, per scenario, on every dashboard
+/// load. Roman ruled the number earned nothing: nobody could act on it, and its
+/// name collided with task 2.11's unrelated "accusation instances".
+///
+/// Removing it took `response_count` and `speakers` with it. Both were honest
+/// stubs, and both existed only to fill out the card line that displayed the
+/// count. With the line gone they had no reader, and a served field nobody reads
+/// is a field the next person has to work out the status of.
+fn record_to_card(record: &ScenarioRecord) -> Result<ScenarioSummary, ScenarioDashboardError> {
     Ok(ScenarioSummary {
         // The frontend uses the id for the detail-page link.
         id: record.scenario_id.to_string(),
         code: scenario_code(record.code_ordinal),
         attack: record.name.clone(),
         status: parse_status(&record.status, record.scenario_id)?,
-        instance_count,
-        // Responses are not wired until a later chunk — honest 0, not a placeholder.
-        response_count: 0,
-        // Speaker derivation is not sourced yet — honest empty.
-        speakers: Vec::new(),
         // Pattern analysis is not wired — `None` = "not yet analysed" (pending),
         // the correct state (distinct from `Some(0)` = "analysed, none found").
         baseless_repeat_count: None,
@@ -389,12 +378,15 @@ fn record_to_card(
 /// 2026-07-27; see the note on [`TrialPrepMetrics`]. A band figure computed from
 /// a stub is not forward-correct, it is a constant wearing a measurement's
 /// clothes, and it reads identically to a real result.
+///
+/// `instances` was removed on 2026-08-07 for the opposite reason: it was a real
+/// measurement of something nobody could act on. Three figures remain, and each
+/// answers a question a human actually asks of this page.
 fn compute_metrics(cards: &[ScenarioSummary]) -> TrialPrepMetrics {
     TrialPrepMetrics {
         scenarios: cards.len() as u32,
         ready: count_status(cards, ScenarioStatus::Ready),
         drafted_or_review: count_status(cards, ScenarioStatus::Draft),
-        instances: cards.iter().map(|c| c.instance_count).sum(),
     }
 }
 
@@ -410,7 +402,11 @@ fn count_status(cards: &[ScenarioSummary], status: ScenarioStatus) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    // Only the timeline tests still name graph relationship types; production
+    // code here stopped touching them when the REBUTS count was removed, so the
+    // import lives with its remaining users rather than at file scope.
     use crate::dto::scenario::AnchoredEvidenceFact;
+    use crate::neo4j::schema;
 
     /// A scenario record with a given status / anchors (other fields fixed).
     fn record(status: &str, anchors: Option<Vec<String>>) -> ScenarioRecord {
@@ -446,17 +442,13 @@ mod tests {
         }
     }
 
-    /// A dashboard card with a given status + counts (other fields the chunk-2
-    /// honest defaults).
-    fn card_with(status: ScenarioStatus, instance_count: u32) -> ScenarioSummary {
+    /// A dashboard card with a given status (other fields the honest defaults).
+    fn card_with(status: ScenarioStatus) -> ScenarioSummary {
         ScenarioSummary {
             code: "S-1".to_string(),
             id: "card".to_string(),
             attack: "attack".to_string(),
             status,
-            instance_count,
-            response_count: 0,
-            speakers: Vec::new(),
             baseless_repeat_count: None,
         }
     }
@@ -476,19 +468,6 @@ mod tests {
             // recorded state.
             grounding_status: None,
         }
-    }
-
-    #[test]
-    fn count_rebuts_counts_only_rebuts() {
-        let resp = AnchoredAllegationEvidenceResponse {
-            allegation_id: "doc-x:allegation:abc".to_string(),
-            facts: vec![
-                evidence_fact(schema::REBUTS),
-                evidence_fact(schema::REBUTS),
-                evidence_fact(schema::CORROBORATES),
-            ],
-        };
-        assert_eq!(count_rebuts(&resp), 2);
     }
 
     #[test]
@@ -546,35 +525,32 @@ mod tests {
     }
 
     #[test]
-    fn record_to_card_carries_count_and_honest_defaults() {
-        let card = record_to_card(&record("ready", None), 7).expect("maps");
-        assert_eq!(card.instance_count, 7);
+    fn record_to_card_carries_the_record_and_honest_defaults() {
+        let card = record_to_card(&record("ready", None)).expect("maps");
         assert_eq!(card.status, ScenarioStatus::Ready);
         assert_eq!(card.attack, "Marie is obstructive");
         assert_eq!(card.id, "00000000-0000-0000-0000-000000000000");
-        // Unwired fields are honestly empty/zero/None.
-        assert_eq!(card.response_count, 0);
-        assert!(card.speakers.is_empty());
+        // Pattern analysis is unwired: `None` = not yet analysed, which is a
+        // different statement from `Some(0)` = analysed, none found.
         assert_eq!(card.baseless_repeat_count, None);
     }
 
     #[test]
     fn record_to_card_propagates_unknown_status() {
-        assert!(record_to_card(&record("bogus", None), 0).is_err());
+        assert!(record_to_card(&record("bogus", None)).is_err());
     }
 
     #[test]
     fn compute_metrics_over_mixed_cards() {
         let cards = vec![
-            card_with(ScenarioStatus::Ready, 4),
-            card_with(ScenarioStatus::Draft, 2),
-            card_with(ScenarioStatus::NeedsEvidence, 0),
+            card_with(ScenarioStatus::Ready),
+            card_with(ScenarioStatus::Draft),
+            card_with(ScenarioStatus::NeedsEvidence),
         ];
         let m = compute_metrics(&cards);
         assert_eq!(m.scenarios, 3);
         assert_eq!(m.ready, 1);
         assert_eq!(m.drafted_or_review, 1); // one Draft
-        assert_eq!(m.instances, 6); // 4 + 2 + 0
     }
 
     #[test]
@@ -583,16 +559,19 @@ mod tests {
         assert_eq!(m.scenarios, 0);
         assert_eq!(m.ready, 0);
         assert_eq!(m.drafted_or_review, 0);
-        assert_eq!(m.instances, 0);
     }
 
-    /// The band carries ONLY figures with a real source. Pinning the field set
-    /// stops a future edit from quietly re-deriving a metric from one of the
-    /// card stubs (`response_count: 0`, `baseless_repeat_count: None`), which is
-    /// how the two removed figures came to read as measurements.
+    /// The band carries ONLY figures a human can act on.
+    ///
+    /// Pinning the field set is the guard against both ways this band has gone
+    /// wrong: re-deriving a metric from a card stub (how `baseless_repeat_patterns`
+    /// and `no_response_yet` came to read as measurements on 2026-07-27), and
+    /// re-introducing `instances` — a real graph count of something nobody could
+    /// act on, whose name collided with 2.11's "accusation instances"
+    /// (2026-08-07). A fourth key appearing here fails this test by name.
     #[test]
-    fn metrics_band_exposes_no_stub_derived_figure() {
-        let m = compute_metrics(&[card_with(ScenarioStatus::Ready, 1)]);
+    fn metrics_band_exposes_no_figure_nobody_can_act_on() {
+        let m = compute_metrics(&[card_with(ScenarioStatus::Ready)]);
         let value = serde_json::to_value(m).expect("metrics serialize");
         // `serde_json::Value` keys are a BTreeMap, so compare as a sorted set —
         // the assertion is about WHICH figures the band exposes, not their order.
@@ -603,10 +582,7 @@ mod tests {
             .map(String::as_str)
             .collect();
         keys.sort_unstable();
-        assert_eq!(
-            keys,
-            vec!["drafted_or_review", "instances", "ready", "scenarios"]
-        );
+        assert_eq!(keys, vec!["drafted_or_review", "ready", "scenarios"]);
     }
 
     /// The card field itself keeps its three states — `Some(n>0)` (a pattern),
@@ -615,11 +591,11 @@ mod tests {
     /// the thing pattern analysis will populate, so it is pinned here.
     #[test]
     fn card_baseless_repeat_keeps_its_three_states() {
-        let mut positive = card_with(ScenarioStatus::Ready, 1);
+        let mut positive = card_with(ScenarioStatus::Ready);
         positive.baseless_repeat_count = Some(2);
-        let mut analysed_none_found = card_with(ScenarioStatus::Draft, 0);
+        let mut analysed_none_found = card_with(ScenarioStatus::Draft);
         analysed_none_found.baseless_repeat_count = Some(0);
-        let pending = card_with(ScenarioStatus::Draft, 0);
+        let pending = card_with(ScenarioStatus::Draft);
 
         assert_eq!(positive.baseless_repeat_count, Some(2));
         assert_eq!(analysed_none_found.baseless_repeat_count, Some(0));

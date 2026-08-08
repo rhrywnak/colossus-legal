@@ -277,26 +277,10 @@ fn pre_row_server_side_failures_keep_their_message() {
         other => panic!("expected a 500 carrying its message, got {other:?}"),
     }
 
-    // The third variant in the arm. Asserted individually rather than trusted to
-    // the shared arm expression: the arm is one line TODAY, and a future edit that
-    // splits it is exactly when a silently-stripped message would reappear.
-    use serde::de::Error as _;
-    let subject = ThemeScanError::SubjectResolveFailed {
-        scenario_id,
-        source: crate::bias::repository::BiasRepositoryError::Deserialize(neo4rs::DeError::custom(
-            "no route to host",
-        )),
-    };
-    match map_scan_error(subject) {
-        AppError::Internal { message } => {
-            assert!(message.contains(&scenario_id.to_string()), "{message}");
-            assert!(
-                message.contains("graph is reachable"),
-                "no recovery action: {message}"
-            );
-        }
-        other => panic!("expected a 500 carrying its message, got {other:?}"),
-    }
+    // There were three variants in this arm until 2026-08-07.
+    // `SubjectResolveFailed` was retired with the case-default fallback that was
+    // its only cause — resolving a subject no longer touches the graph, so it can
+    // no longer fail at the graph.
 }
 
 /// A missing judging prompt is a 503 that NAMES THE PATH.

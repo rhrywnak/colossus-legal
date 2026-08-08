@@ -110,6 +110,28 @@ export const navButtonStyle: React.CSSProperties = {
   cursor: "pointer",
 };
 
+/**
+ * `.navbtn` at the end of the list — a control with nowhere to go.
+ *
+ * ## Why a disabled ATTRIBUTE was not enough
+ *
+ * ‹ Back / Next › already carried `disabled` and already refused to act at the
+ * bounds. What they did not do was LOOK it: the base style's `cursor: pointer`
+ * and `--text-secondary` survived, so a control that was inert read as alive.
+ * Measured on .382 with one ready scenario, where both arrows are at a bound —
+ * a witness clicking a button that visibly does nothing concludes the page is
+ * broken, which is worse than the page saying "this is the end".
+ *
+ * A disabled control is its own disclosure, so no wording row is needed here.
+ * The colour is the existing `--text-disabled` token, which the app already uses
+ * for exactly this (`ProcessingPanel`, `UploadDialog`, `CandidateFilterBar`).
+ */
+export const navButtonDisabledStyle: React.CSSProperties = {
+  ...navButtonStyle,
+  color: "var(--text-disabled)",
+  cursor: "not-allowed",
+};
+
 /** `.foldrow .navbtn` — the same control, one notch smaller. */
 export const foldButtonStyle: React.CSSProperties = {
   ...navButtonStyle,

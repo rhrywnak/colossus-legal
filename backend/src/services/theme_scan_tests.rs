@@ -60,29 +60,19 @@ fn display_definition_invalid_surfaces_id() {
     );
 }
 
-/// The four variants that the 400 split left TOAST-ONLY each carry a recovery
-/// action in the message itself.
+/// The variants that the 400 split left TOAST-ONLY each carry a recovery action
+/// in the message itself.
 ///
 /// They fail before the run stub is written, so there is no Run History row to
 /// open later and no `error` column to read — the sentence the caller sees is the
 /// entire diagnosis. Grouped in one test because it is one property, asserted
 /// per-variant so a failure names which message lost its ending.
+///
+/// `SubjectResolveFailed` was one of these until 2026-08-07 and is now gone; the
+/// no-target refusal it sat beside is covered by
+/// `display_subject_unresolvable_sends_the_human_to_the_identity_they_must_author`.
 #[test]
 fn the_toast_only_variants_each_name_a_recovery_action() {
-    use serde::de::Error as _;
-    let id = Uuid::nil();
-
-    let subject_resolve = ThemeScanError::SubjectResolveFailed {
-        scenario_id: id,
-        source: BiasRepositoryError::Deserialize(neo4rs::DeError::custom("no route to host")),
-    }
-    .to_string();
-    assert!(
-        subject_resolve.contains("graph is reachable")
-            && subject_resolve.contains("CASE_DEFAULT_SUBJECT_NAME"),
-        "must name both recoveries (graph health, subject config): {subject_resolve}"
-    );
-
     let model_lookup = ThemeScanError::ModelLookupFailed {
         model_id: "qwen-14b".to_string(),
         source: sqlx::Error::PoolTimedOut,
@@ -121,31 +111,28 @@ fn display_candidate_read_failed_names_subject_and_source() {
     assert!(s.contains("bad row"), "source not surfaced: {s}");
 }
 
+/// The refusal a human meets when they start a scan on a scenario that names
+/// nobody must tell them how to fix it — and since 2026-08-07 the fix is an
+/// authoring action, not a deployment one.
+///
+/// Before that date this message named `CASE_DEFAULT_SUBJECT_NAME`, which sent
+/// the reader to an env var that was never their problem: the scenario was
+/// missing a target, and the config key existed only to paper over that.
 #[test]
-fn display_subject_unresolvable_names_id_and_config_key() {
+fn display_subject_unresolvable_sends_the_human_to_the_identity_they_must_author() {
     let id = Uuid::nil();
     let s = ThemeScanError::SubjectUnresolvable { scenario_id: id }.to_string();
     assert!(s.contains(&id.to_string()), "missing scenario id: {s}");
+    assert!(s.contains("target"), "missing what is absent: {s}");
     assert!(
-        s.contains("CASE_DEFAULT_SUBJECT_NAME"),
-        "missing the config key that fixes it: {s}"
+        s.contains("identity"),
+        "missing the control that fixes it: {s}"
     );
-}
-
-#[test]
-fn display_subject_resolve_failed_names_id_and_source() {
-    use serde::de::Error as _;
-    let id = Uuid::nil();
-    // Same construction as the candidate-read test: a neo4rs deserialization
-    // error via serde's `custom`, needing no live Neo4j connection.
-    let source = BiasRepositoryError::Deserialize(neo4rs::DeError::custom("subjects query"));
-    let s = ThemeScanError::SubjectResolveFailed {
-        scenario_id: id,
-        source,
-    }
-    .to_string();
-    assert!(s.contains(&id.to_string()), "missing scenario id: {s}");
-    assert!(s.contains("subjects query"), "source not surfaced: {s}");
+    assert!(
+        !s.contains("CASE_DEFAULT_SUBJECT_NAME"),
+        "the case-default fallback is gone; naming its env var sends the human \
+         to a setting that cannot help them: {s}"
+    );
 }
 
 #[test]

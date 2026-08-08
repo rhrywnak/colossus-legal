@@ -26,6 +26,7 @@ pub mod rehearsal;
 pub mod scenario;
 pub mod scenario_accusation;
 pub mod scenario_augmentation;
+pub mod scenario_authoring_wording;
 pub mod scenario_card;
 pub mod scenario_crud;
 pub mod scenario_curation;
@@ -59,6 +60,9 @@ pub use scenario::{
     ScenarioContradiction, ScenarioContradictionEvidence, ScenarioContradictionsResponse,
     ScenarioPage, ScenarioPageParams, ScenarioRebuttalFact, ScenarioRebuttalFactsResponse,
     ScenarioRelatedAllegation, ScenarioRelatedAllegationsResponse,
+};
+pub use scenario_authoring_wording::{
+    create_wording, identity_wording, ScenarioCreateWordingDto, ScenarioIdentityWordingDto,
 };
 pub use scenario_crud::{
     ScenarioCreateRequest, ScenarioDefinition, ScenarioDto, ScenarioUpdateRequest, Wielder,

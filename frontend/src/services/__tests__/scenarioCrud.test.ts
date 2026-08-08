@@ -52,6 +52,10 @@ describe("createScenario", () => {
       name: "Marie is obstructive and uncooperative",
       direction: "defense",
       status: "draft",
+      // Required since 2026-08-07: a create call that would produce an
+      // un-authored scenario no longer type-checks.
+      target: "person-marie-awad",
+      accusation: "George said Marie was unreasonable to work with.",
       anchor_allegation_ids: ["doc-x:allegation:abc"],
     };
 
@@ -77,7 +81,12 @@ describe("createScenario", () => {
     });
 
     await expect(
-      createScenario(SLUG, { name: "", direction: "defense" }),
+      createScenario(SLUG, {
+        name: "",
+        direction: "defense",
+        target: "person-marie-awad",
+        accusation: "an accusation",
+      }),
     ).rejects.toThrow(/HTTP 400.*name must not be empty/);
   });
 
@@ -92,7 +101,12 @@ describe("createScenario", () => {
     });
 
     await expect(
-      createScenario(SLUG, { name: "x", direction: "offense" }),
+      createScenario(SLUG, {
+        name: "x",
+        direction: "offense",
+        target: "person-marie-awad",
+        accusation: "an accusation",
+      }),
     ).rejects.toThrow(/was not valid JSON/);
   });
 
@@ -105,7 +119,12 @@ describe("createScenario", () => {
     });
 
     await expect(
-      createScenario(SLUG, { name: "x", direction: "offense" }),
+      createScenario(SLUG, {
+        name: "x",
+        direction: "offense",
+        target: "person-marie-awad",
+        accusation: "an accusation",
+      }),
     ).rejects.toThrow(/contract mismatch/);
   });
 });

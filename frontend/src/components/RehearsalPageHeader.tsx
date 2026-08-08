@@ -13,6 +13,12 @@
 // Back button must never be the only way out of a surface a witness is reading
 // from under stress — and a breadcrumb is a convention some readers do not use.
 //
+// Both of those pointed at `/cases/:slug/scenarios/:id` until the .382 fix — a
+// route App.tsx has never declared, so BOTH ways out of this surface 404'd and
+// the redundancy ruling 7 bought protected nothing. They compose through
+// `utils/routePaths` now, and a test pins what it emits against what App.tsx
+// declares. Nothing on this page spells a route by hand.
+//
 // ## Why this is its own file
 //
 // Rule 17: the page went past 300 lines with it inline. The seam is real — this
@@ -26,6 +32,7 @@ import {
   foldButtonStyle,
   foldRowStyle,
   linkStyle,
+  navButtonDisabledStyle,
   navButtonStyle,
   navGroupStyle,
   pageHeadStyle,
@@ -33,6 +40,7 @@ import {
   purposeStyle,
 } from "./rehearsalStyles";
 import type { RehearsalPayload, RehearsalScenario } from "../services/rehearsal";
+import { scenarioPagePath, trialPrepPath } from "../utils/routePaths";
 import { Link } from "react-router-dom";
 
 interface Props {
@@ -70,13 +78,13 @@ const RehearsalPageHeader: React.FC<Props> = ({
 }) => (
   <>
     <div style={crumbStyle}>
-      <Link to={`/cases/${slug}/trial-prep`} style={linkStyle}>
+      <Link to={trialPrepPath(slug)} style={linkStyle}>
         {wording.crumb_trial_prep_label}
       </Link>
       {scenario && (
         <>
           {" › "}
-          <Link to={`/cases/${slug}/scenarios/${scenario.scenario_id}`} style={linkStyle}>
+          <Link to={scenarioPagePath(slug, scenario.scenario_id)} style={linkStyle}>
             {scenario.code} · {scenario.title}
           </Link>
         </>
@@ -99,17 +107,30 @@ const RehearsalPageHeader: React.FC<Props> = ({
       <div style={navGroupStyle}>
         {scenario && (
           <Link
-            to={`/cases/${slug}/scenarios/${scenario.scenario_id}`}
+            to={scenarioPagePath(slug, scenario.scenario_id)}
             style={{ ...navButtonStyle, textDecoration: "none" }}
           >
             {wording.scenario_page_label} ↗
           </Link>
         )}
-        <button type="button" onClick={onPrevious} disabled={atFirst} style={navButtonStyle}>
+        {/* The style follows the attribute, so an inert control never reads as
+            an alive one (see `navButtonDisabledStyle`). With one ready scenario
+            BOTH arrows are at a bound, which is the case Roman measured. */}
+        <button
+          type="button"
+          onClick={onPrevious}
+          disabled={atFirst}
+          style={atFirst ? navButtonDisabledStyle : navButtonStyle}
+        >
           ‹ {wording.previous_label}
         </button>
         <span>{position}</span>
-        <button type="button" onClick={onNext} disabled={atLast} style={navButtonStyle}>
+        <button
+          type="button"
+          onClick={onNext}
+          disabled={atLast}
+          style={atLast ? navButtonDisabledStyle : navButtonStyle}
+        >
           {wording.next_label} ›
         </button>
       </div>

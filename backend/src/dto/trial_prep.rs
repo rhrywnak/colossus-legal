@@ -12,13 +12,15 @@
 // that — it encodes the field-by-field contract cross-check as an assertion.
 //
 // Field-name casing: the TS interface already uses snake_case keys
-// (`instance_count`, `drafted_or_review`, …), so these Rust fields are spelled
+// (`drafted_or_review`, `baseless_repeat_count`, …), so these Rust fields are spelled
 // snake_case and serialize verbatim — no `rename_all` needed on the data structs.
 // Only the status *enum* needs `rename_all = "snake_case"` to map Rust's
 // CamelCase variants onto the lowercase wire tokens.
 // =============================================================================
 
 use serde::{Deserialize, Serialize};
+
+use crate::dto::scenario_authoring_wording::ScenarioCreateWordingDto;
 
 /// Scenario lifecycle — drives the status dot and labels on each card.
 ///
@@ -54,9 +56,6 @@ pub struct ScenarioSummary {
     pub code: String,
     pub attack: String,
     pub status: ScenarioStatus,
-    pub instance_count: u32,
-    pub response_count: u32,
-    pub speakers: Vec<String>,
 
     /// `None` = pattern analysis pending; `Some(0)` = analysed, no baseless
     /// repeat.
@@ -88,21 +87,31 @@ pub struct TrialPrepAlert {
 /// `> 0`; that field is hardcoded `None` because pattern analysis is unwired, so
 /// the figure was **structurally 0** — indistinguishable on screen from a real
 /// zero. `no_response_yet` counted cards with `response_count == 0`; that field
-/// is hardcoded `0`, so the figure **always equalled the scenario count**.
+/// was hardcoded `0`, so the figure **always equalled the scenario count**.
 ///
-/// The underlying card fields are deliberately untouched:
-/// `ScenarioSummary::baseless_repeat_count` stays `None` (an honest "not yet
-/// analysed", distinct from `Some(0)`) and `response_count` stays `0`. What was
-/// wrong was not the stubs — which say what they are — but deriving band
-/// figures from them and presenting the result as a measurement. Both return
-/// when their sources are real.
+/// What was wrong there was not the stubs — which say what they are — but
+/// deriving band figures from them and presenting the result as a measurement.
+/// Both return when their sources are real.
+///
+/// ## And a third on 2026-08-07: `instances` (Roman's ruling)
+///
+/// This one was NOT a stub — it was a live per-scenario graph read, summing
+/// REBUTS relationships across each scenario's anchor allegations. It is gone
+/// for a different reason: it earned nothing. Nobody could act on the number,
+/// and its name collided head-on with task 2.11's "accusation instances", which
+/// counts something entirely unrelated. Two meanings for one word on one product
+/// is worse than no number.
+///
+/// The per-card `instance_count`, `speakers` and `response_count` went with it.
+/// `instance_count` was the graph read; the other two were the rest of the card
+/// line that displayed it, hardcoded stubs with no remaining reader once the
+/// line was gone.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TrialPrepMetrics {
     pub scenarios: u32,
     pub ready: u32,
     pub drafted_or_review: u32,
-    pub instances: u32,
 }
 
 /// The full dashboard payload — mirrors `TrialPrepDashboard` in
@@ -114,6 +123,16 @@ pub struct TrialPrepDashboard {
     pub metrics: TrialPrepMetrics,
     pub alerts: Vec<TrialPrepAlert>,
     pub scenarios: Vec<ScenarioSummary>,
+    /// The words the create-scenario form speaks (2026-08-07).
+    ///
+    /// ## Why they ride the dashboard payload rather than their own endpoint
+    ///
+    /// The form lives on this page and nowhere else, and this page already
+    /// fetches exactly once on mount. A dedicated route would be a second
+    /// request for five strings, on a surface that has one; riding along means
+    /// the form's words and the scenario cards beside it come from one snapshot
+    /// of the settings store and cannot disagree.
+    pub create_wording: ScenarioCreateWordingDto,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -238,40 +257,7 @@ mod tests {
     /// an omitted key.
     #[test]
     fn dashboard_serializes_to_contract_shape() {
-        let dashboard = TrialPrepDashboard {
-            metrics: TrialPrepMetrics {
-                scenarios: 5,
-                ready: 1,
-                drafted_or_review: 3,
-                instances: 16,
-            },
-            alerts: vec![TrialPrepAlert {
-                message: "an alert".to_string(),
-            }],
-            scenarios: vec![
-                ScenarioSummary {
-                    code: "S-1".to_string(),
-                    id: "marie-obstructive".to_string(),
-                    attack: "Marie is obstructive".to_string(),
-                    status: ScenarioStatus::NeedsEvidence,
-                    instance_count: 4,
-                    response_count: 1,
-                    speakers: vec!["CFS".to_string()],
-                    baseless_repeat_count: Some(3),
-                },
-                ScenarioSummary {
-                    code: "S-2".to_string(),
-                    id: "selective-sanctions".to_string(),
-                    attack: "Selective sanctions".to_string(),
-                    status: ScenarioStatus::Draft,
-                    instance_count: 2,
-                    response_count: 1,
-                    speakers: vec!["CFS".to_string()],
-                    // Analysis pending → must serialize as null, not be omitted.
-                    baseless_repeat_count: None,
-                },
-            ],
-        };
+        let dashboard = sample_dashboard();
 
         let value = serde_json::to_value(&dashboard).expect("dashboard serializes");
 
@@ -282,7 +268,6 @@ mod tests {
                     "scenarios": 5,
                     "ready": 1,
                     "drafted_or_review": 3,
-                    "instances": 16,
                 },
                 "alerts": [{ "message": "an alert" }],
                 "scenarios": [
@@ -291,9 +276,6 @@ mod tests {
                         "id": "marie-obstructive",
                         "attack": "Marie is obstructive",
                         "status": "needs_evidence",
-                        "instance_count": 4,
-                        "response_count": 1,
-                        "speakers": ["CFS"],
                         "baseless_repeat_count": 3
                     },
                     {
@@ -301,14 +283,99 @@ mod tests {
                         "id": "selective-sanctions",
                         "attack": "Selective sanctions",
                         "status": "draft",
-                        "instance_count": 2,
-                        "response_count": 1,
-                        "speakers": ["CFS"],
                         "baseless_repeat_count": null
                     }
-                ]
+                ],
+                "create_wording": {
+                    "target_label": "Who this scenario is about",
+                    "target_helper": "Evidence is gathered about this person.",
+                    "target_unset_option": "Choose a person…",
+                    "accusation_label": "The accusation, in plain language",
+                    "accusation_helper": "What the other side is saying.",
+                    "target_required": "Choose who this scenario is about.",
+                    "accusation_required": "Write the accusation in plain language."
+                }
             })
         );
+    }
+
+    /// The dashboard payload both serialization tests read.
+    ///
+    /// One fixture rather than two: the contract test below asserts the exact
+    /// JSON, and the removal test asserts which keys are ABSENT. Two fixtures
+    /// would let the second one keep passing against a shape the first no longer
+    /// describes.
+    fn sample_dashboard() -> TrialPrepDashboard {
+        TrialPrepDashboard {
+            metrics: TrialPrepMetrics {
+                scenarios: 5,
+                ready: 1,
+                drafted_or_review: 3,
+            },
+            alerts: vec![TrialPrepAlert {
+                message: "an alert".to_string(),
+            }],
+            scenarios: vec![
+                ScenarioSummary {
+                    code: "S-1".to_string(),
+                    id: "marie-obstructive".to_string(),
+                    attack: "Marie is obstructive".to_string(),
+                    status: ScenarioStatus::NeedsEvidence,
+                    baseless_repeat_count: Some(3),
+                },
+                ScenarioSummary {
+                    code: "S-2".to_string(),
+                    id: "selective-sanctions".to_string(),
+                    attack: "Selective sanctions".to_string(),
+                    status: ScenarioStatus::Draft,
+                    // Analysis pending → must serialize as null, not be omitted.
+                    baseless_repeat_count: None,
+                },
+            ],
+            create_wording: ScenarioCreateWordingDto {
+                target_label: "Who this scenario is about".to_string(),
+                target_helper: "Evidence is gathered about this person.".to_string(),
+                target_unset_option: "Choose a person…".to_string(),
+                accusation_label: "The accusation, in plain language".to_string(),
+                accusation_helper: "What the other side is saying.".to_string(),
+                target_required: "Choose who this scenario is about.".to_string(),
+                accusation_required: "Write the accusation in plain language.".to_string(),
+            },
+        }
+    }
+
+    /// The dashboard payload carries no `instances` figure and no per-card count
+    /// (2026-08-07).
+    ///
+    /// Behavioural, not shape-pinning: the removal's whole point is that the
+    /// dashboard stops SERVING a number nobody can act on — and stops doing the
+    /// per-scenario graph read that produced it. A field re-appearing here means
+    /// the read is back on the page load, whether or not anything renders it.
+    #[test]
+    fn the_dashboard_serves_no_instances_figure() {
+        let dashboard = sample_dashboard();
+        let value = serde_json::to_value(&dashboard).expect("dashboard serializes");
+
+        assert!(
+            value["metrics"]
+                .as_object()
+                .expect("metrics")
+                .keys()
+                .all(|k| k != "instances"),
+            "the metrics band must not carry an instances figure: {}",
+            value["metrics"]
+        );
+
+        for card in value["scenarios"].as_array().expect("cards") {
+            let keys = card.as_object().expect("card body");
+            for retired in ["instance_count", "response_count", "speakers"] {
+                assert!(
+                    !keys.contains_key(retired),
+                    "a scenario card must not carry '{retired}' — it went with the \
+                     card line that displayed it"
+                );
+            }
+        }
     }
 
     /// Guard the present-as-null rule in isolation: the `selective-sanctions`
@@ -323,9 +390,6 @@ mod tests {
             id: "selective-sanctions".to_string(),
             attack: "Selective sanctions".to_string(),
             status: ScenarioStatus::Draft,
-            instance_count: 2,
-            response_count: 1,
-            speakers: vec!["CFS".to_string()],
             baseless_repeat_count: None,
         };
 

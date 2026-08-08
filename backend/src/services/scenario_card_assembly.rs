@@ -125,6 +125,10 @@ pub(crate) fn assemble(
         pool: working,
         set_aside,
         link_progress,
+        // A pool was gathered, so these cards are the answer for a scenario that
+        // HAS a subject. The no-target notice belongs to the route's early
+        // return, which never reaches this assembler.
+        no_target_notice: None,
     }
 }
 

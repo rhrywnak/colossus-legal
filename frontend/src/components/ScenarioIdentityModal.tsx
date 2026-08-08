@@ -9,8 +9,14 @@
 //
 // ## What it edits, and what it deliberately does not
 //
-// Edits: name · the three texts · anchor allegations (as chips) · the definition
-// body's carried-through fields.
+// Edits: name · the three texts · the TARGET · anchor allegations (as chips) ·
+// the definition body's carried-through fields.
+//
+// The target joined on 2026-08-07. Until then this modal carried it through
+// untouched, on the assumption that something else authored it — and nothing
+// did, so every UI-created scenario had none and silently gathered evidence over
+// the case-default subject. This control is how an existing scenario is
+// completed without a hand-written SQL update.
 //
 // Does NOT edit `direction`. A scenario's offense/defense stance is its
 // identity, not an attribute — the backend refuses it on the update route, and a
@@ -36,12 +42,17 @@ import {
   canSave,
   draftFrom,
   patchFrom,
+  targetWouldBeLost,
   withAllegation,
   withoutAllegation,
   type IdentityDraft,
 } from "./scenarioIdentity";
 import { getAllegations, type AllegationDto } from "../services/allegations";
-import { fetchAugmentationPanel } from "../services/scenarioAugmentation";
+import { getAvailableFilters, type ActorOption } from "../services/bias";
+import {
+  fetchAugmentationPanel,
+  type ScenarioIdentityWording,
+} from "../services/scenarioAugmentation";
 import { updateScenario } from "../services/scenarioCrud";
 import type { ScenarioDefinition } from "../pages/trialPrepData";
 
@@ -179,6 +190,10 @@ const ScenarioIdentityModal: React.FC<Props> = ({
   const [draft, setDraft] = useState<IdentityDraft | null>(null);
   const [direction, setDirection] = useState<string | null>(null);
   const [allegations, setAllegations] = useState<AllegationDto[]>([]);
+  const [wording, setWording] = useState<ScenarioIdentityWording | null>(null);
+  // `null` = still loading. `[]` after a failure, with `error` set — never an
+  // empty list presented as "this case has no people in it".
+  const [subjects, setSubjects] = useState<ActorOption[] | null>(null);
   const [picker, setPicker] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -191,6 +206,7 @@ const ScenarioIdentityModal: React.FC<Props> = ({
       .then(([panel, alleg]) => {
         if (!live) return;
         setDirection(panel.identity.direction);
+        setWording(panel.identity_wording);
         setDraft(
           draftFrom({
             name: panel.identity.name,
@@ -218,6 +234,31 @@ const ScenarioIdentityModal: React.FC<Props> = ({
     };
   }, [slug, scenarioId, definition, anchorAllegationIds]);
 
+  // The party vocabulary the target list offers — the same endpoint the create
+  // form and the Bias Explorer's "About" filter read, so all three agree on who
+  // this case knows about.
+  //
+  // Its own effect rather than a third promise in the one above: that effect
+  // re-runs whenever the definition prop changes, and re-fetching a 120-row
+  // catalogue on every save round-trip would be waste. This one runs once.
+  useEffect(() => {
+    let live = true;
+    getAvailableFilters()
+      .then((filters) => {
+        if (live) setSubjects(filters.subjects);
+      })
+      .catch(() => {
+        if (!live) return;
+        // The stored sentence for this failure tells the human not to save, so
+        // it must be the one shown. Until the wording arrives there is nothing
+        // honest to say, and the modal's generic loader is still on screen.
+        setSubjects([]);
+      });
+    return () => {
+      live = false;
+    };
+  }, []);
+
   const edit = useCallback(
     (patch: Partial<IdentityDraft>) =>
       setDraft((current) => (current ? { ...current, ...patch } : current)),
@@ -225,7 +266,15 @@ const ScenarioIdentityModal: React.FC<Props> = ({
   );
 
   const handleSave = () => {
-    if (!draft || !canSave(draft) || saving) return;
+    if (!draft || saving) return;
+    // The one refusal this dialog owns: a chosen target with no attack text
+    // cannot be stored, and saving anyway would drop the person just picked
+    // without a word. Said out loud rather than expressed as a dead button.
+    if (targetWouldBeLost(draft)) {
+      setError(wording?.target_needs_attack_text ?? null);
+      return;
+    }
+    if (!canSave(draft)) return;
     setSaving(true);
     setError(null);
     updateScenario(slug, scenarioId, patchFrom(draft, definition))
@@ -247,10 +296,16 @@ const ScenarioIdentityModal: React.FC<Props> = ({
 
   const chosen = draft?.anchorAllegationIds ?? [];
   const unchosen = allegations.filter((a) => !chosen.includes(a.id));
+  // An empty list AFTER loading means the read failed (a case with no parties
+  // cannot have a scenario), and the stored sentence for it says not to save.
+  const subjectsFailed = subjects !== null && subjects.length === 0;
 
   return (
     <Modal title="Scenario identity" busy={saving} onClose={onClose}>
       {error && <div style={S.errorBox}>{error}</div>}
+      {subjectsFailed && wording && (
+        <div style={S.errorBox}>{wording.target_options_failed_notice}</div>
+      )}
 
       {!draft ? (
         <div style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>
@@ -302,6 +357,42 @@ const ScenarioIdentityModal: React.FC<Props> = ({
               onChange={(e) => edit({ attackMeaning: e.target.value })}
             />
           </div>
+
+          {/* The target sits after the two attack texts and before our answer:
+              it completes the description of what THEY are doing, and it is the
+              field that decides what evidence this scenario can even see. Its
+              words come from stored rows, unlike the labels above it, which
+              predate the language law. */}
+          {wording && (
+            <div style={S.block}>
+              <label style={S.label} htmlFor="identity-target">
+                {wording.target_label}
+              </label>
+              <select
+                id="identity-target"
+                style={S.field}
+                value={draft.target}
+                disabled={saving || subjects === null}
+                onChange={(e) => edit({ target: e.target.value })}
+              >
+                <option value="">{wording.target_unset_option}</option>
+                {/* A target already stored but absent from the vocabulary would
+                    otherwise vanish from the list, and saving would then clear
+                    it. It is offered by its raw id so the human can SEE that
+                    something is set and that the graph no longer knows it. */}
+                {draft.target.length > 0 &&
+                  !(subjects ?? []).some((s) => s.id === draft.target) && (
+                    <option value={draft.target}>{draft.target}</option>
+                  )}
+                {(subjects ?? []).map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+              <span style={S.help}>{wording.target_helper}</span>
+            </div>
+          )}
 
           <div style={S.block}>
             <label style={S.label} htmlFor="identity-theme">

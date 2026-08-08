@@ -15,6 +15,7 @@ import {
   canSave,
   draftFrom,
   patchFrom,
+  targetWouldBeLost,
   withAllegation,
   withoutAllegation,
   type IdentityDraft,
@@ -139,9 +140,58 @@ describe("when the modal can save", () => {
       attackMeaning: "",
       themeStatement: "",
       motivation: "",
+      target: "",
       anchorAllegationIds: [],
     };
     expect(canSave(bare)).toBe(true);
+  });
+});
+
+// ── The target (2026-08-07) ──────────────────────────────────────────────────
+
+describe("authoring a scenario's target", () => {
+  it("is how a legacy scenario stops gathering nothing", () => {
+    // The path Roman takes to complete S-3: a scenario stored with no target,
+    // given one here. If the patch did not carry it, the save would appear to
+    // succeed and the scenario would stay empty.
+    const draft = { ...draftFrom(source), target: "person-george-phillips" };
+    const patch = patchFrom(draft, definition);
+    expect(patch.definition?.target).toBe("person-george-phillips");
+  });
+
+  it("removes the key when the target is cleared, rather than storing a blank", () => {
+    // "Cleared" and "never chose one" are one state — the scenario gathers
+    // nothing — and they must have one stored form. A `target: ""` would read
+    // in the column as a choice somebody made.
+    const patch = patchFrom({ ...draftFrom(source), target: "" }, definition);
+    expect(patch.definition?.target).toBeUndefined();
+  });
+
+  it("keeps the wielders the modal does not edit", () => {
+    // The backend REPLACES the definition blob rather than merging it, so a
+    // dropped field here is a field deleted from the row.
+    const patch = patchFrom({ ...draftFrom(source), target: "person-tighe" }, definition);
+    expect(patch.definition?.wielders).toEqual(definition.wielders);
+  });
+
+  it("refuses a target with no attack text instead of silently dropping it", () => {
+    // `patchFrom` omits the whole definition when the attack text is blank
+    // (`attack_text` is required by the parse contract). Without this gate the
+    // human would choose a person, save, and find the field empty on reopen
+    // with nothing said — the exact silent-loss class this task removes.
+    const draft: IdentityDraft = {
+      name: "S-3",
+      attackText: "",
+      attackMeaning: "",
+      themeStatement: "",
+      motivation: "",
+      target: "person-marie-awad",
+      anchorAllegationIds: [],
+    };
+    expect(targetWouldBeLost(draft)).toBe(true);
+    expect(canSave(draft)).toBe(false);
+    // And the omission it is protecting against is real, not theoretical:
+    expect(patchFrom(draft, undefined).definition).toBeUndefined();
   });
 });
 

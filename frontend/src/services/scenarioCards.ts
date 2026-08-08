@@ -226,6 +226,18 @@ export type ScenarioCardsResponse = {
    *  composed server-side and counted from the POOL, never from this session's
    *  clicks (the 1.7E-a ruling). `null` when nothing in this pool is stuck. */
   link_progress: string | null;
+  /**
+   * Present ONLY when this scenario names no target — in which case both card
+   * lists are empty and this is the sentence saying why (2026-08-07).
+   *
+   * ## Why it is a field and not an inference from an empty pool
+   *
+   * "Nothing is about this person" and "you have not said who this is about" are
+   * different states with different fixes, and they used to render identically —
+   * worse, the second one rendered as the case-default subject's FULL pool. Its
+   * presence is the signal; its text is what the human reads.
+   */
+  no_target_notice?: string;
 };
 
 // ─── Client ─────────────────────────────────────────────────────────────────

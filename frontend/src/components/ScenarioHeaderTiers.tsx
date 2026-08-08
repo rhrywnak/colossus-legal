@@ -38,6 +38,7 @@ import ScenarioStatusControl from "./ScenarioStatusControl";
 import { headerDescriptor } from "./scenarioHeader";
 import { chipStyle, ghostButtonStyle } from "./scenarioSectionStyles";
 import type { ScenarioStatus } from "../pages/trialPrepData";
+import { rehearsalPath } from "../utils/routePaths";
 
 /** Mockup `.eyebrow`: 11px/600, .1em tracking, uppercase, --text-3. */
 const eyebrowStyle: React.CSSProperties = {
@@ -190,7 +191,7 @@ const ScenarioHeaderTiers: React.FC<Props> = ({
         </button>
 
         <Link
-          to={`/cases/${encodeURIComponent(slug)}/rehearsal`}
+          to={rehearsalPath(slug)}
           style={linkStyle}
           title="Marie's testimony-prep view — shows scenarios marked Ready"
         >

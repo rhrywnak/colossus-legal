@@ -19,6 +19,7 @@ use tracing::{error, info, instrument};
 use uuid::Uuid;
 
 use crate::auth::AuthUser;
+use crate::dto::scenario_authoring_wording::create_wording;
 use crate::dto::trial_prep::{ScenarioDetail, TrialPrepDashboard};
 use crate::repositories::scenario_repository::ScenarioRepository;
 use crate::services::scenario_dashboard::ScenarioDashboardAssembler;
@@ -95,8 +96,12 @@ pub async fn get_trial_prep_dashboard(
         state.pipeline_pool.clone(),
     );
 
+    // One settings snapshot, read here and handed down: the create form's words
+    // and everything else on this response then come from the same store state.
+    let create_wording = create_wording(&state.settings.current().scenario_authoring_wording);
+
     let dashboard = assembler
-        .assemble(&slug)
+        .assemble(&slug, create_wording)
         .await
         .map_err(internal("assemble trial-prep dashboard"))?;
 

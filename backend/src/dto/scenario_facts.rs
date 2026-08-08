@@ -165,6 +165,18 @@ pub struct GatherCandidatesResponse {
     pub pool: Vec<CandidateDto>,
     /// Dropped candidates, kept in their own list (not omitted, not mixed in).
     pub dropped: Vec<CandidateDto>,
+    /// Present ONLY when this scenario names no target, in which case both lists
+    /// above are empty and this sentence says why (2026-08-07 fix).
+    ///
+    /// ## Domain note: an empty pool has two meanings, so it carries which one
+    ///
+    /// "Nothing is ABOUT this person" and "you have not said who this is about"
+    /// are different states with different fixes, and they used to render
+    /// identically — worse, the second one silently rendered as the case-default
+    /// subject's full pool. `None` here means the pool is empty (or not) on the
+    /// evidence's own terms; `Some` means no gather was attempted at all.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub no_target_notice: Option<String>,
 }
 
 /// A human ruling on one candidate in the workbench (Phase 1a.3).

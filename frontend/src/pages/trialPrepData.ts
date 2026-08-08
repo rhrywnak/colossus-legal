@@ -21,9 +21,6 @@ export interface ScenarioSummary {
   code: string;
   attack: string;
   status: ScenarioStatus;
-  instance_count: number;
-  response_count: number;
-  speakers: string[];
   /** null = pattern analysis pending; 0 = analysed, no baseless repeat. */
   baseless_repeat_count: number | null;
 }
@@ -34,11 +31,37 @@ export interface TrialPrepDashboard {
     scenarios: number;
     ready: number;
     drafted_or_review: number;
-    instances: number;
   };
   /** Living-binder notices ("N new instances …"). Empty array = no alerts. */
   alerts: { message: string }[];
   scenarios: ScenarioSummary[];
+  /** The stored words the create-scenario form renders (2026-08-07). */
+  create_wording: ScenarioCreateWording;
+}
+
+/**
+ * The create form's stored words — mirrors the backend
+ * `ScenarioCreateWordingDto` field for field.
+ *
+ * Only the two fields added on 2026-08-07 speak from rows. The form's older
+ * labels are still literals in the component; moving them is a separate change
+ * with its own migration.
+ */
+export interface ScenarioCreateWording {
+  target_label: string;
+  target_helper: string;
+  /** The unselected option — and, because the form treats "still on this value"
+   *  as "no choice made", the empty state as well. */
+  target_unset_option: string;
+  accusation_label: string;
+  accusation_helper: string;
+  /** Shown when the form is submitted with no target chosen — the same stored
+   *  row the route's 400 carries, so the check beside the control and the one
+   *  that is binding cannot say different things. A helper says what a field is
+   *  FOR; this says what just went wrong. */
+  target_required: string;
+  /** Shown when the form is submitted with a blank accusation. Same rule. */
+  accusation_required: string;
 }
 
 /** A turn in a scenario's exchange timeline. */

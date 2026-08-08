@@ -12,21 +12,15 @@
 // =============================================================================
 
 import React from "react";
-import { Link } from "react-router-dom";
 
 import { pdfHref } from "./ElementAllegationList";
+import { pillStyle } from "./trialPrepCardStyles";
 import type {
   ExchangeTurn,
   MarieResponse,
   ScenarioSummary,
 } from "../pages/trialPrepData";
-import {
-  isAnticipated,
-  patternFlagText,
-  scenarioMetaLine,
-  showsRepeatFlag,
-  statusMeta,
-} from "../pages/trialPrepHelpers";
+import { isAnticipated, showsRepeatFlag, statusMeta } from "../pages/trialPrepHelpers";
 
 const EMDASH = "—";
 
@@ -63,22 +57,6 @@ const alertRow: React.CSSProperties = {
   borderRadius: "6px",
   fontSize: "0.84rem",
   color: "var(--text-secondary)",
-};
-const scenarioCardStyle: React.CSSProperties = {
-  border: "1px solid var(--border-default)",
-  backgroundColor: "var(--bg-surface)",
-  borderRadius: "8px",
-  padding: "14px 16px",
-  display: "flex",
-  flexDirection: "column",
-  gap: "8px",
-};
-const pillStyle: React.CSSProperties = {
-  display: "inline-block",
-  padding: "0.12rem 0.5rem",
-  borderRadius: "9999px",
-  fontSize: "0.72rem",
-  fontWeight: 600,
 };
 const turnCardBase: React.CSSProperties = {
   borderRadius: "8px",
@@ -149,20 +127,24 @@ const MetricCard: React.FC<{
  * the scenario count: constants rendered as measurements, indistinguishable on
  * screen from real results. They come back when pattern analysis and responses
  * have real sources.
+ *
+ * "Instances" went on 2026-08-07, for a different reason. It was a REAL
+ * measurement — a live REBUTS count across each scenario's anchor allegations —
+ * of something nobody could act on, and its name collided with task 2.11's
+ * unrelated "accusation instances". Roman ruled it earns nothing. Unlike the
+ * other two it is not coming back when a source appears; it had one.
  */
 export const MetricsBand: React.FC<{
   metrics: {
     scenarios: number;
     ready: number;
     drafted_or_review: number;
-    instances: number;
   };
 }> = ({ metrics }) => (
   <div style={cardRow}>
     <MetricCard value={metrics.scenarios} label="Scenarios" />
     <MetricCard value={metrics.ready} label="Ready" />
     <MetricCard value={metrics.drafted_or_review} label="Drafted / in review" />
-    <MetricCard value={metrics.instances} label="Instances" />
   </div>
 );
 
@@ -176,69 +158,6 @@ export const AlertsStrip: React.FC<{ alerts: { message: string }[] }> = ({ alert
     ))}
   </div>
 );
-
-// ─── Scenario card (dashboard grid) ──────────────────────────────────────────
-
-export const ScenarioCard: React.FC<{
-  scenario: ScenarioSummary;
-  slug: string;
-}> = ({ scenario, slug }) => {
-  const status = statusMeta(scenario.status);
-  const flag = patternFlagText(scenario.baseless_repeat_count);
-  return (
-    // The WHOLE card is the navigation target (matches the app's clickable-card
-    // pattern). `<Link>` renders an <a>, so we reset its default underline/blue
-    // to keep the card's visual styling — children carry their own colors; only
-    // the trailing "Open scenario →" hint is accent-colored.
-    <Link
-      to={`/cases/${slug}/trial-prep/${scenario.id}`}
-      style={{ ...scenarioCardStyle, textDecoration: "none", color: "var(--text-primary)" }}
-    >
-      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-        <span
-          style={{
-            width: "9px",
-            height: "9px",
-            borderRadius: "50%",
-            backgroundColor: status.color,
-            flexShrink: 0,
-          }}
-        />
-        <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>{status.label}</span>
-      </div>
-      {/* The scenario's code prefixes its name everywhere the scenario appears
-          (§2a). Rendered as plain text in the existing title line rather than as
-          a new chip or row: the code is part of how the scenario is NAMED, so it
-          reads as "S-3 · Marie is obstructive", and no layout changes. The string
-          arrives fully formatted from the backend — the browser never builds it. */}
-      <div style={{ fontSize: "0.95rem", fontWeight: 600, color: "var(--text-primary)" }}>
-        <span style={{ color: "var(--text-muted)", fontVariantNumeric: "tabular-nums" }}>
-          {scenario.code}
-        </span>
-        {" · "}
-        {scenario.attack}
-      </div>
-      <span
-        style={{
-          ...pillStyle,
-          alignSelf: "flex-start",
-          backgroundColor: flag.muted ? "var(--bg-page)" : "var(--state-info-bg-soft)",
-          color: flag.muted ? "var(--text-muted)" : "var(--accent-primary)",
-        }}
-      >
-        {flag.text}
-      </span>
-      <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)" }}>
-        {scenarioMetaLine(scenario)}
-      </div>
-      {/* Visual affordance only — the whole card navigates, so this is plain
-          text, not a separate link. */}
-      <span style={{ fontSize: "0.82rem", color: "var(--accent-primary)", marginTop: "auto" }}>
-        Open scenario →
-      </span>
-    </Link>
-  );
-};
 
 /** The dashed "Generate a scenario" affordance — visual only in Stage 1. */
 export const GenerateScenarioCard: React.FC<{ onClick?: () => void }> = ({ onClick }) => (

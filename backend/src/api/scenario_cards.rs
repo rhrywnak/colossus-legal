@@ -86,7 +86,21 @@ pub async fn get_scenario_cards(
 
     let id = parse_scenario_id(&scenario_id)?;
     ensure_scenario_in_case(&state, id, &slug).await?;
-    let subject_id = resolve_gather_subject(&state, id).await?;
+
+    // No target → no queue. The same early return the gather route makes, for the
+    // same reason: this endpoint fed the 148 borrowed cards Roman saw on
+    // 2026-08-07, so an empty payload carrying its own explanation is the fix's
+    // visible half. Every read below (graph pool, extras, refs, ordinals,
+    // overrides, page text) is skipped — there is nothing to read them ABOUT.
+    let Some(subject_id) = resolve_gather_subject(&state, id).await? else {
+        return Ok(Json(no_target_response(
+            &state
+                .settings
+                .current()
+                .scenario_authoring_wording
+                .no_target_notice,
+        )));
+    };
 
     let pool = BiasRepository::new(state.graph.clone())
         .all_evidence_about_subject(&subject_id)
@@ -188,6 +202,34 @@ pub async fn get_scenario_cards(
     );
 
     Ok(Json(response))
+}
+
+/// The payload for a scenario that names no target: no cards, and the stored
+/// sentence explaining that this is a definition the human has not finished, not
+/// a case with no evidence.
+///
+/// ## Why `link_progress` stays `None` here
+///
+/// That line counts how much of a stuck pile has been cleared. There is no pile
+/// — not an empty one, but no pile at all, because nothing was gathered. "0 of 0
+/// linked" would be a true sentence about a question nobody asked, sitting under
+/// a notice that says the queue does not exist yet.
+/// ## Rust Learning: why this takes `&str` and not `&AppState`
+///
+/// The notice comes from the settings snapshot, so `fn(&AppState)` looks
+/// natural — and it is untestable, because a function taking `&AppState` needs a
+/// database, a graph and a settings store to call at all. Taking the
+/// already-read string makes this a pure function of one `&str`: the caller
+/// does the reading (it holds the state), this does the shaping, and a unit test
+/// can ask in one line whether an un-targeted scenario carries its explanation.
+/// Same seam as `scenario_gather::no_target_response`.
+fn no_target_response(notice: &str) -> ScenarioCardsResponse {
+    ScenarioCardsResponse {
+        pool: Vec::new(),
+        set_aside: Vec::new(),
+        link_progress: None,
+        no_target_notice: Some(notice.to_string()),
+    }
 }
 
 /// The accusations humans have linked, display-ready, by node (task 2.10).

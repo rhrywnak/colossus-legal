@@ -35,6 +35,7 @@ use crate::{
         AugmentationPanelDto, AuthoringWordingDto, HumanFactDto, ScenarioIdentityDto,
         TalkingPointDto,
     },
+    dto::scenario_authoring_wording::identity_wording,
     error::AppError,
     repositories::pipeline_repository::{get_scenario, ScenarioHumanFactRecord, ScenarioRecord},
     services::scenario_augmentation::{human_facts, talking_points},
@@ -164,6 +165,7 @@ pub async fn get_augmentation_panel(
         // Roman changes it on the Settings page (v2 §2b).
         talking_points_cap: settings.talking_points_cap,
         wording: authoring_wording(&settings.authoring_wording),
+        identity_wording: identity_wording(&settings.scenario_authoring_wording),
     }))
 }
 
