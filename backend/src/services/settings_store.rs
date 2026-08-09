@@ -79,6 +79,13 @@ const KEY_ROWS_EXPAND_MAX: &str = "rehearsal_instance_rows_expand_max";
 // "numeric".
 pub(crate) const KEY_THEME_SCAN_PROMPT_FILE: &str = "theme_scan_prompt_file";
 const KEY_PREFILTER_MIN_CHARS: &str = "theme_scan_prefilter_min_chars";
+// ONE_CARD_GRAMMAR (2026-08-09). Both decide how much of a card's content is
+// SHOWN before it folds — the question's visible length, and how many element
+// chips stand before "+N more". They are §2b tunables rather than presentational
+// constants because they change what a human can read without a click, which on
+// the 13-inch hardware law is the difference between a rulable card and a wall.
+const KEY_CARD_QUESTION_TRUNCATE: &str = "card_question_truncate_chars";
+const KEY_CARD_ELEMENT_CHIPS_K: &str = "card_element_chips_visible_k";
 const KEY_PREFILTER_STATEMENT_TYPES: &str = "theme_scan_prefilter_statement_types";
 
 /// Every NOT-WORDING key this build reads, so a missing one is caught at boot by
@@ -110,6 +117,8 @@ pub const REQUIRED_KEYS: &[&str] = &[
     KEY_THEME_SCAN_PROMPT_FILE,
     KEY_PREFILTER_MIN_CHARS,
     KEY_PREFILTER_STATEMENT_TYPES,
+    KEY_CARD_QUESTION_TRUNCATE,
+    KEY_CARD_ELEMENT_CHIPS_K,
 ];
 
 /// Why the store could not be read or written.
@@ -328,6 +337,9 @@ pub fn build_settings(rows: &HashMap<String, AppSettingRecord>) -> Result<Settin
         )?)?,
         scan_wording: words.scan,
         rehearsal_instance_rows_expand_max: count_of(require(rows, KEY_ROWS_EXPAND_MAX)?)?,
+        card_grammar_wording: words.card_grammar,
+        card_question_truncate_chars: count_of(require(rows, KEY_CARD_QUESTION_TRUNCATE)?)?,
+        card_element_chips_visible_k: count_of(require(rows, KEY_CARD_ELEMENT_CHIPS_K)?)?,
     })
 }
 

@@ -38,7 +38,7 @@ fn an_accusation_reads_in_complaint_language_with_its_paragraph() {
         &["a-41".to_string()],
         &settings(),
     );
-    assert_eq!(out.serving[0].label, "¶41 — summary of a-41");
+    assert_eq!(out.serving[0].label, "A-41 — summary of a-41");
 }
 
 /// The label rule is the SAME rule the card's bears-on line uses.
@@ -50,17 +50,17 @@ fn an_accusation_reads_in_complaint_language_with_its_paragraph() {
 fn the_label_rule_matches_the_cards_own_accusation_rule() {
     // Summary wins over title.
     let mut r = row("a-41", "41", 0);
-    assert_eq!(accusation_label(&r), "¶41 — summary of a-41");
+    assert_eq!(accusation_label(&r), "A-41 — summary of a-41");
 
     // Title is the fallback.
     r.summary = None;
-    assert_eq!(accusation_label(&r), "¶41 — title of a-41");
+    assert_eq!(accusation_label(&r), "A-41 — title of a-41");
 
     // The bare id is the last resort — poor, but honest, and actionable.
     r.title = None;
-    assert_eq!(accusation_label(&r), "¶41 — a-41");
+    assert_eq!(accusation_label(&r), "A-41 — a-41");
 
-    // No paragraph, no prefix. A "¶ — " with nothing after the pilcrow would be
+    // No paragraph, no prefix. An "A- — " with nothing after the hyphen would be
     // punctuation pretending to be a citation.
     r.paragraph = None;
     assert_eq!(accusation_label(&r), "a-41");
@@ -101,7 +101,7 @@ fn the_filter_haystack_covers_the_label_and_the_count_and_is_lowercased() {
 
 /// The scenario's own anchor leads, whatever its pool count.
 ///
-/// Measured on DEV: S-2's anchor is ¶41 and its pool touches 22 accusations. On
+/// Measured on DEV: S-2's anchor is A-41 and its pool touches 22 accusations. On
 /// the day a scenario is created its anchor has no evidence at all, and it must
 /// still be the first thing offered — it is the accusation the scenario exists to
 /// answer.

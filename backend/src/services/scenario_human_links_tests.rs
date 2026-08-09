@@ -294,6 +294,7 @@ fn stuck_card(node: &str, links: Vec<CardHumanLink>) -> ScenarioCard {
         // No scan proposed this fixture: `link_progress` counts the stuck pile,
         // which is about what the EXTRACTION linked, not about what a scan said.
         proposed: None,
+        scan_reason: None,
         human_links: links,
         human_link_summary: None,
     }

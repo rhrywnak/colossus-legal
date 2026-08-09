@@ -25,7 +25,7 @@ use crate::dto::evidence_links::{
 };
 use crate::repositories::allegation_options_repository::AllegationOptionRow;
 
-/// The accusation in complaint language, paragraph-numbered when known.
+/// The accusation in complaint language, code-prefixed when the paragraph is known.
 ///
 /// ## Why this duplicates `scenario_card::accusation_text` rather than calling it
 ///
@@ -37,7 +37,10 @@ use crate::repositories::allegation_options_repository::AllegationOptionRow;
 /// half-empty struct on the card path to serve the picker.
 ///
 /// The two are pinned to each other by a test, which is the honest way to hold a
-/// shared rule that cannot be a shared function.
+/// shared rule that cannot be a shared function. Since 2026-08-09 the part they
+/// most needed to agree on — the HANDLE — is no longer duplicated at all: both
+/// call [`crate::domain::scenario_code::allegation_code`], so the `¶` → `A-`
+/// rename was one edit rather than two that could disagree.
 fn accusation_label(row: &AllegationOptionRow) -> String {
     let body = row
         .summary
@@ -46,7 +49,12 @@ fn accusation_label(row: &AllegationOptionRow) -> String {
         .unwrap_or(&row.allegation_id);
 
     match row.paragraph.as_deref() {
-        Some(paragraph) if !paragraph.trim().is_empty() => format!("¶{paragraph} — {body}"),
+        Some(paragraph) if !paragraph.trim().is_empty() => {
+            format!(
+                "{} — {body}",
+                crate::domain::scenario_code::allegation_code(paragraph)
+            )
+        }
         _ => body.to_string(),
     }
 }

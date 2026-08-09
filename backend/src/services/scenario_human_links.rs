@@ -109,6 +109,7 @@ impl HumanTouches<'_> {
 pub(crate) fn resolve_question(
     machine: Option<String>,
     override_row: Option<&EvidenceSummaryOverrideRecord>,
+    machine_authorship_label: &str,
 ) -> (Option<String>, Option<CardQuestionAuthorship>) {
     match override_row {
         Some(row) => (
@@ -125,18 +126,20 @@ pub(crate) fn resolve_question(
                 // extraction's own timestamp would date the RUN, not the sentence,
                 // and a card claiming "written 16 July" about a question nobody
                 // wrote would be a fact the payload cannot support.
-                label: SYSTEM_AUTHORSHIP_LABEL.to_string(),
+                //
+                // ONE_CARD_GRAMMAR ruling R2: the word here used to be a
+                // compiled-in "System", and Roman read it as the SPEAKER of the
+                // answer beneath it — which is exactly what a bare noun looks like
+                // when it sits under seven lines of interrogatory. Measured on the
+                // DEV graph the same day: nine STATED_BY actor names, none of them
+                // "System", so the speaker chip never said it and could not. The
+                // badge now comes from the store and says what it is about.
+                label: machine_authorship_label.to_string(),
             });
             (machine, authorship)
         }
     }
 }
-
-// CONST: the badge's word for a question nobody has corrected. A control word in
-// the same class as the state chip's "Not ruled" — it names the SYSTEM, not
-// anything about this case, so another Colossus case renders it unchanged
-// (Standing Rule 2's reusability checkpoint).
-const SYSTEM_AUTHORSHIP_LABEL: &str = "System";
 
 /// The badge for a human-corrected question: who, and when.
 ///

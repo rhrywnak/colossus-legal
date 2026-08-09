@@ -39,14 +39,14 @@ use crate::{
         allegation_options_repository::fetch_allegation_options,
         pipeline_repository::{
             get_document_text, list_candidate_ordinals, list_fact_refs_for_scenario,
-            list_links_for_nodes, list_summary_overrides,
+            list_links_for_nodes, list_ruled_card_reasons, list_summary_overrides,
         },
         scenario_card_repository::fetch_card_extras,
     },
     services::scenario_card::collapse_extras,
     services::scenario_card_assembly::{
-        assemble, build_ref_states, count_proposed, page_key, HumanTouchIndex, PoolIndexes,
-        ProposalIndex,
+        assemble, attach_ruled_reasons, build_ref_states, count_proposed, page_key,
+        ruled_reason_keys, HumanTouchIndex, PoolIndexes, ProposalIndex,
     },
     services::scenario_card_projection::index_by_covered_node,
     services::scenario_cards_scan_state::never_scanned_notice,
@@ -146,7 +146,35 @@ pub async fn get_scenario_cards(
             }
         })?;
 
+    // Ruling R3: which (run, node) pairs a ruled card could carry a reason for.
+    // Taken BEFORE `build_ref_states` consumes the rows — the decoder does not
+    // keep `source_run_id`, and re-reading the refs to get it back would be a
+    // second query for a column already in hand.
+    let (reason_runs, reason_nodes) = ruled_reason_keys(&refs);
+
     let mut ref_states = build_ref_states(refs)?;
+
+    // The scan's reason for the cards a human has already ruled.
+    //
+    // ## Why a failure here degrades and does not propagate
+    //
+    // The same test `load_page_text` applies: a card without its reason still
+    // carries the quote, the pinpoint, the chips and every control — it is
+    // poorer, not wrong. Failing the whole request would hide forty-six working
+    // facts to protect one missing sentence. The absence stays observable: the
+    // `warn` names the scenario and the count, and the card simply shows no
+    // reason, which is the same shape as a card nothing ever judged.
+    if !reason_runs.is_empty() {
+        match list_ruled_card_reasons(&state.pipeline_pool, &reason_runs, &reason_nodes).await {
+            Ok(rows) => attach_ruled_reasons(&mut ref_states, rows),
+            Err(e) => tracing::warn!(
+                error = %e,
+                scenario_id = %id,
+                cited_runs = reason_runs.len(),
+                "failed to read the judging reasons behind the already-ruled cards;                  those cards will render without the scan's reason"
+            ),
+        }
+    }
     // Task 2.13c: the list's ORDER is decided here, once, and travels as a single
     // number per card. Doing it server-side is what stopped the browser and the
     // backend disagreeing about where a newly included fact belongs — they did,

@@ -218,7 +218,6 @@ pub(crate) fn to_card_proposal(
 
     CardProposal {
         role_label,
-        reason: group.reason.clone(),
         duplicate_count: group.covers.len(),
         duplicate_label: covers_label(group, ordinals, wording),
     }

@@ -214,9 +214,58 @@ fn projected_state(
         Some(group) => CardRefState {
             confidence: group.confidence,
             proposal: Some(to_card_proposal(group, ordinals, &settings.wording)),
+            // Ruling R3: the judge's sentence rides on the CARD rather than on
+            // the proposal, so that the ruling which ends the proposal does not
+            // also delete the one line saying why this mattered.
+            scan_reason: group.reason.clone(),
             ..CardRefState::default()
         },
     }
+}
+
+/// Attach each ruled card's judging reason to its state (ruling R3).
+///
+/// ## Why this is a separate pass rather than part of `build_ref_states`
+///
+/// That function is pure and takes only the rows it decodes. Recovering a reason
+/// needs a SECOND read — the verdicts of the runs those rows cite — and folding a
+/// database call into a decoder would make the decode untestable and would fire
+/// one query per card. So the caller does the one batched read, and this walks
+/// the result over the states it already built.
+///
+/// A node in `rows` that is not in `states` is ignored rather than inserted: the
+/// reason decorates a card that exists, and a verdict whose reference row has
+/// since been removed describes a card this payload does not serve.
+pub(crate) fn attach_ruled_reasons(
+    states: &mut HashMap<String, CardRefState>,
+    rows: Vec<crate::repositories::pipeline_repository::RuledCardReasonRow>,
+) {
+    for row in rows {
+        if let Some(state) = states.get_mut(&row.graph_node_id) {
+            state.scan_reason = row.reason;
+        }
+    }
+}
+
+/// Every (run, node) pair whose reason a ruled card could carry (ruling R3).
+///
+/// Returned as PARALLEL vectors because that is the shape the batched read binds:
+/// two arrays `unnest` into pairs inside one statement. Only rows with a
+/// `source_run_id` are included — a ruling made before that column was written
+/// cites no run, so there is nothing to look its reason up by, and asking the
+/// database about it would be a query guaranteed to return nothing.
+pub(crate) fn ruled_reason_keys(
+    refs: &[crate::repositories::pipeline_repository::ScenarioFactRefRecord],
+) -> (Vec<uuid::Uuid>, Vec<String>) {
+    let mut runs = Vec::new();
+    let mut nodes = Vec::new();
+    for r in refs {
+        if let Some(run_id) = r.source_run_id {
+            runs.push(run_id);
+            nodes.push(r.graph_node_id.clone());
+        }
+    }
+    (runs, nodes)
 }
 
 /// How many served cards carry a proposal (R-e, the live number).
@@ -325,6 +374,11 @@ pub(crate) fn build_ref_states(
                 // projection. `None` here is that law restated where the state is
                 // built, not a placeholder waiting to be filled.
                 proposal: None,
+                // Recovered by the caller from the run this ruling cites (R3).
+                // `None` here rather than at the end so the two sources of a
+                // reason sit in the same field with the same meaning, and a ruled
+                // card with no provenance simply keeps it.
+                scan_reason: None,
                 defer_reason: r.defer_reason,
                 tier: Some(tier),
                 sort_ordinal: r.sort_ordinal,

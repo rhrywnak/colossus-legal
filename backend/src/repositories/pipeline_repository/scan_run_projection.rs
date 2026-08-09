@@ -120,6 +120,59 @@ pub async fn list_relevant_verdicts_for_run(
     Ok(rows)
 }
 
+/// One already-ruled card's judging reason, keyed by the run its ruling cites.
+///
+/// Task ONE_CARD_GRAMMAR, ruling R3. Deliberately NOT a `RelevantVerdictRow`: the
+/// two reads answer different questions and want different filters. That one asks
+/// "what does this run propose?" and is fenced to `relevant = true`; this asks
+/// "what did the judge say about the card I already ruled?", where the answer
+/// matters just as much for a verdict the human OVERRULED — an excluded fact's
+/// reason is the record of what the scan got wrong.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct RuledCardReasonRow {
+    pub run_id: Uuid,
+    pub graph_node_id: String,
+    pub reason: Option<String>,
+}
+
+// CONST: the ruled-card reason read. Query text, not config — Rule 13 N/A.
+//
+// Keyed on the PAIR, because a node judged by two runs has two verdicts and the
+// ruling cites exactly one of them: matching on `graph_node_id` alone would let
+// yesterday's reason decorate a ruling made against today's run. `unnest` with
+// two arrays keeps that pairing inside one statement rather than looping a query
+// per card over a forty-six-fact list.
+//
+// No `relevant` filter, on purpose — see `RuledCardReasonRow`.
+const RULED_CARD_REASONS_SQL: &str = "SELECT v.run_id, v.graph_node_id, v.reason \
+     FROM scan_run_verdicts v \
+     JOIN unnest($1::uuid[], $2::text[]) AS want(run_id, graph_node_id) \
+       ON v.run_id = want.run_id AND v.graph_node_id = want.graph_node_id";
+
+/// The judging reasons behind a set of already-ruled cards.
+///
+/// `runs` and `nodes` are PARALLEL arrays: index `i` of each names one
+/// (run, node) pair to look up. A pair with no stored verdict simply has no row
+/// in the result, which is the honest answer — a ruling can cite a run whose
+/// verdict for that node was later deleted with the run, and inventing a reason
+/// for it would be worse than showing none.
+///
+/// # Errors
+/// Returns [`PipelineRepoError`] if the query fails. A failure is NOT degraded to
+/// an empty map by this function; the caller decides, and does so explicitly.
+pub async fn list_ruled_card_reasons(
+    pool: &PgPool,
+    runs: &[Uuid],
+    nodes: &[String],
+) -> Result<Vec<RuledCardReasonRow>, PipelineRepoError> {
+    let rows = sqlx::query_as::<_, RuledCardReasonRow>(RULED_CARD_REASONS_SQL)
+        .bind(runs)
+        .bind(nodes)
+        .fetch_all(pool)
+        .await?;
+    Ok(rows)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -129,6 +182,32 @@ mod tests {
     // rule that lives in SQL (see `merge_sql_is_relevant_only_and_fenced_to_run_and_scenario`
     // and `documents_delete`). A unit test cannot run a query; it can prove the
     // query cannot express the wrong thing.
+
+    /// The reason read is keyed on the PAIR, never on the node alone.
+    ///
+    /// A node judged by two runs has two verdicts, and a ruling cites one of them.
+    /// Matching on `graph_node_id` alone would let a superseded run's sentence
+    /// decorate a ruling made against a later one — a card confidently explaining
+    /// itself with the wrong reason, which is worse than explaining nothing.
+    #[test]
+    fn the_ruled_reason_read_matches_the_run_and_the_node_together() {
+        assert!(RULED_CARD_REASONS_SQL.contains("v.run_id = want.run_id"));
+        assert!(RULED_CARD_REASONS_SQL.contains("v.graph_node_id = want.graph_node_id"));
+    }
+
+    /// It does NOT filter on `relevant`.
+    ///
+    /// Ruling R3 covers every ruled card, including one the human EXCLUDED after
+    /// the scan proposed it — where the reason is the record of what the judge got
+    /// wrong. A `relevant = true` fence copied from the sibling query would make
+    /// exactly those cards silently reasonless.
+    #[test]
+    fn the_ruled_reason_read_is_not_fenced_to_admitted_verdicts() {
+        assert!(
+            !RULED_CARD_REASONS_SQL.contains("relevant"),
+            "an overruled verdict's reason is part of the record, not noise"
+        );
+    }
 
     #[test]
     fn only_the_latest_completed_run_projects() {

@@ -79,6 +79,16 @@ pub(crate) struct CardRefState {
     /// `services::scenario_card_projection` — the assembler holds the ordinals and
     /// the wording the badge needs, and this builder holds neither.
     pub proposal: Option<crate::dto::scenario_card::CardProposal>,
+    /// The judging reason behind this card, whether it is proposed or ruled
+    /// (ONE_CARD_GRAMMAR, ruling R3).
+    ///
+    /// Deliberately NOT inside `proposal`, which is where it used to live: a
+    /// proposal exists only while nobody has ruled, so the reason vanished on
+    /// Include — and the reason is exactly what an included fact has to keep
+    /// saying. For a proposed card the projection supplies it; for a ruled one
+    /// the caller recovers it by joining the reference row's `source_run_id`
+    /// back to that run's verdict.
+    pub scan_reason: Option<String>,
     pub defer_reason: Option<String>,
     /// The decoded weight tier, or `None` when there is no reference row at all
     /// (an unruled candidate has no weight in this scenario).
@@ -176,12 +186,21 @@ pub(crate) struct ExtrasLink {
     pub count_name: Option<String>,
 }
 
-/// The accusation in complaint language, paragraph-numbered when known.
+/// The accusation in complaint language, code-prefixed when the paragraph is known.
 ///
 /// Prefers the summary (the complaint's own sentence) over the title, and falls
 /// back to the id only when the node carries neither — a card that says
 /// "Accusation alleg-7" is poor, but it is honest, and it beats an empty line the
 /// human cannot act on.
+///
+/// ## The handle is `A-45`, not `¶45` (ONE_CARD_GRAMMAR §3.3, 2026-08-09)
+///
+/// Same paragraph, same number, typeable prefix — see
+/// [`crate::domain::scenario_code::allegation_code`] for why that last property
+/// is what forced the change. The spelling lives THERE beside `S-` and `C-`
+/// rather than in this `format!`, because the sibling composer in
+/// `scenario_link_options` renders the same handle for the type-ahead and two
+/// sites spelling one human handle is one too many.
 fn accusation_text(link: &ExtrasLink) -> String {
     let body = link
         .allegation_summary
@@ -190,7 +209,12 @@ fn accusation_text(link: &ExtrasLink) -> String {
         .unwrap_or(&link.allegation_id);
 
     match link.allegation_paragraph.as_deref() {
-        Some(paragraph) if !paragraph.trim().is_empty() => format!("¶{paragraph} — {body}"),
+        Some(paragraph) if !paragraph.trim().is_empty() => {
+            format!(
+                "{} — {body}",
+                crate::domain::scenario_code::allegation_code(paragraph)
+            )
+        }
         _ => body.to_string(),
     }
 }
@@ -415,7 +439,7 @@ fn build_pinpoint(instance: &BiasInstance) -> CardPinpoint {
 /// The §7.3 speaker: who said it, and on what authority we say so.
 ///
 /// Split out of [`build_card`] for the function-size limit (Rule 18).
-fn build_speaker(instance: &BiasInstance) -> CardSpeaker {
+fn build_speaker(instance: &BiasInstance, extracted_label: &str) -> CardSpeaker {
     CardSpeaker {
         // An empty speaker name IS absent — `evidence_by_ids` decodes a missing
         // STATED_BY edge to `coalesce(…, '')`. Filtering the blank keeps "nobody is
@@ -426,7 +450,7 @@ fn build_speaker(instance: &BiasInstance) -> CardSpeaker {
             .as_ref()
             .map(|a| a.name.clone())
             .filter(|n| !n.trim().is_empty()),
-        attribution: "extracted".to_string(),
+        attribution: extracted_label.to_string(),
     }
 }
 
@@ -448,8 +472,10 @@ fn build_quote(
     context: QuoteContext,
     question: Option<String>,
     override_row: Option<&EvidenceSummaryOverrideRecord>,
+    machine_authorship_label: &str,
 ) -> CardQuote {
-    let (question, question_authorship) = resolve_question(question, override_row);
+    let (question, question_authorship) =
+        resolve_question(question, override_row, machine_authorship_label);
     CardQuote {
         text,
         context_before: context.before.text,
@@ -523,9 +549,15 @@ pub(crate) fn build_card(
             context,
             instance.question.clone(),
             question_override,
+            &settings
+                .card_grammar_wording
+                .question_machine_authorship_label,
         ),
         pinpoint: build_pinpoint(instance),
-        speaker: build_speaker(instance),
+        speaker: build_speaker(
+            instance,
+            &settings.card_grammar_wording.speaker_extracted_label,
+        ),
         statement_kind: extras
             .and_then(|e| e.statement_type.as_deref())
             .map(statement_kind_label),
@@ -551,6 +583,9 @@ pub(crate) fn build_card(
         // human has touched. The band above was computed from the SAME score, so a
         // proposed card's chip and its judgment can never describe different runs.
         proposed: ref_state.proposal.clone(),
+        // Ruling R3: the reason belongs to the CARD, so it survives the ruling
+        // that ends the proposal. One field, one render site, both wrappers.
+        scan_reason: ref_state.scan_reason.clone(),
         human_links: human_links.to_vec(),
         human_link_summary,
     }

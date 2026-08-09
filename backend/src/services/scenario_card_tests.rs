@@ -92,6 +92,7 @@ fn scored_ref() -> CardRefState {
         confidence: Some(0.70),
         defer_reason: None,
         proposal: None,
+        scan_reason: None,
         // Task 2.13: an undecided candidate has no weight and no place in this
         // scenario yet — it is not IN the scenario. `None` for both, which is what
         // distinguishes it from an included fact nobody has weighed (`backup`).
@@ -157,7 +158,9 @@ fn every_section_seven_element_is_present_on_a_complete_card() {
 
     // §7.6 bears-on, in complaint language.
     assert_eq!(card.bears_on.len(), 1, "§7.6");
-    assert!(card.bears_on[0].accusation.contains("¶54"));
+    // §2a as extended 2026-08-09: the handle is A-54, which IS complaint ¶54 —
+    // same paragraph, typeable prefix. See `domain::scenario_code::allegation_code`.
+    assert!(card.bears_on[0].accusation.contains("A-54"));
     assert_eq!(card.bears_on[0].elements, vec!["Notice".to_string()]);
     assert_eq!(
         card.bears_on[0].count.as_deref(),
@@ -868,6 +871,7 @@ fn a_humans_defer_reason_rides_the_card_separately_from_the_system_flag() {
         confidence: Some(0.9),
         defer_reason: Some("waiting on the unredacted page".to_string()),
         proposal: None,
+        scan_reason: None,
         tier: None,
         sort_ordinal: None,
         display_ordinal: None,
@@ -932,9 +936,9 @@ fn override_row(text: &str, author: &str) -> EvidenceSummaryOverrideRecord {
 }
 
 /// With nobody having corrected it, the card shows the machine's question and
-/// says so.
+/// says where the text came from — WITHOUT naming a speaker (ruling R2).
 #[test]
-fn an_uncorrected_question_is_labelled_system() {
+fn an_uncorrected_questions_badge_names_the_question_and_not_a_speaker() {
     let card = build_card(
         &full_instance(),
         None,
@@ -955,7 +959,28 @@ fn an_uncorrected_question_is_labelled_system() {
         .question_authorship
         .expect("a card with a question always reports who wrote it");
     assert_eq!(authorship.source, QuestionSource::System);
-    assert_eq!(authorship.label, "System");
+    // ONE_CARD_GRAMMAR ruling R2. This assertion used to read `== "System"`, and
+    // that word is the defect it now guards against: it sat directly under a
+    // seven-line interrogatory, where a bare noun reads as the SPEAKER of the
+    // answer beneath it — which is how Roman read it, and how anyone would.
+    // Measured on the DEV graph the same day: nine STATED_BY actor names, none of
+    // them "System", so the speaker chip never said it and never could.
+    //
+    // The badge is a stored row now, so the assertion is against the store rather
+    // than a literal — what is pinned is that the sentence NAMES the question,
+    // which is the property that stops it being read as an attribution.
+    let settings = settings();
+    assert_eq!(
+        authorship.label,
+        settings
+            .card_grammar_wording
+            .question_machine_authorship_label
+    );
+    assert!(
+        authorship.label.to_lowercase().contains("question"),
+        "the badge must say it is about the QUESTION: {}",
+        authorship.label
+    );
 }
 
 /// A correction replaces the text on screen and names its author and date.
@@ -1136,7 +1161,7 @@ fn a_card_with_no_question_has_no_authorship_badge() {
 fn human_link(paragraph: &str, cut: crate::domain::link_cut::LinkCut) -> CardHumanLink {
     CardHumanLink {
         allegation_id: format!("alleg-{paragraph}"),
-        label: format!("¶{paragraph} — refused to divide the property amicably"),
+        label: format!("A-{paragraph} — refused to divide the property amicably"),
         cut,
         cut_label: "They'll use it against us".to_string(),
     }
@@ -1336,6 +1361,7 @@ fn proposed_ref(confidence: Option<f32>, proposal: CardProposal) -> CardRefState
         status: None,
         confidence,
         proposal: Some(proposal),
+        scan_reason: None,
         defer_reason: None,
         tier: None,
         sort_ordinal: None,
@@ -1346,7 +1372,6 @@ fn proposed_ref(confidence: Option<f32>, proposal: CardProposal) -> CardRefState
 fn a_proposal() -> CardProposal {
     CardProposal {
         role_label: Some("Scan: supports".to_string()),
-        reason: Some("direct admission by the accusing party".to_string()),
         duplicate_count: 2,
         duplicate_label: Some("×2 — covers C-46".to_string()),
     }

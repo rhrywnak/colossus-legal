@@ -17,6 +17,7 @@ use super::*;
 use crate::domain::wording::WORDING_KEYS;
 use crate::domain::wording_accusation::ACCUSATION_WORDING_KEYS;
 use crate::domain::wording_authoring::AUTHORING_WORDING_KEYS;
+use crate::domain::wording_card_grammar::CARD_GRAMMAR_WORDING_KEYS;
 use crate::domain::wording_rehearsal::REHEARSAL_WORDING_KEYS;
 use crate::domain::wording_rehearsal_chrome::REHEARSAL_CHROME_KEYS;
 use crate::domain::wording_scan::SCAN_WORDING_KEYS;
@@ -58,10 +59,11 @@ fn row(
 /// asserted.
 fn seeded() -> HashMap<String, AppSettingRecord> {
     let mut rows = numeric_rows();
-    // All seven stored-string blocks, chained (2.10, 2.11 B1/B2, 2.11 C, the
-    // 2026-08-07 scenario-authoring block, and 2.15's scan block): the lists key
-    // ONE table, and a fixture holding only some of them would let a snapshot
-    // build that the real store could not.
+    // All eight stored-string blocks, chained (2.10, 2.11 B1/B2, 2.11 C, the
+    // 2026-08-07 scenario-authoring block, 2.15's scan block, and the
+    // one-card-grammar block): the lists key ONE table, and a fixture holding
+    // only some of them would let a snapshot build that the real store could
+    // not.
     let text_rows = crate::domain::wording::Wording::for_test_values()
         .into_iter()
         .chain(crate::domain::wording_accusation::AccusationWording::for_test_values())
@@ -72,6 +74,7 @@ fn seeded() -> HashMap<String, AppSettingRecord> {
             crate::domain::wording_scenario_authoring::ScenarioAuthoringWording::for_test_values(),
         )
         .chain(crate::domain::wording_scan::ScanWording::for_test_values())
+        .chain(crate::domain::wording_card_grammar::CardGrammarWording::for_test_values())
         // Task 2.15 Tier 2: two TEXT rows that are not wording — one names a
         // file, one holds a comma-separated list — so they are seeded here rather
         // than borrowed from a `for_test_values` block.
@@ -135,6 +138,25 @@ fn numeric_rows() -> HashMap<String, AppSettingRecord> {
             ValueKind::Count,
             Some(1.0),
             None,
+        ),
+        // ONE_CARD_GRAMMAR: how much of a question shows, and how many element
+        // chips stand before the fold. Bounds mirror the migration's — the
+        // question needs at least one visible character to be ellipsizable at
+        // all, while zero visible element chips is a legitimate choice (the
+        // count chip and "+N more" still say the elements are there).
+        row(
+            KEY_CARD_QUESTION_TRUNCATE,
+            "110",
+            ValueKind::Count,
+            Some(1.0),
+            Some(2000.0),
+        ),
+        row(
+            KEY_CARD_ELEMENT_CHIPS_K,
+            "2",
+            ValueKind::Count,
+            Some(0.0),
+            Some(50.0),
         ),
         // Task 2.11 B2: distinct dates needed before the rehearsal timeline is
         // drawn. Minimum 2 — a threshold of one draws a timeline from one point.
@@ -214,10 +236,11 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     // at whatever moment it happened to be read.
     assert_eq!(
         REQUIRED_KEYS.len(),
-        13,
+        15,
         "seven numbers, 2.10's short-list cap, 2.11 B2's timeline threshold, \
-         2.11 C's row-expand cap, and 2.15's three scan parameters (the prompt \
-         filename and the two pre-filter dials)"
+         2.11 C's row-expand cap, 2.15's three scan parameters (the prompt \
+         filename and the two pre-filter dials), and the one-card grammar's two \
+         fold thresholds (the question's visible length and the element-chip K)"
     );
     assert_eq!(
         WORDING_KEYS.len(),
@@ -262,6 +285,13 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
          numbers-only report"
     );
     assert_eq!(
+        CARD_GRAMMAR_WORDING_KEYS.len(),
+        32,
+        "ONE_CARD_GRAMMAR: the queue frame's seven, the card body's eleven, \
+         linking's four, the fact wrapper's nine, and the two chip-filter \
+         sentences"
+    );
+    assert_eq!(
         seeded().len(),
         REQUIRED_KEYS.len()
             + WORDING_KEYS.len()
@@ -270,8 +300,9 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
             + REHEARSAL_CHROME_KEYS.len()
             + AUTHORING_WORDING_KEYS.len()
             + SCENARIO_AUTHORING_WORDING_KEYS.len()
-            + SCAN_WORDING_KEYS.len(),
-        "the seed and the eight required lists must describe the same store"
+            + SCAN_WORDING_KEYS.len()
+            + CARD_GRAMMAR_WORDING_KEYS.len(),
+        "the seed and the nine required lists must describe the same store"
     );
 }
 
@@ -647,8 +678,9 @@ fn validation_is_the_same_rule_the_snapshot_applies() {
 /// `the_listing_puts_live_parameters_before_dormant_ones` makes for the ORDER BY.
 #[test]
 fn the_fixtures_carry_the_values_the_migration_actually_seeds() {
-    // FOUR migrations now seed numeric parameters: 1.6's original seven, 2.10's
-    // short-list cap, 2.11 B2's timeline threshold and 2.11 C's row-expand cap.
+    // SIX migrations now seed numeric parameters: 1.6's original seven, 2.10's
+    // short-list cap, 2.11 B2's timeline threshold, 2.11 C's row-expand cap,
+    // 2.15's three scan dials, and the one-card grammar's two fold thresholds.
     // Concatenated rather than searched one at a time so a key moving between
     // files is not a failure — where a parameter is seeded is a fact about
     // migration history, and only its VALUE is what this pins.
@@ -665,6 +697,10 @@ fn the_fixtures_carry_the_values_the_migration_actually_seeds() {
         // Task 2.15 Tier 2 — the prompt-file row, the two pre-filter dials, and
         // the scan surface's words.
         "pipeline_migrations/20260808084539_theme_scan_tier2_settings_and_scan_wording.sql",
+        // ONE_CARD_GRAMMAR — the question-truncation length and the element-chip
+        // K, seeded with the card's own words for the same reason: they are that
+        // surface's tunables.
+        "pipeline_migrations/20260809121531_one_card_grammar_wording_and_settings.sql",
     ]
     .iter()
     .map(|relative| {

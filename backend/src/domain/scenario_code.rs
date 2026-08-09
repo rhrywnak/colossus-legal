@@ -79,6 +79,42 @@ pub fn candidate_code(ordinal: i32) -> String {
     format!("{CANDIDATE_CODE_PREFIX}{ordinal}")
 }
 
+/// The prefix on a complaint ALLEGATION's handle (`A-45`).
+///
+/// ## Why the pilcrow had to go (ONE_CARD_GRAMMAR, §3.3, ratified 2026-08-09)
+///
+/// It was `¶45`, and the number was already right — `A-45` IS complaint ¶45, the
+/// same paragraph, renamed rather than renumbered. What changed is that the
+/// handle became TYPEABLE. §2a's whole argument for codes is that a human says
+/// them aloud and writes them down; the type-ahead that replaced the
+/// 120-checkbox wall adds a third requirement, which is that they can be typed
+/// into a box. Nobody can type `¶`, so a prefix a keyboard cannot produce was a
+/// handle in name only.
+///
+/// Same standing as `S-` and `C-`: case vocabulary versioned with the code, not
+/// a deployment tunable. A build that rendered it `P-45` would be renaming every
+/// reference in every notebook.
+const ALLEGATION_CODE_PREFIX: &str = "A-";
+
+/// Render a complaint allegation's paragraph as its display handle.
+///
+/// ## Rust Learning: `&str` in, `String` out — and why not `i32` like its siblings
+///
+/// The two handles above take an `i32` because their ordinals are integer
+/// columns. A complaint paragraph is stored as TEXT and is not always a bare
+/// number: the corpus carries values like `72(a)`, and parsing them into an
+/// integer would either lose the suffix or force an error path onto a function
+/// that has no honest way to fail. Taking the stored string across means this
+/// renders whatever the complaint actually says, which is the §12 discipline
+/// applied to a label.
+///
+/// The caller is responsible for not passing a blank — see `accusation_text`,
+/// where an absent or whitespace-only paragraph means the label is the body
+/// alone rather than a handle with nothing after the hyphen.
+pub fn allegation_code(paragraph: &str) -> String {
+    format!("{ALLEGATION_CODE_PREFIX}{paragraph}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -117,6 +153,37 @@ mod tests {
         assert_eq!(candidate_code(1), "C-1");
         assert_eq!(candidate_code(14), "C-14");
         assert_eq!(candidate_code(148), "C-148");
+    }
+
+    #[test]
+    fn an_allegation_handle_keeps_the_complaint_s_own_number() {
+        // A-45 IS complaint ¶45. The task renamed the prefix and renumbered
+        // nothing, so a build that re-sequenced these would silently break every
+        // cross-reference between this system and the filed complaint.
+        assert_eq!(allegation_code("45"), "A-45");
+        assert_eq!(allegation_code("7"), "A-7");
+    }
+
+    #[test]
+    fn an_allegation_handle_survives_a_paragraph_that_is_not_a_bare_number() {
+        // The corpus carries sub-lettered paragraphs. Parsing to an integer would
+        // drop the suffix and point the reader at the wrong paragraph, which is
+        // worse than an ugly handle.
+        assert_eq!(allegation_code("72(a)"), "A-72(a)");
+    }
+
+    #[test]
+    fn an_allegation_handle_can_be_typed_on_a_keyboard() {
+        // The reason the pilcrow left: the type-ahead that replaced the
+        // 120-checkbox wall needs a prefix a human can produce. Asserted as a
+        // property rather than as a literal, because what matters is not that it
+        // is "A" but that it is reachable — a future rename to another ASCII
+        // letter is fine and a rename back to a glyph is not.
+        let code = allegation_code("45");
+        assert!(
+            code.chars().all(|c| c.is_ascii()),
+            "an allegation handle must be typeable: {code} is not ASCII"
+        );
     }
 
     #[test]

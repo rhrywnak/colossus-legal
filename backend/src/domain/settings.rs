@@ -27,6 +27,7 @@ use std::fmt;
 use crate::domain::wording::Wording;
 use crate::domain::wording_accusation::AccusationWording;
 use crate::domain::wording_authoring::AuthoringWording;
+use crate::domain::wording_card_grammar::CardGrammarWording;
 use crate::domain::wording_rehearsal::RehearsalWording;
 use crate::domain::wording_rehearsal_chrome::RehearsalChromeWording;
 use crate::domain::wording_scan::ScanWording;
@@ -158,6 +159,26 @@ pub struct Settings {
     /// it five times" breaks the one thing the block exists to show. This number
     /// decides only whether a row ARRIVES open or one line tall.
     pub rehearsal_instance_rows_expand_max: usize,
+    /// The words ONE EVIDENCE CARD speaks, wherever it appears (ruling R6).
+    ///
+    /// An eighth nested block, on the same test the other seven pass: which
+    /// SURFACE speaks these, and does its vocabulary move independently? These
+    /// belong to the card GRAMMAR — the shape a piece of evidence takes under
+    /// either wrapper — which the one-card task made independent of both.
+    pub card_grammar_wording: CardGrammarWording,
+    /// How much of a discovery question a card shows before ellipsizing it
+    /// (§2b). The rest is one click away.
+    ///
+    /// Domain note: the ANSWER is the evidence and it leads. A six-part
+    /// interrogatory printed in full pushes the thing being ruled on off a
+    /// 13-inch screen, which is the hardware law this build was written against.
+    pub card_question_truncate_chars: usize,
+    /// How many element chips stand before the rest fold behind "+N more" (§2b).
+    ///
+    /// Domain note: they COMPRESS, never vanish. Element chips are the quick
+    /// "what harm was done" indicator, so folding them entirely would cost the
+    /// card the one thing it says about damages.
+    pub card_element_chips_visible_k: usize,
 }
 
 /// A snapshot for TESTS ONLY.
@@ -200,6 +221,9 @@ impl Settings {
             theme_scan_prefilter_statement_types: vec!["referral".to_string()],
             scan_wording: ScanWording::for_test(),
             rehearsal_instance_rows_expand_max: 3,
+            card_grammar_wording: CardGrammarWording::for_test(),
+            card_question_truncate_chars: 110,
+            card_element_chips_visible_k: 2,
         }
     }
 }

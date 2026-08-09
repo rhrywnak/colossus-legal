@@ -335,7 +335,9 @@ fn the_role_chip_names_the_scan_as_the_speaker() {
         "an unfilled placeholder reached the card: {:?}",
         proposal.role_label
     );
-    assert_eq!(proposal.reason.as_deref(), Some("direct admission"));
+    // The judge's SENTENCE is deliberately not here any more (ruling R3): it is
+    // the card's, so that including the card does not delete it. What a proposal
+    // carries is the badge vocabulary — the role chip and the covers count.
 }
 
 #[test]
@@ -356,8 +358,11 @@ fn a_role_this_build_cannot_name_silences_the_chip_rather_than_leaking_the_token
 
     assert!(proposal.role_label.is_none(), "no chip for an unnamed role");
     // The card stays RULABLE: the reason and the band both still reach the human,
-    // so a vocabulary gap does not withhold a candidate from the queue.
-    assert_eq!(proposal.reason.as_deref(), Some("the judge's reason"));
+    // so a vocabulary gap does not withhold a candidate from the queue. Both now
+    // travel outside `CardProposal` — the reason on the card (R3) and the band
+    // from the verdict's score — so what this asserts is that suppressing the
+    // chip suppressed ONLY the chip.
+    assert_eq!(proposal.duplicate_count, group.covers.len());
 }
 
 #[test]

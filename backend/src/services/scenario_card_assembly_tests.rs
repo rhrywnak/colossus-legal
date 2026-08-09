@@ -13,6 +13,7 @@ fn settings() -> Settings {
 }
 use crate::bias::dto::{ActorOption, DocumentRef};
 use crate::domain::confidence_band::ConfidenceBand;
+use crate::repositories::pipeline_repository::{RuledCardReasonRow, ScenarioFactRefRecord};
 
 /// A candidate with everything the record can carry, on a given page.
 fn full_instance() -> BiasInstance {
@@ -312,7 +313,10 @@ fn a_projected_verdict_reaches_its_card_as_a_proposal() {
 
     let card = &response.pool[0];
     let proposal = card.proposed.as_ref().expect("the node was proposed");
-    assert_eq!(proposal.reason.as_deref(), Some("the judge's reason"));
+    // Ruling R3: the reason rides on the CARD, not on the proposal. Asserted here
+    // rather than on `proposal` because that is the whole change — the sentence
+    // has to outlive the proposal that a ruling ends.
+    assert_eq!(card.scan_reason.as_deref(), Some("the judge's reason"));
     assert!(
         proposal
             .role_label
@@ -410,4 +414,107 @@ fn nothing_proposed_is_a_zero_count_and_no_proposal_fields() {
         ConfidenceBand::Unscored,
         "no verdict, no band — never a fabricated score"
     );
+}
+
+// ─── The scan's reason survives the ruling (ONE_CARD_GRAMMAR, ruling R3) ─────
+
+/// One stored reference row, with only the fields these two tests read.
+///
+/// Written out rather than defaulted because `ScenarioFactRefRecord` has no
+/// `Default` and should not gain one: it mirrors a table whose every column is
+/// either NOT NULL or meaningfully nullable, and a `..Default::default()` here
+/// would quietly invent a status.
+fn ref_row(node: &str, source_run_id: Option<uuid::Uuid>) -> ScenarioFactRefRecord {
+    ScenarioFactRefRecord {
+        scenario_id: uuid::Uuid::nil(),
+        graph_node_id: node.to_string(),
+        role_in_this_scenario: None,
+        status: "included".to_string(),
+        note: None,
+        confidence: None,
+        source_run_id,
+        tagged_at: chrono::Utc::now(),
+        defer_reason: None,
+        tier: "backup".to_string(),
+        sort_ordinal: None,
+        tier_updated_by: None,
+        tier_updated_at: None,
+        order_updated_by: None,
+        order_updated_at: None,
+    }
+}
+
+#[test]
+fn an_included_cards_reason_is_served_from_its_source_run() {
+    // THE defect ruling R3 kills. Precedence law R-a drops every node with a
+    // reference row before the projection groups anything, so the instant a human
+    // pressed Include the judge's sentence was gone from the payload — and that
+    // sentence is the one-sentence answer to "why does this matter here", which is
+    // exactly what an included fact has to keep answering.
+    let run = uuid::Uuid::from_u128(7);
+    let refs = vec![ref_row("ev-1", Some(run))];
+
+    let (runs, nodes) = ruled_reason_keys(&refs);
+    assert_eq!(runs, vec![run], "the ruling's own run is what gets asked");
+    assert_eq!(nodes, vec!["ev-1".to_string()]);
+
+    let mut states = build_ref_states(refs).expect("a well-formed row decodes");
+    attach_ruled_reasons(
+        &mut states,
+        vec![RuledCardReasonRow {
+            run_id: run,
+            graph_node_id: "ev-1".to_string(),
+            reason: Some("they admit the request existed".to_string()),
+        }],
+    );
+
+    assert_eq!(
+        states["ev-1"].scan_reason.as_deref(),
+        Some("they admit the request existed"),
+    );
+    assert!(
+        states["ev-1"].proposal.is_none(),
+        "recovering the reason must not resurrect the PROPOSAL — a ruled card is \
+         not proposed, and the Proposed filter reads exactly that field",
+    );
+}
+
+#[test]
+fn a_null_provenance_ruling_serves_no_reason() {
+    // Rulings made before `source_run_id` was written cite no run, so there is
+    // nothing to look a reason up by. The card shows none — the absent-not-fake
+    // law — and, just as importantly, the row is never even asked about: a query
+    // guaranteed to return nothing is work nobody uses.
+    let refs = vec![ref_row("ev-1", None)];
+
+    let (runs, nodes) = ruled_reason_keys(&refs);
+    assert!(
+        runs.is_empty() && nodes.is_empty(),
+        "a ruling with no provenance contributes no lookup key",
+    );
+
+    let states = build_ref_states(refs).expect("a well-formed row decodes");
+    assert!(states["ev-1"].scan_reason.is_none());
+}
+
+#[test]
+fn a_reason_for_a_node_this_payload_does_not_serve_is_ignored() {
+    // A verdict whose reference row has since been removed describes a card this
+    // response does not carry. Inserting a bare state for it would put a card-less
+    // entry in the map that every later pass would have to know to skip.
+    let run = uuid::Uuid::from_u128(7);
+    let mut states =
+        build_ref_states(vec![ref_row("ev-1", Some(run))]).expect("a well-formed row decodes");
+
+    attach_ruled_reasons(
+        &mut states,
+        vec![RuledCardReasonRow {
+            run_id: run,
+            graph_node_id: "ev-gone".to_string(),
+            reason: Some("about a card that is not here".to_string()),
+        }],
+    );
+
+    assert_eq!(states.len(), 1);
+    assert!(states["ev-1"].scan_reason.is_none());
 }

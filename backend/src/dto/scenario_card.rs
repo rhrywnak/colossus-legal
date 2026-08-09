@@ -288,12 +288,6 @@ pub struct CardProposal {
     /// this build cannot name — the chip is then absent rather than showing a raw
     /// token, and the decode failure is logged (Standing Rule 1).
     pub role_label: Option<String>,
-    /// The judge's own justification, verbatim from `scan_run_verdicts.reason`.
-    ///
-    /// Not composed and not translated: this is the model's sentence, and it is
-    /// the thing the human is being asked to weigh. `None` for a verdict recorded
-    /// without one.
-    pub reason: Option<String>,
     /// How many pool rows this one card speaks for — `1` ordinarily, `2` for a
     /// byte-identical twin pair. Ruling the card settles all of them.
     pub duplicate_count: usize,
@@ -466,6 +460,28 @@ pub struct ScenarioCard {
     /// `not_ruled` AND this being present, rather than a status token to decode.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub proposed: Option<CardProposal>,
+    /// The judge's own justification for this card, verbatim from
+    /// `scan_run_verdicts.reason`, whether it is still proposed or has been ruled.
+    ///
+    /// ## Domain note: why this left `CardProposal` (ONE_CARD_GRAMMAR, ruling R3)
+    ///
+    /// It used to live on the proposal, so it existed for exactly as long as the
+    /// card was unruled. Precedence law R-a drops every node with a reference row
+    /// before the projection groups anything, so the instant a human pressed
+    /// Include the reason was gone — and the reason is the one-sentence answer to
+    /// "why does this matter here", which is precisely the question an INCLUDED
+    /// fact has to keep answering. The design's words: that defect dies.
+    ///
+    /// It is a property of the CARD and not of being proposed. For an unruled card
+    /// it comes from the projecting run's verdict; for a ruled one it is recovered
+    /// by joining the reference row's `source_run_id` back to that run's verdict.
+    ///
+    /// `None` is a real and common state, not a gap: a card nothing has judged, a
+    /// verdict recorded without a reason, and a ruling made before `source_run_id`
+    /// was written all land here. The card then shows no reason rather than a
+    /// placeholder — the absent-not-fake law.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scan_reason: Option<String>,
     /// What the human did, in their own terms — "You linked this to ¶41 · they'll
     /// use it against us." Present exactly when `human_links` is non-empty.
     ///

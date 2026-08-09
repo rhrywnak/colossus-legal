@@ -6,7 +6,7 @@
 //! system judges by, and this decides the WORDS it speaks.
 //!
 //! Nothing here does I/O. It takes the rows the store has already read and turns
-//! them into seven typed blocks, or names the first key that is wrong.
+//! them into eight typed blocks, or names the first key that is wrong.
 
 use std::collections::HashMap;
 
@@ -14,6 +14,7 @@ use crate::domain::settings::SettingError;
 use crate::domain::wording::{build_wording, Wording};
 use crate::domain::wording_accusation::{build_accusation_wording, AccusationWording};
 use crate::domain::wording_authoring::{build_authoring_wording, AuthoringWording};
+use crate::domain::wording_card_grammar::{build_card_grammar_wording, CardGrammarWording};
 use crate::domain::wording_rehearsal::{build_rehearsal_wording, RehearsalWording};
 use crate::domain::wording_rehearsal_chrome::{
     build_rehearsal_chrome_wording, RehearsalChromeWording,
@@ -44,12 +45,14 @@ pub(crate) struct AllWording {
     pub(crate) scenario_authoring: ScenarioAuthoringWording,
     /// The scan surface's three strings (task 2.15 Tier 2).
     pub(crate) scan: ScanWording,
+    /// The words one evidence card speaks under either wrapper (ruling R6).
+    pub(crate) card_grammar: CardGrammarWording,
 }
 
-/// The seven stored-string blocks, read by one rule.
+/// The eight stored-string blocks, read by one rule.
 ///
 /// Each block lives in its own `domain` module (Rule 17 — none of them fits in
-/// one), and all seven are read by the same closure, so a row must exist, declare
+/// one), and all eight are read by the same closure, so a row must exist, declare
 /// `text`, and carry something non-blank whichever surface it belongs to.
 ///
 /// ## Why the rehearsal block's derived shapes are parsed HERE
@@ -73,6 +76,7 @@ pub(crate) fn build_all_wording(
     let authoring = build_authoring_wording(|key| text_of(require(rows, key)?))?;
     let scenario_authoring = build_scenario_authoring_wording(|key| text_of(require(rows, key)?))?;
     let scan = build_scan_wording(|key| text_of(require(rows, key)?))?;
+    let card_grammar = build_card_grammar_wording(|key| text_of(require(rows, key)?))?;
 
     rehearsal.always_lines()?;
     rehearsal.section_states()?;
@@ -85,5 +89,6 @@ pub(crate) fn build_all_wording(
         authoring,
         scenario_authoring,
         scan,
+        card_grammar,
     })
 }
