@@ -164,6 +164,10 @@ pub(crate) fn prepare_pool(
         // Every member beyond each group's representative is a pool row that will
         // not cost an LLM call — and WILL still get a verdict row (ruling R2).
         duplicates_collapsed: groups.iter().map(|g| g.size() - 1).sum(),
+        // The pre-filter runs before any call, so it cannot know how many will
+        // fail. `persist_and_summarize` sets the real number once the fan-out is
+        // in — see `ScanConservation::failed`.
+        failed: 0,
         judged: groups.len(),
     };
 

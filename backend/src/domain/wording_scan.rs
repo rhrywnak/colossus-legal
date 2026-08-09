@@ -30,7 +30,7 @@
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScanWording {
     /// The conservation line under a completed run's counts. Carries `{pool}`,
-    /// `{collapsed}`, `{excluded}`, `{judged}` and `{relevant}`.
+    /// `{collapsed}`, `{excluded}`, `{judged}`, `{failed}` and `{relevant}`.
     ///
     /// Domain note: this sentence is the whole of item 1c. It is the only place a
     /// human can see that a 148-row pool became 124 judged quotes and why — and
@@ -80,6 +80,41 @@ pub struct ScanWording {
     pub report_tile_set_aside: String,
     pub report_tile_judged: String,
     pub report_tile_proposed: String,
+
+    // ── Failure honesty (2026-08-09, rulings R3/R4) ──────────────────────────
+    /// The clause spliced into the conservation line when a run had failures.
+    /// Carries `{failed}` and its own separator.
+    ///
+    /// Domain note: this is a SEPARATE row rather than a permanent term of the
+    /// sentence because a clean run should not read "· 0 failed" — a zero there
+    /// invites the reader to treat the term as noise, and the one run where it
+    /// matters is the one where it is suddenly not zero. It carries its own
+    /// separator because only the clause knows whether it is present, and a
+    /// separator left in the parent template would strand a "· " on every clean
+    /// run.
+    pub conservation_failed_clause_template: String,
+    /// The failed tile's caption.
+    ///
+    /// Domain note: run 6a9fad89 (2026-08-09) reported "104 judged · 0 relevant"
+    /// with 104 dead calls and no tile for them. The count existed; the screen
+    /// had nowhere to put it.
+    pub report_tile_failed: String,
+    /// The pill on a run whose calls came back.
+    ///
+    /// Was the literal `"Complete"` compiled into `ThemeScanPanel`. It becomes a
+    /// row now because it acquired a SIBLING it can be wrong about: a pill that
+    /// can read either word is a pill that must be able to read the other one.
+    pub status_complete_label: String,
+    /// The pill on a run whose every judged call failed.
+    pub status_failed_label: String,
+    /// The collapsed card's one line when the latest run FAILED. Carries
+    /// `{when}`, `{model}` and `{count}` (the failed count).
+    ///
+    /// Domain note: the collapsed line is what Roman first saw, and it said
+    /// "Last scan … · 0 proposed" about a run that never judged anything. A
+    /// scenario reading "0 proposed" looks scanned and empty; it was not scanned
+    /// at all.
+    pub card_collapsed_failed_template: String,
 }
 
 // KEYS: the stable identifiers of the three stored strings. Renaming one is a
@@ -95,6 +130,11 @@ pub(crate) const KEY_REPORT_TILE_FOLDED: &str = "scan_report_tile_folded";
 pub(crate) const KEY_REPORT_TILE_SET_ASIDE: &str = "scan_report_tile_set_aside";
 pub(crate) const KEY_REPORT_TILE_JUDGED: &str = "scan_report_tile_judged";
 pub(crate) const KEY_REPORT_TILE_PROPOSED: &str = "scan_report_tile_proposed";
+pub(crate) const KEY_CONSERVATION_FAILED_CLAUSE: &str = "scan_conservation_failed_clause_template";
+pub(crate) const KEY_REPORT_TILE_FAILED: &str = "scan_report_tile_failed";
+pub(crate) const KEY_STATUS_COMPLETE_LABEL: &str = "scan_status_complete_label";
+pub(crate) const KEY_STATUS_FAILED_LABEL: &str = "scan_status_failed_label";
+pub(crate) const KEY_CARD_COLLAPSED_FAILED: &str = "scan_card_collapsed_failed_template";
 
 /// Every scan-wording key this build reads, so a missing one is caught at boot BY
 /// NAME rather than as a blank control in front of a human mid-scan.
@@ -110,6 +150,11 @@ pub const SCAN_WORDING_KEYS: &[&str] = &[
     KEY_REPORT_TILE_SET_ASIDE,
     KEY_REPORT_TILE_JUDGED,
     KEY_REPORT_TILE_PROPOSED,
+    KEY_CONSERVATION_FAILED_CLAUSE,
+    KEY_REPORT_TILE_FAILED,
+    KEY_STATUS_COMPLETE_LABEL,
+    KEY_STATUS_FAILED_LABEL,
+    KEY_CARD_COLLAPSED_FAILED,
 ];
 
 /// Build a [`ScanWording`] from the stored rows, or say which key is wrong.
@@ -135,6 +180,11 @@ pub fn build_scan_wording<E>(read: impl Fn(&str) -> Result<String, E>) -> Result
         report_tile_set_aside: read(KEY_REPORT_TILE_SET_ASIDE)?,
         report_tile_judged: read(KEY_REPORT_TILE_JUDGED)?,
         report_tile_proposed: read(KEY_REPORT_TILE_PROPOSED)?,
+        conservation_failed_clause_template: read(KEY_CONSERVATION_FAILED_CLAUSE)?,
+        report_tile_failed: read(KEY_REPORT_TILE_FAILED)?,
+        status_complete_label: read(KEY_STATUS_COMPLETE_LABEL)?,
+        status_failed_label: read(KEY_STATUS_FAILED_LABEL)?,
+        card_collapsed_failed_template: read(KEY_CARD_COLLAPSED_FAILED)?,
     })
 }
 

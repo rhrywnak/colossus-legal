@@ -15,6 +15,7 @@ use crate::domain::wording::{build_wording, Wording};
 use crate::domain::wording_accusation::{build_accusation_wording, AccusationWording};
 use crate::domain::wording_authoring::{build_authoring_wording, AuthoringWording};
 use crate::domain::wording_card_grammar::{build_card_grammar_wording, CardGrammarWording};
+use crate::domain::wording_model_params::{build_model_params_wording, ModelParamsWording};
 use crate::domain::wording_rehearsal::{build_rehearsal_wording, RehearsalWording};
 use crate::domain::wording_rehearsal_chrome::{
     build_rehearsal_chrome_wording, RehearsalChromeWording,
@@ -47,6 +48,8 @@ pub(crate) struct AllWording {
     pub(crate) scan: ScanWording,
     /// The words one evidence card speaks under either wrapper (ruling R6).
     pub(crate) card_grammar: CardGrammarWording,
+    /// The models admin's temperature control (ruling R5, 2026-08-09).
+    pub(crate) model_params: ModelParamsWording,
 }
 
 /// The eight stored-string blocks, read by one rule.
@@ -77,6 +80,7 @@ pub(crate) fn build_all_wording(
     let scenario_authoring = build_scenario_authoring_wording(|key| text_of(require(rows, key)?))?;
     let scan = build_scan_wording(|key| text_of(require(rows, key)?))?;
     let card_grammar = build_card_grammar_wording(|key| text_of(require(rows, key)?))?;
+    let model_params = build_model_params_wording(|key| text_of(require(rows, key)?))?;
 
     rehearsal.always_lines()?;
     rehearsal.section_states()?;
@@ -90,5 +94,6 @@ pub(crate) fn build_all_wording(
         scenario_authoring,
         scan,
         card_grammar,
+        model_params,
     })
 }

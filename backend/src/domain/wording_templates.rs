@@ -139,8 +139,22 @@ pub const REQUIRED_PLACEHOLDERS: &[(&str, &[&str])] = &[
             "{collapsed}",
             "{excluded}",
             "{judged}",
+            // `{failed}` is the slot the failed CLAUSE lands in — empty on a clean
+            // run. Required here for the same reason as its neighbours: an edit
+            // that dropped it would silently stop reporting dead calls, which is
+            // the exact defect of 2026-08-09 restored through the settings page.
+            "{failed}",
             "{relevant}",
         ],
+    ),
+    // The clause is nothing but its number.
+    (scan::KEY_CONSERVATION_FAILED_CLAUSE, &["{failed}"]),
+    // A collapsed line announcing a failed run without saying how many calls died
+    // sends the reader to the report to find out — which is the click the
+    // collapsed line exists to save.
+    (
+        scan::KEY_CARD_COLLAPSED_FAILED,
+        &["{when}", "{model}", "{count}"],
     ),
     // A destructive confirmation that cannot name WHICH run is being destroyed is
     // the mis-click guard failing quietly on a list of four look-alike rows.

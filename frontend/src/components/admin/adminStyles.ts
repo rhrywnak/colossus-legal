@@ -28,6 +28,15 @@ export const labelStyle: React.CSSProperties = {
   marginBottom: "0.25rem",
 };
 
+/** The sentence under a control that explains what it does or why it is closed.
+ *
+ * Added with the temperature capability control (ruling R5, 2026-08-09): a mode
+ * dropdown whose wrong value produces NO answers rather than different ones needs
+ * a line saying so, and a disabled field with no explanation reads as broken. */
+export const helpStyle: React.CSSProperties = {
+  fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "0.3rem", lineHeight: 1.4,
+};
+
 export const msgSuccess: React.CSSProperties = {
   padding: "0.65rem 1rem", backgroundColor: "var(--state-success-bg-soft)", border: "1px solid var(--state-success-bg-soft)",
   borderRadius: "6px", fontSize: "0.84rem", color: "var(--status-active-text)", marginBottom: "1rem",

@@ -9,6 +9,8 @@ use axum::{
 use serde::{Deserialize, Serialize};
 
 use crate::auth::{require_admin, AuthUser};
+use crate::domain::llm_params::TEMPERATURE_MODE_TOKENS;
+use crate::dto::model_params_wording::ModelParamsWordingDto;
 use crate::error::AppError;
 use crate::repositories::pipeline_repository::models::{
     self, InsertModelInput, LlmModelRecord, UpdateModelInput,
@@ -28,6 +30,17 @@ const UNIQUE_VIOLATION: &str = "23505";
 #[derive(Debug, Serialize)]
 pub struct ModelsResponse {
     pub models: Vec<LlmModelRecord>,
+    /// The words the temperature control speaks (ruling R5, 2026-08-09).
+    ///
+    /// ## Why they ride THIS response rather than a wording endpoint of their own
+    ///
+    /// The models admin has no wording payload — it is one of the surfaces that
+    /// predates the configuration law. Adding a second round trip to fetch five
+    /// strings the page cannot render without would let the form paint with a
+    /// blank dropdown while the words were in flight, which is how a control
+    /// ships unlabelled. They arrive with the rows they describe, so there is no
+    /// state in which one is present and the other is not.
+    pub temperature_wording: ModelParamsWordingDto,
 }
 
 /// Body of POST /models — create a new model.
@@ -54,6 +67,32 @@ pub struct CreateModelInput {
     pub notes: Option<String>,
 }
 
+/// Reject a temperature-mode token the resolver would not recognise.
+///
+/// ## Why this is checked HERE and not left to the resolver
+///
+/// `TemperatureMode::from_optional_token` already refuses an unknown token — but
+/// it refuses at CALL TIME, in the middle of a scan, as a provider-construction
+/// error. A bad token written through this endpoint would sit in the registry
+/// looking fine until the next run died. Validating at the write is the same
+/// startup-over-runtime discipline the provider list already applies two
+/// functions down.
+fn validate_temperature_mode(token: Option<&str>) -> Result<(), AppError> {
+    let Some(token) = token else {
+        return Ok(());
+    };
+    if TEMPERATURE_MODE_TOKENS.contains(&token) {
+        return Ok(());
+    }
+    Err(AppError::BadRequest {
+        message: format!(
+            "Unknown temperature mode '{token}'; expected one of: {}",
+            TEMPERATURE_MODE_TOKENS.join(", ")
+        ),
+        details: serde_json::json!({"field": "temperature_mode"}),
+    })
+}
+
 /// GET /api/admin/pipeline/models — list every model (active and inactive).
 ///
 /// Admin UIs need the full set so operators can re-activate deactivated
@@ -70,7 +109,10 @@ pub async fn list_models(
             message: format!("Failed to list models: {e}"),
         })?;
 
-    Ok(Json(ModelsResponse { models: rows }))
+    Ok(Json(ModelsResponse {
+        models: rows,
+        temperature_wording: (&state.settings.current().model_params_wording).into(),
+    }))
 }
 
 /// POST /api/admin/pipeline/models — create a new model row.
@@ -143,6 +185,8 @@ pub async fn update_model(
             });
         }
     }
+
+    validate_temperature_mode(input.temperature_mode.as_deref())?;
 
     let updated = models::update_model(&state.pipeline_pool, &model_id, &input)
         .await
@@ -236,3 +280,7 @@ fn map_insert_error(e: sqlx::Error, id: &str) -> AppError {
         message: format!("Failed to insert model: {e}"),
     }
 }
+
+#[cfg(test)]
+#[path = "models_tests.rs"]
+mod tests;

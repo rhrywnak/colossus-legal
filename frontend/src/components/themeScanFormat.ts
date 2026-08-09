@@ -163,3 +163,33 @@ export function collapsedScanSummary(
     .replace("{model}", model)
     .replace("{count}", String(proposedCount ?? 0));
 }
+
+/**
+ * The one line a FOLDED scan card shows when the latest run FAILED.
+ *
+ * ## Domain note: the line that lied (ruling R4, 2026-08-09)
+ *
+ * The collapsed card is what Roman read first, and on 2026-08-09 it said "Last
+ * scan 2:57 PM · Claude Opus 5 · 0 proposed" about a run whose 104 judge calls
+ * had all returned 400 inside five seconds. "0 proposed" is a claim about a scan
+ * that WORKED and found nothing; that run judged nothing at all. A scenario
+ * cannot be told apart from a scanned-and-empty one by that sentence, which is
+ * why a failed run gets a different sentence rather than the same one with a
+ * zero in it.
+ *
+ * Same shape as its sibling above and for the same reason: composed here, where a
+ * test can assert it, rather than inside a React tree where nothing can.
+ * `{count}` is the FAILED count — the number that was recorded all along and had
+ * nowhere to appear.
+ */
+export function collapsedFailedSummary(
+  template: string,
+  when: string,
+  model: string,
+  failedCount: number,
+): string {
+  return template
+    .replace("{when}", when)
+    .replace("{model}", model)
+    .replace("{count}", String(failedCount));
+}

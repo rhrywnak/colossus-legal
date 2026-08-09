@@ -28,6 +28,7 @@ use crate::domain::wording::Wording;
 use crate::domain::wording_accusation::AccusationWording;
 use crate::domain::wording_authoring::AuthoringWording;
 use crate::domain::wording_card_grammar::CardGrammarWording;
+use crate::domain::wording_model_params::ModelParamsWording;
 use crate::domain::wording_rehearsal::RehearsalWording;
 use crate::domain::wording_rehearsal_chrome::RehearsalChromeWording;
 use crate::domain::wording_scan::ScanWording;
@@ -166,6 +167,14 @@ pub struct Settings {
     /// belong to the card GRAMMAR — the shape a piece of evidence takes under
     /// either wrapper — which the one-card task made independent of both.
     pub card_grammar_wording: CardGrammarWording,
+    /// The words Admin → Models speaks about a model's temperature capability
+    /// (ruling R5, 2026-08-09).
+    ///
+    /// A ninth nested block, and the first that speaks to somebody configuring
+    /// the LLM registry rather than to somebody working the case. It moves when a
+    /// provider changes what it accepts, which has nothing to do with what a
+    /// candidate card says.
+    pub model_params_wording: ModelParamsWording,
     /// How much of a discovery question a card shows before ellipsizing it
     /// (§2b). The rest is one click away.
     ///
@@ -222,6 +231,7 @@ impl Settings {
             scan_wording: ScanWording::for_test(),
             rehearsal_instance_rows_expand_max: 3,
             card_grammar_wording: CardGrammarWording::for_test(),
+            model_params_wording: ModelParamsWording::for_test(),
             card_question_truncate_chars: 110,
             card_element_chips_visible_k: 2,
         }

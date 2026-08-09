@@ -42,7 +42,12 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import PipelineProgressBar from "./pipeline/PipelineProgressBar";
 import ScanHistoryTable from "./ScanHistoryTable";
 import ScanControlLine from "./ScanControlLine";
-import { collapsedScanSummary, formatElapsed, lastRunSummary } from "./themeScanFormat";
+import {
+  collapsedFailedSummary,
+  collapsedScanSummary,
+  formatElapsed,
+  lastRunSummary,
+} from "./themeScanFormat";
 import { gatherCandidates } from "../services/scenarioGather";
 import type { ProposalSource } from "../services/scenarioCards";
 import {
@@ -438,15 +443,29 @@ const ThemeScanPanel: React.FC<Props> = ({
   // Composed from the STORED template. A card that invented its own summary would
   // be the one sentence on this screen the configuration law does not reach.
   const latestCompleted = runs.find((r) => r.status === "completed") ?? null;
+  // The most recent SETTLED run, which is not always the same row. A run whose
+  // every judged call failed now records `failed` (ruling R3), so it is invisible
+  // to the line above — correctly, because it projects nothing — but it is the run
+  // the human just watched, and the folded card has to say what happened to it
+  // rather than quietly describing the one before it.
+  const latestSettled = runs.find((r) => r.status !== "running") ?? null;
+  const latestFailed = latestSettled?.status === "failed" ? latestSettled : null;
   const collapsedSummary =
-    historyWording && latestCompleted
-      ? collapsedScanSummary(
-          historyWording.card_collapsed_summary_template,
-          formatRunDate(latestCompleted.started_at),
-          modelName(latestCompleted.model_id),
-          proposalSource?.proposed_count ?? null,
+    historyWording && latestFailed
+      ? collapsedFailedSummary(
+          historyWording.card_collapsed_failed_template,
+          formatRunDate(latestFailed.started_at),
+          modelName(latestFailed.model_id),
+          latestFailed.failed_count,
         )
-      : null;
+      : historyWording && latestCompleted
+        ? collapsedScanSummary(
+            historyWording.card_collapsed_summary_template,
+            formatRunDate(latestCompleted.started_at),
+            modelName(latestCompleted.model_id),
+            proposalSource?.proposed_count ?? null,
+          )
+        : null;
 
   // Default: COLLAPSED once a run has completed, EXPANDED before that. The
   // human's own click wins from then on, and is deliberately NOT persisted — the
@@ -541,6 +560,10 @@ const ThemeScanPanel: React.FC<Props> = ({
                   summary={summary}
                   modelName={modelName(summary.model_id)}
                   wording={historyWording}
+                  // The pill reads the RUN's status, not the summary's — a summary
+                  // is what the run produced and has no opinion about whether
+                  // producing it counted as success.
+                  status={runs.find((r) => r.run_id === runId)?.status ?? null}
                   // The live count belongs to THIS run only when this run is the
                   // one projecting. Reopening an older run must not borrow the
                   // current run's number (R-b).
@@ -632,11 +655,21 @@ const RunReport: React.FC<{
   wording: ScanWording;
   /** The LIVE count, or `null` when this run is not the one projecting. */
   proposedCount: number | null;
-}> = ({ summary, modelName, wording, proposedCount }) => (
+  /** This run's own status, or `null` when its history row is not loaded. */
+  status: ScanRunHeader["status"] | null;
+}> = ({ summary, modelName, wording, proposedCount, status }) => (
   <div style={S.runResult}>
     <div style={S.runResultHead}>
       <span style={S.modelChip}>{modelName}</span>
-      <span style={S.completePill}>Complete</span>
+      {/* Both words are served (ruling R4). "Complete" used to be a literal here,
+          and it was the literal that said "Complete" over a run whose 104 judge
+          calls had all returned 400. A pill that can be wrong about which of two
+          things happened has to be able to render either one. */}
+      {status === "failed" ? (
+        <span style={S.failedPill}>{wording.status_failed_label}</span>
+      ) : (
+        <span style={S.completePill}>{wording.status_complete_label}</span>
+      )}
       <span style={S.muted}>{formatElapsed(summary.duration_ms)}</span>
     </div>
     <div style={S.advisory}>{wording.report_advisory_note}</div>
@@ -659,6 +692,16 @@ const RunReport: React.FC<{
           tone="muted"
         />
         <LiveTile label={wording.report_tile_judged} value={summary.conservation.judged} tone="muted" />
+        {/* Shown only when it is nonzero. A permanent zero tile is decoration the
+            eye learns to skip, and the one run where this number matters is the
+            run where it stops being zero. */}
+        {summary.conservation.failed > 0 && (
+          <LiveTile
+            label={wording.report_tile_failed}
+            value={summary.conservation.failed}
+            tone="danger"
+          />
+        )}
         {/* The one live tile. An em dash rather than a zero when this run is not
             the projecting one: "not the current run" and "current run proposing
             nothing" are different facts. */}
@@ -922,6 +965,29 @@ const S: Record<string, React.CSSProperties> = {
     border: "1px solid var(--border-default)",
     borderRadius: "6px",
     padding: "3px 9px",
+  },
+  // The two settled-run pills. `completePill` was REFERENCED here but never
+  // defined — `S` is a `Record<string, CSSProperties>`, so `S.completePill`
+  // resolved to `undefined` and the word rendered unstyled beside a styled model
+  // chip. Defining both now, because a FAILED pill that looks identical to a
+  // Complete one would be the honesty fix defeated by its own styling.
+  completePill: {
+    fontSize: "0.78rem",
+    fontWeight: 600,
+    color: "var(--text-secondary)",
+    background: "var(--bg-canvas)",
+    border: "1px solid var(--border-default)",
+    borderRadius: "999px",
+    padding: "2px 10px",
+  },
+  failedPill: {
+    fontSize: "0.78rem",
+    fontWeight: 700,
+    color: "var(--state-danger-strong)",
+    background: "var(--state-danger-bg-soft)",
+    border: "1px solid var(--state-danger-strong)",
+    borderRadius: "999px",
+    padding: "2px 10px",
   },
   scanningPill: {
     display: "inline-flex",

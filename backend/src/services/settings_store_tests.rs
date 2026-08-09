@@ -18,6 +18,7 @@ use crate::domain::wording::WORDING_KEYS;
 use crate::domain::wording_accusation::ACCUSATION_WORDING_KEYS;
 use crate::domain::wording_authoring::AUTHORING_WORDING_KEYS;
 use crate::domain::wording_card_grammar::CARD_GRAMMAR_WORDING_KEYS;
+use crate::domain::wording_model_params::MODEL_PARAMS_WORDING_KEYS;
 use crate::domain::wording_rehearsal::REHEARSAL_WORDING_KEYS;
 use crate::domain::wording_rehearsal_chrome::REHEARSAL_CHROME_KEYS;
 use crate::domain::wording_scan::SCAN_WORDING_KEYS;
@@ -75,6 +76,7 @@ fn seeded() -> HashMap<String, AppSettingRecord> {
         )
         .chain(crate::domain::wording_scan::ScanWording::for_test_values())
         .chain(crate::domain::wording_card_grammar::CardGrammarWording::for_test_values())
+        .chain(crate::domain::wording_model_params::ModelParamsWording::for_test_values())
         // Task 2.15 Tier 2: two TEXT rows that are not wording — one names a
         // file, one holds a comma-separated list — so they are seeded here rather
         // than borrowed from a `for_test_values` block.
@@ -279,10 +281,11 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     );
     assert_eq!(
         SCAN_WORDING_KEYS.len(),
-        11,
-        "2.15 Tier 2's conservation line and two history controls, plus the \
-         projection's eight: the collapsed summary and the seven strings of the \
-         numbers-only report"
+        16,
+        "2.15 Tier 2's conservation line and two history controls, the \
+         projection's eight (the collapsed summary and the seven strings of the \
+         numbers-only report), and the failure honesty five: the failed clause, \
+         the failed tile, the two status pills and the failed collapsed line"
     );
     assert_eq!(
         CARD_GRAMMAR_WORDING_KEYS.len(),
@@ -290,6 +293,13 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
         "ONE_CARD_GRAMMAR: the queue frame's seven, the card body's eleven, \
          linking's four, the fact wrapper's nine, and the two chip-filter \
          sentences"
+    );
+    assert_eq!(
+        MODEL_PARAMS_WORDING_KEYS.len(),
+        7,
+        "MODEL_PARAMS (ruling R5, 2026-08-09): the temperature dropdown's label, \
+         its help sentence, its three option texts, and the numeric value's label \
+         and disabled-help"
     );
     assert_eq!(
         seeded().len(),
@@ -301,8 +311,9 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
             + AUTHORING_WORDING_KEYS.len()
             + SCENARIO_AUTHORING_WORDING_KEYS.len()
             + SCAN_WORDING_KEYS.len()
-            + CARD_GRAMMAR_WORDING_KEYS.len(),
-        "the seed and the nine required lists must describe the same store"
+            + CARD_GRAMMAR_WORDING_KEYS.len()
+            + MODEL_PARAMS_WORDING_KEYS.len(),
+        "the seed and the ten required lists must describe the same store"
     );
 }
 

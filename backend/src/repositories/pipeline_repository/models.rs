@@ -52,6 +52,25 @@ pub struct UpdateModelInput {
     pub cost_per_output_token: Option<f64>,
     pub is_active: Option<bool>,
     pub notes: Option<String>,
+
+    // ── The temperature capability becomes operator-writable (ruling R5) ─────
+    //
+    // Chunk A left these two columns READ-ONLY, with the write surface "deferred
+    // to a later chunk". This is that chunk, and the reason it stopped being
+    // deferrable is measured: `claude-opus-5` shipped with no mode recorded,
+    // there was no screen on which to record one, and 104 judge calls 400'd.
+    /// The capability token (`zero-ok` / `omit`), validated at the API boundary
+    /// against `domain::llm_params::TEMPERATURE_MODE_TOKENS`.
+    ///
+    /// `None` leaves the column untouched (the `COALESCE` shape every field here
+    /// uses), so this write path can RECORD a mode and cannot un-record one. That
+    /// is deliberate rather than a limitation: "nobody has said what this model
+    /// does" is a gap to close, not a state to choose, and since 2026-08-09 an
+    /// unrecorded mode already behaves as `omit`.
+    pub temperature_mode: Option<String>,
+    /// The explicit temperature to send when the mode is `zero-ok`. Same
+    /// leave-untouched semantics as every sibling.
+    pub default_temperature: Option<f64>,
 }
 
 /// A row from the `llm_models` registry.
@@ -289,7 +308,9 @@ pub async fn update_model(
            cost_per_input_token = COALESCE($7, cost_per_input_token), \
            cost_per_output_token = COALESCE($8, cost_per_output_token), \
            is_active = COALESCE($9, is_active), \
-           notes = COALESCE($10, notes) \
+           notes = COALESCE($10, notes), \
+           temperature_mode = COALESCE($11, temperature_mode), \
+           default_temperature = COALESCE($12::numeric, default_temperature) \
          WHERE id = $1 \
          RETURNING {SELECT_COLUMNS}"
     );
@@ -304,6 +325,11 @@ pub async fn update_model(
         .bind(input.cost_per_output_token)
         .bind(input.is_active)
         .bind(&input.notes)
+        .bind(&input.temperature_mode)
+        // NUMERIC(3,2) bound as a fixed-precision STRING through a `::numeric`
+        // cast, exactly as the cost columns are: there is no `rust_decimal`
+        // feature on sqlx here, so a bare `f64` bind cannot address the column.
+        .bind(input.default_temperature.map(|t| format!("{t:.2}")))
         .fetch_optional(db)
         .await
 }

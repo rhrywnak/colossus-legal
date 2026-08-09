@@ -248,6 +248,16 @@ fn conservation_holds_over_a_pool_that_exercises_every_branch() {
     );
     assert_eq!(c.judged, 2, "ev-1 (with its twin folded in) and ev-yes");
     assert_eq!(c.duplicates_collapsed, 1);
+
+    // The pre-filter runs BEFORE any judge call, so the one thing it can honestly
+    // say about failures is nothing — and `0` is what it must write, not a guess.
+    // `persist_and_summarize` overwrites this from the fan-out's tally (ruling
+    // R4); a pre-filter that put any other number here would make the run's own
+    // reconciliation check wrong about a run that had not started yet.
+    assert_eq!(
+        c.failed, 0,
+        "the pre-filter cannot know how many calls will fail and must not pretend to"
+    );
 }
 
 #[test]

@@ -106,14 +106,12 @@ async fn annotate_run_summary(
     // the LIVE stored template (task 2.15 item 1c). Read-time for the same reason
     // the two annotations above are: the record is what the run did, the words are
     // what today's store says.
+    let words = &state.settings.current().scan_wording;
     annotate_conservation_line(
         summary,
         run_id,
-        &state
-            .settings
-            .current()
-            .scan_wording
-            .conservation_line_template,
+        &words.conservation_line_template,
+        &words.conservation_failed_clause_template,
     );
     Ok(())
 }
@@ -159,6 +157,10 @@ pub async fn list_scenario_scan_runs(
             report_tile_set_aside: words.report_tile_set_aside.clone(),
             report_tile_judged: words.report_tile_judged.clone(),
             report_tile_proposed: words.report_tile_proposed.clone(),
+            report_tile_failed: words.report_tile_failed.clone(),
+            status_complete_label: words.status_complete_label.clone(),
+            status_failed_label: words.status_failed_label.clone(),
+            card_collapsed_failed_template: words.card_collapsed_failed_template.clone(),
         },
     })
 }

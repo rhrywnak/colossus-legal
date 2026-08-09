@@ -17,6 +17,7 @@ pub mod evidence_links;
 pub mod graph;
 pub mod harm;
 pub mod hearing;
+pub mod model_params_wording;
 pub mod motion_claim;
 pub mod person;
 pub mod person_detail;

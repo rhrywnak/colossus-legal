@@ -122,6 +122,16 @@ fn relevant_outcome() -> JudgeOutcome {
     }
 }
 
+/// A judge call that came back with no verdict — the 400 of 2026-08-09.
+fn failed_outcome() -> JudgeOutcome {
+    JudgeOutcome {
+        verdict: Err("temperature is deprecated for this model".to_string()),
+        raw_reply: None,
+        input_tokens: None,
+        output_tokens: None,
+    }
+}
+
 fn dead_pool() -> PgPool {
     PgPoolOptions::new()
         .acquire_timeout(Duration::from_millis(500))
@@ -143,6 +153,18 @@ fn meta() -> ScanRunMeta {
     }
 }
 
+/// `meta()` with a conservation block that says how many groups were judged.
+///
+/// The default fixture reports `judged: 0` because the classification tests do
+/// not look at it. The reconciliation tests do — `judged` is the LEFT side of
+/// R4's identity, and a fixture claiming zero would make the law trivially false.
+fn meta_judging(judged: usize) -> ScanRunMeta {
+    ScanRunMeta {
+        conservation: conservation(judged, judged),
+        ..meta()
+    }
+}
+
 /// A conservation block for a pool of `pool` rows that judged `judged` groups.
 fn conservation(pool: usize, judged: usize) -> ScanConservation {
     ScanConservation {
@@ -152,6 +174,10 @@ fn conservation(pool: usize, judged: usize) -> ScanConservation {
         excluded_too_short: 0,
         duplicates_collapsed: pool.saturating_sub(judged),
         judged,
+        // 0 is what the PRE-FILTER writes — it runs before any call and cannot
+        // know. `persist_and_summarize` overwrites it from the fan-out's tally,
+        // which is exactly what the failure tests below check.
+        failed: 0,
     }
 }
 
@@ -342,4 +368,73 @@ fn count_to_i32_clamps_impossible_overflow_without_panic() {
     assert_eq!(count_to_i32(usize::MAX, "test"), i32::MAX);
     assert_eq!(count_to_i32(0, "test"), 0);
     assert_eq!(count_to_i32(94, "test"), 94);
+}
+
+/// The failed count reaches the block the REPORT is built from (ruling R4).
+///
+/// The defect: `scan_runs.failed_count` recorded 104 and `ThemeScanSummary.failed`
+/// carried 104, but the tiles and the reconciliation sentence are built from
+/// `ScanConservation` — which had no field for it. The number existed everywhere
+/// except the one place the screen reads.
+#[tokio::test]
+async fn a_partially_failed_run_reports_its_failed_count_in_conservation() {
+    let summary = persist_and_summarize(
+        &dead_pool(),
+        meta_judging(3),
+        vec![
+            (group("ev-1"), relevant_outcome()),
+            (group("ev-2"), irrelevant_outcome()),
+            (group("ev-3"), failed_outcome()),
+        ],
+    )
+    .await;
+
+    assert_eq!(summary.failed, 1, "the summary counts the dead call");
+    assert_eq!(
+        summary.conservation.failed, 1,
+        "and so does the block the report's tiles and sentence are built from — \
+         `prepare_pool` wrote 0 there because it runs before any call"
+    );
+
+    // R4's law, on the object that has to satisfy it. Asserted through the
+    // production predicate rather than by re-adding the numbers here, so the test
+    // and the runtime check cannot disagree about what reconciling means.
+    assert!(
+        summary
+            .conservation
+            .reconciles(summary.relevant, summary.irrelevant),
+        "judged={} but relevant={} + irrelevant={} + failed={}",
+        summary.conservation.judged,
+        summary.relevant,
+        summary.irrelevant,
+        summary.conservation.failed
+    );
+}
+
+/// …and the same block on a run where EVERY call died.
+#[tokio::test]
+async fn a_fully_failed_run_still_reconciles_with_nothing_relevant() {
+    let summary = persist_and_summarize(
+        &dead_pool(),
+        meta_judging(2),
+        vec![
+            (group("ev-1"), failed_outcome()),
+            (group("ev-2"), failed_outcome()),
+        ],
+    )
+    .await;
+
+    assert_eq!(summary.relevant, 0);
+    assert_eq!(summary.conservation.failed, 2);
+    assert!(
+        summary
+            .conservation
+            .reconciles(summary.relevant, summary.irrelevant),
+        "a run that judged nothing must still add up — this is the shape that \
+         shipped as 'Complete · 104 judged · 0 relevant'"
+    );
+    assert!(
+        summary.suggestions.is_empty(),
+        "a call that never returned a verdict cannot propose anything"
+    );
 }

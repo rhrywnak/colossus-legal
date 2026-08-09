@@ -13,6 +13,9 @@ import {
   deleteModel,
   listModels,
   LlmModel,
+  type ModelParamsWording,
+  TEMPERATURE_MODE_OMIT,
+  TEMPERATURE_MODE_ZERO_OK,
   toggleModel,
   updateModel,
   UpdateModelInput,
@@ -20,6 +23,7 @@ import {
 import {
   btnPrimary,
   btnSecondary,
+  helpStyle,
   inputStyle,
   labelStyle,
   msgError,
@@ -99,6 +103,10 @@ interface ModelForm {
   cost_per_input_token: string;
   cost_per_output_token: string;
   notes: string;
+  /** The stored capability token, or `""` for a row nobody has recorded. */
+  temperature_mode: string;
+  /** The explicit temperature, as typed. Only sent when the mode sends one. */
+  default_temperature: string;
 }
 
 const emptyForm: ModelForm = {
@@ -111,6 +119,8 @@ const emptyForm: ModelForm = {
   cost_per_input_token: "",
   cost_per_output_token: "",
   notes: "",
+  temperature_mode: "",
+  default_temperature: "",
 };
 
 function modelToForm(m: LlmModel): ModelForm {
@@ -124,6 +134,8 @@ function modelToForm(m: LlmModel): ModelForm {
     cost_per_input_token: m.cost_per_input_token != null ? String(m.cost_per_input_token) : "",
     cost_per_output_token: m.cost_per_output_token != null ? String(m.cost_per_output_token) : "",
     notes: m.notes ?? "",
+    temperature_mode: m.temperature_mode ?? "",
+    default_temperature: m.default_temperature != null ? String(m.default_temperature) : "",
   };
 }
 
@@ -148,8 +160,13 @@ function formToCreateInput(f: ModelForm): CreateModelInput {
   };
 }
 
-/** Parse a form into an UpdateModelInput; empty strings become null (clear). */
-function formToUpdateInput(f: ModelForm): UpdateModelInput {
+/** Parse a form into an UpdateModelInput; empty strings become null (clear).
+ *
+ * Exported for its test: the two temperature rules below (a blank mode is not
+ * sent; the value travels only with the mode that carries one) are decisions this
+ * function makes, and Rule 30 leaves a decision made inside a React tree with
+ * nothing able to assert it. */
+export function formToUpdateInput(f: ModelForm): UpdateModelInput {
   const parseOptInt = (s: string): number | null =>
     s.trim() === "" ? null : Number(s);
   const parseOptFloat = (s: string): number | null =>
@@ -164,6 +181,20 @@ function formToUpdateInput(f: ModelForm): UpdateModelInput {
     cost_per_input_token: parseOptFloat(f.cost_per_input_token),
     cost_per_output_token: parseOptFloat(f.cost_per_output_token),
     notes: strOrNull(f.notes),
+    // Both are OMITTED when blank rather than sent as null: the backend's UPDATE
+    // is a COALESCE, so a null would mean "leave it alone" anyway — but omitting
+    // says that in the request rather than relying on the server to interpret it.
+    // The practical consequence is that this form can record a capability and
+    // cannot un-record one, which is the intended asymmetry (see
+    // `UpdateModelInput.temperature_mode`).
+    ...(f.temperature_mode === "" ? {} : { temperature_mode: f.temperature_mode }),
+    // The value only travels when the chosen mode actually sends one. A number
+    // left over from a previous mode would otherwise be written to a row whose
+    // calls will never carry it — a stored value that does nothing, which is the
+    // kind of thing an operator later reads as evidence that it does something.
+    ...(f.temperature_mode === TEMPERATURE_MODE_ZERO_OK && f.default_temperature.trim() !== ""
+      ? { default_temperature: Number(f.default_temperature) }
+      : {}),
   };
 }
 
@@ -171,6 +202,12 @@ function formToUpdateInput(f: ModelForm): UpdateModelInput {
 
 const AdminModels: React.FC = () => {
   const [models, setModels] = useState<LlmModel[] | null>(null);
+  // The temperature control's words, served WITH the rows (ruling R5). `null`
+  // until the list lands, and the control simply is not rendered until then —
+  // there is no fallback text anywhere in the frontend, by design (v2 §2b): a
+  // dropdown labelled by a compiled-in guess is exactly the thing the
+  // configuration law exists to prevent.
+  const [tempWording, setTempWording] = useState<ModelParamsWording | null>(null);
   const [loading, setLoading] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
   const [mode, setMode] = useState<FormMode>({ kind: "list" });
@@ -183,6 +220,7 @@ const AdminModels: React.FC = () => {
     listModels()
       .then((r) => {
         setModels(r.models);
+        setTempWording(r.temperature_wording);
         setListError(null);
       })
       .catch((e) =>
@@ -385,6 +423,51 @@ const AdminModels: React.FC = () => {
                 onChange={(e) => updateForm({ cost_per_output_token: e.target.value })}
               />
             </div>
+            {/* ── What this model does with `temperature` (ruling R5) ──────
+                The control that did not exist on 2026-08-09, when
+                `claude-opus-5` was added with no capability recorded and 104
+                judge calls came back 400 in five seconds. Rendered only once its
+                words have arrived; there is no compiled-in label to fall back
+                on. */}
+            {tempWording && (
+              <>
+                <div>
+                  <label style={labelStyle}>{tempWording.temperature_mode_label}</label>
+                  <select
+                    style={inputStyle}
+                    value={currentForm.temperature_mode}
+                    onChange={(e) => updateForm({ temperature_mode: e.target.value })}
+                  >
+                    {/* Shown, never CHOSEN: the empty option is disabled, so a row
+                        that has never been recorded reads honestly and the only
+                        moves available are the two that record something. */}
+                    <option value="" disabled>
+                      {tempWording.temperature_mode_unset_label}
+                    </option>
+                    <option value={TEMPERATURE_MODE_OMIT}>
+                      {tempWording.temperature_mode_omit_label}
+                    </option>
+                    <option value={TEMPERATURE_MODE_ZERO_OK}>
+                      {tempWording.temperature_mode_zero_ok_label}
+                    </option>
+                  </select>
+                  <div style={helpStyle}>{tempWording.temperature_mode_help}</div>
+                </div>
+                <div>
+                  <label style={labelStyle}>{tempWording.temperature_value_label}</label>
+                  <input
+                    style={inputStyle}
+                    value={currentForm.default_temperature}
+                    disabled={currentForm.temperature_mode !== TEMPERATURE_MODE_ZERO_OK}
+                    onChange={(e) => updateForm({ default_temperature: e.target.value })}
+                  />
+                  {/* A greyed field with no explanation reads as broken. */}
+                  {currentForm.temperature_mode !== TEMPERATURE_MODE_ZERO_OK && (
+                    <div style={helpStyle}>{tempWording.temperature_value_disabled_help}</div>
+                  )}
+                </div>
+              </>
+            )}
             <div style={{ gridColumn: "1 / -1" }}>
               <label style={labelStyle}>Notes</label>
               <input

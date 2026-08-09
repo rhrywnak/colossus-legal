@@ -110,6 +110,14 @@ export type ScanConservation = {
   excluded_too_short: number;
   duplicates_collapsed: number;
   judged: number;
+  /** Judged calls that came back with no verdict.
+   *
+   *  Added 2026-08-09 (ruling R4). `scan_runs.failed_count` had recorded 104
+   *  dead calls all along, but the report's tiles and reconciliation sentence are
+   *  built from THIS block — which had no field for them — so the screen read
+   *  "Complete · 104 judged · 0 relevant". The law the block now lets a reader
+   *  check is `judged = relevant + irrelevant + failed`. */
+  failed: number;
 };
 
 /** The poll response (backend `ScanRunStatusResponse`). While `running`, the
@@ -293,6 +301,16 @@ export type ScanWording = {
   report_tile_set_aside: string;
   report_tile_judged: string;
   report_tile_proposed: string;
+  /** The failed tile's caption. Rendered only when the count is nonzero — a
+   *  permanent zero tile reads as decoration. */
+  report_tile_failed: string;
+  /** The two status pills. A run whose every judged call failed reads FAILED and
+   *  does not project; anything else reads Complete. */
+  status_complete_label: string;
+  status_failed_label: string;
+  /** The collapsed card's one line when the latest run FAILED. Carries `{when}`,
+   *  `{model}` and `{count}` (the failed count). */
+  card_collapsed_failed_template: string;
 };
 
 // There is no merge client (2026-08-08). A completed run's admitted verdicts

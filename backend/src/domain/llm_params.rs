@@ -167,9 +167,42 @@ pub enum TemperatureMode {
     ZeroOk,
     /// The model rejects an explicit temperature — it MUST be omitted.
     Omit,
-    /// Capability not recorded (the DB column was NULL). Treated conservatively.
+    /// Capability not recorded (the DB column was NULL).
+    ///
+    /// ## Domain note: unknown means OMIT (ruling R1, 2026-08-09)
+    ///
+    /// It used to fall through to the `ZeroOk` path and send `0.0`. That is the
+    /// wrong direction for an unrecorded capability, and it is what killed scan
+    /// run 6a9fad89: `claude-opus-5` was added to `llm_models` with a NULL mode,
+    /// every one of its 104 judge calls sent `temperature: 0.0`, and every one
+    /// came back HTTP 400 `"temperature is deprecated for this model"` — in five
+    /// seconds, reported on screen as a completed scan.
+    ///
+    /// Sending a parameter nobody said the model accepts is a guess, and this is
+    /// the guess that fails LOUDLY and totally. Omitting it is the guess that
+    /// works on every Claude model made since. So unknown now resolves the same
+    /// way [`StructuredOutputMode::Unknown`] already did — "not assumed capable
+    /// because nobody said otherwise".
+    ///
+    /// The accepted cost, stated: a model that genuinely WANTS an explicit zero
+    /// gets it by writing `zero-ok` (or a `default_temperature`) on its row, and
+    /// never again by implicit fall-through.
     Unknown,
 }
+
+/// The stored `llm_models.temperature_mode` token for a model that accepts an
+/// explicit temperature.
+///
+/// Named because the admin write path has to VALIDATE what an operator picked
+/// and the frontend has to send it — three copies of the string `"zero-ok"` in
+/// three layers is the drift the constants exist to prevent.
+pub const TEMPERATURE_MODE_TOKEN_ZERO_OK: &str = "zero-ok";
+/// The stored token for a model that rejects the parameter (every current Claude
+/// model).
+pub const TEMPERATURE_MODE_TOKEN_OMIT: &str = "omit";
+/// Both tokens, for the admin API's validation and nothing else.
+pub const TEMPERATURE_MODE_TOKENS: &[&str] =
+    &[TEMPERATURE_MODE_TOKEN_ZERO_OK, TEMPERATURE_MODE_TOKEN_OMIT];
 
 impl TemperatureMode {
     /// Map the raw `Option<String>` DB column to the typed mode.
@@ -188,8 +221,8 @@ impl TemperatureMode {
     fn from_optional_token(model_id: &str, token: Option<&str>) -> Result<Self, LlmConfigError> {
         match token {
             None => Ok(TemperatureMode::Unknown),
-            Some("zero-ok") => Ok(TemperatureMode::ZeroOk),
-            Some("omit") => Ok(TemperatureMode::Omit),
+            Some(TEMPERATURE_MODE_TOKEN_ZERO_OK) => Ok(TemperatureMode::ZeroOk),
+            Some(TEMPERATURE_MODE_TOKEN_OMIT) => Ok(TemperatureMode::Omit),
             Some(other) => Err(LlmConfigError::UnknownTemperatureMode {
                 model_id: model_id.to_string(),
                 token: other.to_string(),
@@ -221,8 +254,18 @@ const ZERO_OK_DEFAULT_TEMPERATURE: f64 = 0.0;
 ///
 /// - `temperature_mode = 'omit'`      → `None` (send NO temperature key; the model
 ///   rejects any explicit temperature).
-/// - `'zero-ok'` / NULL (`Unknown`)   → the row's `default_temperature` if set,
+/// - `'zero-ok'`                      → the row's `default_temperature` if set,
 ///   else [`ZERO_OK_DEFAULT_TEMPERATURE`] (extraction's long-standing pin).
+/// - NULL (`Unknown`)                 → `None`, UNLESS the row states an explicit
+///   `default_temperature` (ruling R1 — see [`TemperatureMode::Unknown`]).
+///
+/// ## Why an unknown row with a stated number still sends it
+///
+/// The two columns answer different questions. `temperature_mode` is the model's
+/// CAPABILITY and `default_temperature` is an operator's INSTRUCTION. A row with
+/// no mode and no number has nobody's opinion on it — that is the case that must
+/// omit. A row with a number has an operator who typed one, and silently dropping
+/// it would be a different silent failure in the opposite direction.
 ///
 /// ## Rust Learning: reuse the token→enum mapping, don't re-match strings
 ///
@@ -241,9 +284,11 @@ pub fn construction_temperature(record: &LlmModelRecord) -> Result<Option<f64>, 
         TemperatureMode::from_optional_token(&record.id, record.temperature_mode.as_deref())?;
     Ok(match mode {
         TemperatureMode::Omit => None,
-        TemperatureMode::ZeroOk | TemperatureMode::Unknown => record
+        TemperatureMode::ZeroOk => record
             .default_temperature
             .or(Some(ZERO_OK_DEFAULT_TEMPERATURE)),
+        // R1: no recorded capability and no stated number → send nothing.
+        TemperatureMode::Unknown => record.default_temperature,
     })
 }
 
@@ -599,6 +644,15 @@ fn resolve_required<T: Copy>(
 /// - `temperature_mode == Omit` FORCES `temperature = None`, overriding whatever
 ///   was resolved — even an explicit user `Set(0.0)` (A3: the model's hard
 ///   requirement wins over any request).
+/// - `temperature_mode == Unknown` also forces `None` (ruling R1). A capability
+///   nobody recorded is not a licence to send the parameter, and this is the
+///   layer the THEME SCAN passes through: its task spec pins `Set(0.0)` for
+///   determinism, so without this the scan would keep sending a temperature to an
+///   unconfigured model even after `construction_temperature` stopped.
+///
+///   The two paths are deliberately fixed together. They are the only two ways a
+///   temperature reaches the wire, and a fix applied to one would have left the
+///   other 400-ing on the next unconfigured model.
 /// - `max_output_tokens == Some(ceiling)` and `max_tokens > ceiling` →
 ///   [`LlmConfigError::MaxTokensExceedsCeiling`] (clamp-by-error). `None` ceiling
 ///   = unknown/unbounded, no clamp.
@@ -610,10 +664,10 @@ pub fn constrain(
     c: &ModelConstraints,
 ) -> Result<ResolvedLlmParams, LlmConfigError> {
     let temperature = match c.temperature_mode {
-        // The model rejects any explicit temperature: force omission regardless
-        // of what resolution produced.
-        TemperatureMode::Omit => None,
-        TemperatureMode::ZeroOk | TemperatureMode::Unknown => resolved.temperature,
+        // The model rejects any explicit temperature, or nobody recorded whether
+        // it accepts one: force omission regardless of what resolution produced.
+        TemperatureMode::Omit | TemperatureMode::Unknown => None,
+        TemperatureMode::ZeroOk => resolved.temperature,
     };
 
     if let Some(ceiling) = c.max_output_tokens {
@@ -765,17 +819,32 @@ mod tests {
         );
     }
 
+    /// An unconfigured model sends NO temperature (ruling R1).
+    ///
+    /// This test asserted the opposite until 2026-08-09, and the assertion it
+    /// made is the defect: a NULL mode fell through to `Some(0.0)`, so
+    /// `claude-opus-5` — added to `llm_models` with no mode — sent a temperature
+    /// to a model that rejects one, and all 104 of its judge calls came back
+    /// HTTP 400 in five seconds.
     #[test]
-    fn construction_temperature_null_mode_behaves_like_zero_ok() {
-        // NULL temperature_mode (Unknown) defaults like zero-ok for construction —
-        // this preserves the extraction models' Some(0.0) if they were ever unmarked.
+    fn an_unconfigured_model_omits_temperature() {
+        // No mode, no number: nobody has an opinion, so nothing is sent.
         assert_eq!(
             construction_temperature(&ctemp_record(None, None)).expect("valid row"),
-            Some(ZERO_OK_DEFAULT_TEMPERATURE)
+            None
         );
+        // No mode, but an operator typed a number: that is an instruction, and
+        // dropping it would be a silent failure in the other direction.
         assert_eq!(
             construction_temperature(&ctemp_record(None, Some(0.3))).expect("valid row"),
             Some(0.3)
+        );
+        // ANTI-VACUITY: `zero-ok` still sends the deterministic pin, so this
+        // test is about the UNKNOWN arm and not about temperature having been
+        // switched off everywhere.
+        assert_eq!(
+            construction_temperature(&ctemp_record(Some("zero-ok"), None)).expect("valid row"),
+            Some(ZERO_OK_DEFAULT_TEMPERATURE)
         );
     }
 
@@ -932,19 +1001,29 @@ mod tests {
         assert_eq!(out.temperature, Some(0.0));
     }
 
+    /// The constraint pass ALSO omits for an unrecorded capability (ruling R1).
+    ///
+    /// This is the path the Theme Scan takes: its task spec pins `Set(0.0)` for
+    /// determinism, so fixing only `construction_temperature` would have left the
+    /// scan still sending a temperature to an unconfigured model. "Treated
+    /// conservatively" now means what it says.
     #[test]
-    fn unknown_temperature_mode_preserves_resolved_temperature() {
-        // The Unknown arm of constrain is "treated conservatively" = pass-through:
-        // an unrecorded temperature capability does NOT force omission. Asserts the
-        // ZeroOk | Unknown branch for the Unknown side specifically.
+    fn an_unconfigured_model_omits_temperature_through_the_constraint_pass() {
         let resolved = ResolvedLlmParams {
             temperature: Some(0.4),
             timeout_secs: 30,
             max_tokens: 1000,
         };
         let c = constraints(TemperatureMode::Unknown, None, StructuredOutputMode::Native);
-        let out = constrain(resolved, &c).expect("valid");
-        assert_eq!(out.temperature, Some(0.4));
+        assert_eq!(constrain(resolved, &c).expect("valid").temperature, None);
+
+        // ANTI-VACUITY: a model that SAYS it accepts one still gets it, so the
+        // omission above is the Unknown arm and not a blanket switch-off.
+        let ok = constraints(TemperatureMode::ZeroOk, None, StructuredOutputMode::Native);
+        assert_eq!(
+            constrain(resolved, &ok).expect("valid").temperature,
+            Some(0.4)
+        );
     }
 
     // ── Constraint: max_tokens ceiling ───────────────────────────────────

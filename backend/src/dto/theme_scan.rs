@@ -244,6 +244,15 @@ pub struct ScanPanelWording {
     pub report_tile_set_aside: String,
     pub report_tile_judged: String,
     pub report_tile_proposed: String,
+    /// The failed tile's caption, and the clause the conservation sentence uses.
+    /// Both shipped 2026-08-09 (ruling R4).
+    pub report_tile_failed: String,
+    /// The two status pills, so the panel never compiles either word in.
+    pub status_complete_label: String,
+    pub status_failed_label: String,
+    /// The collapsed card's line when the latest run FAILED. Carries `{when}`,
+    /// `{model}` and `{count}`.
+    pub card_collapsed_failed_template: String,
 }
 
 /// Result of one Theme Scan run.
@@ -357,6 +366,50 @@ pub struct ScanConservation {
     pub duplicates_collapsed: usize,
     /// Groups sent to the judge — one LLM call each.
     pub judged: usize,
+    /// Judged groups whose call FAILED — no verdict, no relevance decision.
+    ///
+    /// ## Domain note: the count that was stored and never shown
+    ///
+    /// Scan run 6a9fad89 (Opus 5, 2026-08-09) failed all 104 of its judge calls
+    /// in five seconds — every one a 400 — and `scan_runs.failed_count` recorded
+    /// exactly that. The screen said **Complete · 104 judged · 0 relevant**,
+    /// because this block had no field for it and the report's tiles are built
+    /// from this block. The number existed; nothing rendered it.
+    ///
+    /// ## Why it lives HERE despite being an outcome, not an input
+    ///
+    /// The rest of this block describes the PRE-FILTER — what happened to rows
+    /// before any call — and `relevant` / `irrelevant` sit on the summary beside
+    /// it because they are outcomes. `failed` is an outcome too, and it is here
+    /// anyway (ruling R4) for one reason: this block is what the tiles and the
+    /// reconciliation sentence read, and the identity they have to show —
+    /// `judged = relevant + irrelevant + failed` — is unprovable from a block
+    /// that carries the left side and not the right.
+    ///
+    /// The consequence is that the prefilter cannot fill it: `prepare_pool` runs
+    /// before any call and writes `0`, and `persist_and_summarize` sets the real
+    /// value once the fan-out is in. That is the one seam to know about here.
+    pub failed: usize,
+}
+
+impl ScanConservation {
+    /// Whether the run's own numbers add up: `judged == relevant + irrelevant + failed`.
+    ///
+    /// ## Why this is a function and not a comment (ruling R4)
+    ///
+    /// The identity was already written down — in a doc comment on
+    /// [`ThemeScanSummary`] — while a run reporting `judged = 104` against
+    /// `relevant + irrelevant = 0` shipped to screen. A law nothing evaluates is
+    /// a law nothing enforces. This is called where conservation is built, so a
+    /// run that does not reconcile is loud in the log at the moment it happens
+    /// rather than in front of a human days later.
+    ///
+    /// Takes the two outcome counts as arguments because they live on the
+    /// summary, not in this block — the sentence reads across both, and so does
+    /// the check.
+    pub fn reconciles(&self, relevant: usize, irrelevant: usize) -> bool {
+        self.judged == relevant + irrelevant + self.failed
+    }
 }
 
 /// One RELEVANT verdict — a pick offered to the human, written nowhere.

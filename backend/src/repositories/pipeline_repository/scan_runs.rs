@@ -278,8 +278,56 @@ pub struct ScanRunFinal {
     pub summary_json: serde_json::Value,
 }
 
-/// Finalize a `running` run to `completed`, overwriting the live estimates with
-/// the authoritative final counts and storing the render summary.
+/// The status a finished run RECORDS, given what its judged calls actually did.
+///
+/// ## Domain note: a run that judged nothing is not a run that found nothing
+///
+/// Ruling R3 (2026-08-09). Scan run 6a9fad89 attempted 104 judge calls, every one
+/// of which came back a 400, and recorded `completed` with 0 relevant. Two things
+/// followed, and the second is worse than the first: the screen read "Complete ·
+/// 104 judged · 0 relevant", and — because only the latest COMPLETED run projects
+/// (rule R-b) — the dead run took the projecting slot from the run before it and
+/// projected nothing. A scenario that had 30 proposals waiting had none, and
+/// nothing anywhere said why.
+///
+/// So: **every** judged call failed, and at least one was attempted → `failed`.
+/// The run then cannot project and cannot supersede, because the projection query
+/// binds `completed` — the honesty and the recovery are the same change.
+///
+/// A PARTIAL failure stays `completed`: the run did real work, its verdicts are
+/// real, and its failed count is now visible beside them (ruling R4). Only the
+/// total case is a run that produced nothing.
+///
+/// `attempted` is `relevant + irrelevant + failed` — the same identity R4 makes
+/// the conservation sentence show. Zero attempted (a scenario with an empty pool)
+/// is `completed`: it is a run that had nothing to do, not a run that failed.
+pub(crate) fn final_status(final_: &ScanRunFinal) -> &'static str {
+    let attempted = final_.relevant_count + final_.irrelevant_count + final_.failed_count;
+    if attempted > 0 && final_.failed_count == attempted {
+        SCAN_STATUS_FAILED
+    } else {
+        SCAN_STATUS_COMPLETED
+    }
+}
+
+/// Finalize a `running` run, overwriting the live estimates with the
+/// authoritative final counts and storing the render summary.
+///
+/// Records `completed` — unless every judged call failed, in which case
+/// [`final_status`] records `failed` and the run neither projects nor supersedes.
+///
+/// ## Why no `error` string is written for the all-failed case
+///
+/// `error` is a FROZEN sentence on the row, and the reason here is a NUMBER that
+/// is already stored in its own column (`failed_count`) and now rendered in the
+/// report's tiles and the conservation line. Freezing "104 calls errored" into
+/// the record would put one more human-readable sentence outside the settings
+/// store and outside read-time composition, to say a thing the row already says.
+/// The per-call CAUSES are not lost either: `theme_scan_persist::handle_failed`
+/// writes each one verbatim into that verdict's `scan_run_verdicts.error` column,
+/// so "temperature is deprecated for this model" is queryable per candidate as
+/// well as being logged once per call. A run-level sentence would be a lossy
+/// summary of 104 rows that are already there.
 pub async fn finalize_scan_run_completed(
     pool: &PgPool,
     final_: &ScanRunFinal,
@@ -296,7 +344,7 @@ pub async fn finalize_scan_run_completed(
            WHERE run_id = $1"#,
     )
     .bind(final_.run_id)
-    .bind(SCAN_STATUS_COMPLETED)
+    .bind(final_status(final_))
     .bind(final_.relevant_count)
     .bind(final_.irrelevant_count)
     .bind(final_.failed_count)
@@ -558,6 +606,10 @@ pub async fn delete_scan_run(
 // The per-candidate verdict detail (`scan_run_verdicts`) moved to the sibling
 // `scan_run_verdicts.rs` when this module reached the 300-line limit. It is
 // re-exported from `pipeline_repository`, so callers are unaffected.
+
+#[cfg(test)]
+#[path = "scan_run_status_tests.rs"]
+mod status_tests;
 
 #[cfg(test)]
 #[path = "scan_runs_tests.rs"]

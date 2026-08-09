@@ -30,10 +30,42 @@ export interface LlmModel {
   is_active: boolean;
   created_at: string;
   notes: string | null;
+  /** What this model does with a `temperature` parameter: `"zero-ok"` (send an
+   *  explicit number), `"omit"` (send nothing — every current Claude model), or
+   *  `null` for a row nobody has recorded.
+   *
+   *  Since 2026-08-09 `null` behaves as `omit` at the call (ruling R1). It is
+   *  still shown as unrecorded rather than as omit, because "we checked and this
+   *  model rejects it" and "nobody has said" are different facts about a row. */
+  temperature_mode: string | null;
+  /** The exact temperature sent when the mode is `zero-ok`. `null` means the
+   *  resolver's own determinism anchor is used instead. */
+  default_temperature: number | null;
 }
+
+/** The stored words the temperature control speaks (backend
+ *  `ModelParamsWordingDto`). Served with the rows they describe so the form can
+ *  never paint a dropdown before its options have names. */
+export interface ModelParamsWording {
+  temperature_mode_label: string;
+  temperature_mode_help: string;
+  temperature_mode_omit_label: string;
+  temperature_mode_zero_ok_label: string;
+  temperature_mode_unset_label: string;
+  temperature_value_label: string;
+  temperature_value_disabled_help: string;
+}
+
+/** The two tokens `temperature_mode` may be SET to.
+ *
+ *  Mirrors `domain::llm_params::TEMPERATURE_MODE_TOKENS`, which the PUT validates
+ *  against — a third spelling here would be a 400 the operator cannot act on. */
+export const TEMPERATURE_MODE_ZERO_OK = "zero-ok";
+export const TEMPERATURE_MODE_OMIT = "omit";
 
 export interface ModelsResponse {
   models: LlmModel[];
+  temperature_wording: ModelParamsWording;
 }
 
 export interface CreateModelInput {
@@ -58,6 +90,14 @@ export interface UpdateModelInput {
   cost_per_output_token?: number | null;
   is_active?: boolean;
   notes?: string | null;
+  /** One of `TEMPERATURE_MODE_ZERO_OK` / `TEMPERATURE_MODE_OMIT`.
+   *
+   *  Omitted leaves the column untouched, so this form can RECORD a capability
+   *  and cannot un-record one — deliberate: "nobody has said what this model
+   *  does" is a gap to close, not a state to choose. */
+  temperature_mode?: string;
+  /** Omitted leaves the column untouched, same as every sibling. */
+  default_temperature?: number;
 }
 
 // ── Types: Profiles ────────────────────────────────────────────

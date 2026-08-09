@@ -22,6 +22,15 @@ const SEED_MIGRATION: &str =
 /// part of the effective value, exactly as `CORRECTION_MIGRATION` is on the
 /// curation surface.
 const PROJECTION_MIGRATION: &str = "pipeline_migrations/20260808141052_scan_to_ruling_wording.sql";
+/// The failure-honesty migration: five more rows, and the second CORRECTION.
+///
+/// The conservation line gained a `{failed}` SLOT (ruling R4) — scan run
+/// 6a9fad89 reported "104 judged · 0 relevant" with 104 dead calls, and the
+/// sentence had no term for them. So this file's guarded UPDATE rewrites it,
+/// and it is consulted BEFORE the two files above for the same reason
+/// `PROJECTION_MIGRATION` is consulted before the seed.
+const FAILED_HONESTY_MIGRATION: &str = "pipeline_migrations/\
+                                        20260809153630_seed_opus_5_temperature_mode_and_failed_honesty_wording.sql";
 
 /// The seeded values, for TESTS ONLY — kept beside the test that pins them to
 /// the migration file, so a fixture and its proof cannot drift apart.
@@ -29,7 +38,7 @@ const TEST_SEED: &[(&str, &str)] = &[
     (
         KEY_CONSERVATION_LINE,
         "{pool} gathered · {collapsed} duplicates folded · {excluded} set aside \
-         before judging · {judged} judged · {relevant} relevant",
+         before judging · {judged} judged{failed} · {relevant} relevant",
     ),
     (KEY_HISTORY_VIEW_LABEL, "View results"),
     (
@@ -57,6 +66,14 @@ const TEST_SEED: &[(&str, &str)] = &[
     (KEY_REPORT_TILE_SET_ASIDE, "set aside before judging"),
     (KEY_REPORT_TILE_JUDGED, "judged"),
     (KEY_REPORT_TILE_PROPOSED, "proposed"),
+    (KEY_CONSERVATION_FAILED_CLAUSE, "· {failed} failed"),
+    (KEY_REPORT_TILE_FAILED, "failed"),
+    (KEY_STATUS_COMPLETE_LABEL, "Complete"),
+    (KEY_STATUS_FAILED_LABEL, "Failed"),
+    (
+        KEY_CARD_COLLAPSED_FAILED,
+        "Last scan {when} · {model} · Failed — {count} calls errored",
+    ),
 ];
 
 impl ScanWording {
@@ -118,6 +135,8 @@ fn every_declared_key_is_seeded_with_the_value_this_build_expects() {
         .expect("the Tier-2 scan migration is on disk");
     let projection = std::fs::read_to_string(root.join(PROJECTION_MIGRATION))
         .expect("the scan-to-ruling wording migration is on disk");
+    let honesty = std::fs::read_to_string(root.join(FAILED_HONESTY_MIGRATION))
+        .expect("the failure-honesty migration is on disk");
 
     let fixture = ScanWording::for_test_values();
 
@@ -125,7 +144,9 @@ fn every_declared_key_is_seeded_with_the_value_this_build_expects() {
         // The CORRECTION is consulted first: a key both files touch ends up with
         // the later file's value, and a fixture pinned to the INSERT alone would
         // assert the product says something it stopped saying.
-        let seeded = corrected_value_in(&projection, key)
+        let seeded = corrected_value_in(&honesty, key)
+            .or_else(|| corrected_value_in(&projection, key))
+            .or_else(|| seeded_value_in(&honesty, key))
             .or_else(|| seeded_value_in(&projection, key))
             .or_else(|| seeded_value_in(&sql, key))
             .unwrap_or_else(|| {
@@ -184,13 +205,17 @@ fn no_key_collides_with_another_surface_s_key() {
 /// — the one that ships — satisfies the rule the write path enforces. A seed that
 /// the write path would refuse is a row nobody could ever edit back to default.
 #[test]
-fn the_seeded_conservation_line_carries_all_five_numbers() {
+fn the_seeded_conservation_line_carries_all_six_numbers() {
     let seeded = ScanWording::for_test().conservation_line_template;
     for token in [
         "{pool}",
         "{collapsed}",
         "{excluded}",
         "{judged}",
+        // The sixth, added 2026-08-09: a sentence that reports 104 judged and
+        // has nowhere to say 104 of them died invites an arithmetic that cannot
+        // be completed, and that is exactly what shipped.
+        "{failed}",
         "{relevant}",
     ] {
         assert!(

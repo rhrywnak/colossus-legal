@@ -104,6 +104,29 @@ pub(crate) async fn persist_and_summarize(
 
     write_verdicts(pool, &meta, &acc.verdicts).await;
 
+    // R4: the block carries the failure count the tiles and the reconciliation
+    // sentence read. The pre-filter wrote 0 because it could not know it; this is
+    // the first point at which the fan-out's outcome is complete.
+    let mut conservation = meta.conservation;
+    conservation.failed = acc.failed;
+
+    // …and the identity is CHECKED, not merely documented. A run whose numbers do
+    // not add up is a dropped candidate somewhere, and it says so here — at the
+    // moment it happens, naming the run — rather than reaching a human as a
+    // sentence that quietly fails to reconcile.
+    if !conservation.reconciles(acc.relevant, acc.irrelevant) {
+        tracing::error!(
+            run_id = %meta.run_id,
+            judged = conservation.judged,
+            relevant = acc.relevant,
+            irrelevant = acc.irrelevant,
+            failed = acc.failed,
+            "scan conservation does not reconcile: judged != relevant + irrelevant + \
+             failed. Every judged group must land in exactly one bucket, so this is \
+             a candidate that went missing between the fan-out and the tally"
+        );
+    }
+
     ThemeScanSummary {
         run_id: meta.run_id,
         model_id: meta.model_id,
@@ -112,7 +135,7 @@ pub(crate) async fn persist_and_summarize(
         computed_cost,
         duration_ms: meta.duration_ms,
         candidates_read,
-        conservation: meta.conservation,
+        conservation,
         relevant: acc.relevant,
         irrelevant: acc.irrelevant,
         failed: acc.failed,
