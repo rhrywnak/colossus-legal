@@ -95,11 +95,13 @@ describe("pinpoints open a real WINDOW, not a tab (task 1.7C, defect D5)", () =>
   it("both pinpoint surfaces route through the viewer-window helper", () => {
     // The queue's card and the facts table are the two places a pinpoint appears
     // (§2.7 names both). Both have since moved for Rule 17: the card's rendering
-    // to `CandidateCard` when `CardQueue` was split, and the facts ROW to
-    // `FactRow` when task 2.13 extracted it out of an over-long `WorkingView`.
+    // to `CandidateCard` when `CardQueue` was split, then to `CandidateCardBody`
+    // when ONE_CARD_GRAMMAR's ruling R8 split the body out of the ruling wrapper;
+    // and the facts ROW to `FactRow` when task 2.13 extracted it out of an
+    // over-long `WorkingView`.
     // The fence follows the code — what it guards is that a pinpoint never opens
     // with a bare `window.open`, not which file happens to hold the row today.
-    for (const file of ["components/CandidateCard.tsx", "components/FactRow.tsx"]) {
+    for (const file of ["components/CandidateCardBody.tsx", "components/FactRow.tsx"]) {
       expect(read(file), `${file} must open its pinpoint via openViewerWindow`).toContain(
         "openViewerWindow",
       );
