@@ -37,12 +37,21 @@ export type QueueRegionDescriptor = {
   scope: string | null;
   /** The chevron's accessible label + tooltip, naming what collapsing costs. */
   chevronLabel: string;
-  /** `"3 of 148 ruled"`. */
-  progressLabel: string;
-  /** The progress bar's fill, 0–100, already clamped. */
-  progressPercent: number;
-  /** `"145 remaining"`, or `null` when nothing remains. */
-  remainingLabel: string | null;
+  /**
+   * The counting sentence, shown ONLY before anything has measured the pool.
+   *
+   * ## The pool-wide bar died here (ONE_CARD_GRAMMAR, Piece 1c)
+   *
+   * It read "23 of 148 ruled" over a bar of 125 nobody owes. Rule-the-promising
+   * is the ratified triage model — a curator works the proposals and leaves the
+   * rest — so a bar measuring the whole gathered pool was reporting a debt the
+   * method says does not exist. Progress now follows the ACTIVE FILTER and lives
+   * under the filter chips, beside the list it describes.
+   *
+   * What survives is the one state the chips cannot show: nothing has been
+   * measured yet, which is different from a pool of zero.
+   */
+  countingNotice: string | null;
   /** Whether the keyboard is live. False while collapsed (ruling R7). */
   keyboardActive: boolean;
 };
@@ -154,9 +163,7 @@ export function queueRegion(
       summary: wording?.counting ?? "",
       scope: null,
       chevronLabel: "Expand the queue",
-      progressLabel: wording?.counting ?? "",
-      progressPercent: 0,
-      remainingLabel: null,
+      countingNotice: wording?.counting ?? null,
       keyboardActive: false,
     };
   }
@@ -226,11 +233,9 @@ export function queueRegion(
       unruled > 0
         ? "Collapse the queue — only this arrow collapses it; keys pause while collapsed"
         : "Expand the queue",
-    progressLabel: `${safeRuled} of ${safeTotal} ruled`,
-    // A pool of zero is 0%, not NaN — dividing by `safeTotal` unguarded is how a
-    // brand-new scenario gets a blank bar and a console error.
-    progressPercent: safeTotal === 0 ? 0 : Math.round((safeRuled / safeTotal) * 100),
-    remainingLabel: unruled > 0 ? `${unruled} remaining` : null,
+    // Measured: the chips below carry the counts, and the filter's own progress
+    // line carries how much of it is done.
+    countingNotice: null,
     keyboardActive: unruled > 0,
   };
 }

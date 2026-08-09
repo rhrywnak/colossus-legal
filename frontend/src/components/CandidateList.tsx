@@ -29,6 +29,7 @@ import { candidateState } from "./candidateFilters";
 import type { RulingKey } from "./cardTriage";
 import type { ScenarioCard } from "../services/scenarioCards";
 import type { RulingReceipt } from "./rulingAcknowledgment";
+import type { ChipFilter } from "./evidenceCardModel";
 import type { AllegationOptions, LinkCut } from "../services/evidenceLinks";
 
 /**
@@ -93,6 +94,8 @@ const CandidateList: React.FC<{
   /** The accusations the link panels offer, and their words (task 2.10). `null`
    *  while loading or after a failed read — no panel is rendered then. */
   linkOptions: AllegationOptions | null;
+  /** Narrow the queue to a chip's value (Piece 7). */
+  onFilterChip?: (filter: ChipFilter) => void;
   /** Save one NAMED card's links (task 2.10, ruling R1). Bound per card below,
    *  on the same principle as `onRule`: the target travels with the control, and
    *  no shared position can decide it. */
@@ -135,6 +138,7 @@ const CandidateList: React.FC<{
   onCorrectQuestion,
   onRevertQuestion,
   linkOptions,
+  onFilterChip,
   onSaveLinks,
   onUnlink,
   proposedAttribution,
@@ -199,6 +203,7 @@ const CandidateList: React.FC<{
               onCorrectQuestion={(text) => onCorrectQuestion(card.graph_node_id, text)}
               onRevertQuestion={() => onRevertQuestion(card.graph_node_id)}
               linkOptions={linkOptions}
+              onFilterChip={onFilterChip}
               // THE SAME FIX AS `onRule`, one line lower: the handler closes over
               // THIS card's id, in this iteration's scope. Every stuck card in the
               // list carries a live panel and none of them can link another card.

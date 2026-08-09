@@ -106,10 +106,11 @@ describe("filterRows", () => {
       statusLabel: "In the scenario",
       isHuman: false,
       question: null,
-      statementKind: null,
+      statementKind: "sworn discovery answer",
       tier: "backup",
       sortOrdinal: null,
-      speaker: null,
+      speaker: "R. Phillips",
+      card: null,
       displayOrdinal: null,
     },
     {
@@ -117,15 +118,16 @@ describe("filterRows", () => {
       graphNodeId: "ev-2",
       text: "That would be correct.",
       bearsOn: ["¶12 — the contract was undisclosed"],
-      pinpointLabel: "Phillips deposition at 88",
+      pinpointLabel: "Deposition at 88",
       pinpointHref: "#",
       statusLabel: "In the scenario",
       isHuman: false,
       question: null,
-      statementKind: null,
+      statementKind: "partial admission",
       tier: "backup",
       sortOrdinal: null,
-      speaker: null,
+      speaker: "Marie Awad",
+      card: null,
       displayOrdinal: null,
     },
   ];
@@ -148,6 +150,29 @@ describe("filterRows", () => {
   it("matches the pinpoint and the code", () => {
     expect(filterRows(rows, "deposition").map((r) => r.code)).toEqual(["C-2"]);
     expect(filterRows(rows, "c-1").map((r) => r.code)).toEqual(["C-1"]);
+  });
+
+  it("matches the SPEAKER chip (Piece 7)", () => {
+    // The chips are on the card's face now, so they have to be in the haystack.
+    // The rule this box has always obeyed is that it searches what is DISPLAYED
+    // — the corollary nobody had to apply until now is that anything newly
+    // displayed joins it, or typing a name a human can read on screen finds
+    // nothing and the box looks broken.
+    expect(filterRows(rows, "Phillips").map((r) => r.code)).toEqual(["C-1"]);
+    expect(filterRows(rows, "marie").map((r) => r.code)).toEqual(["C-2"]);
+  });
+
+  it("matches the KIND chip (Piece 7)", () => {
+    expect(filterRows(rows, "sworn").map((r) => r.code)).toEqual(["C-1"]);
+    expect(filterRows(rows, "partial admission").map((r) => r.code)).toEqual(["C-2"]);
+  });
+
+  it("still matches nothing on a row whose speaker and kind are absent", () => {
+    // Documentary evidence genuinely has neither, and `?? ""` must not turn that
+    // absence into a row that matches every search for the empty string.
+    const bare = rows.map((r) => ({ ...r, speaker: null, statementKind: null }));
+    expect(filterRows(bare, "Phillips").map((r) => r.code)).toEqual([]);
+    expect(filterRows(bare, "sworn")).toEqual([]);
   });
 
   it("returns nothing when nothing matches — an honest empty result", () => {
@@ -368,6 +393,7 @@ describe("orderedRows", () => {
     tier,
     sortOrdinal,
     speaker: null,
+    card: null,
     displayOrdinal: null,
   });
 
@@ -468,6 +494,7 @@ describe("splitBackground", () => {
     tier,
     sortOrdinal: null,
     speaker: null,
+    card: null,
     displayOrdinal: null,
   });
 
@@ -506,6 +533,7 @@ describe("neighboursForDrop", () => {
     tier: "backup",
     sortOrdinal: null,
     speaker: null,
+    card: null,
     displayOrdinal: null,
   });
   const rows = [row("a"), row("b"), row("c")];
@@ -550,6 +578,7 @@ describe("sectionsFor — the fixed card anatomy", () => {
     tier: "backup",
     sortOrdinal: null,
     speaker: null,
+    card: null,
     displayOrdinal: null,
     ...over,
   });
@@ -620,5 +649,83 @@ describe("sectionsFor — the fixed card anatomy", () => {
     // must not become a different KIND of object because a person wrote it.
     const human = base({ isHuman: true, code: null, tier: null, bearsOn: [] });
     expect(sectionsFor(human)).toEqual(["header", "quote", "source"]);
+  });
+});
+
+// ── Piece 5a: a weight change never scroll-jumps ────────────────────────────
+
+describe("a weight change acknowledges and never scroll-jumps", () => {
+  /** One row, with only the fields `splitBackground` reads. */
+  const at = (id: string, tier: WorkingRow["tier"]): WorkingRow => ({
+    code: id.toUpperCase(),
+    graphNodeId: id,
+    text: "Yes.",
+    bearsOn: [],
+    pinpointLabel: "",
+    pinpointHref: "",
+    statusLabel: "In the scenario",
+    isHuman: false,
+    card: null,
+    question: null,
+    statementKind: null,
+    tier,
+    sortOrdinal: null,
+    displayOrdinal: null,
+    speaker: null,
+  });
+
+  /** Three rows, one of them already weighed into the background. */
+  const rows = (): WorkingRow[] => [at("a", "carries"), at("b", "backup"), at("c", "background")];
+
+  it("folds a background fact away when nothing is pending", () => {
+    // The ordinary state, unchanged: the pile is a FOLD and the count travels
+    // with it, so a curated fact can never silently disappear.
+    const { shown, background } = splitBackground(rows());
+    expect(shown.map((r) => r.graphNodeId)).toEqual(["a", "b"]);
+    expect(background.map((r) => r.graphNodeId)).toEqual(["c"]);
+  });
+
+  it("HOLDS a just-demoted fact in place while its acknowledgment is on screen", () => {
+    // THE MECHANISM. Demoting a fact moves it out of the shown half, so the row
+    // leaves the list under the cursor and every card below slides up — on a
+    // forty-six-fact list, the thing the human was reading jumps somewhere else
+    // at the moment they acted. That is the C-91 defect on record.
+    //
+    // Holding the id keeps the card exactly where it was, long enough to read
+    // the sentence and press undo.
+    const demoted = rows().map((r) =>
+      r.graphNodeId === "b" ? { ...r, tier: "background" as const } : r,
+    );
+
+    const jumped = splitBackground(demoted);
+    expect(jumped.shown.map((r) => r.graphNodeId)).toEqual(["a"]);
+
+    const held = splitBackground(demoted, new Set(["b"]));
+    expect(
+      held.shown.map((r) => r.graphNodeId),
+      "the demoted card must stay where it was while the acknowledgment shows",
+    ).toEqual(["a", "b"]);
+  });
+
+  it("does not drag OTHER background facts out of the pile", () => {
+    // The hold is one row wide. A pending id that widened the fold would undo
+    // the tier for every card in it, which is a different feature and a worse one.
+    const demoted = rows().map((r) =>
+      r.graphNodeId === "b" ? { ...r, tier: "background" as const } : r,
+    );
+    const held = splitBackground(demoted, new Set(["b"]));
+    expect(held.background.map((r) => r.graphNodeId)).toEqual(["c"]);
+  });
+
+  it("changes no STORED state — the pile's membership is the tier, not the hold", () => {
+    // The hold delays a row's departure from the visible half; it does not edit
+    // a tier and it does not hide one. Once the acknowledgment clears, the same
+    // rows split the ordinary way.
+    const demoted = rows().map((r) =>
+      r.graphNodeId === "b" ? { ...r, tier: "background" as const } : r,
+    );
+    expect(splitBackground(demoted, new Set()).shown.map((r) => r.graphNodeId)).toEqual([
+      "a",
+    ]);
   });
 });

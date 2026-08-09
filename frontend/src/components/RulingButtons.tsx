@@ -256,7 +256,33 @@ export const CardHead: React.FC<{
   onRule,
 }) => (
   <div style={{ marginBottom: "14px" }}>
-    <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+    {/* PIECE 3 — the ruling bar PINS to the top of the queue's scroll viewport
+        while its card is on screen.
+
+        The queue scrolls inside its own `maxHeight: 70vh` region, so `top: 0`
+        sticks this row to the top of that region and releases it when the card
+        leaves. On a MacBook-sized window — the hardware law this build was
+        written against — the four buttons never scroll away from the card they
+        rule, which is the acceptance surface §3.5 names.
+
+        The opaque background is load-bearing rather than cosmetic: a transparent
+        sticky row would have the card's own quote scroll through it. The card's
+        surface token is used so the bar matches the card it belongs to and not
+        the page behind it. */}
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: "10px",
+        flexWrap: "wrap",
+        position: "sticky",
+        top: 0,
+        zIndex: 3,
+        background: "var(--bg-surface)",
+        paddingTop: "4px",
+        paddingBottom: "6px",
+      }}
+    >
       <span style={codeBadgeStyle}>{code}</span>
 
       {RULING_BUTTONS.map((button) => {

@@ -65,29 +65,26 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import {
-  fetchScenarioCards,
-  type ProposalSource,
-  type ScenarioCard,
-  type ScenarioCardsResponse,
-} from "../services/scenarioCards";
-import { chipStyle } from "./CandidateCard";
+import type { ScenarioCard } from "../services/scenarioCards";
+import { useCardsPayload } from "./useCardsPayload";
 import CandidateFilterBar from "./CandidateFilterBar";
+import QueueNotices from "./QueueNotices";
 import CandidateList from "./CandidateList";
 import { useReducerWithEffects, type RulingOutcome } from "./useQueueReducer";
-import { progress } from "./cardTriage";
 import {
   candidateCounts,
   candidateState,
   defaultFilters,
   facetLabel,
   filterCandidates,
+  filterProgress,
   hasAnyFilter,
   matchesFilter,
   stateChip,
   UNFILTERED,
   type CandidateFilters,
 } from "./candidateFilters";
+import { matchesChip, type ChipFilter } from "./evidenceCardModel";
 import { rulingAcknowledgment, type RulingReceipt } from "./rulingAcknowledgment";
 import { keyboardShouldRule, nextUpHint } from "./queueRegion";
 import type { AllegationOptions } from "../services/evidenceLinks";
@@ -169,15 +166,6 @@ interface Props {
    */
   keyboardActive?: boolean;
   /**
-   * Reports `{ruled, total}` upward so the section above can draw the progress bar
-   * and word its summary line.
-   *
-   * The queue owns the fetch, so it owns the counts; the alternative was a second
-   * read of the same pool in the parent, which is how two surfaces end up
-   * disagreeing about how much work is left.
-   */
-  onProgress?: (progress: { ruled: number; total: number }) => void;
-  /**
    * Called when the SERVER confirms a ruling (task 1.7F Part A).
    *
    * The page re-reads its cards from this, so a newly included candidate shows up
@@ -223,10 +211,8 @@ const CardQueue: React.FC<Props> = ({
   externalRefresh,
   linkOptions,
   keyboardActive = true,
-  onProgress,
   onRulingSaved,
 }) => {
-  const [error, setError] = useState<string | null>(null);
   /** A LINK write's failure. Rulings report through `receipt` instead — they know
    *  which card they were about, and say so on it. */
   const [linkError, setLinkError] = useState<string | null>(null);
@@ -238,18 +224,15 @@ const CardQueue: React.FC<Props> = ({
    * stack of receipts would bury the queue it is meant to annotate.
    */
   const [receipt, setReceipt] = useState<RulingReceipt | null>(null);
-  /** The stuck pile's progress sentence, or `null` when nothing is stuck. */
-  const [linkProgress, setLinkProgress] = useState<string | null>(null);
-  /** The stored sentence a target-less scenario shows INSTEAD of a queue. */
-  const [noTargetNotice, setNoTargetNotice] = useState<string | null>(null);
   /**
-   * Which completed run is proposing the cards below, or `null` (2026-08-08).
+   * A chip the human clicked, narrowing the queue to it (Piece 7).
    *
-   * Held beside the cards it describes and replaced on every read, so the
-   * attribution on a card can never name a run the payload no longer carries.
+   * Held BESIDE the facet filter rather than folded into it: the two answer
+   * different questions ("what state is this in" and "who said it"), and a human
+   * working the Proposed list who clicks George Phillips means both — not a
+   * replacement of the first by the second.
    */
-  const [proposalSource, setProposalSource] = useState<ProposalSource | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [chipFilter, setChipFilter] = useState<ChipFilter | null>(null);
   // `null` until the first pool arrives: the default view is computed from the
   // counts (rulable if any exist), and choosing it before the counts exist would
   // pick "Not ruled" every time and then not correct itself.
@@ -278,7 +261,9 @@ const CardQueue: React.FC<Props> = ({
           state: card ? candidateState(card) : null,
           stateLabel: card ? stateChip(candidateState(card)).label : null,
           leftTheList: card ? !matchesFilter(card, filtersRef.current) : false,
-          filterLabel: facetLabel(filtersRef.current.state),
+          filterLabel: linkOptionsRef.current
+            ? facetLabel(filtersRef.current.state, linkOptionsRef.current.card_grammar)
+            : null,
           wording: linkOptionsRef.current?.wording ?? null,
         }),
       );
@@ -325,43 +310,17 @@ const CardQueue: React.FC<Props> = ({
   const linkOptionsRef = useRef(linkOptions);
   linkOptionsRef.current = linkOptions;
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const cards: ScenarioCardsResponse = await fetchScenarioCards(slug, scenarioId);
-      // Both lists, in one pool. The backend partitions the DROPPED candidates
-      // into `set_aside` (they are out of the working queue), but the list has an
-      // "Excluded (n)" option and it has to count something real — and "All" must
-      // not shrink every time Roman excludes a card, or the denominator would move
-      // under the counts (§9).
-      //
-      // Concatenated rather than merged: each list arrives sorted by C-ordinal,
-      // and re-sorting the union here would be the browser re-deriving an order
-      // the backend owns and warns about (`sort_by_code`).
-      dispatch({ type: "cards_loaded", cards: [...cards.pool, ...cards.set_aside] });
-      // "38 of 94 linked." — composed server-side and counted from the POOL, not
-      // from this session's clicks (the 1.7E-a ruling). Held beside the cards it
-      // describes and replaced on every read, so it can never be stale relative to
-      // the chips beneath it.
-      setLinkProgress(cards.link_progress);
-      // Present only when the scenario names nobody, in which case both lists
-      // above were empty. Held rather than derived: an empty queue is not by
-      // itself this state (see the field's own note).
-      setNoTargetNotice(cards.no_target_notice ?? null);
-      setProposalSource(cards.proposal_source ?? null);
-      setError(null);
-    } catch (e: unknown) {
-      // Name WHAT failed, WHERE, and WHY. The scenario is in scope here and the
-      // human may have several open, so a bare "failed to load" leaves them
-      // guessing which one broke — and a non-`Error` throw used to lose the cause
-      // entirely (Standing Rule 1: a failure a reader cannot diagnose is
-      // incomplete error handling).
-      const cause = e instanceof Error ? e.message : String(e);
-      setError(`Could not load the candidates for scenario ${scenarioId} (${slug}): ${cause}`);
-    } finally {
-      setLoading(false);
-    }
-  }, [slug, scenarioId, dispatch]);
+  // The read, and the four pieces of payload state it lands in, live in
+  // `useCardsPayload` — see that module for why the two lists arrive as one.
+  const onCards = useCallback(
+    (cards: ScenarioCard[]) => dispatch({ type: "cards_loaded", cards }),
+    [dispatch],
+  );
+  const { loading, error, noTargetNotice, proposalSource, load } = useCardsPayload(
+    slug,
+    scenarioId,
+    onCards,
+  );
 
   useEffect(() => {
     loadRef.current = load;
@@ -408,7 +367,17 @@ const CardQueue: React.FC<Props> = ({
   const counts = useMemo(() => candidateCounts(state.cards), [state.cards]);
   const active = filters ?? UNFILTERED;
   filtersRef.current = active;
-  const visible = useMemo(() => filterCandidates(state.cards, active), [state.cards, active]);
+  const byFacet = useMemo(
+    () => filterCandidates(state.cards, active),
+    [state.cards, active],
+  );
+  // Piece 7: the chip narrows what the facet left. Matched on the RAW payload
+  // value rather than the chip's displayed text, so a filter can never surface a
+  // card whose chip says something else.
+  const visible = useMemo(
+    () => (chipFilter ? byFacet.filter((c) => matchesChip(c, chipFilter)) : byFacet),
+    [byFacet, chipFilter],
+  );
 
   // The default view is computed once, from the first pool that arrives:
   // "Proposed" while a scan is proposing anything, else the 1.7E computed default
@@ -456,16 +425,8 @@ const CardQueue: React.FC<Props> = ({
 
   const selected = state.cards[state.index];
   const selectedId = selected?.graph_node_id ?? null;
-  const { ruled, total } = progress(state);
   // The next card in the VISIBLE order, which is what the human will land on.
   const nextCard = visible[visible.findIndex((c) => c.graph_node_id === selectedId) + 1];
-
-  // Report the counts to the section above, which draws the progress bar and words
-  // the region's summary. In an effect rather than inline: calling a parent's
-  // setState during render is the React warning that turns into an infinite loop.
-  useEffect(() => {
-    onProgress?.({ ruled, total });
-  }, [onProgress, ruled, total]);
 
   if (loading) return <div style={{ padding: "1rem" }}>Loading the candidate queue…</div>;
 
@@ -499,68 +460,53 @@ const CardQueue: React.FC<Props> = ({
 
   return (
     <div style={{ background: SURFACE }}>
-      {/* A LINK write's failure. A RULING's outcome is not shown here — it goes on
-          the card it was about, and only falls back to this strip when that card
-          has left the list (which is itself one of the things it says). */}
-      {linkError && (
-        <div
-          role="alert"
-          style={{
-            border: HAIRLINE,
-            borderColor: "var(--state-danger-strong)",
-            borderRadius: "8px",
-            padding: "0.6rem 0.8rem",
-            margin: "0.5rem 0",
-            color: "var(--state-danger-strong)",
-            fontSize: "0.85rem",
-          }}
-        >
-          {linkError}
-          <button
-            type="button"
-            onClick={() => setLinkError(null)}
-            style={{ ...chipStyle, marginLeft: "0.6rem", cursor: "pointer", background: SURFACE }}
-          >
-            Dismiss
-          </button>
-        </div>
+      {/* The bar is withheld until the stored words load — there is no fallback
+          vocabulary for five filter names (R4), and a chip row reading
+          "undefined (8)" would be worse than a moment with no chips. */}
+      {linkOptions && (
+        <CandidateFilterBar
+          counts={counts}
+          filters={active}
+          progress={filterProgress(visible)}
+          wording={linkOptions.card_grammar}
+          onChange={setFilters}
+        />
       )}
-
-      <CandidateFilterBar
-        counts={counts}
-        filters={active}
-        shown={visible.length}
-        onChange={setFilters}
-      />
 
       <div style={hintBarStyle}>
         <span>Move: ↑ ↓ or J K — moving never rules</span>
-        {/* Rendered verbatim. The browser counts nothing here — both numbers were
-            counted from the served pool (task 2.10). */}
-        {linkProgress && <span>{linkProgress}</span>}
-        {/* D10's next-up hint. Absent rather than "Next up: —" when the following
-            card has no ordinal yet: a hint that names nothing is worse than none. */}
+        {/* Piece 1d: "N of M linked" has LEFT this row. Linking status is a fact
+            about one card and now lives on the card — a locked card states its
+            own condition on its face and offers the type-ahead there (Piece 4b),
+            which is where a human can act on it. A pile-wide count in the frame
+            told them how much was stuck and nothing about what to do next.
+
+            D10's next-up hint stays. Absent rather than "Next up: —" when the
+            following card has no ordinal yet: a hint that names nothing is worse
+            than none. */}
         {nextUpHint(nextCard?.code) && (
           <span style={{ marginLeft: "auto" }}>{nextUpHint(nextCard?.code)}</span>
         )}
       </div>
 
-      {/* THE VANISH, said out loud. When a ruling takes its card out of the list,
-          the card is no longer there to carry its own receipt — so it is reported
-          here, above the list, where the human is already looking. This is the
-          sentence whose absence made a working defer read as a dead button on
-          beta.385. */}
-      {receipt && !visible.some((c) => c.graph_node_id === receipt.graphNodeId) && (
-        <div
-          role={receipt.failed ? "alert" : "status"}
-          style={receipt.failed ? receiptFailedStyle : receiptStyle}
-        >
-          {receipt.text}
-        </div>
-      )}
+      <QueueNotices
+        linkError={linkError}
+        onDismissLinkError={() => setLinkError(null)}
+        // The receipt rides on the CARD when the card is still on the list;
+        // this strip is the fallback for when the ruling took it away.
+        orphanedReceipt={
+          receipt && !visible.some((c) => c.graph_node_id === receipt.graphNodeId)
+            ? receipt
+            : null
+        }
+        chipFilter={chipFilter}
+        onClearChipFilter={() => setChipFilter(null)}
+        options={linkOptions}
+      />
 
       <CandidateList
         cards={visible}
+        onFilterChip={setChipFilter}
         selectedId={selectedId}
         notice={state.notice}
         // An empty list means two different things, and they need two different

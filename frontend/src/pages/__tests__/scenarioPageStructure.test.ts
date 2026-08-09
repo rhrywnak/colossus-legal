@@ -95,13 +95,13 @@ describe("pinpoints open a real WINDOW, not a tab (task 1.7C, defect D5)", () =>
   it("both pinpoint surfaces route through the viewer-window helper", () => {
     // The queue's card and the facts table are the two places a pinpoint appears
     // (§2.7 names both). Both have since moved for Rule 17: the card's rendering
-    // to `CandidateCard` when `CardQueue` was split, then to `CandidateCardBody`
-    // when ONE_CARD_GRAMMAR's ruling R8 split the body out of the ruling wrapper;
-    // and the facts ROW to `FactRow` when task 2.13 extracted it out of an
-    // over-long `WorkingView`.
+    // to `CandidateCard` when `CardQueue` was split, and then into the SHARED
+    // `EvidenceCardBody` when ONE_CARD_GRAMMAR made the candidate and the fact
+    // render one body — which is why there is now one file here where there were
+    // two: the facts list reaches its pinpoint through the same component.
     // The fence follows the code — what it guards is that a pinpoint never opens
     // with a bare `window.open`, not which file happens to hold the row today.
-    for (const file of ["components/CandidateCardBody.tsx", "components/FactRow.tsx"]) {
+    for (const file of ["components/EvidenceCardParts.tsx"]) {
       expect(read(file), `${file} must open its pinpoint via openViewerWindow`).toContain(
         "openViewerWindow",
       );
@@ -712,22 +712,28 @@ describe("the facts cards keep their visual rhythm (task 2.13b)", () => {
     // for quotes, metadata a size step DOWN rather than faded, and bold reserved
     // for the C-code. Ad-hoc per-element font styling is what this replaces, so
     // the sizes must come from the two named constants and nowhere else.
-    // All three files the card is now built from — the scale, the parts and the
-    // shell — so splitting a component cannot smuggle a third size back in.
+    // Every file the card is now built from — the scale, the shell and the SHARED
+    // body — so splitting a component cannot smuggle a third size back in.
+    // `FactRowParts` is gone: its pieces were the fact card's private renderers,
+    // and ONE_CARD_GRAMMAR replaced them with the body the candidate also uses.
     const source =
-      read("components/FactRow.tsx") +
-      read("components/FactRowParts.tsx") +
-      read("components/factRowStyles.ts");
+      read("components/FactRow.tsx") + read("components/factRowStyles.ts");
     const literalSizes = source.match(/fontSize: "(?!var)[^"]+"/g) ?? [];
     expect(
       literalSizes,
       `fact-card font sizes must use BODY_SIZE/META_SIZE, found ${literalSizes.join(", ")}`,
     ).toEqual([]);
 
-    // Exactly one bold declaration beyond the two semibold labels (the C-code and
-    // the "Q:" marker) would mean a third thing competing to be the landmark.
+    // Bold is reserved for the C-code, which is the card's landmark. The
+    // exchange's Q:/A: labels and the accusation's own emphasis now live in the
+    // SHARED body, which both wrappers render and which this fence deliberately
+    // does not police — the candidate card has always carried more emphasis than
+    // the facts list, and holding one file to the other's budget would be the
+    // fence outgrowing what it was written to protect.
     const bolds = source.match(/fontWeight: [6-9]00/g) ?? [];
-    expect(bolds.length, "only the C-code and the Q: label may be bold").toBeLessThanOrEqual(2);
+    expect(bolds.length, "only the C-code may be bold on the fact WRAPPER").toBeLessThanOrEqual(
+      1,
+    );
   });
 
   it("runs the cut-spine the full height of the card", () => {

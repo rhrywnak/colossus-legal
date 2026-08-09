@@ -157,39 +157,21 @@ describe("the summary line", () => {
   it("becomes a receipt at zero rather than an empty container", () => {
     const region = queueRegion({ ruled: 10, total: 10 }, WORDS);
     expect(region.summary).toBe("All candidates ruled");
-    // No scope clause and no remaining count: there is nothing left to qualify.
+    // No scope clause and no counting notice: there is nothing left to qualify,
+    // and the pool has plainly been measured.
     expect(region.scope).toBeNull();
-    expect(region.remainingLabel).toBeNull();
+    expect(region.countingNotice).toBeNull();
   });
 });
 
-describe("the progress bar", () => {
-  it("reports M of P and the matching percentage", () => {
-    const region = queueRegion({ ruled: 3, total: 148 });
-    expect(region.progressLabel).toBe("3 of 148 ruled");
-    expect(region.progressPercent).toBe(2);
-  });
-
-  it("is 0% rather than NaN for an empty pool", () => {
-    // Dividing by a zero total unguarded is how a brand-new scenario gets a blank
-    // bar and a console error.
-    expect(queueRegion({ ruled: 0, total: 0 }).progressPercent).toBe(0);
-  });
-
-  it("clamps a count that exceeds its total instead of overfilling", () => {
-    // A reload that returns a SHORTER pool can briefly put `ruled` above `total`
-    // (the reducer's own "clamps focus when a reload returns a shorter pool" case).
-    // A 140%-full bar is a rendering fault the human would read as a data fault.
-    const region = queueRegion({ ruled: 20, total: 10 });
-    expect(region.progressPercent).toBe(100);
-    expect(region.progressLabel).toBe("10 of 10 ruled");
-    expect(region.open).toBe(false);
-  });
-
-  it("clamps a negative count", () => {
-    expect(queueRegion({ ruled: -5, total: 10 }).progressLabel).toBe("0 of 10 ruled");
-  });
-});
+// The "the progress bar" suite that stood here died with the bar it described
+// (ONE_CARD_GRAMMAR, Piece 1c). It pinned "3 of 148 ruled" and a percentage over
+// the whole gathered pool — a debt rule-the-promising says nobody owes. Progress
+// now follows the ACTIVE FILTER and is tested in `candidateFilters.test.ts`
+// under "progress counts follow the active filter", where its denominator lives.
+//
+// The clamping cases went with it and were not lost: they guarded a PERCENTAGE
+// against a reload returning a shorter pool, and there is no percentage now.
 
 describe("the next-up hint (D10)", () => {
   it("names the card that is coming", () => {
@@ -243,15 +225,12 @@ describe("counts that have not been measured", () => {
   });
 
   it("claims nothing else about a pool nobody has looked at", () => {
-    // A progress figure, a remaining count or a scope clause would each be a
-    // second claim about the same unmeasured pool.
+    // A scope clause would be a second claim about the same unmeasured pool.
     const region = queueRegion(null, WORDS);
-    expect(region.progressPercent).toBe(0);
-    expect(region.remainingLabel).toBeNull();
     expect(region.scope).toBeNull();
-    // The progress label carries the counting text too — the line that used to
-    // hold the only hardcoded copy of it.
-    expect(region.progressLabel).toBe("Counting candidates…");
+    // The counting notice is the ONE thing this state says, and it is the stored
+    // sentence — the line that used to hold the only hardcoded copy of it.
+    expect(region.countingNotice).toBe("Counting candidates…");
   });
 
   it("starts open, with the keyboard inert", () => {
@@ -282,7 +261,7 @@ describe("counts that have not been measured", () => {
   it("says nothing rather than inventing words before the wording loads", () => {
     // R4 again: no literal to fall back to, on the new state as on the others.
     expect(queueRegion(null).summary).toBe("");
-    expect(queueRegion(null).progressLabel).toBe("");
+    expect(queueRegion(null).countingNotice).toBeNull();
   });
 });
 
@@ -389,6 +368,8 @@ describe("progressFromCards", () => {
     const region = queueRegion(progress, WORDS);
     expect(region.summary).toBe("Candidates awaiting ruling — 92");
     expect(region.summary).not.toBe(WORDS.emptyPool);
-    expect(region.progressLabel).toBe("56 of 148 ruled");
+    // The heading still counts what is OUTSTANDING; what left is the pool-wide
+    // ruled/total bar underneath it (Piece 1c).
+    expect(region.countingNotice).toBeNull();
   });
 });

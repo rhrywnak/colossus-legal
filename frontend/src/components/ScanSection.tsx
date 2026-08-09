@@ -358,33 +358,20 @@ const ScanSection: React.FC<Props> = ({
 
         {open && (
           <div style={{ padding: "4px 24px 22px" }}>
-            {/* Progress: the label, the bar, what is left, the deferred tray, and
-                the keys. Mockup `.q-meta`. */}
+            {/* Piece 1c: the pool-wide bar is GONE. It read "23 of 148 ruled"
+                over a bar of 125 nobody owes, while rule-the-promising is the
+                ratified triage model — so it reported a debt the method denies.
+                Progress now follows the active filter and lives under the chips,
+                beside the list it describes.
+
+                What stays here is the one state the chips cannot show: nothing
+                has measured the pool yet, which is different from a pool of
+                zero (Standing Rule 1). */}
             <div style={queueMetaStyle}>
-              <b style={{ color: "var(--state-success-strong)" }}>
-                {/* "0 of 0 ruled" before the fetch lands is a claim about the pool
-                    that nothing has measured yet (Standing Rule 1). The descriptor
-                    now carries the counting text itself, from the stored row —
-                    which also retires the literal this line used to hold. */}
-                {region.progressLabel}
-              </b>
-              <div
-                role="progressbar"
-                aria-valuenow={region.progressPercent}
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-label="Candidates ruled"
-                style={progressTroughStyle}
-              >
-                <div
-                  style={{
-                    width: `${region.progressPercent}%`,
-                    height: "100%",
-                    background: "var(--state-success-strong)",
-                  }}
-                />
-              </div>
-              {region.remainingLabel && <span>{region.remainingLabel}</span>}
+              {region.countingNotice && (
+                <b style={{ color: "var(--state-success-strong)" }}>{region.countingNotice}</b>
+              )}
+
               <span style={{ color: "var(--text-muted)" }}>
                 Keys: <kbd style={kbdStyle}>I</kbd> <kbd style={kbdStyle}>E</kbd>{" "}
                 <kbd style={kbdStyle}>D</kbd> <kbd style={kbdStyle}>U</kbd> — or use the

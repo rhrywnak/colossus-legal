@@ -139,6 +139,12 @@ pub(crate) fn build_options(
 
     AllegationOptionsResponse {
         wording: panel_wording(settings, total),
+        // The card's own words, mirrored straight across. No composition here:
+        // the one template this payload fills is `show_all_label`, and it is
+        // filled above because only this function knows the accusation count.
+        card_grammar: (&settings.card_grammar_wording).into(),
+        card_question_truncate_chars: settings.card_question_truncate_chars,
+        card_element_chips_visible_k: settings.card_element_chips_visible_k,
         serving,
         others,
         total,

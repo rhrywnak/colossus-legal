@@ -809,19 +809,21 @@ function undo(state: QueueState): QueueResult {
 }
 
 /**
- * The running count the section above shows: how much of the pool is dealt with.
+ * How much of the POOL this session has dealt with, from the reducer's own state.
  *
- * ## Why it counts the POOL's state and not just this session's keystrokes
+ * ## Why this survived the death of the bar it used to draw
  *
- * Until 1.7E this returned `state.ruled.length` — the rulings made since the page
- * loaded. That was invisible then, because the queue only ever showed unruled
- * cards. The list shows every card with its state chip, so a bar reading "0 of
- * 148 ruled" beside twelve green chips is two surfaces of the same screen
- * disagreeing about the same fact (§9). A card counts once however it came to be
- * ruled — the set union is what guarantees that.
+ * ONE_CARD_GRAMMAR Piece 1c retired the pool-wide "23 of 148 ruled" bar — a debt
+ * rule-the-promising says nobody owes — and the queue's visible progress now
+ * follows the ACTIVE FILTER (`candidateFilters.filterProgress`, derived from the
+ * filtered list rather than from this state).
  *
- * `total` stays the WHOLE pool, never the filtered view: the section summary is a
- * statement about the work, not about what is on screen right now.
+ * What this still reads is `state.ruled`, which is NOT display bookkeeping: it is
+ * the set the single-step undo walks back, and the set a reload deliberately
+ * discards. Those behaviours are the reducer's, they are tested here, and the
+ * union below is how a test asks about them in one call. Moving it beside the
+ * filter's counter would put a question about THIS state machine in a module
+ * that knows nothing about it.
  */
 export function progress(state: QueueState): { ruled: number; total: number } {
   const dealt = new Set(state.ruled);
@@ -830,3 +832,4 @@ export function progress(state: QueueState): { ruled: number; total: number } {
   }
   return { ruled: dealt.size, total: state.cards.length };
 }
+

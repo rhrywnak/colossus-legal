@@ -1,63 +1,51 @@
 // =============================================================================
-// FactRow — one fact CARD, with a fixed anatomy (tasks 2.13, 2.13b)
+// FactRow — the FACT WRAPPER around one evidence card (2.13, then ONE_CARD)
 // =============================================================================
 //
-// Extracted from `WorkingView` in 2.13 (which was 412 lines, past Rule 17), then
-// rebuilt in 2.13b against Roman's own screenshot of S-2 on beta.377:
+// The other half of the one-card law. This wrapper carries what may be done to a
+// fact — drag, weight, Remove — and mounts `EvidenceCardBody` over a view built
+// by `evidenceCardView`: the SAME component over the SAME builder over the SAME
+// payload the candidate wrapper uses. The two cards cannot show different fields.
 //
-//   "They are not human friendly. everything just blurs together. also no
-//    consistency within a card. 1) it is difficult to see where one card ends
-//    and the next starts. 2) the Candidate numbers appear in different places
-//    cards. the text is light grey and very difficult to read. the tags and
-//    buttons are also difficult to see."
+// ## What the fact card gets back (ONE_CARD_GRAMMAR §5c)
 //
-// Every one of those is a decision this file used to get wrong:
+// Everything the old projection threw away: the speaker's provenance tag, the
+// kind chip, the confidence band, every element chip compressed behind "+N more",
+// the count chip, the anchor highlight, the surrounding context behind one click,
+// and the scan's reason — which until ruling R3 was deleted the moment a human
+// pressed Include.
 //
-// * **Where a card ends.** Rows shared one surface and were divided by a
-//   near-invisible line (#eef0f3, 1.14:1). Each fact is now its own card with a
-//   `--border-card` hairline, and the gap BETWEEN cards is more than three times
-//   the largest gap inside one — proximity separates, the border assists.
-// * **Where the number is.** The C-code, the kind and the quote shared one
-//   `flex-wrap` row, so the code moved with the length of whatever sat beside it.
-//   The header row is now its own line and the code is always its first element.
-//   The order comes from `sectionsFor`, which is data and is tested.
-// * **Light grey text.** `--text-muted` was 3.10:1 on this surface. It is now
-//   4.97:1, and metadata recedes by SIZE rather than by fading (study §2).
+// ## The header row PINS (Piece 3)
 //
-// ## Typography: one stack, one body size, one bold
+// The facts list scrolls inside its own 60vh region, so `position: sticky` on
+// this row keeps the code, the drag handle and the weight picker on screen while
+// the card's own body scrolls under them. On a MacBook-sized window the controls
+// never scroll away — the acceptance surface.
 //
-// There is no per-element font styling below. `--font-sans` at regular weight
-// throughout; exactly one body size for the quote with a 1.6 line-height; every
-// piece of metadata one step down at `--meta-size`. The ONLY bold on this
-// surface is the C-code, which is the card's landmark. That is the study's §2
-// binding, and the reason the ad-hoc `fontSize`/`fontWeight` values that used to
-// live on individual spans are gone.
+// ## A human fact renders its own shape, and always did
+//
+// It has no card payload (`row.card === null`): no anchor, no pinpoint, no
+// allegations, no verdict, because §8 keeps it uncited by design. That row shows
+// its text and its provenance line, exactly as before.
 
 import React, { useState } from "react";
 
-import { openViewerWindow } from "./viewerWindow";
 import RemoveControl from "./FactRemoveControl";
-import { sectionsFor, type CardSection, type WorkingRow } from "./factsTable";
-import type { LinkPanelWording } from "../services/evidenceLinks";
+import EvidenceCardBody from "./EvidenceCardBody";
+import { evidenceCardView, type ChipFilter } from "./evidenceCardModel";
+import WeightPicker from "./WeightPicker";
+import type { WorkingRow } from "./factsTable";
+import type { AllegationOptions, LinkPanelWording } from "../services/evidenceLinks";
 import type { FactTier } from "../services/scenarioCards";
 
 import {
+  bodyStyle,
   CARD_GAP_PX,
   CARD_PADDING,
   INTRA_GAP,
   META_SIZE,
   metaStyle,
 } from "./factRowStyles";
-import {
-  AllegationRow,
-  ExchangeLine,
-  HeaderRow,
-  nextTier,
-  QuoteRow,
-  SourceRow,
-} from "./FactRowParts";
-
-export { nextTier } from "./FactRowParts";
 
 export { CARD_GAP_PX, MAX_INTRA_GAP_PX } from "./factRowStyles";
 
@@ -82,9 +70,9 @@ const cardStyle = (justArrived: boolean, isDropTarget: boolean): React.CSSProper
 /**
  * The coloured left spine, running the FULL height of the card.
  *
- * Green = evidence a human ruled in, blue = a fact a human wrote. Dimmed in
- * 2.13c: it is decoration until task 2.3 gives it cut meaning, and at full
- * strength it was the loudest thing on a card whose content is the exchange.
+ * Green = evidence a human ruled in, blue = a fact a human wrote. Dimmed: it is
+ * decoration until task 2.3 gives it cut meaning, and at full strength it was
+ * the loudest thing on a card whose content is the exchange.
  *
  * A cue, never the only signal — a human fact's provenance line still says which
  * it is in words, for a colourblind reader and for greyscale print.
@@ -98,82 +86,126 @@ const spineStyle = (isHuman: boolean): React.CSSProperties => ({
   background: isHuman ? "var(--accent-primary)" : "var(--state-success-strong)",
 });
 
+/**
+ * The header row — the card's landmark line, PINNED to the scroll viewport.
+ *
+ * `top: 0` inside the facts list's own `overflowY: auto` region: the row sticks
+ * to the top of that region while its card is on screen and releases when the
+ * card leaves. The opaque background is load-bearing — a transparent sticky row
+ * would have the card's own text scroll through it.
+ *
+ * C-code first, ALWAYS, and at a fixed position: `flexShrink: 0` and its own
+ * element, so nothing beside it can push it anywhere. That is the direct answer
+ * to "the Candidate numbers appear in different places cards".
+ */
+const HeaderRow: React.FC<{
+  row: WorkingRow;
+  wording: LinkPanelWording;
+  cardWording: AllegationOptions["card_grammar"] | null;
+  onSetTier?: (tier: FactTier) => void;
+  draggable: boolean;
+}> = ({ row, wording, cardWording, onSetTier, draggable }) => (
+  <div
+    style={{
+      display: "flex",
+      alignItems: "center",
+      gap: "0.5rem",
+      minHeight: "24px",
+      position: "sticky",
+      top: 0,
+      zIndex: 2,
+      background: "var(--bg-surface)",
+      // The pinned row needs to end somewhere the eye can see, or the body's
+      // first line looks like part of it while scrolling under.
+      borderBottom: "1px solid var(--border-card)",
+      paddingBottom: "6px",
+      marginBottom: "2px",
+    }}
+  >
+    {draggable && (
+      <span
+        aria-label={wording.fact_order_drag_hint}
+        title={wording.fact_order_drag_hint}
+        style={{ cursor: "grab", color: "var(--text-secondary)", fontSize: META_SIZE }}
+      >
+        ⠿
+      </span>
+    )}
+    {/* The landmark. A human fact has no candidate number and shows none — an
+        em-dash placeholder would imply a missing value where there is none. */}
+    {row.code && (
+      <span
+        data-fact-code
+        style={{
+          fontSize: META_SIZE,
+          fontWeight: 600,
+          color: "var(--text-primary)",
+          flexShrink: 0,
+        }}
+      >
+        {row.code}
+      </span>
+    )}
+
+    <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "0.4rem" }}>
+      {/* A human fact carries no weight tier (§8 — it is not evidence), so it
+          gets no control rather than a disabled one.
+
+          Guarded on the ROW as well as on the callback. `WorkingView` already
+          withholds `onSetTier` for a human fact, but that is a caller convention
+          and this is a law: a second caller that passed one would silently offer
+          a weight on a fact that cannot have one. */}
+      {onSetTier && cardWording && !row.isHuman && (
+        <WeightPicker
+          current={row.tier ?? "backup"}
+          wording={wording}
+          cardWording={cardWording}
+          onSetTier={onSetTier}
+        />
+      )}
+    </span>
+  </div>
+);
+
 /** One fact card. */
 const FactRow: React.FC<{
   row: WorkingRow;
   justArrived?: boolean;
   wording: LinkPanelWording | null;
+  /** The card's own words and fold thresholds. `null` until they load. */
+  options?: AllegationOptions | null;
   onRemove?: () => void;
-  onUnplace?: () => void;
   onSetTier?: (tier: FactTier) => void;
   onDragStart?: () => void;
   onDropOn?: () => void;
   confirm?: LinkPanelWording | null;
+  /** Narrow the facts list to a chip's value (Piece 7). */
+  onFilterChip?: (filter: ChipFilter) => void;
 }> = ({
   row,
   justArrived = false,
   wording,
+  options = null,
   onRemove,
-  onUnplace,
   onSetTier,
   onDragStart,
   onDropOn,
   confirm = null,
+  onFilterChip,
 }) => {
-  // A refused popup has to be SAID, not swallowed (Standing Rule 1). Local to the
-  // card so the message appears where the human just clicked.
-  const [blocked, setBlocked] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
 
   const draggable = Boolean(onDragStart && onDropOn);
 
-  /**
-   * The renderer for one section. Walking `sectionsFor` rather than writing the
-   * rows out inline is what makes the anatomy testable: this switch cannot emit a
-   * section the list did not include, and cannot emit them in another order.
-   */
-  const render = (section: CardSection) => {
-    switch (section) {
-      case "header":
-        return (
-          <HeaderRow
-            key={section}
-            row={row}
-            wording={wording}
-            onSetTier={onSetTier}
-            draggable={draggable}
-          />
-        );
-      case "question":
-        return row.question && wording ? (
-          <ExchangeLine key={section} prefix={wording.fact_question_label} text={row.question} />
-        ) : null;
-      case "quote":
-        // With a question above it the quote IS the answer and takes the `A:`
-        // prefix, so the pair reads as an exchange. Without one there is no
-        // exchange to mark, and a lone prefix would assert a question that was
-        // lost.
-        return row.question && wording ? (
-          <ExchangeLine key={section} prefix={wording.fact_answer_label} text={row.text} />
-        ) : (
-          <QuoteRow key={section} text={row.text} />
-        );
-      case "allegations":
-        return <AllegationRow key={section} bearsOn={row.bearsOn} />;
-      case "source":
-        return (
-          <SourceRow
-            key={section}
-            row={row}
-            wording={wording}
-            onBlocked={setBlocked}
-            onRemove={onRemove}
-            onUnplace={onUnplace}
-            confirm={confirm}
-          />
-        );
-    }
-  };
+  // The SHARED view. Built here from the same payload and the same builder the
+  // candidate wrapper uses, which is the whole of the one-card law in one line.
+  const view =
+    row.card && options
+      ? evidenceCardView(row.card, options.card_grammar, {
+          questionChars: options.card_question_truncate_chars,
+          elementK: options.card_element_chips_visible_k,
+        })
+      : null;
 
   return (
     <div
@@ -206,11 +238,48 @@ const FactRow: React.FC<{
       }}
     >
       <span style={spineStyle(row.isHuman)} aria-hidden="true" />
-      <div style={{ display: "flex", flexDirection: "column", gap: INTRA_GAP, flex: 1, minWidth: 0 }}>
-        {sectionsFor(row).map(render)}
-        {blocked && (
-          <div role="alert" style={{ ...metaStyle, color: "var(--state-danger-strong)" }}>
-            {blocked}
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: INTRA_GAP,
+          flex: 1,
+          minWidth: 0,
+        }}
+      >
+        {wording && (
+          <HeaderRow
+            row={row}
+            wording={wording}
+            cardWording={options?.card_grammar ?? null}
+            onSetTier={onSetTier}
+            draggable={draggable}
+          />
+        )}
+
+        {view && options ? (
+          <EvidenceCardBody
+            view={view}
+            wording={options.card_grammar}
+            onFilterChip={onFilterChip}
+          />
+        ) : (
+          // A human fact, or an evidence row whose words have not loaded. Both
+          // render the text; only the first renders a provenance line, because
+          // only the first HAS one — "Added by Roman · Around Mar 2010" is that
+          // row's authority and the words backing its coloured spine.
+          <>
+            <div style={bodyStyle}>{row.text}</div>
+            {row.isHuman && <span style={metaStyle}>{row.statusLabel}</span>}
+          </>
+        )}
+
+        {/* Piece 5b: the footer keeps ONLY Remove. "Clear my order" left for the
+            section header, where one control does the job it was doing on
+            forty-six cards. */}
+        {onRemove && (
+          <div style={{ display: "flex", justifyContent: "flex-end" }}>
+            <RemoveControl row={row} onRemove={onRemove} confirm={confirm} />
           </div>
         )}
       </div>

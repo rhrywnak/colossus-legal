@@ -173,9 +173,6 @@ export type CardProposal = {
    *  this build cannot name — the chip is then absent rather than showing a raw
    *  token. */
   role_label: string | null;
-  /** The judge's own justification, verbatim. Not composed, not translated: this
-   *  is the model's sentence, and it is what the human is being asked to weigh. */
-  reason: string | null;
   /** How many pool rows this one card speaks for — `1` ordinarily, `2` for a
    *  byte-identical twin pair. Ruling the card settles all of them. */
   duplicate_count: number;
@@ -279,6 +276,25 @@ export type ScenarioCard = {
    *  behind it, which is why the queue's Proposed facet is "not ruled AND this is
    *  present" rather than a status token to decode. */
   proposed?: CardProposal;
+  /**
+   * The judge's own justification for this card, whether it is still proposed or
+   * has been ruled (ONE_CARD_GRAMMAR, ruling R3).
+   *
+   * ## Why this left `CardProposal`
+   *
+   * It used to live there, so it existed for exactly as long as the card was
+   * unruled — precedence law R-a drops every node with a reference row before the
+   * projection groups anything, so the instant a human pressed Include the reason
+   * was gone. The reason is the one-sentence answer to "why does this matter
+   * here", which is precisely the question an INCLUDED fact keeps having to
+   * answer. It is a property of the CARD, not of being proposed.
+   *
+   * Absent is a real and common state: a card nothing has judged, a verdict
+   * recorded without a reason, and a ruling made before the provenance column was
+   * written all land there. The card then shows no reason rather than a
+   * placeholder.
+   */
+  scan_reason?: string;
 };
 
 /** The three weights a fact can carry (task 2.13). Mirrors the backend enum. */

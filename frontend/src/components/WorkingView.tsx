@@ -36,12 +36,17 @@ import { ghostButtonStyle } from "./scenarioSectionStyles";
 import type { FactTier, ScenarioCard } from "../services/scenarioCards";
 import type { HumanFactDto } from "../services/scenarioAugmentation";
 import {
-  fillCode,
   fillCount,
   fillCounts,
+  fillSlots,
+  type AllegationOptions,
   type LinkPanelWording,
 } from "../services/evidenceLinks";
-import FactRow, { CARD_GAP_PX } from "./FactRow";
+import { tierLabels } from "./WeightPicker";
+import type { ChipFilter } from "./evidenceCardModel";
+import { matchesChip } from "./evidenceCardModel";
+import { CARD_GAP_PX } from "./FactRow";
+import FactStack from "./FactStack";
 import { useDragAutoScroll } from "./dragAutoScroll";
 
 const SURFACE = "var(--bg-surface)";
@@ -117,6 +122,8 @@ interface Props {
   onRemoveFact: (graphNodeId: string) => void;
   /** The stored words. `null` until they load — no Remove control until then. */
   wording: LinkPanelWording | null;
+  /** The card's own words and fold thresholds (ONE_CARD_GRAMMAR). */
+  options: AllegationOptions | null;
   /** Record a fact's weight (task 2.13). */
   /** Record a fact's weight. RESOLVES when stored and REJECTS when refused —
    *  the rejection is what retracts an optimistic move notice. */
@@ -127,8 +134,6 @@ interface Props {
     after: string | null,
     before: string | null,
   ) => void;
-  /** Forget where a fact was placed, returning it to the natural order. */
-  onUnplaceFact: (graphNodeId: string) => void;
 }
 
 const WorkingView: React.FC<Props> = ({
@@ -138,9 +143,9 @@ const WorkingView: React.FC<Props> = ({
   onRemoveHumanFact,
   onRemoveFact,
   wording,
+  options,
   onSetTier,
   onMoveFact,
-  onUnplaceFact,
 }) => {
   const [term, setTerm] = useState("");
   // Which row is being dragged, for the duration of the drag only. Not state the
@@ -150,11 +155,27 @@ const WorkingView: React.FC<Props> = ({
   // parsed the stored two-token setting), then follows the human's clicks for
   // this visit. `null` means "not told yet" — see the fallback below.
   const [backgroundOpen, setBackgroundOpen] = useState<boolean | null>(null);
-  // The card that most recently moved into the background pile, so the list can
-  // SAY so. Task 2.13c item 5 — Roman's report was that clicking the dot made a
-  // card "silently vanish"; a fact that leaves the list must announce where it
-  // went. Cleared when the pile is opened, because then it is no longer hidden.
-  const [movedToBackground, setMovedToBackground] = useState<string | null>(null);
+  /**
+   * The last weight change, as the sentence announcing it and the row it was
+   * about (Piece 5a).
+   *
+   * Task 2.13c already said something when a card was folded away; this widens
+   * it to EVERY weight change and adds the way back. Roman was moved to the
+   * background pile by a control he had signed off three days earlier — an
+   * acknowledgment with no undo tells you what happened and leaves you to
+   * reverse it by hand.
+   *
+   * `pendingNodeId` is what keeps the card where it is while the sentence is on
+   * screen: `splitBackground` honours it, so a demotion does not slide the list
+   * out from under the cursor at the moment the human acts.
+   */
+  const [weightNotice, setWeightNotice] = useState<{
+    text: string;
+    nodeId: string;
+    previous: FactTier;
+  } | null>(null);
+  /** A chip the human clicked, narrowing this list to it (Piece 7). */
+  const [chipFilter, setChipFilter] = useState<ChipFilter | null>(null);
   // The facts list scrolls inside its own region, and nothing moved that region
   // during a drag — so a card could not be taken past the visible window and the
   // scrollbar was unreachable with a card in hand. See `dragAutoScroll`.
@@ -169,10 +190,29 @@ const WorkingView: React.FC<Props> = ({
     () => orderedRows([...includedRows(cards), ...humanFactRows(humanFacts)]),
     [cards, humanFacts],
   );
-  const visible = useMemo(() => filterRows(rows, term), [rows, term]);
+  const searched = useMemo(() => filterRows(rows, term), [rows, term]);
+  // Piece 7: a clicked chip narrows this list to its raw value. Applied AFTER the
+  // search box rather than instead of it — the two are different narrowings and a
+  // human may want both, and matching on the payload value means a chip can never
+  // surface a row whose chip says something else.
+  const visible = useMemo(
+    () =>
+      chipFilter
+        ? searched.filter((row) => row.card !== null && matchesChip(row.card, chipFilter))
+        : searched,
+    [searched, chipFilter],
+  );
   // The background tier is FOLDED, never filtered away: the count travels with
-  // the pile so the list can always say how much is down there.
-  const { shown, background } = useMemo(() => splitBackground(visible), [visible]);
+  // the pile so the list can always say how much is down there. A row whose
+  // demotion is still being acknowledged stays put — see `splitBackground`.
+  const pendingDemotion = useMemo(
+    () => new Set(weightNotice ? [weightNotice.nodeId] : []),
+    [weightNotice],
+  );
+  const { shown, background } = useMemo(
+    () => splitBackground(visible, pendingDemotion),
+    [visible, pendingDemotion],
+  );
 
   /**
    * Set a weight, and if that weight FOLDS the card away, say so.
@@ -190,9 +230,45 @@ const WorkingView: React.FC<Props> = ({
    * retracts the notice explicitly, and the error banner is left to speak alone.
    */
   const setTierAnnouncing = (graphNodeId: string, tier: FactTier) => {
-    const code = rows.find((r) => r.graphNodeId === graphNodeId)?.code ?? null;
-    setMovedToBackground(tier === "background" ? code : null);
-    onSetTier(graphNodeId, tier).catch(() => setMovedToBackground(null));
+    const row = rows.find((r) => r.graphNodeId === graphNodeId);
+    if (!row || !wording || !options) return;
+    const previous = row.tier ?? "backup";
+
+    // Raised optimistically, because it describes what the human just asked for
+    // and the row is held in place until they dismiss it. A refused write
+    // RETRACTS it explicitly: an earlier version left the notice standing, so a
+    // failed tier write would have rendered the error banner and "C-91 now reads
+    // Background" at once — two contradictory messages, one of them a lie about
+    // where a fact went.
+    setWeightNotice({
+      nodeId: graphNodeId,
+      previous,
+      text: fillSlots(options.card_grammar.weight_changed_template, {
+        code: row.code ?? graphNodeId,
+        tier: tierLabels(wording)[tier],
+      }),
+    });
+    onSetTier(graphNodeId, tier).catch((e: unknown) => {
+      // NOT a swallowed failure. `ScenarioFactsSection.changeTier` fills the
+      // stored `fact_tier_save_failed_template` into the section's error banner
+      // and RE-THROWS precisely so this handler can retract the optimistic
+      // notice — the two halves are one flow, and the rejection arriving here is
+      // how the retraction is triggered rather than a second thing to report.
+      //
+      // Retracting matters as much as reporting: an earlier version left the
+      // notice standing, so a refused write rendered the error banner AND
+      // "C-91 now reads Background" at once — two contradictory messages, one of
+      // them a lie about where a fact went.
+      //
+      // The `warn` is what makes the chain legible from a console alone, so a
+      // reader does not have to know the section above re-throws to be sure the
+      // failure was not dropped here.
+      setWeightNotice(null);
+      console.warn(
+        "a weight write was refused; the section's error banner carries the reason",
+        e,
+      );
+    });
   };
   const showBackground = backgroundOpen ?? !(wording?.fact_background_starts_collapsed ?? true);
 
@@ -262,6 +338,43 @@ const WorkingView: React.FC<Props> = ({
           Presentational geometry, not a Rule-13 tunable: this serves every row
           and only chooses how much glass they are seen through (the standing
           ruling from `CandidateList.scrollRegionStyle`). */}
+      {/* Piece 7: a list narrowed by a chip SAYS what it is narrowed to, and
+          offers the way out. A filter with no visible exit is how a human ends
+          up reporting that facts have gone missing. */}
+      {chipFilter && options && (
+        <div
+          role="status"
+          style={{
+            display: "flex",
+            gap: "0.5rem",
+            alignItems: "center",
+            padding: "8px 16px",
+            fontSize: "0.82rem",
+            color: "var(--text-secondary)",
+            borderBottom: HAIRLINE,
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => setChipFilter(null)}
+            style={{
+              border: "1px solid var(--accent-primary)",
+              background: "var(--state-info-bg-soft)",
+              color: "var(--accent-primary)",
+              borderRadius: "999px",
+              padding: "3px 12px",
+              cursor: "pointer",
+              fontFamily: "inherit",
+              fontSize: "0.8rem",
+            }}
+          >
+            {fillSlots(options.card_grammar.chip_filter_clear_template, {
+              value: chipFilter.value,
+            })}
+          </button>
+        </div>
+      )}
+
       <div
         ref={autoScroll.regionRef}
         style={factsScrollRegionStyle}
@@ -285,9 +398,31 @@ Nothing here yet. ✓ Include a candidate above, or add a fact of your own.
         </div>
       ) : (
         <FactStack
-          movedToBackground={movedToBackground}
-          onNoticeCleared={() => setMovedToBackground(null)}
-          onUnplaceFact={onUnplaceFact}
+          weightNotice={weightNotice}
+          onUndoWeight={() => {
+            if (!weightNotice) return;
+            // Undo re-applies the PREVIOUS tier through the same write path, so
+            // the record shows what actually happened: two human acts, not one
+            // that was rolled back behind the scenes.
+            const { nodeId, previous } = weightNotice;
+            setWeightNotice(null);
+            onSetTier(nodeId, previous).catch((e: unknown) => {
+              // Same chain as `setTierAnnouncing` above: `changeTier` shows the
+              // stored refusal and re-throws. There is nothing to RETRACT here —
+              // the notice was cleared on the line before the call, because undo
+              // is a new act rather than a rollback of the one being announced —
+              // so this handler exists only to keep the rejection from being
+              // dropped without a word.
+              console.warn(
+                "an undo of a weight change was refused; the section's error banner carries the reason",
+                e,
+              );
+            });
+          }}
+          onNoticeCleared={() => setWeightNotice(null)}
+          options={options}
+          chipFilter={chipFilter}
+          onFilterChip={setChipFilter}
           shown={shown}
           background={background}
           showBackground={showBackground}
@@ -316,139 +451,6 @@ Nothing here yet. ✓ Include a candidate above, or add a fact of your own.
           : null}
       </div>
     </div>
-  );
-};
-
-/**
- * The cards themselves: the shown stack, then the folded background pile.
- *
- * Extracted from `WorkingView` in task 2.13b. That component was carrying the
- * search header, the arrival bookkeeping, the empty states AND every card's drag
- * wiring in one body; the card stack is the part with its own rules and it reads
- * better alone. Pure presentation — every decision it makes was made upstream.
- */
-const FactStack: React.FC<{
-  shown: WorkingRow[];
-  background: WorkingRow[];
-  showBackground: boolean;
-  onToggleBackground: () => void;
-  /** The FULL ordered list, which a drop needs to name its neighbours from. */
-  rows: WorkingRow[];
-  arrived: Set<string>;
-  wording: LinkPanelWording | null;
-  dragging: string | null;
-  setDragging: (id: string | null) => void;
-  onRemoveFact: (graphNodeId: string) => void;
-  onRemoveHumanFact: (factId: string) => void;
-  onSetTier: (graphNodeId: string, tier: FactTier) => void;
-  onMoveFact: (graphNodeId: string, after: string | null, before: string | null) => void;
-  onUnplaceFact: (graphNodeId: string) => void;
-  /** The code of the card most recently folded into the pile, or `null`. */
-  movedToBackground: string | null;
-  onNoticeCleared: () => void;
-}> = ({
-  shown,
-  background,
-  showBackground,
-  onToggleBackground,
-  rows,
-  arrived,
-  wording,
-  dragging,
-  setDragging,
-  onRemoveFact,
-  onRemoveHumanFact,
-  onSetTier,
-  onMoveFact,
-  onUnplaceFact,
-  movedToBackground,
-  onNoticeCleared,
-}) => {
-  /** One card's props — identical for the shown stack and the background pile. */
-  const cardFor = (row: WorkingRow) => ({
-    key: row.graphNodeId,
-    row,
-    wording,
-    justArrived: arrived.has(row.graphNodeId),
-    // Item G: EVERY card can be taken out from where it is now. A human fact is
-    // deleted outright (it exists nowhere else); an evidence fact returns to the
-    // queue as not ruled. Two different acts, which is why the confirmation
-    // names what will happen. The evidence control is WITHHELD until the wording
-    // loads — `undefined`, not a control with an invented label (R4).
-    onRemove: row.isHuman
-      ? () => onRemoveHumanFact(row.graphNodeId.replace(/^human:/, ""))
-      : wording
-        ? () => onRemoveFact(row.graphNodeId)
-        : undefined,
-    // A human fact carries no weight tier (§8 — it is not evidence), so it gets
-    // no weight control rather than a disabled one.
-    onSetTier: row.isHuman
-      ? undefined
-      : (tier: FactTier) => onSetTier(row.graphNodeId, tier),
-    onDragStart: row.isHuman ? undefined : () => setDragging(row.graphNodeId),
-    onDropOn: row.isHuman
-      ? undefined
-      : () => {
-          if (!dragging) return;
-          const pair = neighboursForDrop(rows, dragging, row.graphNodeId);
-          setDragging(null);
-          // A drop that cannot name a position (onto itself, or onto a card that
-          // has gone) is not sent: the server would only have to refuse it, and
-          // the human meant nothing by it.
-          if (pair) onMoveFact(dragging, pair.after, pair.before);
-        },
-    confirm: row.isHuman ? null : wording,
-    onUnplace: row.isHuman ? undefined : () => onUnplaceFact(row.graphNodeId),
-  });
-
-  return (
-    <>
-      {shown.map((row) => (
-        <FactRow {...cardFor(row)} />
-      ))}
-
-      {/* Task 2.13c item 5: a card that just left the list SAYS where it went.
-          The pile's own count already made the facts findable; this makes the
-          MOVE observable, which is what Roman meant by "silent vanish". */}
-      {movedToBackground && wording && (
-        <div
-          role="status"
-          style={{
-            padding: "0.4rem 0.6rem",
-            fontSize: "0.8rem",
-            color: "var(--text-primary)",
-            background: "var(--state-warning-bg-soft)",
-            borderRadius: "6px",
-          }}
-        >
-          {fillCode(wording.fact_background_move_notice, movedToBackground)}
-        </div>
-      )}
-
-      {/* The background pile: folded, never hidden. The count is always on
-          screen, so a curated fact can never silently vanish — which is the
-          whole reason this tier is a fold and not a filter. */}
-      {background.length > 0 && wording && (
-        <div style={{ padding: "0.2rem 0" }}>
-          <button
-            type="button"
-            onClick={() => {
-              onNoticeCleared();
-              onToggleBackground();
-            }}
-            style={{ ...ghostButtonStyle, fontSize: "0.8rem" }}
-          >
-            {showBackground
-              ? wording.fact_background_hide_label
-              : fillCount(wording.fact_background_count_template, background.length)}
-          </button>
-        </div>
-      )}
-
-      {/* Same anatomy inside the pile (ruling 3) — these are the same cards, not
-          a reduced rendering of them. */}
-      {showBackground && background.map((row) => <FactRow {...cardFor(row)} />)}
-    </>
   );
 };
 

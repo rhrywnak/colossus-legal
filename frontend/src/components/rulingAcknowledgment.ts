@@ -58,8 +58,16 @@ export type AcknowledgmentInput = {
   stateLabel: string | null;
   /** Whether the ruling took the card out of the list the human is looking at. */
   leftTheList: boolean;
-  /** The active filter's own label, so the sentence names the list correctly. */
-  filterLabel: string;
+  /**
+   * The active filter's own label, so the sentence names the list correctly.
+   *
+   * `null` until the stored words load — the five filter names became rows in
+   * ONE_CARD_GRAMMAR (ruling R6), so this side can no longer be sure of one. The
+   * whole acknowledgment is then withheld rather than composed around a gap: a
+   * sentence reading "C-73 has left the  list" is worse than the silence, and
+   * the receipt has always been all-or-nothing on its wording (see below).
+   */
+  filterLabel: string | null;
   /** `null` until the panel wording loads. No sentence is invented without it. */
   wording: LinkPanelWording | null;
 };
@@ -128,7 +136,7 @@ function saidAboutTheRuling(input: AcknowledgmentInput, code: string): string {
  * nothing moved is noise on a surface whose whole job is to be read at speed.
  */
 function saidAboutTheList(input: AcknowledgmentInput, code: string): string {
-  if (!input.leftTheList || !input.wording) return "";
+  if (!input.leftTheList || !input.wording || input.filterLabel === null) return "";
   return fill(input.wording.card_ruling_left_filter_template, {
     code,
     filter: input.filterLabel,

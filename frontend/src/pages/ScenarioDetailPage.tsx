@@ -484,6 +484,10 @@ const ScenarioDetailPage: React.FC = () => {
         cards={cards}
         humanFacts={augmentation?.human_facts ?? []}
         wording={linkWording}
+        // The whole payload, not just the panel's words: the fact card renders
+        // the SHARED body now, which needs the card-grammar block and the two
+        // fold thresholds that ride with it (ONE_CARD_GRAMMAR).
+        options={linkOptions}
         onChanged={refresh}
         onFactRemoved={refreshAfterRemoval}
       />

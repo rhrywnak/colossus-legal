@@ -21,6 +21,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::domain::link_cut::LinkCut;
+use crate::dto::card_grammar_wording::CardGrammarWordingDto;
 
 /// One accusation a human may tick.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -185,6 +186,38 @@ pub struct LinkPanelWording {
 #[serde(deny_unknown_fields)]
 pub struct AllegationOptionsResponse {
     pub wording: LinkPanelWording,
+    /// The words ONE EVIDENCE CARD speaks, under either wrapper (ruling R6).
+    ///
+    /// ## Why the card's vocabulary rides on the LINK PANEL's payload
+    ///
+    /// Because this is the scenario page's one stored-words read, and the panel
+    /// is only its first consumer. `ScenarioDetailPage` already fetches it once
+    /// and hands it to both the queue and the facts section — precisely so that
+    /// two surfaces cannot hold two copies of one catalogue and disagree
+    /// mid-session, which is the defect `CardQueue.linkOptions` documents. A
+    /// second endpoint for the card's words would reintroduce it for no gain.
+    ///
+    /// A separate BLOCK rather than more fields on `wording` because the two
+    /// vocabularies move independently: `wording` is the curation surface's, and
+    /// this is the shape a piece of evidence takes wherever it appears.
+    pub card_grammar: CardGrammarWordingDto,
+    /// How much of a discovery question a card shows before ellipsizing it (§2b).
+    ///
+    /// ## Why the NUMBER crosses the wire and not a pre-truncated string
+    ///
+    /// The full question has to be on the card anyway — the whole affordance is
+    /// that one click unfolds it — so sending both halves would send the same
+    /// sentence twice. What the browser applies here is a length, which is
+    /// presentation mechanics rather than vocabulary: it chooses how the same
+    /// text is SEEN and never what it says. The number itself is the stored
+    /// judgment, and it stays stored.
+    pub card_question_truncate_chars: usize,
+    /// How many element chips stand before the rest fold behind "+N more" (§2b).
+    ///
+    /// Same split, same reason: every chip is already on the card (they COMPRESS,
+    /// never vanish), so the server sends the whole list and the count at which it
+    /// folds.
+    pub card_element_chips_visible_k: usize,
     /// The accusations this scenario already serves — its anchor first, then the
     /// ones its pool touches most, capped by `link_short_list_max`.
     ///

@@ -38,6 +38,8 @@ import { removeScenarioFact } from "../services/scenarioFacts";
 import {
   fillCodeAndReason,
   fillDetail,
+  fillSlots,
+  type AllegationOptions,
   type LinkPanelWording,
 } from "../services/evidenceLinks";
 import {
@@ -45,6 +47,8 @@ import {
   setFactOrder,
   setFactTier,
 } from "../services/scenarioFactCuration";
+import { ghostButtonStyle } from "./scenarioSectionStyles";
+import FactsResetOrder from "./FactsResetOrder";
 import type { FactTier } from "../services/scenarioCards";
 
 interface Props {
@@ -85,6 +89,16 @@ interface Props {
    * that cannot state what it is about must not be offered at all.
    */
   wording: LinkPanelWording | null;
+  /**
+   * The whole allegation-options payload — the card's words and its two fold
+   * thresholds (ONE_CARD_GRAMMAR).
+   *
+   * Separate from `wording` because that field is the LINK PANEL's block and
+   * this section's controls read it directly; the fact CARD needs the grammar
+   * block beside it, and threading the payload rather than a second wording prop
+   * keeps one read reaching both.
+   */
+  options: AllegationOptions | null;
 }
 
 const ScenarioFactsSection: React.FC<Props> = ({
@@ -95,9 +109,14 @@ const ScenarioFactsSection: React.FC<Props> = ({
   onChanged,
   onFactRemoved,
   wording,
+  options,
 }) => {
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Whether the Reset-order confirmation is open. */
+  const [confirmingReset, setConfirmingReset] = useState(false);
+  /** What the last reset did, or `null`. Every action acknowledges itself. */
+  const [resetNotice, setResetNotice] = useState<string | null>(null);
 
   /** Remove one human fact, surfacing any refusal (Standing Rule 1). */
   const removeHumanFact = (factId: string) => {
@@ -229,30 +248,82 @@ const ScenarioFactsSection: React.FC<Props> = ({
   };
 
   /**
-   * Forget where one fact was placed (task 2.13c item 11).
+   * Forget where EVERY fact in this scenario was placed (Piece 5b).
    *
-   * Same shape as the other two writes — call, then re-read the cards — because
-   * the order on screen must come from what is stored, never from a local guess
-   * about what the write did.
+   * ## Why one control in the header replaced forty-six on the cards
+   *
+   * "Clear my order" sat on every placed card to do a thing a human does once,
+   * and it competed for the footer with Remove — two controls a click apart, one
+   * of which discards a position and the other of which takes the fact out of
+   * the scenario. The footer now keeps only Remove.
+   *
+   * ## Why it is a loop over the existing per-fact route
+   *
+   * There is no bulk endpoint and this task deliberately adds none: the ruling
+   * and order write paths are audited surfaces, and a second writer for "clear
+   * them all" would be a new path to guard for a control that runs a handful of
+   * times. The loop is bounded by the number of PLACED facts — a fact nobody
+   * dragged has nothing to clear — which is a few, not the whole list.
+   *
+   * ## Partial failure is REPORTED, never swallowed
+   *
+   * Each write can fail independently, so the outcome is counted and the
+   * sentence names how many landed. A loop that stopped at the first refusal and
+   * said "reset" would leave the order half-cleared with the screen claiming
+   * otherwise (Standing Rule 1).
    */
-  const unplaceFact = (graphNodeId: string) => {
-    clearFactOrder(slug, scenarioId, graphNodeId)
-      .then(() => {
-        setError(null);
-        onFactRemoved();
-      })
-      .catch((e: unknown) => {
-        const reason = e instanceof Error ? e.message : String(e);
+  const resetOrder = () => {
+    const placed = cards.filter((card) => card.sort_ordinal != null);
+    setConfirmingReset(false);
+
+    // The control is withheld until the words load, so this branch is
+    // unreachable through the UI. It is not a silent `return` all the same: a
+    // second caller wired up without the wording would otherwise get a confirm
+    // dialog, a click, and nothing at all — the exact shape Standing Rule 1
+    // exists to forbid. The refusal SAYS so, in the one place this component can
+    // speak without a stored sentence to speak it with.
+    if (!options) {
+      // eslint-disable-next-line no-console -- there is no stored sentence for a
+      // state that cannot happen through the UI, and inventing one would be the
+      // literal the language law deletes.
+      console.warn(
+        "Reset order was invoked before the card wording loaded; nothing was written.",
+      );
+      setError("The order could not be reset — please reload and try again.");
+      return;
+    }
+
+    Promise.allSettled(
+      placed.map((card) => clearFactOrder(slug, scenarioId, card.graph_node_id)),
+    ).then((results) => {
+      const cleared = results.filter((r) => r.status === "fulfilled").length;
+      const failed = results.length - cleared;
+
+      if (failed > 0) {
+        const first = results.find((r) => r.status === "rejected");
+        const reason =
+          first && first.status === "rejected"
+            ? first.reason instanceof Error
+              ? first.reason.message
+              : String(first.reason)
+            : "";
         setError(
-          wording
-            ? fillCodeAndReason(
-                wording.fact_order_save_failed_template,
-                codeFor(graphNodeId),
-                reason,
-              )
-            : reason,
+          fillSlots(options.card_grammar.reset_order_failed_template, { reason }),
         );
-      });
+      } else {
+        setError(null);
+      }
+
+      // The count is what ACTUALLY cleared, not what was attempted: a sentence
+      // reporting the intention would be the screen agreeing with the click
+      // rather than with the database.
+      setResetNotice(
+        fillSlots(options.card_grammar.reset_order_done_template, {
+          count: String(cleared),
+        }),
+      );
+      onFactRemoved();
+    });
   };
 
   const included = includedRows(cards).length;
@@ -276,23 +347,42 @@ const ScenarioFactsSection: React.FC<Props> = ({
             </>
           )}
         </span>
+
+        {/* Piece 5b: ONE Reset order in the section header, confirmed. It
+            discards work across the whole list — the sequence IS the argument —
+            which is why it asks first, unlike the per-card control it replaces.
+            Withheld until the words load: there is no fallback vocabulary, and a
+            destructive control that cannot state what it does must not be
+            offered at all (R4). */}
+        {options && (
+          <span style={{ marginLeft: "auto", display: "flex", gap: "0.5rem" }}>
+            <button
+              type="button"
+              onClick={() => setConfirmingReset(true)}
+              style={{
+                border: "none",
+                background: "none",
+                padding: 0,
+                color: "var(--accent-primary)",
+                cursor: "pointer",
+                fontFamily: "inherit",
+                fontSize: "0.8rem",
+              }}
+            >
+              {options.card_grammar.reset_order_label}
+            </button>
+          </span>
+        )}
       </div>
 
-      {/* Task 2.13c item 7: the surface discloses itself. The weights and the drag
-          were discoverable only by hovering an icon, which meant a human who did
-          not already know they existed never found them — Roman's ruling that a
-          feature must announce itself on screen. Served from the store, so
-          renaming a tier renames it here too. */}
-      {wording && (
-        <p
-          style={{
-            margin: "0 0 0.6rem",
-            fontSize: "0.8rem",
-            color: "var(--text-secondary)",
-          }}
-        >
-          {wording.fact_weights_hint}
-        </p>
+      {options && (
+        <FactsResetOrder
+          wording={options.card_grammar}
+          asking={confirmingReset}
+          notice={resetNotice}
+          onConfirm={resetOrder}
+          onCancel={() => setConfirmingReset(false)}
+        />
       )}
 
       {error && (
@@ -326,9 +416,9 @@ const ScenarioFactsSection: React.FC<Props> = ({
         onRemoveHumanFact={removeHumanFact}
         onRemoveFact={removeFact}
         wording={wording}
+        options={options}
         onSetTier={changeTier}
         onMoveFact={moveFact}
-        onUnplaceFact={unplaceFact}
       />
 
       {adding && (

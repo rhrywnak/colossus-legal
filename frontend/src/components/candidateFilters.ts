@@ -33,7 +33,7 @@
 // backend and is rendered verbatim (see `cardTriage.cardRows`).
 
 import type { ScenarioCard } from "../services/scenarioCards";
-import { filteredCounterLine } from "./shared/filteredCounter";
+import type { CardGrammarWording } from "../services/evidenceLinks";
 
 // ─── What state a candidate is in ───────────────────────────────────────────
 
@@ -106,22 +106,27 @@ export function isProposed(card: ScenarioCard): boolean {
 // ─── The filter model ───────────────────────────────────────────────────────
 
 /**
- * The state facet: the four states, the rulable subset, the proposed subset, or
- * everything.
+ * The FIVE facets the chips offer (ONE_CARD_GRAMMAR Piece 1a, ruling R5).
  *
- * ## The Scan dropdown is gone (2026-08-08)
+ * ## "Rulable now" retired, and "All" became "Full pool"
  *
- * It offered "Scan-scored" and "Never scanned", both of which measured merges
- * rather than scans (see `isProposed`). "Proposed" replaces them as a STATUS
- * option, which is also where a human looks for it: it is a fact about what this
- * candidate is waiting for, not a second axis to cross the first with.
+ * Both changes are the same ruling. The bar carried six options, two of which
+ * were subsets of a third, and it made the human read a taxonomy before they
+ * could read a count — "is Rulable now part of Not ruled, or beside it?" was a
+ * question the hint text existed to answer. The five below are what a curator
+ * actually asks for, and a locked card now rides INSIDE Proposed stating its own
+ * condition (Piece 4b) rather than being sorted out of it by a facet.
+ *
+ * `full_pool` replaces `all` in name because the old word read as a to-do list.
+ * What it names is the denominator, not the work — which is exactly what its ⓘ
+ * says.
  */
-export type StateFacet = "all" | CandidateState | "rulable" | "proposed";
+export type StateFacet = "proposed" | "deferred" | "included" | "excluded" | "full_pool";
 
 export type CandidateFilters = { state: StateFacet };
 
 /** No filter at all — the honest denominator's view. */
-export const UNFILTERED: CandidateFilters = { state: "all" };
+export const UNFILTERED: CandidateFilters = { state: "full_pool" };
 
 /**
  * Whether the human has narrowed anything.
@@ -130,7 +135,7 @@ export const UNFILTERED: CandidateFilters = { state: "all" };
  * the arithmetic accident that the filtered count equals the total.
  */
 export function hasAnyFilter(filters: CandidateFilters): boolean {
-  return filters.state !== "all";
+  return filters.state !== "full_pool";
 }
 
 /** Every facet count, derived in one pass so no two of them can disagree. */
@@ -204,8 +209,7 @@ export function matchesFilter(card: ScenarioCard, filters: CandidateFilters): bo
 }
 
 function matches(card: ScenarioCard, filters: CandidateFilters): boolean {
-  if (filters.state === "all") return true;
-  if (filters.state === "rulable") return isRulableNow(card);
+  if (filters.state === "full_pool") return true;
   if (filters.state === "proposed") return isProposed(card);
   return filters.state === candidateState(card);
 }
@@ -230,96 +234,74 @@ export function filterCandidates(
 /**
  * Which filter the list opens on.
  *
- * ## Proposals lead when there are any (2026-08-08)
+ * ## Proposals lead when there are any (2026-08-08, unchanged)
  *
  * A completed scan's candidates are what the human came to the page to rule, and
  * before this they arrived buried in a pool of 148 with nothing marking them. So
  * when the projection is proposing anything, the queue opens on it.
  *
- * ## And when there are none, the computed default STANDS (architect ruling R8)
+ * ## And when there are none, the FULL POOL (ruling R5)
  *
- * "Rulable now" while any exist, else "Not ruled" — the 1.7E behaviour, unchanged.
- * The human is looking for the handful of candidates they can actually decide, and
- * opening a scanned-and-fully-ruled scenario on all 148 would hand them back the
- * wall this page spent three tasks removing.
+ * The old fallback was "Rulable now while any exist, else Not ruled", and both
+ * facets are gone. The honest replacement is the denominator: a scenario with
+ * nothing proposed has no shortlist to lead with, and opening on a slice would
+ * mean the first thing a human sees is a filtered view they did not choose and
+ * cannot see the edges of. The chips are one click each; the pool says how much
+ * there is.
  */
 export function defaultFilters(counts: CandidateCounts): CandidateFilters {
-  if (counts.proposed > 0) return { state: "proposed" };
-  return { state: counts.rulable > 0 ? "rulable" : "not_ruled" };
+  return counts.proposed > 0 ? { state: "proposed" } : { state: "full_pool" };
 }
 
-// ─── The dropdown options ───────────────────────────────────────────────────
+// ─── The filter CHIPS (Piece 1a) ────────────────────────────────────────────
 
 /**
- * One option in a filter dropdown, as data.
+ * One filter chip, as data: its facet, its stored name, and its count.
  *
- * ## From pills to selects (task 1.7G, Roman's ruling)
+ * ## Why the LABEL is now a stored word and the four state-chip words are not
  *
- * 1.7E's ruling R1 declined `<select>` dropdowns on the grounds that a count
- * inside a closed dropdown is a count nobody can see. Roman overruled it: he had
- * named the Bias Analysis page's filter controls as the pattern twice, and the
- * pill rows were a pattern he never approved. His ruling R3 answers R1's objection
- * on its own terms — the options CARRY their counts, exactly as the Bias Analysis
- * page's do ("Rulable now (42)"), so nothing is lost but the two rows of chips.
- *
- * `hint` is what the facet MEANS, said in a sentence, because a two-word label
- * with a number on it invites a reader to guess (is "Rulable now" part of "Not
- * ruled", or beside it?) and §9 does not permit guessing.
+ * They answer different questions. A state chip says what happened to one card
+ * ("Included ✓") and is the list's own control vocabulary, in the same class as
+ * the Include button — the frontend has always owned those. A FILTER name is
+ * case-facing: "Proposed" is a claim about what a scan did, Marie and Chuck read
+ * it before they read anything else on the page, and Roman renames that kind of
+ * word without a rebuild (§2b, as extended to text).
  */
-export type FilterOption<F> = { facet: F; label: string; count: number; hint: string };
+export type FilterChip = {
+  facet: StateFacet;
+  label: string;
+  count: number;
+  /** The ⓘ text, on the one chip whose meaning a reader cannot infer. */
+  explainer?: string;
+};
 
-/** The Status options, in display order. Counts come from the one derivation. */
-export function stateOptions(counts: CandidateCounts): FilterOption<StateFacet>[] {
+/**
+ * The five chips, in display order, with their counts.
+ *
+ * Proposed LEADS because it is the work the page exists to get through and what
+ * the queue opens on when a scan has run. Full pool is LAST because it is the
+ * denominator rather than a slice — and it carries the ⓘ, which is Roman's
+ * addition: Marie and Chuck will not know the term, and a filter whose meaning a
+ * reader has to infer from its count is a filter they will not press.
+ *
+ * Counts come from the ONE derivation (`candidateCounts`), so no two numbers on
+ * this bar can disagree — the half of ruling R1 that survives every redesign of
+ * the control.
+ */
+export function filterChips(
+  counts: CandidateCounts,
+  wording: CardGrammarWording,
+): FilterChip[] {
   return [
-    // Proposed LEADS, because it is what the queue opens on when a scan has run
-    // and it is the work the page exists to get through.
+    { facet: "proposed", label: wording.filter_proposed_label, count: counts.proposed },
+    { facet: "deferred", label: wording.filter_deferred_label, count: counts.deferred },
+    { facet: "included", label: wording.filter_included_label, count: counts.included },
+    { facet: "excluded", label: wording.filter_excluded_label, count: counts.excluded },
     {
-      facet: "proposed",
-      label: "Proposed",
-      count: counts.proposed,
-      hint:
-        "Candidates the latest completed scan put forward and nobody has ruled " +
-        "yet. Part of Not ruled, not a separate group — and a card leaves this " +
-        "list the moment you rule it.",
-    },
-    {
-      facet: "all",
-      label: "All",
+      facet: "full_pool",
+      label: wording.filter_full_pool_label,
       count: counts.all,
-      hint: "Every candidate in this scenario, whatever has been decided about it.",
-    },
-    {
-      facet: "not_ruled",
-      label: "Not ruled",
-      count: counts.not_ruled,
-      hint: "Nobody has included, excluded or deferred these yet.",
-    },
-    {
-      facet: "rulable",
-      label: "Rulable now",
-      count: counts.rulable,
-      hint:
-        "The not-ruled candidates that can be decided as they stand — the rest " +
-        "are not linked to an accusation yet, so only Defer is available on them. " +
-        "Part of Not ruled, not a separate group.",
-    },
-    {
-      facet: "deferred",
-      label: "Deferred",
-      count: counts.deferred,
-      hint: "Parked with a stated reason. They stay in the queue.",
-    },
-    {
-      facet: "included",
-      label: "Included",
-      count: counts.included,
-      hint: "Confirmed as facts of this scenario.",
-    },
-    {
-      facet: "excluded",
-      label: "Excluded",
-      count: counts.excluded,
-      hint: "Set aside for this scenario. The evidence itself is untouched elsewhere.",
+      explainer: wording.full_pool_explainer,
     },
   ];
 }
@@ -327,11 +309,11 @@ export function stateOptions(counts: CandidateCounts): FilterOption<StateFacet>[
 /**
  * The active facet's own label, for a sentence that has to name the list.
  *
- * Reads the same option table the dropdown renders, so the sentence and the
- * control can never call one list two names — the counts are irrelevant here, so
- * a zeroed set is passed rather than threading the real ones through.
+ * Reads the same chip table the bar renders, so the sentence and the control can
+ * never call one list two names — the counts are irrelevant here, so a zeroed set
+ * is passed rather than threading the real ones through.
  */
-export function facetLabel(facet: StateFacet): string {
+export function facetLabel(facet: StateFacet, wording: CardGrammarWording): string {
   const zero: CandidateCounts = {
     all: 0,
     not_ruled: 0,
@@ -341,25 +323,32 @@ export function facetLabel(facet: StateFacet): string {
     excluded: 0,
     proposed: 0,
   };
-  return stateOptions(zero).find((o) => o.facet === facet)?.label ?? facet;
+  return filterChips(zero, wording).find((c) => c.facet === facet)?.label ?? facet;
 }
 
 /**
- * The counter line under the filter row, in the list's own noun.
+ * How many of the ACTIVE filter's cards have been ruled (Piece 1c).
  *
- * The §9 honesty rule itself lives in the shared helper (ruling R1) and is shared
- * with the Bias Explorer's bar; what this function contributes is the word
- * "candidate".
+ * ## Domain note: the denominator is the filter, never the pool
+ *
+ * The line this replaces read "23 of 148 ruled" over a progress bar of 125
+ * nobody owes. Rule-the-promising is the ratified triage model — a curator works
+ * the proposals and leaves the rest — so a bar measuring the whole gathered pool
+ * was reporting a debt the method says does not exist.
+ *
+ * "Ruled" here means a human has decided: included or excluded. A DEFERRED card
+ * is deliberately not counted as ruled — it is parked, and the work of deciding
+ * it is still outstanding, which is the whole reason defer is its own verb.
  */
-export function candidateCounterLine(
-  shown: number,
-  total: number,
-  filters: CandidateFilters,
-): string {
-  return filteredCounterLine(shown, total, hasAnyFilter(filters), {
-    singular: "candidate",
-    plural: "candidates",
-  });
+export function filterProgress(
+  visible: ScenarioCard[],
+): { ruled: number; total: number } {
+  let ruled = 0;
+  for (const card of visible) {
+    const state = candidateState(card);
+    if (state === "included" || state === "excluded") ruled += 1;
+  }
+  return { ruled, total: visible.length };
 }
 
 // ─── The state chip ─────────────────────────────────────────────────────────

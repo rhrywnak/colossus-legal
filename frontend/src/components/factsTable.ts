@@ -72,6 +72,27 @@ export type WorkingRow = {
   /** Who said it, or `null` for documentary evidence, which genuinely has no
    *  speaker. Part of the header row's fixed anatomy (task 2.13b §3). */
   speaker: string | null;
+  /**
+   * The WHOLE payload this row came from, or `null` for a human-authored fact.
+   *
+   * ## Why the row carries the card rather than more projected fields
+   *
+   * This is the ONE_CARD_GRAMMAR seam. Every field above is a projection of a
+   * `ScenarioCard`, and the projection is what lost the elements, the count, the
+   * anchor highlight, the context, the band and the scan's reason — so the fact
+   * card could not answer "who said what, and why does it matter here?" while the
+   * candidate card three inches higher could. Adding six more projected fields
+   * would have made the loss smaller and kept the mechanism that caused it.
+   *
+   * Carrying the card means `FactRow` calls the SAME `evidenceCardView` the
+   * candidate wrapper calls, on the same value. The two cannot show different
+   * fields, because there is one builder and one payload.
+   *
+   * `null` for a human fact, which is not evidence: it has no anchor, no
+   * pinpoint, no allegations and no scan verdict, and §8 keeps it uncited by
+   * design. That row renders its text and its provenance line, as it always has.
+   */
+  card: ScenarioCard | null;
 };
 
 /**
@@ -206,6 +227,8 @@ export function includedRows(cards: ScenarioCard[]): WorkingRow[] {
       // Documentary evidence genuinely has no speaker; `null` says so rather
       // than the header inventing "Unknown".
       speaker: card.speaker.name,
+      // The payload itself, so the shared card body can be built from it.
+      card,
     }));
 }
 
@@ -250,6 +273,10 @@ export function humanFactRows(
     // is not a SPEAKER — nobody said this under oath. `null` keeps the header's
     // speaker slot empty rather than restating authorship as testimony.
     speaker: null,
+    // A human fact is not evidence and has no card payload behind it. `null` is
+    // what makes the row render its own shape rather than an evidence card with
+    // every field empty.
+    card: null,
   }));
 }
 
@@ -257,9 +284,11 @@ export function humanFactRows(
  * Narrow the rows to those matching a search term.
  *
  * Case-insensitive substring across the row's visible text: the quote, the
- * accusations, the pinpoint and the code. Searching only what is DISPLAYED means
- * a human never gets a hit they cannot see the reason for — a match on a hidden
- * field would look like the filter was broken.
+ * accusations, the pinpoint, the code — and, since ONE_CARD_GRAMMAR Piece 7, the
+ * SPEAKER and the KIND, because both are now chips on the card's face. Searching
+ * only what is DISPLAYED means a human never gets a hit they cannot see the
+ * reason for; the corollary is that anything newly displayed has to join the
+ * haystack, or typing a name a human can read on screen finds nothing.
  *
  * An empty or whitespace-only term returns every row: "no filter" and "a filter
  * that matches nothing" are different states, and a blank box means the former.
@@ -269,7 +298,14 @@ export function filterRows(rows: WorkingRow[], term: string): WorkingRow[] {
   if (!needle) return rows;
 
   return rows.filter((row) => {
-    const haystack = [row.code ?? "", row.text, row.pinpointLabel, ...row.bearsOn]
+    const haystack = [
+      row.code ?? "",
+      row.text,
+      row.pinpointLabel,
+      row.speaker ?? "",
+      row.statementKind ?? "",
+      ...row.bearsOn,
+    ]
       .join(" ")
       .toLowerCase();
     return haystack.includes(needle);
@@ -353,16 +389,38 @@ export function orderedRows(rows: WorkingRow[]): WorkingRow[] {
  * curated fact that silently disappears is the exact failure the tier exists to
  * avoid (Standing Rule 1, on a surface where the missing thing is evidence).
  *
- * Returning both halves plus the count means the caller cannot render the pile
- * without being handed its size.
+ * Returning both halves means the caller cannot render the pile without being
+ * handed its size.
+ *
+ * ## `pending` is the no-scroll-jump mechanism (Piece 5a, the C-91 defect)
+ *
+ * Weighing a fact into the background moves it out of `shown` and into the fold,
+ * so the row LEAVES the list under the cursor and every card below it slides up
+ * — on a forty-six-fact list, the thing the human was reading jumps somewhere
+ * else at the moment they acted. That is the defect on record.
+ *
+ * A row whose id is in `pending` stays in `shown` even though its stored tier
+ * says background. The caller holds an id there from the click until the human
+ * dismisses the acknowledgment (or acts again), so the card stays exactly where
+ * it was long enough to read the sentence and press undo. The STORED state is
+ * untouched and the pile's count is unaffected — this delays a row's departure
+ * from the visible half, it does not hide one.
+ *
+ * Testable as a pure function, which is the point: "never scroll-jumps" is
+ * otherwise a claim about layout that nothing in this repo can assert.
  */
-export function splitBackground(rows: WorkingRow[]): {
+export function splitBackground(
+  rows: WorkingRow[],
+  pending: ReadonlySet<string> = new Set(),
+): {
   shown: WorkingRow[];
   background: WorkingRow[];
 } {
+  const folded = (row: WorkingRow) =>
+    row.tier === "background" && !pending.has(row.graphNodeId);
   return {
-    shown: rows.filter((row) => row.tier !== "background"),
-    background: rows.filter((row) => row.tier === "background"),
+    shown: rows.filter((row) => !folded(row)),
+    background: rows.filter(folded),
   };
 }
 

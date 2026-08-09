@@ -11,7 +11,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  candidateCounterLine,
   candidateCounts,
   candidateState,
   defaultFilters,
@@ -22,11 +21,16 @@ import {
   isProposed,
   isRulableNow,
   stateChip,
-  stateOptions,
+  filterChips,
+  filterProgress,
   UNFILTERED,
   type CandidateFilters,
 } from "../candidateFilters";
 import type { ScenarioCard } from "../../services/scenarioCards";
+import { optionsFixture } from "./cardFixtures";
+
+/** The stored words the chips are named from (ruling R6). */
+const grammar = optionsFixture().card_grammar;
 
 // ─── Fixtures ───────────────────────────────────────────────────────────────
 
@@ -97,9 +101,11 @@ const neverScanned = () => card({ confidence: { band: "unscored", label: "Not sc
 /** A card the latest completed scan is PROPOSING (2026-08-08). */
 const proposed = () =>
   card({
+    // Ruling R3: the judge's SENTENCE is no longer part of being proposed — it
+    // rides on the card, so that including the card does not delete it.
+    scan_reason: "direct admission by the accusing party",
     proposed: {
       role_label: "Scan: supports",
-      reason: "direct admission by the accusing party",
       duplicate_count: 1,
       duplicate_label: null,
     },
@@ -219,43 +225,38 @@ describe("candidateCounts", () => {
     expect(candidateCounts([])).toMatchObject({ all: 0, not_ruled: 0, rulable: 0 });
   });
 
-  it("agrees with the dropdown options it feeds", () => {
-    // The options read the same derivation — this asserts nobody has slipped a
-    // second count in between (ruling R1, the half that survives 1.7G).
-    const options = stateOptions(counts);
-    expect(options.find((o) => o.facet === "all")?.count).toBe(counts.all);
-    expect(options.find((o) => o.facet === "rulable")?.count).toBe(counts.rulable);
-    expect(options.find((o) => o.facet === "proposed")?.count).toBe(counts.proposed);
+  it("agrees with the chips it feeds", () => {
+    // The chips read the same derivation — this asserts nobody has slipped a
+    // second count in between (ruling R1, the half that survives every redesign
+    // of the control).
+    const chips = filterChips(counts, grammar);
+    expect(chips.find((c) => c.facet === "full_pool")?.count).toBe(counts.all);
+    expect(chips.find((c) => c.facet === "proposed")?.count).toBe(counts.proposed);
+    expect(chips.find((c) => c.facet === "included")?.count).toBe(counts.included);
   });
 
-  it("every option carries its count into the dropdown (ruling R3)", () => {
+  it("every chip carries its count on its FACE (ruling R3, kept)", () => {
     // 1.7E's R1 declined selects because "a count inside a closed dropdown is a
-    // count nobody can see". R3 overrules it on the condition that the counts come
-    // WITH the options, Bias-Analysis style — so an option with no count is the
-    // regression that ruling was worried about.
-    for (const option of stateOptions(counts)) {
-      expect(option.count, `${option.label} has no count`).toBeTypeOf("number");
+    // count nobody can see". R3 overruled it on the condition that the counts
+    // travel with the options; the chips satisfy that condition more directly
+    // than the select did, and a chip with no count is the regression both
+    // rulings were worried about.
+    for (const chip of filterChips(counts, grammar)) {
+      expect(chip.count, `${chip.label} has no count`).toBeTypeOf("number");
     }
   });
 
-  it("says on the Rulable option that it is part of Not ruled", () => {
-    // The one overlapping facet has to declare itself, or a reader adds it in.
-    const rulable = stateOptions(counts).find((o) => o.facet === "rulable");
-    expect(rulable?.hint).toContain("Part of Not ruled");
-  });
-
-  it("leads with Proposed and drops the Scan facets entirely", () => {
-    // Proposed comes FIRST because it is what the queue opens on when a scan has
-    // run, and it is the work the page exists to get through. The Scan dropdown is
-    // gone with the facet that measured merges rather than scans.
-    expect(stateOptions(counts).map((o) => o.facet)).toEqual([
-      "proposed",
-      "all",
-      "not_ruled",
-      "rulable",
-      "deferred",
-      "included",
-      "excluded",
+  it("names every chip from the STORE, never from a literal here", () => {
+    // A filter name is case-facing vocabulary — Marie and Chuck read it before
+    // anything else on the page — so it is a row, and this is what proves the
+    // control reads the row rather than a compiled-in word (ruling R6).
+    const chips = filterChips(counts, grammar);
+    expect(chips.map((c) => c.label)).toEqual([
+      grammar.filter_proposed_label,
+      grammar.filter_deferred_label,
+      grammar.filter_included_label,
+      grammar.filter_excluded_label,
+      grammar.filter_full_pool_label,
     ]);
   });
 });
@@ -273,10 +274,9 @@ describe("filterCandidates", () => {
     expect(shown(UNFILTERED)).toBe(pool.length);
   });
 
-  it("each state facet shows exactly what its option counted", () => {
+  it("each chip shows exactly what it counted", () => {
     const counts = candidateCounts(pool);
-    expect(shown({ state: "not_ruled" })).toBe(counts.not_ruled);
-    expect(shown({ state: "rulable" })).toBe(counts.rulable);
+    expect(shown({ state: "full_pool" })).toBe(counts.all);
     expect(shown({ state: "included" })).toBe(counts.included);
     expect(shown({ state: "excluded" })).toBe(counts.excluded);
     expect(shown({ state: "deferred" })).toBe(counts.deferred);
@@ -303,43 +303,22 @@ describe("filterCandidates", () => {
   });
 });
 
-describe("the default view", () => {
-  it("queue_defaults_to_proposed_when_proposals_exist_and_keeps_the_computed_default_otherwise", () => {
-    // Architect ruling R8, both branches in one test because the rule IS the pair.
-    //
-    // With proposals: they lead. They are what the human came to rule, and before
-    // this they arrived buried in a pool of 148 with nothing marking them.
-    expect(defaultFilters(candidateCounts([proposed(), card(), included()]))).toEqual({
-      state: "proposed",
-    });
-
-    // Without: the 1.7E computed default STANDS. A scanned-and-fully-ruled
-    // scenario must not open on all 148 — that is the wall this page spent three
-    // tasks removing.
-    expect(defaultFilters(candidateCounts([card(), included()]))).toEqual({ state: "rulable" });
-    expect(defaultFilters(candidateCounts([deferOnly(), included()]))).toEqual({
-      state: "not_ruled",
-    });
-  });
-});
+// The R8 "default view" suite that stood here is SUPERSEDED by ruling R5, not
+// deleted quietly: it pinned "Rulable now while any exist, else Not ruled", and
+// both of those facets are gone. Its replacement is
+// `rulable_now_is_gone_and_default_follows_proposals` further down, which keeps
+// the half R5 preserved verbatim — proposals lead — and states the new fallback.
+// One test rather than two, because two tests asserting one rule is how they end
+// up disagreeing about it.
 
 describe("hasAnyFilter", () => {
-  it("is false only for the untouched bar", () => {
+  it("is false only for the full pool", () => {
+    // The full pool IS the unfiltered view — it is the denominator every other
+    // chip is a slice of, which is exactly what its ⓘ says.
     expect(hasAnyFilter(UNFILTERED)).toBe(false);
-    expect(hasAnyFilter({ state: "rulable" })).toBe(true);
+    expect(hasAnyFilter({ state: "full_pool" })).toBe(false);
     expect(hasAnyFilter({ state: "proposed" })).toBe(true);
-  });
-});
-
-describe("the counter line", () => {
-  it("names the total pool, not the filtered view", () => {
-    expect(candidateCounterLine(24, 148, { state: "rulable" })).toBe(
-      "Filtered: 24 of 148 candidates",
-    );
-  });
-
-  it("reads 'Showing all' only with the bar untouched", () => {
-    expect(candidateCounterLine(148, 148, UNFILTERED)).toBe("Showing all 148 candidates");
+    expect(hasAnyFilter({ state: "included" })).toBe(true);
   });
 });
 
@@ -386,9 +365,7 @@ describe("matchesFilter", () => {
     const pool = [card(), deferOnly(), included(), excluded(), parked(), proposed()];
 
     for (const state of [
-      "all",
-      "not_ruled",
-      "rulable",
+      "full_pool",
       "proposed",
       "deferred",
       "included",
@@ -414,14 +391,14 @@ describe("matchesFilter", () => {
 });
 
 describe("facetLabel", () => {
-  it("names each facet exactly as its own dropdown option does", () => {
-    // The sentence says "C-14 has left the Proposed list", and the control above
-    // it says "Proposed". Two names for one list is the §9 defect in words
-    // rather than in numbers — so the label is READ from the option table the
-    // dropdown renders, never written out a second time.
+  it("names each facet exactly as its own chip does", () => {
+    // The sentence says "C-14 has left the Proposed list", and the chip above it
+    // says "Proposed". Two names for one list is the §9 defect in words rather
+    // than in numbers — so the label is READ from the chip table the bar
+    // renders, never written out a second time.
     const counts = candidateCounts([card()]);
-    for (const option of stateOptions(counts)) {
-      expect(facetLabel(option.facet)).toBe(option.label);
+    for (const chip of filterChips(counts, grammar)) {
+      expect(facetLabel(chip.facet, grammar)).toBe(chip.label);
     }
   });
 
@@ -429,6 +406,83 @@ describe("facetLabel", () => {
     // An unknown facet cannot happen through the typed API, and if it ever did,
     // "has left the  list" is a sentence with a hole in it. The key is ugly and
     // it is legible, which is the right trade for an impossible branch.
-    expect(facetLabel("something_new" as never)).toBe("something_new");
+    expect(facetLabel("something_new" as never, grammar)).toBe("something_new");
+  });
+});
+
+// ── Ruling R5: the five chips, and what the queue opens on ──────────────────
+
+describe("the filter surface is five chips (ruling R5)", () => {
+  it("offers exactly the five facets, in the ruled order", () => {
+    // Proposed LEADS because it is the work the page exists to get through.
+    // Full pool is LAST because it is the denominator rather than a slice.
+    const chips = filterChips(candidateCounts([card()]), grammar);
+    expect(chips.map((c) => c.facet)).toEqual([
+      "proposed",
+      "deferred",
+      "included",
+      "excluded",
+      "full_pool",
+    ]);
+  });
+
+  it("carries the explainer on the full pool and nowhere else", () => {
+    // Roman's addition. Marie and Chuck will not know the term, and a filter
+    // whose meaning a reader has to infer from its count is one they will not
+    // press. The other four name themselves.
+    const chips = filterChips(candidateCounts([card()]), grammar);
+    const explained = chips.filter((c) => c.explainer !== undefined);
+    expect(explained.map((c) => c.facet)).toEqual(["full_pool"]);
+  });
+
+  it("rulable_now is gone and the default follows proposals", () => {
+    // Two of six options used to be subsets of a third, and the bar made a human
+    // read a taxonomy before a count. A locked card now rides INSIDE Proposed,
+    // stating its own condition with the type-ahead ready (Piece 4b).
+    const withProposals = candidateCounts([proposed(), card()]);
+    expect(defaultFilters(withProposals)).toEqual({ state: "proposed" });
+
+    // And with nothing proposed, the honest opening view is the DENOMINATOR.
+    // The old fallback led with a slice the human had not chosen and could not
+    // see the edges of.
+    const none = candidateCounts([card()]);
+    expect(defaultFilters(none)).toEqual({ state: "full_pool" });
+  });
+
+  it("a locked card is inside Proposed rather than sorted out of it", () => {
+    // The whole reason "Rulable now" could retire: `defer_required` no longer
+    // decides which LIST a card appears in, only what its own face says.
+    const locked = { ...proposed(), defer_required: true };
+    expect(matchesFilter(locked, { state: "proposed" })).toBe(true);
+  });
+});
+
+// ── Piece 1c: progress follows the active filter ────────────────────────────
+
+describe("progress counts follow the active filter", () => {
+  it("counts the ruled cards of the FILTERED list, never the pool", () => {
+    // The line this replaces read "23 of 148 ruled" over a progress bar of 125
+    // nobody owes. Rule-the-promising is the ratified triage model, so a bar
+    // measuring the whole gathered pool reported a debt the method denies.
+    const pool = [
+      included(),
+      excluded(),
+      proposed(),
+      proposed(),
+      card({ status: "included" }),
+    ];
+    const visible = filterCandidates(pool, { state: "proposed" });
+
+    expect(filterProgress(visible)).toEqual({ ruled: 0, total: 2 });
+    expect(filterProgress(pool).total).toBe(pool.length);
+  });
+
+  it("does not count a DEFERRED card as ruled", () => {
+    // Deferring parks a card with a stated reason; the work of deciding it is
+    // still outstanding, which is the whole reason defer has a verb of its own.
+    // Counting it as done would let a curator "finish" a filter they had only
+    // postponed.
+    expect(filterProgress([parked()])).toEqual({ ruled: 0, total: 1 });
+    expect(filterProgress([included(), parked()])).toEqual({ ruled: 1, total: 2 });
   });
 });

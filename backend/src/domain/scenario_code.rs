@@ -57,7 +57,15 @@ pub fn scenario_code(ordinal: i32) -> String {
 /// Same standing as `S-`, and the same argument: a human says "C-14" out loud and
 /// writes it in a margin, so it is case vocabulary versioned with the code rather
 /// than a deployment tunable.
-const CANDIDATE_CODE_PREFIX: &str = "C-";
+///
+/// `pub(crate)` since 2026-08-09, and the promotion is a fix rather than a
+/// convenience: `scenario_card_assembly::sort_by_code` reads the ordinal back
+/// out of a rendered code by stripping this prefix, and it was stripping its own
+/// private copy of the literal. A rename here would have left that function
+/// finding no prefix, treating every code as un-parseable, and sorting the whole
+/// pool behind the un-numbered candidates — silently, because "no ordinal" is a
+/// legitimate state for a card gather has not numbered yet.
+pub(crate) const CANDIDATE_CODE_PREFIX: &str = "C-";
 
 /// Render a candidate fact's stored ordinal as its display handle.
 ///

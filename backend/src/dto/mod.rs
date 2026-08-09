@@ -1,5 +1,6 @@
 pub mod allegation;
 pub mod analysis;
+pub mod card_grammar_wording;
 pub mod case_dto;
 pub mod case_header;
 pub mod case_health;

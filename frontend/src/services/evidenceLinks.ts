@@ -254,13 +254,139 @@ export function fillCount(template: string, count: number): string {
   return template.replace("{count}", String(count));
 }
 
+/**
+ * Fill any set of named slots in ONE pass (ONE_CARD_GRAMMAR).
+ *
+ * ## Why a general filler now, after five specific ones
+ *
+ * The five above each name their own slots in their own regexes, which was
+ * right while there were two of them and is five copies of one walk now. This
+ * task adds templates carrying `{ruled}/{total}/{filter}`, `{tier}` and
+ * `{value}`, and a sixth and seventh hand-written regex would be the point at
+ * which the pattern stops paying for itself.
+ *
+ * ## The single walk is the whole safety property
+ *
+ * `String.replace` with a function callback visits each match of the ORIGINAL
+ * string once; a substituted value is never re-scanned. That matters because
+ * some of these values are server prose — a failure `{reason}` that happened to
+ * contain `{code}` would have it chewed out by a second chained `.replace`.
+ * Chaining is the bug this shape exists to prevent, and it is the same argument
+ * the backend's `render` makes.
+ *
+ * An UNKNOWN slot is left standing rather than blanked: `{tier}` still on screen
+ * says loudly that a caller forgot to supply it, where an empty gap would read
+ * as a sentence that simply says less. Standing Rule 1, applied to prose.
+ */
+export function fillSlots(template: string, values: Record<string, string>): string {
+  return template.replace(/\{(\w+)\}/g, (token, name: string) =>
+    name in values ? values[name] : token,
+  );
+}
+
+/**
+ * The words ONE EVIDENCE CARD speaks, under either wrapper (ruling R6).
+ *
+ * Mirrors `backend/src/dto/card_grammar_wording.rs` field for field. A separate
+ * block from `LinkPanelWording` because the two vocabularies move independently:
+ * that one is the curation surface's, and this is the shape a piece of evidence
+ * takes wherever it appears — which is the thing the one-card task made
+ * independent of the two wrappers that render it.
+ *
+ * There is no default for any of these anywhere in the frontend, for the same
+ * reason `LinkPanelWording` has none: a literal fallback would be exactly the
+ * compiled-in string the language law deletes, and it would be the one on screen
+ * on the day the store failed to load.
+ */
+export type CardGrammarWording = {
+  // The queue frame.
+  filter_proposed_label: string;
+  filter_deferred_label: string;
+  filter_included_label: string;
+  filter_excluded_label: string;
+  filter_full_pool_label: string;
+  /** The ⓘ popup: what "everything ever gathered" means, in plain words. */
+  full_pool_explainer: string;
+  /** Carries `{ruled}`, `{total}` and `{filter}` — the ACTIVE filter's progress. */
+  filter_progress_template: string;
+
+  // The card body.
+  question_expand_label: string;
+  question_collapse_label: string;
+  /**
+   * The badge saying who transcribed the QUESTION.
+   *
+   * Never a speaker (ruling R2). It replaced a compiled-in "System" that sat
+   * under a seven-line interrogatory, where a bare noun reads as the attribution
+   * of the text above it.
+   */
+  question_machine_authorship_label: string;
+  speaker_extracted_label: string;
+  /** The chip on an item whose source recorded nobody — never a guessed name. */
+  speaker_absent_label: string;
+  /** Carries `{count}`. */
+  elements_more_template: string;
+  elements_fewer_label: string;
+  context_show_label: string;
+  context_hide_label: string;
+  scan_reason_label: string;
+
+  // Linking.
+  link_typeahead_placeholder: string;
+  link_typeahead_intro: string;
+  link_typeahead_no_match: string;
+  /** Carries `{code}`. */
+  link_woke_ruling_template: string;
+
+  // The fact wrapper.
+  weight_picker_label: string;
+  /** Carries `{code}` and `{tier}`. */
+  weight_changed_template: string;
+  weight_undo_label: string;
+  reset_order_label: string;
+  reset_order_confirm: string;
+  reset_order_confirm_yes: string;
+  reset_order_confirm_cancel: string;
+  /** Carries `{count}`. */
+  reset_order_done_template: string;
+  /** Carries `{reason}`. */
+  reset_order_failed_template: string;
+
+  // Chips as currency.
+  /** Carries `{value}`. */
+  chip_filter_hint_template: string;
+  /** Carries `{value}`. */
+  chip_filter_clear_template: string;
+};
+
 export type AllegationOptions = {
   wording: LinkPanelWording;
+  /**
+   * The card's own words (ruling R6).
+   *
+   * Served on THIS payload rather than from a second endpoint because this is
+   * the scenario page's one stored-words read: `ScenarioDetailPage` fetches it
+   * once and hands it to both the queue and the facts section, precisely so two
+   * surfaces cannot hold two copies of one catalogue and disagree mid-session.
+   */
+  card_grammar: CardGrammarWording;
   /** The accusations this scenario already serves — anchor first. */
   serving: AllegationOption[];
   /** Everything else in the complaint, in paragraph order. */
   others: AllegationOption[];
   total: number;
+  /**
+   * How much of a discovery question a card shows before ellipsizing it (§2b).
+   *
+   * The NUMBER crosses the wire and not a pre-truncated string: the full
+   * question has to be on the card anyway, since one click unfolds it, so
+   * sending both halves would send the same sentence twice. Applying a length is
+   * presentation mechanics — it chooses how the same text is SEEN, never what it
+   * says — while the length itself stays a stored judgment.
+   */
+  card_question_truncate_chars: number;
+  /** How many element chips stand before the rest fold behind "+N more" (§2b). */
+  card_element_chips_visible_k: number;
 };
 
 export type SaveLinksResult = {

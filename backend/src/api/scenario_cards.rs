@@ -171,7 +171,10 @@ pub async fn get_scenario_cards(
                 error = %e,
                 scenario_id = %id,
                 cited_runs = reason_runs.len(),
-                "failed to read the judging reasons behind the already-ruled cards;                  those cards will render without the scan's reason"
+                "failed to read the judging reasons behind the already-ruled \
+                 cards; those cards render without the scan's reason. The rest of \
+                 the payload is unaffected — if this recurs, check the pipeline \
+                 database (scan_run_verdicts) rather than the graph"
             ),
         }
     }

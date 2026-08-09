@@ -3,15 +3,17 @@
 // =============================================================================
 //
 // The Casey card layout over the §7 payload: C-code · rulings · state chip, then
-// the card body — which since 2026-08-09 lives in `CandidateCardBody`.
+// `EvidenceCardBody` — the SHARED body, identical to the one the fact wrapper
+// renders three inches lower.
 //
 // ## Why the body left this file (ONE_CARD_GRAMMAR, ruling R8)
 //
 // This file was 342 non-comment lines against Rule 17's 300, and the one-card
-// grammar task needs the SAME body under a second wrapper (the fact card's
-// weight/order/Remove). One body, two wrappers — so the body had to stop being
-// this component's private JSX. The extraction was committed move-only: nothing
-// rendered differently on the day it happened.
+// grammar needs the same body under a second wrapper. One body, two wrappers —
+// so the body had to stop being this component's private JSX. The extraction
+// shipped move-only first; this file now mounts the shared component over the
+// shared `evidenceCardView`, which is what makes "a candidate and a fact are the
+// same item" true of the code and not only of the design.
 //
 // What is left here is the half that is genuinely about RULING: the head with its
 // four buttons, the defer prompt, the receipt of the last ruling, and the compact
@@ -50,8 +52,11 @@ import {
 // the move is a file split, not an API change.
 export { cardStyle, chipStyle };
 
-import CandidateCardBody, { showsLinkPanel } from "./CandidateCardBody";
-import { cardRows } from "./cardRows";
+import EvidenceCardBody from "./EvidenceCardBody";
+import AllegationTypeahead from "./AllegationTypeahead";
+import { HumanLinkSection } from "./HumanLinkSection";
+import { needsLinking } from "./cardLinking";
+import { evidenceCardView, type ChipFilter } from "./evidenceCardModel";
 import { candidateState, stateChip } from "./candidateFilters";
 import { DEFER_QUICK_REASONS, type RulingKey } from "./cardTriage";
 import { CardHead, StateChipView, codeBadgeStyle } from "./RulingButtons";
@@ -206,6 +211,14 @@ export const CandidateCard: React.FC<{
   deferring?: { graphNodeId: string; draft: string } | null;
   deferInputRef?: React.RefObject<HTMLInputElement>;
   onDeferDraft?: (draft: string) => void;
+  /**
+   * Narrow the queue to a chip's value (Piece 7).
+   *
+   * Optional: a list with no filter of its own passes nothing, and the chips
+   * then render as labels. A chip that looked clickable and did nothing would be
+   * worse than one that never claimed to be.
+   */
+  onFilterChip?: (filter: ChipFilter) => void;
 }> = ({
   card,
   selected,
@@ -223,20 +236,46 @@ export const CandidateCard: React.FC<{
   deferring = null,
   deferInputRef,
   onDeferDraft,
+  onFilterChip,
 }) => {
-  const code = useMemo(() => cardRows(card).find((r) => r.element === "code"), [card]);
+  // ONE view, from the shared builder. `null` until the stored words load —
+  // there is deliberately no fallback vocabulary to render a card with (R4).
+  const view = useMemo(
+    () =>
+      linkOptions
+        ? evidenceCardView(card, linkOptions.card_grammar, {
+            questionChars: linkOptions.card_question_truncate_chars,
+            elementK: linkOptions.card_element_chips_visible_k,
+          })
+        : null,
+    [card, linkOptions],
+  );
   const chip = stateChip(candidateState(card));
+
+  // Task 2.10: the control appears on a card the extraction never linked and
+  // nobody has linked since. A card that HAS been linked shows its chips.
+  const linkPanel =
+    linkOptions !== null && needsLinking(card) && card.human_links.length === 0;
 
   // Item B: while the panel holds ticks or a cut that have not been saved, the
   // greyed Include and Exclude say why. Roman filled a panel in, saw Include
   // still greyed, and reported it as broken — it was correct behaviour with no
   // observable, which is the same defect class as 1.7C's silent keypress.
   const [linkDraftDirty, setLinkDraftDirty] = useState(false);
+  /**
+   * Said when a link has landed on THIS card (Piece 4b).
+   *
+   * Held on the card, not in the type-ahead, because the type-ahead is about to
+   * unmount: the link clears `defer_required`, the queue re-reads, and the panel
+   * stops being offered. A sentence that vanished with the control that earned
+   * it is the silent-defer defect in a new costume.
+   */
+  const [linkNotice, setLinkNotice] = useState<string | null>(null);
 
   if (compact) {
     return (
       <div style={compactCardStyle} onClick={onSelect}>
-        <span style={codeBadgeStyle}>{code?.value ?? "—"}</span>
+        <span style={codeBadgeStyle}>{card.code ?? "—"}</span>
         <span style={compactQuoteStyle} title={card.quote.text}>
           {card.quote.text}
         </span>
@@ -263,7 +302,7 @@ export const CandidateCard: React.FC<{
       onClick={onSelect}
     >
       <CardHead
-        code={code?.value ?? "—"}
+        code={card.code ?? "—"}
         chip={chip}
         chipTitle={card.defer_reason ?? undefined}
         deferOnly={card.defer_required}
@@ -272,7 +311,7 @@ export const CandidateCard: React.FC<{
         // Q4: the panel below carries the explanation, so the button row does not
         // print it a second time three inches away. A card with no panel — one
         // with no quote — keeps its sentence exactly where 1.7E-a put it.
-        reasonShownElsewhere={showsLinkPanel(card, linkOptions)}
+        reasonShownElsewhere={linkPanel}
         // D3a: the standing condition is stated on the card's face, from the
         // stored label. `null` until the wording loads, which renders nothing
         // rather than a compiled-in sentence.
@@ -295,6 +334,15 @@ export const CandidateCard: React.FC<{
         />
       )}
 
+      {/* Piece 4b: linking a locked card WAKES its ruling buttons, and says so.
+          A control that silently becomes usable is one the human has to notice
+          for themselves — and this one changes what the card is FOR. */}
+      {linkNotice && (
+        <div role="status" style={cardReceiptStyle}>
+          {linkNotice}
+        </div>
+      )}
+
       {/* What the last ruling on THIS card did — landed or refused. Every ruling
           leaves one: on beta.385 a defer wrote an anchor, a reference row and its
           provenance, and said nothing at all, so it was reported as a dead
@@ -308,16 +356,80 @@ export const CandidateCard: React.FC<{
         </div>
       )}
 
-      <CandidateCardBody
-        card={card}
-        linkOptions={linkOptions}
-        onCorrectQuestion={onCorrectQuestion}
-        onRevertQuestion={onRevertQuestion}
-        onSaveLinks={onSaveLinks}
-        onUnlink={onUnlink}
-        proposedAttribution={proposedAttribution}
-        onLinkDraftDirty={setLinkDraftDirty}
-      />
+      {/* THE SHARED BODY. The fact wrapper mounts this same component over a view
+          built by the same function from the same payload, so the two cards
+          cannot show different fields. */}
+      {view && linkOptions && (
+        <EvidenceCardBody
+          view={view}
+          wording={linkOptions.card_grammar}
+          onFilterChip={onFilterChip}
+        >
+          {/* The wrapper's own extras, between the chips and the exchange.
+
+              A locked card states its condition on its FACE and offers the
+              type-ahead right there (Piece 4b) — the 120-checkbox wall it
+              replaces was a scroll region on a card that could not be ruled
+              until something in it was ticked. */}
+          {linkPanel && (
+            <div
+              style={{
+                border: "1px solid var(--state-warning-strong)",
+                background: "var(--state-warning-bg-soft)",
+                borderRadius: "8px",
+                padding: "10px 12px",
+                display: "flex",
+                flexDirection: "column",
+                gap: "0.5rem",
+              }}
+            >
+              <div style={{ fontSize: "12.5px", color: "var(--v3-amber-text)", lineHeight: 1.5 }}>
+                {linkOptions.card_grammar.link_typeahead_intro}
+              </div>
+              <AllegationTypeahead
+                options={linkOptions}
+                onSave={onSaveLinks}
+                onDraftDirty={setLinkDraftDirty}
+                onLinked={() =>
+                  setLinkNotice(
+                    linkOptions.card_grammar.link_woke_ruling_template.replace(
+                      "{code}",
+                      card.code ?? "",
+                    ),
+                  )
+                }
+              />
+            </div>
+          )}
+
+          {/* §7.5, the human's half: what a person said this bears on, and one
+              click to take each back. A card that HAS been linked shows its
+              chips instead of the control — the work is done, and re-offering
+              it would read as though it had not been. */}
+          <HumanLinkSection
+            summary={card.human_link_summary}
+            links={card.human_links}
+            options={linkOptions}
+            onUnlink={onUnlink}
+          />
+        </EvidenceCardBody>
+      )}
+
+      {/* "Proposed by the Aug 7 scan" — composed by the list from the stored
+          template and the run's date. It attributes the reason ABOVE it, so it
+          renders under the body rather than inside it. */}
+      {card.proposed && proposedAttribution && (
+        <div style={{ fontSize: "12.5px", color: "var(--text-muted)" }}>
+          {proposedAttribution}
+        </div>
+      )}
+
+      {/* A reason a HUMAN gave, distinct from the system's defer notice above. */}
+      {card.defer_reason && (
+        <div style={{ fontSize: "13px", color: "var(--text-secondary)", fontStyle: "italic" }}>
+          Parked: {card.defer_reason}
+        </div>
+      )}
     </div>
   );
 };
