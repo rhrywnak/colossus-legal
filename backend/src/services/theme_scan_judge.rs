@@ -72,7 +72,7 @@ pub(crate) async fn judge_all(
     semaphore: Arc<Semaphore>,
     concurrency: usize,
     scan_prompt: Arc<str>,
-    attack_meaning: Arc<str>,
+    scan_criteria: Arc<str>,
     params: ResolvedLlmParams,
     groups: Vec<CandidateGroup>,
     pool: PgPool,
@@ -87,14 +87,14 @@ pub(crate) async fn judge_all(
             let provider = Arc::clone(&provider);
             let semaphore = Arc::clone(&semaphore);
             let scan_prompt = Arc::clone(&scan_prompt);
-            let attack_meaning = Arc::clone(&attack_meaning);
+            let scan_criteria = Arc::clone(&scan_criteria);
             let pool = pool.clone();
             async move {
                 let outcome = judge_one(
                     provider.as_ref(),
                     &semaphore,
                     &scan_prompt,
-                    &attack_meaning,
+                    &scan_criteria,
                     &params,
                     // The representative is what the model reads; its twins are
                     // byte-identical, so judging one judges all of them.
@@ -139,7 +139,7 @@ async fn judge_one(
     provider: &dyn LlmProvider,
     semaphore: &Semaphore,
     scan_prompt: &str,
-    attack_meaning: &str,
+    scan_criteria: &str,
     params: &ResolvedLlmParams,
     candidate: &BiasInstance,
     idx: usize,
@@ -159,7 +159,7 @@ async fn judge_one(
         }
     };
 
-    let user_msg = build_user_message(attack_meaning, candidate);
+    let user_msg = build_user_message(scan_criteria, candidate);
     // `Some(scan_prompt)` routes through `invoke_with_system_and_params`, so the
     // judging system prompt (theme_scan_prompt_v2.md) survives (Chunk B
     // precondition). `params.max_tokens` (the verdict cap) reaches the wire.
@@ -221,7 +221,7 @@ fn outcome_from_result(result: Result<LlmResponse, PipelineError>) -> JudgeOutco
 /// equivalent here — a question property that exists but holds `""` carries no
 /// interpretive value, so it takes the single-quote path (Standing Rule 1: it
 /// reads identically to a genuinely absent question, which is the honest state).
-pub(crate) fn build_user_message(attack_meaning: &str, candidate: &BiasInstance) -> String {
+pub(crate) fn build_user_message(scan_criteria: &str, candidate: &BiasInstance) -> String {
     let speaker = candidate
         .stated_by
         .as_ref()
@@ -246,12 +246,12 @@ pub(crate) fn build_user_message(attack_meaning: &str, candidate: &BiasInstance)
 
     match question {
         Some(question) => format!(
-            "ACCUSATION (what the scenario alleges):\n{attack_meaning}\n\n\
+            "ACCUSATION (what the scenario alleges):\n{scan_criteria}\n\n\
              QUOTE UNDER REVIEW:\nSpeaker: {speaker}\nDocument: {document}\n\
              Question asked: \"{question}\"\nAnswer under review: \"{quote}\"\n"
         ),
         None => format!(
-            "ACCUSATION (what the scenario alleges):\n{attack_meaning}\n\n\
+            "ACCUSATION (what the scenario alleges):\n{scan_criteria}\n\n\
              QUOTE UNDER REVIEW:\nSpeaker: {speaker}\nDocument: {document}\nQuote: \"{quote}\"\n"
         ),
     }

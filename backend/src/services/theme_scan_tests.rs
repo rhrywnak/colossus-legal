@@ -23,10 +23,22 @@ fn display_scenario_not_found_names_case_and_id() {
 
 #[test]
 fn display_empty_attack_meaning_names_id_and_field() {
+    // The variant kept its name through the one-attack-box ruling (2026-08-10);
+    // its CONDITION widened to "neither text is present" and its message now names
+    // the box a human can see and fill, rather than the jsonb key behind it. A
+    // human meeting this error is being told to go and write something — naming
+    // `attack_meaning` sent them looking for a field the modal no longer has.
     let id = Uuid::nil();
     let s = ThemeScanError::EmptyAttackMeaning { scenario_id: id }.to_string();
     assert!(s.contains(&id.to_string()));
-    assert!(s.contains("attack_meaning"));
+    assert!(
+        s.contains("attack text"),
+        "must name the box, not the column: {s}"
+    );
+    assert!(
+        s.contains("identity"),
+        "must say WHERE to fix it — the scenario's identity: {s}"
+    );
 }
 
 #[test]

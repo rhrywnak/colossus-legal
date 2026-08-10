@@ -265,7 +265,7 @@ pub(crate) fn seeded_value_in(sql: &str, key: &str) -> Option<String> {
 /// `SET value = '…'` inside a statement whose WHERE names this key. A migration
 /// that corrected a row some other way would not be found — and the count
 /// assertion below is what would catch that, by leaving the fixture disagreeing.
-fn corrected_value_in(sql: &str, key: &str) -> Option<String> {
+pub(crate) fn corrected_value_in(sql: &str, key: &str) -> Option<String> {
     let at = sql.find(&format!("key           = '{key}'"))?;
     // The SET clause precedes the WHERE in an UPDATE, so scan backwards.
     let before = &sql[..at];

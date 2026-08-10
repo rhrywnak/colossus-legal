@@ -272,29 +272,33 @@ fn a_created_scenario_gathers_over_the_target_the_human_chose() {
     );
 }
 
-/// Ruling Q2(a): the plain-language accusation seeds BOTH attack fields.
+/// ONE ATTACK BOX (Roman, 2026-08-10): the accusation seeds `attack_text` ALONE.
 ///
-/// Asserted because the scan reads `attack_meaning` and the parse contract
-/// requires `attack_text` — a change that filled only one of them would leave
-/// either an unparseable definition or an unscannable scenario, and both look
-/// exactly like a working one until somebody opens the page.
+/// Supersedes ruling Q2(a), which had this seed both fields so the parse contract
+/// was satisfied and the scan had criteria. It did both of those things and it
+/// also shipped every UI-made scenario with two byte-identical texts — asked once,
+/// stored twice, rendered on one surface, judged on the other.
+///
+/// Asserted from both sides because the failure modes are opposite and both look
+/// like a working scenario until somebody opens the page: an unfilled `attack_text`
+/// makes the definition un-authored, and a seeded `attack_meaning` re-creates the
+/// duplicate this ruling removed.
 #[test]
-fn the_accusation_is_readable_by_the_scan_and_by_the_parser() {
+fn the_accusation_seeds_the_attack_text_and_nothing_else() {
     let accusation = "George said Marie refused to divide the property.";
     let value = authored_definition("person-marie-awad", accusation, &wording())
         .expect("a valid definition");
     let stored = ScenarioDefinition::from_value(value).expect("it parses");
 
     assert_eq!(
-        stored.attack_meaning.as_deref(),
-        Some(accusation),
-        "the Theme Scan judges candidates against attack_meaning; without it \
-         a scan started on this scenario refuses"
+        stored.attack_text, accusation,
+        "attack_text is required by the parse contract AND is what the scan now \
+         judges against, so an unfilled one makes the scenario un-authored"
     );
     assert_eq!(
-        stored.attack_text, accusation,
-        "attack_text is required by the parse contract, so an unfilled one \
-         makes the whole definition un-authored"
+        stored.attack_meaning, None,
+        "the gloss is not seeded any more — one question, one box, one stored \
+         answer. A copy here is the duplicate the ruling removed."
     );
 }
 

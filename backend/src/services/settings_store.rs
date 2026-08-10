@@ -86,6 +86,7 @@ const KEY_PREFILTER_MIN_CHARS: &str = "theme_scan_prefilter_min_chars";
 // the compiled-in 512 was measured killing 7 of 104 verdicts — see the deleted
 // `THEME_SCAN_MAX_TOKENS` comment in `services::theme_scan` for the full story.
 const KEY_SCAN_MAX_TOKENS: &str = "theme_scan_max_tokens";
+const KEY_SCAN_DEFAULT_MODEL: &str = "theme_scan_default_model";
 // ONE_CARD_GRAMMAR (2026-08-09). Both decide how much of a card's content is
 // SHOWN before it folds — the question's visible length, and how many element
 // chips stand before "+N more". They are §2b tunables rather than presentational
@@ -125,6 +126,7 @@ pub const REQUIRED_KEYS: &[&str] = &[
     KEY_PREFILTER_MIN_CHARS,
     KEY_SCAN_MAX_TOKENS,
     KEY_PREFILTER_STATEMENT_TYPES,
+    KEY_SCAN_DEFAULT_MODEL,
     KEY_CARD_QUESTION_TRUNCATE,
     KEY_CARD_ELEMENT_CHIPS_K,
 ];
@@ -277,6 +279,7 @@ pub fn build_settings(rows: &HashMap<String, AppSettingRecord>) -> Result<Settin
         theme_scan_prompt_file: text_of(require(rows, KEY_THEME_SCAN_PROMPT_FILE)?)?,
         theme_scan_prefilter_min_chars: count_of(require(rows, KEY_PREFILTER_MIN_CHARS)?)?,
         theme_scan_max_tokens: token_count_of(require(rows, KEY_SCAN_MAX_TOKENS)?)?,
+        theme_scan_default_model: text_of(require(rows, KEY_SCAN_DEFAULT_MODEL)?)?,
         theme_scan_prefilter_statement_types: token_list_of(require(
             rows,
             KEY_PREFILTER_STATEMENT_TYPES,

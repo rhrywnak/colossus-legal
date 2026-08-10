@@ -7,7 +7,7 @@
 // (Rule 21, the disk/code consistency pattern). Nothing here restates the code.
 
 use super::*;
-use crate::domain::wording::tests::seeded_value_in;
+use crate::domain::wording::tests::{corrected_value_in, seeded_value_in};
 use std::collections::HashMap;
 
 /// The migration that seeds every row in this block.
@@ -28,7 +28,7 @@ const TEST_SEED: &[(&str, &str)] = &[
          The other filters are slices of this. Nothing in the full pool is lost \
          when you filter.",
     ),
-    (KEY_FILTER_PROGRESS, "{ruled} of {total} {filter} ruled"),
+    (KEY_FILTER_PROGRESS, "{ruled} of {total} addressed"),
     (KEY_QUESTION_EXPAND, "show full question"),
     (KEY_QUESTION_COLLAPSE, "hide full question"),
     (
@@ -110,19 +110,41 @@ impl CardGrammarWording {
     }
 }
 
+/// A later migration may CORRECT one of these rows; the store ends up with the
+/// correction, so that is what the fixture has to carry.
+///
+/// Task R2 added the first one: `card_filter_progress_template` lost its
+/// `{filter}` slot when the progress line stopped measuring the active filter.
+/// Without reading corrections this test would go on comparing the fixture to the
+/// original INSERT and pass while the database held something else — a fixture
+/// agreeing with history instead of with production.
+const CORRECTION_MIGRATIONS: &[&str] = &[
+    "pipeline_migrations/20260810114629_r2_391_unified_names_one_attack_box_and_scan_default_model.sql",
+];
+
 /// Every declared key is seeded, with the value this build expects.
 #[test]
 fn every_declared_key_is_seeded_with_the_value_this_build_expects() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let sql = std::fs::read_to_string(root.join(SEED_MIGRATION))
         .expect("the one-card-grammar migration is on disk");
+    let corrections: String = CORRECTION_MIGRATIONS
+        .iter()
+        .map(|relative| {
+            std::fs::read_to_string(root.join(relative))
+                .unwrap_or_else(|_| panic!("{relative} is on disk"))
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
 
     let fixture = CardGrammarWording::for_test_values();
 
     for key in CARD_GRAMMAR_WORDING_KEYS {
-        let seeded = seeded_value_in(&sql, key).unwrap_or_else(|| {
-            panic!("{key} is declared to the boot loader but no migration seeds a row for it")
-        });
+        let seeded = corrected_value_in(&corrections, key)
+            .or_else(|| seeded_value_in(&sql, key))
+            .unwrap_or_else(|| {
+                panic!("{key} is declared to the boot loader but no migration seeds a row for it")
+            });
         let in_fixture = fixture
             .get(*key)
             .unwrap_or_else(|| panic!("{key} is missing from TEST_SEED"));
@@ -189,7 +211,11 @@ fn the_shipped_templates_keep_the_slots_their_callers_fill() {
         (
             KEY_FILTER_PROGRESS,
             &w.filter_progress_template,
-            &["{ruled}", "{total}", "{filter}"][..],
+            // `{filter}` was retired in .391 with the rule it named. The line
+            // measures the proposed bucket now — a number that does not move when
+            // a chip is clicked — so a template naming a filter would be labelling
+            // the sentence with something it is not about.
+            &["{ruled}", "{total}"][..],
         ),
         (KEY_ELEMENTS_MORE, &w.elements_more_template, &["{count}"]),
         (

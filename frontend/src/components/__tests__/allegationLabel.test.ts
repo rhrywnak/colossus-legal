@@ -20,7 +20,7 @@ function allegation(overrides: Partial<AllegationDto> = {}): AllegationDto {
 describe("the chip label", () => {
   it("joins the paragraph and the complaint's own sentence", () => {
     expect(allegationLabel(allegation())).toBe(
-      "¶41 — refused every attempt to divide the estate property amicably",
+      "A-41 — refused every attempt to divide the estate property amicably",
     );
   });
 
@@ -34,12 +34,12 @@ describe("the chip label", () => {
 
   it("falls back to the title when the complaint sentence is absent", () => {
     expect(allegationLabel(allegation({ allegation: undefined }))).toBe(
-      "¶41 — Refused amicable division",
+      "A-41 — Refused amicable division",
     );
   });
 
   it("renders the paragraph alone when there is no summary at all", () => {
-    expect(allegationLabel(allegation({ allegation: undefined, title: "" }))).toBe("¶41");
+    expect(allegationLabel(allegation({ allegation: undefined, title: "" }))).toBe("A-41");
   });
 
   it("falls back to the ID when there is no paragraph either", () => {
@@ -53,7 +53,7 @@ describe("the chip label", () => {
 
 describe("labelling an id against the catalogue", () => {
   it("uses the catalogue entry when it knows the id", () => {
-    expect(labelForAllegationId("alleg-7", [allegation()])).toContain("¶41");
+    expect(labelForAllegationId("alleg-7", [allegation()])).toContain("A-41");
   });
 
   it("renders an UNKNOWN id as the id rather than dropping the chip", () => {

@@ -240,20 +240,11 @@ export function queueRegion(
   };
 }
 
-/**
- * The "Next up" hint, or `null` when there is nothing after the focused card.
- *
- * Takes the next card's CODE rather than the card, because that is all the hint
- * says and passing the whole card would invite this function to start composing
- * more of it.
- *
- * A next card with no ordinal yet yields `null` rather than `"Next up: —"`: the
- * hint exists to tell the human which C-number is coming, and a hint that names
- * nothing is worse than no hint.
- */
-export function nextUpHint(nextCode: string | null | undefined): string | null {
-  return nextCode ? `Next up: ${nextCode}` : null;
-}
+// REMOVED (task R2, Roman's cleanup ruling): `nextUpHint`.
+//
+// It rendered "Next up: C-14" beside a list whose next row WAS C-14, one line
+// below. A hint that names what the reader is already looking at is a line they
+// learn to skip, and this frame had five of them.
 
 /**
  * Whether a keystroke should be allowed to rule.

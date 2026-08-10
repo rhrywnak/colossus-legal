@@ -117,6 +117,29 @@ pub struct ScenarioAuthoringWording {
     /// control looked alive on every scenario and, clicked on a Draft one,
     /// silently delivered a different scenario's rehearsal.
     pub rehearsal_link_blocked_reason: String,
+
+    // ── The unified identity vocabulary (task R2, Roman 2026-08-10) ─────────
+    //
+    // ONE row per idea, rendered by BOTH the read-only identity block and the
+    // editor. Not two rows seeded alike: the defect being closed is two names for
+    // one column, and two rows would be free to drift apart the first time either
+    // is edited. The header's names won.
+    /// `definition->>attack_text` — what the other side claims.
+    pub identity_attack_label: String,
+    /// Its stated absence. Never an empty paragraph: that reads as a render fault.
+    pub identity_attack_absent: String,
+    /// The `theme_statement` column — our answer in one sentence.
+    pub identity_theme_label: String,
+    pub identity_theme_absent: String,
+    /// Says who reads the theme and where, which is what stops it being written
+    /// as a case note instead of a line spoken aloud.
+    pub identity_theme_helper: String,
+    /// The `motivation` column.
+    pub identity_motivation_label: String,
+    pub identity_motivation_absent: String,
+    /// The `anchor_allegation_ids` chips.
+    pub identity_bears_on_label: String,
+    pub identity_bears_on_absent: String,
 }
 
 // KEYS: the stable identifiers of the fourteen stored strings. Renaming one is a
@@ -139,6 +162,15 @@ pub(crate) const KEY_TARGET_NEEDS_ATTACK_TEXT: &str = "scenario_identity_target_
 pub(crate) const KEY_MEANING_NEEDS_ATTACK_TEXT: &str =
     "scenario_identity_meaning_needs_attack_text";
 pub(crate) const KEY_REHEARSAL_LINK_BLOCKED: &str = "scenario_rehearsal_link_blocked_reason";
+pub(crate) const KEY_IDENTITY_ATTACK_LABEL: &str = "scenario_identity_attack_label";
+pub(crate) const KEY_IDENTITY_ATTACK_ABSENT: &str = "scenario_identity_attack_absent";
+pub(crate) const KEY_IDENTITY_THEME_LABEL: &str = "scenario_identity_theme_label";
+pub(crate) const KEY_IDENTITY_THEME_ABSENT: &str = "scenario_identity_theme_absent";
+pub(crate) const KEY_IDENTITY_THEME_HELPER: &str = "scenario_identity_theme_helper";
+pub(crate) const KEY_IDENTITY_MOTIVATION_LABEL: &str = "scenario_identity_motivation_label";
+pub(crate) const KEY_IDENTITY_MOTIVATION_ABSENT: &str = "scenario_identity_motivation_absent";
+pub(crate) const KEY_IDENTITY_BEARS_ON_LABEL: &str = "scenario_identity_bears_on_label";
+pub(crate) const KEY_IDENTITY_BEARS_ON_ABSENT: &str = "scenario_identity_bears_on_absent";
 
 /// Every scenario-authoring key this build reads, so a missing one is caught at
 /// boot BY NAME rather than as a blank label in front of a human mid-sentence.
@@ -159,6 +191,15 @@ pub const SCENARIO_AUTHORING_WORDING_KEYS: &[&str] = &[
     KEY_TARGET_NEEDS_ATTACK_TEXT,
     KEY_MEANING_NEEDS_ATTACK_TEXT,
     KEY_REHEARSAL_LINK_BLOCKED,
+    KEY_IDENTITY_ATTACK_LABEL,
+    KEY_IDENTITY_ATTACK_ABSENT,
+    KEY_IDENTITY_THEME_LABEL,
+    KEY_IDENTITY_THEME_ABSENT,
+    KEY_IDENTITY_THEME_HELPER,
+    KEY_IDENTITY_MOTIVATION_LABEL,
+    KEY_IDENTITY_MOTIVATION_ABSENT,
+    KEY_IDENTITY_BEARS_ON_LABEL,
+    KEY_IDENTITY_BEARS_ON_ABSENT,
 ];
 
 /// Build a [`ScenarioAuthoringWording`] from the stored rows, or say which key
@@ -197,6 +238,15 @@ pub fn build_scenario_authoring_wording<E>(
         identity_target_needs_attack_text: read(KEY_TARGET_NEEDS_ATTACK_TEXT)?,
         identity_meaning_needs_attack_text: read(KEY_MEANING_NEEDS_ATTACK_TEXT)?,
         rehearsal_link_blocked_reason: read(KEY_REHEARSAL_LINK_BLOCKED)?,
+        identity_attack_label: read(KEY_IDENTITY_ATTACK_LABEL)?,
+        identity_attack_absent: read(KEY_IDENTITY_ATTACK_ABSENT)?,
+        identity_theme_label: read(KEY_IDENTITY_THEME_LABEL)?,
+        identity_theme_absent: read(KEY_IDENTITY_THEME_ABSENT)?,
+        identity_theme_helper: read(KEY_IDENTITY_THEME_HELPER)?,
+        identity_motivation_label: read(KEY_IDENTITY_MOTIVATION_LABEL)?,
+        identity_motivation_absent: read(KEY_IDENTITY_MOTIVATION_ABSENT)?,
+        identity_bears_on_label: read(KEY_IDENTITY_BEARS_ON_LABEL)?,
+        identity_bears_on_absent: read(KEY_IDENTITY_BEARS_ON_ABSENT)?,
     })
 }
 

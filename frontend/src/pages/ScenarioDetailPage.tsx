@@ -436,6 +436,9 @@ const ScenarioDetailPage: React.FC = () => {
         anchorAllegationIds={scenario.anchor_allegation_ids}
         allegations={allegations}
         onEdit={() => setEditingIdentity(true)}
+        // `null` withdraws the whole block rather than rendering four texts under
+        // no headings (honest-gap law). The page's own failure notice says why.
+        wording={augmentation?.identity_wording ?? null}
       />
 
       {/* 3 — §2.3. A merge inside the scan writes the candidate facts every other

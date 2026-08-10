@@ -31,6 +31,8 @@
 
 import React from "react";
 
+import { APP_HEADER_HEIGHT_PX } from "./Header";
+
 import type { RulingKey } from "./cardTriage";
 import type { StateChip } from "./candidateFilters";
 import { chipStyle, stateChipTone } from "./scenarioSectionStyles";
@@ -254,14 +256,19 @@ export const CardHead: React.FC<{
   onRule,
 }) => (
   <div style={{ marginBottom: "14px" }}>
-    {/* PIECE 3 — the ruling bar PINS to the top of the queue's scroll viewport
-        while its card is on screen.
+    {/* PIECE 3 — the ruling bar PINS while its card is on screen.
 
-        The queue scrolls inside its own `maxHeight: 70vh` region, so `top: 0`
-        sticks this row to the top of that region and releases it when the card
-        leaves. On a MacBook-sized window — the hardware law this build was
-        written against — the four buttons never scroll away from the card they
-        rule, which is the acceptance surface §3.5 names.
+        ## Recalibrated to the document (task R2)
+
+        The queue used to scroll inside its own `maxHeight: 70vh` region and this
+        row stuck to the top of THAT box. The region is gone — the page scrolls as
+        one document now — so the scrollport is the document and the offset has to
+        clear the app header, which is itself `position: sticky; top: 0` at 56px
+        (`Header.tsx`). At `top: 0` this bar would pin UNDERNEATH it and the four
+        controls would be invisible at exactly the moment they are needed.
+
+        `APP_HEADER_HEIGHT_PX` is imported rather than repeated: two files
+        asserting a height at each other is how a 56 becomes a 64 in one of them.
 
         The opaque background is load-bearing rather than cosmetic: a transparent
         sticky row would have the card's own quote scroll through it. The card's
@@ -274,7 +281,7 @@ export const CardHead: React.FC<{
         gap: "10px",
         flexWrap: "wrap",
         position: "sticky",
-        top: 0,
+        top: `${APP_HEADER_HEIGHT_PX}px`,
         zIndex: 3,
         background: "var(--bg-surface)",
         paddingTop: "4px",

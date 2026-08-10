@@ -35,7 +35,7 @@
 // not rendered until they load: there is no fallback vocabulary to render it
 // with, and a filter row with invented names would be worse than none.
 
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
 import type { CandidateCounts, CandidateFilters, StateFacet } from "./candidateFilters";
 import { filterChips } from "./candidateFilters";
@@ -104,6 +104,8 @@ const popStyle: React.CSSProperties = {
 const progressStyle: React.CSSProperties = {
   fontSize: "0.85rem",
   color: "var(--text-secondary)",
+  marginLeft: "auto",
+  whiteSpace: "nowrap",
 };
 
 /**
@@ -127,8 +129,38 @@ const CandidateFilterBar: React.FC<{
   onChange: (next: CandidateFilters) => void;
 }> = ({ counts, filters, progress, wording, onChange }) => {
   const [explaining, setExplaining] = useState(false);
+  const explainerRef = useRef<HTMLSpanElement | null>(null);
+
+  /**
+   * A way OUT of the ⓘ popup (filed 2026-08-09: "it would not close").
+   *
+   * The ⓘ itself always toggled — what the popup had was no other exit. It is
+   * `position: absolute` with a z-index, so it sat over whatever rendered below,
+   * which on this surface is the ruling acknowledgment; a human who clicked
+   * elsewhere expecting it to go away watched it stay on top of the thing they
+   * had just done.
+   *
+   * Both exits, because they are the two a reader reaches for: click away, or
+   * press Escape. `mousedown` rather than `click` so the popup is gone before the
+   * click lands on whatever is underneath it — otherwise dismissing it would also
+   * press the control it was covering.
+   */
+  useEffect(() => {
+    if (!explaining) return;
+    const onAway = (event: MouseEvent) => {
+      if (!explainerRef.current?.contains(event.target as Node)) setExplaining(false);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setExplaining(false);
+    };
+    document.addEventListener("mousedown", onAway);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onAway);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [explaining]);
   const chips = filterChips(counts, wording);
-  const active = chips.find((c) => c.facet === filters.state);
 
   return (
     <div style={barStyle}>
@@ -148,7 +180,10 @@ const CandidateFilterBar: React.FC<{
                 know the term "full pool", and a filter nobody understands is a
                 filter nobody presses. */}
             {chip.explainer && (
-              <span style={{ position: "relative", display: "inline-flex" }}>
+              <span
+                ref={explainerRef}
+                style={{ position: "relative", display: "inline-flex" }}
+              >
                 <button
                   type="button"
                   style={infoStyle}
@@ -163,20 +198,24 @@ const CandidateFilterBar: React.FC<{
             )}
           </React.Fragment>
         ))}
-      </div>
 
-      {/* Piece 1c. The denominator is the filter the human is standing in, and
-          the sentence NAMES it — "2 of 8 Proposed ruled" — so the number can
-          never be read as a claim about the pool. */}
-      {active && (
-        <div style={progressStyle}>
+        {/* THE PROGRESS COUNT, on the chip row (Roman's cleanup ruling,
+            2026-08-10). It was a line of its own under the chips; five lines of
+            frame sat above a queue people came here to work.
+
+            It no longer names a filter, because it no longer measures one: the
+            denominator is every candidate the scans put forward, and it does not
+            move when a chip is clicked. `marginLeft: auto` puts it at the far
+            end of the row, away from the controls, so it reads as a status rather
+            than as a sixth chip. */}
+        <span style={progressStyle}>
           {fillSlots(wording.filter_progress_template, {
             ruled: String(progress.ruled),
             total: String(progress.total),
-            filter: active.label,
           })}
-        </div>
-      )}
+        </span>
+      </div>
+
     </div>
   );
 };

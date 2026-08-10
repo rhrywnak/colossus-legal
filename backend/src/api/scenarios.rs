@@ -118,28 +118,25 @@ fn validate_status(status: &str) -> Result<(), AppError> {
 /// Compose the stored `definition` for a NEW scenario from the two fields the
 /// create form collects, or refuse by name if either is blank.
 ///
-/// ## Domain note: why the accusation fills BOTH attack fields (ruled 2026-08-07)
+/// ## Domain note: ONE attack box (Roman's ruling, 2026-08-10 — supersedes 08-07)
 ///
 /// A v2 definition carries two texts about the attack:
 ///
-///   `attack_text`    — the attack in the WIELDER'S framing, ideally their
-///                      verbatim words ("…the parties did not cooperate with
-///                      each other.")
-///   `attack_meaning` — a plain-language gloss of what that actually asserts
+///   `attack_text`    — what the other side claims, in their words
+///   `attack_meaning` — a plain-language gloss of what that asserts
 ///
-/// `attack_text` is REQUIRED by the parse contract, and the create form does not
-/// ask for it: at creation time the human is naming a scenario, not yet holding
-/// the quote. Leaving it out would store a definition that fails to parse —
-/// which is exactly the un-authored state this task exists to end, reached by a
-/// different road.
+/// The 2026-08-07 ruling had this function seed BOTH from the one answer the
+/// create form collects, so `attack_text` (required by the parse contract) was
+/// never blank. It worked, and it produced a scenario that shipped with two
+/// identical texts, only one of which any read surface rendered — while the Theme
+/// Scan judged against the copy. Asking a human the same question twice, in two
+/// boxes with different labels, is how the two drift apart later.
 ///
-/// So the plain-language accusation seeds both. The definition parses from the
-/// first moment, the scan has its judging criteria, and the identity modal —
-/// which already edits `attack_text` and `attack_meaning` separately — is where
-/// the real quote replaces the placeholder once it is found. Roman's ruling,
-/// over the alternatives of adding a third create field or making `attack_text`
-/// optional (a schema change reaching the parser, the frontend guard, and the
-/// modal).
+/// So there is one box now. `attack_text` is seeded; `attack_meaning` is left
+/// absent, and the identity modal no longer offers to write one. The column stays
+/// and no stored gloss is destroyed — `theme_scan_validate` still falls back to it
+/// when a legacy row has one and no attack text, which is what keeps scenarios
+/// authored before today scanning against the words their author wrote.
 ///
 /// ## Why the refusals come from stored rows
 ///
@@ -170,7 +167,8 @@ fn authored_definition(
 
     let definition = ScenarioDefinition {
         attack_text: accusation.to_string(),
-        attack_meaning: Some(accusation.to_string()),
+        // NOT seeded (2026-08-10). One question, one box, one stored answer.
+        attack_meaning: None,
         target: Some(target.to_string()),
         // Nobody is named as wielding the attack yet — that is authored later in
         // the identity modal. An empty list is the honest "not yet said", and it
