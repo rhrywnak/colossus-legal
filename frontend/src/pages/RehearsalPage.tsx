@@ -37,11 +37,33 @@
 // loaded. A code that is not in it — because nobody declared that scenario ready
 // — gets the stored not-ready sentence. NOT a 404: the address is right and the
 // scenario simply is not ready. NOT a leak: the payload never contained it.
+//
+// ## NOTHING IS EVER SHOWN THAT MARIE DID NOT PICK (Roman, 2026-08-10)
+//
+// Two rules arrived together in .390, and they are the same rule seen from two
+// sides. Both replace behaviour that was here and looked reasonable.
+//
+//   The bare address `/cases/:slug/rehearsal` used to open on the FIRST ready
+//   scenario and say nothing about having chosen. It renders a LIST now, and
+//   waits. On a case with one ready scenario that is a list of one — still a
+//   pick, because "the only one" and "the one you chose" stop being the same
+//   sentence the moment a second scenario is declared ready.
+//
+//   A code the payload does not contain used to render the not-ready sentence
+//   BESIDE the first ready scenario's blocks. It renders the sentence INSTEAD
+//   of them now. The old arrangement was the worse of the two failures it was
+//   made of: a refusal that nonetheless produced content, under another
+//   scenario's title.
+//
+// What is left of the carousel: ‹ Back / Next › between ready scenarios, once
+// Marie has picked one. Moving after a choice is not the same as being placed
+// somewhere without one.
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import RehearsalPageHeader from "../components/RehearsalPageHeader";
+import RehearsalPicker from "../components/RehearsalPicker";
 import RehearsalScenarioBlocks, {
   type RehearsalEdits,
 } from "../components/RehearsalScenarioBlocks";
@@ -136,6 +158,16 @@ const RehearsalPage: React.FC = () => {
   useEffect(() => {
     if (addressed >= 0) setIndex(addressed);
   }, [addressed]);
+
+  /**
+   * Has Marie picked a scenario?
+   *
+   * The URL is the whole answer, and that is deliberate: a choice that lived in
+   * React state would be lost on reload and unsendable to anyone else, which is
+   * the property the per-scenario address exists to provide. No code in the
+   * address means no pick has been made, whatever the index happens to be.
+   */
+  const picked = code !== undefined;
 
   /**
    * Move one scenario, and take the ADDRESS with you.
@@ -295,7 +327,19 @@ const RehearsalPage: React.FC = () => {
   const w = payload.wording;
   // The address named something this page is not showing. It exists or it does
   // not; either way it is not ready, and that is all this page may say about it.
-  const notReady = code !== undefined && addressed < 0;
+  const notReady = picked && addressed < 0;
+
+  // What the page is FOR, this render. Exactly one of the three is true, which is
+  // what stops the .389 arrangement where a refusal and a scenario rendered
+  // together:
+  //
+  //   refusing — a code was given and no ready scenario answers to it
+  //   picking  — no code was given; the list is the page
+  //   rehearsing — a code was given and it resolved
+  //
+  // Written as one expression rather than three scattered conditions so the
+  // exclusivity is visible in one place and cannot drift back apart.
+  const mode = notReady ? "refusing" : picked ? "rehearsing" : "picking";
 
   const edits: RehearsalEdits | null =
     scenario && slug ? rehearsalEdits(slug, scenario, runWrite, busy) : null;
@@ -305,8 +349,12 @@ const RehearsalPage: React.FC = () => {
       <RehearsalPageHeader
         slug={slug ?? ""}
         wording={w}
-        scenario={scenario}
-        position={positionAt(index, payload.positions)}
+        // The header names the scenario ONLY while one is being rehearsed. In the
+        // other two modes there is no scenario on screen, and a breadcrumb or a
+        // "Scenario page ↗" pointing at one the reader never chose is precisely
+        // how the .389 round trip ended up at S-2 twice.
+        scenario={mode === "rehearsing" ? scenario : undefined}
+        position={mode === "rehearsing" ? positionAt(index, payload.positions) : null}
         onPrevious={() => move("previous")}
         onNext={() => move("next")}
         atFirst={index === 0}
@@ -315,7 +363,7 @@ const RehearsalPage: React.FC = () => {
         onFoldAll={() => setAll(false)}
       />
 
-      {notReady && (
+      {mode === "refusing" && (
         <p role="status" style={{ marginTop: "18px" }}>
           {fillCode(w.not_ready_notice, code)}
         </p>
@@ -333,22 +381,39 @@ const RehearsalPage: React.FC = () => {
         </div>
       )}
 
-      {/* An empty rehearsal is a REAL state, not a failure: nobody has declared a
-          scenario ready yet. The stored sentence says what to do about it. */}
-      {!scenario || !edits ? (
-        <p style={{ fontSize: "17px", marginTop: "24px" }}>{w.nothing_ready_notice}</p>
-      ) : (
-        <RehearsalScenarioBlocks
-          scenario={scenario}
-          wording={w}
-          open={open}
-          onToggle={toggle}
-          openRows={openRows}
-          onToggleRow={toggleRow}
-          onJumpToRow={jumpToRow}
-          edits={edits}
+      {/* THE FRONT DOOR (Roman's ruling, 2026-08-10). No code in the address
+          means nobody has picked, so the page offers the ready scenarios and
+          waits. An empty rehearsal is a REAL state, not a failure — nobody has
+          declared a scenario ready yet — and the stored sentence says what to do
+          about it. */}
+      {mode === "picking" && (
+        <RehearsalPicker
+          slug={slug ?? ""}
+          heading={w.picker_heading}
+          emptyNotice={w.nothing_ready_notice}
+          scenarios={payload.scenarios}
         />
       )}
+
+      {/* Rehearsing. `edits` is `null` only when the slug is missing, which the
+          router cannot produce — but it gates the blocks rather than being
+          asserted away, because a page that edits must never render controls it
+          has no write path for. */}
+      {mode === "rehearsing" &&
+        (!scenario || !edits ? (
+          <p style={{ fontSize: "17px", marginTop: "24px" }}>{w.nothing_ready_notice}</p>
+        ) : (
+          <RehearsalScenarioBlocks
+            scenario={scenario}
+            wording={w}
+            open={open}
+            onToggle={toggle}
+            openRows={openRows}
+            onToggleRow={toggleRow}
+            onJumpToRow={jumpToRow}
+            edits={edits}
+          />
+        ))}
 
       {/* The standing strip. Always visible, on every screen including the empty
           one, and the ONE block with no fold to close — §10 makes it the thing

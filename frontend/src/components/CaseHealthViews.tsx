@@ -14,7 +14,6 @@
 // nothing here ever combines them.
 // =============================================================================
 
-import React from "react";
 
 import {
   edgeClassCount,

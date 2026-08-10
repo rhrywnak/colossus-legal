@@ -74,6 +74,21 @@ pub struct ScenarioIdentityWordingDto {
     /// Refuses a save that names a target while "what they say" is still blank —
     /// the one combination a stored definition has no valid shape for.
     pub target_needs_attack_text: String,
+    /// Refuses a save that writes a "meant to imply" gloss while "what they say"
+    /// is still blank. Sibling of the field above, and deliberately a different
+    /// sentence: the two name different fields and different remedies.
+    pub meaning_needs_attack_text: String,
+    /// Why the scenario page's "Rehearsal view" control is inert when the
+    /// scenario is not Ready. Carries `{status}`, filled by the browser from the
+    /// status it is already rendering.
+    ///
+    /// ## Why the HEADER's word rides the identity payload
+    ///
+    /// The header has no read of its own — the page loads four payloads and this
+    /// is the one that already carries authoring vocabulary for the same
+    /// scenario. A fifth request for one string would buy nothing, and a copy on
+    /// the detail payload would be a second row to keep in step.
+    pub rehearsal_link_blocked_reason: String,
 }
 
 /// Map the stored block onto the create form's subset.
@@ -104,5 +119,7 @@ pub fn identity_wording(w: &ScenarioAuthoringWording) -> ScenarioIdentityWording
         target_unset_option: w.identity_target_unset_option.clone(),
         target_options_failed_notice: w.target_options_failed_notice.clone(),
         target_needs_attack_text: w.identity_target_needs_attack_text.clone(),
+        meaning_needs_attack_text: w.identity_meaning_needs_attack_text.clone(),
+        rehearsal_link_blocked_reason: w.rehearsal_link_blocked_reason.clone(),
     }
 }

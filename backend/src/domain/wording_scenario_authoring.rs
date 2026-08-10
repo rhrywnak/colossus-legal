@@ -97,6 +97,26 @@ pub struct ScenarioAuthoringWording {
     /// target vanish on reopen with nothing said. Reachable only on legacy rows
     /// created before the create form asked for either.
     pub identity_target_needs_attack_text: String,
+    /// Refuses a save that would write a "what that is meant to imply" gloss
+    /// while leaving "what they say" blank (task R1 Piece 5a).
+    ///
+    /// ## Why this is a SECOND sentence and not the one above reworded
+    ///
+    /// The omission is the same — no `attack_text` means the whole definition is
+    /// dropped — but the two humans are not. One picked a person from a list; one
+    /// typed a sentence. A single refusal covering both would have to name
+    /// neither field, and a refusal that cannot say WHICH of your edits is about
+    /// to be discarded is barely better than the silence it replaces.
+    pub identity_meaning_needs_attack_text: String,
+
+    // ── The scenario page header (task R1 Piece 1b) ─────────────────────────
+    /// Why the "Rehearsal view" control is inert on a scenario that is not Ready.
+    ///
+    /// Carries `{status}` — the state the scenario is actually in. Rehearsal mode
+    /// serves READY scenarios through a human gate (v2 §5/§10); before .390 the
+    /// control looked alive on every scenario and, clicked on a Draft one,
+    /// silently delivered a different scenario's rehearsal.
+    pub rehearsal_link_blocked_reason: String,
 }
 
 // KEYS: the stable identifiers of the fourteen stored strings. Renaming one is a
@@ -116,6 +136,9 @@ pub(crate) const KEY_IDENTITY_TARGET_HELPER: &str = "scenario_identity_target_he
 pub(crate) const KEY_IDENTITY_TARGET_UNSET: &str = "scenario_identity_target_unset_option";
 pub(crate) const KEY_TARGET_OPTIONS_FAILED: &str = "scenario_target_options_failed_notice";
 pub(crate) const KEY_TARGET_NEEDS_ATTACK_TEXT: &str = "scenario_identity_target_needs_attack_text";
+pub(crate) const KEY_MEANING_NEEDS_ATTACK_TEXT: &str =
+    "scenario_identity_meaning_needs_attack_text";
+pub(crate) const KEY_REHEARSAL_LINK_BLOCKED: &str = "scenario_rehearsal_link_blocked_reason";
 
 /// Every scenario-authoring key this build reads, so a missing one is caught at
 /// boot BY NAME rather than as a blank label in front of a human mid-sentence.
@@ -134,6 +157,8 @@ pub const SCENARIO_AUTHORING_WORDING_KEYS: &[&str] = &[
     KEY_IDENTITY_TARGET_UNSET,
     KEY_TARGET_OPTIONS_FAILED,
     KEY_TARGET_NEEDS_ATTACK_TEXT,
+    KEY_MEANING_NEEDS_ATTACK_TEXT,
+    KEY_REHEARSAL_LINK_BLOCKED,
 ];
 
 /// Build a [`ScenarioAuthoringWording`] from the stored rows, or say which key
@@ -170,6 +195,8 @@ pub fn build_scenario_authoring_wording<E>(
         identity_target_unset_option: read(KEY_IDENTITY_TARGET_UNSET)?,
         target_options_failed_notice: read(KEY_TARGET_OPTIONS_FAILED)?,
         identity_target_needs_attack_text: read(KEY_TARGET_NEEDS_ATTACK_TEXT)?,
+        identity_meaning_needs_attack_text: read(KEY_MEANING_NEEDS_ATTACK_TEXT)?,
+        rehearsal_link_blocked_reason: read(KEY_REHEARSAL_LINK_BLOCKED)?,
     })
 }
 

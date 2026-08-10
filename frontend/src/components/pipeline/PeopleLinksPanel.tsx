@@ -9,7 +9,6 @@ import React, { useEffect, useMemo } from "react";
 import type { ExtractionItem } from "../../services/pipelineApi";
 
 interface PeopleLinksPanelProps {
-  documentId: string;
   items: ExtractionItem[] | null;
   onLoadItems: () => void;
 }
@@ -36,7 +35,7 @@ interface EntityGroup {
   count: number;
 }
 
-const PeopleLinksPanel: React.FC<PeopleLinksPanelProps> = ({ documentId, items, onLoadItems }) => {
+const PeopleLinksPanel: React.FC<PeopleLinksPanelProps> = ({ items, onLoadItems }) => {
   // Trigger item loading if not yet loaded
   useEffect(() => {
     if (items === null) onLoadItems();

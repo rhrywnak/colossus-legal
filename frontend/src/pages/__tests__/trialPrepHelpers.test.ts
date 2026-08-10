@@ -18,7 +18,6 @@ import {
 import type {
   ExchangeTurn,
   ScenarioStatus,
-  ScenarioSummary,
 } from "../trialPrepData";
 
 const makeTurn = (overrides: Partial<ExchangeTurn> = {}): ExchangeTurn => ({
@@ -35,16 +34,6 @@ const makeTurn = (overrides: Partial<ExchangeTurn> = {}): ExchangeTurn => ({
   ...overrides,
 });
 
-const makeSummary = (
-  overrides: Partial<ScenarioSummary> = {},
-): ScenarioSummary => ({
-  id: "s1",
-  code: "S-1",
-  attack: "An attack",
-  status: "draft",
-  baseless_repeat_count: 0,
-  ...overrides,
-});
 
 describe("patternFlagText", () => {
   it("null → 'pattern analysis pending', muted (distinct from clean)", () => {

@@ -51,7 +51,21 @@ pub struct RehearsalWording {
     /// Moves to the next one.
     pub next_label: String,
     /// Shown when the case has no ready scenario at all.
+    ///
+    /// Serves two surfaces since .390: the picker at the bare rehearsal address
+    /// and the page itself. One sentence, because it answers one question — and
+    /// a second row saying the same thing is a second sentence to keep in step.
     pub nothing_ready_notice: String,
+    /// The heading over the list of Ready scenarios at the bare rehearsal
+    /// address (task R1 Piece 1d).
+    ///
+    /// ## Domain note: why there is a list here at all
+    ///
+    /// `/cases/:slug/rehearsal` used to open on the FIRST Ready scenario and say
+    /// nothing about the choice it had made. Roman ruled on 2026-08-10 that
+    /// nothing is ever shown that Marie did not pick, so the address names what
+    /// is available and waits.
+    pub picker_heading: String,
     /// Shown for the rehearsal address of a scenario nobody declared ready.
     /// Carries `{code}` — the only thing this page may say about a scenario it
     /// is not showing.
@@ -130,6 +144,7 @@ pub const KEY_POSITION_TEMPLATE: &str = "rehearsal_position_template";
 pub(crate) const KEY_PREVIOUS_LABEL: &str = "rehearsal_previous_label";
 pub(crate) const KEY_NEXT_LABEL: &str = "rehearsal_next_label";
 pub(crate) const KEY_NOTHING_READY: &str = "rehearsal_nothing_ready_notice";
+pub(crate) const KEY_PICKER_HEADING: &str = "rehearsal_picker_heading";
 pub const KEY_NOT_READY: &str = "rehearsal_not_ready_notice";
 pub(crate) const KEY_EXPAND_ALL: &str = "rehearsal_expand_all_label";
 pub(crate) const KEY_COLLAPSE_ALL: &str = "rehearsal_collapse_all_label";
@@ -179,6 +194,7 @@ pub const REHEARSAL_WORDING_KEYS: &[&str] = &[
     KEY_PREVIOUS_LABEL,
     KEY_NEXT_LABEL,
     KEY_NOTHING_READY,
+    KEY_PICKER_HEADING,
     KEY_NOT_READY,
     KEY_EXPAND_ALL,
     KEY_COLLAPSE_ALL,
@@ -356,6 +372,7 @@ pub fn build_rehearsal_wording<E>(
         previous_label: read(KEY_PREVIOUS_LABEL)?,
         next_label: read(KEY_NEXT_LABEL)?,
         nothing_ready_notice: read(KEY_NOTHING_READY)?,
+        picker_heading: read(KEY_PICKER_HEADING)?,
         not_ready_notice: read(KEY_NOT_READY)?,
         expand_all_label: read(KEY_EXPAND_ALL)?,
         collapse_all_label: read(KEY_COLLAPSE_ALL)?,

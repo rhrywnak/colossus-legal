@@ -237,7 +237,7 @@ const DocumentWorkspaceTabs: React.FC = () => {
       )}
 
       {activeTab === "people" && (
-        <PeopleLinksPanel documentId={docId} items={items} onLoadItems={loadItems} />
+        <PeopleLinksPanel items={items} onLoadItems={loadItems} />
       )}
 
       {/* Delete confirmation dialog */}

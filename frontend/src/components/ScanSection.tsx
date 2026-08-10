@@ -101,20 +101,13 @@ const queueMetaStyle: React.CSSProperties = {
   flexWrap: "wrap",
 };
 
-/** Mockup `.q-progress`: 6px tall, chrome trough, fully rounded. */
-const progressTroughStyle: React.CSSProperties = {
-  flex: 1,
-  minWidth: "180px",
-  height: "6px",
-  background: "var(--v3-chrome-strong)",
-  borderRadius: "99px",
-  overflow: "hidden",
-};
+// REMOVED (task R1): `progressTroughStyle`. The pool-wide progress bar it
+// belonged to was retired by ONE_CARD_GRAMMAR piece 1c — progress follows the
+// active filter now and lives on the chip row.
 
 interface Props {
   slug: string;
   scenarioId: string;
-  scenarioTitle: string;
   /** Bumped when a scan merge writes candidate facts; relayed to both children. */
   externalRefresh: number;
   onFactsChanged: () => void;
@@ -157,7 +150,6 @@ interface Props {
 const ScanSection: React.FC<Props> = ({
   slug,
   scenarioId,
-  scenarioTitle,
   externalRefresh,
   onFactsChanged,
   onRulingSaved,
@@ -285,7 +277,6 @@ const ScanSection: React.FC<Props> = ({
           <ThemeScanPanel
             slug={slug}
             scenarioId={scenarioId}
-            scenarioTitle={scenarioTitle}
             onFactsChanged={onFactsChanged}
             proposalSource={proposalSource}
           />

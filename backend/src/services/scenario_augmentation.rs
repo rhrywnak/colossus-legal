@@ -34,7 +34,7 @@ use crate::domain::settings::Settings;
 use crate::repositories::pipeline_repository::{
     delete_human_fact, delete_responses_for_scenario, insert_human_fact, insert_response_item,
     insert_scenario_response, list_human_facts_for_scenario, list_items_for_response,
-    list_responses_for_scenario, update_human_fact_text, update_response_item_text, HumanFactWrite,
+    sole_response_for_scenario, update_human_fact_text, update_response_item_text, HumanFactWrite,
     PipelineRepoError, ResponseItemRecord, ScenarioHumanFactRecord,
 };
 
@@ -323,11 +323,14 @@ pub async fn edit_talking_point(
     let trimmed = checked_line(text)?;
     let index = talking_point_index(position)?;
 
-    let responses = list_responses_for_scenario(pool, scenario_id)
+    // One guarded read, shared with the two sibling call sites: a scenario with
+    // more than one response row is a thing that must never pass silently, and
+    // saying so in three places is three places for it to stop being said.
+    let response = sole_response_for_scenario(pool, scenario_id)
         .await
         .map_err(|source| AugmentationError::Read { source })?;
 
-    let Some(response) = responses.first() else {
+    let Some(response) = response else {
         return Err(no_such_point(position));
     };
 
@@ -441,24 +444,14 @@ pub async fn talking_points(
     pool: &PgPool,
     scenario_id: Uuid,
 ) -> Result<Vec<ResponseItemRecord>, AugmentationError> {
-    let responses = list_responses_for_scenario(pool, scenario_id)
+    // The multi-row warning that used to live here now lives in
+    // `sole_response_for_scenario`, so the rehearsal read and the write path get
+    // it too (task R1 Piece 6).
+    let response = sole_response_for_scenario(pool, scenario_id)
         .await
         .map_err(|source| AugmentationError::Read { source })?;
 
-    // One response per scenario by the ratified reading. More than one is
-    // structurally impossible (`set_talking_points` deletes before it inserts), so
-    // if it happens something wrote around this service — which is exactly the
-    // kind of thing that must not pass silently.
-    if responses.len() > 1 {
-        tracing::warn!(
-            %scenario_id,
-            count = responses.len(),
-            "more than one scenario_responses row for this scenario; C5 is one row \
-             per scenario (v2 §2) — using the first and ignoring the rest"
-        );
-    }
-
-    let Some(response) = responses.first() else {
+    let Some(response) = response else {
         return Ok(Vec::new());
     };
 

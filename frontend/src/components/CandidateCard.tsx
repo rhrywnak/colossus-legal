@@ -226,8 +226,22 @@ export const CandidateCard: React.FC<{
   onSelect,
   onRule,
   keyboardRefused = false,
-  onCorrectQuestion,
-  onRevertQuestion,
+  // RECEIVED AND DELIBERATELY NOT USED — do not "clean these up" (task R1).
+  //
+  // `QuestionLine` (task 1.7F Part B) is a complete, tested component that edits
+  // a card's question, and NOTHING RENDERS IT: the only reference to it outside
+  // its own file is a structure test. These two handlers are wired all the way
+  // from `CardQueue` through `CandidateList` to here and then stop, which is the
+  // same dead-wire shape as `ThemeScanPanel.onFactsChanged` — the defect .390
+  // exists to fix, one feature over.
+  //
+  // Deleting them would silently retire a built feature, which is not a call a
+  // dead-binding sweep gets to make. Renamed with the `_` the compiler ignores so
+  // the contract stays visible and the finding stays reportable. Filed for the
+  // architect; NOT fixed here, because wiring an unreachable editor into a
+  // witness-facing card is a design decision, not a lint.
+  onCorrectQuestion: _onCorrectQuestion,
+  onRevertQuestion: _onRevertQuestion,
   linkOptions,
   onSaveLinks,
   onUnlink,
@@ -311,7 +325,6 @@ export const CandidateCard: React.FC<{
         // Q4: the panel below carries the explanation, so the button row does not
         // print it a second time three inches away. A card with no panel — one
         // with no quote — keeps its sentence exactly where 1.7E-a put it.
-        reasonShownElsewhere={linkPanel}
         // D3a: the standing condition is stated on the card's face, from the
         // stored label. `null` until the wording loads, which renders nothing
         // rather than a compiled-in sentence.

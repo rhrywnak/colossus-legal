@@ -77,8 +77,8 @@ fn validate_direction_rejects_unknown() {
 }
 
 #[test]
-fn validate_status_accepts_all_three_valid() {
-    for s in ["draft", "needs_evidence", "ready"] {
+fn validate_status_accepts_the_two_a_scenario_may_be_created_in() {
+    for s in ["draft", "ready"] {
         assert!(validate_status(s).is_ok(), "status {s} should be valid");
     }
 }
@@ -92,6 +92,40 @@ fn validate_status_rejects_unknown() {
         other => panic!("expected BadRequest naming status, got {other:?}"),
     }
 }
+
+/// `needs_evidence` cannot be CREATED any more (task R1 Piece 4, ruled 2026-08-10).
+///
+/// This is the behavioural half of the fix. The create form's Status `<select>`
+/// is gone, but a form is not a fence — the route is. Until .390 a caller could
+/// POST `needs_evidence` and get a scenario that rendered as **Draft** on its own
+/// page (`ScenarioStatusControl` has two segments and folds every non-Ready value
+/// into the first) while the dashboard card called it "Needs evidence", with no
+/// control able to move it out of the state.
+///
+/// The refusal names the two accepted values so a caller knows what to send.
+#[test]
+fn validate_status_refuses_needs_evidence_at_creation() {
+    let Err(AppError::BadRequest { message, details }) = validate_status("needs_evidence") else {
+        panic!("needs_evidence must no longer be creatable");
+    };
+    assert_eq!(details, json!({ "field": "status" }));
+    assert!(message.contains("draft"), "{message}");
+    assert!(message.contains("ready"), "{message}");
+    assert!(
+        !message.contains("needs_evidence"),
+        "the refusal must not advertise the value it just refused: {message}"
+    );
+}
+
+// The READ path deliberately still understands `needs_evidence` (ruling 6 of
+// CC_TASK_R1_RULINGS_v1): closing the write path is not retiring the column
+// vocabulary, the `scenarios.status` CHECK still permits the value, and a legacy
+// or hand-written row must keep rendering honestly rather than 500-ing. That
+// half is already pinned where the parser lives —
+// `services::scenario_dashboard::tests::parse_status_maps_each_valid_token` —
+// and is NOT restated here. It is named because the two rules are only safe
+// together: narrowing both halves at once is what would turn an existing row
+// into an unreadable one.
 
 // ── The ready gate's other half (task 1.5) ───────────────────────────────
 

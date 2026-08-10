@@ -42,7 +42,6 @@ const DEFAULT_BADGE_COLORS: Record<string, { bg: string; text: string }> = {
   Organization:        { bg: "var(--bias-purple-bg-soft)", text: "var(--bias-purple-text)" },
 };
 
-const DEFAULT_BADGE_FALLBACK = { bg: "var(--bg-page)", text: "var(--text-secondary)" };
 
 /**
  * Plural display labels for filter chips and UI sections.

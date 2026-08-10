@@ -16,7 +16,6 @@
 import type {
   ExchangeTurn,
   ScenarioStatus,
-  ScenarioSummary,
 } from "./trialPrepData";
 
 /** The pattern-flag pill text + whether it renders muted. */

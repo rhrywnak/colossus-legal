@@ -107,10 +107,10 @@ export function draftFrom(source: IdentitySource): IdentityDraft {
  * rather than "nobody has written this yet". Omitting the key leaves the column
  * untouched, which is what "I only changed the name" should mean.
  *
- * That omission is also why {@link targetWouldBeLost} exists: since 2026-08-07
- * the draft carries a target, and a target inside a definition that is never
- * sent is an edit the human made and the system discarded. The modal refuses
- * that combination instead of letting this function silently swallow it.
+ * That omission is also why {@link definitionWouldBeLost} exists: a target or a
+ * gloss inside a definition that is never sent is an edit the human made and the
+ * system discarded. The modal refuses those combinations instead of letting this
+ * function silently swallow them.
  */
 export function patchFrom(
   draft: IdentityDraft,
@@ -147,18 +147,46 @@ export function patchFrom(
 }
 
 /**
- * Would saving this draft discard the target the human just chose?
+ * Which typed definition field saving this draft would silently discard.
  *
- * True when a target is named but the attack text is blank — the one combination
- * {@link patchFrom} cannot express, because it omits the whole definition when
- * there is no attack text and `attack_text` is required by the parse contract.
+ * `null` when nothing would be lost.
  *
- * Split out as its own predicate rather than folded into {@link canSave} so the
- * modal can say WHICH problem stopped it. A Save button that is merely disabled
- * is a control that refuses without explaining itself.
+ * ## What {@link patchFrom} does, and why anything can be lost at all
+ *
+ * `attack_text` is required by the backend's parse contract, so a draft with a
+ * blank one has no valid definition to send and `patchFrom` omits the definition
+ * ENTIRELY. Every other field that lives inside that object goes with it. The
+ * name, theme and motivation are columns and survive; `target` and
+ * `attack_meaning` are not, and do not.
+ *
+ * ## Why this replaced `targetWouldBeLost` (task R1 Piece 5a)
+ *
+ * The old predicate guarded exactly one of the two. A human who typed into
+ * "what that is meant to imply" and left "what they say" blank passed
+ * {@link canSave}, watched the modal close on a successful write, and lost the
+ * sentence they had just written with nothing said — audit defect 16, the same
+ * silent-discard shape the target guard was built to close, one field over.
+ *
+ * ## Why it returns WHICH field rather than a boolean
+ *
+ * Two operationally distinct states get two different observables (Standing
+ * Rule 1). "You picked a person" and "you wrote a sentence" need different
+ * instructions, and a refusal that cannot say which of your edits is about to be
+ * thrown away is barely better than the silence it replaces. The modal maps each
+ * answer to its own stored sentence.
+ *
+ * The target is reported FIRST when both apply: it is the field with the wider
+ * blast radius — a target decides what evidence the scenario can even see — so
+ * it is the one to name when a human has somehow done both.
  */
-export function targetWouldBeLost(draft: IdentityDraft): boolean {
-  return draft.target.trim().length > 0 && draft.attackText.trim().length === 0;
+export type LostDefinitionField = "target" | "meaning";
+
+export function definitionWouldBeLost(draft: IdentityDraft): LostDefinitionField | null {
+  // Everything below only matters when the definition is about to be omitted.
+  if (draft.attackText.trim().length > 0) return null;
+  if (draft.target.trim().length > 0) return "target";
+  if (draft.attackMeaning.trim().length > 0) return "meaning";
+  return null;
 }
 
 /**
@@ -170,12 +198,12 @@ export function targetWouldBeLost(draft: IdentityDraft): boolean {
  * would mean a human could not fix a typo in the name without first inventing a
  * theme statement.
  *
- * The second clause is the 2026-08-07 addition — not a new demand on the human,
- * but a refusal to accept an edit this shape cannot carry (see
- * {@link targetWouldBeLost}).
+ * The second clause is not a new demand on the human either — it refuses an edit
+ * this payload shape cannot carry, which is the only kind of refusal that saves
+ * work rather than costing it (see {@link definitionWouldBeLost}).
  */
 export function canSave(draft: IdentityDraft): boolean {
-  return draft.name.trim().length > 0 && !targetWouldBeLost(draft);
+  return draft.name.trim().length > 0 && definitionWouldBeLost(draft) === null;
 }
 
 /** Add an allegation chip, ignoring a duplicate rather than stacking it. */

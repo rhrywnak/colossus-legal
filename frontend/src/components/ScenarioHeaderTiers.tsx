@@ -36,8 +36,10 @@ import { Link } from "react-router-dom";
 import ScenarioStatusControl from "./ScenarioStatusControl";
 import { headerDescriptor } from "./scenarioHeader";
 import { chipStyle, ghostButtonStyle } from "./scenarioSectionStyles";
+import { statusMeta } from "../pages/trialPrepHelpers";
 import type { ScenarioStatus } from "../pages/trialPrepData";
-import { rehearsalPath } from "../utils/routePaths";
+import { fillSlots } from "../services/evidenceLinks";
+import { rehearsalScenarioPath } from "../utils/routePaths";
 
 /** Mockup `.eyebrow`: 11px/600, .1em tracking, uppercase, --text-3. */
 const eyebrowStyle: React.CSSProperties = {
@@ -133,6 +135,20 @@ const linkStyle: React.CSSProperties = {
   whiteSpace: "nowrap",
 };
 
+/**
+ * The same control, inert, on a scenario that is not Ready.
+ *
+ * The style follows the fact, exactly as `navButtonDisabledStyle` does on the
+ * rehearsal page's bounded arrows: muted text and `not-allowed`, so a control
+ * that will not go anywhere does not read as one that will. An accent-coloured
+ * link that silently does nothing is worse than either state alone.
+ */
+const blockedLinkStyle: React.CSSProperties = {
+  ...linkStyle,
+  color: "var(--text-disabled)",
+  cursor: "not-allowed",
+};
+
 interface Props {
   slug: string;
   scenarioId: string;
@@ -148,6 +164,17 @@ interface Props {
   onDelete: () => void;
   /** The status control saved; the page re-fetches. */
   onReadyChanged: () => void;
+  /**
+   * Why the rehearsal control is inert, as a `{status}` template — or `null`
+   * while the identity payload has not loaded.
+   *
+   * `null` renders NO rehearsal control at all, in either state. That is the
+   * honest-gap law and it is the same rule `AccusationSection` follows with
+   * `if (!panel) return null`: there is no literal to fall back to (v2 §2b), and
+   * a control that cannot say why it is inert is worse than an absent one. The
+   * page's own augmentation-failure notice is what says why it is missing.
+   */
+  rehearsalBlockedTemplate: string | null;
 }
 
 const ScenarioHeaderTiers: React.FC<Props> = ({
@@ -160,8 +187,34 @@ const ScenarioHeaderTiers: React.FC<Props> = ({
   onEdit,
   onDelete,
   onReadyChanged,
+  rehearsalBlockedTemplate,
 }) => {
   const header = headerDescriptor({ code, name, direction, status });
+
+  // THE .389 DEFECT, and the whole reason this control changed (audit defects
+  // 1-4; Roman's round trip of 2026-08-09).
+  //
+  // This link used to be `rehearsalPath(slug)` — the CASE-level address, with no
+  // scenario on it — and it rendered identically whatever the status was. Clicked
+  // on S-5 (Draft) it landed on the rehearsal page with no code in the URL, which
+  // made that page's "did the address name something?" test false, which left its
+  // index clamped at 0, which rendered S-2 — the only Ready scenario — under S-2's
+  // own title with no notice of any kind. From there both ways out composed their
+  // address from the scenario on screen, so "Scenario page →" returned to S-2 as
+  // well. One missing argument, two silent substitutions.
+  //
+  // Two things fix it and they only work together: the address now CARRIES the
+  // code (so the receiving page can refuse by name), and the control is inert
+  // unless the scenario is actually Ready (so the refusal is normally never
+  // reached). `rehearsalAddress.test.ts` pins both halves.
+  const ready = status === "ready";
+  // Filled from the status this header is already rendering, so the sentence
+  // names the state the reader can see rather than assuming "Draft". The column
+  // still permits `needs_evidence` (ruling 6), and `statusMeta` is the one place
+  // that turns a status into a word — the same one the dashboard card reads.
+  const blockedReason = rehearsalBlockedTemplate
+    ? fillSlots(rehearsalBlockedTemplate, { status: statusMeta(status).label })
+    : null;
 
   return (
     <div style={headerRowStyle}>
@@ -223,13 +276,34 @@ const ScenarioHeaderTiers: React.FC<Props> = ({
           ✎ Edit
         </button>
 
-        <Link
-          to={rehearsalPath(slug)}
-          style={linkStyle}
-          title="Marie's testimony-prep view — shows scenarios marked Ready"
-        >
-          Rehearsal view →
-        </Link>
+        {/* The address carries THIS scenario's code (§2a's stable handle, and
+            what the rehearsal route declares) rather than the case. A Ready
+            scenario goes to its own rehearsal; nothing else can be reached from
+            here at all. */}
+        {blockedReason !== null &&
+          (ready ? (
+            <Link
+              to={rehearsalScenarioPath(slug, code)}
+              style={linkStyle}
+              title="Marie's testimony-prep view — shows scenarios marked Ready"
+            >
+              Rehearsal view →
+            </Link>
+          ) : (
+            // A `<span>`, not a disabled `<button>` or an `<a>` with no href: it
+            // is not a control that failed, it is a destination that does not
+            // exist yet. The reason sits in the title AND beside it, because the
+            // hover-tooltip-as-only-explanation is exactly what let the broken
+            // version look alive for eleven days.
+            <span style={blockedLinkStyle} title={blockedReason}>
+              Rehearsal view →
+            </span>
+          ))}
+        {blockedReason !== null && !ready && (
+          <span style={{ fontSize: "12px", color: "var(--text-muted)", maxWidth: "22rem" }}>
+            {blockedReason}
+          </span>
+        )}
 
         {/* DELETE, VISIBLE (Roman overruled D7 for Delete on 2026-08-07).
 

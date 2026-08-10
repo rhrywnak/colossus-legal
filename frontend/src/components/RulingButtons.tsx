@@ -216,7 +216,6 @@ export const CardHead: React.FC<{
    * The reason itself is NOT dropped — it remains the disabled buttons' `title`
    * and the keyboard refusal's spoken text, so I and E still explain themselves.
    */
-  reasonShownElsewhere?: boolean;
   /**
    * The stored sentence for "you have unsaved link choices" (task 2.12, item B).
    *
@@ -250,7 +249,6 @@ export const CardHead: React.FC<{
   deferOnly,
   deferOnlyReason,
   keyboardRefused,
-  reasonShownElsewhere = false,
   unsavedLinkReason = null,
   lockedConditionLabel = null,
   onRule,

@@ -17,7 +17,6 @@ import Breadcrumb from "../components/Breadcrumb";
 import {
   AlertsStrip,
   EmptyState,
-  GenerateScenarioCard,
   MetricsBand,
 } from "../components/TrialPrepViews";
 import ScenarioCard from "../components/ScenarioCard";
@@ -244,7 +243,6 @@ const TrialPrepDashboardPage: React.FC = () => {
             />
           ))}
           {/* On-demand entry point — visual affordance only in Stage 1. */}
-          <GenerateScenarioCard />
         </div>
       )}
 

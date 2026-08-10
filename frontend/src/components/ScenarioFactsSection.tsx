@@ -47,7 +47,6 @@ import {
   setFactOrder,
   setFactTier,
 } from "../services/scenarioFactCuration";
-import { ghostButtonStyle } from "./scenarioSectionStyles";
 import FactsResetOrder from "./FactsResetOrder";
 import type { FactTier } from "../services/scenarioCards";
 

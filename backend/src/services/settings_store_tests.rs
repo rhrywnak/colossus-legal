@@ -400,8 +400,9 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     );
     assert_eq!(
         REHEARSAL_WORDING_KEYS.len(),
-        41,
-        "task 2.11 B2's rehearsal page plus 2.11 C's fifth section state"
+        42,
+        "task 2.11 B2's rehearsal page, 2.11 C's fifth section state, and R1's \
+         picker heading for the rehearsal front door"
     );
     assert_eq!(
         REHEARSAL_CHROME_KEYS.len(),
@@ -415,10 +416,11 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     );
     assert_eq!(
         SCENARIO_AUTHORING_WORDING_KEYS.len(),
-        14,
+        16,
         "2026-08-07: the create form's two new fields, the identity modal's \
          target control, and the no-target notice — plus 2.15's never-scanned \
-         notice, its sibling"
+         notice, its sibling, and R1's two: the second definition-loss refusal \
+         and the gated rehearsal control's reason"
     );
     assert_eq!(
         SCAN_WORDING_KEYS.len(),

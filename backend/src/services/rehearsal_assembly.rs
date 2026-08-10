@@ -26,7 +26,7 @@ use crate::domain::settings::Settings;
 use crate::dto::rehearsal::{RehearsalPoint, RehearsalScenario, RehearsalWatchItem};
 use crate::repositories::pipeline_repository::{
     list_fact_refs_for_scenario, list_human_facts_for_scenario, list_items_for_response,
-    list_responses_for_scenario, PipelineRepoError, ScenarioRecord,
+    sole_response_for_scenario, PipelineRepoError, ScenarioRecord,
 };
 use crate::repositories::scenario_accusation_repository::{
     fetch_rehearsal_facts, RehearsalFactRow,
@@ -249,11 +249,14 @@ async fn talking_points_of(
     scenario_id: uuid::Uuid,
     settings: &Settings,
 ) -> Result<Vec<RehearsalPoint>, AssemblyError> {
-    let responses = list_responses_for_scenario(pool, scenario_id)
+    // The guarded read (task R1 Piece 6). This site had no multi-row warning at
+    // all until .390, and it is the one that feeds a witness: a second response
+    // row would have silently rehearsed the older row's points.
+    let response = sole_response_for_scenario(pool, scenario_id)
         .await
         .map_err(|source| AssemblyError::Read { source })?;
 
-    let Some(response) = responses.first() else {
+    let Some(response) = response else {
         return Ok(Vec::new());
     };
 

@@ -107,6 +107,12 @@ export type ScenarioIdentityWording = {
   /** Refuses a save that names a target while "what they say" is blank — the
    *  one combination a stored definition has no valid shape for. */
   target_needs_attack_text: string;
+  /** The same refusal for a typed "meant to imply" gloss. A separate sentence
+   *  on purpose: it names a different field and a different remedy. */
+  meaning_needs_attack_text: string;
+  /** Why the header's "Rehearsal view" control is inert on a scenario that is
+   *  not Ready. Carries `{status}`, filled from the status already on screen. */
+  rehearsal_link_blocked_reason: string;
 };
 
 export type ScenarioIdentityDto = {

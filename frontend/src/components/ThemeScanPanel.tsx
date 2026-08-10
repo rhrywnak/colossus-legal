@@ -41,6 +41,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 
 import PipelineProgressBar from "./pipeline/PipelineProgressBar";
 import ScanHistoryTable from "./ScanHistoryTable";
+import ScenarioDeleteConfirm from "./ScenarioDeleteConfirm";
 import ScanControlLine from "./ScanControlLine";
 import {
   collapsedFailedSummary,
@@ -71,79 +72,54 @@ import {
 const POLL_INTERVAL_MS = 3000;
 const ELAPSED_TICK_MS = 1000;
 
-// The Theme Scan card is long; a reviewer working in Candidate Facts wants to fold
-// it away. The collapsed state is REMEMBERED PER-SCENARIO in localStorage so it
-// survives navigation/reload (decision) — one scenario collapsed does not collapse
-// another. Keyed by scenario id under a stable prefix.
+// REMOVED in task R1: the per-scenario collapse PREFERENCE and its localStorage
+// helpers (`COLLAPSE_KEY_PREFIX`, `readCollapsed`, `writeCollapsed`, and the
+// `collapsed` state that read them).
 //
-// CONST: a localStorage key prefix must be STABLE across deployments — changing it
-// silently orphans every persisted per-scenario collapse preference (Standing
-// Rule 1: a config-like value whose change has an invisible cost). It is not a
-// configurable operational parameter: it cannot come from server config without a
-// blocking async fetch before the panel's first render, the frontend has no
-// build-time config registry for string constants, and the value is an internal
-// browser-API identifier, not a tunable. So it is a compiled constant by design,
-// not a hardcoded value that belongs in config (Rule 2).
-const COLLAPSE_KEY_PREFIX = "colossus.themeScan.collapsed.";
-
-/** Read the remembered collapsed state for one scenario (default expanded).
- *  localStorage access is wrapped so a disabled/throwing store (privacy mode,
- *  quota, SecurityError) degrades to the default rather than crashing the panel.
- *  The failure is NOT fully swallowed: it is logged so it is observable in the
- *  console during diagnostics (Standing Rule 1), matching how this panel handles
- *  its other cosmetic degradation (the candidate-count fetch). No user-facing
- *  banner — a lost collapse preference is not worth interrupting the reviewer. */
-function readCollapsed(scenarioId: string): boolean {
-  try {
-    return localStorage.getItem(COLLAPSE_KEY_PREFIX + scenarioId) === "1";
-  } catch (e) {
-    // best-effort: reading a REMEMBERED COSMETIC preference. The only failure modes
-    // are an unavailable store (privacy mode / SecurityError) — there is no user
-    // action to recover, and a banner over "your card started expanded" would be
-    // disproportionate noise. We deliberately do NOT surface it to the user; it is
-    // logged so the failure is observable in diagnostics (Standing Rule 1). Falls
-    // back to the safe default (expanded).
-    console.warn("Theme Scan: could not read collapse preference:", e);
-    return false;
-  }
-}
-
-/** Persist the collapsed state for one scenario. Best-effort — a storage failure
- *  (quota / privacy mode) must not break the toggle. Logged (not silently
- *  swallowed) so it is observable in diagnostics; no user-facing surface for a
- *  cosmetic preference (Standing Rule 1 — observable, but proportionate). */
-function writeCollapsed(scenarioId: string, collapsed: boolean): void {
-  try {
-    localStorage.setItem(COLLAPSE_KEY_PREFIX + scenarioId, collapsed ? "1" : "0");
-  } catch (e) {
-    // best-effort: persisting a COSMETIC collapse preference. A storage failure
-    // (quota / privacy mode) has no user recovery and does not affect the current
-    // session — the toggle still works in-memory this visit; only its persistence
-    // is lost. Deliberately NOT surfaced to the user (a banner would be
-    // disproportionate); logged so it is observable in diagnostics (Standing Rule 1).
-    console.warn("Theme Scan: could not save collapse preference:", e);
-  }
-}
+// They were kept dormant in 1.7D on the reasoning that "a dead FUNCTION is debt;
+// a dormant PREFERENCE is a decision already made", waiting for task 3.14 to give
+// this panel a collapse affordance again. Ruling R7 then decided the opposite for
+// this whole family — collapse is deliberately NOT remembered, on the queue and
+// here, because "a card that remembers 'folded' through a scan the human then
+// cannot find is a silent failure wearing a preference's clothes" (see `expanded`
+// below, which states the live rule).
+//
+// So the dormant preference was not waiting for a feature, it was contradicting a
+// ruling. `expandOverride` is the live mechanism and it is per-session by design.
 
 interface Props {
   slug: string;
   scenarioId: string;
-  scenarioTitle: string;
   /** Which completed run is proposing candidates below, or `null` (2026-08-08).
    *  Served with the cards; the panel uses it for the collapsed one-liner and to
    *  decide which history row may show a proposed count. */
   proposalSource: ProposalSource | null;
-  /** Called after a merge successfully writes candidate facts, so the page can
-   *  refresh the curation panel below. Optional: the panel works standalone (the
-   *  outcome notice is still shown), it simply cannot refresh a sibling it does
-   *  not own. */
+  /**
+   * Tell the page that what it is showing about this scan is now out of date.
+   *
+   * Called when a run COMPLETES and when a run is DELETED — the two events that
+   * change which run projects candidates, and therefore change the queue's pool,
+   * its proposal attribution, and the served never-scanned notice. The page
+   * responds by re-reading all four of its payloads.
+   *
+   * ## Why the name outlived its original caller
+   *
+   * It was written for the merge that used to live in this panel and has since
+   * moved out (see the scan REPORT below: numbers only, no Merge). Between those
+   * two facts the prop was declared, destructured, passed down from
+   * `ScenarioDetailPage` — and never called, by anything, for two releases.
+   * `noUnusedLocals` does not catch a destructured parameter; `noUnusedParameters`
+   * does, and .390 turns both on so this cannot recur silently.
+   *
+   * Optional because the panel still works standalone — it simply cannot refresh
+   * a sibling it does not own.
+   */
   onFactsChanged?: () => void;
 }
 
 const ThemeScanPanel: React.FC<Props> = ({
   slug,
   scenarioId,
-  scenarioTitle,
   onFactsChanged,
   proposalSource,
 }) => {
@@ -193,20 +169,6 @@ const ThemeScanPanel: React.FC<Props> = ({
   /** The human's own collapse choice, or `null` while the computed default
    *  stands. See `expanded` below for why it is not persisted. */
   const [expandOverride, setExpandOverride] = useState<boolean | null>(null);
-  // Collapsed state — remembered per-scenario (see readCollapsed/writeCollapsed).
-  // The initializer reads localStorage once; the effect re-reads if the scenario
-  // changes without a remount (a route-param change on the same component).
-  const [collapsed, setCollapsed] = useState<boolean>(() => readCollapsed(scenarioId));
-  useEffect(() => {
-    setCollapsed(readCollapsed(scenarioId));
-  }, [scenarioId]);
-  // `toggleCollapsed` was REMOVED in task 1.7D. Its only caller was the collapse
-  // button in the panel's own header, which mockup parity suppressed — leaving a
-  // callback nothing could invoke. The `collapsed` state and its localStorage
-  // helpers are deliberately kept: they still record a preference this panel will
-  // honour again when task 3.14 gives it a collapse affordance of its own. A dead
-  // FUNCTION is debt; a dormant PREFERENCE is a decision already made.
-
   // Re-read the persisted history (after a scan finishes, or on mount).
   const refreshRuns = useCallback(() => {
     fetchScanRuns(slug, scenarioId)
@@ -279,6 +241,15 @@ const ThemeScanPanel: React.FC<Props> = ({
           setSummaries((m) => ({ ...m, [status.run_id]: summary }));
           setSelectedRunIds([status.run_id]);
           refreshRuns();
+          // THE DEAD WIRE, reconnected (audit defects 7-8). `refreshRuns` reloads
+          // this panel's own history list and nothing else — but a completed run
+          // changes what the PAGE is showing: a new run now projects, so the
+          // queue's pool, its `proposal_source` attribution and the served
+          // "no scan has run yet" notice are all stale the instant this fires.
+          // Without this call they stayed stale until a manual reload, which is
+          // why the banner went on claiming nothing had scanned a scenario that
+          // had just been scanned.
+          onFactsChanged?.();
           setActiveRun(null);
         } else if (status.status === "failed") {
           setStartError(status.error ?? "The scan failed.");
@@ -400,15 +371,69 @@ const ThemeScanPanel: React.FC<Props> = ({
   // from the DB (the run is now gone), and if the deleted run was the one open
   // below, clear the selection and drop its cached summary so the results area
   // does not render a run that no longer exists.
+  // THE RUN-DELETE DIALOG (task R1 Piece 10c).
+  //
+  // Held HERE rather than in the history table for the same reason the dashboard
+  // holds its delete dialog on the page rather than on the card: one dialog
+  // serves every row, and whoever owns the refresh that follows a delete has to
+  // own the question that starts it.
+  //
+  // `pending` carries the run AND its already-filled sentence, so the dialog
+  // names the run it is about. `null` means no dialog.
+  const [pendingDelete, setPendingDelete] = useState<{
+    runId: string;
+    message: string;
+  } | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
   const onDeleteRun = useCallback(
     async (runId: string) => {
+      setDeleting(true);
+      setDeleteError(null);
       try {
         await deleteScanRun(slug, scenarioId, runId);
       } catch (e) {
-        setHistoryError(e instanceof Error ? e.message : "Failed to delete the run.");
+        // The dialog STAYS OPEN with the failure on it (Standing Rule 1, and the
+        // contract `ScenarioDeleteConfirm` is built around). Closing here would
+        // tell the human a run was deleted that is still in the table behind
+        // them — which is what the native `confirm` could not avoid, having no
+        // way to report anything at all.
+        setDeleting(false);
+        // Names WHAT failed, WHY (the backend's own message), and WHAT TO DO.
+        // The dialog stays open with both buttons live, so "try again" is a real
+        // instruction here rather than a platitude — the retry is one click away
+        // and the run is still named on screen.
+        //
+        // These two sentences are code literals on a surface whose words are
+        // otherwise stored rows. They are already on Piece 9's migration
+        // inventory (.391) and are not new debt; the alternative was leaving a
+        // failure that says only that it happened.
+        setDeleteError(
+          e instanceof Error
+            ? `${e.message} The run has NOT been deleted — try again, or reload the page if this keeps happening.`
+            : "Failed to delete the run. It has NOT been deleted — try again, or reload the page if this keeps happening.",
+        );
         return;
       }
+      setDeleting(false);
+      // Closed only AFTER the DELETE resolved. The dialog closing is not proof
+      // the run is gone; the re-read below is.
+      setPendingDelete(null);
       refreshRuns();
+      // Same wire, other direction (audit defect 9). Deleting a run can change
+      // WHICH run projects — the next-newest completed one, or none at all — and
+      // the page owns `proposal_source`. Without this the history table and the
+      // collapsed card would go on attributing proposals to a run that no longer
+      // exists.
+      //
+      // This is the heavier of the two refreshes: it re-runs all four page reads
+      // and reloads the queue's pool. Deliberate and safe here — a deletion does
+      // not change pool MEMBERSHIP, so `cards_loaded`'s clamp lands the human on
+      // the same card they were on. Said out loud because the page's own comment
+      // block warns at length against exactly this kind of over-refresh, and the
+      // next reader deserves to know this one was weighed rather than missed.
+      onFactsChanged?.();
       setSelectedRunIds((sel) => sel.filter((id) => id !== runId));
       setSummaries((m) => {
         if (!(runId in m)) return m;
@@ -522,7 +547,7 @@ const ThemeScanPanel: React.FC<Props> = ({
                   wording={historyWording}
                   selectedRunIds={selectedRunIds}
                   onToggle={onSelectRun}
-                  onDelete={onDeleteRun}
+                  onRequestDelete={setPendingDelete}
                   modelName={modelName}
                   proposingRunId={proposalSource?.run_id ?? null}
                   proposedCount={proposalSource?.proposed_count ?? null}
@@ -577,6 +602,31 @@ const ThemeScanPanel: React.FC<Props> = ({
             </div>
           )}
         </>
+      )}
+
+      {/* The run-delete confirmation (task R1 Piece 10c), replacing the native
+          `window.confirm` that froze the browser walk on 2026-08-09.
+
+          Rendered at the panel's root rather than inside the collapsible body:
+          the dialog must survive whatever the human does to the card behind it,
+          and a confirmation that can be unmounted by a collapse is a
+          confirmation that can strand a delete mid-flight.
+
+          Its `message` is the stored row, filled by the table that had both
+          halves. No `title`: the sentence IS the question, and inventing a
+          heading in code would put a literal on the one surface whose words are
+          all configuration. */}
+      {pendingDelete && (
+        <ScenarioDeleteConfirm
+          message={pendingDelete.message}
+          busy={deleting}
+          error={deleteError}
+          onConfirm={() => void onDeleteRun(pendingDelete.runId)}
+          onCancel={() => {
+            setPendingDelete(null);
+            setDeleteError(null);
+          }}
+        />
       )}
     </section>
   );

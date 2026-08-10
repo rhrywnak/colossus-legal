@@ -15,7 +15,7 @@ import {
   canSave,
   draftFrom,
   patchFrom,
-  targetWouldBeLost,
+  definitionWouldBeLost,
   withAllegation,
   withoutAllegation,
   type IdentityDraft,
@@ -174,24 +174,73 @@ describe("authoring a scenario's target", () => {
     expect(patch.definition?.wielders).toEqual(definition.wielders);
   });
 
+  /** A draft with nothing in it, for the loss cases to vary one field at a time. */
+  const blank: IdentityDraft = {
+    name: "S-3",
+    attackText: "",
+    attackMeaning: "",
+    themeStatement: "",
+    motivation: "",
+    target: "",
+    anchorAllegationIds: [],
+  };
+
   it("refuses a target with no attack text instead of silently dropping it", () => {
     // `patchFrom` omits the whole definition when the attack text is blank
     // (`attack_text` is required by the parse contract). Without this gate the
     // human would choose a person, save, and find the field empty on reopen
     // with nothing said — the exact silent-loss class this task removes.
-    const draft: IdentityDraft = {
-      name: "S-3",
-      attackText: "",
-      attackMeaning: "",
-      themeStatement: "",
-      motivation: "",
-      target: "person-marie-awad",
-      anchorAllegationIds: [],
-    };
-    expect(targetWouldBeLost(draft)).toBe(true);
+    const draft: IdentityDraft = { ...blank, target: "person-marie-awad" };
+    expect(definitionWouldBeLost(draft)).toBe("target");
     expect(canSave(draft)).toBe(false);
     // And the omission it is protecting against is real, not theoretical:
     expect(patchFrom(draft, undefined).definition).toBeUndefined();
+  });
+
+  // ── Task R1 Piece 5a: the half the target guard did not cover ─────────────
+
+  it("refuses a typed MEANING with no attack text — the .389 silent discard", () => {
+    // Audit defect 16, measured. `attack_meaning` lives inside the same
+    // definition object as `target`, so it went the same way when the object was
+    // omitted — but nothing guarded it. A human typed into "what that is meant to
+    // imply", left "what they say" blank, saved, watched the modal close on a
+    // successful write, and lost the sentence with nothing said.
+    const draft: IdentityDraft = { ...blank, attackMeaning: "paints her as obstructive" };
+    expect(definitionWouldBeLost(draft)).toBe("meaning");
+    expect(canSave(draft)).toBe(false);
+    expect(patchFrom(draft, undefined).definition).toBeUndefined();
+  });
+
+  it("names the TARGET when both would be lost", () => {
+    // Two answers, one sentence to show. The target wins because it has the wider
+    // blast radius — it decides what evidence the scenario can see at all.
+    const draft: IdentityDraft = {
+      ...blank,
+      target: "person-marie-awad",
+      attackMeaning: "paints her as obstructive",
+    };
+    expect(definitionWouldBeLost(draft)).toBe("target");
+  });
+
+  it("permits a save that loses nothing — the guard is not a demand for prose", () => {
+    // The common edit: fixing a typo in the name on a scenario nobody has framed
+    // yet. Refusing that would make the guard cost work rather than save it.
+    expect(definitionWouldBeLost(blank)).toBeNull();
+    expect(canSave(blank)).toBe(true);
+  });
+
+  it("permits a gloss once the attack text it belongs to exists", () => {
+    // With an attack text present the definition IS sent, so nothing is dropped
+    // and there is nothing to refuse.
+    const draft: IdentityDraft = {
+      ...blank,
+      attackText: "the parties did not cooperate",
+      attackMeaning: "paints her as obstructive",
+    };
+    expect(definitionWouldBeLost(draft)).toBeNull();
+    expect(patchFrom(draft, undefined).definition?.attack_meaning).toBe(
+      "paints her as obstructive",
+    );
   });
 });
 

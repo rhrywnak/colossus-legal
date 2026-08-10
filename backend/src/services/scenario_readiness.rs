@@ -340,6 +340,7 @@ fn page_wording(settings: &Settings) -> RehearsalWordingDto {
         previous_label: w.previous_label.clone(),
         next_label: w.next_label.clone(),
         nothing_ready_notice: w.nothing_ready_notice.clone(),
+        picker_heading: w.picker_heading.clone(),
         not_ready_notice: w.not_ready_notice.clone(),
         expand_all_label: w.expand_all_label.clone(),
         collapse_all_label: w.collapse_all_label.clone(),
