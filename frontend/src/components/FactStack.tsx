@@ -51,7 +51,6 @@ export const FactStack: React.FC<{
   onUndoWeight: () => void;
   onNoticeCleared: () => void;
   /** The chip narrowing this list, or `null` (Piece 7). */
-  chipFilter: ChipFilter | null;
   onFilterChip: (filter: ChipFilter | null) => void;
 }> = ({
   shown,
@@ -71,7 +70,6 @@ export const FactStack: React.FC<{
   weightNotice,
   onUndoWeight,
   onNoticeCleared,
-  chipFilter,
   onFilterChip,
 }) => {
   /** One card's props — identical for the shown stack and the background pile. */

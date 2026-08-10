@@ -114,12 +114,51 @@ describe("computeAgreement", () => {
 // ── The scan control's last-run summary (task 1.7B) ─────────────────────────
 
 describe("lastRunSummary", () => {
-  it("reads the newest run — the backend already ordered them", () => {
+  it("reads the newest COMPLETED run — the backend already ordered them", () => {
     const summary = lastRunSummary([
-      { candidates_total: 148, started_at: "2026-08-02T09:14:00Z" },
-      { candidates_total: 12, started_at: "2026-07-30T09:14:00Z" },
+      { status: "completed", candidates_total: 148, started_at: "2026-08-02T09:14:00Z" },
+      { status: "completed", candidates_total: 12, started_at: "2026-07-30T09:14:00Z" },
     ]);
     expect(summary).toContain("148 candidates");
+  });
+
+  // ── Task R1 Piece 3: the line that described a scan that never worked ──────
+
+  it("SKIPS a newer failed run and summarises the last one that completed", () => {
+    // The measured defect (audit 10). `fail_scan_run` writes `status` and `error`
+    // and leaves `candidates_total` exactly where promote-time put it, so a run
+    // that died mid-judging sits at index 0 carrying a full-looking count. The
+    // old `runs[0]` rendered it as "104 candidates · …" — a description of a scan
+    // that worked, about one that did not.
+    const summary = lastRunSummary([
+      { status: "failed", candidates_total: 104, started_at: "2026-08-09T20:43:00Z" },
+      { status: "completed", candidates_total: 148, started_at: "2026-07-29T18:29:00Z" },
+    ]);
+    expect(summary).toContain("148 candidates");
+    expect(summary).not.toContain("104");
+  });
+
+  it("SKIPS a run that is still going", () => {
+    // A running run has a denominator and no verdict. Describing it as the last
+    // scan would claim a result that does not exist yet; the RunningView above is
+    // what speaks for a run in flight.
+    const summary = lastRunSummary([
+      { status: "running", candidates_total: 104, started_at: "2026-08-10T01:52:00Z" },
+      { status: "completed", candidates_total: 148, started_at: "2026-07-29T18:29:00Z" },
+    ]);
+    expect(summary).toContain("148 candidates");
+  });
+
+  it("says NOTHING when the only run failed", () => {
+    // Not "0 candidates", and not the failed run's own numbers dressed as a
+    // success. The collapsed card carries the failure's own sentence
+    // (`collapsedFailedSummary`); this line stays silent rather than adding a
+    // second, differently-worded account of the same failure to the same screen.
+    expect(
+      lastRunSummary([
+        { status: "failed", candidates_total: 104, started_at: "2026-08-09T20:43:00Z" },
+      ]),
+    ).toBeNull();
   });
 
   it("says nothing when no scan has run", () => {
@@ -127,9 +166,9 @@ describe("lastRunSummary", () => {
     expect(lastRunSummary([])).toBeNull();
   });
 
-  it("says nothing when the newest run has no count yet", () => {
+  it("says nothing when the newest completed run has no count yet", () => {
     expect(
-      lastRunSummary([{ candidates_total: null, started_at: "2026-08-02T09:14:00Z" }]),
+      lastRunSummary([{ status: "completed", candidates_total: null, started_at: "2026-08-02T09:14:00Z" }]),
     ).toBeNull();
   });
 
@@ -139,7 +178,7 @@ describe("lastRunSummary", () => {
     // Ruling R2's wording, ratified: "+54 since the previous scan". The delta is
     // computed BACKEND-side (Standing Rule 12); this only words it.
     const summary = lastRunSummary([
-      { candidates_total: 148, started_at: "2026-08-02T09:14:00Z", pool_delta: 54 },
+      { status: "completed", candidates_total: 148, started_at: "2026-08-02T09:14:00Z", pool_delta: 54 },
     ]);
     expect(summary).toContain("+54 since the previous scan");
   });
@@ -148,7 +187,7 @@ describe("lastRunSummary", () => {
     // After task 2.5's re-anchoring the pool can legitimately shrink, and a -12
     // that says so is worth more than a 0 that hides it.
     const summary = lastRunSummary([
-      { candidates_total: 136, started_at: "2026-08-02T09:14:00Z", pool_delta: -12 },
+      { status: "completed", candidates_total: 136, started_at: "2026-08-02T09:14:00Z", pool_delta: -12 },
     ]);
     expect(summary).toContain("-12 since the previous scan");
   });
@@ -159,7 +198,7 @@ describe("lastRunSummary", () => {
     // nothing to compare against", which is NOT "the pool did not change". Never
     // "+0", and no orphaned " · " left behind by the missing clause either.
     const summary = lastRunSummary([
-      { candidates_total: 148, started_at: "2026-08-02T09:14:00Z", pool_delta: null },
+      { status: "completed", candidates_total: 148, started_at: "2026-08-02T09:14:00Z", pool_delta: null },
     ]);
     expect(summary).toContain("148 candidates");
     expect(summary).not.toContain("since the previous scan");
@@ -169,7 +208,7 @@ describe("lastRunSummary", () => {
 
   it("shows a real zero delta — an unchanged pool IS a measurement", () => {
     const summary = lastRunSummary([
-      { candidates_total: 148, started_at: "2026-08-02T09:14:00Z", pool_delta: 0 },
+      { status: "completed", candidates_total: 148, started_at: "2026-08-02T09:14:00Z", pool_delta: 0 },
     ]);
     expect(summary).toContain("0 since the previous scan");
   });
@@ -180,6 +219,7 @@ describe("lastRunSummary", () => {
     const summary = lastRunSummary(
       [
         {
+          status: "completed",
           candidates_total: 148,
           started_at: "2026-08-02T09:14:00Z",
           pool_delta: 54,
@@ -196,6 +236,7 @@ describe("lastRunSummary", () => {
     // working; without it the clause is simply absent, not a raw model id.
     const summary = lastRunSummary([
       {
+        status: "completed",
         candidates_total: 148,
         started_at: "2026-08-02T09:14:00Z",
         model_id: "claude-opus-4-8",

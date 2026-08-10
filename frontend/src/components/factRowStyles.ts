@@ -53,27 +53,8 @@ export const CARD_GAP_PX = 20;
 // the ratio test fails rather than the rhythm quietly flattening.
 export const MAX_INTRA_GAP_PX = 6;
 
-const cardStyle = (justArrived: boolean, isDropTarget: boolean): React.CSSProperties => ({
-  display: "flex",
-  gap: "12px",
-  alignItems: "stretch",
-  padding: CARD_PADDING,
-  // The separating space is the CARD's, not the container's — see the note on
-  // `factsScrollRegionStyle`. It is margin rather than a flex gap so that a drop
-  // aimed at the seam between two cards still lands on a drop target.
-  marginBottom: `${CARD_GAP_PX}px`,
-  // Ruling 1: the hairline stays and is now visible. `--border-card`, not
-  // `--border-default` — the divider token keeps its own job elsewhere.
-  border: "1px solid var(--border-card)",
-  borderRadius: "var(--radius-card)",
-  // The drop indicator REPLACES the top border rather than adding to it, so a
-  // card never changes height while being dragged over — a 1px reflow that
-  // ripples down a list of forty-six is how a drop target ends up somewhere
-  // other than where the human aimed.
-  borderTop: isDropTarget ? "2px solid var(--accent-primary)" : "1px solid var(--border-card)",
-  background: justArrived ? "var(--state-warning-bg-soft)" : "var(--bg-surface)",
-  transition: "background 600ms ease-out",
-});
+// REMOVED (task R1): `cardStyle`, superseded by the shared card body
+// (`evidenceCardView` and `EvidenceCardParts`) and unreferenced since.
 
 /**
  * The coloured left spine, running the FULL height of the card (ruling 1).
@@ -86,18 +67,8 @@ const cardStyle = (justArrived: boolean, isDropTarget: boolean): React.CSSProper
  * A cue, never the only signal — the source row still says which in words, for
  * a colourblind reader and for greyscale print.
  */
-const spineStyle = (isHuman: boolean): React.CSSProperties => ({
-  width: "4px",
-  borderRadius: "2px",
-  flexShrink: 0,
-  alignSelf: "stretch",
-  // Task 2.13c item 8: DIMMED. The spine is decoration until task 2.3 gives it
-  // cut meaning (ammunition vs hazard); at full strength it was the loudest thing
-  // on a card whose actual content is the exchange, and it was competing with the
-  // star for the eye.
-  opacity: 0.4,
-  background: isHuman ? "var(--accent-primary)" : "var(--state-success-strong)",
-});
+// REMOVED (task R1): `spineStyle`, the human/machine spine cue. The source
+// row states the same fact in words, which is what actually ships.
 
 /**
  * Metadata: the SMALL of the card's two sizes, regular weight, secondary colour.

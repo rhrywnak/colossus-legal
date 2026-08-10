@@ -183,9 +183,8 @@ const ProcessingPanel: React.FC<ProcessingPanelProps> = ({
     }
   };
 
-  const handleReprocess = () => {
-    setShowReprocess(true);
-  };
+  // REMOVED (task R1): `handleReprocess`, a wrapper around a setState the
+  // Reprocess button already calls inline.
 
   const handleCancel = async () => {
     if (busy) return;

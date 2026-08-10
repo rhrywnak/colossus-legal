@@ -24,6 +24,7 @@ use std::collections::HashMap;
 const SEED_MIGRATIONS: &[&str] = &[
     "pipeline_migrations/20260806100704_rehearsal_render_wording.sql",
     "pipeline_migrations/20260806135509_rehearsal_visual_2_11c.sql",
+    "pipeline_migrations/20260810094435_r1_390_rehearsal_gate_wording_and_response_uniqueness.sql",
 ];
 
 /// The seeded values, for TESTS ONLY — one table, feeding both fixtures.
@@ -52,6 +53,7 @@ const TEST_SEED: &[(&str, &str)] = &[
         "Nothing is ready to rehearse yet. A scenario appears here once someone \
          switches it to Ready on its page.",
     ),
+    (KEY_PICKER_HEADING, "Choose a scenario to rehearse"),
     (
         KEY_NOT_READY,
         "{code} is not ready to rehearse yet. A scenario appears here once someone \
@@ -191,8 +193,8 @@ fn the_fixture_carries_the_values_the_migration_actually_seeds() {
 
     // Anti-vacuity: a parsing change that stopped finding rows would otherwise
     // make this test pass while comparing nothing.
-    assert_eq!(checked, 41, "all forty-one stored strings must be compared");
-    assert_eq!(REHEARSAL_WORDING_KEYS.len(), 41);
+    assert_eq!(checked, 42, "all forty-two stored strings must be compared");
+    assert_eq!(REHEARSAL_WORDING_KEYS.len(), 42);
 }
 
 #[test]
@@ -232,6 +234,7 @@ fn every_field_is_read_from_its_own_key() {
     assert_eq!(w.previous_label, KEY_PREVIOUS_LABEL);
     assert_eq!(w.next_label, KEY_NEXT_LABEL);
     assert_eq!(w.nothing_ready_notice, KEY_NOTHING_READY);
+    assert_eq!(w.picker_heading, KEY_PICKER_HEADING);
     assert_eq!(w.not_ready_notice, KEY_NOT_READY);
     assert_eq!(w.expand_all_label, KEY_EXPAND_ALL);
     assert_eq!(w.collapse_all_label, KEY_COLLAPSE_ALL);

@@ -93,7 +93,6 @@ import { revertQuestionOverride, saveQuestionOverride } from "../services/eviden
 // ─── §2c visual language ────────────────────────────────────────────────────
 
 const SURFACE = "var(--bg-surface)"; // #ffffff — pure white, per §2c
-const HAIRLINE = "1px solid var(--border-default)";
 
 /**
  * The receipt strip: what the last ruling did, when its card has left the list.
@@ -101,22 +100,11 @@ const HAIRLINE = "1px solid var(--border-default)";
  * Quiet by default — an acknowledgment is information, not a warning — and only
  * the failure variant raises its voice.
  */
-const receiptStyle: React.CSSProperties = {
-  border: "1px solid var(--border-default)",
-  borderRadius: "8px",
-  padding: "0.55rem 0.8rem",
-  margin: "0.5rem 0",
-  fontSize: "0.85rem",
-  color: "var(--text-secondary)",
-  background: "var(--v3-chrome)",
-};
+// REMOVED (task R1): `receiptStyle`, which only its danger variant used.
 
-const receiptFailedStyle: React.CSSProperties = {
-  ...receiptStyle,
-  borderColor: "var(--state-danger-strong)",
-  color: "var(--state-danger-strong)",
-  background: "var(--bg-surface)",
-};
+// REMOVED (task R1): `receiptFailedStyle`, a danger variant of the receipt
+// strip that no render site ever used. The failure surfaces this queue does
+// have are `QueueNotices` and the card's own banners.
 
 const hintBarStyle: React.CSSProperties = {
   display: "flex",

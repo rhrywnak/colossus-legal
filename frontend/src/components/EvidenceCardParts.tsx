@@ -22,7 +22,6 @@ import React, { useState } from "react";
 
 import {
   chipStyle,
-  markStyle,
   metaChipStyle,
   warningChipStyle,
 } from "./candidateCardStyles";

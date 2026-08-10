@@ -417,6 +417,13 @@ const ScenarioDetailPage: React.FC = () => {
           setShowDelete(true);
         }}
         onReadyChanged={refresh}
+        // `null` while the augmentation payload is unloaded or failed, which
+        // withdraws the rehearsal control entirely rather than rendering it with
+        // no words (ruling 8: honest-gap, same as `AccusationSection`'s
+        // `if (!panel) return null`). The failure notice below says why.
+        rehearsalBlockedTemplate={
+          augmentation?.identity_wording.rehearsal_link_blocked_reason ?? null
+        }
       />
 
       {/* 2 — §2.2. The three texts come from the augmentation identity, which is
@@ -442,7 +449,6 @@ const ScenarioDetailPage: React.FC = () => {
         // pool and an unread one must never look the same — collapsing them is
         // what put "No candidates gathered yet" over 148 candidates (task 2.13c).
         cards={loading ? null : cards}
-        scenarioTitle={scenario.attack}
         // Either signal reloads the queue's pool: a merge (page-level) or a
         // removal (queue-level). Summed rather than passed as two props because
         // the VALUE is never read — only its change — and both only ever

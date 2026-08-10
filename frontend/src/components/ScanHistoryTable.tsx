@@ -101,7 +101,15 @@ interface Props {
   selectedRunIds: string[];
   onToggle: (runId: string) => void;
   /** The parent owns the network call, the error UI, and post-delete cleanup. */
-  onDelete: (runId: string) => void;
+  /**
+   * Ask the owner to delete this run.
+   *
+   * Carries the FILLED confirmation sentence rather than the run's timestamp,
+   * because this table is where the template and the row meet — the panel has
+   * the wording and the runs, but pairing them again up there would be a second
+   * place composing one sentence.
+   */
+  onRequestDelete: (request: { runId: string; message: string }) => void;
   /** Resolves a model id to its display name (the panel's model catalogue). */
   modelName: (id: string) => string;
   /**
@@ -122,7 +130,7 @@ const ScanHistoryTable: React.FC<Props> = ({
   wording,
   selectedRunIds,
   onToggle,
-  onDelete,
+  onRequestDelete,
   modelName,
   proposingRunId,
   proposedCount,
@@ -239,12 +247,25 @@ const ScanHistoryTable: React.FC<Props> = ({
                       onClick={(event) => {
                         // The row's own click selects; this must not also do that.
                         event.stopPropagation();
-                        // Until now one stray click here destroyed the run AND
-                        // every verdict in it — the only support the rulings it
-                        // produced have. Same shape as the merge confirm.
-                        if (window.confirm(fillRun(wording.delete_confirm_template, row.when))) {
-                          onDelete(row.runId);
-                        }
+                        // This REQUESTS the delete; the panel above owns the
+                        // dialog, the network call and the failure surface. Same
+                        // division the dashboard makes between a scenario card
+                        // and the page that confirms deleting it — one dialog
+                        // serving N rows, and the owner of the refresh owning the
+                        // question.
+                        //
+                        // It was a `window.confirm` until .390. A native dialog
+                        // blocks the browser's main thread, cannot carry the
+                        // failure that follows it, and froze the walk on
+                        // 2026-08-09. The guard itself is unchanged — one stray
+                        // click here still destroys the run AND every verdict in
+                        // it, which is the only support the rulings it produced
+                        // have — but the guard is now a component that can stay
+                        // open and say what went wrong.
+                        onRequestDelete({
+                          runId: row.runId,
+                          message: fillRun(wording.delete_confirm_template, row.when),
+                        });
                       }}
                       style={{
                         border: "none",

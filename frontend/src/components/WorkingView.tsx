@@ -27,16 +27,13 @@ import {
   filterRows,
   humanFactRows,
   includedRows,
-  neighboursForDrop,
   orderedRows,
   splitBackground,
-  type WorkingRow,
 } from "./factsTable";
 import { ghostButtonStyle } from "./scenarioSectionStyles";
 import type { FactTier, ScenarioCard } from "../services/scenarioCards";
 import type { HumanFactDto } from "../services/scenarioAugmentation";
 import {
-  fillCount,
   fillCounts,
   fillSlots,
   type AllegationOptions,
@@ -421,7 +418,6 @@ Nothing here yet. ✓ Include a candidate above, or add a fact of your own.
           }}
           onNoticeCleared={() => setWeightNotice(null)}
           options={options}
-          chipFilter={chipFilter}
           onFilterChip={setChipFilter}
           shown={shown}
           background={background}

@@ -30,7 +30,6 @@ import {
   buildPatchInput,
   diffConfigFromProfile,
   invalidModelFallbackOption,
-  isMapKeyModified,
   mergeOverridesIntoResolved,
   Overrides,
   TOOLTIPS,

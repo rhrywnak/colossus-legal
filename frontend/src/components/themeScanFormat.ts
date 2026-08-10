@@ -68,9 +68,13 @@ export function formatRunTimestamp(iso: string): string {
  *
  * `modelName` is optional so the existing callers and their tests keep working
  * unchanged; without it the clause is simply absent.
+ *
+ * "Last run" means the latest COMPLETED run. A failed or still-running one is
+ * not summarised here — see the comment on the selection itself.
  */
 export function lastRunSummary(
   runs: {
+    status: string;
     candidates_total: number | null;
     started_at: string;
     pool_delta?: number | null;
@@ -78,7 +82,25 @@ export function lastRunSummary(
   }[],
   modelName?: (modelId: string) => string,
 ): string | null {
-  const latest = runs[0];
+  // THE STATUS FILTER, and why this line needed one (audit defect 10).
+  //
+  // This used to read `runs[0]` — the newest run of ANY status. The list arrives
+  // `ORDER BY started_at DESC` with no status fence, `fail_scan_run` changes only
+  // `status` and `error`, and `candidates_total` is written at PROMOTE time. So a
+  // run that died mid-judging kept a non-null total, sat at index 0, and rendered
+  // here as "104 candidates · Aug 9 · Claude Opus 5" — a sentence describing a
+  // scan that worked, about one that did not.
+  //
+  // The collapsed card eleven lines away in `ThemeScanPanel` already made this
+  // distinction (`latestCompleted` / `latestSettled` / `latestFailed`), which
+  // meant one screen could carry two different runs under two labels. This adopts
+  // the same selection, so both surfaces name the same run or say nothing.
+  //
+  // A failed or running run is not described here AT ALL rather than described
+  // with a qualifier: the failed run has its own sentence on the collapsed card
+  // (`collapsedFailedSummary`), and two sentences about one failure on one screen
+  // is how the .389 card came to contradict itself.
+  const latest = runs.find((run) => run.status === "completed");
   if (!latest || latest.candidates_total == null) return null;
 
   // Built as parts and joined, so an absent clause leaves no orphaned " · ".

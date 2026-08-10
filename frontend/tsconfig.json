@@ -8,6 +8,21 @@
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     "strict": true,
+    // Both flags, and the SECOND one is the one that earns its place.
+    //
+    // `onFactsChanged` was declared on `ThemeScanPanel`, destructured, passed
+    // down from `ScenarioDetailPage` — and never called, by anything, for two
+    // releases. The page therefore never re-read its cards after a scan
+    // completed, so the served "no scan has run yet" banner went on claiming
+    // nothing had scanned a scenario that had just been scanned.
+    //
+    // Measured on 2026-08-10: `noUnusedLocals` alone does NOT catch that. A
+    // destructured PARAMETER binding is only reported under
+    // `noUnusedParameters`, so the flag the fix was first specified with would
+    // have shipped the same defect green. Both are on; neither alone is the
+    // guard.
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
     "forceConsistentCasingInFileNames": true,
     "module": "ESNext",
     "moduleResolution": "bundler",

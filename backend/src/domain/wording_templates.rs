@@ -36,6 +36,7 @@ use crate::domain::wording_authoring as authoring;
 use crate::domain::wording_rehearsal as rehearsal;
 use crate::domain::wording_rehearsal_chrome as chrome;
 use crate::domain::wording_scan as scan;
+use crate::domain::wording_scenario_authoring as scenario_authoring;
 
 /// The placeholders a stored string MUST still contain after a human edits it.
 ///
@@ -127,6 +128,19 @@ pub const REQUIRED_PLACEHOLDERS: &[(&str, &[&str])] = &[
     // Without {n} every editing box in the list announces itself identically to a
     // screen reader, which is the same as none of them being labelled.
     (authoring::KEY_POINTS_FIELD_LABEL, &["{n}"]),
+    // ── Task R1 Piece 1b: the gated rehearsal control ────────────────────────
+    //
+    // "Not in rehearsal — this scenario is . Switch it to Ready" is a sentence
+    // that refuses without naming the state it is refusing from. Worse here than
+    // in most: the `scenarios.status` CHECK still permits `needs_evidence`
+    // (ruling 6 keeps it READABLE while .390 closes the write path), so the
+    // placeholder is the only thing keeping this sentence true for every value a
+    // row can actually carry. An edit that dropped it would silently make the
+    // control claim "Draft" about a scenario that is not drafted.
+    (
+        scenario_authoring::KEY_REHEARSAL_LINK_BLOCKED,
+        &["{status}"],
+    ),
     // ── Task 2.15 Tier 2: the scan's own words ───────────────────────────────
     //
     // The conservation line IS its five numbers. An edit that dropped one would

@@ -42,7 +42,7 @@ import {
   canSave,
   draftFrom,
   patchFrom,
-  targetWouldBeLost,
+  definitionWouldBeLost,
   withAllegation,
   withoutAllegation,
   type IdentityDraft,
@@ -241,17 +241,37 @@ const ScenarioIdentityModal: React.FC<Props> = ({
   // Its own effect rather than a third promise in the one above: that effect
   // re-runs whenever the definition prop changes, and re-fetching a 120-row
   // catalogue on every save round-trip would be waste. This one runs once.
+  //
+  // It closes over `slug` and `scenarioId` for its failure log, and the empty
+  // dependency list is still correct: the page mounts this modal only while it is
+  // open and unmounts it on close, so neither value can change during this
+  // component's life. Adding them as dependencies would re-fetch the catalogue
+  // for no behavioural gain.
   useEffect(() => {
     let live = true;
     getAvailableFilters()
       .then((filters) => {
         if (live) setSubjects(filters.subjects);
       })
-      .catch(() => {
+      .catch((e: unknown) => {
         if (!live) return;
-        // The stored sentence for this failure tells the human not to save, so
-        // it must be the one shown. Until the wording arrives there is nothing
-        // honest to say, and the modal's generic loader is still on screen.
+        // The human-facing half is `subjectsFailed` below, which renders the
+        // stored "do not save" sentence — the only honest thing to say before the
+        // wording arrives, since there is no literal to fall back to.
+        //
+        // The OPERATOR-facing half used to be nothing at all: this catch took the
+        // error object and dropped it, so a failed target-vocabulary load left no
+        // trace anywhere a diagnosis could start from (audit defect 20). Rule 1's
+        // best-effort carve-out covers cosmetic browser storage and explicitly
+        // not an `authFetch`, so the cause is logged even though the state is
+        // already visible.
+        // NAMES the scenario. Two identity modals can be open in two tabs, and a
+        // console line that cannot say which one it came from sends an operator
+        // to the URL bar to find out.
+        console.warn(
+          `Scenario identity: the party vocabulary failed to load for ${slug}/${scenarioId}:`,
+          e,
+        );
         setSubjects([]);
       });
     return () => {
@@ -267,11 +287,20 @@ const ScenarioIdentityModal: React.FC<Props> = ({
 
   const handleSave = () => {
     if (!draft || saving) return;
-    // The one refusal this dialog owns: a chosen target with no attack text
-    // cannot be stored, and saving anyway would drop the person just picked
-    // without a word. Said out loud rather than expressed as a dead button.
-    if (targetWouldBeLost(draft)) {
-      setError(wording?.target_needs_attack_text ?? null);
+    // The refusals this dialog owns: a definition field typed while "what they
+    // say" is blank cannot be stored, and saving anyway would drop it without a
+    // word. Said out loud rather than expressed as a dead button.
+    //
+    // Each answer gets its OWN sentence. A human who picked a person and a human
+    // who wrote a gloss made different edits and need different instructions,
+    // and one message covering both would have to name neither field.
+    const lost = definitionWouldBeLost(draft);
+    if (lost !== null) {
+      setError(
+        (lost === "target"
+          ? wording?.target_needs_attack_text
+          : wording?.meaning_needs_attack_text) ?? null,
+      );
       return;
     }
     if (!canSave(draft)) return;

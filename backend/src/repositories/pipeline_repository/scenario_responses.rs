@@ -189,6 +189,18 @@ pub async fn delete_responses_for_scenario(
     Ok(result.rows_affected())
 }
 
+// CONST: the fence and the ORDER of the response list, held as a `const` for the
+// house SQL-shape test pattern (see `scan_run_projection::PROJECTING_RUN_SQL`).
+// Query text, not config — Rule 13 N/A.
+//
+// The ORDER BY is load-bearing rather than cosmetic: `sole_response_for_scenario`
+// takes the FIRST row, and "first" only means "the oldest, deterministically" as
+// long as this clause says so. `id` breaks a `created_at` tie, so two rows written
+// in the same microsecond still resolve to one stable answer rather than to
+// whichever the planner happened to emit.
+const LIST_RESPONSES_TAIL: &str =
+    "FROM scenario_responses WHERE scenario_id = $1 ORDER BY created_at, id";
+
 /// List a scenario's responses, oldest first.
 ///
 /// # Errors
@@ -197,15 +209,62 @@ pub async fn list_responses_for_scenario(
     pool: &PgPool,
     scenario_id: uuid::Uuid,
 ) -> Result<Vec<ScenarioResponseRecord>, PipelineRepoError> {
-    let sql = format!(
-        "SELECT {SCENARIO_RESPONSE_COLUMNS} FROM scenario_responses \
-         WHERE scenario_id = $1 ORDER BY created_at, id"
-    );
+    let sql = format!("SELECT {SCENARIO_RESPONSE_COLUMNS} {LIST_RESPONSES_TAIL}");
     let rows = sqlx::query_as::<_, ScenarioResponseRecord>(&sql)
         .bind(scenario_id)
         .fetch_all(pool)
         .await?;
     Ok(rows)
+}
+
+/// A scenario's ONE response row, or `None` when nobody has written one.
+///
+/// ## Why this exists (task R1 Piece 6)
+///
+/// Three call sites took `.first()` off [`list_responses_for_scenario`] and only
+/// one of them said anything when the list was longer than that: the working
+/// page's read warned, while the talking-point WRITE and — the one that matters —
+/// the REHEARSAL read took the oldest row in silence. The rehearsal page is the
+/// surface a witness works from, so the site with no guard was the site where a
+/// silent substitution would cost the most.
+///
+/// The invariant is enforced by the database as of the same task
+/// (`scenario_responses_scenario_id_key`, UNIQUE on `scenario_id`), which means
+/// the warning below should now be unreachable. It stays anyway, and that is
+/// deliberate: a constraint added in one migration can be dropped in another, and
+/// the failure this guards against is silent by nature. A warning nobody ever
+/// reads costs one branch; the alternative costs a witness rehearsing the wrong
+/// talking points.
+///
+/// `None` is a real answer — a scenario nobody has written points for — and not
+/// an error. A failure to READ is different and propagates.
+///
+/// ## Rust Learning: returning an owned `Option<T>` rather than a borrowed one
+///
+/// `rows.first()` yields `Option<&ScenarioResponseRecord>` borrowed from a local
+/// `Vec` that dies at the end of this function, so it cannot be returned.
+/// `into_iter().next()` consumes the `Vec` and MOVES the first element out
+/// instead, which the caller then owns outright. Same element, no clone.
+///
+/// # Errors
+/// Returns [`PipelineRepoError`] if the query fails.
+pub async fn sole_response_for_scenario(
+    pool: &PgPool,
+    scenario_id: uuid::Uuid,
+) -> Result<Option<ScenarioResponseRecord>, PipelineRepoError> {
+    let rows = list_responses_for_scenario(pool, scenario_id).await?;
+
+    if rows.len() > 1 {
+        tracing::warn!(
+            %scenario_id,
+            count = rows.len(),
+            "more than one scenario_responses row for this scenario; C5 is one row \
+             per scenario (v2 §2) and the UNIQUE constraint should make this \
+             impossible — using the oldest and ignoring the rest"
+        );
+    }
+
+    Ok(rows.into_iter().next())
 }
 
 // ── response_items ───────────────────────────────────────────────
@@ -359,4 +418,50 @@ pub async fn list_fact_refs_for_item(
         .fetch_all(pool)
         .await?;
     Ok(rows)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // The two properties `sole_response_for_scenario` rests on live in SQL, so
+    // they are asserted against the STATEMENT — the house pattern for a rule the
+    // database enforces (mirrors `scan_run_projection`'s three shape tests). A
+    // unit test cannot run a query; it can prove the query cannot express the
+    // wrong thing.
+    //
+    // The behavioural half — that the guarded read returns `None` for a scenario
+    // with no row and `Some` for one with exactly one — belongs in
+    // `tests/scenarios_integration.rs`, which does not currently compile
+    // (17 pre-existing errors, unrelated to this change and predating it by
+    // several releases). Writing tests into a suite that cannot run would be
+    // worse than recording the gap, so it is recorded: see the .390 completion
+    // report.
+
+    /// "The first row" is only a meaningful answer if the order is fixed.
+    ///
+    /// `sole_response_for_scenario` documents that it returns the OLDEST row when
+    /// the impossible happens and there are several. Drop this clause and "oldest"
+    /// silently becomes "whichever the planner felt like", which on a rehearsal
+    /// page means a witness reading a different set of talking points on a reload.
+    #[test]
+    fn the_response_list_is_ordered_so_that_first_means_oldest() {
+        assert!(
+            LIST_RESPONSES_TAIL.contains("ORDER BY created_at, id"),
+            "the oldest row must be deterministic: {LIST_RESPONSES_TAIL}"
+        );
+    }
+
+    /// One scenario's responses, never another's.
+    ///
+    /// The same case-fence discipline `delete_scan_run` states: a missing fence
+    /// here would let one scenario's talking points be read under another's id,
+    /// which is the silent-substitution class this whole task exists to close.
+    #[test]
+    fn the_response_list_is_fenced_to_one_scenario() {
+        assert!(
+            LIST_RESPONSES_TAIL.contains("scenario_id = $1"),
+            "the read must be fenced to its scenario: {LIST_RESPONSES_TAIL}"
+        );
+    }
 }

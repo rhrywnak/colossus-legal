@@ -63,6 +63,11 @@ const CONVERTED_FAMILY = [
   ["components", "ScenarioHeaderTiers.tsx"],
   ["components", "TrialPrepViews.tsx"],
   ["pages", "ScenarioDetailPage.tsx"],
+  // The sixth, added with the surface it serves (task R1 Piece 1d). Every row of
+  // the rehearsal picker composes an address, which makes it a route-composing
+  // file and therefore a file this guard has to cover — a new screen is exactly
+  // where a hand-spelled route creeps back in.
+  ["components", "RehearsalPicker.tsx"],
 ];
 
 describe("no screen in the converted family spells a route by hand", () => {
@@ -83,10 +88,106 @@ describe("no screen in the converted family spells a route by hand", () => {
   it("names files that exist, so a rename cannot empty this list quietly", () => {
     // Without this, deleting or renaming a file would make its guard vanish
     // rather than fail — the whole list could rot to nothing and stay green.
-    expect(CONVERTED_FAMILY).toHaveLength(5);
+    expect(CONVERTED_FAMILY).toHaveLength(6);
     for (const [dir, file] of CONVERTED_FAMILY) {
       expect(read(dir, file).length).toBeGreaterThan(0);
     }
+  });
+});
+
+/**
+ * The guard that the .382 pair could not provide (task R1 Piece 1e, audit defect 6).
+ *
+ * ## What the existing two halves prove, and what they cannot
+ *
+ * `routePaths.test.ts` proves what each builder EMITS matches what `App.tsx`
+ * DECLARES. The `CONVERTED_FAMILY` block above proves no screen in this family
+ * spells a route by hand. Both passed, green, on beta.389 — while the scenario
+ * page's rehearsal control composed `rehearsalPath(slug)`: a perfectly spelled,
+ * correctly declared, correctly escaped address to the WRONG SUBJECT. It carried
+ * no scenario at all, and the rehearsal page then rendered whichever scenario sat
+ * at index 0.
+ *
+ * A URL guard that checks spelling cannot catch an argument. So this block checks
+ * the argument: the header must compose the address that NAMES a scenario, and
+ * must not compose the case-level one.
+ */
+describe("the rehearsal control names the scenario it is on", () => {
+  const header = read("components", "ScenarioHeaderTiers.tsx");
+
+  it("composes the per-scenario address with this scenario's own code", () => {
+    // `rehearsalScenarioPath` was routed, tested and documented for two releases
+    // with NO producer anywhere in the app. This is its first caller.
+    expect(header).toContain("rehearsalScenarioPath(slug, code)");
+  });
+
+  it("cannot reach the case-level rehearsal address at all", () => {
+    // The defect itself. `rehearsalPath(slug)` opens rehearsal with nothing
+    // named, which is how a Draft scenario's control delivered a different
+    // scenario's rehearsal — twice in one round trip, silently.
+    //
+    // Asserted on the IMPORT rather than on the body, for the reason the
+    // `CONVERTED_FAMILY` block states one screen up: this file explains the
+    // defect it fixes, and a test that flags prose is a test people learn to
+    // work around. A builder that is not imported cannot be called.
+    const imports = header.slice(0, header.indexOf("const eyebrowStyle"));
+    expect(imports).toContain("rehearsalScenarioPath");
+    expect(imports).not.toMatch(/\brehearsalPath\b/);
+  });
+
+  it("gates the live link on the scenario actually being ready", () => {
+    // Rehearsal mode serves READY scenarios through a human gate (v2 §5/§10).
+    // Before .390 the control rendered identically at every status and the only
+    // statement of the rule was a hover tooltip.
+    expect(header).toContain('status === "ready"');
+  });
+
+  it("says why it is inert in a STORED sentence, never a literal", () => {
+    // The reason is a settings row filled with the status on screen. A literal
+    // here would be the one word on this control the configuration law cannot
+    // reach — and it would have to guess "Draft", which is wrong for any other
+    // non-Ready value the column still permits.
+    expect(header).toContain("rehearsalBlockedTemplate");
+    expect(header).toContain("{ status: statusMeta(status).label }");
+  });
+});
+
+/**
+ * The rehearsal page shows a refusal INSTEAD OF a scenario, never beside one.
+ *
+ * Roman's ruling of 2026-08-10, and the second half of the S-5 → S-2 fix. The
+ * three modes are mutually exclusive by construction; before .390 the not-ready
+ * notice and `scenarios[0]`'s full blocks rendered together, which is a refusal
+ * that nonetheless produces content under another scenario's title.
+ */
+describe("the rehearsal page is in exactly one mode at a time", () => {
+  const page = read("pages", "RehearsalPage.tsx");
+
+  it("derives one mode rather than testing conditions in three places", () => {
+    expect(page).toContain('const mode = notReady ? "refusing" : picked ? "rehearsing" : "picking"');
+  });
+
+  it("renders the blocks ONLY while rehearsing", () => {
+    expect(page).toContain('{mode === "rehearsing" &&');
+  });
+
+  it("renders the refusal ONLY while refusing", () => {
+    expect(page).toContain('{mode === "refusing" && (');
+  });
+
+  it("offers the picker when nobody has picked", () => {
+    // The front door. A bare `/rehearsal` used to open on the first ready
+    // scenario and say nothing about having chosen for her.
+    expect(page).toContain('{mode === "picking" && (');
+    expect(page).toContain("<RehearsalPicker");
+  });
+
+  it("withholds the scenario's name from the header outside rehearsing mode", () => {
+    // The breadcrumb and "Scenario page ↗" compose their address from the
+    // scenario on screen. Left populated during a refusal, they would point at a
+    // scenario the reader never asked for — which is exactly how the .389 round
+    // trip ended at S-2 twice.
+    expect(page).toContain('scenario={mode === "rehearsing" ? scenario : undefined}');
   });
 });
 

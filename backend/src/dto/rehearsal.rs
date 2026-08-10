@@ -400,6 +400,10 @@ pub struct RehearsalWordingDto {
     pub previous_label: String,
     pub next_label: String,
     pub nothing_ready_notice: String,
+    /// The heading over the Ready-scenario list at the bare rehearsal address
+    /// (task R1 Piece 1d). The list itself is composed from `scenarios`, which
+    /// this payload already carries — no second read, no second ordering.
+    pub picker_heading: String,
     /// Carries  — the ONLY thing this page may say about a scenario it
     /// is not showing, because that scenario is not in the payload at all.
     pub not_ready_notice: String,

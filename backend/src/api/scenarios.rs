@@ -43,7 +43,34 @@ use crate::{
 // deployment knob — changing them requires a matching migration (Standing Rule 2
 // does not apply; same rationale as the store's column projections).
 const ALLOWED_DIRECTIONS: &[&str] = &["offense", "defense"];
-const ALLOWED_STATUSES: &[&str] = &["draft", "needs_evidence", "ready"];
+/// The statuses a scenario may be CREATED in (task R1 Piece 4, ruled 2026-08-10).
+///
+/// ## Domain note: narrower than the column, deliberately
+///
+/// This is the one vocabulary here that is NOT a mirror of its CHECK constraint.
+/// The column still permits `needs_evidence`; this list does not, and the gap is
+/// the point.
+///
+/// `needs_evidence` was dead vocabulary that only the create form could produce:
+/// measured at zero rows in task 1.5 and again on DEV on 2026-08-10, while the
+/// form's Status `<select>` went on offering it. A scenario created that way then
+/// rendered as **Draft** on the scenario page — `ScenarioStatusControl` has two
+/// segments, and its `status === "ready"` test folds every other value into the
+/// Draft one — while the dashboard card showed "Needs evidence". Two surfaces
+/// disagreeing about one scenario, with no control able to move it out of the
+/// state (clicking Draft on a scenario already rendering as Draft is a no-op).
+///
+/// So the write path closes. Ruling 6 of CC_TASK_R1_RULINGS_v1 deliberately
+/// leaves the READ path alone — the CHECK constraint stays, and `statusMeta`
+/// keeps its third arm — so a hand-written row still renders honestly instead of
+/// rendering as nothing. Retiring the column vocabulary is a constraint swap and
+/// stays filed as task 3.6's remainder.
+///
+/// `ready` stays here because this list also feeds nothing else: creation cannot
+/// reach it through the UI (the form no longer asks), but an API caller declaring
+/// a scenario ready at birth is a legitimate act the readiness ledger records
+/// elsewhere, and refusing it here would be a new rule rather than a repair.
+const ALLOWED_STATUSES: &[&str] = &["draft", "ready"];
 /// The status applied when the create request omits one (mirrors the column's
 /// `'draft'` default so the Rust path and the DB backstop agree).
 const DEFAULT_STATUS: &str = "draft";
@@ -73,11 +100,15 @@ fn validate_direction(direction: &str) -> Result<(), AppError> {
     Ok(())
 }
 
-/// `status` must be one of the table's CHECK values.
+/// `status` must be one of the statuses a scenario may be CREATED in.
+///
+/// See [`ALLOWED_STATUSES`] for why that is narrower than the column's CHECK.
+/// The refusal names the two that are accepted rather than the three the column
+/// stores, because the caller's question is "what may I send", not "what exists".
 fn validate_status(status: &str) -> Result<(), AppError> {
     if !ALLOWED_STATUSES.contains(&status) {
         return Err(AppError::BadRequest {
-            message: "status must be one of: draft, needs_evidence, ready".to_string(),
+            message: "status must be one of: draft, ready".to_string(),
             details: json!({ "field": "status" }),
         });
     }

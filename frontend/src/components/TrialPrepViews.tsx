@@ -18,9 +18,8 @@ import { pillStyle } from "./trialPrepCardStyles";
 import type {
   ExchangeTurn,
   MarieResponse,
-  ScenarioSummary,
 } from "../pages/trialPrepData";
-import { isAnticipated, showsRepeatFlag, statusMeta } from "../pages/trialPrepHelpers";
+import { isAnticipated, showsRepeatFlag } from "../pages/trialPrepHelpers";
 
 const EMDASH = "—";
 
@@ -159,26 +158,18 @@ export const AlertsStrip: React.FC<{ alerts: { message: string }[] }> = ({ alert
   </div>
 );
 
-/** The dashed "Generate a scenario" affordance — visual only in Stage 1. */
-export const GenerateScenarioCard: React.FC<{ onClick?: () => void }> = ({ onClick }) => (
-  <button
-    type="button"
-    onClick={onClick}
-    style={{
-      border: "1px dashed var(--border-default)",
-      backgroundColor: "transparent",
-      borderRadius: "8px",
-      padding: "14px 16px",
-      cursor: "pointer",
-      color: "var(--text-muted)",
-      fontFamily: "inherit",
-      fontSize: "0.9rem",
-      minHeight: "120px",
-    }}
-  >
-    + Generate a scenario
-  </button>
-);
+// REMOVED in task R1 Piece 10d: `GenerateScenarioCard`.
+//
+// A dashed "+ Generate a scenario" tile that had been "visual only in Stage 1"
+// since it was written — it took an optional `onClick` and the dashboard mounted
+// it with none, so every click did nothing at all. A control that never worked is
+// worse than a missing feature: it teaches a human that this page's buttons are
+// unreliable, on the page where they are about to be asked to trust a delete
+// confirmation.
+//
+// Creation has ONE control now, the dashboard's "New scenario" button. Whether
+// generation ever arrives is a design question (D1-D6); a dead tile was not
+// holding its place, it was just sitting there.
 
 // ─── Exchange timeline turn ──────────────────────────────────────────────────
 

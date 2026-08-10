@@ -232,6 +232,9 @@ export type RehearsalWording = {
   previous_label: string;
   next_label: string;
   nothing_ready_notice: string;
+  /** The heading over the Ready-scenario list at the bare rehearsal address
+   *  (task R1 Piece 1d). The list itself is composed from `scenarios`. */
+  picker_heading: string;
   /** Carries `{code}` — filled by `fillCode`. */
   not_ready_notice: string;
   expand_all_label: string;

@@ -18,7 +18,16 @@
 import React from "react";
 
 interface Props {
-  title: string;
+  /**
+   * The dialog's heading, or omitted when the message IS the whole question.
+   *
+   * Optional since task R1 Piece 10c. The scan-history delete has exactly one
+   * stored sentence for its confirmation and no row for a title; inventing a
+   * heading in code to satisfy this prop would put a new user-visible literal on
+   * a surface whose whole point is that its words are configuration. A dialog
+   * with one well-written sentence needs no heading over it.
+   */
+  title?: string;
   message: string;
   /** Label for the confirm button (e.g. "Delete"). Defaults to "Confirm". */
   confirmLabel?: string;
@@ -122,7 +131,7 @@ const ScenarioDeleteConfirm: React.FC<Props> = ({
 }) => (
   <div style={S.overlay} onClick={busy ? undefined : onCancel}>
     <div style={S.dialog} onClick={(e) => e.stopPropagation()}>
-      <div style={S.title}>{title}</div>
+      {title && <div style={S.title}>{title}</div>}
       <div style={S.message}>{message}</div>
       {error && <div style={S.errorBox}>{error}</div>}
       <div style={S.buttons}>

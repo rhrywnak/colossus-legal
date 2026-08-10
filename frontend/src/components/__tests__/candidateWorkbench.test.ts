@@ -32,14 +32,6 @@ const candidate = (id: string, status: FactStatus, ordinal: number | null = null
 });
 
 /** A scored candidate carrying a model role + confidence (what the merge writes). */
-const scored = (id: string, role: string, confidence: number): CandidateDto => ({
-  content: { evidence_id: id, title: "", pattern_tags: [], about: [] },
-  status: "undecided",
-  role,
-  confidence,
-  note: null,
-  ordinal: null,
-});
 
 const savedRef = (id: string): ScenarioFactDto => ({
   graph_node_id: id,

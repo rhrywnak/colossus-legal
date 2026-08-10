@@ -40,15 +40,38 @@ import type {
   ScenarioCreateWording,
   ScenarioStatus,
 } from "../pages/trialPrepData";
-import { statusMeta } from "../pages/trialPrepHelpers";
 import { getAvailableFilters, type ActorOption } from "../services/bias";
 import {
   createScenario,
   type ScenarioDirection,
 } from "../services/scenarioCrud";
 
-/** The three real statuses, labelled via the shared `statusMeta` (one source). */
-const STATUS_OPTIONS: ScenarioStatus[] = ["draft", "needs_evidence", "ready"];
+/**
+ * The status every new scenario is born in (task R1 Piece 4).
+ *
+ * ## Domain note: why the form no longer ASKS
+ *
+ * It used to offer three: `draft`, `needs_evidence`, `ready`. Two of those were
+ * wrong to offer and the middle one was actively harmful.
+ *
+ * `needs_evidence` was dead vocabulary — zero rows, measured twice — that only
+ * this control could produce. A scenario created that way rendered as **Draft**
+ * on its own page, because `ScenarioStatusControl` has two segments and folds
+ * every non-Ready value into the first, while the dashboard card went on calling
+ * it "Needs evidence". Two surfaces disagreeing about one scenario, and no
+ * control able to move it out of the state.
+ *
+ * `ready` was wrong for a different reason: declaring a scenario rehearsable is a
+ * recorded human act with an actor written to the transitions ledger (v2 §5/§6).
+ * Creating one pre-declared would put it in front of Marie with nobody's name
+ * against the decision.
+ *
+ * So creation lands `draft`, always, and the scenario page's status control is
+ * the one place readiness is decided. The route enforces the same narrowing —
+ * a form is not a fence.
+ */
+const CREATED_STATUS: ScenarioStatus = "draft";
+
 const DIRECTION_OPTIONS: { value: ScenarioDirection; label: string }[] = [
   { value: "offense", label: "Offense" },
   { value: "defense", label: "Defense" },
@@ -79,7 +102,6 @@ const ScenarioCreateForm: React.FC<ScenarioCreateFormProps> = ({
 }) => {
   const [name, setName] = useState("");
   const [direction, setDirection] = useState<ScenarioDirection>("defense");
-  const [status, setStatus] = useState<ScenarioStatus>("draft");
   const [target, setTarget] = useState("");
   const [accusation, setAccusation] = useState("");
   const [subjects, setSubjects] = useState<ActorOption[] | null>(null);
@@ -154,7 +176,11 @@ const ScenarioCreateForm: React.FC<ScenarioCreateFormProps> = ({
       await createScenario(slug, {
         name: trimmedName,
         direction,
-        status,
+        // Always `draft` (task R1 Piece 4, ruled by Roman 2026-08-10). A scenario
+        // is not ready at the moment it is named — declaring it ready is a
+        // recorded human act with an actor against it, and it has its own route
+        // and its own control on the scenario page.
+        status: CREATED_STATUS,
         target,
         accusation: trimmedAccusation,
         anchor_allegation_ids: anchorIds.length > 0 ? anchorIds : undefined,
@@ -163,7 +189,6 @@ const ScenarioCreateForm: React.FC<ScenarioCreateFormProps> = ({
       setName("");
       setAnchorsText("");
       setDirection("defense");
-      setStatus("draft");
       setTarget("");
       setAccusation("");
       onCreated();
@@ -208,24 +233,6 @@ const ScenarioCreateForm: React.FC<ScenarioCreateFormProps> = ({
             {DIRECTION_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>
                 {opt.label}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div style={fieldStyle}>
-          <label htmlFor="scenario-status" style={labelStyle}>
-            Status
-          </label>
-          <select
-            id="scenario-status"
-            value={status}
-            onChange={(e) => setStatus(e.target.value as ScenarioStatus)}
-            style={inputStyle}
-          >
-            {STATUS_OPTIONS.map((value) => (
-              <option key={value} value={value}>
-                {statusMeta(value).label}
               </option>
             ))}
           </select>
