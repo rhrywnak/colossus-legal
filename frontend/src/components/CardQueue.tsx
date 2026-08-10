@@ -86,7 +86,7 @@ import {
 } from "./candidateFilters";
 import { matchesChip, type ChipFilter } from "./evidenceCardModel";
 import { rulingAcknowledgment, type RulingReceipt } from "./rulingAcknowledgment";
-import { keyboardShouldRule, nextUpHint } from "./queueRegion";
+import { keyboardShouldRule } from "./queueRegion";
 import type { AllegationOptions } from "../services/evidenceLinks";
 import { revertQuestionOverride, saveQuestionOverride } from "../services/evidenceSummary";
 
@@ -106,15 +106,7 @@ const SURFACE = "var(--bg-surface)"; // #ffffff — pure white, per §2c
 // strip that no render site ever used. The failure surfaces this queue does
 // have are `QueueNotices` and the card's own banners.
 
-const hintBarStyle: React.CSSProperties = {
-  display: "flex",
-  gap: "1rem",
-  alignItems: "center",
-  flexWrap: "wrap",
-  padding: "0.25rem 0",
-  fontSize: "0.8rem",
-  color: "var(--text-muted)",
-};
+// REMOVED (task R2): `hintBarStyle` — the key-hint row it styled is gone.
 
 // CONST: the keys the list acts on. Listed once so the preventDefault guard and
 // the reducer cannot disagree about which keystrokes the queue owns.
@@ -413,8 +405,6 @@ const CardQueue: React.FC<Props> = ({
 
   const selected = state.cards[state.index];
   const selectedId = selected?.graph_node_id ?? null;
-  // The next card in the VISIBLE order, which is what the human will land on.
-  const nextCard = visible[visible.findIndex((c) => c.graph_node_id === selectedId) + 1];
 
   if (loading) return <div style={{ padding: "1rem" }}>Loading the candidate queue…</div>;
 
@@ -455,27 +445,30 @@ const CardQueue: React.FC<Props> = ({
         <CandidateFilterBar
           counts={counts}
           filters={active}
-          progress={filterProgress(visible)}
+          // EVERY card, not the visible slice (Roman, 2026-08-10). The bucket
+          // this measures is "what the scans put forward", which does not change
+          // when a human clicks a chip — a progress number that moved with the
+          // view was arithmetic about the view.
+          progress={filterProgress(state.cards)}
           wording={linkOptions.card_grammar}
           onChange={setFilters}
         />
       )}
 
-      <div style={hintBarStyle}>
-        <span>Move: ↑ ↓ or J K — moving never rules</span>
-        {/* Piece 1d: "N of M linked" has LEFT this row. Linking status is a fact
-            about one card and now lives on the card — a locked card states its
-            own condition on its face and offers the type-ahead there (Piece 4b),
-            which is where a human can act on it. A pile-wide count in the frame
-            told them how much was stuck and nothing about what to do next.
+      {/* THE HINT BAR IS GONE (Roman's cleanup ruling, 2026-08-10).
+          Three lines died here and none of them were carrying their weight:
 
-            D10's next-up hint stays. Absent rather than "Next up: —" when the
-            following card has no ordinal yet: a hint that names nothing is worse
-            than none. */}
-        {nextUpHint(nextCard?.code) && (
-          <span style={{ marginLeft: "auto" }}>{nextUpHint(nextCard?.code)}</span>
-        )}
-      </div>
+          "Move: ↑ ↓ or J K — moving never rules" and the "Keys: I E D U" line
+          one level up were key hints for keys whose letters are already printed
+          on the buttons that do the same thing (Include I · Exclude E · Defer D ·
+          ↩ U). A legend for a control that labels itself is a line a reader has
+          to skip on every scroll. THE KEYS THEMSELVES STILL WORK — only the
+          teaching text went.
+
+          "Next up: C-nn" named a card that was already the next row on screen.
+
+          Five lines became two: the heading, then the chips with the progress
+          count beside them. */}
 
       <QueueNotices
         linkError={linkError}
@@ -536,7 +529,7 @@ const CardQueue: React.FC<Props> = ({
         }
         // R1 (architect, 2026-08-08): the reason input renders ON the card being
         // deferred, under its action row — not at the bottom of the queue, below
-        // a 70vh scroll window, where the previous prompt could open entirely
+        // the then-70vh scroll window, where the previous prompt could open entirely
         // outside the human's view. §7's contract is that a card is rulable from
         // the card alone, and collecting the reason anywhere else broke it.
         deferring={state.mode.kind === "deferring" ? state.mode : null}
@@ -549,7 +542,7 @@ const CardQueue: React.FC<Props> = ({
 };
 
 // The defer prompt that used to live here is GONE (architect ruling R1,
-// 2026-08-08). It rendered after the card list — i.e. below a `maxHeight: 70vh`
+// 2026-08-08). It rendered after the card list — i.e. below the then-`70vh`
 // scroll window — so pressing Defer on a card near the top of that window opened
 // a prompt the human could be a full viewport away from. §7 says a card is
 // rulable from the card alone, and the one ruling that needs a word from the

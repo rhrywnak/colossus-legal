@@ -35,6 +35,7 @@ import React from "react";
 import { labelForAllegationId } from "./allegationLabel";
 import { allegationChipStyle, sectionPanelStyle } from "./scenarioSectionStyles";
 import type { AllegationDto } from "../services/allegations";
+import type { ScenarioIdentityWording } from "../services/scenarioAugmentation";
 
 // Mockup `.panel .identity`: margin-top 20px, padding 20px 24px 16px, borderless
 // white on --shadow-card. There is NO border — v3 removed every card border, and a
@@ -95,6 +96,15 @@ interface Props {
   allegations: AllegationDto[];
   /** Opens the ONE identity modal — the same one the header's Edit opens. */
   onEdit: () => void;
+  /**
+   * The four names and their stated absences, from the store.
+   *
+   * `null` while the augmentation payload is unloaded, which renders the whole
+   * block as nothing rather than as unlabelled prose — the honest-gap law, and
+   * the same rule `AccusationSection` follows. Four texts under no headings are
+   * worse than an absent card: a reader cannot tell the attack from the answer.
+   */
+  wording: ScenarioIdentityWording | null;
 }
 
 /** One labelled text, or a stated absence. */
@@ -122,7 +132,9 @@ const ScenarioIdentityBlock: React.FC<Props> = ({
   anchorAllegationIds,
   allegations,
   onEdit,
-}) => (
+  wording,
+}) =>
+  wording === null ? null : (
   <div style={cardStyle}>
     <button
       type="button"
@@ -148,29 +160,29 @@ const ScenarioIdentityBlock: React.FC<Props> = ({
         everything else on this page is a response to it. */}
     <div style={{ marginBottom: "0.9rem", paddingRight: "1.5rem" }}>
       <Field
-        label="The attack — what they claim"
+        label={wording.attack_label}
         value={attackText}
-        absent="No attack text written yet — the pencil opens the editor."
+        absent={wording.attack_absent}
       />
     </div>
 
     <div style={gridStyle}>
       <Field
-        label="Our theme — one sentence"
+        label={wording.theme_label}
         value={themeStatement}
-        absent="No theme written yet."
+        absent={wording.theme_absent}
       />
       <Field
-        label="Their motivation"
+        label={wording.motivation_label}
         value={motivation}
-        absent="No motivation written yet."
+        absent={wording.motivation_absent}
       />
     </div>
 
     <div style={{ marginTop: "0.9rem" }}>
-      <div style={labelStyle}>Bears on</div>
+      <div style={labelStyle}>{wording.bears_on_label}</div>
       {anchorAllegationIds.length === 0 ? (
-        <p style={absentStyle}>No allegations linked yet.</p>
+        <p style={absentStyle}>{wording.bears_on_absent}</p>
       ) : (
         <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
           {anchorAllegationIds.map((id) => (
@@ -189,6 +201,6 @@ const ScenarioIdentityBlock: React.FC<Props> = ({
     {/* C9 related-scenarios strip: placement RESERVED at the block bottom (§2.2)
         and rendering nothing until task 3.2 derives it. Absent, not fake. */}
   </div>
-);
+  );
 
 export default ScenarioIdentityBlock;

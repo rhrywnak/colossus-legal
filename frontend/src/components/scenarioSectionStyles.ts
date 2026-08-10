@@ -82,7 +82,22 @@ export const sectionPanelStyle: React.CSSProperties = {
   boxShadow: "var(--shadow-card)",
   // Mockup `.panel` + `.facts`: content is clipped to the radius so a table's
   // first row cannot square off the card's corners.
-  overflow: "hidden",
+  //
+  // ## Why the clip is on ONE axis (task R2)
+  //
+  // `overflow: hidden` clips both, and the vertical half was defeating
+  // `position: sticky` for everything inside: an `overflow: hidden` ancestor
+  // becomes the sticky containing block, so a descendant can only pin within that
+  // box — and a box that does not scroll never appears to pin at all. The ruling
+  // bar lives inside this panel, and pinning it to the document is the whole point
+  // of the .391 layout fix.
+  //
+  // `overflow-x: hidden` keeps the corner-squaring protection the mockup asked
+  // for (a wide table still cannot spill past the radius sideways) and leaves the
+  // vertical axis `visible`, which is what sticky needs. `ScenarioIdentityBlock`
+  // already overrode this to `visible` wholesale for its absolutely-positioned
+  // pencil — evidence the two-axis clip was broader than any caller wanted.
+  overflowX: "hidden",
 };
 
 /** A card with the mockup's `.pad` (18px 24px) for panels holding prose. */

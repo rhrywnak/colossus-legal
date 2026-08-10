@@ -29,6 +29,7 @@ const SEED_MIGRATIONS: &[&str] = &[
     "pipeline_migrations/20260807155419_scenario_authoring_wording.sql",
     "pipeline_migrations/20260808084539_theme_scan_tier2_settings_and_scan_wording.sql",
     "pipeline_migrations/20260810094435_r1_390_rehearsal_gate_wording_and_response_uniqueness.sql",
+    "pipeline_migrations/20260810114629_r2_391_unified_names_one_attack_box_and_scan_default_model.sql",
 ];
 
 /// The seeded values, for TESTS ONLY — kept beside the test that pins them to
@@ -95,6 +96,26 @@ const TEST_SEED: &[(&str, &str)] = &[
          scenario stores the two together, and saving now would lose the words \
          you just typed.",
     ),
+    // The unified identity vocabulary (task R2) — ONE row per idea, rendered by
+    // both the read-only block and the editor.
+    (
+        KEY_IDENTITY_ATTACK_LABEL,
+        "The attack — what they claim, in their words",
+    ),
+    (
+        KEY_IDENTITY_ATTACK_ABSENT,
+        "No attack text written yet — the pencil opens the editor.",
+    ),
+    (KEY_IDENTITY_THEME_LABEL, "Our theme — one sentence"),
+    (KEY_IDENTITY_THEME_ABSENT, "No theme written yet."),
+    (KEY_IDENTITY_THEME_HELPER, "Read aloud in rehearsal mode."),
+    (
+        KEY_IDENTITY_MOTIVATION_LABEL,
+        "Their motivation — what they want the jury to believe",
+    ),
+    (KEY_IDENTITY_MOTIVATION_ABSENT, "No motivation written yet."),
+    (KEY_IDENTITY_BEARS_ON_LABEL, "Bears on"),
+    (KEY_IDENTITY_BEARS_ON_ABSENT, "No allegations linked yet."),
     (
         KEY_REHEARSAL_LINK_BLOCKED,
         "Not in rehearsal — this scenario is {status}. Switch it to Ready on \

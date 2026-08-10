@@ -128,13 +128,45 @@ pub(crate) async fn validate_scan_request(
         })?;
 
     // A scan with no judgment criteria is meaningless — reject the precondition.
-    let attack_meaning = definition
-        .attack_meaning
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
+    //
+    // ## ONE ATTACK BOX (Roman's ruling, 2026-08-10)
+    //
+    // `attack_text` is what the scan judges against now. Until .391 a scenario
+    // carried TWO texts about the attack and the create form seeded both from one
+    // answer, so every UI-made scenario had a duplicate and the scan judged
+    // against the copy. The identity modal no longer asks twice and the create
+    // path no longer seeds the gloss; the column stays and nothing is destroyed.
+    //
+    // The fallback is what makes that safe for rows written BEFORE today: a
+    // scenario whose `attack_text` is blank but whose `attack_meaning` was
+    // authored separately keeps scanning against the words its author actually
+    // wrote. Order matters — `attack_text` FIRST, so a scenario edited since the
+    // ruling is judged against the box the human is now looking at.
+    let criteria = judging_criteria(&definition)
         .ok_or(ThemeScanError::EmptyAttackMeaning { scenario_id })?
         .to_string();
+
+    // WHICH text this scan judged against, recorded before a single billed call
+    // goes out.
+    //
+    // A scan is one metered LLM call per candidate, and the fallback means two
+    // different scenarios — or the SAME scenario before and after an edit — can be
+    // judged against different fields with identical-looking runs in the history.
+    // The definition is mutable; the run is not. Without this line an operator
+    // asking "what was this run actually judging?" six weeks from now has the
+    // verdicts, the model and the candidate count, and no way to recover the
+    // criteria, because `scan_runs` stores neither the text nor its source.
+    //
+    // Logged rather than stored: a column on `scan_runs` is a migration and a
+    // schema change on the run record, which is more than this batch may take on.
+    // The log line is the honest interim and is named as such in the completion
+    // report.
+    tracing::info!(
+        %scenario_id,
+        criteria_source = criteria_source(&definition),
+        criteria_chars = criteria.len(),
+        "theme scan: judging criteria resolved"
+    );
 
     let subject_id = resolve_subject(&definition, scenario_id)?;
 
@@ -143,10 +175,46 @@ pub(crate) async fn validate_scan_request(
     let resolved = resolve_scan_provider(state, requested_model_id).await?;
 
     Ok(ValidatedScan {
-        attack_meaning,
+        scan_criteria: criteria,
         subject_id,
         resolved,
     })
+}
+
+/// The text a scan judges every candidate against, or `None` if there is none.
+///
+/// ## ONE ATTACK BOX, and why the ORDER is the whole rule (Roman, 2026-08-10)
+///
+/// `attack_text` first, always. It is the box the identity editor shows and the
+/// only one it now offers, so a scenario edited since the ruling is judged
+/// against the words its author is looking at.
+///
+/// `attack_meaning` second, and only when the first is blank. That is not a
+/// convenience — it is what keeps scenarios authored BEFORE the ruling scanning
+/// against the words their author actually wrote. The create form used to seed
+/// both fields from one answer and the scan used to read the second, so a legacy
+/// scenario can carry a gloss that is the only criteria it ever had.
+///
+/// Reversing these two would silently re-point every legacy scan at a field its
+/// author never filled in, which is why the order has a test rather than a
+/// comment.
+fn judging_criteria(definition: &ScenarioDefinition) -> Option<&str> {
+    [
+        definition.attack_text.as_str(),
+        definition.attack_meaning.as_deref().unwrap_or(""),
+    ]
+    .into_iter()
+    .map(str::trim)
+    .find(|s| !s.is_empty())
+}
+
+/// Which field answered, for the log line. Names the legacy path out loud.
+fn criteria_source(definition: &ScenarioDefinition) -> &'static str {
+    if definition.attack_text.trim().is_empty() {
+        "attack_meaning (legacy fallback — this scenario has no attack text)"
+    } else {
+        "attack_text"
+    }
 }
 
 /// Resolve WHO the scan is about.
@@ -256,5 +324,64 @@ mod tests {
             message.contains(&prompts.0.to_string_lossy().to_string()),
             "and the directory it looked in: {message}"
         );
+    }
+
+    // ── ONE ATTACK BOX: which text a scan judges against (task R2) ──────────
+
+    fn definition(attack_text: &str, attack_meaning: Option<&str>) -> ScenarioDefinition {
+        ScenarioDefinition {
+            attack_text: attack_text.to_string(),
+            attack_meaning: attack_meaning.map(str::to_string),
+            target: Some("person-marie-awad".to_string()),
+            wielders: Vec::new(),
+            schema_v: crate::dto::scenario_crud::CURRENT_SCHEMA_V,
+        }
+    }
+
+    /// The normal path: the box the editor shows is the box the scan judges.
+    #[test]
+    fn the_scan_judges_against_the_attack_text() {
+        let d = definition("they say she refused to divide the property", None);
+        assert_eq!(
+            judging_criteria(&d),
+            Some("they say she refused to divide the property")
+        );
+        assert_eq!(criteria_source(&d), "attack_text");
+    }
+
+    /// The attack text WINS even when a legacy gloss is still stored beside it.
+    ///
+    /// This is the assertion that matters most. Every scenario created before
+    /// 2026-08-10 carries BOTH fields — the create form seeded them from one
+    /// answer — so if the order were reversed, the scan would go on judging
+    /// against a copy the human can no longer see or edit, and editing the visible
+    /// box would change nothing about the next scan. Silently.
+    #[test]
+    fn the_attack_text_wins_over_a_stored_legacy_gloss() {
+        let d = definition("what they now claim", Some("what they claimed in July"));
+        assert_eq!(judging_criteria(&d), Some("what they now claim"));
+        assert_eq!(criteria_source(&d), "attack_text");
+    }
+
+    /// The legacy path: a pre-ruling scenario keeps scanning against the words its
+    /// author actually wrote, rather than becoming unscannable overnight.
+    #[test]
+    fn a_blank_attack_text_falls_back_to_the_legacy_gloss() {
+        let d = definition("", Some("paints her as obstructive"));
+        assert_eq!(judging_criteria(&d), Some("paints her as obstructive"));
+        assert_eq!(
+            criteria_source(&d),
+            "attack_meaning (legacy fallback — this scenario has no attack text)",
+            "the legacy path must NAME itself — a billed run whose criteria came \
+             from a field nobody can see is the thing this log line exists for"
+        );
+    }
+
+    /// Whitespace is not criteria. A definition holding "   " would otherwise send
+    /// one metered call per candidate to judge against nothing.
+    #[test]
+    fn whitespace_is_not_judging_criteria() {
+        assert_eq!(judging_criteria(&definition("   ", Some("\n\t"))), None);
+        assert_eq!(judging_criteria(&definition("", None)), None);
     }
 }

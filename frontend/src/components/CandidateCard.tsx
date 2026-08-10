@@ -87,7 +87,7 @@ const cardReceiptFailedStyle: React.CSSProperties = {
  *
  * ## Why it moved here
  *
- * It rendered at the bottom of the queue, after a `maxHeight: 70vh` scroll
+ * It rendered at the bottom of the queue, after the `maxHeight: 70vh` scroll
  * window — so pressing Defer on a card near the top of that window opened a
  * prompt the human could be a full viewport away from. §7's contract is that a
  * card is rulable from the card alone; the one ruling that needs a word from the
@@ -205,7 +205,8 @@ export const CandidateCard: React.FC<{
    * The open defer prompt, when it is THIS card's (architect ruling R1).
    *
    * The reason input renders under the action row, on the card being deferred.
-   * It used to render at the bottom of the queue below a 70vh scroll window,
+   * It used to render at the bottom of the queue below the 70vh scroll window
+   * (retired in .391 — the page scrolls as one document now),
    * where it could open entirely outside the human's view.
    */
   deferring?: { graphNodeId: string; draft: string } | null;

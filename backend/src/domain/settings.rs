@@ -157,6 +157,20 @@ pub struct Settings {
     /// provider seam; the narrowing happens once, at the store boundary, where a
     /// bad value is a boot refusal (see `settings_store::token_count_of`).
     pub theme_scan_max_tokens: u32,
+    /// The model the Theme Scan picker opens on, read BENEATH the
+    /// `THEME_SCAN_MODEL` env var (task R2 / 10e).
+    ///
+    /// ## Domain note: why a row underneath an env var rather than instead of one
+    ///
+    /// Before .391 the last fallback was LIST ORDER — `catalog.models[0]` — so the
+    /// picker's default depended on how the registry happened to sort, which is
+    /// not a decision anybody made. This row is that decision, written down.
+    ///
+    /// It sits BENEATH the env var so no deploy changes with it: `THEME_SCAN_MODEL`
+    /// still wins wherever it is set. Retiring the env var entirely (and paying
+    /// the colossus-ansible template entry it has owed since D2b) is a separate
+    /// task in a separate repo.
+    pub theme_scan_default_model: String,
     /// Statement kinds that never reach the judge, lower-cased and de-duplicated
     /// at parse time. Empty (the stored token `none`) disables the rule.
     ///
@@ -244,6 +258,7 @@ impl Settings {
             scenario_authoring_wording: ScenarioAuthoringWording::for_test(),
             theme_scan_prompt_file: "theme_scan_prompt_v3.md".to_string(),
             theme_scan_max_tokens: 8192,
+            theme_scan_default_model: "claude-opus-5".to_string(),
             theme_scan_prefilter_min_chars: 60,
             theme_scan_prefilter_statement_types: vec!["referral".to_string()],
             scan_wording: ScanWording::for_test(),

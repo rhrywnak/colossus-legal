@@ -15,7 +15,6 @@ const WORDS = {
 import {
   anyScanScored,
   keyboardShouldRule,
-  nextUpHint,
   proposedCount,
   queueRegion,
   progressFromCards,
@@ -173,19 +172,10 @@ describe("the summary line", () => {
 // The clamping cases went with it and were not lost: they guarded a PERCENTAGE
 // against a reload returning a shorter pool, and there is no percentage now.
 
-describe("the next-up hint (D10)", () => {
-  it("names the card that is coming", () => {
-    expect(nextUpHint("C-96")).toBe("Next up: C-96");
-  });
-
-  it("is ABSENT rather than empty when the next card has no ordinal yet", () => {
-    // A candidate read in the instant it enters the pool has no ordinal. "Next up:
-    // —" tells the human nothing and looks like a bug; no hint at all is honest.
-    expect(nextUpHint(null)).toBeNull();
-    expect(nextUpHint(undefined)).toBeNull();
-    expect(nextUpHint("")).toBeNull();
-  });
-});
+// The next-up hint's tests went with the hint (task R2, Roman's cleanup ruling).
+// It rendered "Next up: C-14" beside a list whose next row was C-14 — a line
+// naming what the reader was already looking at. Nothing replaced it; the row
+// below the selected one is the hint.
 
 describe("the collapsed-queue keyboard guard (ruling R7)", () => {
   it("keys rule while the region is open", () => {

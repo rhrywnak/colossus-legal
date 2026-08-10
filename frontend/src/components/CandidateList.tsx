@@ -33,22 +33,28 @@ import type { ChipFilter } from "./evidenceCardModel";
 import type { AllegationOptions, LinkCut } from "../services/evidenceLinks";
 
 /**
- * The scroll region.
+ * The card list's own box — NO LONGER A SCROLLPORT (task R2, Roman's ruling).
  *
- * ## Why a viewport-relative height and why it is not a setting
+ * ## What `maxHeight: 70vh; overflowY: auto` was doing to this page
  *
- * The region has to be tall enough to read a card in and short enough that the
- * page's other sections stay reachable — that is layout geometry, the same class
- * of value as the mockup's paddings and radii which live in style objects
- * throughout this feature. Rule 13 governs a PAGE SIZE (how many records a human
- * is served at a time); this serves all of them and only chooses how much glass
- * they are seen through. Ruling R3 settled that there is no page size here.
+ * It made the queue a second scrollport in the middle of a scrolling document,
+ * and on MacBook-class hardware — the height this product is used at — the queue
+ * was most of the viewport. A wheel event over it scrolled the INNER region; the
+ * page underneath only moved once the inner region hit its end, and with 148
+ * cards it never did. The outer page appeared to jam, which is exactly what
+ * Roman reported.
+ *
+ * It also broke the two things built on top of it. The ruling bar's
+ * `position: sticky; top: 0` was calibrated to this region, so it pinned while
+ * you scrolled the queue and did nothing while you scrolled the page — one
+ * control, two behaviours, depending on where the pointer happened to be. And
+ * the mount-time `scrollIntoView` below had a document to move instead of a
+ * small box, so arriving on the page threw the reader down to the queue.
+ *
+ * The page scrolls as one document now. The queue is long; that is what the
+ * filters are for.
  */
 const scrollRegionStyle: React.CSSProperties = {
-  maxHeight: "70vh",
-  overflowY: "auto",
-  // The scrollbar is deliberately not hidden: it is the only thing that tells a
-  // human there are 120 more cards below the fold.
   display: "flex",
   flexDirection: "column",
   gap: "0.75rem",
@@ -112,7 +118,8 @@ const CandidateList: React.FC<{
    * The open defer prompt, or `null` (architect ruling R1, 2026-08-08).
    *
    * The reason input renders on the card being deferred, under its action row.
-   * It used to render at the BOTTOM of the queue, below a 70vh scroll window,
+   * It used to render at the BOTTOM of the queue, below the 70vh scroll window
+   * (retired in .391),
    * where it could open entirely outside the human's view — §7 says a card is
    * rulable from the card alone, and collecting the reason elsewhere broke that.
    */
@@ -151,9 +158,25 @@ const CandidateList: React.FC<{
   // let the effect scroll a card that is no longer selected.
   const selectedRef = useRef<HTMLDivElement | null>(null);
 
+  // Whether this component has finished arriving. `scrollIntoView` is for MOVING
+  // between cards, not for landing on the page.
+  const arrived = useRef(false);
+
   useEffect(() => {
-    // `block: "nearest"` scrolls only when the card is actually out of view, so a
-    // selection that is already visible does not jerk the list under the reader.
+    // THE FIRST RUN IS SKIPPED (task R2). This effect fires on mount with a
+    // selection already made, and `scrollIntoView` adjusts EVERY scrollable
+    // ancestor — `block: "nearest"` limits how far each one moves, not how many
+    // of them move. With the 70vh box gone the nearest ancestor is the document,
+    // so on arrival the page scrolled itself down to the first card and took the
+    // identity header off screen. That was the "opens scrolled to Scan &
+    // candidates" defect.
+    //
+    // Every LATER run still scrolls, because that is the keyboard's whole
+    // contract: J/K and the arrows move the selection and the list follows.
+    if (!arrived.current) {
+      arrived.current = true;
+      return;
+    }
     selectedRef.current?.scrollIntoView({ block: "nearest" });
   }, [selectedId]);
 

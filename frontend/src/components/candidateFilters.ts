@@ -240,17 +240,28 @@ export function filterCandidates(
  * before this they arrived buried in a pool of 148 with nothing marking them. So
  * when the projection is proposing anything, the queue opens on it.
  *
- * ## And when there are none, the FULL POOL (ruling R5)
+ * ## Then INCLUDED — and this supersedes ruling R5 (Roman, 2026-08-10)
  *
- * The old fallback was "Rulable now while any exist, else Not ruled", and both
- * facets are gone. The honest replacement is the denominator: a scenario with
- * nothing proposed has no shortlist to lead with, and opening on a slice would
- * mean the first thing a human sees is a filtered view they did not choose and
- * cannot see the edges of. The chips are one click each; the pool says how much
- * there is.
+ * R5 made `full_pool` the fallback, and its reasoning is worth stating because it
+ * was not wrong: opening on a slice shows a human a filtered view they did not
+ * choose and cannot see the edges of, so the honest default was the denominator.
+ *
+ * What that argument missed is what a cleared queue IS. A scenario whose
+ * proposals are all ruled is not a scenario waiting to be triaged — it is one
+ * that has been built, and the thing its author wants to look at is what they
+ * built: the facts they included. Landing them in a pool of 148 mostly-unruled
+ * rows answers a question they stopped asking. The full pool is one click away
+ * and its chip carries the count, so nothing is hidden — the edges R5 worried
+ * about are on screen either way.
+ *
+ * `full_pool` survives as the LAST resort, for a scenario with nothing proposed
+ * and nothing included: on that one an empty Included list would be a filtered
+ * view of nothing, which is the failure R5 named, arrived at from the other side.
  */
 export function defaultFilters(counts: CandidateCounts): CandidateFilters {
-  return counts.proposed > 0 ? { state: "proposed" } : { state: "full_pool" };
+  if (counts.proposed > 0) return { state: "proposed" };
+  if (counts.included > 0) return { state: "included" };
+  return { state: "full_pool" };
 }
 
 // ─── The filter CHIPS (Piece 1a) ────────────────────────────────────────────
@@ -327,28 +338,50 @@ export function facetLabel(facet: StateFacet, wording: CardGrammarWording): stri
 }
 
 /**
- * How many of the ACTIVE filter's cards have been ruled (Piece 1c).
+ * How much of the PROPOSED BUCKET a human has addressed (Roman, 2026-08-10).
  *
- * ## Domain note: the denominator is the filter, never the pool
+ * ## Domain note: the denominator is what the scans put forward — never the pool
  *
- * The line this replaces read "23 of 148 ruled" over a progress bar of 125
- * nobody owes. Rule-the-promising is the ratified triage model — a curator works
- * the proposals and leaves the rest — so a bar measuring the whole gathered pool
- * was reporting a debt the method says does not exist.
+ * Two rulings landed on this line and the second replaced the first.
  *
- * "Ruled" here means a human has decided: included or excluded. A DEFERRED card
- * is deliberately not counted as ruled — it is parked, and the work of deciding
- * it is still outstanding, which is the whole reason defer is its own verb.
+ * Piece 1c measured the ACTIVE FILTER, which fixed the original defect ("23 of
+ * 148 ruled" over a bar of 125 nobody owes) but produced a number that moved when
+ * a human clicked a chip. A progress reading that changes because you changed
+ * your view is not progress, it is arithmetic about the view.
+ *
+ * So the denominator is fixed: **every candidate the scans have put forward for
+ * this scenario**, whatever filter is on screen. The full pool never appears
+ * here. On a cleared queue the line reads "21 of 21", which is the sentence a
+ * human wants at the end of a session.
+ *
+ * ## And DEFER counts as addressed — this supersedes the note that said otherwise
+ *
+ * The comment here used to argue that a deferred card is "parked, and the work of
+ * deciding it is still outstanding". True of the CARD, and wrong about the
+ * HUMAN: Include, Exclude and Defer are all rulings under §7, all three are a
+ * decision somebody made and the system recorded, and a progress line that
+ * ignores one of them tells a curator who worked through fourteen cards that they
+ * worked through four. Roman ruled it on the annotated screenshot; the word moved
+ * from "ruled" to "addressed" because that is what the number honestly measures.
+ *
+ * (On DEV's S-5 this is why the line reads 22 rather than 21: twenty-one included,
+ * one deferred, and the defer was a human clicking a button.)
  */
 export function filterProgress(
-  visible: ScenarioCard[],
+  cards: ScenarioCard[],
 ): { ruled: number; total: number } {
+  // The bucket: proposed by a scan, or already acted on. A card nobody has ruled
+  // and no scan put forward is raw pool — it belongs to the denominator chip, not
+  // to this sentence.
+  const bucket = cards.filter(
+    (card) => isProposed(card) || candidateState(card) !== "not_ruled",
+  );
   let ruled = 0;
-  for (const card of visible) {
-    const state = candidateState(card);
-    if (state === "included" || state === "excluded") ruled += 1;
+  for (const card of bucket) {
+    // Every state that is not "nobody has touched this" is a decision taken.
+    if (candidateState(card) !== "not_ruled") ruled += 1;
   }
-  return { ruled, total: visible.length };
+  return { ruled, total: bucket.length };
 }
 
 // ─── The state chip ─────────────────────────────────────────────────────────

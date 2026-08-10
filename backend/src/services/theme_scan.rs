@@ -156,12 +156,17 @@ pub enum ThemeScanError {
         source: serde_json::Error,
     },
 
-    /// The scenario has no `attack_meaning`. A scan needs judgment criteria; this
-    /// is a user-fixable precondition, surfaced clearly rather than scanning with
-    /// empty criteria.
+    /// The scenario has NEITHER attack text nor a legacy meaning. A scan needs
+    /// judgment criteria; this is a user-fixable precondition, surfaced clearly
+    /// rather than scanning with empty criteria.
+    ///
+    /// The variant keeps its .389 name so callers and tests that match on it are
+    /// unaffected, but the condition widened with the one-attack-box ruling: it
+    /// now fires only when BOTH texts are blank. The message names the box the
+    /// human can actually see and fill.
     #[error(
-        "scenario {scenario_id} has no attack_meaning — a scan needs judgment \
-         criteria; author the accusation meaning before scanning"
+        "scenario {scenario_id} has no attack text — a scan needs judgment \
+         criteria; write what they claim on the scenario's identity before scanning"
     )]
     EmptyAttackMeaning { scenario_id: Uuid },
 
@@ -392,7 +397,16 @@ pub enum ThemeScanError {
 /// orchestration (prepare → judge → persist) while [`prepare_scan`] owns the
 /// multi-step precondition checks.
 pub(crate) struct PreparedScan {
-    pub(crate) attack_meaning: Arc<str>,
+    /// The text every candidate is judged against.
+    ///
+    /// Named for what it IS rather than where it came from (task R2). It was
+    /// `attack_meaning` until .391, and after the one-attack-box ruling that name
+    /// became a lie in the normal case: the value now comes from
+    /// `definition.attack_text`, and only falls back to the legacy
+    /// `attack_meaning` on a scenario authored before the ruling. A downstream
+    /// reader seeing `attack_meaning` would have believed it was reading a gloss.
+    /// `theme_scan_validate` logs which field answered.
+    pub(crate) scan_criteria: Arc<str>,
     pub(crate) scan_prompt: Arc<str>,
     pub(crate) provider: Arc<dyn LlmProvider>,
     /// The resolved+constrained parameters (drive the wire max_tokens AND the
@@ -460,7 +474,9 @@ pub(crate) struct ScanPrompt {
 /// while "the graph would not answer" is a question about the system. They belong
 /// on opposite sides of the run record (see [`validate_scan_request`]).
 pub(crate) struct ValidatedScan {
-    pub(crate) attack_meaning: String,
+    /// The judging criteria — see [`PreparedScan::scan_criteria`] for why this is
+    /// not called `attack_meaning` any more.
+    pub(crate) scan_criteria: String,
     pub(crate) subject_id: String,
     pub(crate) resolved: ResolvedScanProvider,
 }
@@ -480,7 +496,7 @@ pub(crate) async fn prepare_scan(
     prompt: ScanPrompt,
 ) -> Result<PreparedScan, ThemeScanError> {
     let ValidatedScan {
-        attack_meaning,
+        scan_criteria,
         subject_id,
         resolved,
     } = validated;
@@ -510,7 +526,7 @@ pub(crate) async fn prepare_scan(
     log_prefilter(scenario_id, &prepared);
 
     Ok(PreparedScan {
-        attack_meaning: Arc::from(attack_meaning),
+        scan_criteria: Arc::from(scan_criteria),
         scan_prompt: Arc::from(prompt.text),
         provider: resolved.provider,
         params: resolved.params,

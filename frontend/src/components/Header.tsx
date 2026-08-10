@@ -54,12 +54,24 @@ const ADMIN_ITEMS = [
 ];
 
 // ─── Styles ──────────────────────────────────────────────────────────────────
+/**
+ * The app header's height, in pixels — exported because other surfaces have to
+ * clear it (task R2).
+ *
+ * The header is `position: sticky; top: 0` with a z-index above everything, so
+ * any OTHER sticky element on a page scrolls underneath it. A ruling bar pinned
+ * at `top: 0` is a ruling bar hidden behind this one. The number lives here,
+ * beside the style that applies it, so the two cannot drift — the alternative is
+ * a `56` repeated in a component that has no way to know when this one changes.
+ */
+export const APP_HEADER_HEIGHT_PX = 56;
+
 const headerStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",
   padding: "0 2rem",
-  height: "56px",
+  height: `${APP_HEADER_HEIGHT_PX}px`,
   backgroundColor: "var(--bg-surface)",
   borderBottom: "1px solid var(--border-default)",
   position: "sticky",

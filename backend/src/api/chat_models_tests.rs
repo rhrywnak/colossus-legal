@@ -261,3 +261,54 @@ fn an_empty_catalog_keeps_the_configured_default_and_lists_nothing() {
     assert!(ordered.is_empty());
     assert_eq!(default, "configured");
 }
+
+// ── The scan picker's default, three layers deep (task R2 / 10e) ────────────
+
+/// The env var wins wherever it is set — no deploy changes with the new row.
+#[test]
+fn the_env_var_still_decides_the_scan_default_when_it_is_set() {
+    assert_eq!(
+        scan_default_model(Some("claude-opus-4-8"), "claude-opus-5", "chat-default"),
+        "claude-opus-4-8"
+    );
+    assert_eq!(
+        scan_default_source(Some("claude-opus-4-8"), "claude-opus-5"),
+        "THEME_SCAN_MODEL env var"
+    );
+}
+
+/// The step that did not exist before .391.
+///
+/// Beneath the env var the fallback was the CHAT default, which is scan-ineligible
+/// by design — so `is_default` came back false for every listed model and the
+/// browser fell through to `catalog.models[0]`. The picker's default was decided
+/// by however the registry happened to sort, which is not a decision anybody made.
+#[test]
+fn the_settings_row_decides_when_the_env_var_is_unset() {
+    assert_eq!(
+        scan_default_model(None, "claude-opus-5", "chat-default"),
+        "claude-opus-5"
+    );
+    assert_eq!(
+        scan_default_source(None, "claude-opus-5"),
+        "theme_scan_default_model settings row"
+    );
+}
+
+/// A blank row is not an answer.
+///
+/// Guarding whitespace as well as empty: a row edited to a space on the Settings
+/// page would otherwise make the picker default to `" "`, which matches no model
+/// and renders as nothing selected.
+#[test]
+fn a_blank_settings_row_falls_through_to_the_chat_default() {
+    assert_eq!(scan_default_model(None, "", "chat-default"), "chat-default");
+    assert_eq!(
+        scan_default_model(None, "   ", "chat-default"),
+        "chat-default"
+    );
+    assert_eq!(
+        scan_default_source(None, "   "),
+        "chat default (last resort)"
+    );
+}

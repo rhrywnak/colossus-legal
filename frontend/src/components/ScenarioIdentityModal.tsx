@@ -362,7 +362,7 @@ const ScenarioIdentityModal: React.FC<Props> = ({
               in someone's head. */}
           <div style={S.block}>
             <label style={S.label} htmlFor="identity-attack">
-              What they say — quote it if you can
+              {wording?.attack_label}
             </label>
             <textarea
               id="identity-attack"
@@ -371,22 +371,23 @@ const ScenarioIdentityModal: React.FC<Props> = ({
               disabled={saving}
               onChange={(e) => edit({ attackText: e.target.value })}
             />
-            <span style={S.help}>Their framing, in their words.</span>
+
           </div>
 
-          <div style={S.block}>
-            <label style={S.label} htmlFor="identity-meaning">
-              What that is meant to imply
-            </label>
-            <textarea
-              id="identity-meaning"
-              style={{ ...S.field, minHeight: "3.5rem" }}
-              value={draft.attackMeaning}
-              disabled={saving}
-              onChange={(e) => edit({ attackMeaning: e.target.value })}
-            />
-          </div>
+          {/* ONE ATTACK BOX (Roman, 2026-08-10). "What that is meant to imply"
+              is GONE from this dialog.
 
+              It asked the same question as the box above it in different words,
+              and the create form seeded both from one answer — so every UI-made
+              scenario arrived with two identical texts, one of which no read
+              surface rendered. The scan judged the copy. Two boxes for one idea
+              is how they drift apart later.
+
+              The COLUMN survives and nothing stored is destroyed: a legacy
+              scenario that has a gloss and no attack text still scans against it
+              (`theme_scan_validate`'s fallback). This modal simply stops asking
+              for a second one, and `patchFrom` carries whatever is already there
+              through untouched. */}
           {/* The target sits after the two attack texts and before our answer:
               it completes the description of what THEY are doing, and it is the
               field that decides what evidence this scenario can even see. Its
@@ -425,7 +426,7 @@ const ScenarioIdentityModal: React.FC<Props> = ({
 
           <div style={S.block}>
             <label style={S.label} htmlFor="identity-theme">
-              Our answer, in one sentence
+              {wording?.theme_label}
             </label>
             <input
               id="identity-theme"
@@ -434,12 +435,12 @@ const ScenarioIdentityModal: React.FC<Props> = ({
               disabled={saving}
               onChange={(e) => edit({ themeStatement: e.target.value })}
             />
-            <span style={S.help}>Read aloud in rehearsal mode.</span>
+            <span style={S.help}>{wording?.theme_helper}</span>
           </div>
 
           <div style={S.block}>
             <label style={S.label} htmlFor="identity-motivation">
-              What they want the jury to believe
+              {wording?.motivation_label}
             </label>
             <input
               id="identity-motivation"
@@ -470,7 +471,7 @@ const ScenarioIdentityModal: React.FC<Props> = ({
               checkboxes is retired (study §1.4: chips are the cross-reference
               currency). */}
           <div style={S.block}>
-            <span style={S.label}>Complaint paragraphs this touches</span>
+            <span style={S.label}>{wording?.bears_on_label}</span>
             <div style={S.chipRow}>
               {chosen.map((id) => {
                 const found = allegations.find((a) => a.id === id);

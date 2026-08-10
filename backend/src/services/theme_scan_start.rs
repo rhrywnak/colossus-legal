@@ -255,7 +255,7 @@ async fn run_scan_job(
         Arc::clone(&state.theme_scan_semaphore),
         prepared.concurrency,
         Arc::clone(&prepared.scan_prompt),
-        Arc::clone(&prepared.attack_meaning),
+        Arc::clone(&prepared.scan_criteria),
         prepared.params,
         prepared.groups,
         state.pipeline_pool.clone(),

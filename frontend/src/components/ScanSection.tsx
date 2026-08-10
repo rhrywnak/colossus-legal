@@ -35,7 +35,6 @@ import type { ProposalSource, ScenarioCard } from "../services/scenarioCards";
 import { anyScanScored, progressFromCards, proposedCount, queueRegion } from "./queueRegion";
 
 import {
-  kbdStyle,
   sectionHeaderStyle,
   sectionMetaStyle,
   sectionPanelStyle,
@@ -358,17 +357,19 @@ const ScanSection: React.FC<Props> = ({
                 What stays here is the one state the chips cannot show: nothing
                 has measured the pool yet, which is different from a pool of
                 zero (Standing Rule 1). */}
-            <div style={queueMetaStyle}>
-              {region.countingNotice && (
-                <b style={{ color: "var(--state-success-strong)" }}>{region.countingNotice}</b>
-              )}
+            {/* THE KEY LEGEND IS GONE (Roman's cleanup ruling, 2026-08-10).
+                The letters live on the buttons that do the same thing — Include I,
+                Exclude E, Defer D, ↩ U — so the legend taught nothing the controls
+                were not already saying, on every scroll past it. The keys still
+                work; only the text went.
 
-              <span style={{ color: "var(--text-muted)" }}>
-                Keys: <kbd style={kbdStyle}>I</kbd> <kbd style={kbdStyle}>E</kbd>{" "}
-                <kbd style={kbdStyle}>D</kbd> <kbd style={kbdStyle}>U</kbd> — or use the
-                buttons
-              </span>
-            </div>
+                The counting notice stays: it is the one state the chips cannot
+                show, and it is a fact rather than a hint. */}
+            {region.countingNotice && (
+              <div style={queueMetaStyle}>
+                <b style={{ color: "var(--state-success-strong)" }}>{region.countingNotice}</b>
+              </div>
+            )}
 
             <CardQueue
               linkOptions={linkOptions}

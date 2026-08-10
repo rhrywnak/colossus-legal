@@ -205,11 +205,19 @@ pub async fn list_scan_models(
             )
         })?;
 
-    let configured_default = state
-        .config
-        .theme_scan_model
-        .clone()
-        .unwrap_or_else(|| state.default_chat_model.clone());
+    let configured_default = scan_default_model(
+        state.config.theme_scan_model.as_deref(),
+        &state.settings.current().theme_scan_default_model,
+        &state.default_chat_model,
+    );
+    tracing::info!(
+        default_source = scan_default_source(
+            state.config.theme_scan_model.as_deref(),
+            &state.settings.current().theme_scan_default_model,
+        ),
+        default_model = %configured_default,
+        "scan model catalogue: default resolved"
+    );
 
     let (entries, warnings) = classify(rows, &configured_default);
     let (models, default_model) = local_first(entries, configured_default);
@@ -219,6 +227,47 @@ pub async fn list_scan_models(
         default_model,
         warnings,
     }))
+}
+
+/// The scan picker's default, in the order a deployment can actually control it.
+///
+///   1. `THEME_SCAN_MODEL` — the env var, unchanged and still winning wherever it
+///      is set, so no deploy or Ansible edit rides with the settings row below.
+///   2. `theme_scan_default_model` — a row Roman edits with no build. This is the
+///      step that did not exist before .391: beneath the env var the fallback was
+///      the CHAT default, which is scan-ineligible by design, so in practice the
+///      picker fell through to `catalog.models[0]` in the browser — a default
+///      decided by however the registry happened to sort.
+///   3. the chat default, kept as the last resort so this function's contract is
+///      unchanged for a deployment that has neither of the above.
+///
+/// Pure, and split out of the handler for the same reason `classify` and
+/// `local_first` are: it is the rule, and a rule nobody has exercised is a rule
+/// nobody can trust. A slip in the emptiness guard here would silently restore the
+/// list-order default with every other test still green.
+fn scan_default_model(env_var: Option<&str>, from_settings: &str, chat_default: &str) -> String {
+    if let Some(configured) = env_var {
+        return configured.to_string();
+    }
+    if from_settings.trim().is_empty() {
+        return chat_default.to_string();
+    }
+    from_settings.to_string()
+}
+
+/// Which of the three steps answered, for the log line.
+///
+/// Cheap, and it is the difference between "the picker opened on the wrong model"
+/// being a five-minute question and an afternoon of guessing which layer is in
+/// force on this deployment.
+fn scan_default_source(env_var: Option<&str>, from_settings: &str) -> &'static str {
+    if env_var.is_some() {
+        "THEME_SCAN_MODEL env var"
+    } else if from_settings.trim().is_empty() {
+        "chat default (last resort)"
+    } else {
+        "theme_scan_default_model settings row"
+    }
 }
 
 /// Order the scan catalog local-first and choose the model the page opens on.

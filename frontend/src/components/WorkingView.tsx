@@ -58,16 +58,19 @@ const HAIRLINE = "1px solid var(--border-default)";
 const ARRIVAL_HIGHLIGHT_MS = 2400;
 
 /**
- * The rows' scroll region (item E).
+ * The rows' box — NO LONGER A SCROLLPORT (task R2).
  *
- * `60vh` rather than the queue's `70vh`: this section sits BELOW the candidate
- * queue on the same page, and two 70vh regions stacked would mean neither is
- * fully visible at once on a laptop. The scrollbar is deliberately not hidden —
- * it is the only thing that says there are more facts below the fold.
+ * It was `maxHeight: 60vh; overflowY: auto`, chosen so that two stacked regions
+ * (this one and the queue's 70vh) would each be partly visible on a laptop. That
+ * reasoning conceded the problem it was managing: a page with two inner
+ * scrollports has three scrollbars, and a wheel does something different
+ * depending on which third of the page the pointer is over.
+ *
+ * Both are gone. Roman's acceptance for .391 is one continuous scroll from the
+ * header to the watch-list, and this section sits between them — leaving 60vh
+ * here would have moved the jam down the page rather than removing it.
  */
 const factsScrollRegionStyle: React.CSSProperties = {
-  maxHeight: "60vh",
-  overflowY: "auto",
   // Ruling 2, the spacing rhythm: each fact is its own card and the gap BETWEEN
   // cards is decisively larger than any gap inside one — `CARD_GAP_PX` (20) against
   // `MAX_INTRA_GAP_PX` (6), a ratio of 3.33. Proximity is what separates the cards;

@@ -8,6 +8,9 @@
 // it is that they add up, and a filter bar that quietly double-counts is the
 // defect this task exists to remove.
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -457,13 +460,42 @@ describe("the filter surface is five chips (ruling R5)", () => {
   });
 });
 
-// ── Piece 1c: progress follows the active filter ────────────────────────────
+// ── The progress line: the proposed bucket, and Defer counts ───────────────
 
-describe("progress counts follow the active filter", () => {
-  it("counts the ruled cards of the FILTERED list, never the pool", () => {
-    // The line this replaces read "23 of 148 ruled" over a progress bar of 125
-    // nobody owes. Rule-the-promising is the ratified triage model, so a bar
-    // measuring the whole gathered pool reported a debt the method denies.
+describe("which filter the queue opens on", () => {
+  it("lands on INCLUDED once the proposals are cleared but inclusions remain", () => {
+    // The middle branch, added in .391 and superseding ruling R5's `full_pool`
+    // fallback. A scenario whose proposals are all ruled is not waiting to be
+    // triaged — it has been built — and what its author wants to see is what they
+    // built. Untested, a one-character slip in this branch would silently restore
+    // the old behaviour and drop them into a pool of 148 they stopped caring
+    // about, with every other test still green.
+    expect(defaultFilters(candidateCounts([included()]))).toEqual({ state: "included" });
+  });
+
+  it("still leads with PROPOSED when a scan is proposing anything", () => {
+    // Unchanged, and it must stay first: proposals are what the human came for.
+    expect(defaultFilters(candidateCounts([proposed(), included()]))).toEqual({
+      state: "proposed",
+    });
+  });
+
+  it("falls back to the FULL POOL only when there is nothing else to lead with", () => {
+    // Nothing proposed and nothing included. An empty Included list would be a
+    // filtered view of nothing — the exact failure R5 named, reached from the
+    // other side — so the denominator is the honest answer here.
+    expect(defaultFilters(candidateCounts([card()]))).toEqual({ state: "full_pool" });
+  });
+});
+
+describe("progress measures the proposed bucket, not the view", () => {
+  it("counts the proposed bucket: what a scan put forward, plus what was acted on", () => {
+    // Roman's ruling, 2026-08-10. Piece 1c measured the ACTIVE FILTER, which
+    // fixed the original defect ("23 of 148" over a bar nobody owed) and
+    // introduced a subtler one: the number moved when a human clicked a chip.
+    //
+    // The bucket is fixed instead. Two proposals still waiting, three cards
+    // already ruled — five in the denominator, three addressed.
     const pool = [
       included(),
       excluded(),
@@ -471,18 +503,55 @@ describe("progress counts follow the active filter", () => {
       proposed(),
       card({ status: "included" }),
     ];
-    const visible = filterCandidates(pool, { state: "proposed" });
-
-    expect(filterProgress(visible)).toEqual({ ruled: 0, total: 2 });
-    expect(filterProgress(pool).total).toBe(pool.length);
+    expect(filterProgress(pool)).toEqual({ ruled: 3, total: 5 });
   });
 
-  it("does not count a DEFERRED card as ruled", () => {
-    // Deferring parks a card with a stated reason; the work of deciding it is
-    // still outstanding, which is the whole reason defer has a verb of its own.
-    // Counting it as done would let a curator "finish" a filter they had only
-    // postponed.
-    expect(filterProgress([parked()])).toEqual({ ruled: 0, total: 1 });
-    expect(filterProgress([included(), parked()])).toEqual({ ruled: 1, total: 2 });
+  it("no longer labels the sentence with a filter name — pinned at the render site", () => {
+    // `{filter}` left the stored template with the rule it named. `fillSlots`
+    // leaves an unrecognised slot VERBATIM, so a call site still passing `filter`
+    // would render "3 of 5 addressed" correctly while a template that still had
+    // the slot would render "3 of 5 {filter} ruled" — the failure is silent in
+    // both directions, which is why it is pinned rather than trusted.
+    const bar = readFileSync(join(__dirname, "..", "CandidateFilterBar.tsx"), "utf8");
+    expect(bar).toContain("filter_progress_template");
+    expect(bar).not.toMatch(/filter:\s*active\.label/);
+  });
+
+  it("is the QUEUE that must hand it every card — pinned at the call site", () => {
+    // The filter-independence Roman ruled for is a property of the CALL, not of
+    // this function: hand it a filtered list and it will faithfully measure the
+    // filtered list. `CardQueue` therefore has to pass the whole pool, and the
+    // one-word edit back to `visible` would silently restore the moving number
+    // with every test still green. So the call site is pinned.
+    const queue = readFileSync(join(__dirname, "..", "CardQueue.tsx"), "utf8");
+    expect(queue).toContain("progress={filterProgress(state.cards)}");
+    expect(queue).not.toContain("filterProgress(visible)");
+  });
+
+  it("leaves the raw pool OUT of the denominator entirely", () => {
+    // The full pool never appears in this line. An untouched card that no scan
+    // proposed is raw evidence — it belongs to the Full pool chip's count, not to
+    // a sentence about work done.
+    const raw = card({ status: "undecided" });
+    expect(filterProgress([raw])).toEqual({ ruled: 0, total: 0 });
+    expect(filterProgress([included(), raw])).toEqual({ ruled: 1, total: 1 });
+  });
+
+  it("COUNTS a deferred card — Include, Exclude and Defer are all rulings", () => {
+    // This reverses the rule the previous test asserted, on Roman's ruling of
+    // 2026-08-10 (§7: I/E/D are all rulings). The old note argued a deferred card
+    // is "parked, and the work of deciding it is still outstanding" — true of the
+    // card, and wrong about the human, who pressed a button and had it recorded.
+    // A line that ignored one of the three told a curator who worked fourteen
+    // cards that they had worked four.
+    expect(filterProgress([parked()])).toEqual({ ruled: 1, total: 1 });
+    expect(filterProgress([included(), parked()])).toEqual({ ruled: 2, total: 2 });
+  });
+
+  it("reads N of N once the bucket is cleared", () => {
+    // The sentence a human wants at the end of a session. On DEV's S-5 — 21
+    // included, 1 deferred, nothing else proposed — this is "22 of 22".
+    const cleared = [included(), included(), parked()];
+    expect(filterProgress(cleared)).toEqual({ ruled: 3, total: 3 });
   });
 });

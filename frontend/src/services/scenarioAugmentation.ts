@@ -113,6 +113,19 @@ export type ScenarioIdentityWording = {
   /** Why the header's "Rehearsal view" control is inert on a scenario that is
    *  not Ready. Carries `{status}`, filled from the status already on screen. */
   rehearsal_link_blocked_reason: string;
+
+  // The unified identity vocabulary (task R2). ONE row per idea, rendered by the
+  // read-only block AND the editor — so the two surfaces cannot call one column
+  // two names, which is what they did until .391.
+  attack_label: string;
+  attack_absent: string;
+  theme_label: string;
+  theme_absent: string;
+  theme_helper: string;
+  motivation_label: string;
+  motivation_absent: string;
+  bears_on_label: string;
+  bears_on_absent: string;
 };
 
 export type ScenarioIdentityDto = {

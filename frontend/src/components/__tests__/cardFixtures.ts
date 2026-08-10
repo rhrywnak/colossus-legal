@@ -113,7 +113,7 @@ export function optionsFixture(): AllegationOptions {
       filter_full_pool_label: "Full pool",
       full_pool_explainer:
         "Everything the system ever gathered for this scenario, across all scans.",
-      filter_progress_template: "{ruled} of {total} {filter} ruled",
+      filter_progress_template: "{ruled} of {total} addressed",
       question_expand_label: "show full question",
       question_collapse_label: "hide full question",
       question_machine_authorship_label: "Question as transcribed from the document",

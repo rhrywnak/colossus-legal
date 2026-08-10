@@ -86,6 +86,10 @@ fn seeded() -> HashMap<String, AppSettingRecord> {
                 "theme_scan_prompt_v3.md".to_string(),
             ),
             (KEY_PREFILTER_STATEMENT_TYPES, "referral".to_string()),
+            // Task R2 / 10e: a TEXT row that is not wording — it names a model,
+            // so like its two neighbours it is seeded here rather than borrowed
+            // from a `for_test_values` block.
+            ("theme_scan_default_model", "claude-opus-5".to_string()),
         ]);
     for (key, value) in text_rows {
         // Text rows carry no bounds: `min_value` / `max_value` are numeric
@@ -378,12 +382,13 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     // at whatever moment it happened to be read.
     assert_eq!(
         REQUIRED_KEYS.len(),
-        16,
+        17,
         "seven numbers, 2.10's short-list cap, 2.11 B2's timeline threshold, \
          2.11 C's row-expand cap, 2.15's three scan parameters (the prompt \
          filename and the two pre-filter dials), the one-card grammar's two fold \
          thresholds (the question's visible length and the element-chip K), and \
-         the judge's token budget, which stopped being a constant on 2026-08-09"
+         the judge's token budget (a constant until 2026-08-09), and R2's scan \
+         default model — a decision that used to be made by list order"
     );
     assert_eq!(
         WORDING_KEYS.len(),
@@ -416,11 +421,12 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     );
     assert_eq!(
         SCENARIO_AUTHORING_WORDING_KEYS.len(),
-        16,
+        25,
         "2026-08-07: the create form's two new fields, the identity modal's \
          target control, and the no-target notice — plus 2.15's never-scanned \
-         notice, its sibling, and R1's two: the second definition-loss refusal \
-         and the gated rehearsal control's reason"
+         notice, its sibling, R1's two (the second definition-loss refusal and \
+         the gated rehearsal control's reason), and R2's nine: the unified \
+         identity vocabulary both identity surfaces now share"
     );
     assert_eq!(
         SCAN_WORDING_KEYS.len(),
@@ -858,6 +864,10 @@ fn the_fixtures_carry_the_values_the_migration_actually_seeds() {
         // 2026-08-09: the judge's token budget — the eleventh number, and the
         // first that arrived because a compiled-in value was measured failing.
         "pipeline_migrations/20260809210501_scan_max_tokens_setting.sql",
+        // Task R2 / 10e: the scan picker's default model — the twelfth, and the
+        // first that arrived because the previous fallback was LIST ORDER rather
+        // than anybody's decision.
+        "pipeline_migrations/20260810114629_r2_391_unified_names_one_attack_box_and_scan_default_model.sql",
     ]
     .iter()
     .map(|relative| {
