@@ -92,6 +92,12 @@ fn render_with(
     let settings = Settings::for_test();
     let state = derive(judgments, &included(included_ids));
     render_scenario(ScenarioInput {
+        // Task R3's three: the identity line's word, the foldable verbatim
+        // attack, and the bears-on chips. Fixed here because these tests are
+        // about the BLOCKS, and varying them would only add noise.
+        direction_label: "We are answering this".to_string(),
+        attack_text: Some("…the parties did not cooperate with each other.".to_string()),
+        bears_on: vec!["A-41".to_string()],
         code: "S-2".to_string(),
         scenario_id: "3f1b0a9e-2c4d-4e5f-8a7b-6c5d4e3f2a1b".to_string(),
         title: "Refused to divide property amicably",

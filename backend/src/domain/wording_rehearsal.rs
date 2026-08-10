@@ -34,6 +34,7 @@
 // production uses) and `for_test_values`, so there is one copy and the builder is
 // exercised by every test that touches the fixture.
 
+use crate::domain::rehearsal_shape::SectionState;
 use crate::domain::settings::SettingError;
 
 /// Every stored string the rehearsal page renders.
@@ -66,6 +67,58 @@ pub struct RehearsalWording {
     /// nothing is ever shown that Marie did not pick, so the address names what
     /// is available and waits.
     pub picker_heading: String,
+
+    // ── The prep page's plain-words count line (task R3) ────────────────────
+    //
+    // Six rows for one sentence, because the sentence has to be grammatical at
+    // ONE and has to survive having no dates at all. The general plural-template
+    // system was deferred out of .391; these are the narrow version of it, and the
+    // rows such a system would eventually read.
+    /// The frame. Carries `{times}`, `{documents}`, `{span}` — each already
+    /// composed and pluralised. `{span}` may arrive empty when nothing is dated.
+    pub count_line_template: String,
+    /// "1 time" — carries `{n}`.
+    pub count_times_one: String,
+    /// "5 times" — carries `{n}`.
+    pub count_times_many: String,
+    /// "1 document" — carries `{n}`.
+    pub count_documents_one: String,
+    /// "3 documents" — carries `{n}`.
+    pub count_documents_many: String,
+    /// The date clause when the dated instances span a range. `{from}`, `{through}`.
+    pub count_span_range: String,
+    /// The date clause when every dated instance shares ONE date. `{date}`.
+    ///
+    /// Its own row rather than the range template with both slots filled alike:
+    /// "from December 2009 through December 2009" is a sentence nobody would
+    /// write, and on a five-instance scenario it is a plausible state.
+    pub count_span_one_date: String,
+
+    // ── The four case phases (task R3) ──────────────────────────────────────
+    /// The chip labels, pipe-separated, in chronological order.
+    pub phase_labels: String,
+    /// The two dates that split the timeline when no forum is known.
+    pub phase_boundaries: String,
+    /// `document-id=Phase` pairs. FORUM WINS over the date — see
+    /// `services::rehearsal_phase` for why this is a row and not a graph read.
+    pub phase_document_forums: String,
+    /// The chip on a statement with neither a forum nor a date.
+    pub phase_undated_label: String,
+
+    // ── The chronology section's count (task R3) ────────────────────────────
+    /// "5 of 5 answered" — `{answered}`, `{total}`.
+    pub answered_line_all: String,
+    /// "3 of 5 answered — 2 to prepare" — adds `{remaining}`.
+    ///
+    /// Its own row rather than one template with an always-present clause:
+    /// "5 of 5 answered — 0 to prepare" is a to-do list with an empty item on it.
+    pub answered_line_some: String,
+
+    // ── The prep page's identity line and its fold (task R3) ────────────────
+    pub direction_offense_label: String,
+    pub direction_defense_label: String,
+    /// The control that opens the attack in their own words.
+    pub attack_full_label: String,
     /// Shown for the rehearsal address of a scenario nobody declared ready.
     /// Carries `{code}` — the only thing this page may say about a scenario it
     /// is not showing.
@@ -145,6 +198,22 @@ pub(crate) const KEY_PREVIOUS_LABEL: &str = "rehearsal_previous_label";
 pub(crate) const KEY_NEXT_LABEL: &str = "rehearsal_next_label";
 pub(crate) const KEY_NOTHING_READY: &str = "rehearsal_nothing_ready_notice";
 pub(crate) const KEY_PICKER_HEADING: &str = "rehearsal_picker_heading";
+pub(crate) const KEY_COUNT_LINE: &str = "rehearsal_count_line_template";
+pub(crate) const KEY_COUNT_TIMES_ONE: &str = "rehearsal_count_times_one";
+pub(crate) const KEY_COUNT_TIMES_MANY: &str = "rehearsal_count_times_many";
+pub(crate) const KEY_COUNT_DOCS_ONE: &str = "rehearsal_count_documents_one";
+pub(crate) const KEY_COUNT_DOCS_MANY: &str = "rehearsal_count_documents_many";
+pub(crate) const KEY_COUNT_SPAN_RANGE: &str = "rehearsal_count_span_range";
+pub(crate) const KEY_COUNT_SPAN_ONE_DATE: &str = "rehearsal_count_span_one_date";
+pub(crate) const KEY_PHASE_LABELS: &str = "rehearsal_phase_labels";
+pub(crate) const KEY_PHASE_BOUNDARIES: &str = "rehearsal_phase_boundaries";
+pub(crate) const KEY_PHASE_FORUMS: &str = "rehearsal_phase_document_forums";
+pub(crate) const KEY_PHASE_UNDATED: &str = "rehearsal_phase_undated_label";
+pub(crate) const KEY_ANSWERED_ALL: &str = "rehearsal_answered_line_all";
+pub(crate) const KEY_ANSWERED_SOME: &str = "rehearsal_answered_line_some";
+pub(crate) const KEY_DIRECTION_OFFENSE: &str = "rehearsal_direction_offense_label";
+pub(crate) const KEY_DIRECTION_DEFENSE: &str = "rehearsal_direction_defense_label";
+pub(crate) const KEY_ATTACK_FULL: &str = "rehearsal_attack_full_label";
 pub const KEY_NOT_READY: &str = "rehearsal_not_ready_notice";
 pub(crate) const KEY_EXPAND_ALL: &str = "rehearsal_expand_all_label";
 pub(crate) const KEY_COLLAPSE_ALL: &str = "rehearsal_collapse_all_label";
@@ -195,6 +264,22 @@ pub const REHEARSAL_WORDING_KEYS: &[&str] = &[
     KEY_NEXT_LABEL,
     KEY_NOTHING_READY,
     KEY_PICKER_HEADING,
+    KEY_COUNT_LINE,
+    KEY_COUNT_TIMES_ONE,
+    KEY_COUNT_TIMES_MANY,
+    KEY_COUNT_DOCS_ONE,
+    KEY_COUNT_DOCS_MANY,
+    KEY_COUNT_SPAN_RANGE,
+    KEY_COUNT_SPAN_ONE_DATE,
+    KEY_PHASE_LABELS,
+    KEY_PHASE_BOUNDARIES,
+    KEY_PHASE_FORUMS,
+    KEY_PHASE_UNDATED,
+    KEY_ANSWERED_ALL,
+    KEY_ANSWERED_SOME,
+    KEY_DIRECTION_OFFENSE,
+    KEY_DIRECTION_DEFENSE,
+    KEY_ATTACK_FULL,
     KEY_NOT_READY,
     KEY_EXPAND_ALL,
     KEY_COLLAPSE_ALL,
@@ -242,45 +327,6 @@ pub const REHEARSAL_WORDING_KEYS: &[&str] = &[
 /// already stored. It is the row's grammar, versioned with the parser — the same
 /// standing as a serde tag.
 const ALWAYS_LINE_SEPARATOR: &str = " · ";
-
-/// Whether a section starts open.
-///
-/// ## Rust Learning: a two-variant enum instead of `value == "open"`
-///
-/// The store has no boolean kind (ruled 2026-08-05), so the tempting decode is a
-/// string comparison — which silently treats every typo ("Open", "opne", "true")
-/// as the other variant. On this surface that means a section a witness needs
-/// quietly folding shut with nothing in the log. Parsing into a closed enum makes
-/// an unrecognised token a named failure at boot, the same discipline
-/// `BackgroundDefaultState` uses.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SectionState {
-    Open,
-    Collapsed,
-}
-
-impl SectionState {
-    /// Whether a section holding this state renders open.
-    pub fn is_open(self) -> bool {
-        matches!(self, SectionState::Open)
-    }
-
-    /// Read one stored state token, naming the key that carried it.
-    ///
-    /// # Errors
-    /// Returns [`SettingError::Unreadable`] naming the key and what was expected.
-    pub fn parse(key: &str, token: &str) -> Result<Self, SettingError> {
-        match token.trim() {
-            "open" => Ok(SectionState::Open),
-            "collapsed" => Ok(SectionState::Collapsed),
-            other => Err(SettingError::Unreadable {
-                key: key.to_string(),
-                value: other.to_string(),
-                expected: "either 'open' or 'collapsed'",
-            }),
-        }
-    }
-}
 
 impl RehearsalWording {
     /// The standing card's lines, split and trimmed.
@@ -373,6 +419,22 @@ pub fn build_rehearsal_wording<E>(
         next_label: read(KEY_NEXT_LABEL)?,
         nothing_ready_notice: read(KEY_NOTHING_READY)?,
         picker_heading: read(KEY_PICKER_HEADING)?,
+        count_line_template: read(KEY_COUNT_LINE)?,
+        count_times_one: read(KEY_COUNT_TIMES_ONE)?,
+        count_times_many: read(KEY_COUNT_TIMES_MANY)?,
+        count_documents_one: read(KEY_COUNT_DOCS_ONE)?,
+        count_documents_many: read(KEY_COUNT_DOCS_MANY)?,
+        count_span_range: read(KEY_COUNT_SPAN_RANGE)?,
+        count_span_one_date: read(KEY_COUNT_SPAN_ONE_DATE)?,
+        phase_labels: read(KEY_PHASE_LABELS)?,
+        phase_boundaries: read(KEY_PHASE_BOUNDARIES)?,
+        phase_document_forums: read(KEY_PHASE_FORUMS)?,
+        phase_undated_label: read(KEY_PHASE_UNDATED)?,
+        answered_line_all: read(KEY_ANSWERED_ALL)?,
+        answered_line_some: read(KEY_ANSWERED_SOME)?,
+        direction_offense_label: read(KEY_DIRECTION_OFFENSE)?,
+        direction_defense_label: read(KEY_DIRECTION_DEFENSE)?,
+        attack_full_label: read(KEY_ATTACK_FULL)?,
         not_ready_notice: read(KEY_NOT_READY)?,
         expand_all_label: read(KEY_EXPAND_ALL)?,
         collapse_all_label: read(KEY_COLLAPSE_ALL)?,

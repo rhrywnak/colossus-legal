@@ -18,8 +18,8 @@
 use chrono::Utc;
 use sqlx::PgPool;
 
+use crate::domain::rehearsal_shape::SectionState;
 use crate::domain::settings::Settings;
-use crate::domain::wording_rehearsal::SectionState;
 use crate::domain::wording_templates::render;
 use crate::dto::rehearsal::{
     RehearsalAlways, RehearsalCollapse, RehearsalEditorWordingDto, RehearsalPayload,

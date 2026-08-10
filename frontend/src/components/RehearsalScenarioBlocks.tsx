@@ -1,175 +1,227 @@
 // =============================================================================
-// RehearsalScenarioBlocks — one ready scenario, as the signed mockup lays it out
+// RehearsalScenarioBlocks — the prep page, read-only (task R3)
 // =============================================================================
 //
-// Five foldable sections, in the mockup's order:
+// One READY scenario, laid out as REHEARSAL_PAGE_MOCKUP_v3_2026-08-10.html has
+// it. This is the page Marie preps from with Chuck in the room.
 //
-//   1  What this is                 (editable — the theme sentence)
-//   2  The accusation + instances   (editable — the plain-words sentence)
-//   3  The timeline, drawn
-//   4  Your points, in your words   (editable — per row, and add)
-//   5  Watch for                    (editable — per row, and add)
+// ## What this build removed, and why each one had to go
 //
-// The Always strip is the page's, not this component's: it never folds, and §10
-// makes it the one thing never scrolled away from.
+//   * **Every edit control.** The `SentenceEditor` on the theme, the accusation
+//     editor, the add/edit buttons on points and watch items. A prep surface that
+//     invites editing invites editing under pressure, minutes before a
+//     deposition. All of it routes to the working page now, through the one link
+//     in the header.
+//   * **Authorship lines** — "Written in plain words by roman · Aug 7". True, and
+//     nothing a witness needs while rehearsing. It is provenance for the person
+//     who wrote it, on the page where they wrote it.
+//   * **The separate TIMELINE section.** The instance list IS the chronology now
+//     (oldest first, server-sorted). Two renderings of one sequence, one of them
+//     without the answers, was the thing that made this page hard to work from.
+//   * **"gaps" in the header counts.** A number labelled "gaps" beside a section
+//     heading is a defect report. The section says "3 of 5 answered — 2 to
+//     prepare", which is the same fact as work.
+//   * **The WHAT THIS IS heading.** The theme is the page's first sentence and
+//     carries no label above it; the identity line already says what this is.
 //
-// ## What changed in 2.11 C, and what did not
+// ## The collapsible sections went too
 //
-// The RENDER was rebuilt to the signed mockup. The laws did not move: every word
-// still arrives from the store, every absence is still a NAMED gap, every count
-// still travels composed beside the block it counts, and "What this is" gained a
-// caret because the mockup gives it one — B2 had it fixed open on the argument
-// that folding one sentence saves nothing, and the mockup is the spec.
-//
-// ## Every word is the store's
-//
-// There is not one user-facing literal below. A block with nothing in it renders
-// its NAMED gap, never a blank — the honest-gap law, which is what the page's
-// whole credibility rests on.
+// Folding earned its place on a page that could not fit — this one is built to be
+// read top to bottom in one pass. A fold on a prep surface is a place for
+// something to be missed.
 
-import React from "react";
+import React, { useState } from "react";
 
-import RehearsalAccusationBlock from "./RehearsalAccusationBlock";
-import RehearsalPointsBlock from "./RehearsalPointsBlock";
-import RehearsalSection from "./RehearsalSection";
-import RehearsalTimelineBlock from "./RehearsalTimelineBlock";
-import RehearsalWatchBlock from "./RehearsalWatchBlock";
-import SentenceEditor from "./SentenceEditor";
-import {
-  attributionStyle,
-  editButtonStyle,
-  editorFieldStyle,
-  whatLineStyle,
-} from "./rehearsalStyles";
-import type { RehearsalPayload, RehearsalScenario } from "../services/rehearsal";
-import type { OpenSections } from "../pages/rehearsalSections";
+import PrepInstanceCard from "./PrepInstanceCard";
+import PrepTopBlock from "./PrepTopBlock";
+import { chipStyle } from "./scenarioSectionStyles";
+import type { RehearsalScenario, RehearsalWording } from "../services/rehearsal";
 
-/** Everything the five blocks need to WRITE, in one bundle. */
-export interface RehearsalEdits {
-  /** The theme sentence. Never withdrawable — the mockup offers no such control. */
-  onSaveWhat: (text: string | null) => void;
-  /** The plain-words accusation. `null` withdraws it. */
-  onSaveAccusation: (text: string | null) => void;
-  onEditPoint: (position: number, text: string) => Promise<void>;
-  onAddPoint: (text: string) => Promise<void>;
-  onEditWatchItem: (id: string, text: string) => Promise<void>;
-  onAddWatchItem: (text: string) => Promise<void>;
-  /** True while a sentence write is in flight, so a double-click cannot send twice. */
-  busy: boolean;
-}
+const sectionStyle: React.CSSProperties = { marginTop: "34px" };
+
+const sectionHeadStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "baseline",
+  gap: "12px",
+  flexWrap: "wrap",
+  marginBottom: "14px",
+};
+
+const sectionTitleStyle: React.CSSProperties = {
+  margin: 0,
+  fontSize: "17px",
+  fontWeight: 600,
+  color: "var(--text-primary)",
+};
+
+const sectionCountStyle: React.CSSProperties = {
+  fontSize: "13px",
+  color: "var(--text-secondary)",
+};
+
+const listStyle: React.CSSProperties = {
+  listStyle: "none",
+  margin: 0,
+  padding: 0,
+  display: "flex",
+  flexDirection: "column",
+  gap: "14px",
+};
+
+const filterRowStyle: React.CSSProperties = {
+  display: "flex",
+  gap: "8px",
+  flexWrap: "wrap",
+  marginBottom: "14px",
+};
+
+const filterChipStyle = (active: boolean): React.CSSProperties => ({
+  ...chipStyle,
+  cursor: "pointer",
+  border: `1px solid ${active ? "var(--accent-primary)" : "var(--border-default)"}`,
+  background: active ? "var(--state-info-bg-soft)" : "var(--bg-surface)",
+  color: active ? "var(--accent-primary)" : "var(--text-secondary)",
+  fontWeight: active ? 600 : 500,
+});
+
+const pointStyle: React.CSSProperties = {
+  fontSize: "17px",
+  lineHeight: 1.5,
+  color: "var(--text-primary)",
+};
+
+const backedByStyle: React.CSSProperties = {
+  marginTop: "6px",
+  fontSize: "12.5px",
+  color: "var(--text-muted)",
+};
+
+const watchStyle: React.CSSProperties = {
+  padding: "12px 16px",
+  borderRadius: "8px",
+  background: "var(--state-warning-bg-soft)",
+  borderLeft: "4px solid var(--state-warning-strong)",
+  fontSize: "14.5px",
+  lineHeight: 1.5,
+};
+
+const gapTextStyle: React.CSSProperties = {
+  fontSize: "15px",
+  color: "var(--text-muted)",
+  fontStyle: "italic",
+};
 
 interface Props {
   scenario: RehearsalScenario;
-  wording: RehearsalPayload["wording"];
-  open: OpenSections;
-  onToggle: (section: keyof OpenSections) => void;
-  /** Which instance rows are open, by printed position. */
-  openRows: ReadonlySet<number>;
-  onToggleRow: (position: number) => void;
-  onJumpToRow: (position: number) => void;
-  edits: RehearsalEdits;
+  wording: RehearsalWording;
 }
 
-const RehearsalScenarioBlocks: React.FC<Props> = ({
-  scenario,
-  wording,
-  open,
-  onToggle,
-  openRows,
-  onToggleRow,
-  onJumpToRow,
-  edits,
-}) => (
-  <>
-    <RehearsalSection
-      heading={wording.block_what_heading}
-      count={null}
-      open={open.what}
-      onToggle={() => onToggle("what")}
-    >
-      <SentenceEditor
-        text={scenario.what_this_is}
-        missingNotice={scenario.what_this_is_gap ?? ""}
-        wording={{
-          editLabel: wording.editor.edit_label,
-          saveLabel: wording.editor.save_label,
-          cancelLabel: wording.editor.cancel_label,
-          // No Withdraw: the mockup offers none here, and a scenario with no
-          // "what this is" is a gap to fill rather than a sentence to retract.
-          placeholder: wording.editor.what_placeholder,
-        }}
-        onSave={edits.onSaveWhat}
-        busy={edits.busy}
-        sentenceStyle={whatLineStyle}
-        buttonStyle={editButtonStyle}
-        fieldStyle={editorFieldStyle}
-      >
-        {scenario.what_this_is_attribution && (
-          <div style={attributionStyle}>{scenario.what_this_is_attribution}</div>
+const RehearsalScenarioBlocks: React.FC<Props> = ({ scenario, wording }) => {
+  // Which phase the reader has narrowed to, or `null` for all of them. Tapping
+  // the active chip clears it — the mockup's rule, and the one a reader tries
+  // first without being told.
+  const [phase, setPhase] = useState<string | null>(null);
+
+  const instances = scenario.accusation.instances;
+  // The chips offered are the phases PRESENT, in the order the cards appear.
+  // Offering all four would put a chip on screen that filters to nothing, which
+  // reads as a broken control rather than an empty phase.
+  const phases = instances.reduce<string[]>((seen, i) => {
+    if (!seen.includes(i.phase)) seen.push(i.phase);
+    return seen;
+  }, []);
+  const visible = phase === null ? instances : instances.filter((i) => i.phase === phase);
+
+  return (
+    <>
+      <PrepTopBlock scenario={scenario} wording={wording} />
+
+      {/* THE HEART. One card per marked statement, oldest first, each with the
+          answer inside it or the gap that says there is none. */}
+      <section style={sectionStyle}>
+        <div style={sectionHeadStyle}>
+          <h2 style={sectionTitleStyle}>{wording.block_accusation_heading}</h2>
+          {scenario.accusation.answered_line && (
+            <span style={sectionCountStyle}>{scenario.accusation.answered_line}</span>
+          )}
+        </div>
+
+        {phases.length > 1 && (
+          <div style={filterRowStyle}>
+            {phases.map((name) => (
+              <button
+                key={name}
+                type="button"
+                aria-pressed={phase === name}
+                style={filterChipStyle(phase === name)}
+                onClick={() => setPhase(phase === name ? null : name)}
+              >
+                {name}
+              </button>
+            ))}
+          </div>
         )}
-      </SentenceEditor>
-    </RehearsalSection>
 
-    <RehearsalSection
-      heading={wording.block_accusation_heading}
-      count={scenario.headers.accusation}
-      // Read from its own number, never counted off a list this client could
-      // have filtered — the folded header must not disagree with the body.
-      gapCount={scenario.accusation.gap_count}
-      open={open.accusation}
-      onToggle={() => onToggle("accusation")}
-    >
-      <RehearsalAccusationBlock
-        accusation={scenario.accusation}
-        wording={wording}
-        openRows={openRows}
-        onToggleRow={onToggleRow}
-        onJumpToRow={onJumpToRow}
-        onSaveText={edits.onSaveAccusation}
-        busy={edits.busy}
-        anchorPrefix={scenario.code}
-      />
-    </RehearsalSection>
+        {instances.length === 0 ? (
+          <p style={gapTextStyle}>{scenario.accusation.no_instances_notice}</p>
+        ) : (
+          <ul style={listStyle}>
+            {visible.map((instance) => (
+              <PrepInstanceCard
+                key={instance.position}
+                instance={instance}
+                wording={wording}
+              />
+            ))}
+          </ul>
+        )}
+      </section>
 
-    <RehearsalSection
-      heading={wording.block_timeline_heading}
-      count={scenario.headers.timeline}
-      open={open.timeline}
-      onToggle={() => onToggle("timeline")}
-    >
-      <RehearsalTimelineBlock timeline={scenario.timeline} />
-    </RehearsalSection>
+      {/* HER POINTS. Each one large, with the exhibit its pairing already
+          proposes — never retyped, and never invented when there is none. */}
+      <section style={sectionStyle}>
+        <div style={sectionHeadStyle}>
+          <h2 style={sectionTitleStyle}>{wording.block_points_heading}</h2>
+        </div>
+        {scenario.points.length === 0 ? (
+          <p style={gapTextStyle}>{scenario.points_gap}</p>
+        ) : (
+          <ul style={listStyle}>
+            {scenario.points.map((point) => (
+              <li key={point.position}>
+                <div style={pointStyle}>{point.text}</div>
+                {/* The exhibit is a PROPOSAL from an existing pairing until it is
+                    confirmed on the working page, and it says so. A point with
+                    nothing proposable says that instead — the stored sentence,
+                    not a blank. */}
+                <div style={backedByStyle}>
+                  {point.exhibit ?? point.exhibit_notice}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
 
-    <RehearsalSection
-      heading={wording.block_points_heading}
-      count={scenario.headers.points}
-      open={open.points}
-      onToggle={() => onToggle("points")}
-    >
-      <RehearsalPointsBlock
-        points={scenario.points}
-        pointsGap={scenario.points_gap}
-        wording={wording}
-        onEdit={edits.onEditPoint}
-        onAdd={edits.onAddPoint}
-      />
-    </RehearsalSection>
-
-    <RehearsalSection
-      heading={wording.block_watch_heading}
-      count={scenario.headers.watch_for}
-      open={open.watchFor}
-      onToggle={() => onToggle("watchFor")}
-    >
-      <RehearsalWatchBlock
-        items={scenario.watch_for}
-        watchGap={scenario.watch_for_gap}
-        wording={wording}
-        onEdit={edits.onEditWatchItem}
-        onAdd={edits.onAddWatchItem}
-      />
-    </RehearsalSection>
-  </>
-);
+      {/* WHAT TO WATCH FOR. */}
+      <section style={sectionStyle}>
+        <div style={sectionHeadStyle}>
+          <h2 style={sectionTitleStyle}>{wording.block_watch_heading}</h2>
+        </div>
+        {scenario.watch_for.length === 0 ? (
+          <p style={gapTextStyle}>{scenario.watch_for_gap}</p>
+        ) : (
+          <ul style={listStyle}>
+            {scenario.watch_for.map((item) => (
+              <li key={item.id} style={watchStyle}>
+                {item.text}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    </>
+  );
+};
 
 export default RehearsalScenarioBlocks;

@@ -108,6 +108,12 @@ pub async fn assemble_scenario(
         facts: &facts,
         points,
         watch_for: watch_items(&notes),
+        // The prep page's identity line, its foldable full attack, and its
+        // bears-on chips (task R3). All three come off the record the assembly
+        // already loaded — no second read.
+        direction_label: direction_label(&record.direction, settings),
+        attack_text: attack_text_of(&record.definition),
+        bears_on: bears_on_codes(record.anchor_allegation_ids.as_deref()),
         settings,
     }))
 }
@@ -301,3 +307,159 @@ async fn talking_points_of(
 #[cfg(test)]
 #[path = "rehearsal_assembly_tests.rs"]
 mod tests;
+
+// STRUCTURAL: the `scenarios.direction` CHECK vocabulary. Schema-coupling, not a
+// deployment knob — changing either needs a migration, and the pair is repeated
+// nowhere else in this module.
+const DIRECTION_OFFENSE: &str = "offense";
+const DIRECTION_DEFENSE: &str = "defense";
+
+/// Offense or defense, in the stored word rather than the token.
+///
+/// The token is a schema value (`"offense"` / `"defense"`); the word is what a
+/// reader sees. Translating it in the browser would put this vocabulary in two
+/// places, which is the defect .391 spent a migration closing one layer up.
+fn direction_label(direction: &str, settings: &Settings) -> String {
+    let w = &settings.rehearsal_wording;
+    match direction {
+        DIRECTION_OFFENSE => w.direction_offense_label.clone(),
+        DIRECTION_DEFENSE => w.direction_defense_label.clone(),
+        // A token the column's CHECK should make impossible. Falling back is
+        // right — a witness's page must not fail over a vocabulary surprise —
+        // but falling back SILENTLY would state the wrong side of the argument
+        // on the surface where being on the wrong side matters most. So the
+        // fallback names the scenario and the token it did not recognise.
+        other => {
+            tracing::warn!(
+                direction = other,
+                "unexpected scenario direction — rendering the defense wording; \
+                 check scenarios.direction for this scenario"
+            );
+            w.direction_defense_label.clone()
+        }
+    }
+}
+
+/// The attack in their own words, out of the stored definition.
+///
+/// `None` for a blank one as well as a missing one — a definition holding `""`
+/// and one holding nothing are the same thing to a reader, and the page renders
+/// no fold control for either rather than an empty drawer.
+fn attack_text_of(definition: &serde_json::Value) -> Option<String> {
+    definition
+        .get("attack_text")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
+/// The complaint paragraphs this scenario bears on, as A-codes.
+///
+/// ## Domain note: why the code and not the paragraph number
+///
+/// `A-41` is the handle every other surface uses for this allegation since .391 —
+/// the card's link chips, the link catalogue, and the working page's identity
+/// block. A prep page that said "¶41" would be the last place in the product
+/// calling it something else, in front of the person least able to know they are
+/// the same thing.
+fn bears_on_codes(anchors: Option<&[String]>) -> Vec<String> {
+    anchors
+        .unwrap_or_default()
+        .iter()
+        .map(|id| crate::domain::scenario_code::allegation_code(paragraph_of(id)))
+        .collect()
+}
+
+/// The paragraph an anchor id names, or the id itself when it carries none.
+///
+/// Anchor ids are `doc-…:allegation:<hash>`; the paragraph is not in them, so
+/// this is honest rather than clever — an id we cannot turn into a paragraph is
+/// shown AS the id, which names a thing that exists and can be looked up, rather
+/// than being dropped from a chip row that would then disagree with the
+/// scenario's actual anchors.
+fn paragraph_of(anchor_id: &str) -> &str {
+    anchor_id.rsplit(':').next().unwrap_or(anchor_id)
+}
+
+#[cfg(test)]
+mod prep_helpers_tests {
+    use super::*;
+    use crate::domain::settings::Settings;
+
+    #[test]
+    fn the_direction_is_stated_in_words_not_in_its_token() {
+        let s = Settings::for_test();
+        assert_eq!(
+            direction_label(DIRECTION_OFFENSE, &s),
+            "We are pressing this"
+        );
+        assert_eq!(
+            direction_label(DIRECTION_DEFENSE, &s),
+            "We are answering this"
+        );
+    }
+
+    /// An unexpected token renders the defense wording AND warns.
+    ///
+    /// The fallback itself is right — a witness's page must not fail over a
+    /// vocabulary surprise — but it states the wrong side of the argument on the
+    /// surface where being on the wrong side matters most, so it cannot be
+    /// silent. The warn is asserted by the architecture gate's reading rather
+    /// than here; this pins that the fallback does not panic and does not invent
+    /// a third label.
+    #[test]
+    fn an_unexpected_direction_falls_back_rather_than_panicking() {
+        assert_eq!(
+            direction_label("sideways", &Settings::for_test()),
+            "We are answering this"
+        );
+    }
+
+    #[test]
+    fn the_verbatim_attack_is_absent_when_nobody_wrote_one() {
+        assert_eq!(attack_text_of(&serde_json::json!({})), None);
+        assert_eq!(
+            attack_text_of(&serde_json::json!({ "attack_text": "" })),
+            None,
+            "a blank one is the same as none — the page renders no fold control \
+             for either rather than an empty drawer"
+        );
+        assert_eq!(
+            attack_text_of(&serde_json::json!({ "attack_text": "   " })),
+            None
+        );
+    }
+
+    #[test]
+    fn the_verbatim_attack_is_trimmed_when_present() {
+        assert_eq!(
+            attack_text_of(&serde_json::json!({ "attack_text": "  they did not cooperate  " })),
+            Some("they did not cooperate".to_string())
+        );
+    }
+
+    /// The chips speak A-codes — the handle every other surface uses since .391.
+    #[test]
+    fn the_bears_on_chips_are_a_codes() {
+        let anchors = vec!["41".to_string(), "46".to_string()];
+        assert_eq!(bears_on_codes(Some(&anchors)), vec!["A-41", "A-46"]);
+    }
+
+    #[test]
+    fn no_anchors_is_an_empty_chip_row_rather_than_a_guess() {
+        assert!(bears_on_codes(None).is_empty());
+    }
+
+    /// A colon-shaped anchor id yields its last segment; a bare one yields itself.
+    ///
+    /// The second case is the honest fallback: an id this cannot turn into a
+    /// paragraph is shown AS the id, which names a thing that exists and can be
+    /// looked up — rather than being dropped from a chip row that would then
+    /// disagree with the scenario's actual anchors.
+    #[test]
+    fn an_anchor_id_yields_its_paragraph_or_itself() {
+        assert_eq!(paragraph_of("doc-complaint:allegation:41"), "41");
+        assert_eq!(paragraph_of("41"), "41");
+    }
+}

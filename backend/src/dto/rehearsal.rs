@@ -183,6 +183,11 @@ pub struct RehearsalInstance {
     /// fact at a different zoom: three words, no who, no when, no where, so it
     /// can never grow back into the duplicate.
     pub answer_banner: Option<String>,
+    /// Which case phase this statement belongs to — the chip, and the value the
+    /// phase filter matches on. Always present: a statement with no date and no
+    /// forum carries the stored undated label rather than nothing, because a card
+    /// with no chip in a filtered list looks like a rendering fault.
+    pub phase: String,
 }
 
 /// One named absence.
@@ -230,6 +235,15 @@ pub struct RehearsalAccusation {
     pub attribution: Option<String>,
     /// "Said 5 times, in 5 documents." — `None` when nothing is marked.
     pub count_line: Option<String>,
+    /// The count line in PLAIN WORDS, grammatical at one, with the date span it
+    /// actually has (task R3). `None` when nothing is marked.
+    ///
+    /// Beside `count_line` rather than replacing it: the two serve different
+    /// surfaces — the working view's "Said 5 times, in 3 documents." is a
+    /// heading, and this is the prep page's opening sentence.
+    pub plain_count_line: Option<String>,
+    /// "5 of 5 answered" / "3 of 5 answered — 2 to prepare", composed server-side.
+    pub answered_line: Option<String>,
     /// The nothing-marked notice. Exactly one of these two is ever present.
     pub no_instances_notice: Option<String>,
     /// Chronological — oldest first. The design's force is the repetition over
@@ -376,6 +390,14 @@ pub struct RehearsalScenario {
     /// rendered and every one is reachable; the list is not paginated at any
     /// size.
     pub instances_start_expanded: bool,
+    /// Offense or defense, as the stored word (task R3).
+    pub direction_label: String,
+    /// The attack in their own words, verbatim. Folded away on the prep page
+    /// beneath the plain-words accusation; `None` renders no fold control.
+    pub attack_text: Option<String>,
+    /// The complaint paragraphs this bears on, as A-codes — the same handles the
+    /// working page's chips use.
+    pub bears_on: Vec<String>,
 }
 
 /// Every word the page renders that is not already a composed sentence.

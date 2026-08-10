@@ -96,6 +96,10 @@ export type RehearsalInstance = {
    * in the prep list. Rendering both was the beta.381 duplicate-gap defect.
    */
   answer_banner: string | null;
+  /** Which case phase this statement belongs to — the chip, and what the phase
+   *  filter matches on. Always present; an unplaceable statement carries the
+   *  stored "No date yet" label rather than nothing. */
+  phase: string;
 };
 
 /** The four gap tokens. Branch on these, never on the sentence. */
@@ -126,6 +130,11 @@ export type RehearsalAccusation = {
    */
   attribution: string | null;
   count_line: string | null;
+  /** The count line in PLAIN WORDS, grammatical at one, with the date span the
+   *  scenario actually has. `null` when nothing is marked. */
+  plain_count_line: string | null;
+  /** "5 of 5 answered" / "3 of 5 answered — 2 to prepare". */
+  answered_line: string | null;
   no_instances_notice: string | null;
   instances: RehearsalInstance[];
   gaps: RehearsalGap[];
@@ -203,6 +212,12 @@ export type RehearsalScenario = {
    * the payload and the list is never paginated, at any size.
    */
   instances_start_expanded: boolean;
+  /** Offense or defense, as the stored word (task R3). */
+  direction_label: string;
+  /** The attack in their own words, verbatim. `null` renders no fold control. */
+  attack_text: string | null;
+  /** The complaint paragraphs this bears on, as A-codes. */
+  bears_on: string[];
 };
 
 /** The standing card. Never collapsible. */
@@ -232,6 +247,8 @@ export type RehearsalWording = {
   previous_label: string;
   next_label: string;
   nothing_ready_notice: string;
+  /** The control that opens the attack in their own words (task R3). */
+  attack_full_label: string;
   /** The heading over the Ready-scenario list at the bare rehearsal address
    *  (task R1 Piece 1d). The list itself is composed from `scenarios`. */
   picker_heading: string;

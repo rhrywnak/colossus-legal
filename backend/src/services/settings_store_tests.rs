@@ -405,9 +405,10 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     );
     assert_eq!(
         REHEARSAL_WORDING_KEYS.len(),
-        42,
+        58,
         "task 2.11 B2's rehearsal page, 2.11 C's fifth section state, and R1's \
-         picker heading for the rehearsal front door"
+         picker heading for the rehearsal front door, and R3's seven for the \
+         prep page's plural-correct count line plus its four case phases"
     );
     assert_eq!(
         REHEARSAL_CHROME_KEYS.len(),
