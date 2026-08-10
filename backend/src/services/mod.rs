@@ -13,6 +13,7 @@ pub mod graph_expansion_queries;
 pub mod import_validator;
 pub mod qdrant_service;
 pub mod rehearsal_assembly;
+pub mod rehearsal_phase;
 pub mod rehearsal_render;
 pub mod rehearsal_rows;
 pub mod rehearsal_timeline;

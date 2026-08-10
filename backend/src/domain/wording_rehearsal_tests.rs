@@ -25,6 +25,7 @@ const SEED_MIGRATIONS: &[&str] = &[
     "pipeline_migrations/20260806100704_rehearsal_render_wording.sql",
     "pipeline_migrations/20260806135509_rehearsal_visual_2_11c.sql",
     "pipeline_migrations/20260810094435_r1_390_rehearsal_gate_wording_and_response_uniqueness.sql",
+    "pipeline_migrations/20260810134706_r3_392_prep_page_wording_and_phase_forums.sql",
 ];
 
 /// The seeded values, for TESTS ONLY — one table, feeding both fixtures.
@@ -54,6 +55,31 @@ const TEST_SEED: &[(&str, &str)] = &[
          switches it to Ready on its page.",
     ),
     (KEY_PICKER_HEADING, "Choose a scenario to rehearse"),
+    // The prep page's count line — seven rows for one sentence, because it has to
+    // be grammatical at ONE and survive having no dates at all.
+    (
+        KEY_COUNT_LINE,
+        "They said it {times}, in {documents}{span} — every one is below, with \
+         your answer under it.",
+    ),
+    (KEY_COUNT_TIMES_ONE, "1 time"),
+    (KEY_COUNT_TIMES_MANY, "{n} times"),
+    (KEY_COUNT_DOCS_ONE, "1 document"),
+    (KEY_COUNT_DOCS_MANY, "{n} documents"),
+    (KEY_COUNT_SPAN_RANGE, ", from {from} through {through}"),
+    (KEY_COUNT_SPAN_ONE_DATE, ", on {date}"),
+    (KEY_PHASE_LABELS, "Pre-probate|Probate|COA|Complaint"),
+    (KEY_PHASE_BOUNDARIES, "2009-06|2014-01"),
+    (
+        KEY_PHASE_FORUMS,
+        "doc-court-of-appeals-rulling-01-12-2012=COA",
+    ),
+    (KEY_PHASE_UNDATED, "No date yet"),
+    (KEY_ANSWERED_ALL, "{answered} of {total} answered"),
+    (
+        KEY_ANSWERED_SOME,
+        "{answered} of {total} answered — {remaining} to prepare",
+    ),
     (
         KEY_NOT_READY,
         "{code} is not ready to rehearse yet. A scenario appears here once someone \
@@ -193,8 +219,11 @@ fn the_fixture_carries_the_values_the_migration_actually_seeds() {
 
     // Anti-vacuity: a parsing change that stopped finding rows would otherwise
     // make this test pass while comparing nothing.
-    assert_eq!(checked, 42, "all forty-two stored strings must be compared");
-    assert_eq!(REHEARSAL_WORDING_KEYS.len(), 42);
+    assert_eq!(
+        checked, 55,
+        "all fifty-five stored strings must be compared"
+    );
+    assert_eq!(REHEARSAL_WORDING_KEYS.len(), 55);
 }
 
 #[test]
@@ -235,6 +264,19 @@ fn every_field_is_read_from_its_own_key() {
     assert_eq!(w.next_label, KEY_NEXT_LABEL);
     assert_eq!(w.nothing_ready_notice, KEY_NOTHING_READY);
     assert_eq!(w.picker_heading, KEY_PICKER_HEADING);
+    assert_eq!(w.count_line_template, KEY_COUNT_LINE);
+    assert_eq!(w.count_times_one, KEY_COUNT_TIMES_ONE);
+    assert_eq!(w.count_times_many, KEY_COUNT_TIMES_MANY);
+    assert_eq!(w.count_documents_one, KEY_COUNT_DOCS_ONE);
+    assert_eq!(w.count_documents_many, KEY_COUNT_DOCS_MANY);
+    assert_eq!(w.count_span_range, KEY_COUNT_SPAN_RANGE);
+    assert_eq!(w.count_span_one_date, KEY_COUNT_SPAN_ONE_DATE);
+    assert_eq!(w.phase_labels, KEY_PHASE_LABELS);
+    assert_eq!(w.phase_boundaries, KEY_PHASE_BOUNDARIES);
+    assert_eq!(w.phase_document_forums, KEY_PHASE_FORUMS);
+    assert_eq!(w.phase_undated_label, KEY_PHASE_UNDATED);
+    assert_eq!(w.answered_line_all, KEY_ANSWERED_ALL);
+    assert_eq!(w.answered_line_some, KEY_ANSWERED_SOME);
     assert_eq!(w.not_ready_notice, KEY_NOT_READY);
     assert_eq!(w.expand_all_label, KEY_EXPAND_ALL);
     assert_eq!(w.collapse_all_label, KEY_COLLAPSE_ALL);
