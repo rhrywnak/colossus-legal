@@ -46,9 +46,11 @@ use std::sync::Arc;
 use chrono::Utc;
 use sqlx::PgPool;
 
+// `parse_text` / `parse_token_list` / `Bounds` / `Ratio` left with the per-row
+// readers when they were split out; what remains here is the write path's own
+// validation (`parse_count` / `parse_float` / `parse_ratio`) plus the snapshot.
 use crate::domain::settings::{
-    parse_count, parse_float, parse_ratio, parse_text, parse_token_list, Bounds, Ratio,
-    SettingError, Settings, ValueKind,
+    parse_count, parse_float, parse_ratio, SettingError, Settings, ValueKind,
 };
 use crate::domain::wording_templates::validate_wording_candidate;
 use crate::repositories::pipeline_repository::{
@@ -79,6 +81,11 @@ const KEY_ROWS_EXPAND_MAX: &str = "rehearsal_instance_rows_expand_max";
 // "numeric".
 pub(crate) const KEY_THEME_SCAN_PROMPT_FILE: &str = "theme_scan_prompt_file";
 const KEY_PREFILTER_MIN_CHARS: &str = "theme_scan_prefilter_min_chars";
+// The judge's per-candidate token budget (2026-08-09). A row rather than a
+// constant because the value that is right for a model depends on THE MODEL, and
+// the compiled-in 512 was measured killing 7 of 104 verdicts — see the deleted
+// `THEME_SCAN_MAX_TOKENS` comment in `services::theme_scan` for the full story.
+const KEY_SCAN_MAX_TOKENS: &str = "theme_scan_max_tokens";
 // ONE_CARD_GRAMMAR (2026-08-09). Both decide how much of a card's content is
 // SHOWN before it folds — the question's visible length, and how many element
 // chips stand before "+N more". They are §2b tunables rather than presentational
@@ -116,6 +123,7 @@ pub const REQUIRED_KEYS: &[&str] = &[
     KEY_ROWS_EXPAND_MAX,
     KEY_THEME_SCAN_PROMPT_FILE,
     KEY_PREFILTER_MIN_CHARS,
+    KEY_SCAN_MAX_TOKENS,
     KEY_PREFILTER_STATEMENT_TYPES,
     KEY_CARD_QUESTION_TRUNCATE,
     KEY_CARD_ELEMENT_CHIPS_K,
@@ -211,80 +219,17 @@ impl From<SettingError> for SettingsError {
     }
 }
 
-/// Bounds as declared on one row.
-fn bounds_of(record: &AppSettingRecord) -> Bounds {
-    Bounds {
-        min: record.min_value,
-        max: record.max_value,
-    }
-}
-
-/// Find a required row, or report it missing by name.
-pub(crate) fn require<'a>(
-    rows: &'a HashMap<String, AppSettingRecord>,
-    key: &str,
-) -> Result<&'a AppSettingRecord, SettingError> {
-    rows.get(key).ok_or_else(|| SettingError::Missing {
-        key: key.to_string(),
-    })
-}
-
-/// Read one row as a float, checking that its declared kind agrees.
-///
-/// The kind check is not redundant with the parse: a row whose `value_kind` says
-/// `ratio` while this build reads it as a float is a store that has drifted from
-/// the code, and it must be reported as that rather than as a parse failure that
-/// sends a human hunting through the value.
-fn float_of(record: &AppSettingRecord) -> Result<f32, SettingError> {
-    expect_kind(record, ValueKind::Float)?;
-    parse_float(&record.key, &record.value, bounds_of(record))
-}
-
-/// Read one row as a count, checking its declared kind.
-fn count_of(record: &AppSettingRecord) -> Result<usize, SettingError> {
-    expect_kind(record, ValueKind::Count)?;
-    parse_count(&record.key, &record.value, bounds_of(record))
-}
-
-/// Read one row as a ratio, checking its declared kind.
-fn ratio_of(record: &AppSettingRecord) -> Result<Ratio, SettingError> {
-    expect_kind(record, ValueKind::Ratio)?;
-    parse_ratio(&record.key, &record.value)
-}
-
-/// Read one row as stored text, checking its declared kind (task 2.10).
-pub(crate) fn text_of(record: &AppSettingRecord) -> Result<String, SettingError> {
-    expect_kind(record, ValueKind::Text)?;
-    parse_text(&record.key, &record.value)
-}
-
-/// Read one `text` row as a comma-separated list of tokens (task 2.15 Tier 2).
-///
-/// The declared kind is still `text` — the store has no list kind, and inventing
-/// one would be a migration for a single row. What makes the list a list is the
-/// PARSE, which is where every other stored shape is decided too.
-fn token_list_of(record: &AppSettingRecord) -> Result<Vec<String>, SettingError> {
-    expect_kind(record, ValueKind::Text)?;
-    parse_token_list(&record.key, &record.value)
-}
-
-/// Confirm a row's stored kind is the one this build expects to read.
-fn expect_kind(record: &AppSettingRecord, expected: ValueKind) -> Result<(), SettingError> {
-    let stored = ValueKind::try_from(record.value_kind.as_str())?;
-    if stored != expected {
-        return Err(SettingError::Unreadable {
-            key: record.key.clone(),
-            value: record.value.clone(),
-            expected: match expected {
-                ValueKind::Float => "a number (the store declares a different kind)",
-                ValueKind::Count => "a whole number (the store declares a different kind)",
-                ValueKind::Ratio => "a ratio (the store declares a different kind)",
-                ValueKind::Text => "words (the store declares a different kind)",
-            },
-        });
-    }
-    Ok(())
-}
+// The per-row readers moved to the sibling `settings_row_readers` when this
+// module reached the 300-line limit (2026-08-09). They answer "what does this ONE
+// row say?"; what stays here answers "does the whole store make a usable
+// snapshot?" — which is why the cross-row band invariant is below and not there.
+use super::settings_row_readers::{
+    bounds_of, count_of, float_of, ratio_of, token_count_of, token_list_of,
+};
+// Re-exported, not re-implemented: `settings_wording` imports both from THIS
+// module's path, and the split is an internal reorganisation that has no business
+// changing a sibling's import line.
+pub(crate) use super::settings_row_readers::{require, text_of};
 
 /// Build a [`Settings`] from the stored rows, or say precisely what is wrong.
 ///
@@ -331,6 +276,7 @@ pub fn build_settings(rows: &HashMap<String, AppSettingRecord>) -> Result<Settin
         scenario_authoring_wording: words.scenario_authoring,
         theme_scan_prompt_file: text_of(require(rows, KEY_THEME_SCAN_PROMPT_FILE)?)?,
         theme_scan_prefilter_min_chars: count_of(require(rows, KEY_PREFILTER_MIN_CHARS)?)?,
+        theme_scan_max_tokens: token_count_of(require(rows, KEY_SCAN_MAX_TOKENS)?)?,
         theme_scan_prefilter_statement_types: token_list_of(require(
             rows,
             KEY_PREFILTER_STATEMENT_TYPES,

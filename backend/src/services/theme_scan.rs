@@ -61,15 +61,34 @@ use crate::services::theme_scan_provider::ResolvedScanProvider;
 use crate::services::vllm_model_gate::{assert_vllm_model_loaded, VllmGateError};
 use crate::state::AppState;
 
-// CONST: the verdict token budget is a fixed protocol shape, not a deployment
-// knob. A verdict is a tiny four-key JSON object; 512 is a generous ceiling that
-// would only ever change if the verdict SHAPE changes — and that is a code change
-// (the `Verdict` struct + the prompt shipped together), never per-environment
-// tuning. Roman pinned this as a named constant (no env) in the D2b decision. It
-// is `pub` because `theme_scan_provider::scan_task_spec` reads it as the scan's
-// TASK-layer `max_tokens`, so the resolver and the verdict cap agree from one
-// source of truth (Chunk B).
-pub const THEME_SCAN_MAX_TOKENS: u32 = 512;
+// Why there is no `const THEME_SCAN_MAX_TOKENS` here anymore.
+//
+// It was `pub const THEME_SCAN_MAX_TOKENS: u32 = 512`, and the argument for
+// pinning it — Roman's D2b decision — was this: the verdict token budget is a
+// fixed PROTOCOL SHAPE, not a deployment knob. A verdict is a tiny four-key JSON
+// object, so 512 was a generous ceiling that would only ever move if the verdict
+// SHAPE moved, and that is a code change (the `Verdict` struct and the prompt ship
+// together), never per-environment tuning.
+//
+// That argument was correct, and it stayed correct for exactly as long as its
+// premise held: that the model's OUTPUT is the verdict. Claude Opus 5 runs
+// adaptive thinking by default, and `max_tokens` caps thinking and answer
+// TOGETHER — so the budget stopped being "room for a four-key object" and became
+// "room for a four-key object AND however much the model decides to think first".
+//
+// Measured 2026-08-09 (CC_REPORT_BAKEOFF_SCORECARD.md), S-4 run `2c7b7d87`: 7 of
+// 104 judged groups failed. Six replies were cut off mid-word inside the `reason`
+// string — all of them while writing `"relevant": true` — and the seventh emitted
+// no text block at all, having spent the whole budget thinking. The tell was
+// counter-intuitive: the FAILED replies were shorter (101–328 chars) than the
+// successful ones (377 average), because the loss was upstream of the text.
+//
+// So the cap is now the `theme_scan_max_tokens` SETTINGS ROW, read at scan start
+// beside the prompt pointer, asserted at boot, and editable with no rebuild — the
+// same journey the prompt made above, for the same reason: a value that decides
+// whether a verdict survives is not a protocol constant just because it once
+// looked like one. `constrain` still clamps it to each model's own
+// `max_output_tokens`, which is a different job and unchanged.
 
 // Why no `const THEME_SCAN_PROMPT` here anymore, in two moves.
 //

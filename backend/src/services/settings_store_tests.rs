@@ -182,6 +182,18 @@ fn numeric_rows() -> HashMap<String, AppSettingRecord> {
             Some(0.0),
             None,
         ),
+        // 2026-08-09: the judge's per-candidate token budget, thinking included.
+        // Bounds 256..=64000 — the floor is above the largest observed successful
+        // reply with room to think, the ceiling is the lowest Anthropic
+        // `max_output_tokens` in the registry, above which `constrain` would clamp
+        // and the stored number would stop describing what is sent.
+        row(
+            KEY_SCAN_MAX_TOKENS,
+            "8192",
+            ValueKind::Count,
+            Some(256.0),
+            Some(64000.0),
+        ),
     ])
 }
 
@@ -214,6 +226,134 @@ fn the_dormant_parameters_load_too() {
 
 // ── The failure law ──────────────────────────────────────────────────────────
 
+/// The judge's cap has no fallback: no row, no boot (§2b).
+///
+/// ## Why this gets its own test when the loop below already covers it
+///
+/// The loop proves every key in `REQUIRED_KEYS` refuses. This proves the cap is
+/// IN that list — which is the thing that could quietly stop being true. The cap
+/// arrived by deleting a compiled-in constant, and the failure mode worth naming
+/// is the obvious "fix" for a boot refusal: put the 512 back as a default and let
+/// a missing row fall through to it. That would restore, silently, exactly the
+/// state that truncated 7 of 104 verdicts on 2026-08-09 — and every other test in
+/// this file would still pass.
+///
+/// It also pins the BOUNDS, because a cap the store accepts at 8 is a cap that
+/// cannot produce a verdict at all, and a cap it accepts at 200000 is one
+/// `constrain` would silently clamp — leaving a stored number that no longer
+/// describes what is sent.
+#[test]
+fn a_missing_cap_row_refuses_boot() {
+    let mut rows = seeded();
+    rows.remove(KEY_SCAN_MAX_TOKENS);
+
+    let Err(error) = build_settings(&rows) else {
+        panic!(
+            "a store with no judge cap must not produce a snapshot — there is \
+                no compiled-in 512 left to fall back to, and restoring one is the \
+                regression this test exists to catch"
+        );
+    };
+    assert!(
+        error.to_string().contains(KEY_SCAN_MAX_TOKENS),
+        "the refusal must name the missing cap: {error}"
+    );
+
+    // The bounds the row carries are enforced on the way in, not merely stored.
+    for (value, why) in [
+        ("8", "a cap that cannot fit a verdict at all"),
+        (
+            "200000",
+            "a cap above every model ceiling, which constrain would clamp",
+        ),
+    ] {
+        let mut rows = seeded();
+        rows.insert(
+            KEY_SCAN_MAX_TOKENS.to_string(),
+            row(
+                KEY_SCAN_MAX_TOKENS,
+                value,
+                ValueKind::Count,
+                Some(256.0),
+                Some(64000.0),
+            ),
+        );
+        assert!(
+            build_settings(&rows).is_err(),
+            "{value} must be refused — {why}"
+        );
+    }
+
+    // ANTI-VACUITY: the seeded value itself passes, so the refusals above are
+    // about these values and not about the row being unreadable in general.
+    assert_eq!(
+        build_settings(&seeded())
+            .expect("the seeded cap is valid")
+            .theme_scan_max_tokens,
+        8192
+    );
+}
+
+/// A token budget too large for the field it feeds is a REFUSAL, not a wrap.
+///
+/// ## Why this branch is tested when the seeded row can never reach it
+///
+/// `token_count_of` narrows a `usize` row to the `u32` the provider seam speaks,
+/// and the judge cap's own `max_value` of 64000 makes the overflow unreachable —
+/// today. The reason the branch exists at all is that the bound is DATA: a `psql`
+/// edit, or a future migration widening the ceiling, exposes it without touching
+/// a line of code. A branch whose justification is "a data change can reach this"
+/// is a branch a test has to reach now, or the justification is decoration.
+///
+/// What it guards against concretely: written `count as u32`, a stored
+/// 5_000_000_000 arrives at the wire as 705_032_704 — a different, plausible,
+/// silently wrong budget, on the one parameter this whole build exists to stop
+/// being silently wrong.
+#[test]
+fn a_cap_too_large_for_the_wire_is_refused_rather_than_wrapped() {
+    use crate::services::settings_row_readers::token_count_of;
+
+    // `max_value: None` is the state a widened bound leaves behind — the row's own
+    // ceiling is gone, so the narrowing is the only thing left standing.
+    let widened = row(
+        KEY_SCAN_MAX_TOKENS,
+        "5000000000",
+        ValueKind::Count,
+        Some(0.0),
+        None,
+    );
+
+    let Err(error) = token_count_of(&widened) else {
+        panic!(
+            "5000000000 does not fit a u32 and must be refused — an `as` cast \
+             would have returned 705032704 and sent it"
+        );
+    };
+    assert!(
+        matches!(error, SettingError::AboveMaximum { .. }),
+        "a number too large for its field is exactly an above-maximum: {error}"
+    );
+    assert!(
+        error.to_string().contains(KEY_SCAN_MAX_TOKENS),
+        "the refusal must name the row: {error}"
+    );
+
+    // ANTI-VACUITY. With the same absent ceiling, a value that DOES fit is read
+    // normally — so the refusal above is about the width of the field and not
+    // about `max_value: None` being rejected outright.
+    assert_eq!(
+        token_count_of(&row(
+            KEY_SCAN_MAX_TOKENS,
+            "8192",
+            ValueKind::Count,
+            Some(0.0),
+            None,
+        ))
+        .expect("8192 fits a u32"),
+        8192
+    );
+}
+
 /// Every required parameter is required. No exceptions, no defaults.
 #[test]
 fn any_missing_parameter_refuses_the_whole_snapshot() {
@@ -238,11 +378,12 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     // at whatever moment it happened to be read.
     assert_eq!(
         REQUIRED_KEYS.len(),
-        15,
+        16,
         "seven numbers, 2.10's short-list cap, 2.11 B2's timeline threshold, \
          2.11 C's row-expand cap, 2.15's three scan parameters (the prompt \
-         filename and the two pre-filter dials), and the one-card grammar's two \
-         fold thresholds (the question's visible length and the element-chip K)"
+         filename and the two pre-filter dials), the one-card grammar's two fold \
+         thresholds (the question's visible length and the element-chip K), and \
+         the judge's token budget, which stopped being a constant on 2026-08-09"
     );
     assert_eq!(
         WORDING_KEYS.len(),
@@ -712,6 +853,9 @@ fn the_fixtures_carry_the_values_the_migration_actually_seeds() {
         // K, seeded with the card's own words for the same reason: they are that
         // surface's tunables.
         "pipeline_migrations/20260809121531_one_card_grammar_wording_and_settings.sql",
+        // 2026-08-09: the judge's token budget — the eleventh number, and the
+        // first that arrived because a compiled-in value was measured failing.
+        "pipeline_migrations/20260809210501_scan_max_tokens_setting.sql",
     ]
     .iter()
     .map(|relative| {

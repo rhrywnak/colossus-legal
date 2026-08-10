@@ -18,7 +18,7 @@ use crate::domain::llm_params::{
 };
 use crate::pipeline::providers::provider_for_model;
 use crate::repositories::pipeline_repository::models::{get_active_model_by_id, LlmModelRecord};
-use crate::services::theme_scan::{ThemeScanError, THEME_SCAN_MAX_TOKENS};
+use crate::services::theme_scan::ThemeScanError;
 use crate::state::AppState;
 
 /// Everything the scan needs about its chosen model: the built provider, the
@@ -59,14 +59,27 @@ fn effective_concurrency(record_max: Option<i32>, config_default: usize) -> usiz
 /// temperature actually comes from provider CONSTRUCTION today (the Anthropic
 /// bridge pins `Some(0.0)`; vLLM hardcodes `0.0`) — this `Set(0.0)` makes the
 /// resolved SNAPSHOT reflect that reality, since the params seam does not yet
-/// thread temperature to the wire (the Chunk B ceiling). `max_tokens` is pinned
-/// to the verdict protocol cap; timeout defers to the model-default / system
-/// layer.
-fn scan_task_spec() -> LlmParamsSpec {
+/// thread temperature to the wire (the Chunk B ceiling). Timeout defers to the
+/// model-default / system layer.
+///
+/// ## Why `max_tokens` is an ARGUMENT and not a constant read in here
+///
+/// It was `ParamValue::Set(THEME_SCAN_MAX_TOKENS)` — a compiled-in 512 that
+/// truncated 7 of 104 verdicts on 2026-08-09 once the judge became a model that
+/// thinks inside the same budget (the full account is in `services::theme_scan`,
+/// where the constant used to live).
+///
+/// Taking it as a parameter is the structural half of that fix: this function
+/// cannot reach the settings store, so it cannot read the value itself, and the
+/// only way a number gets into the task layer is for a caller to have resolved it
+/// from somewhere. A future compiled-in default cannot be reintroduced here
+/// without changing this signature — which is exactly what
+/// `the_scan_judge_cap_is_read_from_settings_at_scan_start` pins.
+fn scan_task_spec(max_tokens: u32) -> LlmParamsSpec {
     LlmParamsSpec {
         temperature: ParamValue::Set(0.0),
         timeout_secs: ParamValue::Unset,
-        max_tokens: ParamValue::Set(THEME_SCAN_MAX_TOKENS),
+        max_tokens: ParamValue::Set(max_tokens),
     }
 }
 
@@ -149,12 +162,21 @@ pub(crate) async fn resolve_scan_provider(
             model_id: model_id.clone(),
             source,
         })?;
-    let resolved = resolve(&model_default, &scan_task_spec(), &LlmParamsSpec::SILENT)
-        .and_then(|r| constrain(r, &constraints))
-        .map_err(|source| ThemeScanError::ParamsInvalid {
-            model_id: model_id.clone(),
-            source,
-        })?;
+    // The judge's token budget, READ PER SCAN rather than cached (the freshness
+    // law the prompt pointer already follows): the settings write path swaps the
+    // whole snapshot before its response returns, so a cap raised on the Settings
+    // page is in force for the NEXT scan with no restart.
+    let max_tokens = state.settings.current().theme_scan_max_tokens;
+    let resolved = resolve(
+        &model_default,
+        &scan_task_spec(max_tokens),
+        &LlmParamsSpec::SILENT,
+    )
+    .and_then(|r| constrain(r, &constraints))
+    .map_err(|source| ThemeScanError::ParamsInvalid {
+        model_id: model_id.clone(),
+        source,
+    })?;
 
     // Build via the unified seam. `provider_for_model` returns a `Box`; the scan
     // shares its provider across the concurrent fan-out, so it becomes an `Arc`.
@@ -189,10 +211,90 @@ pub(crate) async fn resolve_scan_provider(
 
 #[cfg(test)]
 mod tests {
-    use super::{effective_concurrency, model_default_spec};
+    use super::{effective_concurrency, model_default_spec, scan_task_spec};
     use crate::domain::llm_params::ParamValue;
     use crate::repositories::pipeline_repository::models::LlmModelRecord;
     use chrono::Utc;
+
+    /// The judge's cap comes from the SETTINGS ROW, not from this file.
+    ///
+    /// ## What this pins, and what it deliberately does not
+    ///
+    /// `scan_task_spec` cannot reach the settings store — it takes no state — so
+    /// the only way a number arrives in the task layer is for `resolve_scan_provider`
+    /// to have read one. That is the structural half of ruling R3: a compiled-in
+    /// default cannot be reintroduced here without changing this signature, and
+    /// changing it breaks this test.
+    ///
+    /// The value under test is `Settings::for_test().theme_scan_max_tokens`, which
+    /// `settings_store_tests` separately pins to the migration's seed. What that
+    /// chain covers, stated precisely: the row on disk equals the fixture, and the
+    /// fixture's value survives the task layer unchanged. The one link it does NOT
+    /// cover is `resolve_scan_provider` actually reading the snapshot — that
+    /// function needs a database, a graph and a registry before it can be called,
+    /// so the six lines that read `state.settings.current()` rest on review rather
+    /// than on this test. Said plainly because "end to end" would be a claim this
+    /// file cannot back.
+    #[test]
+    fn the_scan_judge_cap_is_read_from_settings_at_scan_start() {
+        use crate::domain::settings::Settings;
+
+        let from_the_store = Settings::for_test().theme_scan_max_tokens;
+        assert_eq!(
+            scan_task_spec(from_the_store).max_tokens,
+            ParamValue::Set(from_the_store),
+            "the task layer must carry the stored cap verbatim"
+        );
+
+        // ANTI-VACUITY. A `scan_task_spec` that ignored its argument and set some
+        // fixed number would pass the assertion above whenever that number
+        // happened to equal the seed. Two different caps must produce two
+        // different specs — which is what makes the first assertion mean "reads
+        // the row" rather than "happens to match today".
+        assert_ne!(
+            scan_task_spec(512).max_tokens,
+            scan_task_spec(8192).max_tokens,
+            "the cap must be the argument, not a constant this file still owns"
+        );
+        assert_eq!(
+            scan_task_spec(512).max_tokens,
+            ParamValue::Set(512),
+            "…including the 512 that used to be compiled in — it is now merely a \
+             number a caller may pass, with no special standing"
+        );
+    }
+
+    /// The two files that used to own the cap no longer decide it (ruling R3).
+    ///
+    /// Targeted rather than a source scan: `services::theme_scan` no longer
+    /// exports `THEME_SCAN_MAX_TOKENS` at all, so a reintroduction would have to
+    /// re-export it and re-import it here — and the import list above is what
+    /// would have to change. The other half is the signature test above.
+    ///
+    /// Written as a compile-time claim in a doc comment rather than a runtime
+    /// assertion because that is what it honestly is: `use
+    /// crate::services::theme_scan::THEME_SCAN_MAX_TOKENS;` does not compile, and
+    /// there is no way to assert the absence of a constant at runtime without
+    /// reading source text, which ruling R3 declined.
+    #[test]
+    fn no_compiled_in_cap_remains_on_the_judge_call_path() {
+        // What CAN be asserted at runtime: every cap the task layer produces is
+        // one somebody passed in. Sweeping a range proves the spec is a pure
+        // function of its argument over the row's whole legal span (256..=64000),
+        // which a smuggled `max(512, n)` or a clamp would fail.
+        for cap in [256_u32, 512, 4096, 8192, 64000] {
+            assert_eq!(
+                scan_task_spec(cap).max_tokens,
+                ParamValue::Set(cap),
+                "cap {cap} was altered between the argument and the task layer"
+            );
+        }
+
+        // And the two knobs ruling R4 froze are untouched by any of it.
+        let spec = scan_task_spec(8192);
+        assert_eq!(spec.temperature, ParamValue::Set(0.0));
+        assert_eq!(spec.timeout_secs, ParamValue::Unset);
+    }
 
     #[test]
     fn concurrency_prefers_positive_row_value() {

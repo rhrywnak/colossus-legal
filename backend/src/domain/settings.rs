@@ -140,6 +140,23 @@ pub struct Settings {
     /// answer is decisive when the interrogatory that prompted it is in evidence,
     /// and the judge is shown both — so only an unanchored fragment is set aside.
     pub theme_scan_prefilter_min_chars: usize,
+    /// The most the judge may write about ONE candidate — thinking included.
+    ///
+    /// ## Domain note: the constant that killed 7 verdicts (2026-08-09)
+    ///
+    /// This was `THEME_SCAN_MAX_TOKENS: u32 = 512`, compiled in, on the argument
+    /// that a verdict is a tiny four-key JSON object and its budget is a protocol
+    /// shape rather than a deployment knob. That argument was sound for as long as
+    /// the model's output WAS the verdict. Claude Opus 5 runs adaptive thinking by
+    /// default and `max_tokens` caps thinking and answer together, so 512 became a
+    /// budget the judge could spend entirely on thinking — measured on S-4 run
+    /// `2c7b7d87`: six replies cut off mid-sentence while writing
+    /// `"relevant": true`, and one that emitted no text block at all.
+    ///
+    /// A `u32` and not a `usize` because that is the width of `max_tokens` on the
+    /// provider seam; the narrowing happens once, at the store boundary, where a
+    /// bad value is a boot refusal (see `settings_store::token_count_of`).
+    pub theme_scan_max_tokens: u32,
     /// Statement kinds that never reach the judge, lower-cased and de-duplicated
     /// at parse time. Empty (the stored token `none`) disables the rule.
     ///
@@ -226,6 +243,7 @@ impl Settings {
             authoring_wording: AuthoringWording::for_test(),
             scenario_authoring_wording: ScenarioAuthoringWording::for_test(),
             theme_scan_prompt_file: "theme_scan_prompt_v3.md".to_string(),
+            theme_scan_max_tokens: 8192,
             theme_scan_prefilter_min_chars: 60,
             theme_scan_prefilter_statement_types: vec!["referral".to_string()],
             scan_wording: ScanWording::for_test(),
