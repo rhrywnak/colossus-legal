@@ -163,5 +163,30 @@ VALUES
      'an always-present clause: "5 of 5 answered — 0 to prepare" is a to-do list '
      'with an empty item on it. The second clause says outright what is left, so '
      'a witness does not have to subtract toward the number they came for.',
-     'services::rehearsal_render::answered_line', NOW(), 'migration')
+     'services::rehearsal_render::answered_line', NOW(), 'migration'),
+
+    -- ── 4 · the identity line and the fold ─────────────────────────────────
+    --
+    -- The direction is stated in words rather than as its schema token. "defense"
+    -- is a column value; "We are answering this" is what tells a witness which
+    -- side of the argument she is on, which is the only reason the line is there.
+    ('rehearsal_direction_offense_label', 'We are pressing this', 'text',
+     'We are pressing this', NULL, NULL,
+     'The direction, in the prep page''s identity line, when the scenario is an '
+     'offense one. Says what the direction MEANS for the person reading rather '
+     'than repeating the schema token.',
+     'services::rehearsal_assembly::direction_label', NOW(), 'migration'),
+
+    ('rehearsal_direction_defense_label', 'We are answering this', 'text',
+     'We are answering this', NULL, NULL,
+     'The same for a defense scenario — which is every scenario in this case.',
+     'services::rehearsal_assembly::direction_label', NOW(), 'migration'),
+
+    ('rehearsal_attack_full_label', 'The attack in full — their words, names, and dates', 'text',
+     'The attack in full — their words, names, and dates', NULL, NULL,
+     'The fold control under the plain-words accusation. It opens attack_text '
+     'verbatim — the paragraph Chuck will quote — which is reference material a '
+     'witness reaches for, not the sentence she rehearses. Folded by default for '
+     'that reason.',
+     'PrepTopBlock', NOW(), 'migration')
 ON CONFLICT (key) DO NOTHING;

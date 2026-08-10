@@ -64,9 +64,9 @@ import { useNavigate, useParams } from "react-router-dom";
 
 import RehearsalPageHeader from "../components/RehearsalPageHeader";
 import RehearsalPicker from "../components/RehearsalPicker";
-import RehearsalScenarioBlocks, {
-  type RehearsalEdits,
-} from "../components/RehearsalScenarioBlocks";
+import RehearsalScenarioBlocks from "../components/RehearsalScenarioBlocks";
+import { fillCode } from "./rehearsalSections";
+
 import {
   alwaysLabelStyle,
   alwaysRulesStyle,
@@ -75,10 +75,10 @@ import {
   pageStyle,
 } from "../components/rehearsalStyles";
 import { ghostButtonStyle } from "../components/scenarioSectionStyles";
-import { fillDetail } from "../services/scenarioAccusation";
+
 import { fetchRehearsal, type RehearsalPayload } from "../services/rehearsal";
-import { rehearsalEdits } from "./rehearsalEdits";
-import { fillCode, openSectionsFrom, type OpenSections } from "./rehearsalSections";
+
+
 import { positionAt, stepForKey, stepTo, type RehearsalStep } from "./rehearsalNav";
 import { rehearsalScenarioPath } from "../utils/routePaths";
 
@@ -96,10 +96,6 @@ const RehearsalPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [index, setIndex] = useState(0);
-  const [open, setOpen] = useState<OpenSections | null>(null);
-  const [openRows, setOpenRows] = useState<ReadonlySet<number>>(new Set());
-  const [busy, setBusy] = useState(false);
-  const [writeError, setWriteError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!slug) return;
@@ -107,9 +103,6 @@ const RehearsalPage: React.FC = () => {
     try {
       const loaded = await fetchRehearsal(slug);
       setPayload(loaded);
-      // The default states are the SERVER's, parsed from the store at boot where a
-      // typo is a named refusal. This page receives the decided answer.
-      setOpen(openSectionsFrom(loaded.collapse));
       // Clamp rather than reset: a reload after one scenario was demoted should
       // keep Marie roughly where she was, not send her back to the start.
       setIndex((current) => stepTo(current, loaded.scenarios.length, null));
@@ -128,23 +121,6 @@ const RehearsalPage: React.FC = () => {
 
   const total = payload?.scenarios.length ?? 0;
   const scenario = payload?.scenarios[index];
-
-  /**
-   * Which rows arrive open, whenever the scenario on screen changes.
-   *
-   * The SERVER decided (`instances_start_expanded`, from the stored cap and the
-   * count it just rendered). Recomputing it here from a number would be a second
-   * implementation of one rule; this only spreads the decided answer across the
-   * rows it applies to.
-   */
-  useEffect(() => {
-    if (!scenario) return;
-    setOpenRows(
-      scenario.instances_start_expanded
-        ? new Set(scenario.accusation.instances.map((i) => i.position))
-        : new Set(),
-    );
-  }, [scenario]);
 
   /** Where the address points, when it names a scenario. */
   const addressed = useMemo(
@@ -224,90 +200,11 @@ const RehearsalPage: React.FC = () => {
     return () => window.removeEventListener("keydown", onKey);
   }, [move]);
 
-  const toggle = (section: keyof OpenSections) =>
-    setOpen((current) => (current ? { ...current, [section]: !current[section] } : current));
-
-  const setAll = (value: boolean) =>
-    setOpen({
-      what: value,
-      accusation: value,
-      timeline: value,
-      points: value,
-      watchFor: value,
-    });
-
-  const toggleRow = (position: number) =>
-    setOpenRows((current) => {
-      const next = new Set(current);
-      if (!next.delete(position)) next.add(position);
-      return next;
-    });
-
-  /** The prep list's jump: open the row, then bring it into view. */
-  const jumpToRow = (position: number) => {
-    if (!scenario) return;
-    setOpenRows((current) => new Set(current).add(position));
-    // After the row has been told to open, so the scroll lands on the expanded
-    // height rather than the one-line summary the reader came to leave.
-    window.requestAnimationFrame(() => {
-      document
-        .getElementById(`${scenario.code}-row-${position}`)
-        ?.scrollIntoView({ behavior: "smooth", block: "center" });
-    });
-  };
-
-  /**
-   * Run one write, report any failure, re-read, and RETURN what went wrong.
-   *
-   * Server state is the one source of truth here, and it has to be: the counts,
-   * the gaps and the answer-present flags are all DERIVED from what is stored,
-   * and a browser that painted a change before the write landed would be showing
-   * a count it had computed itself — the exact thing §10 forbids.
-   *
-   * ## Why the failure is RETURNED and not thrown
-   *
-   * Two callers need two things from it. The sentence editors have no failure
-   * surface of their own and want nothing back — the banner this sets is the
-   * whole report. The per-row list editors need a REJECTED promise, because
-   * that is what keeps a human's draft on screen instead of closing the box on
-   * a save that never happened.
-   *
-   * Throwing here would have served the second and forced the first to write
-   * `.catch(() => undefined)` — a catch that displays nothing, which reads as
-   * swallowed however carefully it is commented. Returning the failure means
-   * every caller decides deliberately, and there is no discarded rejection
-   * anywhere on this page.
-   */
-  const runWrite = useCallback(
-    async (write: () => Promise<void>): Promise<unknown> => {
-      setBusy(true);
-      try {
-        await write();
-        setWriteError(null);
-        await load();
-        return null;
-      } catch (e: unknown) {
-        // Explicit error UI, never a swallowed rejection — and a WRITE failure
-        // says so in the stored save-failure sentence, not in the load failure's
-        // words. Two operationally different states, two observables
-        // (Standing Rule 1). The template is the human's; `{detail}` is the one
-        // value only this side knows.
-        const detail = e instanceof Error ? e.message : String(e);
-        const template = payload?.wording.editor.save_failed_template;
-        setWriteError(template ? fillDetail(template, detail) : detail);
-        return e;
-      } finally {
-        setBusy(false);
-      }
-    },
-    [load, payload],
-  );
-
   if (loading) {
     return <div style={pageStyle} data-surface="v3">{LOADING}</div>;
   }
 
-  if (error || !payload || !open) {
+  if (error || !payload) {
     return (
       <div style={pageStyle} data-surface="v3">
         <div role="alert" style={{ color: "var(--state-danger-strong)" }}>
@@ -341,9 +238,6 @@ const RehearsalPage: React.FC = () => {
   // exclusivity is visible in one place and cannot drift back apart.
   const mode = notReady ? "refusing" : picked ? "rehearsing" : "picking";
 
-  const edits: RehearsalEdits | null =
-    scenario && slug ? rehearsalEdits(slug, scenario, runWrite, busy) : null;
-
   return (
     <div style={pageStyle} data-surface="v3">
       <RehearsalPageHeader
@@ -359,26 +253,12 @@ const RehearsalPage: React.FC = () => {
         onNext={() => move("next")}
         atFirst={index === 0}
         atLast={index >= total - 1}
-        onOpenAll={() => setAll(true)}
-        onFoldAll={() => setAll(false)}
       />
 
       {mode === "refusing" && (
         <p role="status" style={{ marginTop: "18px" }}>
           {fillCode(w.not_ready_notice, code)}
         </p>
-      )}
-
-      {/* A write that failed says so at the top of the page as well as at the row
-          it came from: the row may have scrolled out of view by the time the
-          answer arrives. */}
-      {writeError && (
-        <div
-          role="alert"
-          style={{ marginTop: "12px", color: "var(--v3-red-text)", fontSize: "13px" }}
-        >
-          {writeError}
-        </div>
       )}
 
       {/* THE FRONT DOOR (Roman's ruling, 2026-08-10). No code in the address
@@ -400,19 +280,10 @@ const RehearsalPage: React.FC = () => {
           asserted away, because a page that edits must never render controls it
           has no write path for. */}
       {mode === "rehearsing" &&
-        (!scenario || !edits ? (
+        (!scenario ? (
           <p style={{ fontSize: "17px", marginTop: "24px" }}>{w.nothing_ready_notice}</p>
         ) : (
-          <RehearsalScenarioBlocks
-            scenario={scenario}
-            wording={w}
-            open={open}
-            onToggle={toggle}
-            openRows={openRows}
-            onToggleRow={toggleRow}
-            onJumpToRow={jumpToRow}
-            edits={edits}
-          />
+          <RehearsalScenarioBlocks scenario={scenario} wording={w} />
         ))}
 
       {/* The standing strip. Always visible, on every screen including the empty

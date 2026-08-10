@@ -191,6 +191,85 @@ describe("the rehearsal page is in exactly one mode at a time", () => {
   });
 });
 
+/**
+ * The prep page is READ-ONLY, and the phase filter offers only what it can show.
+ *
+ * Both rules decay silently. An edit control creeping back onto this surface
+ * looks like a feature; a phase chip that filters to nothing looks like a broken
+ * control. Neither produces an error, and this repo has no component-testing
+ * infrastructure (rule 30), so the pins read the source — the same shape as the
+ * `CONVERTED_FAMILY` block above.
+ */
+describe("the prep page stays read-only", () => {
+  /**
+   * The IMPORTS of each prep component, not the whole file.
+   *
+   * These files explain what they removed and name the editors they no longer
+   * use, so a whole-file scan would match its own prose — the trap the
+   * `CONVERTED_FAMILY` block one screen up documents. A component that is not
+   * imported cannot be rendered, and a field that is not read cannot be shown.
+   */
+  const importsOf = (file: string) => {
+    const source = read("components", file);
+    const firstStyle = source.search(/^const \w+(Style|Row)/m);
+    return firstStyle > 0 ? source.slice(0, firstStyle) : source;
+  };
+  const heads = [
+    importsOf("RehearsalScenarioBlocks.tsx"),
+    importsOf("PrepInstanceCard.tsx"),
+    importsOf("PrepTopBlock.tsx"),
+  ];
+
+  it("imports no editor onto any block", () => {
+    for (const head of heads) {
+      expect(head).not.toMatch(/^import .*SentenceEditor/m);
+    }
+  });
+
+  it("carries no write path of its own", () => {
+    // Every edit routes to the working page through the header's one link.
+    // `rehearsalEdits.ts` was deleted with this build; a fetch reappearing here
+    // would be a second write path onto a surface that must not have one.
+    for (const head of heads) {
+      // Importing TYPES from the service is fine and expected; importing its
+      // fetchers is not.
+      expect(head).not.toContain("authFetch");
+      expect(head).not.toContain("fetchRehearsal");
+    }
+    for (const file of ["RehearsalScenarioBlocks.tsx", "PrepInstanceCard.tsx", "PrepTopBlock.tsx"]) {
+      expect(read("components", file)).not.toContain("fetch(");
+    }
+  });
+
+  it("shows no authorship line", () => {
+    // "Written in plain words by roman · Aug 7" is provenance for the person who
+    // wrote it, on the page where they wrote it — not for a witness rehearsing.
+    for (const file of ["RehearsalScenarioBlocks.tsx", "PrepInstanceCard.tsx", "PrepTopBlock.tsx"]) {
+      expect(read("components", file)).not.toContain("what_this_is_attribution");
+    }
+  });
+});
+
+describe("the phase filter offers only the phases it can show", () => {
+  const blocks = read("components", "RehearsalScenarioBlocks.tsx");
+
+  it("derives its chips from the instances present, not from the four phases", () => {
+    // A chip for a phase with no cards would filter to nothing, which reads as a
+    // broken control rather than an empty phase.
+    expect(blocks).toContain("instances.reduce<string[]>");
+    expect(blocks).toContain("if (!seen.includes(i.phase)) seen.push(i.phase)");
+  });
+
+  it("hides the filter row entirely when every card shares one phase", () => {
+    // One chip that cannot narrow anything is a control with no purpose.
+    expect(blocks).toContain("phases.length > 1 &&");
+  });
+
+  it("clears the filter by tapping the active chip", () => {
+    expect(blocks).toContain("setPhase(phase === name ? null : name)");
+  });
+});
+
 describe("a bounded nav control looks as inert as it is", () => {
   it("differs from the live control on colour AND cursor", () => {
     // The .382 observable: `disabled` was set and honoured, but the base style

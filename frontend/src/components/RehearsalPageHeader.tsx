@@ -29,8 +29,6 @@ import React from "react";
 import {
   codeStyle,
   crumbStyle,
-  foldButtonStyle,
-  foldRowStyle,
   linkStyle,
   navButtonDisabledStyle,
   navButtonStyle,
@@ -60,8 +58,6 @@ interface Props {
   onNext: () => void;
   atFirst: boolean;
   atLast: boolean;
-  onOpenAll: () => void;
-  onFoldAll: () => void;
 }
 
 const RehearsalPageHeader: React.FC<Props> = ({
@@ -73,8 +69,6 @@ const RehearsalPageHeader: React.FC<Props> = ({
   onNext,
   atFirst,
   atLast,
-  onOpenAll,
-  onFoldAll,
 }) => (
   <>
     <div style={crumbStyle}>
@@ -138,19 +132,12 @@ const RehearsalPageHeader: React.FC<Props> = ({
 
     <p style={purposeStyle}>{wording.purpose_line}</p>
 
-    {/* Both directions, because a reader who wants the whole page should not
-        click five carets — and one who wants to work through it one block at a
-        time should not close them one at a time either. */}
-    {scenario && (
-      <div style={foldRowStyle}>
-        <button type="button" onClick={onOpenAll} style={foldButtonStyle}>
-          {wording.expand_all_label}
-        </button>
-        <button type="button" onClick={onFoldAll} style={foldButtonStyle}>
-          {wording.collapse_all_label}
-        </button>
-      </div>
-    )}
+    {/* THE FOLD-EVERYTHING CONTROLS ARE GONE (task R3).
+
+        They opened and closed five collapsible sections; the prep page has no
+        collapsible sections. It is built to be read top to bottom in one pass,
+        and a fold on a surface a witness works from is a place for something to
+        be missed. */}
   </>
 );
 

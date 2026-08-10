@@ -34,6 +34,7 @@
 // production uses) and `for_test_values`, so there is one copy and the builder is
 // exercised by every test that touches the fixture.
 
+use crate::domain::rehearsal_shape::SectionState;
 use crate::domain::settings::SettingError;
 
 /// Every stored string the rehearsal page renders.
@@ -112,6 +113,12 @@ pub struct RehearsalWording {
     /// Its own row rather than one template with an always-present clause:
     /// "5 of 5 answered — 0 to prepare" is a to-do list with an empty item on it.
     pub answered_line_some: String,
+
+    // ── The prep page's identity line and its fold (task R3) ────────────────
+    pub direction_offense_label: String,
+    pub direction_defense_label: String,
+    /// The control that opens the attack in their own words.
+    pub attack_full_label: String,
     /// Shown for the rehearsal address of a scenario nobody declared ready.
     /// Carries `{code}` — the only thing this page may say about a scenario it
     /// is not showing.
@@ -204,6 +211,9 @@ pub(crate) const KEY_PHASE_FORUMS: &str = "rehearsal_phase_document_forums";
 pub(crate) const KEY_PHASE_UNDATED: &str = "rehearsal_phase_undated_label";
 pub(crate) const KEY_ANSWERED_ALL: &str = "rehearsal_answered_line_all";
 pub(crate) const KEY_ANSWERED_SOME: &str = "rehearsal_answered_line_some";
+pub(crate) const KEY_DIRECTION_OFFENSE: &str = "rehearsal_direction_offense_label";
+pub(crate) const KEY_DIRECTION_DEFENSE: &str = "rehearsal_direction_defense_label";
+pub(crate) const KEY_ATTACK_FULL: &str = "rehearsal_attack_full_label";
 pub const KEY_NOT_READY: &str = "rehearsal_not_ready_notice";
 pub(crate) const KEY_EXPAND_ALL: &str = "rehearsal_expand_all_label";
 pub(crate) const KEY_COLLAPSE_ALL: &str = "rehearsal_collapse_all_label";
@@ -267,6 +277,9 @@ pub const REHEARSAL_WORDING_KEYS: &[&str] = &[
     KEY_PHASE_UNDATED,
     KEY_ANSWERED_ALL,
     KEY_ANSWERED_SOME,
+    KEY_DIRECTION_OFFENSE,
+    KEY_DIRECTION_DEFENSE,
+    KEY_ATTACK_FULL,
     KEY_NOT_READY,
     KEY_EXPAND_ALL,
     KEY_COLLAPSE_ALL,
@@ -314,45 +327,6 @@ pub const REHEARSAL_WORDING_KEYS: &[&str] = &[
 /// already stored. It is the row's grammar, versioned with the parser — the same
 /// standing as a serde tag.
 const ALWAYS_LINE_SEPARATOR: &str = " · ";
-
-/// Whether a section starts open.
-///
-/// ## Rust Learning: a two-variant enum instead of `value == "open"`
-///
-/// The store has no boolean kind (ruled 2026-08-05), so the tempting decode is a
-/// string comparison — which silently treats every typo ("Open", "opne", "true")
-/// as the other variant. On this surface that means a section a witness needs
-/// quietly folding shut with nothing in the log. Parsing into a closed enum makes
-/// an unrecognised token a named failure at boot, the same discipline
-/// `BackgroundDefaultState` uses.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SectionState {
-    Open,
-    Collapsed,
-}
-
-impl SectionState {
-    /// Whether a section holding this state renders open.
-    pub fn is_open(self) -> bool {
-        matches!(self, SectionState::Open)
-    }
-
-    /// Read one stored state token, naming the key that carried it.
-    ///
-    /// # Errors
-    /// Returns [`SettingError::Unreadable`] naming the key and what was expected.
-    pub fn parse(key: &str, token: &str) -> Result<Self, SettingError> {
-        match token.trim() {
-            "open" => Ok(SectionState::Open),
-            "collapsed" => Ok(SectionState::Collapsed),
-            other => Err(SettingError::Unreadable {
-                key: key.to_string(),
-                value: other.to_string(),
-                expected: "either 'open' or 'collapsed'",
-            }),
-        }
-    }
-}
 
 impl RehearsalWording {
     /// The standing card's lines, split and trimmed.
@@ -458,6 +432,9 @@ pub fn build_rehearsal_wording<E>(
         phase_undated_label: read(KEY_PHASE_UNDATED)?,
         answered_line_all: read(KEY_ANSWERED_ALL)?,
         answered_line_some: read(KEY_ANSWERED_SOME)?,
+        direction_offense_label: read(KEY_DIRECTION_OFFENSE)?,
+        direction_defense_label: read(KEY_DIRECTION_DEFENSE)?,
+        attack_full_label: read(KEY_ATTACK_FULL)?,
         not_ready_notice: read(KEY_NOT_READY)?,
         expand_all_label: read(KEY_EXPAND_ALL)?,
         collapse_all_label: read(KEY_COLLAPSE_ALL)?,

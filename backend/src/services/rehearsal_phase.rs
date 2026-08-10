@@ -38,7 +38,7 @@
 use crate::domain::settings::Settings;
 
 /// The separator inside the phase list and the boundary list.
-// CONST: a delimiter inside a stored value, not a deployment knob — changing it
+// STRUCTURAL: a delimiter inside a stored value, not a deployment knob — changing it
 // means re-writing every row that uses it, so it is structural (Rule 13 N/A).
 const LIST_SEPARATOR: char = '|';
 /// The separator between `document-id=Phase` pairs in the forum map.
@@ -92,12 +92,33 @@ pub(crate) fn phase_of(
 
     let labels = phase_labels(settings);
     let bounds = boundaries(settings);
-    // A malformed list is not worth a panic on a witness's page: fall back to the
-    // undated label, which is honest ("we cannot place this") rather than wrong.
+    // A malformed list is not worth a panic on a witness's page, so both arms
+    // fall back to the undated label — which is honest ("we cannot place this")
+    // rather than wrong.
+    //
+    // But the fallback SAYS SO. "No date yet" is a common, correct state on this
+    // record (57% of evidence carries no date), so a soft fallback with no log
+    // would be indistinguishable from the real thing: an operator who trimmed
+    // `rehearsal_phase_labels` to three entries would see every dated statement
+    // in the case go quiet, with nothing anywhere pointing at the row.
     let (Some(first), Some(second)) = (bounds.first(), bounds.get(1)) else {
+        tracing::warn!(
+            key = "rehearsal_phase_boundaries",
+            found = bounds.len(),
+            expected = 2,
+            "phase boundary list is malformed — every dated statement will read \
+             as undated until the row is fixed in Settings"
+        );
         return w.phase_undated_label.clone();
     };
     let (Some(pre), Some(mid), Some(last)) = (labels.first(), labels.get(1), labels.get(3)) else {
+        tracing::warn!(
+            key = "rehearsal_phase_labels",
+            found = labels.len(),
+            expected = 4,
+            "phase label list is malformed — every dated statement will read as \
+             undated until the row is fixed in Settings"
+        );
         return w.phase_undated_label.clone();
     };
 

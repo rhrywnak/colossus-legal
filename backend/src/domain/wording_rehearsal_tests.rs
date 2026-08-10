@@ -80,6 +80,12 @@ const TEST_SEED: &[(&str, &str)] = &[
         KEY_ANSWERED_SOME,
         "{answered} of {total} answered — {remaining} to prepare",
     ),
+    (KEY_DIRECTION_OFFENSE, "We are pressing this"),
+    (KEY_DIRECTION_DEFENSE, "We are answering this"),
+    (
+        KEY_ATTACK_FULL,
+        "The attack in full — their words, names, and dates",
+    ),
     (
         KEY_NOT_READY,
         "{code} is not ready to rehearse yet. A scenario appears here once someone \
@@ -220,10 +226,10 @@ fn the_fixture_carries_the_values_the_migration_actually_seeds() {
     // Anti-vacuity: a parsing change that stopped finding rows would otherwise
     // make this test pass while comparing nothing.
     assert_eq!(
-        checked, 55,
-        "all fifty-five stored strings must be compared"
+        checked, 58,
+        "all fifty-eight stored strings must be compared"
     );
-    assert_eq!(REHEARSAL_WORDING_KEYS.len(), 55);
+    assert_eq!(REHEARSAL_WORDING_KEYS.len(), 58);
 }
 
 #[test]
@@ -277,6 +283,9 @@ fn every_field_is_read_from_its_own_key() {
     assert_eq!(w.phase_undated_label, KEY_PHASE_UNDATED);
     assert_eq!(w.answered_line_all, KEY_ANSWERED_ALL);
     assert_eq!(w.answered_line_some, KEY_ANSWERED_SOME);
+    assert_eq!(w.direction_offense_label, KEY_DIRECTION_OFFENSE);
+    assert_eq!(w.direction_defense_label, KEY_DIRECTION_DEFENSE);
+    assert_eq!(w.attack_full_label, KEY_ATTACK_FULL);
     assert_eq!(w.not_ready_notice, KEY_NOT_READY);
     assert_eq!(w.expand_all_label, KEY_EXPAND_ALL);
     assert_eq!(w.collapse_all_label, KEY_COLLAPSE_ALL);

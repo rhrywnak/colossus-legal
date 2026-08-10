@@ -109,3 +109,45 @@ fn a_statement_with_neither_a_forum_nor_a_date_says_so() {
         "whitespace is not a date"
     );
 }
+
+// ── The malformed-settings fallbacks ───────────────────────────────────────
+//
+// Both return the undated label, which is a COMMON and correct state on this
+// record — so without these tests a mis-edited row would look exactly like the
+// 57% of evidence that genuinely has no date. The warns that make them
+// distinguishable in the log are asserted by reading the code; what is pinned
+// here is that a broken row degrades rather than panics on a witness's page.
+
+/// Fewer than two boundaries cannot split a timeline.
+#[test]
+fn a_malformed_boundary_row_degrades_to_the_undated_label() {
+    let mut s = settings();
+    s.rehearsal_wording.phase_boundaries = "2009-06".to_string();
+    assert_eq!(phase_of(None, Some("2011-03"), &s), "No date yet");
+}
+
+/// Fewer than four labels cannot name four phases.
+#[test]
+fn a_malformed_label_row_degrades_to_the_undated_label() {
+    let mut s = settings();
+    s.rehearsal_wording.phase_labels = "Probate|COA".to_string();
+    assert_eq!(phase_of(None, Some("2011-03"), &s), "No date yet");
+}
+
+/// A forum still wins even when the DATE rule is unusable.
+///
+/// The two halves are independent, and this is the one that matters: a broken
+/// boundary row must not take the appeal's chip down with it.
+#[test]
+fn a_named_forum_survives_a_malformed_boundary_row() {
+    let mut s = settings();
+    s.rehearsal_wording.phase_boundaries = String::new();
+    assert_eq!(
+        phase_of(
+            Some("doc-court-of-appeals-rulling-01-12-2012"),
+            Some("2012-01-12"),
+            &s
+        ),
+        "COA"
+    );
+}

@@ -390,6 +390,14 @@ pub struct RehearsalScenario {
     /// rendered and every one is reachable; the list is not paginated at any
     /// size.
     pub instances_start_expanded: bool,
+    /// Offense or defense, as the stored word (task R3).
+    pub direction_label: String,
+    /// The attack in their own words, verbatim. Folded away on the prep page
+    /// beneath the plain-words accusation; `None` renders no fold control.
+    pub attack_text: Option<String>,
+    /// The complaint paragraphs this bears on, as A-codes — the same handles the
+    /// working page's chips use.
+    pub bears_on: Vec<String>,
 }
 
 /// Every word the page renders that is not already a composed sentence.
