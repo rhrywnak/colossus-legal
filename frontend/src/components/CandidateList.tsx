@@ -72,6 +72,15 @@ const CandidateList: React.FC<{
   cards: ScenarioCard[];
   /** The selected card's node id, or `null` when the filter leaves nothing. */
   selectedId: string | null;
+  /**
+   * Whether this selection should be brought into view (task R4, P2).
+   *
+   * The reducer's answer to "why did the selection move" — see `QueueState.follow`.
+   * `true` for a keyboard move, `false` for the advance a ruling performs on its
+   * own, a pool reload, a filter rescue and a click. This component cannot work
+   * it out for itself: all it sees is that `selectedId` changed.
+   */
+  follow: boolean;
   /** The reducer's refusal message, shown on the selected card. */
   notice: string | null;
   /**
@@ -138,6 +147,7 @@ const CandidateList: React.FC<{
 }> = ({
   cards,
   selectedId,
+  follow,
   notice,
   filtered,
   onSelect,
@@ -171,13 +181,27 @@ const CandidateList: React.FC<{
     // identity header off screen. That was the "opens scrolled to Scan &
     // candidates" defect.
     //
-    // Every LATER run still scrolls, because that is the keyboard's whole
-    // contract: J/K and the arrows move the selection and the list follows.
+    // Every LATER run still scrolls WHEN THE MOVE ASKED FOR IT, because that is
+    // the keyboard's whole contract: J/K and the arrows move the selection and
+    // the list follows.
     if (!arrived.current) {
       arrived.current = true;
       return;
     }
+    // TASK R4, P2 — the other half of the same defect. .391 stopped this scroll
+    // firing on arrival; it kept firing on the advance a RULING performs, which
+    // is how pressing I mid-queue still moved the document. `follow` is the
+    // reducer saying which kind of move this was.
+    //
+    // The two guards answer different questions and both are kept: `arrived` is
+    // this component's own invariant (never scroll on mount, whatever the caller
+    // says), `follow` is the caller's statement of cause.
+    if (!follow) return;
     selectedRef.current?.scrollIntoView({ block: "nearest" });
+    // `follow` is deliberately NOT a dependency. The effect asks its question at
+    // the moment the selection changes; re-running it when the flag alone flips
+    // would scroll to a card the human never moved to.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId]);
 
   if (cards.length === 0) {

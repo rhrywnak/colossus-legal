@@ -269,9 +269,117 @@ fn decode_row(row: &neo4rs::Row) -> Result<RehearsalFactRow, ScenarioCardRepoErr
     })
 }
 
+/// Build the anchor-paragraph query.
+///
+/// A named function for the same reason its two siblings are: it is the part of
+/// this module a test can hold without a live Neo4j.
+fn anchor_paragraphs_query() -> String {
+    // `labels(a)[0]` and the label as a PARAM, matching `allegation_repository`'s
+    // established shape rather than inventing a second convention for the same
+    // node type. The paragraph is returned as the string the graph stores — this
+    // layer does not parse it, because "15(a)" is a real paragraph on this
+    // complaint and `toInteger` would return null for it.
+    "MATCH (a) WHERE labels(a)[0] = $allegation_label AND a.id IN $ids \
+     RETURN a.id AS anchor_id, a.paragraph_number AS paragraph"
+        .to_string()
+}
+
+/// The complaint paragraph each anchor id names.
+///
+/// ## Why this exists rather than the browser holding the catalogue (task R4, P6a)
+///
+/// The prep page's chips read `A-<hash>` for a whole build. The code was built
+/// from the last `:`-segment of an anchor id — but an id is
+/// `doc-…:allegation:<hash>`, so that segment is the hash, and the paragraph
+/// number is not in the id at all. It is on the Allegation node, which the
+/// rehearsal assembly had no reason to read until now.
+///
+/// The first fix threaded the whole case-wide allegation catalogue into the
+/// browser and composed the label there. That worked, and it was wrong twice:
+/// the prep page's standing law is that every visible word arrives composed, and
+/// the fetch it needed is a network read whose failure has no honest surface on
+/// a page read in front of opposing counsel (Standing Rule 1 excludes
+/// `fetch`/`authFetch` from its best-effort carve-out in terms). This reads the
+/// four or five paragraphs a scenario actually anchors, here, where a failure is
+/// already an operator-visible error on an endpoint.
+///
+/// An id the graph does not hold is simply absent from the map. That is not an
+/// error: the caller renders the id itself, which names something that exists
+/// and can be looked up, rather than dropping a chip and leaving the row quietly
+/// shorter than the scenario's actual anchors.
+///
+/// # Errors
+/// Returns [`ScenarioCardRepoError`] if the query or a row decode fails — kept
+/// distinct from "found nothing", which is an empty map.
+pub(crate) async fn fetch_anchor_paragraphs(
+    graph: &Graph,
+    ids: &[String],
+) -> Result<HashMap<String, String>, ScenarioCardRepoError> {
+    const OP: &str = "fetch_anchor_paragraphs";
+
+    if ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let mut stream = graph
+        .execute(
+            query(&anchor_paragraphs_query())
+                .param("ids", ids.to_vec())
+                .param("allegation_label", "Allegation"),
+        )
+        .await
+        .map_err(|source| ScenarioCardRepoError::Query {
+            operation: OP,
+            source,
+        })?;
+
+    let mut out = HashMap::new();
+    while let Some(row) = stream
+        .next()
+        .await
+        .map_err(|source| ScenarioCardRepoError::Query {
+            operation: OP,
+            source,
+        })?
+    {
+        let anchor_id: String = column(&row, "anchor_id")?;
+        // A node with no paragraph number is skipped rather than mapped to an
+        // empty string: the caller's fallback (render the id) is better than a
+        // chip reading "A-".
+        let paragraph: Option<String> = column(&row, "paragraph")?;
+        if let Some(paragraph) = paragraph.filter(|p| !p.trim().is_empty()) {
+            out.insert(anchor_id, paragraph);
+        }
+    }
+
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The query asks for the two columns the chips need, and nothing else.
+    #[test]
+    fn the_anchor_query_projects_the_id_and_its_paragraph() {
+        let cypher = anchor_paragraphs_query();
+        assert!(cypher.contains("a.id AS anchor_id"), "{cypher}");
+        assert!(
+            cypher.contains("a.paragraph_number AS paragraph"),
+            "{cypher}"
+        );
+    }
+
+    /// It is scoped to the ids passed, never the whole complaint.
+    ///
+    /// A query that dropped the `IN $ids` clause would return all 126 paragraphs
+    /// and still work — the caller looks up by key — while reading the entire
+    /// complaint on every rehearsal page load. Silent, and only visible as
+    /// latency.
+    #[test]
+    fn the_anchor_query_reads_only_the_ids_it_was_given() {
+        assert!(anchor_paragraphs_query().contains("a.id IN $ids"));
+    }
 
     /// The query walks the schema module's edge to a Document node.
     ///

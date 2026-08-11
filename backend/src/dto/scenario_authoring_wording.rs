@@ -89,6 +89,43 @@ pub struct ScenarioIdentityWordingDto {
     /// scenario. A fifth request for one string would buy nothing, and a copy on
     /// the detail payload would be a second row to keep in step.
     pub rehearsal_link_blocked_reason: String,
+
+    // ── The unified identity vocabulary (task R2; SHIPPED in R4) ────────────
+    //
+    // ## Why these nine arrived a build late
+    //
+    // Task R2 added them to the domain block, seeded them in a migration, and
+    // declared them on the frontend type — and stopped one layer short of THIS
+    // struct, which is the only one that crosses the wire. The read-only block
+    // therefore rendered `undefined` into each of its four `<div>` labels, so
+    // the attack, the theme, the motivation and the bears-on chips came out as
+    // unlabelled back-to-back paragraphs (the beta.392 defect P1a). The four
+    // `*_absent` rows went with them, which is the worse half: an unwritten text
+    // rendered as an EMPTY italic paragraph rather than as its stated absence —
+    // a blank where Standing Rule 1 requires a sentence.
+    //
+    // TypeScript could not catch it. The client type declares `attack_label:
+    // string`; a field the server never serialises simply arrives `undefined`
+    // and satisfies no check at runtime. `identity_wording_carries_every_field`
+    // in this module's test file is what catches it now, by walking the domain
+    // block's own field list rather than a list a human maintains here.
+    /// `definition->>attack_text` — what the other side claims.
+    pub attack_label: String,
+    /// Its stated absence. Never an empty paragraph: that reads as a render fault.
+    pub attack_absent: String,
+    /// The `theme_statement` column — our answer in one sentence.
+    pub theme_label: String,
+    pub theme_absent: String,
+    /// Says who reads the theme and where, which is what stops it being written
+    /// as a case note instead of a line spoken aloud. The editor renders it; the
+    /// read-only block does not, and both take it from this one row.
+    pub theme_helper: String,
+    /// The `motivation` column.
+    pub motivation_label: String,
+    pub motivation_absent: String,
+    /// The `anchor_allegation_ids` chips.
+    pub bears_on_label: String,
+    pub bears_on_absent: String,
 }
 
 /// Map the stored block onto the create form's subset.
@@ -121,5 +158,21 @@ pub fn identity_wording(w: &ScenarioAuthoringWording) -> ScenarioIdentityWording
         target_needs_attack_text: w.identity_target_needs_attack_text.clone(),
         meaning_needs_attack_text: w.identity_meaning_needs_attack_text.clone(),
         rehearsal_link_blocked_reason: w.rehearsal_link_blocked_reason.clone(),
+        // The `identity_` prefix is dropped on the wire: over there the whole
+        // struct IS the identity vocabulary, so repeating it in every field name
+        // would be the payload saying "identity" nine times to one reader.
+        attack_label: w.identity_attack_label.clone(),
+        attack_absent: w.identity_attack_absent.clone(),
+        theme_label: w.identity_theme_label.clone(),
+        theme_absent: w.identity_theme_absent.clone(),
+        theme_helper: w.identity_theme_helper.clone(),
+        motivation_label: w.identity_motivation_label.clone(),
+        motivation_absent: w.identity_motivation_absent.clone(),
+        bears_on_label: w.identity_bears_on_label.clone(),
+        bears_on_absent: w.identity_bears_on_absent.clone(),
     }
 }
+
+#[cfg(test)]
+#[path = "scenario_authoring_wording_tests.rs"]
+mod tests;

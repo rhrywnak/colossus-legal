@@ -163,7 +163,10 @@ const TalkingPointsSection: React.FC<Props> = ({
                 display: "flex",
                 gap: "0.7rem",
                 alignItems: "flex-start",
-                padding: "0.55rem 0",
+                // Tighter since task R4 (P5): the row is one line now, so the
+                // breathing room a three-line block needed is space between
+                // points that no longer exist as blocks.
+                padding: "0.35rem 0",
                 borderBottom: index === points.length - 1 ? "none" : DIVIDER,
               }}
             >
@@ -191,10 +194,14 @@ const TalkingPointsSection: React.FC<Props> = ({
                 >
                   {/* Ruling R9: no pairing data exists on the wire yet, so every
                       point says so. Task 3.9 brings the field and the paired
-                      branch together — a branch written now would be dead code. */}
-                  <div style={{ ...absentStyle, fontSize: "0.75rem", marginTop: "0.15rem" }}>
-                    {wording.points_no_exhibit_notice}
-                  </div>
+                      branch together — a branch written now would be dead code.
+
+                      INLINE since task R4 (P5): a `span` with a separator rather
+                      than a `div` under the text. The dot is punctuation between
+                      two things on one line, not vocabulary. */}
+                  <span style={{ ...absentStyle, fontSize: "0.75rem" }}>
+                    · {wording.points_no_exhibit_notice}
+                  </span>
                 </AuthoredLineEditor>
               </div>
             </div>

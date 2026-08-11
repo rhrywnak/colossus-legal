@@ -24,6 +24,7 @@
 import React, { useState } from "react";
 
 import AddHumanFactForm from "./AddHumanFactForm";
+import SectionFold from "./SectionFold";
 import WorkingView from "./WorkingView";
 import {
   sectionHeaderStyle,
@@ -112,6 +113,14 @@ const ScenarioFactsSection: React.FC<Props> = ({
 }) => {
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * Whether the facts list itself is shown (task R4, P1b).
+   *
+   * Open on arrival, always: the section is the scenario's evidence and the page
+   * exists to show it. See `SectionFold` for why this is not remembered between
+   * visits — the same reason ruling R7 gave for the queue.
+   */
+  const [open, setOpen] = useState(true);
   /** Whether the Reset-order confirmation is open. */
   const [confirmingReset, setConfirmingReset] = useState(false);
   /** What the last reset did, or `null`. Every action acknowledges itself. */
@@ -353,8 +362,13 @@ const ScenarioFactsSection: React.FC<Props> = ({
             Withheld until the words load: there is no fallback vocabulary, and a
             destructive control that cannot state what it does must not be
             offered at all (R4). */}
-        {options && (
-          <span style={{ marginLeft: "auto", display: "flex", gap: "0.5rem" }}>
+        {/* The header's right-hand controls. The wrapper carries the `auto`
+            margin rather than the Reset button, because the fold must sit at the
+            far edge whether or not the words for Reset have loaded — a control
+            that moves depending on someone else's fetch is a control a human
+            has to look for twice. */}
+        <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          {options && (
             <button
               type="button"
               onClick={() => setConfirmingReset(true)}
@@ -370,8 +384,16 @@ const ScenarioFactsSection: React.FC<Props> = ({
             >
               {options.card_grammar.reset_order_label}
             </button>
-          </span>
-        )}
+          )}
+
+          {/* P1b. The count line above stays visible when this closes, so a
+              folded section still says how many facts are in it. */}
+          <SectionFold
+            open={open}
+            onToggle={() => setOpen(!open)}
+            names="the scenario facts"
+          />
+        </span>
       </div>
 
       {options && (
@@ -408,19 +430,24 @@ const ScenarioFactsSection: React.FC<Props> = ({
           The row's provenance line still says which it is in words, so the stripe
           is a cue and never the only signal. `WorkingView` opens its pinpoints in
           the viewer WINDOW (D5); a human row has no pinpoint to open. */}
-      <WorkingView
-        cards={cards}
-        humanFacts={humanFacts}
-        onAdd={() => setAdding(true)}
-        onRemoveHumanFact={removeHumanFact}
-        onRemoveFact={removeFact}
-        wording={wording}
-        options={options}
-        onSetTier={changeTier}
-        onMoveFact={moveFact}
-      />
+      {/* P1b: the fold governs the LIST and the add form, never the error banner
+          or the reset acknowledgment above — a message about something that just
+          failed or just happened must not be collapsible out of sight. */}
+      {open && (
+        <WorkingView
+          cards={cards}
+          humanFacts={humanFacts}
+          onAdd={() => setAdding(true)}
+          onRemoveHumanFact={removeHumanFact}
+          onRemoveFact={removeFact}
+          wording={wording}
+          options={options}
+          onSetTier={changeTier}
+          onMoveFact={moveFact}
+        />
+      )}
 
-      {adding && (
+      {open && adding && (
         <AddHumanFactForm
           slug={slug}
           scenarioId={scenarioId}

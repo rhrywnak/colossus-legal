@@ -40,9 +40,20 @@ describe("the default open state", () => {
 });
 
 describe("the summary line", () => {
-  it("counts what is LEFT, not what has been done", () => {
-    // The human's question at the summary line is "how much is in front of me".
-    expect(queueRegion({ ruled: 3, total: 148 }).summary).toBe("Candidates awaiting ruling — 145");
+  it("YIELDS the open-queue heading to the frame (task R4, P4)", () => {
+    // WAS: "counts what is LEFT, not what has been done" — the summary read
+    // `Candidates awaiting ruling — 145`.
+    //
+    // Two things were wrong with it and P4 killed both. It was a hardcoded
+    // English sentence on a surface whose standing law is that every visible
+    // word is a stored row; and 145 counted the whole unruled pool while the
+    // list beneath it showed one filter's 21, so the heading and its own rows
+    // disagreed by construction.
+    //
+    // `null` is this module saying "the frame's heading speaks here" —
+    // `ScanSection` composes the active filter's stored name and count. What is
+    // pinned is that no sentence is invented HERE.
+    expect(queueRegion({ ruled: 3, total: 148 }).summary).toBeNull();
   });
 
   it("says the pile spans EVERY scan, not just the last one", () => {
@@ -89,7 +100,10 @@ describe("the summary line", () => {
     // proposing one — the payload withholds the source entirely in that case, and
     // a count of zero must never render "0 proposed by the …".
     const none = queueRegion({ ruled: 3, total: 148 }, WORDS, { count: 0, when: "Aug 7" });
-    expect(none.summary).toBe("Candidates awaiting ruling — 145");
+    // Falls through to the frame's own heading (task R4, P4) rather than to the
+    // retired literal. The property under test is unchanged: a count of zero
+    // must never render "0 proposed by the …".
+    expect(none.summary).toBeNull();
   });
 
   it("counts the proposals off the CARDS, and says none before the pool is read", () => {
@@ -114,9 +128,10 @@ describe("the summary line", () => {
     // about where the rows came from, and no scan had ever looked at them.
     const unscanned = queueRegion({ ruled: 0, total: 148 }, null, null, false);
     expect(unscanned.scope).toBeNull();
-    // The COUNT is untouched — the rows are real and still queued. Only the
-    // provenance claim is withdrawn.
-    expect(unscanned.summary).toContain("148");
+    // The clause is what this test is about, and it is still withdrawn. The
+    // count moved to the frame's heading in task R4 (P4), so there is no longer
+    // a number on this line to assert — `scope` is the whole claim now.
+    expect(unscanned.summary).toBeNull();
   });
 
   it("tells an empty pool apart from a finished one (task 2.13)", () => {
@@ -139,8 +154,10 @@ describe("the summary line", () => {
     // string the Settings page cannot edit and nobody knows is there.
     expect(queueRegion({ ruled: 0, total: 0 }).summary).toBe("");
     expect(queueRegion({ ruled: 10, total: 10 }).summary).toBe("");
-    // The line that does NOT depend on stored wording is unaffected.
-    expect(queueRegion({ ruled: 3, total: 148 }).summary).toBe("Candidates awaiting ruling — 145");
+    // And the open queue now invents nothing at all rather than falling back to
+    // a compiled-in sentence (task R4, P4) — which is the same rule, applied to
+    // the one line that used to be exempt from it.
+    expect(queueRegion({ ruled: 3, total: 148 }).summary).toBeNull();
   });
 
   it("hands the chevron a label naming what collapsing costs", () => {
@@ -356,10 +373,13 @@ describe("progressFromCards", () => {
     expect(progress).toEqual({ ruled: 56, total: 148 });
 
     const region = queueRegion(progress, WORDS);
-    expect(region.summary).toBe("Candidates awaiting ruling — 92");
+    // Task R4 (P4): an open queue yields its heading to the frame. The property
+    // this test exists for is untouched and is asserted above — the COUNTS do
+    // not depend on any component being mounted, so a collapsed header is as
+    // well-informed as an expanded one. What is pinned here is that a real pool
+    // with work outstanding is never mistaken for an empty one.
+    expect(region.summary).toBeNull();
     expect(region.summary).not.toBe(WORDS.emptyPool);
-    // The heading still counts what is OUTSTANDING; what left is the pool-wide
-    // ruled/total bar underneath it (Piece 1c).
     expect(region.countingNotice).toBeNull();
   });
 });

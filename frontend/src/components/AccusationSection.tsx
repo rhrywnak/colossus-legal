@@ -33,8 +33,11 @@
 
 import React, { useState } from "react";
 
-import AccusationFactPicker, { type PickableFact } from "./AccusationFactPicker";
+import AccusationFactPicker from "./AccusationFactPicker";
+import PairCard from "./PairCard";
 import SentenceEditor from "./SentenceEditor";
+import { includedPickableFacts } from "./accusationFacts";
+import { pairCardFromScenarioCard } from "./pairCardModel";
 import {
   absentStyle,
   DIVIDER,
@@ -54,6 +57,8 @@ import {
   unpairAnswer,
   type AccusationPanelDto,
 } from "../services/scenarioAccusation";
+import type { AllegationOptions } from "../services/evidenceLinks";
+import type { ScenarioCard } from "../services/scenarioCards";
 
 interface Props {
   slug: string;
@@ -66,8 +71,27 @@ interface Props {
    * failure beside it.
    */
   panel: AccusationPanelDto | null;
-  /** This scenario's INCLUDED facts — the only things markable or pairable. */
-  includedFacts: PickableFact[];
+  /**
+   * This scenario's INCLUDED facts, as whole cards (task R4, P3).
+   *
+   * Whole cards rather than the three-field picker shape this section used to
+   * take: the pair card renders the speaker, the kind, the pinpoint and the
+   * context either side of the quote, and every one of those was already on the
+   * payload and being thrown away. The picker's narrower shape is derived from
+   * these here, so one list feeds both and they cannot disagree about what is
+   * included.
+   */
+  includedCards: ScenarioCard[];
+  /**
+   * The card grammar — the served words the shared pair card speaks on THIS
+   * page (the fold's show/hide pair, and the sentence for a statement whose
+   * speaker the record does not name).
+   *
+   * `null` while the catalogue is unread, which withholds the instance list
+   * rather than rendering cards with blank labels — the same honest-gap rule
+   * this section already follows for `panel`.
+   */
+  options: AllegationOptions | null;
   /** Re-read the section after any write. */
   onChanged: () => void;
 }
@@ -78,26 +102,11 @@ type PickerState =
   | { mode: "pair"; anchor: string }
   | null;
 
-const rowStyle: React.CSSProperties = {
-  padding: "12px 0",
-  borderBottom: DIVIDER,
-  display: "flex",
-  flexDirection: "column",
-  gap: "0.35rem",
-};
-
-const codeStyle: React.CSSProperties = {
-  fontWeight: 600,
-  fontSize: "13px",
-  color: "var(--text-secondary)",
-};
-
-const quoteStyle: React.CSSProperties = {
-  margin: 0,
-  fontSize: "13.5px",
-  lineHeight: 1.55,
-  color: "var(--text-primary)",
-};
+// REMOVED (task R4, P3): `rowStyle`, `codeStyle` and `quoteStyle`. They drew the
+// bare code-and-a-line-of-text row that the shared `PairCard` replaced — the
+// presentation Roman ruled against ("the rehearsal rendering wins"). The card
+// owns its own visual language now, on both pages, which is the whole point of
+// there being one of it.
 
 const gapStyle: React.CSSProperties = {
   margin: 0,
@@ -132,7 +141,8 @@ const AccusationSection: React.FC<Props> = ({
   slug,
   scenarioId,
   panel,
-  includedFacts,
+  includedCards,
+  options,
   onChanged,
 }) => {
   const [error, setError] = useState<string | null>(null);
@@ -164,9 +174,12 @@ const AccusationSection: React.FC<Props> = ({
       .finally(() => setBusy(false));
   };
 
-  /** The words of one fact, for the row that names it. */
-  const textOf = (graphNodeId: string): string =>
-    includedFacts.find((f) => f.graphNodeId === graphNodeId)?.text ?? graphNodeId;
+  /** The picker's narrower shape, derived from the one included list. */
+  const includedFacts = includedPickableFacts(includedCards);
+
+  /** The whole card behind one node id, or `undefined` when it has left. */
+  const cardOf = (graphNodeId: string): ScenarioCard | undefined =>
+    includedCards.find((c) => c.graph_node_id === graphNodeId);
 
   return (
     <section>
@@ -218,60 +231,94 @@ const AccusationSection: React.FC<Props> = ({
           fieldStyle={textareaStyle}
         />
 
-        <div style={{ marginTop: "1rem" }}>
-          {panel.instances.map((instance) => (
-            <div key={instance.graph_node_id} style={rowStyle}>
-              <span style={codeStyle}>{instance.code ?? instance.graph_node_id}</span>
-              <p style={quoteStyle}>{textOf(instance.graph_node_id)}</p>
+        <div style={{ marginTop: "1rem", display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+          {/* THE UNIFIED PAIR CARD (task R4, P3). The identical component the
+              rehearsal page renders, with this page's controls at its edge.
 
-              {/* Our answer, directly beneath the instance it answers — the
-                  design's shape. `answer_present` is the SERVER's verdict, so a
-                  pairing whose answer has left says so rather than looking whole. */}
-              {instance.answers_graph_node_id && (
-                <p style={quoteStyle}>
-                  <span style={codeStyle}>{w.answer_label}</span>{" "}
-                  {instance.answer_present
-                    ? textOf(instance.answers_graph_node_id)
-                    : (instance.answer_code ?? instance.answers_graph_node_id)}
-                </p>
-              )}
+              Roman's ruling was "the rehearsal rendering wins": this section used
+              to show a code and a bare line of text, so the human doing the
+              marking could not see what the human doing the rehearsing would
+              read. Everything the card now shows — speaker, kind, pinpoint, the
+              context around the quote — was already on the cards payload and was
+              being discarded one lookup short of the screen. */}
+          {options &&
+            panel.instances.map((instance) => {
+              const card = cardOf(instance.graph_node_id);
+              // A marked instance whose fact has left the scenario. It is NOT
+              // rendered as a card — there are no words to put in one — and the
+              // gap list below names it, which is where the Remove law already
+              // says this belongs.
+              if (!card) return null;
 
-              <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-                <button
-                  type="button"
-                  style={ghostButtonStyle}
-                  disabled={busy}
-                  onClick={() =>
-                    setPicker({ mode: "pair", anchor: instance.graph_node_id })
+              const answerCard =
+                instance.answers_graph_node_id && instance.answer_present
+                  ? cardOf(instance.answers_graph_node_id)
+                  : undefined;
+
+              return (
+                <PairCard
+                  key={instance.graph_node_id}
+                  card={{
+                    ...pairCardFromScenarioCard(
+                      card,
+                      options.card_grammar.speaker_absent_label,
+                    ),
+                    answer: answerCard
+                      ? pairCardFromScenarioCard(
+                          answerCard,
+                          options.card_grammar.speaker_absent_label,
+                        )
+                      : null,
+                  }}
+                  answerLabel={w.answer_label}
+                  // This page's own served fold words — the prep page passes its
+                  // rehearsal wording instead. Neither speaks a literal.
+                  showLabel={options.card_grammar.context_show_label}
+                  hideLabel={options.card_grammar.context_hide_label}
+                  // The working page names an unanswered instance in its gap list,
+                  // which is the surface a human acts on. `null` here keeps that
+                  // sentence in one place, as ruling C5 requires on the prep page
+                  // for the same reason.
+                  gapNotice={null}
+                  controls={
+                    <>
+                      <button
+                        type="button"
+                        style={ghostButtonStyle}
+                        disabled={busy}
+                        onClick={() =>
+                          setPicker({ mode: "pair", anchor: instance.graph_node_id })
+                        }
+                      >
+                        {instance.answers_graph_node_id ? w.repair_label : w.pair_label}
+                      </button>
+                      {instance.answers_graph_node_id && (
+                        <button
+                          type="button"
+                          style={ghostButtonStyle}
+                          disabled={busy}
+                          onClick={() =>
+                            run(() => unpairAnswer(slug, scenarioId, instance.graph_node_id))
+                          }
+                        >
+                          {w.unpair_label}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        style={ghostButtonStyle}
+                        disabled={busy}
+                        onClick={() =>
+                          run(() => unmarkInstance(slug, scenarioId, instance.graph_node_id))
+                        }
+                      >
+                        {w.unmark_label}
+                      </button>
+                    </>
                   }
-                >
-                  {instance.answers_graph_node_id ? w.repair_label : w.pair_label}
-                </button>
-                {instance.answers_graph_node_id && (
-                  <button
-                    type="button"
-                    style={ghostButtonStyle}
-                    disabled={busy}
-                    onClick={() =>
-                      run(() => unpairAnswer(slug, scenarioId, instance.graph_node_id))
-                    }
-                  >
-                    {w.unpair_label}
-                  </button>
-                )}
-                <button
-                  type="button"
-                  style={ghostButtonStyle}
-                  disabled={busy}
-                  onClick={() =>
-                    run(() => unmarkInstance(slug, scenarioId, instance.graph_node_id))
-                  }
-                >
-                  {w.unmark_label}
-                </button>
-              </div>
-            </div>
-          ))}
+                />
+              );
+            })}
         </div>
 
         <div style={{ marginTop: "0.75rem" }}>

@@ -1,0 +1,250 @@
+// =============================================================================
+// rehearsalPageStructure.test.ts — the anti-regression net (task R4, P8)
+// =============================================================================
+//
+// ## Why this file exists, in one sentence
+//
+// P1a shipped: the identity block rendered four unlabelled paragraphs for a
+// whole build, nothing in the test suite noticed, and a human reading the page
+// found it. This class of test is the answer — the named sections are named, the
+// named controls exist, and no surface renders a wording key nothing serves.
+//
+// ## Why these are SOURCE scans and not DOM tests
+//
+// The batch asked for DOM smoke tests. This repo has no jsdom, no happy-dom and
+// no `@testing-library/*`, by the deliberate convention CLAUDE.md rule 30
+// records, and standing up that infrastructure on the evening of a deploy is not
+// a thing to do quietly inside a defect fix.
+//
+// So these follow the established pattern of `scenarioPageStructure.test.ts`:
+// read the component source and assert structural facts about it. That is a
+// weaker instrument than a render in general — but for THIS bug family it is the
+// stronger one. P1a was a wire-contract gap between a Rust DTO and a TypeScript
+// type; a DOM test of the frontend in isolation, with a fixture the test author
+// wrote, would have rendered four perfect labels and passed. The backend parity
+// test in `dto/scenario_authoring_wording_tests.rs` is what actually catches it,
+// and these are its frontend half.
+//
+// The limit is worth stating plainly rather than discovering later: a source
+// scan proves a component READS a field and RENDERS a heading. It cannot prove
+// the result is legible, positioned, or on screen. Roman's walk is still the
+// thing that knows that.
+
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+import { describe, expect, it } from "vitest";
+
+const COMPONENTS = join(__dirname, "..", "..", "components");
+const read = (dir: string, file: string) => readFileSync(join(dir, file), "utf8");
+
+describe("the prep page renders its named blocks", () => {
+  it("every section heading comes from a stored row", () => {
+    // The four blocks the prep page is made of. A heading that became a literal
+    // would be a word Roman cannot change from Settings, on the page whose whole
+    // law is that every visible word is a stored row.
+    const blocks = read(COMPONENTS, "RehearsalScenarioBlocks.tsx");
+
+    expect(blocks).toContain("wording.block_accusation_heading");
+    expect(blocks).toContain("wording.block_points_heading");
+    expect(blocks).toContain("wording.block_watch_heading");
+  });
+
+  it("an empty block says the STORED sentence, never nothing", () => {
+    // Absent is absent, and it says so. A block that rendered an empty list would
+    // read as a rendering fault to the person least able to diagnose one.
+    const blocks = read(COMPONENTS, "RehearsalScenarioBlocks.tsx");
+
+    expect(blocks).toContain("scenario.accusation.no_instances_notice");
+    expect(blocks).toContain("scenario.points_gap");
+    expect(blocks).toContain("scenario.watch_for_gap");
+  });
+});
+
+describe("the pair card is ONE card on two pages (task R4, P3)", () => {
+  it("both pages render the same component", () => {
+    // The complaint this closes: the working page showed a code and a line of
+    // text while the prep page showed a full card, so the human doing the marking
+    // could not see what the human rehearsing would read. Two files importing one
+    // component is the structural form of "the rehearsal rendering wins".
+    expect(read(COMPONENTS, "AccusationSection.tsx")).toContain('from "./PairCard"');
+    expect(read(COMPONENTS, "PrepInstanceCard.tsx")).toContain('from "./PairCard"');
+  });
+
+  it("the prep page passes NO controls", () => {
+    // Marie reads this page in front of opposing counsel. A control she cannot
+    // use costs her a glance; a control she CAN use is a write from a room where
+    // nobody is checking. The adapter must not pass one.
+    const prep = read(COMPONENTS, "PrepInstanceCard.tsx");
+
+    expect(prep).not.toContain("controls=");
+    expect(prep).not.toContain("onClick");
+  });
+
+  it("the working page passes controls, and they are the five named ones", () => {
+    const working = read(COMPONENTS, "AccusationSection.tsx");
+
+    expect(working).toContain("controls=");
+    // Named through their stored labels, so a control that lost its words fails
+    // here rather than rendering an empty button.
+    for (const label of ["w.pair_label", "w.repair_label", "w.unpair_label", "w.unmark_label"]) {
+      expect(working, `the ${label} control is missing`).toContain(label);
+    }
+    expect(working).toContain("w.mark_label");
+  });
+
+  it("the C-code reaches BOTH pages — it is a speakable handle", () => {
+    // "no C-code on rehearsal" was a named complaint. The code is what Marie and
+    // Chuck call one statement in a room, and withholding it meant the two pages
+    // named the same statement differently.
+    expect(read(COMPONENTS, "PairCard.tsx")).toContain("of.code");
+    expect(read(COMPONENTS, "pairCardModel.ts")).toContain("instance.code");
+  });
+
+  it("the card composes no sentence of its own", () => {
+    // Both fold labels arrive from the caller's own store, and the card degrades
+    // to a chevron rather than inventing words when a page has none.
+    const card = read(COMPONENTS, "PairCard.tsx");
+
+    expect(card).toContain("showLabel");
+    expect(card).toContain("hideLabel");
+    expect(card).not.toMatch(/>\s*Show all/);
+    expect(card).not.toMatch(/>\s*Show more/);
+  });
+});
+
+describe("the prep page names allegations the way the working page does", () => {
+  it("the prep page composes NO label of its own (task R4, P6a)", () => {
+    // The defect: chips read `A-<hash>`, because the backend built them from the
+    // last segment of an anchor id and that segment is a hash. The paragraph is
+    // on the Allegation node, so the ASSEMBLY reads it — not the browser.
+    //
+    // The first fix put the case-wide allegation catalogue in this page and
+    // composed there. It worked and it was wrong twice: this page's standing law
+    // is that every visible word arrives composed, and the read it needed was an
+    // `authFetch` whose failure Standing Rule 1 does not let degrade quietly. So
+    // what is pinned is the ABSENCE of composition here.
+    const top = read(COMPONENTS, "PrepTopBlock.tsx");
+
+    expect(top).not.toContain("labelForAllegationId");
+    expect(top).toContain("scenario.bears_on.map");
+  });
+
+  it("the prep page reads no case-wide catalogue", () => {
+    // The §10 line, and the Standing Rule 1 one. A page read in front of
+    // opposing counsel does not fetch the complaint.
+    const page = read(join(__dirname, ".."), "RehearsalPage.tsx");
+    expect(page).not.toContain("getAllegations");
+  });
+
+  it("the working page's identity chips still use the browser composer", () => {
+    // That surface keeps the documented exception — it already holds the
+    // catalogue for its own modal, and it is not the page in the room.
+    expect(read(COMPONENTS, "ScenarioIdentityBlock.tsx")).toContain("labelForAllegationId");
+  });
+});
+
+describe("the prep page's talking points (task R4, P5)", () => {
+  it("render the exhibit ONLY when there is one", () => {
+    // `exhibit_notice` is a note to the person preparing, and this is the page
+    // read in the room: a line under every point saying it has no exhibit is
+    // several lines about work that did not happen, at the moment Marie can
+    // least act on it. The working page says it, beside the control that fixes
+    // it.
+    const blocks = read(COMPONENTS, "RehearsalScenarioBlocks.tsx");
+
+    expect(blocks).toContain("point.exhibit &&");
+    expect(blocks).not.toContain("point.exhibit ?? point.exhibit_notice");
+  });
+
+  it("carry no Edit control at all", () => {
+    const blocks = read(COMPONENTS, "RehearsalScenarioBlocks.tsx");
+    expect(blocks).not.toContain("AuthoredLineEditor");
+  });
+});
+
+describe("the scenario page's named controls exist (task R4, P1b and P4)", () => {
+  it("the Scenario facts section has a fold", () => {
+    // P1b. Asserted through the shared control rather than through an arrow
+    // character, so a second hand-rolled fold does not satisfy it.
+    const facts = read(COMPONENTS, "ScenarioFactsSection.tsx");
+
+    expect(facts).toContain("SectionFold");
+    // The count line must stay OUTSIDE the fold: a collapsed section still says
+    // how many facts it holds, or it cannot be told from an empty one.
+    expect(facts.indexOf("sectionMetaStyle")).toBeLessThan(facts.indexOf("{open && ("));
+  });
+
+  it("the error banner is NOT collapsible out of sight", () => {
+    // A message about something that just failed must not be foldable away.
+    const facts = read(COMPONENTS, "ScenarioFactsSection.tsx");
+    expect(facts).toMatch(/\{error && \(/);
+    expect(facts).not.toMatch(/\{open && error/);
+  });
+
+  it("the queue heading invents no sentence of its own (P4)", () => {
+    // "Candidates awaiting ruling — 145" died twice over: a hardcoded English
+    // sentence, and a number counting the whole unruled pool above a list showing
+    // one filter's slice.
+    const region = read(COMPONENTS, "queueRegion.ts");
+    expect(region).not.toContain("Candidates awaiting ruling —");
+  });
+
+  it("the filter bar is one line that cannot wrap (P4)", () => {
+    const bar = read(COMPONENTS, "CandidateFilterBar.tsx");
+    expect(bar).toContain('flexWrap: "nowrap"');
+  });
+});
+
+describe("no page renders a wording key nothing serves (the P1a class)", () => {
+  it("every identity key the block reads is on the wire", () => {
+    // THE P1a TEST, from the frontend side. The block destructures nine fields
+    // off `identity_wording`; the Rust DTO that serialises that object must
+    // declare every one of them. It did not, for a whole build, and the page
+    // rendered `undefined` into four labels with nothing failing anywhere.
+    //
+    // The backend half of this pair walks the domain block's own key list — see
+    // `dto/scenario_authoring_wording_tests.rs`. This half pins the frontend's
+    // side of the same contract, so a field RENAMED here without being renamed
+    // there fails at once.
+    const block = read(COMPONENTS, "ScenarioIdentityBlock.tsx");
+    const dto = readFileSync(
+      join(__dirname, "..", "..", "..", "..", "backend", "src", "dto", "scenario_authoring_wording.rs"),
+      "utf8",
+    );
+
+    const keys = [...block.matchAll(/wording\.(\w+)/g)].map((m) => m[1]);
+    expect(keys.length).toBeGreaterThan(0);
+
+    for (const key of new Set(keys)) {
+      expect(dto, `the identity block renders \`${key}\`, which the DTO does not carry`).toContain(
+        `pub ${key}:`,
+      );
+    }
+  });
+
+  it("the identity block renders a LABEL for each of its four texts", () => {
+    // The specific shape of the defect: the texts rendered, the labels did not,
+    // so four paragraphs sat back to back with no way to tell the attack from
+    // the answer.
+    const block = read(COMPONENTS, "ScenarioIdentityBlock.tsx");
+
+    for (const label of [
+      "wording.attack_label",
+      "wording.theme_label",
+      "wording.motivation_label",
+      "wording.bears_on_label",
+    ]) {
+      expect(block, `${label} is not rendered`).toContain(label);
+    }
+    // …and a stated absence for each, rather than an empty paragraph.
+    for (const absent of [
+      "wording.attack_absent",
+      "wording.theme_absent",
+      "wording.motivation_absent",
+      "wording.bears_on_absent",
+    ]) {
+      expect(block, `${absent} is not rendered`).toContain(absent);
+    }
+  });
+});

@@ -25,11 +25,11 @@ use crate::domain::scenario_code::scenario_code;
 use crate::domain::settings::Settings;
 use crate::dto::rehearsal::{RehearsalPoint, RehearsalScenario, RehearsalWatchItem};
 use crate::repositories::pipeline_repository::{
-    list_fact_refs_for_scenario, list_human_facts_for_scenario, list_items_for_response,
-    sole_response_for_scenario, PipelineRepoError, ScenarioRecord,
+    list_candidate_ordinals, list_fact_refs_for_scenario, list_human_facts_for_scenario,
+    list_items_for_response, sole_response_for_scenario, PipelineRepoError, ScenarioRecord,
 };
 use crate::repositories::scenario_accusation_repository::{
-    fetch_rehearsal_facts, RehearsalFactRow,
+    fetch_anchor_paragraphs, fetch_rehearsal_facts, RehearsalFactRow,
 };
 use crate::services::rehearsal_render::{render_scenario, Authored, ScenarioInput};
 use crate::services::scenario_accusation::{derive, StoredJudgment};
@@ -82,6 +82,20 @@ pub async fn assemble_scenario(
     let state = derive(&judgments, &included);
     let facts = placed_facts(graph, &state).await?;
     let points = talking_points_of(pool, scenario_id, settings).await?;
+    // The candidate ordinals behind the C-codes the pair card prints (task R4,
+    // P3). Read here rather than passed in, because this function is where every
+    // other per-scenario read for this page already lives — and the working
+    // page's accusation route reads the same table the same way.
+    let ordinals = list_candidate_ordinals(pool, scenario_id)
+        .await
+        .map_err(|source| AssemblyError::Read { source })?;
+    // The paragraph behind each anchor id, for the bears-on chips (task R4,
+    // P6a). Scoped to the handful of ids this scenario anchors — never the whole
+    // complaint.
+    let anchors = record.anchor_allegation_ids.clone().unwrap_or_default();
+    let paragraphs = fetch_anchor_paragraphs(graph, &anchors)
+        .await
+        .map_err(|source| AssemblyError::Record { source })?;
 
     Ok(render_scenario(ScenarioInput {
         code: scenario_code(record.code_ordinal),
@@ -113,7 +127,8 @@ pub async fn assemble_scenario(
         // already loaded — no second read.
         direction_label: direction_label(&record.direction, settings),
         attack_text: attack_text_of(&record.definition),
-        bears_on: bears_on_codes(record.anchor_allegation_ids.as_deref()),
+        bears_on: bears_on_codes(&anchors, &paragraphs),
+        ordinals: &ordinals,
         settings,
     }))
 }
@@ -357,29 +372,33 @@ fn attack_text_of(definition: &serde_json::Value) -> Option<String> {
 /// The complaint paragraphs this scenario bears on, as A-codes.
 ///
 /// ## Domain note: why the code and not the paragraph number
+/// The bears-on chips: `A-41`, the handle every other surface uses.
 ///
-/// `A-41` is the handle every other surface uses for this allegation since .391 —
-/// the card's link chips, the link catalogue, and the working page's identity
-/// block. A prep page that said "¶41" would be the last place in the product
-/// calling it something else, in front of the person least able to know they are
-/// the same thing.
-fn bears_on_codes(anchors: Option<&[String]>) -> Vec<String> {
+/// ## What was wrong before (task R4, P6a)
+///
+/// The old version derived the number from the id, by taking its last
+/// `:`-segment. An anchor id is `doc-…:allegation:<hash>`, so that segment is
+/// the HASH — every chip on the prep page read `A-<hash>`: a node-id fragment
+/// wearing the prefix of a paragraph number, on the surface where a reader is
+/// least equipped to notice. The paragraph is not in the id at all. It is a
+/// property of the Allegation node, which is why this now takes a map that was
+/// READ rather than a string it can pick apart.
+///
+/// ## Why an unknown id renders AS the id
+///
+/// Dropping it would make the chip row quietly shorter than the scenario's
+/// actual anchors — the count would disagree with the data and nothing on screen
+/// would say why. The id is a poor label but an HONEST one: it names something
+/// that exists and can be looked up. Same rule, and same reason, as the working
+/// page's `labelForAllegationId`.
+fn bears_on_codes(anchors: &[String], paragraphs: &HashMap<String, String>) -> Vec<String> {
     anchors
-        .unwrap_or_default()
         .iter()
-        .map(|id| crate::domain::scenario_code::allegation_code(paragraph_of(id)))
+        .map(|id| match paragraphs.get(id) {
+            Some(paragraph) => crate::domain::scenario_code::allegation_code(paragraph),
+            None => id.clone(),
+        })
         .collect()
-}
-
-/// The paragraph an anchor id names, or the id itself when it carries none.
-///
-/// Anchor ids are `doc-…:allegation:<hash>`; the paragraph is not in them, so
-/// this is honest rather than clever — an id we cannot turn into a paragraph is
-/// shown AS the id, which names a thing that exists and can be looked up, rather
-/// than being dropped from a chip row that would then disagree with the
-/// scenario's actual anchors.
-fn paragraph_of(anchor_id: &str) -> &str {
-    anchor_id.rsplit(':').next().unwrap_or(anchor_id)
 }
 
 #[cfg(test)]
@@ -439,27 +458,74 @@ mod prep_helpers_tests {
         );
     }
 
-    /// The chips speak A-codes — the handle every other surface uses since .391.
+    /// The chips read the PARAGRAPH the graph holds, never the id's tail.
+    ///
+    /// ## Why the test this replaces was green over the bug for months
+    ///
+    /// It asserted `bears_on_codes(["41", "46"]) == ["A-41", "A-46"]` — passing
+    /// BARE paragraph numbers as anchor ids. A real anchor id is
+    /// `doc-…:allegation:<hash>`, and the old function took the last
+    /// `:`-segment: for that fixture the number itself, for real data the hash.
+    /// The test exercised a shape the database never produces, so it could not
+    /// fail while the page rendered `A-<hash>`.
+    ///
+    /// This one uses the real shape, and the paragraph arrives from the map the
+    /// assembly READ rather than from any string the id can be cut into.
     #[test]
-    fn the_bears_on_chips_are_a_codes() {
-        let anchors = vec!["41".to_string(), "46".to_string()];
-        assert_eq!(bears_on_codes(Some(&anchors)), vec!["A-41", "A-46"]);
+    fn the_chips_read_the_paragraph_and_not_the_ids_tail() {
+        let anchors = vec![
+            "doc-complaint:allegation:9f2c1a".to_string(),
+            "doc-complaint:allegation:7b4e02".to_string(),
+        ];
+        let paragraphs: HashMap<String, String> = [
+            (
+                "doc-complaint:allegation:9f2c1a".to_string(),
+                "41".to_string(),
+            ),
+            (
+                "doc-complaint:allegation:7b4e02".to_string(),
+                "92".to_string(),
+            ),
+        ]
+        .into_iter()
+        .collect();
+
+        assert_eq!(bears_on_codes(&anchors, &paragraphs), vec!["A-41", "A-92"]);
+
+        // The regression, stated as its own assertion: no chip may carry a
+        // fragment of the id it came from.
+        for chip in bears_on_codes(&anchors, &paragraphs) {
+            assert!(!chip.contains("9f2c1a"), "{chip}");
+            assert!(!chip.contains("7b4e02"), "{chip}");
+        }
+    }
+
+    /// A paragraph the graph cannot supply renders AS the id, never dropped.
+    ///
+    /// Dropping it would make the chip row quietly shorter than the scenario's
+    /// actual anchors: the count would disagree with the data and nothing on
+    /// screen would say why.
+    #[test]
+    fn an_unresolvable_anchor_keeps_its_place_in_the_row() {
+        let anchors = vec![
+            "doc-complaint:allegation:9f2c1a".to_string(),
+            "doc-complaint:allegation:missing".to_string(),
+        ];
+        let paragraphs: HashMap<String, String> = [(
+            "doc-complaint:allegation:9f2c1a".to_string(),
+            "41".to_string(),
+        )]
+        .into_iter()
+        .collect();
+
+        let chips = bears_on_codes(&anchors, &paragraphs);
+        assert_eq!(chips.len(), 2, "a chip was dropped: {chips:?}");
+        assert_eq!(chips[0], "A-41");
+        assert_eq!(chips[1], "doc-complaint:allegation:missing");
     }
 
     #[test]
     fn no_anchors_is_an_empty_chip_row_rather_than_a_guess() {
-        assert!(bears_on_codes(None).is_empty());
-    }
-
-    /// A colon-shaped anchor id yields its last segment; a bare one yields itself.
-    ///
-    /// The second case is the honest fallback: an id this cannot turn into a
-    /// paragraph is shown AS the id, which names a thing that exists and can be
-    /// looked up — rather than being dropped from a chip row that would then
-    /// disagree with the scenario's actual anchors.
-    #[test]
-    fn an_anchor_id_yields_its_paragraph_or_itself() {
-        assert_eq!(paragraph_of("doc-complaint:allegation:41"), "41");
-        assert_eq!(paragraph_of("41"), "41");
+        assert!(bears_on_codes(&[], &HashMap::new()).is_empty());
     }
 }

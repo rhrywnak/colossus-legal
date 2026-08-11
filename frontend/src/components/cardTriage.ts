@@ -167,6 +167,29 @@ export type QueueState = {
    * sentence entirely.
    */
   notice: string | null;
+  /**
+   * Whether the LIST should bring the selection into view (task R4, P2).
+   *
+   * ## Why the reducer answers this and not the list
+   *
+   * `CandidateList` sees one thing: the selected id changed. It cannot see WHY,
+   * and the two whys want opposite behaviour.
+   *
+   * A human pressing J asked to move through the queue, and the list following
+   * them is the whole contract of the key. A human pressing I ruled the card in
+   * front of them — the selection then advances on its own, and scrolling the
+   * document to chase it takes the page out from under someone who never asked
+   * to go anywhere. That was the "save moves the page" defect: .391 stopped the
+   * scroll on ARRIVAL, and this is the same scroll firing on the move after a
+   * ruling.
+   *
+   * So the cause travels with the state. Every transition that moves `index`
+   * sets this deliberately, and the default is `false` — a new selection is not
+   * followed unless something says it should be, which fails safe: the worst a
+   * missed `true` costs is a keypress that does not scroll, while a missed
+   * `false` moves the document under a reader.
+   */
+  follow: boolean;
 };
 
 /** A ruling the reducer wants the caller to send to the backend. */
@@ -225,6 +248,10 @@ export function initialQueueState(cards: ScenarioCard[]): QueueState {
     ruled: [],
     visibleIds: null,
     notice: null,
+    // Arrival is never followed: the page opens at its own top, not at whatever
+    // the queue happens to have selected. This is the same rule .391 wrote into
+    // `CandidateList`'s mount guard, stated once more where the state begins.
+    follow: false,
   };
 }
 
@@ -297,7 +324,13 @@ function advance(state: QueueState, anchor: number): QueueState {
   const from = here === -1 ? -1 : here;
   for (let at = from + 1; at < order.length; at += 1) {
     const card = state.cards[order[at]];
-    if (card && !isDealtWith(state, card)) return { ...state, index: order[at] };
+    // NOT followed (task R4, P2). This advance is the consequence of a ruling,
+    // not a request to go somewhere: the human pressed I on the card in front of
+    // them, and the list moving the document to chase the next one is what took
+    // the page out from under them.
+    if (card && !isDealtWith(state, card)) {
+      return { ...state, index: order[at], follow: false };
+    }
   }
   return state;
 }
@@ -337,11 +370,17 @@ function moveSelection(state: QueueState, step: 1 | -1): QueueResult {
   const order = visibleOrder(state);
   if (order.length === 0) return { state, effect: NONE };
   const here = order.indexOf(state.index);
+  // FOLLOWED (task R4, P2): this is the keyboard asking to move through the
+  // queue, and the list keeping up with it is the whole contract of J/K and the
+  // arrows. It is the one cause that should scroll the page at all.
+  //
   // Not on a visible card (a filter just changed): the first step lands on the
   // first visible one rather than nowhere.
-  if (here === -1) return { state: { ...state, index: order[0] }, effect: NONE };
+  if (here === -1) {
+    return { state: { ...state, index: order[0], follow: true }, effect: NONE };
+  }
   const next = Math.min(Math.max(here + step, 0), order.length - 1);
-  return { state: { ...state, index: order[next] }, effect: NONE };
+  return { state: { ...state, index: order[next], follow: true }, effect: NONE };
 }
 
 /**
@@ -470,14 +509,31 @@ export function queueReducer(state: QueueState, event: QueueEvent): QueueResult 
           ? null
           : state.lastRuling;
 
+      // A pool reload never moves the document (task R4, P2). The clamp can
+      // change `index` — that is what "keeps the human where they were, clamped
+      // to the new length" means — and a re-read that scrolled as a side effect
+      // would move the page for a reason the human did not cause and cannot see.
       return {
-        state: { ...state, cards: event.cards, index, ruled, lastRuling, notice: null },
+        state: {
+          ...state,
+          cards: event.cards,
+          index,
+          ruled,
+          lastRuling,
+          notice: null,
+          follow: false,
+        },
         effect: NONE,
       };
     }
 
     case "focus":
-      return { state: { ...state, index: event.index, notice: null }, effect: NONE };
+      // Not followed: a focused card is one the human pointed at, so it is
+      // already on screen. Scrolling under a click is motion nobody asked for.
+      return {
+        state: { ...state, index: event.index, notice: null, follow: false },
+        effect: NONE,
+      };
 
     case "select": {
       const index = state.cards.findIndex((c) => c.graph_node_id === event.graphNodeId);
@@ -485,9 +541,10 @@ export function queueReducer(state: QueueState, event: QueueEvent): QueueResult 
       // rather than jumping to card 0: the click came from a rendered row, so
       // this can only be a reload landing mid-click, and moving the selection
       // somewhere the human did not point is worse than ignoring one click.
+      // Same reason as `focus`: the click came from a rendered row.
       return index === -1
         ? { state, effect: NONE }
-        : { state: { ...state, index, notice: null }, effect: NONE };
+        : { state: { ...state, index, notice: null, follow: false }, effect: NONE };
     }
 
     case "visible": {
@@ -501,8 +558,10 @@ export function queueReducer(state: QueueState, event: QueueEvent): QueueResult 
       }
       const order = visibleOrder(next);
       const landing = nearestVisible(order, state.index);
+      // The filter rescue is not followed either: changing a filter is a change
+      // of VIEW, and the reader is looking at the chip row when they do it.
       return {
-        state: { ...next, index: landing ?? next.index },
+        state: { ...next, index: landing ?? next.index, follow: false },
         effect: NONE,
       };
     }
@@ -631,7 +690,15 @@ function rulingOn(state: QueueState, card: ScenarioCard, key: RulingKey): QueueR
       // disabled, so this is the belt to that braces.
       if (card.defer_required) {
         return {
-          state: { ...state, index: indexOf(state, card), notice: card.defer_required_reason },
+          state: {
+            ...state,
+            index: indexOf(state, card),
+            notice: card.defer_required_reason,
+            // The comment above says it: via the keyboard this card is already
+            // selected and nothing moves, and via the buttons it is the card
+            // under the pointer. Either way it is on screen already.
+            follow: false,
+          },
           effect: NONE,
         };
       }
@@ -757,6 +824,14 @@ function rule(
       // not by the unit tests, which had only ever exercised the rescue with the
       // selection already on the ruled card.
       index: anchor,
+      // Set here as well as in `advance`, and that is not belt-and-braces:
+      // `advance` returns its input UNTOUCHED when there is nothing left to
+      // advance to (the human just ruled the last card in the view), and without
+      // this line that path would carry whatever `follow` the previous action
+      // left behind — a stale `true` from the last J press, scrolling the
+      // document on a ruling. The value is set where the ruling is, so it cannot
+      // depend on which branch `advance` takes.
+      follow: false,
       // The proposal is stashed BEFORE the patch clears it, so undo can put back
       // exactly what the server served rather than a reconstruction (R2).
       lastRuling: { graphNodeId, action, index: anchor, proposed: target?.proposed },
@@ -803,6 +878,11 @@ function undo(state: QueueState): QueueResult {
       index: last.index,
       lastRuling: null,
       ruled: state.ruled.filter((id) => id !== last.graphNodeId),
+      // FOLLOWED. U is a keyboard move like J and K — the human is asking to go
+      // back to the card they just ruled, and it can be off screen by now if
+      // they have scrolled since. This is a request to go somewhere, so the list
+      // takes them there.
+      follow: true,
     },
     effect: { kind: "rule", graphNodeId: last.graphNodeId, action: "reopen" },
   };

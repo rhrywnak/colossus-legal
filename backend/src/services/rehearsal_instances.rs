@@ -23,7 +23,34 @@ use crate::repositories::scenario_accusation_repository::RehearsalFactRow;
 use crate::services::rehearsal_render::{
     ScenarioInput, GAP_ANSWER_REMOVED, GAP_INSTANCE_UNAVAILABLE, GAP_NO_ANSWER,
 };
-use crate::services::rehearsal_rows::{answer_of, first_line, kind_of, source_of, when_of, who_of};
+use crate::services::rehearsal_rows::{
+    answer_of, code_of, first_line, kind_of, source_of, when_of, who_of,
+};
+
+/// Everything a row needs that is the same for EVERY row.
+///
+/// ## Rust Learning: a borrowed context struct instead of more parameters
+///
+/// Task R4 added the ordinal table — the source of the C-codes the pair card
+/// prints — and `answered_row` went to eight parameters, four of which were
+/// ambient: the wording, the chrome wording, the settings and now the ordinals
+/// do not vary between rows and are simply threaded through.
+///
+/// Bundling them behind one `&RowContext` is not a line-count trick. Eight
+/// positional arguments of which three are `&`-something is a call site where
+/// swapping two would still compile, and the two wording blocks are exactly the
+/// pair a tired reader would swap. Named fields make that a compile error.
+///
+/// The `'a` lifetime says the context borrows all four and outlives none of
+/// them: it is a bundle of references built at the top of the walk and dropped
+/// when it ends, never stored and never cloned.
+pub(crate) struct RowContext<'a> {
+    pub(crate) w: &'a RehearsalWording,
+    pub(crate) chrome: &'a RehearsalChromeWording,
+    pub(crate) settings: &'a Settings,
+    /// Candidate ordinals by graph node id — what `code_of` turns into `C-91`.
+    pub(crate) ordinals: &'a HashMap<String, i32>,
+}
 
 /// `(Vec, Vec, usize)` at a call site is three positions nobody can read.
 pub(crate) struct WalkedInstances {
@@ -71,6 +98,15 @@ pub(crate) fn walk_instances(input: &ScenarioInput<'_>, w: &RehearsalWording) ->
     // undercount, which is the one direction the honest-gap law permits.
     let mut documents: HashSet<&str> = HashSet::new();
 
+    // Built once and lent to every row — see `RowContext` for why these four
+    // travel together rather than as four more parameters.
+    let ctx = RowContext {
+        w,
+        chrome: &input.settings.rehearsal_chrome_wording,
+        settings: input.settings,
+        ordinals: input.ordinals,
+    };
+
     // CHRONOLOGY (task R3): oldest first, undated LAST.
     //
     // This section IS the timeline now — the separate TIMELINE block is gone — so
@@ -115,15 +151,7 @@ pub(crate) fn walk_instances(input: &ScenarioInput<'_>, w: &RehearsalWording) ->
             continue;
         };
 
-        let (row, gap) = answered_row(
-            instances.len() + 1,
-            marked,
-            fact,
-            input.facts,
-            w,
-            &input.settings.rehearsal_chrome_wording,
-            input.settings,
-        );
+        let (row, gap) = answered_row(instances.len() + 1, marked, fact, input.facts, &ctx);
         if let Some(gap) = gap {
             gaps.push(gap);
         }
@@ -154,23 +182,21 @@ fn answered_row(
     marked: &crate::services::scenario_accusation::MarkedInstance,
     fact: &RehearsalFactRow,
     facts: &HashMap<String, RehearsalFactRow>,
-    w: &RehearsalWording,
-    chrome: &RehearsalChromeWording,
-    settings: &Settings,
+    ctx: &RowContext<'_>,
 ) -> (RehearsalInstance, Option<RehearsalGap>) {
     let answer = marked
         .answers_graph_node_id
         .as_deref()
-        .and_then(|id| answer_of(id, facts, w));
+        .and_then(|id| answer_of(id, facts, ctx.w, ctx.ordinals));
 
     let gap = answer.is_none().then(|| {
-        let mut gap = unanswered_gap(fact, marked.answers_graph_node_id.is_some(), w);
+        let mut gap = unanswered_gap(fact, marked.answers_graph_node_id.is_some(), ctx.w);
         // The row this entry is about, so the prep list can carry a link to it.
         gap.position = Some(position);
         gap
     });
 
-    let row = instance_row(position, fact, answer, w, chrome, settings);
+    let row = instance_row(position, fact, answer, ctx);
     (row, gap)
 }
 
@@ -230,10 +256,9 @@ fn instance_row(
     position: usize,
     fact: &RehearsalFactRow,
     answer: Option<crate::dto::rehearsal::RehearsalAnswer>,
-    w: &RehearsalWording,
-    chrome: &RehearsalChromeWording,
-    settings: &Settings,
+    ctx: &RowContext<'_>,
 ) -> RehearsalInstance {
+    let (w, chrome, settings) = (ctx.w, ctx.chrome, ctx.settings);
     // Safe by construction: `usable_fact` refused a quote that is absent or blank,
     // and this is only reached through it.
     let quote = fact.quote.as_deref().unwrap_or_default().trim().to_string();
@@ -242,6 +267,9 @@ fn instance_row(
 
     RehearsalInstance {
         position,
+        // The speakable handle (task R4, P3) — the same name the working page
+        // prints, so the two surfaces stop calling one statement two things.
+        code: code_of(&fact.graph_node_id, ctx.ordinals),
         // Forum first, then the date — see `rehearsal_phase`. Always a label:
         // a card with no chip in a filtered list reads as a rendering fault.
         phase: crate::services::rehearsal_phase::phase_of(

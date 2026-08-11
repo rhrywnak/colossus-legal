@@ -91,7 +91,12 @@ fn render_with(
 ) -> RehearsalScenario {
     let settings = Settings::for_test();
     let state = derive(judgments, &included(included_ids));
+    // These tests are about the BLOCKS, not the handles: an empty ordinal table
+    // means every card renders with no code, which is the honest state for a
+    // candidate nothing has numbered and keeps the assertions below unchanged.
+    let ordinals = HashMap::new();
     render_scenario(ScenarioInput {
+        ordinals: &ordinals,
         // Task R3's three: the identity line's word, the foldable verbatim
         // attack, and the bears-on chips. Fixed here because these tests are
         // about the BLOCKS, and varying them would only add noise.

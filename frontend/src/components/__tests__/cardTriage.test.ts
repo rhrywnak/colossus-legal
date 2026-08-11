@@ -1395,3 +1395,84 @@ describe("the optimistic patch and the proposed facet", () => {
     expect(candidateCounts(undone.cards).proposed).toBe(0);
   });
 });
+
+// ─── Task R4, P2: which selection moves the document ─────────────────────────
+
+describe("save never moves the page — what the list is told to follow", () => {
+  // The defect these guard: ruling a card mid-queue returned the reader to the
+  // queue heading. `CandidateList` scrolls to the selected card whenever
+  // `selectedId` changes, and it cannot see WHY the selection moved — so the
+  // reducer says. A keyboard move is followed; everything else is not.
+  //
+  // These assert the FLAG rather than a scroll, which is the point of having
+  // extracted it: the decision is data, so it is testable without a DOM.
+
+  it("a ruling's own advance is NOT followed", () => {
+    // THE HEADLINE. Press I on the first card: the selection advances to the
+    // second, and the page must stay exactly where the human left it.
+    const ruled = press(stateOf([fullCard(), fullCard({ graph_node_id: "ev-2" })]), "i").state;
+
+    expect(ruled.index).toBe(1);
+    expect(ruled.follow).toBe(false);
+  });
+
+  it("ruling the LAST card in the view is not followed either", () => {
+    // The branch `advance` returns untouched. Without the flag being set at the
+    // ruling itself, this path would carry whatever the previous action left —
+    // a stale `true` from a J press, scrolling the document on a ruling.
+    const state = press(stateOf([fullCard(), fullCard({ graph_node_id: "ev-2" })]), "j").state;
+    expect(state.follow).toBe(true);
+
+    const ruled = press(state, "i").state;
+    expect(ruled.follow).toBe(false);
+  });
+
+  it("a keyboard move IS followed — that is the whole contract of J and K", () => {
+    const cards = [fullCard(), fullCard({ graph_node_id: "ev-2" })];
+
+    expect(press(stateOf(cards), "j").state.follow).toBe(true);
+    expect(press(press(stateOf(cards), "j").state, "k").state.follow).toBe(true);
+  });
+
+  it("undo is followed — it is a request to go back to that card", () => {
+    const ruled = press(stateOf([fullCard(), fullCard({ graph_node_id: "ev-2" })]), "i").state;
+    const undone = press(ruled, "u").state;
+
+    expect(undone.index).toBe(0);
+    expect(undone.follow).toBe(true);
+  });
+
+  it("a click on a card is not followed — it is already under the pointer", () => {
+    const cards = [fullCard(), fullCard({ graph_node_id: "ev-2" })];
+    const clicked = queueReducer(stateOf(cards), { type: "select", graphNodeId: "ev-2" }).state;
+
+    expect(clicked.index).toBe(1);
+    expect(clicked.follow).toBe(false);
+  });
+
+  it("a pool reload never moves the document", () => {
+    // `cards_loaded` clamps the selection to the new length, which can CHANGE
+    // the index. A re-read that scrolled as a side effect would move the page
+    // for a reason the human did not cause and cannot see.
+    const state = press(stateOf([fullCard(), fullCard({ graph_node_id: "ev-2" })]), "j").state;
+    expect(state.follow).toBe(true);
+
+    const reloaded = queueReducer(state, { type: "cards_loaded", cards: [fullCard()] }).state;
+    expect(reloaded.follow).toBe(false);
+  });
+
+  it("a filter change is not followed", () => {
+    const cards = [fullCard(), fullCard({ graph_node_id: "ev-2" })];
+    const moved = press(stateOf(cards), "j").state;
+    expect(moved.follow).toBe(true);
+
+    // A filter that hides the selected card moves the selection to the rescue
+    // landing. The reader is looking at the chip row when they do this.
+    const filtered = queueReducer(moved, { type: "visible", ids: ["ev-1"] }).state;
+    expect(filtered.follow).toBe(false);
+  });
+
+  it("the queue arrives unfollowed — a page opens at its own top", () => {
+    expect(initialQueueState([fullCard()]).follow).toBe(false);
+  });
+});

@@ -87,6 +87,13 @@ pub(crate) struct ScenarioInput<'a> {
     pub attack_text: Option<String>,
     /// The complaint paragraphs this scenario bears on, as A-codes.
     pub bears_on: Vec<String>,
+    /// Candidate ordinals by graph node id — the source of the C-codes the pair
+    /// card prints (task R4, P3).
+    ///
+    /// Read on the route beside the placed statements, exactly as the working
+    /// page's accusation read does. It is a lookup table, not vocabulary: what
+    /// crosses the wire is the composed `C-91`, never the number behind it.
+    pub ordinals: &'a std::collections::HashMap<String, i32>,
     pub settings: &'a Settings,
 }
 

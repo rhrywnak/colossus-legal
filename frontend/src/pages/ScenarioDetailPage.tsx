@@ -40,11 +40,10 @@
 // hidden until then. Three sections need it now — the identity block reads the C1
 // texts from it, and §2.5/§2.6 are always present — so it loads with the page.
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import AccusationSection from "../components/AccusationSection";
-import { includedPickableFacts } from "../components/accusationFacts";
 import Breadcrumb from "../components/Breadcrumb";
 import ScanSection from "../components/ScanSection";
 import ScenarioDeleteConfirm from "../components/ScenarioDeleteConfirm";
@@ -173,6 +172,34 @@ const ScenarioDetailPage: React.FC = () => {
   const linkWording = linkOptions?.wording ?? null;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * Which scenario the state above has actually painted (task R4, P2).
+   *
+   * ## Why the gating loader needs this
+   *
+   * The four-read effect below runs on the refresh key as well as on arrival, and
+   * it used to raise `loading` every time. `loading` replaces the ENTIRE page
+   * with one "Loading scenario…" line — so saving a talking point at the bottom
+   * of a long page unmounted the whole document, collapsed its height to a single
+   * line, and left the browser with no scroll position to return to. The page
+   * came back at the top. That is the second half of "save never moves the page",
+   * and no amount of work on the queue's scrolling would have touched it.
+   *
+   * The honest rule is that the gating loader belongs to a page with NOTHING to
+   * show. Once this matches the scenario in the URL, every later read is a
+   * refresh: the current content stays on screen and is replaced when the new
+   * payload lands. Navigating to a DIFFERENT scenario stops it matching, so that
+   * case still gets its loader — the state on screen belongs to another scenario
+   * and showing it would be a lie.
+   *
+   * ## Rust/TS learning: a ref rather than state
+   *
+   * A `useRef` value is read at its current value inside an effect without being
+   * a dependency — the same reason `arrived` is a ref in `CandidateList`. As
+   * state it would either be stale in the closure or force the effect to re-run
+   * on its own change, which is the read loop this is here to avoid.
+   */
+  const paintedFor = useRef<string | null>(null);
 
   // ─── TWO refresh keys, and they must stay two (task 1.7F, ruling R6) ───────
   //
@@ -259,7 +286,10 @@ const ScenarioDetailPage: React.FC = () => {
       return;
     }
     let cancelled = false;
-    setLoading(true);
+    // Only when there is genuinely nothing for THIS scenario on screen. A
+    // refresh leaves the page standing and swaps its content when the reads
+    // land — see `paintedFor` for what blanking it cost.
+    setLoading(paintedFor.current !== scenarioId);
     setError(null);
 
     // Four reads, one gate. `Promise.all` rather than a waterfall: they are
@@ -279,6 +309,9 @@ const ScenarioDetailPage: React.FC = () => {
         setCards([...cardPayload.pool, ...cardPayload.set_aside]);
         setNeverScannedNotice(cardPayload.never_scanned_notice ?? null);
         setProposalSource(cardPayload.proposal_source ?? null);
+        // Recorded only after a read that SUCCEEDED: a failed first load has
+        // painted nothing, and must still get the loader when it is retried.
+        paintedFor.current = scenarioId;
         setLoading(false);
       })
       .catch((err: unknown) => {
@@ -511,7 +544,15 @@ const ScenarioDetailPage: React.FC = () => {
         slug={slug}
         scenarioId={scenarioId}
         panel={accusation}
-        includedFacts={includedPickableFacts(cards)}
+        // WHOLE cards now (task R4, P3): the shared pair card renders the
+        // speaker, the kind, the pinpoint and the context around each quote, all
+        // of which were already on this payload and were being dropped one
+        // lookup short of the screen. The section derives the picker's narrower
+        // shape from these itself, so one list feeds both.
+        includedCards={cards.filter((card) => card.status === "included")}
+        // The served words the card speaks on this page — its fold's show/hide
+        // pair, and the sentence for a statement with no recorded speaker.
+        options={linkOptions}
         onChanged={refresh}
       />
 

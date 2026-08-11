@@ -16,6 +16,7 @@ import { describe, expect, it } from "vitest";
 import {
   candidateCounts,
   candidateState,
+  countForFacet,
   defaultFilters,
   facetLabel,
   filterCandidates,
@@ -512,9 +513,17 @@ describe("progress measures the proposed bucket, not the view", () => {
     // would render "3 of 5 addressed" correctly while a template that still had
     // the slot would render "3 of 5 {filter} ruled" — the failure is silent in
     // both directions, which is why it is pinned rather than trusted.
+    //
+    // TASK R4, P4 moved the render site. The addressed count left the chip row
+    // for the far end of the queue HEADING, opposite the name of the list it
+    // measures — so the file this pins is `ScanSection`, which draws that line.
+    const head = readFileSync(join(__dirname, "..", "ScanSection.tsx"), "utf8");
+    expect(head).toContain("filter_progress_template");
+    expect(head).not.toMatch(/filter:\s*active\.label/);
+
+    // …and it is GONE from the bar, which is now segments and nothing else.
     const bar = readFileSync(join(__dirname, "..", "CandidateFilterBar.tsx"), "utf8");
-    expect(bar).toContain("filter_progress_template");
-    expect(bar).not.toMatch(/filter:\s*active\.label/);
+    expect(bar).not.toContain("filter_progress_template");
   });
 
   it("is the QUEUE that must hand it every card — pinned at the call site", () => {
@@ -523,8 +532,12 @@ describe("progress measures the proposed bucket, not the view", () => {
     // filtered list. `CardQueue` therefore has to pass the whole pool, and the
     // one-word edit back to `visible` would silently restore the moving number
     // with every test still green. So the call site is pinned.
+    //
+    // TASK R4, P4: the call still lives in `CardQueue` — it is where the pool is
+    // — but it now travels upward in the frame report rather than down into the
+    // bar. The property being pinned is unchanged: EVERY card, never the slice.
     const queue = readFileSync(join(__dirname, "..", "CardQueue.tsx"), "utf8");
-    expect(queue).toContain("progress={filterProgress(state.cards)}");
+    expect(queue).toContain("progress: filterProgress(state.cards)");
     expect(queue).not.toContain("filterProgress(visible)");
   });
 
@@ -553,5 +566,48 @@ describe("progress measures the proposed bucket, not the view", () => {
     // included, 1 deferred, nothing else proposed — this is "22 of 22".
     const cleared = [included(), included(), parked()];
     expect(filterProgress(cleared)).toEqual({ ruled: 3, total: 3 });
+  });
+});
+
+// ─── Task R4, P4: the queue frame ────────────────────────────────────────────
+
+describe("the frame's heading and its one-line bar", () => {
+  it("the heading's count comes from the ONE derivation", () => {
+    // "Included — 21" above "Included 21" must be one number read twice. Reading
+    // the chip table is what guarantees it: a helper that counted for itself
+    // would be the second derivation ruling R1 exists to prevent.
+    const pool = [included(), included(), excluded(), card()];
+    const counts = candidateCounts(pool);
+
+    expect(countForFacet("included", counts)).toBe(2);
+    expect(countForFacet("excluded", counts)).toBe(1);
+    expect(countForFacet("full_pool", counts)).toBe(4);
+
+    // …and it agrees with the segment the bar renders, for every facet.
+    for (const chip of filterChips(counts, grammar)) {
+      expect(countForFacet(chip.facet, counts)).toBe(chip.count);
+    }
+  });
+
+  it("the bar physically cannot wrap — pinned at the style", () => {
+    // P4's guarantee is "two lines total". Five bordered pills wrapped at
+    // Marie's width, and a frame that is sometimes two lines and sometimes three
+    // starts the queue in a different place every time she looks at it. The
+    // no-wrap is the guarantee; a one-word edit back to `wrap` would restore the
+    // reflow with every other test still green, so the style is pinned.
+    const bar = readFileSync(join(__dirname, "..", "CandidateFilterBar.tsx"), "utf8");
+    expect(bar).toContain('flexWrap: "nowrap"');
+    expect(bar).not.toContain('flexWrap: "wrap"');
+    // The honest failure mode: it scrolls rather than hiding a filter.
+    expect(bar).toContain('overflowX: "auto"');
+  });
+
+  it("the active segment is never colour ALONE", () => {
+    // The same rule the ruling buttons and the status control are held to by the
+    // page's own structure test, applied to the control that decides which list
+    // you are looking at.
+    const bar = readFileSync(join(__dirname, "..", "CandidateFilterBar.tsx"), "utf8");
+    expect(bar).toContain("textDecoration");
+    expect(bar).toContain("fontWeight");
   });
 });

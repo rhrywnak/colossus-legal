@@ -1,96 +1,33 @@
 // =============================================================================
-// PrepInstanceCard — one time they said it, with your answer under it (task R3)
+// PrepInstanceCard — the prep page's adapter over the shared pair card (task R4)
 // =============================================================================
 //
-// The heart of the prep page, and the reason the separate TIMELINE section is
-// gone: this list IS the chronology, oldest first, and the answer lives INSIDE
-// the card rather than in a parallel column somewhere else on the page.
+// This was the whole card until task R4. P3 made the card SHARED — the working
+// page's accusation section renders the identical component now — so what is
+// left here is the adapter: turn one `RehearsalInstance` into the model
+// `PairCard` reads, and hand it this page's own words.
 //
-// ## Why the answer is in the same card and not beside it
+// ## What the prep page passes, and what it deliberately does not
 //
-// A witness under cross gets one question at a time and needs one answer at a
-// time. The old page put the statements in one block and the timeline in
-// another, so "what did they say" and "what do I say back" were two scrolls
-// apart. Here they are one box: their words, then hers, visibly hers.
+// No `controls`. Marie reads this page in front of opposing counsel and there is
+// nothing on it for her to press.
 //
-// ## Why an unanswered instance is LOUD
+// No `gapNotice` either, and that is ruling C5 rather than an omission: the
+// sentence naming an unanswered instance lives ONCE, in the prep list, which is
+// what the header counts and what stays visible when the section is folded.
+// Rendering it here as well was the beta.381 duplicate-gap defect.
 //
-// It is the prep list. A quiet gap is one she discovers in the room.
+// ## Why the chronology comment moved out
+//
+// The ordering that makes this list the page's timeline is the backend's
+// (`rehearsal_instances::walk_instances`), and it was documented here only
+// because this file used to be where a reader arrived. It is documented there.
 
 import React from "react";
 
-import { allegationChipStyle, chipStyle } from "./scenarioSectionStyles";
+import PairCard from "./PairCard";
+import { pairCardFromRehearsalAnswer, pairCardFromRehearsalInstance } from "./pairCardModel";
 import type { RehearsalInstance, RehearsalWording } from "../services/rehearsal";
-
-const cardStyle: React.CSSProperties = {
-  padding: "16px 18px",
-  borderRadius: "10px",
-  background: "var(--bg-surface)",
-  boxShadow: "var(--shadow-card)",
-  borderLeft: "4px solid var(--state-danger-strong)",
-};
-
-const metaRowStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: "8px",
-  flexWrap: "wrap",
-  marginBottom: "8px",
-  fontSize: "12.5px",
-};
-
-/** Them. The colour is the fastest thing on the card. */
-const whoStyle: React.CSSProperties = {
-  fontWeight: 600,
-  color: "var(--v3-red-text)",
-};
-
-const whenStyle: React.CSSProperties = { color: "var(--text-muted)" };
-
-const quoteStyle: React.CSSProperties = {
-  margin: 0,
-  fontSize: "15.5px",
-  lineHeight: 1.55,
-  color: "var(--text-primary)",
-};
-
-const sourceStyle: React.CSSProperties = {
-  marginTop: "8px",
-  fontSize: "12.5px",
-  color: "var(--text-muted)",
-};
-
-const sourceLinkStyle: React.CSSProperties = {
-  color: "var(--accent-primary)",
-  textDecoration: "none",
-};
-
-/** Ours. Green edge, per the mockup — the one visual promise on the card. */
-const answerStyle: React.CSSProperties = {
-  marginTop: "14px",
-  paddingLeft: "14px",
-  borderLeft: "4px solid var(--state-success-strong)",
-};
-
-const answerLabelStyle: React.CSSProperties = {
-  fontSize: "11px",
-  fontWeight: 600,
-  letterSpacing: "0.08em",
-  textTransform: "uppercase",
-  color: "var(--state-success-strong)",
-  marginBottom: "5px",
-};
-
-/** The gap, and it is meant to be the loudest thing in the list. */
-const gapStyle: React.CSSProperties = {
-  marginTop: "14px",
-  padding: "10px 14px",
-  borderRadius: "8px",
-  background: "var(--state-danger-bg-soft)",
-  color: "var(--state-danger-strong)",
-  fontSize: "13.5px",
-  fontWeight: 600,
-};
 
 interface Props {
   instance: RehearsalInstance;
@@ -98,63 +35,22 @@ interface Props {
 }
 
 const PrepInstanceCard: React.FC<Props> = ({ instance, wording }) => (
-  <li id={`instance-${instance.position}`} style={cardStyle}>
-    <div style={metaRowStyle}>
-      <span style={whoStyle}>{instance.who}</span>
-      {/* The date, or the stored "no date yet" prompt — never a blank where a
-          date goes, and never an invented one. 57% of this case's evidence has
-          no date, so this is a common and honest state. */}
-      <span style={whenStyle}>{instance.when ?? instance.when_gap}</span>
-      <span style={chipStyle}>{instance.kind_label}</span>
-      {/* The phase, decided server-side by forum first and date second. */}
-      <span style={allegationChipStyle}>{instance.phase}</span>
-    </div>
-
-    <p style={quoteStyle}>{instance.quote}</p>
-
-    {instance.source.label && (
-      <div style={sourceStyle}>
-        {instance.source.href ? (
-          <a
-            href={instance.source.href}
-            style={sourceLinkStyle}
-            target="_blank"
-            rel="noreferrer"
-          >
-            {instance.source.label}
-          </a>
-        ) : (
-          instance.source.label
-        )}
-      </div>
-    )}
-
-    {instance.answer ? (
-      <div style={answerStyle}>
-        <div style={answerLabelStyle}>{wording.answer_label}</div>
-        <p style={quoteStyle}>{instance.answer.quote}</p>
-        {instance.answer.source.label && (
-          <div style={sourceStyle}>
-            {instance.answer.source.href ? (
-              <a
-                href={instance.answer.source.href}
-                style={sourceLinkStyle}
-                target="_blank"
-                rel="noreferrer"
-              >
-                {instance.answer.source.label}
-              </a>
-            ) : (
-              instance.answer.source.label
-            )}
-          </div>
-        )}
-      </div>
-    ) : (
-      // The stored sentence, not a composed one: this is the loudest thing on
-      // the page and Roman owns its words.
-      <div style={gapStyle}>{instance.answer_banner ?? instance.answer_tag}</div>
-    )}
+  <li id={`instance-${instance.position}`}>
+    <PairCard
+      card={{
+        ...pairCardFromRehearsalInstance(instance),
+        answer: instance.answer ? pairCardFromRehearsalAnswer(instance.answer) : null,
+      }}
+      answerLabel={wording.answer_label}
+      // NO WORDS, so the fold renders as a chevron (see `PairCard.FoldedQuote`).
+      // This page's nearest stored pair is `expand_all_label` /
+      // `collapse_all_label`, and those mean "expand every instance" — under one
+      // quote they would say something untrue. A row of its own is filed.
+      showLabel={null}
+      hideLabel={null}
+      // See the header: the gap sentence lives once, in the prep list.
+      gapNotice={null}
+    />
   </li>
 );
 

@@ -129,6 +129,13 @@ pub struct RehearsalAnswer {
     pub when_gap: Option<String>,
     pub source: RehearsalSource,
     pub quote: String,
+    /// Our answer's own handle — "C-14". See [`RehearsalInstance::code`].
+    ///
+    /// The answer carries one for the same reason the instance does: in the room
+    /// it is the thing being referred to ("that's answered at C-14"), and a card
+    /// that named the accusation but not the rebuttal would make the half Marie
+    /// speaks the half she cannot cite.
+    pub code: Option<String>,
 }
 
 /// One marked instance of them making the accusation.
@@ -145,6 +152,24 @@ pub struct RehearsalInstance {
     /// `position` means the banned word cannot creep back in through a field that
     /// looked innocent.
     pub position: usize,
+    /// The handle a human SAYS OUT LOUD — "C-91". `None` when nothing has
+    /// numbered this candidate.
+    ///
+    /// ## Why a code is not an internal id, and belongs on this page (task R4)
+    ///
+    /// §10 keeps stored internal numbers off the rehearsal surface, and the
+    /// `position` field above exists precisely so an ordinal cannot creep back
+    /// in. A candidate code is a different animal: it is the name the working
+    /// page prints, the name the prep list's gap sentences already use, and the
+    /// name Marie and Chuck use to refer to one statement in a room. Withholding
+    /// it did not protect anything — it meant the two pages called the same
+    /// statement different things, and the person least able to know they were
+    /// the same thing was the one reading this page.
+    ///
+    /// `None` rather than the node id, on the same rule the accusation panel
+    /// states: an id in a slot labelled "code" reads as a handle and gets quoted
+    /// as one out loud, which is worse than a blank.
+    pub code: Option<String>,
     /// Who said it, or the stored sentence saying the record does not record it.
     pub who: String,
     pub when: Option<String>,
@@ -395,8 +420,22 @@ pub struct RehearsalScenario {
     /// The attack in their own words, verbatim. Folded away on the prep page
     /// beneath the plain-words accusation; `None` renders no fold control.
     pub attack_text: Option<String>,
-    /// The complaint paragraphs this bears on, as A-codes — the same handles the
-    /// working page's chips use.
+    /// The complaint paragraphs this scenario bears on, as A-codes — the same
+    /// handles the working page's chips use.
+    ///
+    /// ## Why these were wrong until task R4 (P6a)
+    ///
+    /// They were built by taking the last `:`-segment of an anchor id. An id is
+    /// `doc-…:allegation:<hash>`, so that segment is the HASH, and every chip on
+    /// the prep page read `A-<hash>`: a node-id fragment wearing the prefix of a
+    /// paragraph number, on the surface where a reader is least equipped to
+    /// notice. The paragraph is a property of the Allegation node, so the
+    /// assembly now reads it — scoped to the handful of ids one scenario
+    /// anchors, never the whole complaint.
+    ///
+    /// An id the graph cannot resolve travels AS the id rather than being
+    /// dropped, so the chip row can never be quietly shorter than the scenario's
+    /// actual anchors.
     pub bears_on: Vec<String>,
 }
 
