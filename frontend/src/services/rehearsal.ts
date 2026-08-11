@@ -67,6 +67,8 @@ export type RehearsalSource = {
 
 /** What we said back to one instance — paired by a human, never guessed. */
 export type RehearsalAnswer = {
+  /** Our answer's own handle — "C-14". `null` when nothing has numbered it. */
+  code: string | null;
   who: string;
   when: string | null;
   when_gap: string | null;
@@ -78,6 +80,14 @@ export type RehearsalAnswer = {
 export type RehearsalInstance = {
   /** The printed row number, 1-based. */
   position: number;
+  /**
+   * The handle a human SAYS OUT LOUD — "C-91". `null` when unnumbered.
+   *
+   * A code is not an internal id (task R4, P3): it is the name the working page
+   * prints and the name Marie and Chuck use for one statement in a room.
+   * Withholding it meant the two pages called the same statement two things.
+   */
+  code: string | null;
   who: string;
   when: string | null;
   when_gap: string | null;
@@ -216,7 +226,8 @@ export type RehearsalScenario = {
   direction_label: string;
   /** The attack in their own words, verbatim. `null` renders no fold control. */
   attack_text: string | null;
-  /** The complaint paragraphs this bears on, as A-codes. */
+  /** The complaint paragraphs this bears on, as A-codes. Composed server-side;
+   *  an id the graph cannot resolve arrives as the id (task R4, P6a). */
   bears_on: string[];
 };
 

@@ -30,8 +30,14 @@ import type { ScenarioCard } from "../services/scenarioCards";
 export type QueueRegionDescriptor = {
   /** Whether the region starts open. Computed, never restored from storage. */
   open: boolean;
-  /** The head line's headline, e.g. `"Candidates awaiting ruling — 145"`. */
-  summary: string;
+  /**
+   * The head line's headline, or `null` when the FRAME's own heading speaks.
+   *
+   * `null` is the ordinary open-queue state since task R4 (P4): the heading is
+   * then "Included — 21", composed from the active filter. A string here is
+   * either the served proposal heading or a served zero-state sentence.
+   */
+  summary: string | null;
   /** The labelling-law clause that sits beside it, or `null` — at zero, and on a
    *  queue led by proposals, where the heading already names its own source. */
   scope: string | null;
@@ -190,10 +196,24 @@ export function queueRegion(
 
   return {
     open: unruled > 0,
+    // `null` means "the FRAME's own heading speaks here" — the active filter and
+    // its count, composed by `ScanSection` from what the queue reports.
+    //
+    // ## What died on this line (task R4, P4)
+    //
+    // The old heading interpolated the unruled count into a hardcoded English
+    // sentence — in a codebase whose standing law is that every visible word is
+    // a stored row. It named the whole unruled pool while the
+    // list underneath showed one filter's slice, so the heading and the rows
+    // disagreed by construction — 145 in the heading over 21 rows on screen.
+    //
+    // The zero-state sentences below stay: they are served rows, and they say
+    // something the filter heading cannot ("nothing here" and "the work is
+    // done" are facts about the pool, not about the view).
     summary:
       proposedHeading ??
       (unruled > 0
-        ? `Candidates awaiting ruling — ${unruled}`
+        ? null
         : // At zero the region is a receipt, not a queue — but WHICH receipt
           // depends on whether there is a pool at all.
           //

@@ -74,6 +74,7 @@ import { useReducerWithEffects, type RulingOutcome } from "./useQueueReducer";
 import {
   candidateCounts,
   candidateState,
+  countForFacet,
   defaultFilters,
   facetLabel,
   filterCandidates,
@@ -83,6 +84,7 @@ import {
   stateChip,
   UNFILTERED,
   type CandidateFilters,
+  type StateFacet,
 } from "./candidateFilters";
 import { matchesChip, type ChipFilter } from "./evidenceCardModel";
 import { rulingAcknowledgment, type RulingReceipt } from "./rulingAcknowledgment";
@@ -155,6 +157,15 @@ interface Props {
    */
   onRulingSaved?: () => void;
   /**
+   * Report the queue heading's two values upward (task R4, P4).
+   *
+   * `ScanSection` draws the heading — it owns the region head the fold arrow
+   * sits in — and this is where the active filter and the addressed count are
+   * known. See the effect that calls it for why this is not the upward
+   * reporting task 2.13c removed.
+   */
+  onFrameChanged: (frame: QueueFrame) => void;
+  /**
    * The accusations every stuck card's panel offers, and its words (task 2.10).
    *
    * ## Why the PAGE fetches this and not the queue (task 2.12)
@@ -185,6 +196,16 @@ function isTyping(target: EventTarget | null): boolean {
   return tag === "input" || tag === "textarea" || el.isContentEditable === true;
 }
 
+/** What the queue heading needs, and nothing else. */
+export type QueueFrame = {
+  /** The active facet's token — the heading asks the store for its name. */
+  facet: StateFacet;
+  /** How many cards that facet holds. */
+  count: number;
+  /** Addressed over the proposed bucket, for the right-hand end of the line. */
+  progress: { ruled: number; total: number };
+};
+
 const CardQueue: React.FC<Props> = ({
   slug,
   scenarioId,
@@ -192,6 +213,7 @@ const CardQueue: React.FC<Props> = ({
   linkOptions,
   keyboardActive = true,
   onRulingSaved,
+  onFrameChanged,
 }) => {
   /** A LINK write's failure. Rulings report through `receipt` instead — they know
    *  which card they were about, and say so on it. */
@@ -369,6 +391,30 @@ const CardQueue: React.FC<Props> = ({
     if (!chosen && !loading && state.cards.length > 0) setFilters(defaultFilters(counts));
   }, [chosen, loading, state.cards.length, counts]);
 
+  // THE HEADING'S TWO VALUES, reported upward (task R4, P4).
+  //
+  // The heading line — "Included — 21 … 22 of 22 addressed" — is drawn by
+  // `ScanSection`, because it sits in the region head beside the fold arrow. The
+  // active filter and the addressed count are known HERE, where the filtering
+  // and the pool live.
+  //
+  // ## Why this is not the upward reporting task 2.13c removed
+  //
+  // That was the queue reporting its COUNTS, and the hazard was specific: the
+  // region's open/closed state was derived from them, so a collapsed queue —
+  // which reports nothing, because it is not mounted — computed "all candidates
+  // ruled" and latched itself shut. Neither value below gates anything. They are
+  // read by one line of text and nothing else, so a frame that has not heard yet
+  // renders its served zero-state sentence and then the real one, with no state
+  // machine in between.
+  useEffect(() => {
+    onFrameChanged({
+      facet: active.state,
+      count: countForFacet(active.state, counts),
+      progress: filterProgress(state.cards),
+    });
+  }, [onFrameChanged, active.state, counts, state.cards]);
+
   // Tell the reducer what is on screen, so navigation and auto-advance walk the
   // filtered order rather than the whole pool.
   const visibleIds = useMemo(() => visible.map((c) => c.graph_node_id), [visible]);
@@ -445,11 +491,6 @@ const CardQueue: React.FC<Props> = ({
         <CandidateFilterBar
           counts={counts}
           filters={active}
-          // EVERY card, not the visible slice (Roman, 2026-08-10). The bucket
-          // this measures is "what the scans put forward", which does not change
-          // when a human clicks a chip — a progress number that moved with the
-          // view was arithmetic about the view.
-          progress={filterProgress(state.cards)}
           wording={linkOptions.card_grammar}
           onChange={setFilters}
         />
@@ -489,6 +530,10 @@ const CardQueue: React.FC<Props> = ({
         cards={visible}
         onFilterChip={setChipFilter}
         selectedId={selectedId}
+        // WHY the selection is where it is (task R4, P2). The list scrolls to
+        // follow a keyboard move and stays put for a ruling's own advance; the
+        // reducer is the only thing that knows which just happened.
+        follow={state.follow}
         notice={state.notice}
         // An empty list means two different things, and they need two different
         // sentences: a filter with nothing behind it, or a scenario nobody has

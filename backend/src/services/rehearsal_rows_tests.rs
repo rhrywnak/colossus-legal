@@ -239,7 +239,7 @@ fn an_answer_the_record_no_longer_holds_is_none_not_a_hollow_row() {
     // an empty quote would put empty quotation marks under "Our answer", which
     // reads as us having said nothing.
     let facts: HashMap<String, RehearsalFactRow> = HashMap::new();
-    assert!(answer_of("ev-answer", &facts, &wording()).is_none());
+    assert!(answer_of("ev-answer", &facts, &wording(), &HashMap::new()).is_none());
 }
 
 #[test]
@@ -250,7 +250,7 @@ fn an_answer_with_no_words_is_also_none() {
     let facts: HashMap<String, RehearsalFactRow> =
         [("ev-answer".to_string(), hollow)].into_iter().collect();
 
-    assert!(answer_of("ev-answer", &facts, &wording()).is_none());
+    assert!(answer_of("ev-answer", &facts, &wording(), &HashMap::new()).is_none());
 }
 
 #[test]
@@ -262,10 +262,15 @@ fn a_real_answer_carries_its_words_its_speaker_and_its_source() {
     let facts: HashMap<String, RehearsalFactRow> =
         [("ev-answer".to_string(), answer)].into_iter().collect();
 
-    let built = answer_of("ev-answer", &facts, &wording()).expect("an answer");
+    // An ordinal for this node, so the handle it carries is asserted rather
+    // than assumed absent (task R4, P3).
+    let ordinals: HashMap<String, i32> = [("ev-answer".to_string(), 14)].into_iter().collect();
+
+    let built = answer_of("ev-answer", &facts, &wording(), &ordinals).expect("an answer");
     assert_eq!(built.quote, "I am open to dividing the property.");
     assert_eq!(built.who, "Marie Awad");
     assert_eq!(built.source.label, "Hearing to approve plan, p. 24");
+    assert_eq!(built.code.as_deref(), Some("C-14"));
 }
 
 // ── The authorship line (task 2.11 C, ruling C2) ─────────────────────────────
@@ -350,4 +355,20 @@ fn a_blank_author_column_is_an_absence_and_not_a_name() {
         attribution_line("{who} · {when}", unknown, Some("   "), Some(at(2026, 8, 6))),
         unknown
     );
+}
+
+/// A candidate nothing has numbered carries NO code — never its node id.
+///
+/// The auditor's note on task R4: the `None` arm was reachable only through
+/// `answer_of` returning early, so it was never exercised on its own. It matters
+/// on its own, because the alternative a future edit would reach for is
+/// `unwrap_or(graph_node_id)` — and an id in a slot labelled "code" reads as a
+/// handle and gets quoted as one out loud.
+#[test]
+fn an_unnumbered_candidate_has_no_code_rather_than_an_id() {
+    assert_eq!(code_of("ev-unnumbered", &HashMap::new()), None);
+
+    let ordinals: HashMap<String, i32> = [("ev-other".to_string(), 14)].into_iter().collect();
+    assert_eq!(code_of("ev-unnumbered", &ordinals), None);
+    assert_eq!(code_of("ev-other", &ordinals).as_deref(), Some("C-14"));
 }

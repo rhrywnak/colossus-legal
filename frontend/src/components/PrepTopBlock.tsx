@@ -182,6 +182,14 @@ const PrepTopBlock: React.FC<Props> = ({ scenario, wording }) => {
               {showFull ? "▾" : "▸"} {wording.attack_full_label}
             </button>
           )}
+          {/* A-41, composed server-side from the paragraph the Allegation node
+              carries (task R4, P6a). They used to read `A-<hash>`, because the
+              backend built them out of the anchor id — and the paragraph is not
+              in the id.
+
+              Rendered verbatim: this page composes nothing, which is why the fix
+              went to the assembly rather than putting the case-wide allegation
+              catalogue in a browser that is open in front of opposing counsel. */}
           {scenario.bears_on.map((chip) => (
             <span key={chip} style={allegationChipStyle}>
               {chip}

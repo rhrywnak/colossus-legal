@@ -28,8 +28,9 @@
 
 import React, { useState } from "react";
 
-import CardQueue from "./CardQueue";
-import { fillCount, type AllegationOptions } from "../services/evidenceLinks";
+import CardQueue, { type QueueFrame } from "./CardQueue";
+import { facetLabel } from "./candidateFilters";
+import { fillCount, fillSlots, type AllegationOptions } from "../services/evidenceLinks";
 import ThemeScanPanel from "./ThemeScanPanel";
 import type { ProposalSource, ScenarioCard } from "../services/scenarioCards";
 import { anyScanScored, progressFromCards, proposedCount, queueRegion } from "./queueRegion";
@@ -182,6 +183,17 @@ const ScanSection: React.FC<Props> = ({
   // The date the attribution names, formatted in the READER's locale — the same
   // division of labour the scan-history delete confirmation already uses: the
   // server owns the sentence, the browser owns the date format.
+  /**
+   * What the queue says about the list it is showing (task R4, P4).
+   *
+   * `null` until the queue reports, which is a real state and not a zero: the
+   * heading renders its served zero-state sentence until then rather than
+   * "undefined — 0". Nothing is DERIVED from this — see the reporting effect in
+   * `CardQueue` for why that matters and why this is not the upward reporting
+   * task 2.13c removed.
+   */
+  const [frame, setFrame] = useState<QueueFrame | null>(null);
+
   const proposals =
     proposalSource === null
       ? null
@@ -326,10 +338,47 @@ const ScanSection: React.FC<Props> = ({
             </>
           ) : (
             <>
-              <b style={{ fontSize: "14px" }}>{region.summary}</b>
+              {/* THE HEADING (task R4, P4): the name of the list you are looking
+                  at and how many are in it — "Included — 21" — with how much of
+                  the proposed bucket is addressed at the far end.
+
+                  It replaced "Candidates awaiting ruling — 145", which counted
+                  the whole unruled pool above a list showing one filter's 21.
+                  The two numbers on one screen disagreed by construction, and
+                  the bigger one was the one in bold.
+
+                  `region.summary` still wins when it has something to say: the
+                  served proposal heading (which names its scan) and the two
+                  served zero-state sentences. Those are facts about the pool
+                  that the filter's name cannot carry. */}
+              <b style={{ fontSize: "14px" }}>
+                {region.summary ??
+                  (frame && linkOptions
+                    ? `${facetLabel(frame.facet, linkOptions.card_grammar)} — ${frame.count}`
+                    : "")}
+              </b>
               {region.scope && (
                 <span style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
                   {region.scope}
+                </span>
+              )}
+              {/* The addressed count, at the opposite end of the same line. It
+                  measures the PROPOSED bucket and does not move when a filter is
+                  clicked — see `filterProgress`. Sits left of the fold arrow,
+                  which keeps its own `marginLeft: auto`. */}
+              {frame && linkOptions && (
+                <span
+                  style={{
+                    marginLeft: "auto",
+                    fontSize: "13px",
+                    color: "var(--text-secondary)",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {fillSlots(linkOptions.card_grammar.filter_progress_template, {
+                    ruled: String(frame.progress.ruled),
+                    total: String(frame.progress.total),
+                  })}
                 </span>
               )}
               <button
@@ -376,7 +425,8 @@ const ScanSection: React.FC<Props> = ({
               slug={slug}
               scenarioId={scenarioId}
               externalRefresh={externalRefresh}
-              keyboardActive={open}
+              onFrameChanged={setFrame}
+            keyboardActive={open}
               onRulingSaved={onRulingSaved}
             />
           </div>

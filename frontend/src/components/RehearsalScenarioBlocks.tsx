@@ -90,8 +90,25 @@ const pointStyle: React.CSSProperties = {
   color: "var(--text-primary)",
 };
 
+/** The number and the point, on one line (task R4, P5). */
+const pointRowStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "baseline",
+  gap: "10px",
+};
+
+/** Quiet, fixed-width, and the same number the working page prints. */
+const pointNumberStyle: React.CSSProperties = {
+  fontSize: "13px",
+  fontWeight: 600,
+  color: "var(--text-muted)",
+  flexShrink: 0,
+  minWidth: "1.1rem",
+};
+
 const backedByStyle: React.CSSProperties = {
-  marginTop: "6px",
+  marginTop: "4px",
+  marginLeft: "calc(1.1rem + 10px)",
   fontSize: "12.5px",
   color: "var(--text-muted)",
 };
@@ -189,14 +206,27 @@ const RehearsalScenarioBlocks: React.FC<Props> = ({ scenario, wording }) => {
           <ul style={listStyle}>
             {scenario.points.map((point) => (
               <li key={point.position}>
-                <div style={pointStyle}>{point.text}</div>
-                {/* The exhibit is a PROPOSAL from an existing pairing until it is
-                    confirmed on the working page, and it says so. A point with
-                    nothing proposable says that instead — the stored sentence,
-                    not a blank. */}
-                <div style={backedByStyle}>
-                  {point.exhibit ?? point.exhibit_notice}
+                {/* NUMBER AND TEXT ON ONE LINE (task R4, P5). The number is the
+                    same one the working page prints beside this point, so a
+                    human can say "point three" in either place and mean one
+                    thing. */}
+                <div style={pointRowStyle}>
+                  <span style={pointNumberStyle}>{point.position}</span>
+                  <span style={pointStyle}>{point.text}</span>
                 </div>
+                {/* THE EXHIBIT, ONLY WHEN THERE IS ONE (task R4, P5).
+                    
+                    `exhibit_notice` — the stored "nothing paired yet" sentence —
+                    is deliberately NOT rendered here. It is a note to the person
+                    doing the preparing, and this is the page Marie reads in the
+                    room: a line under every point saying it has no exhibit is
+                    five lines telling her about work that did not happen, at the
+                    moment she can least act on it. The working page says it, next
+                    to the control that fixes it.
+                    
+                    Nothing renders when there is nothing — not a blank line, not
+                    a dash. */}
+                {point.exhibit && <div style={backedByStyle}>{point.exhibit}</div>}
               </li>
             ))}
           </ul>

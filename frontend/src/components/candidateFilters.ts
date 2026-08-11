@@ -338,6 +338,38 @@ export function facetLabel(facet: StateFacet, wording: CardGrammarWording): stri
 }
 
 /**
+ * The active facet's count — the number beside its name in the queue heading.
+ *
+ * Reads the ONE derivation (`candidateCounts`) through the same chip table the
+ * bar renders, so "Included — 21" in the heading and "Included 21" in the bar
+ * are one number read twice and can never disagree. That is ruling R1's
+ * surviving half, applied to the line P4 put above the bar.
+ */
+export function countForFacet(facet: StateFacet, counts: CandidateCounts): number {
+  return filterChips(counts, ZERO_WORDING).find((c) => c.facet === facet)?.count ?? 0;
+}
+
+/**
+ * A wording block of empty strings, for the two helpers above that want the chip
+ * TABLE without any of its words.
+ *
+ * ## Why not build the table by hand in each helper
+ *
+ * Because then the facet order and membership would live in three places, and
+ * the day a sixth facet is added two of them would be right. The table is the
+ * one definition; these helpers borrow its shape and discard the half they do
+ * not need.
+ */
+const ZERO_WORDING = {
+  filter_proposed_label: "",
+  filter_deferred_label: "",
+  filter_included_label: "",
+  filter_excluded_label: "",
+  filter_full_pool_label: "",
+  full_pool_explainer: "",
+} as unknown as CardGrammarWording;
+
+/**
  * How much of the PROPOSED BUCKET a human has addressed (Roman, 2026-08-10).
  *
  * ## Domain note: the denominator is what the scans put forward — never the pool

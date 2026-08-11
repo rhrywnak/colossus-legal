@@ -25,6 +25,9 @@ fn settings() -> Settings {
 fn instance(position: usize, when: Option<&str>, answered: bool) -> RehearsalInstance {
     RehearsalInstance {
         position,
+        // The count line does not read the code; a fixture value keeps the shape
+        // honest without pretending this test is about it.
+        code: Some("C-14".to_string()),
         phase: "Probate".to_string(),
         who: "George Phillips".to_string(),
         when: when.map(str::to_string),
@@ -37,6 +40,7 @@ fn instance(position: usize, when: Option<&str>, answered: bool) -> RehearsalIns
             who: "Marie Awad".to_string(),
             when: None,
             when_gap: None,
+            code: Some("C-15".to_string()),
             source: source(),
             quote: "I wrote to him twice.".to_string(),
         }),

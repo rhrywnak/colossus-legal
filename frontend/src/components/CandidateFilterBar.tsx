@@ -39,34 +39,64 @@ import React, { useEffect, useRef, useState } from "react";
 
 import type { CandidateCounts, CandidateFilters, StateFacet } from "./candidateFilters";
 import { filterChips } from "./candidateFilters";
-import { fillSlots, type CardGrammarWording } from "../services/evidenceLinks";
+import { type CardGrammarWording } from "../services/evidenceLinks";
 
+/**
+ * ONE LINE, and it physically cannot become two (task R4, P4).
+ *
+ * ## What the pills cost
+ *
+ * Five bordered chips with 13px of side padding wrapped to a second row at
+ * Marie's window width, and a frame that is sometimes two lines and sometimes
+ * three is a frame whose queue starts in a different place every time you look
+ * at it. `flexWrap: nowrap` is the guarantee: with the pills gone the segments
+ * are short enough to fit, and if a future label were long enough to threaten it
+ * the row would scroll rather than silently reflow the page.
+ *
+ * `overflowX: auto` is the honest failure mode. It never hides a filter — every
+ * segment stays reachable — and it keeps the promise the heading above depends
+ * on: two lines of frame, always.
+ */
 const barStyle: React.CSSProperties = {
   display: "flex",
-  flexDirection: "column",
-  gap: "8px",
-  padding: "12px 0 14px",
-};
-
-const rowStyle: React.CSSProperties = {
-  display: "flex",
-  flexWrap: "wrap",
-  gap: "8px",
+  flexWrap: "nowrap",
   alignItems: "center",
+  gap: "6px",
+  padding: "2px 0 10px",
+  overflowX: "auto",
+  fontSize: "12.5px",
+  whiteSpace: "nowrap",
 };
 
-/** §2c: hairline chips on a white surface, one accent for the active one. */
-const chipStyle = (active: boolean): React.CSSProperties => ({
+/**
+ * A segment of the text bar. Not a chip — a word and a number.
+ *
+ * The active one is bold AND underlined, never colour alone: "colour never
+ * stands alone" is asserted for the ruling buttons and the status control by the
+ * page's own structure test, and the same reason applies to the control that
+ * decides which list you are looking at.
+ */
+const segmentStyle = (active: boolean): React.CSSProperties => ({
   fontFamily: "inherit",
   fontSize: "12.5px",
-  border: `1px solid ${active ? "var(--accent-primary)" : "var(--border-default)"}`,
-  borderRadius: "999px",
-  padding: "5px 13px",
-  background: active ? "var(--state-info-bg-soft)" : "var(--bg-surface)",
-  color: active ? "var(--accent-primary)" : "var(--text-secondary)",
+  border: "none",
+  background: "none",
+  padding: "2px 3px",
   cursor: "pointer",
+  whiteSpace: "nowrap",
+  flexShrink: 0,
+  color: active ? "var(--accent-primary)" : "var(--text-secondary)",
   fontWeight: active ? 600 : 400,
+  textDecoration: active ? "underline" : "none",
+  textUnderlineOffset: "3px",
 });
+
+/** The separator between segments. Not a button, and not selectable. */
+const dotStyle: React.CSSProperties = {
+  color: "var(--text-muted)",
+  flexShrink: 0,
+  userSelect: "none",
+};
 
 const infoStyle: React.CSSProperties = {
   width: "16px",
@@ -101,12 +131,10 @@ const popStyle: React.CSSProperties = {
   textAlign: "left",
 };
 
-const progressStyle: React.CSSProperties = {
-  fontSize: "0.85rem",
-  color: "var(--text-secondary)",
-  marginLeft: "auto",
-  whiteSpace: "nowrap",
-};
+// REMOVED (task R4, P4): `progressStyle` and the addressed count it drew. The
+// count moved UP to the queue heading's right-hand end, opposite the name of the
+// list it measures — which is where a reader looks for "how much is left",
+// rather than at the end of a row of controls.
 
 /**
  * The chip row and the active filter's progress.
@@ -123,11 +151,9 @@ const progressStyle: React.CSSProperties = {
 const CandidateFilterBar: React.FC<{
   counts: CandidateCounts;
   filters: CandidateFilters;
-  /** Ruled and total, over the ACTIVE filter's cards (Piece 1c). */
-  progress: { ruled: number; total: number };
   wording: CardGrammarWording;
   onChange: (next: CandidateFilters) => void;
-}> = ({ counts, filters, progress, wording, onChange }) => {
+}> = ({ counts, filters, wording, onChange }) => {
   const [explaining, setExplaining] = useState(false);
   const explainerRef = useRef<HTMLSpanElement | null>(null);
 
@@ -164,58 +190,40 @@ const CandidateFilterBar: React.FC<{
 
   return (
     <div style={barStyle}>
-      <div style={rowStyle}>
-        {chips.map((chip) => (
-          <React.Fragment key={chip.facet}>
-            <button
-              type="button"
-              style={chipStyle(chip.facet === filters.state)}
-              aria-pressed={chip.facet === filters.state}
-              onClick={() => onChange({ state: chip.facet as StateFacet })}
+      {chips.map((chip, at) => (
+        <React.Fragment key={chip.facet}>
+          {at > 0 && <span style={dotStyle}>·</span>}
+          <button
+            type="button"
+            style={segmentStyle(chip.facet === filters.state)}
+            aria-pressed={chip.facet === filters.state}
+            onClick={() => onChange({ state: chip.facet as StateFacet })}
+          >
+            {chip.label} {chip.count}
+          </button>
+          {/* The ⓘ rides beside the ONE segment whose meaning a reader cannot
+              infer from its name. Roman's addition — Marie and Chuck will not
+              know the term "full pool", and a filter nobody understands is a
+              filter nobody presses. */}
+          {chip.explainer && (
+            <span
+              ref={explainerRef}
+              style={{ position: "relative", display: "inline-flex", flexShrink: 0 }}
             >
-              {chip.label} ({chip.count})
-            </button>
-            {/* The ⓘ rides beside the ONE chip whose meaning a reader cannot
-                infer from its name. Roman's addition — Marie and Chuck will not
-                know the term "full pool", and a filter nobody understands is a
-                filter nobody presses. */}
-            {chip.explainer && (
-              <span
-                ref={explainerRef}
-                style={{ position: "relative", display: "inline-flex" }}
+              <button
+                type="button"
+                style={infoStyle}
+                aria-label={chip.explainer}
+                aria-expanded={explaining}
+                onClick={() => setExplaining(!explaining)}
               >
-                <button
-                  type="button"
-                  style={infoStyle}
-                  aria-label={chip.explainer}
-                  aria-expanded={explaining}
-                  onClick={() => setExplaining(!explaining)}
-                >
-                  i
-                </button>
-                {explaining && <span style={popStyle}>{chip.explainer}</span>}
-              </span>
-            )}
-          </React.Fragment>
-        ))}
-
-        {/* THE PROGRESS COUNT, on the chip row (Roman's cleanup ruling,
-            2026-08-10). It was a line of its own under the chips; five lines of
-            frame sat above a queue people came here to work.
-
-            It no longer names a filter, because it no longer measures one: the
-            denominator is every candidate the scans put forward, and it does not
-            move when a chip is clicked. `marginLeft: auto` puts it at the far
-            end of the row, away from the controls, so it reads as a status rather
-            than as a sixth chip. */}
-        <span style={progressStyle}>
-          {fillSlots(wording.filter_progress_template, {
-            ruled: String(progress.ruled),
-            total: String(progress.total),
-          })}
-        </span>
-      </div>
-
+                i
+              </button>
+              {explaining && <span style={popStyle}>{chip.explainer}</span>}
+            </span>
+          )}
+        </React.Fragment>
+      ))}
     </div>
   );
 };

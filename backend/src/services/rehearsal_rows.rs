@@ -252,6 +252,7 @@ pub(crate) fn answer_of(
     answer_id: &str,
     facts: &HashMap<String, RehearsalFactRow>,
     wording: &RehearsalWording,
+    ordinals: &HashMap<String, i32>,
 ) -> Option<RehearsalAnswer> {
     let fact = facts.get(answer_id)?;
     let quote = fact.quote.as_deref()?.trim().to_string();
@@ -266,7 +267,22 @@ pub(crate) fn answer_of(
         when_gap,
         source: source_of(fact, wording),
         quote,
+        code: code_of(answer_id, ordinals),
     })
+}
+
+/// The handle a human calls a placed statement by, or `None`.
+///
+/// One composer for both halves of the card, and deliberately the same rule the
+/// working page's accusation panel uses (`scenario_accusation_panel::code_for`):
+/// an ordinal becomes `C-14`, and an id nothing has numbered becomes no code at
+/// all rather than the id itself. A raw id in a slot labelled "code" reads as a
+/// handle and gets quoted as one out loud.
+pub(crate) fn code_of(graph_node_id: &str, ordinals: &HashMap<String, i32>) -> Option<String> {
+    ordinals
+        .get(graph_node_id)
+        .copied()
+        .map(crate::domain::scenario_code::candidate_code)
 }
 
 #[cfg(test)]

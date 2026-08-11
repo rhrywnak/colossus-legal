@@ -98,10 +98,29 @@ const AuthoredLineEditor: React.FC<Props> = ({
   if (!editing) {
     return (
       <div>
-        <div style={textStyle}>{text}</div>
-        {children}
-        {error && <div style={errorStyle}>{error}</div>}
-        <div style={{ marginTop: "4px" }}>
+        {/* ONE LINE (task R4, P5). The words, whatever rides with them, and Edit
+            at the end of it.
+
+            Until now these were three stacked blocks, so a list of five talking
+            points was fifteen lines — the text, a small grey note under it, and a
+            button under that, five times over. Roman's measure: one point should
+            be one compact block. The `flex-wrap` is what keeps that true rather
+            than merely narrow — a long point wraps its own words and the meta
+            follows the last of them, instead of the row overflowing.
+
+            `alignItems: baseline` sits the small meta on the text's baseline, so
+            they read as one line rather than as a line with something floating
+            beside it. */}
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            alignItems: "baseline",
+            gap: "0.4rem",
+          }}
+        >
+          <span style={textStyle}>{text}</span>
+          {children}
           <button
             type="button"
             style={buttonStyle}
@@ -116,6 +135,10 @@ const AuthoredLineEditor: React.FC<Props> = ({
             {wording.editLabel}
           </button>
         </div>
+        {/* The failure keeps its own line. It is the one thing here that must not
+            be compacted into the row: a refusal squeezed between a sentence and a
+            button is a refusal a reader's eye slides past. */}
+        {error && <div style={errorStyle}>{error}</div>}
       </div>
     );
   }
