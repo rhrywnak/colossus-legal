@@ -181,6 +181,56 @@ const AccusationSection: React.FC<Props> = ({
   const cardOf = (graphNodeId: string): ScenarioCard | undefined =>
     includedCards.find((c) => c.graph_node_id === graphNodeId);
 
+  /**
+   * The picker, wired for whichever gesture opened it.
+   *
+   * ## Why ONE builder feeds two insertion points (task 394, P1)
+   *
+   * The two gestures now render the control in two different PLACES — pairing
+   * inside the card being answered, marking under the Mark button — but they are
+   * the same control with the same words, the same list and the same write path.
+   * Writing it twice would be two things to keep in step, and the first thing to
+   * drift would be the eligibility predicate, which is the one part of this
+   * section the ruling says not to touch.
+   *
+   * ## Domain note: the predicate is UNCHANGED, deliberately
+   *
+   * Included-only, with the anchor itself excluded because a statement cannot be
+   * its own answer. Nothing else. In particular:
+   *
+   *   · no already-paired exclusion — S-5 depends on reuse, where C-14 answers
+   *     two different instances, and hiding it would break a READY scenario;
+   *   · no stance filter — C-74 has to stay offerable.
+   */
+  const pickerFor = (mode: PickerState) => {
+    if (!mode) return null;
+    return (
+      <AccusationFactPicker
+        facts={includedFacts}
+        prompt={w.picker_prompt}
+        cancelLabel={w.picker_cancel_label}
+        noMatchNotice={w.picker_no_match_notice}
+        emptyNotice={w.picker_empty_notice}
+        // Marking: hide what is already marked. Pairing: hide the instance
+        // itself, because a statement cannot be its own answer — the backend
+        // refuses it, and offering it would invite a refusal.
+        excluded={
+          mode.mode === "mark"
+            ? panel.instances.map((i) => i.graph_node_id)
+            : [mode.anchor]
+        }
+        onCancel={() => setPicker(null)}
+        onChoose={(chosen) =>
+          run(() =>
+            mode.mode === "mark"
+              ? markInstance(slug, scenarioId, chosen)
+              : pairAnswer(slug, scenarioId, mode.anchor, chosen),
+          )
+        }
+      />
+    );
+  };
+
   return (
     <section>
       <div style={sectionHeaderStyle}>
@@ -316,6 +366,21 @@ const AccusationSection: React.FC<Props> = ({
                       </button>
                     </>
                   }
+                  // THE .393 BLOCKER, closed (task 394, P1). The picker opened
+                  // by THIS card's Pair button renders inside THIS card, under
+                  // the button that asked for it. Every other card renders
+                  // nothing here, so there is exactly one picker on screen and
+                  // it is never somewhere else.
+                  //
+                  // What it replaced: one picker at a fixed point at the bottom
+                  // of the panel, 777/592/407/92 pixels below the four buttons
+                  // that could open it. It worked every time and was invisible
+                  // for every card but the last.
+                  expansion={
+                    picker?.mode === "pair" && picker.anchor === instance.graph_node_id
+                      ? pickerFor(picker)
+                      : undefined
+                  }
                 />
               );
             })}
@@ -330,33 +395,13 @@ const AccusationSection: React.FC<Props> = ({
           >
             {w.mark_label}
           </button>
-        </div>
 
-        {picker && (
-          <AccusationFactPicker
-            facts={includedFacts}
-            prompt={w.picker_prompt}
-            cancelLabel={w.picker_cancel_label}
-            noMatchNotice={w.picker_no_match_notice}
-            emptyNotice={w.picker_empty_notice}
-            // Marking: hide what is already marked. Pairing: hide the instance
-            // itself, because a statement cannot be its own answer — the backend
-            // refuses it, and offering it would invite a refusal.
-            excluded={
-              picker.mode === "mark"
-                ? panel.instances.map((i) => i.graph_node_id)
-                : [picker.anchor]
-            }
-            onCancel={() => setPicker(null)}
-            onChoose={(chosen) =>
-              run(() =>
-                picker.mode === "mark"
-                  ? markInstance(slug, scenarioId, chosen)
-                  : pairAnswer(slug, scenarioId, picker.anchor, chosen),
-              )
-            }
-          />
-        )}
+          {/* MARK MODE STAYS WHERE IT IS. Its control is right here, so the
+              picker is already adjacent to the button that opens it — the
+              defect P1 fixes was never this one, and moving a working control
+              to match a broken one's fix would be change for symmetry's sake. */}
+          {picker?.mode === "mark" && pickerFor(picker)}
+        </div>
 
         {/* The prep list. Named as work, and the unanswered ones read loudest
             because they are the ones a human can act on today. */}

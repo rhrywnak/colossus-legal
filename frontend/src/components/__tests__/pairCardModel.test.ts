@@ -79,6 +79,7 @@ function instance(overrides: Partial<RehearsalInstance> = {}): RehearsalInstance
     },
     kind_label: "Testimony",
     quote: "the parties did not cooperate",
+    question: null,
     quote_first_line: "the parties did not cooperate",
     answer: null,
     answer_tag: "NO ANSWER",
@@ -96,6 +97,7 @@ function answer(overrides: Partial<RehearsalAnswer> = {}): RehearsalAnswer {
     when_gap: "No date yet",
     source: { label: "My certified letter, p. 2", href: "", open_label: "Open" },
     quote: "I am open to dividing the property.",
+    question: null,
     ...overrides,
   };
 }
@@ -239,5 +241,70 @@ describe("one card, two pages", () => {
       Object.keys(fromPrep.provenance).sort(),
     );
     expect(Object.keys(fromWorking.quote).sort()).toEqual(Object.keys(fromPrep.quote).sort());
+  });
+
+  it("all THREE adapters fill the same slots — the answer half included", () => {
+    // The test above compared the two INSTANCE adapters and let the answer
+    // adapter drift. That is exactly where task 394's P2 defect lived: the
+    // question reached the accusation half and not the answer, and five of the
+    // nine pairings on DEV point at a discovery response.
+    const shapes = [
+      pairCardFromScenarioCard(card(), WHO_UNRECORDED),
+      pairCardFromRehearsalInstance(instance()),
+      pairCardFromRehearsalAnswer(answer()),
+    ].map((side) => Object.keys(side).sort());
+
+    expect(shapes[1]).toEqual(shapes[0]);
+    expect(shapes[2]).toEqual(shapes[0]);
+  });
+});
+
+/**
+ * A working-page card whose QUOTE carries a question.
+ *
+ * The question hangs off `quote` on this payload and off the row itself on the
+ * rehearsal one — which is precisely why the adapters exist, and why the shape
+ * test above compares their OUTPUT rather than their inputs.
+ */
+function asked(question: string | null): ScenarioCard {
+  const base = card();
+  return { ...base, quote: { ...base.quote, question } };
+}
+
+describe("the question a statement answers (task 394, P2)", () => {
+  it("reaches the card from all three payloads", () => {
+    // The working page has carried the question since 2.13; the rehearsal
+    // payload gained it in 394. Both have to arrive at the same slot, or the
+    // two pages call the same statement two different things again.
+    expect(
+      pairCardFromScenarioCard(asked("Did he make the argument?"), WHO_UNRECORDED).question,
+    ).toBe("Did he make the argument?");
+
+    expect(
+      pairCardFromRehearsalInstance(instance({ question: "Did he make the argument?" })).question,
+    ).toBe("Did he make the argument?");
+
+    expect(
+      pairCardFromRehearsalAnswer(answer({ question: "Identify the time period." })).question,
+    ).toBe("Identify the time period.");
+  });
+
+  it("documentary evidence carries none", () => {
+    // A court finding answers nobody. `null`, not an empty string — the card
+    // branches on presence, and "" would render an empty line where the question
+    // belongs.
+    expect(pairCardFromScenarioCard(asked(null), WHO_UNRECORDED).question).toBeNull();
+    expect(pairCardFromRehearsalInstance(instance({ question: null })).question).toBeNull();
+    expect(pairCardFromRehearsalAnswer(answer({ question: null })).question).toBeNull();
+  });
+
+  it("an EMPTY question is folded into the same absence", () => {
+    // The extraction writes the property on every discovery item it reads, and
+    // an item whose question it could not read gets "". Both mean "there is no
+    // question to show", and there is no different act a human could take for
+    // the two — the same rule `factsTable` applies to this field.
+    expect(pairCardFromScenarioCard(asked(""), WHO_UNRECORDED).question).toBeNull();
+    expect(pairCardFromRehearsalInstance(instance({ question: "" })).question).toBeNull();
+    expect(pairCardFromRehearsalAnswer(answer({ question: "" })).question).toBeNull();
   });
 });

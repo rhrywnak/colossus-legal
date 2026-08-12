@@ -36,10 +36,20 @@ import React from "react";
  * Mockup parity with the queue's chevron (`ScanSection`), minus the
  * `marginLeft: auto` — a section header can carry controls to the fold's right,
  * so the caller decides the spacing rather than this button claiming the gap.
+ *
+ * ## Why the box grew a word (task 394, P6)
+ *
+ * It was a bare 30×30 ▸ sitting beside "Reset order", and it read as furniture:
+ * a small arrow next to a text control is not obviously a control at all, and
+ * nobody found it. The button now carries the same sentence a screen reader
+ * already heard, so `width` gives way to padding and the box sizes to its words.
  */
 const buttonStyle: React.CSSProperties = {
-  width: "30px",
-  height: "30px",
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "6px",
+  minHeight: "30px",
+  padding: "0 10px",
   borderRadius: "8px",
   background: "var(--v3-chrome)",
   border: "none",
@@ -48,6 +58,7 @@ const buttonStyle: React.CSSProperties = {
   fontSize: "13px",
   fontFamily: "inherit",
   flexShrink: 0,
+  whiteSpace: "nowrap",
 };
 
 interface Props {
@@ -57,9 +68,11 @@ interface Props {
   /**
    * What this fold opens and closes, in words — "the scenario facts".
    *
-   * Read into the accessible label and the tooltip, so the control names its
-   * target rather than being a bare arrow. A screen reader on a page with two
-   * folds would otherwise hear "collapse" twice with nothing to tell them apart.
+   * Composed into the control's VISIBLE text, its tooltip and therefore its
+   * accessible name, so the control names its target rather than being a bare
+   * arrow. A screen reader on a page with two folds would otherwise hear
+   * "collapse" twice with nothing to tell them apart — and, as of task 394 P6,
+   * neither would a sighted reader, who had only a 30-pixel arrow to go on.
    */
   names: string;
 }
@@ -71,11 +84,20 @@ const SectionFold: React.FC<Props> = ({ open, onToggle, names }) => {
       type="button"
       onClick={onToggle}
       aria-expanded={open}
-      aria-label={label}
+      // No `aria-label` any more, and that is the point of P6 rather than an
+      // omission: the accessible name is now the button's own visible text, so
+      // what a screen reader announces and what a sighted reader sees are one
+      // string that cannot drift apart. An `aria-label` here would OVERRIDE the
+      // visible words — the classic way those two quietly stop agreeing.
       title={label}
       style={buttonStyle}
+      data-section-fold=""
     >
-      {open ? "▾" : "▸"}
+      {/* The arrow is decorative once the words are there: a screen reader that
+          read "▾ Collapse the scenario facts" would announce a symbol nobody
+          can say out loud. */}
+      <span aria-hidden="true">{open ? "▾" : "▸"}</span>
+      {label}
     </button>
   );
 };

@@ -28,6 +28,7 @@ fn fact(id: &str, quote: &str) -> RehearsalFactRow {
         quote: Some(quote.to_string()),
         speaker: Some("George Phillips".to_string()),
         statement_type: Some("attorney_argument".to_string()),
+        question: None,
         occurred_on: Some("2009-12-15".to_string()),
         document_id: Some("doc-hearing".to_string()),
         document_title: Some("Hearing to approve plan".to_string()),

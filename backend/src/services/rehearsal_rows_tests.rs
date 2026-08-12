@@ -17,6 +17,7 @@ fn fact() -> RehearsalFactRow {
         quote: Some("They refused.".to_string()),
         speaker: Some("George Phillips".to_string()),
         statement_type: Some("attorney_argument".to_string()),
+        question: None,
         occurred_on: Some("2009-12-15".to_string()),
         document_id: Some("doc-hearing".to_string()),
         document_title: Some("Hearing to approve plan".to_string()),
@@ -371,4 +372,85 @@ fn an_unnumbered_candidate_has_no_code_rather_than_an_id() {
     let ordinals: HashMap<String, i32> = [("ev-other".to_string(), 14)].into_iter().collect();
     assert_eq!(code_of("ev-unnumbered", &ordinals), None);
     assert_eq!(code_of("ev-other", &ordinals).as_deref(), Some("C-14"));
+}
+
+// ── The question a statement answers (task 394, P2) ──────────────────────────
+
+/// The question travels verbatim when the record holds one.
+///
+/// Measured on DEV, this is S-6's own case: `…response-to-discovery:evidence:
+/// 0fd1a748` quotes the single word "Yes." and carries the interrogatory that
+/// makes it an admission. The card is unreadable without the pair.
+#[test]
+fn a_discovery_answer_carries_the_question_it_answers() {
+    let mut fact = fact();
+    fact.quote = Some("Yes.".to_string());
+    fact.question = Some(
+        "Did George Phillips on behalf of Catholic Family Services make the argument?".to_string(),
+    );
+
+    assert_eq!(
+        question_of(&fact).as_deref(),
+        Some("Did George Phillips on behalf of Catholic Family Services make the argument?")
+    );
+}
+
+/// Documentary evidence answers nobody, and says so by carrying nothing.
+///
+/// A court finding has no question. An empty `Q:` line above one would assert a
+/// question exists and was lost — on the page read in front of opposing counsel.
+#[test]
+fn documentary_evidence_carries_no_question() {
+    assert_eq!(question_of(&fact()), None);
+}
+
+/// A blank question is the same absence as a missing one.
+///
+/// The extraction writes the property on every discovery item it reads, and an
+/// item whose question it could not read gets `""`. There is no different act a
+/// human could take for the two states — see [`super::question_of`].
+#[test]
+fn a_blank_question_is_an_absence_and_not_an_empty_line() {
+    let mut fact = fact();
+
+    fact.question = Some(String::new());
+    assert_eq!(question_of(&fact), None);
+
+    fact.question = Some("   \n ".to_string());
+    assert_eq!(question_of(&fact), None, "whitespace is invisible in psql");
+}
+
+/// A question with surrounding whitespace is TRIMMED, never rendered padded.
+#[test]
+fn a_padded_question_is_trimmed_to_its_words() {
+    let mut fact = fact();
+    fact.question = Some("  Identify the time period.  ".to_string());
+
+    assert_eq!(
+        question_of(&fact).as_deref(),
+        Some("Identify the time period.")
+    );
+}
+
+/// The question reaches OUR ANSWER too, not only the accusation it answers.
+///
+/// Five of the nine pairings on DEV point at a discovery response and four of
+/// those quote a bare affirmation, so the answer half is where the bare-syllable
+/// defect actually bites.
+#[test]
+fn our_answer_carries_its_own_question() {
+    let mut fact = fact();
+    fact.quote = Some("Yes".to_string());
+    fact.question = Some("Did you receive the certified letter?".to_string());
+
+    let facts: HashMap<String, RehearsalFactRow> =
+        [("ev-answer".to_string(), fact)].into_iter().collect();
+
+    let answer = answer_of("ev-answer", &facts, &wording(), &HashMap::new())
+        .expect("a quoted answer composes");
+
+    assert_eq!(
+        answer.question.as_deref(),
+        Some("Did you receive the certified letter?")
+    );
 }

@@ -37,7 +37,12 @@
 import React, { useState } from "react";
 
 import { chipStyle } from "./scenarioSectionStyles";
-import type { PairCardModel, PairCardProvenance, QuoteFold } from "./pairCardModel";
+import type {
+  PairCardModel,
+  PairCardProvenance,
+  PairCardSide,
+  QuoteFold,
+} from "./pairCardModel";
 
 const cardStyle: React.CSSProperties = {
   padding: "16px 18px",
@@ -183,6 +188,40 @@ const Provenance: React.FC<{ of: PairCardProvenance; ours?: boolean }> = ({ of, 
 );
 
 /**
+ * The question a sworn answer answers — one muted line above the quote.
+ *
+ * ## Why muted, one line, and clamped (task 394, P2)
+ *
+ * The QUOTE is the evidence and must stay the loudest thing on the card. The
+ * question is context: it is what makes "Yes." mean something, and it is not
+ * itself the thing Marie reads out. So it sits above, dimmer and smaller, and it
+ * is clamped to one line — a four-line interrogatory above every answer would
+ * push the actual evidence off the bottom of a card the design keeps compact.
+ *
+ * The whole question is still in the DOM, so it is selectable, searchable by the
+ * browser's own find, and read in full by a screen reader. Only the BOX is
+ * shortened — the same treatment `FoldedQuote` gives a long quote, and for the
+ * same reason: nothing here cuts the record's words.
+ *
+ * ## Domain note: the "Q" is the record's, not ours
+ *
+ * The line renders the question verbatim with no composed prefix. An added "Q:"
+ * would be this component putting a word into a transcript, which is the class
+ * of thing the highlight rule already forbids for emphasis.
+ */
+const questionStyle: React.CSSProperties = {
+  margin: "0 0 6px",
+  fontSize: "13px",
+  lineHeight: 1.5,
+  color: "var(--text-muted)",
+  fontStyle: "italic",
+  display: "-webkit-box",
+  WebkitLineClamp: 1,
+  WebkitBoxOrient: "vertical",
+  overflow: "hidden",
+};
+
+/**
  * The quote, folded around its highlight.
  *
  * Open and closed are the SAME markup with a clamp added, so the highlight
@@ -236,6 +275,30 @@ const FoldedQuote: React.FC<{
   );
 };
 
+/**
+ * The half of a card that is a statement: its question, then its words.
+ *
+ * Both halves of a pair render through this, which is what stops the answer from
+ * quietly missing a field the instance has — the shape of the defect P2 fixes.
+ */
+const SideQuote: React.FC<{
+  side: PairCardSide;
+  showLabel: string | null;
+  hideLabel: string | null;
+}> = ({ side, showLabel, hideLabel }) => (
+  <>
+    {side.question && (
+      // `title` puts the whole question in the browser's own tooltip, so a
+      // clamped line is one hover from being read in full without a control —
+      // which matters on the prep page, where there are no controls at all.
+      <p style={questionStyle} title={side.question} data-pair-question="">
+        {side.question}
+      </p>
+    )}
+    <FoldedQuote fold={side.quote} showLabel={showLabel} hideLabel={hideLabel} />
+  </>
+);
+
 interface Props {
   card: PairCardModel;
   /** The stored "OUR ANSWER" label. */
@@ -263,6 +326,25 @@ interface Props {
    * file's header for why that is a prop and not a mode flag.
    */
   controls?: React.ReactNode;
+  /**
+   * A panel this card's own controls opened, rendered INSIDE the card (P1).
+   *
+   * ## Why the picker lives here and not beside the list
+   *
+   * Measured in CC_REPORT_PAIRING_PICKER_DEAD_v1: the answer picker rendered
+   * every time it was asked for, at one fixed point at the bottom of the
+   * accusation panel — 777, 592, 407 and 92 pixels below the four buttons that
+   * opened it. It was invisible for every card but the last, and a human
+   * clicking "Pair an answer" concluded the control was dead.
+   *
+   * A panel opened BY a card belongs IN that card. Putting it here rather than
+   * after the card means it cannot drift: there is no offset to get wrong,
+   * because there is no gap.
+   *
+   * `undefined` on the rehearsal page, like `controls` and for the same reason —
+   * nothing on that page opens anything.
+   */
+  expansion?: React.ReactNode;
 }
 
 const gapStyle: React.CSSProperties = {
@@ -282,8 +364,13 @@ const PairCard: React.FC<Props> = ({
   hideLabel,
   gapNotice,
   controls,
+  expansion,
 }) => (
   <div
+    // The anchor a structure test can hold: "the picker renders inside the card
+    // whose button opened it" is a claim about containment, and containment
+    // needs a marked container to be checkable at all.
+    data-pair-card=""
     style={{
       ...cardStyle,
       // The unanswered card carries the red edge; an answered one does not need
@@ -293,7 +380,7 @@ const PairCard: React.FC<Props> = ({
     }}
   >
     <Provenance of={card.provenance} />
-    <FoldedQuote fold={card.quote} showLabel={showLabel} hideLabel={hideLabel} />
+    <SideQuote side={card} showLabel={showLabel} hideLabel={hideLabel} />
 
     {card.answer ? (
       <div style={answerStyle}>
@@ -302,7 +389,10 @@ const PairCard: React.FC<Props> = ({
             which document. Until this card, the answer was a line of text with
             no source, which is the half a witness is asked to produce. */}
         <Provenance of={card.answer.provenance} ours />
-        <FoldedQuote fold={card.answer.quote} showLabel={showLabel} hideLabel={hideLabel} />
+        {/* …and its own question, through the same leaf. An answer whose
+            question rendered only on the accusation half would be the exact
+            asymmetry P2 exists to remove. */}
+        <SideQuote side={card.answer} showLabel={showLabel} hideLabel={hideLabel} />
       </div>
     ) : (
       gapNotice && <div style={gapStyle}>{gapNotice}</div>
@@ -320,6 +410,11 @@ const PairCard: React.FC<Props> = ({
         {controls}
       </div>
     )}
+
+    {/* BELOW the controls, inside the card. A panel a button opened sits under
+        the button that opened it — see `expansion` for the 777-pixel defect
+        this placement ends. */}
+    {expansion}
   </div>
 );
 

@@ -74,6 +74,8 @@ export type RehearsalAnswer = {
   when_gap: string | null;
   source: RehearsalSource;
   quote: string;
+  /** The question this answer answers, or `null`. See `RehearsalInstance`. */
+  question: string | null;
 };
 
 /** One marked instance of them making the accusation. */
@@ -94,6 +96,14 @@ export type RehearsalInstance = {
   source: RehearsalSource;
   kind_label: string;
   quote: string;
+  /**
+   * The interrogatory or deposition question this statement answers (task 394).
+   *
+   * `null` for documentary evidence, which answers nobody. Trimmed server-side,
+   * so a blank never arrives — a sworn "Yes." with no question above it is a
+   * syllable, not evidence, and that was S-6's card until this field existed.
+   */
+  question: string | null;
   /** The opening, cut server-side so one rule decides it. */
   quote_first_line: string;
   answer: RehearsalAnswer | null;

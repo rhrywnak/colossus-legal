@@ -66,6 +66,10 @@ const AddHumanFactForm: React.FC<Props> = ({ slug, scenarioId, onSaved, onCancel
 
   return (
     <div
+      // The marker the P8 net holds. "The form renders when the control is
+      // clicked" is a claim about a node existing in a particular PLACE, and a
+      // place needs something nameable in it to be checkable at all.
+      data-add-human-fact=""
       style={{
         border: HAIRLINE,
         borderRadius: "8px",

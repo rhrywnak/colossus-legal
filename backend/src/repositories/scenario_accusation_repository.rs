@@ -160,6 +160,19 @@ pub(crate) struct RehearsalFactRow {
     pub speaker: Option<String>,
     /// The extraction's kind token, humanized by `card_language` at the boundary.
     pub statement_type: Option<String>,
+    /// The interrogatory or deposition QUESTION this statement answers (task
+    /// 394, P2). `None` for documentary evidence, which answers nothing.
+    ///
+    /// ## Domain note: why the prep page needs this and the working page had it
+    ///
+    /// Measured on DEV: 238 of 661 quoted statements carry one, and four of
+    /// S-6's eight placed statements do. Without it the rehearsal card for
+    /// `…response-to-discovery:evidence:0fd1a748` renders the single word
+    /// "Yes." — a sworn admission stripped of the question it admits to, which
+    /// is unusable as ammunition and unreadable as evidence. The working page
+    /// has carried the question since task 2.13 (`ScenarioCard.quote.question`);
+    /// this is the half that never reached the surface Marie reads.
+    pub question: Option<String>,
     /// The statement's OWN date. Never the document's — measured on this case,
     /// document titles carry years that disagree with the statements inside them.
     pub occurred_on: Option<String>,
@@ -183,6 +196,7 @@ fn rehearsal_facts_query() -> String {
                 e.verbatim_quote    AS quote, \
                 p.name              AS speaker, \
                 e.statement_type    AS statement_type, \
+                e.question          AS question, \
                 coalesce(e.event_date, e.sent_date, e.statement_date) AS occurred_on, \
                 d.id                AS document_id, \
                 d.title             AS document_title, \
@@ -262,6 +276,7 @@ fn decode_row(row: &neo4rs::Row) -> Result<RehearsalFactRow, ScenarioCardRepoErr
         quote: column(row, "quote")?,
         speaker: column(row, "speaker")?,
         statement_type: column(row, "statement_type")?,
+        question: column(row, "question")?,
         occurred_on: column(row, "occurred_on")?,
         document_id: column(row, "document_id")?,
         document_title: column(row, "document_title")?,
@@ -476,6 +491,7 @@ mod tests {
             "quote",
             "speaker",
             "statement_type",
+            "question",
             "occurred_on",
             "document_id",
             "document_title",

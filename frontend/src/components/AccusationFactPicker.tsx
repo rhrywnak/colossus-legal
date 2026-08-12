@@ -20,7 +20,7 @@
 // file contains are the fact's OWN — its handle and its quote — which are the
 // case's data, not this surface's vocabulary.
 
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
 import {
   absentStyle,
@@ -103,6 +103,35 @@ const AccusationFactPicker: React.FC<Props> = ({
   onCancel,
 }) => {
   const [filter, setFilter] = useState("");
+  /**
+   * The search box, so opening the picker also puts the cursor in it (P1).
+   *
+   * ## Why a ref and an effect rather than `autoFocus`
+   *
+   * `autoFocus` fires once, when the element is first created. This picker is
+   * MOVED between cards rather than recreated — React keeps one element and
+   * changes its parent — so `autoFocus` would fire for whichever card opened it
+   * first and never again. The effect runs on every mount into a new position,
+   * which is the behaviour a human expects: click Pair on any card, start
+   * typing.
+   */
+  const searchBox = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const box = searchBox.current;
+    if (!box) return;
+
+    box.focus();
+    // THE SECOND BELT (P1). Focusing alone scrolls the box into view in most
+    // browsers, but not when the picker opens inside an already-scrolled region
+    // — which is exactly this page. `"nearest"` moves the minimum distance, so
+    // a picker already on screen does not jerk the page under the human who
+    // just clicked.
+    //
+    // The pattern is `CandidateList`'s (line ~200), reused rather than
+    // re-derived: one scroll behaviour on this page, in one dialect.
+    box.scrollIntoView({ block: "nearest" });
+  }, []);
 
   const offered = facts.filter((fact) => !excluded.includes(fact.graphNodeId));
   const needle = filter.trim().toLowerCase();
@@ -119,6 +148,10 @@ const AccusationFactPicker: React.FC<Props> = ({
 
   return (
     <div
+      // The marker a structure test holds to assert WHERE this renders. The
+      // picker's defect was never that it failed to render — it rendered every
+      // time, 777 pixels from the button that asked for it.
+      data-fact-picker=""
       style={{
         display: "flex",
         flexDirection: "column",
@@ -131,6 +164,7 @@ const AccusationFactPicker: React.FC<Props> = ({
       </p>
 
       <input
+        ref={searchBox}
         type="search"
         value={filter}
         onChange={(e) => setFilter(e.target.value)}
