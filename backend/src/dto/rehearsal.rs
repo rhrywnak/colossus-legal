@@ -129,6 +129,13 @@ pub struct RehearsalAnswer {
     pub when_gap: Option<String>,
     pub source: RehearsalSource,
     pub quote: String,
+    /// The question this answer answers, verbatim — `None` when there is none.
+    ///
+    /// See [`RehearsalInstance::question`] for why a Q/A statement is unreadable
+    /// without it. Our OWN answers are the half most often affected: five of the
+    /// nine pairings on DEV point at a discovery response, and four of those
+    /// quote a bare affirmation.
+    pub question: Option<String>,
     /// Our answer's own handle — "C-14". See [`RehearsalInstance::code`].
     ///
     /// The answer carries one for the same reason the instance does: in the room
@@ -182,6 +189,26 @@ pub struct RehearsalInstance {
     pub kind_label: String,
     /// The statement, verbatim.
     pub quote: String,
+    /// The interrogatory or deposition question this statement answers.
+    ///
+    /// `None` for documentary evidence — a court finding answers nobody, and a
+    /// blank "Q:" line over one would claim a question the record does not hold.
+    ///
+    /// ## Domain note: why a sworn answer is worthless without its question
+    ///
+    /// S-6's card for `…response-to-discovery:evidence:0fd1a748` reads, in full,
+    /// `Yes.` On the page Marie rehearses from, that is not evidence: it is a
+    /// syllable. The question — *"Did George Phillips on behalf of Catholic
+    /// Family Services make the argument…"* — is what turns it into an admission
+    /// she can quote back. The pair is the unit; the answer alone is a fragment.
+    ///
+    /// ## Why this is not excluded content (§10)
+    ///
+    /// §10 keeps impeachment MACHINERY off this surface — verdicts, confidences,
+    /// tiers, strategy. A question put to a witness under oath is the record's
+    /// own words, the same class as [`quote`](Self::quote) itself, and it is the
+    /// half of the record that makes the other half mean anything.
+    pub question: Option<String>,
     /// The quote's opening, for the collapsed row.
     ///
     /// Composed HERE so the truncation rule is tested in one place. A browser

@@ -101,6 +101,82 @@ describe("the pair card is ONE card on two pages (task R4, P3)", () => {
     expect(read(COMPONENTS, "pairCardModel.ts")).toContain("instance.code");
   });
 
+  it("the pair picker is wired to its ANCHOR, not to the list (task 394, P1)", () => {
+    // The markup half of this claim is `pairPanelPlacement.test.tsx`, which
+    // proves a `PairCard` renders its expansion inside itself. This is the other
+    // half: that the section only ever hands the expansion to the card the
+    // picker was opened FROM. Both are needed — the mechanism could be right
+    // while the wiring pointed at every card, or at none.
+    const working = read(COMPONENTS, "AccusationSection.tsx");
+
+    expect(working).toContain("expansion=");
+    expect(working).toMatch(/picker\?\.mode === "pair" && picker\.anchor === instance\./);
+  });
+
+  it("the mark picker stays at the Mark control (task 394, P1)", () => {
+    // Explicitly ruled: mark mode was never the defect, and moving a working
+    // control to match a broken one's fix is change for symmetry's sake.
+    const working = read(COMPONENTS, "AccusationSection.tsx");
+    expect(working).toContain('picker?.mode === "mark" && pickerFor(picker)');
+  });
+
+  it("the eligibility predicate is UNCHANGED — reuse stays permitted", () => {
+    // S-5 depends on reuse: C-14 answers two different instances, so an
+    // already-paired exclusion would break a READY, demo-facing scenario. And
+    // C-74 must stay offerable, so no stance filter either. Pinned as an absence
+    // because the tempting "improvement" is to add one.
+    const facts = read(COMPONENTS, "accusationFacts.ts");
+    const working = read(COMPONENTS, "AccusationSection.tsx");
+
+    expect(facts).toContain('card.status === "included"');
+    // Matched as FIELD ACCESSES rather than as bare words: "stance" is a
+    // substring of "instances", which this file's own header says four times.
+    // A test that fails on prose is a test somebody deletes.
+    for (const forbidden of [/card\.stance/, /answers_graph_node_id/, /alreadyPaired/]) {
+      expect(
+        facts,
+        `the picker predicate must not filter on ${forbidden.source}`,
+      ).not.toMatch(forbidden);
+    }
+    // The only exclusion pairing applies is the anchor itself — a statement
+    // cannot be its own answer.
+    expect(working).toContain("[mode.anchor]");
+  });
+
+  it("a discovery answer's question reaches BOTH halves of the card (P2)", () => {
+    // A bare "Yes." is a syllable, not evidence. The question renders through
+    // one leaf so the answer half cannot quietly lose a field the accusation
+    // half has — which is the asymmetry that produced the defect.
+    const card = read(COMPONENTS, "PairCard.tsx");
+
+    expect(card).toContain("side.question");
+    expect(card.match(/<SideQuote/g) ?? []).toHaveLength(2);
+    // …and it arrives from the payload rather than being composed here.
+    expect(read(COMPONENTS, "pairCardModel.ts")).toContain("instance.question");
+    expect(read(COMPONENTS, "pairCardModel.ts")).toContain("answer.question");
+  });
+
+  it("the add-fact form renders inside the view that owns its button (P3)", () => {
+    // It used to render after `<WorkingView>` — that is, past a scroll region
+    // holding forty-six rows — so the control read as dead. The state stays with
+    // the section that owns the write; only the placement moved.
+    const facts = read(COMPONENTS, "ScenarioFactsSection.tsx");
+    const view = read(COMPONENTS, "WorkingView.tsx");
+
+    expect(facts).toContain("addForm={");
+    expect(facts).not.toMatch(/\{open && adding &&/);
+    expect(view).toContain("{addForm && ");
+  });
+
+  it("the facts fold carries WORDS, not a bare arrow (P4/P6)", () => {
+    // A 30-pixel ▸ beside "Reset order" reads as furniture. The visible text is
+    // now the accessible name as well, so the two cannot drift.
+    const fold = read(COMPONENTS, "SectionFold.tsx");
+
+    expect(fold).toContain("{label}");
+    expect(fold, "an aria-label would OVERRIDE the visible words").not.toContain("aria-label=");
+  });
+
   it("the card composes no sentence of its own", () => {
     // Both fold labels arrive from the caller's own store, and the card degrades
     // to a chevron rather than inventing words when a page has none.

@@ -35,6 +35,7 @@ fn instance(position: usize, when: Option<&str>, answered: bool) -> RehearsalIns
         source: source(),
         kind_label: "Statement".to_string(),
         quote: "…the parties did not cooperate.".to_string(),
+        question: None,
         quote_first_line: "…the parties did not cooperate.".to_string(),
         answer: answered.then(|| RehearsalAnswer {
             who: "Marie Awad".to_string(),
@@ -43,6 +44,7 @@ fn instance(position: usize, when: Option<&str>, answered: bool) -> RehearsalIns
             code: Some("C-15".to_string()),
             source: source(),
             quote: "I wrote to him twice.".to_string(),
+            question: None,
         }),
         answer_tag: "ANSWERED".to_string(),
         answer_banner: None,
@@ -166,4 +168,86 @@ fn an_unfinished_scenario_says_how_much_is_left() {
 #[test]
 fn nothing_marked_heads_the_section_with_nothing() {
     assert_eq!(answered_line(&[], &settings()), None);
+}
+
+// ── The span clause against a MIXED list (task 394, P4b) ─────────────────────
+//
+// The three tests above cover all-dated, all-one-date and none-dated. The list
+// this page actually renders is none of those: measured on DEV, S-5 has three
+// dated instances and two undated, and S-6 has one dated of four. Both are
+// exercised here, because the endpoints are read off a list whose TAIL is
+// undated and an off-by-one at that boundary would name an empty date.
+
+/// Undated instances at the tail do not become the range's far endpoint.
+///
+/// `walk_instances` sorts undated LAST, so the final element of the list is
+/// routinely `None`. A span that read the list's last ELEMENT rather than its
+/// last DATED one would compose "through " with nothing after it — the empty
+/// endpoint the clause is omitted entirely to avoid.
+#[test]
+fn the_span_ignores_the_undated_tail_and_ends_at_the_last_dated_item() {
+    let instances = [
+        instance(1, Some("December 2009"), true),
+        instance(2, Some("January 2012"), true),
+        instance(3, None, false),
+        instance(4, None, false),
+    ];
+    let line = plain_count_line(&instances, 3, &settings()).expect("a line");
+
+    assert!(line.contains("from December 2009"), "{line}");
+    assert!(line.contains("through January 2012"), "{line}");
+    assert!(
+        line.contains("4 times"),
+        "the count is of ALL of them: {line}"
+    );
+    assert!(
+        !line.contains("through  ") && !line.trim_end().ends_with("through"),
+        "an undated tail must never become an endpoint: {line}"
+    );
+}
+
+/// One dated instance among undated ones reads as the one date it has.
+///
+/// ## What this test PINS, and the honesty question it does not settle
+///
+/// This is S-6 exactly: four placed statements, one of which carries a date. The
+/// clause says "on <that date>" because the dated items — all one of them —
+/// genuinely share a day, which is the rule as ruled.
+///
+/// What it cannot say is that the OTHER three happened then, and the sentence
+/// does not distinguish: "They said it 4 times, in 3 documents, on 4 Oct 2010"
+/// reads as a claim about all four. The clause describes the dated SUBSET while
+/// the sentence around it describes the whole set. Naming the subset would need
+/// a wording row of its own and is filed rather than smuggled in here; the
+/// behaviour is pinned so the day that row lands, this test is what has to
+/// change deliberately.
+#[test]
+fn one_dated_instance_among_undated_ones_names_that_date_alone() {
+    let instances = [
+        instance(1, Some("October 2010"), true),
+        instance(2, None, true),
+        instance(3, None, false),
+        instance(4, None, false),
+    ];
+    let line = plain_count_line(&instances, 3, &settings()).expect("a line");
+
+    assert!(line.contains("on October 2010"), "{line}");
+    assert!(!line.contains("through"), "one date is not a range: {line}");
+}
+
+/// A blank date string is an absence, not an endpoint.
+///
+/// `when` is composed by `when_of`, which never returns a blank — but the filter
+/// that guarantees it lives in `plain_count_line`, and a future caller building
+/// this list another way would otherwise open the sentence with "from  through".
+#[test]
+fn a_blank_date_string_is_not_an_endpoint() {
+    let instances = [
+        instance(1, Some("   "), true),
+        instance(2, Some("March 2011"), true),
+    ];
+    let line = plain_count_line(&instances, 2, &settings()).expect("a line");
+
+    assert!(line.contains("on March 2011"), "{line}");
+    assert!(!line.contains("from  "), "{line}");
 }

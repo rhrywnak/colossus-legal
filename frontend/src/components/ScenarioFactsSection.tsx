@@ -438,25 +438,30 @@ const ScenarioFactsSection: React.FC<Props> = ({
           cards={cards}
           humanFacts={humanFacts}
           onAdd={() => setAdding(true)}
+          // P3: the form renders AT its button, inside the view that owns the
+          // button's position — not after a scroll region holding forty-six
+          // rows, which is where it used to land and why the control read as
+          // dead. The state and the write stay here; only the placement moved.
+          addForm={
+            adding ? (
+              <AddHumanFactForm
+                slug={slug}
+                scenarioId={scenarioId}
+                onSaved={() => {
+                  setAdding(false);
+                  setError(null);
+                  onChanged();
+                }}
+                onCancel={() => setAdding(false)}
+              />
+            ) : null
+          }
           onRemoveHumanFact={removeHumanFact}
           onRemoveFact={removeFact}
           wording={wording}
           options={options}
           onSetTier={changeTier}
           onMoveFact={moveFact}
-        />
-      )}
-
-      {open && adding && (
-        <AddHumanFactForm
-          slug={slug}
-          scenarioId={scenarioId}
-          onSaved={() => {
-            setAdding(false);
-            setError(null);
-            onChanged();
-          }}
-          onCancel={() => setAdding(false)}
         />
       )}
     </section>

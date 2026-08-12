@@ -24,7 +24,7 @@ use crate::services::rehearsal_render::{
     ScenarioInput, GAP_ANSWER_REMOVED, GAP_INSTANCE_UNAVAILABLE, GAP_NO_ANSWER,
 };
 use crate::services::rehearsal_rows::{
-    answer_of, code_of, first_line, kind_of, source_of, when_of, who_of,
+    answer_of, code_of, first_line, kind_of, question_of, source_of, when_of, who_of,
 };
 
 /// Everything a row needs that is the same for EVERY row.
@@ -284,6 +284,10 @@ fn instance_row(
         kind_label: kind_of(fact),
         quote_first_line: first_line(&quote),
         quote,
+        // The question the statement answers (task 394, P2). A bare "Yes" on the
+        // page Marie rehearses from is a syllable, not evidence — see
+        // `RehearsalInstance::question`.
+        question: question_of(fact),
         // Chosen HERE rather than in the browser: two labels and a boolean is a
         // choice a client can get backwards, and backwards means a green
         // ANSWERED over a row nobody has answered.

@@ -229,6 +229,34 @@ pub(crate) fn when_of(
     }
 }
 
+/// The question a statement answers, or `None`.
+///
+/// ## Why an EMPTY question is folded into the absent state
+///
+/// The extraction writes `e.question` on every discovery item it reads, and an
+/// item it could not read the question for gets an empty string rather than no
+/// property. Those are the same fact — there is no question to show — and
+/// keeping them apart here would put an empty `Q:` line over the quote on the
+/// page read in front of opposing counsel, which asserts a question exists and
+/// was lost. The DISTINCTION Standing Rule 1 protects is between states a human
+/// would act on differently, and there is no different act available for these
+/// two: both are "the record gives me no question", and neither has a remedy on
+/// this surface.
+///
+/// ## Rust Learning: `filter` on an `Option`
+///
+/// `opt.filter(pred)` keeps a `Some` only when the predicate holds and turns it
+/// into `None` otherwise. It is the combinator for "I have a value, but I only
+/// want it if it is worth having" — expressed once here instead of as a nested
+/// `match` with two arms that return the same thing.
+pub(crate) fn question_of(fact: &RehearsalFactRow) -> Option<String> {
+    fact.question
+        .as_deref()
+        .map(str::trim)
+        .filter(|q| !q.is_empty())
+        .map(str::to_string)
+}
+
 /// The kind of statement, in plain words.
 ///
 /// `statement_kind_label` humanizes rather than translating, and the architect
@@ -267,6 +295,9 @@ pub(crate) fn answer_of(
         when_gap,
         source: source_of(fact, wording),
         quote,
+        // Our own answers are the half most often reduced to a syllable — see
+        // `RehearsalAnswer::question`.
+        question: question_of(fact),
         code: code_of(answer_id, ordinals),
     })
 }

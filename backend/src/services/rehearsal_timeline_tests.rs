@@ -17,6 +17,7 @@ fn fact(id: &str, quote: &str, who: &str, when: Option<&str>) -> RehearsalFactRo
         quote: Some(quote.to_string()),
         speaker: Some(who.to_string()),
         statement_type: Some("attorney_argument".to_string()),
+        question: None,
         occurred_on: when.map(str::to_string),
         document_id: Some("doc-1".to_string()),
         document_title: Some("Hearing".to_string()),

@@ -116,6 +116,29 @@ interface Props {
   humanFacts: HumanFactDto[];
   /** Opens the add-fact form — the one create action on this surface. */
   onAdd: () => void;
+  /**
+   * The add-fact form itself, when it is open — rendered here, at the control
+   * that opened it (task 394, P3).
+   *
+   * ## Why the form is passed IN rather than imported
+   *
+   * The form's state, its write and its refresh all belong to
+   * `ScenarioFactsSection`, which owns this section's data. What this component
+   * owns is the LAYOUT — where the button is, and therefore where the panel the
+   * button opens has to appear. Passing the node keeps those two facts with
+   * their two owners, and it is the same shape `PairCard.expansion` uses for the
+   * same reason.
+   *
+   * ## What this placement fixes
+   *
+   * The form used to render after `<WorkingView>` — that is, after a scroll
+   * region holding forty-six rows. It rendered every time; it was simply a full
+   * screen below the button, so clicking "+ Add human fact" appeared to do
+   * nothing. Identical in shape to P1's picker defect, in a second control.
+   *
+   * `null` when nothing is open, which renders nothing at all.
+   */
+  addForm?: React.ReactNode;
   /** Remove one human fact — deleted outright; it exists nowhere else. */
   onRemoveHumanFact: (factId: string) => void;
   /** Take one EVIDENCE fact back out of the scenario (task 2.12, item G). */
@@ -140,6 +163,7 @@ const WorkingView: React.FC<Props> = ({
   cards,
   humanFacts,
   onAdd,
+  addForm,
   onRemoveHumanFact,
   onRemoveFact,
   wording,
@@ -328,6 +352,12 @@ const WorkingView: React.FC<Props> = ({
           + Add human fact
         </button>
       </div>
+
+      {/* THE FORM, UNDER ITS OWN BUTTON (task 394, P3). Outside the scroll
+          region below, so it cannot be scrolled away from the control that
+          opened it — and above it, so it does not have to be hunted for past
+          forty-six rows. See `addForm`. */}
+      {addForm && <div style={{ padding: "0 16px 12px" }}>{addForm}</div>}
 
       {/* Item E: forty-six facts made the page enormous. The rows scroll in their
           own box; the search field, the create button and the "N of M shown"

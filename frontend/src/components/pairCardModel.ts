@@ -92,12 +92,48 @@ export type PairCardProvenance = {
   code: string | null;
 };
 
-/** One statement and, beneath it, what we say back. */
-export type PairCardModel = {
+/**
+ * One half of a pair card — a statement with its provenance and its question.
+ *
+ * ## Why this is a named type rather than an inline object twice
+ *
+ * The accusation and our answer to it are the SAME shape, and until task 394
+ * that shape was spelled out three times in this file's signatures and once more
+ * in `PairCardModel`. Adding `question` to four places instead of one is exactly
+ * how the answer half ends up missing a field the instance half has — which is
+ * the class of defect P2 is fixing in the first place.
+ *
+ * ## Rust Learning, in reverse: a TypeScript intersection is not a Rust struct
+ *
+ * `PairCardModel` below is `PairCardSide & { answer }` — an intersection type,
+ * which is the closest TypeScript comes to "this struct, plus one more field".
+ * Rust would need a nested struct or a trait; TypeScript composes the shapes
+ * structurally, so the adapters can return a `PairCardSide` and the caller can
+ * spread it into a `PairCardModel` with no conversion at all.
+ */
+export type PairCardSide = {
   provenance: PairCardProvenance;
   quote: QuoteFold;
+  /**
+   * The interrogatory or deposition question this statement answers, or `null`.
+   *
+   * ## Domain note: a sworn "Yes" is not evidence on its own
+   *
+   * Measured on DEV: four of S-6's eight placed statements answer a question,
+   * and one of them quotes the single word "Yes." The rehearsal card for it read
+   * as a syllable — the answer without the question it answers — which is
+   * unusable as ammunition in a room. The pair is the unit.
+   *
+   * `null` for documentary evidence, which answers nobody. A blank question line
+   * over a court finding would assert a question exists and was lost.
+   */
+  question: string | null;
+};
+
+/** One statement and, beneath it, what we say back. */
+export type PairCardModel = PairCardSide & {
   /** Our answer, or `null` when nobody has paired one. */
-  answer: { provenance: PairCardProvenance; quote: QuoteFold } | null;
+  answer: PairCardSide | null;
 };
 
 /**
@@ -159,8 +195,13 @@ export function foldQuote(
 export function pairCardFromScenarioCard(
   card: ScenarioCard,
   whoUnrecorded: string,
-): { provenance: PairCardProvenance; quote: QuoteFold } {
+): PairCardSide {
   return {
+    // `|| null` folds an EMPTY question into the same absent state as a missing
+    // one — the same rule `factsTable` already applies to this field, and for
+    // the same reason: an empty question line renders as a `Q:` with nothing
+    // after it, asserting that a question exists and was lost.
+    question: card.quote.question || null,
     provenance: {
       // A speaker the record does not name is a real and measured state (one of
       // forty-six on S-2). It reads as the served sentence rather than as a
@@ -192,8 +233,12 @@ export function pairCardFromScenarioCard(
  */
 export function pairCardFromRehearsalInstance(
   instance: RehearsalInstance,
-): { provenance: PairCardProvenance; quote: QuoteFold } {
+): PairCardSide {
   return {
+    // Composed nowhere and trimmed server-side (`rehearsal_rows::question_of`),
+    // so an empty one never reaches here — the `|| null` is the same defensive
+    // fold the working adapter applies, not a second rule.
+    question: instance.question || null,
     provenance: {
       who: instance.who,
       // Exactly one of these is ever present — the backend decides, so this
@@ -213,10 +258,11 @@ export function pairCardFromRehearsalInstance(
 }
 
 /** The rehearsal page's answer adapter. Same rules, one fewer field. */
-export function pairCardFromRehearsalAnswer(
-  answer: RehearsalAnswer,
-): { provenance: PairCardProvenance; quote: QuoteFold } {
+export function pairCardFromRehearsalAnswer(answer: RehearsalAnswer): PairCardSide {
   return {
+    // OUR answers are the half most often reduced to a syllable — five of the
+    // nine pairings on DEV point at a discovery response.
+    question: answer.question || null,
     provenance: {
       who: answer.who,
       when: answer.when ?? answer.when_gap,
