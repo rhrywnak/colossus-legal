@@ -166,6 +166,32 @@ pub struct EvidenceRef {
     /// `warn`), not an error and not a dropped item (Rule 1).
     pub source_document_id: Option<String>,
     pub source_document_title: Option<String>,
+    /// `Evidence.statement_type` — half the tier key (task 396, P1).
+    pub statement_type: Option<String>,
+    /// `Evidence.evidence_strength` — the other half.
+    pub evidence_strength: Option<String>,
+    /// The speaker, via `(Evidence)-[:STATED_BY]->(Party)`. Part of the collapse
+    /// key: two parties saying the same words are two pieces of proof.
+    pub speaker: Option<String>,
+    /// The interrogatory question this answers, or `None` for documentary
+    /// evidence. Also part of the collapse key — and it is the component that
+    /// keeps three distinct "yes." admissions from merging into one row.
+    pub question: Option<String>,
+    /// How hard this item is to dispute: `strong` / `hedged` / `other`, or `None`
+    /// when the stored tier map does not name its pair.
+    ///
+    /// Domain note: `None` is a real answer and renders as a row with no chip. An
+    /// item whose pair is unmapped is still counted as approved and still shown —
+    /// a new document type must never make proof vanish from this list.
+    ///
+    /// Populated by [`rank_supporting_evidence`]; the disputing leg leaves it
+    /// `None`, because tiering is a claim about how hard SUPPORT is to dispute.
+    pub tier: Option<String>,
+    /// How many near-identical statements collapsed into this row — the "×N".
+    ///
+    /// `1` means no duplicates, which is the overwhelming majority of rows. The
+    /// renderer prints the marker only above 1.
+    pub occurrences: usize,
 }
 
 // ── Cypher and SQL constants ──────────────────────────────────────
@@ -200,8 +226,10 @@ fn element_detail_cypher() -> String {
      OPTIONAL MATCH (a)-[:{bears_on}]->(e) WHERE labels(a)[0] = $allegation_label \
      OPTIONAL MATCH (a)<-[:{corroborates}]-(ev) WHERE labels(ev)[0] = $evidence_label \
      OPTIONAL MATCH (ev)-[:{contained_in}]->(d) WHERE labels(d)[0] = $document_label \
+     OPTIONAL MATCH (ev)-[:{stated_by}]->(sp) \
      OPTIONAL MATCH (a)<-[:{rebuts}]-(dv) WHERE labels(dv)[0] = $evidence_label \
      OPTIONAL MATCH (dv)-[:{contained_in}]->(dd) WHERE labels(dd)[0] = $document_label \
+     OPTIONAL MATCH (dv)-[:{stated_by}]->(dsp) \
      RETURN \
        e.id                         AS element_id, \
        e.element_name               AS element_name, \
@@ -221,18 +249,27 @@ fn element_detail_cypher() -> String {
        ev.page_note                 AS evidence_page_note, \
        d.id                         AS source_document_id, \
        d.title                      AS source_document_title, \
+       ev.statement_type            AS evidence_statement_type, \
+       ev.evidence_strength         AS evidence_strength, \
+       sp.name                      AS evidence_speaker, \
+       ev.question                  AS evidence_question, \
        dv.id                        AS disputing_id, \
        dv.verbatim_quote            AS disputing_quote, \
        dv.page_number               AS disputing_page_number, \
        dv.paragraph                 AS disputing_paragraph, \
        dv.page_note                 AS disputing_page_note, \
        dd.id                        AS disputing_document_id, \
-       dd.title                     AS disputing_document_title",
+       dd.title                     AS disputing_document_title, \
+       dv.statement_type            AS disputing_statement_type, \
+       dv.evidence_strength         AS disputing_strength, \
+       dsp.name                     AS disputing_speaker, \
+       dv.question                  AS disputing_question",
         has_element = schema::HAS_ELEMENT,
         bears_on = schema::BEARS_ON,
         corroborates = schema::CORROBORATES,
         rebuts = schema::REBUTS,
         contained_in = schema::CONTAINED_IN,
+        stated_by = schema::STATED_BY,
     )
 }
 
@@ -445,6 +482,86 @@ pub async fn fetch_element_with_allegations(
     })
 }
 
+/// Collapse, tier and rank every Allegation's SUPPORTING evidence, in place.
+///
+/// ## Why this happens here and not in the Cypher
+///
+/// Two of the three things it does are outside the graph's reach: the pair→tier
+/// map is a settings row, and the near-duplicate collapse keys on a normalized
+/// question and answer. Doing it in Rust also means the drill-down and the matrix
+/// row's two numbers come from ONE function
+/// ([`crate::services::matrix_strength::collapse_and_rank`]) — which is what
+/// makes "the counts agree" a property of the code rather than a coincidence.
+///
+/// ## Why the DISPUTING leg is left alone
+///
+/// A tier is a claim about how hard a piece of SUPPORT is to dispute. Ranking
+/// rebuttals by the same scale would read as a verdict on how badly the Element
+/// is damaged, which is a different judgment nobody has made — and collapsing
+/// them would quietly reduce the number of things arguing against us.
+///
+/// ## Rust Learning: `&mut` on the response instead of returning a new one
+///
+/// The response is already assembled and owns a `Vec` per Allegation; rebuilding
+/// the whole tree to change two fields per item would clone every quote. Taking
+/// `&mut` lets each `Vec` be replaced in place. The function returns nothing —
+/// its whole effect is the mutation, which the name says.
+pub fn rank_supporting_evidence(
+    response: &mut ElementDetailResponse,
+    tier_map: &crate::domain::evidence_tier::EvidenceTierMap,
+) {
+    use crate::services::matrix_strength::{collapse_and_rank, CorroboratingItem};
+
+    for allegation in &mut response.allegations {
+        let items: Vec<CorroboratingItem> = allegation
+            .supporting_evidence
+            .iter()
+            .map(|e| CorroboratingItem {
+                id: e.id.clone(),
+                statement_type: e.statement_type.clone(),
+                evidence_strength: e.evidence_strength.clone(),
+                speaker: e.speaker.clone(),
+                question: e.question.clone(),
+                quote: e.verbatim_quote.clone(),
+            })
+            .collect();
+
+        let groups = collapse_and_rank(&items, tier_map);
+
+        // Rebuild the leg in ranked order, keeping ONE `EvidenceRef` per group —
+        // the group's lead — and stamping it with what the collapse learned. The
+        // lookup by id is over a list that is a handful of items long, so the
+        // linear scan is cheaper than building a map to avoid it.
+        let mut ranked: Vec<EvidenceRef> = Vec::with_capacity(groups.len());
+        for group in &groups {
+            let Some(source) = allegation
+                .supporting_evidence
+                .iter()
+                .find(|e| e.id == group.lead.id)
+            else {
+                // Unreachable: every group's lead came from this very list. Logged
+                // rather than skipped silently, because if it ever happened it
+                // would mean a piece of proof had vanished between two lines of
+                // one function, and a missing item on a proof surface must never
+                // be something a reader has to notice for themselves.
+                tracing::error!(
+                    evidence_id = %group.lead.id,
+                    allegation_id = %allegation.allegation_id,
+                    "ranked group names an evidence id that is not in the allegation's \
+                     supporting list — the item has been dropped from the drill-down; \
+                     this indicates a defect in collapse_and_rank, not a data problem"
+                );
+                continue;
+            };
+            let mut item = source.clone();
+            item.tier = group.tier.map(|t| t.code().to_string());
+            item.occurrences = group.occurrences;
+            ranked.push(item);
+        }
+        allegation.supporting_evidence = ranked;
+    }
+}
+
 /// Parse the leading numeric prefix of a paragraph_number string. Returns
 /// `None` if there is no leading digit at all.
 fn leading_int(s: &str) -> Option<u32> {
@@ -459,225 +576,5 @@ fn leading_int(s: &str) -> Option<u32> {
 // ── Tests ─────────────────────────────────────────────────────────
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    /// Pins the JSON shape of `AllegationSummary`. The frontend reads
-    /// exactly these snake_case keys; a typo in the struct field name would
-    /// silently break the panel.
-    #[test]
-    fn allegation_summary_serializes_with_expected_keys() {
-        let summary = AllegationSummary {
-            allegation_id: "allegation-42".to_string(),
-            paragraph_number: "10".to_string(),
-            summary: Some("Defendant did the thing.".to_string()),
-            title: Some("Title".to_string()),
-            verbatim_quote: None,
-            source_section: "Common",
-            supporting_evidence: vec![EvidenceRef {
-                id: "evidence-074".to_string(),
-                verbatim_quote: Some("That is my recollection.".to_string()),
-                page_number: Some(22),
-                paragraph: Some("Q74".to_string()),
-                page_note: None,
-                source_document_id: Some("doc-phillips".to_string()),
-                source_document_title: Some("Phillips Discovery Response".to_string()),
-            }],
-            disputing_evidence: vec![EvidenceRef {
-                id: "evidence-041".to_string(),
-                verbatim_quote: Some("No, that never happened.".to_string()),
-                page_number: Some(15),
-                paragraph: Some("Q41".to_string()),
-                page_note: None,
-                source_document_id: Some("doc-affidavit".to_string()),
-                source_document_title: Some("Humphrey Affidavit".to_string()),
-            }],
-        };
-        let value = serde_json::to_value(&summary).expect("serializes cleanly");
-        assert_eq!(
-            value,
-            json!({
-                "allegation_id": "allegation-42",
-                "paragraph_number": "10",
-                "summary": "Defendant did the thing.",
-                "title": "Title",
-                "verbatim_quote": null,
-                "source_section": "Common",
-                "supporting_evidence": [{
-                    "id": "evidence-074",
-                    "verbatim_quote": "That is my recollection.",
-                    "page_number": 22,
-                    "paragraph": "Q74",
-                    "page_note": null,
-                    "source_document_id": "doc-phillips",
-                    "source_document_title": "Phillips Discovery Response",
-                }],
-                "disputing_evidence": [{
-                    "id": "evidence-041",
-                    "verbatim_quote": "No, that never happened.",
-                    "page_number": 15,
-                    "paragraph": "Q41",
-                    "page_note": null,
-                    "source_document_id": "doc-affidavit",
-                    "source_document_title": "Humphrey Affidavit",
-                }],
-            })
-        );
-    }
-
-    /// An Allegation with no Evidence on either leg serializes BOTH buckets as
-    /// **empty arrays, present** — never omitted. Those empty arrays are the
-    /// visible gaps the panel renders, and they mean different things: nothing
-    /// corroborates this Allegation, and nothing disputes it (Rule 1: empty and
-    /// absent stay distinguishable).
-    #[test]
-    fn allegation_with_no_evidence_serializes_empty_array_not_omitted() {
-        let summary = AllegationSummary {
-            allegation_id: "allegation-99".to_string(),
-            paragraph_number: "73".to_string(),
-            summary: None,
-            title: None,
-            verbatim_quote: None,
-            source_section: "Dedicated",
-            supporting_evidence: vec![],
-            disputing_evidence: vec![],
-        };
-        let value = serde_json::to_value(&summary).expect("serializes cleanly");
-        assert_eq!(value["supporting_evidence"], json!([]));
-        assert_eq!(value["disputing_evidence"], json!([]));
-    }
-
-    /// The detail Cypher must carry BOTH evidence legs, each optional and each
-    /// hanging off the Allegation.
-    ///
-    /// ## Why this test matters more than it looks
-    ///
-    /// If the REBUTS branch were dropped, nothing would fail loudly:
-    /// `decode_evidence(row, EvidenceLeg::Disputing, op)` would read a missing
-    /// `disputing_id` as `None` and return `Ok(None)` on every row, so every
-    /// Allegation would report `disputing_evidence: []` — an empty list that
-    /// renders identically to "nothing disputes this Allegation". That silent
-    /// zero over real edges is exactly the defect the Disputes work exists to
-    /// end, so the query's shape is pinned rather than trusted.
-    #[test]
-    fn detail_cypher_carries_both_evidence_legs_optionally_off_the_allegation() {
-        let q = element_detail_cypher();
-
-        assert!(q.contains(&format!(
-            "OPTIONAL MATCH (a)<-[:{}]-(ev)",
-            schema::CORROBORATES
-        )));
-        assert!(q.contains(&format!("OPTIONAL MATCH (a)<-[:{}]-(dv)", schema::REBUTS)));
-        // Evidence reaches an Element only THROUGH an Allegation — never a
-        // direct edge, which is the traversal that produced the false
-        // `to_element: 0` finding on 2026-07-26.
-        assert!(!q.contains(&format!("(e)<-[:{}]-", schema::REBUTS)));
-        assert!(!q.contains(&format!("(e)<-[:{}]-", schema::CORROBORATES)));
-    }
-
-    /// Every `disputing_*` alias the fold decodes must be projected. A renamed
-    /// or dropped alias would decode to `None` and silently empty the bucket.
-    #[test]
-    fn detail_cypher_projects_every_disputing_alias_the_fold_reads() {
-        let q = element_detail_cypher();
-        for alias in [
-            "AS disputing_id",
-            "AS disputing_quote",
-            "AS disputing_page_number",
-            "AS disputing_paragraph",
-            "AS disputing_page_note",
-            "AS disputing_document_id",
-            "AS disputing_document_title",
-        ] {
-            assert!(q.contains(alias), "missing RETURN alias `{alias}`");
-        }
-    }
-
-    /// Node labels stay parameter-bound on BOTH legs — including the dispute
-    /// leg's Evidence and its source Document — so no domain label is inlined
-    /// into the Cypher (Rule 12 / Rule 16).
-    #[test]
-    fn detail_cypher_parameterizes_every_node_label_on_both_legs() {
-        let q = element_detail_cypher();
-        for binding in [
-            "labels(e)[0] = $element_label",
-            "labels(lc)[0] = $count_label",
-            "labels(a)[0] = $allegation_label",
-            "labels(ev)[0] = $evidence_label",
-            "labels(dv)[0] = $evidence_label",
-            "labels(d)[0] = $document_label",
-            "labels(dd)[0] = $document_label",
-        ] {
-            assert!(q.contains(binding), "missing label binding `{binding}`");
-        }
-    }
-
-    /// An Evidence item with no source Document keeps `source_document_id: null`
-    /// (the warn-logged data-gap state) rather than being dropped or erroring.
-    #[test]
-    fn evidence_ref_without_document_serializes_null_source_id() {
-        let ev = EvidenceRef {
-            id: "evidence-041".to_string(),
-            verbatim_quote: Some("The accountings speak for themselves.".to_string()),
-            page_number: Some(15),
-            paragraph: Some("Q41".to_string()),
-            page_note: Some("pages 15-16".to_string()),
-            source_document_id: None,
-            source_document_title: None,
-        };
-        let value = serde_json::to_value(&ev).expect("serializes cleanly");
-        assert_eq!(value["source_document_id"], json!(null));
-        assert_eq!(value["page_note"], json!("pages 15-16"));
-    }
-
-    /// ¶10 falls inside `COMMON_PARA_START..=COMMON_PARA_END`. Documents the
-    /// classifier's lower-half behavior.
-    #[test]
-    fn source_section_common_for_paragraph_10() {
-        assert_eq!(source_section_for("10"), "Common");
-    }
-
-    /// ¶73 falls above `DEDICATED_PARA_START`. Documents the classifier's
-    /// upper-half behavior.
-    #[test]
-    fn source_section_dedicated_for_paragraph_73() {
-        assert_eq!(source_section_for("73"), "Dedicated");
-    }
-
-    /// A non-numeric paragraph_number must classify as "Unknown" rather than
-    /// silently defaulting (Rule 1: distinct observables for distinct
-    /// states).
-    #[test]
-    fn source_section_unknown_for_non_numeric() {
-        assert_eq!(source_section_for("abc"), "Unknown");
-    }
-
-    /// A range like "16-18" must classify by its starting paragraph (16 →
-    /// Common). This is the case the in-code comment explicitly calls out.
-    #[test]
-    fn source_section_handles_range_prefix() {
-        assert_eq!(source_section_for("16-18"), "Common");
-    }
-
-    /// Boundary pins so a future paragraph-range tweak shows up as a test
-    /// failure rather than a silent classification drift.
-    #[test]
-    fn source_section_boundaries_pinned() {
-        // Just below the Common range — pre-Common (¶6) is undefined territory
-        // for the panel, classify as "Unknown".
-        assert_eq!(source_section_for("6"), "Unknown");
-        // Lower edge of Common.
-        assert_eq!(source_section_for("7"), "Common");
-        // Upper edge of Common.
-        assert_eq!(source_section_for("71"), "Common");
-        // Lower edge of Dedicated.
-        assert_eq!(source_section_for("72"), "Dedicated");
-    }
-
-    /// Empty string is not a number; classify as "Unknown".
-    #[test]
-    fn source_section_empty_string() {
-        assert_eq!(source_section_for(""), "Unknown");
-    }
-}
+#[path = "element_detail_repository_tests.rs"]
+mod tests;

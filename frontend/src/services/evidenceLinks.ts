@@ -334,6 +334,12 @@ export type CardGrammarWording = {
   // Linking.
   link_typeahead_placeholder: string;
   link_typeahead_intro: string;
+  /**
+   * The same panel's sentence when the card ALREADY holds a link (ruling (a),
+   * 2026-08-12). The control no longer disappears after the first link, so it
+   * has to say which of the two states it is in.
+   */
+  already_linked_note: string;
   link_typeahead_no_match: string;
   /** Carries `{code}`. */
   link_woke_ruling_template: string;

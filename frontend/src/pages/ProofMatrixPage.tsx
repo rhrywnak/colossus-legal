@@ -36,10 +36,14 @@ import CountSelector from "../components/CountSelector";
 import MatrixRowWithDetail from "../components/MatrixRowWithDetail";
 import {
   PROOF_MATRIX_GRID_TEMPLATE,
-  PROOF_MATRIX_COLUMN_LABELS,
+  proofMatrixColumnLabels,
 } from "../components/proofMatrixColumns";
 import { sortElements } from "../components/CountCard";
-import { CountDetail, getCausesOfAction } from "../services/causesOfAction";
+import {
+  CountDetail,
+  getCausesOfAction,
+  type MatrixWording,
+} from "../services/causesOfAction";
 import {
   getProofMatrixRollup,
   indexAllegationTotals,
@@ -54,6 +58,12 @@ interface ProofMatrixData {
   error: string | null;
   /** Deduped per-Count totals keyed by count_number (supplementary). */
   allegationTotals: Record<number, number>;
+  /**
+   * The matrix's served words. `null` until the gating fetch resolves — there is
+   * deliberately no fallback vocabulary to draw a column header from (the
+   * language law; the same `null`-until-loaded shape `CandidateCard` uses).
+   */
+  matrixWording: MatrixWording | null;
 }
 
 /**
@@ -64,10 +74,12 @@ interface ProofMatrixData {
  */
 function useCausesOfAction(slug: string): {
   counts: CountDetail[] | null;
+  matrixWording: MatrixWording | null;
   loading: boolean;
   error: string | null;
 } {
   const [counts, setCounts] = useState<CountDetail[] | null>(null);
+  const [matrixWording, setMatrixWording] = useState<MatrixWording | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -79,6 +91,7 @@ function useCausesOfAction(slug: string): {
       .then((data) => {
         if (cancelled) return;
         setCounts(data.counts);
+        setMatrixWording(data.matrix_wording);
         setLoading(false);
       })
       .catch((err: unknown) => {
@@ -95,7 +108,7 @@ function useCausesOfAction(slug: string): {
     };
   }, [slug]);
 
-  return { counts, loading, error };
+  return { counts, matrixWording, loading, error };
 }
 
 /**
@@ -138,14 +151,14 @@ function useRollupTotals(slug: string): Record<number, number> {
  * within the 50-line limit (Rule 18) and lets the page treat "data" as one value.
  */
 function useProofMatrixData(slug: string): ProofMatrixData {
-  const { counts, loading, error } = useCausesOfAction(slug);
+  const { counts, matrixWording, loading, error } = useCausesOfAction(slug);
   const allegationTotals = useRollupTotals(slug);
   const sortedCounts = useMemo(
     () =>
       counts ? [...counts].sort((a, b) => a.count_number - b.count_number) : [],
     [counts],
   );
-  return { sortedCounts, loading, error, allegationTotals };
+  return { sortedCounts, loading, error, allegationTotals, matrixWording };
 }
 
 /**
@@ -157,10 +170,11 @@ function useProofMatrixData(slug: string): ProofMatrixData {
  * Owns the single-open-accordion `expandedElementId` state. The page keys this
  * table by Count, so switching Counts remounts it and collapses any open row.
  */
-const ElementTable: React.FC<{ count: CountDetail; caseSlug: string }> = ({
-  count,
-  caseSlug,
-}) => {
+const ElementTable: React.FC<{
+  count: CountDetail;
+  caseSlug: string;
+  matrixWording: MatrixWording;
+}> = ({ count, caseSlug, matrixWording }) => {
   const elements = sortElements(count.elements);
   const [expandedElementId, setExpandedElementId] = useState<string | null>(null);
   const toggleExpand = (elementId: string) =>
@@ -169,7 +183,7 @@ const ElementTable: React.FC<{ count: CountDetail; caseSlug: string }> = ({
   return (
     <div style={{ ...CARD_STYLE, marginTop: "20px" }}>
       <div style={COLUMN_HEADER_STYLE}>
-        {PROOF_MATRIX_COLUMN_LABELS.map((label) => (
+        {proofMatrixColumnLabels(matrixWording.strong_column_label).map((label) => (
           <span key={label}>{label}</span>
         ))}
       </div>
@@ -186,6 +200,7 @@ const ElementTable: React.FC<{ count: CountDetail; caseSlug: string }> = ({
               caseSlug={caseSlug}
               expanded={expandedElementId === el.element_id}
               onToggleExpand={toggleExpand}
+              matrixWording={matrixWording}
             />
           ))}
         </div>
@@ -203,7 +218,8 @@ const ProofMatrixContent: React.FC<{
   sortedCounts: CountDetail[];
   allegationTotals: Record<number, number>;
   caseSlug: string;
-}> = ({ sortedCounts, allegationTotals, caseSlug }) => {
+  matrixWording: MatrixWording;
+}> = ({ sortedCounts, allegationTotals, caseSlug, matrixWording }) => {
   const [selectedCountNumber, setSelectedCountNumber] = useState<number>(
     sortedCounts[0].count_number,
   );
@@ -234,6 +250,7 @@ const ProofMatrixContent: React.FC<{
         key={selected.count_number}
         count={selected}
         caseSlug={caseSlug}
+        matrixWording={matrixWording}
       />
     </>
   );
@@ -246,11 +263,22 @@ const ProofMatrixContent: React.FC<{
 const ProofMatrixPage: React.FC = () => {
   const { slug: slugParam } = useParams<{ slug: string }>();
   const slug = slugParam ?? DEFAULT_CASE_SLUG;
-  const { sortedCounts, loading, error, allegationTotals } =
+  const { sortedCounts, loading, error, allegationTotals, matrixWording } =
     useProofMatrixData(slug);
 
   if (loading) return <div style={MESSAGE_STYLE}>Loading Proof Matrix...</div>;
   if (error) return <div style={ERROR_STYLE}>{error}</div>;
+  // After a successful load the wording is always set (the service refuses a
+  // payload without it). This narrows `MatrixWording | null` for the tree below,
+  // and says out loud what would otherwise be a silent blank header.
+  if (!matrixWording) {
+    return (
+      <div style={ERROR_STYLE}>
+        The Proof Matrix loaded without its column wording. Reload the page; if
+        this persists, report it to the site administrator.
+      </div>
+    );
+  }
 
   return (
     <div style={{ maxWidth: "1000px", paddingTop: "32px", paddingBottom: "4rem" }}>
@@ -274,6 +302,7 @@ const ProofMatrixPage: React.FC = () => {
           sortedCounts={sortedCounts}
           allegationTotals={allegationTotals}
           caseSlug={slug}
+          matrixWording={matrixWording}
         />
       )}
     </div>

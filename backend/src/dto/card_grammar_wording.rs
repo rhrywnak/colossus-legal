@@ -59,6 +59,7 @@ pub struct CardGrammarWordingDto {
     // Linking.
     pub link_typeahead_placeholder: String,
     pub link_typeahead_intro: String,
+    pub already_linked_note: String,
     pub link_typeahead_no_match: String,
     /// Carries `{code}`.
     pub link_woke_ruling_template: String,
@@ -113,6 +114,7 @@ impl From<&CardGrammarWording> for CardGrammarWordingDto {
             scan_reason_label: w.scan_reason_label.clone(),
             link_typeahead_placeholder: w.link_typeahead_placeholder.clone(),
             link_typeahead_intro: w.link_typeahead_intro.clone(),
+            already_linked_note: w.already_linked_note.clone(),
             link_typeahead_no_match: w.link_typeahead_no_match.clone(),
             link_woke_ruling_template: w.link_woke_ruling_template.clone(),
             weight_picker_label: w.weight_picker_label.clone(),

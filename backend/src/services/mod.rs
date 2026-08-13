@@ -11,6 +11,7 @@ pub mod graph_expansion_cypher;
 pub mod graph_expansion_minor;
 pub mod graph_expansion_queries;
 pub mod import_validator;
+pub mod matrix_strength;
 pub mod qdrant_service;
 pub mod rehearsal_assembly;
 pub mod rehearsal_count;

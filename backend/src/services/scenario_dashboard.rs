@@ -43,6 +43,7 @@ use crate::dto::trial_prep::{
     ExchangeTurn, ScenarioDetail, ScenarioStatus, ScenarioSummary, TrialPrepDashboard,
     TrialPrepMetrics,
 };
+use crate::dto::war_room_wording::WarRoomWordingDto;
 use crate::repositories::pipeline_repository::{
     get_scenario, list_scenarios_for_case, PipelineRepoError, ScenarioRecord,
 };
@@ -157,11 +158,15 @@ impl ScenarioDashboardAssembler {
     /// configuration store into every construction site. The caller already holds
     /// a snapshot (`state.settings.current()`), so it passes the block it needs;
     /// the assembler stays a shaper of data it was handed.
-    #[tracing::instrument(skip(self, create_wording), fields(case_slug = %case_slug))]
+    #[tracing::instrument(
+        skip(self, create_wording, war_room_wording),
+        fields(case_slug = %case_slug)
+    )]
     pub async fn assemble(
         &self,
         case_slug: &str,
         create_wording: ScenarioCreateWordingDto,
+        war_room_wording: WarRoomWordingDto,
     ) -> Result<TrialPrepDashboard, ScenarioDashboardError> {
         let records = list_scenarios_for_case(&self.pipeline_pool, case_slug)
             .await
@@ -186,6 +191,7 @@ impl ScenarioDashboardAssembler {
             alerts: Vec::new(),
             scenarios: cards,
             create_wording,
+            war_room_wording,
         })
     }
 

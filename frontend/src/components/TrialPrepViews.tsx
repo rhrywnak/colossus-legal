@@ -18,6 +18,7 @@ import { pillStyle } from "./trialPrepCardStyles";
 import type {
   ExchangeTurn,
   MarieResponse,
+  WarRoomWording,
 } from "../pages/trialPrepData";
 import { isAnticipated, showsRepeatFlag } from "../pages/trialPrepHelpers";
 
@@ -139,11 +140,17 @@ export const MetricsBand: React.FC<{
     ready: number;
     drafted_or_review: number;
   };
-}> = ({ metrics }) => (
+  /**
+   * The three tile labels, from the store (R2 §3, built .396). The third one
+   * used to read "Drafted / in review" — two words for one number, which invited
+   * a reader to look for a second figure that was never there.
+   */
+  wording: WarRoomWording;
+}> = ({ metrics, wording }) => (
   <div style={cardRow}>
-    <MetricCard value={metrics.scenarios} label="Scenarios" />
-    <MetricCard value={metrics.ready} label="Ready" />
-    <MetricCard value={metrics.drafted_or_review} label="Drafted / in review" />
+    <MetricCard value={metrics.scenarios} label={wording.metric_scenarios_label} />
+    <MetricCard value={metrics.ready} label={wording.metric_ready_label} />
+    <MetricCard value={metrics.drafted_or_review} label={wording.metric_draft_label} />
   </div>
 );
 

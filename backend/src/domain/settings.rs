@@ -24,15 +24,18 @@
 
 use std::fmt;
 
+use crate::domain::evidence_tier::EvidenceTierMap;
 use crate::domain::wording::Wording;
 use crate::domain::wording_accusation::AccusationWording;
 use crate::domain::wording_authoring::AuthoringWording;
 use crate::domain::wording_card_grammar::CardGrammarWording;
+use crate::domain::wording_matrix::MatrixWording;
 use crate::domain::wording_model_params::ModelParamsWording;
 use crate::domain::wording_rehearsal::RehearsalWording;
 use crate::domain::wording_rehearsal_chrome::RehearsalChromeWording;
 use crate::domain::wording_scan::ScanWording;
 use crate::domain::wording_scenario_authoring::ScenarioAuthoringWording;
+use crate::domain::wording_war_room::WarRoomWording;
 
 /// The parsed parameters, as every consumer sees them.
 ///
@@ -206,6 +209,31 @@ pub struct Settings {
     /// provider changes what it accepts, which has nothing to do with what a
     /// candidate card says.
     pub model_params_wording: ModelParamsWording,
+    /// The words the PROOF MATRIX speaks now that a row leads with the strong
+    /// count (task 396, P1).
+    ///
+    /// A tenth nested block, on the same test the other nine pass: these are
+    /// spoken on the case-wide proof grid, to Chuck, about how hard a piece of
+    /// proof is to dispute — a different surface and a different reader from
+    /// anything that curates one scenario.
+    pub matrix_wording: MatrixWording,
+    /// The words the TRIAL PREP dashboard speaks (task 396, P3b).
+    ///
+    /// An eleventh nested block, carrying the R2 §3 rows that batch ruled and
+    /// never migrated — see `domain::wording_war_room` for the measurement.
+    pub war_room_wording: WarRoomWording,
+    /// Which `(statement_type, evidence_strength)` pairs count as strong,
+    /// hedged, or other proof (task 396, P1).
+    ///
+    /// ## Domain note: configuration, because the corpus decides it
+    ///
+    /// The tier SET is code (`domain::evidence_tier`); which extraction pairs
+    /// earn which tier is a judgment about THIS corpus that changes whenever a
+    /// new document type starts producing new pairs. Compiling it in would mean
+    /// a rebuild every time the extraction vocabulary grows — and Standing Rule
+    /// 2's own test ("could another Colossus project use this unchanged?")
+    /// answers no for any hardcoded list of legal statement types.
+    pub evidence_tier_map: EvidenceTierMap,
     /// How much of a discovery question a card shows before ellipsizing it
     /// (§2b). The rest is one click away.
     ///
@@ -265,6 +293,9 @@ impl Settings {
             rehearsal_instance_rows_expand_max: 3,
             card_grammar_wording: CardGrammarWording::for_test(),
             model_params_wording: ModelParamsWording::for_test(),
+            matrix_wording: MatrixWording::for_test(),
+            war_room_wording: WarRoomWording::for_test(),
+            evidence_tier_map: EvidenceTierMap::for_test(),
             card_question_truncate_chars: 110,
             card_element_chips_visible_k: 2,
         }

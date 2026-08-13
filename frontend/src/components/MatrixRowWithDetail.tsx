@@ -7,8 +7,10 @@
 // the row+detail unit reads as one thing.
 //
 // Every column shows REAL backend data, rendered as-is and never derived here
-// (Rule 19): `supporting_evidence_count`, `disputing_evidence_count` and
-// `proof_status` are all computed by the causes-of-action query.
+// (Rule 19): `strong_evidence_count`, `approved_evidence_count`,
+// `disputing_evidence_count` and `proof_status` are all computed by the backend.
+// Since task 396 the third column leads with the STRONG count — proof the other
+// side cannot dispute — with the raw approved figure as small print beside it.
 //
 // The Disputes column was previously fed a hardcoded `[]` on the grounds that no
 // REBUTS edges existed — a claim that stopped being true without anyone
@@ -19,7 +21,7 @@
 // =============================================================================
 
 import React from "react";
-import { ElementDetail } from "../services/causesOfAction";
+import { ElementDetail, MatrixWording } from "../services/causesOfAction";
 import ElementRow from "./ElementRow";
 import ElementDetailContent from "./ElementDetailContent";
 
@@ -44,6 +46,14 @@ export interface MatrixRowWithDetailProps {
   expanded: boolean;
   /** Toggle this row's expansion. */
   onToggleExpand: (elementId: string) => void;
+  /**
+   * The Proof Matrix's served words, from the payload the page gates on.
+   *
+   * Passed DOWN rather than fetched here: every row on the page speaks the same
+   * eight strings from the same snapshot, and thirty rows each reading the store
+   * would be thirty chances for two of them to disagree.
+   */
+  matrixWording: MatrixWording;
 }
 
 const MatrixRowWithDetail: React.FC<MatrixRowWithDetailProps> = ({
@@ -53,6 +63,7 @@ const MatrixRowWithDetail: React.FC<MatrixRowWithDetailProps> = ({
   caseSlug,
   expanded,
   onToggleExpand,
+  matrixWording,
 }) => (
   <>
     <ElementRow
@@ -62,7 +73,9 @@ const MatrixRowWithDetail: React.FC<MatrixRowWithDetailProps> = ({
       selected={false}
       onSelect={NOOP_SELECT}
       variant="matrix"
-      supportingCount={element.supporting_evidence_count}
+      strongCount={element.strong_evidence_count}
+      approvedCount={element.approved_evidence_count}
+      matrixWording={matrixWording}
       disputingCount={element.disputing_evidence_count}
       proofStatus={element.proof_status}
       expanded={expanded}
@@ -74,6 +87,7 @@ const MatrixRowWithDetail: React.FC<MatrixRowWithDetailProps> = ({
           caseSlug={caseSlug}
           elementId={element.element_id}
           elementName={element.element_name}
+          matrixWording={matrixWording}
         />
       </div>
     )}

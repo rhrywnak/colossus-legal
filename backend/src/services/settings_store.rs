@@ -49,6 +49,7 @@ use sqlx::PgPool;
 // `parse_text` / `parse_token_list` / `Bounds` / `Ratio` left with the per-row
 // readers when they were split out; what remains here is the write path's own
 // validation (`parse_count` / `parse_float` / `parse_ratio`) plus the snapshot.
+use crate::domain::evidence_tier::{EvidenceTier, EvidenceTierMap};
 use crate::domain::settings::{
     parse_count, parse_float, parse_ratio, SettingError, Settings, ValueKind,
 };
@@ -95,6 +96,14 @@ const KEY_SCAN_DEFAULT_MODEL: &str = "theme_scan_default_model";
 const KEY_CARD_QUESTION_TRUNCATE: &str = "card_question_truncate_chars";
 const KEY_CARD_ELEMENT_CHIPS_K: &str = "card_element_chips_visible_k";
 const KEY_PREFILTER_STATEMENT_TYPES: &str = "theme_scan_prefilter_statement_types";
+// Task 396 P1. Three TEXT rows that are NOT wording — they name extraction
+// vocabulary, not sentences anybody reads — so they belong in this list beside
+// `theme_scan_prefilter_statement_types`, which is the same shape for the same
+// reason. Together they are the `(statement_type, evidence_strength)` → tier map
+// the Proof Matrix's headline number is computed from.
+const KEY_TIER_STRONG_PAIRS: &str = "matrix_tier_strong_pairs";
+const KEY_TIER_HEDGED_PAIRS: &str = "matrix_tier_hedged_pairs";
+const KEY_TIER_OTHER_PAIRS: &str = "matrix_tier_other_pairs";
 
 /// Every NOT-WORDING key this build reads, so a missing one is caught at boot by
 /// name.
@@ -129,6 +138,9 @@ pub const REQUIRED_KEYS: &[&str] = &[
     KEY_SCAN_DEFAULT_MODEL,
     KEY_CARD_QUESTION_TRUNCATE,
     KEY_CARD_ELEMENT_CHIPS_K,
+    KEY_TIER_STRONG_PAIRS,
+    KEY_TIER_HEDGED_PAIRS,
+    KEY_TIER_OTHER_PAIRS,
 ];
 
 /// Why the store could not be read or written.
@@ -259,6 +271,7 @@ pub fn build_settings(rows: &HashMap<String, AppSettingRecord>) -> Result<Settin
     }
 
     let words = crate::services::settings_wording::build_all_wording(rows)?;
+    let evidence_tier_map = build_evidence_tier_map(rows)?;
 
     Ok(Settings {
         confidence_band_high,
@@ -290,6 +303,50 @@ pub fn build_settings(rows: &HashMap<String, AppSettingRecord>) -> Result<Settin
         model_params_wording: words.model_params,
         card_question_truncate_chars: count_of(require(rows, KEY_CARD_QUESTION_TRUNCATE)?)?,
         card_element_chips_visible_k: count_of(require(rows, KEY_CARD_ELEMENT_CHIPS_K)?)?,
+        matrix_wording: words.matrix,
+        war_room_wording: words.war_room,
+        evidence_tier_map,
+    })
+}
+
+/// Assemble the `(statement_type, evidence_strength)` → tier map from its three
+/// rows, or name the row and the entry that is malformed.
+///
+/// ## Why the pair rows are parsed HERE and not inside `EvidenceTierMap`
+///
+/// Same seam every other row obeys: the STORE owns what a row is (declared kind,
+/// non-blank, comma-separated tokens — `token_list_of`), and the DOMAIN owns what
+/// the tokens MEAN. So this function does the store half for three rows and hands
+/// the already-split entries to `EvidenceTierMap::from_entries`, which knows
+/// nothing about databases. It is the same division `build_all_wording` makes.
+///
+/// ## Rust Learning: converting a foreign error with `map_err`
+///
+/// `EvidenceTierMap::from_entries` returns its own `PairParseError` — it cannot
+/// return a `SettingError` without depending on the settings vocabulary. The
+/// conversion happens here, at the one boundary that knows both, and it preserves
+/// the row key and the offending entry so the boot refusal still names them.
+///
+/// # Errors
+/// Returns [`SettingError`] if any of the three rows is missing, is not declared
+/// `text`, is blank, or holds an entry that is not
+/// `statement_type+evidence_strength`.
+fn build_evidence_tier_map(
+    rows: &HashMap<String, AppSettingRecord>,
+) -> Result<EvidenceTierMap, SettingError> {
+    let strong = token_list_of(require(rows, KEY_TIER_STRONG_PAIRS)?)?;
+    let hedged = token_list_of(require(rows, KEY_TIER_HEDGED_PAIRS)?)?;
+    let other = token_list_of(require(rows, KEY_TIER_OTHER_PAIRS)?)?;
+
+    EvidenceTierMap::from_entries(&[
+        (EvidenceTier::Strong, KEY_TIER_STRONG_PAIRS, &strong),
+        (EvidenceTier::Hedged, KEY_TIER_HEDGED_PAIRS, &hedged),
+        (EvidenceTier::Other, KEY_TIER_OTHER_PAIRS, &other),
+    ])
+    .map_err(|source| SettingError::Unreadable {
+        key: source.key,
+        value: source.entry,
+        expected: "statement_type+evidence_strength, both halves non-blank",
     })
 }
 

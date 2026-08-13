@@ -200,10 +200,9 @@ const TrialPrepDashboardPage: React.FC = () => {
           <h1 className="count-header" style={{ margin: 0 }}>
             Trial Prep — War Room
           </h1>
-          <div style={subtitleStyle}>
-            System-generated cross-examination scenarios — the attacks, their
-            recorded instances, and Marie's rehearsable responses.
-          </div>
+          {/* From the store since .396. The sentence it replaces credited the
+              machine for work a human does — see `domain::wording_war_room`. */}
+          <div style={subtitleStyle}>{dashboard.war_room_wording.subtitle}</div>
         </div>
         <button
           type="button"
@@ -226,7 +225,7 @@ const TrialPrepDashboardPage: React.FC = () => {
         />
       )}
 
-      <MetricsBand metrics={dashboard.metrics} />
+      <MetricsBand metrics={dashboard.metrics} wording={dashboard.war_room_wording} />
 
       {dashboard.alerts.length > 0 && <AlertsStrip alerts={dashboard.alerts} />}
 

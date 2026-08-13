@@ -12,6 +12,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::dto::matrix_wording::MatrixWordingDto;
+
 /// Top-level payload: the requested case slug (echoed) and its Counts.
 #[derive(Debug, Clone, Serialize)]
 pub struct CausesOfActionResponse {
@@ -20,6 +22,12 @@ pub struct CausesOfActionResponse {
     /// the caller's correlation.
     pub case_slug: String,
     pub counts: Vec<CountDetail>,
+    /// The Proof Matrix's own words (task 396, P1).
+    ///
+    /// Riding this payload rather than a second request: the matrix page GATES on
+    /// this read — it cannot draw a row without it — and both surfaces that speak
+    /// these words (the row's headline and its drill-down) live on that page.
+    pub matrix_wording: MatrixWordingDto,
 }
 
 /// One Count with its canonical metadata and Elements.
@@ -97,7 +105,33 @@ pub struct ElementDetail {
     /// Number of DISTINCT Evidence items corroborating any Allegation that
     /// bears on this Element — the SUPPORTING magnitude. Walks
     /// `(Evidence)-[:CORROBORATES]->(Allegation)-[:BEARS_ON]->(Element)`.
+    ///
+    /// Domain note: this is the PRE-COLLAPSE magnitude, and since .396 it is no
+    /// longer what the matrix column renders. The two numbers on screen are
+    /// `strong_evidence_count` and `approved_evidence_count`, both computed AFTER
+    /// near-duplicate collapse. This field stays because it is a different, still
+    /// true reading — how many distinct Evidence NODES corroborate — and it is
+    /// what a "show me the duplicates" affordance would need. It must never be
+    /// rendered beside the other two without saying which of them it is, or the
+    /// page would show three numbers for one Element and invite the reader to
+    /// treat a disagreement as a bug.
     pub supporting_evidence_count: i64,
+    /// Corroborating items that count toward the HEADLINE: the ones whose
+    /// `(statement_type, evidence_strength)` pair maps to the strong tier, after
+    /// near-identical statements have been collapsed.
+    ///
+    /// Domain note: strong means what the opposing side cannot dispute — their own
+    /// sworn admissions, and the court's own findings and orders (Roman's ruling,
+    /// 2026-08-13). Computed in `services::matrix_strength`, which also produces
+    /// the drill-down, so the row and the list it opens cannot disagree.
+    pub strong_evidence_count: i64,
+    /// Every corroborating item after collapse, whatever its tier — the depth
+    /// line beside the headline ("· 15 approved").
+    ///
+    /// `strong_evidence_count <= approved_evidence_count` always: the strong
+    /// figure is a subset of this one, which is what makes the pair readable as
+    /// "this many of these".
+    pub approved_evidence_count: i64,
     /// Number of this Element's Allegations that have >=1 incoming
     /// `CORROBORATES` — the coverage **numerator** `C` (`C <= allegation_count`).
     pub covered_allegation_count: i64,

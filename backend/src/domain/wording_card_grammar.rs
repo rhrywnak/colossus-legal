@@ -114,6 +114,14 @@ pub struct CardGrammarWording {
     pub link_typeahead_placeholder: String,
     /// Said above the type-ahead on a card nothing has linked.
     pub link_typeahead_intro: String,
+    /// The same panel's sentence when the card ALREADY holds a link.
+    ///
+    /// Domain note: a statement routinely bears on more than one accusation, and
+    /// until ruling (a) of 2026-08-12 the control vanished after the first link —
+    /// so a second link meant giving up the first. The panel now stays, and this
+    /// says which state it is in, because a control re-appearing under a card that
+    /// already has chips would otherwise read as though the first link failed.
+    pub already_linked_note: String,
     /// Said when the type-ahead matches nothing.
     pub link_typeahead_no_match: String,
     /// Said when a link wakes a locked card's ruling buttons. Carries `{code}`.
@@ -181,6 +189,9 @@ pub(crate) const KEY_RESET_ORDER_YES: &str = "card_reset_order_confirm_yes";
 pub(crate) const KEY_RESET_ORDER_CANCEL: &str = "card_reset_order_confirm_cancel";
 pub(crate) const KEY_RESET_ORDER_DONE: &str = "card_reset_order_done_template";
 pub(crate) const KEY_RESET_ORDER_FAILED: &str = "card_reset_order_failed_template";
+/// Ruling (a), 2026-08-12: the panel now STAYS on a card that already holds a
+/// link, so it needs a second sentence for that state.
+pub(crate) const KEY_ALREADY_LINKED_NOTE: &str = "card_already_linked_note";
 pub(crate) const KEY_CHIP_FILTER_HINT: &str = "card_chip_filter_hint_template";
 pub(crate) const KEY_CHIP_FILTER_CLEAR: &str = "card_chip_filter_clear_template";
 
@@ -217,6 +228,7 @@ pub const CARD_GRAMMAR_WORDING_KEYS: &[&str] = &[
     KEY_RESET_ORDER_CANCEL,
     KEY_RESET_ORDER_DONE,
     KEY_RESET_ORDER_FAILED,
+    KEY_ALREADY_LINKED_NOTE,
     KEY_CHIP_FILTER_HINT,
     KEY_CHIP_FILTER_CLEAR,
 ];
@@ -262,6 +274,7 @@ pub fn build_card_grammar_wording<E>(
         scan_reason_label: read(KEY_SCAN_REASON)?,
         link_typeahead_placeholder: read(KEY_LINK_TYPEAHEAD_PLACEHOLDER)?,
         link_typeahead_intro: read(KEY_LINK_TYPEAHEAD_INTRO)?,
+        already_linked_note: read(KEY_ALREADY_LINKED_NOTE)?,
         link_typeahead_no_match: read(KEY_LINK_TYPEAHEAD_NO_MATCH)?,
         link_woke_ruling_template: read(KEY_LINK_WOKE_RULING)?,
         weight_picker_label: read(KEY_WEIGHT_PICKER)?,

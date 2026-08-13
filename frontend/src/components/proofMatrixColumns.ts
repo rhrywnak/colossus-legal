@@ -29,10 +29,21 @@ export const PROOF_MATRIX_GRID_TEMPLATE =
  * not "Opposing", which describes a party's posture rather than what the record
  * actually disputes.
  */
-export const PROOF_MATRIX_COLUMN_LABELS = [
-  "Element",
-  "Mapped Allegations",
-  "Supporting",
-  "Disputes",
-  "Status",
-] as const;
+/**
+ * Column header labels, in the same order as {@link PROOF_MATRIX_GRID_TEMPLATE}.
+ *
+ * The third label is NOT here. Since task 396 that column leads with the STRONG
+ * count and its heading is a stored row (`matrix_strong_column_label`) — a
+ * different claim from "how many items corroborate", and one Roman can retune
+ * from the Settings page. It is passed in by the page, which has the served
+ * wording; the four that remain are structural words this surface owns.
+ */
+export function proofMatrixColumnLabels(strongColumnLabel: string): string[] {
+  return [
+    "Element",
+    "Mapped Allegations",
+    strongColumnLabel,
+    "Disputes",
+    "Status",
+  ];
+}

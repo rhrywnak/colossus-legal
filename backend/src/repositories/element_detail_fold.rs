@@ -113,8 +113,16 @@ enum EvidenceLeg {
 
 impl EvidenceLeg {
     /// The row aliases this leg projects: `(id, quote, page, paragraph,
-    /// page_note, document_id, document_title)`.
-    fn columns(self) -> [&'static str; 7] {
+    /// page_note, document_id, document_title, statement_type,
+    /// evidence_strength, speaker, question)`.
+    ///
+    /// The last four arrived with task 396's strength ranking. They are projected
+    /// for BOTH legs rather than the supporting one alone: the legs are parallel
+    /// by design (`the_two_evidence_legs_read_disjoint_columns` asserts the array
+    /// widths match), and a leg that projected fewer columns than its twin would
+    /// make the shared `decode_evidence` branch on which leg it is holding —
+    /// which is exactly the `&str` flag this enum replaced.
+    fn columns(self) -> [&'static str; 11] {
         match self {
             EvidenceLeg::Supporting => [
                 "evidence_id",
@@ -124,6 +132,10 @@ impl EvidenceLeg {
                 "evidence_page_note",
                 "source_document_id",
                 "source_document_title",
+                "evidence_statement_type",
+                "evidence_strength",
+                "evidence_speaker",
+                "evidence_question",
             ],
             EvidenceLeg::Disputing => [
                 "disputing_id",
@@ -133,6 +145,10 @@ impl EvidenceLeg {
                 "disputing_page_note",
                 "disputing_document_id",
                 "disputing_document_title",
+                "disputing_statement_type",
+                "disputing_strength",
+                "disputing_speaker",
+                "disputing_question",
             ],
         }
     }
@@ -160,7 +176,8 @@ fn decode_evidence(
     leg: EvidenceLeg,
     op: &'static str,
 ) -> Result<Option<EvidenceRef>, ElementDetailRepoError> {
-    let [c_id, c_quote, c_page, c_para, c_note, c_doc_id, c_doc_title] = leg.columns();
+    let [c_id, c_quote, c_page, c_para, c_note, c_doc_id, c_doc_title, c_stmt, c_strength, c_speaker, c_question] =
+        leg.columns();
     let id: Option<String> = row.get(c_id).map_err(decode_err(op))?;
     // No Evidence on this row → nothing to attach.
     let Some(id) = id else {
@@ -181,6 +198,15 @@ fn decode_evidence(
         paragraph: row.get(c_para).map_err(decode_err(op))?,
         page_note: row.get(c_note).map_err(decode_err(op))?,
         source_document_title: row.get(c_doc_title).map_err(decode_err(op))?,
+        statement_type: row.get(c_stmt).map_err(decode_err(op))?,
+        evidence_strength: row.get(c_strength).map_err(decode_err(op))?,
+        speaker: row.get(c_speaker).map_err(decode_err(op))?,
+        question: row.get(c_question).map_err(decode_err(op))?,
+        // Both filled in later, by `rank_supporting_evidence`, and only for the
+        // supporting leg. Decoding cannot know a tier: the map lives in the
+        // settings store, which this layer has no handle on.
+        tier: None,
+        occurrences: 1,
         // `id` is moved last — it is borrowed by the `warn` above.
         source_document_id,
         id,
@@ -288,6 +314,12 @@ mod tests {
             page_note: None,
             source_document_id: None,
             source_document_title: None,
+            statement_type: None,
+            evidence_strength: None,
+            speaker: None,
+            question: None,
+            tier: None,
+            occurrences: 1,
         }
     }
 

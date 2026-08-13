@@ -38,6 +38,29 @@ export type AllegationEvidence = {
   page_note: string | null;
   source_document_id: string | null;
   source_document_title: string | null;
+  /** `Evidence.statement_type` — half the tier key the backend ranks on. */
+  statement_type: string | null;
+  /** `Evidence.evidence_strength` — the other half. */
+  evidence_strength: string | null;
+  /** Who said it, via STATED_BY. `null` for evidence with no speaker edge. */
+  speaker: string | null;
+  /** The interrogatory this answers, or `null` for documentary evidence. */
+  question: string | null;
+  /**
+   * How hard this item is to dispute: `"strong"` / `"hedged"` / `"other"`, or
+   * `null` when the stored tier map does not name its pair.
+   *
+   * Domain note: `null` is a real answer, NOT a gap. Such a row is still counted
+   * as approved and still rendered — it carries no chip. The disputing leg is
+   * always `null`: a tier is a claim about how hard SUPPORT is to dispute, and
+   * ranking rebuttals by the same scale would be a verdict nobody has made.
+   */
+  tier: string | null;
+  /**
+   * How many near-identical statements collapsed into this row — the "×N".
+   * `1` means no duplicates, which is most rows.
+   */
+  occurrences: number;
 };
 
 /**

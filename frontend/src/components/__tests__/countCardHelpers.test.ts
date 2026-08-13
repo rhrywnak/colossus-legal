@@ -28,6 +28,8 @@ const makeElement = (overrides: Partial<ElementDetail> = {}): ElementDetail => (
   theory_variant: null,
   allegation_count: 0,
   supporting_evidence_count: 0,
+  strong_evidence_count: 0,
+  approved_evidence_count: 0,
   disputing_evidence_count: 0,
   covered_allegation_count: 0,
   proof_status: "no_allegations",

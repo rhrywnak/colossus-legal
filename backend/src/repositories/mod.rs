@@ -25,6 +25,7 @@ pub mod document_repository;
 // the 300-line module limit.
 mod element_detail_fold;
 pub mod element_detail_repository;
+pub mod element_strength_repository;
 pub mod embedding_repository;
 pub mod evidence_chain_repository;
 pub mod evidence_repository;

@@ -26,6 +26,7 @@ import {
 } from "../services/elementDetailService";
 import { parseLeadingParagraph } from "../utils/paragraphSort";
 import AllegationSection from "./ElementAllegationList";
+import type { MatrixWording } from "../services/causesOfAction";
 
 export interface ElementDetailContentProps {
   caseSlug: string;
@@ -33,6 +34,14 @@ export interface ElementDetailContentProps {
   elementId: string;
   /** Header name shown while the /detail fetch is in flight. */
   elementName: string;
+  /**
+   * The Proof Matrix's served words (task 396, P1).
+   *
+   * Threaded down from the page's gating fetch rather than fetched here: this
+   * component self-fetches its own detail, but the words belong to the PAGE and
+   * every expanded row must speak the same snapshot of them.
+   */
+  matrixWording: MatrixWording;
 }
 
 /** Wait this many ms of no typing before auto-saving notes (ported). */
@@ -183,6 +192,7 @@ const ElementDetailContent: React.FC<ElementDetailContentProps> = ({
   caseSlug,
   elementId,
   elementName,
+  matrixWording,
 }) => {
   const [detail, setDetail] = useState<ElementDetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -361,7 +371,11 @@ const ElementDetailContent: React.FC<ElementDetailContentProps> = ({
             {detail.allegation_count} allegations mapped ({detail.common_count}{" "}
             common · {detail.dedicated_count} dedicated)
           </span>
-          <span>by ¶ number</span>
+          {/* The supporting evidence under each allegation arrives ranked
+              strongest-first. Said once, from the store, because an order that
+              is a CLAIM about strength and reads as arbitrary is worse than no
+              order at all. */}
+          <span>{matrixWording.ranked_list_note}</span>
         </div>
       </div>
 
@@ -379,6 +393,7 @@ const ElementDetailContent: React.FC<ElementDetailContentProps> = ({
               labelBg={SECTION_BG_COMMON}
               accentColor={SECTION_COLOR_COMMON}
               allegations={common}
+              wording={matrixWording}
             />
           )}
           {dedicated.length > 0 && (
@@ -392,6 +407,7 @@ const ElementDetailContent: React.FC<ElementDetailContentProps> = ({
               labelBg={SECTION_BG_DEDICATED}
               accentColor={SECTION_COLOR_DEDICATED}
               allegations={dedicated}
+              wording={matrixWording}
             />
           )}
           {unknown.length > 0 && (
@@ -401,6 +417,7 @@ const ElementDetailContent: React.FC<ElementDetailContentProps> = ({
               labelBg="var(--bg-page)"
               accentColor="var(--text-muted)"
               allegations={unknown}
+              wording={matrixWording}
             />
           )}
         </>

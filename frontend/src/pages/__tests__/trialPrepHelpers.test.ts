@@ -1,16 +1,19 @@
 /**
  * Pure-helper tests for the Trial Prep pages.
  *
- * Locks the view-shaping contracts: the pattern-flag pill (null vs 0 vs >0),
- * the scenario meta line, chronological timeline ordering (nulls last,
- * non-mutating), the grounded/anticipated split, the repeat-after-rebuttal flag,
- * and status styling. No DOM / RTL — pure functions only (CLAUDE.md §30),
+ * Locks the view-shaping contracts: chronological timeline ordering (nulls
+ * last, non-mutating), the grounded/anticipated split, the
+ * repeat-after-rebuttal flag, and status styling.
+ *
+ * The pattern-flag pill's three cases were tested here until .396, when ruling
+ * R2 §3 killed the chip — it read "pattern analysis pending" on every card in
+ * every state, because the field behind it is hardcoded null. The helper went
+ * with the chip rather than staying covered and unrendered. No DOM / RTL — pure functions only (CLAUDE.md §30),
  * mirroring proofReviewHelpers.test.ts.
  */
 import { describe, expect, it } from "vitest";
 import {
   isAnticipated,
-  patternFlagText,
   showsRepeatFlag,
   sortTimelineByDate,
   statusMeta,
@@ -34,29 +37,6 @@ const makeTurn = (overrides: Partial<ExchangeTurn> = {}): ExchangeTurn => ({
   ...overrides,
 });
 
-
-describe("patternFlagText", () => {
-  it("null → 'pattern analysis pending', muted (distinct from clean)", () => {
-    expect(patternFlagText(null)).toEqual({
-      text: "pattern analysis pending",
-      muted: true,
-    });
-  });
-
-  it("0 → 'no baseless repeat yet', muted", () => {
-    expect(patternFlagText(0)).toEqual({
-      text: "no baseless repeat yet",
-      muted: true,
-    });
-  });
-
-  it("> 0 → emphasized 'repeated N× after rebuttal'", () => {
-    expect(patternFlagText(3)).toEqual({
-      text: "repeated 3× after rebuttal",
-      muted: false,
-    });
-  });
-});
 
 describe("sortTimelineByDate", () => {
   it("orders by date ascending", () => {
