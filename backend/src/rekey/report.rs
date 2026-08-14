@@ -15,6 +15,37 @@ use std::fmt::Write as _;
 
 use super::plan::{PlanTotals, RekeyPlan};
 
+// ── Exit codes ──────────────────────────────────────────────────────────────
+//
+// Ruled 2026-08-14. They live HERE, beside the report that earns them, rather
+// than in the binary: the binary is a thin shell, and a code decided in an
+// untestable `main` is a code nothing pins.
+//
+// ## The renumbering, and what it cost
+//
+// The ruling assigned `3` to aborted documents while `3` already meant "Postgres
+// connection failure" and `2` meant "Neo4j connection failure". Rather than
+// invent a sixth number, the two CONNECTION failures collapse into `2` — which
+// is what the ruling's own wording ("2 = tool/connection failure") describes.
+// Nothing diagnostic is lost: the error log names which store refused the
+// connection, and no runbook step branches on which one it was.
+
+/// Ran to completion; every planned re-key applied; nothing aborted.
+pub const EXIT_OK: u8 = 0;
+/// Bad arguments, or the report could not be written.
+pub const EXIT_BAD_INPUT: u8 = 1;
+/// Could not connect to Neo4j or to Postgres. The log names which.
+pub const EXIT_CONNECTION: u8 = 2;
+/// Ran to completion, but one or more documents aborted on a count mismatch and
+/// were rolled back. Distinct from [`EXIT_CONNECTION`] on purpose: this is the
+/// tool refusing to lie about counts, not the tool breaking.
+pub const EXIT_DOCUMENTS_ABORTED: u8 = 3;
+/// The plan is unsafe — two nodes would end the run sharing an id. Nothing was
+/// written.
+pub const EXIT_UNSAFE_PLAN: u8 = 4;
+/// Execution failed part-way through; the report names the last good document.
+pub const EXIT_EXECUTION_FAILED: u8 = 5;
+
 /// What one referencing table did for one document.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TableProof {
@@ -89,6 +120,28 @@ impl RunReport {
             .iter()
             .filter(|d| d.aborted.is_some())
             .collect()
+    }
+
+    /// The process exit code this run earns.
+    ///
+    /// ## Why aborts get their own number (ruled 2026-08-14)
+    ///
+    /// The exit code is the runbook's machine-readable answer to "did everything
+    /// re-key?", and `0` must not cover a run where a document was rolled back.
+    /// An abort and a crash must also never share a number, or the runbook cannot
+    /// tell "the tool broke" from "the tool refused to lie about counts" — the
+    /// second needs investigation of the DATA, the first of the TOOL.
+    ///
+    /// Domain note: the refused twins do NOT affect this. They are a planned
+    /// disposition — 42 nodes are expected to take it on every run until the
+    /// merge session happens — and a tool that exited non-zero for doing exactly
+    /// what it was designed to do would train an operator to ignore its code.
+    pub fn exit_code(&self) -> u8 {
+        if self.aborted_documents().is_empty() {
+            EXIT_OK
+        } else {
+            EXIT_DOCUMENTS_ABORTED
+        }
     }
 
     /// Build the report skeleton from a plan, before any execution.

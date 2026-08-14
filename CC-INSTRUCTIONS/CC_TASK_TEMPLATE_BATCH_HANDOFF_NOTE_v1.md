@@ -12,12 +12,13 @@
 - **Branch:** `feat/template-batch-id-arm`, off `origin/main`.
 - **Base:** `9d50dcd chore: bump version to v2.0.0-beta.395` (the deployed
   release; it contains the Tuesday matrix batch).
-- **P1a commit:** `6ee1263 feat(pipeline): give Evidence a stable id arm keyed on
-  the document, not the model` — the only CODE commit on the branch; the two
-  documentation commits sit on top of it. Nothing is pushed.
-  *(An earlier arrangement of these commits was rebuilt on 2026-08-14 — if you
-  find references anywhere to `a3344b6` or `f8a1864`, they are dead hashes for
-  this same content.)*
+- **Code commits, in order:**
+  - `6ee1263` — **P1a**, the Evidence stable-id arm.
+  - `39a8ba8` — **P1b**, the re-key one-shot tool (plus the exit-code amendment,
+    folded in before this note was written).
+  Nothing is pushed, nothing tagged, no version bump.
+  *(An earlier arrangement of the branch was rebuilt on 2026-08-14 — references
+  to `a3344b6` or `f8a1864` anywhere are dead hashes for this same content.)*
 - **Reports:** `CC-REPORTS/CC_REPORT_TEMPLATE_BATCH_ID_ARM_PHASE_A.md`, also
   copied to `~/Documents/colossus-legal/CC-REPORTS/`.
 
@@ -25,7 +26,35 @@
 
 ## COMPLETE
 
-**Phase A** — measured, reported, ruled. **P1a** — `backend/src/api/pipeline/
+**Phase A** — measured, reported, ruled.
+
+**P1b** — the re-key, at `39a8ba8`. A one-shot binary (`cargo run --bin
+rekey_evidence`), NOT a migration, per the ruling below. Three library modules
+plus a thin CLI: `rekey::plan` (pure, every decision, unit-tested without a
+database), `rekey::execute` (reads the graph; per document counts every
+referencing column, updates, verifies, commits or rolls the whole document back),
+`rekey::report` (the count proof, rendered identically to `tracing` and to file).
+Dry-run is the default; `--apply` is the only writing path. A plan-level gate
+refuses outright if any two nodes would end the run sharing an id, before a
+single document is touched.
+
+Exit codes (amended and ruled 2026-08-14, defined in `rekey::report` and pinned
+by tests): `0` completion with zero aborts — a dry run and the 42 refused twins
+both exit 0 · `1` bad input / unwritable report · `2` connection failure, Neo4j
+or Postgres, the log names which · `3` **ran to completion but a document
+ABORTED** on a count mismatch and was rolled back · `4` unsafe plan, nothing
+written · `5` execution failure part-way through. The amendment collapsed the
+former separate Neo4j (`2`) and Postgres (`3`) connection codes into `2` to free
+`3`; nothing diagnostic was lost, since the log names the store and no runbook
+step branched on which.
+
+**NOT YET RUN against DEV.** The live dry run is a runbook step on the host — it
+cannot run from a dev laptop (the local `.env` points somewhere unreachable; the
+attempt exited `2` exactly as documented, which verified the failure path but not
+the numbers). **The first real dry run's output must be checked against Phase A's
+counts: 483 to re-key, 42 refused in 21 groups, 525 seen.**
+
+**P1a** — `backend/src/api/pipeline/
 evidence_key.rs` + `evidence_key_tests.rs`, wired into `stable_entity_id` in
 `ingest_helpers.rs` under a new `ENTITY_EVIDENCE` arm. Key is
 `doc_slug + page_number + NFC-normalized verbatim_quote + question (when
@@ -34,8 +63,9 @@ refused a key and falls back to the blob hash with a `warn` (never taken on the
 live corpus). New direct dependency: `unicode-normalization = "0.1"` (was already
 in the lock at 0.1.25).
 
-Verified at the time of commit: `cargo test --lib` **1881 passed / 0 failed**,
-`cargo fmt --check` clean, `cargo clippy --lib --bins -- -D warnings` clean.
+Verified at the time of the P1b commit: `cargo test --lib` **1911 passed / 0
+failed / 2 ignored**, `cargo fmt --check` clean, `cargo clippy --lib --bins --
+-D warnings` clean, `cargo check --bins` clean.
 
 ## THE NUMBERS (measured on DEV 2026-08-14, read-only)
 
@@ -97,9 +127,6 @@ which is the Rust arm.
 
 ## NOT STARTED
 
-- **P1b** — the re-key one-shot binary (per the ruling above). Re-keys **483**
-  nodes, not 525/504. The 21 twin pairs keep their current ids, untouched, and
-  must be enumerated in the completion report with their curated-row map.
 - **Twin-merge script** — built, NOT run. One survivor per pair keyed by the new
   arm, union of edges and curated rows, provenance count ×2. Where the twins'
   rulings CONFLICT (the 3 weight cases) it takes **no default** — emit to the

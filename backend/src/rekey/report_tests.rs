@@ -182,3 +182,85 @@ fn the_plan_totals_are_reported_verbatim() {
         "{rendered}"
     );
 }
+
+// ── Exit codes (ruled 2026-08-14) ───────────────────────────────────────────
+
+/// A clean run exits 0.
+#[test]
+fn a_run_with_no_aborts_exits_zero() {
+    let plan = RekeyPlan::build(vec![row("stale", "doc-a", 1, "A.")]);
+    let mut report = RunReport::from_plan(&plan, true);
+    report.documents.push(DocumentProof {
+        doc_slug: "doc-a".to_string(),
+        nodes_rekeyed: 1,
+        nodes_already_current: 0,
+        nodes_refused: 0,
+        tables: vec![table("t.c", 3, 3)],
+        aborted: None,
+    });
+    assert_eq!(report.exit_code(), EXIT_OK);
+}
+
+/// THE AMENDMENT: an aborted document must not hide under 0.
+///
+/// The exit code is the runbook's machine-readable answer to "did everything
+/// re-key?". A rolled-back document means the answer is no, whatever the log
+/// said.
+#[test]
+fn a_run_with_an_aborted_document_does_not_exit_zero() {
+    let plan = RekeyPlan::build(vec![row("stale", "doc-a", 1, "A.")]);
+    let mut report = RunReport::from_plan(&plan, true);
+    report.documents.push(DocumentProof {
+        doc_slug: "doc-a".to_string(),
+        nodes_rekeyed: 0,
+        nodes_already_current: 0,
+        nodes_refused: 0,
+        tables: vec![table("t.c", 3, 2)],
+        aborted: Some("t.c: expected 3, updated 2".to_string()),
+    });
+    assert_ne!(report.exit_code(), EXIT_OK);
+    assert_eq!(report.exit_code(), EXIT_DOCUMENTS_ABORTED);
+}
+
+/// An abort and a connection failure must never share a number: one needs the
+/// DATA investigated, the other the TOOL.
+#[test]
+fn the_abort_code_is_distinct_from_every_other_code() {
+    let codes = [
+        EXIT_OK,
+        EXIT_BAD_INPUT,
+        EXIT_CONNECTION,
+        EXIT_DOCUMENTS_ABORTED,
+        EXIT_UNSAFE_PLAN,
+        EXIT_EXECUTION_FAILED,
+    ];
+    let mut sorted = codes.to_vec();
+    sorted.sort_unstable();
+    let total = sorted.len();
+    sorted.dedup();
+    assert_eq!(sorted.len(), total, "two exit codes collide: {codes:?}");
+    assert_ne!(EXIT_DOCUMENTS_ABORTED, EXIT_CONNECTION);
+}
+
+/// The refused twins are a PLANNED disposition and must not move the exit code.
+///
+/// 42 nodes take it on every run until the merge session happens. A tool that
+/// exited non-zero for doing exactly what it was designed to do would train an
+/// operator to ignore its code.
+#[test]
+fn refused_twins_alone_still_exit_zero() {
+    let plan = RekeyPlan::build(vec![
+        row("doc-a:evidence:t1", "doc-a", 9, "Shared."),
+        row("doc-a:evidence:t2", "doc-a", 9, "Shared."),
+    ]);
+    let report = RunReport::from_plan(&plan, true);
+    assert_eq!(report.totals.refused_shared_key, 2);
+    assert_eq!(report.exit_code(), EXIT_OK);
+}
+
+/// A dry run exits 0 — it made no claim about having written anything.
+#[test]
+fn a_dry_run_exits_zero() {
+    let plan = RekeyPlan::build(vec![row("stale", "doc-a", 1, "A.")]);
+    assert_eq!(RunReport::from_plan(&plan, false).exit_code(), EXIT_OK);
+}
