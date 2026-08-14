@@ -37,6 +37,28 @@ export interface TrialPrepDashboard {
   scenarios: ScenarioSummary[];
   /** The stored words the create-scenario form renders (2026-08-07). */
   create_wording: ScenarioCreateWording;
+  /**
+   * The page's OWN words — its subtitle and the three metric tile labels.
+   *
+   * Ruled by R2 on 2026-08-10 (§3) and never migrated; the subtitle stayed a
+   * literal in the page component for three days. Mirrors the backend
+   * `WarRoomWordingDto` field for field.
+   */
+  war_room_wording: WarRoomWording;
+}
+
+/**
+ * The Trial Prep dashboard's stored words (task 396, P3b).
+ *
+ * Domain note on the subtitle: it replaces "System-generated cross-examination
+ * scenarios", which credited the machine for a human's judgment — a person
+ * writes the attack, the scan proposes candidates, and a person rules every one.
+ */
+export interface WarRoomWording {
+  subtitle: string;
+  metric_scenarios_label: string;
+  metric_ready_label: string;
+  metric_draft_label: string;
 }
 
 /**

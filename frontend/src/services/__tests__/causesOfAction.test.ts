@@ -3,8 +3,9 @@
  *
  * Exercises the four outcomes of the GET /api/cases/:slug/causes-of-action
  * client: a valid payload, and each of the three throw paths (non-OK status,
- * unparseable body, missing `counts` array). Standing Rule 1 (no silent
- * failures): every failure path produces a distinct, observable error. Mocks
+ * unparseable body, missing `counts` array, missing `matrix_wording`). Standing
+ * Rule 1 (no silent failures): every failure path produces a distinct,
+ * observable error. Mocks
  * `global.fetch` because `authFetch` calls it. Pattern matches caseHeader.test.ts.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -16,6 +17,16 @@ import {
 const validResponse: CausesOfActionResponse = {
   case_slug: "awad_v_catholic_family_service",
   counts: [],
+  matrix_wording: {
+    strong_column_label: "Strong support",
+    raw_approved_template: "· {count} approved",
+    strong_hint: "Sworn admissions by the other side, and the court's own findings.",
+    tier_strong_chip: "Their own words",
+    tier_hedged_chip: "Qualified",
+    tier_other_chip: "Our sworn word",
+    duplicate_template: "×{count}",
+    ranked_list_note: "Strongest first",
+  },
 };
 
 describe("getCausesOfAction", () => {
@@ -71,5 +82,24 @@ describe("getCausesOfAction", () => {
     });
 
     await expect(getCausesOfAction()).rejects.toThrow(/missing the "counts" array/);
+  });
+
+  /**
+   * A payload with no wording block is a REFUSAL, not a page that renders a
+   * blank column header.
+   *
+   * The matrix's words come from the settings store; there is deliberately no
+   * fallback vocabulary in the client to draw a heading from, because inventing
+   * one would put a sentence on screen that nobody chose (the language law).
+   */
+  it("throws when the payload carries no matrix wording", async () => {
+    // @ts-ignore
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ case_slug: "awad_v_catholic_family_service", counts: [] }),
+    });
+
+    await expect(getCausesOfAction()).rejects.toThrow(/matrix_wording/);
   });
 });

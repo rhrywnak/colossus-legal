@@ -18,31 +18,20 @@ import type {
   ScenarioStatus,
 } from "./trialPrepData";
 
-/** The pattern-flag pill text + whether it renders muted. */
-export interface PatternFlag {
-  text: string;
-  muted: boolean;
-}
-
-/**
- * Derive the scenario card's pattern-flag pill from `baseless_repeat_count`:
- * - `null`  → "pattern analysis pending" (muted) — the cross-document pass has
- *   not run yet, so absence of a flag is NOT the same as "no repeat".
- * - `0`     → "no baseless repeat yet" (muted) — analysed, nothing found.
- * - `> 0`   → "repeated N× after rebuttal" (emphasized) — the Count IV signal.
- *
- * Keeping null and 0 distinct is the honesty point (Standing Rule 1): "pending"
- * must never read as "clean".
- */
-export function patternFlagText(baselessRepeatCount: number | null): PatternFlag {
-  if (baselessRepeatCount === null) {
-    return { text: "pattern analysis pending", muted: true };
-  }
-  if (baselessRepeatCount === 0) {
-    return { text: "no baseless repeat yet", muted: true };
-  }
-  return { text: `repeated ${baselessRepeatCount}× after rebuttal`, muted: false };
-}
+// `PatternFlag` / `patternFlagText` were RETIRED here (ruling R2 §3, built .396).
+//
+// They produced the "pattern analysis pending" chip, which rendered on every
+// scenario card in every state because `baseless_repeat_count` is a field the
+// backend hardcodes to null — the cross-document pass that would populate it is
+// unwired. R2 ruled the chip dies, so the helper that fed it goes with it rather
+// than staying as a tested function nothing renders. (That shape — built,
+// covered, unreachable — is the `QuestionLine` defect, and it is not something to
+// create deliberately.)
+//
+// The three-way honesty the helper encoded is worth keeping on the record for
+// whoever wires the analysis: null "pending", 0 "analysed, nothing found" and
+// >0 "repeated N times" are three different claims, and the first must never
+// read as the second.
 
 /**
  * Order an exchange timeline chronologically by `date` ascending. Turns with a

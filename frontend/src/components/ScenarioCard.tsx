@@ -15,9 +15,9 @@
 import React from "react";
 import { Link } from "react-router-dom";
 
-import { scenarioCardStyle, pillStyle } from "./trialPrepCardStyles";
+import { scenarioCardStyle } from "./trialPrepCardStyles";
 import type { ScenarioSummary } from "../pages/trialPrepData";
-import { patternFlagText, statusMeta } from "../pages/trialPrepHelpers";
+import { statusMeta } from "../pages/trialPrepHelpers";
 import { scenarioPagePath } from "../utils/routePaths";
 
 /**
@@ -47,7 +47,6 @@ const ScenarioCard: React.FC<{
   onRequestDelete: (scenario: ScenarioSummary) => void;
 }> = ({ scenario, slug, onRequestDelete }) => {
   const status = statusMeta(scenario.status);
-  const flag = patternFlagText(scenario.baseless_repeat_count);
   return (
     // ## Why Delete is a SIBLING of the link, not a child of it
     //
@@ -105,16 +104,19 @@ const ScenarioCard: React.FC<{
           {" · "}
           {scenario.attack}
         </div>
-        <span
-          style={{
-            ...pillStyle,
-            alignSelf: "flex-start",
-            backgroundColor: flag.muted ? "var(--bg-page)" : "var(--state-info-bg-soft)",
-            color: flag.muted ? "var(--text-muted)" : "var(--accent-primary)",
-          }}
-        >
-          {flag.text}
-        </span>
+        {/* THE PATTERN-FLAG CHIP IS GONE (ruling R2 §3, 2026-08-10; built .396).
+            It read "pattern analysis pending" on every card in every state,
+            because `baseless_repeat_count` is a field the backend hardcodes to
+            null — the cross-document pass that would populate it is unwired. A
+            chip whose text never varies is not a signal; on a page whose whole
+            job is to separate what is ready from what is not, it was noise
+            wearing a status pill's clothes.
+
+            It comes back when pattern analysis has a real source, exactly as the
+            two metric cards removed on 2026-07-27 will. `baseless_repeat_count`
+            stays on the payload — it is a field with a defined meaning and an
+            honest null; what is retired is rendering it as though it said
+            something. */}
         {/* The "N instances · no speakers yet · N responses" line was removed on
             2026-08-07 with the metric that led it (see `MetricsBand`). */}
         {/* Visual affordance only — the whole card navigates, so this is plain

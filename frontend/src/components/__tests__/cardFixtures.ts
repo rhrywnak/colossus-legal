@@ -125,7 +125,9 @@ export function optionsFixture(): AllegationOptions {
       context_hide_label: "Hide context",
       scan_reason_label: "Scan:",
       link_typeahead_placeholder: "Type A-41, or a word from any allegation…",
-      link_typeahead_intro: "This statement is not linked to anything.",
+      already_linked_note:
+    "This card is already linked. Add another accusation if it bears on more than one.",
+  link_typeahead_intro: "This statement is not linked to anything.",
       link_typeahead_no_match: "No allegation matches what you typed.",
       link_woke_ruling_template: "Linked. {code} can be ruled now.",
       weight_picker_label: "Weight",

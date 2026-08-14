@@ -20,11 +20,13 @@ use crate::domain::settings::Settings;
 use crate::domain::wording::WORDING_KEYS;
 use crate::domain::wording_accusation::ACCUSATION_WORDING_KEYS;
 use crate::domain::wording_authoring::AUTHORING_WORDING_KEYS;
+use crate::domain::wording_matrix::MATRIX_WORDING_KEYS;
 use crate::domain::wording_model_params::MODEL_PARAMS_WORDING_KEYS;
 use crate::domain::wording_rehearsal::REHEARSAL_WORDING_KEYS;
 use crate::domain::wording_rehearsal_chrome::REHEARSAL_CHROME_KEYS;
 use crate::domain::wording_scan::SCAN_WORDING_KEYS;
 use crate::domain::wording_scenario_authoring::SCENARIO_AUTHORING_WORDING_KEYS;
+use crate::domain::wording_war_room::WAR_ROOM_WORDING_KEYS;
 use crate::repositories::pipeline_repository::list_settings;
 use crate::services::settings_handle::SettingsHandle;
 use crate::services::settings_store::{build_settings, by_key, SettingsError, REQUIRED_KEYS};
@@ -63,6 +65,8 @@ pub async fn load_settings(pool: &PgPool) -> Result<Settings, SettingsError> {
         scenario_authoring_wording = SCENARIO_AUTHORING_WORDING_KEYS.len(),
         scan_wording = SCAN_WORDING_KEYS.len(),
         model_params_wording = MODEL_PARAMS_WORDING_KEYS.len(),
+        matrix_wording = MATRIX_WORDING_KEYS.len(),
+        war_room_wording = WAR_ROOM_WORDING_KEYS.len(),
         "configuration store read"
     );
 
@@ -92,6 +96,14 @@ pub async fn load_at_boot(pool: &PgPool) -> Result<Settings, SettingsError> {
                 rehearsal_chrome_strings = REHEARSAL_CHROME_KEYS.len(),
                 authoring_strings = AUTHORING_WORDING_KEYS.len(),
                 scenario_authoring_strings = SCENARIO_AUTHORING_WORDING_KEYS.len(),
+                matrix_strings = MATRIX_WORDING_KEYS.len(),
+                war_room_strings = WAR_ROOM_WORDING_KEYS.len(),
+                // The tier map is not a string count — it is how many
+                // (statement_type, evidence_strength) pairs the Proof Matrix can
+                // rank. A boot log showing `evidence_tier_pairs=0` names a store
+                // whose three map rows are present but empty, which would render
+                // every item unranked with nothing else failing.
+                evidence_tier_pairs = settings.evidence_tier_map.len(),
                 talking_points_cap = settings.talking_points_cap,
                 rehearsal_instance_rows_expand_max = settings.rehearsal_instance_rows_expand_max,
                 confidence_band_high = settings.confidence_band_high,

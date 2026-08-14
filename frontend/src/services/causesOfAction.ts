@@ -56,6 +56,24 @@ export type ElementDetail = {
    * - `proof_status`: the backend-derived coverage label.
    */
   supporting_evidence_count: number;
+  /**
+   * The HEADLINE number the matrix leads with (task 396): corroborating items
+   * whose (statement_type, evidence_strength) pair maps to the strong tier,
+   * counted AFTER near-identical statements have been collapsed.
+   *
+   * Domain note: strong means what the other side cannot dispute — their own
+   * sworn admissions and the court's own findings. `supporting_evidence_count`
+   * above is the PRE-COLLAPSE raw magnitude and is deliberately not what this
+   * page renders; showing all three at once would put a disagreement on screen
+   * that a reader would read as a bug.
+   */
+  strong_evidence_count: number;
+  /**
+   * Every corroborating item after collapse, whatever its tier — the "· N
+   * approved" depth line beside the headline. Always >= `strong_evidence_count`,
+   * which is what makes the pair readable as "this many of these".
+   */
+  approved_evidence_count: number;
   covered_allegation_count: number;
   /**
    * DISTINCT Evidence items REBUTTING any allegation that bears on this Element
@@ -86,6 +104,35 @@ export type CountDetail = {
 export type CausesOfActionResponse = {
   case_slug: string;
   counts: CountDetail[];
+  /**
+   * The Proof Matrix's own words, riding this payload because the page GATES on
+   * this read — it cannot draw a row without it — and both surfaces that speak
+   * them (the row's headline and its drill-down) are on that page.
+   *
+   * Mirrors the backend `MatrixWordingDto` field for field. There is no fallback
+   * vocabulary in this file: a matrix that could not read its words renders the
+   * page's error state rather than inventing a column header (Standing Rule 1,
+   * and the language law).
+   */
+  matrix_wording: MatrixWording;
+};
+
+/**
+ * The eight strings the Proof Matrix speaks, served from the settings store.
+ *
+ * `raw_approved_template` and `duplicate_template` carry `{count}`; the two
+ * fillers live in `components/matrixStrength.ts` beside the rest of the matrix's
+ * pure helpers. The frontend composes nothing else here.
+ */
+export type MatrixWording = {
+  strong_column_label: string;
+  raw_approved_template: string;
+  strong_hint: string;
+  tier_strong_chip: string;
+  tier_hedged_chip: string;
+  tier_other_chip: string;
+  duplicate_template: string;
+  ranked_list_note: string;
 };
 
 /**
@@ -131,6 +178,18 @@ export async function getCausesOfAction(
   if (!Array.isArray(parsed.counts)) {
     throw new Error(
       `Causes-of-action response for "${slug}" is missing the "counts" array — ` +
+        `backend/frontend contract mismatch. If reloading does not help, report this to the site administrator.`,
+    );
+  }
+
+  // The matrix cannot draw a column header it does not have. Checked HERE, at
+  // the boundary, so a missing wording block is a named error rather than
+  // `undefined` rendered where a heading should be — and deliberately NOT
+  // defaulted to an English literal, which would be this file inventing the
+  // vocabulary the settings store owns.
+  if (parsed.matrix_wording == null) {
+    throw new Error(
+      `Causes-of-action response for "${slug}" is missing "matrix_wording" — ` +
         `backend/frontend contract mismatch. If reloading does not help, report this to the site administrator.`,
     );
   }

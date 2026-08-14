@@ -10,9 +10,18 @@ use super::*;
 use crate::domain::wording::tests::{corrected_value_in, seeded_value_in};
 use std::collections::HashMap;
 
-/// The migration that seeds every row in this block.
-const SEED_MIGRATION: &str =
-    "pipeline_migrations/20260809121531_one_card_grammar_wording_and_settings.sql";
+/// The migrations that seed the rows in this block.
+///
+/// A LIST rather than one filename since task 396: a stored-string block grows
+/// when its surface does, and the row that lets a card hold a second link
+/// arrived with that batch rather than with the one-card grammar. Concatenated
+/// rather than searched one at a time — WHERE a row was seeded is a fact about
+/// migration history, and only its VALUE is what this pins.
+const SEED_MIGRATIONS: &[&str] = &[
+    "pipeline_migrations/20260809121531_one_card_grammar_wording_and_settings.sql",
+    // Ruling (a), 2026-08-12: `card_already_linked_note`.
+    "pipeline_migrations/20260813152536_tuesday_batch_396_matrix_strength_war_room_and_human_fact_completeness.sql",
+];
 
 /// The seeded values, for TESTS ONLY — kept beside the test that pins them to
 /// the migration file, so a fixture and its proof cannot drift apart.
@@ -45,6 +54,11 @@ const TEST_SEED: &[(&str, &str)] = &[
     (
         KEY_LINK_TYPEAHEAD_PLACEHOLDER,
         "Type A-41, or a word from any allegation…",
+    ),
+    (
+        KEY_ALREADY_LINKED_NOTE,
+        "This card is already linked. Add another accusation if it bears on more \
+         than one.",
     ),
     (
         KEY_LINK_TYPEAHEAD_INTRO,
@@ -126,8 +140,14 @@ const CORRECTION_MIGRATIONS: &[&str] = &[
 #[test]
 fn every_declared_key_is_seeded_with_the_value_this_build_expects() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let sql = std::fs::read_to_string(root.join(SEED_MIGRATION))
-        .expect("the one-card-grammar migration is on disk");
+    let sql: String = SEED_MIGRATIONS
+        .iter()
+        .map(|relative| {
+            std::fs::read_to_string(root.join(relative))
+                .unwrap_or_else(|_| panic!("{relative} is on disk"))
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
     let corrections: String = CORRECTION_MIGRATIONS
         .iter()
         .map(|relative| {

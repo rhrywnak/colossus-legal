@@ -18,11 +18,13 @@ use crate::domain::wording::WORDING_KEYS;
 use crate::domain::wording_accusation::ACCUSATION_WORDING_KEYS;
 use crate::domain::wording_authoring::AUTHORING_WORDING_KEYS;
 use crate::domain::wording_card_grammar::CARD_GRAMMAR_WORDING_KEYS;
+use crate::domain::wording_matrix::MATRIX_WORDING_KEYS;
 use crate::domain::wording_model_params::MODEL_PARAMS_WORDING_KEYS;
 use crate::domain::wording_rehearsal::REHEARSAL_WORDING_KEYS;
 use crate::domain::wording_rehearsal_chrome::REHEARSAL_CHROME_KEYS;
 use crate::domain::wording_scan::SCAN_WORDING_KEYS;
 use crate::domain::wording_scenario_authoring::SCENARIO_AUTHORING_WORDING_KEYS;
+use crate::domain::wording_war_room::WAR_ROOM_WORDING_KEYS;
 
 use chrono::Utc;
 
@@ -58,6 +60,18 @@ fn row(
 /// that seeds it, so borrowing the values keeps ONE chain: migration → wording
 /// fixture → this store fixture → `Settings::for_test`. Every link in it is
 /// asserted.
+/// The three tier-map rows, verbatim as the .396 migration seeds them.
+///
+/// Named constants rather than inline literals because
+/// `the_fixtures_carry_the_values_the_migration_actually_seeds` compares these
+/// against the SQL on disk character for character — a stray line break inside
+/// one of them would fail with a diff nobody could read.
+const MATRIX_TIER_STRONG_PAIRS: &str =
+    "admission+sworn_party_admission, court_finding+court_finding, court_order+court_order";
+const MATRIX_TIER_HEDGED_PAIRS: &str =
+    "partial_admission+sworn_party_admission, partial_admission+sworn_party_evasion";
+const MATRIX_TIER_OTHER_PAIRS: &str = "factual_assertion+sworn_testimony";
+
 fn seeded() -> HashMap<String, AppSettingRecord> {
     let mut rows = numeric_rows();
     // All eight stored-string blocks, chained (2.10, 2.11 B1/B2, 2.11 C, the
@@ -77,6 +91,8 @@ fn seeded() -> HashMap<String, AppSettingRecord> {
         .chain(crate::domain::wording_scan::ScanWording::for_test_values())
         .chain(crate::domain::wording_card_grammar::CardGrammarWording::for_test_values())
         .chain(crate::domain::wording_model_params::ModelParamsWording::for_test_values())
+        .chain(crate::domain::wording_matrix::MatrixWording::for_test_values())
+        .chain(crate::domain::wording_war_room::WarRoomWording::for_test_values())
         // Task 2.15 Tier 2: two TEXT rows that are not wording — one names a
         // file, one holds a comma-separated list — so they are seeded here rather
         // than borrowed from a `for_test_values` block.
@@ -90,6 +106,23 @@ fn seeded() -> HashMap<String, AppSettingRecord> {
             // so like its two neighbours it is seeded here rather than borrowed
             // from a `for_test_values` block.
             ("theme_scan_default_model", "claude-opus-5".to_string()),
+            // Task 396 P1: three TEXT rows that are not wording — they carry
+            // extraction vocabulary rather than sentences — so like their four
+            // neighbours above they are seeded here. The values are the six pairs
+            // measured on DEV, and `EvidenceTierMap::for_test` holds the same six;
+            // `wording_matrix`'s seed test pins BOTH to the migration.
+            (
+                "matrix_tier_strong_pairs",
+                MATRIX_TIER_STRONG_PAIRS.to_string(),
+            ),
+            (
+                "matrix_tier_hedged_pairs",
+                MATRIX_TIER_HEDGED_PAIRS.to_string(),
+            ),
+            (
+                "matrix_tier_other_pairs",
+                MATRIX_TIER_OTHER_PAIRS.to_string(),
+            ),
         ]);
     for (key, value) in text_rows {
         // Text rows carry no bounds: `min_value` / `max_value` are numeric
@@ -208,6 +241,48 @@ fn numeric_rows() -> HashMap<String, AppSettingRecord> {
 /// This is the "changes no behaviour" claim, asserted rather than asserted-in-a-
 /// commit-message: the four numbers deleted from code must come back out of the
 /// store identical, or task 1.6 silently re-tuned the product.
+/// A pair a Settings typo put under two tiers ranks as the WEAKER one — through
+/// the real boot path, not just through `from_entries`.
+///
+/// `EvidenceTierMap::from_entries` guarantees "last group supplied wins", and
+/// `evidence_tier`'s own test pins that. It only produces the SAFE reading if the
+/// boot path supplies the groups strongest-first — and nothing enforces that
+/// except three hand-written lines in `build_evidence_tier_map`. Reorder them and
+/// a pair fat-fingered into the strong row would promote itself into the headline
+/// number Chuck reads as "cannot be disputed", with every other test still green.
+///
+/// This is the assertion that would notice.
+#[test]
+fn a_pair_seeded_under_two_tiers_ranks_as_the_weaker_one() {
+    use crate::domain::evidence_tier::EvidenceTier;
+
+    let mut rows = seeded();
+    // The strong list keeps its seeded contents; the hedged list ALSO claims the
+    // firm-admission pair, which is exactly the shape of a copy-paste slip on the
+    // Settings page.
+    let duplicated = format!("{MATRIX_TIER_HEDGED_PAIRS}, admission+sworn_party_admission");
+    rows.insert(
+        "matrix_tier_hedged_pairs".to_string(),
+        row(
+            "matrix_tier_hedged_pairs",
+            &duplicated,
+            ValueKind::Text,
+            None,
+            None,
+        ),
+    );
+
+    let settings = build_settings(&rows).expect("a duplicate is a typo, not a boot refusal");
+    assert_eq!(
+        settings
+            .evidence_tier_map
+            .tier_for(Some("admission"), Some("sworn_party_admission")),
+        Some(EvidenceTier::Hedged),
+        "a pair listed in two tiers must land in the WEAKER one — the boot path \
+         has to supply the groups strongest-first for that to hold",
+    );
+}
+
 #[test]
 fn the_seeded_store_reproduces_the_values_that_were_in_code() {
     let settings = build_settings(&seeded()).expect("the seed is valid");
@@ -382,13 +457,15 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     // at whatever moment it happened to be read.
     assert_eq!(
         REQUIRED_KEYS.len(),
-        17,
+        20,
         "seven numbers, 2.10's short-list cap, 2.11 B2's timeline threshold, \
          2.11 C's row-expand cap, 2.15's three scan parameters (the prompt \
          filename and the two pre-filter dials), the one-card grammar's two fold \
          thresholds (the question's visible length and the element-chip K), and \
-         the judge's token budget (a constant until 2026-08-09), and R2's scan \
-         default model — a decision that used to be made by list order"
+         the judge's token budget (a constant until 2026-08-09), R2's scan \
+         default model — a decision that used to be made by list order — and \
+         .396's three tier-map rows, which carry extraction vocabulary rather \
+         than sentences and so are parameters, not wording"
     );
     assert_eq!(
         WORDING_KEYS.len(),
@@ -439,10 +516,11 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     );
     assert_eq!(
         CARD_GRAMMAR_WORDING_KEYS.len(),
-        32,
+        33,
         "ONE_CARD_GRAMMAR: the queue frame's seven, the card body's eleven, \
-         linking's four, the fact wrapper's nine, and the two chip-filter \
-         sentences"
+         linking's four, the fact wrapper's nine, the two chip-filter \
+         sentences, and .396's already-linked note — the sentence the panel \
+         speaks now that it stays after the first link"
     );
     assert_eq!(
         MODEL_PARAMS_WORDING_KEYS.len(),
@@ -450,6 +528,18 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
         "MODEL_PARAMS (ruling R5, 2026-08-09): the temperature dropdown's label, \
          its help sentence, its three option texts, and the numeric value's label \
          and disabled-help"
+    );
+    assert_eq!(
+        MATRIX_WORDING_KEYS.len(),
+        8,
+        "task 396 P1: the strong column's label and hint, the depth line, the \
+         three tier chips, the duplicate marker, and the ranked-list note"
+    );
+    assert_eq!(
+        WAR_ROOM_WORDING_KEYS.len(),
+        4,
+        "task 396 P3b: the subtitle R2 ruled and never migrated, plus the three \
+         metric tile labels"
     );
     assert_eq!(
         seeded().len(),
@@ -462,8 +552,10 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
             + SCENARIO_AUTHORING_WORDING_KEYS.len()
             + SCAN_WORDING_KEYS.len()
             + CARD_GRAMMAR_WORDING_KEYS.len()
-            + MODEL_PARAMS_WORDING_KEYS.len(),
-        "the seed and the ten required lists must describe the same store"
+            + MODEL_PARAMS_WORDING_KEYS.len()
+            + MATRIX_WORDING_KEYS.len()
+            + WAR_ROOM_WORDING_KEYS.len(),
+        "the seed and the twelve required lists must describe the same store"
     );
 }
 
@@ -869,6 +961,10 @@ fn the_fixtures_carry_the_values_the_migration_actually_seeds() {
         // first that arrived because the previous fallback was LIST ORDER rather
         // than anybody's decision.
         "pipeline_migrations/20260810114629_r2_391_unified_names_one_attack_box_and_scan_default_model.sql",
+        // Task 396 P1: the three tier-map rows — the thirteenth, fourteenth and
+        // fifteenth not-wording parameters, and the first that carry extraction
+        // vocabulary rather than a number or a name.
+        "pipeline_migrations/20260813152536_tuesday_batch_396_matrix_strength_war_room_and_human_fact_completeness.sql",
     ]
     .iter()
     .map(|relative| {

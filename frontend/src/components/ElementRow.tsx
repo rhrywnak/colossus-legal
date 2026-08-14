@@ -23,8 +23,10 @@ import React from "react";
 import { ElementDetail } from "../services/causesOfAction";
 import { ElementProofStatus } from "../services/proofMatrix";
 import { formatElementNumber } from "./CountCard";
+import { fillCount } from "./matrixStrength";
 import { PROOF_MATRIX_GRID_TEMPLATE } from "./proofMatrixColumns";
 import StatusPill from "./StatusPill";
+import type { MatrixWording } from "../services/causesOfAction";
 
 export interface ElementRowProps {
   /** The Element this row renders. Same shape the page row consumed inline. */
@@ -51,11 +53,24 @@ export interface ElementRowProps {
   /** 'legacy' (default) = PM3's single-badge row; 'matrix' = PM4's 5 columns. */
   variant?: "legacy" | "matrix";
   /**
-   * Supporting column magnitude — the backend's `supporting_evidence_count`
-   * (DISTINCT corroborating Evidence). The column shows this count; the
-   * per-evidence chips live in the expanded detail, not the column.
+   * The HEADLINE number: the backend's `strong_evidence_count` — corroborating
+   * items the other side cannot dispute, after near-identical statements have
+   * been collapsed (task 396, P1).
    */
-  supportingCount?: number;
+  strongCount?: number;
+  /**
+   * The depth figure beside it: every collapsed corroborating item, whatever its
+   * tier. Rendered small, through the stored `raw_approved_template`.
+   *
+   * Domain note: nothing is hidden. The headline is a NARROWER claim than this
+   * number, and the number it narrows from stays on screen next to it — which is
+   * the whole point of the honesty pass. The pre-collapse
+   * `supporting_evidence_count` is deliberately not rendered anywhere: three
+   * numbers for one Element would read as a bug.
+   */
+  approvedCount?: number;
+  /** The stored words for the two figures above. Absent = render nothing. */
+  matrixWording?: MatrixWording;
   /**
    * Disputes column magnitude — the backend's `disputing_evidence_count`
    * (DISTINCT Evidence rebutting an allegation that bears on this Element). The
@@ -171,7 +186,11 @@ const MatrixRow: React.FC<ElementRowProps> = (props) => {
       <span style={element.allegation_count > 0 ? BADGE_STYLE : ZERO_BADGE_STYLE}>
         {element.allegation_count}
       </span>
-      <SupportingCountCell count={props.supportingCount ?? 0} />
+      <StrongCountCell
+        strong={props.strongCount ?? 0}
+        approved={props.approvedCount ?? 0}
+        wording={props.matrixWording}
+      />
       <DisputingCountCell count={props.disputingCount ?? 0} />
       <StatusPill status={props.proofStatus ?? "no_allegations"} />
     </div>
@@ -179,18 +198,43 @@ const MatrixRow: React.FC<ElementRowProps> = (props) => {
 };
 
 /**
- * Supporting column cell: the corroborating-evidence magnitude. Renders the
- * number when > 0, or the muted "—" empty treatment when 0. It only DISPLAYS the
- * backend count — no derivation.
+ * The headline cell: the strong count, with the raw approved figure as small
+ * print beside it.
+ *
+ * ## Why the zero case still prints the depth line
+ *
+ * "0 · 15 approved" is a real and important reading: fifteen items corroborate
+ * this Element and not one of them is something the other side cannot dispute.
+ * Collapsing that to a muted "—" — which is what the old raw column did at zero —
+ * would hide the single most actionable state on the page. The dash is kept for
+ * the genuinely empty Element, where BOTH numbers are zero.
+ *
+ * It only DISPLAYS backend counts; no derivation (Rule 12).
  */
-const SupportingCountCell: React.FC<{ count: number }> = ({ count }) =>
-  count > 0 ? (
-    <span style={SUPPORTING_COUNT_STYLE}>{count}</span>
-  ) : (
-    <span style={SUPPORTING_EMPTY_STYLE} title="No supporting evidence">
-      —
+const StrongCountCell: React.FC<{
+  strong: number;
+  approved: number;
+  wording?: MatrixWording;
+}> = ({ strong, approved, wording }) => {
+  // No wording yet (the gating fetch has not resolved) or genuinely nothing to
+  // report: the muted dash, which is the same empty treatment the Disputes cell
+  // uses so the two columns read as a matched pair.
+  if (!wording || approved === 0) {
+    return (
+      <span style={SUPPORTING_EMPTY_STYLE} title="No supporting evidence">
+        —
+      </span>
+    );
+  }
+  return (
+    <span style={{ display: "flex", alignItems: "baseline", gap: "6px", minWidth: 0 }}>
+      <span style={SUPPORTING_COUNT_STYLE} title={wording.strong_hint}>
+        {strong}
+      </span>
+      <span style={DEPTH_LINE_STYLE}>{fillCount(wording.raw_approved_template, approved)}</span>
     </span>
   );
+};
 
 /**
  * Disputes column cell: the rebutting-evidence magnitude. Mirrors
@@ -274,6 +318,17 @@ const SUPPORTING_EMPTY_STYLE: React.CSSProperties = {
   fontFamily: "var(--font-sans)",
   fontSize: "13px",
   color: "var(--text-muted)",
+};
+
+// The depth line beside the headline: smaller and muted, so the eye lands on the
+// strong count first and finds the number it narrows from immediately after.
+// `whiteSpace: nowrap` keeps "· 15 approved" from wrapping mid-phrase in a
+// column that can shrink.
+const DEPTH_LINE_STYLE: React.CSSProperties = {
+  fontFamily: "var(--font-sans)",
+  fontSize: "11.5px",
+  color: "var(--text-muted)",
+  whiteSpace: "nowrap",
 };
 
 // ─── Matrix row styles (PM4 only) ────────────────────────────────────────────

@@ -38,6 +38,11 @@ const tagStyle: React.CSSProperties = {
   border: "1px solid var(--border-card)",
 };
 
+/** The 👤 provenance mark: present, quiet, and never the loudest thing on a row. */
+const HUMAN_MARKER_STYLE: React.CSSProperties = {
+  color: "var(--text-muted)",
+};
+
 const clickableChipStyle: React.CSSProperties = {
   ...metaChipStyle,
   cursor: "pointer",
@@ -150,8 +155,11 @@ export const BearsOnRow: React.FC<{ row: CardBearsOnView; wording: CardGrammarWo
     <div style={{ marginTop: "4px" }}>
       <div style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
         {/* The 👤 says a HUMAN made this link. The two lists are different claims
-            about the world and the card must not blur them (task 2.10, R2). */}
-        {row.human && <span aria-hidden="true">👤 </span>}
+            about the world and the card must not blur them (task 2.10, R2).
+            Ruling (b), 2026-08-12: it renders MUTED, in its own span, so the
+            provenance mark stops competing with the accusation it prefixes. The
+            distinction stays; only its weight changes. */}
+        {row.human && <span aria-hidden="true" style={HUMAN_MARKER_STYLE}>👤 </span>}
         <span style={{ fontWeight: 600, color: "var(--text-primary)" }}>{row.accusation}</span>
         {row.count && (
           <span

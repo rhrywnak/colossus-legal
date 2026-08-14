@@ -21,6 +21,7 @@ use uuid::Uuid;
 use crate::auth::AuthUser;
 use crate::dto::scenario_authoring_wording::create_wording;
 use crate::dto::trial_prep::{ScenarioDetail, TrialPrepDashboard};
+use crate::dto::war_room_wording::WarRoomWordingDto;
 use crate::repositories::scenario_repository::ScenarioRepository;
 use crate::services::scenario_dashboard::ScenarioDashboardAssembler;
 use crate::state::AppState;
@@ -98,10 +99,16 @@ pub async fn get_trial_prep_dashboard(
 
     // One settings snapshot, read here and handed down: the create form's words
     // and everything else on this response then come from the same store state.
-    let create_wording = create_wording(&state.settings.current().scenario_authoring_wording);
+    // ONE snapshot for both blocks: the form's words and the page's own words
+    // must come from the same read of the store, or a Settings edit landing
+    // mid-request could word the heading from one snapshot and the form from
+    // another.
+    let settings = state.settings.current();
+    let create_wording = create_wording(&settings.scenario_authoring_wording);
+    let war_room_wording = WarRoomWordingDto::from(&settings.war_room_wording);
 
     let dashboard = assembler
-        .assemble(&slug, create_wording)
+        .assemble(&slug, create_wording, war_room_wording)
         .await
         .map_err(internal("assemble trial-prep dashboard"))?;
 

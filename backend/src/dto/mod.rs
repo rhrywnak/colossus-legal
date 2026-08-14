@@ -17,6 +17,7 @@ pub mod evidence_links;
 pub mod graph;
 pub mod harm;
 pub mod hearing;
+pub mod matrix_wording;
 pub mod model_params_wording;
 pub mod motion_claim;
 pub mod person;
@@ -38,6 +39,7 @@ pub mod schema;
 pub mod settings;
 pub mod theme_scan;
 pub mod trial_prep;
+pub mod war_room_wording;
 
 // Re-export DTOs / request types from submodules
 pub use allegation::{AllegationDto, AllegationSummary, AllegationsResponse};

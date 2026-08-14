@@ -16,8 +16,11 @@ use tracing::{error, info, instrument};
 
 use crate::auth::AuthUser;
 use crate::dto::causes_of_action::CausesOfActionResponse;
+use crate::dto::matrix_wording::MatrixWordingDto;
 use crate::repositories::causes_of_action_builder::build_causes_of_action;
 use crate::repositories::causes_of_action_repository as repo;
+use crate::repositories::element_strength_repository::fetch_element_corroborations;
+use crate::services::matrix_strength::{collapse_and_rank, tally, StrengthTally};
 use crate::state::AppState;
 
 /// Error type for this endpoint.
@@ -97,9 +100,40 @@ pub async fn get_causes_of_action(
         .await
         .map_err(internal("fetch elements"))?;
 
-    // 3. Shape: group/sort + decode JSON properties (malformed JSON → 500).
-    let response = build_causes_of_action(&slug, counts, elements)
-        .map_err(internal("shape causes of action"))?;
+    // 3. The corroborating items behind each Element, and the two numbers the
+    //    matrix leads with.
+    //
+    //    This read is GATING, not best-effort. The alternative — degrade to zero
+    //    on failure — would draw a matrix reading "0 strong" for a well-proved
+    //    Element, which is the single most dangerous thing this page can say to
+    //    somebody preparing a trial. A failure here is a 500 with the operator log
+    //    naming the read (Standing Rule 1: no silent failures, and no plausible
+    //    wrong number).
+    let corroborations = fetch_element_corroborations(&state.graph)
+        .await
+        .map_err(internal("fetch element corroborations"))?;
+
+    // ONE snapshot for the whole response: a payload whose tier map changed
+    // halfway through — because somebody saved a Settings edit mid-request —
+    // would rank two Elements by two different rules.
+    let settings = state.settings.current();
+    let strengths: std::collections::HashMap<String, StrengthTally> = corroborations
+        .iter()
+        .map(|(element_id, items)| {
+            let groups = collapse_and_rank(items, &settings.evidence_tier_map);
+            (element_id.clone(), tally(&groups))
+        })
+        .collect();
+
+    // 4. Shape: group/sort + decode JSON properties (malformed JSON → 500).
+    let response = build_causes_of_action(
+        &slug,
+        counts,
+        elements,
+        &strengths,
+        MatrixWordingDto::from(&settings.matrix_wording),
+    )
+    .map_err(internal("shape causes of action"))?;
 
     Ok(Json(response))
 }

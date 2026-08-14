@@ -21,6 +21,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::dto::scenario_authoring_wording::ScenarioCreateWordingDto;
+use crate::dto::war_room_wording::WarRoomWordingDto;
 
 /// Scenario lifecycle — drives the status dot and labels on each card.
 ///
@@ -133,6 +134,12 @@ pub struct TrialPrepDashboard {
     /// the form's words and the scenario cards beside it come from one snapshot
     /// of the settings store and cannot disagree.
     pub create_wording: ScenarioCreateWordingDto,
+    /// The words the PAGE itself speaks — its subtitle and its three metric tile
+    /// labels (task 396, P3b).
+    ///
+    /// Ruled by R2 on 2026-08-10 and never migrated; measured still-literal on
+    /// 2026-08-13. They ride here for the same reason `create_wording` does.
+    pub war_room_wording: WarRoomWordingDto,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -294,8 +301,33 @@ mod tests {
                     "accusation_helper": "What the other side is saying.",
                     "target_required": "Choose who this scenario is about.",
                     "accusation_required": "Write the accusation in plain language."
+                },
+                "war_room_wording": {
+                    "subtitle": "The attacks and what we answer them with — built by you, gathered by the system, rehearsed by Marie.",
+                    "metric_scenarios_label": "Scenarios",
+                    "metric_ready_label": "Ready",
+                    "metric_draft_label": "Draft"
                 }
             })
+        );
+    }
+
+    /// The page's own words reach the browser.
+    ///
+    /// R2 ruled these rows on 2026-08-10 and the batch shipped without them, so
+    /// the subtitle stayed a literal for three days with every test green. This is
+    /// the assertion that would have caught it: the payload must carry the words,
+    /// and the subtitle must not be the sentence they were meant to replace.
+    #[test]
+    fn the_dashboard_carries_the_pages_own_words() {
+        let value = serde_json::to_value(sample_dashboard()).expect("serializes");
+        let subtitle = value["war_room_wording"]["subtitle"]
+            .as_str()
+            .expect("the subtitle is served");
+        assert!(!subtitle.is_empty());
+        assert!(
+            !subtitle.to_lowercase().contains("system-generated"),
+            "the served subtitle still credits the machine: {subtitle}",
         );
     }
 
@@ -341,6 +373,9 @@ mod tests {
                 target_required: "Choose who this scenario is about.".to_string(),
                 accusation_required: "Write the accusation in plain language.".to_string(),
             },
+            war_room_wording: WarRoomWordingDto::from(
+                &crate::domain::wording_war_room::WarRoomWording::for_test(),
+            ),
         }
     }
 

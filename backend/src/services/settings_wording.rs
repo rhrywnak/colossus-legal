@@ -6,7 +6,10 @@
 //! system judges by, and this decides the WORDS it speaks.
 //!
 //! Nothing here does I/O. It takes the rows the store has already read and turns
-//! them into eight typed blocks, or names the first key that is wrong.
+//! them into the typed blocks below, or names the first key that is wrong. The
+//! count is deliberately not written down here — it was already stale at nine
+//! when this line said eight, and a comment that has to be edited every time a
+//! surface is added is a comment that will be wrong.
 
 use std::collections::HashMap;
 
@@ -15,6 +18,7 @@ use crate::domain::wording::{build_wording, Wording};
 use crate::domain::wording_accusation::{build_accusation_wording, AccusationWording};
 use crate::domain::wording_authoring::{build_authoring_wording, AuthoringWording};
 use crate::domain::wording_card_grammar::{build_card_grammar_wording, CardGrammarWording};
+use crate::domain::wording_matrix::{build_matrix_wording, MatrixWording};
 use crate::domain::wording_model_params::{build_model_params_wording, ModelParamsWording};
 use crate::domain::wording_rehearsal::{build_rehearsal_wording, RehearsalWording};
 use crate::domain::wording_rehearsal_chrome::{
@@ -24,6 +28,7 @@ use crate::domain::wording_scan::{build_scan_wording, ScanWording};
 use crate::domain::wording_scenario_authoring::{
     build_scenario_authoring_wording, ScenarioAuthoringWording,
 };
+use crate::domain::wording_war_room::{build_war_room_wording, WarRoomWording};
 use crate::repositories::pipeline_repository::AppSettingRecord;
 use crate::services::settings_store::{require, text_of};
 
@@ -50,12 +55,17 @@ pub(crate) struct AllWording {
     pub(crate) card_grammar: CardGrammarWording,
     /// The models admin's temperature control (ruling R5, 2026-08-09).
     pub(crate) model_params: ModelParamsWording,
+    /// The Proof Matrix's strong-first vocabulary (task 396, P1).
+    pub(crate) matrix: MatrixWording,
+    /// The Trial Prep dashboard's own words (task 396, P3b — the R2 §3 rows
+    /// that batch never migrated).
+    pub(crate) war_room: WarRoomWording,
 }
 
-/// The eight stored-string blocks, read by one rule.
+/// Every stored-string block, read by one rule.
 ///
 /// Each block lives in its own `domain` module (Rule 17 — none of them fits in
-/// one), and all eight are read by the same closure, so a row must exist, declare
+/// one), and all of them are read by the same closure, so a row must exist, declare
 /// `text`, and carry something non-blank whichever surface it belongs to.
 ///
 /// ## Why the rehearsal block's derived shapes are parsed HERE
@@ -81,6 +91,8 @@ pub(crate) fn build_all_wording(
     let scan = build_scan_wording(|key| text_of(require(rows, key)?))?;
     let card_grammar = build_card_grammar_wording(|key| text_of(require(rows, key)?))?;
     let model_params = build_model_params_wording(|key| text_of(require(rows, key)?))?;
+    let matrix = build_matrix_wording(|key| text_of(require(rows, key)?))?;
+    let war_room = build_war_room_wording(|key| text_of(require(rows, key)?))?;
 
     rehearsal.always_lines()?;
     rehearsal.section_states()?;
@@ -95,5 +107,7 @@ pub(crate) fn build_all_wording(
         scan,
         card_grammar,
         model_params,
+        matrix,
+        war_room,
     })
 }

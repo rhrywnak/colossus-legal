@@ -21,6 +21,12 @@ const makeEvidence = (
   page_note: null,
   source_document_id: "doc-phillips",
   source_document_title: "Phillips Discovery Response",
+  statement_type: "admission",
+  evidence_strength: "sworn_party_admission",
+  speaker: "George Phillips",
+  question: "Did you receive the letter?",
+  tier: "strong",
+  occurrences: 1,
   ...overrides,
 });
 

@@ -33,7 +33,11 @@ import {
   formatElementNumber,
   sortElements,
 } from "../components/CountCard";
-import { CountDetail, getCausesOfAction } from "../services/causesOfAction";
+import {
+  CountDetail,
+  getCausesOfAction,
+  type MatrixWording,
+} from "../services/causesOfAction";
 import { DEFAULT_CASE_SLUG } from "../services/caseHeader";
 
 const CountDetailPage: React.FC = () => {
@@ -53,6 +57,10 @@ const CountDetailPage: React.FC = () => {
   };
 
   const [count, setCount] = useState<CountDetail | null>(null);
+  // The matrix's served words. This page fetches the SAME payload the Proof
+  // Matrix does, so the drill-down it hosts speaks the same eight strings —
+  // rather than a second vocabulary for the same component (task 396, P1).
+  const [matrixWording, setMatrixWording] = useState<MatrixWording | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
@@ -70,6 +78,7 @@ const CountDetailPage: React.FC = () => {
         if (cancelled) return;
         const wanted = Number(countId);
         const match = data.counts.find((c) => c.count_number === wanted) ?? null;
+        setMatrixWording(data.matrix_wording);
         if (!match) {
           setNotFound(true);
         } else {
@@ -229,7 +238,7 @@ const CountDetailPage: React.FC = () => {
       </div>
 
       {/* Selected Element's detail (below) */}
-      {selected && (
+      {selected && matrixWording && (
         <div style={{ ...CARD_STYLE, marginTop: "20px" }}>
           <div style={LIST_HEADER_STYLE}>
             {formatElementNumber(
@@ -243,6 +252,7 @@ const CountDetailPage: React.FC = () => {
             caseSlug={slug}
             elementId={selected.element_id}
             elementName={selected.element_name}
+            matrixWording={matrixWording}
           />
         </div>
       )}

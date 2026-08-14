@@ -9,6 +9,8 @@ use std::collections::HashMap;
 use super::causes_of_action_decode::{decode_authorities, decode_doctrinal, CausesShapeError};
 use super::causes_of_action_repository::{CountRow, ElementRow};
 use crate::dto::causes_of_action::{CausesOfActionResponse, CountDetail, ElementDetail};
+use crate::dto::matrix_wording::MatrixWordingDto;
+use crate::services::matrix_strength::StrengthTally;
 
 /// Build the response from the raw rows.
 ///
@@ -20,13 +22,20 @@ pub(crate) fn build_causes_of_action(
     case_slug: &str,
     counts: Vec<CountRow>,
     elements: Vec<ElementRow>,
+    strengths: &HashMap<String, StrengthTally>,
+    matrix_wording: MatrixWordingDto,
 ) -> Result<CausesOfActionResponse, CausesShapeError> {
     let mut elements_by_count: HashMap<i64, Vec<ElementDetail>> = HashMap::new();
     for e in elements {
+        // An Element absent from the tally map has no corroborating Evidence at
+        // all — the strength read returns no rows for it. Zero of both is the
+        // honest reading, and it is why this is a `copied().unwrap_or_default()`
+        // rather than a lookup that can fail.
+        let tally = strengths.get(&e.element_id).copied().unwrap_or_default();
         elements_by_count
             .entry(e.count_number)
             .or_default()
-            .push(to_element_detail(e));
+            .push(to_element_detail(e, tally));
     }
     for group in elements_by_count.values_mut() {
         group.sort_by(element_order);
@@ -46,6 +55,7 @@ pub(crate) fn build_causes_of_action(
     Ok(CausesOfActionResponse {
         case_slug: case_slug.to_string(),
         counts,
+        matrix_wording,
     })
 }
 
@@ -86,7 +96,7 @@ fn build_count(c: CountRow, elements: Vec<ElementDetail>) -> Result<CountDetail,
     })
 }
 
-fn to_element_detail(e: ElementRow) -> ElementDetail {
+fn to_element_detail(e: ElementRow, tally: StrengthTally) -> ElementDetail {
     // Derive the coverage label here (DB-free) so it is unit-testable without
     // Neo4j, alongside the rest of the shaping.
     let proof_status = derive_proof_status(e.allegation_count, e.covered_allegation_count);
@@ -99,6 +109,15 @@ fn to_element_detail(e: ElementRow) -> ElementDetail {
         theory_variant: e.theory_variant,
         allegation_count: e.allegation_count,
         supporting_evidence_count: e.supporting_evidence_count,
+        // ## Rust Learning: `usize` → `i64` at the wire boundary
+        //
+        // `matrix_strength` counts with `usize` (it is counting `Vec` elements);
+        // the wire DTO is `i64` because JSON numbers are signed and every other
+        // count on this struct already is. The cast happens HERE, once, at the
+        // boundary — not inside the tally, which has no business knowing what
+        // shape a browser wants.
+        strong_evidence_count: tally.strong as i64,
+        approved_evidence_count: tally.approved as i64,
         covered_allegation_count: e.covered_allegation_count,
         // Passed through untouched, and deliberately NOT fed to
         // `derive_proof_status`: the verdict vocabulary stays exactly what it was
@@ -208,8 +227,100 @@ mod tests {
         }
     }
 
+    /// Shape with NO strength tallies — every Element falls to the
+    /// `unwrap_or_default()` branch, which is the real behaviour for an Element
+    /// with no corroborating Evidence.
     fn build(counts: Vec<CountRow>, elements: Vec<ElementRow>) -> CausesOfActionResponse {
-        build_causes_of_action("slug", counts, elements).expect("shaping succeeds")
+        build_with_strengths(counts, elements, &HashMap::new())
+    }
+
+    /// Shape with a supplied tally map, for the tests that care about the two
+    /// numbers the matrix leads with.
+    fn build_with_strengths(
+        counts: Vec<CountRow>,
+        elements: Vec<ElementRow>,
+        strengths: &HashMap<String, StrengthTally>,
+    ) -> CausesOfActionResponse {
+        build_causes_of_action(
+            "slug",
+            counts,
+            elements,
+            strengths,
+            MatrixWordingDto::from(&crate::domain::wording_matrix::MatrixWording::for_test()),
+        )
+        .expect("shaping succeeds")
+    }
+
+    /// An Element the strength read returned nothing for reads zero of both —
+    /// never a missing field, and never the pre-collapse figure standing in for
+    /// the headline.
+    #[test]
+    fn an_element_with_no_corroboration_leads_with_zero_of_both() {
+        let elements = vec![element_row_with_evidence(
+            1,
+            "e-1",
+            "First",
+            Some(1),
+            4,
+            3,
+            2,
+            0,
+        )];
+        let r = build(vec![count_row(1)], elements);
+        let el = &r.counts[0].elements[0];
+        assert_eq!(el.strong_evidence_count, 0);
+        assert_eq!(el.approved_evidence_count, 0);
+        assert_eq!(
+            el.supporting_evidence_count, 3,
+            "the pre-collapse magnitude is untouched and still reported",
+        );
+    }
+
+    /// The two headline numbers come from the tally, keyed by element_id.
+    ///
+    /// The failure this catches is a mis-keyed lookup — an Element wearing another
+    /// Element's proof, which on this page is a number Chuck would act on.
+    #[test]
+    fn each_element_carries_its_own_tally() {
+        let elements = vec![
+            element_row_with_evidence(1, "e-1", "First", Some(1), 4, 9, 2, 0),
+            element_row_with_evidence(1, "e-2", "Second", Some(2), 4, 9, 2, 0),
+        ];
+        let strengths = HashMap::from([
+            (
+                "e-1".to_string(),
+                StrengthTally {
+                    strong: 3,
+                    approved: 8,
+                },
+            ),
+            (
+                "e-2".to_string(),
+                StrengthTally {
+                    strong: 0,
+                    approved: 1,
+                },
+            ),
+        ]);
+        let r = build_with_strengths(vec![count_row(1)], elements, &strengths);
+        let by_id: HashMap<&str, &ElementDetail> = r.counts[0]
+            .elements
+            .iter()
+            .map(|e| (e.element_id.as_str(), e))
+            .collect();
+        assert_eq!(by_id["e-1"].strong_evidence_count, 3);
+        assert_eq!(by_id["e-1"].approved_evidence_count, 8);
+        assert_eq!(by_id["e-2"].strong_evidence_count, 0);
+        assert_eq!(by_id["e-2"].approved_evidence_count, 1);
+    }
+
+    /// The matrix's words ride the payload, so the page that gates on this read
+    /// never has to render a column header it does not have yet.
+    #[test]
+    fn the_payload_carries_the_matrix_wording() {
+        let r = build(vec![count_row(1)], vec![]);
+        assert!(!r.matrix_wording.strong_column_label.is_empty());
+        assert!(r.matrix_wording.raw_approved_template.contains("{count}"));
     }
 
     #[test]
@@ -498,7 +609,14 @@ mod tests {
         // propagates the error rather than swallowing it.
         let mut c = count_row(1);
         c.controlling_authorities_json = Some("{ this is not valid json ]".into());
-        let err = build_causes_of_action("slug", vec![c], vec![]).unwrap_err();
+        let err = build_causes_of_action(
+            "slug",
+            vec![c],
+            vec![],
+            &HashMap::new(),
+            MatrixWordingDto::from(&crate::domain::wording_matrix::MatrixWording::for_test()),
+        )
+        .unwrap_err();
         match err {
             CausesShapeError::DecodeAuthorities { count_number, .. } => assert_eq!(count_number, 1),
             other => panic!("expected DecodeAuthorities, got {other:?}"),

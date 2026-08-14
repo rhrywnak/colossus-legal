@@ -267,10 +267,22 @@ export const CandidateCard: React.FC<{
   );
   const chip = stateChip(candidateState(card));
 
-  // Task 2.10: the control appears on a card the extraction never linked and
-  // nobody has linked since. A card that HAS been linked shows its chips.
-  const linkPanel =
-    linkOptions !== null && needsLinking(card) && card.human_links.length === 0;
+  // Task 2.10, as amended by ruling (a) of 2026-08-12: the control appears on a
+  // card the extraction never linked, and it STAYS after the first link.
+  //
+  // ## Why the `human_links.length === 0` clause is gone
+  //
+  // A statement routinely bears on more than one accusation. With that clause the
+  // panel vanished the moment a card was linked once, so linking C-57 to a second
+  // accusation meant taking the first link back — the S-6 run hit exactly this and
+  // had to drop existing anchors to wake locked cards. The schema and the API
+  // always permitted many; only this line did not.
+  //
+  // A card that already holds links keeps them ON SCREEN (the chips below) AND
+  // keeps the control, with a stored sentence saying which state it is in — so
+  // the panel re-appearing does not read as though the first link failed.
+  const linkPanel = linkOptions !== null && needsLinking(card);
+  const alreadyLinked = card.human_links.length > 0;
 
   // Item B: while the panel holds ticks or a cut that have not been saved, the
   // greyed Include and Exclude say why. Roman filled a panel in, saw Include
@@ -398,7 +410,12 @@ export const CandidateCard: React.FC<{
               }}
             >
               <div style={{ fontSize: "12.5px", color: "var(--v3-amber-text)", lineHeight: 1.5 }}>
-                {linkOptions.card_grammar.link_typeahead_intro}
+                {/* Which state the panel is in, in the stored words. A card
+                    holding a link is not being asked to link again — it is being
+                    offered the chance to add another. */}
+                {alreadyLinked
+                  ? linkOptions.card_grammar.already_linked_note
+                  : linkOptions.card_grammar.link_typeahead_intro}
               </div>
               <AllegationTypeahead
                 options={linkOptions}

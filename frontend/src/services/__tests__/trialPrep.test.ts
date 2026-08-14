@@ -27,6 +27,13 @@ const validResponse: TrialPrepDashboard = {
     drafted_or_review: 3,
   },
   alerts: [{ message: "an alert" }],
+  war_room_wording: {
+    subtitle:
+      "The attacks and what we answer them with — built by you, gathered by the system, rehearsed by Marie.",
+    metric_scenarios_label: "Scenarios",
+    metric_ready_label: "Ready",
+    metric_draft_label: "Draft",
+  },
   create_wording: {
     target_label: "Who this scenario is about",
     target_helper: "Evidence is gathered about this person and nobody else.",

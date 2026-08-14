@@ -32,6 +32,8 @@ import {
   AllegationEvidence,
 } from "../services/elementDetailService";
 import { API_BASE_URL } from "../services/api";
+import type { MatrixWording } from "../services/causesOfAction";
+import { duplicateMarker, tierChipLabel } from "./matrixStrength";
 
 // ─── Source-PDF locator helpers (pure) ───────────────────────────────────────
 
@@ -51,6 +53,34 @@ export function locatorLabel(ev: AllegationEvidence): string {
 }
 
 // ─── Evidence rendering ──────────────────────────────────────────────────────
+
+/**
+ * The strength chip and the duplicate marker for one supporting row.
+ *
+ * Renders nothing at all when this build has no word for the tier — an unmapped
+ * pair, or a tier a newer backend defines. The row itself is never hidden and no
+ * count changes; it simply carries no label, which is the honest rendering of
+ * "the stored map makes no claim about this one".
+ */
+const TierChip: React.FC<{
+  tier: string | null;
+  occurrences: number;
+  wording: MatrixWording;
+}> = ({ tier, occurrences, wording }) => {
+  const label = tierChipLabel(tier, wording);
+  const marker = duplicateMarker(occurrences, wording);
+  if (!label && !marker) return null;
+  return (
+    <>
+      {label && (
+        <span style={tier === "strong" ? STRONG_CHIP_STYLE : TIER_CHIP_STYLE}>{label}</span>
+      )}
+      {/* "×2" sits beside the chip rather than in the quote, because it is a fact
+          about how many times the statement was RECORDED, not about the words. */}
+      {marker && <span style={DUPLICATE_MARKER_STYLE}>{marker}</span>}
+    </>
+  );
+};
 
 /**
  * The source locator for one Evidence item: a click-through link to the source
@@ -88,7 +118,14 @@ const EvidenceLegList: React.FC<{
   emptyLabel: string;
   /** Left rule color, so disputes read as distinct from corroboration. */
   accent?: string;
-}> = ({ evidence, emptyLabel, accent }) => {
+  /**
+   * The matrix's served words. Present on the SUPPORTING leg only: since task
+   * 396 that leg arrives collapsed and ranked strongest-first, and each row can
+   * carry a strength chip and a "×N" marker. The disputing leg is deliberately
+   * neither ranked nor collapsed and passes nothing.
+   */
+  wording?: MatrixWording;
+}> = ({ evidence, emptyLabel, accent, wording }) => {
   if (evidence.length === 0) {
     return <div style={NO_EVIDENCE_STYLE}>{emptyLabel}</div>;
   }
@@ -109,6 +146,12 @@ const EvidenceLegList: React.FC<{
             </div>
           )}
           <div style={EVIDENCE_META_STYLE}>
+            {/* The strength chip leads the meta row: it is the claim this whole
+                ranking exists to make, and a reader scanning the list should be
+                able to tell an opponent's admission from our own affidavit
+                without reading either quote. Absent on an unmapped pair and on
+                every disputing row — see `tierChipLabel`. */}
+            {wording && <TierChip tier={ev.tier} occurrences={ev.occurrences} wording={wording} />}
             {ev.paragraph && (
               <span style={EVIDENCE_PARA_STYLE}>{ev.paragraph}</span>
             )}
@@ -128,6 +171,12 @@ export interface AllegationSectionProps {
   labelBg: string;
   accentColor: string;
   allegations: AllegationSummary[];
+  /**
+   * The Proof Matrix's served words, for the strength chips and the "×N" marker
+   * on the supporting leg (task 396, P1). Threaded from the page's gating fetch
+   * rather than read here — every row on the page speaks one snapshot.
+   */
+  wording: MatrixWording;
 }
 
 /**
@@ -141,6 +190,7 @@ const AllegationSection: React.FC<AllegationSectionProps> = ({
   labelBg,
   accentColor,
   allegations,
+  wording,
 }) => (
   <div>
     <div style={SECTION_DIVIDER_STYLE_BASE}>
@@ -172,6 +222,7 @@ const AllegationSection: React.FC<AllegationSectionProps> = ({
         )}
         <EvidenceLegList
           evidence={a.supporting_evidence}
+          wording={wording}
           emptyLabel="No supporting evidence"
         />
         <EvidenceLegList
@@ -294,5 +345,41 @@ const NO_EVIDENCE_STYLE: React.CSSProperties = {
   fontFamily: "var(--font-sans)",
   fontSize: "12px",
   fontStyle: "italic",
+  color: "var(--text-muted)",
+};
+
+// ─── Strength-chip styles (task 396, P1) ─────────────────────────────────────
+
+// A tier chip is a label, not a control: no border-radius pill treatment that
+// would read as clickable, and the same hairline vocabulary the rest of the
+// panel uses.
+const TIER_CHIP_STYLE: React.CSSProperties = {
+  display: "inline-block",
+  padding: "1px 6px",
+  borderRadius: "4px",
+  border: "1px solid var(--border-default)",
+  backgroundColor: "var(--bg-page)",
+  color: "var(--text-secondary)",
+  fontFamily: "var(--font-sans)",
+  fontSize: "10.5px",
+  fontWeight: 600,
+  letterSpacing: "0.02em",
+};
+
+// The strong tier is the one claim the page is built to make, so it carries the
+// single accent — the visual language's "one accent" rule spent where it earns
+// the most (§2c).
+const STRONG_CHIP_STYLE: React.CSSProperties = {
+  ...TIER_CHIP_STYLE,
+  borderColor: "var(--accent-primary)",
+  backgroundColor: "var(--accent-bg-soft)",
+  color: "var(--accent-primary)",
+};
+
+// "×2" is a quiet fact about how many times a statement was recorded. Muted, and
+// deliberately NOT chip-shaped: it is not a category, it is a count.
+const DUPLICATE_MARKER_STYLE: React.CSSProperties = {
+  fontFamily: "var(--font-sans)",
+  fontSize: "10.5px",
   color: "var(--text-muted)",
 };

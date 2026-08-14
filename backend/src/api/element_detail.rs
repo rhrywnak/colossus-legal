@@ -29,7 +29,8 @@ use tracing::{error, info, instrument};
 
 use crate::auth::AuthUser;
 use crate::repositories::element_detail_repository::{
-    fetch_element_with_allegations, ElementDetailRepoError, ElementDetailResponse,
+    fetch_element_with_allegations, rank_supporting_evidence, ElementDetailRepoError,
+    ElementDetailResponse,
 };
 use crate::repositories::pipeline_repository::{authored_entities, PipelineRepoError};
 use crate::state::AppState;
@@ -109,7 +110,16 @@ pub async fn get_element_detail(
     );
 
     match fetch_element_with_allegations(&state.graph, &state.pipeline_pool, &element_id).await {
-        Ok(detail) => Ok(Json(detail)),
+        Ok(mut detail) => {
+            // Task 396 P1: collapse near-identical statements, tier what survives,
+            // and rank strongest first — using the SAME function that produces the
+            // matrix row's two numbers, so the row and the list it opens cannot
+            // disagree. One settings snapshot for the whole response: a payload
+            // whose tier map changed halfway through would rank two Allegations by
+            // two different rules.
+            rank_supporting_evidence(&mut detail, &state.settings.current().evidence_tier_map);
+            Ok(Json(detail))
+        }
         Err(ElementDetailRepoError::NotFound { element_id }) => {
             // Distinct observable: tell the operator log this was a real miss
             // (no Element with that id), not a backend error.
