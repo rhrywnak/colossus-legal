@@ -20,6 +20,11 @@ tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9"
+# Unicode NFC for the Evidence stable-id arm (ID_ARM P1a). Already present in the
+# lock as a transitive dep at 0.1.25; named here because the arm calls `.nfc()`
+# directly and a key that depends on a transitive crate is a key that can vanish
+# in a `cargo update`.
+unicode-normalization = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
 tower = "0.5"
 tower-http = { version = "0.5", features = ["trace", "cors"] }

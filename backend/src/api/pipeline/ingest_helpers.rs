@@ -17,11 +17,12 @@ use sha2::{Digest, Sha256};
 
 use crate::error::AppError;
 use crate::models::document_status::{
-    ENTITY_COMPLAINT_ALLEGATION, ENTITY_HARM, ENTITY_LEGAL_COUNT, ENTITY_ORGANIZATION,
-    ENTITY_PERSON, PARTY_SUBTYPES, REL_CONTAINED_IN, STATUS_INGESTED,
+    ENTITY_COMPLAINT_ALLEGATION, ENTITY_EVIDENCE, ENTITY_HARM, ENTITY_LEGAL_COUNT,
+    ENTITY_ORGANIZATION, ENTITY_PERSON, PARTY_SUBTYPES, REL_CONTAINED_IN, STATUS_INGESTED,
 };
 use crate::repositories::pipeline_repository::ExtractionItemRecord;
 
+use super::evidence_key::evidence_id_from_properties;
 use super::ingest_resolver::ResolutionMap;
 
 /// Generate a stable, URL-friendly slug from a name.
@@ -140,6 +141,40 @@ pub fn stable_entity_id(item: &ExtractionItemRecord, doc_id: &str) -> String {
             // stamps (cypher.rs `set_legal_count_id`). It is part of the MERGE
             // contract, not an env-configurable value (Standing Rule 2).
             format!("count-{count}")
+        }
+        ENTITY_EVIDENCE => {
+            // ID_ARM P1a. Keyed on what the DOCUMENT says — doc, page, quote,
+            // question — and never on what the model said about it. See
+            // `evidence_key` for the measurement that forced each component in.
+            //
+            // ## Why a fallback still exists
+            //
+            // An item with no usable `verbatim_quote` gets no key from the arm,
+            // because an empty-string key would MERGE every quoteless item in a
+            // document onto ONE node (the `hash-e3b0c442` failure the allegation
+            // arm above records). Such an item falls through to the catch-all's
+            // blob hash — an unstable id, which is the correct outcome: it is
+            // better to re-ingest a wordless item under a new id than to
+            // annihilate a document's worth of them under a shared one. It is
+            // logged at `warn` so the case is visible rather than inferred; on
+            // the live corpus this branch is never taken (0 of 525 Evidence
+            // nodes lack a quote).
+            match evidence_id_from_properties(&item.item_data["properties"], &doc_slug) {
+                Some(id) => id,
+                None => {
+                    tracing::warn!(
+                        doc_id = %doc_id,
+                        entity_type = %item.entity_type,
+                        "Evidence item has no usable verbatim_quote — falling back to the \
+                         unstable blob hash for its id. This item's id will NOT survive a \
+                         re-extraction, and any curated row pointing at it will dangle. \
+                         Check the extraction output for this document."
+                    );
+                    let data_str = serde_json::to_string(&item.item_data).unwrap_or_default();
+                    let hash = format!("{:x}", Sha256::digest(data_str.as_bytes()));
+                    format!("{}:{}:{}", doc_slug, slug(&item.entity_type), &hash[..8])
+                }
+            }
         }
         ENTITY_HARM => {
             let harm_type = item.item_data["properties"]["harm_type"]

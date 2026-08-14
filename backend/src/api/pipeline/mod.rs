@@ -23,6 +23,7 @@ mod delete_restate_purge;
 mod document_response;
 mod document_types;
 mod errors;
+pub mod evidence_key;
 pub(crate) mod extract_text;
 pub mod file;
 pub mod graph_migrations;
