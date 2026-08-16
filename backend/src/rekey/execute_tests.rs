@@ -6,29 +6,42 @@
 // pre-flight refusal — and those are the two places a defect would be silent.
 
 use super::*;
+use crate::oneshot::refs::{ReferencingColumn, REKEY_UPDATES_EVERYTHING};
 
-/// The eight columns are exactly the eight measured on 2026-08-14.
+/// The re-key walks the SHARED registry, not a list of its own.
 ///
-/// A column added to the schema and forgotten here would leave rows pointing at
-/// ids that no longer exist, and the count proof would not notice, because the
-/// proof walks this same list. Pinning membership is the only place that gap can
-/// be caught.
+/// Ruled 2026-08-16. It previously carried a private `REFERENCING_COLUMNS` of the
+/// eight columns Phase A had measured as populated, and missed three — one of
+/// which held 483 rows it was actively invalidating. The list moved to
+/// `oneshot::refs::EVIDENCE_REFERENCES`, which every tool in the family reads, so
+/// "the re-key's list" and "the registry" are now the same object and cannot
+/// drift apart.
+///
+/// The registry's own membership is pinned in `oneshot::refs_tests` against the
+/// dated `information_schema` sweep. What is asserted HERE is the property this
+/// tool depends on: that it is walking all of it.
 #[test]
-fn the_referencing_column_list_is_the_measured_eight() {
-    assert_eq!(REFERENCING_COLUMNS.len(), 8);
-    for expected in [
-        ("scenario_fact_refs", "graph_node_id"),
-        ("scenario_human_facts", "anchor_graph_node_id"),
-        ("scenario_human_facts", "answers_graph_node_id"),
-        ("evidence_allegation_links", "graph_node_id"),
-        ("evidence_allegation_link_events", "graph_node_id"),
-        ("scenario_ruling_anchors", "graph_node_id"),
-        ("scenario_candidate_ordinals", "graph_node_id"),
-        ("scan_run_verdicts", "graph_node_id"),
+fn the_rekey_walks_every_column_in_the_shared_registry() {
+    assert_eq!(
+        EVIDENCE_REFERENCES.len(),
+        11,
+        "the re-key updates every column in the registry; if the registry \
+         changed size, re-measure and update the runbook's expected row count"
+    );
+    assert!(REKEY_UPDATES_EVERYTHING);
+}
+
+/// The three columns the eight-column version missed, named individually.
+#[test]
+fn the_columns_added_on_the_sixteenth_are_still_there() {
+    for (table, column) in [
+        ("extraction_items", "neo4j_node_id"),
+        ("evidence_summary_overrides", "graph_node_id"),
+        ("response_item_fact_refs", "graph_node_id"),
     ] {
         assert!(
-            REFERENCING_COLUMNS.contains(&expected),
-            "{expected:?} is missing from REFERENCING_COLUMNS",
+            EVIDENCE_REFERENCES.contains(&ReferencingColumn { table, column }),
+            "{table}.{column} was added to the re-key on 2026-08-16 and is gone again"
         );
     }
 }
@@ -37,28 +50,14 @@ fn the_referencing_column_list_is_the_measured_eight() {
 /// different references and both have to move.
 #[test]
 fn scenario_human_facts_contributes_both_of_its_columns() {
-    let cols: Vec<&str> = REFERENCING_COLUMNS
+    let cols: Vec<&str> = EVIDENCE_REFERENCES
         .iter()
-        .filter(|(t, _)| *t == "scenario_human_facts")
-        .map(|(_, c)| *c)
+        .filter(|c| c.table == "scenario_human_facts")
+        .map(|c| c.column)
         .collect();
     assert_eq!(cols.len(), 2);
     assert!(cols.contains(&"anchor_graph_node_id"));
     assert!(cols.contains(&"answers_graph_node_id"));
-}
-
-/// No column appears twice — a duplicate would double-count the proof and make a
-/// sound run look like a mismatch.
-#[test]
-fn no_reference_is_listed_twice() {
-    let mut seen: Vec<String> = REFERENCING_COLUMNS
-        .iter()
-        .map(|(t, c)| format!("{t}.{c}"))
-        .collect();
-    let total = seen.len();
-    seen.sort();
-    seen.dedup();
-    assert_eq!(seen.len(), total, "a referencing column is listed twice");
 }
 
 fn evidence(current_id: &str, page: i64, quote: &str) -> EvidenceRow {

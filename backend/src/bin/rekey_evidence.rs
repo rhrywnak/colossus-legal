@@ -14,6 +14,21 @@
 //! writes nothing. `--apply` is the only path that mutates, and it executes the
 //! same plan the dry run printed.
 //!
+//! ## Expected on the first live dry run (measured on DEV, re-measured 2026-08-16)
+//!
+//! ```text
+//! Evidence nodes seen      : 525
+//! To re-key                : 483
+//! Already current (skipped): 0
+//! Refused, shared key      : 42  (21 groups)
+//! ```
+//!
+//! And on `--apply`, **1,318 referencing rows across eleven columns**. That
+//! number grew from 835 on 2026-08-16, when the tool was ruled to walk the full
+//! measured registry rather than the eight columns Phase A had found populated —
+//! `extraction_items.neo4j_node_id` alone accounts for 483 of it. Different
+//! numbers mean the corpus moved; stop and find out why before `--apply`.
+//!
 //! ## Before `--apply`
 //!
 //! Take database backups. There is no cross-store transaction here and this tool

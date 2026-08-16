@@ -7,7 +7,8 @@
 //! `summary`, `significance`, `weight`, `pattern_tags`. Re-running extraction
 //! rephrases those, so the hash moves, so the id moves. Measured id survival
 //! across a real reprocess: **0 of 131**. Every curated row pointing at those ids
-//! — 947 of them today, across seven tables — became a dangling reference, and
+//! — 947 curated rows today, and 1,472 counting pipeline provenance, across
+//! eleven columns — became a dangling reference, and
 //! the pipeline had no idea any of it existed.
 //!
 //! ## The key, and why each part of it is there

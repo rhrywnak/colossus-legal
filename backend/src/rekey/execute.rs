@@ -4,39 +4,45 @@
 //! [`super::plan`]. The split is what makes the plan unit-testable and keeps this
 //! file to the mechanics: read, count, write, verify, commit or abort.
 //!
-//! ## The eight referencing columns
+//! ## The eleven referencing columns
 //!
-//! Seven tables, eight columns — `scenario_human_facts` carries two. They are
-//! listed once, in [`REFERENCING_COLUMNS`], and every count and every update
-//! walks that one list. A column added to the schema and forgotten here would
-//! leave dangling rows the count proof could not see, which is why the list is a
-//! constant with a test pinning its membership rather than eight hand-written
-//! statements.
-
-use std::collections::HashMap;
+//! Ruled 2026-08-16, correcting this tool's original list of eight. There are
+//! ELEVEN columns holding an Evidence graph id, and the re-key updates all of
+//! them. They live in [`crate::oneshot::refs::EVIDENCE_REFERENCES`] — the same
+//! single registry the twin merge, the remap and the party merge walk, so a
+//! column can never be known to one tool and invisible to another.
+//!
+//! ## What the correction was, and what it cost
+//!
+//! The original eight were the columns Phase A measured as POPULATED on
+//! 2026-08-14. Three were missed:
+//!
+//! - `evidence_summary_overrides.graph_node_id` and
+//!   `response_item_fact_refs.graph_node_id` — real curated surfaces that
+//!   happened to hold zero rows that week. Empty is a fact about a Tuesday, not
+//!   a property of the schema.
+//! - `extraction_items.neo4j_node_id` — **not empty**. It holds 525 Evidence
+//!   ids, and it is READ: `lookup_neo4j_node_ids` resolves cross-document
+//!   references from it at ingest, and pass-2 prefers it over re-resolving. A
+//!   re-key that skipped it left 483 rows pointing at ids that no longer exist.
+//!
+//! The cost is a bigger number in the count proof, and only that: **1,318 rows
+//! across eleven columns** where the eight-column version moved 835. Both
+//! figures are measured, not derived — see the constant's own doc for the
+//! per-column breakdown.
+//!
+//! A column added to the schema and forgotten would leave dangling rows the
+//! count proof could not see, because the proof walks this same list. That is
+//! why membership is pinned by a test against a dated `information_schema`
+//! sweep rather than trusted to review.
 
 use neo4rs::{query, Graph};
 use sqlx::PgPool;
 
 use super::plan::{Disposition, EvidenceRow, PlannedNode, RekeyPlan};
-use super::report::{DocumentProof, RunReport, TableProof};
+use super::report::{DocumentProof, RunReport};
 use crate::models::document_status::ENTITY_EVIDENCE;
-
-/// Every `(table, column)` that stores an Evidence graph id.
-///
-/// Measured 2026-08-14: 947 rows across these eight, referencing 148 distinct
-/// Evidence ids. `scenario_human_facts` appears twice — an anchor and an answer
-/// are two different references and both must move.
-pub const REFERENCING_COLUMNS: &[(&str, &str)] = &[
-    ("scenario_fact_refs", "graph_node_id"),
-    ("scenario_human_facts", "anchor_graph_node_id"),
-    ("scenario_human_facts", "answers_graph_node_id"),
-    ("evidence_allegation_links", "graph_node_id"),
-    ("evidence_allegation_link_events", "graph_node_id"),
-    ("scenario_ruling_anchors", "graph_node_id"),
-    ("scenario_candidate_ordinals", "graph_node_id"),
-    ("scan_run_verdicts", "graph_node_id"),
-];
+use crate::oneshot::refs::{count_rows, repoint, table_proofs, EVIDENCE_REFERENCES};
 
 /// Why the re-key could not proceed.
 #[derive(Debug, thiserror::Error)]
@@ -174,58 +180,6 @@ pub async fn run(
     Ok(report)
 }
 
-/// Count what each column holds for these old ids, before anything is written.
-async fn count_expected(
-    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    old_ids: &[String],
-) -> Result<HashMap<String, u64>, RekeyError> {
-    const OP: &str = "count_expected";
-    let mut expected = HashMap::new();
-    for (table, column) in REFERENCING_COLUMNS {
-        // The table and column come from a compiled-in constant list, never from
-        // input, so the format! cannot carry anything a caller chose. The VALUES
-        // are bound.
-        let sql = format!("SELECT count(*) FROM {table} WHERE {column} = ANY($1)");
-        let count: i64 = sqlx::query_scalar(&sql)
-            .bind(old_ids)
-            .fetch_one(&mut **tx)
-            .await
-            .map_err(|source| RekeyError::Postgres {
-                operation: OP,
-                source,
-            })?;
-        expected.insert(format!("{table}.{column}"), count as u64);
-    }
-    Ok(expected)
-}
-
-/// Move every old id to its new one, returning what each column actually changed.
-async fn apply_updates(
-    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    moves: &[(&str, &str)],
-) -> Result<HashMap<String, u64>, RekeyError> {
-    const OP: &str = "apply_updates";
-    let mut updated = HashMap::new();
-    for (table, column) in REFERENCING_COLUMNS {
-        let sql = format!("UPDATE {table} SET {column} = $1 WHERE {column} = $2");
-        let mut rows = 0u64;
-        for (old, new) in moves {
-            let result = sqlx::query(&sql)
-                .bind(*new)
-                .bind(*old)
-                .execute(&mut **tx)
-                .await
-                .map_err(|source| RekeyError::Postgres {
-                    operation: OP,
-                    source,
-                })?;
-            rows += result.rows_affected();
-        }
-        updated.insert(format!("{table}.{column}"), rows);
-    }
-    Ok(updated)
-}
-
 /// One document's unit of work: count, write, verify, then commit or roll back.
 async fn apply_document(
     graph: &Graph,
@@ -250,31 +204,39 @@ async fn apply_document(
         aborted: None,
     };
 
-    let moves: Vec<(&str, &str)> = nodes
+    // Owned pairs, because the shared `repoint` takes `&[(String, String)]` —
+    // one signature for all four tools. The clone is per re-keyed node, once,
+    // which is nothing against a run that opens a transaction per document.
+    let moves: Vec<(String, String)> = nodes
         .iter()
-        .filter_map(|n| n.rekey_target().map(|new| (n.row.current_id.as_str(), new)))
+        .filter_map(|n| {
+            n.rekey_target()
+                .map(|new| (n.row.current_id.clone(), new.to_string()))
+        })
         .collect();
     if moves.is_empty() {
         return Ok(proof);
     }
-    let old_ids: Vec<String> = moves.iter().map(|(old, _)| (*old).to_string()).collect();
+    let old_ids: Vec<String> = moves.iter().map(|(old, _)| old.clone()).collect();
 
     let mut tx = pool.begin().await.map_err(|source| RekeyError::Postgres {
         operation: OP,
         source,
     })?;
 
-    let expected = count_expected(&mut tx, &old_ids).await?;
-    let updated = apply_updates(&mut tx, &moves).await?;
-
-    for (table, column) in REFERENCING_COLUMNS {
-        let reference = format!("{table}.{column}");
-        proof.tables.push(TableProof {
-            expected: expected.get(&reference).copied().unwrap_or(0),
-            updated: updated.get(&reference).copied().unwrap_or(0),
-            reference,
-        });
-    }
+    let expected = count_rows(&mut tx, EVIDENCE_REFERENCES, &old_ids)
+        .await
+        .map_err(|source| RekeyError::Postgres {
+            operation: "count_rows",
+            source,
+        })?;
+    let updated = repoint(&mut tx, EVIDENCE_REFERENCES, &moves)
+        .await
+        .map_err(|source| RekeyError::Postgres {
+            operation: "repoint",
+            source,
+        })?;
+    proof.tables = table_proofs(EVIDENCE_REFERENCES, &expected, &updated);
 
     // Verify BEFORE committing. A mismatch rolls the whole document back and
     // leaves its ids exactly as they were.
@@ -299,8 +261,8 @@ async fn apply_document(
         graph
             .run(
                 query("MATCH (e) WHERE e.id = $old AND labels(e)[0] = $label SET e.id = $new")
-                    .param("old", *old)
-                    .param("new", *new)
+                    .param("old", old.as_str())
+                    .param("new", new.as_str())
                     .param("label", ENTITY_EVIDENCE),
             )
             .await

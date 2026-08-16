@@ -8,7 +8,6 @@
 //! execution paths against DEV, not by unit tests against a fake pool.
 
 use super::*;
-use crate::rekey::execute::REFERENCING_COLUMNS as REKEY_COLUMNS;
 
 #[test]
 fn no_registry_lists_a_column_twice() {
@@ -16,7 +15,7 @@ fn no_registry_lists_a_column_twice() {
         ("EVIDENCE_REFERENCES", EVIDENCE_REFERENCES),
         ("EVIDENCE_CURATED_REFERENCES", EVIDENCE_CURATED_REFERENCES),
         ("PARTY_REFERENCES", PARTY_REFERENCES),
-        ("REKEY_OMITS", REKEY_OMITS),
+        ("SWEPT_AND_EXCLUDED", SWEPT_AND_EXCLUDED),
     ] {
         let mut seen: Vec<String> = registry.iter().map(ReferencingColumn::reference).collect();
         let before = seen.len();
@@ -63,46 +62,111 @@ fn extraction_items_is_the_one_evidence_reference_that_is_not_curated() {
     );
 }
 
+/// The eleven columns the 2026-08-15 `information_schema` sweep found, verbatim.
+///
+/// The registry is a MEASUREMENT, so the test compares it against the recorded
+/// result of that measurement rather than against itself. A column added to the
+/// schema without a re-sweep fails nothing here — nothing can catch that from
+/// inside the process — but a column silently REMOVED from the registry does,
+/// which is the direction the damage runs: the tools' proofs only see what the
+/// registry lists.
+const SWEEP_2026_08_15: &[(&str, &str)] = &[
+    ("scenario_candidate_ordinals", "graph_node_id"),
+    ("scan_run_verdicts", "graph_node_id"),
+    ("scenario_ruling_anchors", "graph_node_id"),
+    ("evidence_allegation_link_events", "graph_node_id"),
+    ("scenario_fact_refs", "graph_node_id"),
+    ("scenario_human_facts", "anchor_graph_node_id"),
+    ("evidence_allegation_links", "graph_node_id"),
+    ("scenario_human_facts", "answers_graph_node_id"),
+    ("evidence_summary_overrides", "graph_node_id"),
+    ("response_item_fact_refs", "graph_node_id"),
+    ("extraction_items", "neo4j_node_id"),
+];
+
 #[test]
-fn the_shipped_rekey_covers_all_but_the_three_recorded_omissions() {
-    // The re-key (39a8ba8) walks eight columns. The full measured list is
-    // eleven. This test states the gap in one place so it cannot drift into
-    // being forgotten: if someone extends the re-key, this fails and they must
-    // shrink REKEY_OMITS to match.
-    let rekey: Vec<String> = REKEY_COLUMNS
+fn the_registry_is_exactly_the_measured_information_schema_sweep() {
+    let mut registry: Vec<String> = EVIDENCE_REFERENCES
+        .iter()
+        .map(ReferencingColumn::reference)
+        .collect();
+    let mut swept: Vec<String> = SWEEP_2026_08_15
         .iter()
         .map(|(t, c)| format!("{t}.{c}"))
         .collect();
-
-    let mut missing: Vec<String> = EVIDENCE_REFERENCES
-        .iter()
-        .map(ReferencingColumn::reference)
-        .filter(|r| !rekey.contains(r))
-        .collect();
-    missing.sort();
-
-    let mut recorded: Vec<String> = REKEY_OMITS
-        .iter()
-        .map(ReferencingColumn::reference)
-        .collect();
-    recorded.sort();
+    registry.sort();
+    swept.sort();
 
     assert_eq!(
-        missing, recorded,
-        "the columns rekey_evidence does NOT update no longer match REKEY_OMITS. \
-         Update REKEY_OMITS (and the runbook's expected row count) deliberately"
+        registry, swept,
+        "EVIDENCE_REFERENCES no longer matches the recorded 2026-08-15 sweep. \
+         Re-run the query in the module header, update SWEEP_2026_08_15 with \
+         what it returns, and date it"
+    );
+    assert_eq!(EVIDENCE_REFERENCES.len(), 11);
+}
+
+#[test]
+fn the_rekey_walks_the_entire_registry_and_has_no_exceptions() {
+    // Ruled 2026-08-16, replacing a REKEY_OMITS list of three columns. There is
+    // one list now, and `rekey::execute::apply_document` reads
+    // EVIDENCE_REFERENCES directly — so "the re-key's list" and "the registry"
+    // are the same object and cannot drift apart. This asserts the ruling stayed
+    // ruled.
+    assert!(
+        REKEY_UPDATES_EVERYTHING,
+        "the re-key must update every column in EVIDENCE_REFERENCES; \
+         re-introducing an exception list needs a ruling, not a constant"
     );
 }
 
 #[test]
-fn every_rekey_column_is_in_the_measured_registry() {
-    // The other direction: the re-key must never update a column the merge tools
-    // have never heard of, or a merge would leave rows the re-key moved.
-    for (table, column) in REKEY_COLUMNS {
+fn the_three_columns_the_rekey_used_to_miss_are_in_the_registry() {
+    // Named individually rather than counted, because these three are the whole
+    // point of the 2026-08-16 correction and a regression would most likely drop
+    // exactly them.
+    for (table, column) in [
+        ("extraction_items", "neo4j_node_id"),
+        ("evidence_summary_overrides", "graph_node_id"),
+        ("response_item_fact_refs", "graph_node_id"),
+    ] {
         let c = ReferencingColumn { table, column };
         assert!(
             EVIDENCE_REFERENCES.contains(&c),
-            "rekey_evidence updates {} but EVIDENCE_REFERENCES does not list it",
+            "{} was added to the re-key on 2026-08-16 and is missing again",
+            c.reference()
+        );
+    }
+}
+
+#[test]
+fn the_two_empty_curated_columns_are_treated_as_curated_not_as_provenance() {
+    // They hold zero rows today. If a future edit decides "empty means it does
+    // not matter" and moves them out of the curated set, the twin merge would
+    // stop counting them when deciding whether a twin carries a ruling — and the
+    // first summary override Roman writes would become mergeable without him.
+    for (table, column) in [
+        ("evidence_summary_overrides", "graph_node_id"),
+        ("response_item_fact_refs", "graph_node_id"),
+    ] {
+        let c = ReferencingColumn { table, column };
+        assert!(
+            EVIDENCE_CURATED_REFERENCES.contains(&c),
+            "{} must stay in the curated set even while it is empty",
+            c.reference()
+        );
+    }
+}
+
+#[test]
+fn the_swept_and_excluded_columns_are_in_no_registry() {
+    // These matched the sweep by NAME and were excluded by CONTENT. If one is
+    // ever added to a registry without being removed from here, the two records
+    // disagree about what it holds.
+    for c in SWEPT_AND_EXCLUDED {
+        assert!(
+            !EVIDENCE_REFERENCES.contains(c) && !PARTY_REFERENCES.contains(c),
+            "{} is recorded as holding neither id family, yet a registry lists it",
             c.reference()
         );
     }

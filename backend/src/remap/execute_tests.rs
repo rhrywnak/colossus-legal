@@ -37,7 +37,7 @@ fn a_short_update_is_not_sound() {
 }
 
 #[test]
-fn an_update_that_moved_MORE_than_expected_is_also_not_sound() {
+fn an_update_that_moved_more_rows_than_expected_is_also_not_sound() {
     // Equality, not "at least". A higher count means the UPDATE matched rows the
     // plan did not know about, which is as much a failure as missing them — and
     // it is the reason the abort is on `!=` rather than `<`.

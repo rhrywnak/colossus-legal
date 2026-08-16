@@ -131,6 +131,10 @@ That is B2 §5's template side, complete. Verified by reading all eight.
 
 ### 3.4 · **`rekey_evidence` does not update three Evidence-referencing columns**
 
+> **RULED AND FIXED 2026-08-16 — see §11.** The section below is left as it was
+> written, because it is the finding that earned the ruling. What it describes is
+> no longer true of the code.
+
 Found by measuring `information_schema.columns` and then sampling each candidate's
 contents, as the P7 addendum required for parties. There are **eleven** columns
 holding Evidence graph ids, not eight:
@@ -402,8 +406,28 @@ STOP.
 cd ~/Projects/colossus-legal/backend && cargo run --bin rekey_evidence -- --apply
 ```
 
-Expect exit 0 and clean count proofs. **Exit 3 = a document aborted and was
-rolled back — STOP and read `rekey_evidence_report.txt`.**
+Expect exit 0, and **1,318 referencing rows updated across ELEVEN columns**
+(§11 — the eleven-column ruling of 2026-08-16; the eight-column version would
+have moved 835). The per-column figures the proof should print:
+
+```
+scenario_candidate_ordinals.graph_node_id      402
+scan_run_verdicts.graph_node_id                202
+scenario_ruling_anchors.graph_node_id          141
+extraction_items.neo4j_node_id                 483   <- new
+evidence_allegation_link_events.graph_node_id   31
+scenario_fact_refs.graph_node_id                27
+scenario_human_facts.anchor_graph_node_id       16
+evidence_allegation_links.graph_node_id          9
+scenario_human_facts.answers_graph_node_id       7
+evidence_summary_overrides.graph_node_id         0   <- new
+response_item_fact_refs.graph_node_id            0   <- new
+                                             ─────
+                                             1,318
+```
+
+**Exit 3 = a document aborted and was rolled back — STOP and read
+`rekey_evidence_report.txt`.**
 
 ### Step D — the twin merge (NEW)
 
@@ -608,5 +632,114 @@ flag them, and the two worst — `apply_cluster` in both merge tools, at 104 and
 — were split down to 75 and 60. The rest are report renderers and CLI shells
 where "extract a helper" costs more legibility than it buys. Named here so the
 decision is visible rather than assumed.
+
+---
+
+## 11 · AMENDMENT — THE ELEVEN-COLUMN RE-KEY (2026-08-16, ruled)
+
+**Ruling:** `rekey_evidence` must update all eleven Evidence-referencing columns,
+from the same registry the merge tools already walk — one list, not two.
+`REKEY_OMITS` removed; the drift test kept, now proving the list is complete.
+
+**Commit:** on `feat/template-batch-id-arm`, on top of `3684df1` / `bb4559a`.
+Not pushed, no tag, no bump. **Still nothing run that writes.**
+
+### What changed
+
+- **`rekey::execute` no longer owns a column list.** Its private
+  `REFERENCING_COLUMNS` (eight) is gone, along with its private `count_expected`
+  and `apply_updates`. It now reads `oneshot::refs::EVIDENCE_REFERENCES` and
+  calls the shared `count_rows` / `repoint` / `table_proofs` — the same code
+  path the twin merge, the remap and the party merge use. "The re-key's list"
+  and "the registry" are now one object and cannot drift apart.
+- **`rekey::report::TableProof` is now a re-export** of the shared type. It was
+  the fourth identical copy of that struct; there is one.
+- **`REKEY_OMITS` is gone**, replaced by `REKEY_UPDATES_EVERYTHING` — a constant
+  whose only job is to give the test something to name and to give anyone
+  minded to re-introduce an exception a place where the refusal is written down.
+- **The drift test became a completeness test.** `SWEEP_2026_08_15` records the
+  eleven columns the `information_schema` query returned, verbatim, and the
+  registry is asserted equal to it. The query itself is now in the module header
+  so the sweep can be re-run rather than re-derived.
+- **`SWEPT_AND_EXCLUDED` added** — the five columns that matched the sweep by
+  NAME and were excluded by CONTENT (`authored_entities.entity_id`,
+  `authored_relationships` ×2, `scenario_human_facts.person_refs`,
+  `scan_run_merges.selected_node_ids`). A test asserts no registry lists them, so
+  the two records cannot disagree about what a column holds.
+- Per-document count → verify → commit is **unchanged**. The three new columns
+  are counted, updated and verified inside the same transaction as the other
+  eight, and a mismatch on any of the eleven rolls that document back whole.
+  Idempotency and exit codes unchanged.
+
+### The expected figures — measured, and they differ from the ruling's
+
+The ruling projected **1,472** rows to update (947 + 525 + 0 + 0). **1,472 is
+correct as the total number of rows referencing an Evidence id across all eleven
+columns** — I re-measured it on DEV today and it is exact.
+
+But it is not what the re-key UPDATES. 154 of those rows sit on the **42 refused
+twins**, which the re-key deliberately does not move. The number the count proof
+will print is therefore:
+
+| | Rows |
+|---|---|
+| All Evidence-referencing rows, eleven columns | **1,472** |
+| …of which sit on the 42 refused twins | −154 |
+| **Rows the re-key updates** | **1,318** |
+
+Cross-check from the other direction: 947 curated rows − 112 on twins = 835,
+plus 483 `extraction_items` rows on re-keyed nodes = 1,318. The two agree.
+
+**Per-column, as the proof will print it:** `scenario_candidate_ordinals` 402 ·
+`scan_run_verdicts` 202 · `scenario_ruling_anchors` 141 ·
+**`extraction_items.neo4j_node_id` 483** · `evidence_allegation_link_events` 31 ·
+`scenario_fact_refs` 27 · `scenario_human_facts.anchor` 16 ·
+`evidence_allegation_links` 9 · `scenario_human_facts.answers` 7 ·
+`evidence_summary_overrides` 0 · `response_item_fact_refs` 0.
+
+Node figures are unchanged: **483 to re-key · 42 refused in 21 groups · 525
+seen.** Runbook Step C in §7 now carries the full per-column table.
+
+The measurement query is in `oneshot::refs`'s module header; the twin-id list it
+excludes is the same 21 pairs §2 reports.
+
+### Tests for the three new columns
+
+- `the_registry_is_exactly_the_measured_information_schema_sweep` — registry vs
+  the dated sweep, both directions.
+- `the_rekey_walks_the_entire_registry_and_has_no_exceptions`.
+- `the_three_columns_the_rekey_used_to_miss_are_in_the_registry` — named
+  individually, because a regression would most likely drop exactly those three.
+- `the_two_empty_curated_columns_are_treated_as_curated_not_as_provenance` — if
+  a future edit reasons "empty means it does not matter" and moves them out of
+  the curated set, the twin merge stops counting them when deciding whether a
+  twin carries a ruling, and the first summary override Roman writes becomes
+  mergeable without him.
+- `the_swept_and_excluded_columns_are_in_no_registry`.
+- In `rekey::execute_tests`: `the_rekey_walks_every_column_in_the_shared_registry`
+  and `the_columns_added_on_the_sixteenth_are_still_there`, replacing the old
+  `the_referencing_column_list_is_the_measured_eight`.
+
+### Verification
+
+| Check | Result |
+|---|---|
+| `cargo test --lib` | **2068 passed / 0 failed / 2 ignored** (+3) |
+| `cargo clippy --lib --bins -- -D warnings` | **clean** |
+| `cargo fmt --check` | **clean** |
+| `cargo check --bins` | **clean** |
+| `cargo build --lib --bins` | **clean** |
+| Module size (§8 command) | no `rekey` or `oneshot` module over 300 lines |
+
+Frontend untouched by this amendment.
+
+### One thing worth knowing
+
+`extraction_items.neo4j_node_id` is pipeline provenance, not curated state, and
+it is deliberately NOT in `EVIDENCE_CURATED_REFERENCES`. That distinction still
+does real work: the re-key now MOVES it, while the twin merge still does not
+count it when deciding whether a twin carries a human ruling. A twin whose only
+reference is an `extraction_items` row remains mechanically mergeable, which is
+what keeps the expected 14-merge / 7-refuse split intact.
 
 === END REPORT — VERDICT: PASS ===

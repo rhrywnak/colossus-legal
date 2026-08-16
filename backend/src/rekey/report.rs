@@ -6,10 +6,11 @@
 //!
 //! ## Why a per-table breakdown and not one total
 //!
-//! 947 curated rows across eight columns. A single "947 rows updated" line is
-//! satisfied by a run that moved 947 rows in the wrong table. The per-table
-//! expected-vs-updated pairs are what make the claim checkable — and they are
-//! what the abort decision is made on, table by table, before anything commits.
+//! 1,318 rows across eleven columns (measured 2026-08-16). A single
+//! "1,318 rows updated" line is satisfied by a run that moved 1,318 rows in the
+//! wrong table. The per-table expected-vs-updated pairs are what make the claim
+//! checkable — and they are what the abort decision is made on, table by table,
+//! before anything commits.
 
 use std::fmt::Write as _;
 
@@ -48,28 +49,13 @@ pub use crate::oneshot::exit::{
 /// document here, a cluster in the merges. Same number, and the same meaning.
 pub const EXIT_DOCUMENTS_ABORTED: u8 = crate::oneshot::exit::EXIT_UNIT_ABORTED;
 
-/// What one referencing table did for one document.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TableProof {
-    /// `table.column`, because two of the eight are on one table.
-    pub reference: String,
-    /// Rows that pointed at an old id BEFORE the write.
-    pub expected: u64,
-    /// Rows the UPDATE actually changed.
-    pub updated: u64,
-}
-
-impl TableProof {
-    /// Whether the write did exactly what the pre-count said it would.
-    ///
-    /// Domain note: equality, not "at least". A row count HIGHER than expected
-    /// means the UPDATE matched something the plan did not know about, which is
-    /// as much of a failure as missing rows — and the reason the abort is on
-    /// `!=` rather than `<`.
-    pub fn is_sound(&self) -> bool {
-        self.expected == self.updated
-    }
-}
+/// What one referencing column did — the family-wide proof type.
+///
+/// Re-exported rather than redefined. When the re-key was the only tool it owned
+/// this struct; three more tools then defined it identically, which is how a
+/// `!=` quietly becomes a `>=` in one of them. One definition, in
+/// [`crate::oneshot::refs::TableProof`], beside the registry it proves.
+pub use crate::oneshot::refs::TableProof;
 
 /// What one document's unit of work did.
 #[derive(Debug, Clone, PartialEq, Eq)]

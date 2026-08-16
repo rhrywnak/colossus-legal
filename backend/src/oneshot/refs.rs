@@ -15,19 +15,23 @@
 //! plausible id-bearing names, then each candidate's contents were sampled to see
 //! which id FAMILY it actually holds. Names lie; contents do not.
 //!
-//! | Column | Rows | Evidence ids | Party ids |
-//! |---|---|---|---|
-//! | `scenario_candidate_ordinals.graph_node_id` | 444 | 444 | 0 |
-//! | `scan_run_verdicts.graph_node_id` | 226 | 226 | 0 |
-//! | `scenario_ruling_anchors.graph_node_id` | 167 | 167 | 0 |
-//! | `evidence_allegation_link_events.graph_node_id` | 37 | 37 | 0 |
-//! | `scenario_fact_refs.graph_node_id` | 35 | 35 | 0 |
-//! | `scenario_human_facts.anchor_graph_node_id` | 18 | 18 | 0 |
-//! | `evidence_allegation_links.graph_node_id` | 11 | 11 | 0 |
-//! | `scenario_human_facts.answers_graph_node_id` | 9 | 9 | 0 |
-//! | `evidence_summary_overrides.graph_node_id` | 0 | 0 | 0 |
-//! | `response_item_fact_refs.graph_node_id` | 0 | 0 | 0 |
-//! | `extraction_items.neo4j_node_id` | 849 | **525** | **133** |
+//! The last column is what a re-key run actually moves: rows on the 483 nodes it
+//! re-keys, which excludes the rows sitting on the 42 twins it refuses.
+//!
+//! | Column | Rows | Evidence ids | Party ids | Re-keyed |
+//! |---|---|---|---|---|
+//! | `scenario_candidate_ordinals.graph_node_id` | 444 | 444 | 0 | 402 |
+//! | `scan_run_verdicts.graph_node_id` | 226 | 226 | 0 | 202 |
+//! | `scenario_ruling_anchors.graph_node_id` | 167 | 167 | 0 | 141 |
+//! | `evidence_allegation_link_events.graph_node_id` | 37 | 37 | 0 | 31 |
+//! | `scenario_fact_refs.graph_node_id` | 35 | 35 | 0 | 27 |
+//! | `scenario_human_facts.anchor_graph_node_id` | 18 | 18 | 0 | 16 |
+//! | `evidence_allegation_links.graph_node_id` | 11 | 11 | 0 | 9 |
+//! | `scenario_human_facts.answers_graph_node_id` | 9 | 9 | 0 | 7 |
+//! | `evidence_summary_overrides.graph_node_id` | 0 | 0 | 0 | 0 |
+//! | `response_item_fact_refs.graph_node_id` | 0 | 0 | 0 | 0 |
+//! | `extraction_items.neo4j_node_id` | 849 | **525** | **133** | **483** |
+//! | **TOTAL** | | **1,472** | | **1,318** |
 //!
 //! Two things in that table were not in the re-key's eight, and both matter:
 //!
@@ -40,14 +44,36 @@
 //!    and is READ — `lookup_neo4j_node_ids` uses it to resolve cross-document
 //!    references at ingest, and pass-2 prefers it over re-resolving. It is
 //!    pipeline provenance rather than curated state, which is presumably why it
-//!    was not in the re-key's list, but a stale id there is still a stale id.
+//!    was not in the re-key's original list, but a stale id there is still a
+//!    stale id.
 //!
-//! **`rekey_evidence` (shipped 2026-08-14) knows only the first eight.** That is
-//! recorded here rather than silently corrected: changing its list changes the
-//! `947` the runbook tells the operator to expect, and that is Roman's call, not
-//! this batch's. [`REKEY_OMITS`] names the gap and a test pins it, so the
-//! discrepancy is visible in the source instead of living in a report nobody
-//! re-reads.
+//! All eleven are the registry, and **every tool walks all eleven** — the
+//! re-key included, ruled 2026-08-16. It originally knew only the eight that
+//! were POPULATED when Phase A measured, which left 483 rows in
+//! `extraction_items` pointing at ids it had just changed. There is now one
+//! list, not two, and [`REKEY_UPDATES_EVERYTHING`] plus its test say so in a
+//! form that fails the build if it ever stops being true.
+//!
+//! ## Re-running the sweep
+//!
+//! The inventory is a MEASUREMENT, so it has a date and a query. To confirm it
+//! still holds, or after adding a table:
+//!
+//! ```sql
+//! SELECT table_name, column_name FROM information_schema.columns
+//!  WHERE table_schema = 'public'
+//!    AND (column_name LIKE '%graph_node%' OR column_name LIKE '%node_id%'
+//!         OR column_name LIKE '%entity_id%' OR column_name LIKE '%person%'
+//!         OR column_name LIKE '%party%')
+//!  ORDER BY 1, 2;
+//! ```
+//!
+//! Names lie, so each candidate's CONTENTS were then sampled for `%:evidence:%`
+//! and
+//! `person-%` / `org-%` prefixes. `authored_entities`, `authored_relationships`,
+//! `scenario_human_facts.person_refs` and `scan_run_merges.selected_node_ids`
+//! all matched the name filter and hold NEITHER family; they are recorded in
+//! [`SWEPT_AND_EXCLUDED`] so a future sweep does not have to rediscover that.
 //!
 //! ## Party ids
 //!
@@ -138,14 +164,32 @@ pub const EVIDENCE_CURATED_REFERENCES: &[ReferencingColumn] = &[
 /// empty — the short list is a finding, not an omission.
 pub const PARTY_REFERENCES: &[ReferencingColumn] = &[col("extraction_items", "neo4j_node_id")];
 
-/// What `rekey_evidence` does NOT update, recorded so the gap is visible.
+/// Every tool walks [`EVIDENCE_REFERENCES`] in full, `rekey_evidence` included.
 ///
-/// The shipped re-key walks the first eight of [`EVIDENCE_REFERENCES`]. These
-/// three are the difference. Two are empty today; the third is not.
-pub const REKEY_OMITS: &[ReferencingColumn] = &[
-    col("evidence_summary_overrides", "graph_node_id"),
-    col("response_item_fact_refs", "graph_node_id"),
-    col("extraction_items", "neo4j_node_id"),
+/// This replaced a `REKEY_OMITS` list that recorded three columns the re-key did
+/// not update. Ruled 2026-08-16: it updates all of them, so the list of
+/// exceptions is gone rather than shortened, and the flag below is what a test
+/// asserts instead. Keeping a `const` here rather than nothing at all is
+/// deliberate — it gives the test something to name, and it gives anyone
+/// tempted to add an exception a place where the refusal is written down.
+pub const REKEY_UPDATES_EVERYTHING: bool = true;
+
+/// Columns the 2026-08-15 sweep surfaced by NAME and excluded by CONTENT.
+///
+/// Recorded so a later sweep does not have to re-derive that these hold neither
+/// an Evidence id nor a party id. If any of them starts carrying one, it belongs
+/// in a registry above and this entry comes out.
+///
+/// - `authored_entities.entity_id` — 40 rows, hand-authored Tier-1 ids
+/// - `authored_relationships.from_entity_id` / `.to_entity_id` — 243 rows each
+/// - `scenario_human_facts.person_refs` — 1 row, an empty array
+/// - `scan_run_merges.selected_node_ids` — no rows
+pub const SWEPT_AND_EXCLUDED: &[ReferencingColumn] = &[
+    col("authored_entities", "entity_id"),
+    col("authored_relationships", "from_entity_id"),
+    col("authored_relationships", "to_entity_id"),
+    col("scenario_human_facts", "person_refs"),
+    col("scan_run_merges", "selected_node_ids"),
 ];
 
 /// Count the rows each column holds for these ids, inside the caller's
