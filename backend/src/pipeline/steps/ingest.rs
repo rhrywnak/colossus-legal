@@ -48,7 +48,8 @@ use colossus_pipeline::{Step, StepResult};
 use crate::api::pipeline::ingest_helpers::{
     create_contained_in_relationships, create_document_node, create_entity_node,
     create_ingest_relationship, create_party_nodes, create_provenance_relationships,
-    delete_cross_tier_relationships_for_document, write_cross_tier_relationship,
+    delete_cross_tier_relationships_for_document, fetch_document_date,
+    write_cross_tier_relationship,
 };
 use crate::api::pipeline::ingest_resolver;
 use crate::models::document_status::{PARTY_SUBTYPES, STATUS_INGESTED};
@@ -352,13 +353,27 @@ pub async fn run_ingest(
         let mut pg_to_label: HashMap<i32, String> = HashMap::new();
 
         // 7. Create Document node
-        let doc_neo4j_id =
-            create_document_node(&mut txn, doc_id, &document.title, &document.document_type)
+        // Task P4a: the document's own date rides onto the graph node with it.
+        let (document_date, date_precision) =
+            fetch_document_date(db, doc_id)
                 .await
                 .map_err(|e| IngestError::Helper {
                     doc_id: doc_id.to_string(),
-                    message: format!("create_document_node: {e:?}"),
+                    message: format!("fetch_document_date: {e:?}"),
                 })?;
+        let doc_neo4j_id = create_document_node(
+            &mut txn,
+            doc_id,
+            &document.title,
+            &document.document_type,
+            document_date.as_deref(),
+            date_precision.as_deref(),
+        )
+        .await
+        .map_err(|e| IngestError::Helper {
+            doc_id: doc_id.to_string(),
+            message: format!("create_document_node: {e:?}"),
+        })?;
 
         // 8. Create Party nodes
         let (person_count, org_count) = create_party_nodes(

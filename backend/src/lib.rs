@@ -12,12 +12,17 @@ pub mod error;
 pub(crate) mod llm_retry;
 pub mod models;
 pub mod neo4j;
+pub mod oneshot;
+pub mod partymerge;
 pub mod pipeline;
 pub mod prompt_loader;
+pub mod rekey;
+pub mod remap;
 pub mod repositories;
 pub mod restate_endpoint;
 pub mod services;
 pub mod state;
+pub mod twinmerge;
 
 /// Crate-wide SQL invariants, asserted by scanning the source tree.
 ///
@@ -28,3 +33,13 @@ pub mod state;
 /// wrong signal — it implied a scope narrower than the check actually has.
 #[cfg(test)]
 mod sql_invariants;
+
+/// Crate-wide disk invariants over the extraction profiles, templates and
+/// schemas, asserted by scanning them.
+///
+/// Declared at the crate root for the same reason as [`sql_invariants`]: the
+/// scan inside covers EVERY profile YAML, not one module's, and a reader chasing
+/// a template/schema disagreement should be able to find the test that polices it
+/// from here.
+#[cfg(test)]
+mod template_invariants;

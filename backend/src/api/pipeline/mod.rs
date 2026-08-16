@@ -20,9 +20,11 @@ mod config_handler;
 pub(crate) mod constants;
 mod delete;
 mod delete_restate_purge;
+pub mod document_date;
 mod document_response;
 mod document_types;
 mod errors;
+pub mod evidence_key;
 pub(crate) mod extract_text;
 pub mod file;
 pub mod graph_migrations;
@@ -91,6 +93,15 @@ pub fn router() -> Router<AppState> {
                 .layer(DefaultBodyLimit::max(MAX_FILE_SIZE)),
         )
         .route("/documents/errors", get(errors::errors_handler))
+        // Task P4b. One endpoint for both callers: the upload dialog records the
+        // date right after the file lands, and the document page corrects it
+        // afterwards. `date-precisions` is above `:id` so the literal segment is
+        // not captured as a document id.
+        .route(
+            "/documents/date-precisions",
+            get(document_date::list_date_precisions),
+        )
+        .route("/documents/:id/date", put(document_date::set_document_date))
         .route("/documents/:id", delete(delete_document))
         .route("/documents/:id/extract-text", post(extract_text))
         .route("/documents/:id/process", post(process::process_handler))

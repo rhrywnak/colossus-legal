@@ -28,6 +28,7 @@ use crate::state::AppState;
 use super::ingest_helpers::{
     create_contained_in_relationships, create_document_node, create_entity_node,
     create_ingest_relationship, create_party_nodes, create_provenance_relationships,
+    fetch_document_date,
 };
 use super::ingest_resolver::{self, ResolutionSummary};
 
@@ -254,7 +255,17 @@ async fn run_ingest_locked(
     // 8. Create Document node
     let doc_type = document.document_type.clone();
 
-    let doc_neo4j_id = create_document_node(&mut txn, doc_id, &document.title, &doc_type).await?;
+    // Task P4a: the document's own date rides onto the graph node with it.
+    let (document_date, date_precision) = fetch_document_date(&state.pipeline_pool, doc_id).await?;
+    let doc_neo4j_id = create_document_node(
+        &mut txn,
+        doc_id,
+        &document.title,
+        &doc_type,
+        document_date.as_deref(),
+        date_precision.as_deref(),
+    )
+    .await?;
 
     // 9. Create/merge Party nodes (Person + Organization) using resolution map.
     //    pg_to_label tracks which Neo4j label each item actually got
@@ -727,7 +738,17 @@ async fn run_ingest_delta_locked(
     // 6. MERGE the Document node (idempotent — no-op update on a
     //    document that already exists in Neo4j).
     let doc_type = document.document_type.clone();
-    let doc_neo4j_id = create_document_node(&mut txn, doc_id, &document.title, &doc_type).await?;
+    // Task P4a: the document's own date rides onto the graph node with it.
+    let (document_date, date_precision) = fetch_document_date(&state.pipeline_pool, doc_id).await?;
+    let doc_neo4j_id = create_document_node(
+        &mut txn,
+        doc_id,
+        &document.title,
+        &doc_type,
+        document_date.as_deref(),
+        date_precision.as_deref(),
+    )
+    .await?;
 
     // 7. Party nodes (MERGE). create_party_nodes filters the Party
     //    family itself; it iterates `delta_items` so only new Parties

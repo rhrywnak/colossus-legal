@@ -1,6 +1,15 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { fetchSchemas, uploadDocument, SchemaInfo } from "../../services/pipelineApi";
+import DocumentDateField, {
+  DocumentDateValue,
+  isDocumentDateComplete,
+} from "./DocumentDateField";
+import {
+  DatePrecisionOption,
+  fetchDatePrecisions,
+  setDocumentDate,
+} from "../../services/documentDate";
 
 interface Props {
   open: boolean;
@@ -71,6 +80,16 @@ const UploadDialog: React.FC<Props> = ({ open, onClose, onSuccess }) => {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
+  // Task P4b. Asked here, at intake, because this is the only moment the person
+  // with the document in front of them is also in front of the form. The
+  // precision select starts empty on purpose: mandatory-with-override means the
+  // question must be ANSWERED, and "No date on the document" is one of the
+  // answers rather than a way of skipping it.
+  const [documentDate, setDocumentDateValue] = useState<DocumentDateValue>({
+    date: null,
+    precision: "",
+  });
+  const [precisions, setPrecisions] = useState<DatePrecisionOption[]>([]);
 
   useEffect(() => {
     if (open) {
@@ -84,8 +103,19 @@ const UploadDialog: React.FC<Props> = ({ open, onClose, onSuccess }) => {
               : "Failed to load document types",
           );
         });
+      fetchDatePrecisions()
+        .then(setPrecisions)
+        .catch((e) => {
+          setPrecisions([]);
+          setError(
+            e instanceof Error
+              ? `Failed to load date options: ${e.message}`
+              : "Failed to load date options",
+          );
+        });
       setFile(null);
       setSchema("");
+      setDocumentDateValue({ date: null, precision: "" });
       setError(null);
     }
   }, [open]);
@@ -131,6 +161,26 @@ const UploadDialog: React.FC<Props> = ({ open, onClose, onSuccess }) => {
       const id = `doc-${slugify(file.name)}`;
       const title = titleize(file.name);
       const doc = await uploadDocument(file, { id, title, documentType, profileVersion });
+
+      // The date is a second call, deliberately: it is the SAME endpoint the
+      // document page uses to correct a date later, so the mandatory-with-
+      // override rule is validated in exactly one place. If it fails the
+      // document still exists — undated, which is a real and recoverable state —
+      // and the user is told so explicitly rather than being dropped on the
+      // processing tab believing they recorded a date.
+      try {
+        await setDocumentDate(doc.id, documentDate.date, documentDate.precision);
+      } catch (dateError) {
+        setUploading(false);
+        setError(
+          `The file uploaded, but its date was not saved: ${
+            dateError instanceof Error ? dateError.message : "unknown error"
+          }. Set it on the document page.`,
+        );
+        onSuccess();
+        return;
+      }
+
       setUploading(false);
       onSuccess();
       navigate(`/documents/${doc.id}?tab=processing`);
@@ -140,7 +190,15 @@ const UploadDialog: React.FC<Props> = ({ open, onClose, onSuccess }) => {
     }
   };
 
-  const canUpload = !!file && !!schema && !uploading;
+  // The date question gates the upload the same way the document type does —
+  // that is what "mandatory" means here. `isDocumentDateComplete` is the shared
+  // rule, so this screen and the document page agree on what a complete answer
+  // is.
+  const canUpload =
+    !!file &&
+    !!schema &&
+    !uploading &&
+    isDocumentDateComplete(documentDate, precisions);
 
   return (
     <div style={overlay} onClick={onClose}>
@@ -185,6 +243,12 @@ const UploadDialog: React.FC<Props> = ({ open, onClose, onSuccess }) => {
               );
             })}
         </select>
+
+        <DocumentDateField
+          value={documentDate}
+          onChange={setDocumentDateValue}
+          disabled={uploading}
+        />
 
         {error && (
           <div style={{ padding: "0.5rem 0.75rem", backgroundColor: "var(--state-danger-bg-soft)", border: "1px solid var(--state-danger-border)", borderRadius: "6px", color: "var(--status-dropped-text)", fontSize: "0.76rem", marginBottom: "0.75rem" }}>
