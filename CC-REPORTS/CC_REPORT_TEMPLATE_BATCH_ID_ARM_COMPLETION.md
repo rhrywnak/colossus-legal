@@ -1,6 +1,6 @@
 === CC REPORT — CC_TASK_TEMPLATE_BATCH_AND_ID_ARM_v1 (+ P7 ADDENDUM) — COMPLETION — 2026-08-16 ===
 
-**Branch:** `feat/template-batch-id-arm` · **HEAD:** `accc3ee` on top of `08c7c2e`.
+**Branch:** `feat/template-batch-id-arm` · **HEAD:** `3684df1` on top of `08c7c2e`.
 **Nothing pushed. Nothing tagged. No version bump.**
 **Nothing was run against DEV that writes.** Every live query in this session was
 read-only `SELECT` / `MATCH`; no reprocess, no remap, no merge, no re-key.
@@ -324,7 +324,7 @@ source never stated.
 |---|---|
 | `cargo build --lib --bins` | **clean** |
 | `cargo check --bins` | **clean** |
-| `cargo test --lib` | **2040 passed / 0 failed / 2 ignored** (was 1911 at handoff — **+129**) |
+| `cargo test --lib` | **2065 passed / 0 failed / 2 ignored** (was 1911 at handoff — **+154**) |
 | `cargo clippy --lib --bins -- -D warnings` | **clean** |
 | `cargo fmt --check` | **clean** |
 | `npm run typecheck` | **clean** |
@@ -338,13 +338,16 @@ reasons (stale `AppState` fields in `backend/tests/*.rs` since ~beta.343), and
 the handoff note says not to fix those here. `cargo test --lib` is the honest
 baseline and it is clean. Frontend has no lint script; there is no eslint config.
 
-**New test coverage by area:** oneshot 16 · twinmerge 18 · partymerge 44 ·
-remap 26 · date_precision 10 · document_date 8 · template_invariants 6 ·
-frontend 13.
+**New test coverage by area:** oneshot 19 · twinmerge 23 · partymerge 53 ·
+remap 33 · date_precision 10 · document_date 9 · template_invariants 6 ·
+frontend 13 — post-gate figures; 25 of these were added in answer to the
+test-auditor.
 
 ### Four-agent gate
 
-Run once against `accc3ee`. **Results are recorded in §9 below.**
+Run once against the commit. **All four returned FAIL on the first pass, every
+finding was real, and all are fixed** — see §9. Every check above was re-run
+after the fixes; the table holds the post-fix numbers.
 
 ---
 
@@ -503,7 +506,81 @@ doing its job and the wave should not run.
 
 ## 9 · FOUR-AGENT GATE RESULTS
 
-*(filled in below — see the appended section)*
+Run once against the commit, per §11. **All four FAILED on the first pass. Every
+finding was real and every one is fixed; the commit was amended.** Nothing was
+overridden and nothing was deferred.
+
+### observability-checker — FAIL → fixed
+
+**One finding, and a good one.** `set_document_date` called the repository and
+discarded the `rows_affected` it returns. A date typed against a document id that
+does not exist would have matched zero rows, been logged "document date recorded"
+at INFO, and returned **200 with the values echoed back** — identical to a
+successful write, with nothing stored. The repository's own doc comment says the
+count exists precisely so a caller can tell those apart, and the caller was not
+using it.
+
+Fixed: zero rows is now a `404` naming the document and saying the date was NOT
+stored, with a WARN alongside. The Neo4j mirror moved to AFTER the check, so a
+date is never mirrored onto a node whose Postgres row does not exist.
+
+Everything else passed, including the judgement that the maintenance tools'
+report-file-plus-tracing model is the right observability for a hand-run tool.
+
+### architecture-reviewer — FAIL → fixed
+
+The `oneshot` seam itself passed — "this is the right seam", including the
+decision NOT to share the plan modules. Four findings:
+
+1. **`twinmerge`'s defensive arm borrowed `UnsafePlan`**, whose message says two
+   nodes are sharing an id. That is not what happened, and it would have sent an
+   operator hunting through the corpus for a problem that is in the code.
+2. **`partymerge`'s did worse** — it borrowed `UnknownEdgeTypes`, whose message
+   ends "add them to `PARTY_EDGE_TYPES`". Someone would have pasted a cluster
+   label into a relationship-type list.
+3. and 4. Two constants carried their justification in `///` prose rather than
+   the repo's `// STRUCTURAL:` / `// CONST:` format, where a reader at the
+   declaration actually sees it.
+
+Fixed: both tools gained an `InvariantViolated` variant whose message says
+plainly that it is a BUG needing a code fix, not a data problem — with tests
+asserting the party one does NOT mention `PARTY_EDGE_TYPES`. Both constants now
+carry the formal justification comments.
+
+### test-auditor — FAIL → fixed
+
+Five gaps, and the fifth was the sharpest: **`failure_reason` was decision logic
+stranded in an execute module**, private and therefore unreachable by any test —
+in a module whose own header says every decision lives elsewhere. Its three abort
+conditions are not interchangeable and none was covered.
+
+Fixed: `failure_reason` moved to `report.rs` as a method on `ClusterProof`, with
+five tests covering all three conditions plus "deleted more nodes than named".
+The other four gaps produced `twinmerge/execute_tests.rs` (5),
+`partymerge/execute_tests.rs` (4), `remap/execute_tests.rs` (7) and three more in
+`oneshot/refs_tests.rs`.
+
+### rules-enforcer — FAIL → fixed
+
+Ten violations, all in this diff. Two constants needing `// STRUCTURAL:` rather
+than `///` (the same pair the architecture agent named). Three `Deserialize`
+structs without `deny_unknown_fields` — one an HTTP request body, two the remap
+snapshot format, where an unknown field means this build and the writing build
+disagree about what was captured. And **four bare relationship literals in
+Cypher** — `[:STATED_BY]` and `[:CONTAINED_IN]` typed as strings instead of
+interpolated from `neo4j::schema`, where every graph-schema name in this repo
+lives.
+
+Fixed: all ten. `PARTY_EDGE_TYPES` now reads from `schema::` too, and
+`schema::SUFFERED_BY` was added — it was the one party-incident type the schema
+module did not have.
+
+**Pre-existing, reported for awareness, NOT fixed here:** four files were already
+over the 300-line module limit before this batch, and this commit's additions
+made them slightly longer — `ingest_helpers.rs` (748 → 788), `ingest.rs`
+(890 → 911), `steps/ingest.rs` (571 → 586), `document_records.rs` (337 → 371).
+Splitting any of them is a refactor of the ingest path on the eve of a deploy,
+which is the wrong week. Every module this batch CREATED is under the limit.
 
 ---
 
@@ -525,4 +602,11 @@ doing its job and the wave should not run.
   surfaces with zero rows today. They are in the new tools' registry so that
   stops being load-bearing.
 
-=== END REPORT — VERDICT: PENDING GATE ===
+**Remaining, and stated rather than hidden:** ten functions in the new modules
+sit between 51 and 75 code lines against Rule 18's 50. The rules-enforcer did not
+flag them, and the two worst — `apply_cluster` in both merge tools, at 104 and 88
+— were split down to 75 and 60. The rest are report renderers and CLI shells
+where "extract a helper" costs more legibility than it buys. Named here so the
+decision is visible rather than assumed.
+
+=== END REPORT — VERDICT: PASS ===
