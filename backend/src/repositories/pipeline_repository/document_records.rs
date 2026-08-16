@@ -186,6 +186,70 @@ pub async fn insert_document(
     Ok(())
 }
 
+/// One document's own date, as stored (task P4).
+///
+/// Both fields `Option` and both meaning something specific:
+/// - `(None, None)` — nobody has been asked yet. Every row starts here.
+/// - `(None, Some("unknown"))` — a human looked and the document carries no
+///   usable date. An ANSWER, not an absence.
+/// - `(Some(d), Some("day"|"month"|"year"))` — dated, to the precision the
+///   source actually stated.
+///
+/// The migration's CHECK constraint makes any other combination unstorable, so
+/// this type cannot hold a state the database would refuse.
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+pub struct DocumentDateRecord {
+    pub document_date: Option<chrono::NaiveDate>,
+    pub date_precision: Option<String>,
+}
+
+/// Record or correct a document's own date.
+///
+/// ## Rust Learning: casting a `&str` to `DATE` in the statement
+///
+/// The date arrives as text — that is what a browser form and a JSON body
+/// carry — and `$2::date` asks Postgres to parse it, so a malformed date is
+/// rejected by the database's own parser with its own message rather than by a
+/// hand-rolled one here. `NULL::date` is still NULL, so the "unknown" case needs
+/// no separate statement.
+///
+/// Returns the number of rows changed, so a caller can tell "stored" from "no
+/// such document" — which an `Ok(())` could not (Standing Rule 1).
+pub async fn set_document_date(
+    pool: &PgPool,
+    document_id: &str,
+    document_date: Option<&str>,
+    date_precision: &str,
+) -> Result<u64, PipelineRepoError> {
+    let result = sqlx::query(
+        "UPDATE documents SET document_date = $2::date, date_precision = $3, \
+         updated_at = NOW() WHERE id = $1",
+    )
+    .bind(document_id)
+    .bind(document_date)
+    .bind(date_precision)
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected())
+}
+
+/// Read one document's own date.
+///
+/// Returns `None` when there is no such document — distinct from a document that
+/// exists with no date recorded, which comes back as `Some` with two `None`s.
+pub async fn get_document_date(
+    pool: &PgPool,
+    document_id: &str,
+) -> Result<Option<DocumentDateRecord>, PipelineRepoError> {
+    let record = sqlx::query_as::<_, DocumentDateRecord>(
+        "SELECT document_date, date_precision FROM documents WHERE id = $1",
+    )
+    .bind(document_id)
+    .fetch_optional(pool)
+    .await?;
+    Ok(record)
+}
+
 /// Update the entity and relationship write counts on the documents table.
 ///
 /// Called after Ingest commits nodes to Neo4j. These counts power the

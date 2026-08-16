@@ -20,7 +20,7 @@ use crate::models::document_status::{
     ENTITY_COMPLAINT_ALLEGATION, ENTITY_EVIDENCE, ENTITY_HARM, ENTITY_LEGAL_COUNT,
     ENTITY_ORGANIZATION, ENTITY_PERSON, PARTY_SUBTYPES, REL_CONTAINED_IN, STATUS_INGESTED,
 };
-use crate::repositories::pipeline_repository::ExtractionItemRecord;
+use crate::repositories::pipeline_repository::{self, ExtractionItemRecord};
 
 use super::evidence_key::evidence_id_from_properties;
 use super::ingest_resolver::ResolutionMap;
@@ -201,11 +201,52 @@ pub fn stable_entity_id(item: &ExtractionItemRecord, doc_id: &str) -> String {
 /// Uses MERGE on a stable ID derived from doc_id (not title) to ensure
 /// idempotency. Re-processing the same document updates the existing
 /// Document node instead of creating a duplicate.
+/// Read a document's own date for the graph mirror (task P4a).
+///
+/// Returns `(date, precision)` as strings ready for the Cypher parameters, or two
+/// `None`s when nobody has entered a date for this document yet — which every
+/// document is until a human answers at intake.
+///
+/// ## Why this is its own read rather than a wider `DocumentRecord`
+///
+/// The ingest path already holds a `DocumentRecord`, but widening that struct
+/// would change every `SELECT` that produces one, on a path that runs during
+/// every ingest of every document. Two columns, read once per ingest, is the
+/// cheaper and far smaller change — and it keeps the date's read path in one
+/// place with the write path that feeds it.
+pub async fn fetch_document_date(
+    pool: &sqlx::PgPool,
+    doc_id: &str,
+) -> Result<(Option<String>, Option<String>), AppError> {
+    let record = pipeline_repository::get_document_date(pool, doc_id)
+        .await
+        .map_err(|source| AppError::Internal {
+            message: format!("Failed to read the date for document '{doc_id}': {source}"),
+        })?;
+
+    Ok(match record {
+        Some(row) => (row.document_date.map(|d| d.to_string()), row.date_precision),
+        // No such row. Ingest will fail on its own, louder and with more context,
+        // a few lines later; reporting it here as "no date" is accurate and does
+        // not pre-empt that error.
+        None => (None, None),
+    })
+}
+
 pub async fn create_document_node(
     txn: &mut neo4rs::Txn,
     doc_id: &str,
     title: &str,
     doc_type: &str,
+    // Task P4a. The document's OWN date, mirrored from Postgres so graph queries
+    // can reach it without a cross-store join. Both `None` when nobody has been
+    // asked yet, which every document is until a human answers at intake.
+    //
+    // Domain note: this is NOT a statement date and it is never derived. Nothing
+    // here parses the title — the invented-date class stays dead. An undated
+    // document arrives here undated and leaves here undated.
+    document_date: Option<&str>,
+    date_precision: Option<&str>,
 ) -> Result<String, AppError> {
     // Document ID: use doc_id directly (already stable — it's the pipeline ID).
     // doc_id already starts with "doc-" (e.g. "doc-jeffrey-humphrey-affidavit"),
@@ -215,21 +256,35 @@ pub async fn create_document_node(
 
     txn.run(
         query(
+            // `document_date` / `date_precision` are set on both arms: a
+            // re-ingest must pick up a date Roman entered since the last one, and
+            // leaving them off the MATCH arm would make the graph copy silently
+            // stale exactly when it was most likely to have changed.
             "MERGE (d:Document {id: $id}) \
              ON CREATE SET d.title = $title, \
                            d.source_document_id = $source_id, \
                            d.doc_type = $doc_type, \
                            d.status = $status, \
+                           d.document_date = $document_date, \
+                           d.date_precision = $date_precision, \
                            d.ingested_at = datetime() \
              ON MATCH SET  d.title = $title, \
                            d.doc_type = $doc_type, \
                            d.status = $status, \
+                           d.document_date = $document_date, \
+                           d.date_precision = $date_precision, \
                            d.updated_at = datetime()",
         )
         .param("id", neo4j_id.as_str())
         .param("title", title)
         .param("source_id", doc_id)
         .param("doc_type", doc_type)
+        // Empty string rather than a Cypher null: neo4rs's parameter type does
+        // not carry a null, and an absent property and a property holding "" are
+        // both "no date" to every reader. `date_precision` is the field that
+        // tells the two apart, and it carries the real answer.
+        .param("document_date", document_date.unwrap_or_default())
+        .param("date_precision", date_precision.unwrap_or_default())
         .param("status", STATUS_INGESTED),
     )
     .await

@@ -24,6 +24,7 @@ pub mod billing_class;
 pub mod card_language;
 pub mod case_state;
 pub mod confidence_band;
+pub mod date_precision;
 pub mod evidence_tier;
 pub mod fact_role;
 pub mod fact_status;

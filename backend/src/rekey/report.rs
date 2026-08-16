@@ -17,34 +17,36 @@ use super::plan::{PlanTotals, RekeyPlan};
 
 // ── Exit codes ──────────────────────────────────────────────────────────────
 //
-// Ruled 2026-08-14. They live HERE, beside the report that earns them, rather
-// than in the binary: the binary is a thin shell, and a code decided in an
-// untestable `main` is a code nothing pins.
+// Ruled 2026-08-14 for this tool, then extended to the whole one-shot family by
+// the party-merge addendum. The DEFINITIONS moved to `crate::oneshot::exit` when
+// the family grew to four binaries — four copies of six constants is exactly the
+// kind of duplication that drifts, and a runbook step branching on `3` must mean
+// the same thing whichever binary produced it.
 //
-// ## The renumbering, and what it cost
+// They are re-exported here, under the names this module has always used, so
+// every existing caller and every existing test is unchanged. `rekey_evidence`'s
+// behaviour is byte-identical; only the address of the constants moved.
+//
+// ## The renumbering, and what it cost (kept here, where it happened)
 //
 // The ruling assigned `3` to aborted documents while `3` already meant "Postgres
 // connection failure" and `2` meant "Neo4j connection failure". Rather than
-// invent a sixth number, the two CONNECTION failures collapse into `2` — which
+// invent a sixth number, the two CONNECTION failures collapsed into `2` — which
 // is what the ruling's own wording ("2 = tool/connection failure") describes.
-// Nothing diagnostic is lost: the error log names which store refused the
+// Nothing diagnostic was lost: the error log names which store refused the
 // connection, and no runbook step branches on which one it was.
 
-/// Ran to completion; every planned re-key applied; nothing aborted.
-pub const EXIT_OK: u8 = 0;
-/// Bad arguments, or the report could not be written.
-pub const EXIT_BAD_INPUT: u8 = 1;
-/// Could not connect to Neo4j or to Postgres. The log names which.
-pub const EXIT_CONNECTION: u8 = 2;
+pub use crate::oneshot::exit::{
+    EXIT_BAD_INPUT, EXIT_CONNECTION, EXIT_EXECUTION_FAILED, EXIT_OK, EXIT_UNSAFE_PLAN,
+};
+
 /// Ran to completion, but one or more documents aborted on a count mismatch and
 /// were rolled back. Distinct from [`EXIT_CONNECTION`] on purpose: this is the
 /// tool refusing to lie about counts, not the tool breaking.
-pub const EXIT_DOCUMENTS_ABORTED: u8 = 3;
-/// The plan is unsafe — two nodes would end the run sharing an id. Nothing was
-/// written.
-pub const EXIT_UNSAFE_PLAN: u8 = 4;
-/// Execution failed part-way through; the report names the last good document.
-pub const EXIT_EXECUTION_FAILED: u8 = 5;
+///
+/// The family-wide name for this is `EXIT_UNIT_ABORTED` — a "unit of work" is a
+/// document here, a cluster in the merges. Same number, and the same meaning.
+pub const EXIT_DOCUMENTS_ABORTED: u8 = crate::oneshot::exit::EXIT_UNIT_ABORTED;
 
 /// What one referencing table did for one document.
 #[derive(Debug, Clone, PartialEq, Eq)]

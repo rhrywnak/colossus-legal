@@ -82,6 +82,16 @@ pub const STATED_BY: &str = "STATED_BY";
 /// characterizes the target (e.g. a party, act, or event).
 pub const CHARACTERIZES: &str = "CHARACTERIZES";
 
+/// `Harm -[:SUFFERED_BY]-> Party`. Who bore the harm.
+///
+/// Domain note: the direction runs FROM the harm TO the party, which is the
+/// opposite of what the English reads like. A party "suffered" the harm, but the
+/// edge is written on the harm — so a query for everything a person suffered
+/// walks INCOMING edges on the party. Added 2026-08-16 for the party merge,
+/// which has to move all five party-incident types and refuses to run on one it
+/// does not know.
+pub const SUFFERED_BY: &str = "SUFFERED_BY";
+
 /// `MotionClaim -[:CONTRADICTS]-> target`. The claim directly contradicts the
 /// target statement or allegation.
 pub const CONTRADICTS: &str = "CONTRADICTS";
@@ -132,6 +142,7 @@ mod tests {
         assert_eq!(CORROBORATES, "CORROBORATES");
         assert_eq!(CONTAINED_IN, "CONTAINED_IN");
         assert_eq!(STATED_BY, "STATED_BY");
+        assert_eq!(SUFFERED_BY, "SUFFERED_BY");
         assert_eq!(CHARACTERIZES, "CHARACTERIZES");
         assert_eq!(CONTRADICTS, "CONTRADICTS");
         assert_eq!(REBUTS, "REBUTS");

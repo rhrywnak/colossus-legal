@@ -1,6 +1,7 @@
 /** DocumentWorkspace — Side-by-side PDF viewer + evidence audit panel. */
 import React, { useCallback, useEffect, useState } from "react";
 import { useParams, useLocation, Link } from "react-router-dom";
+import DocumentDateEditor from "../components/pipeline/DocumentDateEditor";
 import { useResizablePanes } from "../hooks/useResizablePanes";
 
 import PdfViewer from "../components/shared/PdfViewer";
@@ -182,6 +183,10 @@ const DocumentWorkspace: React.FC = () => {
             <div style={{ fontSize: "0.74rem", color: "var(--text-muted)" }}>
               {mode} mode
             </div>
+            {/* Task P4b — the post-hoc edit path. Sits directly under the title
+                because a document's own date is a fact about the document, in
+                the same place as its title and type, not a setting. */}
+            <DocumentDateEditor documentId={docId} />
           </div>
         </div>
         <div style={{ display: "flex", gap: "1.25rem", fontSize: "0.78rem" }}>
