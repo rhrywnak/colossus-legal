@@ -23,6 +23,7 @@ use crate::models::document_status::{
 use crate::repositories::pipeline_repository::{self, ExtractionItemRecord};
 
 use super::evidence_key::{evidence_id_from_item, QuoteSource};
+use super::ingest_dedupe::{Disposition, DuplicateLedger};
 use super::ingest_resolver::ResolutionMap;
 
 /// Generate a stable, URL-friendly slug from a name.
@@ -594,6 +595,7 @@ pub async fn create_entity_node(
     item: &ExtractionItemRecord,
     doc_id: &str,
     _seq: usize, // kept for API compatibility but no longer used for ID generation
+    ledger: &mut DuplicateLedger,
 ) -> Result<String, AppError> {
     let entity_type = &item.entity_type;
 
@@ -607,6 +609,25 @@ pub async fn create_entity_node(
 
     // Generate stable content-derived ID
     let neo4j_id = stable_entity_id(item, doc_id);
+
+    // INGEST_DEDUPE (ruling 2026-08-14). Two items resolving to one id are the
+    // same statement extracted twice. The first one writes; the second returns
+    // the same id WITHOUT writing, so it cannot overwrite the first's fields.
+    // The caller still maps its `extraction_items` row to this node, so Postgres
+    // keeps both provenance rows — see `ingest_dedupe` for why first wins.
+    if let Disposition::Collapse { first_item_id } = ledger.observe(&neo4j_id, entity_type, item.id)
+    {
+        tracing::info!(
+            doc_id = %doc_id,
+            entity_type = %entity_type,
+            neo4j_id = %neo4j_id,
+            first_item_id,
+            duplicate_item_id = item.id,
+            "Duplicate entity collapsed onto one node — the first item's fields stand, \
+             both extraction_items rows point at it"
+        );
+        return Ok(neo4j_id);
+    }
 
     // Extract standard fields
     let title = item.item_data["label"].as_str().unwrap_or("").to_string();

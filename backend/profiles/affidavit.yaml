@@ -1,6 +1,14 @@
 # affidavit.yaml
 # Processing profile for sworn statements by witnesses.
 # Updated to v5.1 schema and templates.
+# 2026-08-17: pass-2 repointed v5_1 -> v5_4. The v5_1 pass-2 permitted affidavits
+# only STATED_BY, ABOUT->Party, CORROBORATES, CONTRADICTS and REBUTS, so a sworn
+# statement that merely DISCUSSED an allegation, or that characterized a party,
+# had no edge class available to it. Measured: both affidavits emitted 7 edges
+# each, all CORROBORATES, leaving 20 of Morris's 27 and 19 of Humphrey's 26
+# statements reaching no allegation at all. v5_4 adds ABOUT->Allegation and
+# CHARACTERIZES (->Party and ->Allegation), matching every other v5_3 pass-2.
+# Pass-1 and the schema are unchanged.
 
 name: affidavit
 display_name: Affidavit
@@ -11,7 +19,7 @@ schema_file: affidavit_schema_v5_1.yaml
 
 template_file: affidavit_pass1_v5_3.md
 global_rules_file: global_rules_v4.md
-pass2_template_file: affidavit_pass2_v5_1.md
+pass2_template_file: affidavit_pass2_v5_4.md
 system_prompt_file: legal_extraction_system.md
 
 extraction_model: claude-opus-4-6

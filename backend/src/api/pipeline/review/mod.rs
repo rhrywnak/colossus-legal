@@ -30,7 +30,10 @@ mod revisions;
 // Re-export every handler so the router in `super::mod` continues to reference
 // them as `review::<handler>` after the split.
 pub use actions::{approve_handler, item_history_handler, reject_handler};
-pub use document_ops::{bulk_approve_handler, reprocess_handler, revert_ingest_handler};
+pub use document_ops::{
+    bulk_approve_handler, clear_extraction_state, reprocess_handler, revert_ingest_handler,
+    PostClearStatus,
+};
 pub use revisions::{edit_handler, unapprove_handler, unreject_handler};
 
 // ── Request DTOs ────────────────────────────────────────────────

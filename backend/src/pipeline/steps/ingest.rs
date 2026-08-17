@@ -45,6 +45,7 @@ use colossus_pipeline::cancel::CancellationToken;
 use colossus_pipeline::progress::ProgressReporter;
 use colossus_pipeline::{Step, StepResult};
 
+use crate::api::pipeline::ingest_dedupe::DuplicateLedger;
 use crate::api::pipeline::ingest_helpers::{
     create_contained_in_relationships, create_document_node, create_entity_node,
     create_ingest_relationship, create_party_nodes, create_provenance_relationships,
@@ -85,6 +86,26 @@ pub struct IngestResult {
     /// Total Neo4j relationships written (extraction rels +
     /// DERIVED_FROM provenance + CONTAINED_IN).
     pub total_rels: usize,
+    /// Entity writes skipped because an earlier item in the same run had already
+    /// written that node (INGEST_DEDUPE).
+    ///
+    /// ## Why these three live on the result rather than only in a log
+    ///
+    /// House rule: a pipeline step stores its execution metadata in the database,
+    /// not only in a log line. Three counters had been computed inside
+    /// `run_ingest` and thrown away here — the Evidence quote-source
+    /// distribution, `alias_matched`, and now these — so an operator reading
+    /// `pipeline_steps.result_summary` after a run could see how many nodes were
+    /// written but nothing about how they were decided. A conditional
+    /// `tracing::info!` is not an audit trail: it is silent on a clean run and
+    /// gone when the container restarts.
+    pub collapsed_writes: usize,
+    /// Distinct nodes that ended up carrying more than one item.
+    pub duplicate_nodes: usize,
+    /// Party mentions bound to an existing node through an ALIAS rather than the
+    /// canonical name — the count that says how many duplicate people the alias
+    /// stage prevented.
+    pub alias_matched: usize,
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -188,6 +209,9 @@ impl Step<DocProcessing> for Ingest {
         progress.set_step_result(serde_json::json!({
             "entities_written": result.total_nodes,
             "relationships_written": result.total_rels,
+            "collapsed_writes": result.collapsed_writes,
+            "duplicate_nodes": result.duplicate_nodes,
+            "alias_matched": result.alias_matched,
         }));
 
         Ok(StepResult::Next(DocProcessing::Index(Index {
@@ -330,7 +354,7 @@ pub async fn run_ingest(
                 message: format!("fetch_existing_parties: {e:?}"),
             })?;
 
-        let (resolution_map, _resolution_summary) =
+        let (resolution_map, resolution_summary) =
             ingest_resolver::resolve_parties(&items, &existing_parties)
                 .await
                 .map_err(|e| IngestError::Helper {
@@ -393,6 +417,8 @@ pub async fn run_ingest(
         // 9. Create non-Party entity nodes
         let mut entity_type_counts: HashMap<String, usize> = HashMap::new();
         let mut entity_seq: HashMap<String, usize> = HashMap::new();
+        // INGEST_DEDUPE: one ledger per run, flushed after the loop.
+        let mut dedupe = DuplicateLedger::new();
 
         // R4: inverse of the create_party_nodes filter — exclude Party
         // and its post-ingest resolved forms so non-Party entity creation
@@ -404,7 +430,7 @@ pub async fn run_ingest(
             let seq = entity_seq.entry(item.entity_type.clone()).or_insert(0);
             *seq += 1;
 
-            let neo4j_id = create_entity_node(&mut txn, item, doc_id, *seq)
+            let neo4j_id = create_entity_node(&mut txn, item, doc_id, *seq, &mut dedupe)
                 .await
                 .map_err(|e| IngestError::Helper {
                     doc_id: doc_id.to_string(),
@@ -415,6 +441,26 @@ pub async fn run_ingest(
             *entity_type_counts
                 .entry(item.entity_type.clone())
                 .or_insert(0) += 1;
+        }
+
+        // INGEST_DEDUPE: stamp `duplicate_count` on any node more than one
+        // item claimed. Once, after the loop, with the final absolute value.
+        let duplicate_nodes = dedupe.duplicated_nodes();
+        let collapsed_writes = dedupe.collapsed_writes();
+        dedupe
+            .flush(&mut txn)
+            .await
+            .map_err(|e| IngestError::Helper {
+                doc_id: doc_id.to_string(),
+                message: format!("duplicate_count flush: {e:?}"),
+            })?;
+        if collapsed_writes > 0 {
+            tracing::info!(
+                doc_id = %doc_id,
+                duplicate_nodes,
+                collapsed_writes,
+                "Ingest collapsed duplicate entities onto existing nodes"
+            );
         }
 
         // 9b. Pair each Neo4j node id with the originating extraction
@@ -709,6 +755,9 @@ pub async fn run_ingest(
         Ok(IngestResult {
             total_nodes,
             total_rels,
+            collapsed_writes,
+            duplicate_nodes,
+            alias_matched: resolution_summary.alias_matched,
         })
     }
 }
