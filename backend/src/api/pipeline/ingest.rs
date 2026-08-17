@@ -25,6 +25,7 @@ use crate::repositories::audit_repository::log_admin_action;
 use crate::repositories::pipeline_repository::{self, steps};
 use crate::state::AppState;
 
+use super::ingest_dedupe::DuplicateLedger;
 use super::ingest_helpers::{
     create_contained_in_relationships, create_document_node, create_entity_node,
     create_ingest_relationship, create_party_nodes, create_provenance_relationships,
@@ -286,6 +287,8 @@ async fn run_ingest_locked(
     //     Sequence numbers are tracked per entity type for readable IDs.
     let mut entity_type_counts: HashMap<String, usize> = HashMap::new();
     let mut entity_seq: HashMap<String, usize> = HashMap::new();
+    // INGEST_DEDUPE: one ledger per run, flushed after the loop.
+    let mut dedupe = DuplicateLedger::new();
 
     // R4: inverse of the create_party_nodes filter — exclude Party and
     // its post-ingest resolved forms so non-Party entity creation doesn't
@@ -297,13 +300,28 @@ async fn run_ingest_locked(
         let seq = entity_seq.entry(item.entity_type.clone()).or_insert(0);
         *seq += 1;
 
-        let neo4j_id = create_entity_node(&mut txn, item, doc_id, *seq).await?;
+        let neo4j_id = create_entity_node(&mut txn, item, doc_id, *seq, &mut dedupe).await?;
 
         pg_to_neo4j.insert(item.id, neo4j_id.clone());
 
         *entity_type_counts
             .entry(item.entity_type.clone())
             .or_insert(0) += 1;
+    }
+
+    // INGEST_DEDUPE: stamp `duplicate_count` on any node more than one item
+    // claimed. Once, after the loop, with the final absolute value — see
+    // `ingest_dedupe::DuplicateLedger::flush` for why not an increment.
+    let duplicate_nodes = dedupe.duplicated_nodes();
+    let collapsed_writes = dedupe.collapsed_writes();
+    dedupe.flush(&mut txn).await?;
+    if collapsed_writes > 0 {
+        tracing::info!(
+            doc_id = %doc_id,
+            duplicate_nodes,
+            collapsed_writes,
+            "Ingest collapsed duplicate entities onto existing nodes"
+        );
     }
 
     // 10b. Pair each Neo4j node id with the `run_id` of the originating
@@ -773,17 +791,34 @@ async fn run_ingest_delta_locked(
     // 8. Non-Party delta entity nodes.
     let mut entity_type_counts: HashMap<String, usize> = HashMap::new();
     let mut entity_seq: HashMap<String, usize> = HashMap::new();
+    // INGEST_DEDUPE: one ledger per run, flushed after the loop.
+    let mut dedupe = DuplicateLedger::new();
     for item in delta_items
         .iter()
         .filter(|i| !PARTY_SUBTYPES.contains(&i.entity_type.as_str()))
     {
         let seq = entity_seq.entry(item.entity_type.clone()).or_insert(0);
         *seq += 1;
-        let neo4j_id = create_entity_node(&mut txn, item, doc_id, *seq).await?;
+        let neo4j_id = create_entity_node(&mut txn, item, doc_id, *seq, &mut dedupe).await?;
         pg_to_neo4j.insert(item.id, neo4j_id.clone());
         *entity_type_counts
             .entry(item.entity_type.clone())
             .or_insert(0) += 1;
+    }
+
+    // INGEST_DEDUPE: stamp `duplicate_count` on any node more than one item
+    // claimed. Once, after the loop, with the final absolute value — see
+    // `ingest_dedupe::DuplicateLedger::flush` for why not an increment.
+    let duplicate_nodes = dedupe.duplicated_nodes();
+    let collapsed_writes = dedupe.collapsed_writes();
+    dedupe.flush(&mut txn).await?;
+    if collapsed_writes > 0 {
+        tracing::info!(
+            doc_id = %doc_id,
+            duplicate_nodes,
+            collapsed_writes,
+            "Ingest collapsed duplicate entities onto existing nodes"
+        );
     }
 
     // 8b. Pair each newly-written Neo4j node id with the originating

@@ -52,6 +52,9 @@
 use axum::{extract::Path, extract::State, Json};
 use serde::{Deserialize, Serialize};
 
+use crate::api::pipeline::delete::{cleanup_neo4j, cleanup_qdrant};
+use crate::api::pipeline::delete_restate_purge::attempt_restate_purge;
+use crate::api::pipeline::review::PostClearStatus;
 use crate::auth::{require_admin, AuthUser};
 use crate::error::AppError;
 use crate::models::document_status::STATUS_PROCESSING;
@@ -78,14 +81,61 @@ pub struct ProcessResponse {
     pub job_id: Option<String>,
 }
 
+// ── Request DTO (REEXTRACT_PATH) ────────────────────────────────
+
+/// What the caller wants this run to do.
+///
+/// ## Domain note: why absent is not the same as `SameSettings`
+///
+/// Until now this endpoint took NO body, so the Re-process dialog's three radio
+/// buttons were parsed by nothing and every one of them did the same thing —
+/// which, because both LLM passes short-circuit on an existing COMPLETED
+/// `extraction_runs` row, was a re-INGEST and not a re-extraction. Measured on
+/// Morris 2026-08-17: eight steps in 2.4 seconds, zero tokens.
+///
+/// Making "absent" mean "re-extract" would have been the tidier enum and the
+/// wrong change: `/process` is also the endpoint that starts a NEW document and
+/// that retries a FAILED one, and both of those would suddenly begin deleting
+/// extraction state. So absent keeps today's behaviour exactly, and only a
+/// caller that names an option opts into the clearing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReprocessOption {
+    /// Re-extract under the document's current profile and overrides.
+    SameSettings,
+    /// Re-extract after the caller has changed the document's configuration.
+    ///
+    /// Behaviourally identical to [`Self::SameSettings`] on purpose: the
+    /// settings live on `pipeline_config`'s per-document override columns, the
+    /// Configuration panel writes them before calling this, and a run always
+    /// resolves config fresh. The variant is kept so the audit row records which
+    /// affordance the operator used.
+    NewSettings,
+}
+
+/// Optional body for `POST /documents/:id/process`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProcessRequest {
+    /// Absent ⇒ today's behaviour: invoke without clearing anything.
+    #[serde(default)]
+    pub reprocess_option: Option<ReprocessOption>,
+}
+
 // ── Handler ─────────────────────────────────────────────────────
 
 pub async fn process_handler(
     user: AuthUser,
     State(state): State<AppState>,
     Path(doc_id): Path<String>,
+    // Body extractor last — axum requires it, and `Option<Json<_>>` means a
+    // caller that sends no body (or a non-JSON one) still gets the legacy path
+    // rather than a 415.
+    body: Option<Json<ProcessRequest>>,
 ) -> Result<Json<ProcessResponse>, AppError> {
     require_admin(&user)?;
+
+    let reprocess_option = body.and_then(|Json(b)| b.reprocess_option);
 
     // [1] Document existence guard.
     let document = pipeline_repository::get_document(&state.pipeline_pool, &doc_id)
@@ -160,6 +210,80 @@ pub async fn process_handler(
                 .to_string(),
         }
     })?;
+
+    // [4b] REEXTRACT_PATH. The operator asked for a re-extraction, so make one
+    //      possible: clear the COMPLETED runs both LLM passes short-circuit on,
+    //      and drop this document's graph and vectors so the re-run does not
+    //      land beside stale nodes.
+    //
+    //      Order matters and is the opposite of the delete handler's: Postgres
+    //      first, cross-store after. If the clear fails we have written nothing
+    //      and the document is untouched; if the cross-store cleanup fails after
+    //      it, `run_ingest` cleans the graph again on its own before writing
+    //      (cleanup-then-write), so the run still lands correctly.
+    if let Some(option) = reprocess_option {
+        tracing::info!(
+            doc_id = %doc_id,
+            option = ?option,
+            previous_status = %previous_status,
+            "Re-extraction requested — clearing extraction state so both LLM passes re-run"
+        );
+        crate::api::pipeline::review::clear_extraction_state(
+            &state.pipeline_pool,
+            &doc_id,
+            PostClearStatus::LeaveUntouched,
+        )
+        .await?;
+        cleanup_neo4j(&state, &doc_id).await;
+        cleanup_qdrant(&state, &doc_id).await;
+
+        // Audited as its own row, not folded into `process_submitted`. This step
+        // DELETED extraction runs, items, relationships, review history and step
+        // rows, and dropped the document's graph and vectors — an operator asking
+        // "who threw that away, and when?" must be able to answer it from
+        // `admin_audit_log` rather than from container logs that rotate.
+        log_admin_action(
+            &state.audit_repo,
+            &user.username,
+            "pipeline.document.extraction_state_cleared",
+            Some("document"),
+            Some(&doc_id),
+            Some(serde_json::json!({
+                "reprocess_option": option,
+                "previous_status": previous_status,
+                "cleared": [
+                    "extraction_runs", "extraction_items", "extraction_relationships",
+                    "review_edit_history", "pipeline_steps", "neo4j", "qdrant",
+                ],
+            })),
+        )
+        .await;
+    }
+
+    // [4c] REEXTRACT_PATH. Restate workflows are KEYED on the document id, and a
+    //      key is single-use: the second invocation for the same document comes
+    //      back `PreviouslyAccepted` and the run never happens. Purging the
+    //      previous invocation frees the key, which is the same mechanism the
+    //      delete handler relies on so a deleted-and-re-uploaded document can be
+    //      processed again.
+    //
+    //      Best-effort by design: a document that has never run has no id to
+    //      purge, and a purge failure is reported by the conflict branch below
+    //      with a far more useful message than a 500 here would give.
+    if reprocess_option.is_some() {
+        let purge_outcome = attempt_restate_purge(
+            &state.http_client,
+            state.config.restate_admin_url.as_deref(),
+            &doc_id,
+            document.restate_invocation_id.as_deref(),
+        )
+        .await;
+        tracing::info!(
+            doc_id = %doc_id,
+            outcome = ?purge_outcome,
+            "Restate purge before re-invocation"
+        );
+    }
 
     // [5] STATUS_PROCESSING write. MUST succeed before Restate
     // invocation: the frontend polls for status_group == "processing"
@@ -282,6 +406,9 @@ pub async fn process_handler(
         Some(serde_json::json!({
             "invocation_id": invocation_id,
             "restate_status": restate_status,
+            // Which affordance the operator used, and whether this run cleared
+            // state first. `null` is a plain process, not a re-extraction.
+            "reprocess_option": reprocess_option,
         })),
     )
     .await;

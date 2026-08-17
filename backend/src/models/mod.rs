@@ -3,6 +3,7 @@ pub mod decision;
 pub mod document;
 pub mod document_status;
 pub mod evidence;
+pub mod graph_refs;
 pub mod hearing;
 pub mod import;
 pub mod person;

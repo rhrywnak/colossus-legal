@@ -82,6 +82,11 @@ fn build_result_summary(
     serde_json::json!({
         "entities_written": result.total_nodes,
         "relationships_written": result.total_rels,
+        // How the nodes were DECIDED, not just how many. See `IngestResult` for
+        // why these are persisted rather than left in a conditional log line.
+        "collapsed_writes": result.collapsed_writes,
+        "duplicate_nodes": result.duplicate_nodes,
+        "alias_matched": result.alias_matched,
     })
 }
 
@@ -140,18 +145,28 @@ mod tests {
         let result = crate::pipeline::steps::ingest::IngestResult {
             total_nodes: 142,
             total_rels: 89,
+            collapsed_writes: 3,
+            duplicate_nodes: 2,
+            alias_matched: 17,
         };
         let summary = super::build_result_summary(&result);
         // Renamed keys.
         assert_eq!(summary["entities_written"], serde_json::json!(142));
         assert_eq!(summary["relationships_written"], serde_json::json!(89));
+        // The three decision counters reach the DB under their own names. This
+        // gap was raised by the observability gate on three consecutive branches
+        // — Evidence quote sources, `alias_matched`, then the dedupe counters —
+        // because each was computed in `run_ingest` and thrown away here.
+        assert_eq!(summary["collapsed_writes"], serde_json::json!(3));
+        assert_eq!(summary["duplicate_nodes"], serde_json::json!(2));
+        assert_eq!(summary["alias_matched"], serde_json::json!(17));
         // Struct field names must NOT appear.
         assert!(summary.get("total_nodes").is_none());
         assert!(summary.get("total_rels").is_none());
         let obj = summary
             .as_object()
             .expect("result_summary must be a JSON object");
-        assert_eq!(obj.len(), 2);
+        assert_eq!(obj.len(), 5);
     }
 
     #[test]

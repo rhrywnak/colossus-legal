@@ -22,6 +22,19 @@
 #     discovery response v5.1 schemas)
 #   - Filename follows v5.1 convention: affidavit_schema_v5_1.yaml
 #
+# 2026-08-17 (Roman's ruling, in-place — no version bump):
+#   - CHARACTERIZES added to relationship_types. Affidavits could not emit this
+#     edge class at all, so a sworn statement that labelled a party's character
+#     had no relationship available to it. affidavit_pass2_v5_4.md authorises the
+#     edge; this schema is injected into that prompt whole, so without this entry
+#     the template and the schema block contradicted each other. Measured cause:
+#     both affidavits emitted 7 edges each, all CORROBORATES, leaving 20 of
+#     Morris's 27 and 19 of Humphrey's 26 statements reaching no Allegation.
+#   - Edited in place rather than versioned to v5_2 because the change is
+#     additive vocabulary, not a shape change: nothing that reads this schema
+#     today behaves differently, and a version bump would mark every affidavit
+#     template-stale for a one-line addition.
+#
 # Document characteristics:
 #   - Sworn statements made voluntarily under oath before a notary
 #   - Numbered paragraphs, each a separate factual claim
@@ -126,6 +139,8 @@ relationship_types:
     description: "This sworn statement conflicts with another statement by the SAME person in a DIFFERENT document. CONTRADICTS requires the same speaker — both statements must have the same STATED_BY party. If two different people disagree, that is REBUTS, not CONTRADICTS. The primary target is a foreign Evidence node (same-speaker impeachment) — unchanged. CONTRADICTS may ALSO target a complaint Allegation in the narrow case where the contradicted claim is itself anchored as an Allegation AND the same-speaker semantics still apply. NOTE: CONTRADICTS targets Evidence (or, in the anchored-claim case, Allegation) nodes from other documents — cross-document relationships documented here for LLM guidance and deliberately not listed in valid_patterns."
   - name: REBUTS
     description: "This affiant's statement directly counters what a DIFFERENT person claimed in another document. The rebuttal test: does this person's sworn testimony oppose what another party asserted? The target may be EITHER a foreign Evidence/Assertion node OR a complaint Allegation node whose fact this testimony defeats. Distinguish from CORROBORATES, which also targets an Allegation: CORROBORATES means the testimony CONFIRMS the allegation's fact; REBUTS means it COUNTERS it. Example (Evidence target): defendant's discovery response says conservatorship was necessary, but caregiver's affidavit says decedent was fully competent. Example (Allegation target): a caregiver's sworn 'Emil was fully competent' rebuts the complaint Allegation that premised a guardianship on his incompetence. NOTE: REBUTS targets Evidence, Assertion, or Allegation nodes from other documents — cross-document relationships documented here for LLM guidance and deliberately not listed in valid_patterns."
+  - name: CHARACTERIZES
+    description: "This sworn statement labels a party's character, competence, cooperation or behaviour in evaluative terms. May target the Party characterized and, where the labelling bears on what an Allegation asserts about that party, the Allegation as well. NOTE: an Allegation target is a cross-document relationship, documented here for LLM guidance and deliberately not listed in valid_patterns."
 
 # Required provenance properties applied to every relationship written to
 # Neo4j (per LEGAL_DATA_MODEL_v5_1.md §5.4). Populated by the ingest stage

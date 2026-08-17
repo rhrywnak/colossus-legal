@@ -428,9 +428,40 @@ export async function triggerPipelineAction(
 }
 
 /** Start processing a document (returns 202 Accepted). */
+/**
+ * What a /process call should do.
+ *
+ * REEXTRACT_PATH: omitting this keeps the legacy behaviour — invoke the workflow
+ * without clearing anything, which is what the first Process of a new document
+ * and a retry of a failed one both want. Passing a value opts into a REAL
+ * re-extraction: the backend clears the COMPLETED extraction runs that both LLM
+ * passes short-circuit on, drops the document's graph and vectors, and purges the
+ * prior Restate invocation so the keyed workflow can run again.
+ *
+ * `delete_and_reextract` was removed: it was identical to `same_settings`,
+ * because ingest already cleans the document's graph unconditionally before
+ * writing. A third button that did the same thing as the first was a lie.
+ */
+export type ReprocessOption = "same_settings" | "new_settings";
+
+/** Curated rows a document carries, for the re-extraction guard. */
+export interface CuratedRowsResponse {
+  document_id: string;
+  total: number;
+  by_column: { reference: string; rows: number }[];
+}
+
+export async function fetchCuratedRows(documentId: string): Promise<CuratedRowsResponse> {
+  const res = await authFetch(
+    `${PIPELINE_BASE}/documents/${encodeURIComponent(documentId)}/curated-rows`
+  );
+  if (!res.ok) throw new Error(`Failed to read curated-row count: ${res.status}`);
+  return res.json();
+}
+
 export async function processDocument(
   documentId: string,
-  reprocessOption?: "same_settings" | "new_settings" | "delete_and_reextract"
+  reprocessOption?: ReprocessOption
 ): Promise<{ document_id: string; status: string; message: string }> {
   const body = reprocessOption ? { reprocess_option: reprocessOption } : {};
   const res = await authFetch(`${PIPELINE_BASE}/documents/${encodeURIComponent(documentId)}/process`, {

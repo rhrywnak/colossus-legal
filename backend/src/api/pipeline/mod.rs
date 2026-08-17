@@ -18,6 +18,7 @@ pub mod completeness_validation;
 mod config_endpoints;
 mod config_handler;
 pub(crate) mod constants;
+pub(crate) mod curated_rows;
 mod delete;
 mod delete_restate_purge;
 pub mod document_date;
@@ -32,6 +33,7 @@ mod graph_validation;
 mod history;
 mod index;
 mod ingest;
+pub(crate) mod ingest_dedupe;
 pub(crate) mod ingest_helpers;
 pub(crate) mod ingest_resolver;
 mod items;
@@ -150,6 +152,11 @@ pub fn router() -> Router<AppState> {
             post(review::revert_ingest_handler),
         )
         .route("/documents/:id/reprocess", post(review::reprocess_handler))
+        // REEXTRACT_PATH: the dialog reads this before offering to re-extract.
+        .route(
+            "/documents/:id/curated-rows",
+            get(curated_rows::curated_rows_handler),
+        )
         .route(
             "/documents/:id/validate-graph",
             post(graph_validation::validate_graph_handler),

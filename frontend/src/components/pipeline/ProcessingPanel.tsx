@@ -18,6 +18,7 @@ import ExecutionHistory from "./ExecutionHistory";
 import ReprocessDialog from "./ReprocessDialog";
 import {
   processDocument,
+  ReprocessOption,
   cancelProcessing,
   PipelineDocument,
   PipelineStep,
@@ -162,12 +163,16 @@ const ProcessingPanel: React.FC<ProcessingPanelProps> = ({
   // and passes updated document props every 3s during PROCESSING.
 
   // Button handlers
-  const handleProcess = async () => {
+  // REEXTRACT_PATH: `option` is undefined for the plain Process button (a new
+  // document, or a retry of a failed one — neither should have its extraction
+  // state cleared) and "new_settings" when the Configuration panel saved changes
+  // and wants them actually applied, which requires a real re-extraction.
+  const handleProcess = async (option?: ReprocessOption) => {
     if (busy) return;
     setBusy(true);
     setActionError(null);
     try {
-      await processDocument(doc.id);
+      await processDocument(doc.id, option);
       // Small delay before refresh to allow the backend to transition
       // the document status from NEW to PROCESSING. Without this delay,
       // the first poll may return the document still in NEW status because
@@ -434,7 +439,7 @@ const ProcessingPanel: React.FC<ProcessingPanelProps> = ({
           pageCount={doc.page_count}
           textPages={doc.text_pages}
           scannedPages={doc.scanned_pages}
-          onProcess={handleProcess}
+          onProcess={() => handleProcess("new_settings")}
           busy={busy}
         />
       )}
