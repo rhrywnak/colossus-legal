@@ -25,6 +25,31 @@
 //! 119/131 distinct, quote+page+question 129/131. It is optional because 287 of
 //! 525 live Evidence nodes are documentary and answer nobody.
 //!
+//! ## The arm shipped inert, and why — corrected 2026-08-17
+//!
+//! The first cut of this module read all three components out of
+//! `item_data["properties"]`. Extraction does not put the quote there: the
+//! templates say "Copy the EXACT text as verbatim_quote at the TOP LEVEL", the
+//! schemas say "verbatim_quote remains a top-level entity field, NOT a schema
+//! property", and `store_entities_and_relationships` stores the whole entity JSON
+//! with the quote as a SIBLING of `properties`. Measured on DEV the day it was
+//! found: `properties.verbatim_quote` present on **0 of 574** live Evidence
+//! items. So the guarded `?` returned `None` on every row ever written and every
+//! Evidence id came from the whole-blob fallback this module exists to replace —
+//! for eleven days, with a green test suite, because every fixture in
+//! `evidence_key_tests.rs` had been hand-built in the shape the code assumed
+//! rather than the shape the pipeline emits.
+//!
+//! Two rules came out of it, and both are load-bearing:
+//!
+//! 1. **Key from what the graph carries**, not from what the model wrote. The
+//!    node's quote is `extraction_items.verbatim_quote` and its page is
+//!    `grounded_page`; `rekey_evidence` hashed those, so this arm hashes those.
+//!    See [`evidence_id_from_item`] for the measured reason the claimed page is
+//!    not good enough.
+//! 2. **A fixture that is not the wire shape proves nothing.** The tests now pin
+//!    a byte-for-byte copy of a live `item_data` row.
+//!
 //! ## Normalization: NFC, trim, collapse
 //!
 //! Unicode NFC first, so a quote whose accents arrive decomposed one run and
@@ -118,27 +143,97 @@ pub fn evidence_id(
     format!("{doc_slug}:evidence:{}", &hash[..ID_HASH_CHARS])
 }
 
-/// Read the key's components out of one extraction item's properties.
+/// Where the quote was found, so the caller can log a shape it did not expect.
 ///
-/// Returns the id, or `None` when the item carries no usable `verbatim_quote` —
-/// the one component with no honest default. An Evidence node with no words is
-/// not a statement, and giving it a key derived from an empty string would MERGE
-/// every such item onto one node (the exact failure the allegation arm's
-/// `hash-e3b0c442` comment records). The caller falls back to the previous
-/// behaviour and logs, rather than this module inventing an id.
-pub fn evidence_id_from_properties(props: &serde_json::Value, doc_slug: &str) -> Option<String> {
-    let quote = props["verbatim_quote"].as_str()?;
-    if quote.trim().is_empty() {
-        return None;
-    }
-    // The graph stores `page_number` as an integer, but extraction JSON has been
-    // seen carrying it as a string; both are accepted rather than one silently
-    // becoming "no page".
-    let page = props["page_number"]
-        .as_i64()
-        .or_else(|| props["page_number"].as_str().and_then(|s| s.parse().ok()));
-    let question = props["question"].as_str();
-    Some(evidence_id(doc_slug, page, quote, question))
+/// ## Why this is a return value and not a silent preference
+///
+/// The predecessor of this function read the quote from ONE place, found nothing
+/// there on every row the pipeline has ever written, and returned `None` without
+/// a word. Naming the source turns "which shape was this?" from an assumption
+/// into an observable (Standing Rule 1) — the caller logs anything but
+/// [`QuoteSource::Column`], so a template that starts emitting a different shape
+/// announces itself on the first document instead of on the next re-extraction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum QuoteSource {
+    /// `extraction_items.verbatim_quote` — the expected source. This is the
+    /// column `create_entity_node` writes onto the graph node, so keying from it
+    /// is what makes the id reproduce what the graph already carries.
+    Column,
+    /// `item_data["verbatim_quote"]` — the top-level field the templates specify
+    /// and 573 of 574 live Evidence rows carry. Reached only when the column is
+    /// empty, which means the insert path and the JSON disagree.
+    TopLevel,
+    /// `item_data["properties"]["verbatim_quote"]` — the shape the pre-fix arm
+    /// assumed. Measured 2026-08-17: **0 of 574** live Evidence rows. Kept
+    /// because `store_entities_and_relationships` still accepts it, so a future
+    /// template could produce it; it is never silent.
+    Properties,
+}
+
+/// Read the key's components out of one extraction item.
+///
+/// ## Why the page comes from the caller and not from the JSON
+///
+/// `grounded_page` is the page the VERIFIER found the quote on;
+/// `properties.page_number` is the page the model CLAIMED. They disagree on
+/// **132 of 574** live Evidence items (measured 2026-08-17), and it is
+/// `grounded_page` that `create_entity_node` writes onto the node and therefore
+/// `grounded_page` that `rekey_evidence` hashed. Keying on the claimed page
+/// would produce ids that no longer match the graph for those 132 rows, which is
+/// why this function takes the grounded page as a parameter and never reads the
+/// claimed one.
+///
+/// ## Why the question still comes from `properties`
+///
+/// Because that is the only place the node gets it: `create_entity_node` copies
+/// schema properties onto the node, so `n.question` is `properties.question` or
+/// nothing. Measured: 238 of 574 carry it there, **0** at the top level. Reading
+/// a top-level `question` would key on a value the graph does not have.
+///
+/// Returns the id and the source the quote came from, or `None` when the item
+/// carries no usable quote anywhere — the one component with no honest default.
+/// An Evidence node with no words is not a statement, and a key derived from an
+/// empty string would MERGE every such item onto one node (the exact failure the
+/// allegation arm's `hash-e3b0c442` comment records). The caller falls back and
+/// logs, rather than this module inventing an id.
+///
+/// ## Rust Learning: `Option<&str>` chaining with `.filter()` and `.or_else()`
+///
+/// Each candidate source is an `Option<&str>` that must also survive a
+/// "is it actually words?" test. `.filter(|s| !s.trim().is_empty())` turns a
+/// `Some("")` into a `None` so the next `.or_else()` gets its turn — the whole
+/// preference order reads top-to-bottom with no `if let` ladder and no early
+/// returns, and adding a fourth source later is one more line rather than a
+/// restructure.
+pub fn evidence_id_from_item(
+    doc_slug: &str,
+    column_quote: Option<&str>,
+    grounded_page: Option<i64>,
+    item_data: &serde_json::Value,
+) -> Option<(String, QuoteSource)> {
+    let usable = |s: &&str| !s.trim().is_empty();
+
+    let (quote, source) = column_quote
+        .filter(usable)
+        .map(|q| (q, QuoteSource::Column))
+        .or_else(|| {
+            item_data["verbatim_quote"]
+                .as_str()
+                .filter(usable)
+                .map(|q| (q, QuoteSource::TopLevel))
+        })
+        .or_else(|| {
+            item_data["properties"]["verbatim_quote"]
+                .as_str()
+                .filter(usable)
+                .map(|q| (q, QuoteSource::Properties))
+        })?;
+
+    let question = item_data["properties"]["question"].as_str();
+    Some((
+        evidence_id(doc_slug, grounded_page, quote, question),
+        source,
+    ))
 }
 
 #[cfg(test)]

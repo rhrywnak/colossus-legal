@@ -14,6 +14,7 @@ pub mod models;
 pub mod neo4j;
 pub mod oneshot;
 pub mod partymerge;
+pub mod partyresolve;
 pub mod pipeline;
 pub mod prompt_loader;
 pub mod rekey;

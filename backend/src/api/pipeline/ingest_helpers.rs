@@ -22,7 +22,7 @@ use crate::models::document_status::{
 };
 use crate::repositories::pipeline_repository::{self, ExtractionItemRecord};
 
-use super::evidence_key::evidence_id_from_properties;
+use super::evidence_key::{evidence_id_from_item, QuoteSource};
 use super::ingest_resolver::ResolutionMap;
 
 /// Generate a stable, URL-friendly slug from a name.
@@ -147,6 +147,15 @@ pub fn stable_entity_id(item: &ExtractionItemRecord, doc_id: &str) -> String {
             // question — and never on what the model said about it. See
             // `evidence_key` for the measurement that forced each component in.
             //
+            // The two values come from the ROW, not from `item_data`: the quote
+            // from the `verbatim_quote` column and the page from `grounded_page`,
+            // because those are the two `create_entity_node` writes onto the node
+            // (see it do so ~430 lines below) and therefore the two
+            // `rekey_evidence` hashed when it set the ids the graph carries
+            // today. Reading the model's claimed `properties.page_number` instead
+            // would move the id on the 132 of 574 live items where the verifier
+            // disagreed with the claim.
+            //
             // ## Why a fallback still exists
             //
             // An item with no usable `verbatim_quote` gets no key from the arm,
@@ -155,17 +164,41 @@ pub fn stable_entity_id(item: &ExtractionItemRecord, doc_id: &str) -> String {
             // arm above records). Such an item falls through to the catch-all's
             // blob hash — an unstable id, which is the correct outcome: it is
             // better to re-ingest a wordless item under a new id than to
-            // annihilate a document's worth of them under a shared one. It is
-            // logged at `warn` so the case is visible rather than inferred; on
-            // the live corpus this branch is never taken (0 of 525 Evidence
-            // nodes lack a quote).
-            match evidence_id_from_properties(&item.item_data["properties"], &doc_slug) {
-                Some(id) => id,
+            // annihilate a document's worth of them under a shared one. Measured
+            // 2026-08-17: exactly 1 of 574 live Evidence items takes this branch.
+            match evidence_id_from_item(
+                &doc_slug,
+                item.verbatim_quote.as_deref(),
+                item.grounded_page.map(i64::from),
+                &item.item_data,
+            ) {
+                // The expected path. Silent, because it is the normal case and a
+                // log line per Evidence item would bury the two below.
+                Some((id, QuoteSource::Column)) => id,
+                // The column was empty but the JSON had the quote. Not fatal —
+                // the id is still correct — but the insert path and the JSON
+                // disagree, which is a defect somewhere upstream of here.
+                Some((id, source)) => {
+                    tracing::warn!(
+                        doc_id = %doc_id,
+                        item_id = item.id,
+                        entity_type = %item.entity_type,
+                        quote_source = ?source,
+                        neo4j_id = %id,
+                        "Evidence quote came from item_data, not the verbatim_quote column. \
+                         The id is still correct, but the extraction_items row and its JSON \
+                         disagree about where the quote lives — check the insert path for \
+                         this run before it becomes the normal shape."
+                    );
+                    id
+                }
                 None => {
                     tracing::warn!(
                         doc_id = %doc_id,
+                        item_id = item.id,
                         entity_type = %item.entity_type,
-                        "Evidence item has no usable verbatim_quote — falling back to the \
+                        "Evidence item has no usable verbatim_quote in the column, at the \
+                         top level of item_data, or in its properties — falling back to the \
                          unstable blob hash for its id. This item's id will NOT survive a \
                          re-extraction, and any curated row pointing at it will dangle. \
                          Check the extraction output for this document."
@@ -1484,6 +1517,41 @@ mod tests {
         assert!(
             cypher.contains("n.party_name = $name"),
             "party_name must be written, not just renamed onto name: {cypher}"
+        );
+    }
+
+    /// PARTY_ALIAS requirement (d): when a mention binds to a node via one of
+    /// its aliases, that mention's OWN surface form must be recorded as a new
+    /// alias — that is how a node keeps absorbing variants instead of the graph
+    /// spawning one node per spelling.
+    ///
+    /// No new code was written for this. The ON MATCH arm ALREADY folds
+    /// `$name` into the alias list whenever it differs from the stored
+    /// `n.name`, and an alias-resolved mention is by construction a mention
+    /// whose name differs from the node's canonical one. This test pins that
+    /// behaviour so a future edit to the Cypher cannot quietly remove the half
+    /// the alias resolver depends on.
+    #[test]
+    fn party_merge_cypher_records_the_incoming_surface_form_as_an_alias_once() {
+        let cypher = build_party_merge_cypher("Person");
+        let (_, on_match) = cypher
+            .split_once("ON MATCH")
+            .expect("the statement has both an ON CREATE and an ON MATCH arm");
+
+        assert!(
+            on_match.contains("n.name IS NOT NULL AND n.name <> $name"),
+            "the incoming surface form must be folded in exactly when it differs \
+             from the canonical name: {on_match}"
+        );
+        assert!(
+            on_match.contains("THEN [$name] ELSE [] END"),
+            "a differing incoming name must be appended as an alias: {on_match}"
+        );
+        // ONCE, not once per ingest: the reduce() below deduplicates, so
+        // re-ingesting the same document does not grow the list.
+        assert!(
+            on_match.contains("CASE WHEN x IN acc THEN acc ELSE acc + x END"),
+            "the append must dedupe, or a re-ingest lengthens the list every run: {on_match}"
         );
     }
 

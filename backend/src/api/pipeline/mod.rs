@@ -37,6 +37,7 @@ pub(crate) mod ingest_resolver;
 mod items;
 mod metrics;
 pub(crate) mod ocr;
+pub mod party_alias;
 mod process;
 pub(crate) mod recompute_derived;
 pub mod report;
@@ -56,6 +57,15 @@ pub use extract_text::extract_text;
 pub use history::history_handler;
 pub use index::index_handler;
 pub use ingest::{ingest_delta_handler, ingest_handler};
+// Exported for the `verify_evidence_ids` one-shot binary, which recomputes ids
+// against the live corpus. It must call the REAL arm rather than a copy of it:
+// the previous Evidence arm shipped inert for eleven days precisely because the
+// only thing exercising it was a re-implementation living in a fixture. One
+// function, not the whole module — nothing else in `ingest_helpers` is public.
+pub use ingest_helpers::stable_entity_id;
+// Exported for the `verify_party_resolution` one-shot binary, which replays every
+// live party mention through the REAL resolver rather than a copy of it.
+pub use ingest_resolver::{fetch_existing_parties, resolve_parties, resolve_parties_baseline};
 pub use report::{report_handler, report_json_handler};
 pub use upload::upload_document;
 pub use verify::verify_handler;
