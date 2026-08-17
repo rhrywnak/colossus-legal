@@ -32,6 +32,7 @@ use crate::models::document_status::{ENTITY_ORGANIZATION, ENTITY_PERSON, PARTY_S
 use crate::repositories::pipeline_repository::ExtractionItemRecord;
 
 use super::ingest_helpers::slug;
+use super::party_alias::{AliasLookup, PartyAliasIndex};
 
 // ── Response DTOs ───────────────────────────────────────────────
 
@@ -40,6 +41,15 @@ pub struct ResolutionSummary {
     pub total_parties: usize,
     pub matched_existing: usize,
     pub created_new: usize,
+    /// How many of `matched_existing` bound via an ALIAS rather than the
+    /// canonical name (PARTY_ALIAS).
+    ///
+    /// Reported separately because it is the number this fix is judged on: it
+    /// counts the duplicate nodes that were about to be created and were not.
+    /// Folded into `matched_existing` it would be invisible — an operator could
+    /// not tell a run where the alias stage did all the work from one where it
+    /// did none.
+    pub alias_matched: usize,
     pub match_details: Vec<MatchDetail>,
 }
 
@@ -61,59 +71,75 @@ pub struct MatchDetail {
 pub async fn fetch_existing_parties(graph: &Graph) -> Result<Vec<KnownEntity>, AppError> {
     let mut known = Vec::new();
 
-    // Fetch Person nodes
-    let mut result = graph
-        .execute(query(
-            "MATCH (p:Person) RETURN p.id AS id, p.name AS name, p.role AS role",
-        ))
-        .await
-        .map_err(|e| AppError::Internal {
-            message: format!("Neo4j Person query failed: {e}"),
-        })?;
+    // `aliases` is read alongside `name` (PARTY_ALIAS). `merge_parties` records
+    // every merged spelling there, and until this read existed those spellings
+    // were written by the merge and consulted by nothing — see `party_alias` for
+    // the seventeen minutes that cost.
+    //
+    // `coalesce(n.aliases, [])` because nodes created before the alias writer
+    // shipped carry NULL, and a NULL here would decode-fail the whole row rather
+    // than yielding "this party has no aliases".
+    for (label, entity_type) in [
+        ("Person", ENTITY_PERSON),
+        ("Organization", ENTITY_ORGANIZATION),
+    ] {
+        let cypher = format!(
+            "MATCH (p:{label}) RETURN p.id AS id, p.name AS name, p.role AS role, \
+             coalesce(p.aliases, []) AS aliases"
+        );
+        let mut result = graph
+            .execute(query(&cypher))
+            .await
+            .map_err(|e| AppError::Internal {
+                message: format!(
+                    "Neo4j {label} query failed: {e}. Check that Neo4j is running and \
+                     reachable at NEO4J_URI; party resolution cannot run without it."
+                ),
+            })?;
 
-    while let Some(row) = result.next().await.map_err(|e| AppError::Internal {
-        message: format!("Row fetch: {e}"),
-    })? {
-        let id: String = row.get("id").unwrap_or_default();
-        let name: String = row.get("name").unwrap_or_default();
-        let role: String = row.get("role").unwrap_or_default();
-        if !id.is_empty() {
-            known.push(KnownEntity {
-                entity_type: ENTITY_PERSON.to_string(),
-                id,
-                label: name.clone(),
-                properties: serde_json::json!({"name": name, "role": role}),
-            });
-        }
-    }
-
-    // Fetch Organization nodes
-    let mut result = graph
-        .execute(query(
-            "MATCH (o:Organization) RETURN o.id AS id, o.name AS name, o.role AS role",
-        ))
-        .await
-        .map_err(|e| AppError::Internal {
-            message: format!("Neo4j Org query failed: {e}"),
-        })?;
-
-    while let Some(row) = result.next().await.map_err(|e| AppError::Internal {
-        message: format!("Row fetch: {e}"),
-    })? {
-        let id: String = row.get("id").unwrap_or_default();
-        let name: String = row.get("name").unwrap_or_default();
-        let role: String = row.get("role").unwrap_or_default();
-        if !id.is_empty() {
-            known.push(KnownEntity {
-                entity_type: ENTITY_ORGANIZATION.to_string(),
-                id,
-                label: name.clone(),
-                properties: serde_json::json!({"name": name, "role": role}),
-            });
+        while let Some(row) = result.next().await.map_err(|e| AppError::Internal {
+            message: format!(
+                "Failed to decode a {label} row from Neo4j: {e}. Check NEO4J_URI \
+                 connectivity, and whether a node carries a non-string name or aliases."
+            ),
+        })? {
+            let id: String = row.get("id").unwrap_or_default();
+            let name: String = row.get("name").unwrap_or_default();
+            let role: String = row.get("role").unwrap_or_default();
+            let aliases: Vec<String> = row.get("aliases").unwrap_or_default();
+            if !id.is_empty() {
+                known.push(KnownEntity {
+                    entity_type: entity_type.to_string(),
+                    id,
+                    label: name.clone(),
+                    // `aliases` rides in the properties bag, which already
+                    // carries name/role. Widening `KnownEntity` is not an option
+                    // — it is an upstream `colossus-extract` type — and a
+                    // parallel return value would have to be threaded through
+                    // four call sites that do not otherwise care.
+                    properties: serde_json::json!({
+                        "name": name, "role": role, "aliases": aliases,
+                    }),
+                });
+            }
         }
     }
 
     Ok(known)
+}
+
+/// The Neo4j label a party mention may resolve against, from its `party_type`.
+///
+/// Mirrors upstream `compatible_type`: a person never matches an organization,
+/// so "Phillips" the man cannot bind to "Phillips Corp". Returns `None` for a
+/// value neither side recognises, which keeps such a mention out of the alias
+/// stage entirely rather than letting it match the wrong label.
+fn party_label_for(party_type: Option<&str>) -> Option<&'static str> {
+    match party_type.unwrap_or(RESOLVER_PERSON_TYPE) {
+        "organization" => Some(ENTITY_ORGANIZATION),
+        RESOLVER_PERSON_TYPE | TEMPLATE_PERSON_TYPE => Some(ENTITY_PERSON),
+        _ => None,
+    }
 }
 
 // ── Convert extraction items to resolver input ──────────────────
@@ -275,6 +301,38 @@ pub async fn resolve_parties(
     items: &[ExtractionItemRecord],
     existing_parties: &[KnownEntity],
 ) -> Result<(ResolutionMap, ResolutionSummary), AppError> {
+    resolve_parties_inner(items, existing_parties, true).await
+}
+
+/// Resolution with the alias stage switched OFF — the behaviour of this code
+/// before the PARTY_ALIAS branch, exactly.
+///
+/// ## Why this exists, and why it is not a second implementation
+///
+/// `verify_party_resolution` has to compare "what happens today" against "what
+/// happens with the fix", and both halves must come from the production
+/// function or the comparison proves nothing. The first attempt built the
+/// baseline by handing `resolve_parties` a party list with the aliases stripped
+/// out — which was WRONG in a way that flattered the fix: the index always
+/// indexes the canonical NAME too, and the new normalization strips honorifics,
+/// so "Wurdock" still matched "Ms. Wurdock" through the name entry. The baseline
+/// silently contained half the change, and two genuine wins were reported as
+/// no-ops.
+///
+/// One flag on the real function is the honest version. Production has exactly
+/// one caller and it passes `true`.
+pub async fn resolve_parties_baseline(
+    items: &[ExtractionItemRecord],
+    existing_parties: &[KnownEntity],
+) -> Result<(ResolutionMap, ResolutionSummary), AppError> {
+    resolve_parties_inner(items, existing_parties, false).await
+}
+
+async fn resolve_parties_inner(
+    items: &[ExtractionItemRecord],
+    existing_parties: &[KnownEntity],
+    alias_stage_enabled: bool,
+) -> Result<(ResolutionMap, ResolutionSummary), AppError> {
     // Build ExtractedEntity list from Party items only
     // R4: accept the resolved forms as well as the raw "Party". Fresh items from
     // the LLM carry "Party"; rows that have already been through ingest carry the
@@ -292,6 +350,25 @@ pub async fn resolve_parties(
 
     let total_parties = party_entities.len();
 
+    // PARTY_ALIAS. Built once per run, before the loop, and reported once: an
+    // ambiguous string is a property of the GRAPH, not of any one mention, so
+    // logging it per mention would print "the Court is ambiguous" as many times
+    // as the word appears while a document that never says it would look clean.
+    let alias_index = if alias_stage_enabled {
+        PartyAliasIndex::from_known_entities(existing_parties)
+    } else {
+        PartyAliasIndex::default()
+    };
+    for ambiguous in alias_index.ambiguous_keys() {
+        tracing::warn!(
+            entity_type = %ambiguous.entity_type,
+            key = %ambiguous.key,
+            node_ids = ?ambiguous.node_ids,
+            "Party key claimed by more than one node — it will NEVER resolve a mention. \
+             Merge these nodes with `merge_parties` to make it bind again"
+        );
+    }
+
     // Run resolver
     let resolver = NormalizedEntityResolver::new();
     let resolved = resolver
@@ -305,6 +382,10 @@ pub async fn resolve_parties(
     let mut resolution_map: ResolutionMap = HashMap::new();
     let mut match_details: Vec<MatchDetail> = Vec::new();
     let (mut matched_existing, mut created_new) = (0usize, 0usize);
+    // Counted separately from `matched_existing` so the summary can say how many
+    // duplicates the alias stage actually prevented — the number this fix is
+    // judged on.
+    let mut alias_matched = 0usize;
 
     for r in &resolved {
         let party_name = r
@@ -370,25 +451,83 @@ pub async fn resolve_parties(
                 matched_existing += 1;
                 (matched_id.clone(), false, existing_name)
             } else {
-                // New entity — generate slug ID
                 let party_type = r
                     .extracted
                     .properties
                     .get("party_type")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("individual");
-                let neo4j_id = match party_type {
-                    "organization" => format!("org-{}", slug(party_name)),
-                    _ => format!("person-{}", slug(party_name)),
+                    .and_then(|v| v.as_str());
+
+                // PARTY_ALIAS — the second stage, and the whole of this fix.
+                //
+                // It runs ONLY here, on the arm where the resolver has already
+                // decided "new entity". That placement is the safety argument:
+                // a mention that matches a canonical name today cannot reach
+                // this code, so no existing resolution can move. The only thing
+                // that can change is a mention that was about to create a
+                // duplicate node instead binding to the node that already
+                // carries its spelling.
+                let alias_hit = if alias_stage_enabled {
+                    party_label_for(party_type)
+                        .map(|label| alias_index.lookup(label, &r.extracted.label))
+                } else {
+                    None
                 };
-                tracing::info!(
-                    party = %party_name, neo4j_id = %neo4j_id, "Resolved → new entity"
-                );
-                created_new += 1;
-                (neo4j_id, true, None)
+
+                match alias_hit {
+                    Some(AliasLookup::Matched(node_id)) => {
+                        let existing_name = existing_parties
+                            .iter()
+                            .find(|k| k.id == node_id)
+                            .map(|k| k.label.clone());
+                        tracing::info!(
+                            party = %party_name,
+                            matched_to = %node_id,
+                            method = "alias_match",
+                            "Resolved → existing node via an alias it already carries"
+                        );
+                        matched_existing += 1;
+                        alias_matched += 1;
+                        (node_id, false, existing_name)
+                    }
+                    other => {
+                        // Not an alias hit. Say WHY, because the three reasons
+                        // call for three different human responses.
+                        match &other {
+                            Some(AliasLookup::Ambiguous(ids)) => tracing::warn!(
+                                party = %party_name,
+                                claimed_by = ?ids,
+                                "Party mention matches an alias held by MORE THAN ONE node — \
+                                 refusing to guess, creating a new node. Merge those nodes to \
+                                 make this bind"
+                            ),
+                            Some(AliasLookup::Stoplisted) => tracing::info!(
+                                party = %party_name,
+                                "Party mention is a generic role word — not resolved by alias \
+                                 (by design); creating a node for it"
+                            ),
+                            _ => {}
+                        }
+                        let neo4j_id = match party_type {
+                            Some("organization") => format!("org-{}", slug(party_name)),
+                            _ => format!("person-{}", slug(party_name)),
+                        };
+                        tracing::info!(
+                            party = %party_name, neo4j_id = %neo4j_id, "Resolved → new entity"
+                        );
+                        created_new += 1;
+                        (neo4j_id, true, None)
+                    }
+                }
             };
 
-        let resolution_str = resolution_label(&r.resolution);
+        // Report what actually happened. A mention bound by alias is not an
+        // `ExactMatch`, and calling it one would tell an operator the canonical
+        // names agreed when they did not.
+        let resolution_str = if !is_new && !auto_mergeable {
+            "alias_match"
+        } else {
+            resolution_label(&r.resolution)
+        };
 
         match_details.push(MatchDetail {
             party_name: party_name.to_string(),
@@ -406,10 +545,21 @@ pub async fn resolve_parties(
         );
     }
 
+    if alias_matched > 0 {
+        tracing::info!(
+            alias_matched,
+            matched_existing,
+            created_new,
+            "Party resolution: alias stage bound mentions that would otherwise have \
+             created duplicate nodes"
+        );
+    }
+
     let summary = ResolutionSummary {
         total_parties,
         matched_existing,
         created_new,
+        alias_matched,
         match_details,
     };
 

@@ -495,10 +495,15 @@ async fn run_ingest_locked(
     )
     .await;
 
+    // `alias_matched` rides alongside the two counters that were already here.
+    // It is the number this ingest's party resolution is judged on — how many
+    // duplicate nodes the alias stage prevented — and a count that lives only in
+    // a log line cannot be audited after the run (Standing Rule 1).
     if let Err(e) = steps::record_step_complete(&state.pipeline_pool, step_id, duration, &serde_json::json!({
         "nodes_created": total_nodes, "relationships_created": total_rels,
         "derived_from": derived_from_count,
         "matched_existing": resolution_summary.matched_existing, "created_new": resolution_summary.created_new,
+        "alias_matched": resolution_summary.alias_matched,
     })).await
     {
         tracing::error!(

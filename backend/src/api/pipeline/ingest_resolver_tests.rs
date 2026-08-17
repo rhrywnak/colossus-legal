@@ -336,3 +336,173 @@ async fn resolver_ignores_entities_the_party_writer_does_not_own() {
          here would hand a party id to an entity the generic writer also writes"
     );
 }
+
+// ── The alias stage (PARTY_ALIAS) ────────────────────────────────────────────
+//
+// These drive `resolve_parties` itself, not `PartyAliasIndex`. The distinction
+// is the whole lesson of the previous branch: the Evidence id arm was covered
+// through its helper, the helper was correct, and the arm was inert. A helper
+// test cannot tell you the arm is wired.
+
+/// A known party carrying aliases, in the shape `fetch_existing_parties` builds.
+fn known_with_aliases(id: &str, name: &str, aliases: &[&str]) -> KnownEntity {
+    KnownEntity {
+        entity_type: ENTITY_PERSON.to_string(),
+        id: id.to_string(),
+        label: name.to_string(),
+        properties: serde_json::json!({
+            "name": name, "role": "judge", "aliases": aliases,
+        }),
+    }
+}
+
+/// THE FIX, through the production entry point.
+///
+/// "Karen A. Tighe" is not the canonical name of any node — it is an alias the
+/// merge recorded on `person-judge-tighe`. Before this stage existed the mention
+/// became `person-karen-a-tighe` and the People page grew by one.
+#[tokio::test]
+async fn a_mention_matching_an_alias_binds_to_that_node_and_is_counted() {
+    let existing = vec![known_with_aliases(
+        "person-judge-tighe",
+        "Judge Tighe",
+        &["Karen A. Tighe", "Tighe"],
+    )];
+    let items = vec![party_item(1, ENTITY_PARTY, "Karen A. Tighe", "person")];
+
+    let (map, summary) = resolve_parties(&items, &existing)
+        .await
+        .expect("resolution must not fail");
+
+    let resolved = map
+        .get("Karen A. Tighe")
+        .expect("the mention must be in the resolution map");
+    assert_eq!(
+        resolved.neo4j_id, "person-judge-tighe",
+        "the mention must bind to the node carrying its spelling, not a new slug id",
+    );
+    assert_eq!(
+        resolved.existing_name.as_deref(),
+        Some("Judge Tighe"),
+        "the writer needs the stored name to spot the canonical-form disagreement",
+    );
+    assert_eq!(summary.matched_existing, 1);
+    assert_eq!(summary.alias_matched, 1, "the alias counter must move");
+    assert_eq!(summary.created_new, 0, "no duplicate may be created");
+    assert_eq!(
+        summary.match_details[0].resolution, "alias_match",
+        "the summary must say HOW it bound, not claim an exact match",
+    );
+    assert!(!summary.match_details[0].is_new);
+}
+
+/// The ambiguity guard, through the production entry point: a string two nodes
+/// claim creates a new node rather than picking one.
+#[tokio::test]
+async fn a_mention_matching_an_alias_on_two_nodes_creates_a_new_node_instead() {
+    let existing = vec![
+        known_with_aliases(
+            "person-judge-tighe",
+            "Judge Tighe",
+            &["the presiding judge"],
+        ),
+        known_with_aliases(
+            "person-william-b-murphy",
+            "William B. Murphy",
+            &["the presiding judge"],
+        ),
+    ];
+    let items = vec![party_item(1, ENTITY_PARTY, "the presiding judge", "person")];
+
+    let (map, summary) = resolve_parties(&items, &existing)
+        .await
+        .expect("resolution must not fail");
+
+    let resolved = map.get("the presiding judge").expect("must be in the map");
+    assert_eq!(
+        resolved.neo4j_id, "person-the-presiding-judge",
+        "an ambiguous string must fall through to a new node, never pick a side",
+    );
+    assert_eq!(summary.alias_matched, 0);
+    assert_eq!(summary.created_new, 1);
+    assert_eq!(summary.matched_existing, 0);
+}
+
+/// The stoplist guard, through the production entry point.
+#[tokio::test]
+async fn a_mention_that_is_a_generic_role_word_does_not_bind_by_alias() {
+    // Only ONE node carries it, so ambiguity cannot be what blocks the match —
+    // this isolates the stoplist.
+    let existing = vec![known_with_aliases(
+        "person-george-phillips",
+        "George Phillips",
+        &["Defendant"],
+    )];
+    let items = vec![party_item(1, ENTITY_PARTY, "Defendant", "person")];
+
+    let (map, summary) = resolve_parties(&items, &existing)
+        .await
+        .expect("resolution must not fail");
+
+    assert_eq!(
+        map.get("Defendant").expect("must be in the map").neo4j_id,
+        "person-defendant",
+        "a role word must not bind to whoever happens to carry it as an alias",
+    );
+    assert_eq!(summary.alias_matched, 0);
+    assert_eq!(summary.created_new, 1);
+}
+
+/// A node with NO aliases (every node created before the alias writer shipped)
+/// must still resolve by name, and must not break the index build.
+#[tokio::test]
+async fn a_node_without_an_aliases_property_still_resolves_by_name() {
+    let existing = vec![KnownEntity {
+        entity_type: ENTITY_PERSON.to_string(),
+        id: "person-judge-tighe".to_string(),
+        label: "Judge Tighe".to_string(),
+        // No `aliases` key at all — the pre-alias-writer shape.
+        properties: serde_json::json!({"name": "Judge Tighe", "role": "judge"}),
+    }];
+    let items = vec![party_item(1, ENTITY_PARTY, "Judge Tighe", "person")];
+
+    let (map, summary) = resolve_parties(&items, &existing)
+        .await
+        .expect("resolution must not fail");
+
+    assert_eq!(
+        map.get("Judge Tighe").expect("must be in the map").neo4j_id,
+        "person-judge-tighe",
+    );
+    assert_eq!(summary.matched_existing, 1);
+    assert_eq!(
+        summary.alias_matched, 0,
+        "a canonical-name match is not an alias match",
+    );
+}
+
+/// An organization's alias must not bind a person mention even when the strings
+/// are identical — the type scoping, through the production entry point.
+#[tokio::test]
+async fn an_alias_does_not_bind_across_entity_types() {
+    let existing = vec![KnownEntity {
+        entity_type: ENTITY_ORGANIZATION.to_string(),
+        id: "org-catholic-family-services".to_string(),
+        label: "Catholic Family Services".to_string(),
+        properties: serde_json::json!({
+            "name": "Catholic Family Services", "role": "defendant", "aliases": ["CFS"],
+        }),
+    }];
+    let items = vec![party_item(1, ENTITY_PARTY, "CFS", "person")];
+
+    let (map, summary) = resolve_parties(&items, &existing)
+        .await
+        .expect("resolution must not fail");
+
+    assert_eq!(
+        map.get("CFS").expect("must be in the map").neo4j_id,
+        "person-cfs",
+        "a person mention must not bind to an organization's alias",
+    );
+    assert_eq!(summary.alias_matched, 0);
+}

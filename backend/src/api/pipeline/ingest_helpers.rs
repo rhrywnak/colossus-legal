@@ -1520,6 +1520,41 @@ mod tests {
         );
     }
 
+    /// PARTY_ALIAS requirement (d): when a mention binds to a node via one of
+    /// its aliases, that mention's OWN surface form must be recorded as a new
+    /// alias — that is how a node keeps absorbing variants instead of the graph
+    /// spawning one node per spelling.
+    ///
+    /// No new code was written for this. The ON MATCH arm ALREADY folds
+    /// `$name` into the alias list whenever it differs from the stored
+    /// `n.name`, and an alias-resolved mention is by construction a mention
+    /// whose name differs from the node's canonical one. This test pins that
+    /// behaviour so a future edit to the Cypher cannot quietly remove the half
+    /// the alias resolver depends on.
+    #[test]
+    fn party_merge_cypher_records_the_incoming_surface_form_as_an_alias_once() {
+        let cypher = build_party_merge_cypher("Person");
+        let (_, on_match) = cypher
+            .split_once("ON MATCH")
+            .expect("the statement has both an ON CREATE and an ON MATCH arm");
+
+        assert!(
+            on_match.contains("n.name IS NOT NULL AND n.name <> $name"),
+            "the incoming surface form must be folded in exactly when it differs \
+             from the canonical name: {on_match}"
+        );
+        assert!(
+            on_match.contains("THEN [$name] ELSE [] END"),
+            "a differing incoming name must be appended as an alias: {on_match}"
+        );
+        // ONCE, not once per ingest: the reduce() below deduplicates, so
+        // re-ingesting the same document does not grow the list.
+        assert!(
+            on_match.contains("CASE WHEN x IN acc THEN acc ELSE acc + x END"),
+            "the append must dedupe, or a re-ingest lengthens the list every run: {on_match}"
+        );
+    }
+
     /// Aliases seed on create and APPEND on match — a second document must never
     /// overwrite what the first recorded.
     #[test]
