@@ -22,6 +22,7 @@ pub(crate) mod curated_rows;
 mod delete;
 mod delete_restate_purge;
 pub mod document_date;
+pub mod document_phase;
 mod document_response;
 mod document_types;
 mod errors;
@@ -113,7 +114,18 @@ pub fn router() -> Router<AppState> {
             "/documents/date-precisions",
             get(document_date::list_date_precisions),
         )
-        .route("/documents/:id/date", put(document_date::set_document_date))
+        // GET was written on 2026-08-16 and never routed, so the edit control's
+        // read 405'd. Found while wiring the phase control beside it
+        // (DOCUMENT_PHASE §8). One route, both verbs.
+        .route(
+            "/documents/:id/date",
+            get(document_date::get_document_date).put(document_date::set_document_date),
+        )
+        // DOCUMENT_PHASE: the sibling of the date route, same shape.
+        .route(
+            "/documents/:id/phase",
+            put(document_phase::set_document_phase),
+        )
         .route("/documents/:id", delete(delete_document))
         .route("/documents/:id/extract-text", post(extract_text))
         .route("/documents/:id/process", post(process::process_handler))

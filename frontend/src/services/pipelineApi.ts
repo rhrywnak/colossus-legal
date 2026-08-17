@@ -31,6 +31,13 @@ export interface PipelineDocument {
   can_view?: boolean;
   /** Display grouping: "published" | "processing" | "in_review" | "uploaded". */
   status_group?: string;
+  /**
+   * Which phase of the case this document belongs to — the SLUG
+   * (`estate` | `probate` | `appeals` | `civil_lawsuit`), absent when none is
+   * recorded. Resolve it to a display name with `casePhases.phaseLabel`; the
+   * backend never sends a label.
+   */
+  phase?: string;
   // Progress (populated when status === "PROCESSING")
   processing_step?: string;
   processing_step_label?: string;

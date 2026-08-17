@@ -2,28 +2,28 @@
   "phases": [
     {
       "id": "estate",
-      "label": "Estate Proceedings",
+      "label": "PRE-PROBATE",
       "date_range": "2008–2009",
       "color": "#b45309",
       "description": "The $50,000 conversion, guardianship petition, and Emil Awad's passing"
     },
     {
       "id": "probate",
-      "label": "Probate Court",
+      "label": "PROBATE",
       "date_range": "2009–2011",
       "color": "#2563eb",
       "description": "CFS appointed as Personal Representative, estate administration, auction, sanctions"
     },
     {
       "id": "appeals",
-      "label": "Appeals",
+      "label": "COA",
       "date_range": "2011–2013",
       "color": "#7c3aed",
       "description": "Two Court of Appeals cases, Judge Tighe's post-appeal order"
     },
     {
       "id": "civil_lawsuit",
-      "label": "Civil Lawsuit",
+      "label": "COMPLAINT",
       "date_range": "2014–Present",
       "color": "#059669",
       "description": "Marie files suit in Macomb County Circuit Court, discovery, motions for default"
@@ -274,10 +274,30 @@
     }
   ],
   "categories": {
-    "financial": { "color": "#059669", "label": "Financial", "icon": "$" },
-    "court_action": { "color": "#2563eb", "label": "Court Action", "icon": "⚖" },
-    "filing": { "color": "#7c3aed", "label": "Filing", "icon": "📄" },
-    "discovery": { "color": "#d97706", "label": "Discovery", "icon": "🔍" },
-    "personal": { "color": "#64748b", "label": "Personal", "icon": "●" }
+    "financial": {
+      "color": "#059669",
+      "label": "Financial",
+      "icon": "$"
+    },
+    "court_action": {
+      "color": "#2563eb",
+      "label": "Court Action",
+      "icon": "⚖"
+    },
+    "filing": {
+      "color": "#7c3aed",
+      "label": "Filing",
+      "icon": "📄"
+    },
+    "discovery": {
+      "color": "#d97706",
+      "label": "Discovery",
+      "icon": "🔍"
+    },
+    "personal": {
+      "color": "#64748b",
+      "label": "Personal",
+      "icon": "●"
+    }
   }
 }
